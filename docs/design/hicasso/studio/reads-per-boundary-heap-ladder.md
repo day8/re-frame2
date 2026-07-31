@@ -3,10 +3,19 @@
 Seat: EVIDENCE SPIKE, EP-0038 Wave 0. Bead `rf2-2rtt6.5`; numbers appended to
 the operator-owned standard `rf2-2rtt6.1`.
 
+**Two measurements live on this page, on two instruments, and they are kept
+apart.** §§1–5 are the donor ladder of `rf2-2rtt6.5`, taken on the freehand
+harness. [§6](#6-the-hicasso-candidate-rung--one-hook-plus-a-shared-index) is
+the **Hicasso candidate rung** of `rf2-2rtt6.34`, measured 2026-08-01 on the
+**P0 bench instrument** with both donors re-taken beside it in the same run —
+because a candidate is judged against the donor row taken on its own
+instrument, and the two harnesses differ by a measured ~5% common-mode offset.
+No figure is scaled from one onto the other.
+
 **Re-measured 2026-07-31 after the audit of PR #7260**, which found that the
 regression included the R=0 anchor the page promised it excluded. Every figure
 below is a fresh reading through the corrected fit; the superseded publication
-is recorded in [§7](#7-superseded) rather than deleted.
+is recorded in [§8](#8-superseded) rather than deleted.
 
 **Spine stamp — every UIx rung below was measured on a spine that no longer
 ships.** Two production landings postdate this run. **One of them cuts UIx
@@ -90,6 +99,10 @@ exits **2** if the arm-order guard refuses, **3** on an unverified mount,
 
 The two substrate pages are independent by construction, so this run took them
 one at a time (`LADDER_SUBSTRATES=reagent`, then `=uix`) at the one commit.
+
+**That command reproduces §§1–5 only.** [§6](#6-the-hicasso-candidate-rung--one-hook-plus-a-shared-index)
+is a different instrument and carries its own reproduction line, its own
+blobs and its own conditions.
 
 ---
 
@@ -619,7 +632,328 @@ pure view-layer per-read price.
 
 ---
 
-## 6. Anchors, and one that does not fully reproduce
+## 6. The Hicasso candidate rung — one hook plus a shared index
+
+**Measured 2026-08-01 for `rf2-2rtt6.34`** (and discharging the per-read
+half of `rf2-2rtt6.41`'s item 5), on the **P0 bench instrument** —
+`p0_run.cjs --only ladder` — and not on the instrument §§1–4 were taken
+on. That is deliberate and it is what [validation.md](../validation.md)
+requires: a candidate is judged against the donor row taken on **its own
+instrument**, the two instruments in play differ by a measured ~5%
+common-mode offset, and a margin under 5% is instrument-limited rather
+than cleared. So this section carries **three arms measured in one run,
+in the same six rounds, under the same collector, the same positive
+control and the same arm-order guard** — the two donors re-taken, and the
+candidate beside them. Nothing here is scaled onto anything.
+
+### The answer, first, including the part that does not flatter the design
+
+**The structural claim is true and the axis is won against UIx. The
+number the programme said had to be beaten is not beaten, and the shell
+fails its own paper line.**
+
+- **One hook per boundary instead of N is worth 708 B per read**, measured
+  as a straight same-substrate contrast: on the UIx-adapter segment the
+  UIx spine costs **2,980 B/read** and the Hicasso arm on the identical
+  subscription substrate costs **2,273 B/read**. That is **0.7625×**, a
+  23.7% margin — five times the 5% instrument-limited floor, so it is a
+  result and not an offset.
+- **It lands below 2,000 B/read on one substrate and not on the other.**
+  With Reagent's reactions underneath it the candidate reads **1,363
+  B/read**; with the React spine's, **2,273 B/read**. The grouped tier's
+  conceded ~2,000 B/read is therefore cleared only on the cheaper of the
+  two, and which one a shipped Hicasso would sit on is not settled by
+  this page.
+- **943 B/read is not beaten.** On the *same* substrate as the K3 donor,
+  the candidate costs **1,363 B/read against Reagent's 948** — **1.4380×**,
+  and 415 B/read *worse*. The index, the key cell and the read-set entry
+  are not free, and Reagent's `deref`-capture is cheaper than any of the
+  three arms measured here.
+- **The boundary shell fails the >1 KB paper line.** The candidate's R=0
+  rung is **1,139 B** [1,131–1,150] against Reagent's 506 B and UIx's
+  221 B. The one subscription hook is per *boundary*, so a boundary that
+  reads nothing still pays it — which is the same structural choice that
+  wins the slope, seen from the other end.
+- **Nothing is retained after teardown**, in bytes *or* in objects, on
+  every arm of every round. [Below](#the-survival-metric-in-objects-and-not-only-in-bytes).
+
+### The instrument reproduces both published gates before it prices anything
+
+This ladder family is built from different arms, on a different plan, at
+rungs the P0 bench had never carried, and fitted by a different rule from
+the fan sweep the gate lines were derived on. Pointed at the two donors it
+answers:
+
+| | published gate | this ladder, same instrument | |
+|---|---:|---:|---:|
+| Reagent, per read | 943 B [935–944] | **948 B** [947–949] | +0.5% |
+| UIx, per read | 2,935 B [2,852–3,055] | **2,980 B** [2,978–2,985] | +1.5%, inside the band |
+
+**What that is, and what it is not.** It is a genuine reproduction of both
+quantities by an independent arm family — nothing in the ladder's
+arithmetic makes it come out at the fan sweep's numbers, and it could have
+disagreed. It is **not** a check on the instrument's own ~5% offset
+against the freehand harness, because it is the same instrument; and it is
+not a second sample of the fan sweep, because it never uses the fan
+sweep's rungs. Read it as *the donors are where the record says they are,
+on the box the candidate was measured on*, which is the one thing a
+same-instrument comparison has to establish first.
+
+### What the rung is, and how the shape is verified rather than asserted
+
+The arm **is** Arm 1 — `re-frame.bench.hicasso.arm1.runtime`, reached
+through that arm's own `defview` and its ambient collector `sub`, mounted
+through `arm1.mount/root!`. It is not a model of the design; a hand-rolled
+imitation would have priced the imitation.
+
+`stats` counts the runtime's own index and cell tables on every mount, and
+the driver **exits** on the counts rather than printing them. Predicted
+before the run and answered identically in all six rounds:
+
+| | R = 0 | R = 1 | R = 3 | R = 7 | R = 20 |
+|---|---:|---:|---:|---:|---:|
+| boundaries (registrations) | 1,200 | 1,200 | 1,200 | 1,200 | 1,200 |
+| edges (`b→subs`) | 0 | 1,200 | 3,600 | 8,400 | 24,000 |
+| cells (unique `(frame, query)`) | 0 | 1,200 | 3,600 | 8,400 | 24,000 |
+| read-set entries | 1 | 1,200 | 1,200 | 1,200 | 1,200 |
+
+and **every one of those four fields reads 0 on every donor arm**, which
+is the check that the candidate's runtime is not quietly standing behind
+the rows it is being compared to. `boundaries` is flat in R — one
+registration and one hook stack per boundary, whatever it reads — and
+that flat row is the design claim, counted.
+
+**The last row is the one to read carefully, and it is the honest half.**
+`architecture.md` says index edges "live in global maps — shared
+structure, not per-boundary object fan-out", and the read-set entry is
+shared by every boundary whose read *set* is identical. On the mandatory
+distinct-query witness **no two boundaries read the same set**, so
+`entries` is B and the sharing buys exactly nothing here. The global maps
+are shared *containers* holding B·R entries. This rung is the design's
+worst case for that structure, exactly as it is the donors' worst case for
+their subscription caches, and the page states it rather than quoting the
+architecture's sentence over a measurement that contradicts it.
+
+Hook count is **not** re-measured here: `arm1_hook_ledger_dom_cljs_test`
+counts the shell's calls at React's own dispatcher and pins the budget at
+two. This section takes that as given and prices what the budget costs.
+
+### The rows
+
+1,200 boundaries throughout; `y` is exclusive retained bytes per boundary
+above the same-round, same-segment floor. Witness stamp: **B = 1,200 ·
+E = 1,200·R · Q = E** (fan-out 1) on every rung of every arm. Six rounds;
+ranges are min–max across them. **0 unverified of 154 mounts** — every
+mount answers both read-backs, the boundary elements it produced *and* the
+unique query keys the frame's sub-cache is holding.
+
+#### Reagent-adapter segment
+
+| reads | Reagent | Hicasso | Hicasso ÷ Reagent |
+|---:|---:|---:|---:|
+| 0 *(anchor — regressed nowhere)* | 506 [500–513] | 1,139 [1,131–1,150] | 2.251× |
+| **1** | **1,671** [1,657–1,682] | **2,936** [2,924–2,946] | 1.757× |
+| **3** | **3,388** [3,378–3,403] | **5,383** [5,371–5,392] | 1.589× |
+| **7** | **6,702** [6,674–6,713] | **10,280** [10,274–10,288] | 1.534× |
+| **20** | **19,567** [19,561–19,582] | **28,668** [28,614–28,690] | 1.465× |
+
+#### UIx-adapter segment
+
+| reads | UIx | Hicasso | Hicasso ÷ UIx |
+|---:|---:|---:|---:|
+| 0 *(anchor — regressed nowhere)* | 221 [213–226] | 1,132 [1,120–1,145] | 5.122× |
+| **1** | **3,289** [3,271–3,327] | **3,835** [3,818–3,864] | 1.166× |
+| **3** | **9,117** [9,103–9,126] | **8,037** [7,956–8,062] | 0.882× |
+| **7** | **20,796** [20,790–20,800] | **16,438** [16,366–16,487] | 0.790× |
+| **20** | **59,842** [59,803–59,911] | **46,819** [46,748–46,853] | 0.782× |
+
+### The fitted lines
+
+Over **1/3/7/20 and over nothing else**. R = 0 rides along as the anchor
+and is regressed nowhere — the exclusion is in the code, and the fit
+rule's own self-test proves it by feeding the fitter an absurd R = 0 rung
+and requiring the line not to move by one bit. That is a regression guard
+on the exact defect the audit of PR #7260 found in this page's
+predecessor, and it is a check of arithmetic, not corroboration of a
+measurement.
+
+| arm | marginal slope | fitted intercept | shell (R=0, **measured**) | first read | r² |
+|---|---:|---:|---:|---:|---:|
+| Reagent | **948** [947–949] | 488 [471–498] | 506 [500–513] | 1,165 [1,155–1,178] | 0.99873 |
+| Hicasso, Reagent substrate | **1,363** [1,360–1,364] | 1,256 [1,249–1,263] | 1,139 [1,131–1,150] | 1,797 [1,789–1,809] | 0.99903 |
+| UIx | **2,980** [2,978–2,985] | 163 [146–186] | 221 [213–226] | 3,068 [3,045–3,105] | 0.99996 |
+| Hicasso, UIx substrate | **2,273** [2,268–2,275] | 1,169 [1,150–1,196] | 1,132 [1,120–1,145] | 2,703 [2,673–2,744] | 0.99946 |
+
+**All four are lines, in all six rounds.** r² ≥ 0.9987 everywhere, so the
+slopes are per-read costs rather than something that grows with the number
+of reads. The r² is computed over the four reactive rungs only. A page
+whose per-read term were quadratic reads r² 0.9646 over these same
+rungs — the fit rule's self-test measures that in advance rather than
+assuming it — so the 0.98 floor is a criterion that can fail.
+
+### The two contrasts that are level, and the one that is not
+
+The candidate was mounted in **both** adapter segments. That is a
+measurement, not a duplicate, and the first run of the row is what
+established why: the Hicasso shell read **1,139 and 1,132 B** in the two
+segments — the same number, because the shell touches no adapter — while
+its per-read slope read **1,363 and 2,273 B**. The arm needs neither
+adapter's *hooks*, but every read goes through `re-frame.subs`, and the
+reaction `subscribe` builds is the installed adapter's. **The two
+candidate columns are one view layer over two subscription substrates.**
+
+So there are two level contrasts, each taken inside one segment, in the
+same rounds, against the same floor:
+
+```
+within the UIx-adapter segment      UIx 2,980  −  Hicasso 2,273  =  −708 B/read
+  what replacing N hook stacks with one hook plus N index edges is worth
+
+within the Reagent-adapter segment  Hicasso 1,363  −  Reagent 948  =  +415 B/read
+  what the key cell, the index edge and the read-set entry cost over a
+  bare deref-capture of the same reaction
+```
+
+Neither is derived from the other; they come from different arm pairs on
+different substrates. **The −708 is the design's win and the +415 is its
+bill**, and both are real.
+
+**The cross-segment ratio is not level and is marked as such.** Hicasso's
+1,363 against UIx's 2,980 is **0.4572×**, and it is quoted nowhere in this
+section's verdict, because it folds a substrate change into a view-layer
+claim: it is the answer to "what if Hicasso ran on Reagent's reactions and
+UIx ran on its own", which is not a question anyone asked. The two
+within-segment figures above are what the row hands the programme.
+
+**A shipped Hicasso would sit on neither.** It is an adapter for React
+(`rf2-2rtt6.10`) and would install its own reactive substrate. The two
+columns **bracket** that choice — a view layer cannot cost less than the
+reactions it holds — and the bracket is wide: 1,363 to 2,273 B/read.
+
+### The crossover, and where the archetype falls
+
+Against the UIx spine the candidate pays a fixed 911 B more at the shell
+and saves 708 B on every read, so it is behind at one read and ahead from
+two:
+
+```
+crossover  =  (1,132 − 221) / (2,980 − 2,273)  =  R = 1.29 reads
+```
+
+Measured, not only fitted: at R = 1 the candidate is **1.166×** UIx and at
+R = 3 it is **0.882×**. The census's seven-read archetype sits well past
+the crossing — **16,438 B against 20,796 B, a 4,358 B/boundary saving**,
+5.2 MB across 1,200 boundaries. Against Reagent there is no crossover at
+all: the candidate is worse at every rung, and the ratio only *improves*
+with reads (1.757× → 1.465×) because the shell amortises.
+
+### The survival metric, in objects and not only in bytes
+
+HD-002 clause (d) is *zero retained per-occurrence objects after
+commit/teardown*, and this row answers it twice.
+
+**In bytes.** Released heap returns to baseline. Across all twenty-two
+arms the per-boundary residue means span **−38 B to +21 B**, most of them
+inside ±16 B, against floors reading **+1 to +4 B** — which is the width
+of this instrument's zero. Single rounds swing wider (−140 to +57
+B/boundary, worst on the 7- and 20-read arms), and that is worth stating
+rather than smoothing: it is a bound on this reader's resolution on an
+arm that is itself 16–60 KB per boundary, and it is two orders of
+magnitude below the quantities the section reports. It is also looser
+than the freehand ladder's ±11 B/boundary, on arms several times larger.
+
+**In objects, which is the stronger reading.** The candidate's own index
+and cell tables are counted after the collector has run: `cells`,
+`cell-refs`, `boundaries`, `edges` and `entries` all read **exactly 0**
+after every release of every arm of every round — 0 of 0 tolerance, not a
+range. The teardown is React's own `useSyncExternalStore` cleanup plus the
+runtime's reapers; **`arm1.mount/release!`'s `reset-runtime!` is
+deliberately not called**, because an arm torn down by force would answer
+zero residue whatever it had leaked. HD-002 clause (d) is met, and met
+without the sledgehammer.
+
+### What could not be levelled, and which way each biases
+
+1. **The two subscription substrates.** Handled above: within-segment
+   contrasts are level and are what the verdict rests on; the
+   cross-segment ratio is marked and unused.
+2. **The candidate's boundary is built by the runtime codec**, and the
+   donors' by UIx's compile-time `$` and Reagent's own path. That cost is
+   constant in R, so it lands in the **shell and not in the slope** — the
+   1,139 B figure is a Hicasso-plus-codec shell and is not decomposed
+   here. **Biases against the candidate on the shell axis** and not at all
+   on the per-read axis this section is for.
+3. **The hook budget is cited, not re-measured.** Two hooks per boundary
+   is `arm1_hook_ledger_dom_cljs_test`'s dispatcher-level count. If it were
+   three, the shell figure would be explained and the slope would not
+   move.
+4. **One run.** Six rounds with both plan directions and a reportable
+   arm-order verdict, but one session on one box. Every range above is
+   across rounds, not across runs.
+
+### Provenance
+
+Whole-tree anchor **`37cf9f5691`** on `worker/heapaxis-2rtt6-34`. A SHA
+does not survive a rebase, so the blobs are beside it. The instrument:
+
+| file | blob |
+|---|---|
+| `p0_run.cjs` | `4718aaead7035ae9a6cf74a89ef13141803742cc` |
+| `p0_heap.cljs` | `34c9210dfe39d3c7ee153c724fa63cf8e65dd1e1` |
+| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
+| `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` |
+| `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` |
+| `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` |
+
+all under `implementation/core/test/re_frame/bench/`. **The candidate arm
+is not in that list**, because the candidate arm is Arm 1 itself — these
+are its blobs, under `implementation/freehand/test/re_frame/bench/hicasso/`:
+
+| file | blob |
+|---|---|
+| `arm1/runtime.cljs` | `be66197cddc984933d8d6de18b796e6241c72a55` |
+| `arm1/mount.cljs` | `ca15137e965e716d3c80ead8d8b746f47e02b032` |
+| `arm1/lang.clj` | `0151ddafb4aefe6a6a2403a349187ae5b28cc537` |
+| `front/sub_index.cljs` | `8c63e2135195b0ecb0e49e1de59870d570cd88c0` |
+| `front/codec.cljs` | `5d3e5c32f577b4c6b1e235e10298f57471c3f917` |
+
+Reproduce:
+
+```
+node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+```
+
+(defaults `P0_LADDER_ROUNDS=6 P0_LADDER_RUNGS=0,1,3,7,20 P0_ROOTS=4`;
+exits **1** on an unverified mount, a failed positive control or a failed
+structural read-back, and **2** if the arm-order guard refuses.)
+
+**Conditions.** Six rounds, 221 s wall clock, taken after the box was
+confirmed quiet — no sibling browser suite, no shadow-cljs compile, CPU
+under 15% — because a contended row on this instrument is invalid. An
+earlier one-round trial was taken *during* a sibling's JVM compile and is
+not published; its slopes were 949 / 2,979 / 1,359 / 2,273 B/read. Three of
+those four sit inside the six-round ranges above and the fourth — Hicasso on
+the Reagent substrate, 1,359 against [1,360–1,364] — sits **one byte below
+the bottom of it**, 0.07% out. It is recorded exactly, because a contended
+reading that turned out to agree is still a contended reading: it is not
+evidence for the rows above, and treating the near-agreement as licence to
+skip the quiet is the reasoning the requirement exists to stop. The
+positive control — the
+same 587,500-double array, **4,700,000 B predicted before the run** — read
+**4,698,439 B** [4,689,780–4,700,872], **0.03% low**. React **19.2.0**,
+Reagent **2.0.1**, UIx **1.4.4**, `:advanced` with `goog.DEBUG false`,
+headless Chromium via Playwright, Windows 11.
+
+**What this section deliberately does not do.** It writes no candidate-bar
+row into [validation.md](../validation.md). `rf2-2rtt6.41`'s item 5 keeps
+those rows unpublished under the restated-bar posture (`rf2-b0tz5`), and
+the measurement being available is not the same act as the bar being
+restated. The numbers are here, on the studio page, for the operator to
+rule on.
+
+---
+
+## 7. Anchors, and one that does not fully reproduce
 
 The R=0 rung is here to tie this instrument to the published sub-free rows
 before anything it says about reads is believed. **Nothing in §§1–5 is derived
@@ -643,7 +977,7 @@ between them is what the ladder was built to measure.
 
 ---
 
-## 7. Superseded
+## 8. Superseded
 
 **The publication of 2026-07-30, withdrawn 2026-07-31.** Its rows are on
 `rf2-2rtt6.1`; nothing there has been amended, and this section says why the
