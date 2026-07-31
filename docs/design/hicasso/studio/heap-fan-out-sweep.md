@@ -233,8 +233,11 @@ ruling computed across two instruments. *The incomparability the ruling priced
 is real, and this is the direct measurement of it.*
 
 **Per-boundary cost does not depend on B.** Every rung agrees between B = 300
-and B = 1,200 to within **4.0% on Reagent and 1.5% on UIx** — most within 1%.
-Whatever a page pays once is not showing up in these denominators.
+and B = 1,200 to within **4.6% on both substrates**, over a fourfold change in
+B. On UIx the *only* rung above 1.6% is the R=0 shell (221 against 231 B, where
+ten bytes is 4.5%) — every rung above 1 KB agrees to **1.6% or better**, five of
+the six to under 0.7%. On Reagent the spread is 2.0–4.6% throughout. Whatever a
+page pays once is not showing up in these denominators.
 
 **The `:p0/fan` substitution is not doing any work.** At identical B/E/Q the fan
 rung and the published `grid` arm — different query ids, otherwise the same page
@@ -424,7 +427,7 @@ of the range. The algebra the ruling refused to freeze budgets from turns out to
 have been right; it was right for a reason it could not demonstrate, and now one
 run demonstrates it.
 
-**Where the two substrates actually spend.** UIx wins the shell by 2.3×
+**Where the two substrates actually spend.** UIx wins the shell by 2.27×
 (221 B against 501 B) and loses everything else: its per-edge term is
 **1,344 B against Reagent's 84–234 B**, which is the hook spine — one
 `useSyncExternalStore` slot, its store object, its subscribe closure — paid per
