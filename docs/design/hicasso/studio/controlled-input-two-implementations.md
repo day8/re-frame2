@@ -1,9 +1,12 @@
 # A controlled input has two implementations, and the bundle was picking
 
 **Bead** `rf2-n3dxw` · **epic** `rf2-2rtt6` (EP-0038)
-**Authored commit `14d672b710`** · **witness content hash**
-`13a3569497352cd7d458cc345be339cd3cc66a3b`
-(`implementation/freehand/test/re_frame/bench/hicasso/controlled_restore_dom_cljs_test.cljs`)
+**Witness content hash** `966e6d8390ecc9945193417bb221b6c574c9681f`
+(`implementation/freehand/test/re_frame/bench/hicasso/controlled_restore_dom_cljs_test.cljs`;
+authored on `worker/reject-n3dxw`). A SHA does not survive a rebase and this
+branch was rebased once already — the content hash is the identifier, and
+`git log --oneline --all -- <path>` plus `git rev-parse <candidate>:<path>`
+finds a commit carrying the blob.
 **Measured** 2026-08-01 AUSEST
 
 **Runtime for every row on this page**: headless Chromium via Playwright
