@@ -39,34 +39,38 @@
      what the fail-closed half of the verdict tests — and it never
      fires on any published row.
 
-  ## The balanced ensemble's table, and the hole in it (rf2-6i0i2)
+  ## The balanced ensemble's observation table (rf2-6i0i2)
 
   The PR #7303 audit found that the ten-run counterbalanced ensemble
   published only GROUP MEANS, intervals, ranges and p-values: the ten
   per-run threshold means and the ten per-run `d` values reached no
   committed file, so the central statistics could not be recomputed
-  from the repository. This namespace now carries what the repository
-  actually has, and it says which is which:
+  from the repository.
 
-  * RECORDED — run 1, the pre-registered run, whose four six-round
-    per-round vectors the studio page prints in full. Its four run
-    means and its four `d` values are DERIVED here from those vectors
-    rather than copied, so the page's numbers are checked rather than
-    restated.
-  * NOT RECORDED — runs 2 through 10. Their per-round vectors were
-    never committed and the worktree that produced them is gone, so
-    they cannot be recovered. [[ensemble-run-means]] holds them as
-    explicit `nil`s rather than pretending the table is whole.
+  [[ensemble]] is that table, whole — all forty cells, recovered from
+  the ten runs' own console logs (see its docstring for the provenance,
+  which matters: recovered, not re-run). Everything the studio page
+  publishes about the ensemble is now DERIVED here from those forty
+  cells and checked against the page's claims, which are transcribed
+  into [[view-1]], [[view-1-p]], [[view-2]], [[components]] and
+  [[published-threshold]] purely so that the derivation has something
+  to be checked against.
 
-  What that leaves checkable is the arithmetic BETWEEN the published
-  summaries, and it is not nothing: the 5/5 counterbalance forces the
-  threshold to be the mean of the two start-group means, the View 1
-  difference to be their difference, and every View 2 ratio and
-  interval to be the exponential of a log-scale quantity centred on the
-  mean `d`. Those identities are derived below and they hold. What
-  cannot be checked without the missing rows is the step from ten runs
-  to the group means, and no arrangement of the published summaries
-  recovers it — see [[recorded-runs]].
+  WHAT REPRODUCES: every point estimate — run means and their spread,
+  both start-group means, the difference, the threshold, mean `d`, the
+  ratio, the order and temporal components, the composite — and BOTH
+  p columns, the 252-relabelling permutation test and the 1024-assignment
+  sign-flip test, which the audit correctly said could not be checked
+  and now can. So do the prose counts: 37 of 40 strata overlapping, 23
+  of 40 Reagent-first-higher, 59 of 60 M1 rounds above 1.0.
+
+  WHAT DOES NOT: the INTERVALS. Every one of them is about 2% wider
+  than the data supports, because a t multiplier for EIGHT degrees of
+  freedom was used where a mean of ten needs NINE. The error is
+  conservative and changes no verdict, but it is real and it is
+  reported rather than absorbed — see
+  [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
+  and [[the-corrected-nine-degree-intervals-change-no-verdict]].
 
   Pure arithmetic over recorded vectors: no DOM, no clock, no browser,
   so this runs on every runtime."
@@ -356,62 +360,92 @@
 ;; THE BALANCED ENSEMBLE'S OBSERVATION TABLE (rf2-6i0i2, the PR #7303 audit)
 ;;
 ;; Ten independently launched six-round runs, the starting segment
-;; counterbalanced five and five, one statistic per run per row. The studio
-;; page publishes the SUMMARIES of that table; the table itself was never
-;; committed. What follows is the table as far as the repository has it,
-;; the derivation of every summary that can be recomputed from what IS
-;; there, and an explicit `nil` everywhere it cannot.
+;; counterbalanced five and five. The studio page published the SUMMARIES of
+;; this table and committed nothing behind them, which is what the audit
+;; found. The table itself is below — all forty cells — so every figure in
+;; both views is now derived here rather than asserted there.
+;;
+;; PROVENANCE, because recovered data is not the same as measured data and
+;; must not be passed off as it. These are the CONSOLE LOGS OF THE TEN RUNS
+;; THEMSELVES, taken at the ensemble's landed anchor and recovered from an
+;; out-of-tree backup after the producing worktree was reaped. They are NOT a
+;; re-run: nothing here was measured again, no browser was opened, and the
+;; machine has since moved. Each cell is the `:threshold :per-round` vector
+;; of that run's `red-zone` record, transcribed by script rather than by
+;; hand. The pilot runs that share the backup directory (`run1..run6`,
+;; `runA1..runA3`) are NOT this ensemble and are deliberately absent.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private rows [:M1 :M2 :broad :narrow])
 
-(def ^:private run-1
-  "RUN 1's per-round `uix-subs ÷ reagent-subs` vectors, six rounds,
-  Reagent-start — the one run of the ten whose readings reached a
-  committed file. The commit that balanced the design nominated it as
-  the re-publication run BEFORE the ensemble ran, which is why its
-  vectors are on the page at all; the other nine were summarised and
-  discarded."
-  {:M1     [1.4286 0.9529 1.2681 1.2186 1.1378 1.2892]
-   :M2     [0.8571 1.3846 1.0714 1.0000 1.0794 0.8889]
-   :broad  [0.6190 0.6328 0.6144 0.5532 0.8485 0.7292]
-   :narrow [1.2575 1.1161 1.0999 1.3602 1.0568 1.0346]})
+(def ^:private ensemble
+  "THE 10x4 OBSERVATION TABLE, complete. One entry per launched run, one
+  vector per witness: that run's six per-round `uix-subs ÷ reagent-subs`
+  readings, each floor-normalised in its own round and segment. `:start`
+  is the segment that led round 0.
 
-(def ^:private recorded-runs
-  "How many of the ten runs have their per-run figures in the
-  repository. ONE. This is the audit's finding stated as a number the
-  suite reads: nine tenths of the ensemble's observations exist only in
-  logs that were never committed, on a worktree that no longer exists.
+  Everything the studio page publishes about the ensemble is derived
+  from exactly these numbers — run means, group means, thresholds, `d`,
+  both *p* columns, the components and the composite. Nothing is
+  transcribed from the page except the page's own claims, which live in
+  [[view-1]], [[view-2]] and [[components]] so that the derivation can
+  be checked AGAINST them.
 
-  Raise this — and fill [[ensemble-run-means]] — when an ensemble
-  records its table. It is deliberately asserted below so that the gap
-  is a thing the suite states rather than a thing a reader has to
-  notice."
-  1)
-
-(def ^:private ensemble-run-means
-  "THE 10x4 OBSERVATION TABLE. One row per launched run, one column per
-  witness, each cell that run's six per-round readings — the vector its
-  threshold mean and its `d` are both derived from. `:start` is the
-  segment that led round 0; the ten alternate, so the odd-numbered
-  launches are the Reagent-start group.
-
-  `nil` means NOT RECORDED — not zero, not missing at random, and not
-  reconstructible: nine sets of six-round vectors were summarised into
-  the group means the page prints and then lost. The published group
-  means, threshold, interval and range are the only trace they left,
-  and those are six constraints on nine unknowns per column."
-  [{:run 1  :start :reagent-subs :M1 (:M1 run-1) :M2 (:M2 run-1)
-    :broad (:broad run-1) :narrow (:narrow run-1)}
-   {:run 2  :start :uix-subs     :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 3  :start :reagent-subs :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 4  :start :uix-subs     :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 5  :start :reagent-subs :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 6  :start :uix-subs     :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 7  :start :reagent-subs :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 8  :start :uix-subs     :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 9  :start :reagent-subs :M1 nil :M2 nil :broad nil :narrow nil}
-   {:run 10 :start :uix-subs     :M1 nil :M2 nil :broad nil :narrow nil}])
+  The vectors are the instrument's four-decimal output. The instrument
+  rounds a mean from UNROUNDED readings while rounding each round
+  separately for display, so a mean re-derived from these vectors can
+  differ from the instrument's own in the fourth decimal. It never
+  exceeded 0.0006 on any figure below, and the tolerances say so."
+  [{:run  1 :start :reagent-subs
+    :M1     [1.4286 0.9529 1.2681 1.2186 1.1378 1.2892]
+    :M2     [0.8571 1.3846 1.0714 1.0000 1.0794 0.8889]
+    :broad  [0.6190 0.6328 0.6144 0.5532 0.8485 0.7292]
+    :narrow [1.2575 1.1161 1.0999 1.3602 1.0568 1.0346]}
+   {:run  2 :start :uix-subs
+    :M1     [1.3375 1.1299 1.2017 1.1522 1.1818 1.1905]
+    :M2     [0.9722 1.0000 1.3333 0.9333 0.8750 0.8000]
+    :broad  [0.4857 0.5769 0.8974 0.5385 0.6282 0.5652]
+    :narrow [1.2584 1.0789 1.0710 1.4104 1.1913 1.0800]}
+   {:run  3 :start :reagent-subs
+    :M1     [1.2466 1.1178 1.2121 1.2286 1.2698 1.4026]
+    :M2     [0.6667 1.6250 1.0714 1.0000 0.7500 0.9796]
+    :broad  [0.5556 0.6500 0.6667 0.8571 0.6216 0.5789]
+    :narrow [1.1959 1.2648 1.1483 1.2884 1.1095 1.1764]}
+   {:run  4 :start :uix-subs
+    :M1     [1.1190 1.3897 1.3231 1.2500 1.0606 1.2727]
+    :M2     [1.3500 0.6667 0.7656 1.0208 1.0000 0.9333]
+    :broad  [0.5314 0.6667 0.6364 0.5556 0.5581 0.5909]
+    :narrow [1.1539 1.1550 1.0691 1.1420 1.1771 1.1368]}
+   {:run  5 :start :reagent-subs
+    :M1     [1.2418 1.1719 1.2308 1.2343 1.2258 1.1290]
+    :M2     [1.2500 1.2000 1.1667 1.1000 1.2000 0.8571]
+    :broad  [0.6222 0.4632 0.4444 0.6875 0.5790 0.7237]
+    :narrow [1.2316 1.1444 1.1786 1.1111 1.2143 1.1566]}
+   {:run  6 :start :uix-subs
+    :M1     [1.1975 1.2418 1.0867 1.2500 1.2983 1.2542]
+    :M2     [1.7143 0.9167 1.0000 1.0000 1.6000 0.9231]
+    :broad  [0.5159 0.6500 0.6250 0.7857 0.8250 0.5641]
+    :narrow [1.2182 1.1334 1.1258 1.1809 1.2282 1.1420]}
+   {:run  7 :start :reagent-subs
+    :M1     [1.1192 1.1426 1.1875 1.3393 1.4194 1.0788]
+    :M2     [0.7778 1.0000 1.2000 1.1000 1.0000 0.6875]
+    :broad  [0.6383 0.7895 0.6316 0.5500 0.5263 0.6944]
+    :narrow [1.1667 1.0947 1.1905 1.1265 1.1470 1.2024]}
+   {:run  8 :start :uix-subs
+    :M1     [1.1004 1.2167 1.2091 1.3241 1.3960 1.5124]
+    :M2     [1.1667 1.2000 1.2000 1.0000 1.1000 1.0000]
+    :broad  [0.4211 0.4259 0.7639 0.7895 0.4865 0.5882]
+    :narrow [1.2055 1.1698 1.1183 1.2355 1.0947 1.1765]}
+   {:run  9 :start :reagent-subs
+    :M1     [1.1549 1.3103 1.1057 1.3158 1.2895 1.3572]
+    :M2     [1.1667 0.9000 1.2000 1.0000 1.1111 1.0909]
+    :broad  [0.7250 0.6000 0.6111 0.5000 0.5526 0.6176]
+    :narrow [1.3105 1.1465 1.1315 1.2145 1.1964 1.1893]}
+   {:run 10 :start :uix-subs
+    :M1     [1.1291 1.3929 1.1008 1.1118 1.2381 1.3621]
+    :M2     [1.1429 1.6364 0.8000 1.2000 1.2833 0.6875]
+    :broad  [0.5814 0.5750 0.7733 0.6571 0.9000 0.7051]
+    :narrow [1.2226 1.1715 1.2373 1.3892 1.1422 1.1487]}])
 
 (def ^:private view-1
   "The page's View 1 table: the two start-group means over five runs
@@ -421,26 +455,66 @@
    :broad  {:reagent-start 0.6295 :uix-start 0.6288 :difference +0.0007 :threshold 0.6291}
    :narrow {:reagent-start 1.1754 :uix-start 1.1755 :difference -0.0001 :threshold 1.1754}})
 
+(def ^:private view-1-p
+  "The page's View 1 permutation *p* on the start-group difference of the
+  threshold means, and its `resolution limit` — the half-width of the 95%
+  interval on that difference."
+  {:M1 {:p 0.770 :limit 0.043} :M2 {:p 0.611 :limit 0.122}
+   :broad {:p 0.984 :limit 0.063} :narrow {:p 0.992 :limit 0.037}})
+
 (def ^:private view-2
   "The page's View 2 table: the mean of the ten per-run `d` values, the
-  same figure as a ratio, and the 95% interval printed as ratios."
-  {:M1        {:mean-d +0.0357 :ratio 1.036 :lo 0.979 :hi 1.097}
-   :M2        {:mean-d -0.0837 :ratio 0.920 :lo 0.795 :hi 1.065}
-   :broad     {:mean-d -0.0388 :ratio 0.962 :lo 0.887 :hi 1.044}
-   :narrow    {:mean-d +0.0070 :ratio 1.007 :lo 0.977 :hi 1.038}
-   :composite {:mean-d -0.0200 :ratio 0.980 :lo 0.934 :hi 1.029}})
+  same figure as a ratio, the 95% interval printed as ratios, the
+  one-sided sign-flip *p*, and how many of the ten `d` are positive."
+  {:M1        {:mean-d +0.0357 :ratio 1.036 :lo 0.979 :hi 1.097 :p 0.084 :positive 7}
+   :M2        {:mean-d -0.0837 :ratio 0.920 :lo 0.795 :hi 1.065 :p 0.889 :positive 4}
+   :broad     {:mean-d -0.0388 :ratio 0.962 :lo 0.887 :hi 1.044 :p 0.856 :positive 5}
+   :narrow    {:mean-d +0.0070 :ratio 1.007 :lo 0.977 :hi 1.038 :p 0.302 :positive 7}
+   :composite {:mean-d -0.0200 :ratio 0.980 :lo 0.934 :hi 1.029 :p 0.823 :positive 6}})
 
 (def ^:private components
-  "The page's order/temporal decomposition. Under a counterbalanced
-  start the average of the two start groups isolates the ORDER term and
-  half their difference isolates the TEMPORAL one."
-  {:M1        {:order +0.0357 :temporal -0.0212}
-   :M2        {:order -0.0837 :temporal +0.0632}
-   :broad     {:order -0.0388 :temporal -0.0011}
-   :narrow    {:order +0.0070 :temporal -0.0063}
-   :composite {:order -0.0200 :temporal +0.0086}})
+  "The page's order/temporal decomposition and the permutation *p* on the
+  start-group difference of `d`. Under a counterbalanced start the
+  average of the two start groups isolates the ORDER term and half their
+  difference isolates the TEMPORAL one."
+  {:M1        {:order +0.0357 :temporal -0.0212 :p 0.421}
+   :M2        {:order -0.0837 :temporal +0.0632 :p 0.318}
+   :broad     {:order -0.0388 :temporal -0.0011 :p 1.000}
+   :narrow    {:order +0.0070 :temporal -0.0063 :p 0.698}
+   :composite {:order -0.0200 :temporal +0.0086 :p 0.810}})
+
+(def ^:private published-threshold
+  "The RED-ZONE table: the threshold, the 95% interval on the mean, and
+  the observed spread of the ten run means."
+  {:M1     {:threshold 1.2310 :lo 1.2105 :hi 1.2514 :run-min 1.1989 :run-max 1.2931}
+   :M2     {:threshold 1.0601 :lo 1.0017 :hi 1.1185 :run-min 0.9561 :run-max 1.1923}
+   :broad  {:threshold 0.6291 :lo 0.5996 :hi 0.6587 :run-min 0.5792 :run-max 0.6987}
+   :narrow {:threshold 1.1754 :lo 1.1579 :hi 1.1930 :run-min 1.1390 :run-max 1.2186}})
+
+;; --- the derivation, in the smallest form that computes the published table ---
 
 (defn- mean [xs] (/ (reduce + 0.0 xs) (count xs)))
+
+(defn- sample-sd [xs]
+  (let [m (mean xs)]
+    (js/Math.sqrt (/ (reduce + 0.0 (map #(* (- % m) (- % m)) xs))
+                     (dec (count xs))))))
+
+(def ^:private t-9
+  "Student's t, 0.975, NINE degrees of freedom — the multiplier for a 95%
+  interval on the mean of TEN run means (`n − 1`)."
+  2.262157)
+
+(def ^:private t-8
+  "Student's t, 0.975, EIGHT degrees of freedom. Correct for the
+  two-sample five-against-five contrast the `resolution limit` column
+  reports, and — see
+  [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
+  — the multiplier the page also used for its one-sample intervals,
+  which is an error."
+  2.306004)
+
+(defn- run-mean [run row] (mean (get run row)))
 
 (defn- d-of
   "THE PER-RUN STATISTIC, defined once and derived nowhere else:
@@ -448,30 +522,98 @@
       d = ln( mean of the Reagent-first stratum / mean of the UIx-first stratum )
 
   positive when the figure reads higher with the Reagent segment
-  leading, which is the direction the withdrawn claim asserted. The
-  strata come from the verdict itself, so this and the published
-  partition cannot drift apart."
+  leading, which is the direction the withdrawn claim asserted.
+
+  The PARTITION comes from `segment-order-verdict`, so this and the
+  published strata cannot drift apart — but the two stratum means are
+  averaged HERE, from the readings, rather than taken from the verdict's
+  own `:mean`. The verdict rounds its means to four decimals for
+  display, and on the broad row that rounding is load-bearing: a
+  sign-flip *p* moves in steps of 1/1024 = 0.00098, and the fourth
+  decimal is enough to carry exactly one of the 1024 assignments across
+  the observed mean. Rounded strata give broad 878/1024 = 0.8574; the
+  readings give 877/1024 = 0.8564, which is the 0.856 the page
+  publishes. A displayed number is not an input."
   [vs start]
   (let [r (app/segment-order-verdict vs 6 start)]
-    (js/Math.log (/ (:mean (:reagent-first r)) (:mean (:uix-first r))))))
+    (js/Math.log (/ (mean (:per-round (:reagent-first r)))
+                    (mean (:per-round (:uix-first r)))))))
+
+(defn- reagent-start? [run] (= :reagent-subs (:start run)))
+
+(defn- by-start
+  "Split ten per-run values into [reagent-start-five uix-start-five],
+  keyed on the run that produced each."
+  [values]
+  [(keep-indexed #(when (reagent-start? (nth ensemble %1)) %2) values)
+   (keep-indexed #(when-not (reagent-start? (nth ensemble %1)) %2) values)])
+
+(defn- thresholds [row] (mapv #(run-mean % row) ensemble))
+(defn- d-values  [row] (mapv #(d-of (get % row) (:start %)) ensemble))
+
+(defn- combinations-from
+  "Every way to choose `k` indices from `[start, n)`, ascending. Called
+  once, as C(10,5) = 252, and deliberately nothing more general."
+  [start n k]
+  (if (zero? k)
+    [[]]
+    (mapcat (fn [i] (map #(cons i %) (combinations-from (inc i) n (dec k))))
+            (range start (inc (- n k))))))
+
+(defn- permutation-p
+  "EXACT two-sided permutation *p* on the difference between the two
+  start groups: enumerate all C(10,5) = 252 relabellings and count those
+  whose |difference| is at least the observed one.
+
+  Exact GIVEN the relabelling set — which is not the same as exact by
+  randomisation, because the ten starts were alternated rather than
+  drawn. The studio page states that assumption; this only computes the
+  number."
+  [values]
+  (let [[a b] (by-start values)
+        obs   (js/Math.abs (- (mean a) (mean b)))
+        combs (combinations-from 0 10 5)
+        hits  (count (filter (fn [c]
+                               (let [s (set c)
+                                     x (keep-indexed #(when (s %1) %2) values)
+                                     y (keep-indexed #(when-not (s %1) %2) values)]
+                                 (>= (js/Math.abs (- (mean x) (mean y))) (- obs 1e-12))))
+                             combs))]
+    (/ hits (double (count combs)))))
+
+(defn- sign-flip-p
+  "EXACT one-sided sign-flip *p* over all 2^10 = 1024 sign assignments,
+  in the positive direction the withdrawn claim named. Exact only under
+  sign symmetry of `d` under the null — again an assumption, stated on
+  the page, not established by the design."
+  [ds]
+  (let [obs (mean ds)
+        hits (count (filter (fn [m]
+                              (>= (mean (map-indexed
+                                          (fn [i d] (if (bit-test m i) (- d) d))
+                                          ds))
+                                  (- obs 1e-12)))
+                            (range 1024)))]
+    (/ hits 1024.0)))
+
 
 ;; ---------------------------------------------------------------------------
-;; What the repository holds of the table, stated rather than implied
+;; The table is whole, and it is the ensemble the page describes
 ;; ---------------------------------------------------------------------------
 
-(deftest nine-of-the-ten-runs-were-never-recorded
-  (testing "the audit's completeness finding, as arithmetic the suite
-           reads. One run of ten has its readings in a committed file;
-           the other nine exist only as the group means they were
-           folded into. Filling them needs a fresh ensemble that commits
-           its table, never a reconstruction from the summaries"
-    (let [recorded (filter #(some? (:M1 %)) ensemble-run-means)]
-      (is (= 10 (count ensemble-run-means)) "ten launched, ten in the table")
-      (is (= recorded-runs (count recorded)))
-      (is (= [1] (mapv :run recorded)) "and it is the pre-registered run")
-      (is (= 5 (count (filter #(= :reagent-subs (:start %)) ensemble-run-means)))
-          "the start is counterbalanced 5/5 across the ten launches")
-      (is (= 5 (count (filter #(= :uix-subs (:start %)) ensemble-run-means)))))))
+(deftest the-observation-table-is-complete-and-counterbalanced
+  (testing "forty cells, ten runs, six rounds each, and the start
+           counterbalanced five and five — the design the page claims,
+           checked against the data rather than asserted beside it"
+    (is (= 10 (count ensemble)) "ten launched, ten in the table")
+    (is (= (range 1 11) (map :run ensemble)))
+    (is (= 5 (count (filter reagent-start? ensemble))))
+    (is (= 5 (count (remove reagent-start? ensemble))))
+    (doseq [run ensemble row rows]
+      (is (= 6 (count (get run row)))
+          (str "run " (:run run) " " (name row) " has six rounds"))
+      (is (every? pos? (get run row))
+          (str "run " (:run run) " " (name row) " is all positive ratios")))))
 
 (deftest the-start-label-is-the-launch-parity-and-that-is-a-confound
   (testing "the ten labels were ALTERNATED, not drawn at random, so
@@ -479,120 +621,268 @@
            runs. A drift across the session would therefore reproduce a
            start effect exactly — the same confound the five-round
            design had between segment order and round parity, moved up
-           to the run level. It is why the page's permutation p-values
-           are exact only under an assumption, and the assumption is
-           stated there rather than left to the reader"
-    (is (= (mapv :run (filter #(= :reagent-subs (:start %)) ensemble-run-means))
-           (filterv odd? (mapv :run ensemble-run-means))))))
+           to the run level. It is why the permutation and sign-flip
+           p-values below are exact only under an assumption, and the
+           page states the assumption rather than leaving it to the
+           reader"
+    (is (= (mapv :run (filter reagent-start? ensemble))
+           (filterv odd? (mapv :run ensemble))))))
 
-;; ---------------------------------------------------------------------------
-;; Run 1 is derived from its vectors, not copied from the page
-;; ---------------------------------------------------------------------------
-
-(deftest run-1s-published-means-are-derivable-from-its-vectors
-  (testing "the four run means the page prints for the pre-registered
-           run fall out of the six-round vectors it prints beside them"
+(deftest run-1-is-the-pre-registered-run-the-page-prints
+  (testing "the page prints one run's vectors in full — the run the
+           design nominated in advance — and they are this table's first
+           entry. That is the join between the recovered logs and what
+           was already published, and it is what identifies the backup
+           as THIS ensemble rather than one of the pilots beside it"
+    (let [r1 (first ensemble)]
+      (is (= 1 (:run r1)))
+      (is (= :reagent-subs (:start r1)))
+      (is (= [1.4286 0.9529 1.2681 1.2186 1.1378 1.2892] (:M1 r1)))
+      (is (= [0.8571 1.3846 1.0714 1.0000 1.0794 0.8889] (:M2 r1)))
+      (is (= [0.6190 0.6328 0.6144 0.5532 0.8485 0.7292] (:broad r1)))
+      (is (= [1.2575 1.1161 1.0999 1.3602 1.0568 1.0346] (:narrow r1))))
     (doseq [[row published] [[:M1 1.2159] [:M2 1.0469] [:broad 0.6662] [:narrow 1.1542]]]
-      (is (close? published (mean (get run-1 row))) (name row)))))
-
-(deftest run-1s-partition-is-the-one-the-page-publishes
-  (testing "the stratum table the page prints for the pre-registered run
-           — Reagent-first mean [min–max] against UIx-first — is what
-           the verdict derives from the same vectors, and all four rows
-           overlap, so all four were entitled to publish a magnitude"
-    (doseq [[row rf-mean rf-min rf-max uf-mean uf-min uf-max]
-            [[:M1     1.2782 1.1378 1.4286 1.1536 0.9529 1.2892]
-             [:M2     1.0027 0.8571 1.0794 1.0912 0.8889 1.3846]
-             [:broad  0.6940 0.6144 0.8485 0.6384 0.5532 0.7292]
-             [:narrow 1.1381 1.0568 1.2575 1.1703 1.0346 1.3602]]]
-      (let [r  (app/segment-order-verdict (get run-1 row) 6 :reagent-subs)
-            rf (:reagent-first r)
-            uf (:uix-first r)]
-        (is (true? (:balanced-design? r)) (name row))
-        (is (= 3 (:n rf)) (name row))
-        (is (= 3 (:n uf)) (name row))
-        ;; M2's Reagent-first mean is the one page figure that misses at
-        ;; the fourth decimal: 1.0027 there against 1.00263 from the
-        ;; four-decimal vector, because the page rounded from the raw
-        ;; readings. Recorded here rather than papered over.
-        (is (close-to? rf-mean (:mean rf) 0.0002) (name row))
-        (is (close? rf-min (:min rf)) (name row))
-        (is (close? rf-max (:max rf)) (name row))
-        (is (close-to? uf-mean (:mean uf) 0.0002) (name row))
-        (is (close? uf-min (:min uf)) (name row))
-        (is (close? uf-max (:max uf)) (name row))
-        (is (true? (:strata-overlap? r)) (name row))
-        (is (true? (:magnitude-resolved? r)) (name row))))))
-
-(deftest run-1s-d-values-are-one-tenth-of-view-2s-input
-  (testing "the four `d` values of run 1, derived from its vectors. They
-           are ONE of the ten rows View 2 averages, and they are printed
-           here because a mean whose summands are nowhere in the
-           repository is not a checkable mean — one summand is better
-           than none, and it is also the demonstration that a single run
-           says very little: run 1's broad `d` is +0.0835 where the
-           ensemble mean is −0.0388, opposite in sign"
-    (doseq [[row expected] [[:M1 +0.1026] [:M2 -0.0846] [:broad +0.0835] [:narrow -0.0279]]]
-      (is (close-to? expected (d-of (get run-1 row) :reagent-subs) 0.0002) (name row)))))
+      (is (close? published (run-mean (first ensemble) row)) (name row)))))
 
 ;; ---------------------------------------------------------------------------
-;; The identities the 5/5 counterbalance forces, which ARE checkable
+;; Every published figure, re-derived from the forty cells
 ;; ---------------------------------------------------------------------------
 
-(deftest the-threshold-is-the-mean-of-the-two-start-group-means
-  (testing "five runs each side means the grand mean over ten IS the
-           average of the two group means — so the threshold column and
-           the View 1 columns are one table, and a typo in either shows
-           up here"
+(deftest the-run-mean-spread-reproduces
+  (testing "the RED-ZONE table's `run means (10)` column is the min and
+           max of this table's ten run means, per row. Four ranges, eight
+           endpoints, all from the data"
     (doseq [row rows]
-      (let [{:keys [reagent-start uix-start threshold]} (get view-1 row)]
-        (is (close? threshold (/ (+ reagent-start uix-start) 2.0)) (name row))))))
+      (let [t (thresholds row)
+            {:keys [run-min run-max]} (get published-threshold row)]
+        (is (close? run-min (apply min t)) (name row))
+        (is (close? run-max (apply max t)) (name row))))))
 
-(deftest view-1s-difference-column-is-the-difference
-  (testing "the start-group contrast, recomputed. M2 misses by 0.0001
-           because the page differenced the unrounded group means"
+(deftest the-threshold-is-the-mean-of-the-ten-run-means
+  (testing "and, because the counterbalance is 5/5, equally the average
+           of the two start-group means — so the RED-ZONE table and View
+           1 are one table and cannot drift apart"
     (doseq [row rows]
-      (let [{:keys [reagent-start uix-start difference]} (get view-1 row)]
-        (is (close-to? difference (- reagent-start uix-start) 0.0002) (name row))))))
+      (let [t (thresholds row)
+            [rs us] (by-start t)
+            {:keys [threshold]} (get published-threshold row)]
+        (is (close? threshold (mean t)) (name row))
+        (is (close? threshold (/ (+ (mean rs) (mean us)) 2.0)) (name row))))))
 
-(deftest view-2s-ratio-column-is-the-exponential-of-mean-d
-  (testing "`d` is a log ratio, so the `as a ratio` column is exp(mean
-           d) and nothing else. Three decimals on the page, so 0.001"
-    (doseq [[row {:keys [mean-d ratio]}] view-2]
-      (is (close-to? ratio (js/Math.exp mean-d) 0.001) (name row)))))
+(deftest view-1s-group-means-and-difference-reproduce
+  (testing "the five Reagent-start runs against the five UIx-start runs,
+           and the difference column that contrasts them"
+    (doseq [row rows]
+      (let [[rs us] (by-start (thresholds row))
+            {:keys [reagent-start uix-start difference]} (get view-1 row)]
+        (is (close? reagent-start (mean rs)) (name row))
+        (is (close? uix-start (mean us)) (name row))
+        (is (close? difference (- (mean rs) (mean us))) (name row))))))
 
-(deftest view-2s-interval-is-centred-on-mean-d-in-log-space
-  (testing "the 95% interval is printed as ratios but computed on `d`,
-           so the midpoint of its two logarithms must be the mean `d`
-           itself. This is the check that catches an interval pasted
-           against the wrong row"
-    (doseq [[row {:keys [mean-d lo hi]}] view-2]
-      (is (close-to? mean-d
-                     (/ (+ (js/Math.log lo) (js/Math.log hi)) 2.0)
-                     0.0006)
+(deftest view-1s-permutation-p-reproduces
+  (testing "THE FIRST OF THE TWO p COLUMNS THE AUDIT COULD NOT CHECK.
+           All 252 relabellings of the ten runs into two fives,
+           enumerated, counting those whose group difference is at least
+           the observed one in absolute value. The page publishes 0.770 /
+           0.611 / 0.984 / 0.992 and the data yields them"
+    (doseq [row rows]
+      (is (close-to? (:p (get view-1-p row)) (permutation-p (thresholds row)) 0.0006)
           (name row)))))
 
-(deftest the-composite-is-the-mean-over-the-four-rows
-  (testing "the pre-registered statistic was fixed in advance as the
-           mean over the four rows — never as four trials — and both
-           components obey it"
-    (is (close-to? (:order (:composite components))
-                   (mean (map #(:order (get components %)) rows))
-                   0.0002))
-    (is (close-to? (:temporal (:composite components))
-                   (mean (map #(:temporal (get components %)) rows))
-                   0.0002))
-    (is (close-to? (:mean-d (:composite view-2))
-                   (mean (map #(:mean-d (get view-2 %)) rows))
-                   0.0002)
-        "and View 2's composite row is the same mean of the same four
-         numbers, so the two tables cannot disagree in silence")))
+(deftest view-1s-resolution-limit-reproduces
+  (testing "the half-width of the 95% interval on the start-group
+           difference — a genuine two-sample five-against-five contrast,
+           so EIGHT degrees of freedom is correct here. It reproduces
+           exactly, which is what makes the one-sample intervals'
+           multiplier diagnosable below"
+    (doseq [row rows]
+      (let [[rs us] (by-start (thresholds row))
+            pooled  (js/Math.sqrt (/ (+ (* 4 (js/Math.pow (sample-sd rs) 2))
+                                        (* 4 (js/Math.pow (sample-sd us) 2)))
+                                     8))
+            limit   (* t-8 pooled (js/Math.sqrt (/ 2.0 5)))]
+        (is (close-to? (:limit (get view-1-p row)) limit 0.0006) (name row))))))
+
+(deftest view-2s-mean-d-ratio-and-counts-reproduce
+  (testing "one `d` per run per row, averaged; the `as a ratio` column is
+           exp of it; and the `positive` column counts the runs whose `d`
+           is above zero"
+    (doseq [row rows]
+      (let [d (d-values row)
+            {:keys [mean-d ratio positive]} (get view-2 row)]
+        (is (close? mean-d (mean d)) (name row))
+        (is (close-to? ratio (js/Math.exp (mean d)) 0.0006) (name row))
+        (is (= positive (count (filter pos? d))) (name row))))))
+
+(deftest view-2s-sign-flip-p-reproduces
+  (testing "THE SECOND p COLUMN THE AUDIT COULD NOT CHECK. All 1024 sign
+           assignments, one-sided in the direction the withdrawn claim
+           named. The page publishes 0.084 / 0.889 / 0.856 / 0.302 and
+           the data yields them — including M1's 0.084, the largest lean
+           on the page and still not significant"
+    (doseq [row rows]
+      (is (close-to? (:p (get view-2 row)) (sign-flip-p (d-values row)) 0.0006)
+          (name row)))))
+
+(deftest the-components-and-their-permutation-p-reproduce
+  (testing "averaging the two start groups of `d` isolates the ORDER
+           term; half their difference isolates the TEMPORAL one; and
+           the last column is the same 252-relabelling test applied to
+           `d` rather than to the threshold means"
+    (doseq [row rows]
+      (let [d (d-values row)
+            [rs us] (by-start d)
+            {:keys [order temporal p]} (get components row)]
+        (is (close? order (/ (+ (mean rs) (mean us)) 2.0)) (name row))
+        (is (close? temporal (/ (- (mean rs) (mean us)) 2.0)) (name row))
+        (is (close-to? p (permutation-p d) 0.0006) (name row))))))
+
+(deftest the-composite-is-the-per-run-mean-over-the-four-rows
+  (testing "the pre-registered statistic: per RUN, the mean of that run's
+           four `d` values — never four trials pooled. Its mean, its
+           ratio, its sign-flip p, its positive count and both components
+           all reproduce"
+    (let [ds   (into {} (map (fn [r] [r (d-values r)])) rows)
+          comp (mapv (fn [i] (mean (map #(nth (get ds %) i) rows))) (range 10))
+          [rs us] (by-start comp)
+          {:keys [mean-d ratio p positive]} (:composite view-2)
+          {:keys [order temporal] cp :p} (:composite components)]
+      (is (close? mean-d (mean comp)))
+      (is (close-to? ratio (js/Math.exp (mean comp)) 0.0006))
+      (is (= positive (count (filter pos? comp))))
+      (is (close-to? p (sign-flip-p comp) 0.0006))
+      (is (close? order (/ (+ (mean rs) (mean us)) 2.0)))
+      (is (close? temporal (/ (- (mean rs) (mean us)) 2.0)))
+      (is (close-to? cp (permutation-p comp) 0.0006))))
+  (testing "and the mean of the four ROW means equals the mean of the ten
+           per-run composites, which is why the page may print either and
+           get the same number"
+    (is (close? (:mean-d (:composite view-2))
+                (mean (map #(mean (d-values %)) rows))))))
 
 (deftest the-order-component-is-view-2s-mean-d
   (testing "the decomposition's ORDER column is not a second estimate:
            averaging the two start groups is what the paired `d` already
-           does once the start is counterbalanced, so the two columns
-           are the same number and the page prints both only because
-           they answer differently-worded questions"
+           does once the start is counterbalanced, so the two columns are
+           the same number and the page prints both only because they
+           answer differently-worded questions"
     (doseq [row rows]
       (is (close? (:mean-d (get view-2 row)) (:order (get components row))) (name row)))))
+
+;; ---------------------------------------------------------------------------
+;; The counts the page quotes in prose
+;; ---------------------------------------------------------------------------
+
+(defn- strata-of [row]
+  (mapcat (fn [run]
+            (let [v (app/segment-order-verdict (get run row) 6 (:start run))]
+              [(:reagent-first v) (:uix-first v)]))
+          ensemble))
+
+(defn- rounds-of [row] (mapcat #(get % row) ensemble))
+
+(deftest the-per-row-round-and-stratum-counts-reproduce
+  (testing "`59 of 60 rounds above 1.0; 19 of 20 order strata wholly
+           above it` on M1, and `all 60 / all 20` below on broad and
+           above on narrow — the sentences the RED-ZONE table's verdict
+           column carries, counted from the forty cells"
+    (is (= 59 (count (filter #(> % 1.0) (rounds-of :M1)))))
+    (is (= 19 (count (filter #(> (:min %) 1.0) (strata-of :M1)))))
+    (is (= 60 (count (filter #(< % 1.0) (rounds-of :broad)))))
+    (is (= 20 (count (filter #(< (:max %) 1.0) (strata-of :broad)))))
+    (is (= 60 (count (filter #(> % 1.0) (rounds-of :narrow)))))
+    (is (= 20 (count (filter #(> (:min %) 1.0) (strata-of :narrow)))))))
+
+(deftest the-magnitude-resolution-and-the-discredited-statistic-reproduce
+  (testing "`the strata overlap in 37 of 40 row-runs`, the three
+           unresolved ones falling one each on M1, M2 and narrow and
+           never on broad, and `no row is disjoint twice`. Those three
+           are the individually-unpublishable points the aggregate rule
+           deliberately keeps in the ensemble"
+    (let [verdicts (for [run ensemble row rows]
+                     [(:run run) row (app/segment-order-verdict (get run row) 6 (:start run))])
+          unresolved (remove #(:magnitude-resolved? (nth % 2)) verdicts)]
+      (is (= 37 (count (filter #(:magnitude-resolved? (nth % 2)) verdicts))))
+      (is (= 3 (count unresolved)))
+      (is (= #{:M1 :M2 :narrow} (set (map second unresolved))) "broad never splits")
+      (is (= 2 (count (set (map first unresolved))))
+          "the three fall in two runs, so no row is disjoint twice")
+      (is (every? #(false? (:refuse? (nth % 2))) verdicts)
+          "and the fail-closed DIRECTION half never fires on any of the forty")))
+  (testing "`counted the way the page counted it — 40 row-runs treated as
+           if independent — the Reagent-first stratum is higher in 23 of
+           40`, which is the discredited 11-of-12 restated on the
+           balanced design and no longer an effect"
+    (is (= 23 (count (for [run ensemble row rows
+                           :let [v (app/segment-order-verdict (get run row) 6 (:start run))]
+                           :when (> (:mean (:reagent-first v)) (:mean (:uix-first v)))]
+                       [(:run run) row]))))))
+
+;; ---------------------------------------------------------------------------
+;; THE ONE DISAGREEMENT, pinned rather than conformed away
+;; ---------------------------------------------------------------------------
+
+(deftest the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right
+  (testing "EVERY point estimate and both p columns reproduce. The
+           INTERVALS do not, and they miss the same way on every row:
+           the page's are about 2% wider than the data supports.
+
+           The cause is identifiable rather than guessed. An interval on
+           the mean of TEN run means is a one-sample Student-t interval
+           with n − 1 = NINE degrees of freedom, t = 2.2622. The
+           multiplier the page actually used is ~2.306 — t at EIGHT
+           degrees of freedom, which is the CORRECT multiplier for the
+           two-sample five-against-five `resolution limit` column
+           standing beside it, and which reproduces exactly there. The
+           same t was reused for the one-sample case.
+
+           This test asserts the diagnosis both ways: the published
+           half-width is NOT t-9 times the standard error, and IS t-8
+           times it. The studio page states the disagreement and prints
+           both intervals; nothing is silently conformed"
+    (doseq [row rows]
+      (let [t    (thresholds row)
+            se   (/ (sample-sd t) (js/Math.sqrt 10))
+            {:keys [lo hi]} (get published-threshold row)
+            half (/ (- hi lo) 2.0)]
+        (is (not (close-to? half (* t-9 se) 0.0002))
+            (str (name row) " — the published interval is NOT the 9-df one"))
+        (is (close-to? half (* t-8 se) 0.0006)
+            (str (name row) " — it IS the 8-df one")))))
+  (testing "the same reuse in View 2's intervals on `d`, where the page
+           prints ratios to three decimals, so the multiplier can only be
+           recovered to about ±0.02 — enough to exclude 2.2622 and to
+           include 2.3060"
+    (doseq [row rows]
+      (let [d    (d-values row)
+            se   (/ (sample-sd d) (js/Math.sqrt 10))
+            {:keys [lo hi]} (get view-2 row)
+            half (/ (- (js/Math.log hi) (js/Math.log lo)) 2.0)
+            mult (/ half se)]
+        (is (> mult 2.28) (str (name row) " — above the 9-df multiplier 2.2622"))
+        (is (< mult 2.34) (str (name row) " — consistent with the 8-df 2.3060"))))))
+
+(deftest the-corrected-nine-degree-intervals-change-no-verdict
+  (testing "the error is CONSERVATIVE — the published intervals are too
+           WIDE — so every verdict on the page survives it. Recomputed
+           here so that the claim is arithmetic rather than reassurance"
+    (doseq [[row lo hi] [[:M1 1.2109 1.2510] [:M2 1.0028 1.1173]
+                         [:broad 0.6001 0.6581] [:narrow 1.1582 1.1926]]]
+      (let [t  (thresholds row)
+            se (/ (sample-sd t) (js/Math.sqrt 10))
+            m  (mean t)]
+        (is (close? lo (- m (* t-9 se))) (name row))
+        (is (close? hi (+ m (* t-9 se))) (name row)))))
+  (testing "M1, broad and narrow stay clear of 1.0 on the corrected
+           interval and M2 still only just clears parity, exactly as
+           published"
+    (let [ci (fn [row]
+               (let [t (thresholds row) se (/ (sample-sd t) (js/Math.sqrt 10))]
+                 [(- (mean t) (* t-9 se)) (+ (mean t) (* t-9 se))]))]
+      (is (> (first (ci :M1)) 1.0) "M1 wholly above 1.0")
+      (is (< (second (ci :broad)) 1.0) "broad wholly below 1.0")
+      (is (> (first (ci :narrow)) 1.0) "narrow wholly above 1.0")
+      (is (> (first (ci :M2)) 1.0)
+          "M2's interval on the MEAN clears parity — barely, and it stays
+           a diagnostic row precisely because its individual runs do not:
+           three of the ten read below 1.0 outright"))))
