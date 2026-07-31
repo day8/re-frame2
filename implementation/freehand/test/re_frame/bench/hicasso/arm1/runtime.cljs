@@ -190,7 +190,7 @@
 ;; body does run inside it — and its reads belong to the enclosing
 ;; boundary, which is exactly the collector's helper-donated read.
 
-(def ^:private rstate
+(def ^:private ^js rstate
   "The render slots: the frame the running body resolved (nil outside a
   render, which is what makes `(sub …)` outside a boundary a loud error
   rather than a silent read of whichever frame happened to be ambient),
@@ -198,7 +198,7 @@
   resolved. One JS object for the whole runtime — not one per render."
   #js {"frame" nil "collector" false "grouped" false "entry" nil})
 
-(def ^:private scratch
+(def ^:private ^js scratch
   "**The one scratch buffer**, reused by every body and reset by
   overwrite at the top of each. One render's reads, in read order,
   nothing else, and no allocation: `(set! (.-length scratch) 0)` is the
@@ -282,12 +282,12 @@
 
 (declare flush!)
 
-(defn- mark-dirty! [cell]
+(defn- mark-dirty! [^js cell]
   (when-not (.-disposed cell)
     (vswap! !dirty conj cell)
     (when-not @!batching (flush!))))
 
-(defn- dispose-cell! [cell]
+(defn- dispose-cell! [^js cell]
   (when-not (.-disposed cell)
     (set! (.-disposed cell) true)
     (when-some [r (.-reaction cell)] (remove-watch r (.-watchKey cell)))
@@ -299,7 +299,7 @@
   "A cell whose last reader unmounts is given one macrotask of grace, so
   a keyed reorder that unmounts and remounts a row within one turn reuses
   the reaction instead of rebuilding it."
-  [cell]
+  [^js cell]
   (js/setTimeout (fn [] (when (and (zero? (.-refs cell)) (not (.-disposed cell)))
                           (dispose-cell! cell)))
                  0)
@@ -311,13 +311,13 @@
   layer's equality cutoff into this arm's dirty set. Acquire without
   deref: the render already knows the value."
   [sub-key]
-  (let [cell (or (get @!cells sub-key)
+  (let [^js cell (or (get @!cells sub-key)
                  (let [frame-kw (nth sub-key 0)
                        query-v  (nth sub-key 1)
                        reaction (subs/subscribe query-v {:frame frame-kw})
                        wk       (keyword "rf-hicasso-arm1"
                                          (str "w" (vswap! !watch-counter inc)))
-                       fresh    #js {"subKey"   sub-key
+                       ^js fresh #js {"subKey"   sub-key
                                      "frameKw"  frame-kw
                                      "queryV"   query-v
                                      "reaction" reaction
@@ -361,7 +361,7 @@
     (set! (.-refs cell) (inc (.-refs cell)))
     cell))
 
-(defn- release-cell! [cell]
+(defn- release-cell! [^js cell]
   (set! (.-refs cell) (dec (.-refs cell)))
   (when (<= (.-refs cell) 0) (arm-cell-reaper! cell))
   nil)
@@ -371,7 +371,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- notify! [registrations]
-  (doseq [r registrations]
+  (doseq [^js r registrations]
     (when-some [n (.-notify r)] (n))))
 
 (defn flush!
@@ -389,8 +389,8 @@
     (when (seq dirty)
       (vreset! !dirty #{})
       (vswap! !generation inc)
-      (doseq [c dirty] (set! (.-epoch c) (inc (.-epoch c))))
-      (let [boundaries (index/commit! (into #{} (map #(.-subKey %)) dirty))]
+      (doseq [^js c dirty] (set! (.-epoch c) (inc (.-epoch c))))
+      (let [boundaries (index/commit! (into #{} (map (fn [^js c] (.-subKey c))) dirty))]
         (if (rendering?)
           (do (vswap! !deferred into boundaries)
               (js/setTimeout (fn []
@@ -447,7 +447,7 @@
   (let [frame-kw (.-frame rstate)
         sub-key  [frame-kw query-v]]
     (.push scratch sub-key)
-    (if-some [cell (get @!cells sub-key)]
+    (if-some [^js cell (get @!cells sub-key)]
       (when-some [r (.-reaction cell)] @r)
       (subs/subscribe-once query-v {:frame frame-kw}))))
 
@@ -496,7 +496,7 @@
 
 (def ^:private empty-bucket-key ::no-reads)
 
-(defn- drop-entry! [entry]
+(defn- drop-entry! [^js entry]
   (let [bucket-key (.-bucketKey entry)]
     (swap! !entries
            (fn [m]
@@ -510,7 +510,7 @@
   claimed, and an entry whose last boundary unmounted is no longer
   anybody's. Both are cache eviction and neither is a record of something
   to undo."
-  [entry]
+  [^js entry]
   (js/setTimeout (fn [] (when (zero? (.-refs entry)) (drop-entry! entry))) 0)
   nil)
 
@@ -520,7 +520,7 @@
   a second entry and a symmetric difference that removes and re-adds the
   same edges; it is never a wrong answer, which is why this is not a
   content hash."
-  [entry]
+  [^js entry]
   (let [ks (.-keys entry)
         n  (alength ks)]
     (and (== n (alength scratch))
@@ -542,9 +542,9 @@
   []
   (let [bucket-key (if (zero? (alength scratch)) empty-bucket-key (aget scratch 0))
         bucket     (get @!entries bucket-key)]
-    (or (some (fn [e] (when (entry-matches? e) e)) bucket)
+    (or (some (fn [^js e] (when (entry-matches? e) e)) bucket)
         (let [ks    (.slice scratch)
-              entry #js {"keys"      ks
+              ^js entry #js {"keys"      ks
                          "set"       (into #{} ks)
                          "refs"      0
                          "bucketKey" bucket-key}]
@@ -558,7 +558,7 @@
   "React's `getSnapshot`: the sum of the set's epochs. Monotone, so
   `Object.is` on it is a correct change test; cached on the entry, so a
   render allocates no closure for it."
-  [entry]
+  [^js entry]
   (fn snapshot []
     (let [cells @!cells
           ks    (.-keys entry)
@@ -567,7 +567,7 @@
         (if (== i n)
           acc
           (recur (inc i)
-                 (if-some [c (get cells (aget ks i))] (+ acc (.-epoch c)) acc)))))))
+                 (if-some [^js c (get cells (aget ks i))] (+ acc (.-epoch c)) acc)))))))
 
 (defn- make-subscribe
   "React's `subscribe`, as a pure function of the read set.
@@ -581,10 +581,10 @@
 
   The registration holds exactly the cells it acquired, so its cleanup
   cannot release a successor's after a reap and rebuild."
-  [entry]
+  [^js entry]
   (fn subscribe [on-store-change]
     (let [reads (.-set entry)
-          reg   #js {"reads" reads "notify" on-store-change}
+          ^js reg #js {"reads" reads "notify" on-store-change}
           cells (mapv acquire-cell! reads)]
       (unchecked-set reg "cells" cells)
       (index/mount! reg)
@@ -609,7 +609,7 @@
   answerable without a browser, a root, or a render. The DOM suites then
   prove that React drives *this* seam rather than re-proving what the
   seam does."
-  [entry notify]
+  [^js entry notify]
   ((.-subscribe entry) notify))
 
 ;; ---------------------------------------------------------------------------
@@ -674,7 +674,7 @@
 
 (defn reads-of
   "An entry's sub-key set."
-  [entry]
+  [^js entry]
   (.-set entry))
 
 (defn last-tiers
@@ -713,7 +713,7 @@
   (let [frame-kw (resolve-frame! (react/useContext adapter-context/frame-context))
         props    (or (unchecked-get js-props "rfProps") {})
         element  (render-body frame-kw body-fn props)
-        entry    (.-entry rstate)]
+        ^js entry (.-entry rstate)]
     (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry) (.-snapshot entry))
     element))
 
@@ -775,7 +775,7 @@
   []
   (let [idx (index/snapshot)]
     {:cells      (count @!cells)
-     :cell-refs  (reduce + 0 (map (fn [[_ c]] (.-refs c)) @!cells))
+     :cell-refs  (reduce-kv (fn [acc _ ^js c] (+ acc (.-refs c))) 0 @!cells)
      :boundaries (count (:live idx))
      :edges      (reduce + 0 (map (fn [[_ v]] (count v)) (:b->subs idx)))
      :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @!entries))

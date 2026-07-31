@@ -1,0 +1,314 @@
+(ns re-frame.bench.hicasso.arm1.dogfood-dom-cljs-test
+  "THE DOGFOOD SCREEN, MOUNTED — AND THE SIX-WEEK CLOCK (rf2-2rtt6.9).
+
+  **HD-014 starts the K7 clock at the first Hicasso-arm commit that
+  mounts the dogfood screen. This is that mount.** The operator is on
+  record accepting it (rf2-2rtt6, 2026-07-31); K7 is never extended
+  silently.
+
+  validation.md asks for one list, one controlled field and subscription
+  reads, written in three renderings — the collector surface, the grouped
+  `use-subs` surface, and raw UIx — \"judged on diff and preference by
+  its authors\". The written judgement is
+  `docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md`. What
+  is asserted here is the half a judgement cannot supply: that the three
+  renderings build **the same page**, so the comparison is about the
+  reading surface and nothing else.
+
+  Three claims:
+
+  1. **Canonical-DOM parity** across all three, with attribute names
+     sorted, and a control that proves the comparison can answer false.
+  2. **The narrow write touches one row.** A toggle re-renders the row it
+     names and no other, on both Hicasso renderings — which is the index
+     doing its job through React rather than a claim about it.
+  3. **The controlled field echoes in the caller's turn** (HD-019's
+     synchronous door), and the collector's conditional read means a
+     completed row holds one edge where the grouped rendering holds two.
+
+  No clock is read and no bar row is published: the clock gate lines are
+  being re-taken (rf2-b0tz5) and this arm's rows are scored against the
+  restated bar later.
+
+  Runtime: `-dom-cljs-test`; under `:node-test` every claim degrades to a
+  stated skip."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.bench.hicasso.arm1.dogfood-collector :as collector]
+            [re-frame.bench.hicasso.arm1.dogfood-grouped :as grouped]
+            [re-frame.bench.hicasso.arm1.dogfood-uix :as raw-uix]
+            [re-frame.bench.hicasso.arm1.mount :as mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.bench.hicasso.front.dogfood :as dogfood]
+            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.core :as rf]
+            [re-frame.test-support :as test-support]
+            [uix.core :refer [$ defui]]
+            ["react-dom" :as react-dom]
+            ["react-dom/client" :as react-dom-client]))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter uix-adapter/adapter
+     ;; `:ambient-frame nil` is load-bearing, not tidiness. The fixture's
+     ;; default leaves a dynamic-var frame stamp in scope, and the
+     ;; carried-invariant chain resolves that tier BEFORE React context —
+     ;; so the comparator's ambient `use-subscribe` would read the
+     ;; ambient frame's app-db while `use-current-frame` reported the
+     ;; provider's, and a parity miss would look like a rendering
+     ;; difference. Caught by the frame probe below, which is why the
+     ;; probe stays.
+     :ambient-frame nil
+     :init-fn (fn [] (rt/reset-runtime!))}))
+
+(def ^:private frame-id ::arm1-dogfood)
+(def ^:private todo-count 6)
+
+(defn- skip! [why] (is true (str "the dogfood screen needs a real React DOM — " why)))
+
+(defn- fresh!
+  "A frame holding exactly the seeded page, whatever a previous mount in
+  this test did to it. Both halves are needed and neither is redundant:
+  `make-frame!` is idempotent, so it will NOT replay its initial events
+  for an id that already exists, and `reseed!` is the front half's own
+  door for returning a live frame to its seeded state."
+  []
+  (lane/leave-act-environment!)
+  (dogfood/make-frame! frame-id todo-count)
+  (dogfood/reseed! frame-id todo-count)
+  frame-id)
+
+;; ---------------------------------------------------------------------------
+;; The three mounts
+;; ---------------------------------------------------------------------------
+
+(defn- hicasso-mount!
+  "Either Hicasso rendering, on the arm's own root."
+  [screen]
+  (mount/root! (mount/fresh-container!) frame-id [screen {}]))
+
+(defn- uix-mount!
+  "The comparator, on its own React root and its own `frame-provider`.
+  Deliberately NOT the arm's root: the control must not borrow the
+  candidate's plumbing, or a plumbing bug would hide inside the parity
+  gate it is supposed to expose."
+  []
+  (let [container (mount/fresh-container!)
+        root      (react-dom-client/createRoot container)]
+    (react-dom/flushSync (fn [] (.render root (raw-uix/root frame-id))))
+    {:root root :container container :uix? true}))
+
+(defn- release-uix! [handle]
+  (react-dom/flushSync (fn [] (.unmount (:root handle))))
+  (when-some [p (.-parentNode (:container handle))] (.removeChild p (:container handle)))
+  nil)
+
+;; ---------------------------------------------------------------------------
+;; 0 — the comparator resolves the same frame this test seeded
+;; ---------------------------------------------------------------------------
+;;
+;; A parity miss between a candidate and its control is only informative
+;; if the control was reading the same app-db. This asks that question on
+;; its own, so a failure names the plumbing rather than the rendering.
+
+(defui frame-probe [_props]
+  ($ :div.probe {:data-frame (str (uix-adapter/use-current-frame))
+                 :data-ambient (str (uix-adapter/use-subscribe [:dogfood/remaining]))
+                 :data-explicit (str (uix-adapter/use-subscribe frame-id [:dogfood/remaining]))}))
+
+(deftest the-comparator-reads-the-frame-this-test-seeded
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (is (= todo-count (rf/with-frame frame-id (deref (rf/subscribe [:dogfood/remaining]))))
+          "the frame itself is seeded")
+      (let [container (mount/fresh-container!)
+            root      (react-dom-client/createRoot container)]
+        (react-dom/flushSync
+          (fn [] (.render root ($ uix-adapter/frame-provider {:frame frame-id}
+                                  ($ frame-probe)))))
+        (let [probe (.querySelector container ".probe")]
+          (is (= (str frame-id) (.getAttribute probe "data-frame"))
+              "the comparator's provider scopes the frame this test seeded")
+          (is (= (str todo-count) (.getAttribute probe "data-explicit"))
+              "an explicitly-framed read sees that frame's app-db")
+          (is (= (str todo-count) (.getAttribute probe "data-ambient"))
+              "and so does the ambient read the comparator is written with"))
+        (react-dom/flushSync (fn [] (.unmount root)))
+        (when-some [pn (.-parentNode container)] (.removeChild pn container))))))
+
+;; ---------------------------------------------------------------------------
+;; 1 — the same page, three ways
+;; ---------------------------------------------------------------------------
+
+(deftest the-three-renderings-build-the-same-page
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    ;; The comparator goes FIRST, on the freshest possible frame. If it
+    ;; went last, a parity miss could be read either as a rendering
+    ;; difference or as residue from the two mounts before it, and the
+    ;; gate would not be able to tell a reader which.
+    (let [_ (fresh!)
+          c (uix-mount!)
+          c-dom (lane/canonical (:container c))
+          _ (release-uix! c)
+          _ (fresh!)
+          a (hicasso-mount! collector/screen)
+          a-dom (lane/canonical (:container a))
+          _ (mount/release! a)
+          _ (fresh!)
+          b (hicasso-mount! grouped/screen)
+          b-dom (lane/canonical (:container b))
+          _ (mount/release! b)]
+      (is (= a-dom b-dom) "collector and grouped build the same page")
+      (is (= a-dom c-dom) "and so does raw UIx")
+      (testing "the comparison can answer false, so it is not passing vacuously"
+        (fresh!)
+        (let [d     (hicasso-mount! collector/screen)
+              _     (mount/dispatch! d [:dogfood/toggle 0])
+              moved (lane/canonical (:container d))]
+          (mount/release! d)
+          (is (not= a-dom moved))))
+      (testing "and the page is the screen validation.md asked for — a list
+               and a controlled field"
+        (is (re-find #"<ul class=\"list\"" a-dom))
+        (is (re-find #"class=\"new-input\"" a-dom))))))
+
+;; ---------------------------------------------------------------------------
+;; 2 — the narrow write touches one row
+;; ---------------------------------------------------------------------------
+
+(defn- row-text [handle id]
+  (some-> (.querySelector (:container handle) (str "[data-id=\"" id "\"] .label"))
+          (.-textContent)))
+
+(defn- row-done [handle id]
+  (some-> (.querySelector (:container handle) (str "[data-id=\"" id "\"]"))
+          (.getAttribute "data-done")))
+
+(deftest a-toggle-moves-exactly-the-row-it-names
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (doseq [[label screen] [["collector" collector/screen] ["grouped" grouped/screen]]]
+      (fresh!)
+      (let [handle (hicasso-mount! screen)]
+        (try
+          (is (= "false" (row-done handle 1)) label)
+          (mount/dispatch! handle [:dogfood/toggle 1])
+          (is (= "true" (row-done handle 1)) (str label ": the named row moved"))
+          (is (= "false" (row-done handle 0)) (str label ": and its neighbour did not"))
+          (is (= "false" (row-done handle 2)) (str label ": nor the one after"))
+          (finally (mount/release! handle)))))))
+
+(deftest a-broad-write-rebuilds-the-list
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (let [handle (hicasso-mount! collector/screen)]
+        (try
+          (mount/dispatch! handle [:dogfood/toggle 1])
+          (is (= todo-count (.-length (.querySelectorAll (:container handle) ".row"))))
+          (mount/dispatch! handle [:dogfood/set-filter :done])
+          (is (= 1 (.-length (.querySelectorAll (:container handle) ".row")))
+              "the filter is a broad write: the visible-ids subscription
+               moved and the list rebuilt")
+          (is (= "todo 1" (row-text handle 1)))
+          (finally (mount/release! handle)))))))
+
+(deftest keyed-rows-keep-their-identity-across-a-reorder
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (let [handle (hicasso-mount! collector/screen)]
+        (try
+          (let [node-before (.querySelector (:container handle) "[data-id=\"3\"]")]
+            (mount/dispatch! handle [:dogfood/move 3 0])
+            (let [rows (array-seq (.querySelectorAll (:container handle) ".row"))]
+              (is (= "3" (.getAttribute (first rows) "data-id"))
+                  "the moved row is first")
+              (is (identical? node-before (.querySelector (:container handle) "[data-id=\"3\"]"))
+                  "and it is the SAME node — identity follows the key")))
+          (finally (mount/release! handle)))))))
+
+;; ---------------------------------------------------------------------------
+;; 3 — the controlled field, and what the collector's conditional read buys
+;; ---------------------------------------------------------------------------
+
+(defn- new-input [handle] (.querySelector (:container handle) ".new-input"))
+
+(deftest the-controlled-field-echoes-in-the-callers-turn
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (let [handle (hicasso-mount! collector/screen)]
+        (try
+          (let [input (new-input handle)]
+            (is (= "" (.-value input)))
+            ;; The intent's own path: dispatch through the arm's
+            ;; synchronous door, exactly as the lowered `:on-input`
+            ;; closure does, and read the DOM on the next line.
+            (rt/dispatch! frame-id [:dogfood/edit-draft dogfood/new-draft-key "milk"])
+            (mount/settle!)
+            (is (= "milk" (.-value (new-input handle)))
+                "the echo landed without waiting for a later turn"))
+          (finally (mount/release! handle)))))))
+
+(deftest the-submit-intent-creates-and-clears-the-draft
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (let [handle (hicasso-mount! collector/screen)]
+        (try
+          (rt/dispatch! frame-id [:dogfood/edit-draft dogfood/new-draft-key "milk"])
+          (mount/settle!)
+          (rt/dispatch! frame-id [:dogfood/create])
+          (mount/settle!)
+          (is (= (inc todo-count) (.-length (.querySelectorAll (:container handle) ".row"))))
+          (is (= "milk" (row-text handle todo-count)))
+          (is (= "" (.-value (new-input handle)))
+              "and the draft cleared by explicit caller revision, never by
+               value equality")
+          (finally (mount/release! handle)))))))
+
+(deftest the-collectors-conditional-read-costs-fewer-edges-than-the-declaration
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (let [collector-edges (let [h (hicasso-mount! collector/screen)]
+                              (mount/dispatch! h [:dogfood/toggle 0])
+                              (mount/dispatch! h [:dogfood/toggle 1])
+                              (let [e (:edges (rt/stats))] (mount/release! h) e))
+            _ (fresh!)
+            grouped-edges   (let [h (hicasso-mount! grouped/screen)]
+                              (mount/dispatch! h [:dogfood/toggle 0])
+                              (mount/dispatch! h [:dogfood/toggle 1])
+                              (let [e (:edges (rt/stats))] (mount/release! h) e))]
+        (is (< collector-edges grouped-edges)
+            (str "two completed rows drop their draft edge under the collector "
+                 "and keep it under the declaration (" collector-edges " vs "
+                 grouped-edges ") — the same page, two edge counts, which is "
+                 "the surface difference stated as a number rather than a "
+                 "preference"))))))
+
+;; ---------------------------------------------------------------------------
+;; Teardown
+;; ---------------------------------------------------------------------------
+
+(deftest the-screen-leaves-no-residue
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (doseq [[label screen] [["collector" collector/screen] ["grouped" grouped/screen]]]
+      (fresh!)
+      (let [handle (hicasso-mount! screen)]
+        (mount/dispatch! handle [:dogfood/toggle 0])
+        (mount/dispatch! handle [:dogfood/set-filter :all])
+        (mount/release! handle)
+        (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
+               (rt/residue))
+            (str label ": zero leaked subscription ref-counts after teardown"))))))
