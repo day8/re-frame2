@@ -3490,20 +3490,45 @@
    (deftest jvm-provenance-entry-is-weak-and-expunged-when-its-throwable-dies
      ;; acceptance 3 (the weak-lifecycle PROOF): release the throwable, retain only a
      ;; WeakReference, force bounded GC + a later map access, and prove the referent
-     ;; CLEARS (the storage retains it via NEITHER key NOR value) and the private
-     ;; storage returns to baseline (the cleared entry is expunged). A strong-map
-     ;; mutation — retaining the referent by key OR value — reddens gc-until-cleared?.
-     (let [prov @#'obs/provenance-both-channels
-           m    (:by-throwable @#'obs/provenance-storage)]
-       ;; Reach a stable baseline: drain any prior stale entries first.
-       (System/gc) (System/runFinalization)
-       (#'obs/source-covered-always-on? (ex-info "baseline drain" {}))
-       (let [baseline (.size ^java.util.Map m)
-             t-box    (volatile! (ex-info "weak-lifecycle boom" {}))
-             t-ref    (java.lang.ref.WeakReference. ^Object @t-box)]
-         (#'obs/attest-provenance! @t-box prov)
-         (is (= (inc baseline) (.size ^java.util.Map m))
-             "the attestation bound exactly one entry")
+     ;; CLEARS (the storage retains it via NEITHER key NOR value) and THIS entry is
+     ;; expunged from the private storage. A strong-map mutation — retaining the
+     ;; referent by key OR value — reddens gc-until-cleared?; a mutation that leaks
+     ;; the entry (never enqueued, never removed) reddens the expunge poll below.
+     ;;
+     ;; BOTH map assertions name THIS ONE ENTRY, never the map's total size
+     ;; (rf2-8vvdo). `provenance-storage` is PROCESS-WIDE and shrinks asynchronously:
+     ;; a Reference is CLEARED during GC but ENQUEUED afterwards by the
+     ;; ReferenceHandler thread, so any `baseline` sampled after a drain over-counts
+     ;; by whatever backlog is still pending — and that backlog grows with machine
+     ;; load. The size-based form this replaced therefore reddened BECAUSE UNRELATED
+     ;; COLLECTION SUCCEEDED: nothing here adds an entry after the attestation, so the
+     ;; size only falls, and a sibling landing mid-poll drops it BELOW the sampled
+     ;; baseline, after which `(= baseline (.size m))` can never hold again and the
+     ;; bounded loop times out into false. Relaxing that to `(<= (.size m) baseline)`
+     ;; would cure the false red at the cost of a false GREEN under the very same
+     ;; load: a sibling expunging in our entry's place satisfies it while our entry is
+     ;; still leaked. Asking the map about OUR OWN KEY is immune to both, and says
+     ;; exactly what the test is named for.
+     (let [prov  @#'obs/provenance-both-channels
+           m     ^java.util.Map (:by-throwable @#'obs/provenance-storage)
+           t-box (volatile! (ex-info "weak-lifecycle boom" {}))
+           t-ref (java.lang.ref.WeakReference. ^Object @t-box)]
+       (#'obs/attest-provenance! @t-box prov)
+       ;; The STORED key objects for this throwable, found by identity over the live
+       ;; key set. A key is a WeakReference subclass, so holding one strongly retains
+       ;; the KEY and never its referent — the entry stays free to be cleared,
+       ;; enqueued and expunged exactly as in production (the HashMap holds its keys
+       ;; strongly anyway). Its `hashCode` is the identityHashCode captured at
+       ;; construction and its `equals` short-circuits on `identical? this o`, so
+       ;; `.containsKey` answers about THIS entry alone — before or after clearing,
+       ;; and without ever dereferencing a dead referent.
+       (let [our-keys (locking m
+                        (into [] (filter #(identical? @t-box
+                                                      (.get ^java.lang.ref.WeakReference %)))
+                              (.keySet m)))
+             our-key  (first our-keys)]
+         (is (= 1 (count our-keys))
+             "the attestation bound EXACTLY one entry, keyed by this throwable")
          (is (true? (#'obs/source-covered-always-on? @t-box))
              "the bound throwable reads covered")
          (vreset! t-box nil) ;; drop the last strong ref — only t-ref (weak) remains
@@ -3515,10 +3540,11 @@
          (is (loop [i 0]
                (#'obs/source-covered-always-on? (ex-info "post-gc access" {}))
                (cond
-                 (= baseline (.size ^java.util.Map m)) true
-                 (>= i 40)                             false
+                 (not (.containsKey m our-key)) true
+                 (>= i 40)                      false
                  :else (do (System/gc) (System/runFinalization) (recur (inc i)))))
-             "the cleared entry was expunged — private storage returned to baseline")))))
+             (str "the cleared entry was expunged — THIS key is gone from the private "
+                  "storage"))))))
 
 ;; ===========================================================================
 ;; rf2-kia9st — the JVM provenance is TRULY reload-safe: a REAL namespace reload
