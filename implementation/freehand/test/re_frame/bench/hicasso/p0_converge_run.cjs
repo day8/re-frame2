@@ -125,6 +125,25 @@ if (!['reagent', 'uix'].includes(START)) {
   process.exit(1);
 }
 
+// `HICASSO_RATOM=on` puts the SECOND AUTHOR'S `:reagent-ratom` arm in the
+// Reagent segment of the `M1` and `broad` rows, so `reagent-subs / ratom` —
+// rf2-2rtt6.2's headline 1, the price of the reactive system — can be formed
+// a second way on a second page (rf2-2rtt6.21). Default OFF, and the default
+// is load-bearing: with the arm in it the Reagent segment runs four arms
+// against the UIx segment's three, which is a different interleave and a
+// bigger mount budget than the schedule rf2-6i0i2's ten-run ensemble was
+// measured under. An unflagged invocation is still that instrument; a flagged
+// one is a different plan and says so on every record it writes.
+//
+// It composes with HICASSO_ONLY rather than implying it: `M2` and `narrow`
+// carry no ratom arm in either mode, so the useful pairing is
+// `HICASSO_RATOM=on HICASSO_ONLY=M1,broad`.
+const RATOM = (process.env.HICASSO_RATOM || 'off').trim();
+if (!['on', 'off'].includes(RATOM)) {
+  console.error(`[converge] HICASSO_RATOM=${RATOM} is not on|off`);
+  process.exit(1);
+}
+
 // A page's own budget. Six rounds of two segments with warm-up is
 // minutes, not seconds, and a loaded workstation is the normal case.
 const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
@@ -198,7 +217,7 @@ async function runRow(browser, row) {
     // `'commit'`, not `'load'`. The bundle's `:init-fn` runs inside the
     // `<script>`, so the measurement happens while the document is still
     // loading and `load` cannot fire until it is over.
-    await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}&start=${START}`, {
+    await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}&start=${START}&ratom=${RATOM}`, {
       waitUntil: 'commit',
       timeoutMs: NAV_TIMEOUT_MS,
       budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
@@ -260,11 +279,19 @@ async function runRow(browser, row) {
   // bare command: a published figure whose repro command does not reproduce
   // it is a figure nobody can check.
   console.log(
-    `;; reproduce  ${ONLY ? `HICASSO_ONLY=${ONLY} ` : ''}${START !== 'reagent' ? `HICASSO_START=${START} ` : ''}node ` +
+    `;; reproduce  ${ONLY ? `HICASSO_ONLY=${ONLY} ` : ''}${START !== 'reagent' ? `HICASSO_START=${START} ` : ''}` +
+      `${RATOM !== 'off' ? `HICASSO_RATOM=${RATOM} ` : ''}node ` +
       `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs`
   );
   console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (HICASSO_ONLY=${ONLY})` : ''}`);
   console.log(`;; start      round 0 led by ${START} (HICASSO_START), alternating`);
+  console.log(
+    `;; ratom      ${RATOM} (HICASSO_RATOM)` +
+      (RATOM === 'on'
+        ? ' — the second author\'s :reagent-ratom arm is in the Reagent segment of M1 and broad;' +
+          ' this run\'s cross-segment red-zone is NOT the published threshold'
+        : '')
+  );
   for (const o of outcomes) {
     for (const [k, v] of Object.entries(o.results)) {
       console.log(`;; ==== HICASSO ${o.row.id} / ${k} ====`);
