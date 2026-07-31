@@ -310,9 +310,38 @@ the alternation splits 3:3, so the raw mean and the order-balanced mean are the
 **same number by construction**; there is no longer a corrected value to print
 beside a biased one.
 
+> ## SUPERSEDED IN PLACE — every row below was measured on a spine that no longer ships
+>
+> **All four rows come off one anchor, `4e4a68fa1f`, whose `spine.cljs` blob is
+> `befd8469d932d6ee381e80e724cfbc98c0861814` — byte-identical to the spine as it
+> stood BEFORE both of this week's production landings.** Established by blob
+> rather than by date, and the check is three commands:
+>
+> ```bash
+> S=implementation/core/src/re_frame/substrate/spine.cljs
+> git rev-parse 4e4a68fa1f:$S   # befd8469d9…  the ensemble's tree
+> git rev-parse 9df5094816^:$S  # befd8469d9…  identical — so the run is PRE-.13
+> git rev-parse f784ab0adb:$S   # 086d08e940…  .25, a different spine again
+> ```
+>
+> | converged row | landed anchor | spine blob | vs `.13` `9df5094816` | vs `.25` `f784ab0adb` |
+> |---|---|---|---|---|
+> | M1 mount | `4e4a68fa1f` | `befd8469d9` | **PRE** | **PRE** |
+> | M2 mount | `4e4a68fa1f` | `befd8469d9` | **PRE** | **PRE** |
+> | bulk broad | `4e4a68fa1f` | `befd8469d9` | **PRE** | **PRE** |
+> | bulk narrow | `4e4a68fa1f` | `befd8469d9` | **PRE** | **PRE** |
+>
+> Not one row was post-landing, so the whole table needed re-taking rather than
+> just the mount row. **The re-take is [below](#the-re-take-on-the-post-25-tree-rf2-b0tz5)**
+> and it moves exactly one line: **M1 mount, `1.2310×` → indistinguishable from
+> parity.** The other three reproduce inside their published run-mean spreads and
+> are NOT restated. Mike's ruling of 2026-07-31 (option (a), on `rf2-2rtt6.1`)
+> required the re-take to happen on THIS instrument rather than by carrying the
+> coldmount page's post-`.25` figure across, and that is what was done.
+
 | witness | **threshold** | 95% interval on the mean | run means (10) | verdict |
 |---|---|---|---|---|
-| **M1 mount** — 901 el, 300 boundaries | ~~1.2301×~~ → **1.2310×** | ~~1.2105 – 1.2514~~ → **1.2109 – 1.2510** | 1.1989 – 1.2931 | **UIx slower.** 59 of 60 rounds above 1.0; 19 of 20 order strata wholly above it |
+| **M1 mount** — 901 el, 300 boundaries | ~~1.2301×~~ ~~1.2310×~~ → **SUPERSEDED, see [the re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5)** | ~~1.2105 – 1.2514~~ → ~~1.2109 – 1.2510~~ *(9-df corrected, then superseded with the row)* | ~~1.1989 – 1.2931~~ | ~~UIx slower~~ — **measured on the pre-`.13`/`.25` spine; the mount red zone has since closed** |
 | **M2 mount** — 51 el, 12 fields · *diagnostic* | ~~1.0539×~~ → **1.0601×** | ~~1.0017 – 1.1185~~ → **1.0028 – 1.1173** | 0.9561 – 1.1923 | **straddles 1.0 — indistinguishable**, in all ten runs |
 | **bulk broad** — one commit all 300 read | ~~0.6239×~~ → **0.6291×** | ~~0.5996 – 0.6587~~ → **0.6001 – 0.6581** | 0.5792 – 0.6987 | **UIx faster.** All 60 rounds below 1.0; all 20 strata wholly below it |
 | **bulk narrow** — 10 commits, each read by exactly one boundary, one window | ~~1.1540×~~ → **1.1754×** | ~~1.1579 – 1.1930~~ → **1.1582 – 1.1926** | 1.1390 – 1.2186 | **UIx slower.** All 60 rounds above 1.0; all 20 strata wholly above it |
@@ -382,6 +411,121 @@ on the five-round run (16.5–30 quanta against 21–30). A common factor in bot
 numerators cancels out of a ratio of two floor-normalised ratios, which is why
 the threshold itself barely moves: 2.831 ÷ 2.416 = 1.172, against the 1.1754 the
 row publishes. That agreement is the floor normalisation working as designed.
+
+### The re-take on the post-`.25` tree (rf2-b0tz5)
+
+**Mike ruled option (a) on 2026-07-31: re-take on the CONVERGED instrument and
+restate from same-instrument data.** Bridging the coldmount page's post-`.25`
+figure onto this page's line was explicitly rejected, and the reason is on this
+page — `rf2-2rtt6.21` measured the bar's own denominator, `reagent-subs ÷ floor`,
+differing **+9.7% on mount and +20.6% on broad between two authors in the same
+session**. A ~22-point restatement carried across a bridge worth up to 20 points
+is not a restatement.
+
+#### The instrument is the same one, and the default-off arm is why
+
+`p0_converge_app.cljs` moved between the published ensemble
+(`5a727706fc…`) and this re-take (`a5177d3f0b…`), because PR #7310 added the
+`:reagent-ratom` arm. **That arm is default OFF and the default is plan-identity,
+not politeness.** With `HICASSO_RATOM` unset the driver appends `&ratom=off`, the
+page's `query-ratom` returns false, and `arms-for` builds
+`[floor, <segment arm>, ctl-2x]` — the same three arms in the same order the
+ensemble ran. This is confirmed empirically rather than by reading the diff: the
+arm-order guard in every run below enumerates exactly
+`M1/reagent-subs/{floor, reagent-subs, ctl-2x}` and
+`M1/uix-subs/{floor, uix-subs, ctl-2x}`, with **no `reagent-ratom` arm present.**
+The other five instrument files are **byte-identical** to the ensemble's:
+
+| file | ensemble `4e4a68fa1f` | this re-take | |
+|---|---|---|---|
+| `p0_converge_app.cljs` | `5a727706fc…` | `a5177d3f0b…` | moved — additive, default-off (#7310) |
+| `p0_converge_run.cjs` | `9542c11674…` | `a846d1da11…` | moved — `lane_cache` path + `&ratom=` (#7310) |
+| `lane.cljs` | `0642815dc2…` | `0642815dc2…` | **identical** |
+| `p0_reagent_views.cljs` | `bf79bf304d…` | `bf79bf304d…` | **identical** |
+| `p0_uix_views.cljs` | `34e0e89d53…` | `34e0e89d53…` | **identical** |
+| `order_guard.cljc` | `6c4097afff…` | `6c4097afff…` | **identical** |
+
+| | |
+|---|---|
+| **Whole-tree anchor** | `7f54c67d5a6f25d5bdd2d74e71e4e61ab966b663` — `origin/main`. All eight instrument and spine blobs at the measuring tree are byte-identical to it, checked by `git rev-parse` |
+| **Spine under test** | `8d20218fd18282265cce1f931d019ca1f4d88b41` — **post-`.13` (`9df5094816`) and post-`.25` (`f784ab0adb`)**, both verified ancestors |
+| **Reproduction** | `HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs`, and the same with `HICASSO_START=uix` |
+| **Schedule** | unchanged — 6 rounds × 2 segments × 3 arms interleaved, one row per page, start counterbalanced across independently launched runs |
+| **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, 24 logical CPUs |
+
+#### The quiet discipline, and the one run the guard refused
+
+Three sibling workers were live on this box throughout. **Every published run
+below was launched into a measured-quiet window** — the `java`/`node` toolchain
+sampled under 30% of one core for three consecutive samples immediately before
+launch — and the pre- and post-run readings are recorded per run.
+
+**One run was refused and is reported rather than quietly dropped.** A run
+launched at 101% of a core exited **2** on the `narrow` row: the arm-order
+guard found phase strata **1.37×–1.55×** last-third over first-third across the
+narrow arms, which is the signature of a box that degraded mid-run (the post-run
+reading was 310%). It was **re-taken under quiet, not excused, and the guard's
+tolerance was not touched.** A separate `M1`-only pilot taken under load is
+likewise excluded from every figure here. That refusal is the evidence that the
+quiet bar is doing work rather than being asserted.
+
+#### What moved, and the control that says the denominator did not
+
+The restatement rests on a comparison the `rf2-2rtt6.21` finding demands: **the
+bar's own denominator is held fixed and shown to be fixed.** On `M1`, same
+instrument and same author:
+
+| `M1` mount leg | published ensemble *(pre-`.13`/`.25`)* | this re-take *(post-`.25`)* | change |
+|---|---:|---:|---|
+| `reagent-subs ÷ floor` — **the denominator** | **4.358×** | **4.316×** | **−1.0% — unmoved** |
+| `uix-subs ÷ floor` — the frontier numerator | **5.343×** | **4.391×** | **−17.8%** |
+| **ratio** | 5.343 ÷ 4.358 = **1.226** *(published 1.2310)* | 4.391 ÷ 4.316 = **1.017** | **the line moves ~21 points** |
+
+**The arithmetic is explicit and it closes.** The published threshold is the
+quotient of two floor-normalised legs; the denominator leg reproduces to within
+1.0% while the numerator leg falls 17.8%, and 4.391 ÷ 4.316 = 1.017 against the
+1.0185 the runs actually report — the small residue being that each run's ratio
+is formed per round and per segment before averaging, not from the two means.
+**So the ~21-point tightening is a property of the UIx arm, not of a drifting
+baseline** — which is precisely the failure mode a cross-author bridge could not
+have excluded.
+
+*(Numbers in this section are the ensemble as it stands; the run count and the
+interval are stated with the rows below and are updated as runs land.)*
+
+#### The restated lines — INSTRUMENT STAMP: converged `p0_converge_app` instrument, `rf2-2rtt6.2` witness family, post-`.25` spine `8d20218fd1`
+
+| witness | published *(pre-landing)* | **re-take, post-`.25`** | verdict |
+|---|---|---|---|
+| **M1 mount** — 901 el, 300 boundaries · *bar row* | ~~**1.2310×**~~ [1.1989 – 1.2931] | **≈1.02×** — see rows below | **RESTATED. The mount red zone has closed:** UIx and Reagent are now **indistinguishable** on the bar's mount row |
+| **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0601× [0.9561 – 1.1923] | reproduces inside its spread | **NOT restated** — still indistinguishable, still diagnostic |
+| **bulk broad** — one commit all 300 read · *bar row* | 0.6291× [0.5792 – 0.6987] | reproduces inside its spread | **NOT restated** — UIx still faster, direction unchanged |
+| **bulk narrow** — 10 commits, one window | 1.1754× [1.1390 – 1.2186] | reproduces inside its spread | **NOT restated** — UIx still slower, direction unchanged |
+
+**Only the mount row moved, and that is the mechanism agreeing with the
+measurement rather than a coincidence.** `rf2-2rtt6.25` landed the hook-scoped
+provisional hand-off so that a cold read builds **one reaction instead of two** —
+a **mount-path** cost. `M1` is the 300-boundary mount row and it moves ~21
+points. `broad` and `narrow` are commit-path rows and do not move. `M2` is also a
+mount row and does not resolve a move, which is expected rather than awkward: its
+window is three to six of Chrome's 100 µs quanta, so an 18% shift on one arm sits
+under its resolution — which is exactly why that row is graded diagnostic.
+
+#### The converged instrument AGREES with coldmount
+
+The advisory recorded that
+[the coldmount page](coldmount-double-build-priced.md) independently re-derived
+the same 901-element / 300-boundary mount witness post-`.25` at **`1.0054×`
+[0.917 – 1.143]**, excess mean 0.00 ms, on **its own instrument**. This re-take,
+on the **converged** instrument, reads the same witness at **≈1.02×**.
+
+**Two different instruments, two different drivers, two different authors, the
+same answer to within about two points** — against a published line of `1.2310×`
+that both now contradict by roughly twenty. The disagreement that `rf2-2rtt6.21`
+found in the denominator between two authors (+9.7% mount) is larger than the
+gap between these two post-`.25` mount readings, so the agreement is not an
+artefact of a shared harness. **The tightening is real, and it is the correct
+outcome rather than a problem to be softened.**
 
 ### All four rows reproduce against the revived driver (rf2-rjfz1)
 
