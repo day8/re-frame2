@@ -208,7 +208,7 @@ Note the two consequences of putting hooks in a body at all: it is outside the
 headless testing scope ([Testing](08-testing.md)), and you have taken on React's hook
 rules yourself. Both are fine. Both are on you.
 
-### The reserved vector — and the gap it does not close
+### The reserved vector, and the gap it does not close
 
 One thing about `:ref` is worth knowing before you write your first one, because it
 changes what you should put in the closure.

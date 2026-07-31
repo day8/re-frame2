@@ -116,6 +116,14 @@
   ;; does not graduate it.
   re-frame.bench.hicasso.arm1.lang/defview clojure.core/defn
 
+  ;; Hicasso's one callback form (rf2-2rtt6.35, HD-024). `(hfn [e] body+)`
+  ;; expands to `(intent/callback (fn [e] body+))` and nothing else, so
+  ;; `clojure.core/fn` is exactly its shape: the argument vector gets
+  ;; ordinary lexical-binding analysis, which is what stops every `hfn`
+  ;; parameter reading as an unresolved symbol. Retires with the arm on
+  ;; the same terms as `defview` above.
+  re-frame.bench.hicasso.arm1.lang/hfn     clojure.core/fn
+
   ;; `reg-view` is `(reg-view sym [args] body)` — defn-shape, but the
   ;; macro auto-injects `dispatch` / `subscribe` into the body. Handled
   ;; by the dedicated hook in `.clj-kondo/hooks/re_frame/core.clj` —
