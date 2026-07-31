@@ -265,8 +265,8 @@ carried against its copy (pre-fix: 3,501 vs 3,489, 0.33%).
 `re-frame.adapter.uix` (first-class, shipped), `re-frame.freehand.substrate`, and
 `re-frame.ui.substrate`. One change, three beneficiaries.
 
-**Correctness.** The fallback stopped being a live re-read. That window is
-covered, and the covering mechanism is now pinned by a test rather than argued:
+**Correctness.** The fallback stopped being a live re-read. That was measured to
+be a real defect, and it has since been repaired; this section records both.
 
 * React's `useSyncExternalStore` calls `getSnapshot` again after `subscribe`
   returns, and by then `subscribe-fn` has published the committed reaction, so
@@ -276,12 +276,35 @@ covered, and the covering mechanism is now pinned by a test rather than argued:
   `updateStoreInstance`, and passive effects run in push order — and
   `assert-use-subscribe-render-phase-reaction-not-retained` reds if a React
   upgrade ever reorders them.
-* What is given up is narrower than "the live re-read": on a **concurrent** lane
-  the render-phase store-consistency check no longer catches such a write, so the
-  corrective re-render happens one commit later instead of before the commit.
-  Both before and after, the corrective re-render happens.
-* A frozen value satisfies React's "the result of getSnapshot should be cached"
-  rule at least as well as the previous live deref did.
+* **This page originally claimed what was given up was "narrower than the live
+  re-read" — a corrective re-render one commit later rather than before the
+  commit. The merged-PR audit rejected that, and measurement agrees.** A value
+  frozen at render time compares equal to itself, so React's **pre-commit**
+  store-consistency check became a no-op *by construction*: on a concurrent lane
+  the torn render was no longer discarded, it **committed**. Observed at the
+  first commit, on a real browser host, cold, with an unmoved control beside it:
+  first commit `{:dom "g=0", :db 1}` — the DOM carrying the render's value while
+  app-db had already moved. That is a layout-visible, paint-eligible stale
+  commit, not delayed bookkeeping, and it is the shape rf2-so3io / rf2-anmdr
+  price (a panel mounting as a permission drops).
+* **Repaired, still without retaining a handle** (rf2-2rtt6.13, after the audit).
+  The pre-commit read prefers the reaction the hook's unspent **escrow token**
+  is already holding — live by construction, since that +1 is what keeps the
+  entry tenanted for the commit to adopt (rf2-2rtt6.25). Nothing new is
+  retained: the token's hold predates the repair and ends at adoption or at the
+  macrotask horizon, never at the component's lifetime, and the memo slot and
+  `get-snap`'s closure still hold a value and no handle. The same row now reads
+  `{:dom "g=1", :db 1}` — React sees the movement, discards the torn render, and
+  the first commit is fresh. Pinned by
+  `assert-use-subscribe-render-to-commit-window-first-commit`.
+* On a **blocking** lane (`root.render` on the default lane — every shipped
+  consumer's normal configuration) React pushes no pre-commit store-consistency
+  check at all, so the render's value is the committed value whatever
+  `getSnapshot` says. That row is unchanged by any of this and is pinned too, so
+  a React release that starts checking blocking lanes shows up as a failure.
+* Every source `get-snap` can return is `Object.is`-stable across back-to-back
+  calls — a memoised reaction's value or a frozen one — which is what React's
+  "the result of getSnapshot should be cached" rule requires.
 * The key-change path (rf2-naz09e) is unchanged in shape: the memo is keyed on
   `stable-key`, so a key change recomputes the snapshot for the **new** target and
   the key guard still rejects the stale `committed-ref`. If anything it is now
@@ -297,11 +320,14 @@ builds two. Removing the double build is rf2-2rtt6.14, **ruled ADOPT on
 + commit-time adoption), implemented by rf2-2rtt6.25 on these same lines and
 sequenced after this change.
 
-**Rejected alternative.** Making the fallback live *without* retention — having
-`get-snap` call `subs/subscribe-once` on the fallback path — is unsafe. Each call
-builds a fresh reaction with a fresh memo cell, so a sub returning a collection
-yields a fresh, non-`Object.is` value on every `getSnapshot`, which is React's
-documented infinite-render-loop condition.
+**Rejected alternative.** Making the fallback live *without* retention by having
+`get-snap` **re-subscribe** per call — `subs/subscribe-once`, or a balanced
+`subscribe`/`unsubscribe` round trip — is unsafe. On a miss each call builds a
+fresh reaction with a fresh memo cell, so a sub returning a collection yields a
+fresh, non-`Object.is` value on every `getSnapshot`, which is React's documented
+infinite-render-loop condition. The repair above is not that: it *reads a
+reference something else already owns*, so it cannot build anything, and it
+falls back to the frozen value precisely when there is nothing live to read.
 
 **How the change is pinned.** `assert-use-subscribe-render-phase-reaction-not-retained`
 (`implementation/core/test/re_frame/adapter/react_shared_suite.cljs`, run by the

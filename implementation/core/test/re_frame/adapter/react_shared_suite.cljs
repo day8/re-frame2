@@ -4846,6 +4846,196 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
+;; ---- the render→commit window, observed AT THE FIRST COMMIT (rf2-2rtt6.13 audit) ----
+;;
+;; WHY THIS EXISTS. The assertion above pins an ORDERING — React calls
+;; `getSnapshot` again after `subscribe` returns — and an ordering cannot
+;; answer the question the audit of PR #7304 actually asked. When a write lands
+;; between a render and the commit that owns it, WHAT DOES THE FIRST COMMIT
+;; SHOW? A repair that arrives one commit later is compatible with both
+;; answers, so nothing that only reads the settled DOM can discriminate. This
+;; row observes the first commit itself.
+;;
+;; DETERMINISM, NOT TIMING. The write is issued from the RENDER BODY of a
+;; sibling that renders after the subscriber in the same pass. React cannot
+;; distinguish that from a write delivered by a browser event while a
+;; time-sliced render is parked: in both cases app-db moves after the
+;; subscriber's `getSnapshot` and before the commit. There is no timer and no
+;; race — the ordering is the render order of two siblings. The write is
+;; ONE-SHOT, so a corrective re-render is not written over again and the retry
+;; can converge.
+;;
+;; WHAT "THE FIRST COMMIT" MEANS. A layout effect runs in the commit's layout
+;; phase: after the whole tree's DOM mutation, before the browser can paint. A
+;; render React discards before committing never runs one. So the FIRST firing
+;; of the observer's layout effect is exactly the first committed,
+;; paint-eligible value — the thing a user could see and a same-commit ref /
+;; layout read does see.
+;;
+;; THE UNMOVED CONTROL. Each lane runs twice — once with the write, once
+;; without — each on its OWN frame, hence its own sub-cache, so every row is
+;; genuinely COLD (the only state in which `get-snap` takes the pre-commit
+;; path at all). Without the control a "nothing stale" reading would be
+;; indistinguishable from a probe that never fired.
+;;
+;; THE TWO LANES ARE DIFFERENT QUESTIONS, and only measurement separates them.
+;; React pushes its pre-commit store-consistency check ONLY on a non-blocking
+;; lane (`react-dom-client`: `0 !== (renderLanes & 127) ||
+;; pushStoreConsistencyCheck(…)`) and consults it only when the render
+;; actually time-sliced (`renderWasConcurrent && !isRenderConsistentWith
+;; ExternalStores(…)`). So:
+;;
+;;   BLOCKING (`root.render` on the default lane — every shipped consumer's
+;;   normal configuration) — React performs NO pre-commit re-read. The value
+;;   the render produced is the value that commits, and no `getSnapshot`
+;;   implementation can change that. Pinned here so a React release that
+;;   starts checking blocking lanes is caught rather than assumed.
+;;
+;;   CONCURRENT (`startTransition`, `useDeferredValue` — opt-in, and per
+;;   rf2-so3io reachable at any time because we mount through `createRoot`) —
+;;   React DOES re-read every store's `getSnapshot` before committing and
+;;   throws the render away if any moved. Whether that check can SEE the
+;;   movement is decided entirely by what `get-snap` returns pre-commit, and
+;;   that is the seam PR #7304 changed.
+
+(def ^:private gap-idle-element
+  "A substrate-free placeholder so the probe arrives as an UPDATE on both
+  lanes and the two arms differ in exactly one thing: the lane."
+  (when (and (exists? js/document) (some? (.-createElement js/document)))
+    (React/createElement "span" nil "idle")))
+
+(defn- run-render-to-commit-window-row!
+  "Mount the gap probe once, COLD, on `frame`, on `lane`, with (`:move? true`)
+  or without the render-phase write, and answer what the FIRST commit showed
+  alongside the settled state."
+  [act-fn
+   {:keys [probe-gap-element gap-write! gap-armed? gap-first-commit
+           gap-mount-node gap-db-read gap-observed gap-query refcount-target]}
+   {:keys [frame lane move?]}]
+  (rf/make-frame {:id frame :doc "rf2-2rtt6.13 render→commit window row"})
+  (rf/dispatch-sync [::gap-seed] {:frame frame})
+  (reset! refcount-target frame)
+  (let [cache      (:sub-cache (frame/frame frame))
+        mount-node (make-mount-node!)
+        root       (react-dom-client/createRoot mount-node)]
+    (reset! gap-mount-node mount-node)
+    (reset! gap-db-read (fn [] (:n (rf/app-db-value frame))))
+    (reset! gap-first-commit nil)
+    (reset! gap-observed [])
+    (reset! gap-armed? false)
+    (reset! gap-write! (when move?
+                         (fn [] (rf/dispatch-sync [::gap-set 1] {:frame frame}))))
+    (try
+      (act-fn (fn [] (.render root gap-idle-element)))
+      (let [cold? (nil? (get @cache [gap-query]))]
+        ;; Arm only now — the placeholder render must not consume the one shot.
+        (reset! gap-armed? true)
+        (if (= lane :concurrent)
+          (act-fn (fn [] (React/startTransition
+                           (fn [] (.render root (probe-gap-element))))))
+          (act-fn (fn [] (.render root (probe-gap-element)))))
+        {:lane         lane
+         :moved?       move?
+         :cold?        cold?
+         :first-commit @gap-first-commit
+         :settled      {:dom (.-textContent mount-node)
+                        :db  (:n (rf/app-db-value frame))}
+         :observed     @gap-observed})
+      (finally
+        (try (act-fn (fn [] (.unmount root))) (catch :default _ nil))))))
+
+(defn assert-use-subscribe-render-to-commit-window-first-commit
+  "rf2-2rtt6.13 (merged-PR audit of #7304): an app-db write landing in the
+  render→commit gap, observed AT THE FIRST COMMIT rather than after the dust
+  settles, on both a blocking and a concurrent lane, each beside an unmoved
+  control.
+
+  cfg keys:
+    :probe-gap-element  — 0-arg fn returning the probe root element
+                          (subscriber + one-shot render-phase mutator +
+                          layout-effect observer)
+    :gap-write! :gap-armed? :gap-first-commit :gap-mount-node :gap-db-read
+    :gap-observed       — the probe's side-channel atoms
+    :gap-query          — the probe's query id
+    :gap-blocking-frame / :gap-blocking-control-frame /
+    :gap-concurrent-frame / :gap-concurrent-control-frame — one frame per row,
+                          so every row is a genuinely COLD read"
+  [{:keys [name gap-query gap-blocking-frame gap-blocking-control-frame
+           gap-concurrent-frame gap-concurrent-control-frame]
+    :as   cfg}]
+  (testing (str name " — a write in the render→commit gap, observed at the FIRST commit (rf2-2rtt6.13)")
+    (with-browser-act
+     (fn [act-fn]
+      (rf/reg-event ::gap-seed (fn [_ _] {:db {:n 0}}))
+      (rf/reg-event ::gap-set  (fn [_ [_ v]] {:db {:n v}}))
+      (rf/reg-sub gap-query (fn [db _] (:n db)))
+      (let [blocking-control   (run-render-to-commit-window-row!
+                                 act-fn cfg {:frame gap-blocking-control-frame
+                                             :lane  :blocking :move? false})
+            blocking-moved     (run-render-to-commit-window-row!
+                                 act-fn cfg {:frame gap-blocking-frame
+                                             :lane  :blocking :move? true})
+            concurrent-control (run-render-to-commit-window-row!
+                                 act-fn cfg {:frame gap-concurrent-control-frame
+                                             :lane  :concurrent :move? false})
+            concurrent-moved   (run-render-to-commit-window-row!
+                                 act-fn cfg {:frame gap-concurrent-frame
+                                             :lane  :concurrent :move? true})]
+        ;; ---- the probe is sound before anything is concluded from it ------
+        (doseq [[label row] [[:blocking-control blocking-control]
+                             [:blocking-moved blocking-moved]
+                             [:concurrent-control concurrent-control]
+                             [:concurrent-moved concurrent-moved]]]
+          (is (:cold? row)
+              (str label ": the probe mounted COLD — `get-snap`'s pre-commit "
+                   "path is only reachable with no live cache entry. Row " row))
+          (is (some? (:first-commit row))
+              (str label ": the observer's layout effect fired, so there IS a "
+                   "first commit to read. Row " row)))
+        ;; ---- THE UNMOVED CONTROLS ----------------------------------------
+        (is (= {:dom "g=0" :db 0} (:first-commit blocking-control))
+            (str "blocking control: nothing moved, so the first commit shows "
+                 "the seeded value and agrees with app-db. Row " blocking-control))
+        (is (= {:dom "g=0" :db 0} (:first-commit concurrent-control))
+            (str "concurrent control: nothing moved, so the first commit shows "
+                 "the seeded value and agrees with app-db. Row " concurrent-control))
+        ;; ---- the injection really landed INSIDE the gap -------------------
+        (is (= 1 (:db (:first-commit blocking-moved)))
+            (str "blocking moved: app-db had already moved to 1 by the first "
+                 "commit — the write landed in the gap, not after it. Row "
+                 blocking-moved))
+        (is (= 1 (:db (:first-commit concurrent-moved)))
+            (str "concurrent moved: app-db had already moved to 1 by the first "
+                 "commit — the write landed in the gap, not after it. Row "
+                 concurrent-moved))
+        ;; ---- BLOCKING lane: React performs no pre-commit re-read ----------
+        ;; NOT a property of this spine and NOT changed by PR #7304: on a
+        ;; blocking lane React pushes no store-consistency check at all, so the
+        ;; render's value is the committed value whatever `get-snap` would say.
+        ;; Pinned so a React release that starts checking blocking lanes shows
+        ;; up here as a failure rather than as a silent improvement nobody
+        ;; noticed.
+        (is (= "g=0" (:dom (:first-commit blocking-moved)))
+            (str "blocking moved: React pushes NO pre-commit store-consistency "
+                 "check on a blocking lane, so the first commit carries the "
+                 "render's value. Row " blocking-moved))
+        ;; ---- CONCURRENT lane: THE LOAD-BEARING ROW ------------------------
+        ;; React DOES re-read `getSnapshot` before committing a time-sliced
+        ;; render and discards the render if a store moved. The pre-commit
+        ;; fallback must therefore be able to REPORT the movement — a value
+        ;; frozen at render time compares equal to itself and makes the check
+        ;; a no-op by construction, committing (and allowing paint of) state
+        ;; the app-db has already revoked.
+        (is (= "g=1" (:dom (:first-commit concurrent-moved)))
+            (str "concurrent moved: the pre-commit re-read SAW the write, so "
+                 "React discarded the torn render and the FIRST commit is "
+                 "fresh — no stale paint. Row " concurrent-moved))
+        ;; ---- both moved rows settle fresh --------------------------------
+        (is (= {:dom "g=1" :db 1} (:settled blocking-moved))
+            (str "blocking moved settles fresh. Row " blocking-moved))
+        (is (= {:dom "g=1" :db 1} (:settled concurrent-moved))
+            (str "concurrent moved settles fresh. Row " concurrent-moved)))))))
+
 ;; ---- the commit adopts the render-phase build (rf2-2rtt6.25) --------------
 ;;
 ;; THE TERM DELETED. A React render and the commit that owns it are two
