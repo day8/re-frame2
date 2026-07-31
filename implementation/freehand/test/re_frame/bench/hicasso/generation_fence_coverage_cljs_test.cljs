@@ -43,12 +43,23 @@
   RESTARTS at 0 across one, which is precisely why Spec 006's observation
   port carries `:node-key` as a third field.
 
-  Both remaining axes are tracked as **rf2-2rtt6.44**, where the question
-  is a design decision rather than a defect: closing the registry axis for
-  a retained key would mean re-rendering every boundary on every
-  re-registration, and `observation/registry-epoch*` is `^:private` with
-  no public reader, so the arm cannot even observe it without a substrate
-  change.
+  ## The axes are closed; this arithmetic is not what closed them
+
+  **rf2-2rtt6.44 settled both, and the rows below survive it unchanged** —
+  which is the point of keeping this file. The commit basis is still blind
+  to a re-registration, still blind to a reincarnation, and *should be*:
+  the costing found that a registry term would have bought nothing. Both
+  events dispose the reaction the arm's cell holds, so the cell is deaf
+  and derives through a retired computation from that instant; the extra
+  render a moved number scheduled would have read straight back through
+  it. What closes them is the substrate's own disposal event
+  (`arm1.runtime/invalidate-cell!`), armed per unique key, costing nothing
+  in this arithmetic — so `observation/registry-epoch*` stayed `^:private`
+  and no substrate reader was added. `arm1/disposed-cell-cljs-test` is the
+  measurement, both failures pinned and mutation-proved.
+
+  These rows are therefore a **standing statement of scope**: this number
+  answers the version axis and only the version axis.
 
   ## The row carries its own control, and needs to
 
@@ -122,8 +133,10 @@
             move either. Both terms of the basis sit still, and the epoch
             sum React re-checks sits still with them.
 
-            rf2-2rtt6.44 carries this axis, and the `:node-key` axis the
-            same argument covers."
+            That is correct and permanent, not a gap awaiting a term:
+            rf2-2rtt6.44 closed this axis (and the `:node-key` axis the
+            same argument covers) off the substrate's disposal event
+            instead, leaving this arithmetic exactly as it stands."
     (rf/reg-sub (first q) (fn [db _] (:v db)))
     (let [seen (volatile! nil)
           f    (make-frame! ::registry {:v 1})]

@@ -281,13 +281,27 @@
   component. Those notifications are deferred to a macrotask; the fence
   has already made the *rendering* boundary correct.
 
-  **Two axes the predecessor compared still have no counterpart**, and
-  saying so is the point of writing them down: a `:sub` re-registration
-  (its `:registry-epoch`) and a same-id frame reincarnation (its
-  `:node-key`). Neither is a frame-state install, so neither moves the
-  basis — and `frame-commit-epoch` itself restarts at 0 across a
-  reincarnation, which is precisely why the observation port carries
-  `:node-key` as a third field. rf2-2rtt6.44.
+  ### The other two axes, and why they are not the basis's to carry
+
+  The predecessor compared three things, and the basis answers one of
+  them. The other two — a `:sub` re-registration (its `:registry-epoch`)
+  and a same-id frame reincarnation (its `:node-key`) — move neither
+  term, and rf2-2rtt6.44 established that **adding a term for them would
+  have closed nothing**. Both events dispose the reaction a cell holds:
+  a re-registration through the sub-cache's replacement hook, a
+  reincarnation through frame teardown. A disposed container clears its
+  own watcher set, so the cell is deaf from that instant, and it answers
+  the RETIRED computation (or the destroyed incarnation's db) on every
+  later deref. A number that moved would have bought exactly one extra
+  render, and that render would have read back through the same dead
+  cell.
+
+  So the arm takes the substrate's own event instead of a term:
+  [[invalidate-cell!]] is armed per unique key at [[wire-cell!]] time and
+  fires only when a reaction is actually disposed. It costs no hook, no
+  per-boundary object, nothing in the snapshot arithmetic, and no read of
+  the registry — the epoch-sum `getSnapshot` is untouched. rf2-2rtt6.44
+  records the costing that rejected the alternative.
 
   ## What is deliberately NOT here (the hard fences)
 
@@ -304,6 +318,7 @@
             [re-frame.bench.hicasso.front.sub-index :as index]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.subs :as subs]
             ["react" :as react]))
 
@@ -440,10 +455,16 @@
   advances it, which costs at most one redundant re-render and cannot
   cost a missed one. Pure read; allocates nothing.
 
-  Silent on two axes by construction (rf2-2rtt6.44): a `:sub`
-  re-registration is not a frame-state install, and a same-id frame
-  reincarnation RESTARTS `frame-commit-epoch` at 0 — the case the
-  observation port needs its `:node-key` field for."
+  Silent on two axes, and permanently so — a `:sub` re-registration is
+  not a frame-state install, and a same-id frame reincarnation RESTARTS
+  `frame-commit-epoch` at 0 (measured: A's epoch and B's are both 1, so
+  the basis TIES across the reincarnation), which is the case the
+  observation port needs its `:node-key` field for. **Neither axis is
+  this number's to carry**, and rf2-2rtt6.44 settled why rather than
+  extending it: both events dispose the reaction a cell holds, so a
+  moved number would only buy a re-render that read back through the
+  same dead cell. [[invalidate-cell!]] carries them, off the substrate's
+  own disposal event."
   [frame-kw]
   (+ @!generation (frame/frame-commit-epoch frame-kw)))
 
@@ -472,6 +493,80 @@
                  0)
   nil)
 
+(declare invalidate-cell!)
+
+(defn- wire-cell!
+  "Give `cell` a live subscription: subscribe, establish the baseline,
+  arm the value-change watch, and arm the **disposal** hook. The whole of
+  a cell's attachment to the substrate, in one place, because it is
+  performed twice — once when the cell is born and once when the
+  substrate disposes the reaction out from under it.
+
+  The disposal hook is the arm's counterpart to the two axes
+  `commit-basis` cannot see (rf2-2rtt6.44), and it is deliberately an
+  *event* rather than a term in the epoch sum: the substrate already
+  tells us, exactly and only when it happens, and a term would have to be
+  read by every key on every snapshot to discover the same thing later."
+  [^js cell]
+  (let [frame-kw (.-frameKw cell)
+        query-v  (.-queryV cell)
+        wk       (.-watchKey cell)
+        reaction (subs/subscribe query-v {:frame frame-kw})]
+    (set! (.-reaction cell) reaction)
+    (when (some? reaction)
+      ;; ONE baseline deref, before the watch — see `acquire-cell!`.
+      @reaction
+      (add-watch reaction wk
+                 (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! cell))))
+      (interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
+    cell))
+
+(defn- invalidate-cell!
+  "**The two axes the epoch sum cannot carry, closed by the substrate's own
+  event** (rf2-2rtt6.44). A cell holds its reaction for the life of every
+  boundary that reads the key — that is what makes a warm read a pure
+  deref — and two substrate events dispose that reaction underneath it:
+
+  1. a `:sub` **re-registration**, which evicts the query's sub-cache
+     entry and disposes the reaction (`subs.cache/invalidate-sub-on-replace!`);
+  2. a **frame destruction**, whose teardown disposes the frame's cached
+     reactions — including across a same-id reincarnation.
+
+  Both leave the cell holding a container whose `-dispose` has already
+  run `(reset! watchers {})`, so the watch this arm installed is gone and
+  `mark-dirty!` can never fire for that key again. Measured, before this
+  hook existed: the boundary read the RETIRED computation forever and no
+  later write notified it. That is why neither axis was ever closable by
+  adding a term to `getSnapshot` — the extra render a moved number buys
+  reads back through the same dead cell.
+
+  Two phases, and the split is what keeps this out of both re-entrant
+  windows. **Synchronously** the reaction reference is dropped, which is
+  all a correct read needs: [[read-key!]] treats a cell with no reaction
+  exactly as it treats a key with no cell and goes through
+  `subscribe-once`, so every render from this instant on computes against
+  the new registration and the live frame. **On a macrotask** the durable
+  attachment is rebuilt, so later writes notify again — deferred because
+  this callback runs inside the registrar's replacement hook and inside
+  frame teardown, and neither is a place to subscribe. A frame that did
+  not come back has nothing to rebuild against, and the cell is disposed
+  instead."
+  [^js cell]
+  (when-not (.-disposed cell)
+    (set! (.-reaction cell) nil)
+    (js/setTimeout
+      (fn []
+        (when-not (.-disposed cell)
+          (if (nil? (frame/frame-incarnation-token (.-frameKw cell)))
+            (dispose-cell! cell)
+            (do (wire-cell! cell)
+                ;; Re-stamp and notify: a boundary that painted before the
+                ;; disposal painted the retired computation, and this is the
+                ;; commit that corrects it.
+                (mark-dirty! cell)))))
+      0))
+  nil)
+
 (defn- acquire-cell!
   "**Commit-phase only.** Take (building if necessary) the durable
   reference for `sub-key`, and attach the one watch that turns the sub
@@ -481,13 +576,12 @@
   (let [^js cell (or (get @!cells sub-key)
                  (let [frame-kw (nth sub-key 0)
                        query-v  (nth sub-key 1)
-                       reaction (subs/subscribe query-v {:frame frame-kw})
                        wk       (keyword "rf-hicasso-arm1"
                                          (str "w" (vswap! !watch-counter inc)))
                        ^js fresh #js {"subKey"   sub-key
                                      "frameKw"  frame-kw
                                      "queryV"   query-v
-                                     "reaction" reaction
+                                     "reaction" nil
                                      "watchKey" wk
                                      ;; NOT zero. A key with no cell
                                      ;; contributes the CURRENT
@@ -531,10 +625,12 @@
                    ;; spine can tolerate a notification that did not move,
                    ;; since `useSyncExternalStore` re-compares snapshots
                    ;; after it, and this arm cannot.
-                   (when (some? reaction)
-                     @reaction
-                     (add-watch reaction wk
-                                (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! fresh)))))
+                   ;;
+                   ;; [[wire-cell!]] performs that deref, that watch and the
+                   ;; disposal hook, because a cell is attached to the
+                   ;; substrate twice — here, and again if the substrate
+                   ;; disposes the reaction underneath it.
+                   (wire-cell! fresh)
                    (swap! !cells assoc sub-key fresh)
                    fresh))]
     (set! (.-refs cell) (inc (.-refs cell)))
@@ -618,7 +714,14 @@
   Warm — a committed cell holds the key — is a pure deref: no acquire,
   no release, nothing global touched. Cold is `subscribe-once`, which
   subscribes, derefs and unsubscribes inside this tick and retains
-  nothing, so an abandoned render leaves the world as it found it."
+  nothing, so an abandoned render leaves the world as it found it.
+
+  A cell whose reaction the substrate disposed underneath it takes the
+  cold path too, and that is the whole of what an invalidated read needs
+  to be correct: `subscribe-once` computes against the registration and
+  the frame incarnation that are live NOW, so a render in the window
+  between the disposal and [[invalidate-cell!]]'s rebuild reads the new
+  computation rather than the retired one. rf2-2rtt6.44."
   [query-v]
   (when (nil? (.-frame rstate))
     (fail! :rf.error/hicasso-sub-outside-render
@@ -632,8 +735,8 @@
   (let [frame-kw (.-frame rstate)
         sub-key  [frame-kw query-v]]
     (.push scratch sub-key)
-    (if-some [^js cell (get @!cells sub-key)]
-      (when-some [r (.-reaction cell)] @r)
+    (if-some [^js r (some-> ^js (get @!cells sub-key) (.-reaction))]
+      @r
       (subs/subscribe-once query-v {:frame frame-kw}))))
 
 (defn sub
@@ -1057,6 +1160,17 @@
     {:token :view-cell :what "no per-boundary object graph, reaction, watcher or scheduler"}
     {:token :candidate-ledger
      :what  "one scratch buffer, never two; nothing keyed by render, attempt, lane or generation; no per-read object; no commit-phase deref"}]})
+
+(defn cell-reaction
+  "The subscription `sub-key`'s cell currently derives through, or nil —
+  either because nothing holds the key, or because the substrate disposed
+  the reaction and [[invalidate-cell!]] dropped the reference.
+
+  A witness reader, and the one the rf2-2rtt6.44 rows need: the failure
+  they pin is what a HELD container answers after its disposal, so they
+  have to be able to hold it."
+  [sub-key]
+  (some-> ^js (get @!cells sub-key) (.-reaction)))
 
 (defn stats
   "What the witnesses read: live cells, live boundaries, cached read-set
