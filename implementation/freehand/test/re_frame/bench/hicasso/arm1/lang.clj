@@ -38,10 +38,12 @@
   position is a loud error rather than a silent embedding, which is what
   makes the head's identity stable by construction and leaves the codec's
   stable-component-head cache with nothing to do."
-  [sym argv & body]
-  (let [view-name (str (ns-name *ns*) "/" sym)
+  [sym & more]
+  (let [doc       (when (string? (first more)) (first more))
+        [argv & body] (if doc (rest more) more)
+        view-name (str (ns-name *ns*) "/" sym)
         body-name (symbol (str sym "-body"))]
-    `(def ~sym
+    `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
        (re-frame.bench.hicasso.arm1.runtime/mint-view!
          ~view-name
          (fn ~body-name ~argv ~@body)))))

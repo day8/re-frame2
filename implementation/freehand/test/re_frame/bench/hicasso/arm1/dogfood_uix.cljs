@@ -37,13 +37,13 @@
             [re-frame.bench.hicasso.front.dogfood :as d]
             [uix.core :refer [$ defui]]))
 
-(defui head []
+(defui head [_props]
   (let [remaining (uixa/use-subscribe [:dogfood/remaining])]
     ($ :header.head
        ($ :h1.title "todos")
        ($ :span.remaining {:data-remaining remaining} (str remaining " left")))))
 
-(defui new-item []
+(defui new-item [_props]
   (let [draft              (uixa/use-subscribe [:dogfood/draft d/new-draft-key])
         {:keys [dispatch]} (uixa/use-frame)]
     ($ :form.new {:on-submit (fn [e]
@@ -70,7 +70,7 @@
                      :on-click     (fn [_] (dispatch [:dogfood/set-filter id]))}
      label))
 
-(defui filters []
+(defui filters [_props]
   (let [current            (uixa/use-subscribe [:dogfood/filter])
         {:keys [dispatch]} (uixa/use-frame)]
     ($ :nav.filters
@@ -103,18 +103,18 @@
                           :on-click (fn [_] (dispatch [:dogfood/remove id]))}
           "x"))))
 
-(defui todo-list []
+(defui todo-list [_props]
   (let [ids (uixa/use-subscribe [:dogfood/visible-ids])]
     ($ :ul.list {:role "list"}
        (for [id ids]
          ($ row {:key id :id id})))))
 
-(defui screen []
+(defui screen [_props]
   ($ :div.dogfood
-     ($ head)
-     ($ new-item)
-     ($ filters)
-     ($ todo-list)))
+     ($ head {})
+     ($ new-item {})
+     ($ filters {})
+     ($ todo-list {})))
 
 (defn root
   "`frame-provider` SCOPES an already-created frame and renders no DOM of
@@ -122,4 +122,4 @@
   renderings is unaffected."
   [frame-kw]
   ($ uixa/frame-provider {:frame frame-kw}
-     ($ screen)))
+     ($ screen {})))
