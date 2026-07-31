@@ -42,10 +42,10 @@
   `?adapter=uix`, `?adapter=reagent`, `?adapter=slim` — and every HD-008
   comparison lands WITHIN a run:
 
-      run           arms                                         answers
-      uix           floor uix donor-r1 donor-r2                  donor vs frontier
-      reagent       floor reagent uix donor-r1 donor-r2          donor vs stock Reagent
-      slim          floor reagent-slim uix donor-r1 donor-r2     donor vs reagent-slim
+      run       arms                                                    answers
+      uix       floor uix donor-r1 donor-r2 donor-fh                    donor vs frontier
+      reagent   floor reagent uix donor-r1 donor-r2 donor-fh            donor vs stock Reagent
+      slim      floor reagent-slim uix donor-r1 donor-r2 donor-fh       donor vs reagent-slim
 
   The frontier arm rides all three, which also prices what the SUB
   IMPLEMENTATION contributes: the same UIx arm measured over Reagent
@@ -205,7 +205,14 @@
       :donor-r1     (react-root-arm :donor-r1 (fn [{:keys [n]}]
                                                 (w/slim-element (w/r1-m n fid))))
       :donor-r2     (react-root-arm :donor-r2 (fn [{:keys [n]}]
-                                                (provided fid (w/slim-element (w/r2-m n))))))))
+                                                (provided fid (w/slim-element (w/r2-m n)))))
+      ;; The FOURTH DONOR (rf2-2rtt6.29): the SAME `slim-element` call over
+      ;; the SAME skeleton and the same 300 `:f>` crossings as `donor-r1`.
+      ;; What differs is inside the boundaries, where Freehand's codec builds
+      ;; the markup — see [[re-frame.bench.hicasso.hd8-witnesses]]'s fourth-arm
+      ;; section for what that leaves varying and which way the residual runs.
+      :donor-fh     (react-root-arm :donor-fh (fn [{:keys [n]}]
+                                                (w/slim-element (w/fh-m n fid)))))))
 
 ;; -- the U page (mounted for parity; measured by the write rows) ------------
 
@@ -226,7 +233,9 @@
       :donor-r1     (react-root-arm :donor-r1 (fn [{:keys [n]}]
                                                 (w/slim-element (w/r1-u n fid))))
       :donor-r2     (react-root-arm :donor-r2 (fn [{:keys [n]}]
-                                                (provided fid (w/slim-element (w/r2-u n))))))))
+                                                (provided fid (w/slim-element (w/r2-u n)))))
+      :donor-fh     (react-root-arm :donor-fh (fn [{:keys [n]}]
+                                                (w/slim-element (w/fh-u n fid)))))))
 
 ;; ===========================================================================
 ;; The arm sets — one adapter per process (Spec 006)
@@ -259,9 +268,9 @@
   same hand-written `createElement` code, in the same bundle, touching no
   adapter at all. Within-run where the physics allows it; floor-normalised
   and LABELLED AS SUCH where it does not."
-  {:uix     [:floor :uix :donor-r1 :donor-r2]
-   :reagent [:floor :reagent :uix :donor-r1 :donor-r2]
-   :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2]})
+  {:uix     [:floor :uix :donor-r1 :donor-r2 :donor-fh]
+   :reagent [:floor :reagent :uix :donor-r1 :donor-r2 :donor-fh]
+   :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2 :donor-fh]})
 
 (def write-arm-ids-for
   "The WRITE rows are narrower than the mount rows, and only there.
@@ -275,7 +284,7 @@
   Updates are where the spines part company, so the write rows keep only
   the arms native to the installed adapter and the donor comparison there
   is made through the floor."
-  {:uix     [:floor :uix :donor-r1 :donor-r2]
+  {:uix     [:floor :uix :donor-r1 :donor-r2 :donor-fh]
    :reagent [:floor :reagent]
    :slim    [:floor :reagent-slim]})
 
@@ -436,11 +445,20 @@
   trustworthy).
 
   `donor-r2 / donor-r1` is the price of the product shell, and it is the
-  one figure in this instrument that no comparator can supply."
-  [[:donor-r1 :reagent] [:donor-r2 :reagent]
-   [:donor-r1 :reagent-slim] [:donor-r2 :reagent-slim]
-   [:donor-r1 :uix] [:donor-r2 :uix]
-   [:donor-r2 :donor-r1]])
+  one figure in this instrument that no comparator can supply.
+
+  `donor-fh / donor-r1` is the other one (rf2-2rtt6.29): THE CODEC RATIO,
+  with the boundary mechanism, the hook, the pinned frame, the dispatch
+  lookup, the author closure and the outer skeleton all held fixed and
+  only the runtime hiccup codec varying. It is the pair the fourth arm
+  exists for, and `hd8-witnesses`'s `codecs-differ?` is what stops a
+  reading of 1.0 being ambiguous between *the codecs cost the same* and
+  *the arm ran one codec twice*."
+  [[:donor-r1 :reagent] [:donor-r2 :reagent] [:donor-fh :reagent]
+   [:donor-r1 :reagent-slim] [:donor-r2 :reagent-slim] [:donor-fh :reagent-slim]
+   [:donor-r1 :uix] [:donor-r2 :uix] [:donor-fh :uix]
+   [:donor-r2 :donor-r1]
+   [:donor-fh :donor-r1] [:donor-fh :donor-r2]])
 
 (defn head-to-head
   "Per-round arm-to-arm ratios, ranged across rounds.
@@ -1653,6 +1671,18 @@
    :adapter           adapter
    :mount-arms        (vec arm-ids)
    :write-arms        (vec write-ids)
+   ;; WHICH CODEC builds each arm's markup — the axis the fourth arm varies,
+   ;; and the one thing a reader cannot recover from an arm id (rf2-2rtt6.29).
+   ;; Two arms in this table run a RUNTIME hiccup interpreter over the same
+   ;; page through the same boundary; naming them here is what stops
+   ;; `donor-fh / donor-r1` being read as anything other than what it is.
+   :markup-codec      {:floor        "hand-written react/createElement — no codec"
+                       :reagent      "stock Reagent's template (reg-view)"
+                       :reagent-slim "reagent2.impl.template/as-element (reg-view)"
+                       :uix          "uix.core/$ — a MACRO; createElement at compile time, no runtime walk"
+                       :donor-r1     "reagent2.impl.template/as-element"
+                       :donor-r2     "reagent2.impl.template/as-element"
+                       :donor-fh     "re-frame.freehand.react/element"}
    ;; Which window shape each write arm was measured through, stated rather
    ;; than left to be inferred from the adapter (rf2-b69lw). A row whose
    ;; reader cannot tell whether its window contained a harness microtask

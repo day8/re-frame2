@@ -18,6 +18,16 @@
              `:on-click [:hd8/touch i]` and the codec, not the author,
              turns it into a dispatching closure.
 
+  And, since `rf2-2rtt6.29`, a FOURTH DONOR — rung 1 with ONE token
+  changed:
+
+    RUNG 1-FH — rung 1 exactly, except that the markup inside each
+             boundary is built by **Freehand's already-shipped codec**
+             (`re-frame.freehand.react/element`) instead of by
+             reagent-slim's `as-element`. Same `:f>` boundary, same
+             `use-subscribe` spine, same pinned frame, same author
+             closure, same page.
+
   The rung-2 lowering is a MINIMAL DISPOSABLE SLICE and is deliberately
   not the shared front half — rf2-2rtt6.8 owns that. It lowers
   vector-valued `on-*` props and does nothing else, because that is the
@@ -44,6 +54,7 @@
       :uix             2    `$` macro (compile-time)   author closure [[dispatch-for]] — deref + get, IN RENDER
       :donor-r1        1    slim hiccup + `:f>`        author closure [[dispatch-for]]
       :donor-r2        2    slim hiccup + `:f>`        CODEC-LOWERED  [[dispatch-for]], then [[lower-events]]
+      :donor-fh        1    FREEHAND hiccup + `:f>`    author closure [[dispatch-for]]
 
   [[prime-frame!]] does run outside every measured window, so no arm pays
   to CONSTRUCT a dispatch fn during a render — that part of the old claim
@@ -66,7 +77,11 @@
   hooks and the dispatch mechanism fixed — both go through
   [[dispatch-for]] — and varies the CODEC; `donor-r* / reagent*` is
   HD-008's ship comparison, and is the one pair the mechanisms differ
-  across.
+  across. `donor-fh / donor-r1` is the tightest pair in the file: one
+  hook each, the same hook, the same pinned frame, the same author
+  closure, the same `:f>` boundary, the same outer skeleton — and TWO
+  DIFFERENT RUNTIME HICCUP CODECS building the markup inside the 300
+  boundaries.
 
   ## Why every arm is written out longhand
 
@@ -96,6 +111,7 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as uixa]
             [re-frame.core :as rf]
+            [re-frame.freehand.react :as freehand-react]
             [reagent2.impl.template :as slim-template]
             [uix.core :refer [$ defui]])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -418,7 +434,7 @@
    (for [i (range n)] ^{:key i} [:f> r2-u-cell i])])
 
 ;; ===========================================================================
-;; The donor codec's one public door
+;; The donor codecs' public doors — one call each, so the crossings are visible
 ;; ===========================================================================
 
 (defn slim-element
@@ -428,3 +444,115 @@
   rather than scattered."
   [hiccup]
   (slim-template/as-element hiccup))
+
+(defn fh-element
+  "Interpret donor hiccup into a React element through FREEHAND's published
+  `re-frame.freehand.react/element` — the second runtime hiccup codec this
+  repository already ships, and the whole of what the fourth arm varies.
+
+  Consumed at its published surface, exactly as the slim donor is: nothing
+  under `implementation/freehand/src` is touched, and the donor freeze
+  (`rf2-2rtt6.29` fences) stands.
+
+  `element` is the door for a form with NO declared Freehand boundary above
+  it, so the walk threads no candidate and an `:on-*` carrying a bare
+  function is attached as itself (`re-frame.freehand.events/unsited`) —
+  which is precisely what `as-element` does with the same handler, and is
+  what makes the two arms comparable. A Freehand APPLICATION renders inside
+  a declared boundary and would additionally record an event SITE per
+  handler, so this arm prices Freehand-the-CODEC exactly and
+  Freehand-the-SUBSTRATE from below. That is stated on the row rather than
+  left for a reader to discover."
+  [hiccup]
+  (freehand-react/element hiccup))
+
+(defn codecs-differ?
+  "Are the two codec doors demonstrably DIFFERENT implementations?
+
+  `donor-fh / donor-r1` is the one figure in this instrument that would be
+  unreadable if the answer were no — a ratio of 1.0 could then mean *the
+  codecs cost the same* or *the arm ran one codec twice*, and nothing in a
+  clock reading tells those apart. The parity gate cannot answer it either:
+  its whole point is that the arms agree.
+
+  So the difference is DEMONSTRATED, on a form the two codecs are known to
+  treat differently and that no arm on this page uses: `^{:key …}` metadata
+  on a hiccup vector. reagent-slim honours it (`get-react-key` reads the
+  vector's meta); Freehand REFUSES it by name
+  (`re-frame.freehand.node/refuse-metadata-key!` — one spelling for the key,
+  in the attribute map, so the JVM structural tree cannot drop what React
+  received). One accepts, one throws, and the check is fatal at boot if that
+  ever stops being true — the same standing as `parity-can-fail?`."
+  []
+  (let [fh-refused? (try (fh-element ^{:key 1} [:li.row]) false
+                         (catch :default _ true))
+        slim-took?  (try (some? (slim-element ^{:key 1} [:li.row]))
+                         (catch :default _ false))]
+    {:ok?         (and fh-refused? slim-took?)
+     :fh-refused? fh-refused?
+     :slim-took?  slim-took?
+     :probe       "^{:key 1} [:li.row] — slim honours vector-meta keys, Freehand refuses them"}))
+
+;; ===========================================================================
+;; ARM: the FOURTH DONOR — rung 1 with the CODEC swapped (rf2-2rtt6.29)
+;; ===========================================================================
+;;
+;; Written below the doors rather than beside rung 1 because it is the one
+;; arm on this page that names its codec inside its own body: `fh-element`
+;; has to exist before `fh-m-row` closes over it, and a `declare` to buy
+;; back the reading order would hide the very call the arm is about.
+;;
+;; HD-008's verdict is that "the residual mount deficit is the hiccup
+;; interpreter rather than the spine". The arm it measured was
+;; reagent-slim's interpreter, and `donor-r1 / reagent-slim` came back
+;; 1.000–1.120 — INDISTINGUISHABLE from reagent-slim itself. So what the
+;; row established is that *reagent-slim's* interpreter is the deficit.
+;; This repository ships a SECOND runtime hiccup codec that was never
+;; entered in that comparison, and rf2-2rtt6.29 enters it.
+;;
+;; WHAT IS HELD FIXED, AND HOW. Everything. `fh-m` and `fh-u` below are
+;; `r1-m` and `r1-u` with ONE token changed — the row function — so the
+;; OUTER skeleton and all 300 `:f>` boundary crossings are built by the
+;; SAME `slim-element` call, through the same `expand-seq`, on the same
+;; keyed seq. `fh-m-row` and `fh-u-cell` are `r1-m-row` and `r1-u-cell`
+;; with their bodies wrapped in `fh-element`: the same single
+;; `use-subscribe` hook at the same two-arity published form, the same
+;; PINNED frame, the same `dispatch-for` lookup, the same author closure,
+;; the same attribute maps, the same tags.
+;;
+;; So on the M page 900 of 903 elements, and on the U page 300 of 301, are
+;; built by Freehand's codec in this arm and by reagent-slim's in
+;; `donor-r1`. The three (M) and one (U) skeleton elements are the same
+;; codec's in both arms and cancel.
+;;
+;; THE ONE RESIDUAL, AND ITS DIRECTION. `:f>`'s wrapper always converts
+;; what the body returned through `as-element`. `r1-m-row` returns hiccup,
+;; so that call does the work; `fh-m-row` returns a finished React
+;; element, so that call is a pass-through — five predicate tests and a
+;; return. This arm therefore pays ONE extra function call and a handful of
+;; predicates per boundary that `donor-r1` does not, 300 times a mount.
+;; It runs AGAINST Freehand's codec, so it cannot have flattered it.
+
+(defn fh-m-row [i frame]
+  (let [v (uixa/use-subscribe frame [:hd8/row i])
+        d (dispatch-for frame)]
+    (fh-element
+      [:li.row {:data-index i :on-click (fn [_] (d [:hd8/touch i]))}
+       [:span.label "row "]
+       [:em.n v]])))
+
+(defn fh-m [n frame]
+  [:section.panel {:aria-label "hd8"}
+   [:h1.title "Rows"]
+   [:ul.rows {:role "list"}
+    (for [i (range n)] ^{:key i} [:f> fh-m-row i frame])]])
+
+(defn fh-u-cell [i frame]
+  (let [v (uixa/use-subscribe frame [:hd8/cell i])
+        d (dispatch-for frame)]
+    (fh-element
+      [:span.cell {:data-i i :on-click (fn [_] (d [:hd8/touch i]))} v])))
+
+(defn fh-u [n frame]
+  [:div.ugrid
+   (for [i (range n)] ^{:key i} [:f> fh-u-cell i frame])])
