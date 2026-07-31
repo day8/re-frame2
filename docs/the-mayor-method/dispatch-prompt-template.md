@@ -44,6 +44,10 @@ repair/commit/push — let the mayor decide.
 
 Do NOT `git stash` — stashes are repo-global and surface in other workers'
 worktrees, cross-contaminating them. Commit to your branch instead.
+
+If you create a `node_modules` symlink/junction in your worktree, remove the
+LINK (never its target) before you report done: a later `git worktree remove`
+follows it and deletes the shared tree it points at.
 ```
 
 A project may add a **mayor-side commit guard** (a pre-commit hook in the mayor
@@ -156,6 +160,7 @@ before fixing.
 - Same-file races between concurrent workers → enumerate in-flight surfaces.
 - Edits leaking into the mayor checkout (esp. silent new-file leaks) → boundary block + post-write both-trees check.
 - Cross-worktree contamination via `git stash` → no-stash rule (stashes are repo-global).
+- Worktree cleanup deleting *through* a `node_modules` link into the shared tree it points at → the worker unlinks before reporting done, and the cleanup path disarms before removing.
 - "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not the hand-off; a real failure gets a fix-worker, never `--admin`.
 - A passing synthetic test that routes around the real bug → reproduce the actual failing path.
 - Clusters split that should be one PR (or vice-versa) → cluster reviewer pre-validates shape.

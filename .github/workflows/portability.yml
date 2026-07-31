@@ -115,6 +115,39 @@ jobs:
           printf '%s\n' "$roster"
           printf '%s\n' "$roster" | xargs shellcheck
 
+      # rf2-rxkht — the worktree-removal guard, which stands between
+      # `git worktree remove` and the mayor checkout's REAL node_modules. Its
+      # failure mode is silent: a worker worktree junctions node_modules at
+      # the mayor's real one, the removal follows the reparse point, the
+      # target is emptied, and git still exits 0. That class has landed twice.
+      #
+      # It gets a lint AND a live proof, for the same reason the two gate
+      # scripts above get one: a guard nobody has watched work is decoration.
+      # The self-test builds a throwaway link over a dummy directory in a
+      # temp dir, runs the real disarm against it, and requires BOTH the link
+      # gone AND the target's entries all still there — it never touches a
+      # real node_modules. On this runner `ln -s` yields a genuine POSIX
+      # symlink, so the POSIX branch is the one proven here; the Windows
+      # junction branch is proven by the .ps1 sibling's -SelfTest, which has
+      # no runner and is run by hand on the maintainer's machine.
+      - name: Shellcheck the worktree-removal guard
+        run: shellcheck scripts/remove-worker-worktree.sh
+
+      # The self-test SKIPS (exit 0) on a platform that cannot produce a link
+      # to test against — correct there, vacuous here. `ln -s` always works on
+      # this runner, so a SKIP means the test stopped testing and must red,
+      # exactly as the empty roster above does.
+      - name: Self-test the worktree-removal disarm
+        run: |
+          set -eu
+          out=$(sh scripts/remove-worker-worktree.sh --self-test)
+          printf '%s\n' "$out"
+          if ! printf '%s\n' "$out" | grep -q '^SELF_TEST=PASSED'; then
+            echo "The disarm self-test did not PASS. A SKIP certifies nothing on a" >&2
+            echo "runner where 'ln -s' works, so this fails rather than passing vacuously." >&2
+            exit 1
+          fi
+
   ai-tracking-ratchet:
     name: No newly tracked files under ai/
     runs-on: ubuntu-latest
