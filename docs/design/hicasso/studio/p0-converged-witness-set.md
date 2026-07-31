@@ -262,11 +262,21 @@ beside a biased one.
 
 | witness | **threshold** | 95% interval on the mean | run means (10) | verdict |
 |---|---|---|---|---|
-| **M1 mount** — 901 el, 300 boundaries | ~~1.2301×~~ → **1.2310×** | 1.2105 – 1.2514 | 1.1989 – 1.2931 | **UIx slower.** 59 of 60 rounds above 1.0; 19 of 20 order strata wholly above it |
-| **M2 mount** — 51 el, 12 fields · *diagnostic* | ~~1.0539×~~ → **1.0601×** | 1.0017 – 1.1185 | 0.9561 – 1.1923 | **straddles 1.0 — indistinguishable**, in all ten runs |
-| **bulk broad** — one commit all 300 read | ~~0.6239×~~ → **0.6291×** | 0.5996 – 0.6587 | 0.5792 – 0.6987 | **UIx faster.** All 60 rounds below 1.0; all 20 strata wholly below it |
-| **bulk narrow** — 10 commits, each read by exactly one boundary, one window | ~~1.1540×~~ → **1.1754×** | 1.1579 – 1.1930 | 1.1390 – 1.2186 | **UIx slower.** All 60 rounds above 1.0; all 20 strata wholly above it |
+| **M1 mount** — 901 el, 300 boundaries | ~~1.2301×~~ → **1.2310×** | ~~1.2105 – 1.2514~~ → **1.2109 – 1.2510** | 1.1989 – 1.2931 | **UIx slower.** 59 of 60 rounds above 1.0; 19 of 20 order strata wholly above it |
+| **M2 mount** — 51 el, 12 fields · *diagnostic* | ~~1.0539×~~ → **1.0601×** | ~~1.0017 – 1.1185~~ → **1.0028 – 1.1173** | 0.9561 – 1.1923 | **straddles 1.0 — indistinguishable**, in all ten runs |
+| **bulk broad** — one commit all 300 read | ~~0.6239×~~ → **0.6291×** | ~~0.5996 – 0.6587~~ → **0.6001 – 0.6581** | 0.5792 – 0.6987 | **UIx faster.** All 60 rounds below 1.0; all 20 strata wholly below it |
+| **bulk narrow** — 10 commits, each read by exactly one boundary, one window | ~~1.1540×~~ → **1.1754×** | ~~1.1579 – 1.1930~~ → **1.1582 – 1.1926** | 1.1390 – 1.2186 | **UIx slower.** All 60 rounds above 1.0; all 20 strata wholly above it |
 | ~~bulk narrow, **unbatched window** (superseded twice over)~~ | ~~1.1556×~~ | — | — | ~~UIx slower, but did not stably resolve across runs~~ |
+
+**The intervals are struck and corrected**, and the reason is worth a sentence
+here rather than only where it is worked out: the originals were computed with a
+`t` multiplier for **eight** degrees of freedom where a mean of ten run means
+needs **nine**, which made every one of them about 2% too wide. The error was
+found by recovering the ensemble's [observation
+table](#the-observation-table-in-full) and recomputing from it; it is
+conservative, so no verdict changes, and the thresholds, *p* values and ranges
+were all correct. [The full account, with the
+diagnosis](#the-intervals-are-2-too-wide-and-the-cause-is-an-off-by-one-in-the-degrees-of-freedom).
 
 **The interval is on the mean, not on a run.** It is a Student-t interval over
 the ten run means, so it says how well ten runs pin the centre; the *run means*
@@ -1302,11 +1312,11 @@ these numbers. Read them as descriptive.
 
 | row | order effect (mean `d`) | as a ratio | 95% interval | sign-flip *p* | positive |
 |---|---|---|---|---|---|
-| M1 mount | +0.0357 | 1.036× | 0.979× – 1.097× | 0.084 | 7 of 10 |
-| M2 mount | −0.0837 | 0.920× | 0.795× – 1.065× | 0.889 | 4 of 10 |
-| bulk broad | −0.0388 | 0.962× | 0.887× – 1.044× | 0.856 | 5 of 10 |
-| bulk narrow | +0.0070 | 1.007× | 0.977× – 1.038× | 0.302 | 7 of 10 |
-| **run-level composite** *(the pre-registered statistic: mean over the four rows)* | **−0.0200** | **0.980×** | **0.934× – 1.029×** | **0.823** | **6 of 10** |
+| M1 mount | +0.0357 | 1.036× | ~~0.979× – 1.097×~~ → 0.980× – 1.095× | 0.084 | 7 of 10 |
+| M2 mount | −0.0837 | 0.920× | ~~0.795× – 1.065×~~ → 0.797× – 1.062× | 0.889 | 4 of 10 |
+| bulk broad | −0.0388 | 0.962× | ~~0.887× – 1.044×~~ → 0.888× – 1.042× | 0.856 | 5 of 10 |
+| bulk narrow | +0.0070 | 1.007× | ~~0.977× – 1.038×~~ → 0.978× – 1.037× | 0.302 | 7 of 10 |
+| **run-level composite** *(the pre-registered statistic: mean over the four rows)* | **−0.0200** | **0.980×** | ~~**0.934× – 1.029×**~~ → **0.935× – 1.028×** | **0.823** | **6 of 10** |
 
 **The pre-registered hypothesis fails, and it fails on the wrong side of zero.**
 The composite was fixed in advance as one-sided positive; the ensemble puts it at
@@ -1331,87 +1341,164 @@ the Reagent-first stratum is higher in **23 of 40**, p = 0.21. The 11-of-12 was
 not a small effect measured well; on the balanced design it is not there at the
 strength it was quoted.
 
-#### The observation table, and the nine rows of it that were not kept
+#### The observation table, in full
 
-**Both views above are computed from a 10 × 4 table of per-run figures, and that
-table was never committed.** What landed was group means, intervals, ranges and
-*p* values — summaries, with nothing behind them a reader can reach. The PR
-#7303 audit found it, and it is a defect of the record rather than of the
-measurement: no number in either view can be recomputed from this repository.
+**Both views above are computed from a 10 × 4 table of per-run figures, and the
+PR #7303 audit's finding was that the table itself was never committed** — what
+landed was group means, intervals, ranges and *p* values, summaries with nothing
+behind them a reader could reach. **The table is below, all forty cells**, and
+every figure in both views is now derived from it by
+`implementation/freehand/test/re_frame/bench/hicasso/p0_converge_order_cljs_test.cljs`
+rather than asserted here.
 
-It is also only partly repairable. The worktree that produced the ensemble is
-gone and nine runs' readings went with it. So this section publishes what the
-repository *does* hold, marks the hole rather than filling it with a
-reconstruction, and pins the derivation of everything that can still be checked.
-The fixture is
-`implementation/freehand/test/re_frame/bench/hicasso/p0_converge_order_cljs_test.cljs`.
+!!! warning "Provenance — recovered, not re-run"
+
+    These are the **console logs of the ten runs themselves**, taken at the
+    ensemble's landed anchor and recovered from an out-of-tree backup made
+    before the producing worktree was reaped. **Nothing was measured again.**
+    No browser was opened, the machine has since moved, and a re-run would be a
+    different ensemble, not this one. Each cell is that run's
+    `:threshold :per-round` vector, transcribed by script rather than by hand.
+    The pilot runs that share the backup directory are **not** this ensemble
+    and are excluded.
+
+    The identification is checked rather than assumed: run 1's four vectors in
+    the backup are exactly the four this page already printed for the
+    pre-registered run, which is what ties the backup to *this* ensemble. The
+    suite asserts it.
+
+Each cell is that run's threshold mean over its six rounds. **†** marks a
+row-run whose order strata came out disjoint, so that run was individually
+barred from publishing a magnitude — [and stayed in the ensemble
+anyway](#the-partition-and-what-one-runs-split-can-and-cannot-say), which is
+the aggregate rule.
 
 | run | start | M1 | M2 | broad | narrow |
 |---|---|---|---|---|---|
-| **1** *(pre-registered)* | reagent | **1.2159** | **1.0469** | **0.6662** | **1.1542** |
-| 2 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 3 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 4 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 5 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 6 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 7 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 8 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 9 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
-| 10 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| **1** *(pre-registered)* | reagent | 1.2159 | 1.0469 | 0.6662 | 1.1542 |
+| 2 | uix | 1.1989 | 0.9857 | 0.6153 | 1.1817 |
+| 3 | reagent | 1.2463 | 1.0155 | 0.6550 | 1.1972 |
+| 4 | uix | 1.2359 | 0.9561 | 0.5898 | 1.1390 |
+| 5 | reagent | 1.2056 | 1.1290 | 0.5867 | 1.1728 **†** |
+| 6 | uix | 1.2214 | 1.1923 | 0.6609 | 1.1714 |
+| 7 | reagent | 1.2145 | 0.9609 | 0.6384 | 1.1546 |
+| 8 | uix | 1.2931 | 1.1111 | 0.5792 | 1.1667 |
+| 9 | reagent | 1.2556 **†** | 1.0781 **†** | 0.6011 | 1.1981 |
+| 10 | uix | 1.2225 | 1.1250 | 0.6987 | 1.2186 |
 | **group mean — reagent-start (5)** | | 1.2276 | 1.0461 | 0.6295 | 1.1754 |
 | **group mean — uix-start (5)** | | 1.2344 | 1.0740 | 0.6288 | 1.1755 |
-| **threshold (10)** | | 1.2310 | 1.0601 | 0.6291 | 1.1754 |
-| **run-mean range (10)** | | 1.1989 – 1.2931 | 0.9561 – 1.1923 | 0.5792 – 0.6987 | 1.1390 – 1.2186 |
+| **threshold (10)** | | **1.2310** | **1.0601** | **0.6291** | **1.1754** |
 
-**Run 1's four cells are derived, not transcribed.** The fixture replays its
-six-round vectors — the ones printed under the [RED-ZONE
-table](#red-zone--clock-on-rf2-2rtt62s-witnesses) above — through
-`segment-order-verdict`, and checks the run means, the whole stratum table, and
-run 1's four `d` values against what this page prints. Those `d` values are
-`+0.1026` on M1, `−0.0846` on M2, `+0.0835` on broad and `−0.0279` on narrow:
-**one tenth of View 2's input, and on broad it is opposite in sign to the
-ensemble mean** — which is the case for publishing ten runs rather than one,
-made from the one run that survives.
+And the ten `d` values each row of View 2 averages, derived from the strata of
+the same vectors — `d = ln(Reagent-first mean ÷ UIx-first mean)`, positive when
+the figure reads higher with Reagent leading:
 
-Rows 2 through 10 are explicit `nil`s in the fixture. That is the honest shape:
-not zero, not missing at random, and **not recoverable** — six published
-constraints per column (two group means, the threshold, the range, the interval,
-the resolution limit) do not invert to nine unknowns, and any table that
-satisfied them would be an invention that happened to fit.
+| run | start | M1 | M2 | broad | narrow | composite |
+|---|---|---|---|---|---|---|
+| 1 | reagent | +0.1026 | −0.0846 | +0.0835 | −0.0279 | +0.0184 |
+| 2 | uix | −0.0691 | −0.1515 | −0.1796 | +0.0137 | −0.0966 |
+| 3 | reagent | −0.0055 | −0.3707 | −0.1234 | −0.0769 | −0.1441 |
+| 4 | uix | +0.1106 | −0.1729 | +0.0493 | +0.0099 | −0.0008 |
+| 5 | reagent | +0.0451 | +0.1359 | −0.1302 | +0.0604 | +0.0278 |
+| 6 | uix | +0.0446 | −0.4182 | +0.0171 | −0.0330 | −0.0974 |
+| 7 | reagent | +0.0454 | +0.0660 | −0.1243 | +0.0233 | +0.0026 |
+| 8 | uix | +0.0897 | −0.0801 | +0.0761 | +0.0467 | +0.0331 |
+| 9 | reagent | −0.1151 | +0.1508 | +0.0950 | +0.0245 | +0.0388 |
+| 10 | uix | +0.1088 | +0.0883 | −0.1518 | +0.0294 | +0.0187 |
+| **mean** | | **+0.0357** | **−0.0837** | **−0.0388** | **+0.0070** | **−0.0200** |
 
-**The derivation, stated once and now executed by the suite.**
+**Read the columns before the means.** M2 swings from −0.42 to +0.15 — an order
+effect of ±35% would be needed to show through that, and none of these rows is
+one run repeating another. On broad, run 1 reads `+0.0835` where the ensemble
+mean is `−0.0388`: opposite in sign, from the very run the design had
+pre-registered. That single fact is the case for publishing ten runs rather than
+the one the design nominated, and it is why the earlier *11 of 12* was never
+evidence.
 
-1. Per run per row, `d = ln( mean of the Reagent-first stratum ÷ mean of the
-   UIx-first stratum )`, the strata taken from `segment-order-verdict` itself so
-   the statistic and the published partition cannot drift apart. **Checked** on
-   run 1.
-2. A run's published figure is the arithmetic mean of its six rounds.
-   **Checked** on run 1, all four rows.
-3. A group mean is the mean of that start group's five runs; the threshold is
-   the mean of all ten. The counterbalance being 5/5, the threshold **is** the
-   average of the two group means — so the RED-ZONE table and View 1 are one
-   table, and a transcription slip in either shows up. **Checked**, all four
-   rows.
-4. View 1's `difference` column is the reagent-start group mean minus the
-   uix-start one. **Checked** (M2 misses by 0.0001 because the page differenced
-   the unrounded means).
-5. View 2's `as a ratio` column is `exp(mean d)`, and the 95% interval is
-   computed on `d` and printed as ratios — so the midpoint of its two logarithms
-   is the mean `d` itself. **Checked**, four rows and the composite.
-6. The composite is the mean over the four rows, for `d` and for both
-   components, never four trials pooled. **Checked** on both component columns.
-7. The *p* values — View 1's 252 relabellings, View 2's 1024 sign flips — are
-   functions of the ten per-run numbers. **Not checkable, and not checkable
-   later**: nine of the ten are gone.
+##### What reproduces, and it now includes both *p* columns
 
-**So the arithmetic between the published summaries is checkable from the
-repository, and the step from ten runs to those summaries is not.** That is a
-smaller claim than *the inference can be independently recomputed*, and it is
-the true one. The rule it leaves behind is cheap and general: **an ensemble
-publishes its table, not only its summaries.** Ten launches produced ten
-records; committing forty numbers would have cost nothing and would have made
-every *p* on this page reproducible. The next ensemble on this lane commits
-them.
+Every point estimate on this page falls out of the forty cells, and so do the
+two *p* columns the audit correctly said could not be checked from the
+repository. All of it is asserted by the suite, not by this paragraph.
+
+| quantity | reproduces? |
+|---|---|
+| the four run-mean ranges — all eight endpoints | **yes** |
+| threshold, and its identity with the average of the two start-group means | **yes** |
+| View 1's group means and `difference` column | **yes** |
+| **View 1's permutation *p*** — all `C(10,5) = 252` relabellings enumerated | **yes** — 0.770 / 0.611 / 0.984 / 0.992 |
+| the `resolution limit` column | **yes** |
+| mean `d`, the `as a ratio` column, the `positive` counts | **yes** |
+| **View 2's sign-flip *p*** — all `2¹⁰ = 1024` assignments enumerated | **yes** — 0.084 / 0.889 / 0.856 / 0.302 |
+| the order and temporal components, and their permutation *p* | **yes** |
+| the composite, computed per run and never as four pooled trials | **yes** — including its 0.823 |
+| the prose counts: 37 of 40 strata overlapping, 23 of 40 Reagent-first-higher, 59 of 60 M1 rounds above 1.0, all 60 / all 20 on broad and narrow | **yes** |
+| **the 95% intervals** | **NO — see below** |
+
+One derivation detail is worth stating because it decides a published digit.
+`d` takes its **partition** from `segment-order-verdict` but averages the
+readings itself, because the verdict rounds its stratum means to four decimals
+for display. On the broad row that rounding is load-bearing: a sign-flip *p*
+moves in steps of `1/1024 = 0.00098`, and the fourth decimal carries exactly one
+of the 1024 assignments across the observed mean — `878/1024 = 0.8574` from
+rounded strata against `877/1024 = 0.8564` from the readings, and 877 is the
+`0.856` this page publishes. **A displayed number is not an input.**
+
+##### The intervals are 2% too wide, and the cause is an off-by-one in the degrees of freedom
+
+This is the one disagreement between the recovered data and what this page
+published, and it is reported rather than quietly fixed in either direction.
+
+**Every interval on this page — View 2's on `d`, and the RED-ZONE table's on the
+threshold — is about 2% wider than the ten runs support.** An interval on the
+mean of **ten** run means is a one-sample Student-t interval with `n − 1 =`
+**nine** degrees of freedom, `t = 2.2622`. The multiplier actually used is
+`≈ 2.306`, which is `t` at **eight** degrees of freedom.
+
+The mistake is identifiable rather than merely detectable. Eight *is* the right
+number for the `resolution limit` column standing beside it — that column is a
+genuine two-sample five-against-five contrast, its degrees of freedom are
+`5 + 5 − 2 = 8`, and it reproduces **exactly**. The same `t` was then reused for
+the one-sample intervals, where it does not belong.
+
+| row | published interval on the mean | corrected (9 df) |
+|---|---|---|
+| M1 mount | ~~1.2105 – 1.2514~~ | **1.2109 – 1.2510** |
+| M2 mount | ~~1.0017 – 1.1185~~ | **1.0028 – 1.1173** |
+| bulk broad | ~~0.5996 – 0.6587~~ | **0.6001 – 0.6581** |
+| bulk narrow | ~~1.1579 – 1.1930~~ | **1.1582 – 1.1926** |
+
+View 2's intervals move the same way — M1's `0.979 – 1.097` becomes
+`0.980 – 1.095`, M2's `0.795 – 1.065` becomes `0.797 – 1.062`, broad's
+`0.887 – 1.044` becomes `0.888 – 1.042`, narrow's `0.977 – 1.038` becomes
+`0.978 – 1.037`, and the composite's `0.934 – 1.029` becomes `0.935 – 1.028`.
+So *"the interval admits an order effect anywhere from 6.6% against the claim to
+2.9% for it"* is properly **6.5% against to 2.8% for**, and the upper ends
+quoted [above](#why-the-two-views-can-disagree-and-what-n--5-vs-5-cannot-settle)
+are `+9.5%`, `+6.2%`, `+4.2%` and `+3.7%` rather than `+9.7%`, `+6.5%`, `+4.4%`
+and `+3.8%`.
+
+**No verdict on this page turns on it, and that is checked rather than asserted.**
+The error is conservative — the published intervals were too *wide*, so every
+claim made inside them survives being made inside narrower ones. M1, broad and
+narrow stay wholly clear of 1.0; M2 still only just clears parity on the mean
+and stays diagnostic for the reason it always was, that three of its ten runs
+read below 1.0 outright. The suite recomputes all four corrected intervals and
+asserts each of those readings.
+
+**The old figures are struck, not deleted**, in the same style as every other
+correction here — and the *p* values, the point estimates and the thresholds are
+all untouched, because they were right.
+
+##### What the table changes about the audit's finding
+
+The audit said the central statistics could not be independently recomputed from
+the repository. **They can now**, and the finding closes properly rather than
+being downgraded to *checkable in part*. What remains true is the lesson: an
+ensemble that publishes only summaries is one reaped worktree away from being
+unverifiable, and this one survived on a backup rather than by design. **The rule
+is that an ensemble publishes its table.** Forty numbers, and they would have
+cost nothing.
 
 #### Why the two views can disagree, and what n = 5 vs 5 cannot settle
 
@@ -1432,12 +1519,12 @@ trials.
 claim one.** The start-group contrast can only resolve a difference of about
 0.04 on the narrow and M1 rows and about 0.12 on M2 — the last column of View 1's
 table is that limit, computed rather than asserted. On the composite, the
-interval admits an order effect anywhere from **6.6% against the claim to 2.9%
+interval admits an order effect anywhere from **6.5% against the claim to 2.8%
 for it**. Stated as bounds rather than as a verdict:
 
 - **An effect at the top of the range the page previously asserted is excluded
   on every row.** The upper end of View 2's interval — the end that would favour
-  the claim — is +9.7% on M1, +6.5% on M2, +4.4% on broad and +3.8% on narrow.
+  the claim — is +9.5% on M1, +6.2% on M2, +4.2% on broad and +3.7% on narrow.
   The *"one to nineteen percent between strata, systematic"* the page used to
   assert cannot be true of the top of its own range on any row.
 - **An effect of one or two percent is not excluded, and ten runs could not have
@@ -1471,7 +1558,7 @@ and each was answered by the design rather than by a friendlier run:
    straddling 1.0, and 59 of the 60 rounds behind them read above 1.0.
 
 **What is published is a magnitude with an interval: 1.2310×, 95% interval
-1.2105 – 1.2514 on the mean, single runs landing anywhere in 1.199 – 1.293.**
+1.2109 – 1.2510 on the mean, single runs landing anywhere in 1.199 – 1.293.**
 That is the form the measurement supports. A bare four-decimal point never was —
 not because the point was wrong (`1.2301` sits inside the new interval, which is
 its own small vindication) but because a point carries no statement of how far a
@@ -1487,7 +1574,7 @@ in the form the standard would take.
 all 60 rounds below 1.0, all 20 order strata wholly below it, strata overlapping
 in every run. `1.1754×` **narrow** is now its mirror: all 60 rounds above 1.0,
 all 20 strata wholly above. **M2** resolves nothing and is not meant to — every
-one of its ten runs straddles 1.0, and its interval `[1.0017 – 1.1185]` sits
+one of its ten runs straddles 1.0, and its interval `[1.0028 – 1.1173]` sits
 barely clear of parity only because it is an interval on a *mean*; three of the
 ten runs read below 1.0 outright. On legs of 4.5 to 11 quanta that is not a
 direction, and the row stays **diagnostic**.
@@ -1570,6 +1657,12 @@ alternation; every one exited 0 and every one is in the numbers above. A run tha
 had been dropped for reading badly would make the ensemble worthless, so the
 count is stated as the whole record: **ten launched, ten published.**
 
+**Their per-run readings are now committed** — see [the observation table in
+full](#the-observation-table-in-full), recovered from an out-of-tree backup of
+the ten runs' console logs after the producing worktree was reaped, and
+**not re-measured**. That is what makes every figure on this page derivable
+from the repository rather than merely stated by it.
+
 | | |
 |---|---|
 | **Authored anchor** | `2a97274c0fd50dd3145ba60a33f73f663bec94b9` on `worker/balance-6i0i2` — the last commit that touches the instrument. **A rebase-merge will mint a new landed SHA for it**, and this line is deliberately not rewritten to that SHA later: the blobs below are what identify the instrument, and a rebase cannot move a blob. An audit mapping this page to `main` should expect the anchor to resolve to a commit that is *not* an ancestor of `main`, and should check the blobs |
@@ -1642,18 +1735,18 @@ statement of what the measurement supports, not an amendment.
 > starting segment counterbalanced 5/5 now stand behind each row, so each is a
 > **magnitude with an interval** rather than a point or a bare direction:
 >
-> - **M1 mount — `1.2310×`, 95% interval `1.2105 – 1.2514` on the mean, single
+> - **M1 mount — `1.2310×`, 95% interval `1.2109 – 1.2510` on the mean, single
 >   runs landing in `1.199 – 1.293`.** This **supersedes `1.2301×`**, which was
 >   withdrawn as a magnitude and is not reinstated: the number the standard holds
 >   was measured on a 3:2 design whose bias has since been removed by
 >   construction, and it is replaced rather than restored. A candidate worse than
 >   the run-mean spread is RED; inside it, the honest answer is where in the
 >   spread it sits.
-> - **bulk narrow — `1.1754×`, interval `1.1579 – 1.1930`, runs `1.139 – 1.219`.**
+> - **bulk narrow — `1.1754×`, interval `1.1582 – 1.1926`, runs `1.139 – 1.219`.**
 >   **Supersedes `1.1540×`**, also withdrawn. Its direction is now as strong as
 >   any row on the page: all 60 rounds above 1.0, all 20 order strata wholly
 >   above.
-> - **bulk broad — `0.6291×`, interval `0.5996 – 0.6587`, runs `0.579 – 0.699`.**
+> - **bulk broad — `0.6291×`, interval `0.6001 – 0.6581`, runs `0.579 – 0.699`.**
 >   Supersedes `0.6239×`, which stood. All 60 rounds and all 20 strata below 1.0.
 > - **M2 mount — `1.0601×` and still diagnostic and still indistinguishable.**
 >   All ten runs straddle 1.0 and three read below it outright. Not quotable
@@ -1708,15 +1801,17 @@ mutation evidence is on
   page. What is still missing is the mechanism on *this* page and a fix that does
   not cost samples; one row per page plus a per-witness budget makes it harmless
   to these figures, and neither makes it fixed.
-- **Nine tenths of the ensemble's observation table is gone, and no later work
-  recovers it.** The ten-run ensemble published summaries and discarded the
-  readings behind them; only run 1's four vectors reached a committed file, and
-  the producing worktree no longer exists. [The observation
-  table](#the-observation-table-and-the-nine-rows-of-it-that-were-not-kept)
-  publishes what remains and the fixture derives every identity that survives —
-  but the two *p* columns cannot be recomputed by anyone, now or later. **Only a
-  fresh ensemble that commits its table closes this**, and the rule that would
-  have prevented it costs forty numbers.
+- ~~**Nine tenths of the ensemble's observation table is gone, and no later work
+  recovers it.**~~ **CLOSED — the logs survived.** The ten runs' console output
+  had been backed up out of tree before the producing worktree was reaped, so
+  [the observation table](#the-observation-table-in-full) is published complete
+  and every figure in both views — **including the two *p* columns this entry
+  had written off as permanently uncheckable** — is now derived from the forty
+  cells by the suite. Recovering it also found the one thing summaries had
+  hidden: the intervals used the wrong degrees of freedom. **What does not close
+  is the practice.** This ensemble was verifiable by luck, not by design; an
+  ensemble that publishes only summaries is one reaped worktree away from being
+  unverifiable, and the fix costs forty numbers.
 - **The segment-order effect is not established, and one machine-session is
   what stands behind that.** rf2-6i0i2's ten counterbalanced runs exclude an
   effect of the size this page once asserted and cannot exclude one of a percent
