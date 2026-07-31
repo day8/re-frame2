@@ -141,6 +141,12 @@ literal `:class` wins outright like any literal — so put your element's own cl
 on the tag (`[:input.form-control {:& attrs}]`) and the shorthand merge combines
 them with whatever the caller brought.
 
+**Spelling it differently does not get round it.** The law is enforced on the prop
+slot React ends up with, not on the key as written, so a remainder carrying
+`"key"`, `:x/ref` or an `:onInput` against your own `:on-input` reaches none of
+them. You do not have to think about this; it is here so you know there is nothing
+to think about.
+
 ## Resets are by revision, never by value
 
 When you need to force a field back to a value — a form reset, a "revert" button, a

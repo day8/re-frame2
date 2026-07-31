@@ -219,6 +219,11 @@ data spelling of exactly the pattern above — a registered id and a config map,
 with the imperative code in a registry instead of in your view — and v0 claims it
 now so that landing it later is not a breaking change. Today, write the function.
 
+The refusal is on the ref **slot**, so it holds however you spell the key —
+`{"ref" […]}` and `{:x/ref […]}` are refused too, and name the spelling you wrote.
+An unrefused one would have been the worst of both: React ignores an array at
+`ref`, in silence, so you would be debugging a ref that never fires.
+
 **And the honest limit on what that later spelling could ever be.** A React ref
 callback fires on **attach** and on **detach**. It does **not** fire on **config
 change**. There is no third call, and no amount of design gets one: passing a
