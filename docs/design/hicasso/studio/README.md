@@ -92,6 +92,7 @@ requires nothing from any donor `src/` tree.
 | [P0 — the UIx-on-subs frontier arm](p0-uix-on-subs-frontier-arm.md) | P0 | The frontier against the denominator, on the arm's own witnesses. Its retained-heap absolutes are **shared-query fan-out evidence** (rf2-2rtt6.16), its ratios the cross-regime check; its clock rows are superseded by the converged page. |
 | [P0 — the converged witness set, and the red-zones re-derived on it](p0-converged-witness-set.md) | P0 | The **clock red-zones** on the denominator's own witnesses, and how far the earlier per-arm witness sets moved the verdicts. |
 | [P0 — the reads-per-boundary heap ladder](reads-per-boundary-heap-ladder.md) | P0 | Retained heap per subscribing boundary across the 1/3/7/20 reads ladder, both donors — the **operative** distinct-query (Q = E) red-zone family. |
+| [P0 — the heap fan-out sweep](heap-fan-out-sweep.md) | P0 | What sharing a subscription is worth: E/Q at 1, 2, 4 and 8 on one instrument, with B and reads/boundary pinned. Confirms the ruling's fan-out-1 prediction, reproduces the `.4` grid arm to 0.3%, and prices the shell and per-unique-key terms — **refusing** the Reagent per-edge one. |
 | [HD-008 — the composed donor arm](hd8-composed-donor-arm.md) | donor gate | What the composed donor arm costs against both Reagent paths and against the frontier. |
 | [The UIx spine's per-read allocation, decomposed](uix-spine-per-read-decomposition.md) | P0 | Where a UIx-on-subs read's bytes go. |
 | [The cold-mount double build, priced against the mount red-zone](coldmount-double-build-priced.md) | P0 | What the double build **costs on the clock**, as a fraction of the same-run UIx-minus-Reagent mount excess — the rf2-2rtt6.14 decision input. |
@@ -119,3 +120,14 @@ rows measured under the same regime on the same witness, and reports both
 regime-matched gates: UIx 3,552 B/read (worse is RED, operator waiver
 required) and Reagent 943 B/read (worse with no named paper path down is K3
 territory; between the two is "UIx-rule cleared, K3 open", never plain green).
+
+**Heap absolutes published before 2026-07-31 predate two spine landings.**
+`rf2-2rtt6.13` (`9df5094816`) stopped retaining a disposed render-phase
+reaction — **−769 B per unique query key** on the UIx spine — and
+`rf2-2rtt6.25` (`f784ab0adb`) landed the hook-scoped provisional hand-off, so a
+cold read now builds one reaction rather than two. Every UIx heap absolute on
+the ladder and on the frontier arm was measured before both. The
+[fan-out sweep](heap-fan-out-sweep.md) is the first heap page measured after
+them, and it prices the difference: at fan-out 1 the UIx/Reagent retained-heap
+ratio moves from ~2.44× to **~1.97×**. Compare heap absolutes across that line
+only with the correction stated.
