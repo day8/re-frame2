@@ -1166,6 +1166,25 @@ Across the whole ensemble the strata **overlap in 37 of 40 row-runs**: M1, M2 an
 narrow each go disjoint once, broad never. The three disjoint splits fall in two
 runs, and no row is disjoint twice.
 
+**All forty row-runs feed the ensemble, the three unresolved ones included — and
+that is a rule, not an oversight.** It has to be said out loud, because the
+per-run gate is fail-closed and the ensemble looks like it walked straight past
+it: three row-runs were individually barred from publishing a magnitude, and
+their run means went into a threshold quoted to four decimals anyway. The two
+rules govern different quantities. `:magnitude-resolved?` decides whether **one
+run's mean may be quoted alone as a threshold**; it says nothing about whether
+that run may be **one observation among ten**. Dropping the three would select
+on the outcome — a disjoint split is precisely the extreme partition, so
+excluding it shrinks the spread and narrows the very interval the ensemble
+exists to compute. The ensemble's warrant is instead the launch count, **ten
+launched, ten published**, and a run discarded for how it read would forfeit it.
+
+The rule is pinned in the instrument as well as here: every row's `red-zone`
+record now carries an `:in-an-ensemble` line beside its `:publishable` one, so a
+`:direction-only` row-run states what it may be used for rather than entering an
+aggregate in silence. (The three fall one each on M1, M2 and narrow; broad never
+split.)
+
 **A disjoint split is a statement about resolution, not a finding.** Under the
 null — no order effect, the six rounds exchangeable — the three-round stratum is
 one of `C(6,3) = 20` equally likely subsets and exactly two of them separate the
@@ -1221,12 +1240,34 @@ questions and are powered differently.
 
 #### View 1 — between runs, one observation per run
 
-The assumption-free test: take the run's published threshold mean, compare the
-five Reagent-start runs against the five UIx-start runs, and use an **exact
-permutation test** over all `C(10,5) = 252` relabellings. Nothing about the
-inside of a run is assumed.
+Take the run's published threshold mean, compare the five Reagent-start runs
+against the five UIx-start runs, and enumerate all `C(10,5) = 252` relabellings.
+Nothing about the inside of a run enters it.
 
-| row | Reagent-start mean | UIx-start mean | difference | exact two-sided *p* | resolution limit |
+**What that enumeration assumes, because the labels were not randomised.** The
+ten starts were **alternated** — run 1 Reagent, run 2 UIx, and so on to run 10 —
+not drawn at random. Enumerating the 252 relabellings is therefore *not* a
+randomisation distribution justified by the assignment mechanism, which is what
+this page called it when it wrote *assumption-free*. It is a permutation test
+whose *p* is exact **only if the ten runs are exchangeable under the null** —
+only if what a run reads does not depend on where in the session it was
+launched. Alternation makes the failure mode concrete rather than theoretical:
+`Reagent-start` and `odd-numbered launch` name **the same five runs**, so a drift
+across the session and a start effect produce the identical partition. That is
+the five-round design's confound — segment order welded to round parity — moved
+up to the run level, and the design that actually ran cannot separate them
+either.
+
+**What survives the correction is the direction of the result.** A confound can
+manufacture an effect; it cannot manufacture a null. Every row below reads null,
+so what these numbers support is *no start effect detectable at this
+resolution, under exchangeability* — and a genuinely randomised assignment is
+what it would take to say more. The counterbalance still does the job it was
+taken for, which was to stop the raw mean being biased by the schedule; it is
+the **inference** about order that rests on an assumption, not the four
+published thresholds.
+
+| row | Reagent-start mean | UIx-start mean | difference | two-sided permutation *p* | resolution limit |
 |---|---|---|---|---|---|
 | M1 mount | 1.2276 | 1.2344 | −0.0068 | 0.770 | ±0.043 |
 | M2 mount | 1.0461 | 1.0740 | −0.0280 | 0.611 | ±0.122 |
@@ -1248,9 +1289,16 @@ The higher-powered test, and the direct successor to the discredited 11-of-12.
 Because a six-round run now carries **both** strata by construction, `d` is a
 *paired* contrast: it differences two numbers measured minutes apart in the same
 process, so run-to-run variance cancels instead of being absorbed. Ten runs, one
-`d` per run per row, an exact **sign-flip randomisation test** over all
-`2¹⁰ = 1024` sign assignments, one-sided in the direction the original claim
-named.
+`d` per run per row, a **sign-flip test** over all `2¹⁰ = 1024` sign
+assignments, one-sided in the direction the original claim named.
+
+**The same caveat, in this view's form.** A sign-flip test is a *randomisation*
+test when the starts were randomised, because flipping a run's start flips the
+sign of its `d` and the 1024 assignments are then exactly the experiments that
+could have happened. These starts were alternated, so they are not. The *p*
+below is exact **only under sign symmetry — each run's `d` symmetric about zero
+under the null** — an assumption this page did not state when it first published
+these numbers. Read them as descriptive.
 
 | row | order effect (mean `d`) | as a ratio | 95% interval | sign-flip *p* | positive |
 |---|---|---|---|---|---|
@@ -1269,7 +1317,7 @@ p = 0.084, is one row of four and would not survive being asked for four times.
 
 And the temporal component the confound hid is no better resolved:
 
-| row | order component | temporal component | exact *p* on the start-group difference |
+| row | order component | temporal component | permutation *p* on the start-group difference |
 |---|---|---|---|
 | M1 mount | +0.0357 | −0.0212 | 0.421 |
 | M2 mount | −0.0837 | +0.0632 | 0.318 |
@@ -1282,6 +1330,88 @@ page counted it — 40 row-runs treated as if independent, which they are not �
 the Reagent-first stratum is higher in **23 of 40**, p = 0.21. The 11-of-12 was
 not a small effect measured well; on the balanced design it is not there at the
 strength it was quoted.
+
+#### The observation table, and the nine rows of it that were not kept
+
+**Both views above are computed from a 10 × 4 table of per-run figures, and that
+table was never committed.** What landed was group means, intervals, ranges and
+*p* values — summaries, with nothing behind them a reader can reach. The PR
+#7303 audit found it, and it is a defect of the record rather than of the
+measurement: no number in either view can be recomputed from this repository.
+
+It is also only partly repairable. The worktree that produced the ensemble is
+gone and nine runs' readings went with it. So this section publishes what the
+repository *does* hold, marks the hole rather than filling it with a
+reconstruction, and pins the derivation of everything that can still be checked.
+The fixture is
+`implementation/freehand/test/re_frame/bench/hicasso/p0_converge_order_cljs_test.cljs`.
+
+| run | start | M1 | M2 | broad | narrow |
+|---|---|---|---|---|---|
+| **1** *(pre-registered)* | reagent | **1.2159** | **1.0469** | **0.6662** | **1.1542** |
+| 2 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 3 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 4 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 5 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 6 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 7 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 8 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 9 | reagent | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| 10 | uix | *not recorded* | *not recorded* | *not recorded* | *not recorded* |
+| **group mean — reagent-start (5)** | | 1.2276 | 1.0461 | 0.6295 | 1.1754 |
+| **group mean — uix-start (5)** | | 1.2344 | 1.0740 | 0.6288 | 1.1755 |
+| **threshold (10)** | | 1.2310 | 1.0601 | 0.6291 | 1.1754 |
+| **run-mean range (10)** | | 1.1989 – 1.2931 | 0.9561 – 1.1923 | 0.5792 – 0.6987 | 1.1390 – 1.2186 |
+
+**Run 1's four cells are derived, not transcribed.** The fixture replays its
+six-round vectors — the ones printed under the [RED-ZONE
+table](#red-zone--clock-on-rf2-2rtt62s-witnesses) above — through
+`segment-order-verdict`, and checks the run means, the whole stratum table, and
+run 1's four `d` values against what this page prints. Those `d` values are
+`+0.1026` on M1, `−0.0846` on M2, `+0.0835` on broad and `−0.0279` on narrow:
+**one tenth of View 2's input, and on broad it is opposite in sign to the
+ensemble mean** — which is the case for publishing ten runs rather than one,
+made from the one run that survives.
+
+Rows 2 through 10 are explicit `nil`s in the fixture. That is the honest shape:
+not zero, not missing at random, and **not recoverable** — six published
+constraints per column (two group means, the threshold, the range, the interval,
+the resolution limit) do not invert to nine unknowns, and any table that
+satisfied them would be an invention that happened to fit.
+
+**The derivation, stated once and now executed by the suite.**
+
+1. Per run per row, `d = ln( mean of the Reagent-first stratum ÷ mean of the
+   UIx-first stratum )`, the strata taken from `segment-order-verdict` itself so
+   the statistic and the published partition cannot drift apart. **Checked** on
+   run 1.
+2. A run's published figure is the arithmetic mean of its six rounds.
+   **Checked** on run 1, all four rows.
+3. A group mean is the mean of that start group's five runs; the threshold is
+   the mean of all ten. The counterbalance being 5/5, the threshold **is** the
+   average of the two group means — so the RED-ZONE table and View 1 are one
+   table, and a transcription slip in either shows up. **Checked**, all four
+   rows.
+4. View 1's `difference` column is the reagent-start group mean minus the
+   uix-start one. **Checked** (M2 misses by 0.0001 because the page differenced
+   the unrounded means).
+5. View 2's `as a ratio` column is `exp(mean d)`, and the 95% interval is
+   computed on `d` and printed as ratios — so the midpoint of its two logarithms
+   is the mean `d` itself. **Checked**, four rows and the composite.
+6. The composite is the mean over the four rows, for `d` and for both
+   components, never four trials pooled. **Checked** on both component columns.
+7. The *p* values — View 1's 252 relabellings, View 2's 1024 sign flips — are
+   functions of the ten per-run numbers. **Not checkable, and not checkable
+   later**: nine of the ten are gone.
+
+**So the arithmetic between the published summaries is checkable from the
+repository, and the step from ten runs to those summaries is not.** That is a
+smaller claim than *the inference can be independently recomputed*, and it is
+the true one. The rule it leaves behind is cheap and general: **an ensemble
+publishes its table, not only its summaries.** Ten launches produced ten
+records; committing forty numbers would have cost nothing and would have made
+every *p* on this page reproducible. The next ensemble on this lane commits
+them.
 
 #### Why the two views can disagree, and what n = 5 vs 5 cannot settle
 
@@ -1388,8 +1518,8 @@ differently for its position.
 
 **The ten-run ensemble now bounds how much of this was noise, and it does not
 account for all of it.** Ten runs of the balanced design span 1.1989 – 1.2931 on
-M1; this run's `1.1397` sits *below* that spread. The ten were launched within
-about eight minutes of one another on one machine, so their interval measures
+M1; this run's `1.1397` sits *below* that spread. The ten were launched serially
+on one machine, each after the previous had exited, so their interval measures
 **within-session** run-to-run variation; the corrected run is a different session
 on a different instrument, and it reads lower than any of them. **A candidate
 should therefore be judged against the run-mean spread rather than the interval
@@ -1469,13 +1599,35 @@ P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
 git rev-parse <candidate>:$P   # must print 5a727706fcd3268027b1d1b640658ca0be7ab86f
 ```
 
-**What this ensemble does not establish.** All ten ran on one machine inside one
-eight-minute window, so it bounds run-to-run variation *within a session* and
-says nothing about a different machine, a different Chromium or a different day —
-and the corrected run's `1.1397` on M1, from another session, is the standing
-demonstration that between-session spread is wider. Ten runs also cannot prove an
-absence: see [what n = 5 versus n = 5 cannot
+**That blob has since moved twice, and both moves are recorded here rather than
+left to ambush a reader.** rf2-2rtt6.21 added the `:reagent-ratom` arm (its own
+provenance block names the blob it landed), and rf2-6i0i2's follow-up then added
+the `:in-an-ensemble` line to the red-zone record — a constant string published
+*after* every sample of a row is taken, on no measured path. So a checkout at
+HEAD no longer answers `5a727706fc`, and will not again. The hash above
+identifies the instrument **as it stood when the ten runs ran**, which is the
+whole point of pinning it; it was never a claim that the file would stop
+changing. Reproduce against the blob, not against HEAD.
+
+**What this ensemble does not establish.** All ten ran on one machine in one
+session, launched one at a time with each waiting for the previous to exit, so it
+bounds run-to-run variation *within a session* and says nothing about a different
+machine, a different Chromium or a different day — and the corrected run's
+`1.1397` on M1, from another session, is the standing demonstration that
+between-session spread is wider. Ten runs also cannot prove an absence: see [what
+n = 5 versus n = 5 cannot
 settle](#why-the-two-views-can-disagree-and-what-n--5-vs-5-cannot-settle).
+
+> **"One eight-minute window" was not true, and it is corrected rather than
+> quietly deleted.** A single run of this design is minutes, not seconds —
+> `p0_converge_run.cjs` says exactly that where it sets its own twenty-minute
+> sentinel budget — so ten serial runs cannot share an eight-minute window. About
+> eight minutes was the **spacing between launches**, which is a different claim
+> and a session an order of magnitude longer. **The wall-clock span itself was
+> never recorded**, and nothing here reconstructs it. What *is* recorded is that
+> the ten ran serially, on one box, in one sitting — which is the only property
+> the within-session reading ever needed, and the reason the conclusion is
+> unchanged.
 
 ### What would have been appended to rf2-2rtt6.1, had it not been size-locked
 
@@ -1556,12 +1708,25 @@ mutation evidence is on
   page. What is still missing is the mechanism on *this* page and a fix that does
   not cost samples; one row per page plus a per-witness budget makes it harmless
   to these figures, and neither makes it fixed.
+- **Nine tenths of the ensemble's observation table is gone, and no later work
+  recovers it.** The ten-run ensemble published summaries and discarded the
+  readings behind them; only run 1's four vectors reached a committed file, and
+  the producing worktree no longer exists. [The observation
+  table](#the-observation-table-and-the-nine-rows-of-it-that-were-not-kept)
+  publishes what remains and the fixture derives every identity that survives —
+  but the two *p* columns cannot be recomputed by anyone, now or later. **Only a
+  fresh ensemble that commits its table closes this**, and the rule that would
+  have prevented it costs forty numbers.
 - **The segment-order effect is not established, and one machine-session is
   what stands behind that.** rf2-6i0i2's ten counterbalanced runs exclude an
   effect of the size this page once asserted and cannot exclude one of a percent
-  or two. They also all ran inside one eight-minute window on one box; a run from
-  another session read below the whole ensemble's spread on M1. **Between-session
-  variation is unmeasured and is the wider of the two.**
+  or two. They also all ran serially in one session on one box — the span was
+  never recorded, and *"one eight-minute window"* was this page's own error about
+  it; a run from another session read below the whole ensemble's spread on M1.
+  **Between-session variation is unmeasured and is the wider of the two.** And
+  the ten start labels were alternated rather than randomised, so both views'
+  *p* values are exact only under an exchangeability assumption that the design
+  cannot check — the null they report is a weaker warrant than it looked.
 - ~~**`p0_converge_app.cljs`'s own row table still describes the pre-batch
   narrow window, and this page cannot fix it.**~~ **CLOSED by rf2-95m11
   (PR #7288).** The sibling worker finished, and the correction was the one
