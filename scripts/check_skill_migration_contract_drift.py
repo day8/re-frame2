@@ -1622,9 +1622,13 @@ M0_DELEGATION_ANCHOR = "deps-versions.md#choosing-the-coordinate"
 # The M-0 section: the `### M-0.` rule heading up to the next `### M-N.` rule
 # heading (M-1 today). Bounded by rule headings — not by "any heading" — so a
 # future subsection inside M-0 cannot truncate the span, and matched at any
-# ATX level so a heading-depth reshuffle does not blind the lock.
-M0_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-0\.", re.MULTILINE)
-M_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-\d+\.", re.MULTILINE)
+# ATX level so a heading-depth reshuffle does not blind the lock. A rule
+# heading is the COMPLETE `M-N.` id — whitespace or end-of-line must follow
+# the terminal dot — so a numbered subsection (`#### M-0.1 …`, whose dot is a
+# decimal point, not a terminator) neither ends the span early nor stands in
+# for a missing parent heading (the rf2-snjn5 #7296 audit's two polarities).
+M0_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-0\.(?=[ \t]|$)", re.MULTILINE)
+M_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-\d+\.(?=[ \t]|$)", re.MULTILINE)
 
 
 def _m0_section_span(text: str) -> tuple[int, int] | None:
@@ -2928,6 +2932,32 @@ def _self_test() -> int:
         M0_CLEAN.replace("### M-0. Bump", "Bump"),
         dirty=True,
         label="M0-8 missing M-0 heading is dirty",
+    )
+    # M0-9 — polarity 1 of the rf2-snjn5 #7296 audit: a numbered subsection
+    # (`#### M-0.1 …`) inside M-0, before the delegation anchor. Its dot is a
+    # decimal point, not a rule terminator, so the span must run on to
+    # `### M-1.` and scan clean — not truncate at the child and false-red the
+    # delegation while the anchor sits inside M-0.
+    expect_m0(
+        M0_CLEAN.replace(
+            "The recipe is maintained in one place",
+            "#### M-0.1 Choosing the route\n"
+            "The recipe is maintained in one place",
+        ),
+        dirty=False,
+        label="M0-9 numbered subsection before the anchor is clean",
+    )
+    # M0-10 — polarity 2: the parent `### M-0.` heading removed, an orphan
+    # `#### M-0.1` child left carrying the anchor. The child id is not an M-0
+    # rule heading, so the lock must report the missing heading (as in M0-8)
+    # rather than silently scoping the section to the orphan.
+    expect_m0(
+        M0_CLEAN.replace(
+            "### M-0. Bump the dependency coordinate to `day8/re-frame2`",
+            "#### M-0.1 Choosing the route",
+        ),
+        dirty=True,
+        label="M0-10 orphan M-0.1 child with the parent heading removed is dirty",
     )
 
     # Live red-proof teeth: the lock must have BITE against the exact pre-fix
