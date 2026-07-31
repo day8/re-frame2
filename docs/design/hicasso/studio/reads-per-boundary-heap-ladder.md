@@ -511,8 +511,8 @@ telling you where the bytes go.
 **Two readings that do come from elsewhere.** Both are on the *other*
 instrument, so they corroborate the magnitude and not the bench number:
 
-1. **This ladder's own slope, corrected.** `3,552 − 769 = 2,783 B/read`. That
-   is 5.5% below the sweep's figure, and +5.2% is exactly the common-mode
+1. **This ladder's own slope, corrected.** `3,552 − 769 = 2,783 B/read`. The
+   sweep's figure sits 5.5% above it, and +5.2% is exactly the common-mode
    offset the sweep measured twice between the two harnesses (Reagent +5.19%,
    UIx +5.17%) — a difference in boundary-component shape, not in the spine.
 2. **A third instrument, measured after the fix.**

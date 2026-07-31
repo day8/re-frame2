@@ -55,39 +55,69 @@ line on either shape, but on the two-prop shape Reagent sits at the *top* of the
 ### The component budgets
 
 Part 3 of the same ruling would not freeze the shell / per-edge / per-unique-key
-rows from cross-instrument algebra; it gated them on a bench sweep that verified
-the additive heap model and priced the terms on one instrument in one run. That
-sweep has landed — [the fan-out heap sweep](studio/heap-fan-out-sweep.md), commit
-`61dd44950a` (PR #7306): E/Q 1-2-4-8 at ROOTS=4 and ROOTS=1, six rounds each,
-both runs exit 0, arm-order guard reportable, 0 unverified of 126 mounts per run,
-dense-array positive control within 0.007%. It prices two of the three rows on
-both substrates and **refuses** the third on one.
+rows from cross-instrument algebra; it gated them on a bench sweep that would
+verify the additive heap model and price the terms on one instrument in one run.
+That sweep has landed — [the fan-out heap sweep](studio/heap-fan-out-sweep.md),
+commit `61dd44950a` (PR #7306): E/Q 1-2-4-8 at ROOTS=4 and ROOTS=1, six rounds
+each, both runs exit 0, arm-order guard reportable, 0 unverified of 126 mounts
+per run, dense-array positive control within 0.007%. It prices two of the three
+rows on both substrates and **refuses** the third on one. It **fits** the
+additive model rather than validating it out of sample: the warrant column below
+says what each row therefore rests on, and the paragraphs under it say why the
+stronger claim was withdrawn.
 
-| Component (per boundary, distinct-query witness) | Reagent-on-subs | UIx-on-subs |
-|---|---|---|
-| Boundary shell (R = 0), two-prop boundary | 501–524 B | 221–231 B |
-| Per unique subscription key | ~866 B [823–939] | ~1,590 B [1,525–1,659] |
-| Per edge (consumer attachment) | **refused — measured, not identified** | ~1,345 B [1,327–1,396] |
+| Component (per boundary, distinct-query witness) | Reagent-on-subs | UIx-on-subs | Warrant |
+|---|---|---|---|
+| Boundary shell (R = 0), two-prop boundary | 501–524 B | 221–231 B | a measured rung, read directly — no model |
+| Per unique subscription key | ~866 B [823–939] | ~1,590 B [1,525–1,659] | a direct slope, plus corroboration from outside the sweep |
+| Per edge (consumer attachment) | **refused — measured, not identified** | ~1,345 B [1,327–1,396], **provisional** | a direct contrast; the *split* is model-dependent within ~50 B |
 
-**The refused row is a result, not an omission.** On UIx the two independent
-identifications of the edge term agree within 3.8% and the surviving model
-predicts a held-out rung it never saw to within 2%. On Reagent they disagree by
-160 B — 80–84 B priced from the contrast against 234–244 B priced from the
-intercept, more than twice the smaller of the two — and the criterion that
-refuses them was written down before the run. What a Reagent boundary pays for
-its *first* read beyond the per-key term is ~234–244 B, and that total is
-quotable; how it splits between an attachment and a per-subscribing-boundary step
-of ~150–163 B, which is neither shell nor edge, is not. Budget against the total.
-Never against either half.
+**Read the warrant column with the numbers.** The sweep's first publication
+offered these rows as validated by a model that predicted a rung held out of
+every identification. The audit of PR #7306 established that no rung was held
+out — the rung in question feeds a mandatory model-admissibility check — so
+**that warrant is withdrawn and each row now stands on its own evidence**
+([the sweep's §4 and §6](studio/heap-fan-out-sweep.md#4-the-additive-model)).
+The magnitudes are unchanged; none was re-measured, because the operator
+deferred new heap measurement on 2026-07-31.
 
-Two caveats ride these rows. Reagent's additive verdict is **marginal**: it
-reaches the four-term model in both runs but by different failing checks — a
-10.44% held-out miss against a 10% threshold in one run, a 163 B step against a
-160 B band in the other — and its per-round verdicts flip. Neither threshold was
-moved after the fact. And separating Reagent's step from its edge wants one rung
-the sweep does not have, R = 3 at fixed Q, which would over-determine the pair;
-the studio page carries that as an Open item. Until it runs, the Reagent per-edge
-row stays refused.
+- **The shell is a measurement**, not a fit: `R0` is a rung that was mounted and
+  read. Nothing in the correction touches it.
+- **The per-unique-key row is the strongest of the three.** It is the slope of
+  four rungs with edges pinned, r² ≥ 0.9973 in every round of both runs,
+  re-priced from a disjoint rung pair, and matched from *outside* the sweep by
+  `rf2-2rtt6.12`'s direct ablation — 866 B on Reagent, dead centre of the range;
+  1,684 B on UIx once `.13`'s 769 B is taken out, 1.5% above the top of it.
+- **The UIx per-edge row is a direct contrast and its label is provisional.**
+  Two rungs at the same Q, one read apart, price an attachment at 1,344–1,345 B
+  whichever model is selected; what the model decides is only whether a further
+  38–52 B is called *edge* or *step*. Budget against ~1,345 B and treat the last
+  ~50 B as unallocated — not as a validated decomposition.
+
+**The refused row is a result, not an omission** — and the refusal is a
+judgement, stated as one. On Reagent the two routes to the edge term disagree by
+160 B: 80–84 B priced from the contrast against 234–244 B priced from the
+intercept, more than twice the smaller of the two. The **precommitted** criterion
+(r² floor, key agreement within 15%, step ≤ 10% of the fan-out-1 boundary,
+model reproduces the R = 2 rung within 10%) selected the four-term model on both
+runs and would have published the 84 B figure; no "twice the smaller term"
+threshold appears in it, and no threshold in it was moved after the run. What the
+precommitted machinery *did* record is the instability: the two runs reach the
+four-term model by different failing checks, the step sits inside its band in one
+and outside it in the other, and the per-round verdicts flip 5-of-6 and 2-of-6.
+**The refusal itself is the studio page's post-run editorial call** on that
+record — conservative, in the safe direction, and left standing here, but not
+the output of a rule written in advance. What a Reagent
+boundary pays for its *first* read beyond the per-key term is ~234–244 B, and
+that total is quotable; how it splits between an attachment and a
+per-subscribing-boundary step of ~150–163 B, which is neither shell nor edge, is
+not. Budget against the total. Never against either half.
+
+One more caveat rides these rows. Separating Reagent's step from its edge wants
+one rung the sweep does not have, R = 3 at fixed Q, which would over-determine
+the pair; the studio page carries that as an Open item, alongside what an
+adjudication genuinely independent of the model would require. Until that runs,
+the Reagent per-edge row stays refused.
 
 Sub-key identity: `(query-id, args)` under value equality; value-unstable map args
 thrash the index — documented, programmer-trusted. A missed invalidation is a P0
