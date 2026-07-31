@@ -40,13 +40,52 @@ as HD-nnn are normative in [decisions.md](decisions.md).
 
 The shell budget line is the R=0 boundary shell by ruling (heap red-zone regime
 ruling, delegated by Mike, 2026-07-31; authoritative text on rf2-2rtt6.16,
-transcription on rf2-2rtt6.1): both measured donors comply — Reagent ~418–428 B,
-UIx ~208 B — and a candidate cannot pass the line by amortising subscriptions
-across boundaries, because the distinct-query heap ladder (Q = E) is the
-mandatory worst-case witness and the operative upper-envelope red-zone family.
-Component budget rows (shell / per-edge / per-unique-key) enter this table only
-after rf2-5prok's fan-out sweep verifies the additive heap model and prices the
-terms.
+transcription on rf2-2rtt6.1): a candidate cannot pass the line by amortising
+subscriptions across boundaries, because the distinct-query heap ladder (Q = E)
+is the mandatory worst-case witness and the operative upper-envelope red-zone
+family. The shell is component-shape sensitive at the ~75 B level, so the line
+means nothing without a named boundary shape: the ladder's one-prop boundary
+reads Reagent ~418–428 B and UIx ~208 B; the fan-out sweep's two-prop boundary
+reads Reagent 501–524 B and UIx 221–231 B. Both donors clear the 1 KB paper-fail
+line on either shape, but on the two-prop shape Reagent sits at the *top* of the
+0.4–0.5 KB target band rather than inside it.
+
+### The component budgets
+
+Part 3 of the same ruling would not freeze the shell / per-edge / per-unique-key
+rows from cross-instrument algebra; it gated them on a bench sweep that verified
+the additive heap model and priced the terms on one instrument in one run. That
+sweep has landed — [the fan-out heap sweep](studio/heap-fan-out-sweep.md), commit
+`61dd44950a` (PR #7306): E/Q 1-2-4-8 at ROOTS=4 and ROOTS=1, six rounds each,
+both runs exit 0, arm-order guard reportable, 0 unverified of 126 mounts per run,
+dense-array positive control within 0.007%. It prices two of the three rows on
+both substrates and **refuses** the third on one.
+
+| Component (per boundary, distinct-query witness) | Reagent-on-subs | UIx-on-subs |
+|---|---|---|
+| Boundary shell (R = 0), two-prop boundary | 501–524 B | 221–231 B |
+| Per unique subscription key | ~866 B [823–939] | ~1,590 B [1,525–1,659] |
+| Per edge (consumer attachment) | **refused — measured, not identified** | ~1,345 B [1,327–1,396] |
+
+**The refused row is a result, not an omission.** On UIx the two independent
+identifications of the edge term agree within 3.8% and the surviving model
+predicts a held-out rung it never saw to within 2%. On Reagent they disagree by
+160 B — 80–84 B priced from the contrast against 234–244 B priced from the
+intercept, more than twice the smaller of the two — and the criterion that
+refuses them was written down before the run. What a Reagent boundary pays for
+its *first* read beyond the per-key term is ~234–244 B, and that total is
+quotable; how it splits between an attachment and a per-subscribing-boundary step
+of ~150–163 B, which is neither shell nor edge, is not. Budget against the total.
+Never against either half.
+
+Two caveats ride these rows. Reagent's additive verdict is **marginal**: it
+reaches the four-term model in both runs but by different failing checks — a
+10.44% held-out miss against a 10% threshold in one run, a 163 B step against a
+160 B band in the other — and its per-round verdicts flip. Neither threshold was
+moved after the fact. And separating Reagent's step from its edge wants one rung
+the sweep does not have, R = 3 at fixed Q, which would over-determine the pair;
+the studio page carries that as an Open item. Until it runs, the Reagent per-edge
+row stays refused.
 
 Sub-key identity: `(query-id, args)` under value equality; value-unstable map args
 thrash the index — documented, programmer-trusted. A missed invalidation is a P0
