@@ -797,7 +797,7 @@ function summariseHeap(row) {
 
 // ---------------------------------------------------------------------------
 
-const n0 = (x) => String(Math.round(x));
+const n0 = (x) => (typeof x === 'number' && isFinite(x) ? String(Math.round(x)) : '—');
 
 function summariseFanout(row) {
   const B = row.plan[0].arms[0].boundaries;
@@ -859,11 +859,14 @@ function summariseFanout(row) {
 
   // --- the additive model -------------------------------------------------
   console.log(';;');
-  console.log(';; ==== THE ADDITIVE MODEL — y = shell + (E/B)·edge + (Q/B)·key ====');
-  console.log(';;   The R=1 family identifies it (slope = key, intercept = shell + edge, and the');
-  console.log(';;   R=0 rung measures shell on its own). The two R=2 rungs are HELD OUT and');
-  console.log(";;   predicted from those three numbers alone. The rule is p0-heap/additive-fit's;");
-  console.log(';;   this driver states the rungs and reads the answer.');
+  console.log(';; ==== THE ADDITIVE MODEL ====');
+  console.log(';;   M3   y = shell + (E/B)·edge + (Q/B)·key            (the ruling\'s shape)');
+  console.log(';;   M4   y = shell + [E>0]·step + (E/B)·edge + (Q/B)·key');
+  console.log(';;   Each term from one contrast: shell is the R=0 rung; key is the R=1 slope in');
+  console.log(';;   Q/B; edge is R2QB2 − R1Q2 (same Q, one more read); step is what is left of');
+  console.log(';;   the R=1 intercept. R2Q2B is HELD OUT of all of that and predicted by both.');
+  console.log(";;   The rule is p0-heap/additive-fit's — this driver states the rungs and reads");
+  console.log(';;   the answer. It is a verdict about what may be PRICED, not an instrument gate.');
   const fits = row.fanFits;
   for (const segment of Object.keys(FAN_SUBSTRATE)) {
     const m = fits.mean[segment];
@@ -875,25 +878,32 @@ function summariseFanout(row) {
     console.log(';;');
     console.log(
       `;;   ${segment}:  shell ${n0(m.shell)} B ${rng((f) => f.shell)}` +
-        `   edge ${n0(m.edge)} B ${rng((f) => f.edge)}` +
+        `   step ${n0(m.step)} B ${rng((f) => f.step)}` +
+        `   edge ${n0(m.edgeContrast)} B ${rng((f) => f.edgeContrast)}` +
         `   key ${n0(m.key)} B ${rng((f) => f.key)}`
     );
     console.log(
-      `;;     r² ${m.r2.toFixed(5)}   ·   edge re-measured as R2QB2 − R1Q2 = ${n0(m.edgeAlt)} B` +
-        `   ·   key re-measured from the R=2 pair = ${n0(m.keyAlt)} B`
+      `;;     r² ${m.r2.toFixed(5)}  ·  edge from the intercept ${n0(m.edgeIntercept)} B` +
+        `  ·  key from the R=2 pair ${n0(m.keyAlt)} B`
+    );
+    console.log(
+      `;;     held out ${m.heldOut.rung} = ${n0(m.heldOut.measured)} B  ·  M3 says ${n0(m.heldOut.m3)} B ` +
+        `(${(100 * m.heldOut.m3Error).toFixed(2)}%)  ·  M4 says ${n0(m.heldOut.m4)} B ` +
+        `(${(100 * m.heldOut.m4Error).toFixed(2)}%)`
     );
     for (const c of m.checks) {
       console.log(`;;     [${c.ok ? 'ok  ' : 'FAIL'}] ${c.name}`);
       console.log(`;;              ${c.detail}`);
     }
-    const badRounds = per.filter((f) => !f.ok).length;
+    const models = per.map((f) => f.model);
+    const agreed = models.filter((x) => x === m.model).length;
     console.log(
-      `;;     per-round: ${per.length - badRounds} of ${per.length} rounds additive on the same criterion`
+      `;;     per-round: ${agreed} of ${per.length} rounds reach the same verdict ` +
+        `(${models.map((x) => x || 'refused').join(', ')})`
     );
-    console.log(
-      `;;     VERDICT: ${m.ok && badRounds === 0 ? 'ADDITIVE — component prices may be quoted' : 'REFUSED — ' + m.why}`
-    );
-    row.fanFits.mean[segment].allRoundsOk = badRounds === 0;
+    console.log(`;;     VERDICT: ${m.why}`);
+    row.fanFits.mean[segment].roundsAgreeing = agreed;
+    row.fanFits.mean[segment].roundModels = models;
   }
 
   console.log(';;');

@@ -334,26 +334,48 @@
 ;; It also REFUSES to freeze those numbers from cross-instrument algebra,
 ;; because the paired rows came from different instruments and runs — and
 ;; it makes this sweep the gate. So the sweep has to do two things a fit
-;; alone does not: identify the terms from CONTRASTS that move one factor
-;; at a time, and then try to BREAK the model on rungs it was not fitted
-;; to.
+;; alone does not: identify each term from a CONTRAST that moves one
+;; factor at a time, and then try to BREAK the model on a rung it was not
+;; fitted to.
 ;;
-;; Identification. The R=1 family holds E/B = 1 and walks Q/B, so a
-;; straight line through it has slope `key` and intercept `shell + edge`;
-;; the R=0 rung measures `shell` on its own; `edge` is the difference. All
-;; three come out of one page, one round, one reader.
+;; ## Two models, because the published ladder already doubts the first
 ;;
-;; Falsification. Two R=2 rungs are then measured and PREDICTED FROM
-;; NOTHING BUT THE ABOVE. They are not in the fit. If the cost of a read
-;; depended on how many reads a boundary already had, or if a shared key
-;; were cheaper per consumer than an exclusive one, the R=1 family would
-;; still be a line and the R=2 predictions would miss. The self-test below
-;; proves that is not a hypothetical: a synthetic page with a quadratic
-;; key term passes the r² floor at 0.997 and is caught only here.
+;; **M3** is the ruling's shape exactly, three terms. **M4** adds one:
 ;;
-;; The verdict this returns is not an instrument fault and does not stop a
-;; run. It decides whether the numbers may be QUOTED as component prices,
-;; which is the thing the ruling gated.
+;;     y = shell + [E>0]·step + (E/B)·edge + (Q/B)·key
+;;
+;; where `step` is what a boundary pays for SUBSCRIBING AT ALL, over and
+;; above what it pays per read. There is already evidence for it: the
+;; reads ladder's Reagent curve fits `397 + 943·R` at r² 0.9988 while its
+;; measured R=0 shell reads 428 and its R=1 rung reads 1,562 — a first
+;; read that costs 224 B more than the line, invisible in an r² taken
+;; against a 19 KB range. M3 says that number is zero. Deciding between
+;; them is this sweep's job; assuming M3 and reporting its terms would be
+;; assuming the answer.
+;;
+;; ## Identification — each term from one contrast
+;;
+;;   shell  the R=0 rung, on its own.
+;;   key    the SLOPE of the R=1 family in Q/B. E/B is pinned at 1 across
+;;          those four rungs, so nothing but the number of unique keys is
+;;          moving.
+;;   edge   `R2QB2 − R1Q2`: two rungs at the SAME Q, differing by one read
+;;          per boundary. One extra edge each, no extra keys, nothing else.
+;;   step   `(intercept − shell) − edge`. The intercept of the R=1 family
+;;          is everything a reading boundary pays that is not per-key; the
+;;          contrast says how much of that is per-EDGE; the remainder is
+;;          the term M3 says does not exist.
+;;
+;; ## Falsification — one rung is held out
+;;
+;; `R2Q2B` (two reads, every one of them distinct) is measured and never
+;; used to identify anything. Both models predict it from the terms above
+;; and the page publishes both predictions. A model that survives that is
+;; a model that priced a rung it had never seen.
+;;
+;; The verdict is not an instrument fault and does not stop a run. It
+;; decides whether the numbers may be QUOTED as component prices, and
+;; under which shape — which is exactly what the ruling gated.
 
 (def additive-criterion
   "The thresholds, fixed before the sweep ran and not moved after it.
@@ -361,17 +383,25 @@
   `:min-r2` — the R=1 family must be a line in Q/B. 0.98 over four rungs
   is well inside what this instrument has shown it can resolve (the reads
   ladder returned r² ≥ 0.9987 on both substrates) and far outside what a
-  page with a real interaction term would return.
+  page whose shared reactions were priced differently from its exclusive
+  ones would return. This one gates everything: without it there is no
+  per-unique-key price to argue about.
 
-  `:max-oos-error` — each R=2 rung's prediction must land within 10% of
-  the measured value. The rungs sit at 3–13 KB per boundary and this
-  instrument's per-arm ranges are well under 1% wide, so 10% is a margin
-  for the model, not for the reader.
+  `:max-oos-error` — the held-out rung must be predicted within 10%. It
+  sits at 3–13 KB per boundary and this instrument's per-arm ranges are
+  well under 1% wide, so 10% is a margin for the MODEL, not for the
+  reader.
 
-  `:max-key-disagreement` — the per-key term solved from the R=2 PAIR
+  `:max-key-disagreement` — the per-key term solved from the R=2 pair
   alone must agree with the R=1 slope within 15%. Two disjoint subsets of
-  the sweep, one arithmetic."
-  {:min-r2 0.98 :max-oos-error 0.10 :max-key-disagreement 0.15})
+  the sweep, one arithmetic.
+
+  `:max-step-frac` — how big `step` may be, as a fraction of the whole
+  fan-out-1 boundary, and still be called zero. 10%: a term that moves a
+  distinct-query boundary by a tenth is not a rounding error, and a
+  budget that named it `edge` would misprice every page whose fan-out is
+  not 1."
+  {:min-r2 0.98 :max-oos-error 0.10 :max-key-disagreement 0.15 :max-step-frac 0.10})
 
 (defn- ols
   "Ordinary least squares of `[x y]` pairs. Answers `{:slope :intercept
@@ -396,139 +426,200 @@
 (defn- pct [x] (str (.toFixed (* 100.0 x) 2) "%"))
 
 (defn additive-fit
-  "Price `shell`, `edge` and `key` from one substrate's rungs, and
-  adjudicate whether they may be quoted.
+  "Price the terms from one substrate's rungs and adjudicate which model —
+  if either — may carry them into a budget.
 
   `rungs` is a seq of `{:rung :reads :keys :boundaries :y}`, where `y` is
   exclusive retained bytes per boundary (arm − floor). Answers a map whose
-  `:ok?` is the ruling's refusal rule: false means the page publishes the
-  rows and NOT the prices, and says which check failed."
-  [rungs {:keys [min-r2 max-oos-error max-key-disagreement]}]
+  `:model` is `\"M3\"`, `\"M4\"` or `nil`; `nil` means the page publishes
+  the ROWS and not the PRICES, and says which check refused."
+  [rungs {:keys [min-r2 max-oos-error max-key-disagreement max-step-frac]}]
   (let [xof      (fn [{:keys [keys boundaries]}] (/ (double keys) (double boundaries)))
         of-reads (fn [r] (vec (sort-by xof (filterv #(= r (long (:reads %))) rungs))))
         zero     (first (of-reads 0))
         ones     (of-reads 1)
-        twos     (of-reads 2)]
+        twos     (of-reads 2)
+        pair     (fn [xs x] (first (filter #(< (js/Math.abs (- (xof %) x)) 1e-9) xs)))]
     (if (or (nil? zero) (< (count ones) 3) (< (count twos) 2))
-      {:ok?  false
-       :why  (str "the sweep is missing a rung the model needs — R=0 ×"
-                  (if zero 1 0) ", R=1 ×" (count ones) ", R=2 ×" (count twos)
-                  " (need 1, ≥3, 2)")
+      {:ok?    false
+       :model  nil
+       :why    (str "the sweep is missing a rung the model needs — R=0 ×"
+                    (if zero 1 0) ", R=1 ×" (count ones) ", R=2 ×" (count twos)
+                    " (need 1, ≥3, 2)")
        :checks []}
       (let [{:keys [slope intercept r2]} (ols (mapv (fn [g] [(xof g) (:y g)]) ones))
             shell    (:y zero)
             key-term slope
-            edge     (- intercept shell)
-            predict  (fn [g] (+ shell (* 2.0 edge) (* (xof g) key-term)))
-            oos      (mapv (fn [g]
-                             (let [p (predict g)]
-                               {:rung     (:rung g)
-                                :q-over-b (xof g)
-                                :measured (:y g)
-                                :predicted p
-                                :error    (/ (- p (:y g)) (:y g))}))
-                           twos)
+            ;; The identification pair: the LOWER-Q of the two R=2 rungs
+            ;; and the R=1 rung at the same Q. One extra edge per boundary
+            ;; and nothing else moved.
             lo       (first twos)
             hi       (peek twos)
+            twin     (pair ones (xof lo))
+            edge-c   (when twin (- (:y lo) (:y twin)))
+            edge-i   (- intercept shell)
+            step     (when edge-c (- edge-i edge-c))
+            ;; The HELD-OUT rung: never used above, predicted by both.
+            m3       (+ shell (* 2.0 edge-i) (* (xof hi) key-term))
+            m4       (when step
+                       (+ shell step (* 2.0 edge-c) (* (xof hi) key-term)))
+            err      (fn [p] (when p (/ (- p (:y hi)) (:y hi))))
+            m3-err   (err m3)
+            m4-err   (err m4)
             dx       (- (xof hi) (xof lo))
             key-2    (when-not (zero? dx) (/ (- (:y hi) (:y lo)) dx))
             key-gap  (when (and key-2 (not (zero? key-term)))
                        (/ (- key-2 key-term) key-term))
-            twin     (first (filter #(< (js/Math.abs (- (xof %) (xof lo))) 1e-9) ones))
-            edge-2   (when twin (- (:y lo) (:y twin)))
+            fan1     (+ intercept key-term)          ; the whole Q/B = 1 boundary
+            step-lim (* max-step-frac (js/Math.abs fan1))
+            linear?  (>= r2 min-r2)
+            key-ok?  (boolean (and key-gap (<= (js/Math.abs key-gap) max-key-disagreement)))
+            step-0?  (boolean (and step (<= (js/Math.abs step) step-lim)))
+            m3-ok?   (boolean (and m3-err (<= (js/Math.abs m3-err) max-oos-error)))
+            m4-ok?   (boolean (and m4-err (<= (js/Math.abs m4-err) max-oos-error)))
+            model    (cond
+                       (not (and linear? key-ok?)) nil
+                       (and step-0? m3-ok?)        "M3"
+                       m4-ok?                      "M4"
+                       :else                       nil)
             checks
-            [{:name "the R=1 family is a LINE in Q/B"
-              :ok   (>= r2 min-r2)
+            [{:name "the R=1 family is a LINE in Q/B — the per-unique-key price exists"
+              :ok   linear?
               :detail (str "r² " (.toFixed r2 5) " over " (count ones)
                            " rungs (floor " min-r2 ")")}
-             {:name "the two R=2 rungs are predicted OUT OF SAMPLE"
-              :ok   (every? #(<= (js/Math.abs (:error %)) max-oos-error) oos)
-              :detail (str/join
-                        " · "
-                        (map (fn [o]
-                               (str (:rung o) " predicted " (.toFixed (:predicted o) 0)
-                                    " B, measured " (.toFixed (:measured o) 0)
-                                    " B, " (pct (:error o))))
-                             oos))}
              {:name "the per-key term from the R=2 PAIR agrees with the R=1 slope"
-              :ok   (boolean (and key-gap
-                                  (<= (js/Math.abs key-gap) max-key-disagreement)))
+              :ok   key-ok?
               :detail (if key-gap
                         (str "R=2 pair " (.toFixed key-2 0) " B vs R=1 slope "
                              (.toFixed key-term 0) " B — " (pct key-gap))
-                        "the two R=2 rungs share a Q/B; the pair cannot price a slope")}]]
-        {:ok?        (every? :ok checks)
-         :checks     checks
-         :shell      shell
-         :edge       edge
-         :key        key-term
-         :edge-alt   edge-2
-         :key-alt    key-2
-         :intercept  intercept
-         :r2         r2
-         :oos        oos
-         :criterion  {:min-r2 min-r2
-                      :max-oos-error max-oos-error
-                      :max-key-disagreement max-key-disagreement}
-         :why        (if (every? :ok checks)
-                       "additive — component prices may be quoted"
-                       (str "REFUSED: "
-                            (str/join "; " (map :name (remove :ok checks)))))}))))
+                        "the two R=2 rungs share a Q/B; the pair cannot price a slope")}
+             {:name "M3 — the per-edge term is the same priced from the intercept and from the contrast"
+              :ok   step-0?
+              :detail (if step
+                        (str "intercept − shell = " (.toFixed edge-i 0)
+                             " B, R2QB2 − R1Q2 = " (.toFixed edge-c 0)
+                             " B, so step = " (.toFixed step 0) " B against a "
+                             (.toFixed step-lim 0) " B band ("
+                             (.toFixed (* 100.0 max-step-frac) 0) "% of the Q/B=1 boundary)")
+                        "no R=1 rung shares a Q with an R=2 rung — the contrast is unavailable")}
+             {:name "M3 predicts the HELD-OUT R2Q2B rung"
+              :ok   m3-ok?
+              :detail (str "predicted " (.toFixed m3 0) " B, measured "
+                           (.toFixed (:y hi) 0) " B — " (pct m3-err))}
+             {:name "M4 (M3 + a per-subscribing-boundary step) predicts the HELD-OUT R2Q2B rung"
+              :ok   m4-ok?
+              :detail (if m4
+                        (str "predicted " (.toFixed m4 0) " B, measured "
+                             (.toFixed (:y hi) 0) " B — " (pct m4-err))
+                        "step unavailable, so M4 is unidentified")}]]
+        {:ok?            (some? model)
+         :model          model
+         :checks         checks
+         :shell          shell
+         :key            key-term
+         :key-alt        key-2
+         :edge-intercept edge-i
+         :edge-contrast  edge-c
+         :edge           (if (= model "M3") edge-i edge-c)
+         :step           step
+         :intercept      intercept
+         :r2             r2
+         :held-out       {:rung (:rung hi) :measured (:y hi)
+                          :m3 m3 :m3-error m3-err :m4 m4 :m4-error m4-err}
+         :criterion      {:min-r2 min-r2
+                          :max-oos-error max-oos-error
+                          :max-key-disagreement max-key-disagreement
+                          :max-step-frac max-step-frac}
+         :why            (case model
+                           "M3" "ADDITIVE (M3) — shell / per-edge / per-unique-key may be quoted"
+                           "M4" (str "ADDITIVE ONLY WITH A FOURTH TERM (M4) — a subscribing "
+                                     "boundary pays a step of " (.toFixed step 0)
+                                     " B that is neither shell nor per-edge; the three-term "
+                                     "budget would misprice every page whose fan-out is not 1")
+                           (str "REFUSED: "
+                                (str/join "; " (map :name (remove :ok checks)))))}))))
 
 (defn fan-self-test
   "The adjudicator's own positive control, PREDICTED before it is run.
 
-  Two synthetic pages, both built by arithmetic rather than measured:
+  Three synthetic pages, all built by arithmetic and none measured, each
+  one a shape the sweep must tell apart from the others:
 
-  **A** is the model exactly — shell 400, edge 250, key 900 over B = 1,200
-  — and must be priced back to those three numbers and accepted.
+  **A** is M3 exactly — shell 400, edge 250, key 900 over B = 1,200. It
+  must come back `M3` with those three numbers and a held-out rung
+  predicted to the byte.
 
-  **B** adds a QUADRATIC key term (`+300·(Q/B)²`), which is what a page
-  whose shared reactions were cheaper per consumer than its exclusive ones
-  would look like. It must be REFUSED — and the interesting part is where:
-  its R=1 family still fits a line at r² ≈ 0.997, comfortably past the
-  0.98 floor, so the linearity check passes and only the out-of-sample
-  R=2 rungs catch it. That is the whole reason the R=2 rungs exist, and a
-  self-test that did not price it would leave them looking like padding.
+  **B** is M4 — the same, plus a 400 B step every subscribing boundary
+  pays. Its R=1 family is a PERFECT line (r² = 1) and its held-out rung is
+  still missed by M3, because M3 has nowhere to put the step but the
+  per-edge term and then charges it twice. It must come back `M4`, with
+  the step recovered at 400 B.
 
-  A rule that cannot fail has not adjudicated anything."
+  **C** carries a quadratic key term (`+300·(Q/B)²`) — what a page whose
+  shared reactions were priced differently from its exclusive ones would
+  look like. Both models must REFUSE it. Its R=1 family still fits a line
+  at r² ≈ 0.997, comfortably past the 0.98 floor, so the linearity check
+  is not what catches it.
+
+  B and C are the reason the R=2 rungs are in the sweep at all: a page
+  that is not M3 can fit the R=1 family perfectly, and nothing inside that
+  family can tell. A rule that cannot fail has not adjudicated anything."
   []
   (let [b     1200.0
         mk    (fn [f] (mapv (fn [[id r q]] {:rung id :reads r :keys q :boundaries b
-                                            :y (f r (/ (double q) b))})
+                                            :y (f (double r) (/ (double q) b))})
                             [["R0" 0 0] ["R1Q1" 1 1200] ["R1Q2" 1 600]
                              ["R1Q4" 1 300] ["R1Q8" 1 150]
                              ["R2Q2B" 2 2400] ["R2QB2" 2 600]]))
-        exact (mk (fn [r x] (if (zero? r) 400.0 (+ 400.0 (* r 250.0) (* x 900.0)))))
+        m3*   (mk (fn [r x] (if (zero? r) 400.0 (+ 400.0 (* r 250.0) (* x 900.0)))))
+        m4*   (mk (fn [r x] (if (zero? r)
+                              400.0
+                              (+ 400.0 400.0 (* r 250.0) (* x 900.0)))))
         curvy (mk (fn [r x] (if (zero? r)
                               400.0
                               (+ 400.0 (* r 250.0) (* x 900.0) (* x x 300.0)))))
-        fa    (additive-fit exact additive-criterion)
-        fb    (additive-fit curvy additive-criterion)
-        near? (fn [a b tol] (< (js/Math.abs (- a b)) tol))
-        chk   [{:name "the exact additive page is priced back to its own three terms"
-                :ok   (and (:ok? fa)
+        fa    (additive-fit m3* additive-criterion)
+        fb    (additive-fit m4* additive-criterion)
+        fc    (additive-fit curvy additive-criterion)
+        near? (fn [a b tol] (and (number? a) (< (js/Math.abs (- a b)) tol)))
+        held  (fn [f k] (get-in f [:held-out k]))
+        chk   [{:name "A — the exact M3 page comes back M3, priced to its own three terms"
+                :ok   (and (= "M3" (:model fa))
                            (near? (:shell fa) 400.0 0.5)
                            (near? (:edge fa) 250.0 0.5)
-                           (near? (:key fa) 900.0 0.5))
+                           (near? (:key fa) 900.0 0.5)
+                           (near? (:step fa) 0.0 0.5))
                 :detail (str "shell " (.toFixed (:shell fa) 1)
                              " · edge " (.toFixed (:edge fa) 1)
-                             " · key " (.toFixed (:key fa) 1))}
-               {:name "the exact page's R=2 rungs are predicted to the byte"
-                :ok   (every? #(< (js/Math.abs (:error %)) 1e-9) (:oos fa))
-                :detail (str/join " · " (map #(str (:rung %) " " (pct (:error %)))
-                                             (:oos fa)))}
-               {:name "a QUADRATIC key term is refused"
-                :ok   (not (:ok? fb))
-                :detail (:why fb)}
-               {:name "…and it is refused OUT OF SAMPLE, not by the r² floor"
-                :ok   (and (>= (:r2 fb) (:min-r2 additive-criterion))
-                           (not (:ok (second (:checks fb)))))
-                :detail (str "r² " (.toFixed (:r2 fb) 5)
-                             " passes the " (:min-r2 additive-criterion)
-                             " floor; the R=2 rungs miss by "
-                             (str/join " and "
-                                       (map #(pct (:error %)) (:oos fb))))}]]
+                             " · key " (.toFixed (:key fa) 1)
+                             " · step " (.toFixed (:step fa) 1))}
+               {:name "A — its HELD-OUT rung is predicted to the byte"
+                :ok   (near? (held fa :m3-error) 0.0 1e-9)
+                :detail (str "R2Q2B predicted " (.toFixed (held fa :m3) 1)
+                             " B against " (.toFixed (held fa :measured) 1) " B")}
+               {:name "B — a per-subscribing-boundary STEP is caught, and M4 carries it"
+                :ok   (and (= "M4" (:model fb))
+                           (near? (:step fb) 400.0 0.5)
+                           (near? (:edge fb) 250.0 0.5)
+                           (near? (:key fb) 900.0 0.5)
+                           (near? (held fb :m4-error) 0.0 1e-9))
+                :detail (str "step " (.toFixed (:step fb) 1)
+                             " B; M3 misses the held-out rung by "
+                             (pct (held fb :m3-error))
+                             ", M4 lands on it")}
+               {:name "B — and its R=1 family is a PERFECT line, so nothing inside it could tell"
+                :ok   (near? (:r2 fb) 1.0 1e-9)
+                :detail (str "r² " (.toFixed (:r2 fb) 6)
+                             " — the R=2 rungs are the only reason B and A are distinguishable")}
+               {:name "C — a QUADRATIC key term is refused by BOTH models"
+                :ok   (and (nil? (:model fc)) (not (:ok? fc)))
+                :detail (:why fc)}
+               {:name "C — …and not by the r² floor, which it clears"
+                :ok   (>= (:r2 fc) (:min-r2 additive-criterion))
+                :detail (str "r² " (.toFixed (:r2 fc) 5) " ≥ "
+                             (:min-r2 additive-criterion)
+                             "; the held-out rung misses by " (pct (held fc :m3-error))
+                             " (M3) and " (pct (held fc :m4-error)) " (M4)")}]]
     {:ok? (every? :ok chk) :checks chk}))
 
 ;; ---------------------------------------------------------------------------
@@ -609,13 +700,22 @@
                                          (js->clj rungs :keywordize-keys true)
                                          additive-criterion)]
                                  #js {:ok       (boolean (:ok? v))
+                                      :model    (:model v)
                                       :why      (:why v)
                                       :shell    (:shell v)
                                       :edge     (:edge v)
+                                      :edgeIntercept (:edge-intercept v)
+                                      :edgeContrast  (:edge-contrast v)
+                                      :step     (:step v)
                                       :key      (:key v)
-                                      :edgeAlt  (:edge-alt v)
                                       :keyAlt   (:key-alt v)
                                       :r2       (:r2 v)
+                                      :heldOut  #js {:rung     (get-in v [:held-out :rung])
+                                                     :measured (get-in v [:held-out :measured])
+                                                     :m3       (get-in v [:held-out :m3])
+                                                     :m3Error  (get-in v [:held-out :m3-error])
+                                                     :m4       (get-in v [:held-out :m4])
+                                                     :m4Error  (get-in v [:held-out :m4-error])}
                                       :checks   (into-array
                                                   (map (fn [c]
                                                          #js {:ok     (boolean (:ok c))
