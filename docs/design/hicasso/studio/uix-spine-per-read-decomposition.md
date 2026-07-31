@@ -48,6 +48,20 @@
 > `56f7e5480c99330515d525a2bdacf5f86a0db7bd`. Authored as `4367e5d93f` on
 > `worker/spine-2rtt6-13`.
 
+> **SPINE STAMP — this page's after-run is POST-`rf2-2rtt6.13` and
+> PRE-`rf2-2rtt6.25`.** The landed `.13` commit is **`9df5094816`**, whose
+> `spine.cljs` blob is the `56f7e5480c99…` named above — so the `2,734 B/read`
+> reading and everything under [§ The fix, landed](#the-fix-landed) sit on that
+> tree exactly. **A third landing has happened since:** `rf2-2rtt6.25`
+> (PR #7305, **`f784ab0adb`**, spine blob `086d08e94089…`) landed the
+> hook-scoped provisional hand-off, so a cold read builds one reaction instead
+> of two. That change is a **cold-read/mount-time** effect and this page's
+> steady-state per-read slope is not re-measured against it; the figures below
+> are therefore stamped `.13`, not "current tree". The live per-read gate lines
+> are on [validation.md](../validation.md#the-per-read-gates), and the clock
+> consequences of `.25` are on
+> [the converged witness set](p0-converged-witness-set.md).
+
 Reproduce:
 
 ```bash
@@ -413,23 +427,52 @@ within 0.1% on every arm (e.g. uix 3,501 vs 3,503; reagent 866 vs 865).
 
 Different rung set (0/1/3/7 here, 0/1/3/7/20 there), different run, same box and
 same collector design. **Both columns are pre-fix**, which is the only way the
-comparison means anything — the ladder was measured against the retaining spine.
+comparison means anything — the ladder was measured against the retaining spine,
+and so was this page's `retain` arm.
+
+> **`3,552 B/read` IS NOT A LIVE GATE LINE, here or anywhere.** It is the
+> ladder's reading of a spine that **no longer ships**, and it appears in this
+> section only because a pre-fix figure is the correct partner for a pre-fix
+> figure. Two production landings postdate both columns: `rf2-2rtt6.13`
+> (PR #7304, `9df5094816`) stopped retaining the disposed render-phase reaction,
+> worth **−769 B per unique query key** and so −769 B *per read* in the ladder's
+> distinct-query regime; `rf2-2rtt6.25` (PR #7305, `f784ab0adb`) landed the
+> hook-scoped provisional hand-off, so a cold read builds one reaction instead
+> of two. **The live UIx per-read red-zone is `2,935 B/read` [2,852–3,055] on
+> the P0 bench instrument** (Mike's option (a) ruling of 2026-07-31, executed by
+> `rf2-e3flf`), stated in
+> [validation.md](../validation.md#the-per-read-gates); the same tree reads
+> **`2,783 B/read` on the ladder's instrument**, and the ~5% between the two
+> harnesses is unexplained, so **a margin under 5% is instrument-limited rather
+> than cleared**.
 
 | | this page | `rf2-2rtt6.5` ladder | agreement |
 |---|---:|---:|---|
-| UIx bytes/read | 3,501 | 3,552 | 1.4% |
-| UIx objects/read | 125.8 | 128.4 | 2.0% |
-| Reagent bytes/read | 866 | 943 | 8.2% |
+| UIx bytes/read — **pre-fix spine, superseded as a gate** | 3,501 | 3,552 | 1.4% |
+| UIx objects/read — pre-fix spine | 125.8 | 128.4 | 2.0% |
+| Reagent bytes/read *(neither landing goes near the ratom path)* | 866 | 943 | 8.2% |
 | Reagent objects/read | 31.5 | 35.8 | 12% |
-| UIx/Reagent ratio | 4.04× | 3.77× | |
+| UIx/Reagent ratio — pre-fix spine | 4.04× | 3.77× | |
 | UIx shell ÷ Reagent shell | 266 ÷ 589 = 0.45× | 0.49× | |
+
+**The same cross-check on the shipping spine, and it holds.** This page's
+post-fix `uix` arm measured **2,734 B/read** [2,731–2,735]; the ladder's
+corresponding figure is its own slope less `.13`'s per-read term,
+`3,552 − 769 = 2,783 B`. The two sit **49 B apart — 1.8%**, against the 1.4%
+the pre-fix pair agreed to. **The agreement survives the landing**, which is
+what a cross-check between two instruments is for:
+
+| | this page *(measured post-fix)* | `rf2-2rtt6.5` ladder *(derived)* | agreement |
+|---|---:|---:|---|
+| UIx bytes/read, **shipping spine** | **2,734** | **2,783** | 1.8% |
 
 The ladder column is its **corrected** publication: `rf2-2rtt6.5`'s fit had
 included the sub-free R=0 anchor it promised to exclude, and refitting over
 1/3/7/20 alone moved it from 3,550/942 to 3,552/943 and its object counts from
-128.5/36.2 to 128.4/35.8. Every agreement above holds to within 0.1 percentage
-point of what it was, which is the useful thing to know: **this page never
-depended on the defect in that one.**
+128.5/36.2 to 128.4/35.8 — **all four of those figures being readings of the
+pre-`.13` spine.** Every agreement above holds to within 0.1 percentage point of
+what it was, which is the useful thing to know: **this page never depended on
+the defect in that one.**
 
 The UIx arms agree closely; the Reagent arms sit ~8–12% below the ladder's, which
 is the rung set — dropping R=20 removes the point with the most leverage from a
