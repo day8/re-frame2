@@ -1,0 +1,98 @@
+(ns re-frame.bench.hicasso.arm1.mount
+  "ARM 1's ROOT — one operation, an idempotent teardown (HD-021(b)).
+
+  `root!` associates a DOM node, a frame, and a hiccup tree, and returns
+  the handle `release!` takes. That is the whole execution contract this
+  arm needs; the names stay unfrozen (HD-021 pins the semantics, not the
+  spelling) and nothing here is a public API.
+
+  The frame reaches the tree through the substrate's single internal
+  React context — the same object every React-shaped adapter reads
+  (`re-frame.adapter.context/frame-context`), so a Hicasso subtree and a
+  UIx subtree under one provider resolve the same frame. That is what
+  lets the dogfood screen's three renderings sit side by side in one page
+  and be compared on authoring rather than on plumbing.
+
+  ## Why the flushes are explicit
+
+  React 19 renders a root concurrently, and a `useSyncExternalStore`
+  notification schedules at the SYNC lane rather than committing inline.
+  Witnesses assert the DOM, so every door here commits before it returns:
+  `render!` renders inside `flushSync`, and [[settle!]] is the empty
+  `flushSync` that lets an already-scheduled sync-lane notification land.
+  Neither is `act` — `act` diverts work to a queue that is not the
+  browser's, which is the right tool for an effect-ordering test and the
+  wrong one for a witness that reads the page."
+  (:require [re-frame.adapter.context :as adapter-context]
+            [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.bench.hicasso.front.codec :as codec]
+            ["react" :as react]
+            ["react-dom" :as react-dom]
+            ["react-dom/client" :as react-dom-client]))
+
+(defn provider
+  "Scope `frame-kw` for a subtree. Renders no DOM of its own, so it cannot
+  move a canonical-DOM parity comparison."
+  [frame-kw child]
+  (react/createElement (.-Provider adapter-context/frame-context)
+                       #js {:value frame-kw}
+                       child))
+
+(defn settle!
+  "Let an already-scheduled sync-lane notification commit. The empty
+  `flushSync` — no work of its own, and the reason a witness may read the
+  DOM on the line after a dispatch."
+  []
+  (react-dom/flushSync (fn [] nil))
+  nil)
+
+(defn render!
+  "Render `hiccup` into an existing root, synchronously."
+  [handle hiccup]
+  (react-dom/flushSync
+    (fn [] (.render (:root handle) (provider (:frame handle) (codec/as-element hiccup)))))
+  handle)
+
+(defn root!
+  "Associate `container`, `frame-kw` and `hiccup`. Returns the handle."
+  [container frame-kw hiccup]
+  (let [handle {:root      (react-dom-client/createRoot container)
+                :frame     frame-kw
+                :container container}]
+    (render! handle hiccup)
+    handle))
+
+(defn release!
+  "Unmount the root and drop every edge, cell and cached closure the arm
+  held. Idempotent: releasing twice is not an error, because a teardown
+  door that throws on the second call is a teardown door test fixtures
+  route around."
+  [handle]
+  (when-some [r (:root handle)]
+    (react-dom/flushSync (fn [] (.unmount r))))
+  (rt/reset-runtime!)
+  (when-some [c (:container handle)]
+    (when-some [p (.-parentNode c)] (.removeChild p c)))
+  nil)
+
+(defn dispatch!
+  "Dispatch through the arm's synchronous door and commit the echo. The
+  witness door; an intent written in a view reaches
+  `runtime/dispatch!` on its own."
+  [handle event]
+  (rt/dispatch! (:frame handle) event)
+  (settle!)
+  nil)
+
+(defn fresh-container!
+  "A detached-then-attached container, appended to the document body."
+  []
+  (let [c (js/document.createElement "div")]
+    (.appendChild js/document.body c)
+    c))
+
+(defn browser?
+  "Is there a real DOM here? `:node-test` has none, and every DOM claim in
+  this arm degrades to a stated skip there rather than a false green."
+  []
+  (and (exists? js/document) (some? (.-createElement js/document))))
