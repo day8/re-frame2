@@ -91,6 +91,28 @@
     (codec/cached-prop-name :on-click)
     (is (= 4 (:props (codec/cache-sizes))))))
 
+(deftest the-slot-is-a-pure-function-of-the-key-and-a-string-cannot-poison-it
+  (testing "a string prop name is already a React name and is taken verbatim,
+            so `\"on-input\"` and `:on-input` are DIFFERENT slots. They share
+            a cache entry if the cache is keyed by name alone, and then the
+            first string spelling rendered anywhere answers every later
+            keyword — emitting every handler written the taught way into a
+            slot React ignores, and making the canonical slot depend on what
+            the page happened to render first."
+    (is (= "on-input" (codec/cached-prop-name "on-input")))
+    (is (= "onInput" (codec/cached-prop-name :on-input))
+        "the keyword still camelCases, whatever was asked before it")
+    (is (= "on-input" (codec/cached-prop-name "on-input"))
+        "and the string is still itself, whatever was asked before IT"))
+  (testing "the other way round, from a cold cache"
+    (codec/reset-caches!)
+    (is (= "onInput" (codec/cached-prop-name :on-input)))
+    (is (= "on-input" (codec/cached-prop-name "on-input"))))
+  (testing "the three React renames are the rule, so they hold for every
+            spelling of the one attribute"
+    (doseq [k [:class :className "class" :x/class 'class]]
+      (is (= "className" (codec/canonical-slot k)) (str "spelled " (pr-str k))))))
+
 (deftest prop-values-are-converted-in-the-shapes-react-wants
   (testing "a style map becomes a JS object with camelCased keys"
     (let [style (prop (codec/as-element [:div {:style {:font-size "12px" :color :red}}]) "style")]
@@ -323,6 +345,90 @@
         (is (= :rf.error/hicasso-merge-not-a-map (:rf.error/id (ex-data e))))))))
 
 ;; ---------------------------------------------------------------------------
+;; The canonical structural-slot filter (rf2-2rtt6.36)
+;; ---------------------------------------------------------------------------
+
+(deftest a-structural-slot-is-recognised-in-every-spelling-the-codec-accepts
+  (testing "the mechanism the whole of this bead's repair rests on: the slot
+            a key EMITS INTO, not the key it was written as. React's key and
+            ref are reachable as a keyword, a string, a symbol and a
+            namespaced keyword, and a rule that names `#{:key :ref}` sees
+            exactly one of the four."
+    (doseq [k [:key "key" 'key :x/key :re-frame.hicasso/key]]
+      (is (true? (codec/structural-slot? k)) (str "key, spelled " (pr-str k))))
+    (doseq [k [:ref "ref" 'ref :x/ref]]
+      (is (true? (codec/structural-slot? k)) (str "ref, spelled " (pr-str k))))
+    (doseq [k [:id :class :on-click :data-key "aria-ref" :keyboard]]
+      (is (false? (codec/structural-slot? k))
+          (str "and nothing else is structural: " (pr-str k)))))
+  (testing "the filter drops every one of them and returns the map by
+            identity when there is nothing to drop"
+    (is (= {:class "x"} (codec/without-structural
+                          {:class "x" :key 1 "key" 2 :x/key 3 :ref (fn [_]) "ref" 4 :x/ref 5})))
+    (let [clean {:class "x" :id "y"}]
+      (is (identical? clean (codec/without-structural clean))))))
+
+(deftest an-alternate-spelling-in-a-remainder-reaches-neither-structural-slot
+  (testing "the hole this repair closes. A remainder is about ATTRIBUTES;
+            `key` and `ref` are about node identity. Denying `:key` and
+            `:ref` by map-key identity denies one spelling of each and lets
+            three through — and with no literal at that slot to overwrite it
+            afterwards, the caller's value is simply what React gets."
+    (doseq [spelling ["key" 'key :x/key]]
+      (let [e (codec/as-element [:li {:& {spelling "hostile"} :class "row"}])]
+        (is (nil? (el-key e)) (str "a remainder's " (pr-str spelling) " is not the element's key"))
+        (is (= ["className"] (prop-names e))
+            "and it does not land as an attribute either")))
+    (doseq [spelling ["ref" 'ref :x/ref]]
+      (let [!fired (atom false)
+            e      (codec/as-element [:div {:& {spelling (fn [_] (reset! !fired true))}}])]
+        (is (nil? (prop e "ref")) (str "a remainder's " (pr-str spelling) " is not a ref"))
+        (is (= [] (prop-names e)))
+        (is (false? @!fired)))))
+  (testing "and the element's OWN literal is untouched by the filter — the
+            law is about what a remainder may reach, not about what an
+            author may write on their own node"
+    (let [f (fn [_node])
+          e (codec/as-element [:li {:key 7 :ref f :& {:title "caller"}}])]
+      (is (= "7" (el-key e)))
+      (is (identical? f (prop e "ref")))
+      (is (= "caller" (prop e "title"))))))
+
+(deftest an-alias-cannot-defeat-an-owned-literal-at-the-slot-they-share
+  (testing "the second half of the same hole. `:onInput` and `:on-input` are
+            two map keys and ONE React slot, so a raw-key merge leaves both
+            in the map and lets whichever the map iterates last decide —
+            which is a law that holds by luck of map ordering rather than by
+            construction. The deny is on the slot, so the alias never
+            reaches the map at all."
+    (is (= {:on-input [:owned/edit]}
+           (codec/merge-caller {:& {:onInput [:hostile/edit]} :on-input [:owned/edit]})))
+    (is (= {:on-input [:owned/edit]}
+           (codec/merge-caller {:& {"onInput" [:hostile/edit]} :on-input [:owned/edit]}))
+        "including the string spelling of the same React name"))
+  (testing "at a crossing the map is handed over UNRENAMED, so the alias is
+            visible in the props a structural test reads — and the law is
+            the same one rule at both positions (HD-023(d))"
+    (let [e (codec/as-element [a-view {:& {:onInput [:hostile/edit] :title "kept"}
+                                       :on-input [:owned/edit]}])]
+      (is (= {:on-input [:owned/edit] :title "kept"} (prop e "rfProps")))))
+  (testing "and the owned handler is the one React calls"
+    (let [!seen (atom [])
+          e (intent/with-frame (fn [ev] (swap! !seen conj ev))
+                               (fn [] (codec/as-element
+                                       [:input {:& {:onInput [:hostile/edit]
+                                                    :onFocus  [:hostile/focus]}
+                                                :on-input [:todo.ui/edit 7]}])))]
+      ((prop e "onInput") #js {:target #js {}})
+      (is (= [[:todo.ui/edit 7]] @!seen))
+      (is (fn? (prop e "onFocus"))
+          "an alias the element does NOT write still lands — the deny is the
+           slot the literal claimed, never the shape of the spelling")))
+  (testing "the same for the controlled pair spelled with a namespace"
+    (let [e (codec/as-element [:input {:& {:x/value "HOSTILE"} :value "owned"}])]
+      (is (= "owned" (prop e "value"))))))
+
+;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022, rf2-2rtt6.38)
 ;; ---------------------------------------------------------------------------
 
@@ -353,6 +459,39 @@
           (is (= [::autosize {:max-rows 8}] (:ref d))
               "the refusal carries the value it refused, so a later
                migration can find its own call sites"))))))
+
+(deftest the-reservation-holds-at-the-ref-slot-however-the-ref-is-spelled
+  (testing "the hole. This codec deliberately accepts string, symbol and
+            namespaced prop spellings and emits them all under one React
+            name, so a reservation that reads `(:ref props)` is a
+            reservation `\"ref\"` and `:x/ref` walk straight past — on their
+            way to React with the opaque array the reservation exists to
+            stop, which is the silent ref-that-never-fires it was written to
+            replace."
+    (doseq [spelling ["ref" 'ref :x/ref :re-frame.hicasso/ref]]
+      (try
+        (codec/as-element [:textarea.composer {spelling [::autosize {:max-rows 8}]}])
+        (is false (str "should have thrown for " (pr-str spelling)))
+        (catch :default e
+          (let [d (ex-data e)]
+            (is (= :rf.error/hicasso-ref-vector-reserved (:rf.error/id d))
+                (str "refused, spelled " (pr-str spelling)))
+            (is (= spelling (:position d))
+                "and the diagnostic names the spelling that was written")
+            (is (= [::autosize {:max-rows 8}] (:ref d))))))))
+  (testing "and a callback ref under an alternate spelling still reaches
+            React's ref slot BY IDENTITY — the reservation is the VECTOR
+            arm, not a claim on the spelling, and the ref position is
+            excluded from callback lowering at the slot rather than at the
+            key. Wrapping it would both forbid a dispatch that is legitimate
+            there and change the identity React uses to decide whether to
+            re-attach the node."
+    (let [f (intent/callback (fn [_node]))]
+      (is (identical? f (prop (codec/as-element [:div {"ref" f}]) "ref")))
+      (is (identical? f (prop (codec/as-element [:div {:x/ref f}]) "ref")))))
+  (testing "a vector anywhere else is still an ordinary prop value"
+    (is (= "a b" (prop (codec/as-element [:div {:class ["a" "b"]}]) "className")))
+    (is (some? (prop (codec/as-element [:div {:data-refs [1 2]}]) "data-refs")))))
 
 (deftest the-reservation-costs-one-branch-and-claims-nothing-else
   (testing "no other :ref value moves. A string ref, a nil ref and a map at

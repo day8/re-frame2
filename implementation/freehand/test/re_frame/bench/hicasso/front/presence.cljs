@@ -178,9 +178,21 @@
 
   A **native node** takes the phase's attribute-override map merged over
   its own attributes — the override WINS, because that is what an
-  override is — with `:key` and `:ref` never taken from it, the same law
-  `:&` carries (HD-023). The two override keys are always removed, so an
-  override never reaches the DOM as an attribute.
+  override is — with the two structural slots never taken from it, the
+  same law `:&` carries (HD-023). The two override keys are always
+  removed, so an override never reaches the DOM as an attribute.
+
+  **The exclusion is on the canonical SLOT, through the filter
+  [[re-frame.bench.hicasso.front.codec/without-structural]] that `:&`
+  uses.** It has to be: an override carrying `\"key\"` or `:x/key`
+  survives a raw `#{:key :ref}` dissoc and canonicalises straight onto
+  React's key, which would remount the very node presence exists to
+  retain — the child would restart its exit, or vanish and come back,
+  precisely while it is being animated out. A `\"ref\"` or `:x/ref`
+  likewise reaches the retained node. Retained key identity is therefore
+  pinned by construction: the only `:key` in the merged map is the one
+  the child was retained under, because nothing else can reach that slot
+  in any spelling.
 
   A **boundary child** takes `:rf/phase` as an ordinary prop instead, and
   an override written there is a loud error: the boundary cannot see
@@ -204,8 +216,7 @@
             base     (when props (apply dissoc props override-keys))]
         (cond
           (map? override)
-          (with-props child (merge base (apply dissoc override
-                                               codec/merge-structural-keys)))
+          (with-props child (merge base (codec/without-structural override)))
 
           ;; Nothing to strip and nothing to merge: the child is already
           ;; exactly what it should render as, so it comes back untouched

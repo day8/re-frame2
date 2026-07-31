@@ -77,6 +77,29 @@
                                                 :aria-hidden true}}
       (:message t)])])
 
+(def ^:private !ref-fired
+  "Every node a ref written in a phase override was handed. It must stay
+  empty: a ref addresses node identity, and a phase override is about
+  appearance."
+  (atom []))
+
+(defview hostile-tray
+  "The same tray, with an unmounting override that reaches for both
+  structural slots in spellings a raw `#{:key :ref}` dissoc does not see.
+  `\"ref\"` and `:x/key` are the codec's own accepted spellings — it takes
+  string, symbol and namespaced prop keys and emits them all under one
+  React name — so this is the shape the deny has to be written against."
+  [_]
+  [presence {:timeout-ms timeout-ms}
+   (for [t (rt/sub [:toasts/visible])]
+     [:div.toast {:key (:id t)
+                  :data-id (:id t)
+                  :re-frame.hicasso/unmounting
+                  {:class "toast--exit"
+                   "ref"  (fn [node] (swap! !ref-fired conj node))
+                   :x/key (str "stolen-" (:id t))}}
+      (:message t)])])
+
 (def ^:private two [{:id 1 :message "Saved"} {:id 2 :message "Copied"}])
 (def ^:private one [{:id 1 :message "Saved"}])
 
@@ -127,6 +150,39 @@
               (is (nil? (.getAttribute back "aria-hidden")))
               (is (not (.contains (.-classList back) "toast--exit")))
               (is (= 2 (toast-count handle)))))
+          (finally (mount/release! handle)))))))
+
+;; ---------------------------------------------------------------------------
+;; 1b — a hostile override reaches neither structural slot on the real node
+;; ---------------------------------------------------------------------------
+
+(deftest a-hostile-override-reaches-neither-structural-slot-on-the-retained-node
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (reset! !ref-fired [])
+      (fresh! two)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id [hostile-tray {}])]
+        (try
+          (let [before (node handle 2)]
+            (is (some? before))
+            (is (= [] @!ref-fired) "nothing attached while the toast was present")
+            (mount/dispatch! handle [:toasts/set one])
+            (is (= 2 (toast-count handle)) "retained, as ever")
+            (let [during (node handle 2)]
+              (is (.contains (.-classList during) "toast--exit")
+                  "the appearance half of the override still lands — this is a
+                   deny on two slots, not a rejection of the override")
+              (is (= [] @!ref-fired)
+                  "and no ref was handed the retained node. React invokes a ref
+                   in the commit phase, so an override that reaches this slot
+                   hands a live DOM node to code the boundary never inspected —
+                   the exact thing `:ref` is excluded from a merge for")
+              (is (identical? before during)
+                  "the retained node is the SAME element. Its identity is the
+                   key the machine retains it under, and nothing in an override
+                   can move that in any spelling — a remount here would restart
+                   the exit of a node that is mid-animation")))
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------

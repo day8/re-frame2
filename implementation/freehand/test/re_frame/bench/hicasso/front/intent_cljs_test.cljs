@@ -383,6 +383,20 @@
                                    (fn [] (intent/lower-declared-prop :onValueChange cb :event)))]
           (h 7)
           (is (= [[:host/changed 7]] @!seen))))
+      (testing "and it forwards EVERY argument the invoker passes. A native
+                DOM event position calls with one argument, but this is also
+                the wrapper a declaration gives a foreign component's own
+                live invoker — `(on-change value event)`, `(on-select item
+                index)` — and the form's parameter vector is arbitrary by
+                construction. A wrapper that accepted exactly `[e]` would
+                silently drop everything after the first, or raise an arity
+                error naming nothing the author wrote."
+        (reset! !seen [])
+        (let [pair (intent/callback (fn [value e] [:host/changed value (.-key e)]))
+              h    (intent/with-frame (dispatching !seen)
+                                      (fn [] (intent/lower-declared-prop :onValueChange pair :event)))]
+          (h "typed" (ev {:key "Enter"}))
+          (is (= [[:host/changed "typed" "Enter"]] @!seen))))
       (testing ":handler ignores the return, and the function passes through
                 by identity so a library memoising on it is not defeated"
         (reset! !seen [])
