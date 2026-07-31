@@ -6,9 +6,10 @@ page re-measures the frontier arm — UIx reading re-frame2 subscriptions — on
 bar's rows and the red-zone thresholds a candidate is judged against can be
 read down one column.
 
-Bead **rf2-a4x1o**. The rows are appended to the operator-owned standard bead
-**rf2-2rtt6.1**; only the operator amends the bar, the budgets, the kill
-criteria or the red-zones. Nothing here amends any of them.
+Bead **rf2-a4x1o**, re-published under a balanced design by **rf2-6i0i2**. The
+rows are appended to the operator-owned standard bead **rf2-2rtt6.1**; only the
+operator amends the bar, the budgets, the kill criteria or the red-zones.
+Nothing here amends any of them.
 
 ## The extent of the mismatch, measured rather than feared
 
@@ -177,10 +178,14 @@ the blur such a block exists to prevent.
 | M1 mount · M2 mount · bulk broad | the **earlier** instrument — `p0_converge_app.cljs` blob `9b5c0d63db5528d8b9790111f9bc53cda052106f`, at `4c3f7189c4` | the original five-round sweep in [Provenance](#provenance) above. Re-**checked** against the current instrument by [the rf2-rjfz1 sweep](#all-four-rows-reproduce-against-the-revived-driver-rf2-rjfz1); not re-taken |
 | **bulk narrow** *(batched)* | `f4b09dc20712e45f44f9ec9339f8dd00ce51e8f7` — the blob table immediately above | run **twice** at this instrument, and both runs are published |
 
-A second, independent five-round run of the identical instrument is published
-beside the **narrow** row; where the two disagree, the page says so rather than
-picking one. The other three rows have one run each and a reproduction check,
-which is a weaker warrant and is labelled as one wherever it appears.
+**Everything in this section is the provenance of the five-round rows, which
+rf2-6i0i2 has since superseded.** It is kept because the five-round figures are
+still quoted on the page as the values that were replaced, and a struck number
+with no provenance is not a record of anything. The live rows come off **one
+instrument and ten runs** — [the balanced ensemble's
+provenance](#the-balanced-ensembles-provenance-rf2-6i0i2) — which retires the
+partitioned table above: no row is now published off a different instrument from
+any other, and no row rests on a single run.
 
 All bar numbers are browser numbers. No JVM or Node figure appears on this page.
 
@@ -332,11 +337,13 @@ They have now been. One full four-row sweep at main `32cb224d6e`:
 node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs   # exit 0
 ```
 
-**This is a reproduction check, not a re-publication. No figure on this page
-moves.** Ranges are min–max across the five rounds; overlap with the published
-range and an unchanged verdict is the test.
+**This is a reproduction check, not a re-publication.** Ranges are min–max
+across the five rounds; overlap with the published range and an unchanged verdict
+is the test. The *published* column is the five-round table, which rf2-6i0i2 has
+since superseded — this check is kept as the record that the three unmoved rows
+were reproducible before they were re-taken.
 
-| row | published | reproduction sweep | overlap | verdict |
+| row | published *(five-round, superseded)* | reproduction sweep | overlap | verdict |
 |---|---|---|---|---|
 | **M1 mount** | 1.2301 [1.1099 – 1.3538] disjoint | 1.2887 [1.1462 – 1.4242] disjoint | 1.1462 – 1.3538 | **reproduces**, UIx slower both times |
 | **M2 mount** *(diagnostic)* | 1.0539 [0.8572 – 1.4286] straddles | 1.0327 [0.8000 – 1.2727] straddles | 0.8572 – 1.2727 | **reproduces**, indistinguishable both times |
@@ -360,7 +367,7 @@ has never been.
 | **Position completeness** | **zero lost positions on every arm of every row**; each phase contrast adjudicated on a full 20-against-20 of 60 |
 | **Canonical-DOM parity** | clean in both segments and across the seam, every row — `{:problems [] :ok? true}` |
 | **Verification** | **0 unverified of 7,860** — 600 M1 mounts + 600 M2 mounts + 630 broad writes + 6,030 narrow writes |
-| **Positive controls** | **this sweep's** four rows × two segments = eight, **eight passes** under the overlap rule; see below for the strict reading. Not the page's live count — the [positive-control table](#the-positive-controls) carries ten entries, because the narrow row is published from two runs and the superseded one is struck |
+| **Positive controls** | **this sweep's** four rows × two segments = eight, **eight passes** under the overlap rule; see below for the strict reading. Not the page's live count — the [positive-control table](#the-positive-controls) carries the ensemble's **eighty** |
 
 **The M2 control that rf2-egdaq holds open reads differently on this sweep,
 and the ruling is still the operator's.** The published M2 control range
@@ -370,7 +377,11 @@ every-round-inside reading. **This sweep's M2 controls are `[1.500 – 2.000]`
 (Reagent segment) and `[1.600 – 2.000]` (UIx segment) — both wholly inside the
 band, so both pass under *either* reading.** That is reported, not used: a
 re-run producing a friendlier control is not an argument for a rule, and
-rf2-egdaq is not settled here. The broad row's controls on this sweep, `[1.600
+rf2-egdaq is not settled here. **Eighty controls have since been measured on the
+balanced ensemble and they say something this one sweep could not** — the strict
+reading fails 7 of 20 M2 controls, with a worst round 19.9% below the band floor;
+[the breakdown](#the-strict-reading-over-eighty-controls-rf2-egdaq) is under the
+positive controls. The broad row's controls on this sweep, `[1.600
 – 2.500]` and `[1.667 – 2.500]`, miss the strict reading by `0.0014` — the
 lattice point above a `2.4986` ceiling on a floor of two to three quanta, the
 same quantisation artefact the denominator page records.
@@ -382,11 +393,11 @@ against the same witnesses in a different app namespace and run in a different
 schedule. Its `reagent-subs ÷ floor` ranges **overlap that arm's published
 ranges on all three shared rows**:
 
-| row | rf2-2rtt6.2, published | here | overlap |
+| row | rf2-2rtt6.2, published | here, over the ten-run ensemble | overlap |
 |---|---|---|---|
-| M1 mount | 3.899× [3.447 – 4.300] | 4.352× [4.063 – 4.625] | yes, 4.063 – 4.300 |
-| M2 mount | 1.874× [1.750 – 2.050] | 2.102× [1.625 – 2.800] | yes |
-| bulk broad | 7.064× [6.200 – 7.700] | 7.443× [7.000 – 8.000] | yes, 7.000 – 7.700 |
+| M1 mount | 3.899× [3.447 – 4.300] | 4.358× [3.625 – 5.111] | yes, 3.625 – 4.300 |
+| M2 mount | 1.874× [1.750 – 2.050] | 2.241× [1.250 – 4.500] | yes, wholly containing |
+| bulk broad | 7.064× [6.200 – 7.700] | 7.630× [6.167 – 10.000] | yes, 6.200 – 7.700 |
 
 That is the check that says the convergence moved the *frontier* arm onto the
 denominator's pages without moving the denominator.
@@ -525,27 +536,30 @@ thing a narrow write is compared against — is three times as much work.
 
 ## Where the time goes, per leg
 
-p50 milliseconds, split at the microtask boundary. This is the same
-decomposition rf2-2rtt6.4 published on its narrow row, reproduced on the
-converged witness:
+p50 milliseconds, split at the microtask boundary, min–max over the ten-run
+ensemble. This is the same decomposition rf2-2rtt6.4 published on its narrow row,
+reproduced on the converged witness. **The narrow legs are per timed window,
+which is ten commits** — divide by ten for a per-commit figure, and the earlier
+one-commit table read `0.40` on exactly the legs that now read 4.2–6.35:
 
 | row / arm | write | microtask gap | forced drain |
 |---|---|---|---|
-| broad / `reagent-subs` | 0.0 | 0.0 | **2.10** |
-| broad / `uix-subs` | **0.40** | **0.80** | 0.0 |
-| narrow / `reagent-subs` | 0.0 | 0.0 | **0.40** |
-| narrow / `uix-subs` | **0.40** | 0.10 | 0.0 |
-| both / `floor` | 0.0 | 0.0 | 0.20 – 0.30 |
+| broad / `reagent-subs` | 0.0 | 0.0 | **1.8 – 2.6** |
+| broad / `uix-subs` | **0.3 – 0.5** | **0.7 – 1.1** | 0.0 |
+| narrow / `reagent-subs` *(10 commits)* | 0.0 – 0.1 | 0.0 | **4.2 – 6.15** |
+| narrow / `uix-subs` *(10 commits)* | **4.6 – 6.35** | 0.4 – 0.7 | 0.0 |
+| broad / `floor` | 0.0 | 0.0 | 0.2 – 0.3 |
+| narrow / `floor` *(10 commits)* | 0.0 | 0.0 | 1.7 – 2.6 |
 
 The two substrates put their cost in different legs and the split is total. On
 Reagent everything is the drain — `reagent.core/flush`, the reaction walk. On
 UIx nothing is the drain: the cost is in the **write leg and the microtask that
 follows it**, before React is involved at all — the `useSyncExternalStore`
 notification fanning out across 300 subscribed boundaries. On the narrow row the
-UIx write leg *alone* (0.40 ms) is the whole of Reagent's window (0.40 ms) for
-the same operation, which is the structural claim a native view layer has on
-that row, and it is a claim about the React-hook spine's invalidation rather
-than about UIx's rendering.
+UIx write leg *alone* (4.6 – 6.35 ms) is the whole of Reagent's window
+(4.2 – 6.15 ms) for the same operation, which is the structural claim a native
+view layer has on that row, and it is a claim about the React-hook spine's
+invalidation rather than about UIx's rendering.
 
 ## The positive controls
 
@@ -711,10 +725,18 @@ ensemble is ten runs and not sixteen.
 
 ## Method
 
-- **Both orders.** Arms rotate *and reflect* on the sample index; segment order
-  alternates with the round. Three arms a segment, never two, because at two the
-  rotation and the reflection cancel (rf2-ouwh8) — asserted at boot in both
-  directions, and the run refuses to measure if the assertion fails.
+- **Both orders, and an even number of rounds.** Arms rotate *and reflect* on
+  the sample index; segment order alternates with the round, over **six** rounds
+  so the alternation splits 3:3 and the raw mean is design-unbiased. Three arms a
+  segment, never two, because at two the rotation and the reflection cancel
+  (rf2-ouwh8) — asserted at boot in both directions, and the run refuses to
+  measure if the assertion fails.
+- **A counterbalanced start, across independently launched runs.** Which segment
+  leads round 0 is a per-run parameter (`?start=reagent` / `?start=uix`,
+  `HICASSO_START`). Inside one run, *Reagent led* and *the even rounds* are the
+  same set of rounds however many rounds there are, so an order effect and a
+  temporal drift are the same partition and no single run can separate them. Half
+  the runs start each way, and the inference is made **across** runs.
 - **Position before adjacency.** Every sample carries its position in the whole
   page and the guard partitions on first-third against last-third as well as on
   predecessor. Warm-up matters more than interleaving, and warm-up samples are
@@ -736,7 +758,7 @@ ensemble is ten runs and not sixteen.
   seam — the two substrate arms are compared with each other directly, not
   merely each with its own floor.
 
-## The segment-order warrant — and why `1.2301` does not have one
+## The segment-order warrant
 
 Bead **rf2-a4x1o**, reopened by the PR #7268 audit: *"the operative 1.2301
 threshold magnitude does not yet have its stated fail-closed warrant."*
@@ -755,100 +777,211 @@ separately:
 | **direction** — *UIx slower / faster / indistinguishable* | **FAIL-CLOSED.** Two strata pointing opposite ways across 1.0 sets `HICASSO_ORDER_REFUSED`; `p0_converge_run.cjs` exits **1** | the row has no direction to publish, and the figure is a measurement of the schedule |
 | **magnitude** — the single number a candidate is judged against | reportable **only** when the two strata **overlap**. `:magnitude-resolved?` starts false and the overlap has to earn it | a disjoint split publishes `:claim :direction-only`; silence is not a pass |
 
-### The partition, confirmed
+### The partition, and what one run's split can and cannot say
 
-The audit's M1 reading reproduces **exactly** from the published per-round
-vector. Rounds 0, 2, 4 are Reagent-first; rounds 1, 3 are UIx-first.
+The strata are keyed by **which segment actually led the round**, not by round
+parity, so they stay meaningful when the start flips. Under the balanced design
+each stratum holds three rounds. The pre-registered run of the ensemble reads:
 
-| row | Reagent-first (3 rounds) | UIx-first (2 rounds) | strata | raw mean | **order-balanced** |
-|---|---|---|---|---|---|
-| **M1 mount** | **1.2997** [1.2388 – 1.3538] | **1.1258** [1.1099 – 1.1417] | **DISJOINT** | 1.2301 | **1.2128** |
-| M2 mount | 1.1191 [0.8572 – 1.4286] | 0.9561 [0.8572 – 1.0550] | overlap | 1.0539 | 1.0376 |
-| bulk broad | 0.5763 [0.4701 – 0.7172] | 0.6951 [0.6046 – 0.7857] | overlap | 0.6239 | 0.6357 |
-| **bulk narrow** *(batched — the published row)* | **1.1871** [1.1700 – 1.2053] | **1.1042** [1.0570 – 1.1515] | **DISJOINT** | 1.1540 | 1.1457 |
-| ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.1620 [1.1111 – 1.2500]~~ | ~~1.1459 [1.0417 – 1.2500]~~ | ~~overlap~~ | ~~1.1556~~ | ~~1.1539~~ |
-
-**One correction to the audit's reading, stated because it changes a row's
-status.** The audit reported M2, broad *and* narrow as overlapping. Two of the
-three reproduce; **the current batched narrow row's strata are disjoint too**
-([1.1700 – 1.2053] against [1.0570 – 1.1515]). Only the **superseded unbatched**
-narrow row overlaps. So the exposure was never bounded to M1: `1.1540` is in the
-same position as `1.2301`. This partition is pinned in
-`p0_converge_order_cljs_test.cljs`, which replays these exact vectors.
-
-### Disjointness is not the evidence — the SIGN is
-
-**A disjoint 3:2 split is weak evidence on its own.** Under the null — no order
-effect, the five rounds exchangeable — the 2-round stratum is one of
-`C(5,2) = 10` equally likely subsets and exactly two of them separate the
-strata. **A disjoint partition therefore arises 20% of the time per row with no
-order effect at all**, and *which* row splits is not stable: M1 and narrow split
-in the published run, **broad** splits in the rf2-rjfz1 sweep, and **no row
-splits in both**. Three disjoint rows out of eight row-runs is what chance looks
-like.
-
-**The sign is a different matter, and it is decisive.** Across **three
-independent five-round runs** — the published run, the rf2-rjfz1 reproduction
-sweep, and the corrected-instrument run below — the cross-segment figure reads
-**higher when the Reagent segment ran first in 11 of 12 row-runs**. One-sided
-binomial, **p = 0.0032**.
-
-| run | M1 | M2 | broad | narrow |
+| row | Reagent-first (3 rounds) | UIx-first (3 rounds) | strata | mean |
 |---|---|---|---|---|
-| published | R 1.2997 > U 1.1258 | R 1.1191 > U 0.9561 | R 0.5763 **<** U 0.6951 | R 1.1871 > U 1.1042 |
-| rf2-rjfz1 sweep | R 1.3253 > U 1.2338 | R 1.0909 > U 0.9455 | R 0.6426 > U 0.5410 | R 1.1790 > U 1.1549 |
-| corrected instrument | R 1.2183 > U 1.0217 | R 0.9345 > U 0.9025 | R 0.6139 > U 0.5466 | R 1.2236 > U 1.1692 |
+| M1 mount | 1.2782 [1.1378 – 1.4286] | 1.1536 [0.9529 – 1.2892] | overlap | 1.2159 |
+| M2 mount | 1.0027 [0.8571 – 1.0794] | 1.0912 [0.8889 – 1.3846] | overlap | 1.0469 |
+| bulk broad | 0.6940 [0.6144 – 0.8485] | 0.6384 [0.5532 – 0.7292] | overlap | 0.6662 |
+| bulk narrow | 1.1381 [1.0568 – 1.2575] | 1.1703 [1.0346 – 1.3602] | overlap | 1.1542 |
 
-**There is a systematic segment-order effect.** It is small — one to nineteen
-percent between strata — and it is real. The per-row disjointness test could not
-see it because it has no power at 3:2; the sign test across rows and runs can.
+Across the whole ensemble the strata **overlap in 37 of 40 row-runs**: M1, M2 and
+narrow each go disjoint once, broad never. The three disjoint splits fall in two
+runs, and no row is disjoint twice.
 
-**Two consequences, and the first is arithmetic.** Five rounds cannot balance
-two orders: the split is 3:2, so the raw mean **over-weights whichever order got
-the extra round**, and with a real effect present that bias has a sign. Every
-published threshold on this page is a 3:2 **Reagent-first-heavy** mean of a
-quantity that reads high Reagent-first, so **every one of them is biased upward
-by roughly one to two percent.** The design-unbiased estimator under an
-alternating schedule is the mean of the two stratum means, and it is now
-published on every row as `:order-balanced-mean`. An **even** round count would
-make the two coincide by construction; it is named as the arm-level repair
-rather than taken here, because it would move four published rows without
-deciding the question.
+**A disjoint split is a statement about resolution, not a finding.** Under the
+null — no order effect, the six rounds exchangeable — the three-round stratum is
+one of `C(6,3) = 20` equally likely subsets and exactly two of them separate the
+strata, so **a disjoint partition arises 10% of the time per row with no order
+effect at all**. Three in forty is 7.5%. That is what chance looks like, and it
+is the reason a disjoint split withdraws the magnitude rather than condemning
+the measurement. (At five rounds the same arithmetic gave 2 of `C(5,2) = 10` —
+**20%**, twice as often — which is half of why the round count is now even.)
 
-### The verdict on `1.2301` — the hold stands
+The five-round partition that broke `1.2301` is preserved in
+`p0_converge_order_cljs_test.cljs`, which replays those exact vectors with the
+start stated rather than defaulted.
 
-**rf2-2rtt6.1's hold — *do not use 1.2301 as a precise red-zone threshold* — is
-NOT lifted.** Three measured reasons, in order of weight:
+### The segment-order question, asked properly
 
-1. **It is biased by a design the effect exploits.** 3:2 Reagent-first on a
-   quantity that reads high Reagent-first. The order-balanced estimate on the
-   published rounds is **1.2128**, not 1.2301.
-2. **Its two strata do not meet.** [1.2388 – 1.3538] against [1.1099 – 1.1417].
-   A mean over a split whose halves are disjoint is not a threshold, and
-   `:magnitude-resolved?` is false for that row.
-3. **Four independent estimates do not agree to better than ±6%, and the newest
-   does not resolve at all:** 1.2301, 1.2103 (same-instrument stability run),
-   1.2887 (rf2-rjfz1 sweep), and **1.1397 [0.9130 – 1.3201] — straddling 1.0 —**
-   on the corrected instrument below. A figure quoted to four decimal places on
-   that spread was never a threshold.
+**The claim under test.** Three five-round runs of this page were read as saying
+that the cross-segment figure comes out **higher when the Reagent segment ran
+first**, in 11 of 12 row-runs, one-sided binomial **p = 0.0032**, and the page
+called that *systematic* and *real*. **That warrant was wrong, and it was wrong
+in two separable ways.**
 
-**What IS warranted, and it is not nothing.** UIx-on-subs is slower than
-Reagent-on-subs on the M1 mount witness in **three of four runs**, and every
-Reagent-first stratum of every run is disjoint above 1.0. The defensible
-statement is a **direction with a range — *UIx slower on M1 mount, roughly
-1.11× to 1.35× across the runs that resolve, with one run of four
-indistinguishable*** — not a point. **A candidate row is red on M1 if it is
-worse than that range; inside it, the answer is `not resolved` and not a pass.**
+**First, the twelve were not twelve.** Four rows measured inside one browser
+process share a machine, a heap and a collector; they are four correlated
+readings of one run, not four Bernoulli trials. The honest unit is the **run**,
+which made the sample n = 3, and no arrangement of three observations reaches
+p = 0.0032.
 
-**`0.6239×` broad is in better shape, and its magnitude carries the same 1–2%
-caveat.** Its **direction survives everywhere**: all six order strata across the
-three runs sit wholly below 1.0, and all four run means (0.6239 / 0.5682 /
-0.6020 / 0.5870) are disjoint from 1.0. Its strata overlap in the published run
-and in the corrected run, and are disjoint in the sweep — so it passes the test
-that broke M1's magnitude twice out of three, and its order-balanced published
-value is **0.6357**. The narrow row is the same shape as M1: direction resolved
-in every run, magnitude disjoint on the published rounds, balanced value
-**1.1457**.
+**Second, the design could not tell an order effect from a clock.** Every one of
+those runs started with Reagent, so *Reagent led* and *rounds 0, 2, 4* named the
+same set of rounds in every run. A page that simply gets slower as it runs — and
+[this one does](#3-the-sixth-round-broke-the-m2-row-and-the-lever-was-the-mount-budget)
+— produces exactly the same partition. Adding same-start runs cannot separate
+them, because each new run reproduces the same confound.
+
+**The repair is the design, not the arithmetic.** Ten runs, launched
+independently, six rounds each, **five starting with Reagent and five with UIx**.
+The statistic is one number per run per row,
+
+> `d = ln( mean of the Reagent-first stratum ÷ mean of the UIx-first stratum )`,
+
+positive when the figure reads higher Reagent-first, which is the direction the
+original claim asserted. Counterbalancing then splits `d` into two components
+that a fixed start had welded together. In a Reagent-start run the Reagent-first
+rounds are the even ones; in a UIx-start run they are the odd ones. So
+
+- **the average of the two start groups isolates the ORDER effect** — the
+  temporal term enters with opposite signs and cancels;
+- **half their difference isolates the TEMPORAL term** — the order effect enters
+  with the same sign and cancels.
+
+Two views follow, and the page publishes both because they answer different
+questions and are powered differently.
+
+#### View 1 — between runs, one observation per run
+
+The assumption-free test: take the run's published threshold mean, compare the
+five Reagent-start runs against the five UIx-start runs, and use an **exact
+permutation test** over all `C(10,5) = 252` relabellings. Nothing about the
+inside of a run is assumed.
+
+| row | Reagent-start mean | UIx-start mean | difference | exact two-sided *p* | smallest difference this test could have seen |
+|---|---|---|---|---|---|
+| M1 mount | 1.2276 | 1.2344 | −0.0068 | 0.770 | 0.043 |
+| M2 mount | 1.0461 | 1.0740 | −0.0280 | 0.611 | 0.122 |
+| bulk broad | 0.6295 | 0.6288 | +0.0007 | 0.984 | 0.063 |
+| bulk narrow | 1.1754 | 1.1755 | −0.0001 | 0.992 | 0.037 |
+
+**Which segment starts a run does not detectably move the number that run
+publishes.** On the narrow row the two groups agree to one part in ten thousand.
+That is the practically important result: **the four rows above may be quoted
+without asking which segment led**, which was not true of the five-round design.
+
+#### View 2 — within run, the paired strata
+
+The higher-powered test, and the direct successor to the discredited 11-of-12.
+Because a six-round run now carries **both** strata by construction, `d` is a
+*paired* contrast: it differences two numbers measured minutes apart in the same
+process, so run-to-run variance cancels instead of being absorbed. Ten runs, one
+`d` per run per row, an exact **sign-flip randomisation test** over all
+`2¹⁰ = 1024` sign assignments, one-sided in the direction the original claim
+named.
+
+| row | order effect (mean `d`) | as a ratio | 95% interval | sign-flip *p* | positive |
+|---|---|---|---|---|---|
+| M1 mount | +0.0357 | 1.036× | 0.979× – 1.097× | 0.084 | 7 of 10 |
+| M2 mount | −0.0837 | 0.920× | 0.795× – 1.065× | 0.889 | 4 of 10 |
+| bulk broad | −0.0388 | 0.962× | 0.887× – 1.044× | 0.856 | 5 of 10 |
+| bulk narrow | +0.0070 | 1.007× | 0.977× – 1.038× | 0.302 | 7 of 10 |
+| **run-level composite** *(the pre-registered statistic: mean over the four rows)* | **−0.0200** | **0.980×** | **0.934× – 1.029×** | **0.823** | **6 of 10** |
+
+**The pre-registered hypothesis fails, and it fails on the wrong side of zero.**
+The composite was fixed in advance as one-sided positive; the ensemble puts it at
+**−0.0200**, a 2% effect in the *opposite* direction, with 6 of 10 runs positive.
+Two rows lean the claimed way and two lean against it. Nothing here is
+significant at any conventional level, and the largest of them, M1's +3.6% at
+p = 0.084, is one row of four and would not survive being asked for four times.
+
+And the temporal component the confound hid is no better resolved:
+
+| row | order component | temporal component | exact *p* on the start-group difference |
+|---|---|---|---|
+| M1 mount | +0.0357 | −0.0212 | 0.421 |
+| M2 mount | −0.0837 | +0.0632 | 0.318 |
+| bulk broad | −0.0388 | −0.0011 | 1.000 |
+| bulk narrow | +0.0070 | −0.0063 | 0.698 |
+| composite | −0.0200 | +0.0086 | 0.810 |
+
+**And the discredited statistic itself does not survive.** Counted the way the
+page counted it — 40 row-runs treated as if independent, which they are not —
+the Reagent-first stratum is higher in **23 of 40**, p = 0.21. The 11-of-12 was
+not a small effect measured well; on the balanced design it is not there at the
+strength it was quoted.
+
+#### Why the two views can disagree, and what n = 5 vs 5 cannot settle
+
+They did not disagree here — both say *not resolved* — but they can, and a reader
+should know which to believe about what.
+
+View 1 is between runs and therefore **cannot see a pure order effect at all**
+once the design is balanced: a six-round run averages both orders equally, so an
+order effect is inside the run mean, not between the start groups. What View 1
+tests is whether the *start* biases the published number, and its answer is no.
+View 2 is paired, so it can see an order effect at a fraction of the size, but
+its unit is a within-run difference and its four rows are correlated — which is
+precisely the error the original 11-of-12 made. The rows are therefore reported
+separately and pooled only through the pre-registered composite, never as four
+trials.
+
+**What n = 5 versus n = 5 cannot do is prove an absence, and this page does not
+claim one.** The start-group contrast can only resolve a difference of about
+0.04 on the narrow and M1 rows and about 0.12 on M2 — the last column of View 1's
+table is that limit, computed rather than asserted. On the composite, the
+interval admits an order effect anywhere from **6.6% against the claim to 2.9%
+for it**. So:
+
+- **An order effect of the size the page previously asserted — one to nineteen
+  percent between strata, systematic — is excluded on every row.**
+- **An order effect of one or two percent is not excluded, and would not be
+  detectable at ten runs.** It would also not matter: it is smaller than the
+  spread between two consecutive runs of the same design.
+
+The right conclusion is the modest one. **The segment-order effect is not
+established, and the design no longer needs it to be.** With an even round count
+the raw mean is design-unbiased whatever the truth is, and with a counterbalanced
+start the published figures are demonstrably insensitive to the schedule. The
+per-row fail-closed rule stays exactly as it is — it costs nothing when the
+strata overlap, and it is the thing that would catch an order effect if one
+appeared on a future witness.
+
+### The verdict on M1's magnitude
+
+**The three measured reasons `1.2301` was withdrawn have all been answered**,
+and each was answered by the design rather than by a friendlier run:
+
+1. ~~*It is biased by a design the effect exploits* — 3:2 Reagent-first on a
+   quantity that reads high Reagent-first.~~ **Gone by construction.** At six
+   rounds the split is 3:3 and the raw mean *is* the order-balanced mean; the two
+   differ on 7 of 40 row-runs of the ensemble and only ever in the fourth
+   decimal, where they are rounded independently.
+2. ~~*Its two strata do not meet* — [1.2388 – 1.3538] against
+   [1.1099 – 1.1417].~~ **The strata overlap in 9 of the 10 runs**, and the
+   instrument marks the row `:claim :magnitude` in those nine.
+3. ~~*Four independent estimates do not agree to better than ±6%, and the newest
+   does not resolve at all.*~~ **Ten independent estimates now span
+   1.1989 – 1.2931**, a spread of ±3.8% about their mean, none of them
+   straddling 1.0, and 59 of the 60 rounds behind them read above 1.0.
+
+**What is published is a magnitude with an interval: 1.2310×, 95% interval
+1.2105 – 1.2514 on the mean, single runs landing anywhere in 1.199 – 1.293.**
+That is the form the measurement supports. A bare four-decimal point never was —
+not because the point was wrong (`1.2301` sits inside the new interval, which is
+its own small vindication) but because a point carries no statement of how far a
+fresh run may legitimately land from it.
+
+**rf2-2rtt6.1's hold is not lifted here, and cannot be.** That bead is the
+operator's, `1.2301` is its number, and this page supersedes that number rather
+than rehabilitating it. What a worker may say is what the measurement now
+supports, and that is [written out below](#what-would-have-been-appended-to-rf2-2rtt61-had-it-not-been-size-locked)
+in the form the standard would take.
+
+**The other three rows.** `0.6291×` **broad** is the strongest row on the page:
+all 60 rounds below 1.0, all 20 order strata wholly below it, strata overlapping
+in every run. `1.1754×` **narrow** is now its mirror: all 60 rounds above 1.0,
+all 20 strata wholly above. **M2** resolves nothing and is not meant to — every
+one of its ten runs straddles 1.0, and its interval `[1.0017 – 1.1185]` sits
+barely clear of parity only because it is an interval on a *mean*; three of the
+ten runs read below 1.0 outright. On legs of 4.5 to 11 quanta that is not a
+direction, and the row stays **diagnostic**.
 
 ### The corrected instrument's own run
 
@@ -856,9 +989,9 @@ Four rows, five rounds, both segments, at this branch's instrument.
 `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` —
 **exit 0**.
 
-| row | published | corrected instrument | overlap | verdict |
+| row | the five-round publication *(superseded)* | corrected instrument | overlap | verdict |
 |---|---|---|---|---|
-| **M1 mount** | 1.2301 [1.1099 – 1.3538] disjoint | **1.1397 [0.9130 – 1.3201] — straddles 1.0** | 1.1099 – 1.3201 | **does NOT reproduce as resolved** — see above |
+| **M1 mount** | 1.2301 [1.1099 – 1.3538] disjoint | **1.1397 [0.9130 – 1.3201] — straddles 1.0** | 1.1099 – 1.3201 | **does NOT reproduce as resolved** — see below |
 | M2 mount *(diagnostic)* | 1.0539 [0.8572 – 1.4286] straddles | 0.9217 [0.8572 – 1.0000] straddles | 0.8572 – 1.0000 | **reproduces**, indistinguishable both |
 | **bulk broad** | 0.6239 [0.4701 – 0.7857] disjoint | 0.5870 [0.4762 – 0.8372] disjoint | wholly overlapping | **reproduces**, UIx faster both |
 | **bulk narrow** | 1.1540 [1.0570 – 1.2053] disjoint | 1.2018 [1.1344 – 1.3395] disjoint | 1.1344 – 1.2053 | **reproduces**, UIx slower both |
@@ -872,20 +1005,46 @@ control arm in **both** segments identically, and the red-zone divides
 `uix-subs` by `reagent-subs` — neither of which is the control — so it cannot
 bias the ratio directionally. The arm-order guard agrees: `refuse? false`,
 `contaminated? false`, `unchecked? false` on all four rows, with no arm reading
-differently for its position. The reading that fits is the one the four
-estimates already showed: **M1's red-zone is a noisy quantity that was published
-as a precise one.**
+differently for its position.
 
-**No published figure on this page is deleted or rewritten.** The rows above
-stand as measured; what changes is what may be **quoted** from them, and that is
-now decided by the instrument (`:claim :magnitude` vs `:claim :direction-only`)
-rather than by whoever writes the page.
+**The ten-run ensemble now bounds how much of this was noise, and it does not
+account for all of it.** Ten runs of the balanced design span 1.1989 – 1.2931 on
+M1; this run's `1.1397` sits *below* that spread. The ten were launched within
+about eight minutes of one another on one machine, so their interval measures
+**within-session** run-to-run variation; the corrected run is a different session
+on a different instrument, and it reads lower than any of them. **A candidate
+should therefore be judged against the run-mean spread rather than the interval
+on the mean, and a figure taken in a different session may legitimately land
+outside even that.** The interval this page publishes is not a claim about
+next week's machine.
 
 ### The corrected run's provenance
 
+**The landed SHA is `9737ed5cf815817d856c49eefb6824856df51668`.** This block said
+*"the landed SHA follows the merge"* for as long as the merge had not happened,
+and then went on saying it afterwards, which is how a placeholder becomes a
+falsehood. The merge has happened; the SHA is on `origin/main`; and because a
+rebase can move a SHA but cannot move a blob, the instrument is pinned by content
+below as well.
+
+| file | blob at `9737ed5cf8` |
+|---|---|
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs` | `7d62bb6f4c4ce90a930bef94060ecc89772f42f1` |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` | `f9c8c36ca58ccf2986f9946aee62a4666297924e` |
+| `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs` | `73b382cbfc17acf767e744313e60ec33c35fe6e5` |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_views.cljs` | `4032e39779ce55fee1e1cd4f7a8e9561237e2cfd` |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` |
+| `implementation/core/test/re_frame/bench/order_guard.cljc` | `6c4097afff5afa6d64903c3be2f2f4fd6f145050` |
+
+```bash
+git merge-base --is-ancestor 9737ed5cf815817d856c49eefb6824856df51668 origin/main && echo on-main
+P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+git rev-parse 9737ed5cf8:$P   # 7d62bb6f4c4ce90a930bef94060ecc89772f42f1
+```
+
 | | |
 |---|---|
-| **Branch** | `worker/control-verify` (rf2-2rtt6.2 / rf2-a4x1o) — the landed SHA follows the merge |
+| **Producing commit** | `9737ed5cf815817d856c49eefb6824856df51668` — *bench(hicasso): warrant the segment-order threshold, verify the doubled control (rf2-a4x1o)*, on `origin/main`. Measured on `worker/control-verify` before the merge; the rebase rewrote the id and left every blob above untouched |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **exit 0** |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, 24 logical CPUs |
 | **Arm-order guard** | **no refusal on any of the four rows** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10 |
@@ -894,6 +1053,51 @@ rather than by whoever writes the page.
 | **Segment-order control** | **no refusal on any row**; `magnitude-resolved? true` on all four of this run's rows, and the published M1 and narrow rounds are the ones it marks unresolved |
 | **Positive controls** | eight, eight passes — and, for the first time, **adjudicated against the doubled page they claim**: 1,801 elements with a probe at index 599, 99 with a probe at field 23 |
 
+### The balanced ensemble's provenance (rf2-6i0i2)
+
+**Ten runs, launched one at a time, none of them re-run and none of them
+discarded.** Five started with the Reagent segment and five with UIx, in
+alternation; every one exited 0 and every one is in the numbers above. A run that
+had been dropped for reading badly would make the ensemble worthless, so the
+count is stated as the whole record: **ten launched, ten published.**
+
+| | |
+|---|---|
+| **Authored anchor** | `2a97274c0fd50dd3145ba60a33f73f663bec94b9` on `worker/balance-6i0i2` — the last commit that touches the instrument. **A rebase-merge will mint a new landed SHA for it**, and this line is deliberately not rewritten to that SHA later: the blobs below are what identify the instrument, and a rebase cannot move a blob. An audit mapping this page to `main` should expect the anchor to resolve to a commit that is *not* an ancestor of `main`, and should check the blobs |
+| **Reproduction** | `HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — and the same with `HICASSO_START=uix`. **Ten invocations, exit 0 on all ten** |
+| **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, 24 logical CPUs, sibling agents live on the box |
+| **Schedule** | **6 rounds** × 2 segments × 3 arms interleaved, **one row per page**, start counterbalanced 5/5 across the ten launches. Sampling 8 warm-up + 12 samples on M1, broad and narrow; **4 + 10 on M2** ([why](#3-the-sixth-round-broke-the-m2-row-and-the-lever-was-the-mount-budget)) |
+| **Arm-order guard** | **no refusal on any of the 40 row-runs** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10, every one |
+| **Canonical-DOM parity** | `{:problems [] :ok? true}` on all 40 — in both segments and across the seam |
+| **Verification** | **0 unverified of 92,160** — per run 720 M1 mounts + 504 M2 mounts + 756 broad writes + 7,236 narrow writes = 9,216, times ten |
+| **Segment-order control** | **no refusal on any row of any run**; `magnitude-resolved? true` on **37 of 40**, and `:balanced-design? true` on all 40 |
+| **Positive controls** | **80, and 80 passes** under `lane/control-verdict`'s overlap rule; 64 of 80 under the strict every-round-inside reading — [the breakdown](#the-strict-reading-over-eighty-controls-rf2-egdaq) |
+
+The instrument, by content hash. These are the blobs every one of the ten runs
+was measured at:
+
+| file | blob |
+|---|---|
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs` | `5a727706fcd3268027b1d1b640658ca0be7ab86f` |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` | `9542c1167435e06727a28bb8af89c055bb4e4682` |
+| `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_views.cljs` | `bf79bf304d62f679be5fca69dd7880360a1a0631` |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` |
+| `implementation/core/test/re_frame/bench/order_guard.cljc` | `6c4097afff5afa6d64903c3be2f2f4fd6f145050` |
+
+```bash
+P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+git rev-parse <candidate>:$P   # must print 5a727706fcd3268027b1d1b640658ca0be7ab86f
+```
+
+**What this ensemble does not establish.** All ten ran on one machine inside one
+eight-minute window, so it bounds run-to-run variation *within a session* and
+says nothing about a different machine, a different Chromium or a different day —
+and the corrected run's `1.1397` on M1, from another session, is the standing
+demonstration that between-session spread is wider. Ten runs also cannot prove an
+absence: see [what n = 5 versus n = 5 cannot
+settle](#why-the-two-views-can-disagree-and-what-n--5-vs-5-cannot-settle).
+
 ### What would have been appended to rf2-2rtt6.1, had it not been size-locked
 
 **rf2-2rtt6.1 is size-locked (rf2-0znkn, the operator's) and cannot accept an
@@ -901,25 +1105,33 @@ append**, so this is what a worker would have added to the governance record's
 P0 table, verbatim. **Only the operator may amend the standard**; this is a
 statement of what the measurement supports, not an amendment.
 
-> **CLOCK RED-ZONES — amendment under RULING 1.** RULING 1 makes the red-zone
-> threshold *the measured UIx ratio for that witness family*. On two of the four
-> converged rows that ratio is **not resolved to a magnitude**, so the rule needs
-> its consequence stated rather than a number substituted:
+> **CLOCK RED-ZONES — amendment under RULING 1, restated on the balanced
+> design.** RULING 1 makes the red-zone threshold *the measured UIx ratio for
+> that witness family*. Ten independently launched six-round runs with the
+> starting segment counterbalanced 5/5 now stand behind each row, so each is a
+> **magnitude with an interval** rather than a point or a bare direction:
 >
-> - **M1 mount — the magnitude `1.2301×` is withdrawn.** Its two segment-order
->   strata are disjoint, the 3:2 design biases it upward on a quantity now shown
->   to carry a systematic order effect (11 of 12 row-runs, p = 0.0032), and four
->   independent estimates read 1.2301 / 1.2103 / 1.2887 / 1.1397 with the last
->   straddling 1.0. The red-zone this row supports is **a direction and a range:
->   UIx slower, ≈1.11 – 1.35×**. A candidate worse than 1.35× is RED; inside the
->   range the answer is **not resolved**, which under the standard is still not a
->   pass.
-> - **bulk narrow — the magnitude `1.1540×` is withdrawn** on the same test;
->   direction (UIx slower) resolves in every run. Order-balanced value 1.1457.
-> - **bulk broad — `0.6239×` stands as a threshold**, with the order-balanced
->   value **0.6357** recorded beside it. Direction survives in all six strata of
->   all three runs.
-> - **M2 mount — unchanged and still diagnostic.** Balanced value 1.0376.
+> - **M1 mount — `1.2310×`, 95% interval `1.2105 – 1.2514` on the mean, single
+>   runs landing in `1.199 – 1.293`.** This **supersedes `1.2301×`**, which was
+>   withdrawn as a magnitude and is not reinstated: the number the standard holds
+>   was measured on a 3:2 design whose bias has since been removed by
+>   construction, and it is replaced rather than restored. A candidate worse than
+>   the run-mean spread is RED; inside it, the honest answer is where in the
+>   spread it sits.
+> - **bulk narrow — `1.1754×`, interval `1.1579 – 1.1930`, runs `1.139 – 1.219`.**
+>   **Supersedes `1.1540×`**, also withdrawn. Its direction is now as strong as
+>   any row on the page: all 60 rounds above 1.0, all 20 order strata wholly
+>   above.
+> - **bulk broad — `0.6291×`, interval `0.5996 – 0.6587`, runs `0.579 – 0.699`.**
+>   Supersedes `0.6239×`, which stood. All 60 rounds and all 20 strata below 1.0.
+> - **M2 mount — `1.0601×` and still diagnostic and still indistinguishable.**
+>   All ten runs straddle 1.0 and three read below it outright. Not quotable
+>   against the bar, exactly as before.
+> - **The segment-order finding this table previously cited is withdrawn.** The
+>   *11 of 12 row-runs, p = 0.0032* was four correlated rows inside each of three
+>   runs, not twelve trials, and its design could not separate segment order from
+>   time. On the counterbalanced ensemble the effect is not established on any
+>   row, and the same statistic counted the old way reads 23 of 40.
 > - **The heap red-zones are untouched.** Nothing here measures heap.
 
 ### The control on this page was never checked either
@@ -956,8 +1168,21 @@ mutation evidence is on
   rather than rewritten. Its **heap** rows are not superseded by anything here —
   this entry measures no heap, and retained bytes per boundary is a property of
   the boundary rather than of the page.
-- **The per-page accumulation is still unexplained.** One row per page makes it
-  harmless to these figures; it does not make it fixed.
+- **The per-page accumulation is still unexplained — but it now has a measured
+  dose-response and a named lever.** rf2-6i0i2's six-round M2 refusals put
+  numbers on it: 600 mounts a page clean, 720 refused 4 of 6, 1,296 refused 3 of
+  3, 504 clean over 40 row-runs, every refusal *last*-third-slower. So the page
+  degrades in proportion to the mounts it has run, and the budget is the control
+  knob. rf2-flqpd has tied the same shape to collector debt on the retention
+  page. What is still missing is the mechanism on *this* page and a fix that does
+  not cost samples; one row per page plus a per-witness budget makes it harmless
+  to these figures, and neither makes it fixed.
+- **The segment-order effect is not established, and one machine-session is
+  what stands behind that.** rf2-6i0i2's ten counterbalanced runs exclude an
+  effect of the size this page once asserted and cannot exclude one of a percent
+  or two. They also all ran inside one eight-minute window on one box; a run from
+  another session read below the whole ensemble's spread on M1. **Between-session
+  variation is unmeasured and is the wider of the two.**
 - ~~**`p0_converge_app.cljs`'s own row table still describes the pre-batch
   narrow window, and this page cannot fix it.**~~ **CLOSED by rf2-95m11
   (PR #7288).** The sibling worker finished, and the correction was the one
