@@ -98,6 +98,13 @@
   cost more there than here, that difference is architectural and belongs
   in the P2 comparison rather than in a footnote.
 
+  **The one real cost Surface B does impose here, and it is not obvious**:
+  the collector must stay open until the body's hiccup has been
+  *consumed*, not merely returned, because hiccup is lazy and a `for`'s
+  reads happen when the differ walks the children. See
+  [[with-collected-reads]] — the browser suite caught this, and it
+  applies to any renderer collecting ambient reads.
+
   ## The boundary record
 
   One CLJS map per live boundary in one global map:
@@ -273,15 +280,41 @@
     (cond-> (dissoc p :key)
       (seq children) (assoc :children children))))
 
-(defn- run-body
-  "Run one boundary body with the frame bound ambiently and the read
-  collector open. The frame binding spans the *patch* as well as the
-  body, because intent lowering happens during the patch — a changed
-  event prop is lowered at the moment it is written, and it needs the
-  same frame the body resolved."
-  [id view props]
-  (bump! "bodyRuns")
-  (first (idx/with-reads id (fn [] (view props)))))
+(defn- with-collected-reads
+  "Bind the front half's read collector for `f` — **the body AND the
+  patch that consumes its output** — and then apply the collected reads
+  to `id`'s edges.
+
+  ## Why the collector cannot close at the body's `return`
+
+  Hiccup is lazy. `(for [id ids] [:li (sub [:todo id])])` returns a lazy
+  seq, and its element expressions do not run when the body returns —
+  they run when something walks the children, which is the differ, a
+  moment later. A collector bound only for the body's own call therefore
+  records the reads in the `let` and **loses every read inside a `for`**:
+  the boundary's edge set comes out holding the list query and none of
+  the row queries, and the arm silently stops re-running on a row write.
+
+  The browser suite caught exactly that
+  (`collector_dom_cljs_test/a-read-inside-a-loop-is-legal-and-indexed`),
+  which is why the shape is written out here rather than assumed. It is a
+  **Surface B finding, not an Arm 2 one**: any renderer collecting
+  ambient reads has to keep the collector open until the hiccup has been
+  consumed, or forbid laziness — and forbidding laziness would forbid
+  `for`, which is the surface the operator ruled for.
+
+  Keeping it open is safe because a child boundary reached during the
+  patch opens its own binding for its own extent, so its reads go to it
+  and the parent's binding is restored on the way out.
+
+  This uses the front half's public seams (`idx/*collector*`,
+  `idx/record-reads!`) rather than `idx/with-reads`, which closes at the
+  body's return by design. Nothing in the shared front half is edited."
+  [id f]
+  (let [c      (volatile! #{})
+        result (binding [idx/*collector* c] (f))]
+    (idx/record-reads! id @c)
+    result))
 
 (defn- mount-boundary!
   "Mount one boundary element and return the single node it occupies."
@@ -292,11 +325,14 @@
     (idx/mount! id)
     (intent/with-frame dispatch!
       (fn []
-        (let [hiccup (run-body id view props)
-              node   (patch/mount-child hiccup)]
-          (.set node->boundary node id)
-          (swap! !boundaries assoc id {:id id :view view :props props :hiccup hiccup :node node})
-          node)))))
+        (with-collected-reads id
+          (fn []
+            (bump! "bodyRuns")
+            (let [hiccup (view props)
+                  node   (patch/mount-child hiccup)]
+              (.set node->boundary node id)
+              (swap! !boundaries assoc id {:id id :view view :props props :hiccup hiccup :node node})
+              node)))))))
 
 (defn- patch-boundary!
   "A parent re-rendered and reached this boundary with (possibly) new
@@ -334,13 +370,16 @@
       (when (some? *ran*) (vswap! *ran* conj id))
       (intent/with-frame dispatch!
         (fn []
-          (let [new-hiccup (run-body id view props)
-                node'      (patch/patch-child! parent node hiccup new-hiccup)]
-            (when-not (identical? node' node)
-              (.delete node->boundary node)
-              (.set node->boundary node' id))
-            (swap! !boundaries update id merge {:props props :hiccup new-hiccup :node node'})
-            node'))))
+          (with-collected-reads id
+            (fn []
+              (bump! "bodyRuns")
+              (let [new-hiccup (view props)
+                    node'      (patch/patch-child! parent node hiccup new-hiccup)]
+                (when-not (identical? node' node)
+                  (.delete node->boundary node)
+                  (.set node->boundary node' id))
+                (swap! !boundaries update id merge {:props props :hiccup new-hiccup :node node'})
+                node'))))))
     nil))
 
 (defn install!

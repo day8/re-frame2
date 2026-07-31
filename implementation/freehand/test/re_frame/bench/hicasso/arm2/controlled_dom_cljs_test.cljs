@@ -37,7 +37,13 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
-(use-fixtures :each (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+;; `:async? true` — the map-form fixture. `cljs.test` hard-errors on a
+;; fn-form fixture in a suite carrying an `(async done …)` test, and this
+;; suite carries one: `:async-normalisation` is the witness for a
+;; correction that arrives on a LATER tick, which is not a shape a
+;; synchronous test can pretend to have.
+(use-fixtures :each (test-support/make-reset-runtime-fixture
+                     {:adapter plain-atom/adapter :async? true}))
 
 (def ^:private off-browser
   "no DOM on this runtime — the claim is a caret in a real text field,
