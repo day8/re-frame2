@@ -71,7 +71,7 @@
   | Head | Props | Children | `:key` |
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
-  | Boundary (a marked `defview` product) | one props map | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
+  | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -297,6 +297,17 @@
                        (subvec argv first-child))]
       (when (seq flat) flat))))
 
+(declare realize-deep)
+
+;; The two reducing functions are top-level vars rather than literals
+;; written at the reduce sites, and that is the whole of the walk's
+;; allocation story: a `(fn …)` written inside [[realize-deep]] would
+;; mint a fresh function object on every collection visited, and `run!`
+;; mints one of its own. Named here, the walk allocates nothing at all.
+
+(defn- realize-entry [_ _ x] (realize-deep x) nil)
+(defn- realize-item  [_ x]   (realize-deep x) nil)
+
 (defn realize-deep
   "Force every lazy sequence reachable from `v`, and return **`v` itself,
   by identity**.
@@ -325,29 +336,46 @@
   read is forced by the same pass that turns hiccup into elements, inside
   the window of the body that wrote it.
 
-  ## Why it costs almost nothing
+  ## What it costs, measured
 
   Realising a `LazySeq` caches into the seq itself, so this **rebuilds
   nothing and copies nothing** — every branch returns the argument it was
-  given. The traversal is the whole of the work, and the seq it forces
-  was going to be walked anyway, one boundary later. The overwhelming
-  case is a small props map of scalars, where the cost is one `coll?` per
-  value.
+  given, and with the two reducing functions named above the walk
+  allocates nothing either. The traversal is the whole of the work, and
+  the seq it forces was going to be walked anyway, one boundary later.
+
+  Clocked rather than asserted (`:none` build, Node 22, best of five
+  runs; the figures are a dev build's and are quoted for their ratios):
+
+  | Boundary props | walk | whole element build | share |
+  |---|---|---|---|
+  | `{:id :title :done?}` — the dogfood row | 69 ns | 1089 ns | **6%** |
+  | the same plus two hiccup children | 233 ns | 1344 ns | 17% |
+  | a 100-row collection prop | 13.5 µs | 15.1 µs | 89% |
+
+  The last row is the honest ceiling and it is the right one to compare
+  outwards rather than inwards: **the same 100-row collection at a
+  NATIVE prop position costs 70.7 µs**, because `clj->js` rebuilds it
+  into JavaScript. The position whose eagerness the structural claim
+  already rested on is 4.7x dearer than the position this walk repairs.
 
   Maps are reduced with `reduce-kv` rather than over their entries, so
   the walk allocates no `MapEntry`; their keys are not descended into
   because hashing a seq realises it, so a lazy seq cannot already be a
-  key in a map.
+  key in a map. `coll?` is tested before `map?` so a scalar — the
+  overwhelming case — costs exactly one predicate.
 
   A seq of unbounded length at a boundary prop position now diverges here
   rather than in the child. That is the same thing `clj->js` already does
   to one at a native prop position, and it must be: a deferred read
   cannot be both unbounded and attributable."
   [v]
-  (cond
-    (map? v)  (do (reduce-kv (fn [_ _ x] (realize-deep x) nil) nil v) v)
-    (coll? v) (do (run! realize-deep v) v)
-    :else     v))
+  (if-not (coll? v)
+    v
+    (do (if (map? v)
+          (reduce-kv realize-entry nil v)
+          (reduce realize-item nil v))
+        v)))
 
 ;; ---------------------------------------------------------------------------
 ;; Emission — React elements (Arm 1's representation)

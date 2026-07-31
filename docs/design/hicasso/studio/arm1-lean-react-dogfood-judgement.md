@@ -205,11 +205,16 @@ It is the hardest class of bug to attribute, because the first paint is clean.
 **This arm does not have it, and the reason is structural rather than careful.**
 The collector window closes around `codec/as-element`, and the codec is eager
 everywhere it walks: `expand-seq` drives a seq to exhaustion, `realize-children`
-folds one into a vector, and a seq at a prop position goes through `clj->js`. A
-lazy read is therefore forced inside the window by the same pass that turns
-hiccup into elements. No `doall`, no `vec`, no widened window, and so no cost:
-the realisation was already going to happen, at the same moment, for the same
-reason. The ≤2-hook budget is untouched.
+folds one into a vector, a seq at a native prop position goes through `clj->js`,
+and `realize-deep` forces every lazy sequence reachable from a **boundary's**
+props before the crossing hands them on. A lazy read is therefore forced inside
+the window by the same pass that turns hiccup into elements. No `doall`, no
+`vec`, no widened window. The ≤2-hook budget is untouched.
+
+The fourth clause is a repair. When this section was first written the list had
+three, and its `clj->js` clause was read as covering the boundary hand-off as
+well as the native prop position — it did not, and what escaped through the gap
+is [below](#one-residual-case-and-one-that-was-not-residual).
 
 Verified rather than argued, on both halves — because the first half alone is
 exactly what a broken implementation also passes:
@@ -234,11 +239,70 @@ witnessed by `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-e
 — a stored handler, a handler actually invoked, an author-held `delay`, and a
 stashed lazy seq forced after the render.
 
-One residual case the guard cannot see, named rather than left to be discovered:
-a deferred read forced *inside another boundary's* render is attributed to that
-boundary. It is not a missing edge — the reader does re-render — but it is the
-wrong reader, and catching it would need per-boundary render identity the shell
-deliberately does not hold.
+### One residual case, and one that was not residual
+
+A fifth escape the `try`/`finally` guard cannot see: a deferred read forced
+*inside another boundary's* render. `read-key!`'s guard asks whether **any** body
+is running, not whether **this** one is — `rstate` is a single module-level
+object — so the read does not throw. It lands on the rendering boundary's scratch
+instead.
+
+**This page previously called that "not a missing edge — the reader does
+re-render — but the wrong reader", and left it there. That was wrong, and it was
+wrong in the worst available direction** (`rf2-2rtt6.45`). A `LazySeq` caches what
+it realised, so the wrong reader re-renders exactly *once*; on that re-render its
+body walks an already-realised seq, `sub` is never called, its read set collapses
+to the empty set, React re-subscribes, and every row edge is dropped. The right
+reader never re-rendered, so the seq is never rebuilt. One correction, and then a
+value that is **correct on screen, frozen thereafter, attributable to nothing** —
+which is the class this section calls the worst failure the ruled surface can
+have, sitting inside the section that says the arm does not have it.
+
+And the structural argument above had a hole in exactly the place that made the
+escape reachable. "A seq at a prop position goes through `clj->js`" is true for a
+**native tag** — `convert-prop-value` sends any collection through it — and was
+false for a **boundary**: `boundary-element` built `body-props` as a plain
+ClojureScript map and handed it across untouched, and the shell read it back as a
+map. No conversion, no walk, no realisation. `realize-children` compounded it by
+flattening exactly one level, so a nested seq in a boundary's children survived
+unrealised too.
+
+Both carriers are closed by one call. `codec/realize-deep`, applied once to
+`body-props` in `boundary-element`, forces every lazy sequence reachable from the
+map — `:children` included, since it is a key in the same map — and returns the
+map **by identity**, because realising a `LazySeq` caches into the seq rather
+than rebuilding it. The read is then forced by the same pass that turns hiccup
+into elements, inside the window of the body that *wrote* it, which is what the
+eager-codec argument claimed all along.
+
+The alternative — giving `read-key!` a per-boundary render token to refuse
+against — was rejected and is worth recording as rejected. It is per-boundary
+render identity, one line from the candidate-ledger tripwire, and it would turn a
+legitimate authoring shape into an error rather than making it work. Realising at
+the hand-off needs no such thing: `rstate` is still one object, nothing can tell
+one render attempt from another, and the shell still holds two hooks and no
+per-instance state.
+
+| Witness | Asserts |
+|---|---|
+| `boundary-crossing-cljs-test` (8 rows) | at the seam: every row query the parent's `for` produced is the **parent's** edge, nothing lands on the child, and a write to a row re-runs the parent and not the child — plus carrier (b), a nested seq one level below the children splice |
+| `boundary-crossing-dom-cljs-test` (2 rows) | in real Chromium: the first paint is right, **and** a later write reaches the DOM, its neighbour is untouched, the edges survive the re-render, and a second write moves it again |
+
+Mutation-proved by removing the one call: node exit 1 (7 failures), browser exit 1
+(4 failures — the cell frozen at its original text through two writes, and the
+edge count collapsing from 7 to 1 on the first). Restored, both exit 0. The
+first-paint assertions passed on the broken runtime, which is the whole reason
+the second half is asserted.
+
+**What genuinely remains, stated precisely so it is not rediscovered as a
+surprise.** The codec can force *structure* — a seq is data it already walks. It
+cannot force an explicit deferral primitive without destroying its meaning: a
+`delay` handed across a boundary and deref'd in the child's render is the same
+fault in a shape no walk may repair, because forcing a `delay` eagerly is the
+opposite of what a `delay` is for. A **function** prop is not in this class and is
+not a defect at all: the child re-runs it on every render, so the read repeats and
+the edge is kept — the reader is the child, and the child is the one whose output
+depends on it.
 
 ## 3. Two places the record did not survive contact with the substrate
 
