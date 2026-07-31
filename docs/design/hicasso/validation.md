@@ -25,7 +25,9 @@ as HD-nnn are normative in [decisions.md](decisions.md).
   gate.
 - The bar's numbers come from P0. Until the like-for-like arms exist, no spike
   figure is quotable against the bar — and the donor-arm stop ruling (HD-008) is
-  issued only against the published P0 baseline table.
+  issued only against the published P0 baseline table. **That ruling was issued
+  on 2026-07-31** against the published table; the verdict and its win conditions
+  are under [the P1 gate](#p1-gate--the-composed-donor-arm-hd-008).
 
 ## The budgets (paper before code)
 
@@ -171,6 +173,40 @@ existing UIx `use-subscribe` spine already compose the central hypothesis
 **Stop rule**: if this composed arm cannot clearly beat both Reagent paths and
 stay acceptably close to direct UIx on the witness shapes, the programme stops
 before an API is designed. Adapters + sugar is the recorded successful outcome.
+
+**The stop rule has been consumed. The advisory was issued on 2026-07-31** as a
+delegated advisory ruling under HD-013, against the published P0 baseline table,
+and the outcome is recorded on `rf2-2rtt6.1` and `rf2-2rtt6.7`. This section no
+longer describes a gate awaiting its ruling.
+
+**Verdict: the stop rule was NOT met as written.** The composed arm beat neither
+Reagent path on mount — 1.333–1.473× stock Reagent on the `M` page, 1.448–1.542×
+on `U`, and indistinguishable from `reagent-slim` on both — and beat both on bulk
+only on the weaker cross-run warrant. **Continuation is therefore an operator
+override of a pre-registered gate, not a passing grade**, and the record says so
+in those words. What the gate did establish is worth more than the verdict it
+missed: the product shell is free (rung 2 indistinguishable from rung 1 on six of
+eight rows), and rung 1 *is* `reagent-slim` — so the residual mount deficit is the
+hiccup interpreter rather than the spine.
+
+Given continuation, the win conditions are (1) mount ≤ 1.0× Reagent-on-subs, same
+run and same instrument, with the codec inside 1.10× of direct UIx `$` on `M1`;
+(2) bulk broad ≤ 1.0× Reagent, red below UIx's measured broad ratio, K2 at 1.5×;
+(3) narrow as a **law** rather than a ratio — commit-side dirty-set flat in `B`
+across 300/600/1,200/2,400 mounted subscribing boundaries, and ≤ 1.0× Reagent,
+materially below UIx's measured narrow ratio; (4) grouped per-read retained heap
+≤ ≈2,000 B/read on the bench instrument, with a named paper path toward 943 B;
+and (5) a measured ergonomic preference over **Adapter-Prime**, never over the
+floor. The nine pre-registered kill signals are on `rf2-2rtt6.7`.
+
+**The advisory named one precondition, and it is now met.** The clock gate lines
+carried no post-landing restatement when the advisory was issued — the M1 mount
+red-zone was measured on the pre-`rf2-2rtt6.25` spine — so a candidate mount row
+judged against it was scored against a line the tree no longer justified. Mike
+ruled option (a) on 2026-07-31: re-take on the converged instrument and restate
+from same-instrument data. That re-take is `rf2-b0tz5`; the restated clock lines
+and their instrument stamps are on
+[the converged witness set](studio/p0-converged-witness-set.md#red-zone--clock-on-rf2-2rtt62s-witnesses).
 
 ### P1 — the tournament (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
 

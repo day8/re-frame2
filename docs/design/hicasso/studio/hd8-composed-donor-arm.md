@@ -23,6 +23,16 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 > thresholds it is judged against (*the measured UIx ratios per witness family,
 > on clock and on retained heap*) are set when P0 publishes. This page is
 > measurement. There is no verdict in it and there must not be.
+>
+> **The advisory has since been issued — 2026-07-31, recorded on `rf2-2rtt6.1`
+> and `rf2-2rtt6.7`, and summarised in
+> [validation.md](../validation.md#p1-gate--the-composed-donor-arm-hd-008).**
+> It found the stop rule **not met as written**, so continuation is an operator
+> override of a pre-registered gate rather than a passing grade. That verdict
+> still is not this page's, and this page still holds no verdict; the line above
+> is what it is, and this note only stops a reader concluding the gate is
+> outstanding. **Read the verdict together with the spine stamp below** — it was
+> issued against these pre-landing donor columns.
 
 ---
 
@@ -58,6 +68,51 @@ not stated](#the-correction-contract-is-enforced-not-stated). Neither touched an
 arm's window, so no figure on this page moves; but a run at the tip is a run of
 a *later* instrument over the same plan, and only a run at the landed commit in
 the row's own line reproduces that row's instrument exactly.
+
+### Spine stamp — three of the six arms read a spine that no longer ships
+
+**Every producing commit in the table above carries `spine.cljs` blob
+`befd8469d932d6ee381e80e724cfbc98c0861814`**, which is the spine as it stood
+*before* both of this week's production landings. Verified by blob rather than by
+date, at all four of `172244521e`, `c7e4c70ac0`, `0cba8181a7` and `5cd819c5bf`:
+
+```bash
+S=implementation/core/src/re_frame/substrate/spine.cljs
+git rev-parse 172244521e:$S   # befd8469d932d6ee381e80e724cfbc98c0861814
+git rev-parse 9df5094816:$S   # 56f7e5480c99330515d525a2bdacf5f86a0db7bd  (.13)
+git rev-parse f784ab0adb:$S   # 086d08e94089002c19e6b30cc901d03324b0f4cc  (.25)
+```
+
+The two landings are `rf2-2rtt6.13` (PR #7304, **`9df5094816`**) — stopped
+retaining the disposed render-phase reaction — and `rf2-2rtt6.25` (PR #7305,
+**`f784ab0adb`**) — the hook-scoped provisional hand-off, so a cold read builds
+one reaction instead of two, which is a **mount-path** change. Both are ancestors
+of `main`.
+
+**Which columns are pre-landing, and which are not.** `hd8_witnesses.cljs` routes
+exactly three arms through `re-frame.adapter.uix/use-subscribe`:
+
+| arm | spine | status |
+|---|---|---|
+| `uix` | React `use-subscribe` | **PRE-LANDING — reads a spine that no longer exists** |
+| `donor-r1` | React `use-subscribe` | **PRE-LANDING** |
+| `donor-r2` | React `use-subscribe` | **PRE-LANDING** |
+| `reagent` | ratom | unaffected — neither landing goes near the ratom path |
+| `reagent-slim` | ratom | unaffected |
+| `floor` | none | unaffected |
+
+**So every donor-vs-Reagent ratio on this page has a numerator measured on a
+spine term that has since been removed, and a denominator that has not moved.**
+`.25` cuts the cold read's double build, which lands on the **mount** rows; the
+independent coldmount re-derivation of the layer-1 mount witness post-`.25`
+closed that red zone outright. The direction is therefore known — the donor and
+`uix` mount columns are **pessimistic** as published — while the magnitude is
+not, because this page has not been re-run since. **No figure here is amended by
+this stamp and none is deleted:** the rows stand as measured, under the stamp,
+and a post-landing candidate is judged against a re-taken donor row rather than
+against these. The clock counterpart of this restatement, on the converged
+witness, is
+[the converged witness set](p0-converged-witness-set.md#red-zone--clock-on-rf2-2rtt62s-witnesses).
 
 Every figure below is a **browser** figure, which is what HD-012 requires of
 anything quotable against the bar.

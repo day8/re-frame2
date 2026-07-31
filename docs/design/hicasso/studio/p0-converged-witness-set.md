@@ -42,26 +42,76 @@ genuinely incomparable and is re-measured below. The heap axis was not.
 
 ## What did not need re-running, and why
 
-Retained heap. The red-zones on that axis already rest on **two independent
-witness families measured by two independent instruments**, and they agree:
+Retained heap — **and the reason given below has since been corrected, twice.**
+The rows are kept because they are what the convergence decision was actually
+made on; the justification is rewritten in place because it was wrong.
 
-| source | witness | UIx ÷ Reagent, exclusive retained per boundary |
-|---|---|---|
-| rf2-2rtt6.4 | list, 1,203-el page, 300 boundaries | **2.262×** [2.196 – 2.335] |
-| rf2-2rtt6.4 | grid, 301-el page, 300 boundaries | **2.254×** [2.217 – 2.288] |
-| [rf2-2rtt6.5](reads-per-boundary-heap-ladder.md) | 1,200 boundaries × 1 read | **2.435×** (3,811 B ÷ 1,565 B above a component-free React floor) |
+> **REGIME STAMP, and the two corrections (`rf2-2rtt6.16`).** Cache cardinality
+> is part of the witness, so a heap row is meaningless without **B**
+> (boundaries), **E** (boundary-query edges) and **Q** (unique live query keys).
+> The heap red-zone regime ruling — delegated by Mike, 2026-07-31, authoritative
+> text on `rf2-2rtt6.16`, transcribed on `rf2-2rtt6.1` — makes the
+> **distinct-query ladder (Q = E)** the mandatory worst-case witness and the
+> operative upper-envelope red-zone family, and **relabels `rf2-2rtt6.4`'s rows
+> "fan-out 4 (amortised ×4), shared-query witness evidence — not comparable to
+> distinct-query rows."** Its four roots render the same 300 query vectors
+> against one frame, so 300 reactions at refcount 4 are divided over 1,200
+> boundaries and each "exclusive retained per boundary" **amortises the
+> subscription half of every read across four boundaries.** A candidate row is
+> judged only against same-regime, same-witness donor rows.
+
+| source | regime | witness | UIx ÷ Reagent, exclusive retained per boundary |
+|---|---|---|---|
+| rf2-2rtt6.4 | **shared-query, fan-out 4** (B = 1,200, Q = 300, amortised ×4) | list, 1,203-el page, 300 boundaries | **2.262×** [2.196 – 2.335] |
+| rf2-2rtt6.4 | **shared-query, fan-out 4** (B = 1,200, Q = 300, amortised ×4) | grid, 301-el page, 300 boundaries | **2.254×** [2.217 – 2.288] |
+| [rf2-2rtt6.5](reads-per-boundary-heap-ladder.md) | **distinct-query, Q = E** — the operative family | 1,200 boundaries × 1 read | ~~**2.435×** (3,811 B ÷ 1,565 B)~~ → **≈1.945×** (3,038 B ÷ 1,562 B) — see below |
+
+**The ladder row is restated in place, on two counts.** The `2.435×` above was
+computed from `3,811 B ÷ 1,565 B`, and **both of those values are superseded**:
+the tracked ladder's corrected fit reads **3,807 B** and **1,562 B** at one read
+(`2.437×`), because `rf2-2rtt6.5`'s original regression had included the sub-free
+R = 0 anchor it promised to exclude. More consequentially, **both are readings of
+a spine that no longer ships.** `rf2-2rtt6.13` (PR #7304, `9df5094816`) stopped
+retaining the disposed render-phase reaction — 769 B per unique query key, and so
+769 B *per read* where Q = E — and `rf2-2rtt6.25` (PR #7305, `f784ab0adb`) landed
+the hook-scoped provisional hand-off. On the shipping spine the ladder's UIx
+boundary at one read is **≈3,038 B** against Reagent's **1,562 B**, which neither
+landing touches, giving **≈1.945×**. **`2.435×` must not be quoted.**
+
+**`rf2-2rtt6.4`'s two rows are pre-`.13`/`.25` as well**, and their UIx numerators
+fall while their Reagent denominators do not, so both ratios move down by an
+amount this page has not measured. They are left as measured, under the regime
+label above, and **no post-landing magnitude is minted for them here.**
 
 Those three shapes differ in markup density by 4× and in boundary count by 4×,
-and the answers sit within 8% of each other. **Retained bytes per subscribing
-boundary is a property of the boundary.** The clock is not: a page's element
-count decides what fraction of the measured window is React's own work, which
-is precisely the term that moves a substrate ratio toward or away from 1.0.
+and their *ratios* sit within 8% of each other. That agreement was originally
+read as portability, and the conclusion drawn from it — **"retained bytes per
+subscribing boundary is a property of the boundary"** — **is falsified.** The
+mayor recorded the correction on `rf2-2rtt6.1` on 2026-07-31, and it is narrower
+than the claim it replaces:
 
-That asymmetry is the reason exactly one arm is re-run here, and it is stated as
-a claim the operator can reject rather than assumed. The three figures come from
-two different instruments and are not a replication in the strict sense; what
-they are is three independent shapes agreeing on an axis where the clock's four
-rows do not.
+- **A heap ABSOLUTE is not portable across witness shapes**, because it depends
+  on how many boundaries share a query. Hold markup density and boundary count
+  constant — `.4`'s grid (1 el/boundary, 4 × 300) against the ladder (1
+  el/boundary, 1,200) — and the answers still differ: Reagent 947 B against
+  1,565 B (1.65×), UIx 2,134 B against 3,811 B (1.79×). The sharing model
+  *solves*: a Reagent subscription half of ≈824 B against `rf2-2rtt6.12`'s
+  independently measured 866 B, and a UIx half of ≈2,236 B against its 2,453 B.
+  Three instruments, one arithmetic.
+- **A heap RATIO is portable only approximately** — 9.3% drift across fan-out
+  E/Q 1 → 8, 5.5% at ROOTS = 1.
+- **The 8% agreement survived only because the bias is common-mode.** Both arms
+  amortise identically, so the ratio is preserved while both absolutes are
+  wrong. That is precisely the shape a ratio-only check cannot see.
+
+The clock is not portable either, and for its own reason: a page's element count
+decides what fraction of the measured window is React's own work, which is the
+term that moves a substrate ratio toward or away from 1.0. **So the asymmetry
+that justified re-running exactly one arm here does not hold as stated** — the
+honest version is that the clock axis was *incomparable* across these witnesses
+while the heap axis was *comparably biased*, which is a weaker claim and the one
+the evidence supports. The three heap figures come from two different instruments
+and are not a replication in the strict sense.
 
 ## Which witness set, and why that one
 
@@ -1790,8 +1840,15 @@ mutation evidence is on
   clock rows remain sound as ratios and are superseded as *thresholds* by the
   table above; [its page](p0-uix-on-subs-frontier-arm.md) is marked accordingly
   rather than rewritten. Its **heap** rows are not superseded by anything here —
-  this entry measures no heap, and retained bytes per boundary is a property of
-  the boundary rather than of the page.
+  this entry measures no heap — but the reason this bullet used to give for
+  leaving them alone, *"retained bytes per boundary is a property of the boundary
+  rather than of the page"*, **is falsified and has been rewritten** at [What did
+  not need re-running](#what-did-not-need-re-running-and-why). A heap **absolute**
+  is not portable across witness shapes, because it depends on how many
+  boundaries share a query; a heap **ratio** ports only approximately (9.3% drift
+  across fan-out E/Q 1 → 8). `rf2-2rtt6.4`'s rows are **shared-query, fan-out 4**
+  and are not comparable to the distinct-query ladder as absolutes, per
+  `rf2-2rtt6.16`'s regime ruling.
 - **The per-page accumulation is still unexplained — but it now has a measured
   dose-response and a named lever.** rf2-6i0i2's six-round M2 refusals put
   numbers on it: 600 mounts a page clean, 720 refused 4 of 6, 1,296 refused 3 of
