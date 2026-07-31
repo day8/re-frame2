@@ -134,49 +134,54 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-retained-node-leaves-on-the-timeout
-  (if-not (mount/browser?)
-    (do (skip! ":node-test has no DOM") (async done (done)))
-    (async done
-      (fresh! two)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])]
-        (mount/dispatch! handle [:toasts/set one])
-        (is (= 2 (toast-count handle)) "retained, for now")
-        (js/setTimeout
-          (fn []
-            (mount/settle!)
-            (try
-              (is (= 1 (toast-count handle))
-                  "removal is terminal: :timeout-ms is a clock, not a
-                   transitionend listener, so the node leaves whether or not
-                   any CSS ran")
-              (is (nil? (node handle 2)))
-              (is (some? (node handle 1))
-                  "and the toast that never left is still there, so this is
-                   removal and not a teardown")
-              (finally (mount/release! handle) (done))))
-          (* 4 timeout-ms))))))
+  ;; ONE `async` block covering both branches: `cljs.test` runs only the
+  ;; first async block of a `deftest`, so a skip branch with its own block
+  ;; would be a test that silently stopped running in the browser.
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (fresh! two)
+        (let [handle (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])]
+          (mount/dispatch! handle [:toasts/set one])
+          (is (= 2 (toast-count handle)) "retained, for now")
+          (js/setTimeout
+            (fn []
+              (mount/settle!)
+              (try
+                (is (= 1 (toast-count handle))
+                    "removal is terminal: :timeout-ms is a clock, not a
+                     transitionend listener, so the node leaves whether or not
+                     any CSS ran")
+                (is (nil? (node handle 2)))
+                (is (some? (node handle 1))
+                    "and the toast that never left is still there, so this is
+                     removal and not a teardown")
+                (finally (mount/release! handle) (done))))
+            (* 4 timeout-ms)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the enter phase, and the honest limit on it
 ;; ---------------------------------------------------------------------------
 
 (deftest a-mounting-child-flips-to-present-after-paint
-  (if-not (mount/browser?)
-    (do (skip! ":node-test has no DOM") (async done (done)))
-    (async done
-      (fresh! [])
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])]
-        (mount/dispatch! handle [:toasts/set one])
-        (is (= 1 (toast-count handle)))
-        (-> (settled!)
-            (.then (fn [_]
-                     (try
-                       (is (nil? (.getAttribute (node handle 1) "inert"))
-                           "the child settled to :present — the enter override,
-                            if it had one, would be off by now. This is the
-                            weak half: a class flip can lose the race to
-                            paint, which is why the guide teaches an
-                            animation on insertion for enter and keeps the
-                            override for exit")
-                       (finally (mount/release! handle) (done)))))
-            (.catch (fn [e] (is false (str e)) (done))))))))
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (fresh! [])
+        (let [handle (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])]
+          (mount/dispatch! handle [:toasts/set one])
+          (is (= 1 (toast-count handle)))
+          (-> (settled!)
+              (.then (fn [_]
+                       (try
+                         (is (nil? (.getAttribute (node handle 1) "inert"))
+                             "the child settled to :present — the enter override,
+                              if it had one, would be off by now. This is the
+                              weak half: a class flip can lose the race to
+                              paint, which is why the guide teaches an
+                              animation on insertion for enter and keeps the
+                              override for exit")
+                         (finally (mount/release! handle) (done)))))
+              (.catch (fn [e] (is false (str e)) (done)))))))))
