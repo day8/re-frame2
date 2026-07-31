@@ -37,16 +37,22 @@ Bead **`rf2-2rtt6.29`**. Decision **[HD-008](../decisions.md)**. The standard is
 
 | | |
 |---|---|
-| **Producing commit (authored)** | `62059f140bbac5d0cdeb11e1a72ee922d5dd3883`, on `worker/codecarm-2rtt6-29`, based on `origin/main` `8b7dad68b7a9a16ba156ac3d13455c18a553b82f` |
-| **Landed whole-tree anchor** | **owed** — this PR is rebased on merge, so the authored SHA above becomes unreachable exactly as the sibling HD-008 page's three did. The blob hashes below survive the rebase and are what a reader checks the instrument against; the landed anchor is stamped after merge (`rf2-2rtt6.40`) |
+| **Landed whole-tree anchor** | **`e385cef113fab17158793d06e3c1967bb7cba5af`** on `main` — the commit a reader can check out, and the one that pins the whole bundle these figures came off: `re-frame.core`, the three adapters, `deps.edn`, `package-lock.json` and the React version. The blob table below pins the instrument files and nothing else |
+| **Producing commit (authored)** | `62059f140bbac5d0cdeb11e1a72ee922d5dd3883`, on `worker/codecarm-2rtt6-29`, based on `origin/main` `8b7dad68b7a9a16ba156ac3d13455c18a553b82f`. Rewritten by the rebase and now on no branch — kept because it is what the run's own artefacts recorded, and because the mapping is checkable: `git patch-id --stable` reads `a53d3c8e5da7484ae45bc89583d7061b026bb40f` for both it and the landed SHA above |
+| **Where the PR landed** | PR #7322 merged 2026-07-31 with `--rebase`, advancing `main` to `c5c64ad4e79938a3a8f07b30466033c01a479e5b`. The two commits between it and the anchor (`f7feccac06`, `c5c64ad4e7`) touch only this page and `studio/README.md`; **they move no figure**, and the eight blobs below are byte-identical at both |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — the full three-run sweep, which is the published shape |
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false`. No new build id; `implementation/shadow-cljs.edn` untouched |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
 | **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
 | **Exit** | `0` on both sweeps — measured, and no arm reads differently for its position in the plan |
 
-Blob hashes at the producing commit — these survive a rebase, and they pin the
-files they name and nothing else:
+Blob hashes, read at the landed anchor and identical at the authored commit —
+they survive a rebase, and they pin the files they name and nothing else:
+
+```bash
+A=e385cef113fab17158793d06e3c1967bb7cba5af
+git rev-parse $A:implementation/freehand/test/re_frame/bench/hicasso/hd8_witnesses.cljs
+```
 
 | file | blob |
 |---|---|
