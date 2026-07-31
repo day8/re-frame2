@@ -6,7 +6,15 @@
 //   node implementation/core/test/re_frame/bench/p0_run.cjs --only clock
 //   node implementation/core/test/re_frame/bench/p0_run.cjs --only heap
 //   node implementation/core/test/re_frame/bench/p0_run.cjs --only fanout
+//   node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
 //   P0_ROUNDS=6 P0_SAMPLES=12 node .../p0_run.cjs
+//
+// `--only ladder` is the PER-READ row (rf2-2rtt6.34): B and the witness
+// held fixed while READS walk HD-002's 1/3/7/20 at Q = E, on three
+// substrates — the two donors and the Hicasso candidate — so the
+// candidate is judged against donor rows taken on its own instrument
+// (validation.md:180-189). Opt-in, runs nothing else, and takes
+// `P0_LADDER_RUNGS` and `P0_LADDER_ROUNDS`.
 //
 // `--only fanout` is the CACHE-CARDINALITY row (rf2-5prok): the same page,
 // readers, collector and guard as the heap row, with B and reads/boundary
@@ -217,6 +225,66 @@ function fanPlan(perRoot, roots) {
       reads: 1,
       keys: perRoot.grid,
     });
+    return { segment, arms };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The reads ladder (rf2-2rtt6.34)
+// ---------------------------------------------------------------------------
+//
+// `--only ladder` is the PER-READ row: B held fixed, reads walked over
+// HD-002's mandated 1/3/7/20, and Q pinned to E — the distinct-query
+// worst case, which is the regime both published per-read gates are
+// stated in (validation.md:136-140).
+//
+// It carries THREE substrates where every other row here carries two.
+// validation.md:180-189 judges a candidate against the donor row taken
+// on its OWN instrument, and calls a margin under 5% instrument-limited
+// rather than cleared; this instrument has no 3/7/20 rung on any
+// substrate, so a candidate measured here against the freehand ladder's
+// donors would be quoting a ~5% cross-instrument offset as a result. The
+// donors are therefore re-taken here, in the same rounds, under the same
+// collector and the same guard.
+//
+// The candidate rides BOTH segments, and that is a measurement rather
+// than a duplicate. It needs neither adapter's HOOKS, but its reads go
+// through `re-frame.subs`, whose reaction implementation comes from the
+// installed adapter's reactive substrate — so the two candidate columns
+// are one view layer over two subscription substrates. A per-read claim
+// has to be stated against that pair: a view layer cannot be cheaper
+// than the reactions it holds, and which donor it is being compared to
+// decides which substrate is under it.
+const LADDER_RUNGS = (process.env.P0_LADDER_RUNGS || '0,1,3,7,20')
+  .split(',')
+  .map((s) => Number(s.trim()));
+const LADDER_ROUNDS = Number(process.env.P0_LADDER_ROUNDS || 6);
+
+const LADDER_SUBSTRATES = {
+  'reagent-subs': ['reagent', 'hicasso'],
+  'uix-subs': ['uix', 'hicasso'],
+};
+
+function ladderPlan(perRoot, roots) {
+  const B = roots * perRoot.grid;
+  return Object.keys(LADDER_SUBSTRATES).map((segment) => {
+    const arms = [
+      { arm: 'grid/floor', key: `${segment}|grid/floor`, boundaries: B, opts: null, rung: 'floor' },
+    ];
+    for (const sub of LADDER_SUBSTRATES[segment]) {
+      for (const R of LADDER_RUNGS) {
+        arms.push({
+          arm: `lad/${sub}`,
+          key: `${segment}|lad/${sub}#R${R}`,
+          boundaries: B,
+          opts: { reads: R, keys: B * R },
+          rung: `R${R}`,
+          reads: R,
+          keys: B * R,
+          substrate: sub,
+        });
+      }
+    }
     return { segment, arms };
   });
 }
@@ -525,6 +593,16 @@ async function heapPass(
         await page.evaluate(() => window.P0H.release());
         await gc();
         const post = await read();
+        // THE SURVIVAL METRIC'S STRUCTURAL HALF (rf2-2rtt6.34), read
+        // here and not one line earlier: the Hicasso runtime reaps a
+        // cell and a read-set entry whose last holder left on the NEXT
+        // MACROTASK, so a residue read immediately after `release()`
+        // would report a cache that is about to evict itself as a leak.
+        // The collector above has just spent three passes with an 80 ms
+        // beat between them, which is that macrotask several times over.
+        const structural = await page.evaluate(() =>
+          window.P0H.hicassoResidue ? window.P0H.hicassoResidue() : null
+        );
         const boundaries = entry.boundaries;
         armsOut[entry.key] = {
           segment,
@@ -533,6 +611,7 @@ async function heapPass(
           reads: entry.reads,
           keys: entry.keys,
           verify,
+          structural,
           boundaries,
           retainedCdp: held.cdp - pre.cdp,
           retainedPerf: held.perf - pre.perf,
@@ -701,6 +780,263 @@ async function fanoutRow(chromium) {
       return { fanFits: { perRound: perRoundFits, mean: meanFits } };
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// The ladder row (rf2-2rtt6.34)
+// ---------------------------------------------------------------------------
+
+async function ladderRow(chromium) {
+  return heapPass(chromium, {
+    benchmark: 'P0:retained-heap-reads-ladder',
+    bead: 'rf2-2rtt6.34',
+    plan: ladderPlan,
+    roots: ROOTS,
+    rounds: LADDER_ROUNDS,
+    // The fit rule's own control, BEFORE anything is measured, on the
+    // same footing as the arm-order guard's and the additive model's:
+    // an exact line has to be recovered to the byte, a QUADRATIC page
+    // has to be refused by the r² floor at a value predicted in
+    // advance, and a fit that used the forbidden R=0 rung has to be
+    // caught. The third is the defect the audit of PR #7260 found in
+    // the predecessor ladder, and it is a check of this instrument's
+    // arithmetic — not corroboration of any measurement.
+    preflight: async (page) => {
+      const st = await page.evaluate(() => window.P0H.ladderSelfTest());
+      for (const c of st.checks) {
+        console.log(`;; P0 ladder-fit ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}  — ${c.detail}`);
+      }
+      if (!st.ok) {
+        throw new Error('the ladder-fit self-test FAILED — no per-read slope may be priced');
+      }
+    },
+    analyse: async (page, rounds, plan) => {
+      const fits = { perRound: {}, mean: {} };
+      for (const { segment } of plan) {
+        for (const sub of LADDER_SUBSTRATES[segment]) {
+          const id = `${segment}|${sub}`;
+          const rungsOf = (r) => {
+            const floor = r.arms[`${segment}|grid/floor`];
+            return LADDER_RUNGS.map((R) => {
+              const a = r.arms[`${segment}|lad/${sub}#R${R}`];
+              return {
+                rung: `R${R}`,
+                reads: R,
+                y: a.bytesPerBoundaryCdp - floor.bytesPerBoundaryCdp,
+              };
+            });
+          };
+          fits.perRound[id] = [];
+          for (const r of rounds) {
+            fits.perRound[id].push(await page.evaluate((rs) => window.P0H.ladderFit(rs), rungsOf(r)));
+          }
+          // The headline fit is over the per-rung MEANS, reported beside
+          // the per-round fits and never instead of them — a criterion
+          // applied only to a mean is one a single bad round can hide from.
+          const all = rounds.map(rungsOf);
+          const meanRungs = all[0].map((g, i) => ({
+            ...g,
+            y: all.reduce((acc, rr) => acc + rr[i].y, 0) / all.length,
+          }));
+          fits.mean[id] = await page.evaluate((rs) => window.P0H.ladderFit(rs), meanRungs);
+          fits.mean[id].rungs = meanRungs;
+        }
+      }
+      return { ladderFits: fits };
+    },
+  });
+}
+
+// The candidate's structural claim, as numbers the run exits on. The
+// arm IS `arm1.runtime`, so its own index and cell tables can be
+// counted, and "one subscription/epoch hook per boundary plus N edges
+// in a shared index" stops being a sentence in a docstring:
+//
+//   boundaries === B     one registration per boundary, R-independent
+//   edges      === B·R   the reads live as index edges, not as hooks
+//   cells      === Q     one cell per unique (frame, query) — Q = E here
+//   entries    === B     one read-set entry per boundary AT Q = E, because
+//                        no two boundaries read the same SET; the entry
+//                        cache's sharing buys nothing on this witness and
+//                        the row says so rather than claiming it does
+//
+// and on a DONOR arm every one of them must be 0 — the check that the
+// candidate's runtime is not standing behind the rows it is compared to.
+function ladderStructuralFailures(row) {
+  const out = [];
+  const B = row.plan[0].arms[0].boundaries;
+  for (const r of row.perRound) {
+    for (const [key, a] of Object.entries(r.arms)) {
+      const h = a.verify && a.verify.hicasso;
+      if (!h) continue;
+      const hicasso = a.arm === 'lad/hicasso';
+      const R = a.reads || 0;
+      const want = hicasso
+        ? { boundaries: B, edges: B * R, cells: B * R, entries: R === 0 ? 1 : B }
+        : { boundaries: 0, edges: 0, cells: 0, entries: 0 };
+      for (const f of Object.keys(want)) {
+        if (h[f] !== want[f]) {
+          out.push(`round ${r.round} ${key}: hicasso ${f} ${h[f]}, expected ${want[f]}`);
+        }
+      }
+      const res = a.structural;
+      if (res) {
+        for (const f of ['cells', 'cellRefs', 'boundaries', 'edges', 'entries']) {
+          if (res[f] !== 0) {
+            out.push(
+              `round ${r.round} ${key}: residue after teardown — hicasso ${f} ${res[f]}, expected 0`
+            );
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function summariseLadder(row, structuralFailures) {
+  const B = row.plan[0].arms[0].boundaries;
+  console.log('\n;; ==== P0 RETAINED HEAP — THE READS LADDER (rf2-2rtt6.34) ====');
+  console.log(
+    `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
+      `held FIXED across every rung`
+  );
+  console.log(`;; ${row.rounds} rounds. Reads walk ${LADDER_RUNGS.join('/')}; Q = E on every rung`);
+  console.log(';; (distinct-query, the mandatory worst-case witness — every read its own key).');
+  console.log(';; Q is COUNTED off the frame\'s own sub-cache on every mount, not asserted.');
+  const ctlA = row.control.measured;
+  console.log(
+    `;; positive control: predicted ${CONTROL_PREDICTED} B  |  measured ${Math.round(ctlA.mean)} B ` +
+      `[${Math.round(ctlA.min)}–${Math.round(ctlA.max)}]  (ratio ${(ctlA.mean / CONTROL_PREDICTED).toFixed(4)})`
+  );
+  console.log(
+    `;;   VERDICT (lane/control-verdict, slack ±${(row.control.slack * 100).toFixed(0)}%): ` +
+      `${row.control.verdict.ok ? 'OK' : 'FAILED'}`
+  );
+  console.log(`;;     ${row.control.verdict.why}`);
+  console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
+  for (const d of row.verification.detail || []) console.log(`;;   UNVERIFIED ${d}`);
+
+  for (const { segment } of row.plan) {
+    console.log(';;');
+    console.log(`;; ---- ${segment} ----`);
+    const floorKey = `${segment}|grid/floor`;
+    const floorStat = stat(row.perRound.map((r) => r.arms[floorKey].bytesPerBoundaryCdp));
+    console.log(
+      ';; arm            reads      B        E        Q     exclusive B/boundary [min–max]    residue'
+    );
+    console.log(
+      `;; floor              0 ${String(B).padStart(7)} ${String(0).padStart(8)} ${String(0).padStart(8)}   ` +
+        `${n0(floorStat.mean).padStart(8)} [${n0(floorStat.min)}–${n0(floorStat.max)}]`.padEnd(26) +
+        '  (absolute, the calibrator)'
+    );
+    for (const sub of LADDER_SUBSTRATES[segment]) {
+      for (const R of LADDER_RUNGS) {
+        const key = `${segment}|lad/${sub}#R${R}`;
+        const excl = stat(
+          row.perRound.map(
+            (r) => r.arms[key].bytesPerBoundaryCdp - r.arms[floorKey].bytesPerBoundaryCdp
+          )
+        );
+        const res = stat(row.perRound.map((r) => r.arms[key].residueCdp));
+        console.log(
+          `;; ${sub.padEnd(11)}${String(R).padStart(6)} ${String(B).padStart(7)} ` +
+            `${String(B * R).padStart(8)} ${String(B * R).padStart(8)}   ` +
+            `${n0(excl.mean).padStart(8)} [${n0(excl.min)}–${n0(excl.max)}]`.padEnd(26) +
+            `${n0(res.mean).padStart(9)}` +
+            (R === 0 ? '   (anchor — regressed nowhere)' : '')
+        );
+      }
+    }
+  }
+
+  console.log(';;');
+  console.log(';; ==== THE FITTED LINES —  y = intercept + slope·R,  over 1/3/7/20 ONLY ====');
+  console.log(';;   The slope is MARGINAL: what the next read costs once a boundary already');
+  console.log(';;   reads. The first read is a separate quantity and is printed beside it.');
+  console.log(';;   `shell` is the DIRECTLY MEASURED R=0 rung, never the fitted intercept.');
+  const fits = row.ladderFits;
+  for (const id of Object.keys(fits.mean)) {
+    const m = fits.mean[id];
+    const per = fits.perRound[id];
+    const rng = (f) => {
+      const xs = per.map(f).filter((x) => typeof x === 'number' && isFinite(x));
+      return xs.length ? `[${n0(Math.min(...xs))}–${n0(Math.max(...xs))}]` : '[—]';
+    };
+    console.log(';;');
+    console.log(
+      `;;   ${id.padEnd(22)} slope ${n0(m.slope).padStart(6)} B/read ${rng((f) => f.slope)}` +
+        `   intercept ${n0(m.intercept)} B ${rng((f) => f.intercept)}`
+    );
+    console.log(
+      `;;     shell (R=0, measured) ${n0(m.shell)} B ${rng((f) => f.shell)}` +
+        `   ·   first read ${n0(m.firstRead)} B ${rng((f) => f.firstRead)}` +
+        `   ·   r² ${m.r2.toFixed(5)}`
+    );
+    const nonlinear = per.filter((f) => !f.linear).length;
+    console.log(
+      `;;     ${m.linear ? 'LINE' : 'NOT A LINE'} — ${m.why}` +
+        `  (per-round: ${per.length - nonlinear} of ${per.length} rounds linear)`
+    );
+  }
+
+  console.log(';;');
+  console.log(';; ==== THE CANDIDATE, AGAINST THE DONORS TAKEN IN THE SAME RUN ====');
+  console.log(';;   Same instrument, same rounds, same collector, same guard — which is what');
+  console.log(';;   validation.md:180-189 requires, and what makes the margin quotable at all.');
+  console.log(';;   A margin under 5% is INSTRUMENT-LIMITED and is not a pass.');
+  const slopeOf = (id) => fits.mean[id] && fits.mean[id].slope;
+  const rg = slopeOf('reagent-subs|reagent');
+  const ux = slopeOf('uix-subs|uix');
+  for (const seg of Object.keys(LADDER_SUBSTRATES)) {
+    const hc = slopeOf(`${seg}|hicasso`);
+    if (typeof hc !== 'number') continue;
+    const line = (name, donor) =>
+      typeof donor === 'number'
+        ? `${name} ${(hc / donor).toFixed(4)}x (${n0(hc)} vs ${n0(donor)} B/read, ` +
+          `margin ${(100 * (donor - hc) / donor).toFixed(1)}%)`
+        : `${name} —`;
+    console.log(`;;   hicasso in ${seg.padEnd(13)} ${line('vs Reagent', rg)}   ${line('vs UIx', ux)}`);
+  }
+  if (typeof slopeOf('reagent-subs|hicasso') === 'number' &&
+      typeof slopeOf('uix-subs|hicasso') === 'number') {
+    const a = slopeOf('reagent-subs|hicasso');
+    const b = slopeOf('uix-subs|hicasso');
+    console.log(
+      `;;   the candidate's two segments: ${n0(a)} and ${n0(b)} B/read — ` +
+        `${(100 * Math.abs(a - b) / ((a + b) / 2)).toFixed(2)}% apart. NOT a seam figure: the`
+    );
+    console.log(
+      ';;   arm needs neither adapter\'s hooks, but `subs/subscribe` builds a reaction whose'
+    );
+    console.log(
+      ';;   implementation is the INSTALLED adapter\'s, so these are one view layer over two'
+    );
+    console.log(
+      ';;   subscription substrates. Compare each against the donor measured beside it.'
+    );
+  }
+
+  console.log(';;');
+  console.log(';; ==== THE STRUCTURAL WITNESS (counted, and exited on) ====');
+  console.log(';;   boundaries = B · edges = B·R · cells = Q · entries = B (1 at R=0) on the');
+  console.log(';;   candidate; all four ZERO on every donor arm; and every field zero again');
+  console.log(';;   after teardown — HD-002 clause (d) in objects rather than in bytes.');
+  if (structuralFailures.length === 0) {
+    console.log(';;   VERDICT: every arm of every round answered its expected counts.');
+  } else {
+    for (const f of structuralFailures.slice(0, 40)) console.log(`;;   FAILED ${f}`);
+    if (structuralFailures.length > 40) {
+      console.log(`;;   … and ${structuralFailures.length - 40} more`);
+    }
+  }
+
+  console.log(';;');
+  console.log(';; ==== ARM-ORDER GUARD (ladder) ====');
+  console.log(
+    `;;   ${row.orderRefused ? 'VERDICT: REFUSE — no figure above may be published as measured' : 'VERDICT: reportable'}`
+  );
+  if (row.orderRefused) console.log(`;;   ${row.orderVerdictEdn}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -933,8 +1269,13 @@ function summariseFanout(row) {
   const wantClock = ONLY === null || ONLY === 'clock';
   const wantHeap = ONLY === null || ONLY === 'heap';
   const wantFanout = ONLY === 'fanout';
-  if (ONLY !== null && !wantClock && !wantHeap && !wantFanout) {
-    console.error(`[p0] unknown --only ${ONLY} (clock | heap | fanout)`);
+  // `--only ladder` is opt-in on the same terms as `--only fanout`, and
+  // for the same two reasons: it is 5x the arms of the published heap
+  // row, and folding it into a default run would change the sample
+  // stream that row's arm-order guard adjudicates.
+  const wantLadder = ONLY === 'ladder';
+  if (ONLY !== null && !wantClock && !wantHeap && !wantFanout && !wantLadder) {
+    console.error(`[p0] unknown --only ${ONLY} (clock | heap | fanout | ladder)`);
     process.exit(1);
   }
   try {
@@ -1000,6 +1341,36 @@ function summariseFanout(row) {
       // component PRICES do not. It is adjudicated, printed as a verdict
       // and carried in the raw record; what it gates is what may be
       // written into validation.md.
+    }
+    if (wantLadder) {
+      console.error('[p0] reads ladder ...');
+      out.ladder = await ladderRow(chromium);
+      const structural = ladderStructuralFailures(out.ladder);
+      out.ladder.structuralFailures = structural;
+      summariseLadder(out.ladder, structural);
+      if (out.ladder.verification.unverified > 0) {
+        failures.push(
+          `ladder: ${out.ladder.verification.unverified} unverified mounts — ` +
+            out.ladder.verification.detail.join(' | ')
+        );
+      }
+      if (!out.ladder.control.verdict.ok) {
+        failures.push(`ladder: positive control — ${out.ladder.control.verdict.why}`);
+      }
+      // The structural witness IS an exit code, unlike the additive
+      // verdict, and the difference is what each one decides. The
+      // additive model failing is a finding about a substrate. The
+      // structural counts failing means the arm on the page is not the
+      // arm the row claims to have measured — "one hook plus N edges in
+      // a shared index" would be a description of something else — or
+      // that a released arm is still holding objects, which is HD-002
+      // clause (d)'s own failure. Neither is quotable.
+      if (structural.length > 0) {
+        failures.push(
+          `ladder: ${structural.length} structural read-back failures — ${structural[0]}`
+        );
+      }
+      refused = refused || out.ladder.orderRefused;
     }
   } catch (e) {
     failures.push(String(e && e.stack ? e.stack : e));

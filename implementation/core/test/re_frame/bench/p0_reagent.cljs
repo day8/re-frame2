@@ -130,8 +130,44 @@
      2 (for [j (range n-cells)] ^{:key j} [fan-cell-2 j (+ offset j)]))])
 
 ;; ---------------------------------------------------------------------------
+;; LAD — the reads-per-boundary ladder (rf2-2rtt6.34)
+;; ---------------------------------------------------------------------------
+;;
+;; The same `.cell` boundary again, at 1/3/7/20 reads, every read a
+;; DISTINCT query (Q = E). It is the fan family's `reads` axis carried out
+;; to the rungs HD-002 mandates, on the instrument the per-read gates are
+;; stated on — the fan family stops at two reads because two is all a
+;; per-edge contrast needs.
+;;
+;; A LOOP rather than an unrolled body, and the asymmetry with the UIx arm
+;; below is in the substrates rather than in the measurement: Reagent has
+;; no hook-order rule, so a form-1 component may deref a computed number of
+;; reactions and Reagent's `deref`-capture learns all of them. That is how
+;; an application would write it. `reads-ladder`'s Reagent arm makes the
+;; same choice for the same reason.
+
+(reg-view lad-cell [j n r]
+  (let [v (loop [k 0 acc 0]
+            (if (< k r)
+              (recur (inc k) (+ acc @(subscribe [:p0/fan (fx/fan-key n r k)])))
+              acc))]
+    [:span.cell {:data-i j} (str v)]))
+
+(reg-view lad-grid [offset n-cells reads]
+  [:div.ugrid
+   (for [j (range n-cells)]
+     ^{:key j} [lad-cell j (+ offset j) reads])])
+
+;; ---------------------------------------------------------------------------
 ;; Roots
 ;; ---------------------------------------------------------------------------
+
+(defn lad-root
+  "One root of the ladder arm. `offset` is this root's base in the GLOBAL
+  boundary numbering, exactly as [[fan-root]]'s is — at Q = E it is what
+  keeps the roots' key spaces disjoint."
+  [frame-id offset n-cells reads]
+  [rf/frame-provider {:frame frame-id} [lad-grid offset n-cells reads]])
 
 (defn fan-root
   "One root of the fan-out arm. `offset` is this root's base in the GLOBAL
