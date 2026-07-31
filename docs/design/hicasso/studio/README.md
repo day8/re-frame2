@@ -97,6 +97,7 @@ requires nothing from any donor `src/` tree.
 | [The UIx spine's per-read allocation, decomposed](uix-spine-per-read-decomposition.md) | P0 | Where a UIx-on-subs read's bytes go. |
 | [The cold-mount double build, priced against the mount red-zone](coldmount-double-build-priced.md) | P0 | What the double build **costs on the clock**, as a fraction of the same-run UIx-minus-Reagent mount excess — the rf2-2rtt6.14 decision input. |
 | [The reagent-slim non-reactive arm — diagnosis](slim-non-reactive-arm-diagnosis.md) | P0 | Why HD-008's reagent-slim arm read `78 unverified of 78`: the **arm's composition**, not the adapter and not the mixed bundle. A single-substrate slim bundle re-renders on every write. |
+| [Arm 1 — lean-React: the mechanism and the dogfood judgement](arm1-lean-react-dogfood-judgement.md) | P1 | How the ≤2-hook shell was reached, the collector against HD-002's four clauses, and the three-rendering ergonomics verdict. **Publishes no bar row** — mechanism, correctness witnesses and preference only. |
 
 **Clock red-zones live on the converged page.** Where it and the frontier arm
 disagree, the converged row is the operative one: the bar's denominator is
