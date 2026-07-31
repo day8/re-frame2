@@ -94,23 +94,35 @@
                 "and nothing is left reading the key the body stopped reading")))))))
 
 (deftest a-read-inside-a-loop-is-legal-and-indexed
-  (if-not (browser?)
-    (is true off-browser)
-    (let [v (rt/view ::loop-view
-                     (fn [_]
-                       [:ul.loop
-                        (for [id (rt/sub [:dogfood/visible-ids])]
-                          [:li {:key id} (:title (rt/sub [:dogfood/todo id]))])]))]
-      (with-mounted [v {}]
-        (fn [c]
-          (is (= 5 (.-length (.querySelectorAll c "li"))))
-          (is (= (into #{[:dogfood/visible-ids]} (map (fn [i] [:dogfood/todo i])) (range 5))
-                 (edges-of-only-boundary))
-              "one edge per iteration, collected as the loop ran")
-          (testing "a shorter list drops the edges the loop stopped visiting"
-            (rt/dispatch! [:dogfood/remove 4])
-            (is (= (into #{[:dogfood/visible-ids]} (map (fn [i] [:dogfood/todo i])) (range 4))
-                   (edges-of-only-boundary)))))))))
+  (testing "the regression this file was written for: hiccup is LAZY, so a
+           `for`'s reads happen when the differ walks the children, not when
+           the body returns. A collector closed at the body's return records
+           the list query and loses every row query — and the arm then
+           silently stops re-running on a row write. See
+           `runtime/with-collected-reads`."
+    (if-not (browser?)
+      (is true off-browser)
+      (let [v (rt/view ::loop-view
+                       (fn [_]
+                         [:ul.loop
+                          (for [id (rt/sub [:dogfood/visible-ids])]
+                            [:li {:key id} (:title (rt/sub [:dogfood/todo id]))])]))]
+        (with-mounted [v {}]
+          (fn [c]
+            (is (= 5 (.-length (.querySelectorAll c "li"))))
+            (is (= (into #{[:dogfood/visible-ids]} (map (fn [i] [:dogfood/todo i])) (range 5))
+                   (edges-of-only-boundary))
+                "one edge per iteration, collected as the loop ran")
+            (testing "a shorter list drops the edges the loop stopped visiting"
+              (rt/dispatch! [:dogfood/remove 4])
+              (is (= (into #{[:dogfood/visible-ids]} (map (fn [i] [:dogfood/todo i])) (range 4))
+                     (edges-of-only-boundary))))
+            (testing "and a write to a row the LOOP read re-runs the boundary —
+                     the behaviour the lost edges would have broken"
+              (rt/dispatch! [:dogfood/edit-draft 2 "renamed"])
+              (rt/dispatch! [:dogfood/commit 2])
+              (is (= "renamed" (.-textContent (.item (.querySelectorAll c "li") 2)))
+                  "the row's title followed a write nothing else pointed at"))))))))
 
 (deftest a-read-inside-an-inlined-helper-is-legal-and-indexed
   (testing "the helper is an ordinary function with no runtime privileges —
