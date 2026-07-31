@@ -15,7 +15,7 @@
   `useMemo` and two `useCallback`s do not come to 128 objects, so the
   spine is holding something the hook stack does not account for.
 
-  Reading `re-frame.substrate.spine/use-subscribe` says what. The render
+  Reading `re-frame.substrate.spine/use-subscribe` said what. The render
   phase takes a BALANCED round trip — `subs/subscribe` immediately
   followed by `subs/unsubscribe` — so that a render which never commits
   retains no ref-count (rf2-es09qq). For a query with no prior cache
@@ -24,25 +24,30 @@
   evicted (`re-frame.subs.cache/unsubscribe!`, no grace period). The
   commit-phase `subscribe-fn` then misses the cache again and builds a
   SECOND reaction. Two reactions are built per read — and the first one
-  does not go away, because `use-memo` returns it into the fiber's hook
-  slot and the `get-snap` callback closes over it as its pre-commit
-  fallback. A disposed, unreachable-by-any-verb reaction is retained for
+  did not go away, because `use-memo` returned it into the fiber's hook
+  slot and the `get-snap` callback closed over it as its pre-commit
+  fallback. A disposed, unreachable-by-any-verb reaction was retained for
   the lifetime of the component.
 
-  That is a hypothesis about retained bytes, so it is settled by a
-  retention measurement and not by reading.
+  That was a hypothesis about retained bytes, so it was settled by a
+  retention measurement and not by reading — 769 B `[765-793]` / 23.0
+  objects per read, 22% of the read. rf2-2rtt6.13 then landed the fix
+  (the memo derefs while live and returns the VALUE), which is why the
+  arms below read as they now do; see THE POLARITY FLIPPED, at the foot
+  of this docstring. The DOUBLE BUILD is untouched and is rf2-2rtt6.14's
+  subject — the witness at the end of this file still counts it.
 
   ## The ablation
 
   Four UIx arms, differing by ONE term each, all reading the same
   `[:abl/cell i]` subs in the same frame at 1,200 boundaries:
 
-  | arm        | what it is                                                  |
-  |------------|-------------------------------------------------------------|
-  | `uix`      | the SHIPPED `re-frame.adapter.uix/use-subscribe`             |
-  | `xcript`   | a transcription of the shipped hook, term for term           |
-  | `noretain` | the transcription with the render-phase reaction NOT held    |
-  | `hooks`    | the same six hooks over a trivial JS store — no re-frame     |
+  | arm       | what it is                                                   |
+  |-----------|--------------------------------------------------------------|
+  | `uix`     | the SHIPPED `re-frame.adapter.uix/use-subscribe`              |
+  | `xcript`  | a transcription of the shipped hook, term for term            |
+  | `retain`  | the transcription WITH the render-phase reaction held         |
+  | `hooks`   | the same six hooks over a trivial JS store — no re-frame      |
 
   `xcript` is the FIDELITY CONTROL and it is the reason the other two
   mean anything: an ablation is only attributable if the unablated
@@ -53,20 +58,30 @@
 
   The differences then read off directly:
 
-      uix - noretain   the retained render-phase reaction
-      noretain - hooks one live subscription as the spine pays for it
+      retain - xcript  the retained render-phase reaction
+      xcript - hooks   one live subscription as the spine pays for it
       hooks  - floor   React's own six-hook stack, per read
       reagent          the subscription half BOTH substrates pay
 
-  `noretain` differs from `xcript` in exactly one expression: its
-  render-phase `use-memo` derefs the reaction and returns the VALUE
-  rather than the reaction itself, and `get-snap`'s pre-commit fallback
-  reads that value. Every `subs/subscribe` / `subs/unsubscribe` call, every
-  hook, every deps array and every watch is otherwise identical — so the
-  build/dispose/rebuild CHURN is still paid on both sides and the delta
-  isolates RETENTION alone. `noretain` is a MEASUREMENT ARM, not a
-  proposed patch: it drops the live-reread property of the current
-  fallback (see the studio page).
+  `retain` differs from `xcript` in exactly one expression: its
+  render-phase `use-memo` returns the reaction itself rather than
+  deref-ing it for the VALUE, and `get-snap`'s pre-commit fallback then
+  closes over that handle. Every `subs/subscribe` / `subs/unsubscribe`
+  call, every hook, every deps array and every watch is otherwise
+  identical — so the build/dispose/rebuild CHURN is still paid on both
+  sides and the delta isolates RETENTION alone.
+
+  ## THE POLARITY FLIPPED WHEN THE FIX LANDED (rf2-2rtt6.13)
+
+  This instrument was written against a shipped hook that RETAINED the
+  disposed render-phase reaction, so `xcript` transcribed that and
+  `retain` was the ablation. rf2-2rtt6.13 landed the fix in
+  `re-frame.substrate.spine`, so `xcript` — whose whole contract is to
+  reproduce the SHIPPED hook — now transcribes the value-returning shape,
+  and the ablation is `retain`, the superseded one. Same two bodies, same
+  single differing expression, same subtraction magnitude; only the sign
+  of the story changed. Leaving `xcript` on the old shape would have made
+  the fidelity control fail by construction and voided the whole table.
 
   ## What this namespace does NOT do
 
@@ -235,10 +250,75 @@
         stable-key      (stable-key-of key-ref frame-kw query-v)
         stable-frame-kw (aget stable-key 0)
         stable-query-v  (aget stable-key 1)
-        ;; Balanced, net-zero render-phase fetch of the reaction HANDLE
-        ;; (rf2-es09qq). For a query with no live cache entry this is
-        ;; 0 -> 1 -> 0: build, then dispose + evict. The handle is
-        ;; returned, so React's hook slot keeps it.
+        ;; Balanced, net-zero render-phase READ (rf2-es09qq). For a query
+        ;; with no live cache entry this is 0 -> 1 -> 0: build, deref while
+        ;; live, then dispose + evict. Only the VALUE is returned, so
+        ;; nothing holds the disposed reaction (rf2-2rtt6.13).
+        snapshot
+        (uix-hooks/use-memo
+          (fn []
+            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})
+                  v (when r @r)]
+              (subs/unsubscribe stable-frame-kw stable-query-v)
+              v))
+          #js [stable-key])
+        get-snap
+        (uix-hooks/use-callback
+          (fn []
+            (let [stored (.-current committed-ref)]
+              (if (and stored (identical? (aget stored 0) stable-key))
+                (let [r (aget stored 1)] (when r @r))
+                snapshot)))
+          #js [stable-key snapshot])
+        subscribe-fn
+        (uix-hooks/use-callback
+          (fn [on-change]
+            (let [committed (subs/subscribe stable-query-v
+                                            {:frame stable-frame-kw})]
+              (set! (.-current committed-ref) #js [stable-key committed])
+              (let [k (keyword watch-ns (str (gensym "watch-")))]
+                (when committed
+                  (add-watch committed k (fn [_ _ _ _] (on-change))))
+                (fn unsubscribe []
+                  (when committed (remove-watch committed k))
+                  (let [stored (.-current committed-ref)]
+                    (when (and stored (identical? (aget stored 1) committed))
+                      (set! (.-current committed-ref) nil)))
+                  (subs/unsubscribe stable-frame-kw stable-query-v)))))
+          #js [stable-key])]
+    (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
+
+;; ---------------------------------------------------------------------------
+;; ARM 3 — `retain`: the transcription, plus the retained reaction
+;; ---------------------------------------------------------------------------
+;;
+;; THE SUPERSEDED SHAPE, kept as the ablation. Until rf2-2rtt6.13 this WAS
+;; the shipped hook, and `xcript` was its transcription; the fix landed and
+;; the roles swapped. Keeping the old shape here is what keeps the change's
+;; justification reproducible — delete this arm and the 22% claim becomes
+;; something you have to take on faith.
+;;
+;; ONE expression differs from `xcript`. The render-phase `use-memo` performs
+;; the identical balanced round trip — same `subs/subscribe`, same
+;; `subs/unsubscribe`, same build + dispose + commit-phase rebuild — but it
+;; returns the HANDLE rather than deref-ing it for the VALUE, so React's hook
+;; slot and `get-snap`'s closure retain a disposed, unreachable reaction for
+;; the component's lifetime.
+;;
+;; Everything else — both refs, the stable key, both `use-callback`s, the
+;; watch, `useSyncExternalStore` — is character-for-character `xcript`. The
+;; CHURN is therefore on both sides of the subtraction and only RETENTION
+;; is isolated.
+
+(defn- use-sub-retain [frame-kw query-v]
+  (let [key-ref       (react/useRef nil)
+        committed-ref (react/useRef nil)
+        stable-key      (stable-key-of key-ref frame-kw query-v)
+        stable-frame-kw (aget stable-key 0)
+        stable-query-v  (aget stable-key 1)
+        ;; The one differing expression: the memo returns the reaction
+        ;; HANDLE, so React's hook slot and `get-snap`'s closure keep the
+        ;; disposed object alive for the component's lifetime.
         reaction
         (uix-hooks/use-memo
           (fn []
@@ -275,75 +355,11 @@
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
 ;; ---------------------------------------------------------------------------
-;; ARM 3 — `noretain`: the transcription, minus the retained reaction
-;; ---------------------------------------------------------------------------
-;;
-;; ONE expression differs from `xcript`. The render-phase `use-memo` still
-;; performs the identical balanced round trip — same `subs/subscribe`, same
-;; `subs/unsubscribe`, same build + dispose + commit-phase rebuild — but it
-;; DEREFS the handle and returns the VALUE, so nothing holds the disposed
-;; reaction once the factory returns. `get-snap`'s pre-commit fallback reads
-;; that value.
-;;
-;; Everything else — both refs, the stable key, both `use-callback`s, the
-;; watch, `useSyncExternalStore` — is character-for-character `xcript`. The
-;; CHURN is therefore on both sides of the subtraction and only RETENTION
-;; is isolated.
-;;
-;; This is a measurement arm and not a proposed patch. Freezing the fallback
-;; snapshot gives up one property the live handle has: today's fallback
-;; `@r` on the disposed reaction still recomputes (the derived value is
-;; pull-based), so an app-db write landing between render and the
-;; commit-phase watch install is observed by React's store-consistency
-;; check. A frozen value is not. The studio page prices the fix that keeps
-;; that property; this arm exists to price the term, not to ship it.
-
-(defn- use-sub-noretain [frame-kw query-v]
-  (let [key-ref       (react/useRef nil)
-        committed-ref (react/useRef nil)
-        stable-key      (stable-key-of key-ref frame-kw query-v)
-        stable-frame-kw (aget stable-key 0)
-        stable-query-v  (aget stable-key 1)
-        snapshot
-        (uix-hooks/use-memo
-          (fn []
-            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})
-                  v (when r @r)]
-              (subs/unsubscribe stable-frame-kw stable-query-v)
-              v))
-          #js [stable-key])
-        get-snap
-        (uix-hooks/use-callback
-          (fn []
-            (let [stored (.-current committed-ref)]
-              (if (and stored (identical? (aget stored 0) stable-key))
-                (let [r (aget stored 1)] (when r @r))
-                snapshot)))
-          #js [stable-key snapshot])
-        subscribe-fn
-        (uix-hooks/use-callback
-          (fn [on-change]
-            (let [committed (subs/subscribe stable-query-v
-                                            {:frame stable-frame-kw})]
-              (set! (.-current committed-ref) #js [stable-key committed])
-              (let [k (keyword watch-ns (str (gensym "watch-")))]
-                (when committed
-                  (add-watch committed k (fn [_ _ _ _] (on-change))))
-                (fn unsubscribe []
-                  (when committed (remove-watch committed k))
-                  (let [stored (.-current committed-ref)]
-                    (when (and stored (identical? (aget stored 1) committed))
-                      (set! (.-current committed-ref) nil)))
-                  (subs/unsubscribe stable-frame-kw stable-query-v)))))
-          #js [stable-key])]
-    (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
-
-;; ---------------------------------------------------------------------------
 ;; ARM 4 — `hooks`: the same six hooks, no re-frame at all
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Two `useRef`s, the stable-key derivation (INCLUDING the `[:abl/cell i]`
-;; query vector, so the query-v allocation cancels in `noretain - hooks`
+;; query vector, so the query-v allocation cancels in `retain - hooks`
 ;; and that difference is the subscription machinery alone), one `useMemo`,
 ;; two `useCallback`s and `useSyncExternalStore` over a trivial JS store.
 ;; No `subs/subscribe`, no reaction, no cache entry.
@@ -381,7 +397,7 @@
 
 (defn- r-uix      [i] (uix-adapter/use-subscribe frame-id [:abl/cell i]))
 (defn- r-xcript   [i] (use-sub-xcript   frame-id [:abl/cell i]))
-(defn- r-noretain [i] (use-sub-noretain frame-id [:abl/cell i]))
+(defn- r-retain [i] (use-sub-retain frame-id [:abl/cell i]))
 (defn- r-hooks    [i] (use-sub-hooks    frame-id [:abl/cell i]))
 
 ;; ---------------------------------------------------------------------------
@@ -428,22 +444,22 @@
              (r-xcript (+ base 6)))]
     ($ :span.cell {:data-i base} (str v))))
 
-(defui c-noretain-0 [{:keys [base]}] ($ :span.cell {:data-i base} "0"))
+(defui c-retain-0 [{:keys [base]}] ($ :span.cell {:data-i base} "0"))
 
-(defui c-noretain-1 [{:keys [base]}]
-  (let [v (r-noretain (+ base 0))]
+(defui c-retain-1 [{:keys [base]}]
+  (let [v (r-retain (+ base 0))]
     ($ :span.cell {:data-i base} (str v))))
 
-(defui c-noretain-3 [{:keys [base]}]
-  (let [v (+ (r-noretain (+ base 0)) (r-noretain (+ base 1))
-             (r-noretain (+ base 2)))]
+(defui c-retain-3 [{:keys [base]}]
+  (let [v (+ (r-retain (+ base 0)) (r-retain (+ base 1))
+             (r-retain (+ base 2)))]
     ($ :span.cell {:data-i base} (str v))))
 
-(defui c-noretain-7 [{:keys [base]}]
-  (let [v (+ (r-noretain (+ base 0)) (r-noretain (+ base 1))
-             (r-noretain (+ base 2)) (r-noretain (+ base 3))
-             (r-noretain (+ base 4)) (r-noretain (+ base 5))
-             (r-noretain (+ base 6)))]
+(defui c-retain-7 [{:keys [base]}]
+  (let [v (+ (r-retain (+ base 0)) (r-retain (+ base 1))
+             (r-retain (+ base 2)) (r-retain (+ base 3))
+             (r-retain (+ base 4)) (r-retain (+ base 5))
+             (r-retain (+ base 6)))]
     ($ :span.cell {:data-i base} (str v))))
 
 (defui c-hooks-0 [{:keys [base]}] ($ :span.cell {:data-i base} "0"))
@@ -465,7 +481,7 @@
 (def ^:private component-table
   {:uix      {0 c-uix-0      1 c-uix-1      3 c-uix-3      7 c-uix-7}
    :xcript   {0 c-xcript-0   1 c-xcript-1   3 c-xcript-3   7 c-xcript-7}
-   :noretain {0 c-noretain-0 1 c-noretain-1 3 c-noretain-3 7 c-noretain-7}
+   :retain {0 c-retain-0 1 c-retain-1 3 c-retain-3 7 c-retain-7}
    :hooks    {0 c-hooks-0    1 c-hooks-1    3 c-hooks-3    7 c-hooks-7}})
 
 (defui uix-grid [{:keys [variant n r]}]
@@ -539,7 +555,7 @@
 
 (def uix-variants
   "The four UIx-page arms, in decomposition order."
-  [:uix :xcript :noretain :hooks])
+  [:uix :xcript :retain :hooks])
 
 (defn- arm-id [variant r n]
   (keyword (str (name variant) "/r" r "-b" n)))
@@ -626,16 +642,24 @@
 ;;
 ;; Everything above is a heap measurement, and a heap measurement on this
 ;; surface is guilty until it has produced a control. The central claim —
-;; that a UIx read with no live cache entry BUILDS TWO REACTIONS and keeps
-;; the first — is not really a claim about bytes at all. It is a claim about
-;; COUNTS, and counts can be read exactly.
+;; that a UIx read with no live cache entry BUILDS TWO REACTIONS — is not
+;; really a claim about bytes at all. It is a claim about COUNTS, and counts
+;; can be read exactly.
 ;;
 ;; So: mount a small grid whose reads go through a transcription that is
-;; `use-sub-xcript` PLUS three counter increments, and read the counters
+;; `use-sub-retain` PLUS three counter increments, and read the counters
 ;; back. The witness components never appear in the heap table (a sub body
 ;; with a side effect has no business on a page pricing retention) and the
 ;; heap arms never touch the witness sub. The two halves of this file check
 ;; each other and share nothing but the frame.
+;;
+;; WHY THE WITNESS KEEPS THE HANDLE, WHEN THE SHIPPED HOOK NO LONGER DOES.
+;; Its whole mechanism is an `identical?` between the render-phase reaction
+;; and the commit-phase one, which requires holding the former. That is an
+;; INSTRUMENT REQUIREMENT, not a transcription of shipped behaviour: since
+;; rf2-2rtt6.13 the shipped hook keeps only the value. The counting claim is
+;; unaffected — the two BUILDS happen either way; retention was never what
+;; made them two — and the double build remains rf2-2rtt6.14's subject.
 ;;
 ;; PREDICTED BEFORE THE RUN, for `n` boundaries x `r` reads = N reads:
 ;;
@@ -644,9 +668,9 @@
 ;;
 ;; `rebuilt = N` is the whole finding: EVERY read's commit-phase acquire
 ;; hands back a DIFFERENT reaction object from the one the render phase
-;; already built and the fiber is still holding. `bodyRuns = 2N` is its
-;; shadow — the second reaction's first deref re-runs the user's sub body.
-;; A `rebuilt` of 0 would falsify the finding outright.
+;; already built. `bodyRuns = 2N` is its shadow — the second reaction's
+;; first deref re-runs the user's sub body. A `rebuilt` of 0 would falsify
+;; the finding outright.
 
 (defn- use-sub-witness [frame-kw query-v]
   (let [key-ref       (react/useRef nil)
