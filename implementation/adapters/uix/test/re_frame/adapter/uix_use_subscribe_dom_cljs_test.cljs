@@ -248,6 +248,9 @@
    :probe-refcount-element (fn [] (uix/$ ProbeRefcount))
    :rc-frame              :rf.uix-use-subscribe-test/refcount-frame
    :rc-query              :rf.uix-use-subscribe-test/m
+   ;; rf2-2rtt6.13 — its own frame (so its own sub-cache), because the
+   ;; assertion is only load-bearing on a COLD read and it says so.
+   :nr-frame              :rf.uix-no-retain/probe-frame
    ;; rf2-es09qq — Suspense abort-before-commit probe (reuses :rc-frame /
    ;; :rc-query so the abandoned render and the committed control mount race
    ;; on the SAME (frame, query)).
@@ -347,6 +350,13 @@
 ;; reaction hazard). Object-identity proof; reuses the refcount-probe surface.
 (deftest use-subscribe-getsnapshot-tracks-committed-reaction
   (suite/assert-use-subscribe-getsnapshot-tracks-committed-reaction cfg))
+
+;; rf2-2rtt6.13 — the disposed render-phase reaction must be unreachable: every
+;; deref the spine performs hits the sub-cache's CURRENT tenant, and the cold
+;; mount itself shows a deref of the committed reaction (React's post-subscribe
+;; getSnapshot call, which is what still catches a render→commit write).
+(deftest use-subscribe-render-phase-reaction-not-retained
+  (suite/assert-use-subscribe-render-phase-reaction-not-retained cfg))
 
 ;; rf2-naz09e — a query-v / frame change on a MOUNTED component must render the
 ;; NEW target's value on the change-commit (parity with Reagent's in-render

@@ -4548,6 +4548,157 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
+;; ---- the disposed render-phase reaction is unreachable (rf2-2rtt6.13) -----
+;;
+;; THE DEFECT. `use-subscribe`'s render-phase `use-memo` used to return the
+;; reaction HANDLE its balanced round trip had just built. On a cold read that
+;; round trip is 0 → 1 → 0 and 1 → 0 is the disposal edge, so the handle it
+;; returned was already dead — no source watches, no cache slot, no verb that
+;; can reach it — and `use-memo`'s hook slot plus `get-snap`'s closure then held
+;; it for the component's lifetime. Measured at 769 B [765–793] / 23.0 objects
+;; per read, 22% of every UIx subscription read
+;; (docs/design/hicasso/studio/uix-spine-per-read-decomposition.md). The memo now
+;; derefs INSIDE the round trip, while the reaction is still live, and returns
+;; the VALUE.
+;;
+;; WHY THIS SHAPE OF PROOF. Retention is not directly assertable — there is no
+;; deterministic GC to ask. But retention had a CAUSE that is assertable: the
+;; handle survived because `get-snap` closed over it, and `get-snap` closing over
+;; it is precisely what made the spine deref a DISPOSED reaction on the
+;; pre-commit snapshot. So the property pinned here is the sharper, observable
+;; one, and it implies the other:
+;;
+;;   EVERY deref the spine performs, at any point in the component's lifetime,
+;;   targets the reaction TENANTED in the sub-cache slot at that moment.
+;;
+;; A `subs/subscribe` spy wraps each returned reaction in a proxy that records,
+;; per deref, the reaction's generation AND whether it was the cache's tenant at
+;; that instant. Pre-fix the pre-commit `getSnapshot` deref lands on the evicted
+;; handle and the tenancy flag is false on the very first mount.
+;;
+;; AND THE PROPERTY THE FIX LEANS ON. The pre-commit fallback stops being a live
+;; re-read, so a write landing between render and commit is no longer caught by
+;; the render-phase store-consistency check. It is still caught, one step later,
+;; because React's `useSyncExternalStore` mount path pushes its `subscribeToStore`
+;; passive effect BEFORE its `updateStoreInstance` one and passive effects run in
+;; push order: `updateStoreInstance` calls `getSnapshot` AGAIN — after
+;; `subscribe-fn` has published the committed reaction — and force-re-renders if
+;; the value moved. That ordering is React's, not ours, so it is pinned here: a
+;; cold mount MUST show at least one deref of the COMMITTED reaction. If a React
+;; upgrade ever reorders those two effects, the frozen fallback becomes the last
+;; word and this assertion is what says so.
+;;
+;; The rf2-es09qq ref-count property is unchanged by construction (no
+;; subscribe/unsubscribe call moved) and is re-asserted here as a control.
+
+(defn assert-use-subscribe-render-phase-reaction-not-retained
+  "rf2-2rtt6.13: the spine must never deref a disposed reaction — the
+  render-phase handle is deref-ed once, while it is still the sub-cache's
+  tenant, and is unreachable thereafter (it is not retained by the memo slot or
+  by `get-snap`). Proven by object identity plus a per-deref tenancy check. Also
+  pins the ordering the frozen fallback depends on: React calls `getSnapshot`
+  again AFTER `subscribe` returns, so the committed reaction is deref-ed during
+  the cold mount itself.
+
+  cfg keys: reuses the refcount-probe surface, on its own frame
+    :probe-refcount-element / :refcount-target / :rc-query / :nr-frame"
+  [{:keys [name probe-refcount-element refcount-target rc-query nr-frame]}]
+  (testing (str name " — use-subscribe never derefs a disposed reaction; the render-phase handle is not retained (rf2-2rtt6.13)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! refcount-target nr-frame)
+      (rf/make-frame {:id nr-frame :doc "rf2-2rtt6.13 no-retention probe frame"})
+      (rf/reg-event ::nr-seed (fn [_ _] {:db {:m 0}}))
+      (rf/dispatch-sync [::nr-seed] {:frame nr-frame})
+      (rf/reg-event ::nr-inc (fn [{:keys [db]} _] {:db {:m (inc (:m db))}}))
+      (rf/reg-sub rc-query (fn [db _] (:m db)))
+      (let [cache-key-v    [rc-query]
+            cache          (:sub-cache (frame/frame nr-frame))
+            real-subscribe subs/subscribe
+            gen-counter    (atom 0)
+            real->gen      (atom {})
+            ;; One entry per deref, in order: the reaction's generation, and
+            ;; whether that reaction was the cache slot's tenant AT THAT MOMENT.
+            deref-log      (atom [])
+            gen-of         (fn [real]
+                             (or (get @real->gen real)
+                                 (let [g (swap! gen-counter inc)]
+                                   (swap! real->gen assoc real g)
+                                   g)))
+            tenant?        (fn [real]
+                             (identical? real (get-in @cache [cache-key-v :reaction])))
+            wrap           (fn [real]
+                             (let [g (gen-of real)]
+                               (reify
+                                 IDeref
+                                 (-deref [_]
+                                   (swap! deref-log conj {:gen g :tenant? (tenant? real)})
+                                   @real)
+                                 IWatchable
+                                 (-add-watch [this k f]
+                                   (add-watch real k (fn [_ _ old nu] (f k this old nu)))
+                                   this)
+                                 (-remove-watch [_ k] (remove-watch real k) nil)
+                                 (-notify-watches [_ _o _n] nil))))
+            mount-node     (make-mount-node!)
+            root           (react-dom-client/createRoot mount-node)]
+        ;; The whole point is a COLD read — a live cache entry would make the
+        ;; render-phase round trip a hit (n → n+1 → n), never cross the disposal
+        ;; edge, and prove nothing. Say so rather than pass vacuously.
+        (is (nil? (get @cache cache-key-v))
+            "precondition: no live cache entry, so the mount is genuinely COLD")
+        (with-redefs [subs/subscribe
+                      (fn spy-subscribe
+                        ([query-v]
+                         (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
+                        ([query-v opts]
+                         (wrap (real-subscribe query-v opts))))]
+          (try
+            (act-fn (fn [] (.render root (probe-refcount-element))))
+            (let [committed-real (get-in @cache [cache-key-v :reaction])
+                  committed-gen  (get @real->gen committed-real)]
+              (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                  "after mount exactly one durable committed ref is pinned (rf2-es09qq, unchanged)")
+              (is (some? committed-gen)
+                  "the committed cached reaction was seen through the subscribe spy")
+              (is (seq @deref-log)
+                  "the cold mount drove at least one deref")
+              ;; THE LOAD-BEARING ASSERTION. Pre-fix, `get-snap`'s pre-commit
+              ;; fallback derefs the render-phase handle AFTER the round trip
+              ;; evicted it — tenancy false, on the very first mount.
+              (is (every? :tenant? @deref-log)
+                  (str "every deref during the cold mount hit the reaction tenanted "
+                       "in the sub-cache at that moment — never a disposed, evicted "
+                       "handle. Observed " @deref-log))
+              ;; THE ORDERING THE FROZEN FALLBACK DEPENDS ON.
+              (is (some #(= committed-gen (:gen %)) @deref-log)
+                  (str "React called getSnapshot again AFTER subscribe-fn published "
+                       "the committed reaction (gen " committed-gen "), so a write "
+                       "landing between render and commit is still detected. "
+                       "Observed " @deref-log))
+              ;; The property holds for the whole lifetime, not just the mount:
+              ;; a forced re-render and a dispatch-driven update both read the
+              ;; live committed reaction and nothing else.
+              (reset! deref-log [])
+              (act-fn (fn [] (.render root (probe-refcount-element))))
+              (act-fn (fn [] (rf/dispatch-sync [::nr-inc] {:frame nr-frame})))
+              (is (= "m=1" (.-textContent mount-node))
+                  "post-dispatch the snapshot reflects the new value")
+              (is (seq @deref-log)
+                  "the re-render + dispatch drove at least one deref")
+              (is (every? :tenant? @deref-log)
+                  (str "post-mount every deref still hit the cache's tenant. Observed "
+                       @deref-log))
+              (is (every? #(= committed-gen (:gen %)) @deref-log)
+                  (str "post-mount every deref hit the COMMITTED reaction (gen "
+                       committed-gen "). Observed " @deref-log)))
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                "post-unmount the committed ref is released (no leak from the proxy path)")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
 ;; ---- key-change serves the NEW target (rf2-naz09e) ------------------------
 ;;
 ;; THE BUG (UIx shared spine only — Reagent recomputes in-render and
