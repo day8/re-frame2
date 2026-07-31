@@ -2268,25 +2268,28 @@
         (fn use-subscribe-2 [frame-kw query-v]
           (let [key-ref (React/useRef nil)
                 ;; Holds the DURABLE committed reaction (rf2-sqhjtu). The
-                ;; render-phase `reaction` handle below is a balanced,
-                ;; net-zero subscribe/unsubscribe round-trip whose value
-                ;; equals the committed one but whose IDENTITY can differ on
-                ;; first mount: with no prior cache entry the round-trip's
-                ;; 1 → 0 unsubscribe DISPOSES that handle (evicts it, removes
-                ;; its source watches), and `subscribe-fn` then rebuilds a
-                ;; fresh committed reaction post-commit. A disposed reaction
-                ;; still recomputes on `-deref` (pull-based), so reading it
-                ;; from `get-snap` LOOKS correct for ordinary app-db updates
-                ;; — but it no longer holds source watches and, crucially,
-                ;; still closes over the OLD sub body. On sub re-registration
-                ;; / hot-reload the cache rebuilds the committed reaction with
-                ;; the v2 body while a `get-snap` pinned to the disposed v1
-                ;; handle keeps rendering v1 output. React's
-                ;; `useSyncExternalStore` contract requires `getSnapshot` to
-                ;; read a stable, LIVE source — so `get-snap` reads the
-                ;; committed reaction stored here once `subscribe-fn` has run
-                ;; (post-commit), falling back to the render-phase handle only
-                ;; for the very first pre-commit snapshot.
+                ;; render-phase `use-memo` below takes a balanced, net-zero
+                ;; subscribe/unsubscribe round-trip to READ a snapshot. With
+                ;; no prior cache entry that round-trip's 1 → 0 unsubscribe
+                ;; DISPOSES the reaction it just built (evicts it, removes its
+                ;; source watches) and `subscribe-fn` builds a fresh committed
+                ;; one post-commit — a DIFFERENT object.
+                ;;
+                ;; `get-snap` must never read that disposed handle. A disposed
+                ;; reaction still recomputes on `-deref` (pull-based), so
+                ;; deref-ing it LOOKS correct for ordinary app-db updates —
+                ;; but it holds no source watches and still closes over the
+                ;; OLD sub body. On sub re-registration / hot-reload the cache
+                ;; rebuilds the committed reaction with the v2 body while a
+                ;; `get-snap` pinned to the disposed v1 handle keeps rendering
+                ;; v1 output. React's `useSyncExternalStore` contract requires
+                ;; `getSnapshot` to read a stable, LIVE source — so `get-snap`
+                ;; reads the committed reaction stored here once
+                ;; `subscribe-fn` has run (post-commit), falling back to the
+                ;; render-phase SNAPSHOT VALUE (`render-snapshot` below) only
+                ;; for the pre-commit reads. Since rf2-2rtt6.13 that fallback
+                ;; is a value and not a handle, so the disposed reaction is not
+                ;; merely un-preferred — it is unreachable.
                 ;;
                 ;; rf2-naz09e: the ref stores the committed reaction KEY-TAGGED
                 ;; as `#js [stable-key committed]` (see `subscribe-fn` and
@@ -2330,17 +2333,17 @@
                 ;; doesn't commit, so an abandoned render acquires NOTHING — the
                 ;; leak is gone BY CONSTRUCTION, independent of fiber discard.
                 ;;
-                ;; The render phase still needs a reaction HANDLE to read a
-                ;; snapshot for `useSyncExternalStore`. It obtains one with a
-                ;; BALANCED, net-zero round-trip — `subs/subscribe` immediately
-                ;; followed by `subs/unsubscribe` — so the render contributes ZERO
+                ;; The render phase still needs a SNAPSHOT to hand
+                ;; `useSyncExternalStore`. It reads one with a BALANCED,
+                ;; net-zero round-trip — `subs/subscribe`, deref, then
+                ;; `subs/unsubscribe` — so the render contributes ZERO
                 ;; outstanding ref-count whether or not it commits.
                 ;;
                 ;; In the COMMITTED steady state this round-trip is free of
                 ;; dispose churn: the `subscribe-fn` below holds a durable +1, so
                 ;; the render-phase subscribe bumps to 2 and the immediate
                 ;; unsubscribe drops back to 1 — never crossing the 1 → 0 disposal
-                ;; edge. The handle is the live cached reaction. The ONLY render
+                ;; edge. The reaction deref-ed is the live cached one. The ONLY render
                 ;; with no durable backing is the FIRST mount before commit (and
                 ;; any never-committed render): there the round-trip disposes +
                 ;; rebuilds, but per rf2-cmfln the rebuilt value `=` the disposed
@@ -2356,37 +2359,83 @@
                 ;;     so a discarded+rebuilt memo nets zero regardless of how many
                 ;;     times React re-runs it. No climb.
                 ;; Per Spec 006 §Reference counting and disposal (rf2-cmfln).
-                reaction
+                ;;
+                ;; ---- the memo yields the VALUE, never the handle (rf2-2rtt6.13) ----
+                ;;
+                ;; On a first mount the round trip is 0 → 1 → 0, and 1 → 0 is the
+                ;; disposal edge (`re-frame.subs.cache/unsubscribe!` disposes
+                ;; in-tick, no grace period), so the reaction it built is DEAD
+                ;; before the factory returns: no source watches, no cache slot,
+                ;; no verb that can reach it. Returning that handle RETAINED it
+                ;; for the component's lifetime — `use-memo`'s hook slot held it
+                ;; and `get-snap`'s closure held it — at a measured 769 B
+                ;; `[765–793]` / 23.0 objects per read, 22% of every UIx
+                ;; subscription read (docs/design/hicasso/studio/uix-spine-per-
+                ;; read-decomposition.md; instrument landed 24e8822d7f).
+                ;;
+                ;; So deref INSIDE the round trip — while the reaction is still
+                ;; live — and return the VALUE. Nothing holds the reaction once
+                ;; the factory returns. Every `subs/subscribe` /
+                ;; `subs/unsubscribe` call, every hook and every watch stays
+                ;; exactly where it was, so the render is still net-zero and
+                ;; rf2-es09qq's abandoned-render property is untouched. The
+                ;; double BUILD is untouched too — that is rf2-2rtt6.14's ruling,
+                ;; implemented by rf2-2rtt6.25 on these same lines.
+                render-snapshot
                 (use-memo (fn []
-                            ;; Net-zero render-phase fetch of the reaction handle:
-                            ;; subscribe to read the cached reaction, then release
-                            ;; immediately so the render retains no ref-count. An
-                            ;; abandoned render leaks nothing; a committed render's
-                            ;; durable ref is taken later in `subscribe-fn`.
-                            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})]
+                            ;; Net-zero render-phase READ of the snapshot:
+                            ;; subscribe, deref while the reaction is live, then
+                            ;; release immediately so the render retains neither a
+                            ;; ref-count nor a handle. An abandoned render leaks
+                            ;; nothing; a committed render's durable ref is taken
+                            ;; later in `subscribe-fn`.
+                            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})
+                                  v (when r @r)]
                               (subs/unsubscribe stable-frame-kw stable-query-v)
-                              r))
+                              v))
                           #js [stable-key])
                 ;; The store-snapshot fn React calls on every render to
                 ;; detect tearing. Pure deref of the LIVE committed reaction.
                 ;;
                 ;; rf2-sqhjtu: prefer the durable committed reaction stored in
                 ;; `committed-ref` by `subscribe-fn` (set post-commit, cleared
-                ;; on teardown). The render-phase `reaction` handle is only the
-                ;; fallback for the FIRST pre-commit snapshot — before React has
-                ;; run `subscribe-fn`, `committed-ref` is still nil and the
-                ;; balanced render-phase handle is the only thing to read. Once
-                ;; committed, `get-snap` tracks the live cached reaction (the
-                ;; one carrying source watches and the current sub body), never
-                ;; a disposed first-render handle. The committed reaction's
-                ;; value `=` the render-phase one (rf2-cmfln), so the source
-                ;; swap is tear-free.
+                ;; on teardown). `render-snapshot` — the VALUE the render-phase
+                ;; round trip read — is only the fallback for the pre-commit
+                ;; snapshot: before React has run `subscribe-fn`,
+                ;; `committed-ref` is still nil and that value is the only
+                ;; thing to read. Once committed, `get-snap` tracks the live
+                ;; cached reaction (the one carrying source watches and the
+                ;; current sub body), never a disposed first-render handle —
+                ;; which since rf2-2rtt6.13 it could not reach anyway. The
+                ;; committed reaction's value `=` the render-phase one
+                ;; (rf2-cmfln), so the source swap is tear-free.
+                ;;
+                ;; rf2-2rtt6.13 — the fallback stops being a LIVE re-read, and
+                ;; the render→commit window stays covered. React's
+                ;; `useSyncExternalStore` mount path pushes its `subscribeToStore`
+                ;; passive effect BEFORE its `updateStoreInstance` one, and
+                ;; passive effects run in push order; `updateStoreInstance` then
+                ;; calls `getSnapshot` again and force-re-renders if the result
+                ;; moved. So by the time that second call runs, `subscribe-fn`
+                ;; has already published the committed reaction and the call
+                ;; reads the LIVE one — an app-db write landing between render
+                ;; and commit is still detected, one commit later than a live
+                ;; fallback would have caught it on a concurrent lane. A frozen
+                ;; value also satisfies React's "the result of getSnapshot
+                ;; should be cached" rule at least as well as a live deref.
+                ;;
+                ;; The rejected alternative — keeping the fallback live WITHOUT
+                ;; retention, by having `get-snap` re-subscribe per call — is
+                ;; unsafe: each call would build a fresh reaction with a fresh
+                ;; memo cell, so a collection-returning sub yields a fresh,
+                ;; non-`Object.is` value on every `getSnapshot`, which is
+                ;; React's documented infinite-render-loop condition.
                 ;;
                 ;; rf2-naz09e — the committed reaction is stored KEY-TAGGED as
                 ;; `#js [stable-key committed]`, and `get-snap` reads it ONLY
                 ;; when the stored key is `identical?` the CURRENT render's
-                ;; `stable-key`; otherwise it falls back to the render-phase
-                ;; handle. This closes the KEY-CHANGE window. When query-v /
+                ;; `stable-key`; otherwise it falls back to `render-snapshot`.
+                ;; This closes the KEY-CHANGE window. When query-v /
                 ;; frame change on a mounted component, `committed-ref`
                 ;; transiently still holds the PREVIOUS target's reaction — the
                 ;; old `subscribe-fn`'s ref-clearing cleanup is a passive effect
@@ -2398,28 +2447,29 @@
                 ;; layout-effect / ref read deterministically observes and which
                 ;; under a transition lane can paint before the passive-phase
                 ;; store-consistency check forces a corrective re-render. The
-                ;; render-phase `reaction` memo is keyed on `#js [stable-key]`,
-                ;; so on a key change it already holds the NEW target: the
+                ;; `render-snapshot` memo is keyed on `#js [stable-key]`, so on
+                ;; a key change it already holds the NEW target's value: the
                 ;; fallback serves the NEW value for that very commit, matching
-                ;; the Reagent substrate's in-render recompute (no tear). The
+                ;; the Reagent substrate's in-render recompute (no tear) — and
+                ;; matching it more closely than before, since Reagent's
+                ;; render-phase value is likewise read once, in render. The
                 ;; earlier claim — "once committed-ref is populated post-commit,
                 ;; get-snap's identity is irrelevant to correctness" — was
                 ;; UNTRUE across a key change: committed-ref points at the WRONG
                 ;; (old) reaction until the passive cleanup runs.
                 ;;
-                ;; Deps include `reaction` so the fallback path always closes
-                ;; over the CURRENT render's handle — both the pre-commit first
-                ;; snapshot AND the key-change render — never a stale
+                ;; Deps include `render-snapshot` so the fallback path always
+                ;; closes over the CURRENT render's value — both the pre-commit
+                ;; first snapshot AND the key-change render — never a stale
                 ;; perf-discarded one.
                 get-snap
                 (use-callback (fn []
-                                (let [stored (.-current committed-ref)
-                                      r (if (and stored
-                                                 (identical? (aget stored 0) stable-key))
-                                          (aget stored 1)
-                                          reaction)]
-                                  (when r @r)))
-                              #js [stable-key reaction])
+                                (let [stored (.-current committed-ref)]
+                                  (if (and stored
+                                           (identical? (aget stored 0) stable-key))
+                                    (let [r (aget stored 1)] (when r @r))
+                                    render-snapshot)))
+                              #js [stable-key render-snapshot])
                 ;; The store-subscribe fn — React's COMMIT-OWNED acquire/release
                 ;; pair. React calls it (once) only AFTER a commit, passing a
                 ;; force-update callback; its returned cleanup runs on unmount,
@@ -2430,13 +2480,13 @@
                 ;; (frame, query) here rather than trust the render-phase handle's
                 ;; ref-count (which was balanced to zero).
                 ;;
-                ;; MEMOIZED ON `[stable-key]`, NOT `[reaction]` (rf2-es09qq). The
-                ;; render-phase handle object can differ from the committed one
-                ;; on first mount (the balanced round-trip may dispose + rebuild
-                ;; the reaction before `subscribe-fn` re-acquires it), so keying
-                ;; on `reaction` would change subscribe-fn identity right after
-                ;; the first commit — forcing React to release (dispose) and
-                ;; re-acquire the durable ref every time the handle churned.
+                ;; MEMOIZED ON `[stable-key]`, NOT on the render-phase memo
+                ;; (rf2-es09qq). The render-phase reaction can differ from the
+                ;; committed one on first mount (the balanced round-trip may
+                ;; dispose + rebuild it before `subscribe-fn` re-acquires), so
+                ;; keying on anything derived from it would change subscribe-fn
+                ;; identity right after the first commit — forcing React to
+                ;; release (dispose) and re-acquire the durable ref on churn.
                 ;; `stable-key` is identity-stable for a fixed (frame, query), so
                 ;; React calls subscribe-fn exactly ONCE per subscription target:
                 ;; one durable acquire, one release, no churn. The watch is added
@@ -2448,8 +2498,8 @@
                   (fn [on-change]
                     ;; Take the durable committed ref now (post-commit). This is
                     ;; the ONLY place a lasting +1 is acquired. The returned
-                    ;; reaction is the live cached one and `=` (often identical)
-                    ;; to the render-phase handle `reaction`.
+                    ;; reaction is the live cached one and its value `=` the
+                    ;; `render-snapshot` the render phase read.
                     (let [committed (subs/subscribe stable-query-v {:frame stable-frame-kw})]
                       ;; rf2-sqhjtu / rf2-naz09e: publish the durable committed
                       ;; reaction KEY-TAGGED with this invocation's `stable-key`
