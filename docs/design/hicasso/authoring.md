@@ -101,6 +101,34 @@ steady-state change belongs on an effect, not on the ref.
   per boundary from the substrate's single internal context) so they remain valid
   when the browser invokes them after render scope unwinds.
 
+### When a vector is not enough: one form, and the position decides (HD-024)
+
+There is **one** callback form, `h/fn`, and it is an **ordinary function**:
+
+```clojure
+[:input {:type "file"
+         :on-change (h/fn [e] [:upload/picked (js/Array.from (.. e -target -files))])}]
+```
+
+| Position | Contract |
+|---|---|
+| a native `:on-*` prop | **event** — a returned vector is dispatched; any other return is ignored |
+| a `defhost` `:callbacks` entry | as **declared** (`:event` or `:handler`) |
+| any other walked prop position (a slot, a foreign render prop) | **render** — pure; the return is output, and dispatching from inside is a loud error **naming the position** |
+| `:ref` | React's own contract; not lowered |
+| anywhere Hicasso does not walk | a plain function; it runs, and its return is ignored |
+
+A view's props map is not a position — it is data in transit, exactly as an intent
+vector is; the value is lowered where it finally lands. Ordinary functions remain
+untouched at every position, which is why there is no separate identity-passthrough
+form: the codec already hands functions to React by identity so `React.memo` and
+handler-identity bail-outs keep working.
+
+The point of the collapse is the last row. In the predecessor the roster forms are
+carriers — marker objects — so one handed to a raw `#js` prop is not callable and
+the failure is the engine's own `TypeError`, naming nothing the author wrote. A
+form that is a function cannot fail that way.
+
 ## Forwarding attributes — one merge, spelled `:&` (HD-023)
 
 There is **one** attribute merge and it is a reserved key in the attribute map, not

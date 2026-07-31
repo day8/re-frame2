@@ -550,3 +550,50 @@ such additions be measured rather than assumed. Structurally this one is a singl
 absent, so it allocates nothing on an element that does not use it — but its clock
 cost is **unmeasured** and is named here rather than claimed away.
 **Reopens** if a witness shows a merge the law cannot express without an escape.
+
+## HD-024 — One callback form; the position selects the contract
+
+**Ruling.** Hicasso ships **one** callback form — `h/fn` (spelling unfrozen) — and
+it is **an ordinary function**. The contract comes from the **position**, because
+the runtime already knows every position it walks:
+
+| Position | Contract |
+|---|---|
+| a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
+| a `defhost` `:callbacks` entry | as **declared** (`:event` or `:handler`), never inferred from an `on*` name |
+| any other walked prop position (a slot, a foreign render prop) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/hicasso-dispatch-in-render-position`, **naming the position** |
+| `:ref` | React's own: commit phase, node in, cleanup out. Excluded from lowering |
+| anywhere Hicasso does not walk (a raw `#js` prop) | it is a plain function; it runs, and its return is ignored |
+
+A Hicasso **view's** props map is not a position — it is data in transit, exactly
+as an intent vector is. The view puts the value on an element and *that* position
+lowers it.
+**`raw-fn` is NOT v0**, and costs nothing to omit: the codec already passes
+functions to React by identity, deliberately, so that `React.memo` and every
+downstream bail-out comparing handler identity keep working. The behaviour the
+predecessor spells as a fourth roster form is the default here.
+
+**Rationale.** The predecessor requires an author who cannot use a bare event
+vector to pick from a roster of **four** forms with four different contracts —
+`v/event` returns one vector or nil, `v/handler`'s "return is ignored",
+`v/render-fn` is pure and runs during a foreign render, `v/raw-fn` passes identity
+through — and then adds a **fifth** rule about *where the roster reaches*. Outside
+that reach the failure is not even the library's: a roster carrier handed to a raw
+`createElement` `#js` prop is a non-callable marker object, so the author gets the
+engine's own `TypeError` — `props.onPing is not a function` — "naming nothing you
+wrote". Making the one form an ordinary function deletes the fifth rule outright,
+because there is nothing that can fail to be callable; making the position select
+the contract deletes the other three, because the role is already declared exactly
+once per crossing and Hicasso already walks the position. Four concepts collapse to
+one: **half the K5 budget back**. The census supports the trade — keyboard-condition
+handlers appear 3 times in 85 idiomatic files, `stopPropagation` 0 times, and
+foreign React components 0 times, so the roster is priced for a component-library
+tier charter.md defers past v0.
+**Diagnostics name the position, never the form** — under one form the form can
+never be the answer to "what did I get wrong?". The render-position refusal is
+enforced by poisoning the ambient dispatch for the call's dynamic extent, so an
+intent lowered inside the call and a direct dispatch land on the same error id.
+**Fence.** This is a **runtime classification at positions the codec already
+walks**, not a build-time pass over body forms. No compiler, no analyzer.
+**Reopens** if the component-library tier finds a contract the four rows cannot
+express — in which case it is a new row, not a new form.

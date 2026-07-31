@@ -271,3 +271,165 @@
         (is (fn? (:on-click lowered')))
         ((:on-click lowered') (ev {}))
         (is (= [[:touch 3]] @!seen))))))
+
+;; ---------------------------------------------------------------------------
+;; ONE callback form, and the POSITION selects the contract
+;; (HD-024, rf2-2rtt6.35)
+;; ---------------------------------------------------------------------------
+;;
+;; One test per position, plus the row that deletes the predecessor's fifth
+;; rule, plus the diagnostic that must name the POSITION rather than the form.
+
+(deftest the-one-form-is-an-ordinary-function
+  (testing "the deletion, stated as an assertion. The predecessor's roster
+            carriers are marker OBJECTS, so the same value handed to a
+            position the library does not walk is not callable and the author
+            gets the engine's own TypeError naming nothing they wrote. There
+            is nothing here that can fail to be callable."
+    (let [f  (fn [_] :ran)
+          cb (intent/callback f)]
+      (is (identical? f cb) "`callback` marks and returns the SAME function")
+      (is (fn? cb))
+      (is (true? (intent/callback? cb)))
+      (is (false? (intent/callback? (fn [_]))) "an ordinary fn is not the form")
+      (is (false? (intent/callback? [:an :intent])))
+      (is (false? (intent/callback? "on-click"))))))
+
+(deftest at-an-event-position-a-returned-vector-is-dispatched
+  (testing "the contract the predecessor spells `v/event`"
+    (let [!seen (recorder)
+          h     (lowered (dispatching !seen) :on-change
+                         (intent/callback (fn [e] [:files/picked (.. e -target -value)])))]
+      (h (ev {:value "a.png"}))
+      (is (= [[:files/picked "a.png"]] @!seen))))
+  (testing "and a return that is not a vector is ignored — which is the
+            contract the predecessor needs a SECOND form (`v/handler`) for"
+    (let [!seen (recorder)
+          !ran  (atom 0)
+          h     (lowered (dispatching !seen) :on-click
+                         (intent/callback (fn [_] (swap! !ran inc) :not-an-intent)))]
+      (h (ev {}))
+      (is (= 1 @!ran) "the body ran")
+      (is (= [] @!seen) "and nothing was dispatched")))
+  (testing "nil is likewise ignored, so a conditional dispatch is written as
+            an ordinary conditional returning nil"
+    (let [!seen (recorder)
+          h     (lowered (dispatching !seen) :on-click
+                         (intent/callback (fn [_] nil)))]
+      (h (ev {}))
+      (is (= [] @!seen)))))
+
+(deftest at-a-render-position-the-return-is-output-and-dispatching-is-a-loud-error
+  (testing "the contract the predecessor spells `v/render-fn`. A slot or a
+            foreign render prop is invoked DURING a render, so its return is
+            markup — which is itself a vector, and is exactly why the shape
+            of the value cannot select the contract and the position must."
+    (let [!seen (recorder)
+          h     (lowered (dispatching !seen) :row-renderer
+                         (intent/callback (fn [row] [:li (:title row)])))]
+      (is (= [:li "milk"] (h {:title "milk"}))
+          "the hiccup came back to the caller and was NOT dispatched")
+      (is (= [] @!seen))))
+  (testing "and a dispatch from inside one is refused, naming the POSITION"
+    (let [!seen (recorder)
+          h     (lowered (dispatching !seen) :row-renderer
+                         (intent/callback
+                           (fn [_] ((intent/lower-prop :on-click [:oops]) (ev {})) [:li])))]
+      (try
+        (h {})
+        (is false "should have thrown")
+        (catch :default e
+          (let [d (ex-data e)]
+            (is (= :rf.error/hicasso-dispatch-in-render-position (:rf.error/id d)))
+            (is (= :row-renderer (:position d))
+                "the diagnostic names the POSITION — under one form, the form
+                 is never the answer to the question of what went wrong")
+            (is (re-find #":row-renderer" (ex-message e))))))
+      (is (= [] @!seen) "and nothing reached the frame"))))
+
+(deftest a-declaration-can-name-the-contract-instead-of-the-position
+  (testing "the position table's second row. A `defhost` declaration carries
+            `:event` or `:handler` per EXACT prop name and never infers it
+            from an `on*` spelling, so the contract travels with the
+            declaration rather than with the value."
+    (let [!seen (recorder)
+          cb    (intent/callback (fn [x] [:host/changed x]))]
+      (testing ":event dispatches the return even though :onValueChange is
+                not a position the attribute grammar would call an event"
+        (let [h (intent/with-frame (dispatching !seen)
+                                   (fn [] (intent/lower-declared-prop :onValueChange cb :event)))]
+          (h 7)
+          (is (= [[:host/changed 7]] @!seen))))
+      (testing ":handler ignores the return, and the function passes through
+                by identity so a library memoising on it is not defeated"
+        (reset! !seen [])
+        (let [h (intent/with-frame (dispatching !seen)
+                                   (fn [] (intent/lower-declared-prop :onValueChange cb :handler)))]
+          (is (identical? cb h))
+          (is (= [:host/changed 7] (h 7)) "the caller sees the return")
+          (is (= [] @!seen))))
+      (testing "an unknown contract is a loud error rather than a guess"
+        (try
+          (intent/lower-declared-prop :onValueChange cb :whatever)
+          (is false "should have thrown")
+          (catch :default e
+            (is (= :rf.error/hicasso-unknown-callback-contract
+                   (:rf.error/id (ex-data e))))))))))
+
+(deftest outside-every-walked-position-the-form-is-just-a-function
+  (testing "the row that deletes the predecessor's FIFTH rule. There, the
+            roster is site-owned and a carrier handed to a raw #js prop is a
+            marker object, so a native call on it raises the host's own
+            TypeError naming nothing the author wrote. Here the value was
+            never anything but a function, so the position not being walked
+            costs the contract and nothing else."
+    (let [!ran     (atom 0)
+          cb       (intent/callback (fn [x] (swap! !ran inc) [:would-have-dispatched x]))
+          js-props #js {:onPing cb}]
+      (is (fn? (.-onPing js-props)))
+      (is (= [:would-have-dispatched 3] ((.-onPing js-props) 3))
+          "a JavaScript library calling it natively gets a real call and a
+           real return — the return is simply not an intent here, because
+           this is not a position anything could have lowered")
+      (is (= 1 @!ran)))))
+
+(deftest an-intent-returned-with-no-frame-in-scope-names-the-position
+  (testing "the form is legal with no frame — a callback that never returns
+            an intent has nothing to dispatch. Returning one there is the
+            loud error, and it names the position rather than the form."
+    (let [h (intent/lower-prop :on-click (intent/callback (fn [_] [:too/late])))]
+      (try
+        (h (ev {}))
+        (is false "should have thrown")
+        (catch :default e
+          (is (= :rf.error/hicasso-intent-outside-boundary (:rf.error/id (ex-data e))))
+          (is (= :on-click (:position (ex-data e)))))))
+    (testing "while the same callback returning nothing is fine"
+      (let [!ran (atom 0)
+            h    (intent/lower-prop :on-click (intent/callback (fn [_] (swap! !ran inc) nil)))]
+        (h (ev {}))
+        (is (= 1 @!ran))))))
+
+(deftest ref-keeps-reacts-own-contract-and-is-not-lowered
+  (testing ":ref is the one position whose contract is neither Hicasso's to
+            select nor the same in both phases — React invokes it in the
+            COMMIT phase with the node, and its return is the detach
+            cleanup. Wrapping it would forbid a legitimate dispatch there and
+            would change the identity React re-attaches on."
+    (is (= :ref (intent/position-contract :ref)))
+    (is (= :event (intent/position-contract :on-click)))
+    (is (= :render (intent/position-contract :row-renderer)))
+    (let [cb (intent/callback (fn [_node] :cleanup))]
+      (is (identical? cb (intent/lower-prop :ref cb)))
+      (is (identical? cb (intent/lower-prop "ref" cb))))))
+
+(deftest an-ordinary-function-is-untouched-everywhere
+  (testing "`raw-fn`'s identity passthrough is not v0 because it is already
+            the default: an ordinary function is claimed by no position, and
+            the codec hands functions to React by identity so `React.memo`
+            and every downstream bail-out that compares handler identity keep
+            working. One fewer form for nothing given up."
+    (let [f (fn [_] :whatever)]
+      (is (identical? f (intent/lower-prop :on-click f)))
+      (is (identical? f (intent/lower-prop :row-renderer f)))
+      (is (identical? f (intent/lower-prop :ref f))))))
