@@ -340,10 +340,26 @@
 (defn composing?
   "Is this key event part of an in-flight IME composition? `isComposing`
   where the browser sets it, and the legacy keyCode-229 signal where it
-  is all the browser sends."
+  is all the browser sends.
+
+  **Both signals are read off the NATIVE event**, and that is not
+  defensive tidiness — it is the difference between a live fence and a
+  dead one. React does not hand a handler the browser's event: it hands
+  it a synthetic one built by copying an enumerated interface, and
+  `KeyboardEventInterface` lists key, code, location, the modifier flags,
+  repeat, locale, `charCode`, `keyCode` and `which`. **`isComposing` is
+  not on that list**, so on React it reads `undefined` however plainly the
+  browser set it, and the modern half of this gate would never fire —
+  leaving only the legacy signal, on browsers that happen to send it.
+  Measured at
+  `arm1_controlled_grid_dom_cljs_test/reacts-synthetic-keyboard-event-drops-is-composing`.
+
+  A raw DOM event has no `nativeEvent`, so it falls back to itself and
+  the node-side unit tests read exactly as they did."
   [e]
-  (or (true? (.-isComposing e))
-      (identical? 229 (.-keyCode e))))
+  (let [native (or (.-nativeEvent e) e)]
+    (or (true? (.-isComposing native))
+        (identical? 229 (.-keyCode native)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lowering
