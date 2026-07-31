@@ -2781,6 +2781,58 @@
         (do (enable-react-act-env!)
             (f act-fn))))))
 
+;; ---- the provisional horizon, made observable (rf2-2rtt6.25) --------------
+;;
+;; The spine's render-phase provisional reference is released by whichever
+;; arrives first: the commit that adopts it, or a host-MACROTASK reaper armed
+;; at acquisition (Spec 006 §Render-phase provisional acquisition and commit
+;; adoption). "One macrotask later" is not something `act()` flushes — act
+;; drains React's work and the microtask queue, not the timer queue — so a
+;; synchronous assertion cannot see past the horizon and an asynchronous one
+;; would have to guess how long to wait.
+;;
+;; So the horizon is made DETERMINISTIC instead: intercept `setTimeout`, keep
+;; every callback it is handed, and let the test cross the horizon on demand.
+;; The real timer is still armed, so a callback that the test never settles
+;; still runs on its own; and the spine's tokens are one-shot, so the manual
+;; drain and the real one cannot both release.
+;;
+;; The interception is ALSO the empirical proof of the primitive. A microtask
+;; reaper would have drained inside `act()`, before any assertion here runs —
+;; so the ref-count would already read 0 and the "still 1 before the settle"
+;; leg would fail. That leg is what says, in a test rather than a comment,
+;; that the reaper outlives React's passive-effect flush.
+
+(defn- with-captured-macrotasks
+  "Call `(f settle!)` with `globalThis.setTimeout` intercepted so that every
+  scheduled callback is recorded as well as armed. `(settle!)` runs the
+  recorded callbacks immediately and answers how many it ran — one crossing of
+  the provisional horizon. Restores `setTimeout` on the way out, including on a
+  throw."
+  [f]
+  (let [g        js/globalThis
+        real-st  (.-setTimeout g)
+        captured (atom [])
+        settle!  (fn []
+                   (let [batch @captured]
+                     (reset! captured [])
+                     (doseq [cb batch] (when (fn? cb) (cb)))
+                     (count batch)))]
+    (set! (.-setTimeout g)
+          (fn captured-set-timeout [& args]
+            (swap! captured conj (first args))
+            (.apply real-st g (to-array args))))
+    (try
+      (f settle!)
+      (finally
+        (set! (.-setTimeout g) real-st)))))
+
+(defn- ref-count-of
+  "The sub-cache ref-count for `k`, or 0 when the slot is absent — the shape
+  every ref-count assertion in this file reads."
+  [cache k]
+  (or (get-in @cache [k :ref-count]) 0))
+
 ;; ---- after-render hook (rf2-334d9) ----------------------------------------
 
 (defn assert-after-render-hook-wired
@@ -3956,6 +4008,7 @@
             unsubscribe-calls (atom 0)
             real-subscribe    subs/subscribe
             real-unsubscribe  subs/unsubscribe
+            real-unsub-if     subs/unsubscribe-if-reaction
             cache-key-v       [stable-deps-query]
             cache             (:sub-cache (frame/frame stable-deps-frame))
             mount-node        (make-mount-node!)
@@ -3972,6 +4025,15 @@
         ;; VALUES (not Var-qualified calls), so each spy invokes the real
         ;; implementation without recursing back through the redefined Var —
         ;; each logical call trips the spy exactly once.
+        ;;
+        ;; rf2-2rtt6.25 — `unsubscribe-if-reaction` counts as a RELEASE.
+        ;; Since the provisional hand-off the spine has two release verbs, not
+        ;; one: the ordinary `unsubscribe` and the identity-guarded release
+        ;; that returns an escrowed render-phase reference. The invariant these
+        ;; assertions pin — every acquire is balanced by a release, bar the one
+        ;; durable committed reference — is unchanged; what widened is the set
+        ;; of verbs a spy must watch to see it. Counting only `unsubscribe`
+        ;; would read the hand-off's adoption as an unbalanced acquire.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
@@ -3987,7 +4049,11 @@
                          (real-unsubscribe (frame/resolve-current-frame) query-v))
                         ([frame-id query-v]
                          (swap! unsubscribe-calls inc)
-                         (real-unsubscribe frame-id query-v)))]
+                         (real-unsubscribe frame-id query-v)))
+                      subs/unsubscribe-if-reaction
+                      (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
+                        (swap! unsubscribe-calls inc)
+                        (real-unsub-if frame-id query-v reaction))]
           (try
             ;; Mount. The render-phase fetch is a balanced subscribe+unsubscribe
             ;; round-trip; the commit-owned subscribe-fn takes the durable ref.
@@ -4078,11 +4144,15 @@
       (rf/make-frame {:id rc-frame :doc "rf2-nymuy StrictMode refcount probe frame"})
       (rf/reg-event ::sm-seed (fn [{:keys [db]} _] {:db {:m 7}}))
       (rf/dispatch-sync [::sm-seed] {:frame rc-frame})
-      (rf/reg-sub rc-query (fn [db _] (:m db)))
+      ;; rf2-2rtt6.25 — the sub body counts its own CONSTRUCTIONS. Nothing
+      ;; moves app-db during the mount, so a body run is a build.
+      (let [builds (atom 0)]
+      (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
       (let [subscribe-calls   (atom 0)
             unsubscribe-calls (atom 0)
             real-subscribe    subs/subscribe
             real-unsubscribe  subs/unsubscribe
+            real-unsub-if     subs/unsubscribe-if-reaction
             cache-key-v       [rc-query]
             cache             (:sub-cache (frame/frame rc-frame))
             mount-node        (make-mount-node!)
@@ -4090,7 +4160,9 @@
         ;; Spies mirror the rf2-mwft2 stable-deps-key bypass: preserve the
         ;; 1-/2-arity shape and dispatch straight to the canonical REAL fn
         ;; VALUE (not Var-qualified) so a single logical call is not
-        ;; double-counted.
+        ;; double-counted. `unsubscribe-if-reaction` is the spine's second
+        ;; release verb since rf2-2rtt6.25 and counts as an unsubscribe — see
+        ;; the note in the rf2-mwft2 assertion above.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
@@ -4106,7 +4178,11 @@
                          (real-unsubscribe (frame/resolve-current-frame) query-v))
                         ([frame-id query-v]
                          (swap! unsubscribe-calls inc)
-                         (real-unsubscribe frame-id query-v)))]
+                         (real-unsubscribe frame-id query-v)))
+                      subs/unsubscribe-if-reaction
+                      (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
+                        (swap! unsubscribe-calls inc)
+                        (real-unsub-if frame-id query-v reaction))]
           (try
             ;; Mount the probe wrapped in React.StrictMode — the
             ;; double-invoke fires effect → cleanup → effect on mount.
@@ -4143,13 +4219,34 @@
             (is (= "m=7" (.-textContent mount-node))
                 "probe observed the correct subscribed value through the
                  StrictMode churn (no deref-of-disposed-reaction throw)")
+            ;; rf2-2rtt6.25 — HOW MANY reactions the StrictMode mount builds.
+            ;; Before the provisional hand-off: the render's balanced round trip
+            ;; built and disposed one, the first effect built a second, the
+            ;; StrictMode cleanup disposed it, and the re-setup built a third
+            ;; (four if React re-ran the memo factory in the double render).
+            ;; With the hand-off the render's build survives to be ADOPTED by
+            ;; the first effect, so only StrictMode's own deliberate
+            ;; cleanup/re-setup costs a rebuild: exactly TWO.
+            ;;
+            ;; Two and not one, and deliberately asserted as such: the
+            ;; provisional reference is released at adoption, so it is not
+            ;; holding the entry when StrictMode's cleanup drives 1 → 0. Making
+            ;; StrictMode's gap free too would mean deferring EVERY release to
+            ;; the reaper, which would leave a ref-count of 2 after every
+            ;; ordinary mount and break the "exactly one durable reference"
+            ;; assertions this suite pins verbatim. That trade was declined.
+            (is (= 2 @builds)
+                (str "a StrictMode mount builds the reaction TWICE — the render's "
+                     "build is adopted by the commit, and only StrictMode's own "
+                     "cleanup/re-setup rebuilds (pre-hand-off: 3, or 4 with a "
+                     "double-rendered memo). Observed " @builds))
             ;; Unmount returns the refcount to baseline.
             (act-fn (fn [] (.unmount root)))
             (is (or (nil? (get @cache cache-key-v))
                     (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
                 "post-unmount cache entry dropped or ref-count at zero — disposal balanced")
             (finally
-              (try (.unmount root) (catch :default _ nil))))))))))
+              (try (.unmount root) (catch :default _ nil)))))))))))
 
 ;; ---- render-phase ref-count-leak regressions (rf2-879fe + rf2-8u8tx.2 +
 ;;      rf2-es09qq) ----
@@ -4319,9 +4416,8 @@
   begins rendering the subtree (running the probe's `use-subscribe` render
   phase), the child suspends, React unwinds and commits the `Suspense`
   FALLBACK instead — the probe fiber never commits, so its store-subscribe /
-  effects never run. With the fix the render phase is net-zero on ref-count,
-  so the global sub-cache is left exactly as it was found: no pinned entry,
-  no live reaction without an owning component.
+  effects never run. Nothing owns the render's acquisition, so nothing but the
+  spine's own reaper can end it.
 
   Then it mounts a NORMAL (non-suspending) committed probe on the SAME query
   and unmounts it, proving the query returns cleanly to zero refs through the
@@ -4332,6 +4428,18 @@
   +1 in the cache with no owning fiber, so the entry survives the fallback
   commit (ref-count >= 1) and the later committed mount/unmount leaves it
   pinned above zero.
+
+  AMENDED BY rf2-2rtt6.25 — the ONE contract-visible change the rf2-2rtt6.14
+  ruling blesses. The render phase now hands its reference to the commit
+  instead of balancing it away, so an abandoned render's zero-POINT is one
+  host macrotask later: **≤ 1 immediately after the fallback commits, == 0
+  after one settle**. The zero-leak property itself is unchanged, and the
+  post-settle leg is asserted with EQUALITY — an abandoned render that is
+  still holding a reference after the horizon is the leak this assertion has
+  always been about. The pre-settle leg additionally pins == 1, which is not
+  contract but evidence: it is what a MICROTASK reaper would fail, because a
+  microtask drains inside `act()` before this line runs. See Spec 006
+  §Render-phase provisional acquisition and commit adoption.
 
   cfg keys:
     :probe-suspense-abort-element  thunk → an ELEMENT that wraps a
@@ -4356,25 +4464,42 @@
               cache       (:sub-cache (frame/frame rc-frame))
               mount-node  (make-mount-node!)
               root        (react-dom-client/createRoot mount-node)]
-          (try
-            ;; Render the Suspense tree. The probe runs `use-subscribe` in its
-            ;; render phase; its suspending child throws, so React commits the
-            ;; FALLBACK and the probe fiber never commits.
-            (act-fn (fn [] (.render root (probe-suspense-abort-element))))
-            ;; The committed tree is the fallback — the use-subscribe-calling
-            ;; probe was abandoned before commit. No ref-count may be pinned.
-            (is (or (nil? (get @cache cache-key-v))
-                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
-                (str "after a Suspense-aborted (never-committed) render, the "
-                     "sub-cache holds NO ref-count for the query — observed "
-                     (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
-            ;; Tear down the suspended tree.
-            (act-fn (fn [] (.unmount root)))
-            (is (or (nil? (get @cache cache-key-v))
-                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
-                "post-unmount of the suspended tree: still no pinned ref-count")
-            (finally
-              (try (.unmount root) (catch :default _ nil))))
+          (with-captured-macrotasks
+           (fn [settle!]
+            (try
+              ;; Render the Suspense tree. The probe runs `use-subscribe` in its
+              ;; render phase; its suspending child throws, so React commits the
+              ;; FALLBACK and the probe fiber never commits.
+              (act-fn (fn [] (.render root (probe-suspense-abort-element))))
+              ;; THE BLESSED CONTRACT, immediately after the fallback commit.
+              (is (<= (ref-count-of cache cache-key-v) 1)
+                  (str "after a Suspense-aborted (never-committed) render, the "
+                       "sub-cache holds at most the ONE provisional reference the "
+                       "reaper owns — observed "
+                       (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
+              ;; EVIDENCE, not contract: the reaper is a MACROTASK, so it has
+              ;; not run yet. A microtask reaper drains inside `act()` and this
+              ;; reads 0 — which is why this leg is here.
+              (is (= 1 (ref-count-of cache cache-key-v))
+                  (str "the abandoned render's reference is STILL HELD at this "
+                       "point — the reaper is a macrotask and outlives React's "
+                       "passive-effect flush. Observed "
+                       (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
+              ;; ONE SETTLE — cross the horizon.
+              (settle!)
+              (is (zero? (ref-count-of cache cache-key-v))
+                  (str "after ONE macrotask settle the abandoned render holds "
+                       "NOTHING — observed "
+                       (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
+              (is (nil? (get @cache cache-key-v))
+                  "and the 1 → 0 edge evicted the slot in-tick, as for any other release")
+              ;; Tear down the suspended tree.
+              (act-fn (fn [] (.unmount root)))
+              (is (or (nil? (get @cache cache-key-v))
+                      (zero? (ref-count-of cache cache-key-v)))
+                  "post-unmount of the suspended tree: still no pinned ref-count")
+              (finally
+                (try (.unmount root) (catch :default _ nil))))))
           ;; ---- committed-mount control: a later legitimate subscriber on
           ;; the SAME query subscribes to exactly one ref and releases it on
           ;; unmount, proving the abandoned render left the ledger uncorrupted.
@@ -4464,6 +4589,7 @@
                                    (let [g (swap! gen-counter inc)]
                                      (swap! real->gen assoc real g)
                                      g)))
+            proxy->real      (atom {})           ;; proxy -> real reaction
             ;; A deref-recording proxy delegating to the REAL reaction. The
             ;; spine derefs THIS (records the gen) and add-watch/remove-watch
             ;; THIS (delegated to the real reaction so on-change still fires).
@@ -4471,36 +4597,54 @@
             ;; proxy needs no IDisposable — disposal hits the real reaction via
             ;; the cache.
             wrap             (fn [real]
-                               (let [g (gen-of real)]
-                                 (reify
-                                   IDeref
-                                   (-deref [_]
-                                     (swap! deref-log conj g)
-                                     @real)
-                                   IWatchable
-                                   (-add-watch [this k f]
-                                     (add-watch real k (fn [_ _ old nu] (f k this old nu)))
-                                     this)
-                                   (-remove-watch [_ k]
-                                     (remove-watch real k)
-                                     nil)
-                                   ;; Never invoked by the spine (the real
-                                   ;; reaction owns notification through its own
-                                   ;; source watches); present only to satisfy
-                                   ;; the IWatchable protocol surface. No-op.
-                                   (-notify-watches [_ _old _nu] nil))))
+                               (let [g (gen-of real)
+                                     p (reify
+                                         IDeref
+                                         (-deref [_]
+                                           (swap! deref-log conj g)
+                                           @real)
+                                         IWatchable
+                                         (-add-watch [this k f]
+                                           (add-watch real k (fn [_ _ old nu] (f k this old nu)))
+                                           this)
+                                         (-remove-watch [_ k]
+                                           (remove-watch real k)
+                                           nil)
+                                         ;; Never invoked by the spine (the real
+                                         ;; reaction owns notification through its own
+                                         ;; source watches); present only to satisfy
+                                         ;; the IWatchable protocol surface. No-op.
+                                         (-notify-watches [_ _old _nu] nil))]
+                                 (swap! proxy->real assoc p real)
+                                 p))
+            unwrap           (fn [x] (get @proxy->real x x))
+            real-unsub-if    subs/unsubscribe-if-reaction
             mount-node       (make-mount-node!)
             root             (react-dom-client/createRoot mount-node)]
         ;; Preserve subs/subscribe's 1-/2-arity shape (the spine binds the
         ;; arity-2 invoke slot); both bodies route to the canonical REAL fn
         ;; VALUE directly (no Var recur double-trip — same discipline as the
         ;; rf2-mwft2 spy) and wrap the returned reaction.
+        ;;
+        ;; rf2-2rtt6.25 — THE SPY MUST UN-SUBSTITUTE AT THE ONE PLACE IDENTITY
+        ;; IS LOAD-BEARING. Substituting a proxy for the reaction is exactly
+        ;; what makes this proof possible, and exactly what would break
+        ;; `subs/unsubscribe-if-reaction`, whose guard compares the caller's
+        ;; reaction against the cache slot's. The cache holds the REAL
+        ;; reaction, so an un-mapped proxy would fail the guard, the spine's
+        ;; provisional release would silently no-op, and the ref-count
+        ;; assertions below would read one too high — an artefact of the
+        ;; instrument, not of the spine. Mapping back keeps the spy transparent
+        ;; where transparency is the whole point.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
                          (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
                         ([query-v opts]
-                         (wrap (real-subscribe query-v opts))))]
+                         (wrap (real-subscribe query-v opts))))
+                      subs/unsubscribe-if-reaction
+                      (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
+                        (real-unsub-if frame-id query-v (unwrap reaction)))]
           (try
             (act-fn (fn [] (.render root (probe-refcount-element))))
             ;; The committed reaction is the one the cache holds (ref-count 1).
@@ -4590,6 +4734,17 @@
 ;;
 ;; The rf2-es09qq ref-count property is unchanged by construction (no
 ;; subscribe/unsubscribe call moved) and is re-asserted here as a control.
+;;
+;; NOTE (rf2-2rtt6.25). Since the provisional hand-off, a cold mount's committed
+;; reaction IS the render-phase one — that is the whole point of the hand-off —
+;; so the committed-generation leg no longer DISCRIMINATES between the two
+;; sources on this path and is kept as a regression control rather than a proof.
+;; The TENANCY leg is untouched and stays load-bearing: it says every deref hit
+;; the reaction the cache held at that instant, which is exactly the property
+;; that fails if the hand-off is ever removed without restoring the old
+;; fallback, or if a release ever disposes the entry a live snapshot is reading.
+;; The discriminating proof of adoption is
+;; `assert-use-subscribe-commit-adopts-the-render-phase-reaction` below.
 
 (defn assert-use-subscribe-render-phase-reaction-not-retained
   "rf2-2rtt6.13: the spine must never deref a disposed reaction — the
@@ -4627,19 +4782,24 @@
                                    g)))
             tenant?        (fn [real]
                              (identical? real (get-in @cache [cache-key-v :reaction])))
+            proxy->real    (atom {})
             wrap           (fn [real]
-                             (let [g (gen-of real)]
-                               (reify
-                                 IDeref
-                                 (-deref [_]
-                                   (swap! deref-log conj {:gen g :tenant? (tenant? real)})
-                                   @real)
-                                 IWatchable
-                                 (-add-watch [this k f]
-                                   (add-watch real k (fn [_ _ old nu] (f k this old nu)))
-                                   this)
-                                 (-remove-watch [_ k] (remove-watch real k) nil)
-                                 (-notify-watches [_ _o _n] nil))))
+                             (let [g (gen-of real)
+                                   p (reify
+                                       IDeref
+                                       (-deref [_]
+                                         (swap! deref-log conj {:gen g :tenant? (tenant? real)})
+                                         @real)
+                                       IWatchable
+                                       (-add-watch [this k f]
+                                         (add-watch real k (fn [_ _ old nu] (f k this old nu)))
+                                         this)
+                                       (-remove-watch [_ k] (remove-watch real k) nil)
+                                       (-notify-watches [_ _o _n] nil))]
+                               (swap! proxy->real assoc p real)
+                               p))
+            unwrap         (fn [x] (get @proxy->real x x))
+            real-unsub-if  subs/unsubscribe-if-reaction
             mount-node     (make-mount-node!)
             root           (react-dom-client/createRoot mount-node)]
         ;; The whole point is a COLD read — a live cache entry would make the
@@ -4647,12 +4807,18 @@
         ;; edge, and prove nothing. Say so rather than pass vacuously.
         (is (nil? (get @cache cache-key-v))
             "precondition: no live cache entry, so the mount is genuinely COLD")
+        ;; rf2-2rtt6.25 — the proxy is un-substituted at the identity-guarded
+        ;; release, exactly as in the rf2-sqhjtu assertion above; see the note
+        ;; there for why a transparent spy has to do this.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
                          (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
                         ([query-v opts]
-                         (wrap (real-subscribe query-v opts))))]
+                         (wrap (real-subscribe query-v opts))))
+                      subs/unsubscribe-if-reaction
+                      (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
+                        (real-unsub-if frame-id query-v (unwrap reaction)))]
           (try
             (act-fn (fn [] (.render root (probe-refcount-element))))
             (let [committed-real (get-in @cache [cache-key-v :reaction])
@@ -4698,6 +4864,244 @@
                 "post-unmount the committed ref is released (no leak from the proxy path)")
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
+
+;; ---- the commit adopts the render-phase build (rf2-2rtt6.25) --------------
+;;
+;; THE TERM DELETED. A React render and the commit that owns it are two
+;; moments, and a cold `use-subscribe` read used to pay in both: the render's
+;; balanced round trip built a reaction and then crossed the 1 → 0 disposal
+;; edge on the way out, and the commit-owned `subscribe-fn` missed the same
+;; cache and built it again. Two constructions and two sub-body runs per cold
+;; read; at layer 2+ the whole `:<-` chain twice. The render phase now keeps
+;; its reference in escrow, so the commit's subscribe HITS and adopts.
+;;
+;; THE PROOF IS TWO EXACT INTEGERS, both falsifiable and neither a proxy for
+;; the other:
+;;
+;;   IDENTITY — the reaction `subs/subscribe` returns to the commit is
+;;   `identical?` the one it returned to the render, and both are the cache's
+;;   tenant. Pre-hand-off these are different objects.
+;;
+;;   CONSTRUCTIONS — the sub body runs exactly ONCE for the mount. Nothing
+;;   moves app-db during it, so a body run IS a build; pre-hand-off this reads
+;;   2. This is the unit-test twin of the coldmount instrument's `bodyRuns`
+;;   witness (`docs/design/hicasso/studio/coldmount-double-build-priced.md`),
+;;   which measures the same integer at 300 boundaries and three layers.
+;;
+;; The spy here records identities and counts calls; it does NOT wrap the
+;; reaction, so the cache's tenant and the spine's escrow token are the same
+;; objects the production path sees.
+
+(defn assert-use-subscribe-commit-adopts-the-render-phase-reaction
+  "rf2-2rtt6.25: on a COLD mount the commit-owned `subscribe-fn` must ADOPT the
+  reaction the render phase built — `identical?`, the cache's tenant, one
+  construction — rather than rebuild it. Object identity plus an exact body-run
+  count.
+
+  cfg keys:
+    :probe-refcount-element / :refcount-target / :rc-query — the shared
+      refcount-probe surface
+    :ad-frame — this assertion's OWN frame (hence its own sub-cache), because
+      the property is only load-bearing on a cold read."
+  [{:keys [name probe-refcount-element refcount-target rc-query ad-frame]}]
+  (testing (str name " — a cold mount's commit adopts the render-phase reaction; one build, not two (rf2-2rtt6.25)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! refcount-target ad-frame)
+      (rf/make-frame {:id ad-frame :doc "rf2-2rtt6.25 adoption probe frame"})
+      (rf/reg-event ::ad-seed (fn [_ _] {:db {:m 3}}))
+      (rf/dispatch-sync [::ad-seed] {:frame ad-frame})
+      (let [builds         (atom 0)
+            _              (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
+            cache-key-v    [rc-query]
+            cache          (:sub-cache (frame/frame ad-frame))
+            real-subscribe subs/subscribe
+            ;; Identity log ONLY — no proxy, so nothing about the objects under
+            ;; test is substituted.
+            returned       (atom [])
+            mount-node     (make-mount-node!)
+            root           (react-dom-client/createRoot mount-node)]
+        (is (nil? (get @cache cache-key-v))
+            "precondition: no live cache entry, so the mount is genuinely COLD")
+        (with-redefs [subs/subscribe
+                      (fn spy-subscribe
+                        ([query-v]
+                         (let [r (real-subscribe query-v {:frame (frame/resolve-current-frame)})]
+                           (swap! returned conj r) r))
+                        ([query-v opts]
+                         (let [r (real-subscribe query-v opts)]
+                           (swap! returned conj r) r)))]
+          (try
+            (act-fn (fn [] (.render root (probe-refcount-element))))
+            (is (= "m=3" (.-textContent mount-node))
+                "the probe rendered the subscribed value")
+            (is (= 2 (count @returned))
+                (str "a cold mount takes exactly two acquisitions — the render's "
+                     "and the commit's. Observed " (count @returned)))
+            ;; THE ADOPTION.
+            (is (identical? (first @returned) (second @returned))
+                "the commit's subscribe returned the SAME reaction object the
+                 render's did — it HIT the entry the render's escrowed reference
+                 kept alive, rather than rebuilding after a 1 → 0 dispose")
+            (is (identical? (first @returned) (get-in @cache [cache-key-v :reaction]))
+                "and that one reaction is the cache's tenant")
+            ;; THE DOUBLE BUILD.
+            (is (= 1 @builds)
+                (str "the sub body ran ONCE for the whole mount — one reaction "
+                     "constructed, not two (pre-hand-off: 2). Observed " @builds))
+            ;; The steady state is exactly what it was before the hand-off.
+            (is (= 1 (ref-count-of cache cache-key-v))
+                (str "exactly one durable reference after the commit — the escrowed "
+                     "one was released at adoption, 2 → 1. Observed "
+                     (ref-count-of cache cache-key-v)))
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (ref-count-of cache cache-key-v)))
+                "unmount returns the query to zero refs")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
+(defn assert-use-subscribe-adopted-provisional-reaper-is-a-noop
+  "rf2-2rtt6.25: the escrow token is ONE-SHOT. Once the commit has adopted and
+  released it, the macrotask reaper that was armed at acquisition still runs —
+  and must change nothing. Crosses the horizon explicitly and asserts the
+  mounted subscription is untouched: same ref-count, same tenant, no rebuild.
+
+  A double release here would drive a live, mounted subscription's ref-count to
+  zero and dispose it underneath the component reading it — the failure the
+  `spent?` flag exists to make impossible.
+
+  cfg keys: the shared refcount-probe surface plus `:ad-frame`."
+  [{:keys [name probe-refcount-element refcount-target rc-query ad-frame]}]
+  (testing (str name " — the reaper is a no-op on an adopted provisional reference (rf2-2rtt6.25)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! refcount-target ad-frame)
+      (rf/make-frame {:id ad-frame :doc "rf2-2rtt6.25 one-shot reaper probe frame"})
+      (rf/reg-event ::rp-seed (fn [_ _] {:db {:m 5}}))
+      (rf/dispatch-sync [::rp-seed] {:frame ad-frame})
+      (let [builds      (atom 0)
+            _           (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
+            cache-key-v [rc-query]
+            cache       (:sub-cache (frame/frame ad-frame))
+            mount-node  (make-mount-node!)
+            root        (react-dom-client/createRoot mount-node)]
+        (with-captured-macrotasks
+         (fn [settle!]
+          (try
+            (act-fn (fn [] (.render root (probe-refcount-element))))
+            (let [tenant (get-in @cache [cache-key-v :reaction])
+                  n      @builds]
+              (is (= 1 (ref-count-of cache cache-key-v))
+                  "mounted: exactly one durable reference")
+              ;; Cross the horizon. The token the render escrowed was spent at
+              ;; adoption; the reaper still fires.
+              (settle!)
+              (is (= 1 (ref-count-of cache cache-key-v))
+                  (str "after the reaper runs the mounted subscription still holds "
+                       "exactly one reference — the token was already spent, so it "
+                       "cannot be released twice. Observed "
+                       (ref-count-of cache cache-key-v)))
+              (is (identical? tenant (get-in @cache [cache-key-v :reaction]))
+                  "same reaction still tenanted — the reaper disposed nothing")
+              (is (= n @builds)
+                  "and nothing was rebuilt behind it")
+              (is (= "m=5" (.-textContent mount-node))
+                  "the mounted probe still renders its value across the horizon"))
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (ref-count-of cache cache-key-v)))
+                "unmount still returns the query to zero refs")
+            (finally
+              (try (.unmount root) (catch :default _ nil)))))))))))
+
+(defn assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
+  "rf2-2rtt6.25: an abandoned COLD render of a LAYER-2 sub leaves the parent
+  AND its `:<-` input held until the horizon, and both are gone one settle
+  later — the ordinary disposal cascade, driven by the ordinary 1 → 0 edge,
+  from the reaper rather than from an effect.
+
+  This is the case the rf2-2rtt6.14 ruling worried about most: a zero-owner
+  parent keeping a whole input topology alive. It does — for one macrotask,
+  bounded, and then the cascade runs exactly as `unsubscribe` would have run it.
+
+  Reuses the Suspense-abort probe element, with `:rc-query` REGISTERED AS A
+  LAYER-2 SUB over an input of this assertion's own, on its own frame.
+
+  cfg keys: `:probe-suspense-abort-element`, `:refcount-target`, `:rc-query`,
+  and `:hz-frame` (this assertion's own frame)."
+  [{:keys [name probe-suspense-abort-element refcount-target rc-query hz-frame]}]
+  (testing (str name " — an abandoned layer-2 cold render releases parent AND inputs at the horizon (rf2-2rtt6.25)")
+    (if (nil? probe-suspense-abort-element)
+      (is true (str name ": no Suspense-abort probe wired; substrate skips this case"))
+      (with-browser-act
+       (fn [act-fn]
+        (reset! refcount-target hz-frame)
+        (rf/make-frame {:id hz-frame :doc "rf2-2rtt6.25 layer-2 horizon probe frame"})
+        (rf/reg-event ::hz-seed (fn [_ _] {:db {:m 11}}))
+        (rf/dispatch-sync [::hz-seed] {:frame hz-frame})
+        (rf/reg-sub ::hz-input (fn [db _] (:m db)))
+        (rf/reg-sub rc-query :<- [::hz-input] (fn [[v] _] v))
+        (let [parent-k   [rc-query]
+              input-k    [::hz-input]
+              cache      (:sub-cache (frame/frame hz-frame))
+              root       (react-dom-client/createRoot (make-mount-node!))]
+          (with-captured-macrotasks
+           (fn [settle!]
+            (try
+              (act-fn (fn [] (.render root (probe-suspense-abort-element))))
+              ;; Before the horizon: the abandoned render's reference holds the
+              ;; layer-2 parent, and the parent's construction holds its input.
+              (is (= 1 (ref-count-of cache parent-k))
+                  "the abandoned render holds the layer-2 parent")
+              (is (= 1 (ref-count-of cache input-k))
+                  "and the parent's build holds its `:<-` input")
+              (settle!)
+              ;; After it: the ordinary cascade, from the ordinary edge.
+              (is (nil? (get @cache parent-k))
+                  "one settle later the layer-2 parent is disposed and evicted")
+              (is (nil? (get @cache input-k))
+                  "and the disposal CASCADED to the input, which had no other
+                   reader — the whole topology an abandoned render materialised
+                   is released at the horizon, not retained")
+              (finally
+                (try (.unmount root) (catch :default _ nil))))))))))))
+
+(defn assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
+  "rf2-2rtt6.25 (SSR): `renderToString` runs the hook's render phase and never
+  commits — there is no React commit on the server at all. The provisional
+  reference is therefore ALWAYS reaped rather than adopted, and the server
+  render must net zero at the horizon.
+
+  Node-safe: no DOM, no `act()`, no root. Node's timers are the same host
+  macrotask the browser reaper uses, so the horizon is the same one settle.
+
+  cfg keys: `:probe-refcount-element`, `:refcount-target`, `:rc-query`, and
+  `:ssr-frame` (this assertion's own frame)."
+  [{:keys [name probe-refcount-element refcount-target rc-query ssr-frame]}]
+  (testing (str name " — an SSR render with no commit nets zero at the horizon (rf2-2rtt6.25)")
+    (reset! refcount-target ssr-frame)
+    (rf/make-frame {:id ssr-frame :doc "rf2-2rtt6.25 SSR horizon probe frame"})
+    (rf/reg-event ::ssr-seed (fn [_ _] {:db {:m 13}}))
+    (rf/dispatch-sync [::ssr-seed] {:frame ssr-frame})
+    (rf/reg-sub rc-query (fn [db _] (:m db)))
+    (let [cache-key-v [rc-query]
+          cache       (:sub-cache (frame/frame ssr-frame))]
+      (with-captured-macrotasks
+       (fn [settle!]
+         (let [html (.renderToString react-dom-server (probe-refcount-element))]
+           (is (re-find #"m=13" html)
+               "the server render read the subscription's value")
+           (is (<= (ref-count-of cache cache-key-v) 1)
+               (str "a server render holds at most the one provisional reference — "
+                    "observed " (ref-count-of cache cache-key-v)))
+           (settle!)
+           (is (zero? (ref-count-of cache cache-key-v))
+               (str "and nets ZERO after one settle: nothing on the server ever "
+                    "commits, so the reaper is the only owner there is. Observed "
+                    (ref-count-of cache cache-key-v)))
+           (is (nil? (get @cache cache-key-v))
+               "the slot is evicted on the same 1 → 0 edge as any other release")))))))
 
 ;; ---- key-change serves the NEW target (rf2-naz09e) ------------------------
 ;;
@@ -4778,21 +5182,33 @@
                                  (let [g (swap! gen-counter inc)]
                                    (swap! real->gen assoc real g)
                                    g)))
+            proxy->real    (atom {})
             wrap           (fn [real]
-                             (let [g (gen-of real)]
-                               (reify
-                                 IDeref
-                                 (-deref [_] (swap! deref-log conj g) @real)
-                                 IWatchable
-                                 (-add-watch [this k f]
-                                   (add-watch real k (fn [_ _ old nu] (f k this old nu)))
-                                   this)
-                                 (-remove-watch [_ k] (remove-watch real k) nil)
-                                 (-notify-watches [_ _o _n] nil))))]
+                             (let [g (gen-of real)
+                                   p (reify
+                                       IDeref
+                                       (-deref [_] (swap! deref-log conj g) @real)
+                                       IWatchable
+                                       (-add-watch [this k f]
+                                         (add-watch real k (fn [_ _ old nu] (f k this old nu)))
+                                         this)
+                                       (-remove-watch [_ k] (remove-watch real k) nil)
+                                       (-notify-watches [_ _o _n] nil))]
+                               (swap! proxy->real assoc p real)
+                               p))
+            unwrap         (fn [x] (get @proxy->real x x))
+            real-unsub-if  subs/unsubscribe-if-reaction]
+        ;; rf2-2rtt6.25 — the proxy is un-substituted at the identity-guarded
+        ;; release (see the rf2-sqhjtu assertion's note): the cache holds the
+        ;; REAL reaction, so a proxy reaching the guard would make the spine's
+        ;; provisional release no-op and inflate every ref-count below.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]      (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
-                        ([query-v opts] (wrap (real-subscribe query-v opts))))]
+                        ([query-v opts] (wrap (real-subscribe query-v opts))))
+                      subs/unsubscribe-if-reaction
+                      (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
+                        (real-unsub-if frame-id query-v (unwrap reaction)))]
           ;; ============ PHASE 1 — QUERY-V change (frame fixed) =============
           (reset! key-change-frame kc-frame)
           (reset! key-change-query [kc-query-a])

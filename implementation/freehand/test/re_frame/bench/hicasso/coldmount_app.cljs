@@ -74,9 +74,12 @@
   ## What fails the run
 
   The counting witness adjudicated per page BEFORE any clock (predicted
-  commits / rebuilt / per-layer bodyRuns, exact); the clock fidelity
-  control (`uix-subs` vs `xcript` — ranges overlap or medians within the
-  pre-declared 3% band, else every delta is void); the positive controls;
+  commits / rebuilt / per-layer bodyRuns, exact — including the SHIPPED
+  arm, which since rf2-2rtt6.25 must read the `handoff` row); the clock
+  fidelity control (`uix-subs` vs `handoff` — ranges overlap or medians
+  within the pre-declared 3% band, else every delta is void; re-pointed
+  from `xcript` by rf2-2rtt6.25, because the shipped hook IS the hand-off
+  now and `xcript` is the retired double build); the positive controls;
   the DOM read-backs; the residue gate; the arm-order guard (exit 2); the
   segment-order direction refusal. The records are written to the console
   before any refusal, so the evidence survives it.
@@ -347,7 +350,12 @@
                      [(cmv/witness! :xcript  layer witness-boundaries 0)
                       (cmv/witness! :xcript  layer witness-boundaries 900)
                       (cmv/witness! :handoff layer witness-boundaries 1800)
-                      (cmv/witness! :handoff layer witness-boundaries 2700)])))
+                      (cmv/witness! :handoff layer witness-boundaries 2700)
+                      ;; rf2-2rtt6.25 — the ACCEPTANCE WITNESS. The shipped
+                      ;; hook must read the `handoff` row, on its own disjoint
+                      ;; cell ranges.
+                      (cmv/witness! :shipped layer witness-boundaries 3600)
+                      (cmv/witness! :shipped layer witness-boundaries 4500)])))
           {}
           segments))
 
@@ -357,20 +365,28 @@
 
       xcript    commits N   rebuilt N   bodyRuns 2N at every layer <= L
       handoff   commits N   rebuilt 0   bodyRuns  N at every layer <= L
+      shipped   commits N   rebuilt 0   bodyRuns  N at every layer <= L
       reagent   commits 0   rebuilt 0   bodyRuns  N at every layer <= L
 
   Layers above L must read 0 — a non-zero there means the chain is not
-  the chain this page claims to price."
+  the chain this page claims to price.
+
+  `shipped` reading the `handoff` row is what rf2-2rtt6.25 has to prove:
+  the shipped hook adopting the render-phase materialisation rather than
+  rebuilding it. Its counters come from the sub-cache rather than from an
+  instrumented `subscribe-fn` (`coldmount-views` namespace docstring), so
+  the two arms are independent measurements of the same claim."
   [by-seg layer]
   (vec
     (for [[seg ws] by-seg
           {:keys [variant reads offset] :as w} ws
           :let [n      reads
-                factor (case variant :xcript 2 :handoff 1 :reagent 1)
+                factor (case variant :xcript 2 1)
                 exp    (merge
                          (case variant
                            :xcript  {:commits n :rebuilt n}
                            :handoff {:commits n :rebuilt 0}
+                           :shipped {:commits n :rebuilt 0}
                            :reagent {:commits 0 :rebuilt 0})
                          {:body1 (if (<= 1 layer) (* factor n) 0)
                           :body2 (if (<= 2 layer) (* factor n) 0)
@@ -501,14 +517,24 @@
 (defn- fidelity-of
   "The clock fidelity control: the transcription must reproduce the
   shipped hook. Both readers here are the same clock, so the legs are the
-  per-round p50 ranges and the medians."
-  [uix-vec xcript-vec]
+  per-round p50 ranges and the medians.
+
+  RE-POINTED BY rf2-2rtt6.25. Before the hand-off landed, the shipped hook
+  was the double build and `xcript` was its transcription, so `xcript` was
+  the fidelity partner. The shipped hook IS the hand-off now, so the
+  transcription that has to reproduce it is `handoff` — and this control
+  is simultaneously the clock half of the acceptance witness: the shipped
+  arm must sit inside the single-build band, not the double-build one.
+  `xcript` stays in the run as the double-build reference; it is what the
+  published delta is measured against, and it is deliberately NOT expected
+  to match the shipped clock any more."
+  [uix-vec handoff-vec]
   (let [a   (range-of uix-vec)
-        b   (range-of xcript-vec)
+        b   (range-of handoff-vec)
         ovl (and (<= (:min a) (:max b)) (<= (:min b) (:max a)))
-        rel (js/Math.abs (dec (/ (p50-of xcript-vec) (p50-of uix-vec))))]
+        rel (js/Math.abs (dec (/ (p50-of handoff-vec) (p50-of uix-vec))))]
     {:shipped-uix    a
-     :copy-xcript    b
+     :copy-handoff   b
      :ranges-overlap? ovl
      :medians-apart  (lane/round4 rel)
      :band           fidelity-band
@@ -545,7 +571,7 @@
         fractions      (pick :fraction)
         fractions-seam (pick :fraction-seam)
         resolved? (fn [vs] (not-any? nil? vs))
-        fid       (fidelity-of (pick :uix) (pick :xcript))
+        fid       (fidelity-of (pick :uix) (pick :handoff))
         rz        (pick :rz)
         order     (converge/segment-order-verdict rz rounds start-segment)
         c-rg      (lane/control-verdict (:predicted control)
@@ -559,15 +585,17 @@
         verdict   (rule-verdict fractions fractions-seam)]
     (lane/record! (name row-key)
                   {:benchmark   (keyword "hicasso.coldmount" (name row-key))
-                   :bead        "rf2-2rtt6.15"
+                   :bead        "rf2-2rtt6.15 (instrument); re-run as the acceptance witness for rf2-2rtt6.25"
                    :doc         doc
                    :grade       grade
                    :layer       layer
                    :witness-set "rf2-2rtt6.2 (converged; p0-converged-witness-set.md)"
                    :spine       (str "the SHIPPED re-frame.substrate.spine/use-subscribe — "
-                                     "rf2-2rtt6.13's retention fix NOT landed; the balanced "
-                                     "render round trip and the commit-phase rebuild are the "
-                                     "shipped behaviour under measurement")
+                                     "rf2-2rtt6.13 (no retained dead handle) AND rf2-2rtt6.25 "
+                                     "(the hook-scoped provisional hand-off) both landed, so "
+                                     "the shipped cold read builds ONCE and the commit adopts "
+                                     "it; `xcript` is the retired double build, kept as the "
+                                     "reference the delta is measured against")
                    :rounds      rounds
                    :balanced-design? (even? rounds)
                    :per-round   {:floor-reagent (mapv lane/round4 (pick :floor-reagent))
@@ -611,6 +639,7 @@
                   {:row row-key :layer layer
                    :predictions {:xcript  "commits N, rebuilt N, bodyRuns 2N at every layer <= L"
                                  :handoff "commits N, rebuilt 0, bodyRuns N at every layer <= L"
+                                 :shipped "commits N, rebuilt 0, bodyRuns N at every layer <= L — rf2-2rtt6.25's ACCEPTANCE WITNESS: the shipped hook reads the handoff row"
                                  :reagent "commits 0, rebuilt 0, bodyRuns N at every layer <= L"}
                    :results witness-results
                    :failures wfails})

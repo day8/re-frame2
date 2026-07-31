@@ -32,6 +32,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -514,6 +515,122 @@
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n]))
         "unsubscribe against a missing entry leaves the cache untouched")))
+
+;; ---- rf2-2rtt6.25: the identity-guarded release ----------------------------
+;;
+;; `subs/unsubscribe-if-reaction` is `unsubscribe` for a holder whose
+;; reference can outlive its slot — the React-hook spine's render-phase
+;; provisional acquisition, released either by the commit that adopts it or by
+;; a host-macrotask reaper (Spec 006 §Render-phase provisional acquisition and
+;; commit adoption). Between those two moments hot reload, `clear-sub-cache!`
+;; or `destroy-frame!` can evict the slot; that eviction already took the +1
+;; with it, so a late release MUST be a clean no-op. Unguarded it would either
+;; underflow a successor entry rebuilt under the same key or steal a reference
+;; another subscriber owns — and the successor's owner would then watch its
+;; own subscription dispose underneath it.
+;;
+;; These are the substrate-free half of the property: the guard itself, on the
+;; JVM, over the plain-atom adapter. The spine's use of it (adoption, reaping,
+;; one-shot) is pinned in the React shared suite.
+
+(deftest unsubscribe-if-reaction-releases-only-its-own-reaction
+  (testing "a guarded release decrements while the slot still holds ITS reaction (rf2-2rtt6.25)"
+    (rf/reg-event :init (fn [_ _] {:db {:n 7}}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    (let [r (rf/subscribe [:n])]
+      (rf/subscribe [:n])
+      (is (= 2 (entry-ref-count [:n])) "two subscribers")
+
+      ;; A FOREIGN object never held this slot — the guard rejects it and the
+      ;; call changes nothing. (Pre-guard, a by-key decrement would have
+      ;; silently stolen one of the two live references.)
+      (subs/unsubscribe-if-reaction :rf/default [:n] (Object.))
+      (is (= 2 (entry-ref-count [:n]))
+          "a release naming a reaction the slot does not hold is a no-op")
+
+      ;; The real reaction: one ordinary decrement.
+      (subs/unsubscribe-if-reaction :rf/default [:n] r)
+      (is (= 1 (entry-ref-count [:n]))
+          "the guarded release decrements exactly once when the guard admits it")
+
+      (rf/unsubscribe [:n]))))
+
+(deftest unsubscribe-if-reaction-takes-the-ordinary-in-tick-dispose
+  (testing "the guarded release's 1 → 0 edge disposes in-tick and cascades (rf2-2rtt6.25)"
+    (rf/reg-event :init (fn [_ _] {:db {:a 2}}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :double :<- [:a] (fn [[a] _] (* 2 a)))
+    (rf/dispatch-sync [:init])
+
+    (let [r (rf/subscribe [:double])]
+      (is (= 4 @r))
+      (is (= 1 (entry-ref-count [:double])))
+      (is (= 1 (entry-ref-count [:a])) "the layer-2 build holds its input")
+
+      (subs/unsubscribe-if-reaction :rf/default [:double] r)
+      (is (not (contains? (cache-keys) [:double]))
+          "1 → 0 through the guarded release evicts the slot in-tick — the same
+           disposal `unsubscribe` drives, not a second policy")
+      (is (not (contains? (cache-keys) [:a]))
+          "and the on-dispose cascade released the `:<-` input, which had no
+           other reader"))))
+
+(deftest unsubscribe-if-reaction-no-ops-against-a-successor-entry
+  (testing "a release held across a hot-reload eviction cannot touch the rebuilt slot (rf2-2rtt6.25)"
+    (rf/reg-event :init (fn [_ _] {:db {:n 7}}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    ;; A holder takes a reference and keeps the reaction.
+    (let [stale (rf/subscribe [:n])]
+      ;; Re-registration evicts and disposes every slot for `:n` — that
+      ;; eviction took the holder's +1 with it.
+      (rf/reg-sub :n (fn [db _] (* 10 (:n db))))
+      (is (not (contains? (cache-keys) [:n])) "hot reload evicted the slot")
+
+      ;; A DIFFERENT subscriber builds a successor entry under the same key.
+      (let [successor (rf/subscribe [:n])]
+        (is (= 70 @successor) "the successor carries the re-registered body")
+        (is (= 1 (entry-ref-count [:n])))
+
+        ;; The stale release now arrives. It must not decrement the successor.
+        (subs/unsubscribe-if-reaction :rf/default [:n] stale)
+        (is (= 1 (entry-ref-count [:n]))
+            "the stale release did NOT steal the successor's reference")
+        (is (contains? (cache-keys) [:n])
+            "and did not dispose a slot it never held — the successor's owner
+             still has a live subscription")
+
+        (rf/unsubscribe [:n])))))
+
+(deftest unsubscribe-if-reaction-no-ops-after-cache-clear-and-frame-destroy
+  (testing "a release arriving after an explicit teardown is a clean no-op (rf2-2rtt6.25)"
+    (rf/reg-event :init (fn [_ _] {:db {:n 7}}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    ;; (a) cache clear.
+    (let [stale (rf/subscribe [:n])]
+      (rf/clear-sub-cache! :rf/default)
+      (is (not (contains? (cache-keys) [:n])))
+      (subs/unsubscribe-if-reaction :rf/default [:n] stale)
+      (is (not (contains? (cache-keys) [:n]))
+          "releasing into an emptied cache neither throws nor resurrects a slot"))
+
+    ;; (b) frame destroy — the frame is gone, so there is no cache to reach.
+    (rf/make-frame {:id ::doomed :doc "rf2-2rtt6.25 frame-destroy guard probe"})
+    (frame/replace-app-db! ::doomed {:n 7})
+    (let [stale (rf/subscribe [:n] {:frame ::doomed})]
+      (rf/destroy-frame! ::doomed)
+      (is (nil? (frame/frame ::doomed)))
+      (is (nil? (subs/unsubscribe-if-reaction ::doomed [:n] stale))
+          "releasing against a destroyed frame is a no-op returning nil"))
+
+    ;; (c) nil frame — the reaper never inspects what it is releasing into.
+    (is (nil? (subs/unsubscribe-if-reaction nil [:n] nil))
+        "a nil frame target is a no-op, not an NPE")))
 
 ;; ---- rf2-f3rd: layer-2+ disposal decrements input ref-counts --------------
 ;;

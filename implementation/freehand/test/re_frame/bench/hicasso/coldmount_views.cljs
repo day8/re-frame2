@@ -2,28 +2,38 @@
   "THE COLD-MOUNT DOUBLE BUILD, PRICED ON THE CLOCK — the views, the sub
   layers, the hook transcriptions and the counting witnesses
   (rf2-2rtt6.15, epic rf2-2rtt6 / EP-0038; decision input for the
-  rf2-2rtt6.14 ruling).
+  rf2-2rtt6.14 ruling, and since rf2-2rtt6.25 the ACCEPTANCE WITNESS for
+  the hand-off that ruling adopted).
 
-  ## The term being priced
+  ## The term that was priced, and then deleted
 
-  `re-frame.substrate.spine/use-subscribe` takes a BALANCED render-phase
-  round trip — `subs/subscribe` immediately followed by `subs/unsubscribe`
-  (spine.cljs, the rf2-es09qq net-zero rule) — so a render that never
-  commits retains no ref-count. For a query with NO live cache entry that
-  is `0 -> 1 -> 0`, and `1 -> 0` is the disposal edge:
+  `re-frame.substrate.spine/use-subscribe` USED TO take a BALANCED
+  render-phase round trip — `subs/subscribe` immediately followed by
+  `subs/unsubscribe` (the rf2-es09qq net-zero rule) — so a render that
+  never commits retained no ref-count. For a query with NO live cache
+  entry that is `0 -> 1 -> 0`, and `1 -> 0` is the disposal edge:
   `re-frame.subs.cache/unsubscribe!` disposes in-tick with no grace
-  period. The commit-owned `subscribe-fn` then misses the cache and
-  REBUILDS. Two reactions are built per cold read; the COUNT is exact and
-  landed (`bodyRuns = 2.00N` vs Reagent's `1.00N`, rf2-2rtt6.12,
-  `docs/design/hicasso/studio/uix-spine-per-read-decomposition.md`).
-  This instrument prices the CLOCK of the second construction — the
+  period. The commit-owned `subscribe-fn` then missed the cache and
+  REBUILT. Two reactions per cold read; the COUNT was exact and landed
+  (`bodyRuns = 2.00N` vs Reagent's `1.00N`, rf2-2rtt6.12,
+  `docs/design/hicasso/studio/uix-spine-per-read-decomposition.md`), and
+  this instrument priced the CLOCK of that second construction — the
   second sub-body run, the `:<-` input-chain re-deref, and the reaction
-  allocation on the commit-phase rebuild.
+  allocation on the commit-phase rebuild — at >= 20% of the mount
+  red-zone in every round at layers 1, 2 and 3.
+
+  rf2-2rtt6.14 ruled ADOPT on that evidence, and rf2-2rtt6.25 landed the
+  hook-scoped provisional hand-off. So the `handoff` arm below stopped
+  being a hypothesis and became a PREDICTION about shipped code, and this
+  page's job changed with it: the shipped arm must now reproduce the
+  handoff arm's counts and sit inside its clock band. `xcript` stays as
+  the double-build reference — the thing that was removed, kept so the
+  delta it defines can still be read.
 
   ## The single-variable ablation
 
-  Two transcriptions of the shipped hook, differing in exactly one
-  property — HOW MANY reactions a cold read constructs:
+  Two transcriptions of the hook, differing in exactly one property —
+  HOW MANY reactions a cold read constructs:
 
   | arm | render phase | commit phase | constructions |
   |---|---|---|---|
@@ -33,14 +43,16 @@
   Both make exactly TWO `subs/subscribe` and TWO `subs/unsubscribe` calls
   per mounted read (render, commit, unmount); both install the same
   watch, the same refs, the same six hooks. `xcript - handoff` is
-  therefore the build/dispose/rebuild churn ALONE — the clock a
-  commit-phase adoption of the render-phase materialisation would
-  recover, which is precisely the question rf2-2rtt6.14 holds open.
+  therefore the build/dispose/rebuild churn ALONE — the clock the shipped
+  hand-off recovers.
 
-  `handoff` is a MEASUREMENT ARM, not a proposed patch: its provisional
-  +1 leaks if a render is abandoned before commit, and the reaping policy
-  a real hand-off needs is exactly what the rf2-2rtt6.14 design pass
-  would have to produce. Nothing here edits production code.
+  `handoff` remains a MEASUREMENT ARM and not a copy of the shipped code:
+  it holds its provisional +1 with no reaper, so a render abandoned
+  before commit would strand it. The shipped hook's reaper (a host
+  macrotask armed at acquisition, `unsubscribe-if-reaction`-guarded) is
+  what makes the same shape safe, and it is deliberately absent here so
+  the arm stays a one-property ablation. Nothing in this file edits
+  production code; the `shipped` rows read the real hook.
 
   ## The sub layers
 
@@ -61,17 +73,44 @@
   A displayed count that is not adjudicated is decoration, so the
   construction counts are PREDICTED and CHECKED per page before any clock
   is read: counter-instrumented sub chains (`:cm/w1` / `:cm/w2` /
-  `:cm/w3`) behind counter-instrumented copies of both transcriptions.
-  For N reads at page layer L:
+  `:cm/w3`) behind counter-instrumented copies of both transcriptions AND
+  behind the SHIPPED hook. For N reads at page layer L:
 
       xcript    commits N   rebuilt N   bodyRuns 2N at every layer <= L
       handoff   commits N   rebuilt 0   bodyRuns  N at every layer <= L
+      shipped   commits N   rebuilt 0   bodyRuns  N at every layer <= L
       reagent   commits 0   rebuilt 0   bodyRuns  N at every layer <= L
 
-  `rebuilt = 0` on `handoff` is what makes the ablation single-variable:
-  the commit-phase acquire hands back the IDENTICAL reaction the render
-  built. The witness components never appear in a timed window and the
-  timed arms never touch a counter.
+  `rebuilt = 0` is what makes the ablation single-variable: the
+  commit-phase acquire hands back the IDENTICAL reaction the render
+  built. `shipped` reading the same row as `handoff` is the ACCEPTANCE
+  WITNESS for rf2-2rtt6.25 — the shipped hook converging onto what the
+  transcription measured. The witness components never appear in a timed
+  window and the timed arms never touch a counter.
+
+  ## How the SHIPPED arm is counted without a counter
+
+  The transcriptions increment `commits` / `rebuilt` from inside their own
+  `subscribe-fn`; the shipped hook has no such seam, and adding one would
+  make the arm a fourth transcription rather than the code under test. So
+  the shipped arm reads the same two integers off OBSERVABLE STATE, with
+  the same meanings and no spy on `subs/subscribe` (a spy that substituted
+  the reaction would defeat the hand-off's own identity guard and measure
+  the instrument):
+
+    * during render, right after `use-subscribe` returns, the witness
+      records WHICH REACTION the sub-cache holds for that query — the
+      render-phase materialisation if it survived the render, `nil` if the
+      balanced round trip disposed it;
+    * after the mount, `commits` counts the reads whose slot is tenanted
+      (the commit took its durable reference) and `rebuilt` counts the
+      reads whose post-commit tenant is NOT `identical?` to what the
+      render observed — including every read that observed nothing.
+
+  On the pre-hand-off spine every render observes `nil` and every read
+  counts as rebuilt, which is the same `rebuilt = N` the `xcript` arm
+  reports from its own counter. The two measurements are independent and
+  must agree.
 
   Driven by `coldmount_app.cljs` / `coldmount_run.cjs` on the
   `:hicasso-bench` lane. Markup is byte-for-byte the converged set's
@@ -81,6 +120,7 @@
             [re-frame.adapter.uix :as uixa]
             [re-frame.bench.hicasso.p0-reagent-views :as v]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [reagent.dom.client :as rdc]
             [uix.core :refer [$ defui]]
@@ -652,9 +692,72 @@
         c (use-sub-witness-handoff v/subs-frame (wq 3 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
+;; -- the SHIPPED witness: the real hook, counted off observable state -------
+;;
+;; No transcription and no spy. The cell calls `re-frame.adapter.uix/
+;; use-subscribe` — the 2-arity explicit-frame form, which is exactly what the
+;; ambient form resolves into — and then reads the sub-cache to record which
+;; reaction (if any) is tenanted for that query at the instant the render-phase
+;; read returned. See the namespace docstring's "How the SHIPPED arm is counted
+;; without a counter".
+
+(def ^:private shipped-render-observed
+  "query-v -> the reaction tenanted in the sub-cache when the render-phase read
+  returned, or nil. FIRST observation per query wins: React may render a
+  boundary more than once, and only the first render is the cold one."
+  (atom {}))
+
+(defn- sub-cache-atom [] (:sub-cache (frame/frame v/subs-frame)))
+
+(defn- tenant-of [query-v]
+  (get-in @(sub-cache-atom) [query-v :reaction]))
+
+(defn- use-shipped-witness
+  "The shipped hook, plus one render-phase observation. Reading an atom during
+  render is a bench affordance, not a pattern: it records, it does not decide."
+  [query-v]
+  (let [value (uixa/use-subscribe v/subs-frame query-v)]
+    (swap! shipped-render-observed
+           (fn [m] (if (contains? m query-v) m (assoc m query-v (tenant-of query-v)))))
+    value))
+
+(defui ws-cell-1 [{:keys [base]}]
+  (let [a (use-shipped-witness (wq 1 (+ base 0)))
+        b (use-shipped-witness (wq 1 (+ base 1)))
+        c (use-shipped-witness (wq 1 (+ base 2)))]
+    ($ :span.wcell {:data-i base} (str (+ a b c)))))
+
+(defui ws-cell-2 [{:keys [base]}]
+  (let [a (use-shipped-witness (wq 2 (+ base 0)))
+        b (use-shipped-witness (wq 2 (+ base 1)))
+        c (use-shipped-witness (wq 2 (+ base 2)))]
+    ($ :span.wcell {:data-i base} (str (+ a b c)))))
+
+(defui ws-cell-3 [{:keys [base]}]
+  (let [a (use-shipped-witness (wq 3 (+ base 0)))
+        b (use-shipped-witness (wq 3 (+ base 1)))
+        c (use-shipped-witness (wq 3 (+ base 2)))]
+    ($ :span.wcell {:data-i base} (str (+ a b c)))))
+
+(defn- shipped-witness-counts
+  "`{:commits n :rebuilt n}` for the shipped arm, read off the sub-cache after
+  the mount and before the unmount. `commits` = reads whose slot is tenanted;
+  `rebuilt` = reads whose tenant is not the one the render observed."
+  [layer n offset]
+  (let [queries (for [i (range n) k (range 3)] (wq layer (+ offset (* i 3) k)))
+        observed @shipped-render-observed]
+    (reduce (fn [acc q]
+              (let [now (tenant-of q)]
+                (-> acc
+                    (update :commits (if (some? now) inc identity))
+                    (update :rebuilt (if (identical? now (get observed q)) identity inc)))))
+            {:commits 0 :rebuilt 0}
+            queries)))
+
 (def ^:private uix-witness-cells
   {:xcript  {1 wx-cell-1 2 wx-cell-2 3 wx-cell-3}
-   :handoff {1 wh-cell-1 2 wh-cell-2 3 wh-cell-3}})
+   :handoff {1 wh-cell-1 2 wh-cell-2 3 wh-cell-3}
+   :shipped {1 ws-cell-1 2 ws-cell-2 3 ws-cell-3}})
 
 (defui w-grid [{:keys [cell n offset]}]
   ($ :div.wab
@@ -679,13 +782,18 @@
 
 (defn witness!
   "Mount `n` witness boundaries of 3 reads each — `variant` in
-  `#{:xcript :handoff :reagent}` at `layer` — read the counters back,
-  unmount, and answer them beside the read count N they are adjudicated
-  against. Fresh counters per call; a fresh subtree of cells per call
-  (`offset`) so no call can be served by another's cache entries; never
-  inside a timed window. The caller adjudicates."
+  `#{:xcript :handoff :shipped :reagent}` at `layer` — read the counters
+  back, unmount, and answer them beside the read count N they are
+  adjudicated against. Fresh counters per call; a fresh subtree of cells
+  per call (`offset`) so no call can be served by another's cache entries;
+  never inside a timed window. The caller adjudicates.
+
+  `:shipped` mounts the real hook and derives `commits` / `rebuilt` from
+  the sub-cache rather than from a counter — same meanings, no seam cut
+  into production code (namespace docstring)."
   [variant layer n offset]
   (reset-witness-counters!)
+  (reset! shipped-render-observed {})
   (let [container (js/document.createElement "div")
         _         (.appendChild js/document.body container)
         root      (case variant
@@ -694,7 +802,7 @@
                       (react-dom/flushSync
                         (fn [] (rdc/render rt [w-rg-grid layer n offset])))
                       rt)
-                    ;; :xcript / :handoff
+                    ;; :xcript / :handoff / :shipped
                     (let [rt (uix-dom/create-root container)]
                       (react-dom/flushSync
                         (fn []
@@ -704,6 +812,10 @@
                             rt)))
                       rt))
         elements  (.-length (.querySelectorAll container ".wcell"))
+        counts    (if (= :shipped variant)
+                    (shipped-witness-counts layer n offset)
+                    {:commits (aget witness-counters "commits")
+                     :rebuilt (aget witness-counters "rebuilt")})
         out       {:variant  variant
                    :layer    layer
                    :offset   offset
@@ -711,8 +823,8 @@
                    :elements elements
                    :expected n
                    :ok?      (= elements n)
-                   :commits  (aget witness-counters "commits")
-                   :rebuilt  (aget witness-counters "rebuilt")
+                   :commits  (:commits counts)
+                   :rebuilt  (:rebuilt counts)
                    :body1    (aget witness-counters "body1")
                    :body2    (aget witness-counters "body2")
                    :body3    (aget witness-counters "body3")}]
