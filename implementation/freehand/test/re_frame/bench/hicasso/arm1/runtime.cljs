@@ -179,6 +179,14 @@
   it finds none. Every escape becomes an error naming the query rather
   than an edge that was quietly not recorded.
 
+  The one escape that guard cannot see is a deferral forced inside
+  ANOTHER body's render, where a frame is bound and [[read-key!]] is
+  satisfied. Structure is repaired there — `realize-deep` forces it at
+  the crossing — and an explicit deferral is REFUSED there, by the same
+  walk, because forcing a `delay` would change what the author wrote.
+  `front.codec/refuse-deferred!`, and `arm1/deferred-read-cljs-test`.
+  rf2-2rtt6.32.
+
   ### The cold read, and what it costs (clause (a) consequence)
 
   A render-phase read is a **pure deref** when the key already has a

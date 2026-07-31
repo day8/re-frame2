@@ -71,7 +71,7 @@
   | Head | Props | Children | `:key` |
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
-  | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
+  | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -543,9 +543,42 @@
 (defn- realize-entry [_ _ x] (realize-deep x) nil)
 (defn- realize-item  [_ x]   (realize-deep x) nil)
 
+(defn- refuse-deferred!
+  "The one thing the crossing walk **refuses** rather than repairs.
+
+  A `delay` is an author's explicit statement that a computation happens
+  *later*, and the codec may not overrule it: forcing it at the hand-off
+  would be the opposite of what a `delay` is for, and would change the
+  meaning of the author's program to protect a property the author has
+  not been told about. Refusing costs nothing and states the problem.
+
+  The refusal is raised **inside the render of the body that wrote the
+  `delay`**, because [[realize-deep]] runs at the crossing — so the stack
+  lands on the author's own call site rather than on the child that would
+  otherwise have been blamed. That is the attribution a query name would
+  have bought, obtained without forcing anything to learn the name.
+
+  Only an **unforced** delay is refused. One the author already deref'd
+  in their own body carries a computed value, derefs to it without
+  calling anything, and is harmless wherever it goes."
+  [v]
+  (fail! :rf.error/hicasso-deferred-read-at-boundary
+         'front.codec/boundary-element
+         (str "An unforced `delay` reached a boundary's props. It would be "
+              "forced inside the CHILD's render, so any subscription it reads "
+              "becomes the child's edge, is cached by the delay, and is then "
+              "dropped the next time the child renders — a value correct on "
+              "screen, frozen thereafter, and attributable to nothing. Hicasso "
+              "will not force it for you: that would change what your `delay` "
+              "means. Hand a FUNCTION instead — the child calls it on every "
+              "render, so its reads are the child's edges and are kept — or "
+              "deref the delay in the body that wrote it.")
+         :hand-a-function-or-deref-it-in-this-body
+         {:value v}))
+
 (defn realize-deep
-  "Force every lazy sequence reachable from `v`, and return **`v` itself,
-  by identity**.
+  "Force every lazy sequence reachable from `v`, refuse any unforced
+  `delay` reachable from it, and return **`v` itself, by identity**.
 
   ## Why a boundary needs this and a native tag does not
 
@@ -603,10 +636,36 @@
   A seq of unbounded length at a boundary prop position now diverges here
   rather than in the child. That is the same thing `clj->js` already does
   to one at a native prop position, and it must be: a deferred read
-  cannot be both unbounded and attributable."
+  cannot be both unbounded and attributable.
+
+  ## What it forces, and the one thing it refuses
+
+  A lazy sequence is **structure**, and structure is what a codec walk is
+  entitled to force: forcing it changes nothing an author could observe,
+  because the seq was going to be walked one boundary later regardless.
+  A `delay` is not structure. It is an explicit deferral, and the whole
+  of its meaning is *not now* — so the walk may not force it, and
+  [[refuse-deferred!]] says so instead. That is the entire difference
+  between the two carriers, and the reason one is repaired silently and
+  the other cannot be.
+
+  The check costs one `instanceof` per non-collection node, on the branch
+  that already exists for scalars, and it is never reached for anything
+  the walk descends into. `realized?` narrows it further: a `delay` the
+  author already deref'd in their own body is a computed value and passes
+  through.
+
+  **Its reach is the walk's reach, and no further.** The walk descends
+  into data structures; a *mutable reference* is not one, and is not
+  descended into. A deferral an author parks in an atom — or in a
+  module-level var the codec never sees — is outside what any structural
+  pass can reach, and is a declared limit rather than a repair this
+  function withheld."
   [v]
   (if-not (coll? v)
-    v
+    (if (and (delay? v) (not (realized? v)))
+      (refuse-deferred! v)
+      v)
     (do (if (map? v)
           (reduce-kv realize-entry nil v)
           (reduce realize-item nil v))
@@ -679,6 +738,12 @@
         ;; time. [[realize-deep]] returns the map by identity and covers
         ;; `:children` in the same pass, which is where the one-level
         ;; flatten leaves a nested seq. rf2-2rtt6.45.
+        ;;
+        ;; The same pass refuses the one carrier it may not repair — an
+        ;; unforced `delay`, whose meaning is precisely that it is not
+        ;; forced here. The refusal fires inside THIS body's render, so
+        ;; the author who wrote the crossing is the one who sees it.
+        ;; rf2-2rtt6.32.
         body-props (realize-deep (cond-> (dissoc props :key)
                                    children (assoc :children children)))
         js-props   #js {"rfProps" body-props}]
