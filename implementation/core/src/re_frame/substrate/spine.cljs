@@ -2117,6 +2117,122 @@
 ;; for substrates that need them; the
 ;; spine passes the deps as a JS array always.
 
+;; ---- the hook-scoped provisional hand-off (rf2-2rtt6.25) -------------------
+;;
+;; THE PROBLEM IT DELETES. A React render and the commit that owns it are two
+;; moments. `use-subscribe-2`'s render phase must read a snapshot, and it used
+;; to do so with a BALANCED round trip — subscribe, deref, unsubscribe — so a
+;; render that never commits retained nothing (rf2-es09qq). On a query with no
+;; live cache entry that round trip is `0 → 1 → 0`, and `1 → 0` is the
+;; disposal edge: `re-frame.subs.cache/unsubscribe!` evicts in-tick, no grace
+;; period. Microseconds later the commit-owned `subscribe-fn` misses that same
+;; cache and BUILDS THE REACTION AGAIN. Every cold subscription read on this
+;; spine therefore constructed two reactions and ran the user's sub body
+;; twice — for a layer-2+ sub, walking the whole `:<-` input chain twice —
+;; measured exactly at `bodyRuns = 2.00N` against Reagent's `1.00N`
+;; (rf2-2rtt6.12) and priced at ≥ 20% of the mount red-zone in every round at
+;; layers 1, 2 and 3 (rf2-2rtt6.15,
+;; docs/design/hicasso/studio/coldmount-double-build-priced.md).
+;;
+;; THE SHAPE, RULED (rf2-2rtt6.14, ADOPT). The render phase stops balancing
+;; in-render. It subscribes and keeps its +1 in a ONE-SHOT ESCROW TOKEN, so
+;; the entry is still live when the commit arrives; `subscribe-fn`'s durable
+;; subscribe is then a cache HIT and the committed reaction is `identical?`
+;; the one the render built — ADOPTION, not a rebuild — after which the token
+;; is released, `2 → 1`. One construction per cold read.
+;;
+;; WHAT IT IS NOT. It is NOT a ref-count-0 cache tenancy. The token is an
+;; ordinary reference held by an ordinary owner; the cache never holds a
+;; zero-ref entry, `unsubscribe!`'s 1 → 0 in-tick dispose is untouched, and no
+;; entry gains a state machine. Reagent, reagent-slim and plain-atom are
+;; byte-identical — they never reach this code.
+;;
+;; WHY IT CANNOT LEAK. Four independent reasons, none of them a promise about
+;; React:
+;;
+;;   * THE REAP IS SCHEDULED BEFORE THE ACQUIRING EXPRESSION RETURNS. Every
+;;     token is queued and a host MACROTASK drain armed inside `escrow!`
+;;     itself, so an abandoned render, a throwing sub body, an unmount before
+;;     commit and a never-retried Suspense attempt are all reaped ≤ 1
+;;     macrotask later. React is given no opportunity to cancel it because
+;;     React is never asked.
+;;   * ONE-SHOT. `spent?` (slot 3) is flipped before the decrement, so
+;;     adoption and the drain cannot both release the same token.
+;;   * REACTION-GUARDED. The release goes through
+;;     `subs/unsubscribe-if-reaction`, which decrements only while the slot
+;;     still holds the token's reaction. Hot reload, `clear-sub-cache!` and
+;;     `destroy-frame!` evict slots out from under live holders; that eviction
+;;     took the +1 with it, so a stale release must no-op rather than
+;;     underflow a successor entry rebuilt under the same key.
+;;   * ONE OUTSTANDING TOKEN PER HOOK. The factory releases the ref's previous
+;;     token AFTER taking its own (subscribe-then-release, so the count never
+;;     crosses the disposal edge), which bounds a re-rendering hook at one
+;;     escrowed reference no matter how many times React re-runs the factory.
+;;
+;; AND WHY IT NEED NOT WIN. If the drain somehow fires before React commits,
+;; the entry disposes and the commit rebuilds — exactly today's behaviour.
+;; Correctness never depends on the ordering; only the saving does.
+;;
+;; THE ONE CONTRACT-VISIBLE CHANGE, blessed by the ruling: a render abandoned
+;; before commit leaves ≤ 1 ref-count until the horizon rather than 0
+;; immediately. The zero-leak property is unchanged; its zero-POINT moves one
+;; macrotask later. Spec 006 §Render-phase provisional acquisition and commit
+;; adoption carries the wording.
+
+(defn- release-provisional!
+  "Release one escrow token — ONE-SHOT and REACTION-GUARDED, per the section
+  comment above. `token` is `#js [reaction frame-kw query-v spent?]`.
+
+  The `spent?` flip precedes the decrement, so the two racers for a token —
+  the commit that adopts it and the macrotask drain that reaps it — cannot
+  both decrement: on the single-threaded JS event loop a read-then-write with
+  no intervening suspension point IS the compare-and-set. Idempotent by the
+  same flag. Returns nil."
+  [token]
+  (when (and (some? token) (not (aget token 3)))
+    (aset token 3 true)
+    (subs/unsubscribe-if-reaction (aget token 1) (aget token 2) (aget token 0)))
+  nil)
+
+(defn- make-provisional-escrow
+  "Build one spine's provisional-escrow acquirer: `(escrow! reaction frame-kw
+  query-v)` mints the token, queues it, arms the reaper, and answers the token.
+
+  THE REAPER IS A MACROTASK — `setTimeout 0` — and that is the whole point.
+  React 19 installs `useSyncExternalStore`'s subscription as a PASSIVE effect,
+  and passive effects are flushed from the React scheduler's own task. A
+  microtask reaper (`queueMicrotask`, a resolved promise's `.then`) drains at
+  the end of the CURRENT task — before that flush — so every token would be
+  reaped before the commit that was meant to adopt it, and the hand-off would
+  quietly degrade to the dispose-and-rebuild it exists to delete. A timer task
+  runs after the current task and after the scheduler's pending work, so the
+  commit gets first refusal.
+  This is a PERFORMANCE ordering, never a correctness one: an early drain
+  costs a rebuild, nothing more (see the section comment).
+
+  ONE TIMER PER BURST, armed on the empty → non-empty edge, so a page mounting
+  three hundred boundaries in one render pass arms one timer and not three
+  hundred. The drain splices the queue before releasing, so a token minted
+  while it runs belongs to the next burst; and each release is isolated, so
+  one throwing sub-body teardown cannot strand the rest of the batch."
+  []
+  (let [pending    #js []
+        scheduled? (volatile! false)
+        drain!     (fn drain-provisionals! []
+                     (vreset! scheduled? false)
+                     (let [batch (.splice pending 0 (.-length pending))
+                           n     (.-length batch)]
+                       (dotimes [i n]
+                         (try (release-provisional! (aget batch i))
+                              (catch :default _ nil)))))]
+    (fn escrow! [reaction frame-kw query-v]
+      (let [token #js [reaction frame-kw query-v false]]
+        (.push pending token)
+        (when-not @scheduled?
+          (vreset! scheduled? true)
+          (js/setTimeout drain! 0))
+        token))))
+
 (defn make-react-spine
   "Build the per-substrate hook-shaped surfaces given the substrate's
   config:
@@ -2195,6 +2311,12 @@
         ;; once per coherent app-db epoch (Spec 006 §Invalidation
         ;; algorithm). See the epoch-scheduler section above.
         scheduler          (make-scheduler)
+        ;; rf2-2rtt6.25: one provisional-escrow acquirer per spine — the
+        ;; render-phase +1 `use-subscribe-2` hands to the commit, and the
+        ;; single macrotask reaper that guarantees every token dies whether or
+        ;; not that commit ever arrives. See the section comment above
+        ;; `make-provisional-escrow`.
+        escrow!            (make-provisional-escrow)
         replace-cont!      (make-replace-container-fn scheduler)
         make-derived       (make-derived-value-fn gensym-prefix-derived scheduler)
         ;; Precompute the `use-subscribe` watch-key keyword namespace
@@ -2268,14 +2390,16 @@
         (fn use-subscribe-2 [frame-kw query-v]
           (let [key-ref (React/useRef nil)
                 ;; Holds the DURABLE committed reaction (rf2-sqhjtu). The
-                ;; render-phase `use-memo` below takes a balanced, net-zero
-                ;; subscribe/unsubscribe round-trip to READ a snapshot. With
-                ;; no prior cache entry that round-trip's 1 → 0 unsubscribe
-                ;; DISPOSES the reaction it just built (evicts it, removes its
-                ;; source watches) and `subscribe-fn` builds a fresh committed
-                ;; one post-commit — a DIFFERENT object.
+                ;; render-phase `use-memo` below reads a snapshot without
+                ;; retaining a handle, and (since rf2-2rtt6.25) hands its
+                ;; ref-count on to the commit rather than balancing it away, so
+                ;; on the cold path `subscribe-fn` ADOPTS the same reaction. The
+                ;; committed and render-phase reactions can still be DIFFERENT
+                ;; objects — the reaper may have beaten the commit, hot reload
+                ;; may have rebuilt the slot — so the rule below is unchanged and
+                ;; not conditional on the hand-off winning.
                 ;;
-                ;; `get-snap` must never read that disposed handle. A disposed
+                ;; `get-snap` must never read a disposed handle. A disposed
                 ;; reaction still recomputes on `-deref` (pull-based), so
                 ;; deref-ing it LOOKS correct for ordinary app-db updates —
                 ;; but it holds no source watches and still closes over the
@@ -2298,6 +2422,15 @@
                 ;; change-commit — `get-snap` reads the tag only while it
                 ;; matches the current render's key.
                 committed-ref (React/useRef nil)
+                ;; rf2-2rtt6.25: the hook's single outstanding ESCROW TOKEN,
+                ;; key-tagged as `#js [stable-key token]` — the render-phase
+                ;; +1 that keeps the freshly-built reaction alive until the
+                ;; commit adopts it. nil whenever this hook holds none (before
+                ;; the first render, and from the moment `subscribe-fn`
+                ;; adopts). Key-tagged for the same reason `committed-ref` is:
+                ;; across a query-v / frame change the OLD `subscribe-fn`'s
+                ;; cleanup must not release the NEW target's token.
+                provisional-ref (React/useRef nil)
                 stable-key
                 (let [prev (.-current key-ref)
                       new-key #js [frame-kw query-v]]
@@ -2334,65 +2467,92 @@
                 ;; leak is gone BY CONSTRUCTION, independent of fiber discard.
                 ;;
                 ;; The render phase still needs a SNAPSHOT to hand
-                ;; `useSyncExternalStore`. It reads one with a BALANCED,
-                ;; net-zero round-trip — `subs/subscribe`, deref, then
-                ;; `subs/unsubscribe` — so the render contributes ZERO
-                ;; outstanding ref-count whether or not it commits.
+                ;; `useSyncExternalStore`, and it takes one of two shapes
+                ;; depending on whether a durable reference already backs this
+                ;; (frame, query) — the ONLY thing that decides whether the
+                ;; render can reach the 1 → 0 disposal edge.
                 ;;
-                ;; In the COMMITTED steady state this round-trip is free of
-                ;; dispose churn: the `subscribe-fn` below holds a durable +1, so
-                ;; the render-phase subscribe bumps to 2 and the immediate
-                ;; unsubscribe drops back to 1 — never crossing the 1 → 0 disposal
-                ;; edge. The reaction deref-ed is the live cached one. The ONLY render
-                ;; with no durable backing is the FIRST mount before commit (and
-                ;; any never-committed render): there the round-trip disposes +
-                ;; rebuilds, but per rf2-cmfln the rebuilt value `=` the disposed
-                ;; one so `useSyncExternalStore` observes no tear — and that
-                ;; render leaves the cache exactly as it found it.
+                ;; COMMITTED STEADY STATE — `committed-ref` already holds THIS
+                ;; key's reaction, so `subscribe-fn` is holding a durable +1. A
+                ;; BALANCED, net-zero round trip (`subs/subscribe`, deref,
+                ;; `subs/unsubscribe`) bumps 1 → 2 and drops back to 1, never
+                ;; crossing the disposal edge, and the render retains nothing.
+                ;; React may DISCARD a memo and re-run this factory on unchanged
+                ;; deps whenever it likes (rf2-8u8tx.2) — each re-run is its own
+                ;; balanced round trip, so no number of discards can move the
+                ;; ref-count.
                 ;;
-                ;; This subsumes the two prior leak triggers without a ledger or
-                ;; any reconcile/release effects:
-                ;;   • rf2-879fe (abandoned-before-commit) — render is net-zero;
-                ;;     the commit-owned acquire never ran. No leak.
-                ;;   • rf2-8u8tx.2 (useMemo perf-discard recompute on unchanged
-                ;;     deps) — each factory re-run is its own balanced round-trip,
-                ;;     so a discarded+rebuilt memo nets zero regardless of how many
-                ;;     times React re-runs it. No climb.
+                ;; NO DURABLE BACKING — the first mount before its commit, a
+                ;; never-committed render, and the first render after a key
+                ;; change. Here the balanced round trip WOULD go 0 → 1 → 0 and
+                ;; destroy the reaction it just built, so instead the +1 is kept
+                ;; in a hook-scoped ESCROW TOKEN and handed to the commit
+                ;; (rf2-2rtt6.25 — see the section comment above
+                ;; `make-provisional-escrow`, and Spec 006 §Render-phase
+                ;; provisional acquisition and commit adoption). `subscribe-fn`
+                ;; then HITS the cache, adopts the identical? reaction, and
+                ;; releases the token 2 → 1; a render that never commits has its
+                ;; token reaped by the macrotask drain armed inside `escrow!`.
+                ;;
+                ;; The two prior leak triggers stay closed, by the same
+                ;; construction that closed them:
+                ;;   • rf2-879fe / rf2-es09qq (abandoned before commit) — the
+                ;;     render's reference is owned by the reaper, not by the
+                ;;     fiber React discarded, so it is released whether or not
+                ;;     any effect ever runs. The zero-leak property is
+                ;;     unchanged; the zero-POINT is one macrotask later, and
+                ;;     that is the single contract-visible change the
+                ;;     rf2-2rtt6.14 ruling blesses.
+                ;;   • rf2-8u8tx.2 (memo perf-discard) — committed, the round
+                ;;     trip is balanced; uncommitted, the factory releases the
+                ;;     ref's PREVIOUS token after taking its own, so a hook
+                ;;     holds at most one escrowed reference however many times
+                ;;     React re-runs it. No climb on either path.
                 ;; Per Spec 006 §Reference counting and disposal (rf2-cmfln).
                 ;;
                 ;; ---- the memo yields the VALUE, never the handle (rf2-2rtt6.13) ----
                 ;;
-                ;; On a first mount the round trip is 0 → 1 → 0, and 1 → 0 is the
-                ;; disposal edge (`re-frame.subs.cache/unsubscribe!` disposes
-                ;; in-tick, no grace period), so the reaction it built is DEAD
-                ;; before the factory returns: no source watches, no cache slot,
-                ;; no verb that can reach it. Returning that handle RETAINED it
-                ;; for the component's lifetime — `use-memo`'s hook slot held it
-                ;; and `get-snap`'s closure held it — at a measured 769 B
-                ;; `[765–793]` / 23.0 objects per read, 22% of every UIx
-                ;; subscription read (docs/design/hicasso/studio/uix-spine-per-
-                ;; read-decomposition.md; instrument landed 24e8822d7f).
-                ;;
-                ;; So deref INSIDE the round trip — while the reaction is still
-                ;; live — and return the VALUE. Nothing holds the reaction once
-                ;; the factory returns. Every `subs/subscribe` /
-                ;; `subs/unsubscribe` call, every hook and every watch stays
-                ;; exactly where it was, so the render is still net-zero and
-                ;; rf2-es09qq's abandoned-render property is untouched. The
-                ;; double BUILD is untouched too — that is rf2-2rtt6.14's ruling,
-                ;; implemented by rf2-2rtt6.25 on these same lines.
+                ;; Returning the reaction HANDLE retained it for the component's
+                ;; lifetime — `use-memo`'s hook slot held it and `get-snap`'s
+                ;; closure held it — at a measured 769 B `[765–793]` / 23.0
+                ;; objects per read, 22% of every UIx subscription read
+                ;; (docs/design/hicasso/studio/uix-spine-per-read-
+                ;; decomposition.md; instrument landed 24e8822d7f). And on the
+                ;; cold path that handle used to be DEAD before the factory
+                ;; returned. So deref while the reaction is live and return the
+                ;; VALUE; nothing holds the reaction once the factory returns.
+                ;; The escrow above does not walk this back — the token holds a
+                ;; ref-COUNT that the reaper owns, not a handle the component
+                ;; retains.
                 render-snapshot
                 (use-memo (fn []
-                            ;; Net-zero render-phase READ of the snapshot:
-                            ;; subscribe, deref while the reaction is live, then
-                            ;; release immediately so the render retains neither a
-                            ;; ref-count nor a handle. An abandoned render leaks
-                            ;; nothing; a committed render's durable ref is taken
-                            ;; later in `subscribe-fn`.
-                            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})
-                                  v (when r @r)]
-                              (subs/unsubscribe stable-frame-kw stable-query-v)
-                              v))
+                            (let [stored    (.-current committed-ref)
+                                  committed (when (and stored
+                                                       (identical? (aget stored 0) stable-key))
+                                              (aget stored 1))]
+                              (if (some? committed)
+                                ;; Durably backed: balanced, net-zero, no escrow
+                                ;; to take — the disposal edge is unreachable.
+                                (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})
+                                      v (when r @r)]
+                                  (subs/unsubscribe stable-frame-kw stable-query-v)
+                                  v)
+                                ;; Cold: keep the +1 for the commit. The token is
+                                ;; queued and its reaper armed INSIDE `escrow!`,
+                                ;; before anything below can throw — a sub body
+                                ;; that throws on the deref must still leave a
+                                ;; reapable reference, never a stranded one.
+                                (let [r    (subs/subscribe stable-query-v {:frame stable-frame-kw})
+                                      prev (.-current provisional-ref)]
+                                  (set! (.-current provisional-ref)
+                                        (when (some? r)
+                                          #js [stable-key (escrow! r stable-frame-kw stable-query-v)]))
+                                  ;; Subscribe-THEN-release: our own +1 is
+                                  ;; already taken, so releasing the previous
+                                  ;; attempt's token cannot cross 1 → 0 and
+                                  ;; dispose the very reaction we are handing on.
+                                  (when (some? prev) (release-provisional! (aget prev 1)))
+                                  (when (some? r) @r)))))
                           #js [stable-key])
                 ;; The store-snapshot fn React calls on every render to
                 ;; detect tearing. Pure deref of the LIVE committed reaction.
@@ -2476,23 +2636,21 @@
                 ;; on a subscribe-identity change, and on teardown. This is where
                 ;; the DURABLE sub-cache ref-count is taken (`subs/subscribe`) and
                 ;; released (`subs/unsubscribe`) — never in render — so a render
-                ;; abandoned before commit acquires no ref. We re-subscribe by
-                ;; (frame, query) here rather than trust the render-phase handle's
-                ;; ref-count (which was balanced to zero).
+                ;; abandoned before commit owns nothing beyond the reaper's
+                ;; horizon. We re-subscribe by (frame, query) here rather than
+                ;; trust a handle carried out of the render phase; since
+                ;; rf2-2rtt6.25 that re-subscribe is a cache HIT and returns the
+                ;; very reaction the render built (the adoption below).
                 ;;
                 ;; MEMOIZED ON `[stable-key]`, NOT on the render-phase memo
-                ;; (rf2-es09qq). The render-phase reaction can differ from the
-                ;; committed one on first mount (the balanced round-trip may
-                ;; dispose + rebuild it before `subscribe-fn` re-acquires), so
-                ;; keying on anything derived from it would change subscribe-fn
-                ;; identity right after the first commit — forcing React to
-                ;; release (dispose) and re-acquire the durable ref on churn.
-                ;; `stable-key` is identity-stable for a fixed (frame, query), so
-                ;; React calls subscribe-fn exactly ONCE per subscription target:
-                ;; one durable acquire, one release, no churn. The watch is added
-                ;; on the freshly-acquired `committed` reaction inside, so it
-                ;; always tracks the live cached reaction regardless of the
-                ;; render-phase handle's identity.
+                ;; (rf2-es09qq). Keying on anything derived from the render-phase
+                ;; build would change subscribe-fn identity right after the first
+                ;; commit — forcing React to release (dispose) and re-acquire the
+                ;; durable ref on churn. `stable-key` is identity-stable for a
+                ;; fixed (frame, query), so React calls subscribe-fn exactly ONCE
+                ;; per subscription target: one durable acquire, one release, no
+                ;; churn. The watch is added on the freshly-acquired `committed`
+                ;; reaction inside, so it always tracks the live cached reaction.
                 subscribe-fn
                 (use-callback
                   (fn [on-change]
@@ -2501,11 +2659,34 @@
                     ;; reaction is the live cached one and its value `=` the
                     ;; `render-snapshot` the render phase read.
                     (let [committed (subs/subscribe stable-query-v {:frame stable-frame-kw})]
+                      ;; rf2-2rtt6.25 — THE ADOPTION. The render phase kept its
+                      ;; +1 in escrow, so the entry was still live when the
+                      ;; subscribe above ran: it HIT, and `committed` is
+                      ;; `identical?` the reaction the render built. Release the
+                      ;; token now (2 → 1) and clear the ref, so the steady state
+                      ;; is exactly what it was before this hand-off existed —
+                      ;; one durable reference, owned here, released by the
+                      ;; cleanup below.
+                      ;;
+                      ;; Guarded on the key tag: across a query-v / frame change
+                      ;; the ref may already hold the NEXT target's token, which
+                      ;; belongs to the NEXT `subscribe-fn`. Releasing a token
+                      ;; this invocation does not own would drop the successor's
+                      ;; hand-off on the floor (a correctness no-op — the reaper
+                      ;; covers it — but a rebuild). If the token is missing or
+                      ;; already spent, the reaper beat us and the subscribe
+                      ;; above was an honest miss + rebuild: today's behaviour,
+                      ;; no worse.
+                      (let [held (.-current provisional-ref)]
+                        (when (and (some? held)
+                                   (identical? (aget held 0) stable-key))
+                          (set! (.-current provisional-ref) nil)
+                          (release-provisional! (aget held 1))))
                       ;; rf2-sqhjtu / rf2-naz09e: publish the durable committed
                       ;; reaction KEY-TAGGED with this invocation's `stable-key`
                       ;; so `get-snap` derefs THIS live handle (source watches +
-                      ;; current sub body) rather than the disposed render-phase
-                      ;; one — but ONLY while the current render's key matches
+                      ;; current sub body) and never a stale one — but ONLY
+                      ;; while the current render's key matches
                       ;; the tag. Set post-commit (here), cleared on teardown
                       ;; below. The key tag is what lets `get-snap` reject a
                       ;; stale committed reaction across a query-v / frame

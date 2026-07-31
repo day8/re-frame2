@@ -28,6 +28,20 @@
   by `compute-and-cache!`'s reaction construction (one allocation, no
   perf-hot work).
 
+  **The one thrash that is NOT accepted (rf2-2rtt6.25).** A React-hook
+  render and the commit that owns it are two moments, and a first-mount
+  read used to build a reaction in the first, drop it to zero on the way
+  out, and rebuild it in the second — TWO constructions, and for a
+  layer-2+ sub a second walk of the whole `:<-` chain, on every cold
+  read. That was not a re-mount; it was ONE mount paying twice. The
+  React-hook spine now carries its render-phase +1 across that gap in a
+  hook-scoped escrow and the commit ADOPTS the same reaction (Spec 006
+  §Render-phase provisional acquisition and commit adoption); the release
+  is `unsubscribe-if-reaction!` below. Nothing here changes: the +1 is an
+  ordinary ref-count held by an ordinary owner, the cache never holds a
+  ref-count-0 entry, and 1 → 0 still disposes in-tick with no grace
+  period. What moves is only WHO holds the reference during the gap.
+
   The `swap-vals!`-after-CAS patterns (in `dispose-entry-now!`,
   `unsubscribe!`, and `invalidate-sub-on-replace!`) all encode the same
   concurrency-safety property: any side-effect (`interop/dispose!`)
@@ -172,6 +186,15 @@
   same subscription, the recomputed value is `=` to the disposed one
   so the new render observes no value change.
 
+  That churn is accepted between two DIFFERENT owners. It was never
+  meant to be paid inside ONE mount, and since rf2-2rtt6.25 it is not:
+  the React-hook spine holds its render-phase reference until the commit
+  adopts it, so a cold first mount no longer drives 1 → 0 between its own
+  render and its own commit (see `unsubscribe-if-reaction!` below and
+  Spec 006 §Render-phase provisional acquisition and commit adoption).
+  The rule this docstring states is unchanged — that path simply stopped
+  reaching the edge.
+
   Called from the public `re-frame.subs/unsubscribe` after `cache-key`
   + `cache` resolution; the facade fn holds the public API shape.
 
@@ -206,6 +229,55 @@
      (when dropped-to-zero?
        (dispose-entry-now! cache k frame-id))
      nil)))
+
+(defn ^:no-doc unsubscribe-if-reaction!
+  "INTERNAL (rf2-2rtt6.25). `unsubscribe!` with an IDENTITY GUARD: decrement
+  the ref-count for `k` **only while the slot still holds `reaction`**, then
+  take the ordinary 1 → 0 in-tick disposal. Not part of the public API —
+  `re-frame.subs/unsubscribe` remains the teardown every consumer calls.
+
+  The guard exists for **holders that may outlive their slot**. The React-hook
+  spine's render-phase provisional acquisition (Spec 006 §Render-phase
+  provisional acquisition and commit adoption) takes a +1 during render and
+  releases it either at the commit that adopts it or from a host-macrotask
+  reaper — and in the window between, hot reload, `clear-sub-cache!`, or
+  `destroy-frame!` may have evicted the slot and disposed the reaction. That
+  eviction already took the +1 with it, so an unguarded decrement would
+  either underflow a successor entry rebuilt under the same key or steal a
+  ref another subscriber owns. Guarded, a stale release is a clean no-op: its
+  reference died with the eviction. (The observation port's `release!` carries
+  the same guard inline for the same reason.)
+
+  Everything else is `unsubscribe!`'s: the same `swap-vals!`-after-CAS
+  discipline (the swap-fn body is pure; the drop-to-zero signal is read from
+  the pre/post snapshots so a retried `swap!` cannot fire a spurious
+  dispose), the same `dispose-entry-now!` eviction, the same
+  `:no-more-derefers` emit. The cache's shape, its algorithm, and Spec 006's
+  no-grace-period rule are untouched — this fn only narrows WHEN the
+  decrement applies, never what a decrement does.
+
+  `frame-id` is threaded through to `dispose-entry-now!` so the eviction
+  site's `:rf.sub/dispose` emit carries the right `:frame` tag."
+  [cache k reaction frame-id]
+  (let [[old new] (swap-vals! cache
+                              (fn [m]
+                                (if-let [entry (get m k)]
+                                  (if (identical? reaction (:reaction entry))
+                                    (let [old-n (or (:ref-count entry) 1)
+                                          n     (max 0 (dec old-n))]
+                                      (assoc-in m [k :ref-count] n))
+                                    m)
+                                  m)))
+        ;; This swap drove the 1 → 0 transition iff the guard admitted it —
+        ;; the slot still holds OUR reaction in the post-swap snapshot — and
+        ;; the count went 1 → 0. Same snapshot-diff reasoning as
+        ;; `unsubscribe!`.
+        dropped-to-zero? (and (identical? reaction (get-in new [k :reaction]))
+                              (= 1 (or (get-in old [k :ref-count]) 1))
+                              (zero? (or (get-in new [k :ref-count]) 0)))]
+    (when dropped-to-zero?
+      (dispose-entry-now! cache k frame-id))
+    nil))
 
 ;; ---- hot-reload invalidation ---------------------------------------------
 ;;
