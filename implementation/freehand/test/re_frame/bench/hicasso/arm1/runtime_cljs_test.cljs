@@ -324,6 +324,46 @@
           "and the dropped key has no reader left behind")
       (release))))
 
+(deftest the-wired-path-never-takes-the-diffs-dropping-half
+  (seeded! 3)
+  (testing "rf2-2rtt6.47. HD-002(b) used to be discharged against
+           `record-reads`'s set difference, and this wiring never runs its
+           dropping half: the boundary id is the registration React mints
+           per `subscribe`, so a changed read set arrives as a FRESH id
+           with an empty held set. Every `:edges-changed` the index emits
+           on this path therefore adds everything and drops nothing —
+           asserted, so the docstring's claim is checkable"
+    (let [seen (atom [])]
+      (idx/set-evidence-sink!
+        (fn [e] (when (= :edges-changed (:event e)) (swap! seen conj e))))
+      (try
+        (let [wide  (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                                     (str (rt/sub [:dogfood/todo 1]))]))
+              stop  (rt/commit-boundary! wide (fn []))]
+          (is (= 2 (:cell-refs (rt/stats))))
+          ;; React's own sequence when `subscribe` identity moves: the
+          ;; previous cleanup, THEN the new entry's subscribe.
+          (stop)
+          (is (= 0 (:cell-refs (rt/stats)))
+              "every reference is dropped, including the key that did not
+               change — there is no cheap route for `n-1 of n unchanged`")
+          (let [narrow (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
+                stop2  (rt/commit-boundary! narrow (fn []))
+                b      (first (:live (idx/snapshot)))]
+            (is (= 1 (:cell-refs (rt/stats))) "and re-acquired from nothing")
+            (is (= #{(key-of [:dogfood/todo 0])} (idx/edges-of (idx/snapshot) b))
+                "the narrowing landed")
+            (is (empty? (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))
+                "and it landed through `unmount`'s drop-everything, not
+                 through the difference")
+            (stop2)))
+        (finally (idx/set-evidence-sink! nil)))
+      (is (= 2 (count @seen)) "two commits, two edge-change records")
+      (is (every? (comp empty? :dropped) @seen)
+          (str "and neither dropped anything: " (pr-str (mapv :dropped @seen))))
+      (is (= [2 1] (mapv (comp count :added) @seen))
+          "each one added its whole read set"))))
+
 (deftest reading-one-key-twice-is-one-edge
   (seeded! 3)
   (testing "the buffer is a sequence and the index edge is set-valued; the
@@ -334,6 +374,82 @@
       (is (= 1 (count (reads-of entry))))
       (is (= 1 (:edges (rt/stats))))
       (release))))
+
+;; ---------------------------------------------------------------------------
+;; The read-set entry cache: what a lookup scans, and who an entry belongs to
+;; ---------------------------------------------------------------------------
+
+(defn- render-shared-first-key!
+  "`n` bodies in the shape that used to collapse the whole cache into one
+  bucket: a page-wide key read FIRST, then a per-row key. One `let`
+  binding moved is all it takes for a bulk list to be written this way."
+  [n]
+  (dotimes [i n]
+    (render (fn [_] [:li (str (rt/sub [:dogfood/remaining]))
+                     (str (rt/sub [:dogfood/todo i]))]))))
+
+(deftest the-bucket-scan-does-not-grow-with-the-number-of-boundaries
+  (seeded! 3)
+  (testing "an entry lookup compares against the read sequences that
+           COLLIDE, not against every live boundary that happens to share
+           a first key. Bucketing on `(aget scratch 0)` made an 8-row list
+           an 8-deep scan and a 64-row list a 64-deep one — the whole
+           quadratic in rf2-2rtt6.46 — so the claim is that the depth does
+           not move between the two"
+    (render-shared-first-key! 8)
+    (let [small (rt/entry-buckets)]
+      (is (= 8 (:entries (rt/stats))) "eight distinct read sequences, eight entries")
+      (seeded! 3)
+      (render-shared-first-key! 64)
+      (let [large (rt/entry-buckets)]
+        (is (= 64 (:entries (rt/stats))))
+        (is (= 1 (:max-bucket small)))
+        (is (= (:max-bucket small) (:max-bucket large))
+            (str "the scan is " (:max-bucket large) " deep at 64 rows and "
+                 (:max-bucket small) " deep at 8 — flat in N, which is the "
+                 "acceptance"))
+        (is (= 64 (:buckets large))
+            "and the entries are spread across buckets rather than stacked
+             in one")))))
+
+(deftest a-read-set-entry-belongs-to-its-read-sequence-and-not-to-a-boundary
+  (seeded! 3)
+  (testing "the sharing rule the retained inventory now states: an entry
+           is shared with a boundary whose read sequence is IDENTICAL, and
+           with no other. Two rows reading a per-row key have distinct
+           sequences and therefore an entry each — which is why the entry
+           is filed per-boundary for the heap ladder (rf2-2rtt6.34)"
+    (let [a (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
+          b (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
+          c (render (fn [_] [:li (str (rt/sub [:dogfood/todo 1]))]))]
+      (is (identical? a b) "an identical sequence shares one entry")
+      (is (not (identical? a c)) "a per-row key does not")
+      (is (= 2 (:entries (rt/stats))))))
+  (testing "and the ordered compare is a false negative, never a wrong
+           answer: the same SET read in a different ORDER takes a second
+           entry with the same key set"
+    (seeded! 3)
+    (let [ab (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                              (str (rt/sub [:dogfood/remaining]))]))
+          ba (render (fn [_] [:li (str (rt/sub [:dogfood/remaining]))
+                              (str (rt/sub [:dogfood/todo 0]))]))]
+      (is (not (identical? ab ba)))
+      (is (= (reads-of ab) (reads-of ba)) "same edges, so the answer is right")
+      (is (= 2 (:entries (rt/stats))) "and the cost is one extra entry"))))
+
+(deftest the-retained-inventory-files-the-entry-where-a-heap-ladder-must-count-it
+  (testing "rf2-2rtt6.46: `:read-set-entry` under `:shared` under-counted
+           per-boundary retention by one entry per boundary on exactly the
+           distinct-query rung rf2-2rtt6.34 is taken on"
+    (let [inv    (rt/retained-inventory)
+          per-b  (into #{} (map :token) (:per-boundary inv))
+          shared (into #{} (map :token) (:shared inv))]
+      (is (contains? per-b :read-set-entry))
+      (is (not (contains? shared :read-set-entry)))
+      (is (contains? shared :key-cell)
+          "the key cell IS shared — one per unique (frame, query) however
+           many boundaries read it — so this is a classification and not a
+           blanket move"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The commit path: write -> dirty keys -> index -> dirty boundaries

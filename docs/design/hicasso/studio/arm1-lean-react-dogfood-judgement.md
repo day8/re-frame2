@@ -127,18 +127,48 @@ Witnesses: `a-render-mutates-neither-the-index-nor-a-reference`,
 
 ### (b) The allowed edge-diff operation
 
-A boundary's edge set is **replaced wholesale, once, at commit** — the shared
-front half's `record-reads` set difference — and only when the read set actually
-changed, because an unchanged set leaves `subscribe` identical and React does not
-call it again. **The unchanged case is detected without building anything:** the
-scratch array is compared pairwise against the cached entry's key array, so
-steady-state allocation for edge maintenance is zero bytes.
+A boundary's edge set is **replaced wholesale, once, at commit** — and only when
+the read set actually changed, because an unchanged set leaves `subscribe`
+identical and React does not call it again. **The unchanged case is detected
+without building anything:** the scratch array is compared pairwise against the
+cached entry's key array, so steady-state allocation for edge maintenance is zero
+bytes.
+
+**The replacement is `unmount-all` + `mount-all`, and this page used to say it
+was `record-reads`'s set difference.** That was wrong about the running path
+(rf2-2rtt6.47). A boundary id here is the registration object React mints inside
+`subscribe`, so a changed read set means a new entry, a new `subscribe` and a new
+id; the index installs `#{}` for it, and the `record-reads` that follows sees
+`held = #{}` — `added` is the whole read set and `dropped` is always empty. The
+narrowing is the *previous* registration's cleanup calling `unmount`, which drops
+every edge outright. The difference is proved in
+`front/sub_index_laws_cljs_test`, and on this wiring it is delivered by the
+`unmount`/`mount` pair; `the-wired-path-never-takes-the-diffs-dropping-half`
+pins that, so the two stop diverging.
+
+The cost follows and is not the "identity change and one replacement" §4 of this
+page priced it as. For an `n`-read boundary with one key changed: `n` releases
+(including the `n-1` that did not change), up to `n` armed reapers, an entry miss
+that builds a key array, a key set and two closures, `n` re-acquisitions, and two
+whole-map rebuilds of `:sub->bs`. **There is no cheap route for "19 of 20 keys
+unchanged."**
+
+A durable per-boundary id would make the difference live. It is unavailable at
+this arm's fences rather than merely unbuilt: it must survive a re-subscribe, so
+it cannot live on the registration; the shell has no per-instance storage that is
+not a hook, and a third hook breaks the HD-020 budget the ledger witness
+enforces; and threading one into `subscribe` would end `subscribe`'s property of
+closing over the read set and nothing else, which is what makes it shared and
+identity-stable. Buying the diff costs the two properties the arm exists to
+demonstrate, so it is not bought — and the finding is recorded here rather than
+left as an unexplained absence.
 
 The ordered compare is a **false-negative device, never a wrong answer** — two
 renders reading the same keys in a different order miss the compare, take a
-second entry with the same set, and React replaces a set with itself. It is
-deliberately not repaired with a content hash, whose failure mode would be a
-silently missing edge.
+second entry with the same set, and React replaces a set with itself. The compare
+is deliberately not *replaced* by a content hash, whose failure mode would be a
+silently missing edge; a hash does choose which entries the compare runs against
+(rf2-2rtt6.46), where a collision costs a second entry and never a wrong one.
 
 Against the forbidden list: no per-read object; one scratch and never two;
 nothing keyed by render, attempt, lane or generation; no registry of in-flight
@@ -147,6 +177,8 @@ renders; **no commit-phase re-read of subscription values**.
 Witnesses: `an-unchanged-read-set-is-detected-without-building-anything`,
 `a-changed-read-set-takes-a-different-subscribe-identity`,
 `a-boundary-holds-exactly-the-edges-its-latest-commit-installed`,
+`the-wired-path-never-takes-the-diffs-dropping-half`,
+`the-bucket-scan-does-not-grow-with-the-number-of-boundaries`,
 `reading-one-key-twice-is-one-edge`,
 `a-warm-read-performs-no-new-attach-or-release`.
 
@@ -174,10 +206,25 @@ cite.
 ### (d) The survival metric
 
 Two halves. **Zero retained per-occurrence objects after commit/teardown** is
-witnessed now — `arm1_runtime_cljs_test` asserts `{:cells 0 :cell-refs 0
-:boundaries 0 :edges 0 :entries 0}` after release, and every DOM suite asserts
-the same after its mount. **The steady-state allocation slope across warm
-1/3/7/20 reads** needs the bench and is not taken here.
+witnessed now, at both seams and in both directions:
+
+- at the **node seam**, `arm1_runtime_cljs_test` drives `commit-boundary!`'s own
+  cleanup and asserts `{:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}`
+  past the reapers' macrotask horizon;
+- at the **React seam**, `arm1_dogfood_dom_cljs_test` and
+  `arm1_generation_fence_dom_cljs_test` unmount the root and take the same
+  reading — with the runtime untouched, so what they read is what React's own
+  cleanup left.
+
+The second bullet is a correction. Until rf2-2rtt6.48 those DOM gates asserted
+after `mount/release!`, which resets the runtime *before* the reading: they
+answered zero however teardown had gone, and no suite witnessed React-driven
+release at all. `release!` now splits into `unmount!` + reset, the gates read
+between the two, and `the-residue-reading-can-answer-false` mounts two roots and
+unmounts one to show the repaired reading is live at the point the gates take it.
+
+**The steady-state allocation slope across warm 1/3/7/20 reads** needs the bench
+and is not taken here.
 
 ### The tripwire did not fire
 
@@ -436,10 +483,12 @@ position into hand-written imperative code.
 The honest cost on the other side: the collector's edge set is a function of what
 the body *did*, so a body whose control flow depends on a value read late can
 change its edge set from render to render, and each change is a re-subscribe. The
-mechanism makes that cheap (an identity change and one replacement) and the
-witnesses prove it is correct, but it is a real difference from a surface whose
-edges are static, and it is the thing to watch on the bulk rows when they are
-taken.
+witnesses prove it is correct. **It is not cheap** — §3(b) prices it: a
+re-subscribe releases and re-acquires every key the boundary reads, not the one
+that changed, and arms a reaper for each. This paragraph read "an identity change
+and one replacement" until rf2-2rtt6.47 corrected it. It is a real difference
+from a surface whose edges are static, and it is the thing to watch on the bulk
+rows when they are taken.
 
 ---
 

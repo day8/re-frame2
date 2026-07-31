@@ -84,21 +84,58 @@
 
   ### The allowed edge-diff operation (clause (b))
 
-  A boundary's edge set is **replaced wholesale, once, at commit** —
-  `front.sub-index/record-reads`'s set difference — and only when the
-  read set actually changed, because an unchanged set leaves the
-  `subscribe` closure identical and React does not call it again. The
-  unchanged case is detected **without building anything**: the scratch
-  array is compared pairwise against the cached entry's key array, so
-  steady-state allocation for edge maintenance is zero bytes and the
-  allocation slope across warm 1/3/7/20 reads is flat.
+  A boundary's edge set is **replaced wholesale, once, at commit**, and
+  only when the read set actually changed, because an unchanged set
+  leaves the `subscribe` closure identical and React does not call it
+  again. The unchanged case is detected **without building anything**:
+  the scratch array is compared pairwise against the cached entry's key
+  array, so steady-state allocation for edge maintenance is zero bytes
+  and the allocation slope across warm 1/3/7/20 reads is flat.
+
+  **The replacement is `unmount-all` + `mount-all`, not a set difference,
+  and it is worth being exact about that (rf2-2rtt6.47).** The clause
+  used to be discharged against `front.sub-index/record-reads`'s
+  difference — the operation `front/sub_index_laws_cljs_test` proves law
+  4 for. This wiring never takes its dropping half. A boundary id here is
+  the registration object minted inside [[make-subscribe]], so a changed
+  read set means a new entry, a new `subscribe`, a new registration and
+  therefore a new id; `index/mount!` installs `#{}` for it, and the
+  `record-reads!` that follows sees `held = #{}`, `added = the whole read
+  set`, `dropped = #{}` every single time. The narrowing is done by the
+  *previous* registration's cleanup calling `index/unmount!`, which drops
+  every edge outright. `the-wired-path-never-takes-the-diffs-dropping-half`
+  asserts that, so the claim is checkable rather than argued.
+
+  What the changed case therefore costs, for an `n`-read boundary with
+  one key different: `n` `release-cell!`s and up to `n` armed reapers,
+  one entry miss (a `.slice`, an `(into #{} ks)` and two closures), `n`
+  `acquire-cell!`s, one `mount!` and one `record-reads!` — two whole-map
+  rebuilds of `:sub->bs`. There is **no cheap route for \"19 of 20 keys
+  unchanged\"**, and a page whose rows change read set on a data change
+  pays it per row. That is the honest price and the thing to watch on the
+  bulk rows.
+
+  A durable per-boundary id would make the difference live, and it is
+  **unavailable at this arm's fences rather than merely unbuilt**. It has
+  to survive a re-subscribe, so it cannot live on the registration; the
+  shell has no per-instance storage that is not a hook, and a third hook
+  breaks the HD-020 budget the ledger witness enforces; and threading one
+  into `subscribe` would mean `subscribe` closing over something other
+  than the read set, which is what makes it a shared, identity-stable
+  pure function of a value in the first place. Buying the diff costs the
+  two properties this arm exists to demonstrate, so it is not bought.
+  The difference stays in the shared front half — general, proved, and
+  driven in its degenerate form from here.
 
   The ordered compare is a false-negative device and never a wrong
   answer: two renders that read the same keys in a different order miss
   the compare, take a second entry with the same set, and React replaces
-  a set with itself — slower, still correct. It is deliberately not
-  repaired with a content hash, whose failure mode would be a silently
-  missing edge.
+  a set with itself — slower, still correct. The compare is what decides
+  a match, and it is deliberately not *replaced* by a content hash, whose
+  failure mode would be a silently missing edge. A hash does choose which
+  entries the compare is run against ([[scratch-bucket-key]]), which is a
+  different job with a different failure mode — a collision costs a
+  second entry, never a wrong one.
 
   **No per-read object, no second candidate slot, nothing keyed by a
   render or an attempt, and no commit-phase deref.** The commit consults
@@ -629,12 +666,52 @@
 ;; ---------------------------------------------------------------------------
 
 (defonce ^:private !entries
-  ;; first-sub-key -> vector of entries. Bucketing on a value the scratch
-  ;; already holds keeps the steady-state lookup allocation-free; the
-  ;; distinct-query witness puts one entry in each bucket.
+  ;; read-sequence hash -> vector of entries. See [[scratch-bucket-key]]
+  ;; for why the key is a hash of the WHOLE sequence and not, as it once
+  ;; was, the first sub-key.
   (atom {}))
 
-(def ^:private empty-bucket-key ::no-reads)
+(defn- scratch-bucket-key
+  "The bucket the scratch's current read sequence belongs to: an
+  **order-sensitive hash of the whole sequence**.
+
+  It selects a bucket and is never an equality test — [[entry-matches?]]
+  still compares every key pairwise before an entry is reused. That
+  division is the whole safety argument, and it is why this is not the
+  content hash the design record rejected: a hash *instead of* the
+  compare could hand back an entry for a different read set, which is a
+  silently missing edge; a hash *in front of* the compare can only send
+  two different sequences to one bucket, where the compare rejects one of
+  them and the caller mints a second entry. False negatives only, in both
+  directions.
+
+  It costs nothing measurable. Every sub-key on the scratch has already
+  been hashed this render — [[read-key!]] looks it up in `!cells` before
+  it returns — so this is `n` cached-hash reads and `n` integer ops, with
+  no allocation, which is what keeps the steady-state hit path at zero
+  bytes.
+
+  **Why the first sub-key was not enough (rf2-2rtt6.46).** Bucketing on
+  `(aget scratch 0)` made the scan's cost a function of how an author
+  ordered their `let` bindings. A row body reading its per-row key first
+  put one entry in each bucket; the same body reading a page-wide key
+  first — one line moved — put every live row's entry in ONE bucket, and
+  every probe then passed the length test and the index-0 test and failed
+  only at the last key. Mounting N such rows cost `sum(i)` probes, and
+  N = 300 is a rung this programme benchmarks. Same page, same edges,
+  same DOM, ~150x the entry-lookup work. Hashing the whole sequence makes
+  the bucket a function of the read set rather than of its first element,
+  and `the-bucket-scan-does-not-grow-with-the-number-of-boundaries`
+  holds it there."
+  []
+  (let [n (alength scratch)]
+    (loop [i 0 h 1]
+      (if (== i n)
+        h
+        (recur (inc i)
+               ;; h*31 + hash(k), truncated to int32 — order-sensitive,
+               ;; allocation-free, and the arithmetic is JS-exact.
+               (bit-or 0 (+ (bit-shift-left h 5) (- h) (hash (aget scratch i)))))))))
 
 (defn- drop-entry! [^js entry]
   (let [bucket-key (.-bucketKey entry)]
@@ -658,8 +735,8 @@
   "Ordered pairwise compare of an entry's key array against the scratch.
   Allocates nothing. A false negative — same set, different order — costs
   a second entry and a symmetric difference that removes and re-adds the
-  same edges; it is never a wrong answer, which is why this is not a
-  content hash."
+  same edges; it is never a wrong answer, which is why the hash in
+  [[scratch-bucket-key]] chooses the bucket and this decides the match."
   [^js entry]
   (let [ks (.-keys entry)
         n  (alength ks)]
@@ -678,9 +755,15 @@
   keeps `subscribe`'s identity, so React does not re-subscribe and the
   commit does no work; a miss materialises the key array, the key set and
   the two closures **once**, for every boundary that will ever read that
-  set."
+  set.
+
+  The bucket is [[scratch-bucket-key]]'s hash of the whole read sequence,
+  so what a lookup scans is the set of read sequences that COLLIDE — not,
+  as it once was, the set of live boundaries that happen to share a first
+  key. `drop-entry!`'s rebuild of the bucket vector is O(1) for the same
+  reason."
   []
-  (let [bucket-key (if (zero? (alength scratch)) empty-bucket-key (aget scratch 0))
+  (let [bucket-key (scratch-bucket-key)
         bucket     (get @!entries bucket-key)]
     (or (some (fn [^js e] (when (entry-matches? e) e)) bucket)
         (let [ks    (.slice scratch)
@@ -742,7 +825,15 @@
   mount whatever React did with the renders in between.
 
   The registration holds exactly the cells it acquired, so its cleanup
-  cannot release a successor's after a reap and rebuild."
+  cannot release a successor's after a reap and rebuild.
+
+  **The registration is also the boundary id, and that is what makes the
+  index's edge diff degenerate here** — a fresh id every time, so
+  `record-reads!` always adds the whole read set against an empty held
+  set and never drops anything. A read-set change is this cleanup
+  followed by a fresh call to a different entry's `subscribe`: the
+  edge-set replacement in full, done by the pair rather than by a
+  difference. See the ns docstring, clause (b)."
   [^js entry]
   (fn subscribe [on-store-change]
     (let [reads (.-set entry)
@@ -914,7 +1005,19 @@
   "Every boundary-exclusive token this arm retains, enumerated rather than
   asserted (architecture.md, Arm 1). `:shared` names what is emphatically
   *not* per boundary, because that is the half a heap ladder reads wrong
-  if nobody writes it down."
+  if nobody writes it down.
+
+  **The classification is the ladder's input, so where a token sits is a
+  measurement and not a filing convenience (rf2-2rtt6.46).** The read-set
+  entry sat under `:shared` and does not belong there: an entry is shared
+  only between boundaries whose read SEQUENCES are identical, and the
+  shape the per-read heap ladder is taken on (rf2-2rtt6.34) is the
+  distinct-query one — every row reading its own key, so every row a read
+  sequence of its own and an entry of its own. Filed as `:shared` it
+  under-counted per-boundary retention by one entry per boundary, on
+  exactly the rung being measured, in the direction that flatters this
+  arm. Filed here it over-counts in the coincident-sequence case, which
+  is the direction a candidate's own instrument should err in."
   []
   {:per-boundary
    [{:token :registration
@@ -928,12 +1031,12 @@
     {:token :react/use-sync-external-store
      :what  "React's own hook cell for the one subscription hook"}
     {:token :react/use-context
-     :what  "React's own hook cell for the frame hook"}]
+     :what  "React's own hook cell for the frame hook"}
+    {:token :read-set-entry
+     :what  "one key array, key SET, subscribe and getSnapshot per distinct read SEQUENCE — shared ONLY with boundaries whose sequence is identical, so on the distinct-query rung the ladder is taken on there is one per boundary"}]
    :shared
    [{:token :key-cell
      :what  "one cell + one sub-cache reaction per unique (frame, query), however many boundaries read it"}
-    {:token :read-set-entry
-     :what  "one key array, key set, subscribe and getSnapshot per distinct read SET, shared by every boundary with that set"}
     {:token :scratch
      :what  "ONE module-level array for the whole runtime, reset by overwrite; its capacity is the high-water read count"}
     {:token :frame-ops
@@ -960,6 +1063,19 @@
      :generation (generation)
      :frames     (count @!frame-ops)
      :codec      (codec/cache-sizes)}))
+
+(defn entry-buckets
+  "The read-set entry cache's bucket occupancy — `{:buckets n :max-bucket
+  m}`, where `:max-bucket` is the number of entries a lookup compares
+  against in the worst case.
+
+  The scan's cost is `:max-bucket`, and the point of hashing the whole
+  read sequence is that it stays put while the number of live boundaries
+  grows. Computed on demand from the cache, so nothing on the hot path
+  counts anything. rf2-2rtt6.46."
+  []
+  (let [sizes (map (fn [[_ v]] (count v)) @!entries)]
+    {:buckets (count sizes) :max-bucket (reduce max 0 sizes)}))
 
 (defn residue
   "What must be zero after a clean teardown. `:cell-refs` is the standing
