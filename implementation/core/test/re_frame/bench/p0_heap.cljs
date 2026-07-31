@@ -70,12 +70,15 @@
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]
+            [re-frame.bench.hicasso.arm1.mount :as hic-mount]
+            [re-frame.bench.hicasso.arm1.runtime :as hic-rt]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.order-guard :as guard]
             [re-frame.bench.p0-arms :as arms]
             [re-frame.bench.p0-fixture :as fx]
             [re-frame.bench.p0-floor :as floor]
             [re-frame.bench.p0-harness :as h]
+            [re-frame.bench.p0-hicasso :as hic]
             [re-frame.bench.p0-reagent :as rg]
             [re-frame.bench.p0-uix :as ux]
             [re-frame.frame :as frame]
@@ -128,6 +131,26 @@
                     (react-dom/flushSync (fn [] (uix-dom/render-root (element-of i) rt)))
                     rt))
    :unmount-one (fn [rt] (uix-dom/unmount-root rt))})
+
+(defn- hicasso-root-arm
+  "One root of the Hicasso candidate arm (rf2-2rtt6.34), through Arm 1's
+  OWN root door — `arm1.mount/root!` installs the frame provider, renders
+  inside a `flushSync` and returns the handle its `release!` takes.
+
+  The unmount is NOT `arm1.mount/release!`, and the difference is the
+  whole survival metric. `release!` ends with `runtime/reset-runtime!`,
+  which drops every cell, edge and cached entry by force — an arm torn
+  down that way would answer zero residue whatever it had leaked, and
+  would also destroy the sibling roots of a multi-root arm. This unmounts
+  the root and nothing else, so React's own `useSyncExternalStore`
+  cleanup is what releases the edges and the references, and the residue
+  the driver reads afterwards is a measurement rather than a reset."
+  [hiccup-of selector expected]
+  {:selector    selector
+   :expected    expected
+   :mount-one   (fn [c i] (hic-mount/root! c arms/frame-id (hiccup-of i)))
+   :unmount-one (fn [handle]
+                  (react-dom/flushSync (fn [] (.unmount (:root handle)))))})
 
 (def arm-table
   "`arm-id -> {:segment :selector :expected :keys-expected :mount-one
@@ -201,14 +224,78 @@
            ;; the driver from having to special-case its own shell rung.
            :keys-expected (if (zero? (long reads)) 0 (long q)))))
 
+;; ---------------------------------------------------------------------------
+;; The ladder family — 1/3/7/20 reads at Q = E, three substrates (rf2-2rtt6.34)
+;; ---------------------------------------------------------------------------
+;;
+;; The fan family moves Q with B and E/B held near-fixed; this one moves
+;; READS with B fixed and Q pinned to E — the mandatory distinct-query
+;; witness, which is the regime both published per-read gates are stated
+;; in (validation.md:136-140). It carries three substrates rather than
+;; two, because the candidate has to be judged against donor rows taken
+;; on ITS OWN instrument (validation.md:180-189) and this instrument has
+;; no 3/7/20 rung on any substrate until now.
+;;
+;; `fx/fan-key` supplies the keys unchanged: at Q = B·R the rule
+;; `(n·R + k) mod Q` is the identity over `0 … B·R−1`, so every one of
+;; the E edges lands on its own key and Q = E exactly. The DOM is
+;; identical at every rung on every substrate — one `span.cell` per
+;; boundary carrying `data-i` and the one-character text `0`, because
+;; every `:p0/fan` value is 0 and a sum of zeros is zero — so the floor
+;; subtraction stays honest as R grows.
+
+(defn- lad-arm
+  "One rung of the ladder: `reads` DISTINCT subscription reads on each of
+  the same `.cell` boundaries the `grid` family holds, drawn from `q`
+  unique query keys — and at Q = E the driver states `q` as `B·reads`."
+  [substrate reads q]
+  (let [reads   (long reads)
+        base    (case substrate
+                  :reagent (reagent-root-arm
+                             (fn [r] (rg/lad-root arms/frame-id (* r per-root) per-root reads))
+                             ".cell" per-root)
+                  :uix     (uix-root-arm
+                             (fn [r] (ux/lad-root arms/frame-id (* r per-root) per-root reads))
+                             ".cell" per-root)
+                  :hicasso (hicasso-root-arm
+                             (fn [r] (hic/lad-grid (* r per-root) per-root reads))
+                             ".cell" per-root))]
+    (assoc base
+           ;; The candidate reads through `re-frame.subs` and the
+           ;; substrate's single internal frame context, so it needs
+           ;; NEITHER adapter's hooks and mounts correctly in either
+           ;; segment. It is measured in BOTH — and the first run of this
+           ;; row showed why that is a measurement rather than a seam
+           ;; check. Its R=0 shell read IDENTICALLY in the two segments
+           ;; (1,141 B either side) while its R=1 rung did not, because
+           ;; `subs/subscribe` builds a reaction whose implementation
+           ;; comes from the INSTALLED ADAPTER's reactive substrate. The
+           ;; two candidate columns are therefore one view layer over two
+           ;; subscription substrates, which is exactly the pair a
+           ;; per-read claim has to be stated against: the arm cannot be
+           ;; cheaper than the reactions it holds.
+           :segment       (case substrate
+                            :reagent :reagent-subs
+                            :uix     :uix-subs
+                            :hicasso nil)
+           :reads         reads
+           ;; A boundary that reads NOTHING holds no cache entry, so the
+           ;; R=0 rung's Q is 0 whatever `q` says — [[fan-arm]]'s rule,
+           ;; unchanged.
+           :keys-expected (if (zero? reads) 0 (long q)))))
+
 (defn- arm-for
-  "Resolve `arm-id` to an arm map. `:fan/*` is parameterised by `opts`
-  (`{:reads r :keys q}`); everything else is the published table."
+  "Resolve `arm-id` to an arm map. `:fan/*` and `:lad/*` are
+  parameterised by `opts` (`{:reads r :keys q}`); everything else is the
+  published table."
   [arm-id opts]
   (or (get arm-table arm-id)
       (case arm-id
         :fan/reagent (fan-arm :reagent (:reads opts) (:keys opts))
         :fan/uix     (fan-arm :uix     (:reads opts) (:keys opts))
+        :lad/reagent (lad-arm :reagent (:reads opts) (:keys opts))
+        :lad/uix     (lad-arm :uix     (:reads opts) (:keys opts))
+        :lad/hicasso (lad-arm :hicasso (:reads opts) (:keys opts))
         nil)))
 
 ;; ---------------------------------------------------------------------------
@@ -223,6 +310,15 @@
   a segment that is already installed still re-seeds, so the two branches
   cost the same."
   [segment-id]
+  ;; The Hicasso runtime memoises `capture-frame` per frame id, and
+  ;; `enter-segment!` destroys and re-creates `:p0/frame` — a bundle
+  ;; captured before the swap is pinned to a dead incarnation. Resetting
+  ;; here rather than after an arm is deliberate: `prepare!` runs OUTSIDE
+  ;; every measured window and before the baseline read, so the reset's
+  ;; own residue lands in the baseline, and no arm's teardown is ever
+  ;; forced — which is what leaves the survival metric something to
+  ;; measure (rf2-2rtt6.34).
+  (hic-rt/reset-runtime!)
   (let [segment (first (filter #(= segment-id (:id %)) arms/segments))]
     (when segment (arms/enter-segment! segment)))
   true)
@@ -285,11 +381,28 @@
         live       (live-key-count)]
     (reset! held {:arm (keyword arm-id) :unmount-one unmount-one
                   :handles handles :containers containers})
-    #js {:elements     elements
-         :expected     want
-         :keys         live
-         :keysExpected keys-expected
-         :ok           (and (= elements want) (= live keys-expected))}))
+    (let [hic (hic-rt/residue)]
+      #js {:elements     elements
+           :expected     want
+           :keys         live
+           :keysExpected keys-expected
+           :ok           (and (= elements want) (= live keys-expected))
+           ;; THE STRUCTURAL STAMP, counted off the Hicasso runtime on
+           ;; every mount of every arm (rf2-2rtt6.34). On a candidate arm
+           ;; it is what makes "one hook plus N edges in a shared index" a
+           ;; number the driver gates rather than a sentence in a
+           ;; docstring: `boundaries` must be B, `edges` must be E,
+           ;; `cells` must be Q, and `entries` must be B at Q = E — one
+           ;; read-set entry per boundary, because on the distinct-query
+           ;; witness no two boundaries read the same SET and the entry
+           ;; cache's sharing buys nothing. On a DONOR arm every one of
+           ;; them must be zero, which is the check that the candidate's
+           ;; runtime is not standing behind the rows it is compared to.
+           :hicasso      #js {:cells      (:cells hic)
+                              :cellRefs   (:cell-refs hic)
+                              :boundaries (:boundaries hic)
+                              :edges      (:edges hic)
+                              :entries    (:entries hic)}})))
 
 ;; ---------------------------------------------------------------------------
 ;; The positive control
@@ -623,6 +736,129 @@
     {:ok? (every? :ok chk) :checks chk}))
 
 ;; ---------------------------------------------------------------------------
+;; THE READS LADDER — the marginal per-read slope and the shell (rf2-2rtt6.34)
+;; ---------------------------------------------------------------------------
+;;
+;; One line per substrate, `y = intercept + slope · R`, fitted over the
+;; MANDATED rungs 1/3/7/20 and over nothing else.
+;;
+;; **R = 0 rides along as an anchor and is regressed nowhere.** That is
+;; not a style preference: the previous publication of this ladder on the
+;; freehand instrument regressed `[0 1 3 7 20]` while saying in three
+;; places that it excluded the sub-free rung, and the audit of PR #7260
+;; withdrew the whole fit over it. The intercept moved 25% when the
+;; mistake was corrected. So the exclusion is in the code, and
+;; [[ladder-self-test]]'s third check is the regression guard on it.
+;;
+;; The slope is a MARGINAL cost — what the next read costs once a boundary
+;; already reads. The first read is a separate quantity and is reported
+;; separately: on Reagent it ran 21% above the marginal slope on the
+;; predecessor instrument, and one number standing for both hid that.
+
+(def ladder-criterion
+  "`:min-r2` — the rungs must be a LINE in R. A per-read cost that grew
+  or shrank with the number of reads would not be a per-read cost at all,
+  and the fit is what forecloses that reading. 0.98 is the fan sweep's
+  own floor, kept identical so the two families are judged the same way;
+  the predecessor ladder returned r² ≥ 0.9987 on both substrates, and a
+  page whose per-read term was quadratic reads 0.965 over these rungs —
+  which [[ladder-self-test]] check B measures rather than assumes."
+  {:min-r2 0.98})
+
+(defn ladder-fit
+  "Price one substrate's ladder. `rungs` is a seq of `{:rung :reads :y}`,
+  `y` exclusive retained bytes per boundary (arm − floor).
+
+  Answers `{:slope :intercept :r2 :n :shell :first-read :linear?}` —
+  `:shell` the DIRECTLY MEASURED R=0 rung (never the fitted intercept),
+  `:first-read` the increment `y(1) − y(0)`."
+  [rungs {:keys [min-r2]}]
+  (let [rungs    (mapv (fn [g] (update g :reads long)) rungs)
+        reactive (filterv #(pos? (:reads %)) rungs)
+        by-reads (into {} (map (juxt :reads :y)) rungs)
+        {:keys [slope intercept r2 n]} (ols (mapv (fn [g] [(:reads g) (:y g)]) reactive))]
+    {:slope      slope
+     :intercept  intercept
+     :r2         r2
+     :n          n
+     :fitted     (mapv :reads reactive)
+     :shell      (get by-reads 0)
+     :first-read (when (and (contains? by-reads 0) (contains? by-reads 1))
+                   (- (get by-reads 1) (get by-reads 0)))
+     :linear?    (and (>= n 2) (>= r2 min-r2))
+     :why        (cond
+                   ;; A single reactive rung has no slope. OLS answers 0
+                   ;; for it (Sxx is zero) and r² answers 1.0 (a family
+                   ;; that does not vary is perfectly explained by a flat
+                   ;; line), which is a pair of numbers that look like a
+                   ;; result and are not one. Say so rather than print it.
+                   (< n 2)
+                   (str "UNIDENTIFIED — " n " reactive rung(s); a slope needs at least two")
+
+                   (>= r2 min-r2)
+                   (str "a line in R over " n " rungs (r² " (.toFixed r2 5) ")")
+
+                   :else
+                   (str "NOT a line in R — r² " (.toFixed r2 5) " under the "
+                        min-r2 " floor; the slope is not a per-read cost"))}))
+
+(defn ladder-self-test
+  "The ladder fit's own control, PREDICTED before anything is measured.
+
+  **A** is an exact line, `y = 400 + 900·R`, with an R=0 rung ON it. Both
+  terms must come back to the byte at r² = 1, and the first-read
+  increment must equal the slope.
+
+  **B** is a page whose per-read term is QUADRATIC — `y = 400 + 900·R²`,
+  what a substrate whose Nth read cost more than its first would look
+  like. It must be refused by the r² floor. This is the check that makes
+  the floor a criterion rather than a decoration: the arithmetic is fixed,
+  so the prediction is stated here in advance — **r² ≈ 0.9646 over
+  1/3/7/20, against a 0.98 floor**.
+
+  **C** is A with its R=0 rung moved to an absurd 99,999 B. The fit must
+  be BIT-IDENTICAL to A's, because R=0 is regressed nowhere. It is a
+  regression guard on the exact defect the audit of PR #7260 found in the
+  predecessor ladder, and it is a check of this file's own arithmetic —
+  not independent corroboration of anything measured."
+  []
+  (let [mk    (fn [f] (mapv (fn [r] {:rung (str "R" r) :reads r :y (f (double r))})
+                            [0 1 3 7 20]))
+        a     (ladder-fit (mk (fn [r] (+ 400.0 (* 900.0 r)))) ladder-criterion)
+        b     (ladder-fit (mk (fn [r] (+ 400.0 (* 900.0 r r)))) ladder-criterion)
+        c     (ladder-fit (assoc-in (vec (mk (fn [r] (+ 400.0 (* 900.0 r))))) [0 :y] 99999.0)
+                          ladder-criterion)
+        near? (fn [x y tol] (and (number? x) (< (js/Math.abs (- x y)) tol)))
+        chk   [{:name "A — an exact line is recovered to the byte, and R=0 is not in the fit"
+                :ok   (and (near? (:slope a) 900.0 1e-6)
+                           (near? (:intercept a) 400.0 1e-6)
+                           (near? (:r2 a) 1.0 1e-9)
+                           (= 4 (:n a))
+                           (near? (:shell a) 400.0 1e-9)
+                           (near? (:first-read a) 900.0 1e-9))
+                :detail (str "slope " (.toFixed (:slope a) 3)
+                             " · intercept " (.toFixed (:intercept a) 3)
+                             " · r² " (.toFixed (:r2 a) 6)
+                             " · fitted over " (pr-str (:fitted a))
+                             " · shell " (.toFixed (:shell a) 1)
+                             " · first read " (.toFixed (:first-read a) 1))}
+               {:name "B — a QUADRATIC per-read term is refused by the r² floor"
+                :ok   (and (not (:linear? b)) (near? (:r2 b) 0.9646 5e-4))
+                :detail (str "r² " (.toFixed (:r2 b) 5) " against a predicted 0.9646 and a "
+                             (:min-r2 ladder-criterion) " floor — " (:why b))}
+               {:name "C — an absurd R=0 rung does not move the fit by one bit"
+                :ok   (and (= (:slope c) (:slope a))
+                           (= (:intercept c) (:intercept a))
+                           (= (:r2 c) (:r2 a))
+                           (near? (:shell c) 99999.0 1e-9))
+                :detail (str "shell " (.toFixed (:shell c) 0) " B, slope still "
+                             (.toFixed (:slope c) 3) " B and intercept still "
+                             (.toFixed (:intercept c) 3)
+                             " B — the guard on the defect the audit of PR #7260 found "
+                             "in the predecessor ladder")}]]
+    {:ok? (every? :ok chk) :checks chk}))
+
+;; ---------------------------------------------------------------------------
 ;; The page-side door
 ;; ---------------------------------------------------------------------------
 
@@ -723,5 +959,45 @@
                                                               :detail (:detail c)})
                                                        (:checks v)))
                                       :edn      (pr-str v)}))
+             ;; The ladder's two doors (rf2-2rtt6.34), CLJS for the same
+             ;; reason the fan sweep's are: a JavaScript restatement of a
+             ;; fit rule would be a second place for it to drift, and this
+             ;; one decides what may be quoted as a per-read price. Flat
+             ;; `#js` answers, never `clj->js` — the `:ok?`-becomes-`"ok?"`
+             ;; trap `mount!` already carries the scar from.
+             :ladderSelfTest (fn []
+                               (let [st (ladder-self-test)]
+                                 #js {:ok     (boolean (:ok? st))
+                                      :checks (into-array
+                                                (map (fn [c]
+                                                       #js {:ok     (boolean (:ok c))
+                                                            :name   (:name c)
+                                                            :detail (:detail c)})
+                                                     (:checks st)))}))
+             :ladderFit      (fn [rungs]
+                               (let [v (ladder-fit (js->clj rungs :keywordize-keys true)
+                                                   ladder-criterion)]
+                                 #js {:slope     (:slope v)
+                                      :intercept (:intercept v)
+                                      :r2        (:r2 v)
+                                      :n         (:n v)
+                                      :shell     (:shell v)
+                                      :firstRead (:first-read v)
+                                      :linear    (boolean (:linear? v))
+                                      :why       (:why v)
+                                      :edn       (pr-str v)}))
+             ;; The survival metric's structural half, read AFTER the
+             ;; collector has run and the reapers' macrotask has fired.
+             ;; Every field must be zero once an arm is released; a
+             ;; nonzero one is a retained per-occurrence object, which is
+             ;; HD-002 clause (d)'s failure and a different and worse
+             ;; finding than a large per-boundary figure.
+             :hicassoResidue (fn []
+                               (let [r (hic-rt/residue)]
+                                 #js {:cells      (:cells r)
+                                      :cellRefs   (:cell-refs r)
+                                      :boundaries (:boundaries r)
+                                      :edges      (:edges r)
+                                      :entries    (:entries r)}))
              :boundariesPerRoot #js {:list rows-per-root :grid per-root}})
   nil)

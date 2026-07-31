@@ -121,6 +121,58 @@
        2 (for [j (range n-cells)] ($ fan-cell-2 {:key j :j j :n (+ offset j)})))))
 
 ;; ---------------------------------------------------------------------------
+;; LAD — the reads-per-boundary ladder (rf2-2rtt6.34)
+;; ---------------------------------------------------------------------------
+;;
+;; UNROLLED, and it has to be. `use-subscribe` is a hook over
+;; `useSyncExternalStore`, so React's rule is that the call sequence is
+;; identical on every render of an instance. A loop would satisfy that in
+;; fact — `r` never changes for a mounted instance — but not by
+;; construction, and UIx's linter reads the loop rather than the fact.
+;; Writing the calls out is also the honest thing on a page that is
+;; pricing hook calls: the reader can count them. The Reagent counterpart
+;; loops, and that difference is the substrates', not the instrument's.
+;;
+;; Every rung's cell takes the SAME two props, so the argv a fiber retains
+;; is the same shape at R = 0 and at R = 20 and the shell rung is not
+;; measuring one fewer prop slot than the rungs it anchors.
+
+(defn- lus [n r k] (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n r k)]))
+
+(defui lad-cell-0 [{:keys [j _n]}]
+  ($ :span.cell {:data-i j} "0"))
+
+(defui lad-cell-1 [{:keys [j n]}]
+  (let [v (lus n 1 0)]
+    ($ :span.cell {:data-i j} (str v))))
+
+(defui lad-cell-3 [{:keys [j n]}]
+  (let [v (+ (lus n 3 0) (lus n 3 1) (lus n 3 2))]
+    ($ :span.cell {:data-i j} (str v))))
+
+(defui lad-cell-7 [{:keys [j n]}]
+  (let [v (+ (lus n 7 0) (lus n 7 1) (lus n 7 2) (lus n 7 3)
+             (lus n 7 4) (lus n 7 5) (lus n 7 6))]
+    ($ :span.cell {:data-i j} (str v))))
+
+(defui lad-cell-20 [{:keys [j n]}]
+  (let [v (+ (lus n 20 0)  (lus n 20 1)  (lus n 20 2)  (lus n 20 3)
+             (lus n 20 4)  (lus n 20 5)  (lus n 20 6)  (lus n 20 7)
+             (lus n 20 8)  (lus n 20 9)  (lus n 20 10) (lus n 20 11)
+             (lus n 20 12) (lus n 20 13) (lus n 20 14) (lus n 20 15)
+             (lus n 20 16) (lus n 20 17) (lus n 20 18) (lus n 20 19))]
+    ($ :span.cell {:data-i j} (str v))))
+
+(def ^:private lad-cell-by-reads
+  {0 lad-cell-0, 1 lad-cell-1, 3 lad-cell-3, 7 lad-cell-7, 20 lad-cell-20})
+
+(defui lad-grid [{:keys [offset n-cells reads]}]
+  ($ :div.ugrid
+     (let [c (get lad-cell-by-reads (long reads))]
+       (for [j (range n-cells)]
+         ($ c {:key j :j j :n (+ offset j)})))))
+
+;; ---------------------------------------------------------------------------
 ;; Roots — the frame scope every read resolves through
 ;; ---------------------------------------------------------------------------
 ;;
@@ -149,3 +201,10 @@
   [frame-id offset n-cells reads]
   ($ uix-adapter/frame-provider {:frame frame-id}
      ($ fan-grid {:offset offset :n-cells n-cells :reads reads})))
+
+(defn lad-root
+  "One root of the ladder arm (rf2-2rtt6.34). `offset` is this root's base
+  in the GLOBAL boundary numbering, as [[fan-root]]'s is."
+  [frame-id offset n-cells reads]
+  ($ uix-adapter/frame-provider {:frame frame-id}
+     ($ lad-grid {:offset offset :n-cells n-cells :reads reads})))
