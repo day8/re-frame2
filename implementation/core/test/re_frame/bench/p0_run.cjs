@@ -923,11 +923,13 @@ function summariseLadder(row, structuralFailures) {
     const floorKey = `${segment}|grid/floor`;
     const floorStat = stat(row.perRound.map((r) => r.arms[floorKey].bytesPerBoundaryCdp));
     console.log(
-      ';; arm            reads      B        E        Q     exclusive B/boundary [min–max]    residue'
+      ';; arm            reads      B        E        Q     exclusive B/boundary [min–max]   residue B/bdy'
     );
+    const floorRes = stat(row.perRound.map((r) => r.arms[floorKey].residueCdp / B));
     console.log(
       `;; floor              0 ${String(B).padStart(7)} ${String(0).padStart(8)} ${String(0).padStart(8)}   ` +
         `${n0(floorStat.mean).padStart(8)} [${n0(floorStat.min)}–${n0(floorStat.max)}]`.padEnd(26) +
+        `${n0(floorRes.mean).padStart(6)} [${n0(floorRes.min)}–${n0(floorRes.max)}]` +
         '  (absolute, the calibrator)'
     );
     for (const sub of LADDER_SUBSTRATES[segment]) {
@@ -938,12 +940,17 @@ function summariseLadder(row, structuralFailures) {
             (r) => r.arms[key].bytesPerBoundaryCdp - r.arms[floorKey].bytesPerBoundaryCdp
           )
         );
-        const res = stat(row.perRound.map((r) => r.arms[key].residueCdp));
+        // Residue PER BOUNDARY, so it is on the same axis as the
+        // exclusive column beside it and comparable with the published
+        // ±11 B/boundary the predecessor ladder reported. As a total it
+        // reads in the tens of thousands on a 71 MB arm and looks like a
+        // leak; divided by B it is the width of this instrument's zero.
+        const res = stat(row.perRound.map((r) => r.arms[key].residueCdp / B));
         console.log(
           `;; ${sub.padEnd(11)}${String(R).padStart(6)} ${String(B).padStart(7)} ` +
             `${String(B * R).padStart(8)} ${String(B * R).padStart(8)}   ` +
             `${n0(excl.mean).padStart(8)} [${n0(excl.min)}–${n0(excl.max)}]`.padEnd(26) +
-            `${n0(res.mean).padStart(9)}` +
+            `${n0(res.mean).padStart(6)} [${n0(res.min)}–${n0(res.max)}]` +
             (R === 0 ? '   (anchor — regressed nowhere)' : '')
         );
       }
