@@ -109,6 +109,8 @@ Per-artefact tests run from each artefact directory via `clojure -M:test` (see e
 
 Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
+**`mkdocs build --strict` does not cover `docs/design/**`** — `mkdocs.yml`'s `exclude_docs` block deliberately keeps `design/freehand/` and `design/hicasso/` out of the site (they are working design records, not user-facing documentation), so never nominate it as the gate for an edit confined to that tree. `scripts/check_doc_slugs.py` *does* validate the tree's markdown link targets and heading anchors (it runs in the fast-PR spine and in `docs.yml`); nothing validates its tables, rendering or nav, so **the worker verifies anchors and table column counts by hand and says so in the PR body**.
+
 ## Architecture Overview
 
 **The spec is the artefact; the code is downstream.** The normative description of re-frame2 lives in [`spec/`](spec/) (~22K lines across 35+ documents); [`implementation/`](implementation/) is a CLJS reference that validates the spec end-to-end. See the repo-root [`README.md`](README.md) for the marketing-voice introduction and the project-layout map, and [`spec/README.md`](spec/README.md) for the spec index.

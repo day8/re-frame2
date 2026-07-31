@@ -78,6 +78,14 @@ Two hard-won rules:
 - **Local-green ≠ CI.** "Green locally" usually means the subset the worker ran;
   the red gate is one it skipped (integration/live, a linter, a drift-check). The
   merge decision is CI's, not the worker's hand-off.
+- **Never nominate a gate that does not cover the surface being edited.** Site
+  builds, linters and test runners all carry exclusion lists, and a gate run over
+  an excluded path exits green having verified nothing — the same fail-open defect
+  worth hunting anywhere else, except it is now the brief telling the worker to
+  trust it. Read the exclusion config before naming the gate. Where a surface
+  genuinely has no automated coverage, the honest brief says *no automated gate
+  covers this surface; the worker verifies it by hand and says so in the PR body* —
+  and the PR body then reports what was checked and the counts.
 
 A skipped gate needs a one-line PR-body reason (e.g. "tool not installed locally;
 relying on CI"). A silent skip fails review.
