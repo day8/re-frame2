@@ -80,6 +80,15 @@
 ;; The two read surfaces (HD-002; the collector is the one being made to work)
 ;; ---------------------------------------------------------------------------
 
+(defn- mounted!
+  "A boundary at the seam React occupies: render its body, commit the
+  reads, and hand back `{:hits :release!}`."
+  [body-fn]
+  (let [entry   (render body-fn)
+        hits    (volatile! 0)
+        release (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
+    {:entry entry :hits hits :release! release}))
+
 (deftest a-read-outside-a-render-is-a-loud-error
   (seeded!)
   (testing "`sub` outside a boundary is an error, never a silent read of
@@ -295,15 +304,6 @@
 ;; The commit path: write -> dirty keys -> index -> dirty boundaries
 ;; ---------------------------------------------------------------------------
 
-(defn- mounted!
-  "A boundary at the seam React occupies: render its body, commit the
-  reads, and hand back `{:hits :release!}`."
-  [body-fn]
-  (let [entry   (render body-fn)
-        hits    (volatile! 0)
-        release (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
-    {:entry entry :hits hits :release! release}))
-
 (deftest a-narrow-write-notifies-exactly-the-boundary-that-read-it
   (seeded! 3)
   (let [a (mounted! (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
@@ -373,25 +373,25 @@
 
 (deftest a-commit-landing-inside-a-body-re-runs-that-body
   (seeded! 3)
+  ;; The boundary must already hold the key for a mid-body write to be
+  ;; observable at all — a key nothing holds has no watch to fire.
   (let [runs       (volatile! 0)
         first-read (volatile! nil)
-        seen       (volatile! nil)]
-    ;; The boundary must already hold the key for a mid-body write to be
-    ;; observable at all — a key nothing holds has no watch to fire.
-    (let [warm (mounted! (fn [_] [:li (str (rt/sub [:dogfood/done? 0]))]))
-          entry (render (fn [_]
+        seen       (volatile! nil)
+        warm       (mounted! (fn [_] [:li (str (rt/sub [:dogfood/done? 0]))]))
+        entry      (render (fn [_]
                           (vswap! runs inc)
                           (vreset! first-read (rt/sub [:dogfood/done? 0]))
                           (when (= 1 @runs)
                             (rt/dispatch! frame-id [:dogfood/toggle 0]))
                           (vreset! seen (rt/sub [:dogfood/done? 0]))
                           [:li (str @seen)]))]
-      (is (= 2 @runs) "the fence re-ran the body against the newer commit")
-      (is (true? @seen) "and the winning run read the committed value")
-      (is (true? @first-read) "both of the winning run's reads are on one commit")
-      (is (= #{(key-of [:dogfood/done? 0])} (reads-of entry))
-          "the index sees the winning render's reads, not the abandoned one's")
-      ((:release! warm)))))
+    (is (= 2 @runs) "the fence re-ran the body against the newer commit")
+    (is (true? @seen) "and the winning run read the committed value")
+    (is (true? @first-read) "both of the winning run's reads are on one commit")
+    (is (= #{(key-of [:dogfood/done? 0])} (reads-of entry))
+        "the index sees the winning render's reads, not the abandoned one's")
+    ((:release! warm))))
 
 (deftest a-body-that-writes-on-every-run-fails-loudly
   (seeded! 3)

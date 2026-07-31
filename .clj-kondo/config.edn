@@ -105,6 +105,17 @@
   ;; a Var, optional docstring + body expression analysed).
   re-frame.core/defmachine          clojure.core/def
 
+  ;; Hicasso Arm 1's `defview` (rf2-2rtt6.9) is
+  ;; `(defview sym [doc] [props] body+)` — a `defn`-shaped wrapper that
+  ;; introduces a Var holding the React function component the runtime
+  ;; minted. `clojure.core/defn` is the right shape: the name resolves as
+  ;; a Var, the optional docstring is accepted, and the props vector gets
+  ;; ordinary lexical-binding analysis so a destructured key is neither
+  ;; unresolved nor unused. It lives in the bench/test tree on a spike
+  ;; branch (HD-017), so this entry retires with the arm if the P2 ruling
+  ;; does not graduate it.
+  re-frame.bench.hicasso.arm1.lang/defview clojure.core/defn
+
   ;; `reg-view` is `(reg-view sym [args] body)` — defn-shape, but the
   ;; macro auto-injects `dispatch` / `subscribe` into the body. Handled
   ;; by the dedicated hook in `.clj-kondo/hooks/re_frame/core.clj` —
