@@ -137,9 +137,12 @@
            This arm is safe **by construction rather than by care**: the
            collector window closes around `codec/as-element`, and the codec
            is eager everywhere it walks — `expand-seq` drives a seq to
-           exhaustion, `realize-children` folds one into a vector, and a
-           seq at a prop position goes through `clj->js`. So a lazy read is
-           forced inside the window by the same pass that turns hiccup into
+           exhaustion, `realize-children` folds one into a vector, a seq at
+           a NATIVE prop position goes through `clj->js`, and
+           `codec/realize-deep` forces one reachable from a BOUNDARY's
+           props at the crossing (rf2-2rtt6.45, whose own suite is
+           `arm1/boundary-crossing-cljs-test`). So a lazy read is forced
+           inside the window by the same pass that turns hiccup into
            elements. This test is what keeps that true: it fails the moment
            the codec call moves outside `run-once`."
     (let [b (mounted! (fn [_]

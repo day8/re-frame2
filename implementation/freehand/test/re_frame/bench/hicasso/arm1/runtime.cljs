@@ -118,10 +118,19 @@
   This arm is safe by construction: [[run-once]] closes the window around
   `codec/as-element`, and the codec is eager everywhere it walks —
   `expand-seq` drives a seq to exhaustion, `realize-children` folds one
-  into a vector, and a seq at a prop position goes through `clj->js`. A
-  lazy read is therefore forced inside the window by the same pass that
+  into a vector, a seq at a *native* prop position goes through
+  `clj->js`, and `front.codec/realize-deep` forces every lazy sequence
+  reachable from a *boundary's* props before the crossing hands them on.
+  A lazy read is therefore forced inside the window by the same pass that
   turns hiccup into elements, and moving the codec call out of `run-once`
   fails `a-lazy-for-registers-its-edges-and-its-readers-re-run`.
+
+  The fourth clause is a repair, and the shape of what it repairs is the
+  reason [[read-key!]]'s guard below is not the whole story: the boundary
+  hand-off used to pass its props map through raw, so a seq written in
+  one body was realised inside ANOTHER body's render — where the guard
+  finds a frame, does not throw, and files the read under the wrong
+  boundary. rf2-2rtt6.45, and `arm1/boundary-crossing-cljs-test`.
 
   **An eager codec is only half of it, and the other half matters more.**
   A codec can force the reads it walks; nothing can force a read the
