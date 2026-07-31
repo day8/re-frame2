@@ -49,7 +49,10 @@ applies the patch** (React elements vs own DOM).
 
 - A boundary is a **real React function component** minted by `defview`
   (invocation semantics: HD-016). React owns identity, reconciliation, context,
-  refs, errors, concurrency, and the controlled-input end-of-event restore.
+  refs, errors, concurrency, and the controlled-input end-of-event restore —
+  the last of these **only while the element is genuinely controlled**, which
+  UIx does not guarantee
+  ([the two implementations](studio/controlled-input-two-implementations.md)).
 - **Hook budget ≤ 2 per boundary** (paper rule), fully consumed by the
   subscription/epoch hook and the frame-context hook (HD-020); refs are callback
   refs, never `useRef` in the shell. A ViewCell-class per-boundary object graph
@@ -148,6 +151,17 @@ notification runs synchronously so React commits the echo in the same turn;
 `flushSync` is the evidence-gated last resort. Rejected/unchanged-model paths
 lean on React's own end-of-event restore; resets are by explicit caller
 revision, never value equality. The 100-cell grid witnesses prove the door.
+
+**Measured 2026-08-01 (rf2-n3dxw), and the lean holds for the value only.**
+React's restore does fire on a rejection, inside the discrete event and with
+nothing re-rendered, so the refused character comes off the screen for free.
+It does not put the caret back: assigning `value` moves the cursor to the end
+of the control, and React restores a selection only around a commit in which
+focus moved. So a mid-string refusal — and every keystroke a normalising model
+rewrites — converges with the caret thrown to the end of the field. The
+matrix, the two implementations UIx chooses between, and a measured option
+that carries both halves in one turn are on
+[the studio page](studio/controlled-input-two-implementations.md).
 
 ## Memoization (HD-006)
 

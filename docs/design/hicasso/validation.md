@@ -305,7 +305,13 @@ identical witnesses; challengers time-boxed to 1–3 days:
   Hicasso is a React adapter — on direction, not on measurement, the arm having
   met that gate. Its tree is retired (`rf2-m6if4`); the controlled grid it was
   gated on now lives at
-  `bench/hicasso/controlled_restore_dom_cljs_test.cljs`, re-taken on React.
+  `bench/hicasso/controlled_restore_dom_cljs_test.cljs`, re-taken on React —
+  and re-taken **twice**, because UIx selects between plain React and a port
+  of Reagent's controlled-input workaround on what else is on the classpath.
+  The grid pins the implementation it measures rather than inheriting one; the
+  matrix is on
+  [the studio page](studio/controlled-input-two-implementations.md)
+  (`rf2-n3dxw`).
 - A root-pull arm may run as a non-product assumption-challenge that leaves no
   API behind.
 - **The dogfood screen**: one list + one controlled field + sub reads, written
@@ -319,7 +325,8 @@ identical witnesses; challengers time-boxed to 1–3 days:
 **Witness set**: the 300-boundary shapes; 1/3/7/20 reads-per-boundary as two
 separated scaling curves (fixed reads × growing boundaries; fixed boundaries ×
 growing reads); the 100-cell controlled grid (same-turn echo, mid-string caret,
-selection, IME composition, unchanged-model rejection, async normalisation);
+selection, unchanged-model rejection, async normalisation — IME composition is
+named here but **not asserted**, and `rf2-n3dxw` says why);
 keyed insert/delete/reorder; changing query identity through an abandoned render;
 a foreign hook/context/ref component and a real error boundary (the runtime's
 `h/boundary` class component, HD-020); StrictMode, abandoned first mount, root
