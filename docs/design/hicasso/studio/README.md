@@ -94,6 +94,7 @@ requires nothing from any donor `src/` tree.
 | [P0 — the reads-per-boundary heap ladder](reads-per-boundary-heap-ladder.md) | P0 | Retained heap per subscribing boundary across the 1/3/7/20 reads ladder, both donors — the **operative** distinct-query (Q = E) red-zone family. |
 | [HD-008 — the composed donor arm](hd8-composed-donor-arm.md) | donor gate | What the composed donor arm costs against both Reagent paths and against the frontier. |
 | [The UIx spine's per-read allocation, decomposed](uix-spine-per-read-decomposition.md) | P0 | Where a UIx-on-subs read's bytes go. |
+| [The cold-mount double build, priced against the mount red-zone](coldmount-double-build-priced.md) | P0 | What the double build **costs on the clock**, as a fraction of the same-run UIx-minus-Reagent mount excess — the rf2-2rtt6.14 decision input. |
 | [The reagent-slim non-reactive arm — diagnosis](slim-non-reactive-arm-diagnosis.md) | P0 | Why HD-008's reagent-slim arm read `78 unverified of 78`: the **arm's composition**, not the adapter and not the mixed bundle. A single-substrate slim bundle re-renders on every write. |
 
 **Clock red-zones live on the converged page.** Where it and the frontier arm

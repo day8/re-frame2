@@ -398,4 +398,7 @@ observations.
 * It does not claim the spine's derived-value representation should be flattened.
   It measures that the representation costs 1.94× Reagent's for the same job and
   stops there.
-* It does not price the CPU of the double build, only its retention.
+* It does not price the CPU of the double build, only its retention. The CPU
+  is now priced by rf2-2rtt6.15 on
+  [its own page](coldmount-double-build-priced.md), against the mount
+  red-zone, in the same runs.
