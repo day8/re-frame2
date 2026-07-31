@@ -2379,6 +2379,31 @@
        ;; tag.
        (subs-cache/unsubscribe! cache (cache-key query-v) frame-id)))))
 
+(defn ^:no-doc unsubscribe-if-reaction
+  "INTERNAL (rf2-2rtt6.25) — `unsubscribe` under an IDENTITY GUARD: release
+  one reference to `query-v` in `frame-id` **only while the frame's sub-cache
+  still holds `reaction`**, then take the ordinary 1 → 0 in-tick disposal.
+
+  Not public API and not an alternative teardown: it exists for the ONE
+  holder whose reference can outlive its slot — the React-hook spine's
+  render-phase provisional acquisition, released either by the commit that
+  adopts it or by a host-macrotask reaper, across a window in which hot
+  reload, `clear-sub-cache!` or `destroy-frame!` may have evicted the entry
+  (Spec 006 §Render-phase provisional acquisition and commit adoption). A
+  stale release then no-ops rather than stealing a successor entry's
+  reference. Every other consumer calls `unsubscribe`.
+
+  Frame resolution and cache-keying are this facade's, exactly as
+  `unsubscribe`'s — a frame-id keyword or a live frame value, normalized
+  through `frame/frame-target->id`; ref-counting and disposal are
+  `re-frame.subs.cache/unsubscribe-if-reaction!`'s. Returns nil; a destroyed
+  or unknown frame is a no-op."
+  [frame-id query-v reaction]
+  (let [frame-id (frame/frame-target->id frame-id)]
+    (when-let [cache (:sub-cache (frame/frame frame-id))]
+      (subs-cache/unsubscribe-if-reaction! cache (cache-key query-v)
+                                           reaction frame-id))))
+
 ;; ---- tooling sibling --------------------------------------------------
 ;;
 ;; Per rf2-bmzq0: the static-topology query (`sub-topology`) and the
