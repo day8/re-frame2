@@ -4,7 +4,7 @@
 > *designed* surface so it can be read before it is built. Spellings marked
 > **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
 > is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-021).
+> source: [decisions.md](../decisions.md) (HD-001…HD-025).
 
 Handler attributes are where a data-oriented view layer usually gives up. You have
 been writing pure data all the way down the tree, and then `:on-click` needs a

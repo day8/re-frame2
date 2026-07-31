@@ -80,6 +80,14 @@ the default surface is scored from day one, not discovered mid-clock:
 An existing React element is a legal child anywhere (pass-through). A view may
 return `nil`, one root, or a fragment.
 
+`:ref` takes a **function** in v0. A **vector** is the reserved value-space for the
+later data spelling (`{:ref [registered-id config]}`) and is refused loudly —
+`:rf.error/hicasso-ref-vector-reserved` (HD-022). The reservation is one branch and
+one error id; it exists so the imperative escape can become data without minting a
+second attribute name, and it carries one honest limit that shapes what you write
+today: a ref callback fires on attach and detach and **never on config change**, so
+steady-state change belongs on an effect, not on the ref.
+
 ## Event intent as data
 
 - A literal vector at an event position is the intent; `::h/value` is the value

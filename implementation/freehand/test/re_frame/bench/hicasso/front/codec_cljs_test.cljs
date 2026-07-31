@@ -225,6 +225,49 @@
   (is (thrown-with-msg? js/Error #"not a valid element head" (codec/as-element [42 {}]))))
 
 ;; ---------------------------------------------------------------------------
+;; The reserved `:ref` value-space (HD-022, rf2-2rtt6.38)
+;; ---------------------------------------------------------------------------
+
+(deftest a-callback-ref-is-the-v0-surface-and-reaches-react-by-identity
+  (testing "HD-003's escape hatch and HD-016's callback-refs-only rule are
+            unchanged by the reservation: a function at :ref is the v0
+            spelling, and it arrives at React as the same function object —
+            rewrapping it would detach and reattach the node every render."
+    (let [f (fn [_node] nil)
+          e (codec/as-element [:div {:ref f}])]
+      (is (identical? f (prop e "ref"))))))
+
+(deftest a-vector-at-ref-is-reserved-and-refused-loudly
+  (testing "the whole of rf2-2rtt6.38. `{:ref [registered-id config]}` is the
+            spelling the later data form wants, so v0 claims the value-space
+            now and refuses it with a diagnostic naming the reservation —
+            rather than handing React an opaque array, which it would ignore
+            in silence and which would look like a ref that never fires."
+    (is (thrown-with-msg? js/Error #"RESERVED"
+                          (codec/as-element [:div {:ref [::autosize {:max-rows 8}]}])))
+    (try
+      (codec/as-element [:textarea.composer {:ref [::autosize {:max-rows 8}]}])
+      (is false "should have thrown")
+      (catch :default e
+        (let [d (ex-data e)]
+          (is (= :rf.error/hicasso-ref-vector-reserved (:rf.error/id d)))
+          (is (= :use-a-callback-ref-or-an-effect (:recovery d)))
+          (is (= [::autosize {:max-rows 8}] (:ref d))
+              "the refusal carries the value it refused, so a later
+               migration can find its own call sites"))))))
+
+(deftest the-reservation-costs-one-branch-and-claims-nothing-else
+  (testing "no other :ref value moves. A string ref, a nil ref and a map at
+            :ref all pass through the ordinary conversion — the reservation
+            is the VECTOR arm and nothing wider, because a wider claim would
+            be designing the later surface rather than reserving room for it."
+    (is (nil? (prop (codec/as-element [:div {:ref nil}]) "ref")))
+    (is (= "legacy" (prop (codec/as-element [:div {:ref "legacy"}]) "ref")))
+    (is (some? (prop (codec/as-element [:div {:ref {:a 1}}]) "ref"))))
+  (testing "and :ref is not an event position, so intent lowering never sees it"
+    (is (false? (intent/event-prop? :ref)))))
+
+;; ---------------------------------------------------------------------------
 ;; The codec's one policy call — intent lowering happens inside the walk
 ;; ---------------------------------------------------------------------------
 

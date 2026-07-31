@@ -4,7 +4,7 @@
 > *designed* surface so it can be read before it is built. Spellings marked
 > **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
 > is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-021).
+> source: [decisions.md](../decisions.md) (HD-001…HD-025).
 
 You want a date picker from npm. In Reagent you write `[:> DatePicker {...}]` and
 move on. Hicasso asks you to write one line first:
@@ -208,6 +208,37 @@ Note the two consequences of putting hooks in a body at all: it is outside the
 headless testing scope ([Testing](08-testing.md)), and you have taken on React's hook
 rules yourself. Both are fine. Both are on you.
 
+### The reserved vector — and the gap it does not close
+
+One thing about `:ref` is worth knowing before you write your first one, because it
+changes what you should put in the closure.
+
+**A vector at `:ref` is refused.** `{:ref [::autosize {:max-rows 8}]}` raises
+`:rf.error/hicasso-ref-vector-reserved`. That value-space is reserved for a later
+data spelling of exactly the pattern above — a registered id and a config map,
+with the imperative code in a registry instead of in your view — and v0 claims it
+now so that landing it later is not a breaking change. Today, write the function.
+
+**And the honest limit on what that later spelling could ever be.** A React ref
+callback fires on **attach** and on **detach**. It does **not** fire on **config
+change**. There is no third call, and no amount of design gets one: passing a
+*different* callback is the only way to make React invoke it again, and doing that
+detaches and re-attaches the node — which destroys and rebuilds your map instance,
+which is precisely the thing you were trying to avoid.
+
+So the shape to write, now and later, is:
+
+- **attach and detach only**, in one closure, as above;
+- **config immutable for the connection's life** — whatever the SDK needs at
+  `mount` time is decided once;
+- **steady-state change routed through an effect**, dispatched as an ordinary
+  event: `{:map/fly-to {:instance id :center [lat lng]}}`. That is already data,
+  it is already in the event log, and it is already testable.
+
+If you find yourself wanting the ref to notice that a prop changed, that is the
+signal to move the change onto the effect path. Nothing in the reserved vector
+will rescue it later.
+
 ## Troubleshooting
 
 No Hicasso error ids exist yet; this table names mechanisms.
@@ -238,6 +269,7 @@ two or three genuinely hard widgets.
 |---|---|
 | `defhost`'s option keys | **Not addressed.** "Policy overrides live on the declaration" is as far as the record goes |
 | The codemod's name and invocation | **Not addressed** |
+| When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** HD-022 rules the refusal and the value-space; the registry, the timings and the commands roster are explicitly out of v0 |
 | Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
 | Whether `::h/value` works across a host crossing | **Not addressed.** The example above assumes it does; a foreign `onChange` may hand you something other than a DOM event |
 | The SSR placeholder's shape | Declared policy, inert in v0 |
