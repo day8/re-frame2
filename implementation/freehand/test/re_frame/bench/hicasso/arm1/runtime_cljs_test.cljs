@@ -2,10 +2,11 @@
   "ARM 1's RUNTIME, proved without a browser (rf2-2rtt6.9).
 
   Everything this arm does that is not React's is answerable here: the
-  read tiers, the commit path, the index wiring, the generation fence,
-  and the standing zero-leaked-subscription-ref-counts assertion. The
-  `-dom` suites then prove that React drives *this* seam — they do not
-  re-prove what the seam does.
+  read surfaces, the commit path, the index wiring, the generation fence,
+  HD-002's ownership state machine and allowed edge-diff operation, and
+  the standing zero-leaked-subscription-ref-counts assertion. The `-dom`
+  suites then prove that React drives *this* seam — they do not re-prove
+  what the seam does.
 
   The adapter is UIx's, not `plain-atom`'s, and that is load-bearing:
   plain-atom has no reactivity layer at all (\"no caching, no
@@ -26,6 +27,9 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter
+     ;; The map shape, because the residue claims are `async` — a reaper
+     ;; horizon is not observable inside one synchronous test body.
+     :async?  true
      :init-fn (fn [] (rt/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-runtime)
@@ -35,15 +39,14 @@
   ([n] (rt/reset-runtime!) (dogfood/make-frame! frame-id n) frame-id))
 
 (defn- render
-  "Run a body through the shell's own fence, exactly as [[rt/shell]]
-  does — minus React, which contributes nothing to what is asserted."
+  "Run a body through the shell's own fence, exactly as `rt/shell` does —
+  minus React, which contributes nothing to what is asserted. Returns the
+  read-set entry; the element is discarded because no assertion here is
+  about markup."
   ([body-fn] (render body-fn {}))
-  ([body-fn props] (rt/render-body frame-id body-fn props)))
+  ([body-fn props] (rt/render-body frame-id body-fn props) (rt/last-reads)))
 
-(defn- reads-of [out] (aget out 1))
-(defn- element-of [out] (aget out 0))
-(defn- collector? [out] (aget out 2))
-(defn- grouped? [out] (aget out 3))
+(defn- reads-of [entry] (rt/reads-of entry))
 
 (defn- key-of [query] [frame-id query])
 
@@ -70,11 +73,11 @@
       (is (contains? tokens :react/use-context))
       (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
              (into #{} (map :token) (:absent inv)))
-          "the absences are enumerated, so a regression that adds one
-           has to delete a line rather than merely appear"))))
+          "the absences are enumerated, so a regression that adds one has
+           to delete a line rather than merely appear"))))
 
 ;; ---------------------------------------------------------------------------
-;; The two read tiers (HD-002)
+;; The two read surfaces (HD-002; the collector is the one being made to work)
 ;; ---------------------------------------------------------------------------
 
 (deftest a-read-outside-a-render-is-a-loud-error
@@ -88,13 +91,28 @@
 
 (deftest the-collector-records-the-reads-the-body-actually-made
   (seeded! 3)
-  (let [out (render (fn [_]
-                      (let [ids (rt/sub [:dogfood/visible-ids])]
-                        [:ul (when (seq ids) [:li (str (rt/sub [:dogfood/todo (first ids)]))])])))]
-    (is (collector? out))
-    (is (not (grouped? out)))
+  (let [entry (render (fn [_]
+                        (let [ids (rt/sub [:dogfood/visible-ids])]
+                          [:ul (when (seq ids)
+                                 [:li (str (rt/sub [:dogfood/todo (first ids)]))])])))]
+    (is (:collector? (rt/last-tiers)))
+    (is (not (:grouped? (rt/last-tiers))))
     (is (= #{(key-of [:dogfood/visible-ids]) (key-of [:dogfood/todo 0])}
-           (reads-of out)))))
+           (reads-of entry)))))
+
+(deftest the-collector-reads-inside-a-for-and-inside-an-inlined-helper
+  (seeded! 3)
+  (testing "the surface the operator ruled the only acceptable one: a read
+           in a loop and a read donated by a plain helper, both landing on
+           the enclosing boundary's edge set"
+    (letfn [(label [id] [:span (str (rt/sub [:dogfood/todo id]))])]
+      (let [entry (render (fn [_] [:ul (for [id (rt/sub [:dogfood/visible-ids])]
+                                         [:li (label id)])]))]
+        (is (= #{(key-of [:dogfood/visible-ids])
+                 (key-of [:dogfood/todo 0])
+                 (key-of [:dogfood/todo 1])
+                 (key-of [:dogfood/todo 2])}
+               (reads-of entry)))))))
 
 (deftest a-conditional-read-is-an-edge-the-collector-simply-does-not-have
   (seeded! 3)
@@ -111,18 +129,17 @@
 
 (deftest grouped-declares-its-edges-whatever-the-body-then-does
   (seeded! 3)
-  (testing "the same branch under the product default: the declaration is
-           the edge set, so the untaken branch still costs its edge —
-           the honest price of a fixed read site"
-    (let [out (render (fn [_]
-                        (let [{:keys [todo draft]}
-                              (rt/use-subs {:todo  [:dogfood/todo 1]
-                                            :draft [:dogfood/draft 1]})]
-                          [:li (:title todo) (when (:done? todo) draft)])))]
-      (is (grouped? out))
-      (is (not (collector? out)))
+  (testing "the control: the declaration is the edge set, so the untaken
+           branch still costs its edge"
+    (let [entry (render (fn [_]
+                          (let [{:keys [todo draft]}
+                                (rt/use-subs {:todo  [:dogfood/todo 1]
+                                              :draft [:dogfood/draft 1]})]
+                            [:li (:title todo) (when (:done? todo) draft)])))]
+      (is (:grouped? (rt/last-tiers)))
+      (is (not (:collector? (rt/last-tiers))))
       (is (= #{(key-of [:dogfood/todo 1]) (key-of [:dogfood/draft 1])}
-             (reads-of out))))))
+             (reads-of entry))))))
 
 (deftest grouped-returns-the-snapshot-the-body-destructures
   (seeded! 3)
@@ -134,23 +151,123 @@
     (is (= 3 (:remaining @captured)))))
 
 ;; ---------------------------------------------------------------------------
+;; HD-002 clause (a) — the ownership state machine
+;; ---------------------------------------------------------------------------
+
+(deftest a-render-mutates-neither-the-index-nor-a-reference
+  (seeded! 3)
+  (testing "the invariant the whole state machine reduces to: no
+           render-phase code mutates the index or a subscription
+           ref-count, so an abandoned render needs no cleanup because it
+           never did anything that would need cleaning"
+    (let [before (rt/stats)]
+      (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                       (str (rt/sub [:dogfood/remaining]))]))
+      (let [after (rt/stats)]
+        (is (= (:boundaries before) (:boundaries after)) "no boundary registered")
+        (is (= (:edges before) (:edges after)) "no edge added")
+        (is (= (:cells before) (:cells after)) "no cell built")
+        (is (= (:cell-refs before) (:cell-refs after)) "no reference taken")))))
+
+(deftest a-re-render-before-the-commit-destroys-the-previous-candidate-by-overwrite
+  (seeded! 3)
+  (testing "PENDING -> RENDERING, which is the abandoned render: there is
+           one scratch and never two, so the second run's reads replace
+           the first's rather than joining them"
+    (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                     (str (rt/sub [:dogfood/todo 1]))]))
+    (let [entry (render (fn [_] [:li (str (rt/sub [:dogfood/todo 2]))]))]
+      (is (= #{(key-of [:dogfood/todo 2])} (reads-of entry))))))
+
+(deftest a-body-that-throws-leaves-nothing-behind
+  (seeded! 3)
+  (let [before (rt/stats)]
+    (is (thrown? js/Error
+          (render (fn [_] (rt/sub [:dogfood/todo 0]) (throw (js/Error. "body"))))))
+    (is (= (select-keys before [:boundaries :edges :cell-refs])
+           (select-keys (rt/stats) [:boundaries :edges :cell-refs])))
+    (testing "and the next render starts from a clean scratch rather than
+             concatenating the throwing run's reads"
+      (let [entry (render (fn [_] [:li (str (rt/sub [:dogfood/remaining]))]))]
+        (is (= #{(key-of [:dogfood/remaining])} (reads-of entry)))))))
+
+;; ---------------------------------------------------------------------------
+;; HD-002 clause (b) — the allowed edge-diff operation, and its cost law
+;; ---------------------------------------------------------------------------
+
+(deftest an-unchanged-read-set-is-detected-without-building-anything
+  (seeded! 3)
+  (testing "the same reads twice resolve to the SAME entry, so React's
+           `subscribe` identity does not move, so React does not
+           re-subscribe and the commit does no work at all — which is the
+           survival metric's flat slope seen from the mechanism's side"
+    (let [body  (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                         (str (rt/sub [:dogfood/todo 1]))
+                         (str (rt/sub [:dogfood/remaining]))])
+          a     (render body)
+          b     (render body)]
+      (is (identical? a b) "one entry, not two")
+      (is (identical? (.-subscribe a) (.-subscribe b))
+          "and therefore one `subscribe` identity")
+      (is (= 1 (:entries (rt/stats)))))))
+
+(deftest a-changed-read-set-takes-a-different-subscribe-identity
+  (seeded! 3)
+  (testing "which is what makes React's own subscribe/cleanup pair perform
+           the edge-set replacement — the whole of the allowed operation"
+    (let [wide   (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                                  (str (rt/sub [:dogfood/todo 1]))]))
+          narrow (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))]
+      (is (not (identical? wide narrow)))
+      (is (not (identical? (.-subscribe wide) (.-subscribe narrow)))))))
+
+(deftest a-boundary-holds-exactly-the-edges-its-latest-commit-installed
+  (seeded! 3)
+  (let [wide    (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                                 (str (rt/sub [:dogfood/todo 1]))]))
+        release (rt/commit-boundary! wide (fn []))]
+    (is (= 2 (:edges (rt/stats))))
+    (release)
+    (let [narrow  (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
+          release (rt/commit-boundary! narrow (fn []))
+          b       (first (:live (idx/snapshot)))]
+      (is (= 1 (count (idx/edges-of (idx/snapshot) b))))
+      (is (empty? (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))
+          "and the dropped key has no reader left behind")
+      (release))))
+
+(deftest reading-one-key-twice-is-one-edge
+  (seeded! 3)
+  (testing "the buffer is a sequence and the index edge is set-valued; the
+           diff collapses them"
+    (let [entry   (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                                   (str (rt/sub [:dogfood/todo 0]))]))
+          release (rt/commit-boundary! entry (fn []))]
+      (is (= 1 (count (reads-of entry))))
+      (is (= 1 (:edges (rt/stats))))
+      (release))))
+
+;; ---------------------------------------------------------------------------
 ;; The commit path: write -> dirty keys -> index -> dirty boundaries
 ;; ---------------------------------------------------------------------------
 
 (defn- mounted!
   "A boundary at the seam React occupies: render its body, commit the
-  reads, and hand back `{:notified :release! :reads}`."
+  reads, and hand back `{:hits :release!}`."
   [body-fn]
-  (let [out    (render body-fn)
-        reads  (reads-of out)
-        hits   (volatile! 0)
-        release (rt/commit-boundary! reads (fn [] (vswap! hits inc)))]
-    {:reads reads :hits hits :release! release}))
+  (let [entry   (render body-fn)
+        hits    (volatile! 0)
+        release (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
+    {:entry entry :hits hits :release! release}))
 
 (deftest a-narrow-write-notifies-exactly-the-boundary-that-read-it
   (seeded! 3)
   (let [a (mounted! (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
         b (mounted! (fn [_] [:li (str (rt/sub [:dogfood/todo 1]))]))]
+    (is (= #{(key-of [:dogfood/todo 0])} (reads-of (:entry a))))
+    (is (= #{(key-of [:dogfood/todo 1])} (reads-of (:entry b))))
+    (is (= 1 (count (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 0])))))
+    (is (= 1 (count (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))))
     (rt/dispatch! frame-id [:dogfood/toggle 0])
     (is (= 1 @(:hits a)) "the reader of the moved subscription re-runs")
     (is (= 0 @(:hits b)) "and nothing else does")
@@ -196,22 +313,15 @@
     (is (= (inc g) (rt/generation)) "and one generation, not two")
     ((:release! a))))
 
-;; ---------------------------------------------------------------------------
-;; The edge-set diff — a replacement, never a ledger
-;; ---------------------------------------------------------------------------
-
-(deftest a-changed-read-set-replaces-the-edges-rather-than-accumulating-them
+(deftest a-warm-read-performs-no-new-attach-or-release
   (seeded! 3)
-  (let [wide   (mounted! (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
-                                  (str (rt/sub [:dogfood/todo 1]))]))
-        _      ((:release! wide))
-        narrow (mounted! (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
-        b      (first (:live (idx/snapshot)))]
-    (is (= 1 (count (idx/edges-of (idx/snapshot) b)))
-        "the boundary holds exactly the edges its latest commit installed")
-    (is (empty? (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))
-        "and the dropped key has no reader left behind")
-    ((:release! narrow))))
+  (testing "validation.md's standing assertion, stated as a reference
+           count that does not move across a re-render"
+    (let [a      (mounted! (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
+          before (:cell-refs (rt/stats))]
+      (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
+      (is (= before (:cell-refs (rt/stats))))
+      ((:release! a)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The generation fence
@@ -219,29 +329,37 @@
 
 (deftest a-commit-landing-inside-a-body-re-runs-that-body
   (seeded! 3)
-  (let [runs (volatile! 0)
-        seen (volatile! nil)
-        out  (render (fn [_]
-                       (vswap! runs inc)
-                       ;; Stage the stale read: the first run writes, so its
-                       ;; own reads straddle two commits.
-                       (when (= 1 @runs)
-                         (rt/dispatch! frame-id [:dogfood/toggle 0]))
-                       (vreset! seen (rt/sub [:dogfood/done? 0]))
-                       [:li (str @seen)]))]
-    (is (= 2 @runs) "the fence re-ran the body against the newer commit")
-    (is (true? @seen) "and the winning run read the committed value")
-    (is (= #{(key-of [:dogfood/done? 0])} (reads-of out))
-        "the index sees the winning render's reads, not the abandoned one's")))
+  (let [runs       (volatile! 0)
+        first-read (volatile! nil)
+        seen       (volatile! nil)]
+    ;; The boundary must already hold the key for a mid-body write to be
+    ;; observable at all — a key nothing holds has no watch to fire.
+    (let [warm (mounted! (fn [_] [:li (str (rt/sub [:dogfood/done? 0]))]))
+          entry (render (fn [_]
+                          (vswap! runs inc)
+                          (vreset! first-read (rt/sub [:dogfood/done? 0]))
+                          (when (= 1 @runs)
+                            (rt/dispatch! frame-id [:dogfood/toggle 0]))
+                          (vreset! seen (rt/sub [:dogfood/done? 0]))
+                          [:li (str @seen)]))]
+      (is (= 2 @runs) "the fence re-ran the body against the newer commit")
+      (is (true? @seen) "and the winning run read the committed value")
+      (is (true? @first-read) "both of the winning run's reads are on one commit")
+      (is (= #{(key-of [:dogfood/done? 0])} (reads-of entry))
+          "the index sees the winning render's reads, not the abandoned one's")
+      ((:release! warm)))))
 
 (deftest a-body-that-writes-on-every-run-fails-loudly
   (seeded! 3)
   (testing "the fence is a ceiling, not a budget — an unfenceable body is
            a write loop and says so"
-    (is (thrown-with-msg? js/Error #"generation-fence-exhausted"
-          (render (fn [_]
-                    (rt/dispatch! frame-id [:dogfood/toggle 0])
-                    [:li (str (rt/sub [:dogfood/done? 0]))]))))))
+    (let [warm (mounted! (fn [_] [:li (str (rt/sub [:dogfood/done? 0]))]))]
+      (is (thrown-with-msg? js/Error #"generation-fence-exhausted"
+            (render (fn [_]
+                      (rt/sub [:dogfood/done? 0])
+                      (rt/dispatch! frame-id [:dogfood/toggle 0])
+                      [:li (str (rt/sub [:dogfood/done? 0]))]))))
+      ((:release! warm)))))
 
 (deftest a-body-that-reads-without-writing-never-moves-the-generation
   (seeded! 3)
@@ -277,28 +395,29 @@
       (is (= 0 (:boundaries (rt/stats))))
       (is (= 0 (:edges (rt/stats))))
       (is (= 0 (:cell-refs (rt/stats))))
-      ;; The cells and the cached closure are reaped one macrotask later —
+      ;; The cells and the cached entry are reaped one macrotask later —
       ;; the grace that lets a keyed reorder reuse a reaction instead of
       ;; rebuilding it.
       (js/setTimeout (fn []
-                       (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :closures 0}
+                       (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
                               (rt/residue))
                            "nothing survives the macrotask horizon")
                        (done))
-                     4))))
+                     8))))
 
 (deftest a-render-that-never-commits-leaves-nothing-behind
   (async done
     (seeded! 3)
-    ;; The abandoned-render class: a body runs, builds its cells, and its
-    ;; commit never happens. Acquisition is commit-owned, so there is
-    ;; nothing to unwind — the reaper is what releases the render's `+1`.
+    ;; The abandoned-render class. Acquisition is commit-owned, so there is
+    ;; nothing to unwind — and the cached entry a discarded render minted is
+    ;; a cache, dropped at the macrotask horizon rather than undone.
     (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
                      (str (rt/sub [:dogfood/todo 1]))]))
     (is (= 0 (:boundaries (rt/stats))) "no boundary was ever registered")
     (is (= 0 (:cell-refs (rt/stats))) "and no reference was ever taken")
+    (is (= 0 (:cells (rt/stats))) "and no cell was ever built")
     (js/setTimeout (fn []
-                     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :closures 0}
+                     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
                             (rt/residue)))
                      (done))
-                   4)))
+                   8)))
