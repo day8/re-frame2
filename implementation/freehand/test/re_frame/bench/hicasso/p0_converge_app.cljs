@@ -1370,6 +1370,27 @@
                                        "threshold. Quote the direction and the stratum "
                                        "bounds; the order-balanced mean is "
                                        (:order-balanced-mean order) "x."))
+                   ;; THE AGGREGATE RULE, stated on every row because the
+                   ;; alternative is that it is assumed (rf2-6i0i2, the PR
+                   ;; #7303 audit). `:publishable` above governs THIS run's
+                   ;; mean quoted ALONE. It says nothing about ensembles, and
+                   ;; the ten-run ensemble on the studio page averaged three
+                   ;; `:direction-only` row-runs of forty into precise
+                   ;; thresholds — correctly, but silently, which is the part
+                   ;; that was wrong. So the row now answers both questions.
+                   :in-an-ensemble
+                   (str "ONE OBSERVATION, whatever `:publishable` says. An "
+                        "ensemble mean takes EVERY launched run — the "
+                        "`:direction-only` ones included — because dropping a "
+                        "run for the way its strata happened to split selects "
+                        "on the outcome: a disjoint split IS the extreme "
+                        "partition, so excluding it shrinks the spread and "
+                        "narrows the very interval it would be used to "
+                        "compute. The ensemble's warrant is the LAUNCH COUNT, "
+                        "stated as `N launched, N published`, and a run "
+                        "dropped for reading badly makes the whole ensemble "
+                        "worthless. What an ensemble may NOT do is inherit "
+                        "this row's per-run gate as if it had passed it.")
                    :rule (str "RULING 1 on rf2-2rtt6.1: the red-zone threshold IS the "
                               "measured UIx ratio for that witness family. A candidate row "
                               "worse than it is RED and needs an explicit operator waiver "
