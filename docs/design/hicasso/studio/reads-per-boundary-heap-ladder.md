@@ -9,15 +9,20 @@ below is a fresh reading through the corrected fit; the superseded publication
 is recorded in [§7](#7-superseded) rather than deleted.
 
 **Spine stamp — every UIx rung below was measured on a spine that no longer
-ships.** Two production landings postdate this run and both cut UIx retained
-heap: `rf2-2rtt6.13` (PR #7304, `9df5094816`) stopped retaining the disposed
-render-phase reaction — **−769 B / −23.0 objects per unique query key**, which
-on this ladder's distinct-query regime is 769 B *per read* — and
-`rf2-2rtt6.25` (PR #7305, `f784ab0adb`) landed the hook-scoped provisional
-hand-off, so a cold read builds one reaction instead of two. The **measured
-rows are left exactly as measured**, because a measurement record edited to
-match a later tree stops being a record. What is restated, in place, is
-everything this page *hands the programme* as a live number:
+ships.** Two production landings postdate this run. **One of them cuts UIx
+retained heap**: `rf2-2rtt6.13` (PR #7304, `9df5094816`) stopped retaining the
+disposed render-phase reaction — **−769 B / −23.0 objects per unique query
+key**, which on this ladder's distinct-query regime is 769 B *per read*. The
+other, `rf2-2rtt6.25` (PR #7305, `f784ab0adb`), landed the hook-scoped
+provisional hand-off; it is named here as a **tree stamp, not as a cause**,
+because no retained-heap delta from it has been established — the audit of
+PR #7305 drove the shipped bare `createRoot().render` path and measured 2N body
+constructions at N = 1, 300, 3,000 and 10,000, the reaper winning before
+React's passive subscribe. That schedule question is open under
+`rf2-2rtt6.25`; every correction on this page is `.13`'s. The **measured rows
+are left exactly as measured**, because a measurement record edited to match a
+later tree stops being a record. What is restated, in place, is everything this
+page *hands the programme* as a live number:
 [§5](#5-what-this-hands-the-programme) carries the gate lines on the
 post-landing tree, with the arithmetic written out. Reagent's rows are
 untouched by both landings — neither goes near the ratom path.
@@ -456,10 +461,31 @@ stamped with the instrument it was taken on, because the two instruments in
 play differ by a measured common-mode offset that no gate should silently
 absorb.
 
+**It stands on a direct two-point contrast, not on an independent
+triangulation** — this section said the latter when it was first written, and
+the audit of PR #7306 was right to refuse it. The number is unchanged, and so
+is the band; what changes is the account of why either is trustworthy, which is
+below.
+
 The derivation is desk work over landed, gated data: no new campaign was run
 for it. The [fan-out sweep](heap-fan-out-sweep.md) is the first heap page
 measured *after* both landings, and its UIx arm is **M3 in both runs and every
-round** (r² ≥ 0.9999, held-out rung predicted within 2%):
+round** (r² ≥ 0.9999).
+
+**The primary source is a direct contrast, and it needs no model at all.** Two
+of the sweep's rungs sit at Q = E — this witness family's own regime — and
+differ by exactly one read and one unique key per boundary. Subtracting them
+measures the gate's quantity outright:
+
+```
+R2Q2B − R1Q1 = 6,122 − 3,235 = 2,887 B/read   at B = 1,200
+             = 6,155 − 3,185 = 2,970 B/read   at B = 300
+                                mean  2,929 B/read
+```
+
+**The model decomposition says the same thing and explains it.** Under M3 with
+Q = E the per-read slope is the sum of two terms, and the sum lands 0.2% from
+the direct reading above:
 
 ```
 M3          y = shell + (E/B)·edge + (Q/B)·key
@@ -472,25 +498,48 @@ marginal per read = edge + key
                   = 2,935 B  [2,852–3,055]
 ```
 
-**Three checks, none of which the derivation used.**
+**What these two are, and what they are not.** They are *not* two independent
+readings. They come from one run on one instrument; they share the `R1Q1`
+observation — it is a member of the R = 1 family the key slope is fitted
+through — and the sweep's model verdict itself depends on `R2Q2B` through the
+mandatory `key-ok?` admissibility check, so nothing here was held out of
+anything. The corrected warrant is on
+[the sweep's §4](heap-fan-out-sweep.md#4-the-additive-model). What they are is
+one measured quantity stated two ways, agreeing to 0.2%, with the second way
+telling you where the bytes go.
 
-1. **A direct two-point reading on a held-out rung.** The sweep's `R2Q2B` rung
-   is two reads at E/Q = 1 and is held out of *every* identification, so
-   `R2Q2B − R1Q1` measures this slope without touching the terms above:
-   `6,122 − 3,235 = 2,887 B` at B = 1,200 and `6,155 − 3,185 = 2,970 B` at
-   B = 300, mean **2,929 B** — 0.2% from the derived value.
-2. **This ladder's own slope, corrected.** `3,552 − 769 = 2,783 B/read`. That
-   is +5.5% below the sweep's figure, and +5.2% is exactly the common-mode
+**Two readings that do come from elsewhere.** Both are on the *other*
+instrument, so they corroborate the magnitude and not the bench number:
+
+1. **This ladder's own slope, corrected.** `3,552 − 769 = 2,783 B/read`. That
+   is 5.5% below the sweep's figure, and +5.2% is exactly the common-mode
    offset the sweep measured twice between the two harnesses (Reagent +5.19%,
    UIx +5.17%) — a difference in boundary-component shape, not in the spine.
-3. **A third instrument, measured after the fix.**
+2. **A third instrument, measured after the fix.**
    [The spine decomposition](uix-spine-per-read-decomposition.md) reads the
    shipped UIx spine at **2,734 B/read** [2,731–2,735] post-`.13`. It sits 1.4%
    below this ladder pre-fix (3,501 against 3,552); scaled onto this ladder's
-   instrument that is 2,774 B/read — **0.4%** from check 2.
+   instrument that is 2,774 B/read — **0.4%** from the reading above it.
 
-Four readings, three instruments, one arithmetic: ~2,780 B/read on this page's
-instrument, ~2,935 B/read on the bench's.
+So: **one quantity measured directly on the bench instrument and decomposed
+there, plus two same-direction readings on two other instruments** — ~2,780
+B/read on this page's instrument, ~2,935 B/read on the bench's. That is the
+whole warrant, and it is a weaker claim than the "four readings, three
+instruments" this section carried when it was first written, which counted the
+sweep's overlapping arithmetics as separate evidence.
+
+**What survives the correction, and what does not.** The line's *number* and
+its *band* both survive, and the reason is that neither ever needed the
+withdrawn claim: the two direct readings are 2,887 and 2,970 B/read, 2.9% apart
+and both inside `[2,852–3,055]`, so the band is a fair statement of the spread
+whether or not the additive model was validated out of sample. What does not
+survive is the decomposition's standing as *independent* support. Treat
+`1,345 + 1,590` as an explanation of the line rather than a second proof of it,
+and treat the split itself as provisional to within the ~50 B the sweep's model
+is free to move between `edge` and `step` — [its §6](heap-fan-out-sweep.md#6-what-this-unblocks)
+says so row by row. **Nothing here is re-measured**: the operator deferred new
+heap measurement on 2026-07-31, and this restatement is desk work over landed
+data exactly as the ruling directed.
 
 **Provenance of the restatement.** Whole-tree anchor **`61dd44950a`** — the
 landed sweep commit, with `9df5094816` (`.13`) and `f784ab0adb` (`.25`) both

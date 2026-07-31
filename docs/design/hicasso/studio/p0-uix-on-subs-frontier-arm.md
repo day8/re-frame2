@@ -271,13 +271,18 @@ worse with no named paper path down is K3 territory; between the two is
 
 **The UIx line was restated on 2026-07-31** (Mike's ruling, option (a),
 `rf2-e3flf`). It read 3,552 B/read while it was sourced from the ladder's
-pre-`rf2-2rtt6.13` / pre-`rf2-2rtt6.25` spine; the sweep's post-landing
-decomposition prices it at per-edge 1,345 B + per-unique-key 1,590 B, and the
-[ladder](reads-per-boundary-heap-ladder.md)'s §5 carries the arithmetic and its
-three cross-checks. Reagent's line did not move — neither landing touches the
-ratom path. **This page's own UIx heap absolutes also predate both landings**
-and are ~769/4 B per boundary high at E/Q = 4 on that account: the sweep re-ran
-this grid arm unchanged and read 1,996 B against the 2,134 B below.
+pre-`rf2-2rtt6.13` spine; the sweep's post-landing rungs read the same quantity
+directly — `R2Q2B − R1Q1`, two rungs at Q = E one read apart — and its
+decomposition explains it as per-edge 1,345 B + per-unique-key 1,590 B. The
+[ladder](reads-per-boundary-heap-ladder.md)'s §5 carries the arithmetic and
+says plainly which of its readings are independent of each other and which are
+one run stated twice. Reagent's line did not move — neither landing touches the
+ratom path. `rf2-2rtt6.25` (`f784ab0adb`) is also an ancestor of the sweep's
+tree, but no retained-heap delta from it is established and none is claimed
+here; it is open on its own bead. **This page's own UIx heap absolutes predate
+both landings** and are ~769/4 B per boundary high at E/Q = 4 on `.13`'s
+account: the sweep re-ran this grid arm unchanged and read 1,996 B against the
+2,134 B below.
 
 DOM nodes live in Blink's C++ heap, not V8's, so none of these figures contain
 the elements themselves. Every arm builds the identical DOM — the canonical-DOM
