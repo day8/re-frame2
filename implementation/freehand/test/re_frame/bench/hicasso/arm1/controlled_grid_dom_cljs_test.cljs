@@ -684,7 +684,21 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-grid-leaves-no-residue
-  (testing "one hundred controlled boundaries, typed into, then released"
+  (testing "one hundred controlled boundaries, typed into, then unmounted.
+
+           **The census is read after React's unmount and BEFORE the arm's
+           teardown door**, and that ordering is the whole of it.
+           `mount/release!` calls `runtime/reset-runtime!`, which disposes
+           every cell and empties the index by fiat, so a residue reading
+           taken after it is all zeros whatever the teardown released —
+           measured, by deleting `make-subscribe`'s cleanup
+           `release-cell!`: the reading below goes red, and the same
+           reading taken after `release!` stays green.
+
+           Three counts, because those three are exact the instant the
+           unmount returns; `:cells` and `:entries` are the reaper's, one
+           macrotask later, and asserting them here would assert a
+           schedule rather than a release."
     (if-not (mount/browser?)
       (skip! ":node-test has no DOM")
       (do
@@ -695,8 +709,14 @@
           (.focus n)
           (type-into! n "abc")
           (is (= "abc" (model-value 7)))
-          (mount/release! handle)
-          (unpin!)
-          (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                 (rt/residue))
-              "zero leaked subscription ref-counts after teardown"))))))
+          (is (= (inc grid/cells) (:boundaries (rt/stats)))
+              "a hundred cell registrations and the grid's own are really
+               standing before the teardown — the enclosing `grid` is a
+               `defview` too, so it is a boundary like any other")
+          (react-dom/flushSync (fn [] (.unmount (:root handle))))
+          (let [census (select-keys (rt/residue) [:cell-refs :boundaries :edges])]
+            (mount/release! (assoc handle :root nil))
+            (unpin!)
+            (is (= {:cell-refs 0 :boundaries 0 :edges 0} census)
+                "zero leaked subscription ref-counts, zero boundaries and zero
+                 edges the moment React's unmount returned")))))))

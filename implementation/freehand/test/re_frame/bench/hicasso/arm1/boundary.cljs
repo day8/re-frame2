@@ -42,15 +42,23 @@
   surface, no telemetry: each of those is an application's decision, and
   `:on-error` is the door it makes them behind.
 
-  ## Once per failure, and why that needs a flag
+  ## Once per failure, and why that needs NO flag — measured, not assumed
 
-  React's commit runs `componentDidCatch` as an update-queue callback, and
-  under StrictMode the render that threw runs twice. `:on-error` must
-  still fire once, so the report is gated on an instance flag cleared only
-  by a `:reset-key` change. The freehand boundary
-  (`re-frame.freehand.error-react`) reaches the same conclusion through a
-  generation counter in a shared law; this arm needs one boolean, and
-  says so rather than importing the law.
+  `:on-error` fires from `componentDidCatch` and from nowhere else, so it
+  fires exactly as often as React catches. Under StrictMode the render
+  that threw runs **twice** and `componentDidCatch` is still called
+  **once**, which is the whole of the once-per-failure guarantee:
+  `arm1_lifecycle_dom_cljs_test/the-boundary-reports-once-under-strictmode`
+  mounts the failing tree in StrictMode and reads one record.
+
+  This started life with an instance flag gating the report, on the
+  reasoning the freehand boundary uses for its generation counter
+  (`re-frame.freehand.error-react`, whose `componentDidUpdate` promotes
+  too and therefore genuinely needs one). Removing the flag changed no
+  witness — **the mutation went green**, which is the definition of a
+  line nothing observes — so it is gone. The freehand law is not being
+  contradicted; it is being told apart, and the difference is that this
+  boundary reports from one lifecycle rather than three.
 
   The frame reaches the class through `contextType` — the substrate's one
   internal React context, the same object `runtime/shell` reads with
@@ -84,19 +92,19 @@
   (adapter-context/context-value->current-frame (.-context this)))
 
 (defn- report!
-  "Fire `:on-error` once for the failure now held. A vector is an intent
-  and is dispatched with the error appended; a function is called with it.
-  The flag is what makes StrictMode's second render, and every later
-  commit of the fallback, a no-op."
+  "Fire `:on-error` for the failure React just caught. A vector is an
+  intent and is dispatched, with the error appended, into the frame the
+  boundary is mounted under; a function is called with the error.
+
+  **Called from `componentDidCatch` and from nowhere else**, which is what
+  makes it once per failure without a flag to make it so."
   [^js this error]
-  (when-not (.-reported this)
-    (set! (.-reported this) true)
-    (let [on-error (:on-error (props-of this))]
-      (cond
-        (vector? on-error) (when-some [frame-kw (frame-of this)]
-                             (rt/dispatch! frame-kw (conj on-error error)))
-        (fn? on-error)     (on-error error)
-        :else              nil)))
+  (let [on-error (:on-error (props-of this))]
+    (cond
+      (vector? on-error) (when-some [frame-kw (frame-of this)]
+                           (rt/dispatch! frame-kw (conj on-error error)))
+      (fn? on-error)     (on-error error)
+      :else              nil))
   nil)
 
 (def boundary
@@ -110,7 +118,6 @@
                 (this-as ^js this
                   (.call ^js react/Component this props)
                   (set! (.-state this) #js {"error" nil})
-                  (set! (.-reported this) false)
                   (set! (.-resetKey this)
                         (:reset-key (or (unchecked-get props "rfProps") {})))
                   this))
@@ -138,11 +145,6 @@
               (let [k (:reset-key (props-of this))]
                 (when (not= k (.-resetKey this))
                   (set! (.-resetKey this) k)
-                  (set! (.-reported this) false)
-                  ;; Unconditional: a reset that only fired while a
-                  ;; failure was held would leave the flag armed after a
-                  ;; clean pass, and the NEXT failure would report
-                  ;; nothing.
                   (when (some? (unchecked-get (.-state this) "error"))
                     (.setState this #js {"error" nil})))))))
     (set! (.-render proto)
