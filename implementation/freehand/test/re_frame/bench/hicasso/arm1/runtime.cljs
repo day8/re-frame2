@@ -42,7 +42,9 @@
     it is the boundary id the index keys on, and a render that never
     commits registers nothing.
   - `getSnapshot` also lives on the entry and returns the **sum of the
-    set's epochs**. Epochs only ever increase, so the sum is monotone:
+    set's epochs**, where a key nothing holds yet contributes the
+    [[commit-basis]] rather than nothing (see *the render→commit gap*
+    below). Every term only ever increases, so the sum is monotone:
     `Object.is` on one number is a correct change test, and React's own
     \"getSnapshot should be cached\" rule is satisfied without a memo.
 
@@ -166,19 +168,72 @@
   around every intent, so one user action is one flush however many
   subscriptions it moved.
 
-  ## The generation fence
+  ## The commit basis, the fence, and the render→commit gap
 
-  [[generation]] counts flushes. A body runs inside [[render-body]],
-  which captures the generation before the body and checks it after: if a
-  commit landed *during* the body, its reads straddle two commits and the
-  body is re-run against the newer one. That is invariant-5 preservation
-  written as a loop rather than as a comment, and one comparison per
-  boundary rather than one deref per read.
+  Invariant 5 has two windows, and they are not the same window. One is
+  *inside a body* — a commit landing between two of one render's reads.
+  The other is the **render→commit gap** — a commit landing after the
+  body returned and before React runs the effect that acquires its
+  edges. The predecessor guarded the second by re-reading every
+  subscription at commit; this arm may not (HD-002), so it needs
+  something else there.
+
+  Both windows are judged against one number, [[commit-basis]]:
+
+      commit-basis(frame) = this runtime's flush generation
+                          + that frame's own physical-install epoch
+
+  [[generation]] counts flushes. `frame-commit-epoch` is the substrate's
+  own counter, bumped once per physical frame-state install at both
+  write chokepoints, and Spec 006's observation port already uses it for
+  exactly this question — *did the frame's durable state move in the
+  render→commit gap?* — because it answers without watching anything.
+  That second term is what the runtime was missing, and it is why the
+  basis is not just the generation:
+
+  > The generation only moves when `flush!` bumps it, `flush!` only runs
+  > from `mark-dirty!`, and `mark-dirty!`'s only caller is the
+  > value-change watch [[acquire-cell!]] installs **at commit**. So a
+  > key nothing holds yet — no cell, no watch, no epoch — could move
+  > without moving the generation by so much as one.
+
+  The two windows then use the basis in the two places they can:
+
+  1. **Inside a body.** [[render-body]] captures the basis before the
+     body and checks it after; a commit that landed during the run makes
+     the body re-run against the newer one. One comparison per boundary
+     rather than one deref per read.
+  2. **The render→commit gap.** A key with no cell contributes the
+     current basis to [[make-snapshot]], and a cell records the basis it
+     was *created* at. So a staged key's number is `basis@render` while
+     the boundary renders and `basis@commit` once the commit acquires
+     it — equal when nothing moved, different when something did. React
+     re-reads `getSnapshot` immediately after calling `subscribe`
+     (`updateStoreInstance` runs as the next passive effect) and
+     compares it against the snapshot **that fiber** captured at render,
+     so the comparison is per boundary, costs one number, and needs no
+     record of what any read returned. **A staged read that moves in the
+     gap now heals.** rf2-2rtt6.42.
+
+  It is conservative in the safe direction and only there: an install
+  that moved nothing this boundary read still moves the basis, so a
+  boundary mounting exactly as an unrelated write lands re-renders once.
+  A MISSED move would be the P0. Nothing pays for this in steady state —
+  a mounted boundary holds a reference to every key it reads, so its
+  snapshot has no staged term in it at all.
 
   A flush raised while a body is running must not call React's
   `onStoreChange` — that is a render-phase update on somebody else's
   component. Those notifications are deferred to a macrotask; the fence
   has already made the *rendering* boundary correct.
+
+  **Two axes the predecessor compared still have no counterpart**, and
+  saying so is the point of writing them down: a `:sub` re-registration
+  (its `:registry-epoch`) and a same-id frame reincarnation (its
+  `:node-key`). Neither is a frame-state install, so neither moves the
+  basis — and `frame-commit-epoch` itself restarts at 0 across a
+  reincarnation, which is precisely why the observation port carries
+  `:node-key` as a third field. rf2-2rtt6.44.
 
   ## What is deliberately NOT here (the hard fences)
 
@@ -194,6 +249,7 @@
             [re-frame.bench.hicasso.front.intent :as intent]
             [re-frame.bench.hicasso.front.sub-index :as index]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             ["react" :as react]))
 
@@ -308,6 +364,35 @@
   []
   @!generation)
 
+(defn commit-basis
+  "**The number both invariant-5 windows are judged against** — this
+  runtime's flush [[generation]] plus `frame`'s own physical-install
+  epoch (`re-frame.frame/frame-commit-epoch`, the substrate's
+  observation-port evidence counter, bumped once per frame-state install
+  at both write chokepoints).
+
+  The generation alone cannot carry it, and the reason is structural
+  rather than a matter of degree: the generation moves only through
+  `mark-dirty!`, whose only caller is the value-change watch
+  [[acquire-cell!]] installs **at commit**, so a key nothing holds yet
+  can move without moving it. The frame's install epoch has no such
+  dependency — it is a counter read, not a watch — which is exactly why
+  Spec 006's observation port uses it to ask whether durable state moved
+  in the render→commit gap.
+
+  Both terms are monotone within a frame incarnation, so the basis is,
+  and so is any sum of bases and cell epochs. Deliberately
+  install-counting rather than `=`-counting: a value-equal install still
+  advances it, which costs at most one redundant re-render and cannot
+  cost a missed one. Pure read; allocates nothing.
+
+  Silent on two axes by construction (rf2-2rtt6.44): a `:sub`
+  re-registration is not a frame-state install, and a same-id frame
+  reincarnation RESTARTS `frame-commit-epoch` at 0 — the case the
+  observation port needs its `:node-key` field for."
+  [frame-kw]
+  (+ @!generation (frame/frame-commit-epoch frame-kw)))
+
 (declare flush!)
 
 (defn- mark-dirty! [^js cell]
@@ -350,7 +435,19 @@
                                      "queryV"   query-v
                                      "reaction" reaction
                                      "watchKey" wk
-                                     "epoch"    0
+                                     ;; NOT zero. A key with no cell
+                                     ;; contributes the CURRENT
+                                     ;; `commit-basis` to `getSnapshot`,
+                                     ;; so a cell born at the same basis
+                                     ;; contributes the same number and
+                                     ;; a mount that raced nothing
+                                     ;; re-renders for nothing. Born at a
+                                     ;; LATER basis — something installed
+                                     ;; in the gap — it contributes a
+                                     ;; different one, and React's
+                                     ;; post-subscribe re-check corrects
+                                     ;; the boundary. rf2-2rtt6.42.
+                                     "epoch"    (commit-basis frame-kw)
                                      "refs"     0
                                      "disposed" false}]
                    ;; ONE baseline deref, at construction, before the watch.
@@ -417,7 +514,13 @@
     (when (seq dirty)
       (vreset! !dirty #{})
       (vswap! !generation inc)
-      (doseq [^js c dirty] (set! (.-epoch c) (inc (.-epoch c))))
+      ;; Re-STAMP rather than increment, so a cell's epoch is always a
+      ;; `commit-basis` reading and never drifts into a private
+      ;; numbering the staged term could not be compared against. It
+      ;; still strictly increases: the generation was just bumped and
+      ;; the frame's install epoch never falls, so the new stamp is
+      ;; above the one this cell last carried.
+      (doseq [^js c dirty] (set! (.-epoch c) (commit-basis (.-frameKw c))))
       (let [boundaries (index/commit! (into #{} (map (fn [^js c] (.-subKey c))) dirty))]
         (if (rendering?)
           (do (vswap! !deferred into boundaries)
@@ -583,9 +686,28 @@
           entry))))
 
 (defn- make-snapshot
-  "React's `getSnapshot`: the sum of the set's epochs. Monotone, so
-  `Object.is` on it is a correct change test; cached on the entry, so a
-  render allocates no closure for it."
+  "React's `getSnapshot`: the sum of the set's epochs, where a key **no
+  cell holds yet** contributes its frame's current [[commit-basis]]
+  instead of nothing. Monotone, so `Object.is` on it is a correct change
+  test; cached on the entry, so a render allocates no closure for it.
+
+  That one term is what reaches the render→commit gap. A staged key
+  contributes `basis@render` while the boundary renders and, once the
+  commit has created its cell, `basis@commit` — the same number when
+  nothing installed in between and a different one when something did.
+  React re-reads this closure immediately after `subscribe` returns
+  (`updateStoreInstance` is the next passive effect) and compares
+  against the value **that fiber** captured at render, so the tear check
+  is per boundary, is one number, and holds no record of what any read
+  returned. Returning 0 there — which is what a key with no epoch used
+  to contribute — meant a staged key answered the same number before and
+  after the commit however far its value had moved, so React saw no tear
+  and scheduled no re-render, and nothing ever corrected the boundary.
+  rf2-2rtt6.42.
+
+  Steady state pays nothing for it: a mounted boundary holds a reference
+  to every key it reads, so every term is a cell epoch and the staged
+  branch is never taken."
   [^js entry]
   (fn snapshot []
     (let [cells @!cells
@@ -594,8 +716,11 @@
       (loop [i 0 acc 0]
         (if (== i n)
           acc
-          (recur (inc i)
-                 (if-some [^js c (get cells (aget ks i))] (+ acc (.-epoch c)) acc)))))))
+          (let [k (aget ks i)]
+            (recur (inc i)
+                   (if-some [^js c (get cells k)]
+                     (+ acc (.-epoch c))
+                     (+ acc (commit-basis (nth k 0)))))))))))
 
 (defn- make-subscribe
   "React's `subscribe`, as a pure function of the read set.
@@ -670,16 +795,24 @@
   "Run a boundary body under the generation fence and return its element;
   [[last-reads]] carries the read-set entry.
 
-  The fence is the loop: capture the generation, run the body, and if a
-  commit landed while it ran, run it again against the newer commit. All
-  of a pass's reads therefore observe one commit — invariant-5
-  preservation as one comparison per boundary, not one deref per read."
+  The fence is the loop: capture the [[commit-basis]], run the body, and
+  if a commit landed while it ran, run it again against the newer
+  commit. All of a pass's reads therefore observe one commit —
+  invariant-5 preservation as one comparison per boundary, not one deref
+  per read.
+
+  It compares the basis rather than the generation alone because the
+  generation cannot see a mid-body move of a key nothing holds: no cell,
+  so no watch, so no `mark-dirty!`, so no bump. A body that read a
+  staged key, dispatched, and read again could straddle two commits with
+  the generation sitting perfectly still. The frame's install epoch
+  moves for that write, so the basis does. rf2-2rtt6.42."
   [frame-kw body-fn props]
   (loop [attempt 0]
-    (let [before  (generation)
+    (let [before  (commit-basis frame-kw)
           element (run-once frame-kw body-fn props)]
       (cond
-        (= before (generation))
+        (= before (commit-basis frame-kw))
         (do (set! (.-entry rstate) (entry-for)) element)
 
         (< attempt max-fence-retries)
@@ -704,6 +837,14 @@
   "An entry's sub-key set."
   [^js entry]
   (.-set entry))
+
+(defn snapshot-of
+  "The number React stores for a boundary with this read set, and the
+  one it re-reads after `subscribe` to decide whether the store moved
+  under the render. Reading it is the witness's way of performing
+  React's own `checkIfSnapshotChanged` without a browser."
+  [^js entry]
+  ((.-snapshot entry)))
 
 (defn last-tiers
   "Which read surfaces the most recent body used. The instrument's input,
