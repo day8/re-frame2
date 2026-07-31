@@ -1,5 +1,6 @@
 (ns re-frame.bench.hicasso.arm1.lang
-  "`defview` — the one macro Arm 1 has (rf2-2rtt6.9).
+  "`defview` and `hfn` — the two macros Arm 1 has (rf2-2rtt6.9,
+  rf2-2rtt6.35).
 
   It exists because the authoring surface is a *deliverable*: HD-002 has
   the dogfood screen written in three renderings and judged on diff and
@@ -47,3 +48,22 @@
        (re-frame.bench.hicasso.arm1.runtime/mint-view!
          ~view-name
          (fn ~body-name ~argv ~@body)))))
+
+(defmacro hfn
+  "**The one callback form** (HD-024). `h/fn` in the authoring surface;
+  spelled `hfn` here because `h/fn` is qualified in the product and a
+  bare `fn` would shadow `cljs.core/fn` on a `:refer`.
+
+  Expands to nothing but a marked `fn`:
+
+      (hfn [e] (js/Array.from (.. e -target -files)) …)
+      ;; =>
+      (re-frame.bench.hicasso.front.intent/callback (fn [e] …))
+
+  The value is an ORDINARY FUNCTION — that is the point of the ruling.
+  The contract comes from the position it is written at, so there is
+  nothing to choose between and nothing that can fail to be callable
+  where Hicasso does not walk. See
+  [[re-frame.bench.hicasso.front.intent]] for the position table."
+  [argv & body]
+  `(re-frame.bench.hicasso.front.intent/callback (fn ~argv ~@body)))

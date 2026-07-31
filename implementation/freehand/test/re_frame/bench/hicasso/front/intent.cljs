@@ -19,8 +19,54 @@
   |------------|------------|
   | vector     | a closure dispatching that intent |
   | map        | a composition-gated key-map |
+  | [[callback]] | one form; the POSITION selects its contract — see below |
   | fn         | passed through untouched — ordinary functions stay legal |
   | anything else | passed through untouched |
+
+  ## ONE callback form, and the position selects the contract (HD-024)
+
+  When a vector is not enough, the predecessor asks the author to pick
+  from a roster of FOUR forms, each with a different contract — one
+  returning an event vector, one whose return is ignored, one that is
+  pure and runs during a foreign render, one that passes a function
+  through by identity — and then adds a FIFTH rule about *where the
+  roster reaches*. Outside that reach the failure is not even the
+  library's: a roster carrier handed to a raw `#js` prop is a marker
+  object rather than a function, so the author gets the engine's own
+  `TypeError`, \"naming nothing you wrote\".
+
+  Hicasso ships **one** form, [[callback]] (`h/fn`), and it is an
+  ORDINARY FUNCTION. The contract comes from the position, because the
+  runtime already knows every position it walks:
+
+  | Position | How it is recognised | Contract |
+  |---|---|---|
+  | a native `:on-*` prop | [[event-prop?]] — the same two-shape rule as an intent vector | **event**: a returned VECTOR is dispatched; any other return is ignored |
+  | a `defhost` `:callbacks` entry | the declaration already says `:event` or `:handler` — never inferred from an `on*` name | as declared; `:handler` is the return-ignored contract |
+  | any other prop position (a slot, a render prop) | not an event position | **render**: pure. The return is the render output and is NOT dispatched; dispatching *from inside the call* is a loud error naming the position |
+  | `:ref` | [[ref-position?]] | React's own: commit phase, the node as the argument, the return as the detach cleanup. Excluded from lowering entirely |
+  | anywhere Hicasso does not walk — a raw `#js` prop, a value handed to a foreign API | it is not a position | it is a plain function and it simply runs; the return is ignored |
+
+  That last row is the deletion. There is no carrier object, so there is
+  nothing that can fail to be callable, so the fifth rule has nothing to
+  govern.
+
+  **A Hicasso view's own props map is not a position — it is data in
+  transit.** An intent vector handed to a view is not lowered there
+  either; the view puts it on an element and *that* position lowers it.
+  A callback travels the same way, and a callback a view simply *calls*
+  is ordinary Clojure with no foreign ABI in between, so there is nothing
+  to protect. Which is also why the render row is not free-floating
+  policy: it bites exactly where something other than Hicasso invokes the
+  callback.
+
+  **`raw-fn`'s identity passthrough is not v0, and costs nothing to
+  omit**: [[re-frame.bench.hicasso.front.codec/convert-prop-value]]
+  already passes functions to React by identity, deliberately, so that
+  `React.memo` and every downstream bail-out that compares handler
+  identity keep working. The behaviour the predecessor spells as a fourth
+  roster form is the default here. The census agrees with the omission —
+  zero foreign components across 85 idiomatic files.
 
   ## The frame, and why the closure closes over it
 
@@ -104,6 +150,12 @@
   [dispatch body-fn]
   (binding [*dispatch* dispatch] (body-fn)))
 
+(defn- fail! [id where reason recovery extra]
+  (throw (ex-info (str reason " [" id "]")
+                  (merge {:rf.error/id id :where where
+                          :reason reason :recovery recovery}
+                         extra))))
+
 (defn- require-dispatch [intent]
   (or *dispatch*
       (throw (ex-info (str "Intent " (pr-str intent) " was lowered with no ambient frame; "
@@ -114,6 +166,112 @@
                        :reason      "No frame-locked dispatch is bound for this render."
                        :recovery    :lower-intents-inside-a-boundary-render
                        :intent      intent}))))
+
+;; ---------------------------------------------------------------------------
+;; The one callback form (HD-024)
+;; ---------------------------------------------------------------------------
+
+(def ^:private callback-marker "hicassoFn")
+
+(defn callback
+  "**The one callback form.** Marks `f` so the position it is written at
+  can impose a contract on it — and returns `f` ITSELF, an ordinary
+  function, which is the whole of the deletion.
+
+  The predecessor's roster carriers are marker OBJECTS, so handing one to
+  a position the library does not walk produces the engine's own
+  `TypeError` naming nothing the author wrote. There is nothing here that
+  can fail to be callable: outside every walked position this value is a
+  plain function whose return is ignored, which is a defensible contract
+  rather than a crash.
+
+  `h/fn` in the authoring surface; see
+  [[re-frame.bench.hicasso.arm1.lang/hfn]]. Marking mutates the function
+  object, which is safe because a callback written in a body is minted
+  fresh per render — and it is one own-property read to test, with no
+  registry and no map."
+  [f]
+  (unchecked-set f callback-marker true)
+  f)
+
+(defn callback?
+  "Is `v` the one callback form? One own-property read behind a `fn?`
+  guard, so a string or a number at a prop position costs one type test."
+  [v]
+  (and (fn? v) (true? (unchecked-get v callback-marker))))
+
+(defn- event-callback
+  "**Event position.** A returned VECTOR is dispatched; anything else is
+  ignored, so the same form serves the live-event case (files, geometry,
+  filters) and the imperative one without the author choosing between two
+  spellings.
+
+  The ambient dispatch is captured at LOWERING time, as everywhere else
+  in this namespace — the browser invokes the callback long after the
+  render's dynamic extent has unwound. It is captured rather than
+  *required*, so a callback that never returns an intent is legal with no
+  frame in scope; returning one there is the loud error, and it names the
+  position."
+  [k f]
+  (let [dispatch *dispatch*]
+    (fn hicasso-event-callback [e]
+      (let [result (f e)]
+        (when (vector? result)
+          (if dispatch
+            (dispatch result)
+            (fail! :rf.error/hicasso-intent-outside-boundary
+                   'front.intent/lower-prop
+                   (str "A callback at " (pr-str k) " returned the intent "
+                        (pr-str result) " with no frame-locked dispatch in scope. "
+                        "Callbacks that dispatch are only legal at a position "
+                        "lowered inside a boundary's render.")
+                   :lower-intents-inside-a-boundary-render
+                   {:position k :intent result})))
+        nil))))
+
+(defn- render-callback
+  "**Render position.** The callback is invoked by whatever holds it —
+  a slot, a foreign component's render prop — DURING a render, so its
+  return is the render output and is emphatically not an intent. What is
+  forbidden is dispatching from inside it, and the diagnostic names the
+  POSITION rather than the form the author chose, because under one form
+  the form is never the answer to \"what did I get wrong?\".
+
+  Enforced by poisoning the ambient dispatch for the call's dynamic
+  extent: an intent lowered inside, or a direct call, both land on the
+  same error id. `.preventDefault`-style side effects are untouched."
+  [k f]
+  (fn hicasso-render-callback [& args]
+    (binding [*dispatch*
+              (fn [event]
+                (fail! :rf.error/hicasso-dispatch-in-render-position
+                       'front.intent/lower-prop
+                       (str "A callback at " (pr-str k) " dispatched " (pr-str event)
+                            " while it was running. " (pr-str k) " is a RENDER "
+                            "position: it is invoked during a render, so it must be "
+                            "pure. Move the dispatch to an event position, or to an "
+                            "event handler that owns the work.")
+                       :dispatch-from-an-event-position
+                       {:position k :event event}))]
+      (apply f args))))
+
+(defn- declared-callback
+  "**A `defhost` `:callbacks` entry.** The declaration already carries the
+  contract — `:event` or `:handler`, never inferred from an `on*` name —
+  so this is the position table's third row and it needs no new
+  machinery. `:handler` is the return-ignored contract, which for a form
+  that is already an ordinary function is the function itself."
+  [k f contract]
+  (case contract
+    :event   (event-callback k f)
+    :handler f
+    :render  (render-callback k f)
+    (fail! :rf.error/hicasso-unknown-callback-contract
+           'front.intent/lower-declared-prop
+           (str "A declaration gave " (pr-str k) " the callback contract "
+                (pr-str contract) ". The contracts are :event, :handler and :render.")
+           :declare-event-handler-or-render
+           {:position k :contract contract})))
 
 ;; ---------------------------------------------------------------------------
 ;; The marker roster and its one pure materializer
@@ -229,24 +387,70 @@
         (when-some [h (get lowered (.-key e))]
           (h e))))))
 
+(defn ref-position?
+  "`:ref` is the one prop position whose contract is neither Hicasso's to
+  select nor the same for both phases: React invokes it in the COMMIT
+  phase with the node, and whatever it returns is the detach cleanup. So
+  it is excluded from callback lowering entirely and keeps its own
+  declared contract (HD-016 callback refs, HD-022's reserved vector) —
+  wrapping it would forbid a dispatch that is legitimate there and would
+  change the identity React uses to decide whether to re-attach."
+  [k]
+  (or (= :ref k) (= "ref" k)))
+
+(defn position-contract
+  "The contract a prop position imposes on the one callback form. An
+  event position is the only one the attribute grammar can name by
+  itself; everything else Hicasso walks is a render position, and a
+  `defhost` declaration overrides this by saying so
+  ([[lower-declared-prop]])."
+  [k]
+  (cond
+    (ref-position? k) :ref
+    (event-prop? k)   :event
+    :else             :render))
+
 (defn lower-prop
   "Lower one prop. Values at non-event positions, and non-lowerable values
   at event positions, come back untouched — this is the identity function
-  for everything the surface does not claim."
+  for everything the surface does not claim.
+
+  The one callback form is claimed at EVERY position, because that is
+  what makes the position the thing that selects the contract."
   [k v]
-  (if-not (event-prop? k)
-    v
+  (if (event-prop? k)
     (cond
-      (vector? v) (intent-handler k v)
-      (map? v)    (key-map-handler k v)
-      :else       v)))
+      (vector? v)   (intent-handler k v)
+      (map? v)      (key-map-handler k v)
+      (callback? v) (event-callback k v)
+      :else         v)
+    (if (and (callback? v) (not (ref-position? k)))
+      (render-callback k v)
+      v)))
+
+(defn lower-declared-prop
+  "Lower one prop whose contract a `defhost` declaration named — the
+  position table's second row. Kept separate from [[lower-prop]] so the
+  declaration is what decides, rather than the prop's spelling: the
+  predecessor's own rule is that a host's callback contract is 'a finite
+  map from EXACT prop names to `:event` or `:handler`; never inferred
+  from an `on*` name', and that rule survives here because the position,
+  not the value, carries the contract."
+  [k v contract]
+  (cond
+    (callback? v) (declared-callback k v contract)
+    (vector? v)   (intent-handler k v)
+    (map? v)      (key-map-handler k v)
+    :else         v))
 
 (defn lower-props
-  "Walk a props map once, lowering every event position. Returns the map
-  unchanged, by identity, when it holds nothing to lower — the ordinary
-  case for the great majority of elements on a page, and worth not
-  allocating for."
+  "Walk a props map once, lowering every position that carries something
+  to lower. Returns the map unchanged, by identity, when it holds nothing
+  — the ordinary case for the great majority of elements on a page, and
+  worth not allocating for."
   [props]
-  (if-not (some (fn [[k v]] (and (event-prop? k) (or (vector? v) (map? v)))) props)
+  (if-not (some (fn [[k v]] (or (callback? v)
+                                (and (event-prop? k) (or (vector? v) (map? v)))))
+                props)
     props
     (reduce-kv (fn [m k v] (assoc m k (lower-prop k v))) {} props)))

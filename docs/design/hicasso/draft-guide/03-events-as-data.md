@@ -51,6 +51,47 @@ Use one when you genuinely need the event object — geometry, pointer capture, 
 imperative call. The intent vector is the taught default because it covers almost
 everything, not because functions are forbidden.
 
+## When you need the event *and* an intent: `h/fn`
+
+Sometimes the event has to be read before you know what to dispatch — a file list,
+a drag delta, a filtered key. For that there is **one** callback form, and it is an
+ordinary function:
+
+```clojure
+[:input {:type "file"
+         :on-change (h/fn [e] [:upload/picked (js/Array.from (.. e -target -files))])}]
+```
+
+**The position decides what the return means.** At an `:on-*` prop, a returned
+vector is dispatched and anything else — including `nil` — is ignored, so a
+conditional dispatch is an ordinary `when`:
+
+```clojure
+[:div {:on-drop (h/fn [e]
+                  (.preventDefault e)
+                  (when-let [f (aget (.. e -dataTransfer -files) 0)]
+                    [:upload/dropped (.-name f)]))}]
+```
+
+| Where you wrote it | What it means |
+|---|---|
+| a native `:on-*` prop | a returned vector is dispatched; any other return is ignored |
+| a `defhost` callback the declaration named | whatever the declaration said — `:event` or `:handler` |
+| a slot or a foreign render prop | it runs during a render, so it must be pure. The return is output, not an intent, and dispatching from inside it is an error that **names the prop** |
+| `:ref` | React's own contract — the node on attach, your return as the cleanup |
+| a raw `#js` prop you built yourself | nothing at all. It is a function; it runs |
+
+That last row is the one worth knowing about, because of what it is not. In the
+predecessor there are four callback forms plus a rule about where they reach, and
+the forms are *carriers* — marker objects, not functions. Hand one to a raw `#js`
+prop and the library calls `props.onPing(…)` on something that is not callable, so
+what you get is the JavaScript engine's own `TypeError`, worded after whatever
+expression it tripped on, naming nothing you wrote. `h/fn` is a function
+everywhere. Put it somewhere the runtime does not walk and you lose the contract,
+not the call.
+
+You never pick a form. There is one, and where you put it is the decision.
+
 ## Policy defaults the runtime owns
 
 Two things a form does every single time, and every codebase reimplements badly.
@@ -123,7 +164,8 @@ When you need the event object itself. Pointer coordinates, `dataTransfer`,
 `stopPropagation`, anything measuring the DOM — those are functions, and reaching
 for one is not a failure. The census puts these at roughly 3% of handler sites,
 which is the right size for an escape hatch: too small to design the syntax around,
-too real to pretend away.
+too real to pretend away. Reach for `h/fn` when you want to read the event *and*
+dispatch, and a plain `(fn …)` when you want to read it and do something else.
 
 ## Not settled yet
 
