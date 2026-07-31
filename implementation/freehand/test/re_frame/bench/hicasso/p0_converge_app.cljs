@@ -402,22 +402,30 @@
     :grade       :diagnostic
     :verify-of   verify-m2
     :elements-of v/m2-elements
-    ;; DEEPER WARM-UP THAN THE PAGE DEFAULT, and only here (rf2-6i0i2).
-    ;; This witness's readings are one to three of Chrome's 100 us quanta,
-    ;; so a one-quantum p50 step between the page's first and last thirds
-    ;; reads as a 2.0x-2.5x DISJOINT phase split and the arm-order guard
-    ;; refuses the run — which it did on four of the first six six-round
-    ;; invocations (uix-subs and both segments' floors, steps 2.0000x /
-    ;; 2.2857x / 2.5000x, every one exactly the page warming across a
-    ;; lattice point). The guard's own repair list starts with `more
-    ;; warm-up`, and that is the repair taken: 24 discarded mounts per
-    ;; segment-round put the first RECORDED sample past the knee. The
-    ;; measured window (one mount) is untouched; M1's readings are 30-50
-    ;; quanta where a one-quantum step is inside tolerance, so the page
-    ;; default stays at 8 there. Batching this row's mounts instead was
-    ;; REFUSED by the guard when rf2-2rtt6.2 tried it and is not
-    ;; re-litigated (see the clock-note below).
-    :sampling    {:warmup 24 :samples 12}
+    ;; A SMALLER MOUNT BUDGET THAN THE PAGE DEFAULT, and only here
+    ;; (rf2-6i0i2). The sixth round pushed this page over the arm-order
+    ;; guard's phase gate: at the default 8+12 sampling a six-round M2
+    ;; page runs 720 mounts and FOUR OF SIX invocations were refused,
+    ;; every refusal a LAST-third-slower disjoint split (2.0x-2.5x) on
+    ;; readings of one to three 100 us quanta. The direction matters —
+    ;; the page DEGRADES as it runs, which is the per-page accumulation
+    ;; rf2-2rtt6.4 recorded and rf2-flqpd tied to collector debt, and the
+    ;; dose-response was measured rather than guessed: 600 mounts a page
+    ;; (the five-round budget) ran clean, 720 refused four of six, and a
+    ;; misdiagnosed `deeper warm-up` repair — 1,296 mounts — refused
+    ;; three of three with the split widened to 2.6x-4.0x. Warm-up depth
+    ;; FEEDS the accumulation; the lever is the page's TOTAL mount
+    ;; budget. So: 4 warm-up + 10 samples = 504 mounts a page at six
+    ;; rounds, back under the budget every clean run ran at, with the
+    ;; measured window (one mount) untouched and the tolerance untouched.
+    ;; Less warm-up is safe HERE because the failure is the tail, not the
+    ;; knee — a cold early sample pulls the FIRST third up, against the
+    ;; climb. M1's readings are 30-50 quanta on the same budget, where
+    ;; the same absolute drift is inside tolerance; it keeps the page
+    ;; default. Batching this row's mounts instead was REFUSED by the
+    ;; guard when rf2-2rtt6.2 tried it and is not re-litigated (see the
+    ;; clock-note below).
+    :sampling    {:warmup 4 :samples 10}
     ;; ONE mount per sample, exactly as rf2-2rtt6.2 publishes it. That arm
     ;; TRIED the batch that would lift this witness clear of Chrome's
     ;; 100 us clamp — eight 51-element roots in one flushSync — and THE
