@@ -318,7 +318,7 @@ function snapshotTotal(cdp) {
 // Arm naming — the plan is derived from the page, never assumed here
 // ---------------------------------------------------------------------------
 
-// `floor/r0-b1200`, `uix/r7-b1200`, `noretain/r3-b1200`. The driver PARSES
+// `floor/r0-b1200`, `uix/r7-b1200`, `retain/r3-b1200`. The driver PARSES
 // rather than reconstructs, so a rename in the CLJS cannot silently
 // desynchronise the two halves of the instrument.
 function parseArm(id) {
@@ -848,13 +848,14 @@ function report(all) {
     }
     L.push(`;;   => decomposition is ${fid.ok ? 'ATTRIBUTABLE' : 'NOT ATTRIBUTABLE; every delta below is void'}`);
   }
-  if (U && U.uix && U.noretain && U.hooks) {
+  if (U && U.uix && U.retain && U.hooks) {
     L.push('');
     L.push(';; ---- DECOMPOSITION of the shipped per-read cost --------------------');
-    L.push(`;;   retained render-phase reaction   xcript - noretain   ${dstr(delta(U.xcript.bytesPerRead, U.noretain.bytesPerRead))} B`);
-    L.push(`;;                                                        ${dstr(delta(U.xcript.objectsPerRead, U.noretain.objectsPerRead), n1)} obj`);
-    L.push(`;;   one live subscription            noretain - hooks    ${dstr(delta(U.noretain.bytesPerRead, U.hooks.bytesPerRead))} B`);
-    L.push(`;;                                                        ${dstr(delta(U.noretain.objectsPerRead, U.hooks.objectsPerRead), n1)} obj`);
+    L.push(`;;   retained render-phase reaction   retain - xcript   ${dstr(delta(U.retain.bytesPerRead, U.xcript.bytesPerRead))} B`);
+    L.push(`;;   (SUPERSEDED by rf2-2rtt6.13;                          ${dstr(delta(U.retain.objectsPerRead, U.xcript.objectsPerRead), n1)} obj`);
+    L.push(`;;    the shipped hook no longer pays it)`);
+    L.push(`;;   one live subscription            xcript - hooks    ${dstr(delta(U.xcript.bytesPerRead, U.hooks.bytesPerRead))} B`);
+    L.push(`;;                                                        ${dstr(delta(U.xcript.objectsPerRead, U.hooks.objectsPerRead), n1)} obj`);
     L.push(`;;   React's six-hook stack           hooks               ${b(U.hooks.bytesPerRead.p50)}  [${b(U.hooks.bytesPerRead.min)}-${b(U.hooks.bytesPerRead.max)}] B`);
     L.push(`;;                                                        ${n1(U.hooks.objectsPerRead.p50)}  [${n1(U.hooks.objectsPerRead.min)}-${n1(U.hooks.objectsPerRead.max)}] obj`);
     if (R && R.reagent) {
@@ -862,7 +863,7 @@ function report(all) {
       L.push(`;;   Reagent, same subs, same page shape                  ${b(R.reagent.bytesPerRead.p50)}  [${b(R.reagent.bytesPerRead.min)}-${b(R.reagent.bytesPerRead.max)}] B`);
       L.push(`;;                                                        ${n1(R.reagent.objectsPerRead.p50)}  [${n1(R.reagent.objectsPerRead.min)}-${n1(R.reagent.objectsPerRead.max)}] obj`);
       L.push(`;;   shipped UIx / Reagent ratio                          ${(U.uix.bytesPerRead.p50 / R.reagent.bytesPerRead.p50).toFixed(3)}x`);
-      L.push(`;;   noretain  / Reagent ratio                            ${(U.noretain.bytesPerRead.p50 / R.reagent.bytesPerRead.p50).toFixed(3)}x`);
+      L.push(`;;   superseded retaining shape / Reagent ratio            ${(U.retain.bytesPerRead.p50 / R.reagent.bytesPerRead.p50).toFixed(3)}x`);
     }
   }
   return L.join('\n');
