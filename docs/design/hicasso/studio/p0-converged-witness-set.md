@@ -289,9 +289,12 @@ has cleared the threshold.
 **The pre-registered single run, printed because the design named it before it
 ran.** The commit that balanced the design nominated run 1 — reagent-start, the
 historic schedule — as the re-publication run *in advance*, so that the row
-payloads could not be chosen after the fact. It is printed here beside the
-ensemble; on every row it sits inside the ten-run spread, and the ensemble mean
-is the better-founded estimate of the same quantity.
+payloads could not be chosen after the fact. It is one of the ten, so it is
+inside their spread by construction; what it is worth printing for is **where it
+falls in that spread**, which is all over it — 4th lowest of ten on M1, 5th on
+M2, **2nd lowest on narrow and 2nd highest on broad**. A single pre-designated
+run is honest but arbitrary, and that is the case for publishing the ensemble
+rather than any one member of it.
 
 | witness | run 1 (pre-registered) | range | per round |
 |---|---|---|---|
@@ -306,7 +309,7 @@ replace:
 
 | witness | `reagent-subs ÷ floor` | `uix-subs ÷ floor` |
 |---|---|---|
-| M1 mount | ~~4.352×~~ → 4.358× [3.625 – 5.111] | ~~5.343×~~ → 5.343× [4.611 – 6.500] |
+| M1 mount | ~~4.352×~~ → 4.358× [3.625 – 5.111] | **5.343×** [4.611 – 6.500] — the mean is unchanged to four figures |
 | M2 mount | ~~2.102×~~ → 2.241× [1.250 – 4.500] | ~~2.261×~~ → 2.335× [1.375 – 4.000] |
 | bulk broad | ~~7.443×~~ → 7.630× [6.167 – 10.000] | ~~4.607×~~ → 4.728× [3.333 – 6.000] |
 | bulk narrow *(batched window)* | ~~1.880×~~ → 2.416× [1.965 – 2.682] | ~~2.168×~~ → 2.831× [2.618 – 3.059] |
@@ -854,12 +857,16 @@ five Reagent-start runs against the five UIx-start runs, and use an **exact
 permutation test** over all `C(10,5) = 252` relabellings. Nothing about the
 inside of a run is assumed.
 
-| row | Reagent-start mean | UIx-start mean | difference | exact two-sided *p* | smallest difference this test could have seen |
+| row | Reagent-start mean | UIx-start mean | difference | exact two-sided *p* | resolution limit |
 |---|---|---|---|---|---|
-| M1 mount | 1.2276 | 1.2344 | −0.0068 | 0.770 | 0.043 |
-| M2 mount | 1.0461 | 1.0740 | −0.0280 | 0.611 | 0.122 |
-| bulk broad | 0.6295 | 0.6288 | +0.0007 | 0.984 | 0.063 |
-| bulk narrow | 1.1754 | 1.1755 | −0.0001 | 0.992 | 0.037 |
+| M1 mount | 1.2276 | 1.2344 | −0.0068 | 0.770 | ±0.043 |
+| M2 mount | 1.0461 | 1.0740 | −0.0280 | 0.611 | ±0.122 |
+| bulk broad | 0.6295 | 0.6288 | +0.0007 | 0.984 | ±0.063 |
+| bulk narrow | 1.1754 | 1.1755 | −0.0001 | 0.992 | ±0.037 |
+
+The **resolution limit** is the half-width of the 95% interval on the difference
+— what a start-group effect would have had to exceed for five against five to
+see it. It is printed because a null result without one is not a result.
 
 **Which segment starts a run does not detectably move the number that run
 publishes.** On the narrow row the two groups agree to one part in ten thousand.
@@ -927,13 +934,16 @@ claim one.** The start-group contrast can only resolve a difference of about
 0.04 on the narrow and M1 rows and about 0.12 on M2 — the last column of View 1's
 table is that limit, computed rather than asserted. On the composite, the
 interval admits an order effect anywhere from **6.6% against the claim to 2.9%
-for it**. So:
+for it**. Stated as bounds rather than as a verdict:
 
-- **An order effect of the size the page previously asserted — one to nineteen
-  percent between strata, systematic — is excluded on every row.**
-- **An order effect of one or two percent is not excluded, and would not be
-  detectable at ten runs.** It would also not matter: it is smaller than the
-  spread between two consecutive runs of the same design.
+- **An effect at the top of the range the page previously asserted is excluded
+  on every row.** The upper end of View 2's interval — the end that would favour
+  the claim — is +9.7% on M1, +6.5% on M2, +4.4% on broad and +3.8% on narrow.
+  The *"one to nineteen percent between strata, systematic"* the page used to
+  assert cannot be true of the top of its own range on any row.
+- **An effect of one or two percent is not excluded, and ten runs could not have
+  detected one.** It would also not matter: it is smaller than the gap between
+  two consecutive runs of the same design.
 
 The right conclusion is the modest one. **The segment-order effect is not
 established, and the design no longer needs it to be.** With an even round count
