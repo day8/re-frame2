@@ -341,15 +341,61 @@ edge count collapsing from 7 to 1 on the first). Restored, both exit 0. The
 first-paint assertions passed on the broken runtime, which is the whole reason
 the second half is asserted.
 
-**What genuinely remains, stated precisely so it is not rediscovered as a
-surprise.** The codec can force *structure* — a seq is data it already walks. It
-cannot force an explicit deferral primitive without destroying its meaning: a
-`delay` handed across a boundary and deref'd in the child's render is the same
-fault in a shape no walk may repair, because forcing a `delay` eagerly is the
-opposite of what a `delay` is for. A **function** prop is not in this class and is
-not a defect at all: the child re-runs it on every render, so the read repeats and
-the edge is kept — the reader is the child, and the child is the one whose output
-depends on it.
+**And the deferral no walk may repair is refused instead** (`rf2-2rtt6.32`). The
+codec can force *structure* — a seq is data it already walks, and forcing it
+changes nothing an author could observe, because the seq was going to be walked
+one boundary later regardless. A `delay` is not structure. It is an explicit
+deferral whose whole content is *not now*, so forcing it at the hand-off would
+change the meaning of the author's program in order to protect a property the
+author was never told about — a silent repair of a different kind, and no better
+than the silent staleness it replaces. `realize-deep` therefore **refuses** an
+unforced `delay` it reaches, and refuses it *inside the render of the body that
+wrote the crossing*, so the stack lands on the author's own call site. That is the
+attribution a query name would have bought, obtained without forcing anything to
+learn the name. Only an unforced one is refused: a `delay` the author already
+deref'd in their own body carries a computed value, derefs to it without calling
+anything, and passes through untouched. The cost is one `instanceof` on the branch
+that already existed for scalars, and the refusal needs no render identity — the
+check is on the value's shape, made inside the producing body's own window.
+
+The fault it replaces is asserted rather than described, driven around the codec
+because the codec now refuses to build it: the parent's read set is **empty**, the
+child's first render holds the row query, and the child's second render holds
+nothing. The edge is dropped with no boundary left holding one, and the only
+boundary that could rebuild the delay never re-rendered.
+
+A **function** prop is not in this class and is not a defect at all — now verified
+rather than argued. The child calls it on every render, so the read repeats, the
+edge is kept, and the holder is the child, which is the boundary whose output
+depends on it. The render-prop-that-is-not-re-run has only two ends and both were
+already settled: called in the render it keeps its edge; called anywhere else it
+finds no frame and raises the error `read-key!` has raised from the start. A body
+that *stops* calling a render prop simply holds no edge — that is law 4 rather
+than a defect, and no framework can tell it from a branch not taken.
+
+**What genuinely remains, and it is a boundary of the mechanism rather than a gap
+in it.** The crossing walk descends into data structures; a **mutable reference**
+is not one. A deferral an author parks in an atom — at a prop position, or in a
+module-level var the codec never sees at all — reaches its reader unrepaired and
+unrefused, and behaves exactly like the fault above. Opening it is not an option
+in either direction: a walk that deref'd a reactive reference would mint a
+dependency it has no business holding, and one that deref'd a `delay` would be
+the forcing this whole section declines. The author has routed state around the
+ruled surface, and no view framework detects that — React with hooks has the
+identical hole. It is asserted rather than described, so that it is a stated
+property of Surface B and not a later discovery.
+
+| Witness | Asserts |
+|---|---|
+| `deferred-read-cljs-test` (10 rows) | the unforced `delay` is refused at the crossing, with the id, the refusing position and the recovery; at every position the walk reaches — bare prop, vector, nested map, list, lazy seq, set, and the children slot; a realised `delay` crosses untouched and the read stays the parent's; the refused render installs nothing |
+| the same file, classification rows | the fault the refusal replaces, driven around the codec; a function prop keeping its edge across two renders; a function prop invoked outside a render raising the existing error; a body that stops calling one holding no edge; and the mutable-reference limit, asserted unrepaired |
+
+Mutation-proved by deleting the guard from `realize-deep`: node exit 1, 12
+failures and 1 error. Restored, node exit 0. There is no browser row and that is
+deliberate — the refusal is a pure codec verdict reached before any element is
+built, so a Chromium mount would re-prove what the node rows already prove. The
+DOM half was earned for `rf2-2rtt6.45` because *that* claim was about liveness,
+which a first paint cannot tell you; this one is not.
 
 ## 3. Two places the record did not survive contact with the substrate
 
