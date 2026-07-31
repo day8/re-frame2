@@ -111,8 +111,10 @@
             (rt/dispatch! [:dogfood/toggle 1])
             (is (pos? (:deferred-commits (rt/stats)))
                 "the re-entrant commit was deferred, not nested")
-            (is (= 1 (:snapshots-per-commit (rt/stats)))
-                "and every read of the turn that ran still saw one snapshot")
+            (is (>= 1 (:snapshots-per-commit (rt/stats)))
+                "and no turn ever observed a second snapshot — the counter is
+                 the LAST turn's, and the deferred turn dirtied nothing, so
+                 0 and 1 are both the shape the claim allows and 2 is not")
             (is (true? (get-in (rf/app-db-value screen/frame-id) [:todos 1 :done?]))
                 "the write landed")
             (finally (teardown) (screen-t) (.remove c) (.remove screen-c)

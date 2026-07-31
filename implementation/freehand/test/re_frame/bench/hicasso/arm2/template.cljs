@@ -54,7 +54,12 @@
   - a `nil`/`false` child, whose presence is data even though the 1:1
     law gives it a stable slot — a conditional child changes what kind
     of node the slot holds, and a plan that assumed otherwise would
-    write text into a comment.
+    write text into a comment;
+  - a child declaring a **`:key`**, because a key says *position is not
+    identity* and a hole plan is positional. Patching slot 0's text
+    rather than moving the node that owns the key reads correctly and is
+    wrong: every piece of DOM state a row holds — focus, scroll, a
+    controlled field's live value — would end up on the wrong row.
 
   The refusal is per shape, not per tree: a `for` over rows refuses at
   the `<ul>` and every row inside it still runs tier 1.
@@ -102,6 +107,12 @@
 
 (defn- props-at [argv] (let [p (nth argv 1 nil)] (when (map? p) p)))
 
+(defn- keyed-child?
+  "Does this child declare a `:key`? See the refusal in [[sig-of!]]."
+  [c]
+  (and (vector? c)
+       (when-some [p (props-at c)] (contains? p :key))))
+
 (defn- sig-of!
   "Append `form`'s signature to `out`, or return `false` to refuse the
   whole shape. Recursive, depth-first, in the order the DOM will hold."
@@ -116,6 +127,18 @@
         (let [props (props-at form)
               from  (if props 2 1)
               n     (count form)]
+          ;; A CHILD that declares `:key` refuses the parent's shape. A key
+          ;; says *position is not identity*, and a hole plan is positional
+          ;; by construction: it would patch the text of slot 0 rather than
+          ;; move the node that owns that key, and every piece of DOM state
+          ;; a row holds — focus, scroll, a controlled field's live value —
+          ;; would end up on the wrong row. The keyed reconciler exists for
+          ;; exactly this, so the plan stands aside for it.
+          ;;
+          ;; The common keyed shape is a seq, which already refuses; this
+          ;; catches the literal keyed list, which is rarer and was wrong
+          ;; in silence until `patch_dom_cljs_test/a-reorder-recreates-no-node`
+          ;; asked which nodes survived rather than what the markup read.
           (.push out "(")
           (.push out (name head))
           (when props
@@ -124,7 +147,9 @@
             (if (>= i n)
               (do (.push out ")") true)
               (let [c (nth form i)]
-                (if (sig-of! out c) (recur (inc i)) false)))))))
+                (if (keyed-child? c)
+                  false
+                  (if (sig-of! out c) (recur (inc i)) false))))))))
 
     :else false))
 

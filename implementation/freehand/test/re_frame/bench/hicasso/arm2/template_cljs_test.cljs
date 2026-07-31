@@ -36,9 +36,15 @@
     (is (not= (t/signature [:div.a "x"]) (t/signature [:div.b "x"])))))
 
 (deftest key-is-identity-not-shape
-  (testing "two rows differing only in :key share one plan"
+  (testing "a row's OWN :key is identity, not shape — two rows differing only
+           in :key share one plan"
     (is (= (t/signature [:li {:key 1 :data-i 1}])
-           (t/signature [:li {:key 2 :data-i 1}])))))
+           (t/signature [:li {:key 2 :data-i 1}]))))
+  (testing "but a keyed CHILD refuses the parent, because a hole plan is
+           positional and a key says position is not identity"
+    (is (nil? (t/signature [:ul [:li {:key :a} "a"] [:li {:key :b} "b"]])))
+    (is (some? (t/signature [:ul [:li "a"] [:li "b"]]))
+        "the same list without keys is positional by the author's own statement")))
 
 ;; ---------------------------------------------------------------------------
 ;; What the signature refuses

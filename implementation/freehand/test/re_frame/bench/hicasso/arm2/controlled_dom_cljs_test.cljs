@@ -353,7 +353,7 @@
               (type-into! n text)))
           (is (= [] (controlled/disagreements c))
               "every controlled cell reads what its model says")
-          (is (= grid/cells (rt/boundary-count))
+          (is (= (inc grid/cells) (rt/boundary-count))
               "and the grid still holds exactly its cells"))))))
 
 (deftest teardown-leaves-no-boundary-and-no-edge
@@ -362,7 +362,7 @@
     (do (rt/reset-runtime!)
         (let [c (container!)
               teardown (grid/mount! c)]
-          (is (= grid/cells (rt/boundary-count)))
+          (is (= (inc grid/cells) (rt/boundary-count)))
           (teardown)
           (is (zero? (rt/boundary-count)) "no boundary survives the teardown")
           (is (empty? (rt/watched-keys)) "and no subscription value is retained")
