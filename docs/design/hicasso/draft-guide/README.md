@@ -25,7 +25,7 @@ compiled, run, or measured.
 | [Controlled inputs](04-controlled-inputs.md) | Type into a text field whose value round-trips through app-db, and keep your caret |
 | [Interop](05-interop.md) | Use a React component from npm |
 | [Theming](06-theming.md) | Style a component library without a context API |
-| [Ephemeral state](07-ephemeral-state.md) | Decide where "is this dropdown open?" lives, given there is no `local` |
+| [Ephemeral state](07-ephemeral-state.md) | Decide where "is this dropdown open?" lives, given there is no `local` — and where "it left but is still fading out" lives, given app-db cannot hold it |
 | [Testing](08-testing.md) | Assert a view's output without a browser, and know when you still need one |
 
 Eight pages is not an accident. K5 in [validation.md](../validation.md) kills the
