@@ -132,6 +132,14 @@
 (defn- segment-order [r]
   (if (even? r) (vec segments) (vec (rseq (vec segments)))))
 
+(def ^:private start-segment
+  "Which segment leads round 0, and therefore how `segment-order-verdict`
+  labels the even and odd strata. This entry's [[segment-order]] takes no
+  counterbalanced start — round 0 is even, so Reagent leads it in every
+  coldmount run — and the value is derived from the schedule rather than
+  restated beside it, so the label and the order cannot drift apart."
+  (:id (first (segment-order 0))))
+
 (defn- enter-segment!
   "The converged arm's seam, unchanged: tear down, install this segment's
   adapter, re-register the sub graph (`cmv/register!` — the converged
@@ -539,7 +547,7 @@
         resolved? (fn [vs] (not-any? nil? vs))
         fid       (fidelity-of (pick :uix) (pick :xcript))
         rz        (pick :rz)
-        order     (converge/segment-order-verdict rz rounds)
+        order     (converge/segment-order-verdict rz rounds start-segment)
         c-rg      (lane/control-verdict (:predicted control)
                                         (select-keys (range-of (pick :ctl-ratio-reagent))
                                                      [:min :max :mean])
