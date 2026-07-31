@@ -319,6 +319,29 @@
       (h (ev {}))
       (is (= [] @!seen)))))
 
+(deftest the-policy-defaults-belong-to-the-data-spelling-not-to-the-callback
+  (testing "`:on-submit` auto-prevents an INTENT VECTOR because a vector never
+            sees the event, so the runtime must decide for it. A callback IS
+            handed the event, so the event is the callback's — the runtime
+            does not reach in after the body has run to second-guess it.
+            One rule: whoever holds the event owns it."
+    (let [!seen (recorder)]
+      (testing "the vector at :on-submit prevents, as it always has"
+        (let [prevented (atom false)
+              h (lowered (dispatching !seen) :on-submit [:signup/submit])]
+          (h (ev {:prevented prevented}))
+          (is (true? @prevented))
+          (is (= [[:signup/submit]] @!seen))))
+      (testing "the callback at the same position does not, and its returned
+                intent still dispatches"
+        (reset! !seen [])
+        (let [prevented (atom false)
+              h (lowered (dispatching !seen) :on-submit
+                         (intent/callback (fn [_] [:signup/submit])))]
+          (h (ev {:prevented prevented}))
+          (is (false? @prevented) "the runtime left the event alone")
+          (is (= [[:signup/submit]] @!seen)))))))
+
 (deftest at-a-render-position-the-return-is-output-and-dispatching-is-a-loud-error
   (testing "the contract the predecessor spells `v/render-fn`. A slot or a
             foreign render prop is invoked DURING a render, so its return is
