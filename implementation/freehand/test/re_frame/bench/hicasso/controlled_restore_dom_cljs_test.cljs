@@ -1,19 +1,13 @@
 (ns re-frame.bench.hicasso.controlled-restore-dom-cljs-test
-  "WHAT CORRECT MEANS FOR A CONTROLLED INPUT, on React (rf2-m6if4).
+  "WHAT CORRECT MEANS FOR A CONTROLLED INPUT, on React (rf2-m6if4,
+  rf2-n3dxw).
 
   Arm 2 (the PATCH renderer) is retired — Mike ruled on 2026-07-31 that
   Hicasso is an adapter for React — and this file is what its hard gate
   left behind. Arm 2's `:controlled/grid-100` witness was the clearest
   statement in the repo of what a store-backed controlled input has to
   do, and the statement is worth keeping even though the renderer that
-  provoked it is not. The assertions below are **moved** here, not
-  copied: the arm2 tree goes in the same change.
-
-  ## Why the grid moved instead of being deleted
-
-  Arm 2 owned the end-of-event restore because it had no React. The
-  reflex is to say React makes the whole family free. **It does not**,
-  and this file is the measurement rather than the reflex.
+  provoked it is not.
 
   The model is Arm 2's, unchanged, because the model was never the
   renderer's business: 100 cells, one event, one subscription, and a
@@ -26,7 +20,72 @@
   | `:upper`  | normalises it to upper case |
   | `:group`  | normalises `12345` to `12,345` — the length changes |
 
-  ## The door is the variable, not the renderer
+  ## There are TWO input implementations, and the BUNDLE used to pick
+
+  UIx chooses, per element and at element-creation time, between plain
+  React and a port of Reagent's controlled-input workaround —
+  `uix.compiler.aot/create-uix-input` branches on
+  `uix.compiler.input/should-use-reagent-input?` (uix.core 1.4.4). That
+  selector is not a decision the application makes. Left unset, it
+  answers *\"is Reagent loaded, and not in `*non-reactive*` mode?\"*
+  (`uix/compiler/input.cljs:15-21`). So a UIx-only app and a UIx app that
+  also carries Reagent get **different input implementations, with
+  different timing and a different caret** — and every bundle in this
+  repo's `:browser-test` carries Reagent, because the Reagent adapter is
+  first-class and ships with tests.
+
+  Every row below therefore **pins** the implementation it measures
+  rather than inheriting whichever one the bundle happened to select.
+  Both are witnessed, because the difference between them IS the finding.
+
+  ### `:react` — the element stays controlled
+
+  React's own end-of-discrete-event state restore fires, and it fires
+  even when nothing re-rendered. Reading react-dom 19.2.0's
+  `cjs/react-dom-client.development.js`:
+  `createAndAccumulateChangeEvent` records the event target for
+  restoration (`:3512-3523`); the `finally` of `batchedUpdates$1`
+  (`:3251-3272`) flushes sync work and then calls `restoreStateOfTarget`
+  (`:3178`), which hands the props React last committed to `updateInput`
+  (`:1644`); `updateInput` assigns `element.value` whenever it differs
+  from the prop (`:1661-1667`). **So a refused character comes off the
+  screen inside the discrete event, with nothing re-rendered** — measured
+  below beside a body-run count of zero.
+
+  What React does not do is put the caret back. Assigning `value` moves
+  the text entry cursor to the end of the control (HTML standard, the
+  `value` IDL attribute setter), and React restores a selection only
+  around a commit in which focus MOVED. So every write React makes —
+  a rejection, an uppercasing, a regrouping — lands the caret at the end
+  of the string.
+
+  ### `:uix-reagent-input` — the element is made uncontrolled
+
+  `value` is deleted from the props, `defaultValue` is set and a `ref` is
+  installed (`uix/compiler/input.cljs:124-127`), so React's restore has
+  nothing to restore: `updateInput` skips the write entirely when the
+  `value` prop is absent. UIx drives the value itself, and it schedules
+  that work on `reagent.impl.batching/do-after-render`, a queue drained
+  from `requestAnimationFrame` (`reagent/impl/batching.cljs:16-25`,
+  `:57-59`). Value and caret both come back correct — by offset from the
+  END of the string, which is the algorithm Arm 2 used — but **one
+  animation frame later, never inside the discrete event.**
+
+  ## What rf2-n3dxw actually is
+
+  The bead recorded `:unchanged-model-rejection` as a React defect: the
+  refused character stayed on the screen. **It is not React's.** The row
+  was measured in the full `:browser-test` bundle, which carries Reagent,
+  so what it measured was `:uix-reagent-input`'s one-frame lag. On React
+  the character is gone before `dispatchEvent` returns, and that is now
+  asserted.
+
+  The bead stays open for the half that is real: **neither implementation
+  gives both same-turn convergence and a caret at the position before the
+  refused character.** React converges in-turn and puts the caret at the
+  end; UIx's port puts the caret in the right place a frame late.
+
+  ## The door is a variable too
 
   `re-frame.core/dispatch` is asynchronous by design: the router's drain
   rides `interop/next-tick`, a **macrotask** (Spec 002 §Drain
@@ -34,9 +93,7 @@
   cannot echo inside the discrete event — the model is still the old one
   when the event returns. The synchronous door (`dispatch-sync`, which
   `use-frame` publishes beside `dispatch`) is what buys the same-turn
-  echo. Both are witnessed here, and the contrast is the finding: **on
-  React the controlled-input question is a question about the dispatch
-  door, not about the differ.**
+  echo. Both are witnessed here.
 
   ## Typing is simulated the way the browser does it
 
@@ -55,21 +112,15 @@
   `useSyncExternalStore` notification land after an OUT-OF-BAND
   dispatch — never inside the discrete-event path an assertion reads.
 
-  ## What was dropped, and why
-
-  Three of Arm 2's rows are not here.
+  ## What is still not asserted, and why
 
   - `:ime-composition-commits-nothing` — **not established, not
     asserted.** Arm 2 owned a composition fence because it owned the
-    writes. Whether React's own path leaves a composing field alone and
-    then converges at `compositionend` could not be settled with
-    synthetic `Event`s of those two names, and a fence that is asserted
-    without being demonstrated is worse than no assertion. Open on
-    rf2-n3dxw.
-  - `:selection-preserved` across a converge **that writes** — measured
-    `[2 2]` where Arm 2 required `[2 5]`; a range does not survive as a
-    range. Also on rf2-n3dxw. The half that does hold — an unchanged
-    model leaves another field's selection alone — is asserted below.
+    writes. Synthetic `Event`s named `compositionstart`/`compositionend`
+    do not exercise React's composition path, and there are now two
+    implementations to establish it against rather than one. A fence
+    asserted without being demonstrated is worse than no assertion.
+    Still open on rf2-n3dxw.
   - `teardown-leaves-no-boundary-and-no-edge` — dropped as a duplicate.
     Arm 1's dogfood suite already asserts zero residue after unmount
     (`:cells :cell-refs :boundaries :edges :entries` all 0), and one
@@ -80,6 +131,12 @@
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
             [uix.core :refer [$ defui]]
+            [uix.compiler.input]
+            ;; Required so `:uix-reagent-input` can be SELECTED rather
+            ;; than merely inherited: UIx's port reaches Reagent's
+            ;; after-render queue through the `reagent.impl.batching`
+            ;; global, which only exists once that namespace is loaded.
+            [reagent.impl.batching]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
 
@@ -144,21 +201,86 @@
   here rather than asserted about."
   (atom 0))
 
-(defui cell-view [{:keys [i door]}]
+(def ^:private !rendered
+  "Cell index → the value that cell's LAST render put on the element. It
+  stands in for the per-instance storage the [[converge!]] prototype
+  below would need, and naming it is half of that option's price."
+  (atom {}))
+
+(defn- converge!
+  "THE PROPOSED THIRD BEHAVIOUR, PROTOTYPED FOR MEASUREMENT ONLY.
+
+  Not an authoring pattern and not a proposed API: in a real adapter this
+  is the element path's business, wrapping `:on-change` where the user
+  never sees it. It sits in the view here only because neither Hicasso
+  nor the UIx adapter mints its own `:input` element today — UIx does.
+
+  Run at the end of the change handler, i.e. still inside the discrete
+  event and still ahead of React's own end-of-event restore:
+
+  1. `flushSync` so the synchronous door's commit lands NOW rather than
+     in the `finally` of React's `batchedUpdates$1`;
+  2. if the field still disagrees with what the element renders, write
+     the rendered value — which also makes React's later `updateInput`
+     a no-op, because it only assigns when the two differ;
+  3. put the caret back by offset from the END of the string.
+
+  Step 2 needs to know what the element renders NOW, which is why
+  [[!rendered]] exists: the handler's own closure carries the value from
+  the render that MINTED it, and after a re-render that value is stale —
+  the trap that makes `(= (.-value node) dom-value)` alone insufficient,
+  because it cannot tell a refusal from a keystroke the model took
+  verbatim."
+  [i e]
+  (let [node      (.-target e)
+        dom-value (.-value node)
+        caret-was (.-selectionStart node)]
+    (react-dom/flushSync (fn [] nil))
+    (let [rendered (get @!rendered i "")]
+      (when-not (= (.-value node) rendered)
+        (set! (.-value node) rendered))
+      (let [offset (- (count dom-value) caret-was)
+            c      (max 0 (- (count (.-value node)) offset))]
+        (.setSelectionRange node c c)))))
+
+(defui cell-view [{:keys [i door converge?]}]
   (swap! !body-runs inc)
   (let [v                                (uixa/use-subscribe [:cgrid/cell i])
         {:keys [dispatch dispatch-sync]} (uixa/use-frame)
         send                             (if (= :queued door) dispatch dispatch-sync)]
+    (swap! !rendered assoc i v)
     ($ :div.cell
        ($ :input.inp {:id        (str "c" i)
                       :type      "text"
                       :value     v
-                      :on-change (fn [e] (send [:cgrid/edit i (.. e -target -value)]))}))))
+                      :on-change (fn [e]
+                                   (send [:cgrid/edit i (.. e -target -value)])
+                                   (when converge? (converge! i e)))}))))
 
-(defui grid-view [{:keys [n door]}]
+(defui grid-view [{:keys [n door converge?]}]
   ($ :div.grid {:role "group"}
      (for [i (range n)]
-       ($ cell-view {:key i :i i :door door}))))
+       ($ cell-view {:key i :i i :door door :converge? converge?}))))
+
+;; ---------------------------------------------------------------------------
+;; Pinning the input implementation
+;; ---------------------------------------------------------------------------
+
+(def input-implementations
+  "The two things `uix.compiler.aot/create-uix-input` can build, and the
+  value of `uix.compiler.input/*use-reagent-input-enabled?*` that selects
+  each. `nil` — the shipped default — is not a third option; it is
+  *whichever of these two the bundle's contents imply*, which is what
+  this file exists to stop measuring by accident."
+  {:react             false
+   :uix-reagent-input true})
+
+(defn- pin-input-implementation! [impl]
+  (set! uix.compiler.input/*use-reagent-input-enabled?*
+        (get input-implementations impl)))
+
+(defn- unpin-input-implementation! []
+  (set! uix.compiler.input/*use-reagent-input-enabled?* nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The harness
@@ -179,36 +301,47 @@
   (react-dom/flushSync (fn [] nil))
   nil)
 
+(defn- after-a-frame
+  "Give Reagent's after-render queue the animation frame it is scheduled
+  on, then a macrotask for anything that frame scheduled in turn."
+  [f]
+  (js/requestAnimationFrame (fn [] (js/setTimeout f 0))))
+
 (defn- container! []
   (let [c (js/document.createElement "div")]
     (.appendChild js/document.body c)
     c))
 
 (defn- mount!
-  ([container n] (mount! container n :sync))
-  ([container n door]
+  ([container n] (mount! container n {}))
+  ([container n {:keys [door converge?]}]
    (rf/make-frame {:id frame-id :initial-events [[:cgrid/seed n]]})
+   (reset! !rendered {})
    (let [root (react-dom-client/createRoot container)]
      (react-dom/flushSync
       (fn [] (.render root ($ uixa/frame-provider {:frame frame-id}
-                              ($ grid-view {:n n :door door})))))
+                              ($ grid-view {:n n :door door :converge? converge?})))))
      root)))
 
 (defn- release! [root c]
   (react-dom/flushSync (fn [] (.unmount root)))
   (.remove c)
+  (unpin-input-implementation!)
   nil)
 
 (defn- with-grid
-  "Mount the grid, run `f` with the container, and tear it down whatever
-  happens. Synchronous tests only — an async body returns before its
-  timer fires, and a grid torn down under a pending callback dispatches
-  into a frame that is gone."
-  [f]
-  (let [c    (container!)
-        root (mount! c cells)]
-    (try (f c)
-         (finally (release! root c)))))
+  "Mount the grid with `impl` PINNED, run `f` with the container, and tear
+  it down whatever happens. Synchronous tests only — an async body
+  returns before its timer fires, and a grid torn down under a pending
+  callback dispatches into a frame that is gone."
+  {:arglists '([impl f] [impl opts f])}
+  ([impl f] (with-grid impl {} f))
+  ([impl opts f]
+   (pin-input-implementation! impl)
+   (let [c    (container!)
+         root (mount! c cells opts)]
+     (try (f c)
+          (finally (release! root c))))))
 
 (defn- cell-input [container i] (.querySelector container (str "#c" i)))
 
@@ -256,6 +389,27 @@
                      {:adapter uixa/adapter :ambient-frame nil :async? true}))
 
 ;; ---------------------------------------------------------------------------
+;; The selector itself — the reason every row below names an implementation
+;; ---------------------------------------------------------------------------
+
+(deftest the-input-implementation-is-chosen-by-the-bundle-not-the-app
+  (testing "UIx's default answer is a fact about the classpath, and this
+           bundle carries Reagent, so the shipped default here is the port
+           rather than plain React"
+    (is (some? reagent.impl.batching/do-after-render)
+        "Reagent's after-render queue is in this bundle — which is exactly
+         what makes UIx's default answer `true`")
+    (unpin-input-implementation!)
+    (is (true? (uix.compiler.input/should-use-reagent-input?))
+        "with nothing pinned, a UIx `:input` in THIS bundle is not a plain
+         React controlled input at all")
+    (pin-input-implementation! :react)
+    (is (false? (uix.compiler.input/should-use-reagent-input?)))
+    (pin-input-implementation! :uix-reagent-input)
+    (is (true? (uix.compiler.input/should-use-reagent-input?)))
+    (unpin-input-implementation!)))
+
+;; ---------------------------------------------------------------------------
 ;; :same-turn-echo — and the per-keystroke budget
 ;; ---------------------------------------------------------------------------
 
@@ -264,7 +418,7 @@
            discrete event — no act, no flushSync, no yield"
     (if-not (browser?)
       (is true off-browser)
-      (with-grid
+      (with-grid :react
         (fn [c]
           (let [n (cell-input c 7)]
             (.focus n)
@@ -278,7 +432,7 @@
   (testing "the per-keystroke budget: a keystroke in cell 7 re-runs cell 7"
     (if-not (browser?)
       (is true off-browser)
-      (with-grid
+      (with-grid :react
         (fn [c]
           (let [n (cell-input c 7)]
             (.focus n)
@@ -294,7 +448,7 @@
 (deftest editing-mid-string-leaves-the-caret-where-the-typing-put-it
   (if-not (browser?)
     (is true off-browser)
-    (with-grid
+    (with-grid :react
       (fn [c]
         (let [n (cell-input c 7)]
           (set-model! 7 "abcd")
@@ -308,31 +462,55 @@
                field, so React wrote nothing"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Normalisation — the length-preserving and the length-changing case
+;; Normalisation — where the two implementations part company
 ;; ---------------------------------------------------------------------------
 
-(deftest an-uppercasing-model-keeps-the-caret-mid-string
-  (if-not (browser?)
-    (is true off-browser)
-    (with-grid
-      (fn [c]
-        (let [n (cell-input c 13)]
-          (set-model! 13 "ABCD")
-          (.focus n)
-          (.setSelectionRange n 2 2)
-          (type-into! n "x")
-          (is (= "ABXCD" (model-value 13)) "the model normalised the case")
-          (is (= "ABXCD" (.-value n)) "and the field followed")
-          (is (= [3 3] (caret n))
-              "the caret is still after the character just typed — React saves
-               and restores the selection around a commit that writes"))))))
+(deftest a-normalising-model-moves-the-caret-to-the-end-on-react
+  (testing "the model uppercases what was typed, so React WRITES, and every
+           write React makes lands the caret at the end of the string —
+           the classic controlled-input caret jump, not a re-frame2 defect"
+    (if-not (browser?)
+      (is true off-browser)
+      (with-grid :react
+        (fn [c]
+          (let [n (cell-input c 13)]
+            (set-model! 13 "ABCD")
+            (.focus n)
+            (.setSelectionRange n 2 2)
+            (type-into! n "x")
+            (is (= "ABXCD" (model-value 13)) "the model normalised the case")
+            (is (= "ABXCD" (.-value n)) "and the field followed, in the same turn")
+            (is (= [5 5] (caret n))
+                "but the caret is at the END, not after the character just
+                 typed — React restores a selection only around a commit in
+                 which focus MOVED, and focus did not move")))))))
+
+(deftest the-uix-port-keeps-the-caret-mid-string-through-a-normalisation
+  (testing "the same keystroke on the other implementation: UIx's port owns
+           the write, and restores the caret by offset from the END of the
+           string — Arm 2's algorithm, and Reagent's before it"
+    (if-not (browser?)
+      (is true off-browser)
+      (with-grid :uix-reagent-input
+        (fn [c]
+          (let [n (cell-input c 13)]
+            (set-model! 13 "ABCD")
+            (.focus n)
+            (.setSelectionRange n 2 2)
+            (type-into! n "x")
+            (is (= "ABXCD" (model-value 13)))
+            (is (= "ABXCD" (.-value n)))
+            (is (= [3 3] (caret n))
+                "still after the character just typed")))))))
 
 (deftest a-grouping-model-keeps-the-caret-after-the-digit-just-typed
   (testing "1,234 + \"5\" becomes 12,345 — one character longer than what the
-           user typed, which is the case an absolute caret offset gets wrong"
+           user typed. The caret survives on React here only because the
+           edit was at the END of the field, which is where React's write
+           puts it anyway"
     (if-not (browser?)
       (is true off-browser)
-      (with-grid
+      (with-grid :react
         (fn [c]
           (let [n (cell-input c 17)]
             (set-model! 17 "1,234")
@@ -345,7 +523,7 @@
                 "the caret is still after the 5")))))))
 
 ;; ---------------------------------------------------------------------------
-;; :selection-preserved — the half that holds
+;; :selection-preserved
 ;; ---------------------------------------------------------------------------
 
 (deftest a-converge-elsewhere-leaves-this-fields-selection-alone
@@ -353,7 +531,7 @@
            nothing here moves"
     (if-not (browser?)
       (is true off-browser)
-      (with-grid
+      (with-grid :react
         (fn [c]
           (let [n (cell-input c 7)]
             (set-model! 7 "abcdef")
@@ -362,8 +540,41 @@
             (set-model! 23 "elsewhere")
             (is (= [1 4] (caret n)))))))))
 
+(deftest a-range-does-not-survive-a-converge-that-writes-on-either-implementation
+  (testing "Arm 2 restored both ends of a selection by distance from the end
+           of the string and required [2 5]. Neither shipped implementation
+           does: React resets the cursor to the end of the new value, and
+           UIx's port restores ONE offset into both `selectionStart` and
+           `selectionEnd` by construction (uix/compiler/input.cljs:68-69).
+           A range collapses. rf2-n3dxw records it; nothing here pretends
+           otherwise"
+    (if-not (browser?)
+      (is true off-browser)
+      (do
+        (with-grid :react
+          (fn [c]
+            (let [n (cell-input c 7)]
+              (set-model! 7 "abcdef")
+              (.focus n)
+              (.setSelectionRange n 1 4)
+              (set-model! 7 "Xabcdef")
+              (is (= "Xabcdef" (.-value n)))
+              (is (= [7 7] (caret n))
+                  "React put the cursor at the end of the value it wrote"))))
+        (with-grid :uix-reagent-input
+          (fn [c]
+            (let [n (cell-input c 7)]
+              (set-model! 7 "abcdef")
+              (.focus n)
+              (.setSelectionRange n 1 4)
+              (set-model! 7 "Xabcdef")
+              (is (= "Xabcdef" (.-value n)))
+              (is (= [2 2] (caret n))
+                  "the port kept the offset from the end — as a cursor, not
+                   as a range"))))))))
+
 ;; ---------------------------------------------------------------------------
-;; :unchanged-model-rejection — the row Arm 2 called decisive
+;; :unchanged-model-rejection — the row Arm 2 called decisive (rf2-n3dxw)
 ;; ---------------------------------------------------------------------------
 
 (deftest a-refused-keystroke-moves-no-model-and-re-runs-no-boundary
@@ -371,7 +582,7 @@
            letter; the model does not move, so NOTHING re-renders"
     (if-not (browser?)
       (is true off-browser)
-      (with-grid
+      (with-grid :react
         (fn [c]
           (let [n (cell-input c 11)]
             (set-model! 11 "12")
@@ -384,34 +595,169 @@
                 "and no boundary body ran at all — the value the model holds
                  did not change, so there was nothing for React to re-render")))))))
 
-(deftest recorded-a-refused-keystroke-is-not-taken-off-the-screen
-  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw).
+(deftest a-refused-keystroke-is-taken-off-the-screen-inside-the-event
+  (testing "THE ROW rf2-n3dxw WAS OPENED FOR, and React meets it.
 
-           This is the row Arm 2 met and the React path does not. Arm 2
-           converged the focused node at the end of every commit, so the
-           refused character came off the screen with the caret intact.
-           Here nothing re-renders — see the test above — and React's own
-           end-of-discrete-event state restore does not put the field
-           back either, so the field and the model disagree and every
-           later edit compounds it.
+           Nothing re-rendered — the test above counts zero body runs on
+           this exact keystroke — so the write below cannot have come from
+           a render. It comes from React's own controlled-state restore:
+           the change event enqueued this node
+           (`react-dom-client.development.js:3512-3523`), and the `finally`
+           of `batchedUpdates$1` (`:3251-3272`) handed the committed props
+           to `updateInput` (`:1644`), which assigned `value` because it
+           differed (`:1661-1667`). All of it before `dispatchEvent`
+           returned.
 
-           The assertion is written to the MEASURED value deliberately:
-           it is a tripwire. The day the adapter takes the character off
-           the screen this test goes red, and whoever makes it go red is
-           exactly the person who should be reading rf2-n3dxw."
+           The caret lands at 2 because that is where React's write leaves
+           it — the end of the string — which happens to be the position
+           before the refused character when the edit was AT the end. The
+           test below shows what that costs mid-string."
     (if-not (browser?)
       (is true off-browser)
-      (with-grid
+      (with-grid :react
         (fn [c]
           (let [n (cell-input c 11)]
             (set-model! 11 "12")
             (.focus n)
             (.setSelectionRange n 2 2)
+            (reset! !body-runs 0)
             (type-into! n "a")
-            (is (= "12a" (.-value n))
-                "the refused character is still on screen")
+            (is (= "12" (.-value n))
+                "the refused character is off the screen, on the next line")
             (is (= "12" (model-value 11))
-                "while the model says it was never accepted")))))))
+                "and the field and the model agree")
+            (is (zero? @!body-runs)
+                "with nothing re-rendered to do it")
+            (is (= [2 2] (caret n))
+                "caret at the position before the refused character")))))))
+
+(deftest a-refused-keystroke-mid-string-converges-with-the-caret-at-the-end
+  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw).
+
+           This is the residue after the headline row was corrected. The
+           refused character IS removed, in the same turn — but React's
+           write moves the cursor to the end of the control, so a user
+           editing mid-string is thrown to the end of the field on every
+           refused keystroke. The assertion is written to the MEASURED
+           value deliberately: the day something puts the caret back at 2
+           this goes red, and whoever makes it go red is exactly the person
+           who should be reading rf2-n3dxw."
+    (if-not (browser?)
+      (is true off-browser)
+      (with-grid :react
+        (fn [c]
+          (let [n (cell-input c 11)]
+            (set-model! 11 "12345")
+            (.focus n)
+            (.setSelectionRange n 2 2)
+            (type-into! n "z")
+            (is (= "12345" (.-value n))
+                "the refused character is gone")
+            (is (= "12345" (model-value 11)))
+            (is (= [5 5] (caret n))
+                "but the caret is at the end of the field, not at 2")))))))
+
+(deftest the-uix-port-takes-the-refused-character-off-one-frame-late
+  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw).
+
+           The other implementation gets the caret right and the timing
+           wrong. Its convergence rides `do-after-render`, whose queue is
+           drained from `requestAnimationFrame`, so on the line after
+           `dispatchEvent` the refused character is still on the screen —
+           which is what the bead originally recorded, and attributed to
+           React."
+    (if-not (browser?)
+      (is true off-browser)
+      (async done
+        (pin-input-implementation! :uix-reagent-input)
+        (let [c    (container!)
+              root (mount! c cells)
+              n    (cell-input c 11)]
+          (set-model! 11 "12345")
+          (.focus n)
+          (.setSelectionRange n 2 2)
+          (type-into! n "z")
+          (is (= "12z345" (.-value n))
+              "still on the screen when the discrete event returns")
+          (is (= "12345" (model-value 11)) "though the model refused it")
+          (after-a-frame
+           (fn []
+             (try
+               (is (= "12345" (.-value n))
+                   "one animation frame later the port has converged")
+               (is (= [2 2] (caret n))
+                   "and the caret is at the position before the refused
+                    character — the half React does not give")
+               (catch :default e
+                 (is false (str "the deferred converge threw: " (ex-message e)))))
+             (release! root c)
+             (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; The priced option — both halves, in one turn (rf2-n3dxw)
+;; ---------------------------------------------------------------------------
+
+(deftest a-same-turn-converge-can-have-both-halves-at-a-stated-price
+  (testing "MEASUREMENT OF A PROPOSAL, not of anything that ships.
+
+           Neither implementation above gives same-turn convergence AND a
+           caret at the position before the refused character. [[converge!]]
+           does, on every row of the family at once, on the synchronous
+           door. What it costs is stated rather than hidden: one
+           `flushSync` per keystroke on a controlled element, and a
+           per-instance record of the value that element last rendered
+           ([[!rendered]] here). It costs no user-visible ceremony — no
+           ref, no effect, nothing in the view but the ordinary
+           `:value`/`:on-change` pair — and no hook in the boundary shell.
+
+           The one thing it cannot do is the queued door: `dispatch`
+           drains on a macrotask, so at the end of the change handler the
+           model has not moved yet and there is nothing to converge to."
+    (if-not (browser?)
+      (is true off-browser)
+      (with-grid :react {:converge? true}
+        (fn [c]
+          (let [reject (cell-input c 11)
+                upper  (cell-input c 13)
+                group  (cell-input c 17)
+                plain  (cell-input c 7)]
+            (testing "a refused keystroke at the end of the field"
+              (set-model! 11 "12")
+              (.focus reject)
+              (.setSelectionRange reject 2 2)
+              (type-into! reject "a")
+              (is (= "12" (.-value reject)))
+              (is (= [2 2] (caret reject))))
+            (testing "a refused keystroke MID-STRING — the row React alone loses"
+              (set-model! 11 "12345")
+              (.focus reject)
+              (.setSelectionRange reject 2 2)
+              (type-into! reject "z")
+              (is (= "12345" (.-value reject)))
+              (is (= [2 2] (caret reject))
+                  "the caret is at the position before the refused character,
+                   in the same turn"))
+            (testing "a length-preserving normalisation"
+              (set-model! 13 "ABCD")
+              (.focus upper)
+              (.setSelectionRange upper 2 2)
+              (type-into! upper "x")
+              (is (= "ABXCD" (.-value upper)))
+              (is (= [3 3] (caret upper))))
+            (testing "a length-CHANGING normalisation"
+              (set-model! 17 "1,234")
+              (.focus group)
+              (.setSelectionRange group 5 5)
+              (type-into! group "5")
+              (is (= "12,345" (.-value group)))
+              (is (= [6 6] (caret group))))
+            (testing "and an ordinary accepted keystroke is not disturbed"
+              (set-model! 7 "abcd")
+              (.focus plain)
+              (.setSelectionRange plain 2 2)
+              (type-into! plain "X")
+              (is (= "abXcd" (.-value plain)))
+              (is (= [3 3] (caret plain))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; :async-normalisation, and the queued door
@@ -425,6 +771,7 @@
       (async done
         ;; NOT `with-grid`: its `finally` runs the moment the body returns,
         ;; and the body of an async test returns before its timer fires.
+        (pin-input-implementation! :react)
         (let [c    (container!)
               root (mount! c cells)
               n    (cell-input c 17)]
@@ -453,8 +800,9 @@
     (if-not (browser?)
       (is true off-browser)
       (async done
+        (pin-input-implementation! :react)
         (let [c    (container!)
-              root (mount! c cells :queued)
+              root (mount! c cells {:door :queued})
               n    (cell-input c 3)]
           (.focus n)
           (type-into! n "ab")
