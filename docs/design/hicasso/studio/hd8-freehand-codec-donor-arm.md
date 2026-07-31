@@ -183,9 +183,11 @@ Recorded before the published sweeps: **`donor-fh / donor-r1` sits disjointly
 above 1.0 on both mount rows and on the bulk write row, and straddles 1.0 on the
 narrow write row** — because a narrow write re-renders exactly one boundary, so
 almost no markup is rebuilt and there is nearly nothing for a codec to be slow
-at. Five of the six markup-dominant rows came back disjoint above 1.0, all three
-narrow rows straddle, and the one mount row that straddles is the one with the
-*least* markup per boundary. That is the shape predicted.
+at. Across the two sweeps, **13 of the 14 markup-rebuilding rows came back
+disjoint above 1.0**, **both** narrow rows straddle, and the single
+markup-rebuilding row that straddles is `mount-U` in the `uix` run — the witness
+with the *least* markup per boundary, on the one segment where the boundary's
+own fixed React cost dominates most. That is the shape predicted.
 
 ---
 
