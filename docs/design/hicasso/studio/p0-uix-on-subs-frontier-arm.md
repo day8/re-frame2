@@ -42,8 +42,12 @@ the bar, the budgets, the kill criteria, or these thresholds.
 > (Q = E). The ratios stay published as the cross-regime check: the 8% agreement
 > across shapes — this page's list at 2.262×, its grid at 2.254×, the ladder's
 > 2.435× — is *ratio* agreement, because the amortisation is common-mode across
-> both arms and cancels in the ratio. Portability of the ratio is real;
-> portability of the quantity is not.
+> both arms and cancels in the ratio. Portability of the ratio is real, and it
+> is **approximate**: the [fan-out sweep](heap-fan-out-sweep.md) measured the
+> ratio drifting **9.3%** across E/Q 1 → 8 in one run on one instrument, so a
+> cross-regime check quoted to three decimals is quoting drift. Portability of
+> the quantity is not real at all — the absolute moves 1.6–1.9× over the same
+> range.
 
 ## Provenance
 
@@ -260,10 +264,20 @@ Against the paper budget these figures decide nothing:
 is the **R = 0 boundary shell**, which both measured arms comply with (Reagent
 ~418–428 B, UIx ~208 B), and a boundary *including its read* — amortised or not
 — is judged on the per-read axis instead, under the ruling's regime-matched
-gates: UIx **3,552 B/read** [3,551–3,553], worse is RED and needs an explicit
-operator waiver; Reagent **943 B/read** [935–944], worse with no named paper
-path down is K3 territory; between the two is "UIx-rule cleared, K3 open",
-never plain green.
+gates: UIx **2,935 B/read** [2,852–3,055] on the P0 bench instrument, worse is
+RED and needs an explicit operator waiver; Reagent **943 B/read** [935–944],
+worse with no named paper path down is K3 territory; between the two is
+"UIx-rule cleared, K3 open", never plain green.
+
+**The UIx line was restated on 2026-07-31** (Mike's ruling, option (a),
+`rf2-e3flf`). It read 3,552 B/read while it was sourced from the ladder's
+pre-`rf2-2rtt6.13` / pre-`rf2-2rtt6.25` spine; the sweep's post-landing
+decomposition prices it at per-edge 1,345 B + per-unique-key 1,590 B, and the
+[ladder](reads-per-boundary-heap-ladder.md)'s §5 carries the arithmetic and its
+three cross-checks. Reagent's line did not move — neither landing touches the
+ratom path. **This page's own UIx heap absolutes also predate both landings**
+and are ~769/4 B per boundary high at E/Q = 4 on that account: the sweep re-ran
+this grid arm unchanged and read 1,996 B against the 2,134 B below.
 
 DOM nodes live in Blink's C++ heap, not V8's, so none of these figures contain
 the elements themselves. Every arm builds the identical DOM — the canonical-DOM
