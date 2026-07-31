@@ -3,6 +3,25 @@
 **Bead:** `rf2-2rtt6.9` · **Arm:** Hicasso lean-React
 ([architecture.md](../architecture.md) Arm 1) · **Branch:** `worker/arm1-2rtt6-9`
 
+> **Status, 2026-07-31: this is no longer a tournament arm — it is the product
+> line.** The operator ruled that Hicasso is "an adaptor for React that is
+> optimised for re-frame2, user ergonomics and performance", and dropped Arm 2
+> (PATCH) on product direction rather than on measurement — it had met its hard
+> gate. The competitive framing below (parity gates against a rival, the
+> like-for-like fences) was written before that ruling and is left standing
+> because the evidence is unaffected: a canonical-DOM parity gate against the
+> raw-UIx control is worth exactly as much when the control is a comparator as
+> when it was a rival.
+>
+> Two consequences the ruling makes sharper rather than softer. **Surface B is
+> the only acceptable read surface**, so if the collector cannot be made correct
+> the answer is NULL — grouped is not a fallback. And **HD-002(a)'s ownership
+> state machine is fully live here**: React owns the render phase in this
+> architecture, so every read is a candidate until a commit adopts it, and the
+> candidate-ledger tripwire is a real kill signal rather than a formality. §2
+> below is that clause discharged, and §2's closing paragraph names the nearest
+> approach to the fence.
+
 > **This page publishes no bar row.** The clock gate lines are being re-taken
 > (`rf2-b0tz5`), and this arm's candidate rows are scored against the restated
 > bar when it is ready. Everything below is either a *mechanism* description, a
@@ -203,6 +222,23 @@ exactly what a broken implementation also passes:
 
 The tests are what keep the property true: moving the codec call outside
 `run-once` fails the first of them.
+
+**And the eager codec is only half of it.** A codec forces the reads it *walks*;
+nothing can force a read the author deferred past the render — a handler closure,
+a `delay`, a lazy seq stashed rather than returned. Each of those would otherwise
+be a **silent** missing edge, which is the worst failure mode the ruled surface
+can have: correct on screen, frozen thereafter, attributable to nothing. The
+render frame is therefore set in a `try` and cleared in the matching `finally`,
+and a read that finds none **fails loudly, naming the query**. Four escapes are
+witnessed by `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge`
+— a stored handler, a handler actually invoked, an author-held `delay`, and a
+stashed lazy seq forced after the render.
+
+One residual case the guard cannot see, named rather than left to be discovered:
+a deferred read forced *inside another boundary's* render is attributed to that
+boundary. It is not a missing edge — the reader does re-render — but it is the
+wrong reader, and catching it would need per-boundary render identity the shell
+deliberately does not hold.
 
 ## 3. Two places the record did not survive contact with the substrate
 

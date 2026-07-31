@@ -121,6 +121,16 @@
   turns hiccup into elements, and moving the codec call out of `run-once`
   fails `a-lazy-for-registers-its-edges-and-its-readers-re-run`.
 
+  **An eager codec is only half of it, and the other half matters more.**
+  A codec can force the reads it walks; nothing can force a read the
+  author deferred past the render — a handler closure, a `delay`, a lazy
+  seq stashed rather than returned. Each of those would otherwise be a
+  *silent* missing edge: correct on screen, frozen thereafter,
+  attributable to nothing. So the render frame is set in a `try` and
+  cleared in the matching `finally`, and [[read-key!]] fails loudly when
+  it finds none. Every escape becomes an error naming the query rather
+  than an edge that was quietly not recorded.
+
   ### The cold read, and what it costs (clause (a) consequence)
 
   A render-phase read is a **pure deref** when the key already has a

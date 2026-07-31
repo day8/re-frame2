@@ -167,6 +167,38 @@
                                   [:li {:key id} (str (rt/sub [:dogfood/todo id]))])))]
       (is (= 4 (count (reads-of entry)))))))
 
+(deftest every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge
+  (seeded! 3)
+  (testing "**The complement of the eager codec, and the more important half.**
+           An eager codec forces the reads it walks; it cannot force a read
+           the author deferred past the render — a handler closure, a
+           `delay`, a lazy seq stashed and forced later. Every one of those
+           would otherwise be a SILENT missing edge, which is the worst
+           failure mode the ruled surface can have: correct on screen,
+           frozen thereafter, attributable to nothing.
+
+           One guard covers all of them, and it is the same guard that
+           makes a read outside any boundary an error: the render frame is
+           set in a `try` and cleared in the matching `finally`, so a read
+           that runs after the body returned finds nothing and says so. The
+           escape is converted into a loud error, never into an edge that
+           was quietly not recorded."
+    (let [escaped (volatile! nil)]
+      ;; 1. a handler closure — the browser invokes it long after render
+      (render (fn [_] [:button {:on-click (fn [] (vreset! escaped (fn [] (rt/sub [:dogfood/remaining]))))}]))
+      ;; 2. an author-held delay
+      (let [d (volatile! nil)]
+        (render (fn [_] (vreset! d (delay (rt/sub [:dogfood/remaining]))) [:li]))
+        (is (thrown-with-msg? js/Error #"outside a boundary render" @@d)))
+      ;; 3. a lazy seq the body stashed rather than returned
+      (let [s (volatile! nil)]
+        (render (fn [_] (vreset! s (map (fn [id] (rt/sub [:dogfood/todo id])) (range 3))) [:li]))
+        (is (thrown-with-msg? js/Error #"outside a boundary render" (doall @s))))
+      ;; 4. the handler, actually called
+      (let [h (volatile! nil)]
+        (render (fn [_] (vreset! h (fn [] (rt/sub [:dogfood/remaining]))) [:li]))
+        (is (thrown-with-msg? js/Error #"outside a boundary render" (@h)))))))
+
 (deftest a-conditional-read-is-an-edge-the-collector-simply-does-not-have
   (seeded! 3)
   (testing "law 4 at the authoring surface: the branch that is not taken
