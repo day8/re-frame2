@@ -297,6 +297,58 @@
                        (subvec argv first-child))]
       (when (seq flat) flat))))
 
+(defn realize-deep
+  "Force every lazy sequence reachable from `v`, and return **`v` itself,
+  by identity**.
+
+  ## Why a boundary needs this and a native tag does not
+
+  The codec is eager everywhere it walks, and that is what makes a `(sub
+  …)` inside a `for` an edge of the body that wrote it rather than a
+  silently missing one: `expand-seq` drives a child seq to exhaustion,
+  [[realize-children]] folds one into a vector, and [[convert-prop-value]]
+  sends any collection at a NATIVE prop position through `clj->js`.
+
+  A boundary prop is the one position where none of that happens.
+  [[boundary-element]] hands `body-props` across as a raw ClojureScript
+  map and the shell reads it back as one — no conversion, and so no
+  realisation. A lazy seq written in one body therefore arrives in
+  another body unrealised, and is forced *there*, inside a render that
+  did not write it. The runtime cannot refuse it — its render frame
+  answers *is any body running*, and one is — so the read is attributed
+  to the wrong boundary; and because a `LazySeq` caches, that boundary
+  re-renders exactly once, reads nothing the second time, and drops the
+  edges. The value is then correct on screen and frozen for the life of
+  the mount. rf2-2rtt6.45.
+
+  One walk at the hand-off closes it, and pays where the escape is: the
+  read is forced by the same pass that turns hiccup into elements, inside
+  the window of the body that wrote it.
+
+  ## Why it costs almost nothing
+
+  Realising a `LazySeq` caches into the seq itself, so this **rebuilds
+  nothing and copies nothing** — every branch returns the argument it was
+  given. The traversal is the whole of the work, and the seq it forces
+  was going to be walked anyway, one boundary later. The overwhelming
+  case is a small props map of scalars, where the cost is one `coll?` per
+  value.
+
+  Maps are reduced with `reduce-kv` rather than over their entries, so
+  the walk allocates no `MapEntry`; their keys are not descended into
+  because hashing a seq realises it, so a lazy seq cannot already be a
+  key in a map.
+
+  A seq of unbounded length at a boundary prop position now diverges here
+  rather than in the child. That is the same thing `clj->js` already does
+  to one at a native prop position, and it must be: a deferred read
+  cannot be both unbounded and attributable."
+  [v]
+  (cond
+    (map? v)  (do (reduce-kv (fn [_ _ x] (realize-deep x) nil) nil v) v)
+    (coll? v) (do (run! realize-deep v) v)
+    :else     v))
+
 ;; ---------------------------------------------------------------------------
 ;; Emission — React elements (Arm 1's representation)
 ;; ---------------------------------------------------------------------------
@@ -342,8 +394,17 @@
   (let [has-props? (props-map? argv 1)
         props      (if has-props? (nth argv 1) {})
         children   (realize-children argv (if has-props? 2 1))
-        body-props (cond-> (dissoc props :key)
-                     children (assoc :children children))
+        ;; THE HAND-OFF, and the one position the eager codec did not
+        ;; reach. Everywhere else a lazy read is forced by the pass that
+        ;; turns hiccup into elements; here the map crosses untouched, so
+        ;; a seq written in THIS body would be realised inside the
+        ;; child's render and attributed to it — silently, and then
+        ;; frozen, because a realised `LazySeq` is never walked a second
+        ;; time. [[realize-deep]] returns the map by identity and covers
+        ;; `:children` in the same pass, which is where the one-level
+        ;; flatten leaves a nested seq. rf2-2rtt6.45.
+        body-props (realize-deep (cond-> (dissoc props :key)
+                                   children (assoc :children children)))
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (react/createElement (nth argv 0) js-props)))
