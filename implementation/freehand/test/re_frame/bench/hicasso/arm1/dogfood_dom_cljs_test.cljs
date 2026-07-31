@@ -45,7 +45,8 @@
             [re-frame.test-support :as test-support]
             [uix.core :refer [$ defui]]
             ["react-dom" :as react-dom]
-            ["react-dom/client" :as react-dom-client]))
+            ["react-dom/client" :as react-dom-client])
+  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -174,6 +175,46 @@
                and a controlled field"
         (is (re-find #"<ul class=\"list\"" a-dom))
         (is (re-find #"class=\"new-input\"" a-dom))))))
+
+;; ---------------------------------------------------------------------------
+;; 1b — the lazy `for`, through a real React commit
+;; ---------------------------------------------------------------------------
+;;
+;; A Surface B property (see the node suite for the argument). `for` is
+;; lazy, so a collector that closed at the body's return would register no
+;; row edges and the DOM would freeze after the first paint while looking
+;; correct. Here it is asserted where it actually matters — after a real
+;; commit, against real nodes.
+
+(defview lazy-rows
+  "Every read is inside the lazy seq. Nothing outside it reads a row."
+  [_]
+  [:ul.lazy
+   (for [id (rt/sub [:dogfood/visible-ids])]
+     [:li.lazy-row {:key id :data-id id}
+      (str (:title (rt/sub [:dogfood/todo id])))])])
+
+(deftest reads-inside-a-lazy-for-update-the-dom-on-a-later-write
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id [lazy-rows {}])]
+        (try
+          (let [cell (fn [id] (some-> (.querySelector (:container handle)
+                                                      (str ".lazy-row[data-id=\"" id "\"]"))
+                                      (.-textContent)))]
+            (is (= todo-count (.-length (.querySelectorAll (:container handle) ".lazy-row"))))
+            (is (= "todo 2" (cell 2)) "the first paint is right — which proves nothing on its own")
+            (rt/dispatch! frame-id [:dogfood/edit-draft 2 "ignored"])
+            (mount/settle!)
+            (rt/dispatch! frame-id [:dogfood/commit 2])
+            (mount/settle!)
+            (is (= "ignored" (cell 2))
+                "and a later write to a query the lazy seq produced reaches the
+                 DOM — the half a first render cannot tell you")
+            (is (= "todo 1" (cell 1)) "while its neighbour is untouched"))
+          (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the narrow write touches one row

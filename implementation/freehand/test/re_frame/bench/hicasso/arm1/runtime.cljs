@@ -103,6 +103,24 @@
   sub-keys only; the generation fence, not a re-read, is what preserves
   invariant 5.
 
+  ### Laziness, and why the collector window closes around the codec
+
+  A Surface B property worth stating in the runtime rather than only in a
+  test, because a host language with lazy seqs can lose it silently. `for`
+  returns a **lazy sequence**, so every `(sub …)` inside one runs when
+  something walks the seq — not when the body returns. A collector closed
+  at the body's return would register **no edge for any row**, and would
+  look perfectly correct on the first render, because the values are right
+  once realised; it would simply never update again.
+
+  This arm is safe by construction: [[run-once]] closes the window around
+  `codec/as-element`, and the codec is eager everywhere it walks —
+  `expand-seq` drives a seq to exhaustion, `realize-children` folds one
+  into a vector, and a seq at a prop position goes through `clj->js`. A
+  lazy read is therefore forced inside the window by the same pass that
+  turns hiccup into elements, and moving the codec call out of `run-once`
+  fails `a-lazy-for-registers-its-edges-and-its-readers-re-run`.
+
   ### The cold read, and what it costs (clause (a) consequence)
 
   A render-phase read is a **pure deref** when the key already has a

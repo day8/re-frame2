@@ -114,6 +114,50 @@
                  (key-of [:dogfood/todo 2])}
                (reads-of entry)))))))
 
+(deftest a-lazy-for-registers-its-edges-and-its-readers-re-run
+  (seeded! 3)
+  (testing "**A Surface B property, and the one a lazy host language can lose
+           silently.** `for` returns a LAZY SEQUENCE, so every `(sub …)`
+           inside it runs when something walks the seq — not when the body
+           returns. A collector closed at the body's return would collect
+           ZERO edges for every row, register no dependency, and look
+           perfectly correct on the first render (the values ARE right once
+           realised) while never updating again. Arm 2 hit exactly that in
+           Chromium and flagged it across the tournament.
+
+           This arm is safe **by construction rather than by care**: the
+           collector window closes around `codec/as-element`, and the codec
+           is eager everywhere it walks — `expand-seq` drives a seq to
+           exhaustion, `realize-children` folds one into a vector, and a
+           seq at a prop position goes through `clj->js`. So a lazy read is
+           forced inside the window by the same pass that turns hiccup into
+           elements. This test is what keeps that true: it fails the moment
+           the codec call moves outside `run-once`."
+    (let [b (mounted! (fn [_]
+                        [:ul (for [id (rt/sub [:dogfood/visible-ids])]
+                               [:li {:key id} (str (rt/sub [:dogfood/todo id]))])]))]
+      (is (= #{(key-of [:dogfood/visible-ids])
+               (key-of [:dogfood/todo 0])
+               (key-of [:dogfood/todo 1])
+               (key-of [:dogfood/todo 2])}
+             (reads-of (:entry b)))
+          "every row query the lazy seq produced is an edge")
+      (is (= 4 (:edges (rt/stats)))
+          "and the commit installed all four, not just the eager one")
+      (rt/dispatch! frame-id [:dogfood/toggle 1])
+      (is (= 1 @(:hits b))
+          "a write to a row query the `for` produced re-runs the boundary —
+           the half a first render cannot tell you")
+      ((:release! b)))))
+
+(deftest a-lazy-seq-returned-as-the-body-root-registers-its-edges-too
+  (seeded! 3)
+  (testing "the same property at the root position, where there is no
+           enclosing vector to force the walk"
+    (let [entry (render (fn [_] (for [id (rt/sub [:dogfood/visible-ids])]
+                                  [:li {:key id} (str (rt/sub [:dogfood/todo id]))])))]
+      (is (= 4 (count (reads-of entry)))))))
+
 (deftest a-conditional-read-is-an-edge-the-collector-simply-does-not-have
   (seeded! 3)
   (testing "law 4 at the authoring surface: the branch that is not taken
