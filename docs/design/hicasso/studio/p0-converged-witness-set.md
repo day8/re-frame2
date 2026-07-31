@@ -227,50 +227,93 @@ re-frame state and is untouched by which adapter is installed, so a
 UIx-over-Reagent figure is a ratio of two floor-normalised ratios and the seam
 cancels. **That cancellation is published, not assumed:**
 
-| row | floor(UIx segment) ÷ floor(Reagent segment), per round | verdict |
-|---|---|---|
-| mount M1 | 0.900 · 1.056 · 1.000 · 0.938 · 1.000 | straddles 1.0 |
-| mount M2 | 0.800 · 1.000 · 1.167 · 0.875 · 1.000 | straddles 1.0 |
-| bulk broad | 0.625 · 1.000 · 1.200 · 0.667 · 1.200 | straddles 1.0 |
-| bulk narrow | 1.000 · 1.000 · 1.000 · 1.200 · 1.000 | straddles 1.0 |
+| row | floor(UIx segment) ÷ floor(Reagent segment), run 1 per round | over the ten runs | verdict |
+|---|---|---|---|
+| mount M1 | 1.000 · 1.105 · 1.125 · 0.900 · 1.118 · 1.000 | mean 1.029, run means 1.000 – 1.085 | straddles 1.0 in **10 of 10** |
+| mount M2 | 1.167 · 1.000 · 1.000 · 1.000 · 1.125 · 1.000 | mean 1.019, run means 0.903 – 1.103 | straddles 1.0 in **10 of 10** |
+| bulk broad | 1.000 · 0.857 · 1.143 · 1.000 · 0.857 · 0.857 | mean 0.971, run means 0.856 – 1.078 | straddles 1.0 in **10 of 10** |
+| bulk narrow | 0.900 · 0.962 · 0.943 · 0.965 · 1.020 · 1.122 | mean 1.003, run means 0.957 – 1.029 | straddles 1.0 in **10 of 10** |
 
-The seam is indistinguishable from unity on every row — a materially quieter
-seam than the one rf2-2rtt6.4 published, which moved by up to 1.8×.
+The seam is indistinguishable from unity on every row of every run — a
+materially quieter seam than the one rf2-2rtt6.4 published, which moved by up to
+1.8×. Forty independent chances to catch a drifting seam, and it did not drift.
 **A single-segment absolute millisecond from this page is still not a quotable
 figure.**
 
 ## RED-ZONE — clock, on rf2-2rtt6.2's witnesses
 
 **UIx-on-subs ÷ Reagent-on-subs**, both floor-normalised in the same round and
-the same segment. Ranges are min–max across the five rounds. A range that
-includes 1.0 means the two are **indistinguishable** and is reported as such
-rather than as a winner.
+the same segment. A range that includes 1.0 means the two are
+**indistinguishable** and is reported as such rather than as a winner.
 
-| witness | **threshold (mean)** | range | per round | verdict |
+**These four rows are the balanced re-publication (rf2-6i0i2)**, and the
+five-round figures they replace are struck in place. Every row below is the
+mean over **ten independently launched six-round runs** whose starting segment
+is counterbalanced five and five — the design [the segment-order
+question](#the-segment-order-question-asked-properly) describes. At six rounds
+the alternation splits 3:3, so the raw mean and the order-balanced mean are the
+**same number by construction**; there is no longer a corrected value to print
+beside a biased one.
+
+| witness | **threshold** | 95% interval on the mean | run means (10) | verdict |
 |---|---|---|---|---|
-| **M1 mount** — 901 el, 300 boundaries | ~~**1.2301×**~~ **MAGNITUDE WITHDRAWN** — direction only, ≈1.11 – 1.35 | 1.1099 – 1.3538 | 1.3065 · 1.1417 · 1.2388 · 1.1099 · 1.3538 | **UIx slower** here and in 2 of the 3 other runs; **see [the segment-order warrant](#the-segment-order-warrant--and-why-12301-does-not-have-one)** |
-| **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0539× | 0.8572 – 1.4286 | 1.4286 · 0.8572 · 0.8572 · 1.0550 · 1.0714 | **straddles 1.0 — indistinguishable** |
-| **bulk broad** — one commit all 300 read | **0.6239×** | 0.4701 – 0.7857 | 0.7172 · 0.6046 · 0.5417 · 0.7857 · 0.4701 | **UIx faster**, disjoint from 1.0 |
-| **bulk narrow** — 10 commits, each read by exactly one boundary, one window | ~~**1.1540×**~~ **MAGNITUDE WITHDRAWN** — direction only; balanced 1.1457 | 1.0570 – 1.2053 | 1.2053 · 1.1515 · 1.1860 · 1.0570 · 1.1700 | **UIx slower**, disjoint from 1.0 in every run — *but its order strata are disjoint too; see [the segment-order warrant](#the-segment-order-warrant--and-why-12301-does-not-have-one)* |
-| ~~bulk narrow, **unbatched window** (superseded)~~ | ~~1.1556×~~ | ~~1.0417 – 1.2500~~ | ~~1.1111 · 1.2500 · 1.2500 · 1.0417 · 1.1250~~ | ~~UIx slower, but did not stably resolve across runs~~ |
+| **M1 mount** — 901 el, 300 boundaries | ~~1.2301×~~ → **1.2310×** | 1.2105 – 1.2514 | 1.1989 – 1.2931 | **UIx slower.** 59 of 60 rounds above 1.0; 19 of 20 order strata wholly above it |
+| **M2 mount** — 51 el, 12 fields · *diagnostic* | ~~1.0539×~~ → **1.0601×** | 1.0017 – 1.1185 | 0.9561 – 1.1923 | **straddles 1.0 — indistinguishable**, in all ten runs |
+| **bulk broad** — one commit all 300 read | ~~0.6239×~~ → **0.6291×** | 0.5996 – 0.6587 | 0.5792 – 0.6987 | **UIx faster.** All 60 rounds below 1.0; all 20 strata wholly below it |
+| **bulk narrow** — 10 commits, each read by exactly one boundary, one window | ~~1.1540×~~ → **1.1754×** | 1.1579 – 1.1930 | 1.1390 – 1.2186 | **UIx slower.** All 60 rounds above 1.0; all 20 strata wholly above it |
+| ~~bulk narrow, **unbatched window** (superseded twice over)~~ | ~~1.1556×~~ | — | — | ~~UIx slower, but did not stably resolve across runs~~ |
 
-> **Two magnitudes are withdrawn and no number is deleted.** Every figure above
-> is exactly as measured; what changed is what may be **quoted** from it, and it
-> is now the instrument that decides ([the segment-order
-> warrant](#the-segment-order-warrant--and-why-12301-does-not-have-one)).
-> The two rows whose order strata OVERLAP keep their magnitudes, with the
-> order-balanced value beside the raw one: **M2 1.0539 → 1.0376** (diagnostic
-> either way), **bulk broad 0.6239 → 0.6357**.
+**The interval is on the mean, not on a run.** It is a Student-t interval over
+the ten run means, so it says how well ten runs pin the centre; the *run means*
+column is the spread a single fresh run should be expected to land in, and it is
+two to four times wider. Quote the interval when comparing a candidate against
+the centre; quote the run-mean spread when asking whether one run of a candidate
+has cleared the threshold.
 
-Both arms against the floor, for context:
+> **The two withdrawn magnitudes are restored, and no number is deleted.** M1's
+> `1.2301` and narrow's `1.1540` were withdrawn because a 3:2 design biased them,
+> their order strata were disjoint, and four estimates disagreed by ±6%. The
+> balanced ensemble answers all three: the design is even, the strata **overlap
+> in 9 of 10 runs on both rows**, and ten estimates now agree to ±4%. What is
+> published is a magnitude **with an interval**, which is what the measurement
+> supports; a bare four-decimal point never was. **rf2-2rtt6.1's operator hold on
+> quoting `1.2301` is not lifted here** — that bead's number is superseded rather
+> than rehabilitated, and only the operator amends the standard. See [the verdict
+> on M1's magnitude](#the-verdict-on-m1s-magnitude).
+
+**The pre-registered single run, printed because the design named it before it
+ran.** The commit that balanced the design nominated run 1 — reagent-start, the
+historic schedule — as the re-publication run *in advance*, so that the row
+payloads could not be chosen after the fact. It is printed here beside the
+ensemble; on every row it sits inside the ten-run spread, and the ensemble mean
+is the better-founded estimate of the same quantity.
+
+| witness | run 1 (pre-registered) | range | per round |
+|---|---|---|---|
+| M1 mount | 1.2159× | 0.9529 – 1.4286 | 1.4286 · 0.9529 · 1.2681 · 1.2186 · 1.1378 · 1.2892 |
+| M2 mount | 1.0469× | 0.8571 – 1.3846 | 0.8571 · 1.3846 · 1.0714 · 1.0000 · 1.0794 · 0.8889 |
+| bulk broad | 0.6662× | 0.5532 – 0.8485 | 0.6190 · 0.6328 · 0.6144 · 0.5532 · 0.8485 · 0.7292 |
+| bulk narrow | 1.1542× | 1.0346 – 1.3602 | 1.2575 · 1.1161 · 1.0999 · 1.3602 · 1.0568 · 1.0346 |
+
+Both arms against the floor, over the ensemble. Ranges are min–max across all
+sixty rounds, which is why they are wider than the five-round ranges they
+replace:
 
 | witness | `reagent-subs ÷ floor` | `uix-subs ÷ floor` |
 |---|---|---|
-| M1 mount | 4.352× [4.063 – 4.625] | 5.343× [4.947 – 5.944] |
-| M2 mount | 2.102× [1.625 – 2.800] | 2.261× [1.714 – 4.000] |
-| bulk broad | 7.443× [7.000 – 8.000] | 4.607× [3.667 – 5.500] |
-| bulk narrow *(batched window)* | 1.880× [1.8167 – 1.9259] | 2.168× [2.0357 – 2.2500] |
+| M1 mount | ~~4.352×~~ → 4.358× [3.625 – 5.111] | ~~5.343×~~ → 5.343× [4.611 – 6.500] |
+| M2 mount | ~~2.102×~~ → 2.241× [1.250 – 4.500] | ~~2.261×~~ → 2.335× [1.375 – 4.000] |
+| bulk broad | ~~7.443×~~ → 7.630× [6.167 – 10.000] | ~~4.607×~~ → 4.728× [3.333 – 6.000] |
+| bulk narrow *(batched window)* | ~~1.880×~~ → 2.416× [1.965 – 2.682] | ~~2.168×~~ → 2.831× [2.618 – 3.059] |
 | ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.820× [1.500 – 2.000]~~ | ~~2.117× [1.667 – 2.500]~~ |
+
+**The narrow row's floor-relative figures move a long way and the reason is the
+floor, not the arms.** Both legs rise by almost the same factor — Reagent ×1.29,
+UIx ×1.31 — because the narrow floor reads *faster* on this ensemble than it did
+on the five-round run (16.5–30 quanta against 21–30). A common factor in both
+numerators cancels out of a ratio of two floor-normalised ratios, which is why
+the threshold itself barely moves: 2.831 ÷ 2.416 = 1.172, against the 1.1754 the
+row publishes. That agreement is the floor normalisation working as designed.
 
 ### All four rows reproduce against the revived driver (rf2-rjfz1)
 
@@ -356,19 +399,29 @@ of Chrome's 100 µs quanta, which is coarse enough to be worth checking. The
 **raw** cross-segment estimator — `uix-subs` p50 over `reagent-subs` p50 in the
 same round, touching neither floor — is therefore reported beside it:
 
+Both columns are now over the ten-run ensemble; the bracket is the spread of the
+ten run means.
+
 | row | floor-normalised | raw cross-segment | agree? |
 |---|---|---|---|
-| M1 mount | 1.2301 [1.1099 – 1.3538] | 1.2028 [1.0405 – 1.3538] | yes — same verdict, 2% apart on the mean |
-| M2 mount | 1.0539 [0.8572 – 1.4286] | 0.9989 [0.8571 – 1.1429] | yes — both straddle |
-| bulk broad | 0.6239 [0.4701 – 0.7857] | 0.5582 [0.4483 – 0.6500] | yes — same verdict, both far from 1.0 |
-| bulk narrow *(batched window)* | **1.1540** [1.0570 – 1.2053] | **1.1714** [1.0962 – 1.2316] | yes — same verdict, both disjoint from 1.0 |
+| M1 mount | ~~1.2301~~ → **1.2310** [1.1989 – 1.2931] | ~~1.2028~~ → **1.2608** [1.2119 – 1.3607] | yes — same verdict, 2.4% apart on the mean |
+| M2 mount | ~~1.0539~~ → **1.0601** [0.9561 – 1.1923] | ~~0.9989~~ → **1.0489** [0.9958 – 1.1111] | yes — both straddle |
+| bulk broad | ~~0.6239~~ → **0.6291** [0.5792 – 0.6987] | ~~0.5582~~ → **0.5939** [0.5712 – 0.6282] | yes — same verdict, both far from 1.0 |
+| bulk narrow *(batched window)* | ~~1.1540~~ → **1.1754** [1.1390 – 1.2186] | ~~1.1714~~ → **1.1761** [1.1323 – 1.2267] | yes — same verdict, both disjoint from 1.0 |
 | ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.1556 [1.0417 – 1.2500]~~ | ~~1.1972 [1.1111 – 1.2500]~~ | ~~yes~~ |
 
 The two estimators agree on the verdict of every row, which is the evidence that
 the floor normalisation is doing its job rather than injecting the quantisation
-it is exposed to.
+it is exposed to. On the narrow row they now agree to **0.06%**, which is the
+tightest the two have ever been on this page.
 
 ### Stability across runs
+
+**Superseded as the stability evidence by the ten-run ensemble** — ten runs give
+a spread and an interval where two give only an anecdote, and the numbers are in
+the [RED-ZONE table](#red-zone--clock-on-rf2-2rtt62s-witnesses) above. The pair
+below is kept because it is what the page had at the time and because the
+narrow row's story turns on it.
 
 The identical instrument was run twice, five rounds each, minutes apart:
 
@@ -433,12 +486,15 @@ run.**
 Stated rather than smoothed. One sample, p50 milliseconds, expressed in Chrome's
 100 µs quanta:
 
+Over the whole ensemble — 120 segment-rounds a row, so these are the widest
+bounds the instrument has ever published rather than one run's.
+
 | row | floor | `reagent-subs` | `uix-subs` | usable? |
 |---|---|---|---|---|
-| M1 mount | 8 – 10 | 33 – 46 | 39 – 54 | yes |
-| M2 mount | 2 – 4 | 6 – 7 | 6 – 8 | **diagnostic only** |
-| bulk broad | 2.5 – 4 | 20 – 29 | 11 – 13 | yes on the substrate legs; the floor is coarse, which is why the raw estimator is published beside the normalised one |
-| **bulk narrow** — 10 commits a sample | 21 – 30 | 47.5 – 55.5 | 57 – 64.5 | **yes** |
+| M1 mount | 6 – 11 | 27 – 47 | 35 – 65 | yes |
+| M2 mount | 2 – 5 | 4.5 – 11 | 4.5 – 11 | **diagnostic only** — and the reason is right here: a single 100 µs quantum is up to 22% of a reading |
+| bulk broad | 2 – 4 | 17 – 31.5 | 9 – 19.5 | yes on the substrate legs; the floor is coarse, which is why the raw estimator is published beside the normalised one |
+| **bulk narrow** — 10 commits a sample | 16.5 – 30 | 41.5 – 66.5 | 48 – 74 | **yes** |
 | ~~bulk narrow — 1 commit a sample (superseded)~~ | ~~2 – 3~~ | ~~4 – 4.5~~ | ~~4.5 – 5~~ | ~~**clamp-limited**~~ |
 
 ## What the convergence changed
@@ -449,10 +505,10 @@ matter*, and it is not small.
 
 | question | rf2-2rtt6.4, on its own witnesses | converged, on rf2-2rtt6.2's | change |
 |---|---|---|---|
-| large-list mount | W1: **1.057×** [0.907 – 1.156] — indistinguishable | M1: **1.2301×** [1.110 – 1.354] — UIx slower, disjoint | **verdict flips**: an indistinguishable row becomes a resolved one |
-| ordinary-form mount | W3: **0.893×** [0.843 – 0.956] — UIx faster, disjoint, published as a threshold | M2: **1.0539×** [0.857 – 1.429] — indistinguishable, graded diagnostic | **verdict flips**, and so does the grade |
-| broad commit | U-broad: **0.838×** [0.760 – 0.953] — UIx faster | bulk broad: **0.6239×** [0.470 – 0.786] — UIx faster | same direction, **much larger margin** |
-| narrow commit | U-narrow: **1.536×** [1.226 – 1.876] — UIx slower, disjoint | bulk narrow: **1.1540×** [1.0570 – 1.2053] — UIx slower, disjoint | same direction and both resolve, but **the margin roughly halves** |
+| large-list mount | W1: **1.057×** [0.907 – 1.156] — indistinguishable | M1: **1.2310×** [1.199 – 1.293 across ten runs] — UIx slower | **verdict flips**: an indistinguishable row becomes a resolved one |
+| ordinary-form mount | W3: **0.893×** [0.843 – 0.956] — UIx faster, disjoint, published as a threshold | M2: **1.0601×** [0.956 – 1.192] — indistinguishable, graded diagnostic | **verdict flips**, and so does the grade |
+| broad commit | U-broad: **0.838×** [0.760 – 0.953] — UIx faster | bulk broad: **0.6291×** [0.579 – 0.699] — UIx faster | same direction, **much larger margin** |
+| narrow commit | U-narrow: **1.536×** [1.226 – 1.876] — UIx slower, disjoint | bulk narrow: **1.1754×** [1.139 – 1.219] — UIx slower | same direction and both resolve, but **the margin over parity falls to about a third** — 0.18 against 0.54 |
 
 None of this makes rf2-2rtt6.4 wrong. Each of its ratios is still a ratio
 between two arms measured in one run, on one page, through one sub graph, in
@@ -500,42 +556,66 @@ is exact*. (The ±0.001% standard this wave set belongs to the **heap** control,
 where the predicted quantity is a known retained byte count; no clock control
 can honestly be held to it.)
 
+**The live count is the ensemble's: 4 rows × 2 segments × 10 runs = 80
+controls, and 80 passes** under the overlap rule `lane/control-verdict`
+implements. Each cell is the mean of the ten run means, with the widest bound any
+of the ten reached:
+
 | row | predicted | Reagent segment | UIx segment | basis |
 |---|---|---|---|---|
-| M1 mount | 1.9989× | 1.863× [1.750 – 2.000] ✅ | 1.979× [1.895 – 2.000] ✅ | 1801 / 901 elements |
-| M2 mount | 1.9412× | 1.803× [1.600 – 2.000] ✅ | 1.731× [1.333 – 2.000] ✅ | 99 / 51 elements |
-| bulk broad | 1.9989× | 1.817× [1.667 – 2.000] ✅ | 1.923× [1.667 – 2.250] ✅ | 1801 / 901 elements |
-| **bulk narrow** *(batched, run 1)* | 1.9989× | 1.976× [1.917 – 2.038] ✅ | 1.949× [1.821 – 2.000] ✅ | 1801 / 901 elements |
-| **bulk narrow** *(batched, run 2)* | 1.9989× | 1.941× [1.905 – 1.977] ✅ | 1.935× [1.814 – 2.000] ✅ | 1801 / 901 elements |
+| M1 mount | 1.9989× | 1.918× [1.714 – 2.167] ✅ | 1.917× [1.688 – 2.167] ✅ | 1801 / 901 elements |
+| M2 mount | 1.9412× | 1.783× [1.167 – 2.500] ✅ | 1.778× [1.333 – 2.333] ✅ | 99 / 51 elements |
+| bulk broad | 1.9989× | 1.905× [1.500 – 2.500] ✅ | 2.013× [1.333 – 2.500] ✅ | 1801 / 901 elements |
+| **bulk narrow** | 1.9989× | 1.979× [1.754 – 2.294] ✅ | 1.965× [1.796 – 2.194] ✅ | 1801 / 901 elements |
 | ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.9989×~~ | ~~2.013× [1.667 – 2.400] ✅~~ | ~~1.867× [1.667 – 2.000] ✅~~ | ~~1801 / 901 elements~~ |
 
-**Ten controls, ten passes, and all ten sit below their prediction** — the
-direction a fixed per-root term predicts, and the same direction rf2-2rtt6.2
-and rf2-2rtt6.4 both recorded.
+**Sixty-seven of the eighty sit below their prediction** — the direction a fixed
+per-root term predicts, and the same direction rf2-2rtt6.2 and rf2-2rtt6.4 both
+recorded. The thirteen that sit above are concentrated on the two rows whose
+control legs are coarsest: seven on bulk broad, four on narrow, one each on M1
+and M2. **The earlier summary said the direction was *unanimous*, which was true
+of ten controls and is not true of eighty.** Ten measurements were never enough
+to establish a unanimity; eighty are enough to say the tendency is real and not
+universal, which is the more useful statement anyway.
 
-**This summary read *"Eight controls, eight passes, and seven of the eight sit
-below"*, and the table it described no longer exists.** It was right when the
-table held M1, M2, broad and the unbatched narrow row — four entries across two
-segments, of which exactly one, the narrow Reagent segment's `2.013×`, sat above
-its prediction. The batched re-take struck that row and added two batched runs
-in its place, so the live table is **five entries × two segments = ten**, the
-one entry that sat above prediction is the superseded one, and the direction is
-now unanimous. Counting the struck row would be counting a figure this page has
-withdrawn.
+### The strict reading, over eighty controls (rf2-egdaq)
 
-The narrow row's controls were **predicted before the run** at `1801 / 901 =
-1.9989×` and re-measured on the batched window; all four ranges above sit
-entirely inside the ±25% band `[1.4992 – 2.4986]`. They therefore pass under the
-**strict** every-round-inside reading as well as the overlap rule they were
-adjudicated under — which matters because `lane/control-verdict` implements the
-overlap rule and **rf2-egdaq** is the open question of whether to tighten it.
-Nothing here tightens it; the narrow row simply would not be affected either way.
+`lane/control-verdict` adjudicates a control by **overlap** with the ±25% band;
+**rf2-egdaq** holds open the question of whether to require **every round**
+inside it. The ensemble is the first sample large enough to say what that choice
+would cost, so it is stated here as an observation. **The ruling is the
+operator's and nothing below decides it.**
 
-## The guard refused this arm, twice, and the arm was repaired
+| row | band | strict passes | worst single round |
+|---|---|---|---|
+| M1 mount | [1.4992 – 2.4986] | **20 of 20** | 1.6875 — inside |
+| M2 mount | [1.4559 – 2.4265] | **13 of 20** — Reagent 6/10, UIx 7/10 | **1.1667**, 19.9% below the floor (Reagent segment); **1.3333**, 8.4% below (UIx segment) |
+| bulk broad | [1.4992 – 2.4986] | **11 of 20** — Reagent 7/10, UIx 4/10 | **1.3333**, 11.1% below the floor |
+| bulk narrow | [1.4992 – 2.4986] | **20 of 20** | 1.7544 — inside |
+
+**64 of 80 pass strict; 2 of the 10 runs pass strict on all eight of their
+controls.** The failures are not spread evenly — they land entirely on the two
+rows whose control leg is a handful of 100 µs quanta, and every one of them is a
+*low* outlier of exactly the shape a quantised floor produces. The rows measured
+on 20-plus quanta legs, M1 and narrow, pass strict 40 times out of 40.
+
+Two things follow, and only the first is a finding. **A strict rule would refuse
+the M2 row in 6 runs of 10 and the broad row in 6 of 10, on a page where every
+other gate is green** — the guard clean on all forty row-runs, parity clean,
+zero unverified of 92,160. And the number rf2-egdaq holds on reproduces exactly:
+its worst M2 round, `1.3333` against a floor of `1.4559`, is **8.4% below**, and
+this ensemble's worst M2 UIx round is the same `1.3333` — the same lattice
+point, not a coincidence but the arithmetic of a ratio built from two-to-five
+quantum readings. What the ensemble adds is that the Reagent segment reaches
+`1.1667`, **19.9% below the floor**, which is more than twice the excursion the
+held ruling was weighing.
+
+## The guard refused this arm three times, and the arm was repaired each time
 
 The first cut ran all four rows in one page. **The arm-order guard refused it,
 exit 2**, on two independent faults. Both were the arm's; the tolerance was not
-touched.
+touched. The third refusal came much later, when the sixth round was added, and
+it has its own section below.
 
 **1. Phase — the page degraded as it ran.** `M1/uix-subs/floor` — an arm that
 hand-builds React elements and *cannot change* — read
@@ -571,6 +651,63 @@ predecessor; and one row per page leaves no cross-row adjacency to mislabel.
 A refusal is not a broken script. It is the instrument saying that a figure it
 produced depends on where in the plan it was measured — and every figure the
 first cut produced looked entirely plausible.
+
+### 3. The sixth round broke the M2 row, and the lever was the mount budget
+
+**This one changes how an M2 row on this page is read, so it is written up in
+full.** Adding the sixth round moved the M2 page from 600 measured mounts to
+720, and the guard refused **four of the first six six-round invocations** —
+every refusal on M2's *phase* factor, every one a **last-third-slower** disjoint
+split of 2.0000× / 2.2857× / 2.5000×, on readings of one to three of Chrome's
+100 µs quanta. No other row refused, in any of them.
+
+**The first diagnosis was wrong and the guard said so.** The obvious reading of
+a phase split is a cold page — the knee — and the guard's own repair list begins
+with *more warm-up*. That repair was taken first: 24 discarded mounts a
+segment-round instead of 8. It made things **worse**, and unambiguously:
+1,296 mounts a page, refused **three of three**, with the split widened to
+2.6×–4.0×.
+
+The direction was the tell. A cold page reads **first**-third-slower; every one
+of these refusals was **last**-third-slower. The page is not warming, it is
+**degrading as it runs** — the per-page accumulation rf2-2rtt6.4 recorded and
+could not explain, which rf2-flqpd has since tied to collector debt (a scavenge
+inside a timed window measures the collector, and the floor it measured drifted
+3.4 → 7.0 ms under 30–80 MB of uncollected rubbish). Deeper warm-up *feeds* that
+accumulation, because a warm-up mount is a mount. The lever is the page's
+**total mount budget**, and the dose-response was measured rather than argued:
+
+| M2 page budget | how it arises | verdict |
+|---|---|---|
+| **600 mounts** | 5 rounds × 2 segments × 3 arms × (8 + 12) | clean — every five-round run on this page |
+| **720 mounts** | 6 rounds, same sampling | **refused 4 of 6**, splits 2.0×–2.5× |
+| **1,296 mounts** | 6 rounds, warm-up deepened to 24 | **refused 3 of 3**, splits 2.6×–4.0× |
+| **504 mounts** | 6 rounds, sampling 4 + 10 — *the repair* | clean — **40 of 40 row-runs of the ensemble** |
+
+**The repair is a smaller sampling budget on this witness only:** `:sampling
+{:warmup 4 :samples 10}`, carried on the M2 witness map rather than the page
+default, which puts a six-round M2 page at 504 mounts — under the budget every
+clean run ever ran at. **The measured window is untouched** (one mount a sample,
+exactly as rf2-2rtt6.2 publishes it) and **the tolerance is untouched** (0.10).
+Less warm-up is safe *here* precisely because the failure is the tail rather
+than the knee: a cold early sample pulls the first third **up**, against the
+climb, so it costs sensitivity in the direction that is not failing. M1 keeps
+the page default — its readings are 30–50 quanta, where the same absolute drift
+is comfortably inside tolerance.
+
+**What this means for reading an M2 row.** The M2 row of this ensemble is
+sampled **10 deep off a 4-mount warm-up**, where the other three rows are 12 deep
+off 8 and where every five-round M2 row on this page was also 12 off 8.
+Comparing an M2 figure across the two publications compares two sampling depths
+as well as two designs. It is still the same witness, the same window and the
+same tolerance — but the row now carries an instrument parameter the others do
+not, and the reason is that this witness is the only one whose readings are
+small enough for the page's own decay to show up as a refusal.
+
+**Six invocations were run at the pre-repair instrument and none of them is
+published.** They diagnosed a defect and were spent doing it; the counterbalanced
+ensemble restarted from scratch at the repaired instrument, which is why the
+ensemble is ten runs and not sixteen.
 
 ## Method
 
