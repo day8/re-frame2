@@ -257,6 +257,44 @@
      ($ ProbeGapMutator)
      ($ ProbeGapObserver)))
 
+;; ---- PUBLIC-mount-schedule probes (rf2-2rtt6.25, audit of #7305) -----------
+;; Nothing here forces React's schedule: these mount through
+;; `re-frame.substrate.adapter/render` with no act and no flushSync, and the
+;; suite reads its numbers from the probes' own effects.
+
+(def ^:private pm-on-commit         (atom nil))
+(def ^:private gap-public-set-phase (atom nil))
+
+(defui ProbePublicMount []
+  ;; The `use-effect` is declared AFTER the read on purpose: React pushes
+  ;; `useSyncExternalStore`'s `subscribeToStore` passive effect while the hook
+  ;; runs and this one after it, and a fiber's passive effects run in push
+  ;; order — so this callback is the first instant after the commit-owned
+  ;; subscribe. That ordering, not a timer, is what makes the suite's snapshot
+  ;; of the numbers deterministic.
+  (let [target @refcount-target
+        v      (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
+    (uix/use-effect
+      (fn [] (when-let [f @pm-on-commit] (f)) js/undefined)
+      [])
+    ($ :div (str "m=" v))))
+
+(defui ProbeGapPublicRoot []
+  ;; Mounts idle, so the gap probe arrives as an UPDATE the suite can put on a
+  ;; transition lane — on the root the PUBLIC render slot created, rather than
+  ;; on a raw createRoot of the test's own. The mount effect stashes the setter;
+  ;; the suite drives the phase change inside `React/startTransition`.
+  (let [[phase set-phase] (uix/use-state :idle)]
+    (uix/use-effect
+      (fn [] (reset! gap-public-set-phase set-phase) js/undefined)
+      [])
+    (if (= phase :idle)
+      ($ :span "idle")
+      ($ :div
+         ($ ProbeGapSubscriber)
+         ($ ProbeGapMutator)
+         ($ ProbeGapObserver)))))
+
 ;; ---- cfg + forwarded deftests ---------------------------------------------
 
 (def ^:private cfg
@@ -326,6 +364,16 @@
    :ad-frame              :rf.uix-handoff/adoption-frame
    :hz-frame              :rf.uix-handoff/horizon-frame
    :ssr-frame             :rf.uix-handoff/ssr-frame
+   ;; rf2-2rtt6.25 (audit of #7305) — the PUBLIC mount schedule: adapter render
+   ;; slot, no act, no flushSync. Own frames again, for the same cold-read
+   ;; reason, and one per row of the escrow-leg pair.
+   :probe-public-mount-element (fn [] (uix/$ ProbePublicMount))
+   :pm-on-commit          pm-on-commit
+   :pm-frame              :rf.uix-handoff/public-schedule-frame
+   :probe-gap-public-element (fn [] (uix/$ ProbeGapPublicRoot))
+   :gap-public-set-phase  gap-public-set-phase
+   :pm-gap-frame          :rf.uix-handoff/public-gap-frame
+   :pm-gap-control-frame  :rf.uix-handoff/public-gap-control-frame
    ;; rf2-es09qq — Suspense abort-before-commit probe (reuses :rc-frame /
    ;; :rc-query so the abandoned render and the committed control mount race
    ;; on the SAME (frame, query)).
@@ -450,6 +498,20 @@
 ;; a server render, which never commits at all, nets zero there too.
 (deftest use-subscribe-commit-adopts-the-render-phase-reaction
   (suite/assert-use-subscribe-commit-adopts-the-render-phase-reaction cfg))
+
+;; rf2-2rtt6.25 (merged-PR audit of #7305) — the same two integers, on the
+;; PUBLIC mount schedule: `re-frame.substrate.adapter/render`, no act, no
+;; flushSync. The row above forces React's passive subscribe forward, which is
+;; the ordering the hand-off needs; this one forces nothing, and there the
+;; reaper wins and the commit rebuilds — so it pins TWO builds and names the
+;; retracted claim. Its companion pins that `get-snap`'s escrow leg is
+;; nevertheless still reachable, because the pre-commit consistency check runs
+;; in the render's own task, before any macrotask can reap.
+(deftest use-subscribe-public-mount-schedule-rebuilds
+  (suite/assert-use-subscribe-public-mount-schedule-rebuilds cfg))
+
+(deftest use-subscribe-escrow-leg-answers-on-the-public-mount-schedule
+  (suite/assert-use-subscribe-escrow-leg-answers-on-the-public-mount-schedule cfg))
 
 (deftest use-subscribe-adopted-provisional-reaper-is-a-noop
   (suite/assert-use-subscribe-adopted-provisional-reaper-is-a-noop cfg))

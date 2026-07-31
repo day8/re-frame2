@@ -534,7 +534,12 @@ minting precision the measurement does not carry.
 **Only the mount row moved, and that is the mechanism agreeing with the
 measurement rather than a coincidence.** `rf2-2rtt6.25` landed the hook-scoped
 provisional hand-off so that a cold read builds **one reaction instead of two** —
-a **mount-path** cost. `M1` is the 300-boundary mount row and it moves ~21
+a **mount-path** cost. *(Scoped, 2026-08-01: that single build holds under a
+forced synchronous commit, which is how this instrument mounts. The audit of PR
+#7305 measured **2N on the shipped bare `createRoot().render` path**, so the
+attribution below is to the schedule this harness runs, not to a consumer mount.
+Open on `rf2-2rtt6.25`; see the retraction banner on
+[coldmount-double-build-priced.md](coldmount-double-build-priced.md#the-hand-off-landed--the-same-instrument-re-run-against-shipped-code).)* `M1` is the 300-boundary mount row and it moves ~21
 points. `broad` and `narrow` are commit-path rows and do not move. `M2` is also a
 mount row and does not resolve a move, which is expected rather than awkward: its
 window is three to six of Chrome's 100 µs quanta, so an 18% shift on one arm sits
@@ -1851,8 +1856,11 @@ friendlier run:
    straddling 1.0, and 59 of the 60 rounds behind them read above 1.0.
 
 **What moved was the spine, not the instrument, and that is measured rather than
-inferred.** `rf2-2rtt6.25` made a cold read build one reaction instead of two —
-a mount-path cost — and on the re-take [the bar's own denominator is held fixed
+inferred.** `rf2-2rtt6.25` made a cold read build one reaction instead of two
+under this instrument's forced synchronous commit — a mount-path cost; on the
+shipped bare `createRoot().render` path the audit of PR #7305 measured 2N, so
+the attribution is to this harness's schedule and is open on `rf2-2rtt6.25` —
+and on the re-take [the bar's own denominator is held fixed
 and shown to be
 fixed](#what-moved-and-the-control-that-says-the-denominator-did-not): the
 `reagent-subs` leg reproduces to within 0.5% while the `uix-subs` leg falls

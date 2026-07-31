@@ -34,13 +34,24 @@
   out, and rebuild it in the second — TWO constructions, and for a
   layer-2+ sub a second walk of the whole `:<-` chain, on every cold
   read. That was not a re-mount; it was ONE mount paying twice. The
-  React-hook spine now carries its render-phase +1 across that gap in a
-  hook-scoped escrow and the commit ADOPTS the same reaction (Spec 006
+  React-hook spine carries its render-phase +1 across that gap in a
+  hook-scoped escrow so the commit can ADOPT the same reaction (Spec 006
   §Render-phase provisional acquisition and commit adoption); the release
   is `unsubscribe-if-reaction!` below. Nothing here changes: the +1 is an
   ordinary ref-count held by an ordinary owner, the cache never holds a
   ref-count-0 entry, and 1 → 0 still disposes in-tick with no grace
   period. What moves is only WHO holds the reference during the gap.
+
+  **Still paid, on the mount path that ships (rf2-2rtt6.25, audit of
+  #7305).** Measured through the public adapter render slot with no
+  `act` / `flushSync`: the escrow's macrotask reaper fires before React's
+  passive `useSyncExternalStore` subscribe, so the gap is crossed by
+  nobody, this eviction runs, and the commit rebuilds — two constructions
+  per cold read, as before. The cache side is unaffected either way (it
+  sees an ordinary release and an ordinary 1 → 0), and the horizon that
+  would change the outcome is an operator decision on rf2-2rtt6.14. Read
+  the paragraph above as the mechanism, not as a claim about what a
+  shipped mount currently costs.
 
   The `swap-vals!`-after-CAS patterns (in `dispose-entry-now!`,
   `unsubscribe!`, and `invalidate-sub-on-replace!`) all encode the same
@@ -187,13 +198,17 @@
   so the new render observes no value change.
 
   That churn is accepted between two DIFFERENT owners. It was never
-  meant to be paid inside ONE mount, and since rf2-2rtt6.25 it is not:
-  the React-hook spine holds its render-phase reference until the commit
-  adopts it, so a cold first mount no longer drives 1 → 0 between its own
-  render and its own commit (see `unsubscribe-if-reaction!` below and
+  meant to be paid inside ONE mount, and rf2-2rtt6.25 gave the React-hook
+  spine a way to avoid it: hold the render-phase reference until the
+  commit adopts it, so a cold first mount need not drive 1 → 0 between its
+  own render and its own commit (see `unsubscribe-if-reaction!` below and
   Spec 006 §Render-phase provisional acquisition and commit adoption).
-  The rule this docstring states is unchanged — that path simply stopped
-  reaching the edge.
+  On the mount path consumers actually use, the escrow's macrotask reaper
+  beats React's passive subscribe and that release lands here anyway
+  (measured — the audit of #7305), so the cold first mount still reaches
+  this edge and still rebuilds. The rule this docstring states is
+  unchanged either way; only who reaches the edge, and how often, is at
+  issue, and the horizon that decides it is an operator call.
 
   Called from the public `re-frame.subs/unsubscribe` after `cache-key`
   + `cache` resolution; the facade fn holds the public API shape.
