@@ -92,7 +92,14 @@
 
   Segment order alternates with the round, so the cross-segment figure is
   a both-orders result rather than a single-order one however many rounds
-  it averages.
+  it averages. WHICH segment starts round 0 is a per-run parameter
+  (`?start=reagent` or `?start=uix`, default reagent — the schedule every
+  five-round run used), because rf2-6i0i2's audit is right that a fixed
+  start confounds segment order with temporal position: in every earlier
+  run the Reagent-first rounds were also rounds 0, 2 and 4. Independently
+  launched runs counterbalance the start, and the inference about the
+  order effect is made ACROSS those runs, never by pooling one run's four
+  correlated rows as if they were independent trials.
 
   ## And the order is ADJUDICATED, not merely run (rf2-a4x1o)
 
@@ -115,7 +122,10 @@
   orders, so the raw mean over-weights whichever order got the extra round
   — which is why `:order-balanced-mean`, the mean of the two stratum
   means, is published on every row beside it. The studio page carries the
-  table and the consequence for `1.2301`.
+  table and the consequence for `1.2301`. rf2-6i0i2 then took both
+  repairs: [[rounds]] is even, and the start is a counterbalanced per-run
+  parameter, so the order question is answered across independently
+  launched runs rather than inside one.
 
   ## One row per page
 
@@ -163,7 +173,16 @@
             [reagent.dom.client :as rdc]
             [uix.dom :as uix-dom]))
 
-(def ^:private rounds 5)
+(def ^:private rounds
+  "SIX, and EVEN on purpose (rf2-6i0i2). Five rounds cannot balance two
+  segment orders: the alternation split 3:2, the raw mean over-weighted
+  whichever order got the extra round, and the per-row disjointness test
+  ran at a 20% null rate (2 of C(5,2) = 10 exchangeable assignments). At
+  six the split is 3:3, the raw mean and `:order-balanced-mean` coincide
+  BY CONSTRUCTION, and the null rate halves to 10% (2 of C(6,3) = 20).
+  The four five-round rows this moves are re-published under the balanced
+  design and marked superseded IN PLACE on the studio page."
+  6)
 (def ^:private mount-sampling {:warmup 8 :samples 12})
 (def ^:private bulk-sampling {:warmup 8 :samples 12})
 
@@ -209,12 +228,31 @@
   [{:id :reagent-subs :adapter reagent-adapter/adapter :name "Reagent-on-subs"}
    {:id :uix-subs     :adapter uix-adapter/adapter     :name "UIx-on-subs"}])
 
+(defn- query-start
+  "Which segment runs FIRST in round 0 — `?start=uix` or `?start=reagent`.
+
+  Defaults to `:reagent-subs`, which is the only schedule any run before
+  rf2-6i0i2 ever had. That fixed start is exactly what the audit contested:
+  with alternation from a constant start, `Reagent first` and `rounds 0, 2,
+  4` are the same set in every run, so an order effect and a temporal one
+  are indistinguishable BY DESIGN however many runs agree. The parameter
+  exists so that independently launched runs can counterbalance the start
+  and pull those two apart; the driver passes it and reports it."
+  []
+  (let [s (or (some-> js/window .-location .-search) "")]
+    (if (re-find #"start=uix" s) :uix-subs :reagent-subs)))
+
 (defn- segment-order
-  "Two segments admit exactly two orders and this runs both. A
-  cross-segment figure taken in one order only is a single-order result
-  however many rounds it averages."
-  [r]
-  (if (even? r) (vec segments) (vec (rseq (vec segments)))))
+  "Two segments admit exactly two orders and every round runs both
+  segments; `start` names which one goes FIRST in round 0, and the order
+  alternates with the round from there. A cross-segment figure taken in
+  one order only is a single-order result however many rounds it
+  averages."
+  [start r]
+  (let [base (if (= start (:id (first segments)))
+               (vec segments)
+               (vec (rseq (vec segments))))]
+    (if (even? r) base (vec (rseq base)))))
 
 (defn- enter-segment!
   "Tear down whatever adapter is installed, install this segment's,
@@ -748,7 +786,7 @@
   and its stratum bounds, and NOT a precise magnitude. Silence is not a
   pass: `:magnitude-resolved?` starts false and the overlap has to earn it.
 
-  ## `:order-balanced-mean`, and the 3:2 design
+  ## `:order-balanced-mean`, and why the design is now EVEN
 
   With `rounds` odd the alternation is UNBALANCED — three rounds in one
   order, two in the other — so the arithmetic mean over rounds
@@ -756,10 +794,25 @@
   under an alternating design is the MEAN OF THE TWO STRATUM MEANS, and
   that is `:order-balanced-mean`, published beside the raw one whatever
   the parity of `rounds`. `:balanced-design?` says whether they can
-  differ. An EVEN round count would make them identical by construction
-  and is the arm-level repair available to whoever next re-takes the
-  table; it is not taken here, because it would move four published rows
-  without deciding the question the disjointness raises.
+  differ. The five-round design could not take the even count without
+  moving four published rows; rf2-6i0i2 took it AS a re-publication, so
+  [[rounds]] is now 6 and the two estimators coincide by construction on
+  every row this entry measures. The odd-round arithmetic stays because
+  this fn is PUBLIC and replays the published five-round vectors.
+
+  ## `start`, and what one run's partition can and cannot say
+
+  `start` is the segment that ran first in round 0, and the strata are
+  keyed by the segment that actually led each round — `:reagent-first` is
+  the rounds Reagent's segment led wherever they fell in the schedule.
+  Before rf2-6i0i2 the start was constant, so `Reagent first` and `rounds
+  0, 2, 4` were the same set in every run: a temporal drift and an order
+  effect produce identical partitions under that design, and no number of
+  same-start runs can tell them apart. Counterbalancing the start across
+  INDEPENDENTLY LAUNCHED runs is what breaks the tie — an order effect
+  keeps its sign when the start flips, a temporal one reverses it — and
+  the inference belongs at the run level, one statistic per launched run,
+  never four correlated rows of one run counted as four trials.
 
   ## What a disjoint split is and is not EVIDENCE of
 
@@ -767,13 +820,16 @@
   the five rounds exchangeable — the 2-element stratum is one of
   `C(5,2) = 10` equally likely subsets, and exactly TWO of them (the two
   smallest, the two largest) separate the strata. So a disjoint split
-  arises **20% of the time with no order effect at all**, per row. That is
+  arises **20% of the time with no order effect at all**, per row. At 6
+  rounds the same arithmetic gives 2 of `C(6,3) = 20` — 10%. That is
   why disjointness withdraws the magnitude rather than condemning the
   measurement: it is a statement about what this design can resolve, not a
   finding that the schedule moved the number."
-  [vs rounds]
-  (let [strata     {:reagent-first (vec (keep-indexed #(when (even? %1) %2) vs))
-                    :uix-first     (vec (keep-indexed #(when (odd? %1) %2) vs))}
+  [vs rounds start]
+  (let [lead-even  (if (= start :uix-subs) :uix-first :reagent-first)
+        lead-odd   (if (= lead-even :uix-first) :reagent-first :uix-first)
+        strata     {lead-even (vec (keep-indexed #(when (even? %1) %2) vs))
+                    lead-odd  (vec (keep-indexed #(when (odd? %1) %2) vs))}
         rf         (range-of (:reagent-first strata))
         uf         (range-of (:uix-first strata))
         overlap?   (and (<= (:min rf) (:max uf)) (<= (:min uf) (:max rf)))
@@ -782,7 +838,8 @@
         opposed?   (or (and (= d-rf :numerator-slower) (= d-uf :numerator-faster))
                        (and (= d-rf :numerator-faster) (= d-uf :numerator-slower)))
         balanced?  (even? rounds)]
-    {:reagent-first       (assoc rf :direction d-rf :n (count (:reagent-first strata)))
+    {:start               start
+     :reagent-first       (assoc rf :direction d-rf :n (count (:reagent-first strata)))
      :uix-first           (assoc uf :direction d-uf :n (count (:uix-first strata)))
      :order-balanced-mean (lane/round4 (/ (+ (:mean rf) (:mean uf)) 2.0))
      :balanced-design?    balanced?
@@ -791,7 +848,8 @@
      :direction-agrees?   (not opposed?)
      :refuse?             opposed?
      :why
-     (str "the red-zone's rounds partitioned by which segment ran FIRST. "
+     (str "the red-zone's rounds partitioned by which segment ran FIRST "
+          "(round 0 led by " (name start) ", alternating). "
           "Reagent-first " (.toFixed (:mean rf) 4) "x [" (.toFixed (:min rf) 4) "–"
           (.toFixed (:max rf) 4) "] over " (count (:reagent-first strata)) " rounds; "
           "UIx-first " (.toFixed (:mean uf) 4) "x [" (.toFixed (:min uf) 4) "–"
@@ -814,8 +872,10 @@
 (defn- row-record
   "Turn one row's per-round, per-segment slices into the published record.
 
-  `slices` is `[{segment-id {arm-id [ms ...]}} ...]`, one entry per round."
-  [{:keys [row doc grade clock-note control note writes-per-sample]} slices]
+  `slices` is `[{segment-id {arm-id [ms ...]}} ...]`, one entry per round.
+  `start` is the segment that led round 0, and it is published on the
+  record because a reader comparing counterbalanced runs needs it."
+  [{:keys [row doc grade clock-note control note writes-per-sample start]} slices]
   (let [norm       (mapv (fn [by-seg]
                            (into {} (map (fn [[sid rd]] [sid (ratios-of rd)])) by-seg))
                          slices)
@@ -834,15 +894,17 @@
                                                   control-slack))
         c-rg       (verdict-of ctl-rg)
         c-ux       (verdict-of ctl-ux)
-        order      (segment-order-verdict rz rounds)]
+        order      (segment-order-verdict rz rounds start)]
     {:record
      {:benchmark   (keyword "hicasso.P0.converged" (name row))
       :doc         doc
-      :bead        "rf2-a4x1o"
+      :bead        "rf2-6i0i2"
       :grade       grade
       :clock-note  clock-note
       :note        note
       :witness-set "rf2-2rtt6.2"
+      :rounds      rounds
+      :start-segment start
       ;; STATED ON THE ROW, because a reader comparing this against the
       ;; pre-rf2-zb3qg numbers is comparing two different windows and has to
       ;; be told so. 1 means the sample IS the operation.
@@ -1027,12 +1089,13 @@
         :M1)))
 
 (defn- run-round!
-  "One round of THIS PAGE'S row: both segments, in this round's order.
-  Answers a promise of `{segment-id readings}`."
-  [{:keys [kind witness] :as _spec} row-key r coll t legs]
+  "One round of THIS PAGE'S row: both segments, in this round's order —
+  `start` leads round 0 and the order alternates from there. Answers a
+  promise of `{segment-id readings}`."
+  [{:keys [kind witness] :as _spec} row-key start r coll t legs]
   (lane/chain
     {}
-    (segment-order r)
+    (segment-order start r)
     (fn [acc {:keys [id] :as segment}]
       (enter-segment! segment)
       ;; Checked immediately after the seam and before a single sample: a
@@ -1062,7 +1125,7 @@
         legs))
 
 (defn- publish!
-  [{:keys [kind witness row grade doc note control] :as _spec} row-key slices t legs coll]
+  [{:keys [kind witness row grade doc note control] :as _spec} row-key start slices t legs coll]
   (let [w   (witness-named witness)
         {:keys [record controls order]}
         (row-record {:row row
@@ -1071,7 +1134,8 @@
                      :clock-note (when (= kind :mount) (:clock-note w))
                      :note note
                      :control (or control (:control w))
-                     :writes-per-sample (if (= row :bulk-narrow) narrow-batch-k 1)}
+                     :writes-per-sample (if (= row :bulk-narrow) narrow-batch-k 1)
+                     :start start}
                     slices)]
     (lane/record! (name row) record)
     (lane/record! "verification" {row-key (lane/tally-value t)})
@@ -1080,6 +1144,8 @@
                   {:row row
                    :axis :clock
                    :witness-set "rf2-2rtt6.2"
+                   :rounds rounds
+                   :start-segment start
                    :threshold (select-keys (:red-zone record)
                                            [:mean :min :max :per-round :straddles-1?
                                             :claim :direction])
@@ -1153,10 +1219,12 @@
 
       :else
       (let [row-key (query-row)
+            start   (query-start)
             spec    (get row-specs row-key)
             w       (witness-named (:witness spec))
             {:keys [problems]} (parity! w)]
-        (js/console.log (str ";; HICASSO row " (name row-key)))
+        (js/console.log (str ";; HICASSO row " (name row-key)
+                             " — round 0 led by " (name start) ", alternating"))
         (lane/record! "parity"
                       {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
@@ -1175,10 +1243,10 @@
                 legs (atom {})]
             (-> (lane/chain [] (range rounds)
                             (fn [acc r]
-                              (-> (run-round! spec row-key r coll t legs)
+                              (-> (run-round! spec row-key start r coll t legs)
                                   (.then (fn [slice] (conj acc slice))))))
                 (.then (fn [slices]
-                         (publish! spec row-key slices t legs coll)
+                         (publish! spec row-key start slices t legs coll)
                          (lane/done!)
                          nil))
                 (.catch (fn [e]

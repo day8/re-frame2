@@ -12,10 +12,11 @@
   `docs/design/hicasso/studio/p0-converged-witness-set.md`, replayed:
   the run the red-zone table was taken from, and the independent
   four-row reproduction sweep (rf2-rjfz1) taken at main `32cb224d6e`.
-  Both are on the page, both are five rounds, and
-  `p0-converge-app/segment-order` alternates on the round index — so
-  rounds 0, 2, 4 are Reagent-first and rounds 1, 3 are UIx-first, in
-  both.
+  Both are on the page, both are five rounds, and both ran the only
+  schedule that existed before rf2-6i0i2 — round 0 led by the Reagent
+  segment, alternating — so rounds 0, 2, 4 are Reagent-first and rounds
+  1, 3 are UIx-first, in both, and every replay below says so with an
+  explicit `:reagent-subs` start.
 
   What the replay establishes, and it is the whole of rf2-a4x1o's second
   item:
@@ -68,7 +69,11 @@
    :broad  [0.5750 0.5263 0.6176 0.5556 0.7353]
    :narrow [1.2528 1.1591 1.1705 1.1507 1.1136]})
 
-(defn- v [vs] (app/segment-order-verdict vs 5))
+(defn- v
+  "Replay a PUBLISHED five-round vector. Every published five-round run
+  was Reagent-start, and the start is stated rather than defaulted."
+  [vs]
+  (app/segment-order-verdict vs 5 :reagent-subs))
 
 (defn- close? [a b] (< (js/Math.abs (- a b)) 0.0002))
 
@@ -164,7 +169,7 @@
            UIx-first rounds reading 0.7 is a figure that says `slower`
            when one segment leads and `faster` when the other does — no
            direction to publish, and the run must not"
-    (let [r (app/segment-order-verdict [1.40 0.70 1.45 0.72 1.38] 5)]
+    (let [r (app/segment-order-verdict [1.40 0.70 1.45 0.72 1.38] 5 :reagent-subs)]
       (is (= :numerator-slower (:direction (:reagent-first r))))
       (is (= :numerator-faster (:direction (:uix-first r))))
       (is (false? (:direction-agrees? r)))
@@ -183,10 +188,45 @@
       (is (= 3 (:n (:reagent-first r))))
       (is (= 2 (:n (:uix-first r))))))
   (testing "at an EVEN round count the two estimators coincide by
-           construction, which is the arm-level repair available to
-           whoever re-takes the table"
+           construction — the repair rf2-6i0i2 took, and the design the
+           entry now runs"
     (let [vs [1.10 1.20 1.30 1.40 1.50 1.60]
-          r  (app/segment-order-verdict vs 6)]
+          r  (app/segment-order-verdict vs 6 :reagent-subs)]
       (is (true? (:balanced-design? r)))
+      (is (= 3 (:n (:reagent-first r))))
+      (is (= 3 (:n (:uix-first r))))
       (is (close? 1.35 (:order-balanced-mean r))
           "= the raw mean of the six rounds, because 3:3 is balanced"))))
+
+;; ---------------------------------------------------------------------------
+;; The start is a parameter, and the strata follow the schedule that ran
+;; ---------------------------------------------------------------------------
+
+(deftest the-strata-are-keyed-by-the-segment-that-actually-led
+  (testing "flipping the start swaps which index-parity lands in which
+           stratum: a UIx-start run's even rounds ARE its UIx-first
+           rounds. Before rf2-6i0i2 the start was constant, so `Reagent
+           first` and `rounds 0, 2, 4` were the same set in every run —
+           which is exactly the confound the counterbalanced runs exist
+           to break"
+    (let [vs [1.30 1.10 1.25 1.12 1.35 1.11]
+          r  (app/segment-order-verdict vs 6 :reagent-subs)
+          u  (app/segment-order-verdict vs 6 :uix-subs)]
+      (is (= :reagent-subs (:start r)))
+      (is (= :uix-subs (:start u)))
+      (is (= [1.30 1.25 1.35] (:per-round (:reagent-first r))))
+      (is (= [1.10 1.12 1.11] (:per-round (:uix-first r))))
+      (is (= (:per-round (:reagent-first r)) (:per-round (:uix-first u)))
+          "the same readings land in the OPPOSITE stratum under the
+           flipped schedule")
+      (is (= (:per-round (:uix-first r)) (:per-round (:reagent-first u))))))
+  (testing "the refusal logic follows the strata, not the index parity: a
+           vector that refuses under one start refuses under the other
+           with the directions exchanged"
+    (let [vs [1.40 0.70 1.45 0.72 1.38 0.69]
+          r  (app/segment-order-verdict vs 6 :reagent-subs)
+          u  (app/segment-order-verdict vs 6 :uix-subs)]
+      (is (= :numerator-slower (:direction (:reagent-first r))))
+      (is (= :numerator-faster (:direction (:reagent-first u))))
+      (is (true? (:refuse? r)))
+      (is (true? (:refuse? u))))))

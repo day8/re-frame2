@@ -111,7 +111,21 @@ if (ROWS.length === 0) {
   process.exit(1);
 }
 
-// A page's own budget. Five rounds of two segments with warm-up is
+// `HICASSO_START=reagent|uix` names the segment that leads round 0; the
+// order alternates from there. Default reagent — the only schedule any run
+// before rf2-6i0i2 had. A fixed start confounds segment order with temporal
+// position (Reagent-first was always rounds 0/2/4), so the segment-order
+// question is answered by COUNTERBALANCING the start across independently
+// launched runs — separate invocations of this driver, half each way — and
+// adjudicating at the run level. One invocation, whatever its start, is one
+// run and is never more than one trial.
+const START = (process.env.HICASSO_START || 'reagent').trim();
+if (!['reagent', 'uix'].includes(START)) {
+  console.error(`[converge] HICASSO_START=${START} is not a segment; known starts: reagent, uix`);
+  process.exit(1);
+}
+
+// A page's own budget. Six rounds of two segments with warm-up is
 // minutes, not seconds, and a loaded workstation is the normal case.
 const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -184,7 +198,7 @@ async function runRow(browser, row) {
     // `'commit'`, not `'load'`. The bundle's `:init-fn` runs inside the
     // `<script>`, so the measurement happens while the document is still
     // loading and `load` cannot fire until it is over.
-    await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}`, {
+    await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}&start=${START}`, {
       waitUntil: 'commit',
       timeoutMs: NAV_TIMEOUT_MS,
       budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
@@ -246,10 +260,11 @@ async function runRow(browser, row) {
   // bare command: a published figure whose repro command does not reproduce
   // it is a figure nobody can check.
   console.log(
-    `;; reproduce  ${ONLY ? `HICASSO_ONLY=${ONLY} ` : ''}node ` +
+    `;; reproduce  ${ONLY ? `HICASSO_ONLY=${ONLY} ` : ''}${START !== 'reagent' ? `HICASSO_START=${START} ` : ''}node ` +
       `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs`
   );
   console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (HICASSO_ONLY=${ONLY})` : ''}`);
+  console.log(`;; start      round 0 led by ${START} (HICASSO_START), alternating`);
   for (const o of outcomes) {
     for (const [k, v] of Object.entries(o.results)) {
       console.log(`;; ==== HICASSO ${o.row.id} / ${k} ====`);
