@@ -82,6 +82,16 @@ applies the patch** (React elements vs own DOM).
 
 ## Arm 2 — Hicasso/PATCH (equal-class spike arm; HD-007)
 
+> **WITHDRAWN 2026-07-31, and the code is gone.** Mike ruled that Hicasso is an
+> adapter for React (`rf2-2rtt6.10`), so this arm was dropped on **product
+> direction, not on measurement** — it *met* its hard gate, in real Chromium.
+> Its tree under `implementation/freehand/test/re_frame/bench/hicasso/arm2/` was
+> retired by `rf2-m6if4`. The section stays as the design record. What survived
+> the retirement is the controlled-restore witness, moved to
+> `bench/hicasso/controlled_restore_dom_cljs_test.cljs` and re-taken on React —
+> where the `:unchanged-model-rejection` row does **not** hold, which is open on
+> `rf2-n3dxw`.
+
 - **Own renderer**: dirty boundaries re-run *inside the commit* against the
   committed snapshot; an own keyed hiccup differ applies the patch; React exists
   only at `defhost` islands. Invariant 5 holds by construction (reads and patch
