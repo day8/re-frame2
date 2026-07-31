@@ -138,6 +138,11 @@
               partition projections recomputing and fanning out
     RFWRITE-N + N held layer-1 subscriptions, each with one watcher, the
               shape a mounted application has
+    FSWRITE-N the SAME write against a frame holding N `:frame-state` subs
+              instead — the same fixed-arity-1 memo wrapper, but reading the
+              frame's RAW physical container rather than the `rf=`-gated
+              app-db projection. It is the control for `RFWRITE-N`
+              (rf2-gncxk.1)
 
   `RFWRITE-N` is measured at four values of N and the SLOPE between them is
   the per-subscription cost — the number the bead is about. A slope cancels
@@ -154,6 +159,9 @@
     P-BODY    the user's sub body — `(get-in db [:cells k])`
     P-EQDB    the memo wrapper's guard — `(= last-db db)` against the REAL
               app-db value, which is what decides whether the body runs
+    P-EQDBF   the same guard at the OTHER input that reaches it — two
+              `=`-but-not-`identical?` app-db values, where the walk runs to
+              completion and finds no difference (rf2-gncxk.1)
     P-SCOPE   `trace/with-handler-scope` + `handler-scope-from-meta`, which
               bracket every recompute and are NOT dev-gated
     P-EMIT    `trace/emit!` on its production path with the tag map the
@@ -161,6 +169,18 @@
     P-MEMO    the whole shipped memo wrapper
               (`subs.memo/make-layer-1-memoised-body`) invoked with a
               CHANGED db — the sum of the four above plus its own frame
+    P-MEMOW   the same wrapper over a source that publishes a MOVEMENT
+              WITNESS, driven in the flush-path shape, so the guard's `=`
+              walk is proved unnecessary and skipped (rf2-gncxk.1)
+    P-MEMOWC  its matched control — identical scaffolding, identical inputs,
+              a source that publishes nothing. `P-MEMOWC − P-MEMOW` is the
+              `=` term and nothing else
+    P-MEMOF   the same wrapper over a RAW ATOM source (the `:frame-state`
+              shape) at an `=`-but-not-`identical?` db: the memo HIT the
+              witness must NOT be allowed to touch
+    P-MEMOFI  its matched control — the same wrapper objects at an
+              `identical?` db, where `=` short-circuits and walks nothing.
+              `P-MEMOF − P-MEMOFI` is the `=` walk still being paid
     Q-SCHED   the epoch scheduler's queue bookkeeping in its RETIRED
               spelling — N `conj` onto a PersistentHashSet + a
               PersistentVector, then N `disj` as the drain consumes them
@@ -433,6 +453,16 @@
 (defonce ^:private rig (volatile! nil))
 (defonce ^:private gen (volatile! 1000))
 
+;; rf2-gncxk.1 — one flip cell per movement-witness arm. These arms need their
+;; input to ALTERNATE strictly, because their whole shape is "the value the
+;; wrappers last saw is the value the source just departed from"; handing an
+;; arm the same value twice would put it on the memo-HIT branch and measure
+;; something else. The shared `gen` cannot promise that (a neighbouring arm may
+;; leave it advanced by an odd count between windows), so each arm flips its
+;; own boolean. `not` on a boolean allocates nothing.
+(defonce ^:private w-flip  (volatile! false))
+(defonce ^:private wc-flip (volatile! false))
+
 (defn- next-gen! [] (vswap! gen inc))
 
 (def ^:private fid
@@ -487,6 +517,26 @@
   [k]
   (let [{:keys [cells-n frames]} @rig
         f (nth frames k)
+        v (next-gen!)
+        i (mod v cells-n)]
+    (frame/replace-app-db! f (update (frame/frame-app-db-value f) :cells assoc i v))
+    nil))
+
+(defn- arm-fswrite
+  "rf2-gncxk.1 — the SAME write as `arm-rfwrite`, against a frame whose held
+  subscriptions are `:frame-state` subs instead of `:db` subs.
+
+  Both kinds route to `subs.memo`'s fixed-arity-1 wrapper, but they differ in
+  the ONE fact the movement witness keys on: a `:db` sub's source is the
+  app-db PROJECTION (a derived container whose fan-out is `rf=`-gated, so it
+  publishes a witness), while a `:frame-state` sub's source is the frame's ONE
+  physical container — a raw atom, which cannot. So this ladder's slope must be
+  UNCHANGED by the witness while the `RFWRITE-N` slope falls by the `=` term,
+  and the pair of slopes is the ladder-level statement of the same two-sided
+  claim the `P-MEMOW` / `P-MEMOF` arms make at the wrapper level."
+  [k]
+  (let [{:keys [cells-n fs-frames]} @rig
+        f (nth fs-frames k)
         v (next-gen!)
         i (mod v cells-n)]
     (frame/replace-app-db! f (update (frame/frame-app-db-value f) :cells assoc i v))
@@ -878,6 +928,99 @@
     (next-gen!)
     nil))
 
+;; ---- rf2-gncxk.1 — the MOVEMENT WITNESS, both halves ----------------------
+;;
+;; `P-EQDB` above prices the memo wrapper's `(= last-db db)` guard at 147.0
+;; B/sub, and rf2-gncxk.1 retires it — but only where it is provably wasted.
+;; The guard is NOT dead code: the spine's derived value is pull-based, so it
+;; is the only thing stopping a render from re-running every sub body, and on
+;; a `:frame-state` sub it genuinely HITS on the flush path. So the change is
+;; two-sided by construction, and so is the measurement. Neither half is
+;; optional; a one-sided result does not discharge the claim.
+;;
+;; THE `:db` HALF — a strict paired control, the `RC-ATTACH` / `RC-CAND`
+;; discipline. Two arms, identical in every respect but ONE:
+;;
+;;   P-MEMOW   the shipped wrapper over a WITNESSING source — a real spine
+;;             derived container, which publishes
+;;             `re-frame.movement/IMovementWitness` because its fan-out is
+;;             `rf=`-gated — driven in the FLUSH-PATH shape.
+;;   P-MEMOWC  the shipped wrapper over the RAW ATOM under that same derived
+;;             container, so `witness-src` resolves nil and the guard
+;;             expression is byte-for-byte the one that shipped.
+;;
+;; Both arms move their source once per call and then invoke 300 wrappers, so
+;; the scaffolding — one `replace-container!`, one epoch, one drain, one
+;; recompute-and-notify — is IDENTICAL and cancels in the difference.
+;; `P-MEMOWC − P-MEMOW` is therefore the `=` term and nothing else, and it
+;; must equal `P-EQDB`. `P-MEMOWC` is separately checked against `P-MEMO` to
+;; show the scaffolding is not carrying the result.
+;;
+;; The flush-path shape is set up rather than simulated. Each call moves the
+;; source to `cur`, which arms its witness with `prev` — the very object the
+;; 300 wrappers each hold in `last-db` from the previous call — and then hands
+;; every wrapper `cur`. `(identical? (-moved-from S) @last-db)` is exactly the
+;; precondition the proof needs, and the wrapper then recomputes without
+;; walking. Each arm alternates on its OWN flip cell rather than the shared
+;; `gen`, so a neighbouring arm's odd call count cannot silently hand it the
+;; same value twice and put it on the memo-hit branch instead.
+;;
+;; THE `:frame-state` HALF — the same wrapper, over a RAW ATOM (which is what
+;; `subs/single-source-container-for` maps `:frame-state` to: the frame's ONE
+;; physical container, whose fan-out is not movement-gated and which therefore
+;; cannot implement the protocol). Two arms over the SAME wrapper objects,
+;; both landing on the memo-HIT branch — the real `:frame-state` flush-path
+;; shape, the one PR #7233 pins — differing only in the identity of the
+;; argument:
+;;
+;;   P-MEMOF   invoked with an `=`-but-NOT-`identical?` db, so `=` walks the
+;;             whole structure and finds no difference.
+;;   P-MEMOFI  invoked with the IDENTICAL db object, so `=` short-circuits on
+;;             `identical?` and walks nothing.
+;;
+;; `P-MEMOF − P-MEMOFI` is the full `=` walk at that input, and it must equal
+;; `P-EQDBF` — the bare `(= db-a db-a2)` measured on its own. That is the
+;; "still paid where it earns its keep" half, and it is a genuine pair: same
+;; wrapper set, same source, same memo cells, one object identity different.
+;; (Both arms take the hit branch, so neither mutates `last-db` — the pairing
+;; is stable across any number of calls in any order.)
+
+(defn- arm-p-eqdb-f []
+  (let [{:keys [n db-a db-a2]} @rig]
+    (dotimes [_ n]
+      (keep! (= db-a db-a2)))))
+
+(defn- arm-p-memo-w []
+  (let [{:keys [n memos-w w-src db-a db-b]} @rig
+        cur (if (vswap! w-flip not) db-a db-b)]
+    ;; Move the witnessing source: `notify`'s `rf=` gate arms its witness
+    ;; with the value the 300 wrappers below each hold in `last-db`.
+    (adapter/replace-container! w-src cur)
+    (dotimes [k n]
+      (keep! ((nth memos-w k) cur)))
+    nil))
+
+(defn- arm-p-memo-wc []
+  (let [{:keys [n memos-wc wc-src db-a db-b]} @rig
+        cur (if (vswap! wc-flip not) db-a db-b)]
+    ;; Byte-for-byte `arm-p-memo-w`'s scaffolding — the same container shape
+    ;; carrying the same lone derived dependent — so the only thing left in
+    ;; the difference is whether the wrapper's source publishes a witness.
+    (adapter/replace-container! wc-src cur)
+    (dotimes [k n]
+      (keep! ((nth memos-wc k) cur)))
+    nil))
+
+(defn- arm-p-memo-f []
+  (let [{:keys [n memos-f db-a2]} @rig]
+    (dotimes [k n]
+      (keep! ((nth memos-f k) db-a2)))))
+
+(defn- arm-p-memo-fi []
+  (let [{:keys [n memos-f db-a]} @rig]
+    (dotimes [k n]
+      (keep! ((nth memos-f k) db-a)))))
+
 ;; The scheduler's queue bookkeeping, in BOTH spellings, in one process on the
 ;; same 300 thunks — the paired-control discipline `read-attribution`'s
 ;; `RC-ATTACH` / `RC-CAND` established. `Q-SCHED` is the RETIRED form (a
@@ -1028,6 +1171,18 @@
       (if coords?
         (rf/reg-sub qid prod-sub-meta body)
         (rf/reg-sub qid body))))
+  ;; rf2-gncxk.1 — the `:frame-state` ladder's subs. Same fixed-arity-1 memo
+  ;; wrapper as the `:db` ladder's, same registration shape; the ONE difference
+  ;; is the signal source the reactive build resolves — the frame's raw
+  ;; physical container rather than the `rf=`-gated app-db projection. That is
+  ;; the fact the movement witness keys on, so this ladder's slope is the
+  ;; control for the `RFWRITE-N` ladder's.
+  (doseq [i (range cells-n)]
+    (let [body (fn [fs _] (get-in fs [frame/app-partition-key :cells i]))
+          qid  (keyword "wa" (str "fscell" i))]
+      (if coords?
+        (subs/reg-frame-state-sub qid prod-sub-meta body)
+        (subs/reg-frame-state-sub qid body))))
   (let [qids  (mapv #(keyword "wa" (str "cell" %)) (range cells-n))
         qvs   (mapv vector qids)
         ;; One frame per subscription count, each with its OWN held
@@ -1055,8 +1210,35 @@
                                    r))
                                (subvec qvs 0 cnt))))
                      frames ns-per-frame)
+        ;; rf2-gncxk.1 — the `:frame-state` ladder: one frame per subscription
+        ;; count, each holding `cnt` `:frame-state` subs, wired exactly as the
+        ;; `:db` ladder's frames are (one watcher per reaction, one deref to
+        ;; establish the memo baseline). Written by `arm-fswrite` with the same
+        ;; narrow `assoc`-one-cell write.
+        fs-qvs (mapv (fn [i] [(keyword "wa" (str "fscell" i))]) (range cells-n))
+        fs-frames (mapv (fn [k]
+                          (let [f (keyword "wa" (str "fsframe" k))]
+                            (live-frame/make-frame {:id f})
+                            (frame/replace-app-db! f (db-of cells-n 0))
+                            f))
+                        (range (count ns-per-frame)))
+        fs-holds (mapv (fn [f cnt]
+                         (binding [frame/*current-frame* f]
+                           (mapv (fn [q]
+                                   (let [r (subs/subscribe q)]
+                                     (adapter/subscribe-container r (fn [_ _] nil))
+                                     (deref r)
+                                     r))
+                                 (subvec fs-qvs 0 cnt))))
+                       fs-frames ns-per-frame)
         db-a  (db-of cells-n 7)
         db-b  (update (db-of cells-n 7) :cells assoc (dec cells-n) 8)
+        ;; rf2-gncxk.1 — a FRESH map `=` to `db-a` but not `identical?` to it:
+        ;; the input at which the `=` walk runs to completion and finds no
+        ;; difference. That is the `:frame-state` flush-path shape PR #7233
+        ;; pins — a value-equal commit that reaches the wrapper and memo-HITS —
+        ;; and `P-EQDBF` / `P-MEMOF` / `P-MEMOFI` are all priced at it.
+        db-a2 (db-of cells-n 7)
         ;; rf2-78ejq — the two frame-state values a commit alternates between,
         ;; PRE-BUILT so the SPINE0B / SPINE0P arms measure the container write
         ;; and the projections alone, with no value construction folded in.
@@ -1069,7 +1251,51 @@
         bare-fs-container (adapter/make-state-container fs-a)
         proj-fs-container (adapter/make-state-container fs-a)
         _proj (mapv (fn [k] (adapter/make-derived-value [proj-fs-container] k))
-                    [frame/app-partition-key frame/runtime-partition-key])]
+                    [frame/app-partition-key frame/runtime-partition-key])
+        ;; rf2-gncxk.1 — the movement-witness pair's rigs. TWO structurally
+        ;; identical stacks (a raw container carrying one derived dependent),
+        ;; differing only in which of the two the 300 memo wrappers are handed
+        ;; as their lone source:
+        ;;
+        ;;   w-*   wrappers over the DERIVED container, which publishes
+        ;;         `IMovementWitness` (its fan-out is `rf=`-gated)
+        ;;   wc-*  wrappers over the RAW container underneath it, which cannot
+        ;;
+        ;; so `P-MEMOWC − P-MEMOW` isolates the guard and nothing else.
+        w-src      (adapter/make-state-container db-a)
+        w-derived  (adapter/make-derived-value [w-src] identity)
+        wc-src     (adapter/make-state-container db-a)
+        wc-derived (adapter/make-derived-value [wc-src] identity)
+        ;; The `:frame-state` half's source: a raw container, exactly what
+        ;; `subs/single-source-container-for` hands a `:frame-state` sub.
+        f-src      (adapter/make-state-container db-a)
+        mk-memos   (fn [source]
+                     (mapv (fn [i]
+                             (subs-memo/make-layer-1-memoised-body
+                               (fn [db _] (get-in db [:cells i]))
+                               (nth qids i) (nth qvs i) fid {} source))
+                           (range n)))
+        memos-w    (mk-memos w-derived)
+        memos-wc   (mk-memos wc-src)
+        memos-f    (mk-memos f-src)]
+    ;; Seed each derived container's baseline BEFORE moving it, so the first
+    ;; movement's `notify` arms the witness with a REAL predecessor rather than
+    ;; the spine's construction sentinel.
+    (deref w-derived)
+    (deref wc-derived)
+    ;; Put both stacks — and every wrapper over them — into the state the
+    ;; measured arms assume on entry: source at `db-b`, `last-db` at `db-b`.
+    ;; `w-flip` / `wc-flip` start false, so the first measured call flips to
+    ;; true and drives `db-b -> db-a`, arming the witness with the very object
+    ;; the wrappers hold.
+    (adapter/replace-container! w-src db-b)
+    (adapter/replace-container! wc-src db-b)
+    (dotimes [k n]
+      ((nth memos-w k) db-b)
+      ((nth memos-wc k) db-b)
+      ;; `memos-f` is primed at `db-a` and never moves off it: both of its arms
+      ;; take the memo-HIT branch, which does not write `last-db`.
+      ((nth memos-f k) db-a))
     (vreset! rig
              {:n        n
               :cells-n  cells-n
@@ -1077,11 +1303,24 @@
               :qvs      qvs
               :frames   frames
               :holds    holds
+              ;; rf2-gncxk.1 — the `:frame-state` ladder
+              :fs-frames fs-frames
+              :fs-holds  fs-holds
               :db-cell  (atom (db-of cells-n 0))
               :bare     (atom (db-of cells-n 0))
               :spine-container (adapter/make-state-container (db-of cells-n 0))
               :db-a     db-a
               :db-b     db-b
+              ;; rf2-gncxk.1 — the movement-witness pair
+              :db-a2      db-a2
+              :w-src      w-src
+              :w-derived  w-derived
+              :wc-src     wc-src
+              :wc-derived wc-derived
+              :f-src      f-src
+              :memos-w    memos-w
+              :memos-wc   memos-wc
+              :memos-f    memos-f
               :fs-a     fs-a
               :fs-b     fs-b
               :bare-fs-container bare-fs-container
@@ -1096,12 +1335,12 @@
                                   qids)
               :parent-scope (trace/handler-scope-from-meta
                               :event :wa/parent prod-sub-meta)
-              ;; the shipped memo wrapper, one per subscription
-              :memos    (mapv (fn [i]
-                                (subs-memo/make-layer-1-memoised-body
-                                  (fn [db _] (get-in db [:cells i]))
-                                  (nth qids i) (nth qvs i) fid {}))
-                              (range n))
+              ;; the shipped memo wrapper, one per subscription. The trailing
+              ;; source is the RAW container (rf2-gncxk.1) — a source that
+              ;; publishes no movement witness, so `P-MEMO` keeps measuring
+              ;; exactly the expression it always measured, its published
+              ;; figure intact and comparable.
+              :memos    (mk-memos f-src)
               ;; distinct fn identities, the way the scheduler's queue holds
               ;; one flush thunk per dirty derived value
               :thunks    (mapv (fn [i] (fn [] i)) (range n))
@@ -1238,8 +1477,21 @@
                               (fn [k cnt]
                                 [(str "RFWRITE-" cnt) (fn [] (arm-rfwrite k)) 1])
                               ns-per-frame))
+                 ;; rf2-gncxk.1 — the same ladder over `:frame-state` subs,
+                 ;; whose source cannot publish a movement witness. Its slope
+                 ;; is the control for `RFWRITE-N`'s.
+                 true (into (map-indexed
+                              (fn [k cnt]
+                                [(str "FSWRITE-" cnt) (fn [] (arm-fswrite k)) 1])
+                              ns-per-frame))
                  true (into [["P-BODY"  arm-p-body  n]
                              ["P-EQDB"  arm-p-eqdb  n]
+                             ;; rf2-gncxk.1 paired controls, both halves
+                             ["P-EQDBF"   arm-p-eqdb-f   n]
+                             ["P-MEMOW"   arm-p-memo-w   n]
+                             ["P-MEMOWC"  arm-p-memo-wc  n]
+                             ["P-MEMOF"   arm-p-memo-f   n]
+                             ["P-MEMOFI"  arm-p-memo-fi  n]
                              ["P-SCOPE" arm-p-scope n]
                              ;; rf2-zxv06 paired controls
                              ["P-SCOPEM"  arm-p-scope-m n]
@@ -1391,15 +1643,23 @@
         (println (gstring/format ";;   %-46s %10s B"
                          (str "RFWRITE-" cnt "  frame/replace-app-db!, " cnt " subs")
                          (fmt (b (str "RFWRITE-" cnt))))))
+      (doseq [cnt ns-per-frame]
+        (println (gstring/format ";;   %-46s %10s B"
+                         (str "FSWRITE-" cnt "  same write, " cnt " :frame-state subs")
+                         (fmt (b (str "FSWRITE-" cnt))))))
       (println ";;")
       (let [lo (first ns-per-frame) hi (last ns-per-frame)
-            slope (/ (- (b (str "RFWRITE-" hi)) (b (str "RFWRITE-" lo))) (- hi lo))]
-        (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write" (fmt slope)))
+            slope (/ (- (b (str "RFWRITE-" hi)) (b (str "RFWRITE-" lo))) (- hi lo))
+            fs-slope (/ (- (b (str "FSWRITE-" hi)) (b (str "FSWRITE-" lo))) (- hi lo))]
+        (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write   (:db subs)" (fmt slope)))
+        (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write   (:frame-state subs — rf2-gncxk.1 control)"
+                         (fmt fs-slope)))
         (println ";;")
         (println ";; WHERE THE PER-SUBSCRIPTION BYTES GO (each arm × n, reported per sub)")
         (println ";;   P-SCOPE is the COORD-LESS control; P-SCOPEM is the production shape")
-        (doseq [l ["P-BODY" "P-EQDB" "P-SCOPE" "P-SCOPEM" "P-SCOPEH" "P-INHER" "P-INHERH"
-                   "P-EMIT" "P-MEMO" "Q-SCHED" "Q-SCHEDJS" "P-VALS" "P-RKV"]]
+        (doseq [l ["P-BODY" "P-EQDB" "P-EQDBF" "P-SCOPE" "P-SCOPEM" "P-SCOPEH" "P-INHER" "P-INHERH"
+                   "P-EMIT" "P-MEMO" "P-MEMOW" "P-MEMOWC" "P-MEMOF" "P-MEMOFI"
+                   "Q-SCHED" "Q-SCHEDJS" "P-VALS" "P-RKV"]]
           (let [v (/ (b l) n)]
             (println (gstring/format ";;   %-10s %10s B/sub   %5.1f%% of the slope"
                              l (fmt v) (* 100.0 (/ v slope))))))
@@ -1421,7 +1681,34 @@
                    ";;   P-INHERH (shipped inherit)      %10s B/sub" (fmt (/ (b "P-INHERH") n))))
         (println (gstring/format
                    ";;   -> inherit predicts             %10s B/sub saved  (ONLY under a bound parent — a real app's write; NOT visible in the ladder above)"
-                   (fmt (/ (- (b "P-INHER") (b "P-INHERH")) n)))))
+                   (fmt (/ (- (b "P-INHER") (b "P-INHERH")) n))))
+        ;; rf2-gncxk.1 — BOTH halves, quoted as the two paired differences the
+        ;; change stands or falls on. Neither is optional: the first says the
+        ;; `=` term is GONE where the source publishes a movement witness, the
+        ;; second says it is STILL PAID where it does not — which is the
+        ;; `:frame-state` shape PR #7233 pins.
+        (println ";;")
+        (println ";; rf2-gncxk.1 — THE MOVEMENT WITNESS, PAIRED, BOTH HALVES")
+        (println ";;   [:db half] same wrapper, same inputs, same scaffolding; witnessing vs not")
+        (println (gstring/format
+                   ";;   P-MEMOWC (raw-atom source, no witness) %10s B/sub" (fmt (/ (b "P-MEMOWC") n))))
+        (println (gstring/format
+                   ";;   P-MEMOW  (witnessing source, proof fires) %7s B/sub" (fmt (/ (b "P-MEMOW") n))))
+        (println (gstring/format
+                   ";;   -> witness retires                     %10s B/sub   (must equal P-EQDB %s)"
+                   (fmt (/ (- (b "P-MEMOWC") (b "P-MEMOW")) n)) (fmt (/ (b "P-EQDB") n))))
+        (println (gstring/format
+                   ";;   (cross-check) P-MEMO                   %10s B/sub   — P-MEMOWC's scaffolding is not carrying the result"
+                   (fmt (/ (b "P-MEMO") n))))
+        (println ";;   [:frame-state half] same wrapper objects, same source, same memo cells;")
+        (println ";;     only the ARGUMENT's identity differs — both land on the memo-HIT branch")
+        (println (gstring/format
+                   ";;   P-MEMOF  (=-but-not-identical? db)     %10s B/sub" (fmt (/ (b "P-MEMOF") n))))
+        (println (gstring/format
+                   ";;   P-MEMOFI (identical? db, = short-circuits) %6s B/sub" (fmt (/ (b "P-MEMOFI") n))))
+        (println (gstring/format
+                   ";;   -> = walk STILL PAID                   %10s B/sub   (must equal P-EQDBF %s)"
+                   (fmt (/ (- (b "P-MEMOF") (b "P-MEMOFI")) n)) (fmt (/ (b "P-EQDBF") n)))))
       (println ";;")
       (println ";; rf2-78ejq — WHERE RFWRITE-0's CONSTANT GOES")
       (let [rf0    (b "RFWRITE-0")

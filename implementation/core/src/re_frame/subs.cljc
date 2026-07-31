@@ -1259,9 +1259,21 @@
                         ;; frame-state value `{:rf.db/app … :rf.db/runtime …}`.
                         ;; `container-fn` is exactly the single-source membership
                         ;; (its map keys ARE `single-source-input-kinds`).
+                        ;;
+                        ;; The trailing `(first inputs)` is the reaction's
+                        ;; LONE signal source, handed over so the wrapper can
+                        ;; resolve its MOVEMENT WITNESS once at construction
+                        ;; (rf2-gncxk.1). For `:db` / `:runtime-db` that is an
+                        ;; `rf=`-gated partition projection, which publishes
+                        ;; one; for `:frame-state` it is the raw physical
+                        ;; container, which cannot — so that kind keeps its
+                        ;; genuine flush-path memo hit structurally. See
+                        ;; `re-frame.subs.memo` §The movement-witness
+                        ;; short-circuit.
                         container-fn
                         (subs-memo/make-layer-1-memoised-body
-                          body-fn query-id query-v frame-id sub-meta)
+                          body-fn query-id query-v frame-id sub-meta
+                          (first inputs))
 
                         ;; PARAMETRIC subs (any realized input count,
                         ;; including 1) deliver a VECTOR of input values to
@@ -1279,9 +1291,13 @@
                         ;; shape; specialise to fixed-arity-1 for
                         ;; parity with layer-1. Delivers the bare
                         ;; value (the v1 `:<-` single-input convention).
+                        ;; `(first inputs)` — the lone upstream reaction, for
+                        ;; the same movement-witness resolution as layer-1
+                        ;; (rf2-gncxk.1).
                         (= 1 (count input-qs))
                         (subs-memo/make-layer-n-single-input-memoised-body
-                          body-fn query-id query-v frame-id input-qs sub-meta)
+                          body-fn query-id query-v frame-id input-qs sub-meta
+                          (first inputs))
                         :else
                         (subs-memo/make-layer-n-memoised-body
                           body-fn query-id query-v frame-id input-qs sub-meta))
