@@ -102,6 +102,45 @@ dispatch, caret preserved, composition fenced — a hard gate in
 [architecture.md](../architecture.md). A PATCH spike that cannot demonstrate that on
 the 100-cell grid has failed regardless of its clock numbers.
 
+## Forwarding attributes onto a controlled input
+
+Sooner or later you write a `field` wrapper: one place that owns the controlled
+contract, and call sites that still need to pass a placeholder, a `name`, a test id.
+The remainder rides in one reserved key, `:&`:
+
+```clojure
+(defview field [{:keys [id busy?] :as attrs}]
+  [:input.form-control {:& (dissoc attrs :id :busy?)   ;; whatever the caller sent
+                        :value    (sub [:editor/field id])
+                        :disabled busy?
+                        :on-input [:editor/edit-field id ::h/value]}])
+
+[field {:id :title :busy? busy? :type "text" :placeholder "Article Title"}]
+```
+
+**The literal keys you write always win.** Not "usually", not "if you pick the right
+merge form" — always. So a caller who forwards a whole props map, a theme that
+supplies part attributes, or a genuinely hostile remainder carrying `:value` and
+`:on-input` all reach nothing that matters. Your `:value` is your `:value`.
+
+That is the whole design, and it exists because of the thing it deletes. In the
+predecessor there are **three** merge forms and the wrong one is silent: pick the
+general spread on a controlled input and caret and IME protection stop, with no
+error raised anywhere. Correctness by choice of syntax is the worst kind, because
+the code looks fine.
+
+Two consequences worth knowing.
+
+**Say it by not saying it.** When you *want* the caller's value to win, leave the
+literal out. `[:input {:& attrs}]` takes everything the caller sent. The default is
+the safe direction and the override is the explicit one, which is the way round you
+want when the thing being defended is a caret.
+
+**Classes compose on the tag.** `:key` and `:ref` are never taken from `:&`, and a
+literal `:class` wins outright like any literal — so put your element's own classes
+on the tag (`[:input.form-control {:& attrs}]`) and the shorthand merge combines
+them with whatever the caller brought.
+
 ## Resets are by revision, never by value
 
 When you need to force a field back to a value — a form reset, a "revert" button, a
