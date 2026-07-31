@@ -76,7 +76,18 @@
 
   A React element is a legal child anywhere. No metadata keys, no second
   calling convention, and a plain function in head position is a loud
-  error."
+  error.
+
+  ## Two reserved attribute keys, and nothing else
+
+  | Key | Meaning |
+  |---|---|
+  | `:&` | the caller's remainder map. One merge, one law: **the literal keys written in the map always win** (HD-023, [[merge-caller]]) |
+  | `:ref` | a callback ref in v0; a **vector** is the reserved data spelling and is refused loudly (HD-022, [[check-ref!]]) |
+
+  Both are attribute *keys*, not forms — so the merge survives into a
+  structural test and into tooling, and neither adds a public concept in
+  the K5 sense."
   (:require [clojure.string :as str]
             [re-frame.bench.hicasso.front.intent :as intent]
             ["react" :as react]))
@@ -255,6 +266,62 @@
     :else                    v))
 
 ;; ---------------------------------------------------------------------------
+;; `:&` — the one attribute merge, and the owned-literal law (HD-023)
+;; ---------------------------------------------------------------------------
+
+(def merge-key
+  "`:&` — the reserved attribute key carrying a caller's remainder map.
+  There is exactly one merge in Hicasso and this is it. It is DATA, not a
+  call, so a forwarded remainder survives into a structural test and into
+  tooling; and it cannot collide with a real DOM attribute."
+  :&)
+
+(def merge-structural-keys
+  "Never taken from a `:&` map. `:key` and `:ref` address the ELEMENT the
+  caller wrote, not the one it is forwarding onto — React's key contract
+  and HD-016's ref rule are both about node identity, and a remainder map
+  is about attributes. Dropping them is what makes a hostile or careless
+  remainder unable to reach either."
+  #{:key :ref})
+
+(defn merge-caller
+  "Fold a `:&` remainder into the attribute map, under **the owned-literal
+  law, unconditionally**: the literal keys written in the map ALWAYS win.
+
+  This is HD-010(a)'s law — `:key`, `:ref`, controlled `:value`/`:checked`
+  and owned event handlers are unoverridable — applied to *every* merge
+  rather than only under theming, and it is the whole point of the
+  ruling. The predecessor needs the author to choose between three merge
+  forms depending on where the target is, and the penalty for choosing
+  wrong is SILENT: caret and IME protection simply stop, with no
+  diagnostic anywhere. Making the law unconditional deletes that class —
+  the controlled-input door cannot be forfeited by a merge at all,
+  because a merge cannot reach an owned literal.
+
+  The case where a caller override SHOULD win is spelled by **not writing
+  the literal**, which is the honest way round: the dangerous default is
+  the other one.
+
+  Absent — the overwhelming case — this is one `contains?` and the map
+  comes back by identity, allocating nothing. Present, it is one `merge`
+  in the direction that makes the law true by construction."
+  [props]
+  (if-not (contains? props merge-key)
+    props
+    (let [caller (get props merge-key)
+          owned  (dissoc props merge-key)]
+      (cond
+        (nil? caller) owned
+        (map? caller) (merge (apply dissoc caller merge-structural-keys) owned)
+        :else
+        (fail! :rf.error/hicasso-merge-not-a-map
+               'front.codec/merge-caller
+               (str ":& carries a caller's attribute map and nothing else. It was "
+                    "given " (pr-str (type caller)) ". Forward a map, or drop the key.")
+               :forward-a-map-at-the-merge-key
+               {:value caller})))))
+
+;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022)
 ;; ---------------------------------------------------------------------------
 
@@ -284,16 +351,25 @@
   props)
 
 (defn convert-props
-  "One pass over the attribute map: refuse a reserved `:ref` value, fold
-  the tag shorthand, drop `:key` (React's own contract — it is not an
-  attribute), lower every intent, and set each converted value under its
-  React prop name.
+  "One pass over the attribute map: fold a `:&` remainder under the
+  owned-literal law, refuse a reserved `:ref` value, fold the tag
+  shorthand, drop `:key` (React's own contract — it is not an attribute),
+  lower every intent, and set each converted value under its React prop
+  name.
 
-  Note the order: intent lowering happens *inside* this single walk, so
-  the codec does not traverse the props map a second time to find the
-  event positions."
+  Two things about the order. Intent lowering happens *inside* the single
+  walk, so the codec does not traverse the props map a second time to
+  find the event positions. And [[merge-caller]] runs FIRST — before the
+  tag shorthand and before any prop-name conversion — which is what lets
+  one rule cover the class the predecessor needs a third form for. A
+  forwarded `:className` is merged as the key it was written as and then
+  converted by *this position's* grammar; nothing canonicalises it into
+  `:class` on the way through and hands the wrong name onward. It also
+  puts a forwarded `:class` into the shorthand merge, so
+  `[:input.form-control {:& caller}]` composes `\"form-control\"` with the
+  caller's classes instead of one silently replacing the other."
   [props ^ParsedTag parsed]
-  (let [props (-> props check-ref! (merge-shorthand parsed) (dissoc :key))]
+  (let [props (-> props merge-caller check-ref! (merge-shorthand parsed) (dissoc :key))]
     (reduce-kv (fn [o k v]
                  (let [n (cached-prop-name k)]
                    (when-not (reserved-cache-keys n)
@@ -383,7 +459,20 @@
 
 (defn- boundary-element [argv]
   (let [has-props? (props-map? argv 1)
-        props      (if has-props? (nth argv 1) {})
+        ;; The SAME merge, at the crossing. This is the case the
+        ;; predecessor needs a third rule for: its spread forms are
+        ;; element forms whose content is the attribute grammar, so
+        ;; sending a remainder through one on the way to a declared
+        ;; foreign head rewrites `:className` into the `:class` slot and
+        ;; the component never sees the prop it reads — which is why
+        ;; "neither spread form is legal there" and an ordinary `merge`
+        ;; is prescribed instead. `:&` has no such problem because it is
+        ;; not a spread: it is a key in the props map, merged before any
+        ;; conversion, and the conversion that follows is the POSITION's
+        ;; own — a props map handed to a boundary or a declared foreign
+        ;; head is passed through unrenamed. One rule, both positions,
+        ;; and the owned-literal law holds identically at each.
+        props      (merge-caller (if has-props? (nth argv 1) {}))
         children   (realize-children argv (if has-props? 2 1))
         body-props (cond-> (dissoc props :key)
                      children (assoc :children children))

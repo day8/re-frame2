@@ -201,6 +201,14 @@ Without this law, a stylesheet-shaped piece of data could reach in and clobber t
 `:value` of a controlled input — and you would debug that as an input bug for a day
 before you thought to look at the theme.
 
+**The law is not theming-specific.** HD-023 makes it unconditional: there is one
+attribute merge, spelled `:&`, and the literal keys written in the map always win
+over it — whether what arrives is a theme's part attributes, a caller's forwarded
+remainder, or anything else. So a control that emits parts and a control that
+forwards props are the same code, defended by the same rule, and there is no second
+merge form to choose between. See
+[Controlled inputs](04-controlled-inputs.md#forwarding-attributes-onto-a-controlled-input).
+
 ### (b) The static-map law
 
 **Anything runtime-switchable lives in CSS variables. Part-to-class maps are

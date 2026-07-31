@@ -101,6 +101,34 @@ steady-state change belongs on an effect, not on the ref.
   per boundary from the substrate's single internal context) so they remain valid
   when the browser invokes them after render scope unwinds.
 
+## Forwarding attributes — one merge, spelled `:&` (HD-023)
+
+There is **one** attribute merge and it is a reserved key in the attribute map, not
+a call:
+
+```clojure
+(defview field [{:keys [id busy?] :as attrs}]
+  [:input.form-control {:& (dissoc attrs :id :busy?)
+                        :value    (sub [:editor/field id])
+                        :disabled busy?
+                        :on-input [:editor/edit-field id ::h/value]}])
+```
+
+**The law is unconditional: the literal keys written in the map always win over
+`:&`.** That is HD-010(a)'s owned-literal law applied to every merge rather than
+only under theming, and it is what makes the controlled-input door
+non-forfeitable — a merge cannot reach an owned literal, so there is no wrong
+choice of syntax to make. The case where a caller override *should* win is spelled
+by not writing the literal.
+
+Three details. `:key` and `:ref` are never taken from a `:&` map (they address the
+element the caller wrote). The same key and the same law hold at a crossing — a
+view head, a `defhost` head, `[:>]` — because `:&` is merged before any conversion
+and the conversion that follows is the position's own, so a forwarded `:className`
+crosses under the name it was written as. And an element's own classes belong on
+the **tag**, where the shorthand merge composes them with a forwarded `:class`
+rather than one silently replacing the other.
+
 ## The controlled-input door
 
 Controlled text rides the synchronous door: dispatch → drain/commit → re-render

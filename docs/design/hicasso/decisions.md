@@ -488,3 +488,65 @@ This limit is taught in the guide
 rather than left to be discovered.
 **Reopens** when the component-library tier is chartered — the reservation exists
 to make that reopening non-breaking.
+
+## HD-023 — One attribute merge: a reserved `:&` key, owned-literal law unconditional
+
+**Ruling.** Hicasso has **one** attribute merge, spelled as data in the attribute
+map, with one unconditional law.
+
+```clojure
+[:input      {:& caller-attrs :value v :on-input ev}]
+[:div        {:& base :class "own"}]
+[date-picker {:& caller-attrs :selected d}]
+```
+
+(a) `:&` is a **reserved attribute key carrying a runtime map**. It is data, not a
+call, so a forwarded remainder survives into a structural test and into tooling,
+and it cannot collide with a real DOM attribute.
+(b) **The law: the literal keys written in the map always win over `:&`.** This is
+HD-010(a)'s owned-literal merge law applied to *every* merge rather than only under
+theming.
+(c) `:key` and `:ref` are **never taken from a `:&` map**. They address the element
+the caller wrote, not the one it is forwarding onto; a remainder is about
+attributes.
+(d) The **same key and the same law hold at a crossing** (a Hicasso view head, a
+`defhost` head, `[:>]`). `:&` is merged *before* any conversion, and the conversion
+that follows is the position's own — so a forwarded `:className` crosses under the
+name it was written as. One rule covers both positions.
+(e) A non-map at `:&` is `:rf.error/hicasso-merge-not-a-map`.
+**Consequence:** two public concepts (the predecessor's `spread` and `spread-safe`)
+become **zero**. An attribute key is not a concept in the K5 sense.
+
+**Rationale.** The predecessor makes an author choose between three merge forms
+depending on where the target is, and the penalty for choosing wrong is **silent**:
+`spread-safe` "preserves the controlled-input door", `spread` "does not claim the
+door", and neither is legal onto a declared foreign head (a spread canonicalises
+`:className` into the `:class` slot, so the component never sees the prop it
+reads). The cost is recorded twice as a wall with no error attached — "Dynamic map
+on controlled input without `spread-safe` | forfeits door proof" — and re-frame.ui
+carries the same split and admits it: "General (`ui/spread` base overrides) remains
+the visible-cost escape and **still forfeits the sync door**." Making the law
+unconditional deletes the whole class: the controlled-input door cannot be
+forfeited by a merge at all, because a merge cannot reach an owned literal. The
+case where a caller override *should* win is spelled by **not writing the literal**,
+which is the honest way round — the dangerous default is the other one. Spelling
+precedent: UIx already uses `:&` for exactly this in this repo
+(`examples/substrates/uix/login/core.cljs:148`).
+**Class composition needs no exception.** An element's own classes are written on
+the **tag** (`[:input.form-control {:& caller}]`), which is not a literal attribute
+key, so the shorthand merge composes them with whatever the remainder brought. A
+literal `:class` still wins outright, because it is a literal.
+**Demonstrated, not asserted.** The RealWorld article editor's four form fields
+(`examples/real-apps/realworld_resources/article_editor.cljs:496-522`) are ported
+both ways in `front/census_article_editor_cljs_test`, with the produced elements
+and the dispatched intents asserted identical between the renderings. The
+authoring result: four repeated attribute maps become one `field` helper and four
+call sites, and — the part that matters — the helper does not have to defend
+itself against what a caller forwards.
+**Cost, stated.** `:&` is an addition to the codec this programme took from
+reagent-slim, and the ruling that Hicasso authors no codec carries a caveat that
+such additions be measured rather than assumed. Structurally this one is a single
+`contains?` per attribute map, returning the map by identity when the key is
+absent, so it allocates nothing on an element that does not use it — but its clock
+cost is **unmeasured** and is named here rather than claimed away.
+**Reopens** if a witness shows a merge the law cannot express without an escape.

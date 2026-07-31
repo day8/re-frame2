@@ -225,6 +225,104 @@
   (is (thrown-with-msg? js/Error #"not a valid element head" (codec/as-element [42 {}]))))
 
 ;; ---------------------------------------------------------------------------
+;; `:&` — one merge, and the owned-literal law unconditional
+;; (HD-023, rf2-2rtt6.36)
+;; ---------------------------------------------------------------------------
+
+(deftest a-caller-remainder-merges-under-the-literals-that-are-written
+  (testing "the law, in its plainest form: keys the caller supplies and the
+            element does not, land; keys the element writes are not
+            reachable from `:&` at all."
+    (let [e (codec/as-element [:div {:& {:title "from caller" :id "caller"}
+                                     :id "owned"}])]
+      (is (= "from caller" (prop e "title")) "an unclaimed key lands")
+      (is (= "owned" (prop e "id")) "a written literal always wins")
+      (is (not (contains? (set (prop-names e)) "&"))
+          ":& is a reserved key, never an attribute")))
+  (testing "the whole point of the direction: a caller override is spelled by
+            NOT writing the literal, because the dangerous default is the
+            other way round"
+    (is (= "caller" (prop (codec/as-element [:div {:& {:id "caller"}}]) "id")))))
+
+(deftest a-hostile-remainder-cannot-forfeit-the-controlled-input-door
+  (testing "the predecessor's silent failure, deleted. There, a dynamic map
+            merged onto a controlled input WITHOUT the door-preserving spread
+            form forfeits caret and IME protection, and no diagnostic is
+            raised anywhere — the choice of syntax is the choice of
+            correctness. Here there is one merge and the law is
+            unconditional, so a remainder carrying the whole controlled
+            contract reaches none of it."
+    (let [!seen (atom [])
+          caller {:value      "HOSTILE"
+                  :on-input   [:hostile/edit]
+                  :key        "hostile"
+                  :ref        (fn [_] (swap! !seen conj :ref-fired))
+                  :class      "from-caller"
+                  :aria-label "kept"}
+          e (intent/with-frame (fn [ev] (swap! !seen conj ev))
+                               (fn [] (codec/as-element
+                                       [:input {:& caller
+                                                :value    "owned"
+                                                :on-input [:todo.ui/edit 7 :re-frame.hicasso/value]}])))]
+      (is (= "owned" (prop e "value")) "the controlled value survives")
+      (is (nil? (el-key e)) ":key is never taken from a remainder")
+      (is (nil? (prop e "ref")) ":ref is never taken from a remainder")
+      (is (= "from-caller" (prop e "className")) "an unclaimed key still lands")
+      (is (= "kept" (prop e "aria-label")))
+      ((prop e "onInput") #js {:target #js {:value "typed"}})
+      (is (= [[:todo.ui/edit 7 "typed"]] @!seen)
+          "and the owned handler is the one that fired — the caller's intent
+           never reached the element"))))
+
+(deftest an-owned-class-composes-through-the-tag-shorthand
+  (testing "the one place a caller's value and an owned value both survive,
+            and it needs no exception to the law: the element's own classes
+            are written on the TAG, which is not a literal attribute key, so
+            the shorthand merge composes them with whatever the remainder
+            brought."
+    (let [e (codec/as-element [:input.form-control {:& {:class "form-control-lg"}}])]
+      (is (= "form-control form-control-lg" (prop e "className"))))
+    (testing "and a literal :class still wins outright, because it is a literal"
+      (let [e (codec/as-element [:input.base {:& {:class "from-caller"} :class "owned"}])]
+        (is (= "base owned" (prop e "className")))))))
+
+(deftest the-same-merge-and-the-same-law-hold-at-a-crossing
+  (testing "the case the predecessor needs a THIRD rule for. Its spread forms
+            are element forms, so forwarding a remainder through one onto a
+            declared foreign head rewrites `:className` into the `:class`
+            slot and the component never sees the prop it reads — hence
+            'neither spread form is legal there' and an ordinary `merge`
+            instead. `:&` is not a spread: it is a key in the props map,
+            merged before any conversion, and the conversion that follows is
+            the position's own."
+    (let [e (codec/as-element [a-view {:& {:className "react-name" :selected "caller"}
+                                       :selected "owned"}])]
+      (is (= {:className "react-name" :selected "owned"} (prop e "rfProps"))
+          ":className crosses under the name it was written as, and the
+           owned literal still wins")))
+  (testing "a remainder's :key cannot become the crossing's key either"
+    (let [e (codec/as-element [a-view {:& {:key "hostile"} :id 7}])]
+      (is (nil? (el-key e)))
+      (is (= {:id 7} (prop e "rfProps"))))))
+
+(deftest the-merge-costs-one-lookup-when-it-is-absent
+  (testing "the overwhelming case. No `:&` means the map comes back by
+            identity — the feature allocates nothing on an element that does
+            not use it."
+    (let [props {:id "x" :class "y"}]
+      (is (identical? props (codec/merge-caller props)))))
+  (testing "an explicit nil remainder is a no-op that still removes the key"
+    (is (= {:id "x"} (codec/merge-caller {:& nil :id "x"}))))
+  (testing "a non-map remainder is a loud error rather than a silent drop"
+    (is (thrown-with-msg? js/Error #"carries a caller's attribute map"
+                          (codec/as-element [:div {:& [:not :a :map]}])))
+    (try
+      (codec/as-element [:div {:& "nope"}])
+      (is false "should have thrown")
+      (catch :default e
+        (is (= :rf.error/hicasso-merge-not-a-map (:rf.error/id (ex-data e))))))))
+
+;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022, rf2-2rtt6.38)
 ;; ---------------------------------------------------------------------------
 
