@@ -365,16 +365,21 @@ two to four times wider. Quote the interval when comparing a candidate against
 the centre; quote the run-mean spread when asking whether one run of a candidate
 has cleared the threshold.
 
-> **The two withdrawn magnitudes are restored, and no number is deleted.** M1's
-> `1.2301` and narrow's `1.1540` were withdrawn because a 3:2 design biased them,
-> their order strata were disjoint, and four estimates disagreed by ±6%. The
-> balanced ensemble answers all three: the design is even, the strata **overlap
-> in 9 of 10 runs on both rows**, and ten estimates now agree to ±4%. What is
-> published is a magnitude **with an interval**, which is what the measurement
-> supports; a bare four-decimal point never was. **rf2-2rtt6.1's operator hold on
-> quoting `1.2301` is not lifted here** — that bead's number is superseded rather
-> than rehabilitated, and only the operator amends the standard. See [the verdict
-> on M1's magnitude](#the-verdict-on-m1s-magnitude).
+> **No number is deleted — and one of the two restorations has itself been
+> overtaken.** M1's `1.2301` and narrow's `1.1540` were withdrawn because a 3:2
+> design biased them, their order strata were disjoint, and four estimates
+> disagreed by ±6%. The balanced ensemble answered all three: the design is even,
+> the strata **overlap in 9 of 10 runs on both rows**, and ten estimates agreed
+> to ±4%. That restored **narrow**, which still stands at `1.1754×`. It also
+> restored **M1**, at `1.2310×` — and [the post-`.25`
+> re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) has since superseded that
+> in turn at **`1.0243×` [0.9937 – 1.0549]**, which contains 1.0 and so publishes
+> no direction at all. What is published either way is a magnitude **with an
+> interval**, which is what the measurement supports; a bare four-decimal point
+> never was. **rf2-2rtt6.1's operator hold on quoting `1.2301` is not lifted
+> here** — that bead's number is superseded rather than rehabilitated, and only
+> the operator amends the standard. See [the verdict on M1's
+> magnitude](#the-verdict-on-m1s-magnitude).
 
 **The pre-registered single run, printed because the design named it before it
 ran.** The commit that balanced the design nominated run 1 — reagent-start, the
@@ -1102,8 +1107,11 @@ UIx segment the page is not the page the [RED-ZONE
 table](#red-zone--clock-on-rf2-2rtt62s-witnesses) was measured on, and every
 record these runs wrote carries `:ratom-arm? true` and says so. For the record
 and for nothing else, the six runs read `M1` 0.9939 – 1.1184 and `broad`
-0.5808 – 0.6768, which straddle and sit below the published `1.2310` and
-`0.6291` respectively — a difference this design has no standing to interpret.
+0.5808 – 0.6768, which straddle and sit below the lines published at the time —
+~~`1.2310`~~ (since [superseded by the post-`.25`
+re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) at `1.0243`, which this
+straddling range also contains) and `0.6291` respectively — a difference this
+design has no standing to interpret.
 
 ### Open items from this section
 
@@ -1131,13 +1139,16 @@ and for nothing else, the six runs read `M1` 0.9939 – 1.1184 and `broad`
 
 ## What the convergence changed
 
-Three of rf2-2rtt6.4's four clock verdicts do not survive the move onto
-rf2-2rtt6.2's witnesses. That is the answer to *how much did the mismatch
-matter*, and it is not small.
+rf2-2rtt6.4's clock verdicts largely do not survive the move onto rf2-2rtt6.2's
+witnesses: two of the four flipped outright, and the two that kept their
+direction moved their margin by a factor. That is the answer to *how much did
+the mismatch matter*, and it is not small. **One of those two flips has since
+been undone — by the landings rather than by the witness** — and the table
+records that in place.
 
 | question | rf2-2rtt6.4, on its own witnesses | converged, on rf2-2rtt6.2's | change |
 |---|---|---|---|
-| large-list mount | W1: **1.057×** [0.907 – 1.156] — indistinguishable | M1: **1.2310×** [1.199 – 1.293 across ten runs] — UIx slower | **verdict flips**: an indistinguishable row becomes a resolved one |
+| large-list mount | W1: **1.057×** [0.907 – 1.156] — indistinguishable | M1: ~~**1.2310×**~~ [1.199 – 1.293 across ten runs] → **1.0243×** [0.9937 – 1.0549] post-`.25` — indistinguishable | ~~**verdict flips**~~ — **the flip did not outlive the spine.** The converged row read `1.2310×` on the pre-`.13`/`.25` tree; [the re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) returns it to parity, which is where `W1` sat all along |
 | ordinary-form mount | W3: **0.893×** [0.843 – 0.956] — UIx faster, disjoint, published as a threshold | M2: **1.0601×** [0.956 – 1.192] — indistinguishable, graded diagnostic | **verdict flips**, and so does the grade |
 | broad commit | U-broad: **0.838×** [0.760 – 0.953] — UIx faster | bulk broad: **0.6291×** [0.579 – 0.699] — UIx faster | same direction, **much larger margin** |
 | narrow commit | U-narrow: **1.536×** [1.226 – 1.876] — UIx slower, disjoint | bulk narrow: **1.1754×** [1.139 – 1.219] — UIx slower | same direction and both resolve, but **the margin over parity falls to about a third** — 0.18 against 0.54 |
@@ -1791,8 +1802,40 @@ appeared on a future witness.
 
 ### The verdict on M1's magnitude
 
-**The three measured reasons `1.2301` was withdrawn have all been answered**,
-and each was answered by the design rather than by a friendlier run:
+**What is published is `1.0243×`, 95% interval `0.9937 – 1.0549` on the mean,
+single runs landing in `0.998 – 1.039` — and because that interval contains 1.0,
+the row is INDISTINGUISHABLE FROM PARITY.** The magnitude is [the re-take on the
+post-`.25` tree](#the-re-take-on-the-post-25-tree-rf2-b0tz5): the converged
+`p0_converge_app` instrument, four independently launched six-round runs, each
+into a measured-quiet window, on a spine carrying both `rf2-2rtt6.13` and
+`rf2-2rtt6.25`. **`1.2310×` [1.2109 – 1.2510] is SUPERSEDED** — it was measured
+before those two landed, its ten run means are wholly disjoint from the
+re-take's four, and the L1 mount red zone it stood behind has **closed**.
+
+**A second instrument reaches the same place independently.** [The coldmount
+page](coldmount-double-build-priced.md) re-derived the same 901-element /
+300-boundary witness post-`.25` at **`1.0054×` [0.917 – 1.143]** on its own
+driver, under a different author. That is 1.9 points from `1.0243×`, with each
+interval containing the other's point estimate — a smaller gap than the +9.7%
+mount disagreement `rf2-2rtt6.21` measured between the same two authors'
+denominators — so [the parity reading is not an artefact of one
+harness](#the-converged-instrument-agrees-with-coldmount).
+
+**The interval's shape is load-bearing, so it is stated exactly.** Four run
+means — `0.9980 · 1.0391 · 1.0219 · 1.0382` — give a one-sample Student-t
+interval with `n − 1 =` **three** degrees of freedom and `t = 3.1824`, and
+`1.0243 ± 3.1824 × 0.009616` reproduces `0.9937 – 1.0549`. The **nine**-df
+correction [applied to the ten-run ensemble's
+intervals](#the-intervals-are-2-too-wide-and-the-cause-is-an-off-by-one-in-the-degrees-of-freedom)
+is a correction to a different quantity and does not belong here: at
+`t = 2.2622` these four runs would read `1.0025 – 1.0461`, which **excludes** 1.0
+and would invert the verdict every one of the four runs actually reports.
+
+**The three measured reasons `1.2301` was withdrawn were all answered — by the
+ten-run ensemble that has itself since been superseded.** Nothing in that record
+is retracted; it is kept because it is the line the re-take had to be measured
+against, and each objection was answered by the design rather than by a
+friendlier run:
 
 1. ~~*It is biased by a design the effect exploits* — 3:2 Reagent-first on a
    quantity that reads high Reagent-first.~~ **Gone by construction.** At six
@@ -1800,24 +1843,32 @@ and each was answered by the design rather than by a friendlier run:
    differ on 7 of 40 row-runs of the ensemble and only ever in the fourth
    decimal, where they are rounded independently.
 2. ~~*Its two strata do not meet* — [1.2388 – 1.3538] against
-   [1.1099 – 1.1417].~~ **The strata overlap in 9 of the 10 runs**, and the
-   instrument marks the row `:claim :magnitude` in those nine.
+   [1.1099 – 1.1417].~~ **The strata overlapped in 9 of the 10 runs**, and the
+   instrument marked the row `:claim :magnitude` in those nine.
 3. ~~*Four independent estimates do not agree to better than ±6%, and the newest
-   does not resolve at all.*~~ **Ten independent estimates now span
+   does not resolve at all.*~~ **Ten independent estimates spanned
    1.1989 – 1.2931**, a spread of ±3.8% about their mean, none of them
    straddling 1.0, and 59 of the 60 rounds behind them read above 1.0.
 
-**What is published is a magnitude with an interval: 1.2310×, 95% interval
-1.2109 – 1.2510 on the mean, single runs landing anywhere in 1.199 – 1.293.**
-That is the form the measurement supports. A bare four-decimal point never was —
-not because the point was wrong (`1.2301` sits inside the new interval, which is
-its own small vindication) but because a point carries no statement of how far a
-fresh run may legitimately land from it.
+**What moved was the spine, not the instrument, and that is measured rather than
+inferred.** `rf2-2rtt6.25` made a cold read build one reaction instead of two —
+a mount-path cost — and on the re-take [the bar's own denominator is held fixed
+and shown to be
+fixed](#what-moved-and-the-control-that-says-the-denominator-did-not): the
+`reagent-subs` leg reproduces to within 0.5% while the `uix-subs` leg falls
+16.2%. The ≈21-point tightening is a property of the UIx arm.
+
+**A magnitude still has to be published with an interval, and that is the one
+thing this section never had wrong.** A bare four-decimal point — `1.2301`,
+`1.2310` and `1.0243` alike — carries no statement of how far a fresh run may
+legitimately land from it. On this row the honest form of the answer is now a
+range that includes parity.
 
 **rf2-2rtt6.1's hold is not lifted here, and cannot be.** That bead is the
 operator's, `1.2301` is its number, and this page supersedes that number rather
-than rehabilitating it. What a worker may say is what the measurement now
-supports, and that is [written out below](#what-would-have-been-appended-to-rf2-2rtt61-had-it-not-been-size-locked)
+than rehabilitating it — and the re-take has now carried the row past it in the
+other direction. What a worker may say is what the measurement now supports, and
+that is [written out below](#what-would-have-been-appended-to-rf2-2rtt61-had-it-not-been-size-locked)
 in the form the standard would take.
 
 **The other three rows.** `0.6291×` **broad** is the strongest row on the page:
@@ -1980,18 +2031,28 @@ P0 table, verbatim. **Only the operator may amend the standard**; this is a
 statement of what the measurement supports, not an amendment.
 
 > **CLOCK RED-ZONES — amendment under RULING 1, restated on the balanced
-> design.** RULING 1 makes the red-zone threshold *the measured UIx ratio for
-> that witness family*. Ten independently launched six-round runs with the
-> starting segment counterbalanced 5/5 now stand behind each row, so each is a
-> **magnitude with an interval** rather than a point or a bare direction:
+> design and then on the post-`.25` spine.** RULING 1 makes the red-zone
+> threshold *the measured UIx ratio for that witness family*. Ten independently
+> launched six-round runs with the starting segment counterbalanced 5/5 stand
+> behind the three rows the post-`.25` re-take did not move; **M1 stands on the
+> four-run re-take instead**, because that is the only row the landings changed.
+> Either way each is a **magnitude with an interval** rather than a point or a
+> bare direction:
 >
-> - **M1 mount — `1.2310×`, 95% interval `1.2109 – 1.2510` on the mean, single
->   runs landing in `1.199 – 1.293`.** This **supersedes `1.2301×`**, which was
->   withdrawn as a magnitude and is not reinstated: the number the standard holds
->   was measured on a 3:2 design whose bias has since been removed by
->   construction, and it is replaced rather than restored. A candidate worse than
->   the run-mean spread is RED; inside it, the honest answer is where in the
->   spread it sits.
+> - **M1 mount — `1.0243×`, 95% interval `0.9937 – 1.0549` on the mean, single
+>   runs landing in `0.998 – 1.039`. The interval contains 1.0, so the row is
+>   INDISTINGUISHABLE FROM PARITY and the L1 mount red zone is CLOSED.**
+>   ~~`1.2310×` [1.2109 – 1.2510]~~ is **SUPERSEDED**: it was measured before
+>   `rf2-2rtt6.13` and `rf2-2rtt6.25` landed, and the [re-take on the post-`.25`
+>   tree](#the-re-take-on-the-post-25-tree-rf2-b0tz5) reads the same witness on
+>   the same instrument at parity — four runs, all four reporting
+>   `:direction :indistinguishable`, corroborated to 1.9 points by [the coldmount
+>   page](coldmount-double-build-priced.md)'s independent `1.0054×`. `1.2301×` is
+>   not reinstated either: it was withdrawn as a magnitude, and the row has since
+>   moved past it in the other direction. Because the threshold IS the measured
+>   ratio, **a candidate anywhere between `1.0243` and the old `1.2310` is now
+>   RED** where it would once have scored clear; inside the run-mean spread the
+>   honest answer is where in the spread it sits.
 > - **bulk narrow — `1.1754×`, interval `1.1582 – 1.1926`, runs `1.139 – 1.219`.**
 >   **Supersedes `1.1540×`**, also withdrawn. Its direction is now as strong as
 >   any row on the page: all 60 rounds above 1.0, all 20 order strata wholly
