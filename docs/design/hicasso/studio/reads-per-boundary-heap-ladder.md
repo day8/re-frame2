@@ -8,6 +8,20 @@ regression included the R=0 anchor the page promised it excluded. Every figure
 below is a fresh reading through the corrected fit; the superseded publication
 is recorded in [§7](#7-superseded) rather than deleted.
 
+**Spine stamp — every UIx rung below was measured on a spine that no longer
+ships.** Two production landings postdate this run and both cut UIx retained
+heap: `rf2-2rtt6.13` (PR #7304, `9df5094816`) stopped retaining the disposed
+render-phase reaction — **−769 B / −23.0 objects per unique query key**, which
+on this ladder's distinct-query regime is 769 B *per read* — and
+`rf2-2rtt6.25` (PR #7305, `f784ab0adb`) landed the hook-scoped provisional
+hand-off, so a cold read builds one reaction instead of two. The **measured
+rows are left exactly as measured**, because a measurement record edited to
+match a later tree stops being a record. What is restated, in place, is
+everything this page *hands the programme* as a live number:
+[§5](#5-what-this-hands-the-programme) carries the gate lines on the
+post-landing tree, with the arithmetic written out. Reagent's rows are
+untouched by both landings — neither goes near the ratom path.
+
 **Regime stamp — distinct-query (Q = E), mandatory worst-case witness,
 operative upper-envelope family.** The heap red-zone regime ruling (delegated
 by Mike, 2026-07-31; authoritative text on rf2-2rtt6.16, transcription on
@@ -20,7 +34,12 @@ upper-envelope red-zone family**: where governance needs one conservative
 number, the distinct-query row is used and labelled an *upper-envelope capacity
 budget*, never "retained bytes per boundary" unqualified. The frontier arm's
 shared-query grid (E/Q = 4) is fan-out witness evidence, not comparable to
-these rows; its ratios remain the cross-regime check.
+these rows; its ratios remain the cross-regime check — **approximately**. The
+[fan-out sweep](heap-fan-out-sweep.md) measured that ratio drifting **9.3%**
+across E/Q 1 → 8 (5.5% reproduced at ROOTS=1), so a ratio is far more portable
+than an absolute (which moves 1.6–1.9× over the same range) but is not
+regime-free, and a cross-regime check quoted to three decimals is quoting
+drift.
 
 **The instrument is identified by content hash, not by commit SHA.** A SHA does
 not survive a rebase — the previous publication was invalidated by exactly that,
@@ -82,12 +101,16 @@ different things, neither of which is what a subscribing boundary costs.**
   alone, decomposed out of a Freehand boundary by `rf2-oob3g`. It is neither a
   boundary nor a read. It is one component of the slope, and a minority one.
 - **Neither priced a read.** One more re-frame2 subscription read on a UIx
-  boundary costs **3,552 B** [3,551–3,553] — **6.9× the 516 B hook figure** and
-  **17.1× the 208 B boundary figure**. On Reagent the same read costs **943 B**
-  [935–944].
+  boundary cost **3,552 B** [3,551–3,553] on the spine this ladder measured —
+  **6.9× the 516 B hook figure** and **17.1× the 208 B boundary figure**.
+  `rf2-2rtt6.13` has since taken 769 B out of that read: on the spine that
+  ships today it is **2,783 B**, still **5.4×** the hook and **13.4×** the
+  boundary. On Reagent the same read costs **943 B** [935–944], and neither
+  landing moved it.
 
 Put the two figures on one line and they stop arguing. The fitted lines are
-`cost = 113 + 3,552 · R` on UIx and `cost = 397 + 943 · R` on Reagent, with the
+`cost = 113 + 3,552 · R` on UIx as measured — `113 + 2,783 · R` on the shipping
+spine — and `cost = 397 + 943 · R` on Reagent, with the
 directly measured R=0 rungs — 208 B and 428 B — sitting ninety-five and thirty
 bytes above their intercepts, which is the width of this instrument's zero
 against a 71 KB range. **251 is the first term; 516 is a fraction of the
@@ -103,26 +126,33 @@ previously called the slope "the first read".
 
 | | fitted marginal slope | first-read increment `y(R=1) − y(R=0)` |
 |---|---:|---:|
-| Reagent | **943 B** [935–944] | **1,137 B** [1,125–1,141] |
-| UIx | **3,552 B** [3,551–3,553] | **3,600 B** [3,581–3,601] |
+| Reagent *(both landings miss the ratom path)* | **943 B** [935–944] | **1,137 B** [1,125–1,141] |
+| UIx, the spine this ladder measured | 3,552 B [3,551–3,553] | 3,600 B [3,581–3,601] |
+| **UIx, the shipping spine** *(less `.13`'s 769 B per read)* | **2,783 B** | **2,831 B** |
 
-Both are measured, both are quoted, and neither is derived from the other. On
-UIx the two are within 1.4% and the distinction barely matters; on Reagent the
-first read costs **21% more** than the marginal one, which is a real feature of
-that substrate and was invisible while one number stood for both.
+The first two rows are measured, both are quoted, and neither is derived from
+the other; the third is the first arithmetically corrected onto the current
+tree and cross-checked three ways in [§5](#5-what-this-hands-the-programme). On
+UIx the marginal and first read sit within 1.4–1.7% of each other either way
+and the distinction barely matters; on Reagent the first read costs **21%
+more** than the marginal one, which is a real feature of that substrate and was
+invisible while one number stood for both.
 
 Three consequences, and the second is the one the programme has to act on.
 
 1. **On memory, UIx is not the frontier — it inverts.** UIx wins the
    per-boundary shell (**208 B** against Reagent's **428 B**, 0.49×) and loses
-   the read by **3.77×** (3,552 against 943). The crossover is *below one read*:
-   any boundary that subscribes at all is cheaper on Reagent. The census's
-   seven-read archetype costs **24,758 B/boundary on the raw UIx spine against
-   Reagent's 6,587 B**.
+   the read by **2.95×** on the shipping spine (2,783 against 943; it was
+   3.77× on the spine this ladder measured, and `rf2-2rtt6.13` closed that
+   fifth of the gap). The crossover is still *below one read*: any boundary
+   that subscribes at all is cheaper on Reagent. The census's seven-read
+   archetype costs **≈19,400 B/boundary on the raw UIx spine against Reagent's
+   6,587 B** — 24,758 B before `.13`.
 2. **The ~0.4–0.5 KB exclusive-retained budget is a SHELL budget, and nothing
    measured meets it for a boundary that reads once.** Both shells clear it
-   (UIx 208 B, Reagent 428 B). At one read UIx is at **3,807 B** — 7.6× the
-   1 KB paper-fail line — and Reagent at **1,562 B**, 1.6×. The budget row in
+   (UIx 208 B, Reagent 428 B). At one read UIx is at **≈3,038 B** on the
+   shipping spine — 3.0× the 1 KB paper-fail line, and 3,807 B before `.13` —
+   and Reagent at **1,562 B**, 1.6×. The budget row in
    [validation.md](../validation.md) now says so explicitly: the target/fail
    line is the **R = 0 boundary shell**, and the per-read axis is judged
    separately under the ruling's regime-matched gates; see
@@ -355,8 +385,10 @@ subscription under Reagent's capture.
 
 This is where 516 B belongs. `rf2-oob3g` put React's six hooks at 1,171 B for a
 whole boundary and `useSyncExternalStore` alone at 516 B of that. Against
-**3,552 B for one read**, the store hook is **14.5%** — real, and nowhere near
-the whole story. **A read is not a hook.** It is a hook stack *and* a
+**2,783 B for one read** on the shipping spine the store hook is **18.5%** —
+14.5% against the 3,552 B measured here, and it rose only because `.13` removed
+a term the hook was never part of. Real either way, and nowhere near the whole
+story. **A read is not a hook.** It is a hook stack *and* a
 subscription: a reaction, a cache entry keyed by `(query-id, args)`, a query
 vector, and a watch registration, all of which the Reagent arm pays too. Reagent's
 943 B is the closest thing this page has to a floor for *the subscription
@@ -392,61 +424,149 @@ any candidate that misses it is missing something both donors already have.
 
 **The red-zones for this witness family — distinct-query (Q = E), the
 operative upper-envelope family.** Under the delegated ruling on `rf2-2rtt6.1`
-as regime-qualified by the heap-regime ruling (rf2-2rtt6.16), the measured UIx
-retained-heap figure on this witness *is* the red-zone threshold, and these are
-it — witness stamp B = 1,200 · E = 1,200·R · Q = E, **re-derived from the
-corrected fit, superseding the values published on 2026-07-30**:
+as regime-qualified by the heap-regime ruling (rf2-2rtt6.16), the UIx
+retained-heap figure on this witness *is* the red-zone threshold. Witness stamp
+B = 1,200 · E = 1,200·R · Q = E. **The rows are stated for the tree that ships
+today** (Mike's ruling of 2026-07-31, option (a), on `rf2-e3flf`): a gate
+measured on a spine two landings ago is looser than the tree warrants, and
+loose is the unsafe direction for a gate. `.13` removed 769 B per unique query
+key, which at Q = E is 769 B per read, so the correction is `−769·R`:
 
-| axis | UIx red-zone | superseded value |
-|---|---:|---:|
-| per-boundary shell (R=0, measured) | **208 B** [201–213] | 212 B |
-| per read (marginal) | **3,552 B** [3,551–3,553] | 3,550 B |
-| first read (increment) | **3,600 B** [3,581–3,601] | *not published* |
-| boundary @ 1 read | **3,807 B** | 3,811 B |
-| boundary @ 3 reads | **10,785 B** | 10,788 B |
-| boundary @ 7 reads | **24,758 B** | 24,762 B |
-| boundary @ 20 reads | **71,229 B** | 71,232 B |
+| axis | UIx red-zone, shipping spine | as this ladder measured it (pre-`.13`/`.25`) | superseded 2026-07-30 |
+|---|---:|---:|---:|
+| per-boundary shell (R=0, measured) | **208 B** [201–213] | 208 B | 212 B |
+| per read (marginal) | **2,783 B** | 3,552 B [3,551–3,553] | 3,550 B |
+| first read (increment) | **2,831 B** | 3,600 B [3,581–3,601] | *not published* |
+| boundary @ 1 read | **3,038 B** | 3,807 B | 3,811 B |
+| boundary @ 3 reads | **8,478 B** | 10,785 B | 10,788 B |
+| boundary @ 7 reads | **19,375 B** | 24,758 B | 24,762 B |
+| boundary @ 20 reads | **55,849 B** | 71,229 B | 71,232 B |
 
-Every threshold moved by less than 0.2%, so no candidate's verdict can turn on
-the correction. They are restated anyway, because a red-zone whose provenance
-is a fit that used a forbidden rung is not a red-zone anyone should have to
-defend.
+The shell is unmoved: `.13` was a per-read term and an R=0 boundary has no
+read. The 2026-07-30 column is kept because it was once quoted; every figure in
+it moved by less than 0.2% for a reason that had nothing to do with the spine
+(a fit that used a forbidden rung), and the middle column supersedes it.
+
+### The line a candidate is judged against, and how it was derived
+
+**The operative gate line is UIx `2,935 B/read` [2,852–3,055] on the P0 bench
+instrument, superseding `3,552 B/read`.** It is a **marginal slope**, not a
+boundary total — the at-one-read total is the separate row above — and it is
+stamped with the instrument it was taken on, because the two instruments in
+play differ by a measured common-mode offset that no gate should silently
+absorb.
+
+The derivation is desk work over landed, gated data: no new campaign was run
+for it. The [fan-out sweep](heap-fan-out-sweep.md) is the first heap page
+measured *after* both landings, and its UIx arm is **M3 in both runs and every
+round** (r² ≥ 0.9999, held-out rung predicted within 2%):
+
+```
+M3          y = shell + (E/B)·edge + (Q/B)·key
+Q = E   ⟹   E/B = Q/B = R
+            y(R) = shell + R·(edge + key)
+
+marginal per read = edge + key
+                  = 1,345 B  [1,327–1,396]    per edge, UIx
+                  + 1,590 B  [1,525–1,659]    per unique subscription key, UIx
+                  = 2,935 B  [2,852–3,055]
+```
+
+**Three checks, none of which the derivation used.**
+
+1. **A direct two-point reading on a held-out rung.** The sweep's `R2Q2B` rung
+   is two reads at E/Q = 1 and is held out of *every* identification, so
+   `R2Q2B − R1Q1` measures this slope without touching the terms above:
+   `6,122 − 3,235 = 2,887 B` at B = 1,200 and `6,155 − 3,185 = 2,970 B` at
+   B = 300, mean **2,929 B** — 0.2% from the derived value.
+2. **This ladder's own slope, corrected.** `3,552 − 769 = 2,783 B/read`. That
+   is +5.5% below the sweep's figure, and +5.2% is exactly the common-mode
+   offset the sweep measured twice between the two harnesses (Reagent +5.19%,
+   UIx +5.17%) — a difference in boundary-component shape, not in the spine.
+3. **A third instrument, measured after the fix.**
+   [The spine decomposition](uix-spine-per-read-decomposition.md) reads the
+   shipped UIx spine at **2,734 B/read** [2,731–2,735] post-`.13`. It sits 1.4%
+   below this ladder pre-fix (3,501 against 3,552); scaled onto this ladder's
+   instrument that is 2,774 B/read — **0.4%** from check 2.
+
+Four readings, three instruments, one arithmetic: ~2,780 B/read on this page's
+instrument, ~2,935 B/read on the bench's.
+
+**Provenance of the restatement.** Whole-tree anchor **`61dd44950a`** — the
+landed sweep commit, with `9df5094816` (`.13`) and `f784ab0adb` (`.25`) both
+ancestors of it. A SHA does not survive a rebase, so the bench instrument's
+blobs are beside it, all five under
+`implementation/core/test/re_frame/bench/`:
+
+| file | blob |
+|---|---|
+| `p0_heap.cljs` | `29a5d1087c2a78d3bc025657d414af2131d358fe` |
+| `p0_run.cjs` | `c8c1756dde30a49042c197d6582702efb995d0c9` |
+| `p0_reagent.cljs` | `49633402a26d17188987746b2f8f5f0e42213a27` |
+| `p0_uix.cljs` | `d19b07697ecf11ce5640bf12f1c5438f6e5eb1da` |
+| `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` |
+
+No run was taken for this restatement. Every figure in it is read off the
+landed sweep, this ladder, and the landed spine decomposition.
+
+**Which number governs a given candidate.** The one taken on the instrument the
+candidate was measured on. Candidate arms live in the P0 bench
+(`p0_run.cjs` / `p0_heap.cljs`), which is the sweep's instrument, so **2,935 B**
+is the working line; a candidate measured on this ladder's instrument is judged
+at **2,783 B**. The ~5% between them is unexplained and is not resolved here,
+so **a margin under 5% is instrument-limited and is not a pass** — if a
+candidate needs that margin, it needs a same-instrument donor row, not a
+finer quotation of this one. Quoting either line to the byte is quoting offset.
+
+**Reagent's line does not move.** `rf2-2rtt6.13` is a UIx-spine change and
+`rf2-2rtt6.25` is a UIx hook change; neither goes near the ratom path. The
+sweep's own post-landing two-point reading of the Reagent slope straddles the
+published figure — `2,541 − 1,643 = 898 B` at B = 1,200 and
+`2,658 − 1,590 = 1,068 B` at B = 300 — so nothing measured after the landings
+moves **943 B/read** [935–944], and it stands as published.
 
 **The inversion this page surfaced has been ruled on** (rf2-2rtt6.16, delegated
 by Mike, 2026-07-31; transcription on rf2-2rtt6.1). On retained heap UIx is
-3.77× worse than Reagent per read and the crossover sits below a single read,
-so a UIx-only ceiling is 3.77× looser than the best measured option. The ruling
-keeps **both lines, regime-matched**, rather than re-sourcing the red-zone: the
-red-zone stays UIx-sourced at **3,552 B/read** [3,551–3,553] — worse than that
-is RED and needs an explicit operator waiver naming the dogfood benefit — and
-Reagent's **943 B/read** [935–944] governs through K3 — worse than it with no
-named paper path down is K3 territory. Between the two lines a candidate is
-**"UIx-rule cleared, K3 open until a path down is named"**, never plain green.
-**943 B/read remains the number a native layer actually has to beat.**
+2.95× worse than Reagent per read on the shipping spine — 3.77× when this page
+measured it — and the crossover still sits below a single read, so a UIx-only
+ceiling is ~3× looser than the best measured option. The ruling keeps **both
+lines, regime-matched**, rather than re-sourcing the red-zone: the red-zone
+stays UIx-sourced — worse than the line above is RED and needs an explicit
+operator waiver naming the dogfood benefit — and Reagent's **943 B/read**
+[935–944] governs through K3, worse than it with no named paper path down being
+K3 territory. Between the two lines a candidate is **"UIx-rule cleared, K3 open
+until a path down is named"**, never plain green. **943 B/read remains the
+number a native layer actually has to beat**, and `.13` moved the ceiling
+toward it without moving the floor.
 
 **A target for HD-002's grouped tier.** Grouped `use-subs` — one fixed hook
 receiving the whole query collection — can only remove the *hook* half of a
 read. The subscription half is common to both arms. So the floor a grouped
 mechanism can reach on this witness is bounded below by roughly Reagent's
-**943 B/read**, and the prize for grouping is the difference: **≈2,600 B per
-read**, or **≈18 KB on the census's seven-read archetype**. That is a large
-prize and a concrete pre-registered number, which is what HD-002 clause (c) asks
-strategy hypotheses to be counted against.
+**943 B/read**, and the prize for grouping is the difference: **≈1,900–2,000 B
+per read**, or **≈13–14 KB on the census's seven-read archetype**. Both figures
+are the sweep's own same-instrument subtraction (UIx 2,887 / 2,970 B against
+Reagent 898 / 1,068 B), so no cross-instrument offset rides in them. `.13` took
+roughly 600 B of that prize before any candidate could claim it — it was
+≈2,600 B per read and ≈18 KB on the archetype — which is the point of restating
+the line rather than stamping it historical: a candidate must now win the
+remainder, not the whole.
 
 **The budget row is now split, shell from read.**
 [validation.md](../validation.md) sets *exclusive retained per boundary* at
 ~0.4–0.5 KB target, >1 KB paper-fail, and per the heap-regime ruling
 (rf2-2rtt6.16, Part 3) that line is explicitly the **R = 0 boundary shell** —
-both donors comply (Reagent ~418–428 B, UIx ~208 B). The per-read axis is
-judged separately under the regime-matched gates above, so the shipped Reagent
-adapter is not retroactively K3-failed: its ~1,562 B at one read is shell
-(~428 B) plus first-read increment (~1,137 B), each judged on its own axis —
-and a candidate cannot pass the paper line by amortising subscriptions across
-boundaries. Component budget rows (shell / per-edge / per-unique-key) enter
-validation.md only after rf2-5prok's fan-out sweep verifies the additive heap
-model and prices the terms; in this witness (Q = E) the 943 B slope is the
-*sum* of the per-edge and per-unique-key terms — a valid total marginal cost in
-this regime only, not a pure view-layer per-read price.
+both donors comply (Reagent ~418–428 B, UIx ~208 B on this page's one-prop
+boundary). The per-read axis is judged separately under the regime-matched
+gates above, so the shipped Reagent adapter is not retroactively K3-failed: its
+~1,562 B at one read is shell (~428 B) plus first-read increment (~1,137 B),
+each judged on its own axis — and a candidate cannot pass the paper line by
+amortising subscriptions across boundaries. The component budget rows (shell /
+per-edge / per-unique-key) were gated on the fan-out sweep, which has landed
+and priced two of the three on both substrates and refused Reagent's per-edge
+term. In this witness (Q = E) the 943 B slope is the *sum* of the per-edge and
+per-unique-key terms — a valid total marginal cost in this regime only, not a
+pure view-layer per-read price.
 
 ---
 
