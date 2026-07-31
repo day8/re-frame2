@@ -231,6 +231,14 @@ the *retention* of the dead reaction, not the rebuild, so these fractions
 survive .13 unchanged in expectation; a post-.13 re-take would be a
 confirmation, not a correction.
 
+**That expectation has since been checked on the counting side.** rf2-2rtt6.13
+landed on 2026-07-31, and the spine ablation's witness re-run against the fixed
+spine reports `commits` 1.00N, `rebuilt` 1.00N, `bodyRuns` 2.00N on UIx against
+0/0/1.00N on Reagent — the same exact integers, twice over disjoint cells
+([the decomposition page](uix-spine-per-read-decomposition.md#the-fix-landed)).
+The double build is untouched by .13, so the fractions on this page stand. Their
+*clock* has not been re-taken post-.13, and this note does not claim it has.
+
 ---
 
 ## Instrument discipline
