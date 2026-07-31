@@ -887,9 +887,46 @@ without the sledgehammer.
    is `arm1_hook_ledger_dom_cljs_test`'s dispatcher-level count. If it were
    three, the shell figure would be explained and the slope would not
    move.
-4. **One run.** Six rounds with both plan directions and a reportable
-   arm-order verdict, but one session on one box. Every range above is
-   across rounds, not across runs.
+4. **Two runs, one box.** Every range above is across the six rounds of
+   run 1. A second complete run was taken 2h36m later on a box that was
+   quiet for a different reason — see
+   [the two runs](#the-two-runs) — and it reproduces every slope to
+   **0.03%** and every shell to **3 B**. So the figures are not one
+   session's; they are still one machine's, and no claim here is made
+   about a second box.
+
+### The two runs
+
+The rows above are **run 1**. **Run 2** is a complete independent repeat
+of the same six rounds at the same commit, taken 2h36m later, and it is
+here because the honest limitation of a bench row is usually "one
+session" rather than "one round".
+
+| | run 1 | run 2 | agreement |
+|---|---:|---:|---:|
+| Reagent, per read | 948 [947–949] | 947 [947–948] | 0.03% |
+| Hicasso, Reagent substrate | 1,363 [1,360–1,364] | 1,363 [1,360–1,364] | 0.01% |
+| UIx, per read | 2,980 [2,978–2,985] | 2,981 [2,979–2,985] | 0.01% |
+| Hicasso, UIx substrate | 2,273 [2,268–2,275] | 2,273 [2,268–2,275] | 0.01% |
+| Hicasso shell (Reagent seg.) | 1,139 [1,131–1,150] | 1,138 [1,129–1,147] | 1 B |
+| Hicasso shell (UIx seg.) | 1,132 [1,120–1,145] | 1,135 [1,119–1,148] | 3 B |
+| positive control | 4,698,439 B (0.03% low) | 4,697,764 B (0.05% low) | both inside 0.05% |
+
+Both runs: **0 unverified of 154 mounts**, **0 structural read-back
+failures**, arm-order verdict **reportable**, exit **0**. Every
+per-round range in run 2 overlaps its run-1 counterpart, so by this
+studio's own house rule the two are indistinguishable on every figure.
+
+**Why run 2 exists, stated plainly.** An API outage took down this
+worker and all five siblings between run 1 and this section's gates. Run
+1 finished cleanly two and a half hours before that — 6 of 6 rounds, 154
+of 154 mounts, and the driver's own `done` line — so nothing published
+here was taken across the outage. Run 2 was taken anyway, in the window
+the outage opened, because it was the quietest the box had been: **all
+five sibling workers were down and none had resumed**, which is a
+stronger quiet than run 1's "no sibling suite currently running". It
+confirms rather than replaces, and run 1's rows are the ones quoted
+above because they are the ones the section was written from.
 
 ### Provenance
 
@@ -927,9 +964,11 @@ node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
 exits **1** on an unverified mount, a failed positive control or a failed
 structural read-back, and **2** if the arm-order guard refuses.)
 
-**Conditions.** Six rounds, 221 s wall clock, taken after the box was
-confirmed quiet — no sibling browser suite, no shadow-cljs compile, CPU
-under 15% — because a contended row on this instrument is invalid. An
+**Conditions.** Run 1: six rounds, 221 s wall clock, taken after the box
+was confirmed quiet — no sibling browser suite, no shadow-cljs compile,
+CPU under 15% — because a contended row on this instrument is invalid.
+Run 2: six rounds, 247 s, on a box with every sibling worker down
+([above](#the-two-runs)). An
 earlier one-round trial was taken *during* a sibling's JVM compile and is
 not published; its slopes were 949 / 2,979 / 1,359 / 2,273 B/read. Three of
 those four sit inside the six-round ranges above and the fourth — Hicasso on
