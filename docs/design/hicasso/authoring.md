@@ -211,6 +211,38 @@ of them context:
 3. **App-db + `sub` for the theme choice only** — user-picked, per-frame,
    time-travelling.
 
+## Presence — phase as data (HD-025)
+
+`h/presence` retains exiting keyed children for `:timeout-ms`. A child says what it
+looks like in each phase, **in its own attribute map**:
+
+```clojure
+(h/presence {:timeout-ms 300}
+  (for [t (sub [:toasts/visible])]
+    [:div.toast {:key (:id t)
+                 ::h/unmounting {:class "toast toast--exit"
+                                 :inert true :aria-hidden true}}
+     (:message t)]))
+```
+
+No child view, no ambient read. When the child *is* a boundary, the phase arrives
+as an ordinary prop — `[toast-card {:key id :toast t :rf/phase :unmounting}]` — so
+it cannot be read from the wrong render scope, it appears in a structural test's
+props map, and a headless test supplies it with no clock. There is no
+`presence-phase`.
+
+An override wins over the node's own literals (that is what an override is) and can
+never reach `:key` or `:ref`, the same law `:&` carries. Writing one on a **view**
+head is a loud error naming `:rf/phase`, because the boundary cannot see inside an
+opaque child. `:timeout-ms` is mandatory and is both the retention length and the
+hard terminal bound; re-entry cancels exit; every dynamic child needs a `:key`;
+presence never dispatches domain mount/unmount events.
+
+**Enter is the weak half.** A `:mounting` → `:present` class flip can lose the race
+to paint. `::h/mounting` exists, but the reliable spelling for enter is an
+animation on insertion (or `@starting-style`); exit is the phase that transitions
+happily, because the node is already painted.
+
 ## Ephemeral state (HD-009)
 
 There is no `local`/ratom-equivalent, and no `useState` for app state. In order:

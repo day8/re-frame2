@@ -597,3 +597,85 @@ intent lowered inside the call and a direct dispatch land on the same error id.
 walks**, not a build-time pass over body forms. No compiler, no analyzer.
 **Reopens** if the component-library tier finds a contract the four rows cannot
 express — in which case it is a new row, not a new form.
+
+## HD-025 — Presence: phase as a prop, and `::h/mounting` / `::h/unmounting` as data
+
+**Ruling.** Two changes, both of them data.
+
+**(1) `::h/mounting` and `::h/unmounting` are attribute OVERRIDE MAPS on a native
+node.** The presence boundary merges them into that node's attributes while the
+child is in that phase:
+
+```clojure
+(h/presence {:timeout-ms 300}
+  (for [t (sub [:toasts/visible])]
+    [:div.toast {:key (:id t)
+                 ::h/unmounting {:class "toast toast--exit"
+                                 :inert true :aria-hidden true}}
+     (:message t)]))
+```
+
+The override wins over the node's own literals (that is what an override is), and
+`:key` and `:ref` are never taken from it — the same law `:&` carries (HD-023).
+
+**(2) When the presence child IS a boundary, the phase arrives as an ORDINARY
+PROP** — `[toast-card {:key id :toast t :rf/phase :unmounting}]`. An attribute
+override written on a view head is `:rf.error/hicasso-presence-override-on-a-view`,
+naming `:rf/phase`, because the boundary cannot see inside an opaque child and a
+silently dropped override map is the class of failure this ruling exists to delete.
+
+**Consequence: `presence-phase` has no Hicasso equivalent — one fewer public
+concept against K5.**
+
+**Rationale.** The predecessor exposes phase as an AMBIENT READ, and its own guide
+records the cost verbatim: *"Read the phase inside a DECLARED, KEYED CHILD VIEW…
+Reading it in markup written inline in the parent is a trap: those props are
+evaluated during the PARENT'S render, so the phase you get is the parent's, not the
+per-child one you meant."* So a fading toast **cannot be written inline**: it must
+be extracted into a view purely so a dynamic var resolves against the right child,
+and getting it wrong yields the wrong phase silently. The a11y obligation then
+costs three separate `(when exiting? …)` attributes on that child. A prop cannot be
+read from the wrong render scope, appears in a structural test's props map, and can
+be supplied by a headless test with no clock.
+**Why the predecessor's rejection does not apply.** It rejected attribute overrides
+and gave a reason — *"A boundary that stamped attributes would have to guess at a
+node it never sees."* That is sound for a boundary stamping **by itself**. It does
+not survive the AUTHOR writing the override on the node: the boundary already owns
+the retained-children list (that is what retention *is*), so applying an override
+the author wrote is a hiccup→hiccup transform performed before the codec runs.
+React sees an ordinary element whose props changed — no wrapper node, no stamped
+`data-*`, no ref, no effect and no ambient read in the merge.
+**Only the attribute half of Replicant's mechanism is taken.** Replicant has two
+(verified 2026-07-31, replicant.fun): `:replicant/mounting` / `:replicant/unmounting`
+attribute overrides — *"allows you to specify overrides for any attributes during
+mounting and unmounting… declaratively transition elements on mount and unmount"* —
+and separately `:replicant/on-mount` / `:replicant/on-unmount` **callbacks**. The
+callback half is less data-oriented than the predecessor's registered behaviors and
+is **rejected**.
+**Honest limits, recorded rather than discovered.** The override applies to a node
+the boundary can SEE; an override inside an opaque child view is invisible to it,
+which is what (2) is for. And **enter is the weak half** — the predecessor already
+says why: *"driving enter purely as a `:mounting` → `:present` class flip can race
+paint… An ANIMATION ON INSERTION (or modern `@starting-style`) is more reliable."*
+`::h/mounting` ships; the guide teaches the CSS answer for enter.
+**Inherited unchanged:** `:timeout-ms` is MANDATORY, and is both the retention
+length and the hard terminal bound; re-entry cancels exit; keys are required on
+every dynamic child; presence never dispatches domain mount/unmount events.
+**Cost, stated.** The phase transform and the retention machine are **pure**
+(`front/presence`), which is what makes the whole thing assertable with no clock.
+The React component that drives them (`arm1/presence`) spends **two hooks —
+`useState` and `useEffect` — in its own component**. That is not a shell-budget
+breach: HD-020(b)'s ≤2 is the *boundary shell's*, and presence reads no
+subscription, mounts no registration and takes no cell; the dispatcher-level ledger
+still counts exactly two in `runtime/shell`. The hooks are legitimate under
+HD-003's placement rule rather than in spite of it — animation lifecycle is
+component mechanics by that rule's own list — and they are a library mechanic paid
+once, not an application one paid per view. The machine is adjusted **during
+render** rather than in an effect (`step` is idempotent, so the comparison
+converges), because an effect there would cost a paint with the wrong tree in it.
+**Demonstrated, not asserted.** The predecessor's own worked toast tray is ported
+both ways in `front/presence_cljs_test` with the rendered attributes asserted
+identical, and driven through React and a real DOM in
+`arm1/presence_dom_cljs_test`.
+**Reopens** if a witness needs a phase on a node the boundary genuinely cannot see
+and `:rf/phase` cannot reach.

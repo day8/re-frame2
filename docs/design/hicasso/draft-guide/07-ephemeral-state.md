@@ -127,6 +127,77 @@ The no-`local` core stands.
 So: a v0 complaint about state ceremony is **expected signal**, not a verdict. It
 triggers the sugar iteration, not a kill.
 
+## The state you cannot put in app-db: "it left, but it is still on screen"
+
+There is one piece of view state app-db genuinely cannot hold, and it is worth
+knowing where it lives before you go looking for a `local` to put it in.
+
+A toast is dismissed. It is gone from app-db — that write already happened, and it
+was correct. But it should fade out over 300ms, which means the node has to outlive
+the data by 300ms. Nothing in app-db can express that, because app-db is about what
+is *true*, and this is about what is still *painted*.
+
+That is what `h/presence` is for. It retains keyed children that have left the
+source data, for `:timeout-ms`, and it lets each child say what it looks like on
+the way out — **in its own attribute map**:
+
+```clojure
+(defview toast-tray [_]
+  [h/presence {:timeout-ms 300}
+   (for [t (sub [:toasts/visible])]
+     [:div.toast {:key (:id t)
+                  ::h/unmounting {:class "toast toast--exit"
+                                  :inert true :aria-hidden true}}
+      (:message t)])])
+```
+
+Three things about that block.
+
+**There is no child view.** The whole tray is written inline, in the parent. In the
+predecessor this is not possible: the phase is an ambient read, so reading it in
+markup written inline in the parent silently gives you the *parent's* phase, and
+the guide says so outright. The fix there is to extract the toast into a declared
+keyed view — a view whose only reason to exist is that a dynamic variable needs
+somewhere to resolve.
+
+**The a11y attributes are one map, not three conditionals.** A retained node is
+still in the document: it can take focus and clicks until you say otherwise. That
+obligation is `:inert`, `:aria-hidden` and an exit class, and here they arrive
+together, as data, in the phase they belong to.
+
+**When the child is a view, the phase is an ordinary prop.**
+
+```clojure
+[toast-card {:key (:id t) :toast t}]   ;; receives :rf/phase :unmounting
+```
+
+Which means a test can pass `:rf/phase :unmounting` and assert the exit rendering
+with no timers, no browser and no clock at all.
+
+### What presence does not do
+
+`:timeout-ms` is mandatory, and it is both the retention length and a hard terminal
+bound — presence is a clock, not a `transitionend` listener, so the node leaves on
+time whether or not your CSS ran, or was disabled, or was overridden by
+`prefers-reduced-motion`. Re-entry cancels exit: a toast that comes back before the
+timeout returns to `:present` rather than finishing its exit and remounting. And
+presence never dispatches anything — a node lingering on screen is not a reason for
+anything in app-db to linger with it.
+
+**Enter is the weak half, and this guide will not pretend otherwise.**
+`::h/mounting` exists, but driving an entrance as a `:mounting` → `:present` class
+flip can lose the race to the browser's first paint, and then nothing animates. For
+enter, use an animation on insertion or `@starting-style`:
+
+```css
+.toast { animation: toast-in 200ms ease-out; }
+@keyframes toast-in { from { opacity: 0; translate: 0 8px; } }
+.toast--exit { opacity: 0; translate: 0 8px; transition: opacity 250ms, translate 250ms; }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; transition: none; } }
+```
+
+Exit is the phase that transitions happily, because the node is already painted.
+
 ## Troubleshooting
 
 No Hicasso error ids exist yet; this table names mechanisms.
@@ -134,6 +205,9 @@ No Hicasso error ids exist yet; this table names mechanisms.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Reaching for `useState` to hold "is this open?" | That's semantic state | app-db, or CSS if the platform tracks it |
+| A dismissed item disappears instantly with no exit animation | The node left with the data | `h/presence` with a `:timeout-ms` at least as long as the exit transition |
+| A retained node still takes focus or clicks while fading | The exit override does not carry `:inert` / `:aria-hidden` | Put all three in the `::h/unmounting` map |
+| An exit override on a child view does nothing | Presence merges overrides into nodes it can see; a view is opaque to it | The view receives `:rf/phase` — branch or style on that |
 | Every panel in a list opens at once | The state isn't parameterised by instance | Key the app-db path by the widget's id |
 | A hook body can't be tested headlessly | Hooks put a body outside headless scope, by design | Move the semantic half to app-db; mount-test the mechanics |
 | Hook-order error after a conditional early-return | React's rules, now yours | Hooks at the top of the body, unconditionally |
@@ -163,4 +237,5 @@ that edge needs to know it exists.
 | The controls kit (drafts, revisions) | **Post-v0** |
 | The overlay top layer that would own open and dismiss | **Post-v0** |
 | The reusable-widget instance-key convention | **Post-v0**, named as a resolved design debt in HD-009's sugar |
+| Whether presence order can follow a live re-sort | **No, by design, inherited.** Presence freezes first-appearance slots so an exiting child does not jump mid-animation; a continuously re-sorting list orders at the data layer |
 | Where the line falls between "mechanics" and "semantic" in hard cases | **Judgment, by design.** HD-003 makes it a taught rule with no enforcement, and reopens if dogfooding shows it confusing in practice |
