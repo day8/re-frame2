@@ -38,7 +38,8 @@
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.hd8-rows :as rows]))
+            [re-frame.bench.hicasso.hd8-rows :as rows]
+            [re-frame.bench.hicasso.hd8-witnesses :as w]))
 
 (def ^:private rounds 6)
 (def ^:private mount-sampling {:warmup 4 :samples 12})
@@ -214,6 +215,23 @@
                              "with its recorded fixtures, so nothing may be measured: "
                              (pr-str (remove :ok (:checks st))))
                         {:checks (:checks st)}))))
+
+    ;; ---- gate 0b: the two codecs are DEMONSTRABLY different ---------------
+    ;; The fourth arm's whole figure is `donor-fh / donor-r1`, and a reading
+    ;; of 1.0 there means nothing unless the two codec doors are known to be
+    ;; different implementations — the parity gate cannot say so, because
+    ;; making the arms agree is its entire purpose (rf2-2rtt6.29). Fatal, and
+    ;; before anything is measured, on the same argument as `parity-can-fail?`.
+    (let [cd (w/codecs-differ?)]
+      (record! :codecs-differ cd)
+      (set! (.-HD8_CODECS_DIFFER js/window) (clj->js cd))
+      (when-not (:ok? cd)
+        (throw (ex-info (str "the two hiccup codecs did not answer differently on a form they "
+                             "are known to treat differently (" (:probe cd) ") — so a "
+                             "donor-fh / donor-r1 ratio could not be told apart from one arm "
+                             "running one codec twice, and nothing may be measured: "
+                             (pr-str cd))
+                        {:codecs-differ cd}))))
 
     ;; ---- the fairness gate, before any clock ------------------------------
     (let [problems (rows/parity-problems arm-ids)]
