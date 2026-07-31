@@ -84,13 +84,16 @@ const PORT = Number(process.env.HN_PORT || 8141);
 
 // THE LANE'S ONE CACHE RULE (rf2-2rtt6.20, applied here by rf2-2rtt6.22).
 //
-// This driver is the SIXTH program riding `:hicasso-bench`, and shadow-cljs
+// This driver is one of the programs riding `:hicasso-bench`, and shadow-cljs
 // derives the build cache directory from the build id alone — before any
-// `--config-merge` is applied — so all six share one cache entry. The five
-// drivers in `freehand/test/re_frame/bench/hicasso/` clear it before they
-// build, which is why this one can no longer poison THEM; nothing was
-// clearing it on this driver's behalf, so it could still be handed a cache
-// poisoned by whichever arm ran before it. `lane_cache.cjs` carries the
+// `--config-merge` is applied — so every program on the id shares ONE cache
+// entry. There is deliberately no count here: a number goes stale the moment
+// the next lane driver lands, and `git grep -l resetLaneBuildCache` names the
+// current set exactly. The rule is that EVERY driver on the id clears the
+// entry before it builds. The others already did, which is why this one could
+// no longer poison THEM; nothing was clearing it on this driver's behalf, so
+// it could still be handed a cache poisoned by whichever arm ran before it —
+// until rf2-2rtt6.22 added the clear below. `lane_cache.cjs` carries the
 // mechanism, the isolation evidence and the measured cost.
 //
 // Reached by path across the test trees, exactly as `navigate.cjs` is below
