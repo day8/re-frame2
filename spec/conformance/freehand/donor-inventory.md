@@ -1,5 +1,36 @@
 # Freehand donor inventory
 
+> **ARCHIVED — a snapshot taken at the EP-0036 withdrawal, 2026-07-30.** The
+> Freehand view-substrate programme was withdrawn by operator ruling
+> (`docs/EP/EP-0036-the-freehand-view-substrate-programme.md`), and this ledger
+> was its work-plan. It is kept as the record of where absorption stood on the
+> day the programme stopped: every row below is preserved, with the status it
+> carried at withdrawal. The coverage machinery the sections below describe —
+> the donor-tree partition, the live-consumer census, the stale-row scan —
+> retired with the programme. Only [§How the snapshot is
+> checked](#how-the-snapshot-is-checked) describes a check that still runs, and
+> all it proves is that this archive is still the archive.
+>
+> **`pending` means "not disposed when the programme was withdrawn".** It names
+> no owner, authorises no work, and is not a release count. The F0–F6 slices that
+> were to dispose these rows do not exist, so no row below is assigned to
+> anybody. Everything after this banner — the opening premise that the standalone
+> `day8/re-frame2-ui` artifact is deleted once every row is disposed, and that
+> "absorption completeness" is a release gate reading this ledger, included —
+> describes the plan that was abandoned. That release gate does not exist.
+> Neither the pending count nor the artifact-deletion sentence authorises
+> anything.
+>
+> **Sunset.** HD-018 of EP-0038 (`docs/design/hicasso/decisions.md`) rules that
+> on a P2 win the public `re-frame.freehand` and `re-frame.ui` surfaces are
+> deleted outright, leaving "no absorption programme, no donor inventory ledger".
+> This snapshot and its snapshot check therefore retire **with** the donor
+> surfaces they map, in the change that deletes them. On a P2 loss or a null
+> result they stay: the donor surfaces stand, and this is the only structured map
+> of what still depends on them. Removing the snapshot before P2 is premature
+> either way — and any future donor policy is made under its own fresh authority,
+> never by reviving F0–F6.
+
 `re-frame.ui` is in donor mode. Its useful machinery becomes the compiled tier of
 Freehand, and the standalone `day8/re-frame2-ui` artifact is deleted once every
 row below has been disposed. "Absorption completeness" is one of the release
@@ -209,45 +240,43 @@ lesson: a non-rowing is a claim, and a claim recorded with the wrong reason
 cannot be re-checked by the next reader. Both files are the
 historical-mention exclusion in substance rather than by name.
 
-## How coverage is enforced
+## How the snapshot is checked
 
 ```
-python scripts/check_donor_inventory.py              # the gate
-python scripts/check_donor_inventory.py --report     # undisposed-row report
-python scripts/check_donor_inventory.py --self-test  # the gate's own fixtures
+python scripts/check_donor_inventory.py              # the snapshot check
+python scripts/check_donor_inventory.py --self-test  # the check's own fixtures
 ```
 
-The gate fails when:
+The three arms that compared this ledger against the working tree — the
+donor-tree partition, the live-consumer census, and the stale-row scan — were
+the programme's, and they went with it. What remains is a snapshot check, and
+it reads nothing but this file. It fails when:
 
-* a tracked file under `implementation/ui/` is claimed by no row, or by more
-  than one — the donor tree is a partition;
-* a live consumer outside the donor tree is claimed by no row;
-* a row covering a still-live consumer is marked `done`;
-* a still-pending row points at a path that no longer exists, or at a path that
-  no longer carries any donor material at all — the shape a row takes when its
-  subject was migrated out from under it and the path was reused for something
-  else;
-* an **established row identity has been deleted** from the ledger. Rows are
-  never removed. Disposing a row means flipping its status to `done`; the row
-  stays as the audit record. The roster of established identities in
-  `scripts/check_donor_inventory.py` is what makes a deletion loud instead of
-  looking like progress;
-* a **row is not in that roster**. The roster covers this ledger exactly, in
-  both directions: adding a row is two edits in one change — the row here and
-  its identity there — and the failure prints the line to paste. Without that,
-  the retention rule above would hold only for the rows that existed when the
-  roster was written, and every row added afterwards could be added, disposed,
-  and then quietly deleted again. Renaming a row's path edits the row and its
-  roster identity together, which stays the one deliberate reason to change an
-  existing entry;
-* any row is missing a disposition, an owning slice, or a status.
+* a **pinned row has been deleted**. `SNAPSHOT_ROWS` in
+  `scripts/check_donor_inventory.py` is the pinned snapshot, and every identity
+  in it must still be here. Deleting a row now would quietly shrink the record
+  of what the programme did not finish, which is the one thing an archive
+  cannot survive;
+* a **row appears that the snapshot does not pin**. This ledger is closed: it
+  records a day that has passed, so a new row is either the transcription of
+  something that was there — pin it in the same change; the failure prints the
+  line to paste — or a live claim, which does not belong in an archive;
+* a **pinned row has drifted**. The pin is the whole normalized row —
+  disposition, owning slice, withdrawal-time status, and a digest of the
+  description — so re-dispositioning a row, re-slicing it, flipping a status, or
+  editing what a row says each fail here. Pinning identities alone would have
+  left the interesting half of the record free to move;
+* the same identity appears **twice**, so the pin and the ledger stop naming the
+  same rows one for one;
+* any row is missing a disposition, an owning slice, or a status — the row
+  grammar is still the row grammar.
 
-So a new donor file cannot appear undisposed, a donor file cannot quietly vanish
-without its row being settled first, a new consumer cannot appear unclassified,
-and the pending count cannot fall by deletion — only by disposition.
-
-`--report` prints the count of rows not yet disposed, broken down by slice,
-disposition, and section. That count is the number the programme drives to zero.
+Nothing in the check reads today's code, and that is deliberate. These statuses
+record 2026-07-30 and must not start tracking a tree that has moved on. A rule
+about today's code — that the donor must remain unpublished, say, or that no new
+consumer of it may appear while EP-0038 runs — is a live rule: it needs its own
+named authority, its own gate, and its own sunset, and it cannot be smuggled
+through the historical `pending` statuses of a withdrawn programme.
 
 ## Ruled contract dispositions
 
