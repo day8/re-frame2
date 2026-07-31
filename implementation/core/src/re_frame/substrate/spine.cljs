@@ -2194,6 +2194,44 @@
     (subs/unsubscribe-if-reaction (aget token 1) (aget token 2) (aget token 0)))
   nil)
 
+(def ^:private no-provisional
+  "Miss sentinel for `provisional-snapshot` — a distinct object identity, so a
+  live escrow whose reaction derefs to `nil`/`false` is still a HIT and is not
+  confused with having no escrow at all."
+  (js-obj))
+
+(defn- provisional-snapshot
+  "The LIVE value of the reaction an UNSPENT escrow token is holding, or
+  `no-provisional` when there is nothing live to read.
+
+  This is what keeps `use-subscribe`'s pre-commit snapshot honest without
+  retaining anything (rf2-2rtt6.13, the audit of PR #7304). The render-phase
+  memo returns a VALUE, so between a render and the commit that owns it the
+  hook has no reaction of its own — and a value frozen at render time compares
+  equal to itself forever, which makes React's pre-commit store-consistency
+  check a no-op BY CONSTRUCTION and lets a write that landed in that gap commit
+  (and paint) stale. Measured: on a concurrent lane the first commit showed the
+  render's value while app-db had already moved.
+
+  But the token ALREADY holds the reaction, and holds it LIVE: that +1 is the
+  whole point of the hand-off (rf2-2rtt6.25), and it is what makes the entry
+  still tenanted when the commit arrives to adopt it. So the pre-commit read has
+  a live source available for free. Nothing new is retained — the retention is
+  the token's, it predates this fn, and it ends at adoption or at the macrotask
+  horizon, never at the component's lifetime. The memo slot and `get-snap`'s
+  closure still hold a value and no handle, which is exactly what rf2-2rtt6.13
+  bought.
+
+  `spent?` (slot 3) is load-bearing, not defensive. The reaper flips it and
+  decrements WITHOUT clearing the holder's ref, so a spent token can be pointing
+  at a reaction whose last reference has just gone. Reading only while unspent is
+  what keeps the frozen-value fallback as the answer in exactly the cases where
+  there is no live reaction to prefer to it."
+  [token]
+  (if (and (some? token) (not (aget token 3)))
+    @(aget token 0)
+    no-provisional))
+
 (defn- make-provisional-escrow
   "Build one spine's provisional-escrow acquirer: `(escrow! reaction frame-kw
   query-v)` mints the token, queues it, arms the reaper, and answers the token.
@@ -2411,12 +2449,15 @@
                 ;; `get-snap` pinned to the disposed v1 handle keeps rendering
                 ;; v1 output. React's `useSyncExternalStore` contract requires
                 ;; `getSnapshot` to read a stable, LIVE source — so `get-snap`
-                ;; reads the committed reaction stored here once
-                ;; `subscribe-fn` has run (post-commit), falling back to the
-                ;; render-phase SNAPSHOT VALUE (`render-snapshot` below) only
-                ;; for the pre-commit reads. Since rf2-2rtt6.13 that fallback
-                ;; is a value and not a handle, so the disposed reaction is not
-                ;; merely un-preferred — it is unreachable.
+                ;; reads the committed reaction stored here once `subscribe-fn`
+                ;; has run (post-commit), and before that reads the reaction the
+                ;; hook's unspent ESCROW TOKEN is holding, which is live by
+                ;; construction (rf2-2rtt6.25's +1 is what keeps it tenanted).
+                ;; The render-phase SNAPSHOT VALUE (`render-snapshot` below) is
+                ;; the last resort, for when neither is live. Since rf2-2rtt6.13
+                ;; nothing here holds a handle for the component's lifetime, so
+                ;; a disposed reaction is not merely un-preferred — it is
+                ;; unreachable.
                 ;;
                 ;; rf2-naz09e: the ref stores the committed reaction KEY-TAGGED
                 ;; as `#js [stable-key committed]` (see `subscribe-fn` and
@@ -2573,26 +2614,55 @@
                 ;; committed reaction's value `=` the render-phase one
                 ;; (rf2-cmfln), so the source swap is tear-free.
                 ;;
-                ;; rf2-2rtt6.13 — the fallback stops being a LIVE re-read, and
-                ;; the render→commit window stays covered. React's
-                ;; `useSyncExternalStore` mount path pushes its `subscribeToStore`
-                ;; passive effect BEFORE its `updateStoreInstance` one, and
-                ;; passive effects run in push order; `updateStoreInstance` then
-                ;; calls `getSnapshot` again and force-re-renders if the result
-                ;; moved. So by the time that second call runs, `subscribe-fn`
-                ;; has already published the committed reaction and the call
-                ;; reads the LIVE one — an app-db write landing between render
-                ;; and commit is still detected, one commit later than a live
-                ;; fallback would have caught it on a concurrent lane. A frozen
-                ;; value also satisfies React's "the result of getSnapshot
-                ;; should be cached" rule at least as well as a live deref.
+                ;; rf2-2rtt6.13 — the pre-commit read is LIVE, and it is live
+                ;; without retaining anything. Three sources, in strict order of
+                ;; how current they are:
                 ;;
-                ;; The rejected alternative — keeping the fallback live WITHOUT
-                ;; retention, by having `get-snap` re-subscribe per call — is
-                ;; unsafe: each call would build a fresh reaction with a fresh
-                ;; memo cell, so a collection-returning sub yields a fresh,
-                ;; non-`Object.is` value on every `getSnapshot`, which is
-                ;; React's documented infinite-render-loop condition.
+                ;;   1. the COMMITTED reaction, once `subscribe-fn` has published
+                ;;      it under this key — the steady state;
+                ;;   2. the reaction the hook's UNSPENT ESCROW TOKEN is holding
+                ;;      (`provisional-snapshot`) — the render→commit window and
+                ;;      the key-change render, the only two moments (1) cannot
+                ;;      answer;
+                ;;   3. `render-snapshot`, the value the render phase read, when
+                ;;      neither of those is live.
+                ;;
+                ;; (2) is what closes the window the audit of PR #7304 opened.
+                ;; The memo returning a VALUE rather than a handle is the whole
+                ;; rf2-2rtt6.13 win and is untouched; but a value frozen at
+                ;; render time compares equal to itself, so with (3) as the only
+                ;; pre-commit answer React's PRE-COMMIT store-consistency check
+                ;; could never fire. On a concurrent lane React re-reads every
+                ;; store's `getSnapshot` before committing a time-sliced render
+                ;; and throws the render away if one moved; a frozen value made
+                ;; that check a no-op by construction, so a write landing in the
+                ;; gap COMMITTED — and could paint — stale, self-healing only one
+                ;; commit later. That is not delayed bookkeeping: a same-commit
+                ;; layout effect or ref read sees it, and the ugly instance is a
+                ;; panel mounting as a permission drops (rf2-so3io / rf2-anmdr).
+                ;; The escrow token already holds that reaction LIVE, so (2) costs
+                ;; a ref read and retains nothing new. See `provisional-snapshot`.
+                ;;
+                ;; On a BLOCKING lane React pushes no pre-commit check at all
+                ;; (`0 !== (renderLanes & 127) || pushStoreConsistencyCheck(…)`),
+                ;; so there the render's value is the committed value whatever
+                ;; `get-snap` says. What still repairs BOTH lanes one commit
+                ;; later is React's mount ordering: the `subscribeToStore`
+                ;; passive effect is pushed BEFORE the `updateStoreInstance` one
+                ;; and passive effects run in push order, so by the second call
+                ;; `subscribe-fn` has published the committed reaction and (1)
+                ;; answers.
+                ;;
+                ;; Every source here is `Object.is`-STABLE across back-to-back
+                ;; calls — each is a memoised reaction's value or a frozen one —
+                ;; which is what React's "the result of getSnapshot should be
+                ;; cached" rule requires. The rejected alternative, having
+                ;; `get-snap` re-SUBSCRIBE per call, is unsafe for exactly that
+                ;; reason: on a miss each call would build a fresh reaction with a
+                ;; fresh memo cell, so a collection-returning sub yields a
+                ;; non-`Object.is` value every time — React's documented
+                ;; infinite-render-loop condition. Reading a reference something
+                ;; else already owns cannot build anything, so it cannot reach it.
                 ;;
                 ;; rf2-naz09e — the committed reaction is stored KEY-TAGGED as
                 ;; `#js [stable-key committed]`, and `get-snap` reads it ONLY
@@ -2631,7 +2701,21 @@
                                   (if (and stored
                                            (identical? (aget stored 0) stable-key))
                                     (let [r (aget stored 1)] (when r @r))
-                                    render-snapshot)))
+                                    ;; Pre-commit / key-change: prefer the LIVE
+                                    ;; reaction the escrow token is holding over
+                                    ;; the frozen render value (rf2-2rtt6.13).
+                                    ;; Key-tagged for the same reason
+                                    ;; `committed-ref` is — across a query-v /
+                                    ;; frame change the ref may still hold the
+                                    ;; PREVIOUS target's token.
+                                    (let [held (.-current provisional-ref)
+                                          v    (if (and held
+                                                        (identical? (aget held 0) stable-key))
+                                                 (provisional-snapshot (aget held 1))
+                                                 no-provisional)]
+                                      (if (identical? v no-provisional)
+                                        render-snapshot
+                                        v)))))
                               #js [stable-key render-snapshot])
                 ;; The store-subscribe fn — React's COMMIT-OWNED acquire/release
                 ;; pair. React calls it (once) only AFTER a commit, passing a

@@ -210,6 +210,53 @@
     ($ :div {:data-tick tick}
        ($ ProbeKeyChangeChild))))
 
+;; ---- render→commit window probes (rf2-2rtt6.13) ---------------------------
+;; Three components in one pass. The SUBSCRIBER reads the query. The MUTATOR
+;; renders after it and writes app-db from its own render body, so the write
+;; lands strictly between that read and the commit — deterministic, no timer.
+;; The OBSERVER's layout effect records the FIRST committed, layout-visible
+;; DOM (a render React discards before committing never runs one). The suite
+;; installs the write thunk — nil for the unmoved control — arms the one shot,
+;; and reads the atoms.
+
+(def ^:private gap-write!       (atom nil))
+(def ^:private gap-armed?       (atom false))
+(def ^:private gap-first-commit (atom nil))
+(def ^:private gap-mount-node   (atom nil))
+(def ^:private gap-db-read      (atom nil))
+(def ^:private gap-observed     (atom []))
+
+(defui ProbeGapSubscriber []
+  (let [v (uix-adapter/use-subscribe @refcount-target [:rf.uix-gap/n])]
+    (swap! gap-observed conj v)
+    ($ :div (str "g=" v))))
+
+(defui ProbeGapMutator []
+  ;; ONE-SHOT render-phase write. Disarming BEFORE the write is what lets a
+  ;; corrective re-render converge: React discarding a torn concurrent render
+  ;; re-runs this body, and a second write would keep the store moving forever.
+  (when @gap-armed?
+    (reset! gap-armed? false)
+    (when-let [w @gap-write!] (w)))
+  ($ :span))
+
+(defui ProbeGapObserver []
+  (uix/use-layout-effect
+    (fn []
+      (when (nil? @gap-first-commit)
+        (reset! gap-first-commit
+                {:dom (.-textContent ^js @gap-mount-node)
+                 :db  (when-let [read-db @gap-db-read] (read-db))}))
+      js/undefined)
+    [])
+  ($ :span))
+
+(defui ProbeGapRoot []
+  ($ :div
+     ($ ProbeGapSubscriber)
+     ($ ProbeGapMutator)
+     ($ ProbeGapObserver)))
+
 ;; ---- cfg + forwarded deftests ---------------------------------------------
 
 (def ^:private cfg
@@ -257,6 +304,21 @@
    ;; rf2-2rtt6.13 — its own frame (so its own sub-cache), because the
    ;; assertion is only load-bearing on a COLD read and it says so.
    :nr-frame              :rf.uix-no-retain/probe-frame
+   ;; rf2-2rtt6.13 (audit) — the render→commit window observed at the FIRST
+   ;; commit. Four rows = four frames, because the pre-commit path is only
+   ;; reachable on a COLD read and each row must be one.
+   :probe-gap-element     (fn [] (uix/$ ProbeGapRoot))
+   :gap-write!            gap-write!
+   :gap-armed?            gap-armed?
+   :gap-first-commit      gap-first-commit
+   :gap-mount-node        gap-mount-node
+   :gap-db-read           gap-db-read
+   :gap-observed          gap-observed
+   :gap-query             :rf.uix-gap/n
+   :gap-blocking-frame            :rf.uix-gap/blocking-frame
+   :gap-blocking-control-frame    :rf.uix-gap/blocking-control-frame
+   :gap-concurrent-frame          :rf.uix-gap/concurrent-frame
+   :gap-concurrent-control-frame  :rf.uix-gap/concurrent-control-frame
    ;; rf2-2rtt6.25 — the provisional hand-off's three own frames, for the same
    ;; reason: adoption, the one-shot reaper, the layer-2 horizon cascade and
    ;; the SSR horizon are all COLD-read properties, so each needs a sub-cache
@@ -370,6 +432,16 @@
 ;; getSnapshot call, which is what still catches a render→commit write).
 (deftest use-subscribe-render-phase-reaction-not-retained
   (suite/assert-use-subscribe-render-phase-reaction-not-retained cfg))
+
+;; rf2-2rtt6.13 (merged-PR audit of #7304) — a write landing in the
+;; render→commit gap, observed AT THE FIRST COMMIT (layout-visible, i.e.
+;; paint-eligible) rather than after the dust settles: two lanes, each with an
+;; unmoved control. The blocking row pins React's own no-pre-commit-check
+;; behaviour; the concurrent row pins that our pre-commit snapshot can still
+;; REPORT the movement, so React discards the torn render instead of painting
+;; state the app-db has already revoked.
+(deftest use-subscribe-render-to-commit-window-first-commit
+  (suite/assert-use-subscribe-render-to-commit-window-first-commit cfg))
 
 ;; rf2-2rtt6.25 — the hook-scoped provisional hand-off. A cold mount's commit
 ;; ADOPTS the reaction its render built (one construction, not two); the reaper
