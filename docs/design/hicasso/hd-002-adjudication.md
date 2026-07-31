@@ -6,7 +6,7 @@
 > rather than an operator gate, on the pattern HD-013 already uses for the donor
 > gate: produced by a worker, adversarially reviewed, recorded on the standard
 > bead. **The operator may overturn any part of it.** Normative source:
-> [decisions.md](decisions.md) (HD-001…HD-021).
+> [decisions.md](decisions.md) (HD-001…HD-025).
 
 HD-002 is a measurement and the measurement has not run. This page does not argue
 about whether the ambient collector should be the product mechanism. It makes the

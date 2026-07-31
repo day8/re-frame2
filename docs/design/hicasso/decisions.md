@@ -1,4 +1,4 @@
-# Hicasso — decisions (HD-001 … HD-021)
+# Hicasso — decisions (HD-001 … HD-025)
 
 Every design decision for the Hicasso programme, resolved. Each record carries the
 ruling, the decisive rationale, and the condition under which it reopens. These
@@ -431,3 +431,60 @@ touches; leaving them to taste mid-spike is how boot ceremony and leak classes
 creep in. The harness measured ~30 lines of boot ceremony per app as the
 baseline to beat.
 **Reopens** at product phase (public API naming, richer HMR) by ordinary ruling.
+
+---
+
+The four records below (HD-022 … HD-025) come from one adversarial design review
+of the shipped predecessor's authoring surface, taken under the operator's
+2026-07-31 direction to spend the programme's effort on *"adversarial design
+reviews and performance improvement"* and to *"look at their data oriented
+structure. Improve upon that."* Each one is a **deletion with a data
+replacement**, because the unsolved problem the review found is
+[K5](validation.md) — concept count — and K5 is a count. Each is demonstrated on
+a census-real screen rather than argued; where the diff did not come out better,
+the record says so.
+
+## HD-022 — `:ref`'s vector value-space is reserved now, and refused loudly in v0
+
+**Ruling.** `:ref` accepts **a function** — HD-003's escape hatch and HD-016's
+callback-refs-only rule, both unchanged. A **vector** (`{:ref [registered-id
+config]}`) is **RESERVED**: v0 refuses it with `:rf.error/hicasso-ref-vector-reserved`
+rather than passing it to React as an opaque value. That is the whole ruling —
+one refusal branch and one error id. **Not in scope, explicitly:** a behaviors
+registry, a `:timing` option, a commands roster, or any host-ownership subsystem
+in v0.
+**Rationale.** `:ref` is the one place Hicasso is planned to be *less*
+data-oriented than the substrate it replaces: the predecessor's registered
+behaviors keep the use site as data (`[v/behavior {:use autosize :target … :config
+{…}}]`) and put the code in a registry, with `:config` refusing a callback, a
+node, a ref or a host instance. Reserving the value-space costs one branch and
+keeps `{:ref [::autosize {:max-rows 8}]}` reachable without minting a second
+attribute name later. The census pays for the reservation and not for the
+subsystem: **one `:ref` in 85 idiomatic files**, and charter.md defers the
+component-library tier past v0.
+**Why the later spelling is mechanically sound** (react.dev,
+`react-dom/components/common`, verified 2026-07-31): React 19 added cleanup
+functions for ref callbacks; the callback is called with the DOM node on attach
+and its returned cleanup on detach; React calls the callback again whenever a
+*different* callback is passed; StrictMode runs one extra development-only
+setup+cleanup cycle. So a runtime-minted ref callback is a complete attach/detach
+pair, with the node, in the commit phase, and no ref object or effect ever
+appears in user code. Three obligations follow and must be recorded when the
+later bead lands: the minted callback's identity must be **stable per site** or
+React detaches and reattaches every render; connect/disconnect must be
+**idempotent** because StrictMode adds a cycle; and timing is
+**commit-before-paint only**, so the predecessor's `:passive` (after paint) has
+no ref-callback equivalent.
+**And the real gap, stated so nobody rediscovers it.** A ref callback fires on
+**attach** and **detach**, never on **config change**. The predecessor's
+`:update` — "only when the committed `:config` moves by `rf=`, receiving
+`:prev-config` alongside" — has no equivalent without either changing the
+callback identity (which detaches and reattaches the node's owner: wrong for a
+map or chart instance) or spending an effect. The recommended later shape is
+therefore **attach/detach only, config immutable for the connection's life, and
+steady-state change routed through a command effect**, which is already data.
+This limit is taught in the guide
+([Interop](draft-guide/05-interop.md#the-reserved-vector-and-the-gap-it-does-not-close))
+rather than left to be discovered.
+**Reopens** when the component-library tier is chartered — the reservation exists
+to make that reopening non-breaking.

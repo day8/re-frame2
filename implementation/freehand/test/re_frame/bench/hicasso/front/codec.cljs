@@ -84,6 +84,19 @@
 (declare as-element)
 
 ;; ---------------------------------------------------------------------------
+;; Errors
+;; ---------------------------------------------------------------------------
+
+(defn- fail!
+  "The codec's one refusal shape, matching the arm runtime's: an id a test
+  can assert on, the position that refused, why, and what to do instead."
+  [id where reason recovery extra]
+  (throw (ex-info (str reason " [" id "]")
+                  (merge {:rf.error/id id :where where
+                          :reason reason :recovery recovery}
+                         extra))))
+
+;; ---------------------------------------------------------------------------
 ;; Cache hygiene — the own-property guard both caches share
 ;; ---------------------------------------------------------------------------
 
@@ -241,16 +254,46 @@
     (coll? v)                (clj->js v)
     :else                    v))
 
+;; ---------------------------------------------------------------------------
+;; The reserved `:ref` value-space (HD-022)
+;; ---------------------------------------------------------------------------
+
+(defn- check-ref!
+  "`:ref` takes a **function** in v0 — HD-003's honest escape hatch, and
+  HD-016's callback-refs-only rule, both unchanged. A **vector** is the
+  reserved spelling for the later data form, `{:ref [::autosize {:max-rows
+  8}]}`, and v0 refuses it here rather than handing React an opaque array
+  it would ignore in silence.
+
+  One branch and one error id. The point is not the branch: it is that the
+  value-space is claimed *now*, so the imperative escape can become data
+  later without minting a second attribute name — and so that an author
+  who writes tomorrow's spelling today learns it from a diagnostic rather
+  than from a ref that never fires."
+  [props]
+  (when (vector? (:ref props))
+    (fail! :rf.error/hicasso-ref-vector-reserved
+           'front.codec/convert-props
+           (str "A vector at :ref is RESERVED and is not a v0 surface. "
+                "`{:ref [registered-id config]}` is the reserved spelling for "
+                "registered node ownership; v0 accepts a callback ref (a "
+                "function) only. Write the function, or move the mechanic to "
+                "an event and an effect.")
+           :use-a-callback-ref-or-an-effect
+           {:ref (:ref props)}))
+  props)
+
 (defn convert-props
-  "One pass over the attribute map: fold the tag shorthand, drop `:key`
-  (React's own contract — it is not an attribute), lower every intent,
-  and set each converted value under its React prop name.
+  "One pass over the attribute map: refuse a reserved `:ref` value, fold
+  the tag shorthand, drop `:key` (React's own contract — it is not an
+  attribute), lower every intent, and set each converted value under its
+  React prop name.
 
   Note the order: intent lowering happens *inside* this single walk, so
   the codec does not traverse the props map a second time to find the
   event positions."
   [props ^ParsedTag parsed]
-  (let [props (-> props (merge-shorthand parsed) (dissoc :key))]
+  (let [props (-> props check-ref! (merge-shorthand parsed) (dissoc :key))]
     (reduce-kv (fn [o k v]
                  (let [n (cached-prop-name k)]
                    (when-not (reserved-cache-keys n)
