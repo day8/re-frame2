@@ -106,11 +106,14 @@
   as a no-op change and nothing under test ever runs.
 
   Every synchronous assertion below runs on the line after
-  `dispatchEvent` returns. There is no `act()` anywhere in this file;
-  `flushSync` appears only in the mount/teardown door and in
-  [[settle!]], which lets an already-scheduled sync-lane
-  `useSyncExternalStore` notification land after an OUT-OF-BAND
-  dispatch — never inside the discrete-event path an assertion reads.
+  `dispatchEvent` returns. There is no `act()` anywhere in this file.
+  `flushSync` appears in the mount/teardown door and in [[settle!]],
+  which lets an already-scheduled sync-lane `useSyncExternalStore`
+  notification land after an OUT-OF-BAND dispatch — never inside the
+  discrete-event path an assertion reads. The one exception is
+  [[converge!]], where a `flushSync` inside the discrete event is not
+  scaffolding but the mechanism being measured, and it is used by that
+  row alone.
 
   ## What is still not asserted, and why
 
