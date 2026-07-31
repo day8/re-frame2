@@ -153,6 +153,66 @@
         (finally (mount/release! handle))))))
 
 ;; ---------------------------------------------------------------------------
+;; Case 3 — a STAGED read moves in the render->commit gap (rf2-2rtt6.42)
+;; ---------------------------------------------------------------------------
+;;
+;; Case 2 above is LABELLED as §6.1's case and is not it: it dispatches
+;; after the mount has settled, so the key is already RETAINED — some
+;; commit installed its watch before the move, and the ordinary
+;; invalidation path carries it. The case §6.1 actually asks for is a key
+;; **nothing holds yet**, moving before the commit that would acquire it.
+;; Nothing marks, nothing bumps, and the boundary has already painted.
+;;
+;; Staged here the way the reachability argument says it happens in an
+;; application: a SIBLING boundary writes during the same React render
+;; pass, after the reading boundary's fence has closed. That needs no
+;; guess about when React runs a passive effect — the write is strictly
+;; inside the render, and `subscribe` runs strictly after it.
+
+(defonce ^:private !sibling-writes (atom 0))
+
+(defview staged-reader
+  "Renders FIRST, and reads a key nothing else holds."
+  [{:keys [id]}]
+  (let [v (rt/sub [:dogfood/done? id])]
+    [:li.row {:data-id id :data-after (str v) :data-before (str v)} (str v)]))
+
+(defview sibling-writer
+  "Renders SECOND, in the same pass, and writes to the key its sibling
+  just read. Once — a body that writes on every run is a write loop, and
+  the fence fails that loudly rather than spinning."
+  [{:keys [id]}]
+  ;; A read of its own, so this is an ordinary boundary rather than a
+  ;; contrivance with no edges.
+  (rt/sub [:dogfood/filter])
+  (when (zero? @!sibling-writes)
+    (swap! !sibling-writes inc)
+    (rt/dispatch! frame-id [:dogfood/toggle id]))
+  [:li.writer])
+
+(deftest a-staged-read-that-moves-before-the-commit-is-corrected-in-the-dom
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (reset! !sibling-writes 0)
+      (lane/leave-act-environment!)
+      (dogfood/make-frame! frame-id 3)
+      (dogfood/reseed! frame-id 3)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id
+                                [:ul [staged-reader {:id 0}] [sibling-writer {:id 0}]])]
+        (try
+          (is (= 1 @!sibling-writes) "the sibling wrote, exactly once")
+          (mount/settle!)
+          (mount/settle!)
+          (testing "the reader's key had no cell, no watch and no epoch when
+                   it moved, so nothing was marked and the generation did
+                   not move — and the DOM must still not be stale"
+            (is (= "true" (read-back handle "data-after"))
+                "the boundary was corrected: React re-read the store after
+                 `subscribe` and found a number that had moved"))
+          (finally (mount/release! handle)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Teardown
 ;; ---------------------------------------------------------------------------
 
