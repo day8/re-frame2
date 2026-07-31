@@ -2215,7 +2215,10 @@
 ;; the entry is still live when the commit arrives; `subscribe-fn`'s durable
 ;; subscribe is then a cache HIT and the committed reaction is `identical?`
 ;; the one the render built — ADOPTION, not a rebuild — after which the token
-;; is released, `2 → 1`. One construction per cold read.
+;; is released, `2 → 1`. One construction per cold read WHEN THE COMMIT
+;; ARRIVES INSIDE THE HORIZON, which on the shipping mount path it does not:
+;; see "AND ON THE SHIPPING MOUNT PATH IT DOES NOT WIN" below before reading
+;; any performance claim into the rest of this comment.
 ;;
 ;; WHAT IT IS NOT. It is NOT a ref-count-0 cache tenancy. The token is an
 ;; ordinary reference held by an ordinary owner; the cache never holds a
@@ -2245,9 +2248,42 @@
 ;;     crosses the disposal edge), which bounds a re-rendering hook at one
 ;;     escrowed reference no matter how many times React re-runs the factory.
 ;;
-;; AND WHY IT NEED NOT WIN. If the drain somehow fires before React commits,
-;; the entry disposes and the commit rebuilds — exactly today's behaviour.
+;; AND WHY IT NEED NOT WIN. If the drain fires before React commits, the entry
+;; disposes and the commit rebuilds — exactly the pre-hand-off behaviour.
 ;; Correctness never depends on the ordering; only the saving does.
+;;
+;; AND ON THE SHIPPING MOUNT PATH IT DOES NOT WIN (rf2-2rtt6.25, merged-PR
+;; audit of #7305 — MEASURED, and the reason no performance claim is made for
+;; this code below). `make-render` mounts with a bare
+;; `createRoot(…).render(…)`, and on that schedule a `setTimeout 0` armed
+;; during the render runs BEFORE React gets back to flushing the passive
+;; effect that installs the `useSyncExternalStore` subscription. So the token
+;; is reaped, the entry disposes on the ordinary 1 → 0 edge, and the commit
+;; misses and rebuilds: `bodyRuns` 2.00N, the term this was adopted to delete,
+;; still paid on every consumer mount. Witness:
+;; `assert-use-subscribe-public-mount-schedule-rebuilds` (UIx entry
+;; `use-subscribe-public-mount-schedule-rebuilds`), which mounts through the
+;; adapter `:render` slot with no `act` and no `flushSync`. The earlier
+;; evidence — the `act()`-driven adoption assertion and the coldmount
+;; instrument's `flushSync` arm — both force the passive subscribe forward and
+;; therefore measured a schedule consumers never mount on.
+;;
+;; WHAT IS NOT BROKEN. The mechanism itself: identity adoption, the one-shot
+;; release, the identity guard, the bounded horizon, the cascade at the
+;; horizon, SSR and StrictMode are all exactly as designed and asserted, and
+;; the lost race costs a construction and never correctness (the last bullet of
+;; Spec 006 §Render-phase provisional acquisition and commit adoption is
+;; written for precisely this case). What is absent is the BENEFIT.
+;;
+;; WHY NOTHING HERE WAS CHANGED TO CHASE IT. The reap primitive is an
+;; operator-approved lifecycle contract (rf2-2rtt6.14's ruling: it MUST be a
+;; macrotask), and the measurement says the winners are all margin and no
+;; guarantee — `setTimeout 4` and `setTimeout 32` read 1.00N at both N = 1 and
+;; N = 300, `requestAnimationFrame` reads 1.00N at N = 1 but 2.00N at N = 300,
+;; and a `MessageChannel` post reads 2.00N because React posts its own message
+;; later and the queue is FIFO. React documents no maximum
+;; render-to-subscribe interval, so no delay can be sized against a contract.
+;; Choosing among those is Mike's call, not this file's.
 ;;
 ;; THE ONE CONTRACT-VISIBLE CHANGE, blessed by the ruling: a render abandoned
 ;; before commit leaves ≤ 1 ref-count until the horizon rather than 0
@@ -2321,15 +2357,29 @@
   "Build one spine's provisional-escrow acquirer: `(escrow! reaction frame-kw
   query-v)` mints the token, queues it, arms the reaper, and answers the token.
 
-  THE REAPER IS A MACROTASK — `setTimeout 0` — and that is the whole point.
+  THE REAPER IS A MACROTASK — `setTimeout 0` — and that much is required.
   React 19 installs `useSyncExternalStore`'s subscription as a PASSIVE effect,
   and passive effects are flushed from the React scheduler's own task. A
   microtask reaper (`queueMicrotask`, a resolved promise's `.then`) drains at
   the end of the CURRENT task — before that flush — so every token would be
-  reaped before the commit that was meant to adopt it, and the hand-off would
-  quietly degrade to the dispose-and-rebuild it exists to delete. A timer task
-  runs after the current task and after the scheduler's pending work, so the
-  commit gets first refusal.
+  reaped before the commit that was meant to adopt it.
+
+  BUT A MACROTASK IS NOT SUFFICIENT, AND THIS ONE LOSES (rf2-2rtt6.25, audit of
+  #7305). The earlier claim here — \"a timer task runs after the current task
+  and after the scheduler's pending work, so the commit gets first refusal\" —
+  is WRONG, and is retracted. Measured through the public adapter render slot
+  with no `act` and no `flushSync`: a `setTimeout 0` armed inside the render
+  fires BEFORE React's passive flush, at N = 1 and at N = 300 boundaries alike,
+  so on every mount a consumer performs the token is reaped and the commit
+  rebuilds. `setTimeout 4` and `setTimeout 32` win at both sizes;
+  `requestAnimationFrame` wins at one boundary and loses at three hundred; a
+  `MessageChannel` post loses, because React posts its own message after ours
+  and the queue is FIFO. Every one of those is a margin, not a guarantee —
+  React documents no maximum render-to-subscribe interval. Moving the horizon
+  is an operator decision (rf2-2rtt6.14 ruled the primitive), so this stays
+  `setTimeout 0` and the shipped benefit stands retracted rather than papered
+  over.
+
   This is a PERFORMANCE ordering, never a correctness one: an early drain
   costs a rebuild, nothing more (see the section comment).
 
@@ -2622,6 +2672,10 @@
                 ;; then HITS the cache, adopts the identical? reaction, and
                 ;; releases the token 2 → 1; a render that never commits has its
                 ;; token reaped by the macrotask drain armed inside `escrow!`.
+                ;; On the PUBLIC mount schedule that drain arrives first and the
+                ;; hit does not happen — the acquisition below is correct and
+                ;; buys nothing there, per the retraction in the section
+                ;; comment. Nothing in this branch depends on which arrives.
                 ;;
                 ;; The two prior leak triggers stay closed, by the same
                 ;; construction that closed them:
@@ -2816,8 +2870,11 @@
                 ;; abandoned before commit owns nothing beyond the reaper's
                 ;; horizon. We re-subscribe by (frame, query) here rather than
                 ;; trust a handle carried out of the render phase; since
-                ;; rf2-2rtt6.25 that re-subscribe is a cache HIT and returns the
-                ;; very reaction the render built (the adoption below).
+                ;; rf2-2rtt6.25 that re-subscribe CAN be a cache HIT returning
+                ;; the very reaction the render built (the adoption below) —
+                ;; though on the public mount schedule the reaper gets there
+                ;; first and it is an honest miss, exactly as it was before the
+                ;; hand-off (see the section comment's retraction).
                 ;;
                 ;; MEMOIZED ON `[stable-key]`, NOT on the render-phase memo
                 ;; (rf2-es09qq). Keying on anything derived from the render-phase
@@ -2836,14 +2893,18 @@
                     ;; reaction is the live cached one and its value `=` the
                     ;; `render-snapshot` the render phase read.
                     (let [committed (subs/subscribe stable-query-v {:frame stable-frame-kw})]
-                      ;; rf2-2rtt6.25 — THE ADOPTION. The render phase kept its
-                      ;; +1 in escrow, so the entry was still live when the
-                      ;; subscribe above ran: it HIT, and `committed` is
-                      ;; `identical?` the reaction the render built. Release the
-                      ;; token now (2 → 1) and clear the ref, so the steady state
-                      ;; is exactly what it was before this hand-off existed —
-                      ;; one durable reference, owned here, released by the
-                      ;; cleanup below.
+                      ;; rf2-2rtt6.25 — THE ADOPTION, when it happens. If the
+                      ;; render phase's escrowed +1 is still unspent, the entry
+                      ;; was live when the subscribe above ran: it HIT, and
+                      ;; `committed` is `identical?` the reaction the render
+                      ;; built. Release the token now (2 → 1) and clear the ref,
+                      ;; so the steady state is exactly what it was before this
+                      ;; hand-off existed — one durable reference, owned here,
+                      ;; released by the cleanup below. On the public mount
+                      ;; schedule the reaper has already spent the token by this
+                      ;; point (measured), so this is the "missing or already
+                      ;; spent" branch below and the subscribe above was a
+                      ;; rebuild; the steady state is identical either way.
                       ;;
                       ;; Guarded on the key tag: across a query-v / frame change
                       ;; the ref may already hold the NEXT target's token, which

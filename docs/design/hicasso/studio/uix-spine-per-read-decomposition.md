@@ -55,7 +55,9 @@
 > tree exactly. **A third landing has happened since:** `rf2-2rtt6.25`
 > (PR #7305, **`f784ab0adb`**, spine blob `086d08e94089…`) landed the
 > hook-scoped provisional hand-off, so a cold read builds one reaction instead
-> of two. That change is a **cold-read/mount-time** effect and this page's
+> of two **under a forced synchronous commit** — on the shipped bare
+> `createRoot().render` path the audit of PR #7305 measured 2N, which is open on
+> `rf2-2rtt6.25`. That change is a **cold-read/mount-time** effect and this page's
 > steady-state per-read slope is not re-measured against it; the figures below
 > are therefore stamped `.13`, not "current tree". The live per-read gate lines
 > are on [validation.md](../validation.md#the-per-read-gates), and the clock
@@ -438,7 +440,9 @@ and so was this page's `retain` arm.
 > worth **−769 B per unique query key** and so −769 B *per read* in the ladder's
 > distinct-query regime; `rf2-2rtt6.25` (PR #7305, `f784ab0adb`) landed the
 > hook-scoped provisional hand-off, so a cold read builds one reaction instead
-> of two. **The live UIx per-read red-zone is `2,935 B/read` [2,852–3,055] on
+> of two **under a forced synchronous commit** (2N on the shipped bare
+> `createRoot().render` path — audit of PR #7305, open on `rf2-2rtt6.25`).
+> **The live UIx per-read red-zone is `2,935 B/read` [2,852–3,055] on
 > the P0 bench instrument** (Mike's option (a) ruling of 2026-07-31, executed by
 > `rf2-e3flf`), stated in
 > [validation.md](../validation.md#the-per-read-gates); the same tree reads

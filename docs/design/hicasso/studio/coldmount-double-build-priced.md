@@ -20,7 +20,11 @@ HeadlessChrome 147.0.7727.15 (Chromium via Playwright), `:advanced`,
 >
 > **[The hand-off landed](#the-hand-off-landed--the-same-instrument-re-run-against-shipped-code)**
 > (`rf2-2rtt6.25`) re-ran this instrument against shipped code and added the
-> `shipped` witness arm. Authored on `worker/handoff-2rtt6-25`; those figures
+> `shipped` witness arm — **and that section's shipped-performance figures are
+> RETRACTED (2026-08-01): the instrument mounts inside `flushSync`, and on the
+> public `createRoot().render()` path the hand-off loses its race and the
+> double build is still paid. See the banner at the head of that section.**
+> Authored on `worker/handoff-2rtt6-25`; those figures
 > are this second set of blobs:
 >
 > | file | blob |
@@ -312,6 +316,38 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 ---
 
 ## The hand-off landed — the same instrument, re-run against shipped code
+
+> **RETRACTED, 2026-08-01 — every figure in this section measures a mount
+> schedule no consumer mounts on** (`rf2-2rtt6.25`, merged-PR audit of #7305).
+> `mount-once!` renders inside `react-dom/flushSync` (`coldmount_views.cljs`),
+> which forces React's passive `useSyncExternalStore` subscribe to run before
+> control returns — and that IS the ordering the hand-off needs to win. The
+> shipping client mount path is `re-frame.substrate.adapter/render`, i.e. a bare
+> `createRoot(…).render(…)` with nothing forcing the schedule, and **there the
+> `setTimeout 0` reaper fires first: the escrowed reference is released, the
+> commit misses, and the mount rebuilds.** Re-measured through the adapter
+> render slot with no `act` and no `flushSync`, three trials at each size:
+> `bodyRuns` **2.00N at N = 1 and at N = 300** — the double build this section
+> reports as deleted is paid in full on every consumer mount.
+>
+> **So the `shipped` rows below are withdrawn as shipped-performance claims.**
+> Read them as what the hand-off *mechanism* costs and saves when it runs to
+> completion — the `commits` / `rebuilt` / `bodyRuns` witness, the `xcript`
+> before/after clock, and the M1L1 red-zone closure all measured that. They are
+> not a statement about any mount a consumer performs today. The counting
+> witness, the fidelity gate, the residue gate and the segment-order control are
+> all unaffected as instruments; what changed is which schedule they speak for.
+>
+> **Nothing is unsound.** Spec 006 §Render-phase provisional acquisition and
+> commit adoption requires that correctness never depend on the reaper losing
+> the race, and it does not: the lost race costs a construction and the steady
+> state is identical. The horizon that would recover the saving —
+> `setTimeout 4` and `setTimeout 32` both read 1.00N at N = 1 and N = 300,
+> `requestAnimationFrame` reads 1.00N at 1 and 2.00N at 300, a `MessageChannel`
+> post loses — is an operator-approved lifecycle contract (`rf2-2rtt6.14` ruled
+> the primitive a macrotask), so it was **not** changed by the audit repair, and
+> `rf2-2rtt6.25` stays OPEN on that decision. Standing witness:
+> `assert-use-subscribe-public-mount-schedule-rebuilds`.
 
 **Bead** `rf2-2rtt6.25` · **ruled ADOPT on `rf2-2rtt6.14`** (Mike, 2026-07-31) ·
 **re-measured** 2026-07-31 13:4x AUSEST, same box, same runtime line as every

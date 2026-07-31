@@ -2806,6 +2806,26 @@
   [cache k]
   (or (get-in @cache [k :ref-count]) 0))
 
+(defn- await-settlement!
+  "Yield host MACROTASK turns until `pred` answers true, then call `k`.
+
+  This is the only way to observe a mount that is NOT driven by `act()` /
+  `flushSync`: React renders, commits and flushes passive effects on the host's
+  own task queue, so the test has to give the queue back. It is not a sleep and
+  nothing is concluded from its timing — the observations the callers care
+  about are recorded INSIDE the probe's own effects, which React orders
+  causally, and this fn only hands over the turns needed to reach them.
+
+  BOUNDED, and the budget's expiry is not silence: `k` runs anyway, so a probe
+  that never committed surfaces as a failed assertion carrying the state it saw
+  rather than as a runner timeout with nothing to read."
+  [pred k turns]
+  (if (pred)
+    (k)
+    (if (pos? turns)
+      (js/setTimeout #(await-settlement! pred k (dec turns)) 0)
+      (k))))
+
 ;; ---- after-render hook (rf2-334d9) ----------------------------------------
 
 (defn assert-after-render-hook-wired
@@ -5038,13 +5058,26 @@
 
 ;; ---- the commit adopts the render-phase build (rf2-2rtt6.25) --------------
 ;;
-;; THE TERM DELETED. A React render and the commit that owns it are two
-;; moments, and a cold `use-subscribe` read used to pay in both: the render's
-;; balanced round trip built a reaction and then crossed the 1 → 0 disposal
-;; edge on the way out, and the commit-owned `subscribe-fn` missed the same
-;; cache and built it again. Two constructions and two sub-body runs per cold
-;; read; at layer 2+ the whole `:<-` chain twice. The render phase now keeps
-;; its reference in escrow, so the commit's subscribe HITS and adopts.
+;; THE TERM THIS WAS MEANT TO DELETE. A React render and the commit that owns
+;; it are two moments, and a cold `use-subscribe` read used to pay in both: the
+;; render's balanced round trip built a reaction and then crossed the 1 → 0
+;; disposal edge on the way out, and the commit-owned `subscribe-fn` missed the
+;; same cache and built it again. Two constructions and two sub-body runs per
+;; cold read; at layer 2+ the whole `:<-` chain twice. The render phase now
+;; keeps its reference in escrow, so the commit's subscribe HITS and adopts.
+;;
+;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES (rf2-2rtt6.25 audit of #7305).
+;; It mounts under `act()`, which forces React's passive `useSyncExternalStore`
+;; subscribe to run before control returns — and that IS the ordering the
+;; hand-off needs. On the schedule a consumer actually mounts on (the adapter
+;; render slot, i.e. bare `createRoot(…).render(…)`) the `setTimeout 0` reaper
+;; wins instead, and the commit rebuilds. That is measured, three trials, at
+;; N = 1 and N = 300, by
+;; `assert-use-subscribe-public-mount-schedule-rebuilds` below. So this row
+;; pins the mechanism — escrow, hit, adopt, 2 → 1 — under a schedule that lets
+;; it run to completion; it does NOT establish that any shipped mount gets it.
+;; Both rows are kept deliberately: the day the horizon question is settled,
+;; their integers must agree.
 ;;
 ;; THE PROOF IS TWO EXACT INTEGERS, both falsifiable and neither a proxy for
 ;; the other:
@@ -5131,6 +5164,357 @@
                 "unmount returns the query to zero refs")
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
+
+;; ---- THE PUBLIC MOUNT SCHEDULE (rf2-2rtt6.25, merged-PR audit of #7305) ----
+;;
+;; WHY THIS EXISTS. The adoption row above mounts under `act()`, and the
+;; coldmount instrument's shipped arm mounts under `flushSync`. Both force
+;; React's passive `useSyncExternalStore` subscription to run before control
+;; returns — which is precisely the ordering the hand-off needs — so neither
+;; can tell whether that ordering HOLDS when nothing forces it. The audit of PR
+;; #7305 put the charge exactly: `make-render` calls bare
+;; `createRoot(…).render(…)`, and if the `setTimeout 0` reaper wins on that
+;; schedule then the provisional is reaped, the commit rebuilds, and the
+;; shipped benefit is absent from every mount a consumer actually performs.
+;;
+;; SO THIS ROW MOUNTS THE WAY CONSUMERS DO — `re-frame.substrate.adapter/render`,
+;; the Spec 006 client mount entry and the adapter `:render` slot `make-render`
+;; builds — with NO `act` and NO `flushSync` anywhere in it.
+;;
+;; DETERMINISM, NOT TIMING. Nothing is read off a clock. The probe records the
+;; numbers from its OWN mount `use-effect`, and React orders that effect after
+;; the `useSyncExternalStore` subscribe of the same fiber BY CONSTRUCTION: the
+;; store's `subscribeToStore` effect is pushed while `useSyncExternalStore`
+;; runs, the probe's `use-effect` is pushed after it, and a fiber's passive
+;; effects run in push order within one flush. The snapshot is therefore taken
+;; at the first instant after the commit-owned subscribe has run, whenever the
+;; host chooses to get there; `await-settlement!` only yields turns until it
+;; has, and its budget expiring fails an assertion rather than hanging.
+;;
+;; WHAT IT FOUND — AND WHY THIS ROW ASSERTS THE NUMBER IT DOES. The audit was
+;; right. On the public schedule the reaper wins: the render's reaction is
+;; disposed before React's passive subscribe, the commit misses and rebuilds,
+;; and the mount pays TWO constructions — the very term the hand-off was
+;; adopted to delete. Measured here, and independently at N = 1 and N = 300 in
+;; a swap-the-primitive probe, three trials each:
+;;
+;;   `setTimeout 0` (shipped)  bodyRuns 2.00N at N = 1 and N = 300
+;;   `setTimeout 4`            bodyRuns 1.00N at N = 1 and N = 300
+;;   `setTimeout 32`           bodyRuns 1.00N at N = 1 and N = 300
+;;   `requestAnimationFrame`   bodyRuns 1.00N at N = 1, 2.00N at N = 300
+;;   `MessageChannel`          bodyRuns 2.00N at N = 1
+;;
+;; So the hand-off is not broken — it is a RACE, and on the shipping schedule
+;; it loses. A `setTimeout 0` armed inside the render fires before React's
+;; scheduler gets back to flushing passive effects; the primitives that win
+;; win by margin, not by construction (the rAF row losing at 300 boundaries and
+;; winning at one is the proof of that), and React documents no maximum
+;; render-to-subscribe interval that any of them could be sized against.
+;;
+;; MOVING THE HORIZON IS NOT A WORKER'S CALL. rf2-2rtt6.14's ruling made the
+;; macrotask reap an operator-approved lifecycle contract, so this row does the
+;; only honest thing available to it: it asserts what the shipped code DOES,
+;; names the claim that is thereby retracted, and leaves the decision open.
+;; The assertions below are written to be INVERTED, not deleted, the day the
+;; horizon question is settled — at which point they read exactly like the
+;; act-driven row above.
+
+(defn assert-use-subscribe-public-mount-schedule-rebuilds
+  "rf2-2rtt6.25 (merged-PR audit of #7305): THE RETRACTION WITNESS. On the
+  PUBLIC mount schedule — `re-frame.substrate.adapter/render`, no `act`, no
+  `flushSync` — the provisional hand-off does NOT win: the `setTimeout 0`
+  reaper releases the escrowed reference before React's passive
+  `useSyncExternalStore` subscribe, the entry disposes on the ordinary 1 → 0
+  edge, and the commit rebuilds. Two constructions per cold read, exactly as
+  before the hand-off shipped.
+
+  Pinned from inside the probe's own passive effect, so the reading is placed
+  causally rather than by timing, then re-read across the horizon.
+
+  This asserts a DEFECT, deliberately. The mechanism is correct (Spec 006
+  §Render-phase provisional acquisition and commit adoption is explicit that
+  correctness must not depend on the reaper losing the race, and it does not);
+  what is absent is the benefit. Flip these five assertions to the act-driven
+  row's — `identical?`, `= 1` — when the horizon question is ruled.
+
+  cfg keys:
+    :probe-public-mount-element — 0-arg fn returning a probe element that reads
+      `:rc-query` on `@refcount-target` via use-subscribe and calls
+      `@pm-on-commit` from a mount `use-effect` declared AFTER that read
+    :pm-on-commit    — the side-channel atom that probe reads
+    :refcount-target :rc-query
+    :pm-frame        — this assertion's OWN frame (hence its own sub-cache):
+                       the property is only load-bearing on a COLD read"
+  [{:keys [name probe-public-mount-element pm-on-commit refcount-target
+           rc-query pm-frame]}]
+  (testing (str name " — the commit adopts the render-phase build on the PUBLIC mount schedule: no act, no flushSync (rf2-2rtt6.25)")
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertion")
+      (async done
+        (reset! refcount-target pm-frame)
+        (rf/make-frame {:id pm-frame :doc "rf2-2rtt6.25 public-schedule adoption frame"})
+        (rf/reg-event ::pm-seed (fn [_ _] {:db {:m 7}}))
+        (rf/dispatch-sync [::pm-seed] {:frame pm-frame})
+        (let [builds         (atom 0)
+              _              (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
+              cache-key-v    [rc-query]
+              cache          (:sub-cache (frame/frame pm-frame))
+              real-subscribe subs/subscribe
+              ;; Identity log ONLY — no proxy, so the cache's tenant and the
+              ;; spine's escrow token are the objects the production path sees.
+              ;; `with-redefs` cannot be used: it restores when its body exits,
+              ;; and on this schedule the commit's acquisition happens after
+              ;; that. The restore is therefore explicit, and runs at the first
+              ;; moment both acquisitions are in — inside the probe's effect.
+              returned       (atom [])
+              at-commit      (atom nil)
+              mount-node     (make-mount-node!)
+              unmount        (atom nil)
+              restore!       (fn [] (set! subs/subscribe real-subscribe))
+              finish!        (fn []
+                               (restore!)
+                               (reset! pm-on-commit nil)
+                               (when-let [u @unmount] (try (u) (catch :default _ nil)))
+                               (done))]
+          (is (nil? (get @cache cache-key-v))
+              "precondition: no live cache entry, so the mount is genuinely COLD")
+          (set! subs/subscribe
+                (fn spy-subscribe
+                  ([query-v]
+                   (let [r (real-subscribe query-v {:frame (frame/resolve-current-frame)})]
+                     (swap! returned conj r) r))
+                  ([query-v opts]
+                   (let [r (real-subscribe query-v opts)]
+                     (swap! returned conj r) r))))
+          (reset! pm-on-commit
+                  (fn []
+                    (when (nil? @at-commit)
+                      (restore!)
+                      (reset! at-commit
+                              {:builds    @builds
+                               :returned  @returned
+                               :tenant    (get-in @cache [cache-key-v :reaction])
+                               :ref-count (ref-count-of cache cache-key-v)
+                               :dom       (.-textContent mount-node)}))))
+          (try
+            (reset! unmount (substrate-adapter/render (probe-public-mount-element) mount-node {}))
+            (catch :default e
+              (restore!)
+              (is false (str "the public adapter render slot threw: " e))))
+          (await-settlement!
+            (fn [] (some? @at-commit))
+            (fn []
+              (restore!)
+              (let [snap @at-commit]
+                (is (some? snap)
+                    (str "the probe committed and its mount effect fired, so there "
+                         "IS a post-subscribe moment to read. DOM was "
+                         (pr-str (some-> mount-node .-textContent))))
+                (when snap
+                  (is (= "m=7" (:dom snap))
+                      (str "the probe rendered the subscribed value. Snapshot " snap))
+                  (is (= 2 (count (:returned snap)))
+                      (str "a cold mount takes exactly two acquisitions — the "
+                           "render's and the commit's. Observed "
+                           (count (:returned snap))))
+                  ;; THE ADOPTION THAT DOES NOT HAPPEN HERE.
+                  (is (not (identical? (first (:returned snap)) (second (:returned snap))))
+                      (str "RETRACTED CLAIM: on the public mount schedule the "
+                           "commit's subscribe returns a DIFFERENT reaction from "
+                           "the render's — the reaper released the escrowed "
+                           "reference first, the entry disposed on the ordinary "
+                           "1 → 0 edge, and the subscribe missed and rebuilt. "
+                           "Flip this to `identical?` when the horizon is ruled. "
+                           "Snapshot " snap))
+                  (is (identical? (second (:returned snap)) (:tenant snap))
+                      (str "the COMMIT's reaction — the rebuild — is the cache's "
+                           "tenant, and the render's is gone. Snapshot " snap))
+                  ;; THE DOUBLE BUILD, still being paid.
+                  (is (= 2 (:builds snap))
+                      (str "RETRACTED CLAIM: the sub body ran TWICE for one cold "
+                           "mount — the double build the hand-off was adopted to "
+                           "delete is still paid on every mount a consumer "
+                           "performs. Flip this to 1 when the horizon is ruled. "
+                           "Observed " (:builds snap)))
+                  (is (= 1 (:ref-count snap))
+                      (str "the steady state is nevertheless correct: exactly one "
+                           "durable reference after the commit, no leak and no "
+                           "underflow from the lost race. Observed "
+                           (:ref-count snap))))
+                ;; Cross the horizon: the reaper has already fired, and the
+                ;; rebuilt subscription is untouched by it.
+                (js/setTimeout
+                  (fn []
+                    (is (= 2 @builds)
+                        (str "across the provisional horizon the count is still 2 "
+                             "— the reap already happened, before the commit. "
+                             "Observed " @builds))
+                    (is (= 1 (ref-count-of cache cache-key-v))
+                        (str "and still exactly one durable reference: the lost "
+                             "race costs a construction, never correctness. "
+                             "Observed " (ref-count-of cache cache-key-v)))
+                    (is (= "m=7" (.-textContent mount-node))
+                        "the mounted probe still renders its value across the horizon")
+                    (finish!))
+                  0)))
+            240))))))
+
+;; ---- get-snap's ESCROW LEG, on that same schedule (rf2-2rtt6.13 × .25) -----
+;;
+;; THE INTERACTION, stated on the bead. rf2-2rtt6.13's repair made `get-snap`
+;; read, in order, (1) the committed reaction, (2) the reaction this hook's
+;; UNSPENT escrow token is holding, (3) the value the render phase froze. Leg
+;; (2) is live only because the hand-off's +1 keeps the entry tenanted — so if
+;; the reaper really wins before React's passive subscribe, leg (2) is already
+;; SPENT when consulted, `get-snap` falls through to the frozen value, and the
+;; concurrent-lane window #7313 closed reopens on exactly the schedule that
+;; matters. The two properties are one property; asserting only the first would
+;; leave the second free to break silently.
+;;
+;; THE OBSERVATION is the rf2-2rtt6.13 first-commit row, re-run with nothing
+;; forcing the schedule. A frozen render value compares equal to itself, so it
+;; can never report movement to React's pre-commit store-consistency check; a
+;; live reaction can. On a transition lane React re-reads every store before
+;; committing and throws the render away if one moved, so the FIRST committed,
+;; layout-visible DOM discriminates the two legs directly: `g=1` means leg (2)
+;; answered live, `g=0` means it did not and the frozen value answered instead.
+;;
+;; DETERMINISM. The write is issued from the RENDER BODY of a sibling that
+;; renders after the subscriber, so it lands between that read and the commit by
+;; render ORDER, not by timing. The probe is mounted through the adapter render
+;; slot in an `:idle` phase and switched to the probe phase by a
+;; `React/startTransition` on a state setter the mount effect stashed — the
+;; transition is what buys the lane, and the root is the one the public render
+;; slot created.
+;;
+;; AND THE ANSWER IS YES — the interaction the bead feared does NOT occur, even
+;; though the reap really does win. The two are not the same moment. React's
+;; pre-commit store-consistency check runs in the SAME host task as the render
+;; that produced the tree, so no macrotask — the reaper included — can have run
+;; between the escrow and the check; the token is necessarily unspent there.
+;; What the reaper beats is the PASSIVE-EFFECT flush, which is a later task.
+;; So on the public schedule leg (2) answers and rf2-2rtt6.13's window stays
+;; shut, while the adoption one task later does not happen. Both rows below are
+;; green today for that reason, and they are asserted together so that a repair
+;; to the horizon cannot quietly cost the window that is currently closed.
+
+(defn- run-public-schedule-escrow-leg-row!
+  "Mount the gap probe once, COLD, on `frame`, through the public adapter render
+  slot with no `act`, with (`:move? true`) or without the render-phase write,
+  and hand the row to `k`. Continuation-passing because every step of this
+  schedule is a host turn."
+  [{:keys [probe-gap-public-element gap-public-set-phase gap-write! gap-armed?
+           gap-first-commit gap-mount-node gap-db-read gap-observed gap-query
+           refcount-target]}
+   {:keys [frame move?]}
+   k]
+  (rf/make-frame {:id frame :doc "rf2-2rtt6.25 public-schedule escrow-leg row"})
+  (rf/dispatch-sync [::gap-seed] {:frame frame})
+  (reset! refcount-target frame)
+  (let [cache      (:sub-cache (frame/frame frame))
+        mount-node (make-mount-node!)
+        unmount    (atom nil)
+        release!   (fn [] (when-let [u @unmount] (try (u) (catch :default _ nil))))]
+    (reset! gap-mount-node mount-node)
+    (reset! gap-db-read (fn [] (:n (rf/app-db-value frame))))
+    (reset! gap-first-commit nil)
+    (reset! gap-observed [])
+    (reset! gap-armed? false)
+    (reset! gap-public-set-phase nil)
+    (reset! gap-write! (when move?
+                         (fn [] (rf/dispatch-sync [::gap-set 1] {:frame frame}))))
+    (reset! unmount (substrate-adapter/render (probe-gap-public-element) mount-node {}))
+    (await-settlement!
+      (fn [] (some? @gap-public-set-phase))
+      (fn []
+        (let [set-phase @gap-public-set-phase
+              cold?     (nil? (get @cache [gap-query]))]
+          (if (nil? set-phase)
+            (do (release!)
+                (k {:moved? move? :cold? cold? :mounted? false}))
+            (do
+              ;; Arm only now — the idle phase must not consume the one shot.
+              (reset! gap-armed? true)
+              (React/startTransition (fn [] (set-phase :probe)))
+              (await-settlement!
+                (fn [] (some? @gap-first-commit))
+                (fn []
+                  (let [row {:moved?       move?
+                             :cold?        cold?
+                             :mounted?     true
+                             :first-commit @gap-first-commit
+                             :settled      {:dom (.-textContent mount-node)
+                                            :db  (:n (rf/app-db-value frame))}
+                             :observed     @gap-observed}]
+                    (release!)
+                    (k row)))
+                240)))))
+      240)))
+
+(defn assert-use-subscribe-escrow-leg-answers-on-the-public-mount-schedule
+  "rf2-2rtt6.13 × rf2-2rtt6.25: on the PUBLIC mount schedule — adapter render
+  slot, no `act`, no `flushSync` — `get-snap`'s escrow leg is still reachable,
+  so a write landing in the render→commit gap is REPORTED to React's
+  pre-commit store-consistency check and the first commit is fresh. Beside an
+  unmoved control on its own frame, so a null result cannot be mistaken for a
+  probe that never fired.
+
+  cfg keys: the rf2-2rtt6.13 gap side-channels (`:gap-write!` `:gap-armed?`
+  `:gap-first-commit` `:gap-mount-node` `:gap-db-read` `:gap-observed`
+  `:gap-query`), plus `:probe-gap-public-element` (an idle/probe phase root
+  whose mount effect stashes its state setter), `:gap-public-set-phase`,
+  `:refcount-target`, and one frame per row (`:pm-gap-frame` /
+  `:pm-gap-control-frame`)."
+  [{:keys [name gap-query pm-gap-frame pm-gap-control-frame] :as cfg}]
+  (testing (str name " — get-snap's escrow leg still answers on the PUBLIC mount schedule (rf2-2rtt6.13 × rf2-2rtt6.25)")
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertion")
+      (async done
+        (rf/reg-event ::gap-seed (fn [_ _] {:db {:n 0}}))
+        (rf/reg-event ::gap-set  (fn [_ [_ v]] {:db {:n v}}))
+        (rf/reg-sub gap-query (fn [db _] (:n db)))
+        (run-public-schedule-escrow-leg-row!
+          cfg {:frame pm-gap-control-frame :move? false}
+          (fn [control]
+            (run-public-schedule-escrow-leg-row!
+              cfg {:frame pm-gap-frame :move? true}
+              (fn [moved]
+                ;; ---- the probe is sound before anything is concluded ------
+                (doseq [[label row] [[:control control] [:moved moved]]]
+                  (is (:mounted? row)
+                      (str label ": the probe root mounted through the public "
+                           "adapter render slot and its mount effect stashed the "
+                           "phase setter. Row " row))
+                  (is (:cold? row)
+                      (str label ": the probe mounted COLD — `get-snap`'s "
+                           "pre-commit path is only reachable with no live cache "
+                           "entry. Row " row))
+                  (is (some? (:first-commit row))
+                      (str label ": the observer's layout effect fired, so there "
+                           "IS a first commit to read. Row " row)))
+                ;; ---- THE UNMOVED CONTROL ---------------------------------
+                (is (= {:dom "g=0" :db 0} (:first-commit control))
+                    (str "control: nothing moved, so the first commit shows the "
+                         "seeded value and agrees with app-db. Row " control))
+                ;; ---- the injection landed INSIDE the gap ------------------
+                (is (= 1 (:db (:first-commit moved)))
+                    (str "moved: app-db had already moved to 1 by the first "
+                         "commit — the write landed in the gap, not after it. "
+                         "Row " moved))
+                ;; ---- THE LOAD-BEARING ROW --------------------------------
+                (is (= "g=1" (:dom (:first-commit moved)))
+                    (str "moved: the pre-commit re-read SAW the write, so "
+                         "`get-snap` answered from the LIVE reaction the escrow "
+                         "token still holds — leg (2) — and not from the frozen "
+                         "render value, which compares equal to itself and could "
+                         "report nothing. React discarded the torn render and the "
+                         "FIRST commit is fresh. `g=0` here means the reaper "
+                         "spent the token before the check and rf2-2rtt6.13's "
+                         "window has reopened on the schedule that ships. Row "
+                         moved))
+                (is (= {:dom "g=1" :db 1} (:settled moved))
+                    (str "moved settles fresh. Row " moved))
+                (done)))))))))
 
 (defn assert-use-subscribe-adopted-provisional-reaper-is-a-noop
   "rf2-2rtt6.25: the escrow token is ONE-SHOT. Once the commit has adopted and
