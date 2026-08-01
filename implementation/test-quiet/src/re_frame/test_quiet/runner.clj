@@ -101,10 +101,14 @@
   ## What the lane will DISCOVER
 
   Both rules above are about the tests that RAN.  Neither can see a test
-  file that never entered the run at all, because cognitect's discovery
-  reads each file's `(ns ...)` form and silently drops the ones it cannot
-  read.  `discovery-defects` is the third rule and it fires BEFORE any test
-  does; see its own docstring, and rf2-vruo9."
+  file that never entered the run at all — and there are two ways for one
+  not to.  Cognitect's discovery reads each file's `(ns ...)` form and
+  silently drops the ones it cannot read; and it returns a namespace once
+  per FILE, so two files declaring the same one leave `require` loading
+  whichever the classpath resolves while the other never loads, running a
+  suite twice under a tally that goes UP rather than down.
+  `discovery-defects` is the third rule and it fires BEFORE any test does;
+  see its own docstring, and rf2-vruo9."
   (:require
     [re-frame.test-quiet]
     [clojure.java.io :as io]
@@ -717,29 +721,99 @@
                   (when line (str " (line " line ", column " col ")"))
                   ": " msg)]))))
 
+(defn- scan
+  "Every source file discovery will WALK under `dirs`, one map per physical
+  file: `{:path :rel :ext :declared :complaint}`.
+
+  The files come from `find/find-sources-in-dir` — the same walk
+  `find-ns-decls-in-dir` makes, before it drops anything — so what follows
+  compares what discovery SAW against what discovery KEEPS, rather than
+  against a file-naming convention this guard invented.
+
+  Deduplicated by CANONICAL path, so two `-d` roots naming one directory
+  contribute each file once. The same file is one file; a collision below
+  has to mean two of them, or this guard would redden a lane over its
+  alias spelling rather than over its sources."
+  [dirs]
+  (->> (for [d               (sort dirs)
+             :let            [dir (io/file d)]
+             ^java.io.File f (ns-find/find-sources-in-dir dir discovery-platform)
+             :let  [rel       (relative-path dir f)
+                    [declared complaint] (declared-namespace f)]]
+         {:path      (str/replace (.getPath f) "\\" "/")
+          :canonical (.getCanonicalPath f)
+          :rel       rel
+          :ext       (subs rel (str/last-index-of rel "."))
+          :declared  declared
+          :complaint complaint})
+       (reduce (fn [[seen acc] {:keys [canonical] :as file}]
+                 (if (contains? seen canonical)
+                   [seen acc]
+                   [(conj seen canonical) (conj acc file)]))
+               [#{} []])
+       second))
+
+(defn- own-path-defect
+  "Why `file` will not reach the runner as ITS OWN namespace, or nil.
+
+  Either the reader cannot read its `(ns ...)` form — in which case
+  discovery drops it and it contributes no namespace at all — or the name
+  it declares resolves to some other file's path."
+  [{:keys [rel ext declared complaint]}]
+  (when (not= rel (some-> declared (ns->path ext)))
+    (or complaint
+        (str "it declares `" declared "`, which discovery resolves to `"
+             (ns->path declared ext) "` - a different file."))))
+
+(defn- collision-defects
+  "One `[path complaint]` per file for every namespace declared by MORE
+  THAN ONE of `files`, each complaint naming the others.
+
+  Applied only to files that already spell their own path, because a file
+  that does not is named by `own-path-defect` and its declaration is
+  already known bad.  Two files can both spell their own path and still
+  collide, which is the whole reason this rule exists beside that one:
+
+    - `probe/x_test.clj` beside `probe/x_test.cljc`, each resolving under
+      its OWN extension;
+    - one relative path repeated under two `-d` roots.
+
+  Neither is two suites.  Discovery returns the name once PER FILE, so
+  `require` loads whichever the classpath resolves and treats the rest as
+  already loaded, and `run-tests` is then handed the same symbol twice:
+  one file runs twice while the other never runs at all.  The tally goes
+  UP, not down, so neither the summary nor the `RF2_MIN_TESTS` floor can
+  see the substitution (rf2-vruo9)."
+  [files]
+  (for [[declared group] (group-by :declared files)
+        :when            (next group)
+        :let             [paths (sort (map :path group))]
+        {:keys [path]}   group]
+    [path (str "it declares `" declared "`, which is also declared by "
+               (str/join ", " (map #(str "`" % "`") (remove #{path} paths)))
+               ". Discovery returns that name once per file, so `require`"
+               " loads only the file the classpath resolves and the"
+               " other(s) never run.")]))
+
 (defn discovery-defects
   "Every source file under `dirs` that will NOT reach the runner as its own
   namespace, as `[path complaint]` pairs sorted by path.
 
-  Empty is the only acceptable answer.  The files come from
-  `find/find-sources-in-dir` — the same walk `find-ns-decls-in-dir` makes,
-  before it drops anything — so the comparison is between what discovery
-  SAW and what discovery KEPT, rather than between discovery and a
-  file-naming convention this guard invented."
+  Empty is the only acceptable answer.  Two rules, both required: a file
+  must declare a namespace that resolves to ITS OWN path
+  (`own-path-defect`), and no two files may declare the SAME one
+  (`collision-defects`).  The first alone leaves the shadowing door open,
+  because it derives each file's extension from that file and so clears a
+  `.clj`/`.cljc` pair — and a repeated relative path under two roots —
+  where each half spells its own path perfectly and only one of them ever
+  loads."
   [dirs]
-  (vec
-    (sort
-      (for [d               (sort dirs)
-            :let            [dir (io/file d)]
-            ^java.io.File f (ns-find/find-sources-in-dir dir discovery-platform)
-            :let  [rel       (relative-path dir f)
-                   ext       (subs rel (str/last-index-of rel "."))
-                   [declared complaint] (declared-namespace f)]
-            :when (not= rel (some-> declared (ns->path ext)))]
-        [(str/replace (.getPath f) "\\" "/")
-         (or complaint
-             (str "it declares `" declared "`, which discovery resolves to `"
-                  (ns->path declared ext) "` - a different file."))]))))
+  (let [files (scan dirs)]
+    (vec
+      (sort
+        (concat (for [f files :let [complaint (own-path-defect f)] :when complaint]
+                  [(:path f) complaint])
+                (collision-defects (remove own-path-defect files)))))))
 
 (defn- verify-discovery!
   "Refuse the run when any file in this lane's discovery directories will
@@ -761,17 +835,27 @@
           (println (str "  " path))
           (println (str "      " complaint)))
         (println (str "cognitect.test-runner discovers a namespace by READING each"
-                      " file's `(ns ...)` form and\n"
-                      "silently drops the files it cannot read"
+                      " file's `(ns ...)` form,\n"
+                      "once per file, and both ways that can go wrong end in a"
+                      " green run:\n\n"
+                      "  - a file it CANNOT READ is dropped silently"
                       " (clojure.tools.namespace.find/find-ns-decls-in-dir\n"
-                      "is a `keep` over `ignore-reader-exception`). Such a file"
-                      " contributes no namespace: its\n"
-                      "tests do not run, the suite still prints `0 failures, 0"
-                      " errors.`, and the run exits 0.\n"
-                      "Measured: one stray quote in an ns docstring took"
-                      " implementation/core from 2190 tests\n"
-                      "to 2182, green. Fix the file, or move it out of the"
-                      " discovery directory (rf2-vruo9).\n"))
+                      "    is a `keep` over `ignore-reader-exception`), so it"
+                      " contributes no namespace and its\n"
+                      "    tests simply do not run. Measured: one stray quote in"
+                      " an ns docstring took\n"
+                      "    implementation/core from 2190 tests to 2182, green.\n"
+                      "  - two files declaring ONE namespace yield that name"
+                      " TWICE. `require` loads whichever\n"
+                      "    the classpath resolves and skips the rest as already"
+                      " loaded, then `run-tests` gets the\n"
+                      "    symbol twice: one file runs twice, the other never"
+                      " runs, and the tally goes UP - so\n"
+                      "    neither the summary nor the RF2_MIN_TESTS floor can"
+                      " see the substitution.\n\n"
+                      "Either way the suite still prints `0 failures, 0 errors.`"
+                      " and exits 0. Fix the file, or\n"
+                      "move it out of the discovery directory (rf2-vruo9).\n"))
         (flush))
       (System/exit 1))))
 
