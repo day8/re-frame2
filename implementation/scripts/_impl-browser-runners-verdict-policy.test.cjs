@@ -187,6 +187,57 @@ test('run-browser-tests: a double-fired cljs.test `done` is fatal, not diagnosti
   );
 });
 
+test('run-browser-tests: the duplicate-`done` matcher is checked against the INSTALLED cljs.test (rf2-u0cy4 audit)', () => {
+  // The audit of PR #7190: asserting that this runner still contains its own
+  // regex is not drift protection. The literal belongs to ClojureScript, so a
+  // reworded upstream changes NEITHER this runner nor a test that reads it —
+  // the gate stays green while FATAL_CONSOLE_RE matches nothing. The runner
+  // must therefore compare the matcher against what the loaded ClojureScript
+  // actually emits.
+  const src = read('run-browser-tests.cjs');
+  assert.match(
+    src,
+    /\[\s*globalThis\s*,\s*globalThis\.\$CLJS\s*\]/,
+    'must consider both namespace roots (bare global and shadow-cljs `$CLJS`), so a '
+      + 'build-shape difference is not mistaken for upstream drift',
+  );
+  assert.match(
+    src,
+    /root\.cljs\s*&&\s*root\.cljs\.test/,
+    'must reach the live cljs.test namespace object in the page',
+  );
+  assert.match(
+    src,
+    /test\s*&&\s*test\.run_block/,
+    'must introspect `cljs.test/run-block` — the fn whose body carries the warning literal',
+  );
+  assert.match(
+    src,
+    /FATAL_CONSOLE_RE\.test\(\s*source\s*\)/,
+    'must test the matcher against the live run-block source, not against its own text',
+  );
+  // Fail-closed. A drift check that returns "fine" when it cannot look is the
+  // same fail-open shape this bead exists to remove.
+  assert.match(
+    src,
+    /if\s*\(\s*source\s*==\s*null\s*\)\s*\{\s*return\s*\(/,
+    'an unreachable `run_block` must be REPORTED, never skipped',
+  );
+  // And the verdict must actually consume it, before any tally-based return.
+  assert.match(
+    src,
+    /const\s+matcherDrift\s*=\s*await\s+duplicateDoneMatcherDrift\(\s*page\s*\)/,
+    'the verdict path must call the drift check',
+  );
+  const driftIdx = src.search(/const\s+matcherDrift\s*=\s*await\s+duplicateDoneMatcherDrift/);
+  const countsIdx = src.search(/const\s+counts\s*=\s*parseFailureCounts/);
+  assert.ok(driftIdx > -1 && countsIdx > -1, 'both call-sites must exist');
+  assert.ok(
+    driftIdx < countsIdx,
+    'the drift check must run before the failure-tally verdict, so a red run cannot mask a guard that stopped guarding',
+  );
+});
+
 test('run-browser-tests: diagnostics are stamped at capture time, not flush time (rf2-76lhy)', () => {
   const src = read('run-browser-tests.cjs');
   // The buffer flushes in one burst, so a timeout trail without capture-time
