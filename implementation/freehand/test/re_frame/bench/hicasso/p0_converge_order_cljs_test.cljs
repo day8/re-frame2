@@ -508,9 +508,12 @@
 
 (def ^:private components
   "The page's order/temporal decomposition and the permutation *p* on the
-  start-group difference of `d`. Under a counterbalanced start the
-  average of the two start groups isolates the ORDER term and half their
-  difference isolates the TEMPORAL one."
+  start-group difference of `d`. The average of the two start groups is
+  READ AS the ORDER term and half their difference AS the TEMPORAL one --
+  a DESCRIPTIVE split, exact only under an additive, antisymmetric
+  temporal model that a counterbalanced-but-alternated design makes
+  available rather than establishes (rf2-6i0i2). The assertions below
+  check the ARITHMETIC of that split, not the attribution."
   {:M1        {:order +0.0357 :temporal -0.0212 :p 0.421}
    :M2        {:order -0.0837 :temporal +0.0632 :p 0.318}
    :broad     {:order -0.0388 :temporal -0.0011 :p 1.000}
@@ -759,10 +762,13 @@
           (name row)))))
 
 (deftest the-components-and-their-permutation-p-reproduce
-  (testing "averaging the two start groups of `d` isolates the ORDER
-           term; half their difference isolates the TEMPORAL one; and
-           the last column is the same 252-relabelling test applied to
-           `d` rather than to the threshold means"
+  (testing "averaging the two start groups of `d` gives the column the
+           page labels ORDER; half their difference gives the one it
+           labels TEMPORAL (a descriptive split under an additive,
+           antisymmetric temporal model, not a measured attribution --
+           this asserts the arithmetic); and the last column is the same
+           252-relabelling test applied to `d` rather than to the
+           threshold means"
     (doseq [row rows]
       (let [d (d-values row)
             [rs us] (by-start d)

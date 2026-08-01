@@ -1627,14 +1627,26 @@ The statistic is one number per run per row,
 > `d = ln( mean of the Reagent-first stratum ÷ mean of the UIx-first stratum )`,
 
 positive when the figure reads higher Reagent-first, which is the direction the
-original claim asserted. Counterbalancing then splits `d` into two components
-that a fixed start had welded together. In a Reagent-start run the Reagent-first
-rounds are the even ones; in a UIx-start run they are the odd ones. So
+original claim asserted. Counterbalancing then lets `d` be split into two
+components that a fixed start had welded together. In a Reagent-start run the
+Reagent-first rounds are the even ones; in a UIx-start run they are the odd ones.
+So
 
-- **the average of the two start groups isolates the ORDER effect** — the
-  temporal term enters with opposite signs and cancels;
-- **half their difference isolates the TEMPORAL term** — the order effect enters
-  with the same sign and cancels.
+- **the average of the two start groups is read as the ORDER component** — on
+  the assumption below, the temporal term enters with opposite signs and cancels;
+- **half their difference is read as the TEMPORAL component** — on the same
+  assumption, the order effect enters with the same sign and cancels.
+
+**Those two readings are conditional, and the condition was not established.**
+The cancellation is exact only if the two effects are **additive** — no
+interaction between where a round sits in the run and which segment led it — and
+only if the temporal term is **antisymmetric** across the two start groups, that
+is, the same size and opposite sign in a Reagent-start run and a UIx-start run.
+A counterbalanced design makes those assumptions *available*; it does not test
+them, and this one did not. Read the two columns as a **descriptive
+decomposition under an additive, antisymmetric temporal model**, not as two
+quantities the design isolated. The label "ORDER" and "TEMPORAL" is the model's
+naming, not a measured attribution.
 
 Two views follow, and the page publishes both because they answer different
 questions and are powered differently.
@@ -1659,14 +1671,23 @@ the five-round design's confound — segment order welded to round parity — mo
 up to the run level, and the design that actually ran cannot separate them
 either.
 
-**What survives the correction is the direction of the result.** A confound can
-manufacture an effect; it cannot manufacture a null. Every row below reads null,
-so what these numbers support is *no start effect detectable at this
-resolution, under exchangeability* — and a genuinely randomised assignment is
-what it would take to say more. The counterbalance still does the job it was
-taken for, which was to stop the raw mean being biased by the schedule; it is
-the **inference** about order that rests on an assumption, not the four
-published thresholds.
+**What survives the correction, stated conditionally, because the unconditional
+version is false.** This page used to argue that *a confound can manufacture an
+effect; it cannot manufacture a null*, and read the nulls below as therefore
+safe. **That sentence is wrong and it is withdrawn.** A confound manufactures a
+null just as readily as an effect: because the starts were alternated,
+`Reagent-start` is exactly *odd launch parity*, so a session drift enters with a
+fixed sign relative to the start label and can **oppose** a real order effect as
+easily as reinforce it. A true +x from order against a −x from drift is observed
+as zero. A null under a confounded design is not evidence of no effect; it is
+evidence of no *net* effect along the one axis the design could see.
+
+So what these numbers support is the conditional statement: **no start effect
+detectable at this resolution, *under exchangeability*** — and a genuinely
+randomised assignment is what it would take to drop the qualifier. The
+counterbalance still does the job it was taken for, which was to stop the raw
+mean being biased by the schedule; it is the **inference** about order that rests
+on an assumption, not the four published thresholds.
 
 | row | Reagent-start mean | UIx-start mean | difference | two-sided permutation *p* | resolution limit |
 |---|---|---|---|---|---|
@@ -1679,10 +1700,14 @@ The **resolution limit** is the half-width of the 95% interval on the difference
 — what a start-group effect would have had to exceed for five against five to
 see it. It is printed because a null result without one is not a result.
 
-**Which segment starts a run does not detectably move the number that run
-publishes.** On the narrow row the two groups agree to one part in ten thousand.
-That is the practically important result: **the four rows above may be quoted
-without asking which segment led**, which was not true of the five-round design.
+**No difference between the start groups is resolvable at this power.** On the
+narrow row the two groups agree to one part in ten thousand. Read descriptively
+that is the practically useful result — **the four rows above may be quoted
+without asking which segment led, on the same exchangeability assumption the
+permutation *p* rests on** — and it was not available at all under the five-round
+design. It is not a demonstration that the start does not matter: an
+order effect and a session drift that cancel would read exactly like this, and
+the design cannot tell the two apart.
 
 #### View 2 — within run, the paired strata
 
@@ -1716,7 +1741,9 @@ Two rows lean the claimed way and two lean against it. Nothing here is
 significant at any conventional level, and the largest of them, M1's +3.6% at
 p = 0.084, is one row of four and would not survive being asked for four times.
 
-And the temporal component the confound hid is no better resolved:
+And the temporal component the confound hid is no better resolved. Both columns
+are the **descriptive** split defined above — what the additive, antisymmetric
+model calls order and time — not two effects this design separated:
 
 | row | order component | temporal component | permutation *p* on the start-group difference |
 |---|---|---|---|
@@ -1943,11 +1970,15 @@ for it**. Stated as bounds rather than as a verdict:
 
 The right conclusion is the modest one. **The segment-order effect is not
 established, and the design no longer needs it to be.** With an even round count
-the raw mean is design-unbiased whatever the truth is, and with a counterbalanced
-start the published figures are demonstrably insensitive to the schedule. The
-per-row fail-closed rule stays exactly as it is — it costs nothing when the
-strata overlap, and it is the thing that would catch an order effect if one
-appeared on a future witness.
+the raw mean is design-unbiased whatever the truth is — that part is by
+construction and carries no assumption. What the counterbalanced start buys is
+weaker and worth stating exactly: **no schedule effect is resolvable in these ten
+runs, under the exchangeability the permutation and sign-flip tests assume**.
+That is not the same as the figures being *demonstrably* insensitive to the
+schedule, which is what this page previously claimed and which the alternated
+assignment cannot support. The per-row fail-closed rule stays exactly as it is —
+it costs nothing when the strata overlap, and it is the thing that would catch an
+order effect if one appeared on a future witness.
 
 ### The verdict on M1's magnitude
 
