@@ -123,14 +123,14 @@
      :body      (str "Comment " i " on this article.")
      :createdAt (str "2026-07-2" (mod i 10))
      :author    (if mine?
-                  {:username "me" :image "https://example.invalid/avatar/me.png"}
+                  {:username "me" :image "me"}
                   (author-for i))}))
 
 (def signed-in-user
   "The reader the pages render for. Present rather than nil, because the
   signed-out branches of these screens render *less*, and a roster whose
   pages took the cheap branch would be understating every shape."
-  {:username "me" :image "https://example.invalid/avatar/me.png"})
+  {:username "me" :image "me"})
 
 (def comment-draft-key
   "The draft key for the not-yet-posted comment. HD-009: the half-typed
