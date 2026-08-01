@@ -423,19 +423,31 @@ the same refusal, in the same window, naming the same recovery. No walker, no
 render identity, nothing forced.
 
 **It cost something, and it was measured rather than assumed.** Three walks
-A/B/C'd in one process with the rounds interleaved, best of five per round, four
-whole repetitions — ratios only, because the box was carrying another arm's
-ladder and absolute figures drifted 2.6x between repetitions while every ratio
-held. Walking keys unconditionally costs **+31% to +43%** of the walk at the
-dogfood row's props and **+24% to +35%** at the 100-row collection prop; against
-the whole boundary element build measured in the same process, **+4.3% to
-+5.9%**. That is a real cost at the shape that matters most, and one predicate
-removes it: a `Keyword` is provably neither a collection nor a `Delay`, so the
-key half short-circuits on one `instanceof` rather than paying `coll?` — which,
-for anything without the `ICollection` marker, falls through to
+A/B/C'd in one process on an idle box, rounds interleaved, best of seven per
+round, four whole repetitions. Walking keys unconditionally costs **+51% to
++67%** of the walk at the dogfood row's props, **+20% to +28%** with two hiccup
+children beside them, and **+40% to +56%** at the 100-row collection prop —
+against the whole boundary element build measured in the same process, **+7.6%
+to +9.9%**. That is a real cost at the shape that matters most, and one
+predicate removes it: a `Keyword` is provably neither a collection nor a
+`Delay`, so the key half short-circuits on one `instanceof` rather than paying
+`coll?` — which, for anything without the `ICollection` marker, falls through to
 `native-satisfies?` and is the dearest predicate on the path. With the
-short-circuit the repair costs **0.2% to 1.1%** of the element build. The dear
+short-circuit the repair costs **0.2% to 2.8%** of the element build. The dear
 part was never the traversal; it was proving that a keyword is not a collection.
+
+**One methodological note, because it nearly published a wrong number.** The
+first cut wrote the two comparison arms in the measuring namespace and reached
+for `codec/realize-deep` itself as the third. That arm reported **9–20% faster
+than a walk doing strictly less work** — impossible, and the only reason the
+confound was caught: an inline `(throw (ex-info …))` in the local arms against a
+call to `refuse-deferred!` in the real one is a difference V8 optimises
+differently, and it was being read as a fact about keys. All three arms are now
+the same shape in the same namespace. The instrument disagrees with the
+published walk figure too and says so rather than reconciling: the boundary
+element build reads 1.08–1.16 µs here against the recorded 1,089 ns, while the
+walk reads 148–177 ns against the recorded 69 ns. Two instruments agreeing on
+the denominator and not on the numerator is why only ratios are quoted.
 
 | Witness | Asserts |
 |---|---|
