@@ -238,12 +238,26 @@ of our harness.**
 > on this page is a script-and-frame reading and none of them is restated.**
 >
 > The decomposition is. Against the M1 witness re-taken on the corrected clock
-> — `1.4896×` — the two legs are **workload 16.5%** (`1.4896 → 1.2789`, our
+> — `1.4896×` — the two legs are **workload** (`1.4896 → 1.2789`, our
 > instrument throughout) and **instrument 8.8%** (`1.2789 → 1.1756`, the same
-> app throughout). They compound to 1.267, against an observed
-> `1.4896 / 1.1756` = **1.267**. The gap is fully accounted for; what is wrong
-> above is only the claim that the three readings span 1.18 – 1.28, and on one
-> clock they span **1.18 – 1.49**.
+> app throughout). *That these two compound to the whole gap is arithmetic
+> rather than evidence* — `a/b × b/c = a/c` holds for any three numbers — so
+> what carries the reconciliation is that each leg is a comparison holding one
+> factor fixed, and that the leg which was previously invisible, the clock
+> definition, is now **eliminated** rather than estimated.
+>
+> The workload leg is the loose one and is stated as loose: `rf2-emvod`
+> re-measured this harness's `run1k` at **1.3913×** on raw `TaskDuration`,
+> which would put the workload leg near 7% rather than 16.5%. That run was
+> taken against a **bare `--dest` with the benchmark's stylesheet absent**, so
+> its layout and style costs are not this page's and its ratio is not
+> comparable to the row above — it is reported for the two-clock comparison it
+> was run for, and not as a re-measurement of `1.2789×`. So the honest bound
+> is that the workload leg is somewhere around **7–17%** and the instrument
+> leg is **8.8%** with a named mechanism.
+>
+> What is wrong above is the claim that the three readings span 1.18 – 1.28.
+> On one clock they span **1.18 – 1.49**.
 
 ### 3.4 Bulk broad — the sharpened target, and the row that changes
 
