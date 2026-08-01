@@ -49,8 +49,8 @@ if (!THEIRS) {
   process.exit(2);
 }
 
-const REAGENT = 'rf2-reagent';
-const HICASSO = 'rf2-hicasso';
+const BASE = 'rf2-reagent';
+const OTHERS = ['rf2-hicasso', 'rf2-uix'];
 
 // benchmark id -> the row id our instrument uses for the same operation
 const PAIRS = [
@@ -69,7 +69,7 @@ function readTheirs(dir) {
     if (!f.endsWith('.json')) continue;
     const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
     if (j.type !== 'cpu') continue;
-    const arm = j.framework.startsWith(HICASSO) ? HICASSO : j.framework.startsWith(REAGENT) ? REAGENT : null;
+    const arm = [BASE, ...OTHERS].find((a) => j.framework.startsWith(a));
     if (!arm) continue;
     out[j.benchmark] = out[j.benchmark] || {};
     out[j.benchmark][arm] = j.values;
@@ -94,45 +94,41 @@ console.log(`;; agreement band: ${(AGREEMENT_BAND * 100).toFixed(0)}% (declared 
 console.log('');
 
 console.log(
-  ';; operation                     theirs ms (R -> H)        theirs ratio   ours ratio   |diff|   agree?'
+  ';; operation                     arm            theirs ms   theirs ratio   ours ratio   |diff|   agree?'
 );
 
 const rows = [];
 for (const [bench, ourId, label] of PAIRS) {
   const t = theirs[bench];
-  const tR = t && t[REAGENT] ? t[REAGENT].total.median : NaN;
-  const tH = t && t[HICASSO] ? t[HICASSO].total.median : NaN;
-  const tRatio = tH / tR;
-
+  const tBase = t && t[BASE] ? t[BASE].total.median : NaN;
   const o = ours && ours.summary && ours.summary[ourId];
-  const oRatio = o ? o.ratio : NaN;
 
-  let agree = '';
-  let diff = NaN;
-  if (Number.isFinite(tRatio) && Number.isFinite(oRatio)) {
-    diff = Math.abs(tRatio - oRatio) / Math.min(tRatio, oRatio);
-    agree = diff <= AGREEMENT_BAND ? 'YES' : 'NO';
+  for (const arm of OTHERS) {
+    const tArm = t && t[arm] ? t[arm].total.median : NaN;
+    const tRatio = tArm / tBase;
+    const oRatio = o && o.arms && o.arms[arm] ? o.arms[arm].ratio : NaN;
+
+    let agree = '';
+    let diff = NaN;
+    if (Number.isFinite(tRatio) && Number.isFinite(oRatio)) {
+      diff = Math.abs(tRatio - oRatio) / Math.min(tRatio, oRatio);
+      agree = diff <= AGREEMENT_BAND ? 'YES' : 'NO';
+    }
+    rows.push({ bench, ourId, label, arm, tArm, tRatio, oRatio, diff, agree });
+    console.log(
+      `;; ${(arm === OTHERS[0] ? label : '').padEnd(28)} ${arm.padEnd(13)} ${fmt(tArm, 1).padStart(9)}   ${fmt(tRatio).padStart(12)}   ${fmt(oRatio).padStart(10)}   ${(Number.isFinite(diff) ? (diff * 100).toFixed(1) + '%' : 'n/a').padStart(6)}   ${agree}`
+    );
   }
-
-  rows.push({ bench, ourId, label, tR, tH, tRatio, oRatio, diff, agree });
-
-  console.log(
-    `;; ${label.padEnd(28)} ${(fmt(tR, 1) + ' -> ' + fmt(tH, 1)).padStart(20)}   ${fmt(tRatio).padStart(12)}   ${fmt(oRatio).padStart(10)}   ${(Number.isFinite(diff) ? (diff * 100).toFixed(1) + '%' : 'n/a').padStart(6)}   ${agree}`
-  );
 }
 
-// The direction test is the weaker but more robust claim, and it is
-// reported separately: two instruments can disagree on a magnitude and
-// still agree on which substrate is slower, and that is worth knowing on
-// its own.
 console.log('');
-console.log(';; DIRECTION — does each instrument put hicasso on the same side of parity?');
+console.log(';; DIRECTION — does each instrument put the arm on the same side of parity?');
 for (const r of rows) {
   if (!Number.isFinite(r.tRatio) || !Number.isFinite(r.oRatio)) continue;
   const tSide = r.tRatio > 1 ? 'slower' : 'faster';
   const oSide = r.oRatio > 1 ? 'slower' : 'faster';
   console.log(
-    `;;   ${r.label.padEnd(28)} theirs: ${tSide.padEnd(7)} ours: ${oSide.padEnd(7)} ${tSide === oSide ? 'SAME' : 'OPPOSITE'}`
+    `;;   ${r.label.padEnd(28)} ${r.arm.padEnd(13)} theirs: ${tSide.padEnd(7)} ours: ${oSide.padEnd(7)} ${tSide === oSide ? 'SAME' : 'OPPOSITE'}`
   );
 }
 
@@ -144,7 +140,7 @@ const PUBLISHED_M1_MOUNT = 1.2107;
 console.log('');
 console.log(';; WORKLOAD — one instrument, two pages (the other half of the 2x2)');
 if (ours && ours.summary && ours.summary.run1k) {
-  const r = ours.summary.run1k.ratio;
+  const r = ours.summary.run1k.arms['rf2-hicasso'].ratio;
   console.log(`;;   ours, benchmark create-1,000 rows   ${fmt(r)}`);
   console.log(`;;   ours, M1 mount (published, rf2-0qj9w) ${fmt(PUBLISHED_M1_MOUNT)}`);
   console.log(`;;   workload moves the ratio by ${(((r - PUBLISHED_M1_MOUNT) / PUBLISHED_M1_MOUNT) * 100).toFixed(1)}%`);
