@@ -645,11 +645,14 @@
         (invalidate-cell! cell))))
   nil)
 
+;; Arm it once per process, at load. `defonce` is the arming, so the var
+;; exists for its side effect and is deliberately never read — the hook
+;; vector is the only thing that holds the fn. The hook is the substrate's
+;; own extension point and the arm installs nothing else global; it costs
+;; a keyword compare and a nil check on every registration of any kind,
+;; and the scan above only on a first-time `:sub`.
+#_:clj-kondo/ignore
 (defonce ^:private first-registration-armed
-  ;; Once per process, at load. The hook is the substrate's own extension
-  ;; point and the arm installs nothing else global; it costs a keyword
-  ;; compare and a nil check on every registration of any kind, and the
-  ;; scan above only on a first-time `:sub`.
   (do (registrar/add-registration-hook! first-registration!) true))
 
 (defn- acquire-cell!

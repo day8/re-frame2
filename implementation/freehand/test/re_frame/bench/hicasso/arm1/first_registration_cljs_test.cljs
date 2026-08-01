@@ -32,6 +32,15 @@
   computation, which looks alive.
 
   The rows below are the direct witness the merged-PR audit asked for.
+  One of them is a **pin rather than a repair**: a first registration
+  landing in the render→commit gap reaches no cell, because the boundary
+  has none yet, and the epoch sum cannot report it either — a `reg-sub`
+  moves neither term of `commit-basis`. That is the registry axis inside
+  the second window, permanently outside this arithmetic and closable
+  only by the term this programme costed and declined; the commit does
+  acquire against the live registration, so what it costs is a delayed
+  paint the next write clears, not a retired computation.
+
   The bottom row is the bill: a first registration of an id **no cell
   holds** must still disturb nothing, because the alternative this
   programme declined was a registry term in every key's contribution to
@@ -63,6 +72,7 @@
 ;; is what keeps them unregistered at the top of each row.
 (def ^:private q-first [:firstreg/pending])
 (def ^:private q-held  [:firstreg/held])
+(def ^:private q-gap   [:firstreg/gap])
 (def ^:private q-live  [:firstreg/live])
 
 (defn- make-frame! [id db]
@@ -171,6 +181,53 @@
             "which is why the cell drops the reference instead: the repair is
              to stop reading through it, not to re-read it")
         (release!)))))
+
+(deftest deliberately-a-first-registration-in-the-render-commit-gap-moves-no-snapshot
+  (testing "the OTHER window, pinned rather than closed. The rows above
+            are the mounted case — a boundary that already holds a cell.
+            The render→commit gap is the case where it does not: the body
+            has returned `nil`, and the registration lands before React
+            runs the effect that acquires the edge. There is no cell for
+            [[first-registration!]] to reach, and the epoch sum cannot
+            report it either — a key with no cell contributes its frame's
+            `commit-basis`, and a `reg-sub` moves neither term of it. So
+            the number React re-reads after `subscribe` is the number it
+            captured at render, and it schedules nothing.
+
+            This is the registry axis inside the second window, and it is
+            the same thing `generation_fence_coverage_cljs_test` states
+            for a re-registration: permanently outside this arithmetic,
+            and closable only by the registry term that programme
+            declined. What saves it is that the commit DID acquire against
+            the live registration, so the boundary is correct from its
+            next render onwards and the next write to the frame schedules
+            one. It is a delayed paint, not a retired computation."
+    (let [seen (volatile! :unread)
+          f    (make-frame! ::gap {:v 1})]
+      (rt/render-body f (reader q-gap seen) {})
+      (is (nil? @seen) "the body ran against no registration")
+      (let [entry     (rt/last-reads)
+            at-render (rt/snapshot-of entry)
+            hits      (volatile! 0)]
+        ;; THE REGISTRATION, inside the gap: after the body returned and
+        ;; before React's effect acquires the edge.
+        (rf/reg-sub (first q-gap) (fn [db _] (:v db)))
+        (let [release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
+          (is (= at-render (rt/snapshot-of entry))
+              "the snapshot did not move across the commit, so React's
+               post-`subscribe` re-check sees no tear and schedules no
+               re-render — the boundary keeps the `nil` it painted")
+          (is (zero? @hits) "and nothing notified it either")
+          (is (= 1 @(rt/cell-reaction [f q-gap]))
+              "though the cell the commit acquired holds the REAL handler:
+               nothing is retired here, and the next render is correct")
+          (testing "so it heals on the next write rather than at the
+                    registration"
+            (frame/replace-app-db! f {:v 2})
+            (is (pos? @hits) "the write notified")
+            (rt/render-body f (reader q-gap seen) {})
+            (is (= 2 @seen)))
+          (release!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What closing the transition cost
