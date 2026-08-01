@@ -70,7 +70,7 @@ Because the slice is just an [app-db](../../core/glossary.md#app-db) path, bind 
                      [:auth :register-form] FormSlice})
 ```
 
-The check is dev-only — it asserts something about code *you* wrote, so a release build takes you at your word and [elides](../../core/glossary.md#elide) it — and it costs nothing shipped. That is true of this schema, not of every schema: the checks the framework makes on its own boundaries hold in every build, and [Part 5](05-test-and-ship.md#7-ship-it-the-release-build) draws the line. (`reg-app-schemas` is the bulk form; `reg-app-schema` registers one path at a time.)
+The check is dev-only — it asserts something about code *you* wrote, so a release build takes you at your word and [elides](../../core/glossary.md#elide) it — and it costs nothing shipped. That is true of this checkpoint, not of every one: the checks the framework relies on to keep its own promises hold in every build, and [Part 5](05-test-and-ship.md#7-ship-it-the-release-build) draws the line. (`reg-app-schemas` is the bulk form; `reg-app-schema` registers one path at a time.)
 
 Now wire the event up so it actually fires. Each form gets a [route](../../routing/glossary.md#route), and each route's `:on-match` runs the initialise event whenever that route matches — so navigating to `/login` always lands you on a fresh form:
 
