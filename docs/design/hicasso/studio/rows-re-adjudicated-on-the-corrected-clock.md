@@ -72,7 +72,7 @@ counters agree exactly. Pooled over the seven runs:
 | harness and row | how the operation is driven | `ScriptDuration` on the arms | `devtools` spread across arms |
 |---|---|---:|---:|
 | `clock_run.cjs` — `M1` | `page.evaluate` | **0.063 ms** | 7.836 ms — **tracks the arm** |
-| `clock_run.cjs` — `bulk300`, `bulk100`, `narrow` | `page.evaluate` | 0.024 – 0.040 ms | 0.48 – 3.21 ms — tracks the arm |
+| `clock_run.cjs` — `bulk300`, `bulk100`, `narrow` | `page.evaluate` | 0.029 – 0.045 ms | 0.56 – 3.53 ms — tracks the arm |
 | `clock_run.cjs` — `keystroke` | `page.keyboard.press` | **49.97 ms** | **0.069 ms** — constant |
 | `jsfb_ours_run.cjs` | `page.click` | 20.5 – 61.9 ms | **0.126 ms** — constant |
 
