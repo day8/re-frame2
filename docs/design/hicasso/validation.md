@@ -446,6 +446,38 @@ teardown, HMR body swap. Assert the DOM, actual
 commits, and **zero leaked subscription ref-counts after teardown**; an unchanged
 hot read performs no new attach/release.
 
+#### The four deferred-read crossings, named (rf2-2rtt6.32)
+
+The read-outside-the-render family was enumerated as four cases, and it is
+carried here as four **named** rows rather than as one property, because the
+verdicts differ and two of them are not a throw. Each row asserts what the
+runtime does; where that is not a refusal the row says why, and where it is a
+limit rather than a repair it says that instead.
+
+| # | The crossing | Verdict | Witnesses |
+|---|---|---|---|
+| 1 | a lazy seq handed straight to React as children — iterated during the **parent's** reconciliation, after the body returned | **repaired, so it never reaches React unrealised** — and a throw would be wrong here: a seq is structure, and forcing it changes nothing an author can observe. `expand-seq` drives a child seq to exhaustion, `realize-children` folds one into a vector, and `realize-deep` covers the boundary hand-off | `a-lazy-for-registers-its-edges-and-its-readers-re-run`, `a-lazy-seq-returned-as-the-body-root-registers-its-edges-too`, `a-lazy-seq-handed-across-a-boundary-is-the-parents-read`, `the-childs-second-render-reads-nothing-which-is-why-the-first-row-matters` |
+| 2 | a `(sub …)` inside a render prop handed to a foreign component | **split, and one half is a declared limit.** Invoked outside any render it throws. Invoked inside **another** boundary's live render it does not: `read-key!` asks whether *any* body is running, not whether *this* one is, so the read is attributed to whichever boundary is rendering. The `defhost` / `[:> …]` spelling is not in this codec at all — HD-011 owns that surface — so the row is named against the general shape it is an instance of | `a-function-prop-not-called-in-the-render-is-already-loud`, `a-function-prop-keeps-its-edge-because-the-child-re-runs-it`, `a-body-that-stops-calling-a-render-prop-simply-holds-no-edge` |
+| 3 | a `(sub …)` inside an event handler | **throws.** The render frame is set in a `try` and cleared in the matching `finally`, so a handler the browser invokes later finds none and says so | `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge` (the stored handler, and the handler actually called), `a-read-outside-a-render-is-a-loud-error` |
+| 4 | a `(sub …)` inside a `delay` or a lazy seq the author returns as a **prop value** | the seq is **repaired** at the crossing; the `delay` is **refused** there, inside the render of the body that wrote it. Refused at **both halves of a map entry** since `rf2-2rtt6.32`: a `Delay` hashes by object identity and a small map literal never hashes its keys at all, so a key position holds an unforced one as readily as a value position does | `an-unforced-delay-crossing-a-boundary-is-refused`, `the-refusal-reaches-wherever-the-walk-reaches`, `a-delay-held-as-a-map-key-is-refused-exactly-as-a-value-is`, `a-key-held-delay-is-refused-before-the-child-can-cache-it` |
+
+**Two limits, stated rather than discovered.** Row 2's second half is one: a read
+landing inside another boundary's live extent is attributed to it, and refusing
+that needs per-boundary render identity, which the HD-002 adjudication rejected
+as one line from the candidate-ledger tripwire and as an error made of a
+legitimate authoring shape. The other is a deferral parked in a **mutable
+reference** — an atom, or a module-level var the codec never sees — which no
+structural walk reaches;
+`a-deferral-parked-in-a-mutable-reference-is-outside-the-walk` asserts the
+unrepaired behaviour so it is a property of Surface B rather than a later
+surprise. React with hooks has the identical hole.
+
+**Every row of this family is asserted two renders deep, never at first paint.**
+A `Delay` and a `LazySeq` both cache, so a broken runtime's first render is
+correct and its second is empty — a witness that stopped at the first paint
+passes on every fault this section names, which is how the map-key hole survived
+the walk that was built to close it.
+
 ### Measurement discipline
 
 Same React version, build settings, tree, frame, queries, writes, and data across
