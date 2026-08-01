@@ -1,0 +1,267 @@
+#!/usr/bin/env node
+// RE-ADJUDICATE AN ENSEMBLE OF CLOCK RUNS (rf2-emvod).
+//
+//   node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+//
+// `clock_run.cjs` adjudicates ONE run. Every conclusion this lane has
+// reached about the candidate's clock rows rests on an ENSEMBLE — five runs
+// for `the-candidates-clock.md`, eight for `bulk-broad-re-taken.md`, nineteen
+// for the seam ladder — and each of those tables was assembled by hand from
+// console logs. That is how `rf2-cvvb7`'s merged-PR audit came to record that
+// a published study could not be recomputed from the landed tree: the runs
+// were real, the arithmetic was reasonable, and nothing in the repository
+// could reproduce either.
+//
+// So the ensemble arithmetic is a program, it reads the driver's own JSON
+// datasets, and its output is the table that gets published. A reader with
+// the datasets can rerun this and get the page back.
+//
+// ## WHAT IT REFUSES TO DO
+//
+// It does not select runs. Every dataset handed to it appears in the
+// per-run table, including the ones whose control failed, and the ensemble
+// figure is stated over all of them with the control-passing subset shown
+// beside it rather than instead of it. Selecting a run after seeing its
+// result is the fault this whole lane is built to avoid, and an analysis
+// script is the easiest possible place to commit it silently.
+//
+// ## THE ADDITIVE RESIDUAL, and why it is computed here
+//
+// `ctl-2x` builds exactly twice the floor's page and reads 1.68-1.86x rather
+// than 2.00x, on every row, in every configuration, on both clocks. The
+// standing diagnosis (`rf2-7iqb5`) is that a page-doubling control is
+// mis-specified for an UPDATE row, whose work does not double with the page.
+// That diagnosis predicts the mount row should be clean, and it is not — M1
+// undershoots too.
+//
+// An additive per-sample cost `c` that the tare does not remove explains
+// both at once, because a ratio of two arms one of which is twice the other
+// reads `(2W + c) / (W + c)`, which is below 2 for any positive `c` and does
+// not care whether the row is a mount or an update. Inverting the measured
+// ratio `r` gives `c / W = (2 - r) / (r - 1)`, and `c` in milliseconds
+// follows from the floor's own tared absolute. If `c` comes out similar
+// across rows that differ wildly in what they do, the additive model is the
+// better explanation and the repair is a control that DIFFERENCES the
+// constant away rather than one that changes what is doubled.
+
+'use strict';
+
+const fs = require('node:fs');
+
+const files = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+if (files.length === 0) {
+  console.error('usage: clock_readjudicate.cjs <run1.json> [run2.json ...]');
+  process.exit(1);
+}
+
+const r4 = (x) => Math.round(x * 10000) / 10000;
+const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
+const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+function p50(xs) {
+  const v = [...xs].sort((a, b) => a - b);
+  if (v.length === 0) return NaN;
+  return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+}
+
+/** mean / min / max over the runs of the ensemble — never a bare mean. */
+function ens(xs) {
+  const v = xs.filter(Number.isFinite);
+  if (v.length === 0) return { n: 0, mean: NaN, min: NaN, max: NaN };
+  return { n: v.length, mean: mean(v), min: Math.min(...v), max: Math.max(...v) };
+}
+
+const datasets = files.map((f) => ({ file: f, data: JSON.parse(fs.readFileSync(f, 'utf8')) }));
+
+// Row ids in the order the first dataset produced them, so the report reads
+// in run order rather than in whatever order Object.keys happens to give.
+const rowIds = [];
+for (const { data } of datasets) {
+  for (const r of data.rows) if (!rowIds.includes(r.rowId)) rowIds.push(r.rowId);
+}
+
+const PAIRS = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
+const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
+
+console.log(';; ==== ENSEMBLE RE-ADJUDICATION (rf2-emvod) ====');
+console.log(`;; datasets ${datasets.length}`);
+for (const { file, data } of datasets) {
+  console.log(
+    `;;   ${file}  label=${data.label || '-'}  when=${data.when}  chromium=${data.chromium}  ` +
+      `design=${data.design.rounds}x(${data.design.warmup}+${data.design.samples}) tare=${data.design.tare}`
+  );
+}
+
+for (const rowId of rowIds) {
+  const runs = datasets
+    .map(({ file, data }) => ({ file, row: data.rows.find((r) => r.rowId === rowId) }))
+    .filter((x) => x.row);
+  if (runs.length === 0) continue;
+
+  console.log('');
+  console.log(`;; ======== ROW ${rowId} — ${runs.length} runs ========`);
+
+  // --- gates, per run -------------------------------------------------------
+  console.log(';; run  guard(net/task)  ctl-2x task   ctlPASS  band(task)  band(net)  floor abs ms');
+  for (const { file, row } of runs) {
+    const floorAbs = p50(
+      SEGMENTS.map((s) => {
+        const d = row.decomposition[`${s}/floor`];
+        return d ? d.task / d.n : NaN;
+      }).filter(Number.isFinite)
+    );
+    console.log(
+      `;;  ${shortName(file).padEnd(6)} ${(row.guardRefuse ? 'REFUSE' : 'ok').padEnd(7)}` +
+        `${(row.guardRefuseTask ? 'REFUSE' : 'ok').padEnd(8)}` +
+        `${row.ctlTask ? fmt(row.ctlTask.measured.mean, 3).padStart(10) : '       n/a'}` +
+        `${row.ctlTask ? (row.ctlTask.ok ? '   PASS' : '   FAIL') : '    n/a'}` +
+        `${row.bandTask === null || row.bandTask === undefined ? '       n/a' : (fmt(row.bandTask * 100, 1) + '%').padStart(10)}` +
+        `${row.seam && row.seam.band !== null ? (fmt(row.seam.band * 100, 1) + '%').padStart(11) : '        n/a'}` +
+        `${fmt(floorAbs, 3).padStart(13)}`
+    );
+  }
+
+  // --- the three clocks, per pair -------------------------------------------
+  for (const pair of PAIRS) {
+    const inPage = runs.map(({ row }) => (row.inPageBar && row.inPageBar[pair] ? row.inPageBar[pair].mean : NaN));
+    const net = runs.map(({ row }) => (row.bar && row.bar[pair] ? row.bar[pair].tared.mean : NaN));
+    const task = runs.map(({ row }) => (row.barTask && row.barTask[pair] ? row.barTask[pair].mean : NaN));
+    if (!task.some(Number.isFinite)) continue;
+
+    // The control-passing subset, reported BESIDE the whole ensemble and
+    // never instead of it.
+    const passIdx = runs.map(({ row }, i) => (row.ctlTask && row.ctlTask.ok ? i : -1)).filter((i) => i >= 0);
+    const taskPass = passIdx.map((i) => task[i]);
+
+    const e = ens(task);
+    const en = ens(net);
+    const ei = ens(inPage);
+    console.log('');
+    console.log(`;;   PAIR ${pair}`);
+    console.log(
+      `;;     raw TaskDuration (PUBLISHED)  ${fmt(e.mean)}x  [${fmt(e.min)} – ${fmt(e.max)}]  n=${e.n}` +
+        (taskPass.length
+          ? `   control-passing subset ${fmt(ens(taskPass).mean)}x n=${taskPass.length}`
+          : '   control-passing subset: NONE')
+    );
+    console.log(`;;     taskNet (frame-only, superseded) ${fmt(en.mean)}x  [${fmt(en.min)} – ${fmt(en.max)}]`);
+    console.log(`;;     in-page performance.now()        ${fmt(ei.mean)}x  [${fmt(ei.min)} – ${fmt(ei.max)}]`);
+    console.log(';;     run   in-page   taskNet   TaskDuration   band   margin   verdict');
+    runs.forEach(({ file, row }, i) => {
+      const b = row.bandTask;
+      const margin = Math.abs(task[i] - 1) * 100;
+      const bandPct = Number.isFinite(b) ? b * 100 : NaN;
+      const verdict = !Number.isFinite(bandPct)
+        ? 'UNADJUDICATED — no proportional control on this row'
+        : !(row.ctlTask && row.ctlTask.ok)
+          ? `control FAILED — no magnitude reportable`
+          : margin > bandPct
+            ? `clears its ${fmt(bandPct, 1)}% band`
+            : `INSIDE the band — instrument-limited`;
+      console.log(
+        `;;     ${shortName(file).padEnd(5)} ${fmt(inPage[i]).padStart(8)} ${fmt(net[i]).padStart(9)}` +
+          `${fmt(task[i]).padStart(14)} ${(Number.isFinite(bandPct) ? fmt(bandPct, 1) + '%' : 'n/a').padStart(7)}` +
+          ` ${(fmt(margin, 1) + '%').padStart(7)}   ${verdict}`
+      );
+    });
+  }
+
+  // --- absolutes, pooled over the ensemble ----------------------------------
+  //
+  // PRINTED FOR EVERY ROW, because both of this instrument's defects were
+  // visible here and in no ratio anywhere.
+  console.log('');
+  console.log(';;   ABSOLUTES — mean ms per sample, pooled over the ensemble');
+  console.log(';;     arm                          task   taskNet   in-page  devtools    script    layout');
+  const armKeys = [];
+  for (const { row } of runs) for (const k of Object.keys(row.decomposition)) if (!armKeys.includes(k)) armKeys.push(k);
+  for (const k of armKeys) {
+    const acc = { task: [], taskNet: [], devtools: [], script: [], layout: [], inPage: [] };
+    for (const { row } of runs) {
+      const d = row.decomposition[k];
+      if (!d || !d.n) continue;
+      acc.task.push(d.task / d.n);
+      acc.taskNet.push(d.taskNet / d.n);
+      acc.devtools.push(d.devtools / d.n);
+      acc.script.push(d.script / d.n);
+      acc.layout.push(d.layout / d.n);
+    }
+    // The in-page window is not in `decomposition`; it is in the raw
+    // per-sample readings, which is where it has to be read from.
+    for (const { row } of runs) {
+      if (!row.inPageRounds) continue;
+      const [seg, arm] = k.split('/');
+      const xs = row.inPageRounds.flatMap((rd) => (rd[seg] && rd[seg][arm]) || []);
+      if (xs.length) acc.inPage.push(p50(xs));
+    }
+    if (acc.task.length === 0) continue;
+    console.log(
+      `;;     ${k.padEnd(28)} ${fmt(mean(acc.task), 3).padStart(6)} ${fmt(mean(acc.taskNet), 3).padStart(9)}` +
+        ` ${(acc.inPage.length ? fmt(mean(acc.inPage), 3) : 'n/a').padStart(9)} ${fmt(mean(acc.devtools), 3).padStart(9)}` +
+        ` ${fmt(mean(acc.script), 3).padStart(9)} ${fmt(mean(acc.layout), 3).padStart(9)}`
+    );
+  }
+
+  // --- THE ADDITIVE RESIDUAL ------------------------------------------------
+  const ctlMeans = runs.map(({ row }) => (row.ctlTask ? row.ctlTask.measured.mean : NaN)).filter(Number.isFinite);
+  if (ctlMeans.length) {
+    const r = mean(ctlMeans);
+    const cOverW = (2 - r) / (r - 1);
+    const floorTared = mean(
+      runs.map(({ row }) => {
+        const f = p50(
+          SEGMENTS.map((s) => {
+            const d = row.decomposition[`${s}/floor`];
+            return d ? d.task / d.n : NaN;
+          }).filter(Number.isFinite)
+        );
+        const pl = p50(
+          SEGMENTS.map((s) => {
+            const d = row.decomposition[`${s}/plumb`];
+            return d ? d.task / d.n : NaN;
+          }).filter(Number.isFinite)
+        );
+        return f - pl;
+      })
+    );
+    // floorTared = W + c, so W = floorTared / (1 + c/W) and c = W * (c/W).
+    const W = floorTared / (1 + cOverW);
+    console.log('');
+    console.log(
+      `;;   ADDITIVE RESIDUAL — ctl-2x reads ${fmt(r, 4)}x where the page it builds is exactly 2.00x. ` +
+        `Inverting (2W+c)/(W+c): c/W = ${fmt(cOverW, 3)}, and with the floor's tared absolute at ` +
+        `${fmt(floorTared, 3)} ms that is W = ${fmt(W, 3)} ms of page-proportional work and ` +
+        `c = ${fmt(floorTared - W, 3)} ms that the plumb tare does not remove.`
+    );
+  }
+}
+
+console.log('');
+console.log(';; ==== CROSS-ROW: is the residual the same constant everywhere? ====');
+console.log(';; row        ctl-2x(task)   implied c/W   implied c ms   floor tared ms');
+for (const rowId of rowIds) {
+  const runs = datasets.map(({ data }) => data.rows.find((r) => r.rowId === rowId)).filter(Boolean);
+  const ctlMeans = runs.map((row) => (row.ctlTask ? row.ctlTask.measured.mean : NaN)).filter(Number.isFinite);
+  if (!ctlMeans.length) {
+    console.log(`;; ${rowId.padEnd(11)} (no proportional control on this row)`);
+    continue;
+  }
+  const r = mean(ctlMeans);
+  const cOverW = (2 - r) / (r - 1);
+  const floorTared = mean(
+    runs.map((row) => {
+      const f = p50(SEGMENTS.map((s) => (row.decomposition[`${s}/floor`] ? row.decomposition[`${s}/floor`].task / row.decomposition[`${s}/floor`].n : NaN)).filter(Number.isFinite));
+      const pl = p50(SEGMENTS.map((s) => (row.decomposition[`${s}/plumb`] ? row.decomposition[`${s}/plumb`].task / row.decomposition[`${s}/plumb`].n : NaN)).filter(Number.isFinite));
+      return f - pl;
+    })
+  );
+  const W = floorTared / (1 + cOverW);
+  console.log(
+    `;; ${rowId.padEnd(11)} ${fmt(r, 4).padStart(11)} ${fmt(cOverW, 3).padStart(13)} ${fmt(floorTared - W, 3).padStart(14)} ${fmt(floorTared, 3).padStart(16)}`
+  );
+}
+
+function shortName(f) {
+  const m = /([^/\\]+)\.json$/.exec(f);
+  return m ? m[1] : f;
+}
