@@ -94,8 +94,15 @@
       (doseq [k (:ex-data-keys call-002)]
         (is (contains? data k) (str "ex-data carries " k)))
       (is (= [:declared-view :element-keyword :host-descriptor] (:legal-heads data)))
-      (is (= {:type :string :count 10 :head "cart-badge"} (:head data))
-          "the head rides as a bounded shape summary, not as the value"))))
+      ;; rf2-210uq — the summary carries `:type` + `:count` and nothing
+      ;; else. It used to add a `:head` that reproduced any string of 24
+      ;; chars or fewer VERBATIM, which is how "cart-badge" came back whole.
+      ;; A hiccup head can be an app-supplied string, so that was a
+      ;; disclosure; the shape still names what arrived.
+      (is (= {:type :string :count 10} (:head data))
+          "the head rides as a shape summary, not as the value")
+      (is (not (str/includes? (pr-str data) "cart-badge"))
+          "no fragment of the offending head reaches the ex-data"))))
 
 (deftest host-descriptor-is-nominal-not-a-marked-map
   (testing "The host arm keys off the TYPE `v/defhost` mints, not off a
