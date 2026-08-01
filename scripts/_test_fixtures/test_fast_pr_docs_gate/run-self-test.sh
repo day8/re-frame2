@@ -30,7 +30,18 @@
 #     (rf2-uwszd);
 #   mkdocs resolution (W-Y)        — the console script is preferred, an
 #     installed-as-a-module mkdocs is still FOUND rather than soft-skipped, and
-#     a code-only diff never probes for it (rf2-g7p7l).
+#     a code-only diff never probes for it (rf2-g7p7l);
+#   the spine's own tree (Z-AB)    — a diff touching `scripts/test-fast-pr.sh`
+#     or this fixture tree arms the documentation tier and this self-test, and
+#     an ordinary `scripts/` change still does not (rf2-fhdd3);
+#   hermetic mkdocs (AC-AE)        — a constructed module-only PATH selects
+#     `python -m mkdocs` exactly, a console script still wins over a working
+#     module launcher, and a host where nothing resolves reports `unresolved`
+#     rather than anything that reads as a pass (rf2-03298).
+#
+# CI wiring: test.yml's always-on `verify-readme-links` job runs this file, so
+# breaking the module fallback reddens a REQUIRED check rather than only a local
+# run somebody may not have made (rf2-03298).
 #
 # Run from any cwd:
 #   bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
@@ -326,11 +337,30 @@ else
   printf '  SKIP W: this shell cannot make a stub executable discoverable\n'
 fi
 
-# X — THE REGRESSION.  Wherever `python -m mkdocs` runs, the spine must resolve
-# mkdocs; `unresolved` there is the fail-open this case exists to catch.  On CI
-# (console script on PATH) it resolves to `mkdocs`; on a module-only checkout,
-# to `python -m mkdocs`.  Either is a pass; `unresolved` is not.
-if command -v mkdocs >/dev/null 2>&1 || python -m mkdocs --version >/dev/null 2>&1; then
+# X — THE HOST SMOKE.  Wherever mkdocs is genuinely installed, the spine must
+# resolve it; `unresolved` there is the fail-open this case exists to catch.  On
+# CI (console script on PATH) it resolves to `mkdocs`; on a module-only
+# checkout, to `python -m mkdocs`.  Either is a pass; `unresolved` is not.
+#
+# This case CONSULTS THE HOST by design — it is the one assertion made against
+# the real tool — so it can only ever prove what this host happens to have.  The
+# hermetic cases below (AC-AE) are what pin the module fallback itself; do not
+# read a green X as covering it.  The precondition tries all three launchers the
+# spine tries, so a host with only `python3` or `py` runs the case instead of
+# skipping it (rf2-03298).
+mkdocs_on_host=false
+if command -v mkdocs >/dev/null 2>&1; then
+  mkdocs_on_host=true
+else
+  for _launcher in python python3 py; do
+    if command -v "$_launcher" >/dev/null 2>&1 &&
+       "$_launcher" -m mkdocs --version >/dev/null 2>&1; then
+      mkdocs_on_host=true
+      break
+    fi
+  done
+fi
+if [ "$mkdocs_on_host" = true ]; then
   case "$(plan_mkdocs "$r")" in
     "PLAN-MKDOCS unresolved"|"PLAN-MKDOCS <none>") mkdocs_found=no ;;
     *)                                             mkdocs_found=yes ;;
@@ -343,6 +373,163 @@ fi
 # Y — the common case pays nothing: a code-only diff never probes for mkdocs.
 assert "Y code-only diff → mkdocs never probed" "PLAN-MKDOCS (docs tier skipped)" \
   "$(plan_mkdocs "$tmp_root/coverage-note")"
+
+# ---------------------------------------------------------------------------
+# THE SPINE'S OWN TREE (rf2-fhdd3).  A diff touching only `scripts/test-fast-pr.sh`
+# matched no runtime surface and no documentation surface, so it fell into the
+# `unknown surface` fallback: JVM and node ran, and `run_docs` — keyed on the
+# documentation-content predicate the runner never matched — stayed FALSE.  The
+# gate that decides which gates run could not gate a change to its own
+# documentation gate; every rf2-g7p7l verification run needed `--with-docs` by
+# hand, and someone BREAKING the docs tier would have got a green spine.
+#
+# Z/AA pin the arming in both directions of the bead's finding (the runner, and
+# the fixture tree this file lives in).  AB is the counterweight the bead asked
+# for by name: the arming is path-by-path, so an ordinary `scripts/` change
+# still does not pay for the documentation tier.
+# ---------------------------------------------------------------------------
+plan_selftest() {
+  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-SELFTEST' \
+    || printf 'PLAN-SELFTEST <none>\n'
+}
+
+r="$tmp_root/spine-self"; mkrepo "$r"
+mkdir -p "$r/scripts"
+printf '#!/usr/bin/env bash\n' > "$r/scripts/test-fast-pr.sh"
+git -C "$r" add -A; git -C "$r" commit -q -m spine
+assert "Z spine-only diff → docs tier armed (was docs=false)" \
+  "PLAN docs=true jvm=true node=true" "$(plan "$r")"
+assert "Z1 spine-only diff → the spine's own self-test is armed" \
+  "PLAN-SELFTEST run" "$(plan_selftest "$r")"
+
+r="$tmp_root/spine-fixture"; mkrepo "$r"
+mkdir -p "$r/scripts/_test_fixtures/test_fast_pr_docs_gate"
+printf 'x\n' > "$r/scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh"
+git -C "$r" add -A; git -C "$r" commit -q -m fixture
+assert "AA doc-gate fixture tree → docs tier armed" \
+  "PLAN docs=true jvm=true node=true" "$(plan "$r")"
+assert "AA1 doc-gate fixture tree → the spine's own self-test is armed" \
+  "PLAN-SELFTEST run" "$(plan_selftest "$r")"
+
+# AB — the NOT-widened pin.  `scripts/check_skill_mcp_drift.py` is an ordinary
+# always-on gate script: no doc gate reads it, so arming the documentation tier
+# for it would buy nothing and cost an mkdocs build on every such diff.
+r="$tmp_root/ordinary-script"; mkrepo "$r"
+mkdir -p "$r/scripts"; printf 'x\n' > "$r/scripts/check_skill_mcp_drift.py"
+git -C "$r" add -A; git -C "$r" commit -q -m ordinary
+assert "AB an ordinary scripts/ change does NOT arm the docs tier" \
+  "PLAN docs=false jvm=true node=true" "$(plan "$r")"
+assert "AB1 an ordinary scripts/ change does NOT arm the spine self-test" \
+  "PLAN-SELFTEST skip" "$(plan_selftest "$r")"
+
+# ---------------------------------------------------------------------------
+# HERMETIC mkdocs RESOLUTION (rf2-03298).  Case X above consults the HOST, and
+# on the host that matters most — GitHub CI, which installs requirements.txt —
+# a bare `mkdocs` console script is always on PATH.  X therefore takes the
+# console-script branch there and NO module fallback is ever executed: deleting
+# `python -m mkdocs` from resolve_mkdocs would stay green on every remote run
+# and reopen the exact fail-open rf2-g7p7l closed, on exactly the checkouts that
+# motivated it (`pip install --user`, console script off PATH).
+#
+# These cases ask the host nothing.  They CONSTRUCT the module-only state — a
+# PATH with every directory that provides a bare `mkdocs` removed, plus a stub
+# directory whose `python` answers `-m mkdocs --version` and nothing else — and
+# assert the EXACT command the real spine selected.  resolve_mkdocs is not
+# copied here: `--plan` runs the real one.
+# ---------------------------------------------------------------------------
+
+# The docs-armed disposable repo cases W-Y already built: the mkdocs resolution
+# is only reached when the documentation tier would run.
+r_docs_for_mkdocs="$tmp_root/mkdocs-docs"
+
+# $PATH with every entry that provides a bare `mkdocs` removed.  Globbing is
+# disabled across the split so a PATH entry containing a glob character cannot
+# expand into something else.
+mkdocs_free_path() {
+  local out="" entry oldifs restore_glob=no
+  oldifs="$IFS"
+  case "$-" in *f*) ;; *) restore_glob=yes ;; esac
+  set -f
+  IFS=:
+  for entry in $PATH; do
+    [ -z "$entry" ] && continue
+    if [ -x "$entry/mkdocs" ] || [ -x "$entry/mkdocs.exe" ] ||
+       [ -f "$entry/mkdocs.bat" ] || [ -f "$entry/mkdocs.cmd" ]; then
+      continue
+    fi
+    out="${out:+$out:}$entry"
+  done
+  IFS="$oldifs"
+  if [ "$restore_glob" = yes ]; then set +f; fi
+  printf '%s' "$out"
+}
+
+mkdocs_free="$(mkdocs_free_path)"
+
+# The stub launcher: a `python` that resolves ONLY `-m mkdocs --version`, so a
+# green case proves the spine took the module branch and not something else.
+module_bin="$tmp_root/module-only-bin"; mkdir -p "$module_bin"
+cat > "$module_bin/python" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = "-m" ] && [ "${2:-}" = "mkdocs" ] && [ "${3:-}" = "--version" ]; then
+  printf 'mkdocs, version 1.6.1 (hermetic self-test stub)\n'
+  exit 0
+fi
+exit 1
+STUB
+chmod +x "$module_bin/python"
+
+# A console-script stub for the preference case, alongside a working module
+# launcher — so "console script wins" is asserted against a live alternative.
+both_bin="$tmp_root/console-wins-bin"; mkdir -p "$both_bin"
+cp "$module_bin/python" "$both_bin/python"
+printf '#!/bin/sh\nexit 0\n' > "$both_bin/mkdocs"
+chmod +x "$both_bin/mkdocs"
+
+# Every launcher present and none of them able to run mkdocs — the honest-skip
+# path, which must report `unresolved` rather than anything that reads as a pass.
+none_bin="$tmp_root/no-mkdocs-bin"; mkdir -p "$none_bin"
+for _launcher in python python3 py; do
+  printf '#!/bin/sh\nexit 1\n' > "$none_bin/$_launcher"
+  chmod +x "$none_bin/$_launcher"
+done
+
+# The sandbox must still carry the tools the spine itself shells out to.  If
+# stripping the mkdocs directories took one of them, the assertions below would
+# fail for the wrong reason — so say so loudly instead of skipping quietly: a
+# witness that goes quiet on an unexpected host is the fail-open family these
+# cases exist to close.
+hermetic_ready=yes
+missing_tool=""
+for _tool in bash git awk sed sort grep; do
+  if ! ( PATH="$module_bin:$mkdocs_free"; export PATH; command -v "$_tool" >/dev/null 2>&1 ); then
+    hermetic_ready=no
+    missing_tool="$_tool"
+    break
+  fi
+done
+if ( PATH="$module_bin:$mkdocs_free"; export PATH; command -v mkdocs >/dev/null 2>&1 ); then
+  hermetic_ready=no
+  missing_tool="(a bare mkdocs is STILL discoverable after sanitising PATH)"
+fi
+
+if [ "$hermetic_ready" = yes ]; then
+  assert "AC hermetic module-only host → 'python -m mkdocs' selected" \
+    "PLAN-MKDOCS python -m mkdocs" \
+    "$(PATH="$module_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+
+  assert "AD console script wins over a WORKING module launcher" \
+    "PLAN-MKDOCS mkdocs" \
+    "$(PATH="$both_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+
+  assert "AE nothing resolves → 'unresolved' (never a silent pass)" \
+    "PLAN-MKDOCS unresolved" \
+    "$(PATH="$none_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+else
+  printf '  FAIL AC-AE: cannot construct a module-only PATH on this host — %s\n' "$missing_tool"
+  printf '        The module-only fallback in resolve_mkdocs was NOT exercised.\n'
+  fail_count=$((fail_count + 3))
+fi
 
 # ---- Summary ----
 total=$((pass_count + fail_count))

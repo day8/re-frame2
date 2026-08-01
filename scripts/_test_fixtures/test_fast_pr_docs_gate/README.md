@@ -31,6 +31,39 @@ The harness covers:
   `#trace-events_1` underscore-N disambiguation) and #2233 (anchor missing the
   `-rf2-XXX` suffix the heading actually carries). Both must trip
   `check_doc_slugs.py`.
+* **Coverage-honesty + per-artefact JVM selection (Q–V)** — `--plan` states what
+  the JVM tier actually contains and points at the full sweep; a diff under an
+  artefact's tree adds that artefact's suite and a diff elsewhere does not.
+* **mkdocs resolution (W–Y)** — the console script is preferred; an
+  installed-as-a-module mkdocs is found rather than soft-skipped; a code-only
+  diff never probes for it.
+* **The spine's own tree (Z–AB, rf2-fhdd3)** — a diff touching
+  `scripts/test-fast-pr.sh` or this fixture tree arms the documentation tier and
+  the spine's own self-test, and an ordinary `scripts/` change still does
+  neither. Before rf2-fhdd3 a spine-only diff classified as an *unknown
+  surface*: the JVM and node tiers ran conservatively while `run_docs` stayed
+  keyed on a documentation-content predicate the spine never matched, so a
+  change to the spine's own documentation gate did not run that gate.
+* **Hermetic mkdocs resolution (AC–AE, rf2-03298)** — case X consults the host,
+  and on GitHub CI `requirements.txt` always puts a bare `mkdocs` on PATH, so it
+  can never execute a module fallback there. These cases construct the
+  module-only state instead: a PATH with every `mkdocs`-providing directory
+  removed plus a stub `python` that answers only `-m mkdocs --version`. They
+  assert the exact command the spine selected, that a console script still wins
+  over a working module launcher, and that a host where nothing resolves reports
+  `unresolved` rather than anything that reads as a pass.
+
+## Where it runs
+
+Two places, and both matter:
+
+* **CI** — test.yml's always-on `verify-readme-links` job runs this harness on
+  every pull request, and that job is in `all-required-passed`'s `needs:`. Until
+  rf2-03298 no workflow and no npm script referenced this file at all, so every
+  assertion in it was local-only and therefore skippable.
+* **The local spine** — `scripts/test-fast-pr.sh` runs it when the diff touches
+  the spine or this fixture tree (rf2-fhdd3). No recursion: the harness invokes
+  the spine in `--plan` mode, which exits before the gate steps.
 
 Why a hand-rolled bash harness instead of extending the JS test runner? The
 spine is plain bash invoked from POSIX environments (Mac/Linux CI + Windows Git
