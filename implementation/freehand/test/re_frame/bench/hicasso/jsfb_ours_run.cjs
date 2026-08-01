@@ -207,28 +207,8 @@ const CONTROL = { row: 'create10k', against: 'run1k', lo: 8.0, hi: 13.0 };
 // Page helpers
 // ---------------------------------------------------------------------------
 
-// THE POST-PAINT SPLIT (rf2-emvod).
-//
-// The largest published disagreement between this instrument and the
-// benchmark's own is attributed to a window boundary: ours runs to
-// `setTimeout(0)` and therefore contains the macrotask AFTER the paint,
-// where the candidate's disposals and reaper passes land; theirs ends at the
-// paint commit. That attribution is supported on `clear rows`, where the
-// candidate's script term is 31.5 ms against Reagent's 14.5 while layout is
-// 0.08 ms on both — but it has never been measured on the MOUNT row, which
-// is the row whose ratio is in dispute.
-//
-// Reading the counters between the click and the settle splits the operation
-// at very nearly the boundary the two instruments differ over: everything up
-// to and including the frame the click causes, then the tail. It is not
-// exactly their boundary — a rAF callback runs before the paint, so the
-// "tail" here starts a little earlier than the paint commit — and the page
-// says so rather than claiming the two windows are identical.
-let SPLIT = null;
-
 async function click(page, sel) {
   await page.click(sel, { timeout: 30000 });
-  if (SPLIT) SPLIT.mid = await readMetrics(SPLIT.cdp);
   await settle(page);
 }
 
@@ -346,23 +326,10 @@ async function measureArm(browser, arm, row, roundIdx) {
     await settle(page);
 
     const before = await readMetrics(cdp);
-    SPLIT = { cdp, mid: null };
     await row.op(page);
-    const mid = SPLIT.mid;
-    SPLIT = null;
     const after = await readMetrics(cdp);
 
     const d = deltaOf(before, after);
-    // `head` is the operation up to the settle; `tail` is what the settle
-    // then waits through. Only meaningful when the row's op is a single
-    // click, which every row here is; a row with two clicks would have
-    // overwritten `mid` and its split is left undefined rather than
-    // silently reported as the second click's.
-    if (mid) {
-      const h = deltaOf(before, mid);
-      d.head = h.task;
-      d.tail = d.task - h.task;
-    }
 
     try {
       await row.verify(page);
@@ -493,8 +460,6 @@ async function main() {
           devtools: median(samples.map((s) => s.devtools)),
           task: median(samples.map((s) => s.task)),
           taskNet: median(samples.map((s) => s.taskNet)),
-          head: median(samples.map((s) => s.head).filter(Number.isFinite)),
-          tail: median(samples.map((s) => s.tail).filter(Number.isFinite)),
         });
       }
     }
@@ -632,27 +597,6 @@ async function main() {
   // TRACKS the arm — as it does on `clock_run.cjs`, where the operation runs
   // inside the command — it is carrying it, and this harness's published
   // ratios would need the same correction `clock_run.cjs` needed.
-  // THE POST-PAINT TAIL, which is the named mechanism for the largest
-  // disagreement with the benchmark's own driver. Reported as a RATIO of
-  // ratios: what the arm-to-arm comparison reads if the window is closed at
-  // the settle boundary rather than run through it.
-  console.log('');
-  console.log(';; THE POST-PAINT TAIL — our window runs past the frame, theirs stops at the paint commit');
-  console.log(';; row          arm             head ms   tail ms   tail%    ratio-on-head   ratio-on-whole');
-  for (const row of ROWS) {
-    const base = acc[row.id][BASE].decomp[0];
-    if (!Number.isFinite(base.head)) continue;
-    for (const arm of ARMS) {
-      const d = acc[row.id][arm].decomp[0];
-      const rHead = d.head / base.head;
-      const rWhole = d.task / base.task;
-      console.log(
-        `;; ${row.id.padEnd(12)} ${arm.padEnd(14)} ${fmt(d.head, 3).padStart(8)} ${fmt(d.tail, 3).padStart(9)}` +
-          ` ${(fmt((d.tail / d.task) * 100, 1) + '%').padStart(7)} ${fmt(rHead).padStart(15)} ${fmt(rWhole).padStart(16)}`
-      );
-    }
-  }
-
   console.log('');
   console.log(';; IS devtools TRACKING THE ARM? (spread across arms, per row)');
   for (const row of ROWS) {
