@@ -346,11 +346,14 @@ readings comparable.
 | `clock_app.cljs` | `15c4d3b1dd770c7cea3f2efa7aca4a343c55d34a` | unchanged from run 5, the audit and `rf2-yd52q` |
 | `clock_views.cljs` | `7e48dbc0b3a974cd61a5c61e606333848877a31f` | unchanged |
 | `seam.cjs` | `a6789197e1bd9744879a2c8a143e48dc643b7f26` | unchanged from `rf2-cvvb7` |
-| `clock_run.cjs` | `1d6fbb99c86f2c56d9dc0d3806e97d474b2a0224` | **this page's driver** |
+| `clock_run.cjs` | `84aa25d93b65ee55f3d28d339d57720e3a504da3` | **this page's driver** — every run of the ensemble |
+| `clock_readjudicate.cjs` | `eeba10e24bef0c23e0547cc9e91735cf274eb9be` | the ensemble arithmetic, which produced every table above |
+| `jsfb_ours_run.cjs` | `10e6e2fa80a98522694468934b1385eeed5b2a8c` | the cross-check probe in [§2.1](#21-what-the-correction-therefore-does-not-reach) |
+| `jsfb_serve.cjs` | `c198a54c42a28557b99b36f650ffc744ee32e6c4` | serves the built arms without the upstream clone |
 
 ```bash
 P=implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs
-git rev-parse <candidate>:$P   # must print 1d6fbb99c86f2c56d9dc0d3806e97d474b2a0224
+git rev-parse <candidate>:$P   # must print 84aa25d93b65ee55f3d28d339d57720e3a504da3
 ```
 
 | | |

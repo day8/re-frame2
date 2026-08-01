@@ -52,9 +52,20 @@ report.
 > refusals stand unchanged.
 >
 > The driver now reports every bar, the band and the control on **both** clocks.
-> `rf2-emvod` carries the re-adjudication of this page's rows; `rf2-ymi6j` the
-> band calibration. Full record:
+> `rf2-ymi6j` carries the band calibration. Full record:
 > [bulk broad, re-taken](bulk-broad-re-taken.md).
+>
+> **`rf2-emvod` HAS NOW RE-ADJUDICATED THESE ROWS** —
+> [the corrected clock's page](rows-re-adjudicated-on-the-corrected-clock.md) is
+> the operative one and this page is superseded on every magnitude below.
+> It also drew the boundary this banner did not have: the subtraction removes
+> the operation's script only when the operation runs **inside** a protocol
+> command, so §5's `keystroke` row — driven through the Input domain, because
+> Event Timing reports user interactions — was **never affected**, and its two
+> clocks agree to 0.3%. §4's `M1` and §6's three rows were. `taskNet` is
+> therefore a label that meant two different things on two harnesses, and the
+> [outside cross-check](cross-checked-against-an-outside-instrument.md), which
+> clicks rather than evaluates, needs no restatement either.
 
 Owner: the operator-owned standard bead `rf2-2rtt6.1`; this page `rf2-0qj9w`.
 
@@ -310,8 +321,8 @@ The bar arithmetic — two floor-normalised ratios, one against the other:
 
 | row | measured | range | disposition |
 |---|---:|---|---|
-| **`hicasso / reagent-subs`** | **1.2107×** | [0.9756 – 1.7208] | above the `≤ 1.0×` win condition and above the `1.0150×` red zone; **range straddles 1.0** |
-| **`hicasso / uix-subs`** | **1.1865×** | [0.9753 – 1.3722] | **range straddles 1.0** |
+| ~~**`hicasso / reagent-subs`**~~ | ~~1.2107×~~ | [0.9756 – 1.7208] | **SUPERSEDED — frame-only.** Reads **1.4896×** [1.3488 – 1.5989] on the corrected clock, and **1.3737×** [1.3289 – 1.4331] on `rf2-emvod`'s heavier-regime ensemble. Above the `≤ 1.0×` win condition and the `1.0150×` red zone on all three, and the range no longer straddles 1.0 |
+| ~~**`hicasso / uix-subs`**~~ | ~~1.1865×~~ | [0.9753 – 1.3722] | **SUPERSEDED.** Reads **1.5001×** on the corrected clock and **1.4656×** [1.3819 – 1.5088] on `rf2-emvod`'s ensemble; no longer straddles 1.0 |
 
 **What that means against the gates.** The P1 win condition is *mount ≤ 1.0×
 Reagent-on-subs, same run and same instrument*, and the restated M1 red zone is
@@ -361,6 +372,19 @@ On the substrate arms the in-page window is wrong by a factor of three to nine
 and — the part that matters — **wrong by a different factor per arm**. It is not
 a scale error that cancels in a ratio: on M1 it would put `hicasso / reagent` at
 1.56× where the frame-inclusive clock reads 1.21×.
+
+> **THE SEPARATION IS REAL AND THIS MECHANISM STATEMENT IS WRONG (`rf2-yd52q`,
+> measured by `rf2-emvod`).** The `+300–610%` above is not one window
+> mis-reading another; it is what two **near-complementary** windows look like
+> when one arm's work is mostly script. The right-hand column is the frame with
+> the script removed and the left-hand column is very nearly the script alone,
+> so the two are not a subset and a superset at all. In milliseconds on `M1`,
+> per sample, pooled over `rf2-emvod`'s seven runs: `hicasso` reads **8.507 ms**
+> in-page and **5.520 ms** on `taskNet`, and its raw `TaskDuration` is
+> **14.738 ms** — the two windows add to the whole, less the tare, on every arm.
+> **A percentage difference between complements is not an error rate**, and the
+> figures in this table should be read as the split between the two halves
+> rather than as one instrument's inaccuracy.
 
 The reason is visible in the decomposition. A substrate arm's mount spends
 roughly a third of its frame-inclusive cost inside `flushSync` and the rest
@@ -420,6 +444,16 @@ frame budget:
 `hicasso / reagent-subs` = **0.9678×** [0.5318 – 1.3259] and
 `hicasso / uix-subs` = **1.0500×** [0.9119 – 1.2033]; both straddle 1.0.
 
+> **THIS ROW SURVIVES THE CORRECTION UNCHANGED, and it is the only one that
+> does (`rf2-emvod`).** Its operation is a real key through the protocol's
+> **Input domain**, not a `page.evaluate`, so `DevToolsCommandDuration` never
+> held its script — `ScriptDuration` reads **49.97 ms** on the `ctl-50ms` arm
+> here against 0.02–0.06 ms on every arm of every other row, and the `devtools`
+> term varies by **0.069 ms** across arms that differ by 50 ms of work. On raw
+> `TaskDuration` the same bar reads **1.0049×** against the 1.0078× above: a
+> **0.3%** move, where `M1` moves 27%. The figures in this section are
+> script-and-frame readings already.
+
 Two things belong beside them. **The keystroke floor is not a lower bound**, and
 the first draft of this witness labelled it one. A `useState` write re-renders
 the whole 101-element tree top-down; a subscription write re-renders only the
@@ -433,6 +467,17 @@ to.
 ---
 
 ## 6. The three rows this page refuses
+
+> **STILL REFUSED ON THE CORRECTED CLOCK, and two of them change sign
+> (`rf2-emvod`).** On raw `TaskDuration`, `hicasso / reagent-subs` reads
+> **1.1494×** on `bulk300` (from 1.0703×), **1.1089×** on `bulk100` (from
+> 0.9859× — below parity to above it), and **1.0236×** on `narrow`. The
+> controls still fail: 3, 2 and 4 runs of seven. A frame-**only** clock reads
+> the half of an update the two arms share — both writes produce the same
+> 901-element page — and dilutes the half where they differ toward 1.0, which
+> is why these rows looked quieter than they are. `narrow` is the exception and
+> genuinely reads parity. Full adjudication:
+> [the corrected clock's page](rows-re-adjudicated-on-the-corrected-clock.md#4-the-rows).
 
 `bulk300`, `bulk100` and `narrow` were measured, and their magnitudes are **not
 reportable**. In run 5 the numbers are perfectly quiet-looking — seams of 3.8%,
@@ -647,6 +692,18 @@ Filed rather than attempted here, because each is a different instrument:
   even a perfect instrument reads below 2.00 and the control is mis-specified
   for the row rather than the clock being wrong. A control that doubles the
   *changed set* at fixed page size is the right one.
+
+    **NECESSARY AND NOT SUFFICIENT (`rf2-emvod`).** The mount row undershoots
+    too — `ctl-2x` reads **1.8173×** on `M1` over seven runs, where this bullet
+    predicts it should be clean. A single additive per-sample cost the tare does
+    not remove fits all four rows at once: inverting `(2W + c)/(W + c)` gives
+    `c` = **1.040 / 1.043 / 0.873 / 0.790 ms** on `M1` / `bulk300` / `bulk100` /
+    `narrow`, on floors spanning 3.58–5.70 ms and work spanning a 901-element
+    cold mount to a one-cell write. Doubling the changed set removes the
+    update-row confound and leaves `c` exactly where it is, because
+    `(2D + c)/(D + c)` has the same shape. What removes `c` is a **three-point**
+    control — dirty ε, `D`, `2D`, adjudicated as
+    `(T(2D) − T(ε)) / (T(D) − T(ε))`. Carried by `rf2-7iqb5`.
 - ~~**The segment seam, measured rather than assumed to cancel.**~~ **Done —
   [§6.1](#61-the-seam-measured-against-load), `rf2-cvvb7`.** A nineteen-run load
   ladder and an exact within-round relabelling null answered it without needing
