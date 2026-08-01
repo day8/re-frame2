@@ -30,9 +30,11 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 // are the only form every supported Bash flavour accepts unchanged — see
 // the `run()` comment for the cross-platform rationale (rf2-6m7pn4).
 const SCRIPT_REL = '.github/scripts/transform-reagent-slim-ns.sh';
-// Scratch root for fixtures, kept INSIDE the repo (not os.tmpdir()) so a
-// repo-relative path reaches it. `.scratch/` is gitignored.
-const SCRATCH_ROOT = path.join(REPO_ROOT, '.scratch');
+// Fixtures are kept INSIDE the repo (not os.tmpdir()) so a repo-relative
+// path reaches them; `.scratch/` is gitignored. Each lane is scoped to THIS
+// process and torn down individually — the shared root is never removed, so
+// a concurrent suite's fixtures cannot be deleted underneath it (rf2-2i1ay).
+const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const tests = [];
 function test(name, fn) {
@@ -56,13 +58,12 @@ const SAMPLE_SOURCE = [
 ].join('\n');
 
 // Build a throwaway adapter dir with the slim source file at the path the
-// script expects. The dir is created UNDER the repo (SCRATCH_ROOT) so the
+// script expects. The dir is created UNDER the repo (`.scratch/`) so the
 // test can address it with a repo-relative path. Returns { dir, rel, src,
 // dst } where `dir` is the absolute path (for fs assertions) and `rel` is
 // the forward-slashed path relative to REPO_ROOT (handed to bash).
 function makeFixture({ withSource = true, withDest = false, nsForm = SLIM_NS_FORM } = {}) {
-  fs.mkdirSync(SCRATCH_ROOT, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'rf2-slim-ns-'));
+  const dir = makeScratchDir(REPO_ROOT, 'rf2-slim-ns');
   const adapterDir = path.join(dir, 'src', 're_frame', 'adapter');
   fs.mkdirSync(adapterDir, { recursive: true });
   const src = path.join(adapterDir, 'reagent_slim.cljs');
@@ -127,7 +128,7 @@ function run(fixture) {
 }
 
 function cleanup() {
-  fs.rmSync(SCRATCH_ROOT, { recursive: true, force: true });
+  cleanupScratchDirs();
 }
 
 test('success: renames reagent_slim.cljs → reagent.cljs and rewrites the ns form', () => {

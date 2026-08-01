@@ -36,8 +36,10 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const SCRIPT_REL = '.github/scripts/rewrite-local-root-coord.sh';
 const RELEASE_YML = path.join(REPO_ROOT, '.github', 'workflows', 'release.yml');
 // Fixtures live INSIDE the repo (gitignored `.scratch/`) so a repo-relative
-// path reaches them under every supported Bash flavour.
-const SCRATCH_ROOT = path.join(REPO_ROOT, '.scratch');
+// path reaches them under every supported Bash flavour. Lanes are
+// process-scoped and the shared root is never removed, so a concurrent
+// suite cannot delete this one's fixtures mid-run (rf2-2i1ay).
+const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const VERSION = '9.9.9-TEST';
 
@@ -56,8 +58,7 @@ function shQuote(s) {
 
 // Write `body` to a throwaway deps.edn and return its repo-relative path.
 function fixture(body) {
-  fs.mkdirSync(SCRATCH_ROOT, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'rf2-local-root-'));
+  const dir = makeScratchDir(REPO_ROOT, 'rf2-local-root');
   const abs = path.join(dir, 'deps.edn');
   fs.writeFileSync(abs, body);
   return { abs, rel: relPosix(abs) };
@@ -74,7 +75,7 @@ function run(depsEdnRel, localRoot, version = VERSION) {
 }
 
 function cleanup() {
-  fs.rmSync(SCRATCH_ROOT, { recursive: true, force: true });
+  cleanupScratchDirs();
 }
 
 // A minimal leaf deps.edn carrying the core coordinate plus a sibling

@@ -38,7 +38,10 @@ const path = require('path');
 const IMPL_ROOT = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const SCRIPT_REL = '.github/scripts/preflight-story-package.sh';
-const SCRATCH_ROOT = path.join(REPO_ROOT, '.scratch');
+// Process-scoped fixture lanes under the gitignored in-repo `.scratch/`;
+// the shared root is never removed, so a concurrent suite cannot delete
+// this one's fixtures mid-run (rf2-2i1ay).
+const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const VERSION = '0.0.1.alpha';
 
@@ -118,8 +121,7 @@ function shQuote(s) {
 }
 
 function makeFixture({ pom = REWRITTEN_POM } = {}) {
-  fs.mkdirSync(SCRATCH_ROOT, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'rf2-story-preflight-'));
+  const dir = makeScratchDir(REPO_ROOT, 'rf2-story-preflight');
 
   if (pom !== null) {
     const pomDir = path.join(
@@ -154,7 +156,7 @@ function run(fixture, version = VERSION) {
 }
 
 function cleanup() {
-  fs.rmSync(SCRATCH_ROOT, { recursive: true, force: true });
+  cleanupScratchDirs();
 }
 
 function expectPass(fixture, what, version = VERSION) {

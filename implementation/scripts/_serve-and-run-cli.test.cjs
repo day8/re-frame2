@@ -90,7 +90,10 @@ test('a --root with no value fails fast (rf2-hmgwk2)', () => {
 test('a CLI --root cannot bypass the path policy (rf2-hmgwk2 / rf2-o38lb)', () => {
   // An out-of-tree root must be refused by enforcePolicy exactly as a
   // BROWSER_TEST_ROOT env override would be — the CLI is not an escape hatch.
-  const outOfTree = path.join(os.tmpdir(), 'rf2-hmgwk2-out-of-tree');
+  // Process-scoped name: a FIXED machine-global path is shared by every
+  // concurrent worktree on the box, and the policy this asserts is about
+  // the path being out-of-tree, not about its spelling (rf2-2i1ay).
+  const outOfTree = path.join(os.tmpdir(), `rf2-hmgwk2-out-of-tree-${process.pid}`);
   const { status, out } = runWith(['--root', outOfTree]);
   assert.notEqual(status, 0, `expected non-zero exit; got ${status}`);
   assert.match(
