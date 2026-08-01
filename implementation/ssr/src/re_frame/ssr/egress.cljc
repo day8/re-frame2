@@ -74,51 +74,148 @@
 ;; This is the EP-0015 diagnostics/egress relationship in its ordinary form —
 ;; the dev trace keeps the rich (scrubbed) map, and the production record is a
 ;; strict projection of it, not a copy.
+;;
+;; AND A CLOSED SET OF KEYS IS NOT YET A CLOSED SET OF VALUES.
+;; The first tightening carried the PARSED `:scheme` and `:host` as strings,
+;; on the reasoning that a parsed URL component is structural.  It is not.
+;; Parsing says where a substring sat in the grammar; it says nothing about
+;; who wrote it, and on this path the answer is always "whoever is probing":
+;;
+;;   - `s3cr3t-probe-token:payload` takes the non-http(s) arm with the scheme
+;;     `"s3cr3t-probe-token"` — a scheme is any `ALPHA *( ALPHA / DIGIT / "+"
+;;     / "-" / "." )` (RFC 3986 §3.1), so its content is the attacker's to
+;;     choose and its length is unbounded,
+;;   - `https://s3cr3t-reset-token.evil.example/` takes the allowlist arm with
+;;     that whole host — a DNS name is up to 253 octets of attacker-chosen
+;;     labels (RFC 1035 §2.3.4), and it is by construction a name the app did
+;;     NOT authorise.
+;;
+;; Two costs, both borne by the operator rather than the prober.  CONTENT: a
+;; sentinel rides out under a key everyone reads as structural.  CARDINALITY:
+;; one probe run with a fresh host per request writes unbounded distinct
+;; values into a metrics dimension, which is how an observability bill and a
+;; dashboard get DoS'd by the very records meant to reveal the DoS.
+;;
+;; So the always-on record now carries CLASSES, not components.  `:scheme`
+;; becomes [[safe-redirect-scheme-class]] — a lookup into the framework's own
+;; closed scheme vocabulary, so the prober selects a bucket and never names
+;; one — and `:host` is dropped entirely, for the reasons at
+;; [[safe-redirect-record-slots]].  Every value the record can carry is now a
+;; framework-owned keyword or the frame's own id: bounded in size, bounded in
+;; cardinality, and incapable of transporting a byte the caller chose.
+
+(def scheme-classes
+  "The framework's own closed scheme vocabulary, as a lookup from the
+  lower-cased scheme string to the CLASS KEYWORD the always-on record may
+  carry. Exactly the union of `re-frame.ssr.response`'s two closed sets — the
+  three schemes the gate rejects outright (`rejected-schemes`) and the two a
+  redirect `Location` may legitimately carry (`allowed-schemes`) — pinned to
+  that union by a parity test, since a scheme the gate names but this map does
+  not would silently degrade to `:other` and cost the operator the very
+  distinction the gate drew.
+
+  A LOOKUP, deliberately, and never `(keyword attacker-string)`: constructing
+  a keyword from caller input interns the attacker's chosen name into the
+  runtime, which is the leak with a longer half-life than the record."
+  {"javascript" :javascript
+   "data"       :data
+   "vbscript"   :vbscript
+   "http"       :http
+   "https"      :https})
+
+(def ^:private longest-known-scheme
+  "Length of the longest scheme in [[scheme-classes]]. A scheme longer than
+  this cannot be one of them, so [[safe-redirect-scheme-class]] can answer
+  `:other` without lower-casing — an oversized scheme is then never copied,
+  only measured."
+  (apply max (map count (keys scheme-classes))))
+
+(defn safe-redirect-scheme-class
+  "Classify a parsed URL scheme into [[scheme-classes]], or `:other`. Returns
+  nil when there is no scheme to classify (a relative reference, or an arm
+  whose input never parsed), so the slot is omitted rather than carried as
+  nil.
+
+  This is what makes the always-on record's discriminator SAFE BY
+  CONSTRUCTION rather than merely well-named. The scheme grammar (RFC 3986
+  §3.1) admits any `ALPHA *( ALPHA / DIGIT / \"+\" / \"-\" / \".\" )`, so a
+  probe of `s3cr3t-probe-token:payload` reaches the non-http(s) arm carrying
+  that whole string as its \"parsed component\". Parsing located it in the
+  grammar; it did not make it structural. Mapping it into a five-member
+  vocabulary plus `:other` means the caller picks a bucket and never spells
+  one: the value's content, its length and its cardinality all become the
+  framework's, and the operator keeps the distinction that was ever worth
+  aggregating — WHICH class of scheme is being probed.
+
+  Case is folded first, because schemes are case-insensitive (RFC 3986 §3.1)
+  and a prober alternating case would otherwise fragment one spike across
+  buckets — an evasion that costs the attacker nothing and costs the operator
+  the signal."
+  [scheme]
+  (when (string? scheme)
+    (if (<= (count scheme) longest-known-scheme)
+      (get scheme-classes (str/lower-case scheme) :other)
+      :other)))
 
 (def safe-redirect-record-slots
   "The CLOSED set of tag slots the ALWAYS-ON `:rf.error/safe-redirect-*`
   record may carry off-box, over and above the `:error` / `:time` the
   union-record helper assoc's.
 
-  Every member is either framework-owned or a PARSED URL COMPONENT — never a
-  URL, never caller-supplied policy data:
+  Every member is framework-owned — a value this runtime chose, not one the
+  caller supplied and not one parsed out of what the caller supplied:
 
-    `:frame`     the frame id — attribution, so a multi-tenant host knows
-                 which app was probed.
-    `:recovery`  fixed `:no-recovery`.
-    `:reason`    a closed framework keyword naming which gate arm fired.
-    `:scheme`    the parsed, lower-cased scheme (`\"javascript\"`) — the
-                 aggregatable probe class.
-    `:host`      the parsed, lower-cased host (`\"evil.example.com\"`) — the
-                 target, which an operator can block or recognise as their
-                 own misconfiguration.
+    `:frame`         the frame id — attribution, so a multi-tenant host knows
+                     which app was probed.
+    `:recovery`      fixed `:no-recovery`.
+    `:reason`        a closed framework keyword naming which gate arm fired.
+    `:scheme-class`  [[safe-redirect-scheme-class]] — the probe class, one of
+                     `:javascript` / `:data` / `:vbscript` / `:http` /
+                     `:https` / `:other`.
 
-  Deliberately ABSENT: `:location` (the attacker's URL, in any form, scrubbed
-  or not) and `:allowlist` (the application's own security configuration —
-  unbounded policy data whose contents hand a reader the exact boundary being
-  probed, and which `:reason :not-in-allowlist` already discriminates without
-  disclosing)."
-  #{:frame :recovery :reason :scheme :host})
+  Deliberately ABSENT, each for its own reason:
 
-(def ^:private normalised-slots
-  "The projected slots that are PARSED URL COMPONENTS, and so must be
-  case-normalised to aggregate. `:frame` / `:recovery` / `:reason` are
-  framework-owned values that already have one spelling each."
-  #{:scheme :host})
+    `:location`   the caller's URL, in any form, scrubbed or not.
+    `:allowlist`  the application's own security configuration — unbounded
+                  policy data whose contents hand a reader the exact boundary
+                  being probed, and which `:reason :not-in-allowlist` already
+                  discriminates without disclosing.
+    `:scheme`     the raw parsed scheme, superseded by `:scheme-class`.
+    `:host`       the raw parsed host, dropped outright.
 
-(defn- normalise-component
-  "Lower-case a parsed URL component so it AGGREGATES. Schemes are
-  case-insensitive (RFC 3986 §3.1) and DNS labels likewise (RFC 1035 §2.3.3),
-  so without this a prober alternating case fragments one spike across many
-  dashboard buckets — an evasion that costs the attacker nothing and costs
-  the operator the signal. Non-strings ride back unchanged."
-  [v]
-  (if (string? v) (str/lower-case v) v))
+  `:host` is the one worth arguing, because it reads like the most useful
+  thing here — \"which target?\". Three facts settle it. It is a name the app
+  did NOT authorise, on EVERY arm that carries it (that is what
+  `:relative-only-violation` and `:not-in-allowlist` mean), so there is no arm
+  on which it is trusted. The framework already refused the redirect, so no
+  defensive action depends on reading it back — there is nothing left to
+  block. And it is the last unbounded caller-authored string in the record:
+  up to 253 octets of attacker-chosen labels (RFC 1035 §2.3.4) that can carry
+  a sentinel outright and can be varied per request to write unbounded
+  distinct values into a metrics dimension. Weighed against a signal the
+  `:reason` already carries, EP-0015's fail-closed default decides it. The
+  dev trace keeps `:host` and the scrubbed `:location` for the operator
+  standing at their own process."
+  #{:frame :recovery :reason :scheme-class})
+
+(def ^:private record-slot-sources
+  "For each slot in [[safe-redirect-record-slots]], the DIAGNOSTIC tag it
+  derives from and the fn that derives it. Two maps rather than one because
+  the record's vocabulary is deliberately NOT the diagnostics' — `:scheme-class`
+  is a classification of the diagnostics' `:scheme`, not a copy of it, and a
+  name that differs is the honest way to say so to whoever reads the sink.
+
+  A slot with no entry here yields nothing, so the fail-closed direction holds
+  even against a half-finished edit."
+  {:frame        [:frame    identity]
+   :recovery     [:recovery identity]
+   :reason       [:reason   identity]
+   :scheme-class [:scheme   safe-redirect-scheme-class]})
 
 (defn safe-redirect-record-tags
   "Project the safe-redirect DIAGNOSTIC tag map down to the closed structural
   map the always-on error axis may ship off-box: [[safe-redirect-record-slots]]
-  only, with `:scheme` / `:host` normalised for aggregation.
+  only, each slot derived through [[record-slot-sources]].
 
   Applied by `re-frame.ssr.response`'s `dispatch-safe-redirect-record!` — the
   one function that reaches the `:error-emit/dispatch-error-record` hook — so
@@ -127,22 +224,22 @@
 
   Note the direction: the result is BUILT FROM the closed slot set rather than
   filtered down to it, so an unrecognised tag has no path into the record even
-  in principle. A slot whose component did not parse is omitted rather than
+  in principle. A slot whose derivation yields nil is omitted rather than
   carried as nil, which is why the per-arm key sets differ — each arm names
   exactly the discriminators it actually had.
 
-  The result is intentionally SMALL. Losing the exact URL in production is a
-  good trade: an operator keeps an aggregatable probe class, the target host,
-  the arm that fired and the frame, without accepting credentials, opaque path
-  material, arbitrary attacker-chosen query keys or unbounded policy data. If
-  richer local diagnosis is wanted, it is already on the dev trace beside
-  this — derive a further view deliberately rather than widening what a
-  `-Dre-frame.debug=false` build sends to Sentry."
+  The result is intentionally SMALL, and every value in it is a framework-owned
+  keyword or the frame's own id. That is the property to preserve when editing:
+  not merely that the KEYS are enumerated, but that no VALUE is a byte the
+  caller chose. An operator keeps the probe class, the arm that fired, the
+  frame and — by counting the records — the rate, which is what turns one bad
+  target into visible probing. If richer local diagnosis is wanted it is
+  already on the dev trace beside this; derive a further view deliberately
+  rather than widening what a `-Dre-frame.debug=false` build sends to Sentry."
   [tags]
   (into {}
         (keep (fn [slot]
-                (when-some [v (get tags slot)]
-                  [slot (if (normalised-slots slot)
-                          (normalise-component v)
-                          v)])))
+                (let [[source derive] (record-slot-sources slot)]
+                  (when-some [v (some-> (get tags source) derive)]
+                    [slot v]))))
         safe-redirect-record-slots))

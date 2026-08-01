@@ -864,7 +864,15 @@
 ;; `http:evil.example.com` that defeat a host-presence-only test.
 
 (def ^:private rejected-schemes
-  "Closed set of schemes the safe-redirect effect rejects outright."
+  "Closed set of schemes the safe-redirect effect rejects outright.
+
+  This set and [[allowed-schemes]] are also the always-on record's CLASS
+  vocabulary: their union is mirrored by `egress/scheme-classes`, which turns
+  a caller-chosen scheme string into one of these framework-owned keywords
+  before it can egress. A scheme added here must be added there too, and a
+  parity test in `re-frame.ssr-safe-redirect-production-test` reddens if it
+  is not — the failure would otherwise be silent, the new scheme degrading to
+  `:other` on every dashboard that was watching for it."
   #{"javascript" "data" "vbscript"})
 
 (def ^:private allowed-schemes
@@ -928,7 +936,10 @@
   subset before the always-on axis sees it (rf2-6jqa8 AUDIT-REOPEN — see
   `egress/safe-redirect-record-tags`). That is the ordinary EP-0015
   relationship: a local operator sees their own process in full, and the
-  off-box record is a strict projection of it, never a copy.
+  off-box record is a strict projection of it, never a copy. Note that the
+  projection is by NAME as well as by slot — the record's `:scheme-class` is a
+  classification of this map's `:scheme`, not a copy of it — so nothing here
+  can widen the record by accident.
 
   EP-0015 (rf2-6jqa8): `:location` is BY CONSTRUCTION caller-untrusted —
   that is the entire reason `:rf.server/safe-redirect` exists as the sibling
@@ -941,10 +952,13 @@
   HERE, before the tags reach either axis. So the scrub covers the always-on
   production record exactly as it covers the dev trace.
 
-  Nothing else in the map is caller data: `:frame` is a frame id, `:scheme`
-  and `:host` are parsed URL components, `:reason` is a framework enum (one
-  string on the parse-failure arm), `:allowlist` is the CALL'S OWN policy
-  input, and `:recovery` is fixed."
+  What this map still carries, and why that is fine HERE: `:scheme` and
+  `:host` are parsed out of the caller's URL, so they are caller-authored text
+  however structural they look — the premise the AUDIT-REOPEN corrected — and
+  `:allowlist` is the call's own security configuration. All three are exactly
+  right for a programmer reading their own process, and all three are excluded
+  from the off-box record for that same reason. `:frame` is a frame id,
+  `:reason` is a framework enum, and `:recovery` is fixed."
   [tags]
   (-> (merge {:recovery :no-recovery} tags)
       (url-egress/redact-url-tag :location)))
@@ -977,20 +991,29 @@
   Returns nil.
 
   EGRESS (rf2-6jqa8 AUDIT-REOPEN). `tags` arrives as the DIAGNOSTIC map — the
-  scrubbed `:location`, the `:allowlist`, everything the dev trace shows — and
-  this function is the ONE place that reaches an off-box shipper, so it is
-  where the diagnostics are projected down to
-  `egress/safe-redirect-record-tags`: a closed set of parsed STRUCTURAL
-  components, no URL in any form, no allowlist. Projecting HERE rather than at
-  the eight call sites is what makes it fail-closed — a future emit arm cannot
-  forget, and a tag slot added upstream has no route to Sentry unless someone
-  edits `egress/safe-redirect-record-slots` and reddens the test pinning it.
+  scrubbed `:location`, the `:host`, the `:allowlist`, everything the dev trace
+  shows — and this function is the ONE place that reaches an off-box shipper,
+  so it is where the diagnostics are projected down to
+  `egress/safe-redirect-record-tags`: `#{:frame :recovery :reason
+  :scheme-class}` and nothing else. Projecting HERE rather than at the eight
+  call sites is what makes it fail-closed — a future emit arm cannot forget,
+  and a tag slot added upstream has no route to Sentry unless someone edits
+  `egress/safe-redirect-record-slots` and reddens the test pinning it.
 
   Why a projection and not a wider scrub is argued in full in
   `re-frame.ssr.egress`; the short version is that a rejected target is an
   ARBITRARY FOREIGN URL, so the carrier scrub's keep-everything-but-the-
   carriers shape left userinfo credentials, path-borne tokens and
-  attacker-chosen value-less query keys riding out verbatim."
+  attacker-chosen value-less query keys riding out verbatim.
+
+  And why CLASSES rather than the parsed components themselves is the second
+  half of the same argument: parsing tells you where a substring sat in the
+  grammar, not who wrote it. `:scheme` and `:host` were caller-authored on
+  every arm that carried them — a scheme is arbitrary text under RFC 3986
+  §3.1, a rejected host is by definition one the app did not authorise — so
+  each could carry a sentinel and each could be varied per request to flood a
+  metrics dimension. The record now carries the classified `:scheme-class` and
+  no host at all, leaving no value in it that the caller chose."
   [operation tags]
   (when-let [dispatch-error-record!
              (late-bind/get-fn :error-emit/dispatch-error-record)]

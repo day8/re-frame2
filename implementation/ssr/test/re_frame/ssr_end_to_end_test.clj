@@ -62,10 +62,12 @@
     `-multiple-redirects`), the `:rf.ssr/hydration-mismatch` /
     head-mismatch traces, and the RICH diagnostics that the always-on
     record deliberately does not carry — the Spec 010 step-5
-    `:rf.error/schema-validation-failure`, and safe-redirect's
-    `:allowlist` tag, which `re-frame.ssr.egress/safe-redirect-record-slots`
-    excludes on purpose (an app's own security configuration must not ride
-    off-box).
+    `:rf.error/schema-validation-failure`, and safe-redirect's `:allowlist`,
+    `:host` and raw `:scheme` tags, which
+    `re-frame.ssr.egress/safe-redirect-record-slots` excludes on purpose (an
+    app's own security configuration must not ride off-box, and neither must
+    the caller's unbounded URL components — see the `capture-safe-redirect-*`
+    contracts).
 
   NEGATIVES MOVED WITH THEIR POSITIVES. A `(is (empty? traces))` or
   `(is (not-any? … ))` over the dev trace ring passes AUTOMATICALLY under
@@ -1761,12 +1763,24 @@
 
   WHAT AXIS 1 DOES NOT CARRY. The record is a CLOSED STRUCTURAL PROJECTION
   (`re-frame.ssr.egress/safe-redirect-record-slots` =
-  `#{:frame :recovery :reason :scheme :host}`). `:scheme`, `:host` and
-  `:reason` — everything the assertions below discriminate on — survive it.
-  `:location` and `:allowlist` are excluded ON PURPOSE: the attacker's URL
-  and the application's own security configuration must not ride off-box.
-  The single assertion that reads `:allowlist` is therefore the one genuine
-  dev arm in this cluster, and it is marked as such at its site."
+  `#{:frame :recovery :reason :scheme-class}`), and every value in it is a
+  framework-owned keyword or the frame's own id — not merely a closed set of
+  KEYS but a closed set of VALUES. `:reason` and `:scheme-class` are what the
+  assertions below discriminate on.
+
+  Excluded ON PURPOSE, each for its own reason: `:location` (the caller's
+  URL), `:allowlist` (the application's own security configuration), and —
+  since rf2-6jqa8's second AUDIT-REOPEN — the raw `:scheme` and `:host`. The
+  last two look structural because they are parsed, but parsing says where a
+  substring sat in the grammar, not who wrote it: a scheme is arbitrary text
+  under RFC 3986 §3.1 and a rejected host is by construction a name the app
+  did NOT authorise, so each could carry a sentinel and each could be varied
+  per request to flood a metrics dimension. `:scheme` therefore arrives as the
+  classified `:scheme-class`, and `:host` does not arrive at all.
+
+  The assertions that read `:allowlist`, `:host` or a raw `:scheme` spelling
+  are therefore the genuine dev arms in this cluster, each marked as such at
+  its site and read off axis 2, where the diagnostics arrive whole."
   [body-fn]
   (let [traces (atom [])
         tag    (keyword "rf2-lwtlk" (str "sr-cap-" (name (gensym "c"))))]
@@ -1781,9 +1795,11 @@
 (defn- capture-safe-redirect-dev-traces!
   "The DEV-ONLY companion to [[capture-safe-redirect-traces!]], reading
   `trace/emit-error!`'s axis-2 surface — which receives the diagnostics
-  WHOLE rather than projected. rf2-lwtlk: used at exactly one site, for the
-  `:allowlist` tag that `safe-redirect-record-slots` excludes from the
-  always-on record by design."
+  WHOLE rather than projected. rf2-lwtlk: used at the handful of sites that
+  read a tag `safe-redirect-record-slots` excludes from the always-on record
+  by design — `:allowlist` (the app's own security configuration), `:host`
+  and the raw `:scheme` spelling (the caller's unbounded URL components,
+  excluded under rf2-6jqa8's second AUDIT-REOPEN)."
   [body-fn]
   (let [traces (atom [])
         tag    (keyword "rf2-lwtlk" (str "sr-dev-cap-" (name (gensym "c"))))]
@@ -1834,8 +1850,9 @@
       (is (= 1 (count hits))
           ":rf.error/safe-redirect-scheme-rejected fires exactly once")
       (when (seq hits)
-        (is (= "javascript" (-> hits first :tags :scheme))
-            ":scheme tag names the rejected scheme"))
+        (is (= :javascript (-> hits first :tags :scheme-class))
+            ":scheme-class names the probe class — a framework keyword from
+             the gate's own vocabulary, not the caller's scheme string"))
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))))
 
@@ -1849,9 +1866,9 @@
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/data] {:frame f})))]
       (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                      (= "data" (-> % :tags :scheme)))
+                      (= :data (-> % :tags :scheme-class)))
                 traces)
-          ":rf.error/safe-redirect-scheme-rejected fires with :scheme \"data\""))))
+          ":rf.error/safe-redirect-scheme-rejected fires with :scheme-class :data"))))
 
 (deftest safe-redirect-rejects-vbscript-scheme
   (testing "rf2-2brsn step 2: vbscript: scheme rejected (IE-era VBScript exec)"
@@ -1863,9 +1880,9 @@
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/vbscript] {:frame f})))]
       (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                      (= "vbscript" (-> % :tags :scheme)))
+                      (= :vbscript (-> % :tags :scheme-class)))
                 traces)
-          ":rf.error/safe-redirect-scheme-rejected fires with :scheme \"vbscript\""))))
+          ":rf.error/safe-redirect-scheme-rejected fires with :scheme-class :vbscript"))))
 
 (deftest safe-redirect-scheme-rejection-is-case-insensitive
   (testing "rf2-2brsn step 2: JavaScript: / DATA: / VBScript: all rejected
@@ -1902,10 +1919,25 @@
         (let [ev (first hits)]
           (is (= :relative-only-violation (-> ev :tags :reason))
               ":reason discriminates the two host-disallowed modes")
-          (is (= "evil.example.com" (-> ev :tags :host))
-              ":host tag names the rejected host")))
+          (is (nil? (-> ev :tags :host))
+              ":host is DEV-ONLY (rf2-6jqa8 second AUDIT-REOPEN) — a rejected
+               host is by construction one the app did not authorise, so it is
+               caller-authored text that could carry a sentinel and could be
+               varied per request to flood a metrics dimension. The refusal is
+               already made; `:reason` carries what an operator acts on")))
       (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))))
+          "rejection is a no-op"))
+
+    ;; rf2-lwtlk DEV ARM — `:host` on axis 2, where the diagnostics arrive
+    ;; whole and the reader is standing at their own process.
+    (when interop/debug-enabled?
+      (testing "rf2-2brsn step 3 (dev diagnostics): the dev trace names the
+                rejected host itself"
+        (let [f      (frame/make-anon-frame-record! {:platform :server})
+              traces (capture-safe-redirect-dev-traces!
+                       (fn [] (rf/dispatch-sync [:sr/abs-with-relative-only] {:frame f})))]
+          (is (some #(= "evil.example.com" (-> % :tags :host)) traces)
+              ":host names the rejected host on the diagnostic axis"))))))
 
 (deftest safe-redirect-relative-only-accepts-relative-path
   (testing "rf2-2brsn step 3 happy path: :relative-only? true + relative URL →
@@ -1947,23 +1979,26 @@
         (let [ev (first hits)]
           (is (= :not-in-allowlist (-> ev :tags :reason))
               ":reason discriminates from the relative-only case")
-          (is (= "evil.example.com" (-> ev :tags :host))
-              ":host names the rejected host")))
+          (is (nil? (-> ev :tags :host))
+              ":host is DEV-ONLY (rf2-6jqa8 second AUDIT-REOPEN) — see the
+               dev arm below")))
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))
 
-    ;; rf2-lwtlk DEV ARM — the ONE safe-redirect tag that is genuinely
-    ;; dev-only. `:allowlist` is deliberately absent from the always-on
-    ;; record: `re-frame.ssr.egress/safe-redirect-record-slots` excludes it
-    ;; because an application's own security configuration is unbounded
-    ;; policy data whose contents hand a reader the exact boundary being
-    ;; probed. `:reason :not-in-allowlist` already discriminates the arm
-    ;; without disclosing it — which is why the assertions ABOVE stayed
-    ;; always-on and only this one moved. Kept verbatim, read off axis 2,
-    ;; where the diagnostics arrive whole.
+    ;; rf2-lwtlk DEV ARM — the safe-redirect tags that are genuinely dev-only.
+    ;; `:allowlist` is deliberately absent from the always-on record:
+    ;; `re-frame.ssr.egress/safe-redirect-record-slots` excludes it because an
+    ;; application's own security configuration is unbounded policy data whose
+    ;; contents hand a reader the exact boundary being probed. `:host` joined
+    ;; it under rf2-6jqa8's second AUDIT-REOPEN for the mirror-image reason —
+    ;; it is the CALLER's unbounded string, on an arm where it is by
+    ;; construction a name the app did not authorise. `:reason
+    ;; :not-in-allowlist` discriminates the arm without either. Read off axis
+    ;; 2, where the diagnostics arrive whole.
     (when interop/debug-enabled?
       (testing "rf2-2brsn step 4 (dev diagnostics): the dev trace carries the
-                allowlist vector itself, for the programmer reading a log"
+                rejected host and the allowlist vector itself, for the
+                programmer reading a log"
         (rf/reg-event :sr/not-in-allow-dev
           (fn [_ _]
             {:fx [[:rf.server/safe-redirect
@@ -1976,6 +2011,8 @@
                                         (:operation %)) traces))]
           (is (some? ev)
               ":rf.error/safe-redirect-host-disallowed reached the dev trace")
+          (is (= "evil.example.com" (-> ev :tags :host))
+              ":host names the rejected host on the diagnostic axis")
           (is (= ["app.example.com" "alt.example.com"]
                  (-> ev :tags :allowlist))
               ":allowlist tag carries the allowlist vector for diagnostic clarity"))))))
@@ -2118,10 +2155,20 @@
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/mailto] {:frame f})))]
       (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                      (= "mailto" (-> % :tags :scheme))
+                      ;; `mailto` is outside the gate's closed vocabulary, so
+                      ;; the always-on record classes it `:other` rather than
+                      ;; spelling it. An arbitrary scheme is caller-authored
+                      ;; text (RFC 3986 §3.1); the DEV trace below keeps the
+                      ;; spelling for the programmer reading their own process.
+                      (= :other (-> % :tags :scheme-class))
                       (= :scheme-not-allowed (-> % :tags :reason)))
                 traces)
-          "mailto: rejected as :scheme-not-allowed")
+          "mailto: rejected as :scheme-not-allowed, classed :other")
+      (when interop/debug-enabled?
+        (is (some #(= "mailto" (-> % :tags :scheme))
+                  (capture-safe-redirect-dev-traces!
+                    (fn [] (rf/dispatch-sync [:sr/mailto] {:frame f}))))
+            "rf2-lwtlk DEV ARM: the dev trace still names the scheme itself"))
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))))
 
