@@ -278,8 +278,8 @@
 ;; (`project-egress`) can classify the original paths — path-based
 ;; projection cannot recover a value that no longer sits at a path. So
 ;; adapter/diagnostic surfaces carry a SUMMARY of the offending value
-;; (shape / type / count / keys / bounded head), never the value itself.
-;; `diag-value-summary` is that summary primitive.
+;; (its type, and the size of a counted collection), never the value
+;; itself. `diag-value-summary` is that summary primitive.
 ;;
 ;; It is intentionally tiny and self-contained (no `elide-wire-value` /
 ;; `project-egress` dependency) because the surfaces that need it include
@@ -288,65 +288,61 @@
 ;; summary is the same shape on every surface so a tool consuming a thrown
 ;; ex-data reads one diagnostic vocabulary.
 
-(def ^:private diag-head-limit
-  "Max chars of a leaf scalar's printed form to retain in a diagnostic
-  head. Bounded so a large/secret scalar never rides whole into ex-data."
-  24)
-
-(defn- diag-head
-  "A bounded, content-light head string for a scalar leaf — enough to
-  recognise the value's flavour in a diagnostic without carrying the whole
-  value off-box. Keywords/symbols keep their name (structural, not user
-  content); strings/numbers/other scalars are truncated to
-  `diag-head-limit` chars with an ellipsis marker."
-  [v]
-  (cond
-    (keyword? v) (str v)
-    (symbol? v)  (str v)
-    :else
-    (let [s (str v)]
-      (if (> (count s) diag-head-limit)
-        (str (subs s 0 diag-head-limit) "…")
-        s))))
-
 (defn diag-value-summary
   "EP-0015-safe SUMMARY of a value for a framework diagnostic message or
-  ex-data slot (Spec 015 §Data-Classification). Returns a
-  small data map describing the value's SHAPE — never the value itself —
-  so the diagnostic survives off-box capture without leaking app-owned
+  ex-data slot (Spec 015 §Data-Classification). Returns a small data map
+  describing the value's SHAPE — never the value itself — so the
+  diagnostic survives off-box capture without leaking app-owned
   sensitive/large content.
 
-  Shape (keys present only when meaningful):
+  Shape (`:count` present only for a counted collection or string):
 
     {:type   :map | :vector | :seq | :set | :keyword | :symbol
              | :string | :number | :boolean | :nil | :fn | :scalar
-     :count  <int>     ;; collection / string element count
-     :keys   [...]     ;; sorted top-level map keys (KEYS are structural)
-     :head   \"…\"}     ;; bounded recognition head for a scalar leaf
+     :count  <int>}    ;; collection / string element count
 
-  Map keys are treated as structural (they are part of the shape the
-  caller declares, not free user content) and are retained sorted; map
-  VALUES are never included. A scalar carries a bounded `:head`; a
-  collection carries `:count`. The whole value is never reproduced."
+  **The summary is content-free BY CONSTRUCTION (rf2-210uq).** Every value
+  it can carry is either a member of the closed `:type` vocabulary above or
+  an integer count, so no expression here is derived from the input's
+  CONTENT. That makes the serialized summary a fixed size whatever arrives
+  — there is no prefix to bound and no key set to cap — and it is why a
+  caller may hand this function a session token, a password or an
+  attacker-chosen key set without further thought.
+
+  It did not always hold. The summary previously carried a `:head` (a raw
+  24-char prefix of the printed value, which reproduced a short secret
+  WHOLE and a long one's prefix, and which was not bounded at all for
+  keywords/symbols) and a map's `:keys` (every top-level key, uncapped and
+  unsanitised, though app-controlled keys carry content and an
+  attacker-sized key set grew the 'bounded' summary without limit). Both
+  are gone. `(str v)` is gone with them, so an unknown host value whose
+  `toString` throws no longer destroys the failure being described.
+
+  SIZE IS DELIBERATELY KEPT. `:count` is what makes the summary useful
+  rather than merely safe — 'a 4000-char string where a keyword was
+  expected' is the diagnosis — and an integer cannot carry a fragment of
+  the value. A lazy/unbounded seq is NOT counted: realising it on the
+  failure path is its own hazard.
+
+  If a diagnostic needs a structural IDENTIFIER — an fx-id, an arg key, a
+  view-id — the caller passes it through its own explicitly trusted
+  ex-data slot (as `re-frame.ssr.response` does with `:fx-id` / `:key`).
+  This function will not guess that an arbitrary value is structural."
   [v]
   (cond
     (nil? v)     {:type :nil}
-    (map? v)     {:type  :map
-                  :count (count v)
-                  :keys  (try (vec (sort-by str (keys v)))
-                              (catch #?(:clj Throwable :cljs :default) _
-                                (vec (keys v))))}
+    (map? v)     {:type :map :count (count v)}
     (vector? v)  {:type :vector :count (count v)}
     (set? v)     {:type :set :count (count v)}
-    (string? v)  {:type :string :count (count v) :head (diag-head v)}
-    (keyword? v) {:type :keyword :head (diag-head v)}
-    (symbol? v)  {:type :symbol :head (diag-head v)}
-    (boolean? v) {:type :boolean :head (str v)}
-    (number? v)  {:type :number :head (diag-head v)}
+    (string? v)  {:type :string :count (count v)}
+    (keyword? v) {:type :keyword}
+    (symbol? v)  {:type :symbol}
+    (boolean? v) {:type :boolean}
+    (number? v)  {:type :number}
     (seq? v)     {:type :seq}
     (fn? v)      {:type :fn}
     (seqable? v) {:type :seq}
-    :else        {:type :scalar :head (diag-head v)}))
+    :else        {:type :scalar}))
 
 (defn type-of-value
   "Best-effort short tag for a value's type — surfaced inside the
