@@ -25,7 +25,9 @@ set -euo pipefail
 #              not touch still do NOT run: the PASS line names them, and
 #              `scripts/test-jvm-implementation.sh` is the whole set;
 #   node tier  the npm/CLJS `:node-test` build, the JS harness self-tests, and
-#              the per-namespace isolation gate.
+#              the per-namespace isolation gate;
+#   spine self this script's own tiering self-test, armed ONLY when this script
+#              or its self-test fixture tree is itself in the diff (rf2-fhdd3).
 #
 # Everything else CI runs is in NO tier of this spine: the browser lanes, the
 # production-elision / bundle-isolation / perf-bundle gates, the adapter
@@ -58,6 +60,11 @@ set -euo pipefail
 # tier keys on documentation CONTENT (Markdown + the MkDocs config + the
 # doc-checker scripts those gates run); it is deliberately separate from the
 # runtime classifier because the doc gates validate prose, not code.
+#
+# One surface is neither: THIS SCRIPT (and the fixture tree of its self-test).
+# It is the gate that decides which gates run, so it arms every tier plus its
+# own self-test — see `is_doc_surface_path` / `is_spine_self_path` below for
+# why, and for why the arming is named path-by-path rather than `scripts/*`.
 #
 # Usage:
 #   scripts/test-fast-pr.sh              classify the diff; run only the
@@ -250,6 +257,26 @@ changed_files="$(gather_changed_files)"
 # the doc-checker scripts / fixtures the gates themselves execute.  This mirrors
 # how the classifier arms a gate whenever its own gate-script changes, and how
 # docs.yml keys the MkDocs build on documentation paths.
+#
+# THE SPINE'S OWN TREE IS ON THIS SURFACE (rf2-fhdd3).  The last two arms are
+# `scripts/test-fast-pr.sh` — this very file — and the fixture tree of its
+# self-test.  Until they were listed, a diff touching only the spine matched no
+# runtime surface AND no documentation surface: the runtime classifier does not
+# know the runner (it classifies runtime source), and `run_docs` keyed on the
+# predicate above, which the runner never matched.  So A CHANGE TO THE SPINE'S
+# OWN DOCUMENTATION GATE — including one that BROKE it — got a green spine that
+# never ran the documentation tier, and every verification run during rf2-g7p7l
+# had to pass `--with-docs` by hand.  The runner is where the docs tier and the
+# mkdocs resolution are DEFINED; editing them has to run them.  CI already
+# agrees: `scripts/test-fast-pr.sh` is on docs.yml's documentation surface (both
+# its `push.paths` and its PR-side `detect` classifier), so this also closes a
+# local/CI divergence rather than inventing a local rule.
+#
+# NAMED EXACTLY, never `scripts/*`.  Widening to every script would make an
+# ordinary `scripts/` change pay for the whole documentation tier — trading a
+# fail-open for a slow common case.  `scripts/test-jvm-implementation.sh`,
+# `scripts/check_skill_mcp_drift.py` and their neighbours stay off this surface,
+# and the self-test pins that.
 is_doc_surface_path() {
   case "$1" in
     *.md) return 0 ;;
@@ -257,16 +284,38 @@ is_doc_surface_path() {
     scripts/check_readme_links.py|scripts/check_doc_slugs.py) return 0 ;;
     scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
     scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
+    scripts/test-fast-pr.sh) return 0 ;;
+    scripts/_test_fixtures/test_fast_pr_docs_gate/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The spine's own tree — the runner plus the fixture tree of its self-test.
+# Exactly the two arms added to the documentation surface above, kept as their
+# own predicate because they are load-bearing TWICE over: they arm the
+# documentation tier (via `doc_surface` below), and they arm the spine's own
+# self-test, which is the only thing that proves the tiering still routes.
+is_spine_self_path() {
+  case "$1" in
+    scripts/test-fast-pr.sh) return 0 ;;
+    scripts/_test_fixtures/test_fast_pr_docs_gate/*) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 doc_surface=false
+spine_self_surface=false
 if [ -n "$changed_files" ]; then
   while IFS= read -r file; do
     [ -z "$file" ] && continue
     if is_doc_surface_path "$file"; then
       doc_surface=true
+    fi
+    if is_spine_self_path "$file"; then
+      spine_self_surface=true
+    fi
+    # Both flags are decided — nothing later in the change set can change them.
+    if [ "$doc_surface" = true ] && [ "$spine_self_surface" = true ]; then
       break
     fi
   done <<< "$changed_files"
@@ -331,6 +380,28 @@ elif [ -z "$changed_files" ]; then
   # Nothing changed vs origin/main and a clean working tree — only the cheap
   # always-on static checks are meaningful.
   plan_reason="no changes (static checks only)"
+elif [ "$spine_self_surface" = true ]; then
+  # The spine's own tree changed (rf2-fhdd3): EVERY tier runs.
+  #
+  # The documentation tier because the runner is where the doc gates and the
+  # mkdocs resolution live — that is the whole bead.  The JVM and node tiers
+  # because they already ran: before this branch existed, a spine-only diff
+  # matched no surface at all and fell into the `unknown surface` fallback
+  # below, which arms both.  Now that the runner is ON the documentation
+  # surface that fallback no longer fires for it, and without this branch the
+  # fix would have SILENTLY NARROWED the runtime coverage of every spine edit
+  # — a repair that quietly removes a gate is the same defect in a new coat.
+  # They also earn their place: the spine INVOKES those suites, so running
+  # them is what proves a reworked invocation still works.
+  #
+  # The fixture tree rides the same branch.  It could be argued into
+  # docs-tier-only (it cannot affect runtime code), but the two paths change a
+  # handful of times a year between them, and over-testing the gate that
+  # decides which gates run is the cheaper mistake by a wide margin.
+  run_jvm=true
+  run_node=true
+  run_docs=true
+  plan_reason="spine self-change (every tier)"
 elif [ "$recognised_surface" != true ] && [ "$doc_surface" != true ]; then
   # Unknown surface: the change set is non-empty but matches no runtime surface
   # AND no documentation surface.  Conservatively run the full runtime spine.
@@ -417,6 +488,8 @@ if [ "$plan_only" = true ]; then
   fi
   printf 'fast-pr plan\n'
   printf '  documentation gates: %s\n' "$([ "$run_docs" = true ] && echo run || echo skip)"
+  printf '  spine self-test:     %s\n' \
+    "$([ "$spine_self_surface" = true ] && echo run || echo 'skip (spine unchanged)')"
   printf '  mkdocs --strict:     %s\n' "$mkdocs_plan"
   printf '  JVM tier:            %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
   printf '  node/CLJS suite:     %s\n' "$([ "$run_node" = true ] && echo run || echo skip)"
@@ -434,6 +507,7 @@ if [ "$plan_only" = true ]; then
   printf 'PLAN docs=%s jvm=%s node=%s\n' "$run_docs" "$run_jvm" "$run_node"
   printf 'PLAN-JVM%s\n' "$([ "$run_jvm" = true ] && printf '%s' "$jvm_run_list")"
   printf 'PLAN-MKDOCS %s\n' "$mkdocs_plan"
+  printf 'PLAN-SELFTEST %s\n' "$([ "$spine_self_surface" = true ] && echo run || echo skip)"
   exit 0
 fi
 
@@ -598,6 +672,32 @@ run "JVM roster/CI bijection self-test" "python scripts/check_jvm_lane_rosters.p
 
 run "JVM roster <-> CI bijection (rf2-as6bg)" "python scripts/check_jvm_lane_rosters.py" \
   python "$spine_root/scripts/check_jvm_lane_rosters.py"
+
+# ---------------------------------------------------------------------------
+# The spine's OWN self-test — armed only when the spine's own tree changed
+# (rf2-fhdd3).  Every other gate above pairs a self-test with a live scan; the
+# runner had neither.  `run-self-test.sh` drives this script in `--plan` mode
+# against disposable fixture repos and asserts the tier decision and the mkdocs
+# resolution, so it is the only thing that catches a reworked classifier that
+# routes wrongly — including one that disarms the documentation tier again.
+#
+# No recursion: the self-test invokes `--plan`, which exits above this line.
+#
+# NOT added to `skipped` when it does not run.  The other entries name coverage
+# a reader might otherwise assume — surfaces this diff could plausibly have
+# reached.  This one cannot: if the spine did not change, its self-test has
+# nothing to say, and listing it on every PASS would pad the honest-gap tally
+# with a vacuous line.  The skip is printed to the log instead.
+# ---------------------------------------------------------------------------
+spine_self_test="$spine_root/scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh"
+if [ "$spine_self_surface" = true ]; then
+  printf '\n--- the spine itself changed → running its own tiering self-test ---\n'
+  run "fast-PR spine tiering self-test" \
+    "bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh" \
+    bash "$spine_self_test"
+else
+  printf '\n--- spine unchanged → skipping its own tiering self-test ---\n'
+fi
 
 # ---------------------------------------------------------------------------
 # Documentation gates (run when a documentation surface changes).
