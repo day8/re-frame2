@@ -352,6 +352,52 @@
                (compare-and-set! available? true false))
       owner)))
 
+(defn- unspent-frame-construction-handoff?
+  "True when THIS caller already stands inside an exact reservation for `id`
+  handed to it by an outer preflight, with the permission still UNSPENT.
+  Deliberately NON-consuming — `consume-frame-construction-handoff!` at engine
+  entry is the one place that spends it, and this predicate must not race that
+  one-shot."
+  [id]
+  (let [{:keys [owner available?] handoff-id :id} *frame-construction-handoff*]
+    (boolean (and (= id handoff-id)
+                  (some? available?)
+                  (true? @available?)
+                  (owner-holds-frame-id? owner id)))))
+
+(defn ^:no-doc call-with-frame-construction-claim!
+  "Invoke zero-arg `f` holding ONE exact per-id construction reservation for
+  `id`, with the engine hand-off armed so the `upsert-frame!` inside `f` enters
+  that SAME reservation instead of colliding with it.
+
+  This is how a caller puts work of its OWN inside the frame transaction rather
+  than beside it. `make-frame`'s generation-provenance publication and its
+  rollback are that work (rf2-rt4jz): they write a second process-global store
+  that a reprojection reads, so they have to be admitted, ordered and rolled
+  back under the same authority as the frame revision they describe.
+
+  Contention is the engine's own typed `:rf.error/frame-construction-in-progress`,
+  raised HERE — before `f` runs — so a LOSING attempt performs none of `f`'s
+  writes at all. That is the property the alternative shape cannot have: a
+  caller that writes first and enters the engine second has already mutated
+  process-global state by the time the engine rejects it.
+
+  An outer preflight that already reserved `id` and handed it off (re-frame.ui's
+  multi-plan `execute-frame-plans!`) is ADOPTED as-is: nothing is claimed and
+  nothing is released, so its window and its release point are unchanged, and
+  `f`'s writes fall inside the reservation it is already holding. A hand-off
+  that has already been SPENT is not adoption — the nested public entry claims
+  and loses normally, exactly as it did when the engine claimed for itself.
+  INTERNAL."
+  [id kind f]
+  (if (unspent-frame-construction-handoff? id)
+    (f)
+    (let [owner (claim-frame-construction! #{id} kind)]
+      (try
+        (call-with-frame-construction-handoff! owner id f)
+        (finally
+          (release-frame-construction! owner))))))
+
 (defn- call-with-frame-transaction!
   [id kind handoff? join-current-owner? f]
   (if-let [owner (or (when handoff?
