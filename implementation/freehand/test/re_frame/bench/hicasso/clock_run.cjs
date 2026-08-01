@@ -398,6 +398,11 @@ async function runRow(browser, rowId) {
           let inPageMs = NaN;
           let ok = true;
 
+          // Only the arm under test is on the page while it is measured.
+          // Outside the window, and followed by a settle, so the layout of
+          // the arm just shown is complete before the clock starts.
+          if (rowId !== 'M1') await page.evaluate(([r, arm]) => window.HCLOCK.solo(r, arm), [rowId, armId]);
+
           const m0 = await readMetrics(cdp);
           if (armId === PLUMB) {
             // The tare's operation is the settle and nothing else. It is
@@ -807,6 +812,24 @@ function report(out) {
   );
   console.log(
     `;;                overshoot past 2.5x would refute the model rather than the instrument.`
+  );
+  console.log(
+    `;;   SOLO       = run 2 tared cleanly and its MOUNT control passed at 1.9103x every round, while the three`
+  );
+  console.log(
+    `;;                BULK controls failed at 1.4304-1.5214x. The difference between those rows is that a mount`
+  );
+  console.log(
+    `;;                row has ONE arm standing and a bulk row has four (901+901+1801 elements), and a dirty frame`
+  );
+  console.log(
+    `;;                pays pre-paint and paint over the whole document. So this run hides every arm but the one`
+  );
+  console.log(
+    `;;                under test, outside the window. PREDICTION: the bulk controls move up toward 2.00x. If they`
+  );
+  console.log(
+    `;;                do not, the co-mounted document was not the cause and the 2.00x prediction is what is wrong.`
   );
 
   const outcomes = [];

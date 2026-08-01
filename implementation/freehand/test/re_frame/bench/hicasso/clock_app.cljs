@@ -405,6 +405,40 @@
                {:arm arm :container container :handle handle})
         (settle-frame)))))
 
+(defn solo!
+  "Show ONLY `arm-id`'s standing mount and hide every other arm's, then
+  settle a frame so the newly-shown subtree is laid out BEFORE anything is
+  measured.
+
+  ## Why this exists, and it is a measured repair rather than a tidy-up
+
+  A row that writes to a standing mount has every arm of the segment
+  mounted at once, and run 2 of this instrument measured what that costs.
+  A frame in which NOTHING is dirty is nearly free — the tare arm read
+  0.33 ms — but a frame in which anything is dirty runs pre-paint and
+  paint over the whole document, and this row's document is four arms
+  deep: 901 + 901 + 1,801 elements. So every bulk sample carried ~1.2 ms
+  that belonged to arms that were not under test, and every ratio was
+  compressed toward 1.0 by it. The doubling control said so plainly —
+  1.4304–1.5214x against a prediction of 2.00x on the three bulk rows,
+  while the SAME control on the mount row, where only one arm is ever
+  standing, passed at 1.9103x. One instrument, two answers, and the
+  difference is exactly whether the other arms were on the page.
+
+  `display: none` and not an unmount, because the arm must stay WARM: its
+  React tree, its subscription cache and its cells are what a steady-state
+  write meets, and remounting per sample would price a cold first write
+  instead. A hidden subtree is not laid out and not painted, so it leaves
+  the frame; it keeps everything else.
+
+  The show is done HERE, outside every window, and followed by a settle,
+  so the full layout of the arm that is about to be measured has already
+  happened when the clock starts."
+  [_row-key arm-id]
+  (doseq [[id p] (:prepared @state)]
+    (set! (.. ^js (:container p) -style -display) (if (= id arm-id) "" "none")))
+  (settle-frame))
+
 (defn finish!
   "Release this arm's standing mount. Never timed."
   [_row-key arm-id]
@@ -599,6 +633,7 @@
              :prepare       (fn [row arm] (prepare! (keyword row) (keyword arm)))
              :sample        (fn [row arm] (sample! (keyword row) (keyword arm)))
              :reap          (fn [row] (reap! (keyword row)))
+             :solo          (fn [row arm] (solo! (keyword row) (keyword arm)))
              :finish        (fn [row arm] (finish! (keyword row) (keyword arm)))
              :focusDraft    (fn [arm] (focus-draft! (keyword arm)))
              :settleVerify  (fn [arm expected] (settle-and-verify! (keyword arm) expected))
