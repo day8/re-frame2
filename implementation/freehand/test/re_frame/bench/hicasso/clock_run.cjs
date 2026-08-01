@@ -133,7 +133,7 @@ const SAMPLES = Number(process.env.HCLOCK_SAMPLES || 10);
 const NO_BUILD = process.argv.includes('--no-build');
 
 // Where to write the run's RAW per-sample readings, if anywhere. The seam
-// study (rf2-cvvb7) had to compare eleven runs against each other, and a
+// study (rf2-cvvb7) had to compare twenty runs against each other, and a
 // console line is not a dataset: the segment decomposition below is
 // recomputed from this file rather than scraped back out of the log.
 const JSON_OUT = (process.env.HCLOCK_JSON || '').trim();

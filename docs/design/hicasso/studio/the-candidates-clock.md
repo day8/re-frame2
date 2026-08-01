@@ -518,6 +518,23 @@ of the page and not of the box:
 So a bar row does not move when the floor moves by 80%, and does not move with
 the seam. **The bar row was not quoting the seam.**
 
+**Reconciled with the window audit**, which landed alongside this and reads the
+seam at **31.9%** on its own runs
+([the clock behind the published rows](the-clock-behind-the-published-rows.md)).
+That figure is a **single round's** cross-segment spread, and single-round
+spreads of 30–45% are ordinary here — this ladder saw 45% in one round of an
+*idle* run whose pooled seam was 3.8%. So the audit corroborates the
+*observation* and not the *load attribution*; the pooled statistic is the one
+§6 quoted and the one this ladder moved a box under without shifting.
+
+The two pages also reach cancellation by different routes, and conflating them
+would overstate both. The audit's `(U/F) ÷ (R/F) = U/R` is **algebra**, and it
+is exact only where both legs are divided by the *same* floor — the converged
+witness, whose arms share one segment. Here the three segments have three
+different floors, so nothing cancels algebraically; what makes it cancel is the
+measured fact that the perturbation is multiplicative. Same conclusion, and only
+one of the two is free.
+
 ### 6.2 What replaces it: the band a magnitude must clear
 
 The seam was the wrong statistic to gate on. What bounds a bar row is not how
