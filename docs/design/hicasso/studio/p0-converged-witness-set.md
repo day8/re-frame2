@@ -344,7 +344,7 @@ beside a biased one.
 |---|---|---|---|---|
 | **M1 mount** — 901 el, 300 boundaries | ~~1.2301×~~ ~~1.2310×~~ → **SUPERSEDED, see [the re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5)** | ~~1.2105 – 1.2514~~ → ~~1.2109 – 1.2510~~ *(9-df corrected, then superseded with the row)* | ~~1.1989 – 1.2931~~ | ~~UIx slower~~ — **measured on the pre-`.13`/`.25` spine; the mount red zone has since closed** |
 | **M2 mount** — 51 el, 12 fields · *diagnostic* | ~~1.0539×~~ → **1.0601×** | ~~1.0017 – 1.1185~~ → **1.0028 – 1.1173** | 0.9561 – 1.1923 | **straddles 1.0 — indistinguishable**, in all ten runs |
-| **bulk broad** — one commit all 300 read | ~~0.6239×~~ → **0.6291×** | ~~0.5996 – 0.6587~~ → **0.6001 – 0.6581** | 0.5792 – 0.6987 | **UIx faster.** All 60 rounds below 1.0; all 20 strata wholly below it |
+| **bulk broad** — one commit all 300 read | ~~0.6239×~~ ~~0.6291×~~ → **WITHDRAWN, see [the re-take](bulk-broad-re-taken.md)** | ~~0.5996 – 0.6587~~ ~~0.6001 – 0.6581~~ *(withdrawn with the row)* | ~~0.5792 – 0.6987~~ | ~~**UIx faster.** All 60 rounds below 1.0~~ — **the direction stands, the 37% does not.** This row's window closes before the frame, and the frame is **half the operation**: on a clock that sees both, `rf2-yd52q` reads **0.8602×** [0.7709 – 0.9058] and publishes no magnitude |
 | **bulk narrow** — 10 commits, each read by exactly one boundary, one window | ~~1.1540×~~ → **1.1754×** | ~~1.1579 – 1.1930~~ → **1.1582 – 1.1926** | 1.1390 – 1.2186 | **UIx slower.** All 60 rounds above 1.0; all 20 strata wholly above it |
 | ~~bulk narrow, **unbatched window** (superseded twice over)~~ | ~~1.1556×~~ | — | — | ~~UIx slower, but did not stably resolve across runs~~ |
 
@@ -2243,8 +2243,13 @@ statement of what the measurement supports, not an amendment.
 >   **Supersedes `1.1540×`**, also withdrawn. Its direction is now as strong as
 >   any row on the page: all 60 rounds above 1.0, all 20 order strata wholly
 >   above.
-> - **bulk broad — `0.6291×`, interval `0.6001 – 0.6581`, runs `0.579 – 0.699`.**
->   Supersedes `0.6239×`, which stood. All 60 rounds and all 20 strata below 1.0.
+> - ~~**bulk broad — `0.6291×`, interval `0.6001 – 0.6581`, runs `0.579 – 0.699`.**~~
+>   ~~Supersedes `0.6239×`, which stood. All 60 rounds and all 20 strata below 1.0.~~
+>   **WITHDRAWN by [the re-take](bulk-broad-re-taken.md) (`rf2-yd52q`).** The
+>   figure is the ratio of the two arms' *script*; the frame each write causes is
+>   the other half of the operation and this window closes before it. On a clock
+>   that sees both, the row reads **0.8602×** [0.7709 – 0.9058] — the direction
+>   survives, the 37% does not, and no magnitude replaces it.
 > - **M2 mount — `1.0601×` and still diagnostic and still indistinguishable.**
 >   All ten runs straddle 1.0 and three read below it outright. Not quotable
 >   against the bar, exactly as before.

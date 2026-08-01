@@ -431,7 +431,13 @@ comparable to the public leaderboard** — which is not what it is for.
 - **The bulk-broad win is refused by a third instrument.** `UIx / Reagent` reads
   0.9740 on the benchmark's `replace all rows` and 1.1419 on `swap rows`, against
   a published 0.6291. Combined with the audit's 1.0509, no frame-inclusive
-  instrument reproduces the win. `rf2-yd52q` should proceed expecting parity.
+  instrument reproduces the win. ~~`rf2-yd52q` should proceed expecting parity.~~
+  **It did, and found neither the win nor parity**:
+  [the re-take](bulk-broad-re-taken.md) reads **0.8602×** on a clock that sees
+  the operation's script as well as its frame, **withdraws** the 0.6291 and
+  publishes no magnitude in its place. It also found that the audit's clock —
+  and this page's own `taskNet` comparator — subtract the operation's own script,
+  so both are frame-only readings.
 - **The candidate's refused bulk row has an answer, and it is bad.** `replace all
   rows` at 1.43 (ours) and 1.62 (theirs) — materially worse than its mount row,
   and agreed by both instruments.

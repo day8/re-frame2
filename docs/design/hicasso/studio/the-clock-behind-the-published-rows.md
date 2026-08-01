@@ -18,6 +18,32 @@ in-page window reproduces the published figure at `0.6924×` and the
 frame-inclusive clock reads `1.0509×` — parity. The row's verdict, *"UIx faster,
 all 60 rounds below 1.0"*, does not survive the change of instrument.
 
+> ## THIS PAGE'S CLOCK WAS SUBTRACTING THE OPERATION (rf2-yd52q)
+>
+> The re-take this page called for has landed —
+> [bulk broad, re-taken](bulk-broad-re-taken.md) — and it found that the
+> instrument here reports **`TaskDuration` less `DevToolsCommandDuration`**,
+> while `DevToolsCommandDuration` **carries the page script a protocol command
+> invokes**. The driver runs every arm's operation through exactly that door, so
+> the subtraction removes the operation's own JavaScript. Measured: an arm's
+> `devtools` term less the tare's baseline tracks that arm's in-page window
+> (`floor` 0.62 ms against an in-page 0.40, `reagent-subs` 2.76 against 2.30,
+> `uix-subs` 2.01 against 1.60, `hicasso` 3.26 against 2.80).
+>
+> **So the reading called *frame-inclusive* below is frame-ONLY**, and is nearer
+> the in-page window's *complement* than its superset — which is why substrate
+> arms diverge by hundreds of percent while pure-React controls do not, those
+> being the arms whose script is small and proportional to their frame. The
+> `+268%` to `+704%` separation in [§3](#3-the-cross-check) is real; the
+> mechanism this page attaches to it is not.
+>
+> **The conclusions mostly survive, and one is strengthened.** On raw
+> `TaskDuration` — script and frame in one number — `M1 mount` reads `1.0011×`
+> against the published `1.0150×`, *closer* than the frame-only `1.0110×` here;
+> and `bulk300` reads `0.8602×`, still nowhere near `0.6291×`. What changes is
+> the `1.0509×` in the table below, which is a frame-only figure and is not the
+> row. `rf2-aj15b` carries the restatement of this page.
+
 ---
 
 ## 1. What took each published row
@@ -179,8 +205,13 @@ on a window that closes before the frame is a margin in the fraction of the work
 that happens to land inside `flushSync`, and the two substrates divide that
 fraction very differently — Reagent commits inside its own drain, while the UIx
 arm pays in the write leg before React is involved at all, which the programme
-has already documented on both pages. **This row needs a re-take before it is
-quoted again.**
+has already documented on both pages. ~~**This row needs a re-take before it is
+quoted again.**~~ **The re-take has landed** —
+[bulk broad, re-taken](bulk-broad-re-taken.md) — and **withdraws the row**: on a
+clock that sees the operation's script as well as its frame it reads `0.8602×`
+[0.7709 – 0.9058], the direction survives and no magnitude replaces it. The
+`1.0509×` above is a frame-only figure, for the reason in the box at the top of
+this page.
 
 **`M1 mount 1.0150×` [0.9820 – 1.0480] — ROBUST.** The frame-inclusive clock
 puts the same components at `1.0110×`, inside the published interval; the
@@ -233,8 +264,9 @@ would be a new row rather than a re-take of the published one. This is why the
 audit is a **cross-check on the same components** and not a re-run of the
 published ensemble, and why §4 phrases the mount conclusion the way it does.
 
-Nothing in this audit re-takes a published row. `bulk broad` needs one, on a
-harness that does not yet exist.
+Nothing in this audit re-takes a published row. ~~`bulk broad` needs one, on a
+harness that does not yet exist.~~ **`rf2-yd52q` built it and took it** —
+[bulk broad, re-taken](bulk-broad-re-taken.md).
 
 ## 6. Instrument facts, from primary sources
 
