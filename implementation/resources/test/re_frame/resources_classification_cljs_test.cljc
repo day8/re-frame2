@@ -359,7 +359,17 @@
       (is (= privacy/redacted-sentinel (get-in wk [2 :account-id]))
           "the owner-declared :account-id params slot is redacted in the wire key")
       (is (= "q3" (get-in wk [2 :slug])) "the unmarked params sibling rides verbatim")
-      (is (= {:total 99} (:data we)) "the (unmarked) data rides verbatim — serialize")
+      (is (not (contains? we :data))
+          ;; rf2-rjq9d — redacting a params slot re-keys the entry (identity is
+          ;; the canonical bytes of the WHOLE key), and the live client derives
+          ;; the RAW key, so the hydrated entry is unaddressable. It therefore
+          ;; ships METADATA-ONLY and is deliberately refetched, rather than
+          ;; carrying data no client can reach. The end-to-end contract is
+          ;; `resources_ssr_projected_key_refetch_cljs_test`; the co-equality
+          ;; this test exists for — the params surface is projected exactly as
+          ;; the data surface is — is unchanged and asserted on `wk` above.
+          "a re-keyed entry ships no data (rf2-rjq9d)")
+      (is (= :loaded (:status we)) "…while its metadata still rides")
       (is (not (str/includes? (pr-str wk) "acct-secret-42"))
           "no raw sensitive params value rides in the wire key"))))
 
