@@ -51,9 +51,11 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 // drive letters) — see the long rationale in the sibling
 // `_transform-reagent-slim-ns.test.cjs` `runRel()` comment (rf2-6m7pn4).
 const SCRIPT_REL = '.github/scripts/preflight-reagent-slim-package.sh';
-// Scratch root kept INSIDE the repo (not os.tmpdir()) so a repo-relative
-// path reaches it. `.scratch/` is gitignored.
-const SCRATCH_ROOT = path.join(REPO_ROOT, '.scratch');
+// Fixtures kept INSIDE the repo (not os.tmpdir()) so a repo-relative path
+// reaches them; `.scratch/` is gitignored. Lanes are process-scoped and the
+// shared root is never removed, so a concurrent suite cannot delete this
+// one's fixtures mid-run (rf2-2i1ay).
+const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const tests = [];
 function test(name, fn) {
@@ -170,8 +172,7 @@ const GENUINE_JAR_ENTRIES = [
 // a post-`clein jar`/`clein pom` build tree, plus PATH stubs standing in
 // for the two external tools.
 function makeFixture({ pom = GENUINE_POM, jarEntries = GENUINE_JAR_ENTRIES, jars = ['reagent-slim-0.0.1.alpha.jar'] } = {}) {
-  fs.mkdirSync(SCRATCH_ROOT, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'rf2-slim-preflight-'));
+  const dir = makeScratchDir(REPO_ROOT, 'rf2-slim-preflight');
 
   const targetDir = path.join(dir, 'target');
   fs.mkdirSync(targetDir, { recursive: true });
@@ -272,7 +273,7 @@ function run(fixture) {
 }
 
 function cleanup() {
-  fs.rmSync(SCRATCH_ROOT, { recursive: true, force: true });
+  cleanupScratchDirs();
 }
 
 // ── Assertion helpers ───────────────────────────────────────────────────
