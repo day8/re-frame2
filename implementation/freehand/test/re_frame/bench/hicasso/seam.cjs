@@ -83,6 +83,33 @@
 //     ±7% around 1.016. The band predicts the noise a bar row actually
 //     carries, slightly conservatively, which is the direction a gate
 //     should err in.
+//
+//     THE CALIBRATION IS ON THE FRAME-ONLY CLOCK (rf2-ymi6j). Every figure
+//     in this header comes from `rf2-cvvb7`'s ladder, which spawns
+//     `clock_run.cjs` on `bulk300` — a `page.evaluate`-driven row — so it
+//     was computed on `taskNet`, the frame with the arm's own script
+//     subtracted out (rf2-yd52q). It cannot be recomputed: at the ladder's
+//     driver blob `roundsTask` did not exist and only `taskNet` readings
+//     were written, and no dataset survives.
+//
+//     THE BAND STATISTIC ITSELF LARGELY SURVIVES THAT, and the reason is
+//     structural. It is `ctl-2x / floor` — two PURE-REACT arms, whose
+//     script is small and roughly proportional to their frame, which is
+//     exactly the class of arm both clocks rank alike. Measured on later
+//     ensembles: the band reads 10.3–23.6% on `taskNet` against 8.8–19.7%
+//     on raw `TaskDuration` over the same sixteen row-runs, and `ctl-2x`
+//     reads 1.69–1.83x floor on BOTH clocks, agreeing to within 2%. It
+//     moves slightly TIGHTER on the corrected clock, not wider, so the gate
+//     does not become more permissive under the correction.
+//
+//     WHAT IS NOT ESTABLISHED is the multiplicativity argument above, which
+//     is the one that reasons about how a perturbation ENTERS: a
+//     perturbation multiplicative in frame time need not be multiplicative
+//     in script time, and the +0.41 correlation that evidences it has no
+//     counterpart on the corrected clock. Re-running the ladder at the
+//     current blob settles it in one pass — the driver now writes
+//     `roundsTask` and `inPageRounds`, and [[assess]] is clock-agnostic and
+//     is already run over both.
 //   * A RUN whose band exceeds [[BAND_CEILING]] has no reportable magnitude
 //     at all, whatever its margin. The ladder produced bands of 4.4% –
 //     18.5% across all nineteen runs, so the ceiling is **25%** — above
@@ -94,6 +121,17 @@
 //     to fire on the ladder would have refused an IDLE run (the widest band
 //     of the nineteen, 18.5%, was taken at zero load), which is how a
 //     threshold on a noisy statistic turns into a coin toss.
+//
+//     IT HAS SINCE FIRED THREE TIMES, which is worth a reader's attention
+//     because it was calibrated never to. 26.2% on an earlier `bulk300`
+//     ensemble (rf2-yd52q), then 26.2% on `bulk300` and 28.4% on `narrow`
+//     in one run of rf2-emvod's. Either those boxes genuinely left the
+//     calibrated regime — rf2-h8o80 is the bead for that, and its evidence
+//     is a floor ABOVE the whole ladder — or the threshold sits on the
+//     wrong clock. The ladder re-take distinguishes them. Note that the
+//     gate in force is not frame-only whatever its threshold's provenance:
+//     `clock_run.cjs` computes the band on both clocks and refuses if
+//     EITHER breaches.
 
 const SEGMENT_PERMUTATIONS = [
   [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
