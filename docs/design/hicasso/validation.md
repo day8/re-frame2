@@ -333,10 +333,17 @@ differently from the frame-inclusive clock, **and by a different factor per
 arm** — on M1 it would put the candidate at 1.56× Reagent where the
 frame-inclusive clock reads 1.21×. It is not a scale error that cancels in a
 ratio. The pure-React control arms differ by only 6–13%, which is how a lane
-that checks only its controls in-page would never see it. No published clock row
-in this programme has been checked against a frame-inclusive instrument, and
-that raises `rf2-rguy1` — the external cross-check against an instrument built
-on Chrome's timeline — from a nicety to the next question.
+that checks only its controls in-page would never see it. When this row was
+published no clock row in the programme had ever been checked against a
+frame-inclusive instrument; **`rf2-8nqsl` has since done that check**, and it
+splits the record: `M1 mount 1.0150×` and coldmount's `1.0054×` survive it,
+`bulk broad 0.6291×` reads **parity** on a frame-inclusive clock and needs a
+re-take (`rf2-yd52q`), and `bulk narrow` plus the HD-008 donor rows remain
+exposed and unadjudicated (`rf2-ph85f`). See [the clock behind the published
+rows](studio/the-clock-behind-the-published-rows.md). That audit also sharpens
+`rf2-rguy1` — the external cross-check against an instrument built on Chrome's
+timeline — from a nicety to the next question, and names **bulk broad** as the
+row to point it at first.
 
 ### P1 — the tournament, and its one surviving arm (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
 
