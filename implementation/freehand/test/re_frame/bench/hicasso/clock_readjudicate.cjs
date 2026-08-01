@@ -202,6 +202,51 @@ for (const rowId of rowIds) {
     );
   }
 
+  // --- THE DOOR -------------------------------------------------------------
+  //
+  // `DevToolsCommandDuration` absorbs page script that runs INSIDE a protocol
+  // command. Which door the driver uses therefore decides whether `taskNet`
+  // is a frame-only reading or an honest one, and the rows here disagree
+  // about the door: `M1`, `bulk300`, `bulk100` and `narrow` drive the
+  // operation through `page.evaluate` (`Runtime.callFunctionOn`), while
+  // `keystroke` drives it through `page.keyboard.press` (the Input domain).
+  //
+  // Two numbers settle it per row, and neither needs the other harness:
+  //
+  //   * whether `devtools` TRACKS the arm. If it carries the arm's script it
+  //     must move with the arm; if it is only the protocol's round trip it is
+  //     roughly constant across arms that differ by milliseconds of work.
+  //   * what `ScriptDuration` reads. The renderer's own script counter does
+  //     not see script run through a protocol command either, so a row whose
+  //     script is being absorbed reports a mount of 901 elements as costing
+  //     hundredths of a millisecond of script.
+  {
+    const armsIn = (row) => Object.keys(row.decomposition).filter((k) => !k.endsWith('/plumb'));
+    const per = (sel) =>
+      mean(
+        runs.map(({ row }) => {
+          const vals = armsIn(row).map((k) => sel(row.decomposition[k]));
+          return Math.max(...vals) - Math.min(...vals);
+        })
+      );
+    const scriptMax = mean(
+      runs.map(({ row }) => Math.max(...armsIn(row).map((k) => row.decomposition[k].script / row.decomposition[k].n)))
+    );
+    const dvSpread = per((d) => d.devtools / d.n);
+    const ipSpread = per((d) => d.taskNet / d.n); // stand-in scale for "how much arms differ"
+    console.log('');
+    console.log(
+      `;;   THE DOOR — devtools spread across arms ${fmt(dvSpread, 3)} ms; largest ScriptDuration on any arm ` +
+        `${fmt(scriptMax, 4)} ms. ` +
+        (scriptMax < 0.2
+          ? `ScriptDuration sees essentially NOTHING, so the operation ran inside a protocol command and ` +
+            `taskNet on this row is FRAME-ONLY.`
+          : `ScriptDuration SEES the arms' work, so the operation did not run inside a protocol command and ` +
+            `taskNet on this row was never corrupted.`) +
+        `  (taskNet spread ${fmt(ipSpread, 3)} ms, for scale)`
+    );
+  }
+
   // --- THE ADDITIVE RESIDUAL ------------------------------------------------
   const ctlMeans = runs.map(({ row }) => (row.ctlTask ? row.ctlTask.measured.mean : NaN)).filter(Number.isFinite);
   if (ctlMeans.length) {
