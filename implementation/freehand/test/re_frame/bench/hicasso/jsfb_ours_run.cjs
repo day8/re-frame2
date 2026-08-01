@@ -348,6 +348,35 @@ async function main() {
     await p.close();
   }
 
+  // CANONICAL DOM — attribute NAMES SORTED, which is the comparison this
+  // lane's own parity gate makes and not a weakening of it.
+  //
+  // The first three-arm run failed a raw `innerHTML` comparison at byte
+  // 187 with all three strings the same length: Reagent serialises
+  // `type, id, class` and UIx serialises `class, type, id`. Same
+  // elements, same attributes, same values, same text — a different
+  // WRITE ORDER for one attribute set. Attribute order is not part of the
+  // DOM (it is not observable to CSS, to layout, or to the benchmark's
+  // selectors), so a gate that fails on it is testing the serialiser
+  // rather than the page, and would refuse a run whose arms do render
+  // identical pages.
+  //
+  // Raw innerHTML lengths are reported alongside, so a reader can see
+  // that the canonicalisation moved a serialisation and not a page.
+  const canonicalise = (root) => {
+    const walk = (el) => {
+      const attrs = [...el.attributes]
+        .map((a) => `${a.name}="${a.value}"`)
+        .sort()
+        .join(' ');
+      const kids = [...el.childNodes]
+        .map((n) => (n.nodeType === 1 ? walk(n) : n.nodeType === 3 ? n.textContent : ''))
+        .join('');
+      return `<${el.tagName.toLowerCase()}${attrs ? ' ' + attrs : ''}>${kids}</${el.tagName.toLowerCase()}>`;
+    };
+    return [...root.children].map(walk).join('');
+  };
+
   // THE DOM PARITY GATE. Two arms that build different DOM are not one
   // experiment, and no ratio below means anything if this fails. Taken on
   // a 1,000-row table, which is the state every row but `create10k`
@@ -355,18 +384,21 @@ async function main() {
   let parity = { identical: false, lens: {}, firstDiff: null };
   {
     const html = {};
+    const rawLens = {};
     for (const arm of ARMS) {
       const p = await browser.newPage();
       await p.goto(url(arm), { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
       await p.waitForSelector('#run');
       await click(p, '#run');
       await expectRows(p, 1000);
-      html[arm] = await p.$eval('#main', (e) => e.innerHTML);
+      html[arm] = await p.$eval('#main', canonicalise);
+      rawLens[arm] = await p.$eval('#main', (e) => e.innerHTML.length);
       await p.close();
     }
     const base = html[BASE];
     parity.identical = ARMS.every((x) => html[x] === base);
     parity.lens = Object.fromEntries(ARMS.map((x) => [x, html[x].length]));
+    parity.rawLens = rawLens;
     if (!parity.identical) {
       const bad = OTHERS.find((x) => html[x] !== base);
       const b = html[bad];
@@ -419,7 +451,9 @@ async function main() {
   console.log(`;; runtime  ${provenance.browser}, playwright ${provenance.playwright}, node ${provenance.node}`);
   console.log(`;; box      hardware-concurrency ${provenance.hardwareConcurrency}, device-memory ${provenance.deviceMemory}`);
   console.log('');
-  console.log(`;; DOM PARITY: ${parity.identical ? 'IDENTICAL' : 'DIFFERENT'} — ${JSON.stringify(parity.lens)}`);
+  console.log(`;; DOM PARITY (canonical, attribute names sorted): ${parity.identical ? 'IDENTICAL' : 'DIFFERENT'}`);
+  console.log(`;;   canonical lengths ${JSON.stringify(parity.lens)}`);
+  console.log(`;;   raw innerHTML     ${JSON.stringify(parity.rawLens)}`);
   if (parity.firstDiff) {
     console.log(`;;   ${parity.firstDiff.arm} diverges at ${parity.firstDiff.at}`);
     console.log(`;;   ${BASE}: ${JSON.stringify(parity.firstDiff.base)}`);
