@@ -523,6 +523,31 @@ different experiment and this run does not attempt it.
 
 ### 6.1 The seam, measured against load
 
+> **EVERY FIGURE IN §6.1 AND §6.2 IS ON THE FRAME-ONLY CLOCK (`rf2-ymi6j`).**
+> Established from the driver rather than the prose: `seam_ladder.cjs` forks its
+> spinners and then spawns `clock_run.cjs --no-build` with `--only` defaulting to
+> **`bulk300`**, and `clock_run.cjs` drives that row through `page.evaluate` →
+> `Runtime.callFunctionOn`. So every ladder number below — the seam, its null,
+> the orthogonal decomposition, the band and its ceiling — was computed on
+> `taskNet`, which `rf2-yd52q` showed is the frame with the arm's own script
+> subtracted out. **It cannot be recomputed**: at this study's driver blob
+> (`f5bb751d…`, [§7.1](#71-the-seam-study-rf2-cvvb7)) the term `roundsTask` did
+> not exist, `HCLOCK_JSON` carried only the `taskNet` per-sample readings, and no
+> dataset from the nineteen runs survives.
+>
+> **What that does and does not put at risk is itself partly measured — see
+> [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)'s box for the
+> band.** The short of it: the band is a ratio of two *pure-React* arms, whose
+> script is small and roughly proportional to their frame, and it is the class of
+> arm both clocks rank alike. The finding most exposed is the **multiplicativity**
+> argument below, because it is the one that reasons about how a perturbation
+> enters — and a perturbation that is multiplicative in frame time need not be
+> multiplicative in script time. Re-taking the ladder is now a single pass rather
+> than new instrumentation, and it needs the box: `clock_run.cjs` has written
+> `roundsTask` and `inPageRounds` since blob `84aa25d9…`, and `seam.cjs`'s
+> adjudicator is clock-agnostic — it is already run over both clocks on every
+> row, and the ceiling gate already refuses on **either**.
+
 Ground 3 above rested on a comparison between two runs — 34% on one, 3.8% on
 another — with *"nothing changed but how busy the machine was"* offered as the
 difference. Two points are a line through two dots. `rf2-cvvb7` put a stated
@@ -532,6 +557,8 @@ number of competing busy cores on the box and took the row nineteen times.
 for cache and memory bandwidth as well as cycles, runs the clock, and kills
 them. Every spinner carries its own deadline, so it cannot outlive its window if
 the parent dies, and `--load` is capped four cores below the box.
+
+All eight columns are `taskNet`, the frame-only clock:
 
 | competing cores | runs | floor ms | seam | SEGMENT | ROUND | POSITION | band |
 |---:|---:|---:|---:|---:|---:|---:|---:|
@@ -585,16 +612,33 @@ The measurement that says it is multiplicative rather than additive is
 `ctl-2x / floor` — two arms in the *same* block whose true ratio is a property
 of the page and not of the box:
 
-| across the ladder's 80% floor span | |
+| across the ladder's 80% floor span, all on `taskNet` | |
 |---|---:|
 | `ctl-2x / floor` moved | 6.5% (1.657 → 1.765) |
 | correlation of that ratio with the floor | **+0.41** — an additive `c` reads `(2W+c)/(W+c)`, which *falls* as `c` grows, so the sign is wrong for additivity |
 | correlation of the published bar row with the floor | **−0.10** |
 | correlation of the published bar row with the seam | **−0.18** |
-| `hicasso / reagent-subs` over all 19 runs | 1.0161, [0.9643 – 1.1041] |
+| ~~`hicasso / reagent-subs` over all 19 runs~~ | ~~1.0161, [0.9643 – 1.1041]~~ — frame-only; on the corrected clock `bulk300` reads **1.1494×** (`rf2-emvod`) |
 
 So a bar row does not move when the floor moves by 80%, and does not move with
 the seam. **The bar row was not quoting the seam.**
+
+**This is the sub-finding the clock correction most exposes, and it is not
+repaired here (`rf2-ymi6j`).** The argument is about *how a perturbation enters*,
+and it was measured on a clock holding only one half of each operation. A
+perturbation that is multiplicative in frame time need not be multiplicative in
+script time, and if it is not, floor-normalisation stops cancelling it exactly
+and the `(k·H)/(k·F) = H/F` step above is no longer free. Two things bound the
+worry without settling it: `ctl-2x` and `floor` are both pure React, the class of
+arm whose script is small and roughly proportional to its frame, and `rf2-yd52q`
+read `ctl-2x` at **1.69–1.83× floor on both clocks, agreeing to within 2%** —
+so the statistic the argument runs on barely moves between them. What is not
+bounded is the *correlation with the floor* under load, which is the actual
+evidence for multiplicativity and has no counterpart on the corrected clock.
+**Re-running the ladder produces both clocks in one pass; nothing else is
+needed.** Until it is run, the rows this section licenses rest on a step measured
+on one half of the operation, and the honest statement is that the conclusion is
+*probably* unchanged and has not been checked.
 
 **Reconciled with the window audit**, which landed alongside this and reads the
 seam at **31.9%** on its own runs
@@ -634,15 +678,52 @@ It is also calibrated. Over the ladder the band averaged **8.9%** while the bar
 row's own run-to-run spread was ±7% around 1.016 — it predicts the noise a bar
 row actually carries.
 
+> **THE CALIBRATION IS FRAME-ONLY AND THE BAND ITSELF LARGELY SURVIVES IT
+> (`rf2-ymi6j`).** The `8.9%` average, the `4.4%–18.5%` range and the `25%`
+> ceiling were all computed on `taskNet` — see the box in
+> [§6.1](#61-the-seam-measured-against-load) — and cannot be recomputed, because
+> the ladder's datasets stored that clock only and no longer exist.
+>
+> **What the band statistic does on the corrected clock has been measured on a
+> different ensemble, and it moves very little.** `rf2-yd52q`'s eight runs put
+> the band at **10.3–23.6% on `taskNet` against 8.8–19.7% on raw `TaskDuration`**
+> over the same sixteen row-runs, and `rf2-emvod`'s seven-run ensemble reads
+> `M1` bands of **4.9–10.8%** on the corrected clock. That is the expected
+> result and the reason is structural rather than lucky: the band is
+> `ctl-2x / floor`, two **pure-React** arms whose script is small and roughly
+> proportional to their frame, which is exactly the class both clocks rank alike.
+> **It moves slightly tighter, not wider** — so the gate does not become more
+> permissive under the correction, which is the direction that would have
+> mattered.
+>
+> **The ceiling's story has changed and the claim below has not.** *"A tripwire
+> that did not fire anywhere on the ladder that calibrated it"* is still true of
+> the calibration, and it is no longer true of the gate: it has now fired
+> **three** times — 26.2% on
+> [an earlier `bulk300` ensemble](bulk-broad-re-taken.md#8-the-earlier-ensemble),
+> and 26.2% on `bulk300` with 28.4% on `narrow` in `rf2-emvod`'s run 8. A gate
+> calibrated never to fire has fired three times in two days, which is either the
+> boxes genuinely leaving the calibrated regime or the ceiling being set on the
+> wrong clock, and **the ladder is what distinguishes those**. The driver now
+> computes the band on both clocks and refuses a run if **either** breaches, so
+> the gate in force is not frame-only even though its threshold was calibrated
+> that way.
+>
+> `rf2-h8o80`'s standing warning — that the band may not extrapolate outside its
+> calibrated load regime — is unchanged by this and sharpened by it: the regime
+> was calibrated on one half of the operation.
+
 **The rule, and it is a generalisation of one this programme already has.**
 `validation.md` holds that *a margin under 5% is instrument-limited rather than
 cleared*. That 5% is assumed. The band is the same rule with the figure
 **measured by the run itself**: a magnitude whose distance from 1.0 is inside
 the band is instrument-limited and the row says so. A run whose band exceeds
 **25%** has no reportable magnitude at all — a tripwire that did *not* fire
-anywhere on the ladder that calibrated it (bands 4.4%–18.5%), because a ceiling
-tight enough to fire there would have refused an **idle** run: the widest band
-of the nineteen was taken at zero load.
+anywhere on the ladder that calibrated it (bands 4.4%–18.5%, all on `taskNet`),
+because a ceiling tight enough to fire there would have refused an **idle** run:
+the widest band of the nineteen was taken at zero load. **It has fired three
+times since**, on two later ensembles and on both clocks' readings — see the box
+above.
 
 **The new rule reproduces both verdicts this page already reached**, from one
 measured quantity instead of three assorted grounds — which is the check on it,
@@ -657,23 +738,29 @@ publish only their worst round, which is not enough to reconstruct a band; what
 settles them is that their margins are smaller than **any** band this
 instrument has ever produced, the tightest of twenty runs being 4.4%.
 
-| run 5 row | margin from 1.0 | against | verdict |
+Both tables below are frame-only throughout — margin, band and bar row alike.
+The **adjudications** are the durable part and they do not turn on the clock,
+because a margin and the band it is compared against were computed on the same
+readings; the **magnitudes** are superseded row by row on
+[the corrected clock's page](rows-re-adjudicated-on-the-corrected-clock.md#4-the-rows).
+
+| run 5 row *(all figures `taskNet`)* | margin from 1.0 | against | verdict |
 |---|---:|---|---|
-| `M1`, `hicasso / reagent-subs` 1.2107 | 21.1% | its own band, ≤ 11.7% | **clears** — published, as it was |
-| `bulk300` 1.0100 | 1.0% | smaller than every band ever measured here | instrument-limited — refused, as it was |
-| `bulk100` 0.9902 | 1.0% | the same | instrument-limited — refused, as it was |
-| `narrow` 1.0369 | 3.7% | the same | instrument-limited — refused, as it was |
+| `M1`, `hicasso / reagent-subs` ~~1.2107~~ | 21.1% | its own band, ≤ 11.7% | **clears** — published, as it was; the magnitude is now **1.4896×** |
+| `bulk300` ~~1.0100~~ | 1.0% | smaller than every band ever measured here | instrument-limited — refused, as it was; **1.1494×** corrected |
+| `bulk100` ~~0.9902~~ | 1.0% | the same | instrument-limited — refused, as it was; **1.1089×** corrected, a sign change |
+| `narrow` 1.0369 | 3.7% | the same | instrument-limited — refused, as it was; **1.0236×** corrected |
 
 And on the first run taken with the band instrument itself in place — five rows,
-idle box, same design — every row now carries its regime:
+idle box, same design, still `taskNet` — every row now carries its regime:
 
-| row | seam | band | `hicasso / reagent-subs` | disposition |
+| row | seam | band | `hicasso / reagent-subs` *(frame-only)* | disposition |
 |---|---:|---:|---:|---|
 | `M1` | 6.7% | 9.4% | 1.0952 | margin 9.5% **clears**, barely |
 | `bulk300` | 3.3% | 7.7% | 1.0084 | margin 0.8% — instrument-limited |
 | `bulk100` | 3.9% | 7.7% | 1.0299 | margin 3.0% — instrument-limited |
 | `narrow` | 6.2% | 10.6% | 1.0358 | margin 3.6% — instrument-limited |
-| `keystroke` | 0.7% | — | 0.9284 | **unadjudicated** — no proportional control |
+| `keystroke` | 0.7% | — | 0.9284 | **unadjudicated** — no proportional control; and this is the one row whose door was never the corrupted one |
 
 `keystroke` has no band and is marked rather than passed. Its control burns a
 fixed 50 ms instead of doubling the page, so `control / floor` reads `(F+50)/F`
@@ -790,6 +877,26 @@ nothing they measured was influenced by the gate they calibrate; the ladder
 figures in [§6.1](#61-the-seam-measured-against-load) are recomputed from their
 stored raw readings using the shipped `seam.cjs`, so the published figures and
 the instrument's figures are the same figures.
+
+**The clock and the door for the whole study (`rf2-ymi6j`).** `seam_ladder.cjs`
+does not measure anything itself: it forks its spinners, spawns
+`clock_run.cjs --no-build` with `HCLOCK_ONLY` set from `--only` — whose default
+is **`bulk300`** — and kills the spinners when the child exits. `clock_run.cjs`
+drives `bulk300` through `page.evaluate`, so the whole ladder is on `taskNet`,
+the frame-only clock.
+
+**And the study is not restatable from its own artefacts, for two independent
+reasons.** At the driver blob above, `roundsTask` did not exist in the file at
+all and `HCLOCK_JSON` wrote only `rounds` — the `taskNet` per-sample readings —
+so the quantity a restatement needs was never recorded. Separately, no dataset
+from the nineteen runs survives: they were written to a gitignored `out/` and
+nothing was kept. **A corrected-clock ladder is therefore a re-run, not a
+recomputation**, and it is cheap: since blob `84aa25d9…` the driver writes
+`roundsTask` and `inPageRounds` beside `rounds`, and `seam.cjs`'s `assess` is
+clock-agnostic and is already invoked on both, so one pass of the ladder at the
+current blob yields both clocks' figures together. What it costs is the box —
+nineteen runs across six load rungs — which is why it is filed rather than done
+alongside this correction.
 
 ---
 
