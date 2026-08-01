@@ -58,11 +58,24 @@
 # So the output is CLASSIFIED, and the classification is deliberately narrow —
 # a short, explicit list of transport signatures, matched or not matched:
 #
-#   MATCHED    the failure is a fault of the network path to the repository.
+#   MATCHED    the failure LOOKS like the network path to the repository.
 #              Retry (a throttle window may clear), and if it survives all
-#              attempts, name it as infrastructure AND quote the signature that
-#              earned that verdict, so the reader can check the reasoning
-#              instead of trusting the label.
+#              attempts, quote the signature and say what it does and does not
+#              establish.
+#
+#              It earns a retry; it does NOT establish ownership. The merged-PR
+#              audit of #7221 demonstrated the gap hermetically: a stub emitting
+#              `ArtifactTransportException: authentication failed for repository
+#              configured by this change` alongside `status code: 403` matched,
+#              retried three times, and was then declared "INFRASTRUCTURE, not
+#              this diff" / "not of any coordinate" — of a fault the diff owned
+#              outright. A repository the change added that needs credentials, a
+#              misspelled repository host, and a genuinely dead endpoint all
+#              emit these same strings. Nothing available at this layer separates
+#              them from throttling, so the exhausted verdict says "a re-run may
+#              help, and here is why" rather than "not your diff". Narrowing the
+#              signature list cannot fix this — the ambiguity is in the strings
+#              themselves, not in the list's width.
 #
 #   UNMATCHED  say so, and say only that. No retry — a bad coordinate resolves
 #              exactly as badly the third time, so the 45s is pure waste — and
@@ -97,7 +110,8 @@ attempts=3
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
-# The transport signatures that earn a retry and the INFRASTRUCTURE verdict.
+# The transport signatures that earn a retry. They earn ONLY that: see the
+# MATCHED note above for why matching one does not establish the cause.
 # Every entry is a fault of the network path to the repository, never of a
 # coordinate: rate-limiting and throttling (the observed rf2-vm036 fault),
 # server-side errors, and connection-level breakage.
@@ -132,5 +146,5 @@ for attempt in 1 2 3; do
   fi
 done
 
-echo "::error title=Dependency resolution failed — INFRASTRUCTURE, not this diff::\`clojure -P${*:+ $*}\` failed ${attempts} times in $(pwd), every time with a transient transport signature ('${signature}') — a fault of the network path to the repository, not of any coordinate. This step only downloads dependencies; it runs no test and no server, so no code under review has executed. Maven Central returns 403 Forbidden to CI runners under concurrent load (rf2-vm036) and tools.deps reports it as 'Error building classpath'. Re-run the job."
+echo "::error title=Dependency resolution failed — transport-level, cause not established::\`clojure -P${*:+ $*}\` failed ${attempts} times in $(pwd), every time with a transient transport signature ('${signature}'). That signature is EVIDENCE A RE-RUN MAY HELP — Maven Central returns 403 Forbidden to CI runners under concurrent load (rf2-vm036), and that clears on its own — but it is NOT proof the cause is external. The same signature is emitted by a repository this change added that requires authentication, a misspelled repository host, and an endpoint that is simply down; this step cannot tell those apart from throttling. So: re-run the job first, and if it fails the same way again, read the resolver output above and check any repository or coordinate this change touched. Note only that no test and no server ran in this step — the resolution never got that far."
 exit 1
