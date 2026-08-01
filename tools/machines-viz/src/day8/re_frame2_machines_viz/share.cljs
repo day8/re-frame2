@@ -459,21 +459,70 @@
   a value-FREE diagnostic for a rejected payload `v`. Projection cannot
   walk `ex-data` after the fact, so a thrown error must NOT carry the raw
   payload (a forged share URL can smuggle `:snapshot {:data …}` /
-  arbitrary runtime values). We name the SHAPE — type tag + (for maps)
-  the key SET — never the values. The reader still recovers the category
-  + structural diagnostics; no secret-bearing slot survives."
+  arbitrary runtime values).
+
+  Shape (`:count` present only for a counted collection or string):
+
+    {:type   :map | :vector | :seq | :set | :keyword | :symbol
+             | :string | :number | :boolean | :nil | :fn | :scalar
+     :count  <int>}    ;; collection / string element count
+
+  **Content-free BY CONSTRUCTION (rf2-m46qv).** Every value this can
+  carry is either a member of the closed `:type` vocabulary above or an
+  integer count, so no expression here is derived from the input's
+  CONTENT. The serialized summary is a fixed size whatever arrives —
+  there is no prefix to bound and no key set to cap — which is the only
+  guarantee worth having over an input the header of this namespace
+  itself calls forged.
+
+  IT DID NOT HOLD BEFORE, on two legs:
+
+  - a map's `:keys` — every top-level key, uncapped and unsanitised.
+    A forged payload's key SET is attacker-chosen in CONTENT (keys carry
+    markup, control characters and secrets as readily as values do) and
+    in SIZE, so the summary grew with the forger's input without limit
+    and then rode into a thrown ex-info that names itself value-free.
+    Removing it also removes the `(sort-by str …)` that ran `str` over
+    caller-supplied keys, where a key whose `toString` THREW replaced
+    the documented failure with its own exception.
+  - a keyword's raw `:value`, justified inline by \"a keyword IS a state
+    name/address, not data\". That justification does not survive its own
+    threat model. This function is never handed a `:snapshot`'s `:state`
+    — its three call sites pass the whole chart-state, envelope or chart
+    — so the keyword leg fires exactly when the payload is NOT the shape
+    it was supposed to be, which is to say when someone forged it; and
+    transit decodes `~:<anything>` into a keyword of any length and any
+    content the forger likes. The guess that a keyword is structural is
+    the same one rf2-210uq rejected in `re-frame.error`.
+
+  SIZE IS DELIBERATELY KEPT. `:count` is what makes the summary useful
+  rather than merely safe — \"a 2000-key map where an envelope was
+  expected\" is the diagnosis — and an integer cannot carry a fragment of
+  a token. A lazy seq is NOT counted: realising it on the failure path
+  is its own hazard.
+
+  The `:type` vocabulary is deliberately the closed set
+  `re-frame.error/diag-value-summary` uses, so a tool reading a thrown
+  ex-data from either surface reads ONE diagnostic vocabulary. This
+  remains an INDEPENDENT implementation rather than a mirror — core
+  summarises a caller's argument, machines-viz summarises a forged wire
+  payload — but there is no reason for the two to disagree about what to
+  call a set."
   [v]
   (cond
-    (map? v)  {:type :map  :keys (vec (sort-by str (keys v))) :count (count v)}
-    (vector? v) {:type :vector :count (count v)}
-    (set? v)  {:type :set :count (count v)}
-    (sequential? v) {:type :seq}
-    (string? v) {:type :string :length (count v)}
-    (keyword? v) {:type :keyword :value v}     ; a keyword IS a state name/address, not data
-    (number? v) {:type :number}
+    (nil? v)     {:type :nil}
+    (map? v)     {:type :map :count (count v)}
+    (vector? v)  {:type :vector :count (count v)}
+    (set? v)     {:type :set :count (count v)}
+    (string? v)  {:type :string :count (count v)}
+    (keyword? v) {:type :keyword}
+    (symbol? v)  {:type :symbol}
     (boolean? v) {:type :boolean}
-    (nil? v)  {:type :nil}
-    :else     {:type :value}))
+    (number? v)  {:type :number}
+    (seq? v)     {:type :seq}
+    (fn? v)      {:type :fn}
+    (seqable? v) {:type :seq}
+    :else        {:type :scalar}))
 
 (defn- decode-error
   "Throw the documented `:rf.machines-viz.share/decode-failed` ex-info.
@@ -698,19 +747,36 @@
     (when-not fragment
       (decode-error :malformed-fragment
                     "URL carries no #machine= share fragment"
-                    {:url url}))
+                    ;; rf2-m46qv — the SHAPE of the argument, never the URL.
+                    ;; The encoder above already refuses to put `:host` in
+                    ;; ex-data because "a viewer URL can carry a query string
+                    ;; with a token in it" (rf2-8nzxib, hence its
+                    ;; `:fragment-index`); the decoder is handed URLs from
+                    ;; elsewhere, so it is the more exposed of the two and was
+                    ;; carrying the whole thing.
+                    {:url-summary (value-free-summary url)}))
+    ;; NEITHER STAGE BELOW REPORTS THE HOST'S OWN ERROR MESSAGE (rf2-m46qv).
+    ;; `transit/read` calls `JSON.parse`, and V8 embeds a PREFIX OF ITS INPUT
+    ;; in the SyntaxError it throws —
+    ;;
+    ;;   Unexpected token 'h', "hunter2-sw"... is not valid JSON
+    ;;
+    ;; — so a `:cause (.-message e)` republished the forged payload's own
+    ;; plaintext under a slot named for the cause: a disclosure nobody wrote,
+    ;; inherited from the host and revised by the host at will. The message it
+    ;; replaced nothing of: `:reason` already discriminates WHICH stage failed
+    ;; and `:message` says so in words, which is the whole of the recovery
+    ;; ("this is not a share-URL this build can read").
     (let [transit-str (try
                         (base64url->str fragment)
-                        (catch :default e
+                        (catch :default _e
                           (decode-error :malformed-fragment
-                                        "fragment is not valid base64url"
-                                        {:cause (.-message e)})))
+                                        "fragment is not valid base64url")))
           envelope    (try
                         (transit/read (transit/reader :json) transit-str)
-                        (catch :default e
+                        (catch :default _e
                           (decode-error :malformed-payload
-                                        "decoded bytes are not valid transit"
-                                        {:cause (.-message e)})))]
+                                        "decoded bytes are not valid transit")))]
       (when-not (and (map? envelope)
                      (contains? envelope :rf.machines-viz.share/v)
                      (contains? envelope :rf.machines-viz.share/chart))
@@ -732,7 +798,15 @@
         (when newer?
           (decode-error :unknown-version
                         "share-URL was produced by a newer Machines-Viz"
-                        {:payload-version v :decoder-version current-version}))
+                        ;; rf2-m46qv — `:v` is forged input: any transit value,
+                        ;; of any size, and it reaches here through the string
+                        ;; fallback as readily as through the numeric compare.
+                        ;; Report the INTEGER the comparison actually used
+                        ;; (nil when `:v` did not parse as a number at all),
+                        ;; never the raw value. A number cannot carry a token,
+                        ;; and "newer than 2" is the whole diagnosis.
+                        {:payload-version (when-not (js/isNaN v-num) v-num)
+                         :decoder-version current-version}))
         ;; Reject any :snapshot carrying keys beyond :state (a
         ;; hand-edited URL trying to smuggle :data), and validate the
         ;; whole ChartState.

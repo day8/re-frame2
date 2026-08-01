@@ -612,7 +612,9 @@
           d (try (share/decode-share-url future-url)
                  (catch :default e (ex-data e)))]
       (is (= :unknown-version (:reason d)))
-      (is (= "3" (:payload-version d))))))
+      ;; rf2-m46qv — the INTEGER the version comparison used, not the raw
+      ;; `:v` off the payload (which is forged input of any size).
+      (is (= 3 (:payload-version d))))))
 
 (deftest frame-id-is-optional
   (testing "a ChartState with no :frame-id encodes + round-trips (v2 / EP-0023)"
@@ -1085,3 +1087,265 @@
       (is (some? (:chart-summary d)) "value-free summary present")
       (is (not (some #(str/includes? % secret) (ex-data-strings d)))
           "the secret string must not survive anywhere in ex-data"))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 — the thrown diagnostic is content-free BY CONSTRUCTION (rf2-m46qv)
+;;
+;; The section above plants a secret in a VALUE position and hunts for it.
+;; It passed for as long as `value-free-summary` disclosed the payload
+;; anyway, because a sentinel hunt only ever finds the leak someone thought
+;; to plant: the map leg returned `:keys` — every top-level key, uncapped
+;; and unsanitised — and the keyword leg returned the raw keyword as
+;; `:value`. Both sit in KEY / TYPE positions the old hunt never looked at,
+;; and both are attacker-chosen in CONTENT and in SIZE, since the whole
+;; point of this namespace's header is that "a forged share URL can smuggle
+;; arbitrary runtime values".
+;;
+;; So the checks below are a GRAMMAR, not a hunt. Every summary this
+;; namespace can emit, over a corpus of hostile inputs, must consist of a
+;; `:type` drawn from a closed vocabulary plus an integer `:count` and
+;; NOTHING else, and every thrown ex-data must serialize inside a fixed
+;; bound however large the forged payload is. A future leak fails that
+;; without anyone remembering to plant a sentinel for it.
+
+(def ^:private sentinel
+  "The token planted in every position a forged payload can reach. Nothing
+  this namespace throws may reproduce it — as a string, a keyword, a
+  symbol, a map KEY, or a fragment of any of them."
+  "hunter2-swordfish-SENTINEL")
+
+(def ^:private sentinel-fragments
+  "Every 8-character window of the sentinel. A leak is proved by a FRAGMENT,
+  not only by the whole token: a bounded prefix of attacker material is the
+  defect, not the fix, and a host `JSON.parse` message discloses exactly
+  such a prefix."
+  (into #{} (map #(subs sentinel % (+ % 8))) (range (- (count sentinel) 7))))
+
+(defn- discloses?
+  "Does `x`, once serialized, reproduce any fragment of the sentinel — under
+  any key, at any depth, as a string, a keyword, a symbol or a map key?
+  `pr-str` is the check rather than the string walk above precisely because
+  a leaked KEYWORD is not a string, which is how the `:keys` leg survived a
+  test file that already claimed to assert this."
+  [x]
+  (let [s (pr-str x)]
+    (boolean (some #(str/includes? s %) sentinel-fragments))))
+
+(def ^:private summary-type-vocabulary
+  "The CLOSED `:type` vocabulary a value-free summary may emit — the same
+  set `re-frame.error/diag-value-summary` uses, so a tool reading a thrown
+  ex-data from either surface reads ONE diagnostic vocabulary."
+  #{:map :vector :seq :set :keyword :symbol :string :number :boolean :nil
+    :fn :scalar})
+
+(defn- content-free-summary?
+  "The grammar. A summary is a map whose key set is a subset of
+  `#{:type :count}`, whose `:type` is in the closed vocabulary, and whose
+  `:count` — when present — is a non-negative integer. Nothing else may
+  appear, because every other slot would have to be derived from the
+  input's CONTENT."
+  [s]
+  (and (map? s)
+       (every? #{:type :count} (keys s))
+       (contains? summary-type-vocabulary (:type s))
+       (or (not (contains? s :count))
+           (let [c (:count s)]
+             (and (integer? c) (not (neg? c)))))))
+
+(def ^:private summary-serialized-bound
+  "A summary is `{:type :keyword}`-sized whatever arrives. 48 characters is
+  slack over the longest legal shape (`{:type :boolean, :count 999999}`)
+  and orders of magnitude under the inputs below."
+  48)
+
+(def ^:private ex-data-serialized-bound
+  "The whole thrown ex-data — human `:message` included — against forged
+  payloads of ~50 KB. The bound proves SIZE-INDEPENDENCE, not brevity."
+  600)
+
+(defn- exploding-object
+  "A host object whose `toString` throws. A caller can put one in a
+  chart-state key, and `(sort-by str (keys v))` ran `str` over every key —
+  so the old summariser could throw the key's OWN exception in place of the
+  failure it was called to describe."
+  []
+  (let [o #js {}]
+    (set! (.-toString o)
+          (fn [] (throw (js/Error. (str "toString exploded: " sentinel)))))
+    o))
+
+(def ^:private hostile-keys
+  "Sentinel-bearing map keys of every key type transit carries, plus keys
+  that are markup and control characters — a disclosed key set is pasted
+  into a console, a log viewer or an issue tracker."
+  {(str "string-key-" sentinel)                    1
+   (keyword sentinel)                              2
+   (keyword sentinel sentinel)                     3
+   (symbol sentinel)                               4
+   [sentinel]                                      5
+   {sentinel sentinel}                             6
+   (str "<script>alert(" sentinel ")</script>")    7
+   (str (js/String.fromCharCode 27) "[31m" sentinel (js/String.fromCharCode 27) "[0m")  8
+   (str "CR\r\nLF-" sentinel)                      9
+   (str "NUL" (js/String.fromCharCode 0) "-" sentinel)               10
+   4111111111111111                                11
+   true                                            12})
+
+(def ^:private attacker-sized-envelope
+  "2000 sentinel-bearing keys. The old `:keys` leg reproduced every one of
+  them, so the summary grew with the forger's input without limit."
+  (into {} (map (fn [i] [(keyword (str sentinel "-" i)) i])) (range 2000)))
+
+(def ^:private forged-payloads
+  "Payloads a forged `#machine=` fragment can decode to. Transit carries
+  every one of them, so every one is attacker-reachable through the PUBLIC
+  decoder — including the arms whose summary legs the old code never
+  bounded at all."
+  [["a map keyed by sentinels of every key type"  hostile-keys]
+   ["an attacker-sized 2000-key map"              attacker-sized-envelope]
+   ["a nested map-of-map-of-set"                  {:a {:b #{sentinel}}
+                                                   :c [{(keyword sentinel) 1}]}]
+   ["a keyword with no length bound"              (keyword (apply str (repeat 20 sentinel)))]
+   ["a namespaced keyword"                        (keyword sentinel sentinel)]
+   ["a symbol"                                    (symbol sentinel)]
+   ["a 4004-character string"                     (apply str (repeat 154 sentinel))]
+   ["a vector of secrets"                         [sentinel sentinel]]
+   ["a set of secrets"                            #{sentinel}]
+   ["a list of secrets"                           (list sentinel)]
+   ["a 16-digit card number"                      4111111111111111]
+   ["a boolean"                                   true]
+   ["nil"                                         nil]])
+
+(deftest value-free-summary-is-content-free-by-construction
+  (testing "every summary is a closed-vocabulary :type plus an integer :count, and nothing else"
+    (doseq [[label v] (concat forged-payloads
+                              ;; The arms no transit payload can reach, which a
+                              ;; caller of `encode-share-url` still can.
+                              [["a lazy seq"                          (map identity [sentinel])]
+                               ["a live fn"                           (fn [] sentinel)]
+                               ["an opaque host object"               (js-obj "k" sentinel)]
+                               ["a host object whose toString throws" (exploding-object)]
+                               ["a map keyed by an exploding object"  {(exploding-object) :x}]])]
+      (let [s (#'share/value-free-summary v)]
+        (is (content-free-summary? s)
+            (str label " — expected {:type …} (+ :count), got " (pr-str s)))
+        (is (not (discloses? s))
+            (str label " — no sentinel fragment may survive"))
+        (is (<= (count (pr-str s)) summary-serialized-bound)
+            (str label " — fixed serialized bound, got " (count (pr-str s))))))))
+
+(deftest decode-error-discloses-nothing-it-was-given
+  (testing "a forged payload's decode failure names the shape and nothing else"
+    (doseq [[label payload] forged-payloads]
+      (let [url (envelope->url payload)
+            e   (try (share/decode-share-url url) nil
+                     (catch :default ex ex))
+            d   (ex-data e)]
+        (is (some? e) (str label " — decode must refuse"))
+        (is (= :missing-envelope (:reason d)) (str label " — the category survives"))
+        (is (content-free-summary? (:envelope-summary d))
+            (str label " — summary was " (pr-str (:envelope-summary d))))
+        (is (not (discloses? d))
+            (str label " — no sentinel fragment anywhere in ex-data"))
+        (is (not (discloses? (ex-message e)))
+            (str label " — no sentinel fragment in the thrown message"))
+        (is (< (count (pr-str d)) ex-data-serialized-bound)
+            (str label " — ex-data serialized " (count (pr-str d)) " chars"))))))
+
+(deftest decode-error-ex-data-does-not-grow-with-the-payload
+  (testing "a 2000-key forged envelope throws the same size ex-data as a 2-key one"
+    (let [size  (fn [payload]
+                  (count (pr-str (ex-data (try (share/decode-share-url (envelope->url payload))
+                                               nil
+                                               (catch :default e e))))))
+          small (size {:a 1 :b 2})
+          big   (size attacker-sized-envelope)]
+      (is (<= (- big small) 4)
+          (str "ex-data may grow only by the DIGITS of :count; "
+               small " → " big)))))
+
+(deftest decode-error-omits-the-caller-url
+  (testing "a URL with no #machine= fragment does not ride into ex-data"
+    ;; The encoder already refuses to put `:host` in ex-data, because "a
+    ;; viewer URL can carry a query string with a token in it" — that is what
+    ;; its `:fragment-index` slot is for. The decoder is the far more exposed
+    ;; side (it is handed URLs from elsewhere) and it carried the WHOLE url.
+    (let [url (str "https://x/viewer.html?session=" sentinel)
+          e   (try (share/decode-share-url url) nil (catch :default ex ex))
+          d   (ex-data e)]
+      (is (= :malformed-fragment (:reason d)))
+      (is (not (contains? d :url)) "no raw :url slot")
+      (is (content-free-summary? (:url-summary d)))
+      (is (not (discloses? d)) "no sentinel fragment in ex-data")
+      (is (not (discloses? (ex-message e))) "no sentinel fragment in the message"))))
+
+(deftest decode-error-omits-the-host-parse-message
+  (testing "the host parser's own error message does not republish the payload"
+    ;; `transit/read` calls `JSON.parse`, and V8 embeds a PREFIX OF ITS INPUT
+    ;; in the SyntaxError it throws. `:cause (.-message e)` therefore
+    ;; republished the forged payload's plaintext under a slot named for the
+    ;; cause — a leak nobody wrote, inherited from the host.
+    (let [plaintext (str sentinel "-not-transit")
+          b64       (-> (js/btoa (js/unescape (js/encodeURIComponent plaintext)))
+                        (str/replace "+" "-")
+                        (str/replace "/" "_")
+                        (str/replace "=" ""))
+          e         (try (share/decode-share-url (str test-host "#machine=" b64))
+                         nil
+                         (catch :default ex ex))
+          d         (ex-data e)]
+      (is (= :malformed-payload (:reason d)))
+      (is (not (contains? d :cause)) "no host-message slot")
+      (is (not (discloses? d)) "no sentinel fragment in ex-data")
+      (is (not (discloses? (ex-message e))) "no sentinel fragment in the message")))
+  (testing "the base64 stage carries no host message either"
+    (let [e (try (share/decode-share-url (str test-host "#machine=" sentinel "!!!"))
+                 nil
+                 (catch :default ex ex))
+          d (ex-data e)]
+      (is (= :malformed-fragment (:reason d)))
+      (is (not (contains? d :cause)) "no host-message slot")
+      (is (not (discloses? d)) "no sentinel fragment in ex-data"))))
+
+(deftest decode-error-omits-the-forged-version
+  (testing "a numeric-looking version reports the INTEGER the compare used"
+    (let [url (envelope->url {:rf.machines-viz.share/v     (str "9999-" sentinel)
+                              :rf.machines-viz.share/chart chart-state})
+          e   (try (share/decode-share-url url) nil (catch :default ex ex))
+          d   (ex-data e)]
+      (is (= :unknown-version (:reason d)))
+      (is (= 9999 (:payload-version d)) "the parsed integer, not the raw :v")
+      (is (not (discloses? d)) "no sentinel fragment in ex-data")))
+  (testing "a version that does not parse at all reports no version"
+    (let [url (envelope->url {:rf.machines-viz.share/v     (str "v" sentinel)
+                              :rf.machines-viz.share/chart chart-state})
+          e   (try (share/decode-share-url url) nil (catch :default ex ex))
+          d   (ex-data e)]
+      (is (= :unknown-version (:reason d)))
+      (is (nil? (:payload-version d)) "nil, not a 4000-character 'version'")
+      (is (not (discloses? d)) "no sentinel fragment in ex-data"))))
+
+(deftest encode-error-discloses-nothing-it-was-given
+  (testing "a rejected chart-state's key set does not ride into ex-data"
+    (let [leaky (merge hostile-keys
+                       {:machine-id :auth/flow
+                        :definition idle-loading-success
+                        :snapshot   {:state "not-an-arm"}})
+          e     (try (encode leaky) nil (catch :default ex ex))
+          d     (ex-data e)]
+      (is (= :invalid-chart-state (:reason d)))
+      (is (content-free-summary? (:chart-state-summary d)))
+      (is (not (discloses? d)) "no sentinel fragment in ex-data")
+      (is (not (discloses? (ex-message e))) "no sentinel fragment in the message")))
+  (testing "a chart-state key whose toString throws no longer destroys the failure being described"
+    (let [leaky {(exploding-object) :whatever
+                 :machine-id        :auth/flow
+                 :definition        idle-loading-success
+                 :snapshot          {:state "not-an-arm"}}
+          e     (try (encode leaky) nil (catch :default ex ex))
+          d     (ex-data e)]
+      (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d))
+          "the documented ex-info, not the hostile key's own exception")
+      (is (= :invalid-chart-state (:reason d)))
+      (is (content-free-summary? (:chart-state-summary d)))
+      (is (not (discloses? d)) "no sentinel fragment in ex-data"))))
