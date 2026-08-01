@@ -130,8 +130,12 @@
 
   This namespace deliberately does not implement `route-link` (routing-
   coupled, and outside this bead's three deliverables), `defhost`/`[:>]`
-  interop (HD-011, its own surface), or any controlled-value restore
-  (HD-019's door belongs to the arm that owns the DOM).")
+  interop (HD-011, its own surface), or any controlled-value restore.
+  HD-019's door belongs to whatever owns the DOM element, which is the
+  emitter rather than the lowering:
+  [[re-frame.bench.hicasso.front.controlled]] wraps the handler this
+  namespace produced, after it has produced it, and nothing about the
+  lowering changes because of it (rf2-fki5d).")
 
 ;; ---------------------------------------------------------------------------
 ;; The ambient frame (HD-020(a))

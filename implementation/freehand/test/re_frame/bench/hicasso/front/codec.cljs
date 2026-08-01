@@ -66,6 +66,21 @@
   representation\" in architecture.md, and it is the reason the two are
   kept visibly apart below rather than interleaved.
 
+  ## The one behaviour emission adds (rf2-fki5d)
+
+  Everything else here translates what the author wrote. A controlled
+  `<input>` or `<textarea>` gets one thing more: its change handler is
+  wrapped so the field converges against the model **inside the discrete
+  event, with the caret where the edit left it** — the half neither
+  React nor UIx's port gives on its own (rf2-n3dxw).
+
+  It belongs at emission rather than in a boundary because that is what
+  makes it free at the authoring surface: the view writes an ordinary
+  `:value` / `:on-input` pair, nothing is added to the boundary shell,
+  and HD-020's ≤2-hook budget is untouched. See
+  [[re-frame.bench.hicasso.front.controlled]], which owns the mechanism,
+  its guards and its one dependency.
+
   ## The component ABI (HD-016)
 
   | Head | Props | Children | `:key` |
@@ -101,6 +116,7 @@
   written against the raw key is a rule that `\"key\"`, `:x/ref` and
   `:onInput` walk straight past."
   (:require [clojure.string :as str]
+            [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.front.intent :as intent]
             ["react" :as react]))
 
@@ -768,11 +784,22 @@
             (recur (inc i))))
         (.apply (.-createElement react) nil args)))))
 
-(defn- native-element [argv]
+(defn- native-element
+  "One native tag as a React element.
+
+  [[re-frame.bench.hicasso.front.controlled/install!]] is the only thing
+  here that is not a translation of what the author wrote. It runs on
+  the converted props, because the condition it tests is about the
+  EMITTED element — a controlled `value`, a change handler, a type with
+  a caret — and those are canonical slots rather than spellings. It is
+  one JS `switch` on the tag for every element that is not an `:input`
+  or a `:textarea`, which is nearly all of them. rf2-fki5d."
+  [argv]
   (let [parsed      (cached-parse (nth argv 0))
         has-props?  (props-map? argv 1)
         props       (if has-props? (nth argv 1) nil)
         js-props    (convert-props (or props {}) parsed)]
+    (controlled/install! (.-tag parsed) js-props)
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (.-tag parsed) js-props argv (if has-props? 2 1))))
 
