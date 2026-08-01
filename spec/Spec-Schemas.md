@@ -3858,16 +3858,18 @@ The structured-cookie shape that `:rf.server/set-cookie` and `:rf.server/delete-
   [:map
    [:name      :string]
    [:value     :string]
-   [:max-age   {:optional true} [:or :int :string]]                        ;; canonical :int; string admitted at ingress (see §Ingress tolerance below)
-   [:expires   {:optional true} [:or :int :string]]                        ;; canonical ms-since-epoch :int; string admitted at ingress only (see below); Ring REQUIRES an int at the host boundary
-   [:secure    {:optional true} :boolean]
-   [:http-only {:optional true} :boolean]
-   [:same-site {:optional true} [:or [:enum :strict :lax :none] :string]]  ;; canonical enum; string admitted at ingress (see below)
-   [:path      {:optional true} :string]
-   [:domain    {:optional true} :string]])
+   [:max-age   {:optional true} [:maybe [:or :int :string]]]                        ;; canonical :int; string admitted at ingress (see §Ingress tolerance below)
+   [:expires   {:optional true} [:maybe [:or :int :string]]]                        ;; canonical ms-since-epoch :int; string admitted at ingress only (see below); Ring REQUIRES an int at the host boundary
+   [:secure    {:optional true} [:maybe :boolean]]
+   [:http-only {:optional true} [:maybe :boolean]]
+   [:same-site {:optional true} [:maybe [:or [:enum :strict :lax :none] :string]]]  ;; canonical enum; string admitted at ingress (see below)
+   [:path      {:optional true} [:maybe :string]]
+   [:domain    {:optional true} [:maybe :string]]])
 ```
 
 Either `:max-age` or `:expires` may be supplied (or neither — session cookie). User code does not build wire strings.
+
+**Every optional slot is `[:maybe …]`, because a present `nil` is an absent key.** `{:path nil}` and `{}` say the same thing in Clojure, and a cookie assembled from an options map writes the first while meaning the second. The always-on guards in `re-frame.ssr.response` read it that way, so a bare `[:path {:optional true} :string]` would refuse in a development build exactly what a release build persists — a posture-dependent accumulator, which is the defect [011 §The reserved fx guard their own args](011-SSR.md#the-reserved-fx-guard-their-own-args) exists to close. The **required** slots keep the bare type: `{:value nil}` is a cookie with no value. `:name` is a `:string` on both sides — a keyword or symbol name is refused at the fx boundary in every build, so an adapter reading `(:name cookie)` gets the type published here.
 
 **Ingress tolerance vs canonical/host-serialisable shape.** The `:max-age`, `:expires`, and `:same-site` attributes carry a `[:or <canonical-type> :string]` shape rather than the bare canonical type. This is **ingress tolerance for injection inspection, not a serialisability promise.** Apps frequently build cookie attributes from host-data that arrives as strings, and the per-attribute injection gate (`re-frame.ssr.response/validate-cookie!`, per [011 §CRLF fail-fast](011-SSR.md#crlf-fail-fast-on-header-values)) must be able to *see* those string forms to reject a forged `"3600\r\nSet-Cookie: admin=1"` payload at the fx boundary. The fx-args `:schema` here is a **shape/type gate**; `validate-cookie!` is the **separate injection gate** — CR/LF/NUL for every attribute, plus the `;` RFC 6265 §4.1.1 cookie-attribute delimiter for the ones concatenated verbatim into the Set-Cookie line (`:max-age` / `:same-site` / `:path` / `:domain` / `:expires`); `:value` is percent-encoded by the serialiser, so it stays delimiter-tolerant (`;` → `%3B`, gated on CR/LF/NUL only). So these three attributes admit the string form purely so it reaches the injection gate.
 
@@ -4050,7 +4052,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; --- :rf.server/* fx — HTTP response contract per [011 §HTTP response contract] ---
 
 ;; :rf.server/set-status — set the response status code
-(def SetStatusFxArgs :int)                                                 ;; e.g. 200 / 404 / 500
+(def SetStatusFxArgs [:int {:min 100 :max 599}])                           ;; e.g. 200 / 404 / 500 — the range the status line admits
 
 ;; :rf.server/set-header — replace a header (case-insensitive name match)
 (def SetHeaderFxArgs
@@ -4072,8 +4074,8 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 (def DeleteCookieFxArgs
   [:map
    [:name   :string]
-   [:path   {:optional true} :string]
-   [:domain {:optional true} :string]])
+   [:path   {:optional true} [:maybe :string]]
+   [:domain {:optional true} [:maybe :string]]])
 
 ;; :rf.server/redirect — set status (default 302) and the redirect target; truncates HTML body.
 ;; The redirect target is keyed under :location — the canonical (and only) target key, per
@@ -4092,8 +4094,8 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; target and so is REQUIRED there.)
 (def RedirectFxArgs
   [:map
-   [:status   {:optional true} :int]                                       ;; default 302
-   [:location {:optional true} :string]])                                  ;; redirect target (canonical key)
+   [:status   {:optional true} [:maybe [:int {:min 100 :max 599}]]]         ;; default 302
+   [:location {:optional true} [:maybe :string]]])                          ;; redirect target (canonical key)
 
 ;; :rf.server/safe-redirect — caller-UNtrusted redirect (open-redirect mitigation);
 ;; :location is the validation target and so is REQUIRED here (unlike :rf.server/redirect,
@@ -4102,10 +4104,12 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 (def SafeRedirectFxArgs
   [:map
    [:location       :string]
-   [:status         {:optional true} :int]                                 ;; default 302
-   [:relative-only? {:optional true} :boolean]
-   [:allow          {:optional true} [:sequential :string]]])              ;; allowlisted hosts
+   [:status         {:optional true} [:maybe [:int {:min 100 :max 599}]]]   ;; default 302
+   [:relative-only? {:optional true} [:maybe :boolean]]
+   [:allow          {:optional true} [:maybe [:sequential :string]]]])      ;; allowlisted hosts
 ```
+
+Two conventions run through the seven, and both exist so that these schemas and the always-on guards in `re-frame.ssr.response` cannot answer the same question differently — a disagreement between them is an accumulator whose shape depends on the build, which is what [011 §The reserved fx guard their own args](011-SSR.md#the-reserved-fx-guard-their-own-args) forbids. **A `:status` is bounded to 100–599**, the range the HTTP status line admits, wherever one appears; a bare `:int` would let `0` / `-1` / `99999` through the boundary that exists to catch exactly that. **Every optional slot is `[:maybe …]`**, because a present `nil` is an absent key (see [§`:rf.server/cookie`](#rfservercookie)); required slots keep the bare type.
 
 These are registered under spec ids:
 
