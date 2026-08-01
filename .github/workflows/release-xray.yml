@@ -25,34 +25,43 @@
 # `xray-v`) matches the repo-root VERSION — a mismatched tag is
 # refused before any deploy step runs.
 #
-# # :local/root → :mvn/version rewrite, and the hole in it
+# # :local/root → :mvn/version rewrite, and the one coordinate left in it
 #
 # tools/xray/deps.edn declares TEN in-repo runtime coordinates via
 # `:local/root` for in-tree development — core, epoch, routing,
 # flows, schemas, resources, machines, freehand, machines-viz and
-# reagent-slim. The rewrite step below covers TWO of them (core and
-# reagent-slim), and `clein pom` SILENTLY SKIPS every `:local/root`
-# coordinate it is handed, so the other eight would simply be absent
-# from the published pom. Run against the in-tree deps.edn today,
-# `clein pom` prints ten `Skipping coordinate` lines and writes a pom
-# carrying four third-party artefacts and nothing else.
+# reagent-slim — and `clein pom` SILENTLY SKIPS every `:local/root`
+# coordinate it is handed. Whatever this step does not rewrite is
+# simply ABSENT from the published pom, and Clojars has no yank.
 #
-# That gap is rf2-5dut1 and it is NOT closed here. What IS closed is
-# the silence: the package-preflight step reads the GENERATED pom and
-# REFUSES the deploy unless every coordinate the committed deps.edn
-# declares at `:local/root` is present at the lockstep VERSION. So an
-# `xray-v*` tag pushed today fails loudly with the eight named,
-# rather than publishing an unusable pom to a registry that has no
-# yank. See .github/scripts/preflight-xray-package.sh.
+# The rewrite step below covers NINE of the ten: every coordinate
+# whose target artefact is publishable. It used to cover two (core and
+# reagent-slim) while the deps.edn grew to ten, which is the defect
+# rf2-5dut1 was filed for — run against the in-tree deps.edn on that
+# revision, `clein pom` printed ten `Skipping coordinate` lines and
+# wrote a pom carrying four third-party artefacts and nothing else.
 #
-# Seven of the eight are a mechanical fix (a rewrite line here, an
-# entry in verify-version-lockstep.sh's TOOLS_LOCAL_ROOTS). The
-# eighth, `day8/re-frame2-freehand`, is an OPEN OPERATOR DECISION:
-# implementation/freehand/deps.edn carries no `:clein/build`, on
-# purpose — publication is EP-0036 F6 territory — so it cannot be
-# pinned to any `:mvn/version` at all. Either Xray is not publishable
-# until Freehand ships, or the Freehand edge moves to late-bind. Do
-# not route around it by dropping the coordinate from the preflight.
+# The tenth, `day8/re-frame2-freehand`, is an OPEN OPERATOR DECISION
+# and is deliberately NOT rewritten: implementation/freehand/deps.edn
+# carries no `:clein/build`, on purpose — publication is EP-0036 F6
+# territory — so there is no `:mvn/version` to pin it to. Rewriting it
+# anyway would be WORSE than omitting it: the pom would name
+# `day8/re-frame2-freehand:<VERSION>`, a coordinate that does not and
+# cannot exist, and the package preflight below — which asserts
+# presence, not resolvability — would pass it straight through to
+# Clojars. Omitting it is what keeps the failure ours instead of the
+# consumer's. Either Xray is not publishable until Freehand ships, or
+# the Freehand edge moves to late-bind (Xray's only production require
+# on it is `day8.re-frame2-xray.mounted-views`). Do not route around it
+# by dropping the coordinate from the preflight, and do not swap this
+# roster for .github/scripts/rewrite-in-repo-coords.sh, which rewrites
+# EVERY declared coordinate and would mint exactly that unresolvable
+# GAV.
+#
+# So an `xray-v*` tag pushed today still fails, at the preflight, with
+# `day8/re-frame2-freehand` named and the ruling restated — one
+# coordinate rather than eight. That refusal is deliberate. See
+# .github/scripts/preflight-xray-package.sh.
 #
 # The rewrite is never committed.
 #
@@ -201,38 +210,44 @@ jobs:
 
       # ─────────────────────────────────────────────────────────────
       # Rewrite :local/root → :mvn/version on the throwaway runner
-      # checkout (never committed). The literal substring match +
-      # python single-occurrence assertion is the same shape used by
-      # the framework release.yml deploy-leaf job — fails loudly if
-      # the source ever drifts.
+      # checkout (never committed), via the shared comment-aware helper
+      # release.yml, release-story.yml and release-machines-viz.yml all
+      # use. It aborts if a coordinate is absent (exit 3) or ambiguous
+      # (exit 4) rather than packaging a pom with a hole in it.
       #
-      # This list covers TWO of the TEN in-repo coordinates Xray's
-      # deps.edn declares (rf2-5dut1 — see the header). It is NOT
-      # extended here, because one of the eight it omits cannot be
-      # rewritten at all until an operator ruling on Freehand, and a
-      # partial extension would trade a loud failure for a quieter
-      # one. The preflight step below is what makes the gap fatal
-      # instead of invisible.
+      # The helper replaced a bespoke inline rewrite that counted the
+      # coordinate over the RAW file text, so an ordinary `;;` comment
+      # quoting the same characters pushed the count to two and aborted
+      # the deploy (rf2-ldkuk found exactly that in reagent-slim). This
+      # deps.edn documents every coordinate in prose, so that shape was
+      # a live hazard here, not a hypothetical one.
+      #
+      # NINE of Xray's TEN in-repo coordinates, in deps.edn declaration
+      # order. `day8/re-frame2-freehand` is absent ON PURPOSE and is the
+      # one thing in this file not to "fix" — see the header. The
+      # preflight step below re-derives the required set from the
+      # committed deps.edn and refuses the deploy over it.
       # ─────────────────────────────────────────────────────────────
       - name: Rewrite Xray :local/root → :mvn/version
         working-directory: tools/xray
         env:
           VERSION: ${{ needs.verify-version.outputs.version }}
         run: |
-          set -euo pipefail
-          rewrite() {
-            local before="$1"
-            local after="$2"
-            if ! grep -qF "${before}" deps.edn; then
-              echo "::error::expected '${before}' substring not found in tools/xray/deps.edn"
-              exit 1
-            fi
-            BEFORE="${before}" AFTER="${after}" \
-              python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-            echo "Rewrote ${before} → ${after}"
-          }
-          rewrite ':local/root "../../implementation/core"'              ":mvn/version \"${VERSION}\""
-          rewrite ':local/root "../../implementation/adapters/reagent-slim"' ":mvn/version \"${VERSION}\""
+          set -eu
+          for local_root in \
+            "../../implementation/core" \
+            "../../implementation/epoch" \
+            "../../implementation/routing" \
+            "../../implementation/flows" \
+            "../../implementation/schemas" \
+            "../../implementation/resources" \
+            "../../implementation/machines" \
+            "../machines-viz" \
+            "../../implementation/adapters/reagent-slim"
+          do
+            "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" \
+              "$local_root" "$VERSION" deps.edn
+          done
           echo "--- Rewritten dep coords:"
           grep -E "day8/(re-frame2|reagent-slim)" deps.edn
 
@@ -249,9 +264,10 @@ jobs:
       # deps.edn is the exact defect this gate exists for. Mirrors
       # release-story.yml's preflight (rf2-wht9a).
       #
-      # EXPECTED TO FAIL on the first tag push after it lands: eight
-      # coordinates are unrewritten, one of them pending an operator
-      # ruling. That refusal is the deliverable.
+      # STILL EXPECTED TO FAIL, on ONE coordinate:
+      # `day8/re-frame2-freehand` is unpublishable and therefore
+      # unrewritten, pending the operator ruling in rf2-5dut1. That
+      # refusal is the deliverable, not an obstacle to route around.
       # ─────────────────────────────────────────────────────────────
       - name: Preflight — Xray published package
         working-directory: tools/xray

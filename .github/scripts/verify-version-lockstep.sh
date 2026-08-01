@@ -823,10 +823,11 @@ declare -A TOOLS_PATHS=(
 # assert that freehand is publishable — implementation/freehand/deps.edn
 # deliberately carries no `:clein/build` (publication is EP-0036 F6
 # territory), so `day8/re-frame2-freehand` cannot be rewritten to any
-# `:mvn/version`. Whether Xray is publishable before Freehand ships is an
-# OPEN OPERATOR DECISION (rf2-5dut1) that this gate neither makes nor
-# routes around; preflight-xray-package.sh is where it comes due, by
-# refusing the deploy.
+# `:mvn/version`. It is the ONE coordinate release-xray.yml deliberately
+# leaves at `:local/root`; the other nine are rewritten there. Whether Xray
+# is publishable before Freehand ships is an OPEN OPERATOR DECISION
+# (rf2-5dut1) that this gate neither makes nor routes around;
+# preflight-xray-package.sh is where it comes due, by refusing the deploy.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
 xray|day8/re-frame2 {:local/root "../../implementation/core"}
 xray|day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
