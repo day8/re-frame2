@@ -156,6 +156,18 @@ const CTL_BUSY_MS = 50;
 // choose whichever answer it prefers — every table says which it is.
 const TARE = (process.env.HCLOCK_TARE || 'on') !== 'off';
 
+// THE FALSIFICATION KNOB for the three-point control. Set it and the
+// control's arms render this many cells while still DECLARING 1 / 100 / 200
+// to the driver, so a run in which every other gate passes exits 1 naming the
+// control. It exists because a control nobody has seen refuse is a control of
+// unmeasured sensitivity, and this lane has found that defect nine times.
+const CTL3_SABOTAGE = Number(process.env.HCLOCK_CTL3_SABOTAGE || 0) || null;
+
+// Run every adjudicator's own self-test and stop, without building or opening
+// a browser. The three-point control's refusals are fixtures rather than
+// prose, and this is how a reader runs them in a second.
+const SELFTEST_ONLY = process.argv.includes('--selftest');
+
 const ALL_ROWS = ['M1', 'bulk300', 'bulk100', 'narrow', 'keystroke'];
 const ONLY = (process.env.HCLOCK_ONLY || '').trim();
 const ROWS = ONLY ? ALL_ROWS.filter((r) => ONLY.split(',').includes(r)) : ALL_ROWS;
@@ -282,6 +294,285 @@ function controlVerdict(predicted, perRound, slack) {
 }
 
 // ---------------------------------------------------------------------------
+// THE THREE-POINT CONTROL — a difference of differences (rf2-7iqb5, rf2-5xrcd)
+// ---------------------------------------------------------------------------
+//
+// `ctl-2x` is the floor at twice the boundaries against the floor, predicted
+// 2.00x. Over rf2-emvod's seven runs it read 1.8173x on the MOUNT row and
+// 1.7334 / 1.7696 / 1.7796 on bulk300 / bulk100 / narrow — every row short by
+// 9-13%, and `rf2-5xrcd`'s "mis-specified for an UPDATE row" does not reach
+// the mount row at all.
+//
+// ONE ADDITIVE CONSTANT fits all four. `(2W + c)/(W + c)` is below 2 for any
+// positive `c` and does not care what the row is. Inverting each measured
+// ratio against its own floor — see `additiveConstant` below, which this run
+// re-measures rather than importing — recovered c = 1.040 / 1.043 / 0.873 /
+// 0.790 ms.
+//
+// `rf2-7iqb5`'s filed repair, doubling the CHANGED SET at fixed page size,
+// leaves `c` untouched: `(2D + c)/(D + c)` has the same shape. So the repair
+// here is not a second two-point control on a better axis. It is a THREE-POINT
+// control on that axis, adjudicated as a difference of differences, in which
+// the constant is not estimated, bounded or assumed — it CANCELS.
+//
+//     R3 = (T(d2) - T(d0)) / (T(d1) - T(d0))  ->  (d2 - d0) / (d1 - d0)
+//
+// Both perturbations this lane has measured die in it:
+//
+//   * an ADDITIVE per-sample constant cancels in each difference;
+//   * a MULTIPLICATIVE block-level perturbation — which is what rf2-cvvb7's
+//     nineteen-run load ladder found ambient load to be — cancels in the
+//     quotient.
+//
+// `ctl-2x` survives the second only. Both are computed and printed, on the
+// same samples, so the repair is visible rather than asserted.
+//
+// WHAT IT CANNOT DO, stated here rather than discovered later. It certifies
+// that the composite of INSTRUMENT and WORKLOAD is linear in the dirty set.
+// A refusal does not by itself say which of the two bent, and a pass does not
+// certify a MOUNT row — a mount has no standing page and no changed-set axis,
+// so `M1` keeps `ctl-2x` and keeps its known undershoot.
+
+// Every arm of the control goes through `page.evaluate` -> `HCLOCK.sample`,
+// the SAME door as the floor, `ctl-2x` and every substrate arm on a bulk row.
+// That is load-bearing rather than incidental: rf2-emvod's third defect was
+// that `DevToolsCommandDuration` bills page script only when the script runs
+// inside a protocol command, so the SAME subtraction is frame-only through
+// `page.evaluate` and script-and-frame through `page.click`. A control whose
+// arms went through two different doors would be differencing two different
+// quantities. These three go through one, so whatever the door costs is
+// common-mode, additive, and cancels with everything else constant.
+const CTL3_DOOR = 'page.evaluate -> HCLOCK.sample (all three arms, one door)';
+
+/** Least-squares fit of `T = a*d + c` over `[{d, t}]`, with its residuals. */
+function linearFit(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  const dbar = points.reduce((s, p) => s + p.d, 0) / n;
+  const tbar = points.reduce((s, p) => s + p.t, 0) / n;
+  const sdd = points.reduce((s, p) => s + (p.d - dbar) ** 2, 0);
+  if (sdd === 0) return null;
+  const a = points.reduce((s, p) => s + (p.d - dbar) * (p.t - tbar), 0) / sdd;
+  const c = tbar - a * dbar;
+  const ssTot = points.reduce((s, p) => s + (p.t - tbar) ** 2, 0);
+  const ssRes = points.reduce((s, p) => s + (p.t - (a * p.d + c)) ** 2, 0);
+  return {
+    slope: a,
+    intercept: c,
+    r2: ssTot === 0 ? NaN : 1 - ssRes / ssTot,
+    maxResidual: Math.max(...points.map((p) => Math.abs(p.t - (a * p.d + c)))),
+  };
+}
+
+/**
+ * `c` recovered from a DOUBLING control, which is rf2-emvod's arithmetic and
+ * is reproduced here rather than quoted.
+ *
+ * If `floor = W + c` and `ctl2x = 2W + c` then their measured ratio `R`
+ * satisfies `R(W + c) = 2W + c`, so `W = c(R-1)/(2-R)` and therefore
+ *
+ *     floor = c/(2 - R)     =>     c = floor * (2 - R)
+ *
+ * It is exact, it has no free parameter, and it is DEGENERATE as `R -> 2`:
+ * a doubling control that passed cleanly would recover `c = 0` and say
+ * nothing, which is the sense in which `ctl-2x` was never able to measure
+ * the thing that was wrong with it.
+ */
+function additiveConstant(floorTared, ratio2x) {
+  return floorTared * (2 - ratio2x);
+}
+
+/**
+ * The three-point verdict, per block. `dirty` maps arm id -> DECLARED dirty
+ * count, taken from the page's own plan rather than from a literal here, so
+ * a page that renders something other than what it declares is a
+ * disagreement the control can see (`HCLOCK_CTL3_SABOTAGE`).
+ *
+ * The plumb tare is NOT subtracted and does not need to be: it enters every
+ * arm of a block identically, so it cancels in `T(d2) - T(d0)` and again in
+ * `T(d1) - T(d0)`. This control is independent of the tare arm entirely,
+ * which is one fewer thing for a published row to depend on.
+ */
+function ctl3Verdict(rounds, dirty, slack, floorDirty) {
+  const arms = Object.keys(dirty)
+    .filter((a) => dirty[a] > 0)
+    .sort((a, b) => dirty[a] - dirty[b]);
+  if (arms.length < 3) return null;
+  const [a0, a1, a2] = arms;
+  const [d0, d1, d2] = arms.map((a) => dirty[a]);
+  const predicted = (d2 - d0) / (d1 - d0);
+  const per = [];
+  const blocks = [];
+  for (let r = 0; r < rounds.length; r++) {
+    for (const seg of SEGMENTS) {
+      const t0 = p50(rounds[r][seg][a0]);
+      const t1 = p50(rounds[r][seg][a1]);
+      const t2 = p50(rounds[r][seg][a2]);
+      const tF = rounds[r][seg][FLOOR] ? p50(rounds[r][seg][FLOOR]) : NaN;
+      per.push((t2 - t0) / (t1 - t0));
+      // The floor is a FOURTH point for free — a floor sample rewrites every
+      // one of its 300 cells with a value fresh on every operation — and it
+      // is a check on the line rather than a term in the statistic. Nothing
+      // above depends on it.
+      const fit = linearFit(
+        [
+          { d: d0, t: t0 },
+          { d: d1, t: t1 },
+          { d: d2, t: t2 },
+        ].concat(Number.isFinite(tF) && floorDirty ? [{ d: floorDirty, t: tF }] : [])
+      );
+      blocks.push({
+        seg, round: r,
+        t: { [d0]: r4(t0), [d1]: r4(t1), [d2]: r4(t2), ...(Number.isFinite(tF) ? { [floorDirty]: r4(tF) } : {}) },
+        num: r4(t2 - t0), den: r4(t1 - t0),
+        ratio: r4((t2 - t0) / (t1 - t0)),
+        fit: fit && { slopeUsPerCell: r4(fit.slope * 1000), intercept: r4(fit.intercept), r2: r4(fit.r2), maxResidual: r4(fit.maxResidual) },
+      });
+    }
+  }
+  const v = controlVerdict(predicted, per, slack);
+  return {
+    ...v,
+    arms: { eps: a0, d: a1, twoD: a2 },
+    dirty: { [a0]: d0, [a1]: d1, [a2]: d2 },
+    door: CTL3_DOOR,
+    blocks,
+    // ABSOLUTES BESIDE THE RATIO, because this lane's three instrument
+    // defects were all visible in the milliseconds on run 1 and invisible in
+    // the ratio printed instead. A difference of differences is exactly the
+    // statistic whose denominator can quietly shrink to noise, and the only
+    // way to see that happening is to look at it in milliseconds.
+    signal: {
+      numMs: band(blocks.map((b) => b.num)),
+      denMs: band(blocks.map((b) => b.den)),
+      slopeUsPerCell: band(blocks.filter((b) => b.fit).map((b) => b.fit.slopeUsPerCell)),
+      interceptMs: band(blocks.filter((b) => b.fit).map((b) => b.fit.intercept)),
+      r2: band(blocks.filter((b) => b.fit).map((b) => b.fit.r2)),
+    },
+  };
+}
+
+/**
+ * The adjudicator's own self-test, run before the browser opens and fatal if
+ * it fails — the pattern `order_guard.cjs` and `seam.cjs` already hold this
+ * driver to. A control is only worth its verdict if its arithmetic has been
+ * shown to REFUSE something, and these cases are the refusals stated as
+ * fixtures rather than as prose.
+ */
+function ctl3SelfTest() {
+  const dirty = { 'ctl-d1': 1, 'ctl-d100': 100, 'ctl-d200': 200 };
+  const predicted = (200 - 1) / (100 - 1); // 2.0101
+  // A synthetic block set: `t(d)` per block, three segments x three rounds.
+  const synth = (t) => {
+    const rs = [];
+    for (let r = 0; r < 3; r++) {
+      const perSeg = {};
+      for (let i = 0; i < SEGMENTS.length; i++) {
+        perSeg[SEGMENTS[i]] = {
+          'ctl-d1': [t(1, r, i)], 'ctl-d100': [t(100, r, i)], 'ctl-d200': [t(200, r, i)],
+          [FLOOR]: [t(300, r, i)],
+        };
+      }
+      rs.push(perSeg);
+    }
+    return rs;
+  };
+  const A = 0.006; // 6 µs per dirty cell
+  const C = 3.5; // a constant FOUR TIMES the whole signal at d=200
+  const checks = [];
+
+  // 1. Linear work under a large additive constant: the constant is exactly
+  //    what broke `ctl-2x`, and it must not touch this statistic at all.
+  // `measured.mean` comes back through `band`, which rounds to four places,
+  // so the tolerance here is the ROUNDING and not a fudge — 5e-5 is half a
+  // unit in the last place it can carry.
+  const exact = (x) => Math.abs(x - r4(predicted)) < 5e-5;
+  const lin = ctl3Verdict(synth((d) => A * d + C), dirty, CONTROL_SLACK, 300);
+  checks.push({ name: 'linear + large additive constant PASSES', ok: lin.ok && exact(lin.measured.mean) });
+
+  // 2. The SAME data through a doubling control, to show the repair is a
+  //    repair rather than a looser rule. `ctl-2x` doubles the page, so its
+  //    reading is `(2W + c)/(W + c)` with `W = A*300`.
+  const W = A * 300;
+  const ctl2xOnSameWorld = (2 * W + C) / (W + C);
+  checks.push({
+    name: 'the doubling control FAILS on the same world the three-point one passes',
+    ok: !controlVerdict(2.0, [ctl2xOnSameWorld], CONTROL_SLACK).ok && ctl2xOnSameWorld < 2.0,
+  });
+
+  // 3. A MULTIPLICATIVE block perturbation — ambient load, which rf2-cvvb7
+  //    measured to be exactly this shape — must also cancel.
+  const mult = ctl3Verdict(synth((d, r, i) => (1 + 0.35 * r + 0.2 * i) * (A * d + C)), dirty, CONTROL_SLACK, 300);
+  checks.push({ name: 'multiplicative block perturbation PASSES', ok: mult.ok && exact(mult.measured.mean) });
+
+  // 4. SUPERLINEAR work must REFUSE. If the page's cost per dirty cell grows
+  //    with the dirty set, the row's own premise is wrong and the control is
+  //    the thing that says so.
+  const sup = ctl3Verdict(synth((d) => A * Math.pow(d, 1.4) + C), dirty, CONTROL_SLACK, 300);
+  checks.push({ name: 'superlinear work REFUSES', ok: !sup.ok });
+
+  // 5. AN ARM THAT DOES NOT DO WHAT IT DECLARES must REFUSE. This is the
+  //    fixture form of `HCLOCK_CTL3_SABOTAGE`: the page renders 140 while
+  //    still declaring 200, every other gate passes, and the control is the
+  //    only one that can see it.
+  const sab = ctl3Verdict(synth((d) => A * (d === 200 ? 140 : d) + C), dirty, CONTROL_SLACK, 300);
+  checks.push({ name: 'an arm dirtying 140 while declaring 200 REFUSES', ok: !sab.ok });
+
+  // 6. A DEAD DENOMINATOR must REFUSE rather than read as a pass. This
+  //    statistic's characteristic failure is not a wrong number, it is a
+  //    denominator that has shrunk into the noise — and a quotient of two
+  //    quantities that are both zero must never be treated as agreement. An
+  //    instrument that saw NO dirty-set signal at all would produce exactly
+  //    this, and it has to come out as a refusal.
+  const dead = ctl3Verdict(synth(() => C), dirty, CONTROL_SLACK, 300);
+  checks.push({
+    name: 'a workload with NO dirty-set signal REFUSES (degenerate denominator is not a pass)',
+    ok: !dead.ok && !Number.isFinite(dead.measured.mean),
+  });
+  // 6b. THE STRICT RULE IS PER BLOCK. Eight clean blocks must not vouch for
+  //     a ninth that is wrong — that is `lane/control-verdict`'s recorded
+  //     overlap defect (rf2-egdaq), and it is the reason this control is
+  //     adjudicated block by block rather than on a pooled mean. Note that a
+  //     block-wide SCALING would not do as a fixture here: it cancels in the
+  //     quotient by design, so the one bad block has to be bad in SHAPE.
+  const oneBad = ctl3Verdict(
+    synth((d, r, i) => (r === 1 && i === 2 ? A * Math.pow(d, 1.5) : A * d) + C),
+    dirty, CONTROL_SLACK, 300
+  );
+  checks.push({
+    name: 'ONE nonlinear block out of nine REFUSES (eight good blocks do not vouch for it)',
+    ok: !oneBad.ok && oneBad.perRound.length === 9 &&
+      oneBad.perRound.filter((x) => Math.abs(x - predicted) < 0.01).length === 8,
+  });
+
+  // 7. THE PREDICTION IS DERIVED, not carried as a literal. `2.0101` and not
+  //    `2.00` is the whole reason the epsilon arm may dirty one cell rather
+  //    than none: with `d0 = 0` the prediction WOULD be exactly 2, and a
+  //    literal `2.00` would then be silently wrong by 0.5% for every other
+  //    choice of counts. Re-deriving it under a different epsilon proves the
+  //    number tracks the page's declaration.
+  const wider = { 'ctl-d1': 20, 'ctl-d100': 100, 'ctl-d200': 200 };
+  const widerV = ctl3Verdict(synth((d) => A * d + C), wider, CONTROL_SLACK, 300);
+  checks.push({
+    name: 'the prediction is (d2-d0)/(d1-d0), derived from the page plan',
+    ok:
+      Math.abs(lin.predicted - r4(199 / 99)) < 1e-9 &&
+      Math.abs(widerV.predicted - r4(180 / 80)) < 1e-9 &&
+      widerV.ok,
+  });
+
+  // 8. `additiveConstant` inverts a doubling control exactly, and reproduces
+  //    rf2-emvod's M1 figure from its published inputs.
+  checks.push({
+    name: 'additiveConstant recovers c from a doubling ratio (rf2-emvod M1: 5.695 ms, 1.8173x -> 1.040 ms)',
+    ok: Math.abs(additiveConstant(5.695, 1.8173) - 1.0405) < 0.001 &&
+      Math.abs(additiveConstant(W + C, ctl2xOnSameWorld) - C) < 1e-9,
+  });
+
+  return { checks };
+}
+
+// ---------------------------------------------------------------------------
 // The instrument: Chrome's own renderer counters
 // ---------------------------------------------------------------------------
 
@@ -403,7 +694,23 @@ async function runRow(browser, rowId) {
   });
   await page.waitForFunction('window.HCLOCK_READY === true', null, { timeout: 120000 });
 
+  // THE FALSIFICATION KNOB, installed before the first sample and echoed
+  // back. It makes the three-point control's arms render a dirty set other
+  // than the one they DECLARE, so the driver goes on predicting from the
+  // declaration while the page does something else. Every other gate still
+  // passes; the control is the only one that can see it. A run with this set
+  // is a demonstration and not a measurement, and the banner below says so.
+  let sabotage = null;
+  if (CTL3_SABOTAGE) {
+    sabotage = await page.evaluate((d) => window.HCLOCK.sabotage(d), CTL3_SABOTAGE);
+    console.log(
+      `;; SABOTAGE the three-point control's arms render ${sabotage} cells while still declaring ` +
+        `1 / 100 / 200 — THIS RUN IS A FALSIFICATION, NOT A MEASUREMENT`
+    );
+  }
+
   const isKeystroke = rowId === 'keystroke';
+  const armDirty = {}; // arm id -> DECLARED dirty count, from the page's plan
   const samples = []; // for the arm-order guard, on taskNet
   // The SAME samples for the SAME guard on the corrected clock. A figure
   // whose value depends on where in the plan it was measured is not a
@@ -451,6 +758,7 @@ async function runRow(browser, rowId) {
       await page.evaluate((s) => window.HCLOCK.enterSegment(s), seg);
       const plan = await page.evaluate(([r, s]) => window.HCLOCK.plan(r, s), [rowId, seg]);
       const armIds = plan.map((a) => a.id);
+      for (const a of plan) if (a.dirty > 0) armDirty[a.id] = a.dirty;
 
       if (round === 0) {
         for (const a of armIds) {
@@ -587,7 +895,7 @@ async function runRow(browser, rowId) {
 
   return {
     rowId, samples, samplesTask, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
-    eventTiming, unattributedET, etError, pageErrors,
+    eventTiming, unattributedET, etError, pageErrors, armDirty, sabotage,
     granularity: [...granularity].sort((a, b) => a - b),
   };
 }
@@ -632,7 +940,7 @@ function crossSegment(rounds, numSeg, numArm, denSeg, denArm, raw) {
 function report(out) {
   const {
     rowId, samples, samplesTask, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
-    eventTiming, unattributedET, etError, granularity,
+    eventTiming, unattributedET, etError, granularity, armDirty, sabotage,
   } = out;
 
   console.log(`;; ==== ROW ${rowId} ====`);
@@ -1033,6 +1341,126 @@ function report(out) {
     );
   }
 
+  // --- THE ADDITIVE CONSTANT, measured two independent ways ------------------
+  //
+  // rf2-emvod inferred `c` by inverting the doubling control. That inference
+  // is reproduced here from THIS run's own readings rather than quoted, and
+  // it is then checked against a second estimate that shares none of its
+  // arithmetic: the intercept of a line fitted through the three-point
+  // control's arms at fixed page size. The two are not the same quantity and
+  // the table says which is which —
+  //
+  //   c(2x)  the part of a floor sample that does NOT scale when the PAGE
+  //          doubles: harness, protocol round trip, settle, document-level
+  //          pre-paint. React's reconciliation walk is NOT in it, because
+  //          the walk doubles with the page.
+  //   c(3pt) the part that does not scale when the DIRTY SET grows at fixed
+  //          page size — all of the above PLUS the whole-tree walk, which is
+  //          why it is the larger of the two and must be.
+  //
+  // `c(3pt) > c(2x)` is therefore a PREDICTION of the model, and an ordering
+  // the other way would refute it. It is printed as a verdict rather than
+  // left for a reader to check.
+  let constants = null;
+  if (hasProportionalControl) {
+    const rows2x = [];
+    for (let i = 0; i < roundsTask.length; i++) {
+      for (const seg of SEGMENTS) {
+        const fl = tared(roundsTask, seg, FLOOR, i);
+        const R = tared(roundsTask, seg, 'ctl-2x', i) / fl;
+        rows2x.push({ seg, round: i, floorTared: fl, ratio: R, c: additiveConstant(fl, R) });
+      }
+    }
+    constants = { c2x: band(rows2x.map((x) => x.c)), ratio2x: band(rows2x.map((x) => x.ratio)), floorTared: band(rows2x.map((x) => x.floorTared)) };
+    console.log(`;; ---- THE ADDITIVE CONSTANT, re-measured on this run (rf2-emvod's arithmetic, not its numbers) ----`);
+    console.log(
+      `;;   c(2x) = floor_tared x (2 - ctl2x/floor) = ${constants.c2x.mean.toFixed(4)} ms ` +
+        `[${constants.c2x.min.toFixed(4)} – ${constants.c2x.max.toFixed(4)}] over ${rows2x.length} blocks`
+    );
+    console.log(
+      `;;         from floor_tared ${constants.floorTared.mean.toFixed(4)} ms ` +
+        `[${constants.floorTared.min.toFixed(4)} – ${constants.floorTared.max.toFixed(4)}] and ` +
+        `ctl-2x/floor ${constants.ratio2x.mean.toFixed(4)}x ` +
+        `[${constants.ratio2x.min.toFixed(4)} – ${constants.ratio2x.max.toFixed(4)}]`
+    );
+    console.log(
+      `;;         c/W = ${(constants.c2x.mean / (constants.floorTared.mean - constants.c2x.mean)).toFixed(4)}, ` +
+        `i.e. ${((constants.c2x.mean / constants.floorTared.mean) * 100).toFixed(1)}% of a floor sample does not ` +
+        `scale with the page — which is the whole of why a doubling control cannot read 2.00`
+    );
+  }
+
+  // --- THE THREE-POINT CONTROL ----------------------------------------------
+  const ctl3 = ctl3Verdict(roundsTask, armDirty, CONTROL_SLACK, 300);
+  const ctl3Net = ctl3 ? ctl3Verdict(rounds, armDirty, CONTROL_SLACK, 300) : null;
+  if (ctl3) {
+    const d = ctl3.dirty;
+    console.log(
+      `;; ---- THREE-POINT CONTROL: dirty ${Object.values(d).join(' / ')} of 300 boundaries at FIXED ` +
+        `page size — the floor's page exactly, and NOT exempted from the canonical-DOM gate ----`
+    );
+    console.log(`;;   door     ${ctl3.door}`);
+    console.log(
+      `;;   statistic (T(${Object.values(d)[2]}) - T(${Object.values(d)[0]})) / ` +
+        `(T(${Object.values(d)[1]}) - T(${Object.values(d)[0]})) — a DIFFERENCE OF DIFFERENCES, so an additive ` +
+        `constant cancels in each half and a multiplicative block perturbation cancels in the quotient`
+    );
+    console.log(
+      `;;   predicted ${ctl3.predicted}x = (${Object.values(d)[2]} - ${Object.values(d)[0]}) / ` +
+        `(${Object.values(d)[1]} - ${Object.values(d)[0]}), DERIVED from the page's own declared counts` +
+        (sabotage ? `   [SABOTAGE: the page actually renders ${sabotage}]` : '')
+    );
+    // ABSOLUTES FIRST. A difference of differences fails silently when its
+    // denominator shrinks into the noise, and the ratio cannot show that.
+    console.log(
+      `;;   signal   numerator ${ctl3.signal.numMs.mean.toFixed(4)} ms ` +
+        `[${ctl3.signal.numMs.min.toFixed(4)} – ${ctl3.signal.numMs.max.toFixed(4)}], ` +
+        `denominator ${ctl3.signal.denMs.mean.toFixed(4)} ms ` +
+        `[${ctl3.signal.denMs.min.toFixed(4)} – ${ctl3.signal.denMs.max.toFixed(4)}] — ` +
+        `the differencing throws away everything else, so this is what is left to measure with`
+    );
+    console.log(
+      `;;   fit      ${ctl3.signal.slopeUsPerCell.mean.toFixed(3)} µs per dirty cell ` +
+        `[${ctl3.signal.slopeUsPerCell.min.toFixed(3)} – ${ctl3.signal.slopeUsPerCell.max.toFixed(3)}], ` +
+        `intercept c(3pt) ${ctl3.signal.interceptMs.mean.toFixed(4)} ms ` +
+        `[${ctl3.signal.interceptMs.min.toFixed(4)} – ${ctl3.signal.interceptMs.max.toFixed(4)}], ` +
+        `R² ${ctl3.signal.r2.mean.toFixed(4)} [${ctl3.signal.r2.min.toFixed(4)} – ${ctl3.signal.r2.max.toFixed(4)}] ` +
+        `over four points (the floor at 300 is a CHECK on the line, not a term in the statistic)`
+    );
+    if (constants) {
+      const ordered = ctl3.signal.interceptMs.mean > constants.c2x.mean;
+      console.log(
+        `;;   c ORDER  c(3pt) ${ctl3.signal.interceptMs.mean.toFixed(4)} ms vs c(2x) ` +
+          `${constants.c2x.mean.toFixed(4)} ms — ${ordered ? 'AS PREDICTED' : 'REFUTES THE MODEL'}: the fixed-page ` +
+          `constant must be the larger, because React's whole-tree walk is constant in the dirty set and ` +
+          `doubles with the page`
+      );
+      constants.c3pt = ctl3.signal.interceptMs;
+      constants.orderAsPredicted = ordered;
+    }
+    console.log(
+      `;;   ${ctl3.ok ? 'PASS' : 'FAIL'}     measured ${ctl3.measured.mean.toFixed(4)}x ` +
+        `[${ctl3.measured.min.toFixed(4)} – ${ctl3.measured.max.toFixed(4)}] against band ` +
+        `[${ctl3.band[0]} – ${ctl3.band[1]}] over ${ctl3.perRound.length} blocks (${ctl3.rule})`
+    );
+    console.log(`;;   per-block ${ctl3.perRound.join(', ')}`);
+    if (ctl3Net) {
+      console.log(
+        `;;   the same statistic on the superseded taskNet clock: ${ctl3Net.ok ? 'PASS' : 'FAIL'} ` +
+          `${ctl3Net.measured.mean.toFixed(4)}x — reported as a diagnostic, never as the verdict`
+      );
+    }
+    // SIDE BY SIDE with the control it replaces, on the SAME samples. The
+    // claim is not that the new control is kinder; it is that the old one was
+    // reading a quantity it could not correct for.
+    if (ctlTask) {
+      console.log(
+        `;;   vs ctl-2x on the SAME samples: ${ctlTask.ok ? 'PASS' : 'FAIL'} ${ctlTask.measured.mean}x ` +
+          `against 2.00x — the gap is c/(W + c), and it is the same samples, the same blocks, one clock`
+      );
+    }
+  }
+
   // --- the arm-order guard, on BOTH clocks ----------------------------------
   //
   // The guard was only ever run on `taskNet`. That was defensible while
@@ -1048,7 +1476,7 @@ function report(out) {
 
   return {
     bar, inPageBar, barTask, ctlTask, bandTask, ctlVerdict, etVerdict, guardVerdict: v,
-    guardVerdictTask: vTask,
+    guardVerdictTask: vTask, ctl3, ctl3Net, constants, sabotage,
     seamTask: {
       band: Number.isFinite(assessedTask.bandStats.band) ? r4(assessedTask.bandStats.band) : null,
       ceilingBreached: assessedTask.verdict.ceilingBreached,
@@ -1061,6 +1489,31 @@ function report(out) {
 // ---------------------------------------------------------------------------
 
 (async () => {
+  // THE ADJUDICATORS' SELF-TESTS, and they run before anything is built or
+  // launched. `ctl3SelfTest` is the one that matters for this driver's new
+  // control: its cases are the REFUSALS — superlinear work, an arm that does
+  // not do what it declares, a degenerate denominator, one bad block out of
+  // nine — stated as fixtures, plus the case that shows the doubling control
+  // failing on a world the three-point one passes.
+  const c3st = ctl3SelfTest();
+  const badCtl3 = c3st.checks.filter((c) => !c.ok);
+  for (const c of c3st.checks) console.error(`[clock] ctl3 self-test  ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
+  if (badCtl3.length > 0) {
+    console.error(`[clock] the three-point control's own self-test FAILED: ${badCtl3.map((c) => c.name).join(', ')}`);
+    process.exit(1);
+  }
+  console.error(`[clock] three-point control self-test: ${c3st.checks.length} checks, all ok`);
+
+  if (SELFTEST_ONLY) {
+    const g = guard.selfTest();
+    const s = seamlib.selfTest();
+    for (const c of g.checks) console.error(`[clock] guard self-test ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
+    for (const c of s.checks) console.error(`[clock] seam self-test  ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
+    const bad = [...g.checks, ...s.checks].filter((c) => !c.ok);
+    console.error(`[clock] --selftest: ${bad.length === 0 ? 'ALL ADJUDICATORS OK' : 'FAILURES: ' + bad.length}`);
+    process.exit(bad.length === 0 ? 0 : 1);
+  }
+
   if (!NO_BUILD) build();
   if (!fs.existsSync(OUT)) {
     console.error(`[clock] ${OUT} does not exist — run without --no-build first`);
@@ -1103,6 +1556,51 @@ function report(out) {
   console.log(`;; tare      ${TARE ? 'ON' : 'OFF'} — plumb, an arm that mounts nothing and settles the same frame`);
   console.log(`;; PREDICTIONS, written before the run:`);
   console.log(`;;   ctl-2x     = the floor at twice the boundaries -> 2.00x the floor, +/-${CONTROL_SLACK * 100}%, EVERY round`);
+  console.log(
+    `;;   ctl-3pt    = THE REPAIR (rf2-7iqb5, rf2-5xrcd). Three arms on the FLOOR'S OWN PAGE — 300 boundaries,`
+  );
+  console.log(
+    `;;                901 elements, canonical-DOM identical and NOT exempted from the fairness gate — dirtying`
+  );
+  console.log(
+    `;;                1, 100 and 200 of them per commit. Adjudicated as (T(200)-T(1))/(T(100)-T(1)) -> 2.0101x,`
+  );
+  console.log(
+    `;;                +/-${CONTROL_SLACK * 100}%, EVERY block. PREDICTED BEFORE THE RUN, and the three claims it rests on are`
+  );
+  console.log(
+    `;;                separately falsifiable: (i) c(3pt) > c(2x), because React's whole-tree walk is constant in`
+  );
+  console.log(
+    `;;                the dirty set and doubles with the page; (ii) R² over the four points (1/100/200 plus the`
+  );
+  console.log(
+    `;;                floor at 300) is high, i.e. the page's cost really is affine in the dirty set; (iii) the`
+  );
+  console.log(
+    `;;                denominator T(100)-T(1) stays well clear of the per-sample grain. If ctl-3pt passes while`
+  );
+  console.log(
+    `;;                ctl-2x fails on the SAME samples, the additive-constant diagnosis is confirmed. If BOTH`
+  );
+  console.log(
+    `;;                fail, the fault is not an additive constant and this repair is the wrong one.`
+  );
+  console.log(
+    `;;   ctl-3pt CAN FAIL, and here is how to make it: HCLOCK_CTL3_SABOTAGE=140 makes the arms render 140 cells`
+  );
+  console.log(
+    `;;                while still declaring 200. Canonical DOM identical, read-back verified, guard clean, band`
+  );
+  console.log(
+    `;;                unmoved — and the control refuses at ~1.40x. Its offline fixtures are 'node clock_run.cjs`
+  );
+  console.log(
+    `;;                --selftest', which refuses superlinear work, a declaring-200-rendering-140 arm, a`
+  );
+  console.log(
+    `;;                degenerate denominator, and one bad block in nine.`
+  );
   console.log(`;;   ctl-50ms   = 50 ms burned inside the handler -> >= ${CTL_BUSY_MS - 10} ms extra task time AND an Event Timing interaction >= ${CTL_BUSY_MS - 2} ms`);
   console.log(`;;   in-page    = the performance.now() window reads DIFFERENTLY from the frame-inclusive one, by an arm-dependent amount`);
   console.log(
@@ -1299,6 +1797,17 @@ function report(out) {
             seamTask: o.verdict.seamTask,
             tally: o.verdict.tally,
             ctlOk: o.verdict.ctlVerdict ? o.verdict.ctlVerdict.ok : null,
+            // THE THREE-POINT CONTROL, whole — its per-block readings, the
+            // absolutes each difference was taken from, the fitted line and
+            // the constant it recovers. `armDirty` is the page's DECLARED
+            // counts and `sabotage` is what it actually rendered, so a
+            // dataset carries the evidence that a falsification run was a
+            // falsification run rather than a measurement.
+            ctl3: o.verdict.ctl3,
+            ctl3Net: o.verdict.ctl3Net,
+            constants: o.verdict.constants,
+            armDirty: o.out.armDirty,
+            sabotage: o.out.sabotage,
             guardRefuse: o.verdict.guardVerdict.refuse,
             guardRefuseTask: o.verdict.guardVerdictTask.refuse,
             bar: o.verdict.bar,
@@ -1400,18 +1909,53 @@ function report(out) {
   // In practice the two agree to within 2% — `rf2-yd52q` measured that — so
   // this is a gate that should almost never change an answer, and one that
   // would be indefensible to leave out for exactly that reason.
-  const ctlFailed = outcomes.filter(
-    (o) =>
-      !o.verdict.ctlVerdict.ok ||
-      (o.verdict.ctlTask && !o.verdict.ctlTask.ok) ||
-      (o.verdict.etVerdict && !o.verdict.etVerdict.ok)
+  // THE THREE-POINT CONTROL IS THE GATE ON A BULK ROW, and `ctl-2x` is
+  // demoted to a reported diagnostic on those rows rather than deleted
+  // (rf2-7iqb5, rf2-5xrcd).
+  //
+  // Demotion and not removal, because the two disagree for a REASON that is
+  // itself measured here — `ctl-2x` reads `(2W + c)/(W + c)` and the run
+  // prints the `c` that explains the gap — and a control removed the moment
+  // it started failing is indistinguishable from a control tuned until it
+  // passed. `ctl-2x` also still supplies the band, which needs a pair whose
+  // true ratio is a property of the page and does NOT need that ratio to be
+  // 2.00; nothing about the band moves in this change, deliberately, because
+  // moving the band in the same change that repairs the control would make
+  // the repair unfalsifiable.
+  //
+  // A row that HAS no three-point control — `M1`, whose operation is the
+  // mount, and `keystroke` — is gated exactly as before.
+  const ctlBad = (o) =>
+    o.verdict.ctl3
+      ? !o.verdict.ctl3.ok
+      : !o.verdict.ctlVerdict.ok || (o.verdict.ctlTask && !o.verdict.ctlTask.ok);
+  const ctlFailed = outcomes.filter((o) => ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok));
+  const demoted = outcomes.filter(
+    (o) => o.verdict.ctl3 && o.verdict.ctl3.ok && (!o.verdict.ctlVerdict.ok || (o.verdict.ctlTask && !o.verdict.ctlTask.ok))
   );
+  for (const o of demoted) {
+    console.error(
+      `[clock] ${o.out.rowId}: ctl-2x FAILED at ${o.verdict.ctlTask ? o.verdict.ctlTask.measured.mean : '?'}x and the ` +
+        `THREE-POINT control PASSED at ${o.verdict.ctl3.measured.mean.toFixed(4)}x on the same samples. ` +
+        `The row is gated on the three-point control. c(2x) = ` +
+        `${o.verdict.constants ? o.verdict.constants.c2x.mean.toFixed(4) : '?'} ms is the reported reason they differ.`
+    );
+  }
   if (ctlFailed.length > 0) {
     const passed = outcomes.filter((o) => !ctlFailed.includes(o)).map((o) => o.out.rowId);
     console.error(
       `[clock] FAILED: the positive control did not see the change its own arithmetic predicts on: ` +
-        `${ctlFailed.map((o) => o.out.rowId).join(', ')}. No MAGNITUDE from those rows is reportable.`
+        `${ctlFailed
+          .map((o) => `${o.out.rowId}${o.verdict.ctl3 ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)` : ''}`)
+          .join(', ')}. No MAGNITUDE from those rows is reportable.`
     );
+    if (CTL3_SABOTAGE) {
+      console.error(
+        `[clock] HCLOCK_CTL3_SABOTAGE=${CTL3_SABOTAGE} WAS SET: the control's arms rendered ${CTL3_SABOTAGE} cells ` +
+          `while declaring 200. This refusal is the DEMONSTRATION that the control can fail, and this run is not ` +
+          `a measurement of anything.`
+      );
+    }
     // EXIT 1 HERE IS PER-ROW, AND THE ROWS THAT PASSED ARE STILL ROWS.
     // Everything before this line is a whole-run gate — a page that threw,
     // a guard refusal, two arms building different pages, an unverified
