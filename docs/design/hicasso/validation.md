@@ -322,29 +322,43 @@ in full, and the committed observation table every figure is derived from:
 Every row above is about the **donors**. The candidate had no wall-clock
 measurement at all until `rf2-0qj9w`: hook count and per-read retained heap were
 measured, mount, bulk and per-keystroke were not. It now has mount and
-per-keystroke, on a **frame-inclusive** instrument — Chrome's own renderer
-counters over CDP, read after the browser has produced the frame the operation
-caused, so the style, layout and paint an in-page `performance.now()` window
-excludes are inside the number. Per-keystroke is Event Timing, which captures
-the paint. Full record, both positive controls, and the two instrument repairs a
-refusing control forced:
+per-keystroke on Chrome's own renderer counters over CDP, read after the browser
+has produced the frame the operation caused, so the style, layout and paint an
+in-page `performance.now()` window excludes are inside the number. Per-keystroke
+is Event Timing, which captures the paint. Full record, both positive controls,
+and the two instrument repairs a refusing control forced:
 [the candidate's clock](studio/the-candidates-clock.md).
+
+> **THAT INSTRUMENT PUBLISHED ON `taskNet`, WHICH IS FRAME-ONLY (`rf2-yd52q`,
+> `rf2-emvod`).** It reported `TaskDuration` less `DevToolsCommandDuration`, and
+> the subtracted term carries the page script a protocol command invokes — so on
+> every row driven through `page.evaluate` it removed the operation itself. The
+> mount magnitude below is superseded: on raw `TaskDuration`, script and frame in
+> one number, `hicasso / reagent-subs` on `M1` reads **1.4896×**
+> [1.3488 – 1.5989], so **the deficit is worse than published, not milder**. Both
+> bulk rows move above parity and `bulk100` changes sign. The `per-keystroke` row
+> is driven through the Input domain and was **never affected** — its two clocks
+> agree to 0.3%. Full re-adjudication:
+> [the corrected clock's page](studio/rows-re-adjudicated-on-the-corrected-clock.md).
 
 | row | candidate | disposition |
 |---|---|---|
-| **M1 mount** | **1.2107× Reagent-on-subs** [0.9756 – 1.7208] | above the `≤ 1.0×` win condition and above the `1.0150×` red zone. The range straddles 1.0, so a deficit is not *established* at n = 6 — but **five runs read 1.01, 1.11, 1.10, 1.11 and 1.21**, above parity in every one and below it in none. The deficit is the runtime hiccup **codec**, not the spine: the candidate pays +1.06 ms over its own floor where `uix-subs` — same spine, same adapter, same 300 reads, byte-identical DOM — pays +0.38 ms |
+| **M1 mount** | ~~1.2107× Reagent-on-subs~~ *(frame-only)* → **1.4896×** [1.3488 – 1.5989] on script-and-frame | above the `≤ 1.0×` win condition and above the `1.0150×` red zone on either clock. The frame-only range straddled 1.0 so a deficit was not *established* at n = 6; the corrected clock's interval does **not** straddle it, and the deficit is larger. The deficit is the runtime hiccup **codec**, not the spine: the candidate pays +1.06 ms over its own floor where `uix-subs` — same spine, same adapter, same 300 reads, byte-identical DOM — pays +0.38 ms |
 | **per-keystroke** | one frame, as are both donors | Event Timing puts every arm at its 16 ms reporting floor; the finer clock reads 2.0–2.3 ms of main-thread work inside a 16.7 ms budget. Indistinguishable, and a pass for all three |
 | bulk K=100/300, narrow | **refused** | the doubling control failed the strict rule in every run, and the rows move more between runs (0.87 → 1.38 on one) than the effect they report. The page names three repairs, one of which is that `ctl-2x` is mis-specified for an *update* row — it doubles the page, and on an update the work does not follow |
 
 **One methodological finding rides these rows and outranks them.** On the same
-samples, an in-page `performance.now()` window reads a substrate arm 300–610%
-differently from the frame-inclusive clock, **and by a different factor per
-arm** — on M1 it would put the candidate at 1.56× Reagent where the
-frame-inclusive clock reads 1.21×. It is not a scale error that cancels in a
-ratio. The pure-React control arms differ by only 6–13%, which is how a lane
-that checks only its controls in-page would never see it. When this row was
-published no clock row in the programme had ever been checked against a
-frame-inclusive instrument; **`rf2-8nqsl` has since done that check**, and it
+samples, an in-page `performance.now()` window and `taskNet` **split** a
+substrate arm 300–610% apart, **and by a different factor per arm** — on M1 the
+in-page window puts the candidate at 1.56× Reagent where `taskNet` reads 1.21×
+and the clock holding both halves reads 1.4896×. It is not a scale error that
+cancels in a ratio. The pure-React control arms differ by only 6–13%, which is
+how a lane that checks only its controls in-page would never see it — and,
+because those arms behave alike under either half, is equally why the controls
+could not catch that the second clock was frame-only. When this row was
+published no clock row in the programme had ever been checked against an
+instrument that sees past `flushSync`; **`rf2-8nqsl` has since done that
+check**, and it
 splits the record: `M1 mount 1.0150×` and coldmount's `1.0054×` survive it,
 `bulk broad 0.6291×` does not and **has since been withdrawn** by its re-take
 ([`rf2-yd52q`](studio/bulk-broad-re-taken.md)), and `bulk narrow` plus the HD-008

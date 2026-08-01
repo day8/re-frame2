@@ -351,14 +351,15 @@ the same conclusion
 [the HD-008 gate](../validation.md#p1-gate--the-composed-donor-arm-hd-008)
 reached from the other side — *"the residual mount deficit is the hiccup
 interpreter rather than the spine"* — reached here on the candidate's own
-runtime and on a frame-inclusive clock.
+runtime and on a clock that reads past `flushSync`.
 
 ### 4.1 The other instrument, on the same samples
 
 Both instruments read the same operations in the same samples, so the gap
-between them measures the error the in-page window makes:
+between them measures **how the operation divides** between the two windows —
+not the error one makes against the other, for the reason in the box below:
 
-| arm | in-page ×floor | frame-inclusive ×floor | in-page reads |
+| arm | in-page ×floor | `taskNet` *(frame-only)* ×floor | in-page reads |
 |---|---:|---:|---|
 | `reagent-subs` (M1) | 5.6068 | 1.1321 | **+395%** |
 | `uix-subs` (M1) | 4.7394 | 1.1530 | **+311%** |
@@ -368,10 +369,11 @@ between them measures the error the in-page window makes:
 | `hicasso` (bulk300) | 7.2986 | 1.0266 | **+611%** |
 | `ctl-2x`, all segments and rows | 1.70 – 1.96 | 1.69 – 1.97 | −9.5% to +13% |
 
-On the substrate arms the in-page window is wrong by a factor of three to nine
-and — the part that matters — **wrong by a different factor per arm**. It is not
-a scale error that cancels in a ratio: on M1 it would put `hicasso / reagent` at
-1.56× where the frame-inclusive clock reads 1.21×.
+On the substrate arms the two windows differ by a factor of three to nine and —
+the part that matters — **by a different factor per arm**. It is not a scale
+error that cancels in a ratio: on M1 the in-page window puts
+`hicasso / reagent` at 1.56× where `taskNet` reads 1.21×, and raw
+`TaskDuration` — the clock that holds both halves — reads **1.4896×**.
 
 > **THE SEPARATION IS REAL AND THIS MECHANISM STATEMENT IS WRONG (`rf2-yd52q`,
 > measured by `rf2-emvod`).** The `+300–610%` above is not one window
@@ -387,18 +389,23 @@ a scale error that cancels in a ratio: on M1 it would put `hicasso / reagent` at
 > rather than as one instrument's inaccuracy.
 
 The reason is visible in the decomposition. A substrate arm's mount spends
-roughly a third of its frame-inclusive cost inside `flushSync` and the rest
-afterwards in style, layout and paint — and the *afterwards* half is where the
-three substrates differ least, because they build byte-identical DOM. Measuring
-only the first half therefore exaggerates the difference between them. **The
-control arms, which are pure React, differ by only 6–13%** — which is exactly
-how a lane that checks only its controls in-page would never notice.
+roughly a third of its **whole** cost inside `flushSync` and the rest afterwards
+in style, layout and paint — and the *afterwards* half is where the three
+substrates differ least, because they build byte-identical DOM. Measuring only
+the first half therefore exaggerates the difference between them, and measuring
+only the second dilutes it toward 1.0. **The control arms, which are pure React,
+differ by only 6–13%** — which is exactly how a lane that checks only its
+controls in-page would never notice, and equally why it could not have noticed
+that the second window was frame-only either.
 
 This does not overturn the published donor rows: those are Reagent against UIx,
 taken on a different harness, on a page whose two readings are closer. What it
-says is that no published clock row in this programme has ever been checked
-against a frame-inclusive instrument, and that the check is now cheap. It is
-filed, and it raises `rf2-rguy1`.
+says is that no published clock row in this programme had ever been checked
+against an instrument that sees past `flushSync`, and that the check is now
+cheap. It was filed and it has been done — `rf2-8nqsl` did the audit,
+[`rf2-rguy1`](cross-checked-against-an-outside-instrument.md) the outside
+cross-check, and `rf2-yd52q` the re-take that found this second window was
+itself only half an operation.
 
 ---
 
@@ -930,13 +937,16 @@ alongside this correction.
   cheap and reusable: a max-over-min of three noisy block medians has a long
   right tail, and quoting one without its null invites a reader to treat 6% as a
   finding.
-- **An in-page `performance.now()` window mis-reads a substrate arm by 300–610%,
-  and by a different factor per arm.** That is the strongest methodological
-  finding here. It does not overturn a published row, and it does mean no
-  published clock row has ever been checked on a frame-inclusive instrument. It
-  raises `rf2-rguy1`: an external instrument built on Chrome's timeline is the
-  honest cross-check on whether *our* harness is telling the truth, and this page
-  is evidence that the question is not academic.
+- **An in-page `performance.now()` window holds only part of a substrate arm's
+  operation, and a different part per arm — the two windows split 300–610%.**
+  That is the strongest methodological finding here. It does not overturn a
+  published row, and it does mean no published clock row had ever been checked on
+  an instrument that sees past `flushSync`. ~~It raises `rf2-rguy1`.~~ **It did,
+  and the answer arrived from three directions**: `rf2-8nqsl` audited the record,
+  [`rf2-rguy1`](cross-checked-against-an-outside-instrument.md) cross-checked it
+  against a driver nobody here wrote, and `rf2-yd52q` then found **this page's
+  own second window was frame-only** — so the finding above understates the
+  problem. Neither of the two clocks compared here held a whole operation.
 - **It lowers `rf2-aqgr2`.** Decomposing the 415 B/read gap is optimising a
   proxy, and the clock row that would have justified it did not arrive: the
   candidate's mount deficit is a codec walking elements, and no per-read byte
