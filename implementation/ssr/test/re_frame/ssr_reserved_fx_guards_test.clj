@@ -131,10 +131,24 @@
 ;; `schema` is the registered `:rf.fx.server/*-args` EDN; `args` is the fx's
 ;; args value; `accept?` is the single answer both halves must give. Rows are
 ;; the CANONICAL cases — the shapes Spec 011 §Standard fx publishes and the
-;; four malformations rf2-dtpfv measured on the wire. (`:rf.server/set-cookie`
-;; deliberately admits a keyword / symbol `:name` at the fx boundary, mirroring
-;; the Ring materialiser's `clojure.lang.Named` check, where the schema pins
-;; `:string`; that documented widening is out of the corpus by design.)
+;; four malformations rf2-dtpfv measured on the wire.
+;;
+;; The AUDIT rows at the end are the two disagreements the audit of the first
+;; fix found — where "both halves must give one answer" was the assertion and
+;; the corpus was the thing not asking. Neither was reachable through a
+;; `:value`-shaped malformation, so §1's witnesses stayed green while the
+;; accumulator stayed posture-dependent one key deeper:
+;;
+;;   - EVERY OPTIONAL KEY, EXPLICITLY nil. The guards read `{:path nil}` as
+;;     absent; a bare `[:path {:optional true} :string]` read it as a
+;;     violation. Dev skipped the cookie, production persisted it. Settled as
+;;     absent on both sides (`[:maybe …]`), so every one of these rows is an
+;;     ACCEPT — including the combined rows where they are all nil at once.
+;;   - A KEYWORD / SYMBOL COOKIE `:name`. The fx boundary admitted it, mirroring
+;;     the Ring materialiser's `clojure.lang.Named` check, while the schemas,
+;;     Spec 011 §Cookie shape and Spec-Schemas all published `:string` — so it
+;;     was skipped in dev, landed in production, and reached host adapters as a
+;;     keyword. Settled as the published `:string`, so these rows are REJECTS.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private acceptance-corpus
@@ -228,7 +242,68 @@
     fx-schemas/safe-redirect-args {:location "/ok"
                                    :allow "app.example.com"}         false]
    ["safe-redirect non-boolean :relative-only?" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok" :relative-only? "yes"} false]])
+    fx-schemas/safe-redirect-args {:location "/ok" :relative-only? "yes"} false]
+
+   ;; ---- AUDIT (a): every optional key, explicitly nil — ACCEPTED by both --
+   ;; `{:path nil}` and `{}` say the same thing in Clojure, and code that
+   ;; builds a cookie from an options map writes the first meaning the second.
+   ["set-cookie nil :path"      :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v" :path nil}      true]
+   ["set-cookie nil :domain"    :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v" :domain nil}    true]
+   ["set-cookie nil :max-age"   :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v" :max-age nil}   true]
+   ["set-cookie nil :expires"   :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v" :expires nil}   true]
+   ["set-cookie nil :same-site" :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v" :same-site nil} true]
+   ["set-cookie nil :secure"    :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v" :secure nil}    true]
+   ["set-cookie nil :http-only" :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v" :http-only nil} true]
+   ["set-cookie every optional nil at once" :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value "v"
+                                :path nil :domain nil :max-age nil
+                                :expires nil :same-site nil
+                                :secure nil :http-only nil}          true]
+   ["delete-cookie nil :path"   :rf.server/delete-cookie
+    fx-schemas/delete-cookie-args {:name "stale" :path nil}          true]
+   ["delete-cookie nil :domain" :rf.server/delete-cookie
+    fx-schemas/delete-cookie-args {:name "stale" :domain nil}        true]
+   ["redirect nil :status"      :rf.server/redirect
+    fx-schemas/redirect-args {:location "/x" :status nil}            true]
+   ;; The no-target path spelled with an explicit nil rather than by omission.
+   ["redirect nil :location"    :rf.server/redirect
+    fx-schemas/redirect-args {:location nil :status 302}             true]
+   ["safe-redirect nil :status" :rf.server/safe-redirect
+    fx-schemas/safe-redirect-args {:location "/ok" :status nil}      true]
+   ["safe-redirect nil :relative-only?" :rf.server/safe-redirect
+    fx-schemas/safe-redirect-args {:location "/ok" :relative-only? nil} true]
+   ["safe-redirect nil :allow"  :rf.server/safe-redirect
+    fx-schemas/safe-redirect-args {:location "/ok" :allow nil}       true]
+   ["safe-redirect every optional nil at once" :rf.server/safe-redirect
+    fx-schemas/safe-redirect-args {:location "/ok" :status nil
+                                   :relative-only? nil :allow nil}   true]
+
+   ;; A REQUIRED key is not an optional one: nil is the violation it looks
+   ;; like. These are the control rows for AUDIT (a) — without them `[:maybe …]`
+   ;; on the optional slots could have been read as nil-tolerance at large.
+   ["set-cookie nil :value (required)" :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name "s" :value nil}                false]
+   ["set-cookie nil :name (required)"  :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name nil :value "v"}                false]
+   ["set-header nil :value (required)" :rf.server/set-header
+    fx-schemas/set-header-args {:name "X-Foo" :value nil}            false]
+   ["safe-redirect nil :location (required)" :rf.server/safe-redirect
+    fx-schemas/safe-redirect-args {:location nil}                    false]
+
+   ;; ---- AUDIT (b): a cookie `:name` is the published `:string` ---------
+   ["set-cookie keyword :name"  :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name :csrf :value "v"}              false]
+   ["set-cookie symbol :name"   :rf.server/set-cookie
+    fx-schemas/set-cookie-args {:name 'tracker :value "v"}           false]
+   ["delete-cookie keyword :name" :rf.server/delete-cookie
+    fx-schemas/delete-cookie-args {:name :stale :path "/"}           false]])
 
 ;; ===========================================================================
 ;; (1) THE DEFECT — the four measured malformations, closed under BOTH postures
@@ -400,6 +475,87 @@
            become a denial of service"))))
 
 ;; ===========================================================================
+;; (2b) THE AUDIT'S TWO SHAPES, WITNESSED ON THE RAW ACCUMULATOR
+;;
+;; The corpus below proves the two halves give one ANSWER. These prove what
+;; that answer leaves behind, read off the pure accumulator — which is the
+;; claim Spec 011 §Every adapter inherits a well-formed accumulator makes and
+;; the one the audit found untrue one key deep. Both run under the real
+;; production gate, where the schema half does not exist.
+;; ===========================================================================
+
+(deftest an-optional-key-present-with-nil-is-absent-not-a-violation
+  (testing "rf2-dtpfv AUDIT: the guards read `{:path nil}` as absent while a
+            bare `[:path {:optional true} :string]` read it as a violation — so
+            a cookie assembled from an options map (`{:secure (:secure? opts)}`
+            with no `:secure?` in it) was SKIPPED in dev and PERSISTED in
+            production. Settled as absent on both sides. The cookie lands, in
+            either build, and its nil attrs read as the absent ones they are."
+    (let [{:keys [raw response records]}
+          (drive! [:rf.server/set-cookie {:name "session" :value "abc"
+                                          :path nil :domain nil :max-age nil
+                                          :expires nil :same-site nil
+                                          :secure nil :http-only nil}])
+          cookie (first (:cookies raw))]
+      (is (= 1 (count (:cookies raw)))
+          "the nil-bearing cookie reached the accumulator")
+      (is (= "session" (:name cookie)) "with its name intact")
+      (is (every? nil? ((juxt :path :domain :max-age :expires
+                              :same-site :secure :http-only) cookie))
+          "and every optional attribute reads as absent, which is what an
+           adapter appending `Path=` only `(when path)` already assumes")
+      (is (empty? records)
+          (str "no error record fired — a present nil is not a violation; saw: "
+               (pr-str (mapv :error records))))
+      (is (= 200 (:status response))
+          "and the response is not projected to a 500")))
+
+  (testing "rf2-dtpfv AUDIT control: a REQUIRED key is not an optional one. If
+            `[:maybe …]` had been read as nil-tolerance at large, this would
+            have started landing too."
+    (let [{:keys [raw]} (drive! [:rf.server/set-cookie {:name "session" :value nil}])]
+      (is (empty? (:cookies raw))
+          "a nil :value is still a cookie with no value, and is still refused")
+      (is (sibling-ran? raw) "containment: the sibling fx still ran"))))
+
+(deftest a-cookie-name-on-the-accumulator-is-always-a-string
+  (testing "rf2-dtpfv AUDIT: the fx boundary admitted a keyword / symbol
+            `:name` — mirroring the Ring materialiser's `clojure.lang.Named`
+            check — while the schemas, Spec 011 §Cookie shape and Spec-Schemas
+            all published `:string`. So `{:name :csrf}` was skipped in dev,
+            landed in production, and reached every host adapter as a keyword
+            where the contract promised a string. An adapter comparing
+            `(= \"csrf\" (:name c))` saw the two builds differently."
+    (doseq [[label args] [["keyword :name" {:name :csrf    :value "v"}]
+                          ["symbol :name"  {:name 'tracker :value "v"}]]]
+      (let [{:keys [raw response]} (drive! [:rf.server/set-cookie args])]
+        (is (empty? (:cookies raw))
+            (str label " — nothing landed on the accumulator"))
+        (is (empty? (:cookies response))
+            (str label " — nor on the PUBLIC host-adapter surface"))
+        (is (sibling-ran? raw)
+            (str label " — containment: the sibling fx still ran")))))
+
+  (testing "rf2-dtpfv AUDIT: `:rf.server/delete-cookie` is sugar over the same
+            validator, so it inherits the same published `:name` type."
+    (let [{:keys [raw]} (drive! [:rf.server/delete-cookie {:name :stale :path "/"}])]
+      (is (empty? (:cookies raw))
+          "the keyword-named delete marker never reached the accumulator")))
+
+  (testing "rf2-dtpfv AUDIT non-vacuity: what DOES land carries the published
+            type, which is the claim Spec 011 makes to host adapters."
+    (let [f (server-frame)]
+      (rf/reg-event ::named
+        (fn [_ _]
+          {:fx [[:rf.server/set-cookie    {:name "session" :value "abc"}]
+                [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
+      (rf/dispatch-sync [::named] {:frame f})
+      (let [cookies (:cookies (ssr/peek-response f))]
+        (is (= 2 (count cookies)) "both string-named cookies landed")
+        (is (every? string? (map :name cookies))
+            "and every :name on the accumulator is a string")))))
+
+;; ===========================================================================
 ;; (3) THE ACCEPTANCE CORPUS — schema and guard cannot drift
 ;; ===========================================================================
 
@@ -502,6 +658,49 @@
         (is (= 200 (:status (ssr/peek-response f)))
             "the fx was skipped and the app's status is untouched — the dev
              recovery is `:skipped`, not a 500")))))
+
+
+(deftest a-user-fx-schema-stays-dev-posture-and-genuinely-elides
+  (testing "rf2-dtpfv, the OTHER half of the ruling. Everything above is about
+            seven framework-owned effects. A `:schema` an APPLICATION declares
+            over its own effect is the case the ruling deliberately left alone:
+            trust-the-programmer covers user declarations, and validating every
+            effect in every app to protect a closed framework set is a cost the
+            design refuses. So step 5 must still be exactly as dev-only as
+            [Spec 010 §Per-step recovery row 5] now says it is — nothing here
+            leaked onto the user-fx path, and nothing may.
+
+            Written as one witness with two arms because the arms are the
+            claim: in dev the effect is SKIPPED with a diagnostic; in a release
+            build it RUNS with the malformed args and there is no trace to say
+            so. Turn the general gate on and the production arm reds."
+    (let [ran    (atom [])
+          traces (atom [])
+          tag    (keyword "rf2-dtpfv" (str "user-" (name (gensym "u"))))
+          f      (server-frame)]
+      (rf/reg-fx ::user-fx
+        {:schema [:map [:n :int]]}
+        (fn [_ctx args] (swap! ran conj args)))
+      (rf/reg-event ::user-attempt (fn [_ _] {:fx [[::user-fx {:n "not-an-int"}]]}))
+      (rf/register-listener! :trace tag
+        (fn [ev] (when (and (= :rf.error/schema-validation-failure (:operation ev))
+                            (= :fx-args (-> ev :tags :where)))
+                   (swap! traces conj ev))))
+      (try
+        (rf/dispatch-sync [::user-attempt] {:frame f})
+        (finally (rf/unregister-listener! :trace tag)))
+      (if interop/debug-enabled?
+        (do (is (empty? @ran)
+                "dev: the user fx was SKIPPED — its handler never ran")
+            (is (seq @traces)
+                "dev: and the programmer got the :where :fx-args diagnostic"))
+        (do (is (= [{:n "not-an-int"}] @ran)
+                "production: step 5 ran no check at all, so nothing was skipped
+                 and the malformed args reached the handler — the elision the
+                 reserved family exists precisely because it cannot rely on")
+            (is (empty? @traces)
+                "production: and there is no trace to say so"))))))
+
 
 ;; ===========================================================================
 ;; (5) THE REJECTION DISCLOSES NOTHING IT WAS HANDED (rf2-210uq)

@@ -132,6 +132,34 @@
 ;; record → sanitised 500. What no longer differs is the thing that matters:
 ;; `get-response` never yields a malformed `:rf/response` shape in ANY build.
 ;;
+;; ONE SHAPE, NOT TWO. The guard here and the Malli `:rf.fx.server/*-args`
+;; schemas in `re-frame.ssr.server-fx-schemas` are two enforcements of ONE
+;; published contract, so wherever they disagreed the accumulator was still
+;; posture-dependent — the defect above, wearing a smaller hat. The audit of
+;; the first fix found two such disagreements, and both are now settled the
+;; same way: by the shape Spec 011 §Standard fx publishes.
+;;
+;;   AN OPTIONAL KEY PRESENT WITH `nil` IS ABSENT. `{:path nil}` and `{}` say
+;;   the same thing in Clojure, and code that builds a cookie out of an options
+;;   map (`{:secure (:secure? opts)}`) writes the first while meaning the
+;;   second. The guards read it that way already; the schemas did not, so
+;;   `{:secure nil}` was skipped in dev and persisted in production. The
+;;   optional slots are now `[:maybe …]` and BOTH halves read a present `nil`
+;;   as absent. A REQUIRED key is untouched — `{:value nil}` is still a missing
+;;   `:value`, and `nil` is still not a status.
+;;
+;;   A COOKIE `:name` IS A STRING. `validate-cookie-name!` admitted a keyword
+;;   or symbol (`(name n)` accepts either), while the schemas, Spec 011 §Cookie
+;;   shape and Spec-Schemas all published `:string` — so `{:name :csrf}` was
+;;   skipped in dev, landed in production, and reached every host adapter as a
+;;   keyword where the contract promised a string. Publishing the tolerance
+;;   instead would have handed every non-Ring adapter a `Named` to unwrap, and
+;;   pushing work onto adapters is the option this bead's ruling rejected. So
+;;   the fx boundary now holds `:name` to the published type, exactly as
+;;   `set-header-fx` holds a header `:name` to it. The Ring materialiser keeps
+;;   its own `Named` tolerance: it is the last line for a host that writes the
+;;   accumulator directly, which is defence-in-depth, not this contract.
+;;
 ;; COST. Cheap predicates over a closed set — `integer?`, `string?`,
 ;; `boolean?`, a range compare, a table walk of at most eight cookie attrs. No
 ;; Malli, no schemas-artefact dependency, no runtime schema interpretation, and
@@ -236,8 +264,9 @@
   and the Malli schema from one literal so the two cannot drift.
 
   `:name` is NOT here — it keeps its own richer gate
-  (`validate-cookie-name!`), which deliberately admits a keyword / symbol to
-  mirror the Ring materialiser's `clojure.lang.Named` check."
+  (`validate-cookie-name!`) for the nil / unsupported-type / token-grammar
+  cases, and `validate-cookie!` then holds it to the published `:string` the
+  same way `set-header-fx` holds a header `:name` to it."
   [[:value     true  string?  "a string"]
    [:path      false string?  "a string"]
    [:domain    false string?  "a string"]
@@ -253,9 +282,17 @@
 (defn- validate-cookie-shape!
   "Walk `cookie-attr-shape` and throw `:rf.error/server-fx-args-invalid` on
   the first attribute that is missing-though-required or present with the
-  wrong type. An explicit `nil` counts as absent for an optional attribute —
-  the same `(some? v)` convention `validate-cookie!` already applies to the
-  injection gate."
+  wrong type.
+
+  An explicit `nil` counts as absent for an OPTIONAL attribute — the same
+  `(some? v)` convention `validate-cookie!` applies to the injection gate, the
+  reading every downstream consumer already takes (`ssr-ring`'s materialiser
+  appends `Path=` only `(when path)`), and the one Clojure gives a map entry
+  whose value is `nil`. `re-frame.ssr.server-fx-schemas/cookie` spells the same
+  rule `[:maybe …]` so the dev boundary cannot disagree with this one. For a
+  REQUIRED attribute `nil` is the violation it looks like: `{:value nil}` is a
+  cookie with no value, which is exactly the malformation this gate exists to
+  refuse."
   [fx-id cookie]
   (doseq [[k required? ok? expected] cookie-attr-shape
           :let [v (get cookie k)]]
@@ -373,7 +410,15 @@
   "Throw `:rf.error/cookie-invalid-name` if the cookie name is nil, is not a
   string / keyword / symbol, or violates the RFC 6265 §4.1.1 token grammar.
   Applied at the effect boundary so every host adapter receives the same
-  validation."
+  validation.
+
+  This is the NAME gate, not the whole contract: a keyword / symbol survives it
+  (`(name n)` reads either) and is then refused by the always-on SHAPE gate in
+  `validate-cookie!`, which holds `:name` to the `:string` Spec 011 §Cookie
+  shape publishes. The split is deliberate and mirrors `set-header-fx`: the
+  values this gate refuses keep the specific catalogued id they have always
+  thrown, and what the type check adds — a name that is not a `Named` at all —
+  is the case `(name n)` cannot survive."
   [n]
   (when (nil? n)
     (error/throw-error!
@@ -512,6 +557,14 @@
   ;; accumulator in a release build; the injection gate last, on values now
   ;; known to be well-typed.
   (validate-cookie-name!  (:name cookie))
+  ;; …then narrow `:name` to the published `:string`. A keyword / symbol name
+  ;; passes the gate above — `(name :csrf)` is a fine token — but the schemas,
+  ;; Spec 011 §Cookie shape and Spec-Schemas all publish `:string`, so it was
+  ;; skipped in dev and persisted in production, reaching host adapters as a
+  ;; keyword where the contract promised a string. Same ordering as
+  ;; `set-header-fx`: grammar gate first with its own catalogued id, shape gate
+  ;; second.
+  (validate-string-arg!   fx-id :name (:name cookie))
   (validate-cookie-shape! fx-id cookie)
   (doseq [attr-key checked-cookie-attrs
           :let  [v (get cookie attr-key)]
@@ -691,7 +744,8 @@
   id the ring serialiser already throws. Throws
   `:rf.error/server-fx-args-invalid` — in EVERY build (rf2-dtpfv) — on an
   attribute violating its published type, so a `:value`-less cookie can no
-  longer reach `ssr/get-response`."
+  longer reach `ssr/get-response`. `:name` is held to the published `:string`;
+  an optional attribute present with `nil` reads as absent."
   [{:keys [frame]} cookie-map]
   (validate-cookie! :rf.server/set-cookie cookie-map)
   (swap-response!
