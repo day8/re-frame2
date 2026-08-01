@@ -255,8 +255,20 @@ function deltaOf(a, b) {
   const devtools = d.DevToolsCommandDuration * 1000;
   return {
     // PRIMARY. The driver's own protocol traffic is subtracted because it
-    // is instrument cost rather than page cost, and Chrome accounts for it
-    // separately for exactly this reason. Both are reported.
+    // is instrument cost rather than page cost, and Chromium's own
+    // accounting treats it that way: `inspector_performance_agent.cc`
+    // derives `TaskOtherDuration` by subtracting script, V8-compile, style,
+    // layout AND `DevToolsCommandDuration` from `TaskDuration`, which is
+    // only coherent if each is a subset of it. Both are reported.
+    //
+    // Stated from SOURCE deliberately (rf2-8nqsl): the CDP documents no
+    // metric names at all — `Performance.Metric` is a bare `{name, value}`
+    // and `getMetrics` is "Retrieve current values of run-time metrics" —
+    // so nothing about `TaskDuration` or `DevToolsCommandDuration` is a
+    // documented contract, and DevTools' own front-end
+    // (`PerformanceMetricsModel.ts`) does NOT subtract the DevTools term.
+    // The subtraction is a defensible inference from Chromium's accounting
+    // model, not an established practice, and it is named as one.
     taskNet: task - devtools,
     task,
     devtools,
