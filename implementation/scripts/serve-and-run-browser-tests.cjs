@@ -38,8 +38,20 @@ const {
 // integer fails fast with a clear message rather than being silently coerced
 // or ignored. A CLI `--root` is routed through the SAME path policy as the
 // env var below (it cannot bypass the approved-roots check).
+// rf2-u0cy4: a lane whose bundle is `:advanced`-compiled DECLARES that the
+// duplicate-`done` drift check cannot be performed against it. Closure renames
+// `cljs.test.run_block`, so the runner cannot read the warning literal out of
+// the installed ClojureScript there — the check is not failing, it is blind.
+//
+// This is a declaration, never an inference. The runner refuses a blind check
+// by default (fail-closed); only a lane that says so in its own npm script may
+// proceed without one, it says so loudly when it does, and the flag has no
+// effect at all when introspection turns out to be possible.
+const DRIFT_UNVERIFIABLE_FLAG = '--duplicate-done-drift-unverifiable';
+const DRIFT_UNVERIFIABLE_ENV_VAR = 'RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE';
+
 function parseCliOptions(argv) {
-  const opts = { root: null, port: null };
+  const opts = { root: null, port: null, driftUnverifiable: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     let flag = arg;
@@ -51,10 +63,20 @@ function parseCliOptions(argv) {
         value = arg.slice(eq + 1);
       }
     }
+    // Boolean flag: takes no value, so it is handled before the
+    // value-consuming path below.
+    if (flag === DRIFT_UNVERIFIABLE_FLAG) {
+      if (value !== null) {
+        throw new Error(`${DRIFT_UNVERIFIABLE_FLAG} takes no value.`);
+      }
+      opts.driftUnverifiable = true;
+      continue;
+    }
     if (flag !== '--root' && flag !== '--port') {
       throw new Error(
         `Unknown option ${JSON.stringify(arg)}. Supported: --root <dir>, ` +
-          `--port <n> (env: BROWSER_TEST_ROOT, BROWSER_TEST_PORT).`,
+          `--port <n>, ${DRIFT_UNVERIFIABLE_FLAG} ` +
+          `(env: BROWSER_TEST_ROOT, BROWSER_TEST_PORT).`,
       );
     }
     // Read the value from either the `--flag=value` form or the next token.
@@ -306,7 +328,13 @@ async function resolvePort() {
 
   const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
-    env: { ...process.env, BROWSER_TEST_URL: `http://127.0.0.1:${port}` },
+    env: {
+      ...process.env,
+      BROWSER_TEST_URL: `http://127.0.0.1:${port}`,
+      // Forwarded, not inherited: the declaration must come from the lane's
+      // own command line, so it cannot leak in from an ambient environment.
+      ...(CLI.driftUnverifiable ? { [DRIFT_UNVERIFIABLE_ENV_VAR]: '1' } : {}),
+    },
   }));
 
   // Resolve on either 'exit' or 'error'. A spawn failure (e.g. the runner

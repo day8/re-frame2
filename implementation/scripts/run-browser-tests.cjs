@@ -214,6 +214,13 @@ const FATAL_CONSOLE_RE = /Async test called done more than one time/;
 // shadow-cljs's `$CLJS` holder depending on the target; check both rather
 // than assume one, so this reports genuine drift and not a build-shape
 // difference.
+// Set by serve-and-run-browser-tests.cjs from the lane's OWN command line
+// (`--duplicate-done-drift-unverifiable`) — see the note on `source == null`
+// in duplicateDoneMatcherDrift for why an `:advanced` lane needs it and why
+// it is a declaration rather than something this runner infers.
+const DRIFT_UNVERIFIABLE_ENV_VAR = 'RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE';
+const DRIFT_UNVERIFIABLE_FLAG = '--duplicate-done-drift-unverifiable';
+
 const RUN_BLOCK_PROBE = () => {
   const roots = [globalThis, globalThis.$CLJS].filter(
     (r) => r && typeof r === 'object',
@@ -236,11 +243,21 @@ async function duplicateDoneMatcherDrift(page) {
     return `could not introspect \`cljs.test.run_block\` in the page: ${err.message}`;
   }
   if (source == null) {
+    // An `:advanced`-compiled lane renames `cljs.test.run_block`, so the check
+    // is not failing here — it is BLIND. That is a different thing and must be
+    // handled differently, but never silently: only a lane that declares
+    // itself unverifiable on its own command line may proceed, and it says so.
+    if (process.env[DRIFT_UNVERIFIABLE_ENV_VAR] === '1') {
+      return { unverifiable: true };
+    }
     return (
       '`cljs.test.run_block` was not reachable as a function on the page. The ' +
       'duplicate-`done` guard is a copy of a ClojureScript string literal, and ' +
-      'this is the only check that it still corresponds to the installed ' +
-      'ClojureScript — it cannot be skipped.'
+      'this check is what proves it still corresponds to the installed ' +
+      'ClojureScript. If this lane is `:advanced`-compiled the symbol is ' +
+      'renamed and the check cannot run — declare that on the lane itself with ' +
+      `\`${DRIFT_UNVERIFIABLE_FLAG}\` in its npm script. It cannot be skipped ` +
+      'silently.'
     );
   }
   if (!FATAL_CONSOLE_RE.test(source)) {
@@ -505,7 +522,25 @@ async function main() {
     // cannot mask a guard that has stopped guarding. Exit 2 (configuration),
     // not 1 (red): the fix is to update the matcher, not a test.
     const matcherDrift = await duplicateDoneMatcherDrift(page);
-    if (matcherDrift) {
+    if (matcherDrift && matcherDrift.unverifiable) {
+      // Blind, not broken — and said out loud rather than passed over. The
+      // duplicate-`done` guard ITSELF still works on this lane (it matches
+      // console output, and string literals survive `:advanced`); what cannot
+      // run here is the check that the matcher still tracks upstream. That is
+      // a repo-global property, so the non-advanced lane carrying it is
+      // sufficient — and `_impl-browser-runners-verdict-policy.test.cjs`
+      // pins that the default `test:browser` lane never declares itself
+      // unverifiable, so the verification cannot quietly stop happening
+      // everywhere at once.
+      console.warn(
+        `NOTE: the duplicate-\`done\` drift check did NOT run on this lane — it ` +
+          `declares itself unverifiable (${DRIFT_UNVERIFIABLE_FLAG}), because an ` +
+          `\`:advanced\` build renames \`cljs.test.run_block\` and the matcher ` +
+          `cannot be compared against the installed ClojureScript. The ` +
+          `duplicate-\`done\` guard itself is still active here. The drift check ` +
+          `is carried by the default \`test:browser\` lane (rf2-u0cy4).`,
+      );
+    } else if (matcherDrift) {
       console.error(
         `The duplicate-\`done\` guard (rf2-u0cy4) can no longer be trusted: ${matcherDrift}`,
       );
