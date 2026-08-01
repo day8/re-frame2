@@ -27,7 +27,10 @@
 #   per-artefact JVM selection (S-V) — a diff under an artefact's tree adds
 #     that artefact's suite, a diff elsewhere does not pay for it, a roster
 #     entry matches on a path boundary, and a skipped tier selects nothing
-#     (rf2-uwszd).
+#     (rf2-uwszd);
+#   mkdocs resolution (W-Y)        — the console script is preferred, an
+#     installed-as-a-module mkdocs is still FOUND rather than soft-skipped, and
+#     a code-only diff never probes for it (rf2-g7p7l).
 #
 # Run from any cwd:
 #   bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
@@ -292,6 +295,54 @@ r="$tmp_root/jvm-none"; mkrepo "$r"
 mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"
 git -C "$r" add -A; git -C "$r" commit -q -m d
 assert "V tier skipped → no artefact suite at all" "PLAN-JVM" "$(plan_jvm "$r")"
+
+# ---------------------------------------------------------------------------
+# mkdocs RESOLUTION (rf2-g7p7l).  The spine probed only for a bare `mkdocs`
+# console script, so on a checkout where mkdocs is installed as a module —
+# `pip install --user`, console script off PATH — the strict site build
+# soft-skipped on EVERY run and the spine still printed PASS.  `PLAN-MKDOCS`
+# makes the resolution observable without paying for an 18-second build, and
+# these cases pin it: the console script wins when present, the module is
+# found when it is not, and a code-only diff never pays to look.
+# ---------------------------------------------------------------------------
+plan_mkdocs() {
+  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-MKDOCS' \
+    || printf 'PLAN-MKDOCS <none>\n'
+}
+
+r="$tmp_root/mkdocs-docs"; mkrepo "$r"
+mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"
+git -C "$r" add -A; git -C "$r" commit -q -m d
+
+# W — the console script is preferred when it is on PATH.  A stub suffices:
+# resolution must not depend on the real tool being installed.
+stub_bin="$tmp_root/stub-bin"; mkdir -p "$stub_bin"
+printf '#!/bin/sh\nexit 0\n' > "$stub_bin/mkdocs"
+chmod +x "$stub_bin/mkdocs"
+if PATH="$stub_bin:$PATH" command -v mkdocs >/dev/null 2>&1; then
+  assert "W console script on PATH → resolved as mkdocs" "PLAN-MKDOCS mkdocs" \
+    "$(PATH="$stub_bin:$PATH" plan_mkdocs "$r")"
+else
+  printf '  SKIP W: this shell cannot make a stub executable discoverable\n'
+fi
+
+# X — THE REGRESSION.  Wherever `python -m mkdocs` runs, the spine must resolve
+# mkdocs; `unresolved` there is the fail-open this case exists to catch.  On CI
+# (console script on PATH) it resolves to `mkdocs`; on a module-only checkout,
+# to `python -m mkdocs`.  Either is a pass; `unresolved` is not.
+if command -v mkdocs >/dev/null 2>&1 || python -m mkdocs --version >/dev/null 2>&1; then
+  case "$(plan_mkdocs "$r")" in
+    "PLAN-MKDOCS unresolved"|"PLAN-MKDOCS <none>") mkdocs_found=no ;;
+    *)                                             mkdocs_found=yes ;;
+  esac
+  assert "X mkdocs installed → the spine resolves it (not soft-skipped)" "yes" "$mkdocs_found"
+else
+  printf '  SKIP X: mkdocs is installed neither as a script nor as a module here\n'
+fi
+
+# Y — the common case pays nothing: a code-only diff never probes for mkdocs.
+assert "Y code-only diff → mkdocs never probed" "PLAN-MKDOCS (docs tier skipped)" \
+  "$(plan_mkdocs "$tmp_root/coverage-note")"
 
 # ---- Summary ----
 total=$((pass_count + fail_count))
