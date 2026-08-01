@@ -23,6 +23,39 @@ That is the first paragraph because the result is negative, and a negative here
 is decisive information about the six-week clock rather than a failure to
 report.
 
+> ## EVERY MAGNITUDE BELOW IS A FRAME-ONLY FIGURE (rf2-yd52q)
+>
+> This page's clock is `TaskDuration` **less `DevToolsCommandDuration`**, and
+> `rf2-yd52q` has since measured what that subtraction removes: **the
+> operation's own script**. Chromium bills a `Runtime.callFunctionOn` to
+> `DevToolsCommandDuration` including the page script the command invokes, and
+> `clock_run.cjs` runs every arm's operation through exactly that door. An arm's
+> `devtools` term less the tare's baseline tracks that arm's in-page window —
+> `floor` 0.62 ms against an in-page 0.40, `reagent-subs` 2.76 against 2.30,
+> `hicasso` 3.26 against 2.80 — and `ScriptDuration` reads 0.013–0.029 ms for
+> every arm, including a mount that builds 901 elements.
+>
+> So the figures below are style, layout and paint **with the script taken out**:
+> frame-only rather than frame-inclusive, and nearer the in-page window's
+> complement than its superset. The tell was on this instrument from its first
+> run — on a substrate arm the in-page *absolute* exceeds the `taskNet`
+> absolute, which no superset can do — and went unseen because the driver
+> printed only their ratio.
+>
+> **The direction of §4's finding survives and its size does not.** On raw
+> `TaskDuration` — script and frame in one number — `rf2-yd52q`'s eight-run
+> ensemble reads `hicasso / reagent-subs` on `M1` at **1.4896×**
+> [1.3488 – 1.5989] against the **1.2107×** below, and `hicasso / uix-subs` at
+> **1.5001×** against **1.1865×**. The candidate's mount deficit is *materially
+> worse* than this page publishes, not better. `ctl-2x` is untouched — it reads
+> 1.69–1.83× the floor on both clocks — so [§6](#6-the-three-rows-this-page-refuses)'s
+> refusals stand unchanged.
+>
+> The driver now reports every bar, the band and the control on **both** clocks.
+> `rf2-emvod` carries the re-adjudication of this page's rows; `rf2-ymi6j` the
+> band calibration. Full record:
+> [bulk broad, re-taken](bulk-broad-re-taken.md).
+
 Owner: the operator-owned standard bead `rf2-2rtt6.1`; this page `rf2-0qj9w`.
 
 ---

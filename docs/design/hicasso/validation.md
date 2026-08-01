@@ -266,7 +266,7 @@ clean:
 | bar row | published *(pre-landing)* | **restated, post-`.25`** | disposition |
 |---|---|---|---|
 | **M1 mount** | ~~1.2310×~~ | **1.0150×** [0.9820 – 1.0480] | **RESTATED — the L1 mount red zone has CLOSED.** Under Ruling 1 the red-zone *is* the measured UIx ratio, so the mount line now sits at parity |
-| **bulk broad** | 0.6291× | not distinguishable at n = 5 | **UNDER QUESTION (rf2-8nqsl)** — direction unchanged *on this instrument*, but a frame-inclusive clock reads the same witness at parity, and `rf2-rguy1` has since read it at parity twice more on an outside instrument (`0.9740×`) and on ours (`1.1401×`). See the note below |
+| **bulk broad** | ~~0.6291×~~ | ~~not distinguishable at n = 5~~ | **WITHDRAWN (rf2-yd52q)** — the row's window closes before the frame it causes, and that frame is **half the operation**. On a clock that sees both, the re-take reads **0.8602×** [0.7709 – 0.9058] and publishes **no magnitude**: the direction stands, the 37% does not. See [the re-take](studio/bulk-broad-re-taken.md) |
 | **bulk narrow** | 1.1754× | not distinguishable at n = 5 | **stands** — direction unchanged, UIx slower |
 | M2 mount *(diagnostic)* | 1.0601× | not distinguishable at n = 5 | **stands**, still not quotable against the bar |
 
@@ -282,11 +282,17 @@ clean:
 > puts the same components at `1.0110×`, inside the published interval, as does
 > [the coldmount page](studio/coldmount-double-build-priced.md)'s `1.0054×`.
 > **`bulk broad 0.6291×` does not**: the cross-check's in-page reading of
-> `0.6924×` lands inside this row's own run-mean spread, and the frame-inclusive
-> reading on those same samples is `1.0509×` — indistinguishable from parity.
-> `bulk narrow 1.1754×` is exposed and not yet adjudicated. Full record, method
-> and controls: [the clock behind the published
-> rows](studio/the-clock-behind-the-published-rows.md).
+> `0.6924×` lands inside this row's own run-mean spread, and no clock that sees
+> the whole operation comes near it. **`rf2-yd52q` has since re-taken the row and
+> withdrawn it** — and found that the audit's frame-inclusive clock subtracted
+> `DevToolsCommandDuration`, which **carries the operation's own script**, making
+> it a frame-**only** reading rather than a frame-inclusive one. On raw
+> `TaskDuration` — script and frame together — the row reads **0.8602×**
+> [0.7709 – 0.9058], and that same corrected clock reproduces `M1 mount 1.0150×`
+> at **1.0011×** in the same runs. `bulk narrow 1.1754×` is exposed and not yet
+> adjudicated. Full record, method and controls: [the clock behind the published
+> rows](studio/the-clock-behind-the-published-rows.md) and
+> [bulk broad, re-taken](studio/bulk-broad-re-taken.md).
 
 **The arithmetic.** The threshold is a quotient of two floor-normalised legs. The
 denominator, `reagent-subs ÷ floor`, reads **4.425×** against the published
@@ -337,10 +343,11 @@ that checks only its controls in-page would never see it. When this row was
 published no clock row in the programme had ever been checked against a
 frame-inclusive instrument; **`rf2-8nqsl` has since done that check**, and it
 splits the record: `M1 mount 1.0150×` and coldmount's `1.0054×` survive it,
-`bulk broad 0.6291×` reads **parity** on a frame-inclusive clock and needs a
-re-take (`rf2-yd52q`), and `bulk narrow` plus the HD-008 donor rows remain
-exposed and unadjudicated (`rf2-ph85f`). See [the clock behind the published
-rows](studio/the-clock-behind-the-published-rows.md). That audit also sharpens
+`bulk broad 0.6291×` does not and **has since been withdrawn** by its re-take
+([`rf2-yd52q`](studio/bulk-broad-re-taken.md)), and `bulk narrow` plus the HD-008
+donor rows remain exposed and unadjudicated (`rf2-ph85f`). See [the clock behind
+the published rows](studio/the-clock-behind-the-published-rows.md). That audit
+also sharpens
 `rf2-rguy1` — the external cross-check against an instrument built on Chrome's
 timeline — from a nicety to the next question, and names **bulk broad** as the
 row to point it at first.
@@ -355,7 +362,7 @@ ours.
 | row | outside instrument | our published figure | disposition |
 |---|---|---|---|
 | **candidate mount** | `1.1756×` on create-1,000 | `1.2107×` on M1 | **corroborated.** Two instruments and two workloads span 1.18–1.28; the ~20% mount deficit is not a harness artefact |
-| **donor bulk broad** | `0.9740×` on replace-all, `1.1419×` on swap | `0.6291×` | **refused a third time.** With the in-page audit's `1.0509×`, no frame-inclusive instrument reproduces the 37% win. `rf2-yd52q` should proceed expecting parity |
+| **donor bulk broad** | `0.9740×` on replace-all, `1.1419×` on swap | ~~`0.6291×`~~ **withdrawn** | **refused a third time, and now [re-taken](studio/bulk-broad-re-taken.md).** No instrument that sees the whole operation reproduces the 37% win; the re-take reads `0.8602×`, keeps the direction and publishes no magnitude. It expected parity and did not find it either — the row is a real but much smaller win, at the edge of the instrument's resolution |
 | candidate bulk | `1.6216×` theirs / `1.4260×` ours on replace-all | **refused** by the clock page | the candidate's **worst** row, agreed by both instruments and materially worse than its mount |
 | candidate narrow | `0.7203×` theirs / `0.7583×` ours on partial-update | **refused** by the clock page | a **win** — 24–28% faster than Reagent-on-subs. UIx wins it slightly harder |
 
