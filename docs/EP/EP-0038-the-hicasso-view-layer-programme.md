@@ -164,10 +164,44 @@ synchronous door · HD-020 v0 host mechanics · HD-021 root/HMR/headless.
 fork ruling — are recorded here when made** (per EP-0009 rule 2), with their
 evidence on the standard bead.
 
+### Addendum, 2026-07-31 — Hicasso is a React adapter; Arm 2 (PATCH) is dropped
+
+**Operator ruling (Mike), verbatim:** *"I want hicasso to be an adaptor for React
+that is optimised for re-frame2, user ergonomics and performance. I don't want
+ARM 2 (PATCH)."*
+
+Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
+rule 3 — the wave-1/wave-2 text above is left as written, because it is the
+proposal that was accepted and the tournament it describes did run.
+
+- **HD-007 (two equal-class arms) is superseded.** There is one arm: lean-React,
+  and it is the product line rather than a contender.
+- **The tournament ended on product direction, not on measurement.** Arm 2 *met*
+  its hard gate — controlled-restore on the 100-cell grid in real Chromium, 920
+  tests / 5,743 assertions / 0 failures, no `act()`, no `flushSync`, no rAF. It
+  is dropped because the operator does not want an own renderer, not because it
+  could not build one. Its bench tree was retired afterwards (`rf2-m6if4`).
+- **What the ruling did not decide.** The arm-versus-null question stands: the
+  Adapter-Prime null control still rides every measurement, adapters-only is
+  still a *successful* outcome, and the kill criteria still bite. The P2 ruling
+  is now a two-way choice, not a three-way one.
+- **What survives from Arm 2:** the laziness finding (a `for`'s reads happen when
+  the children are walked, not when the body returns — a Surface B property that
+  applies to the adapter directly); the structural observation that HD-002(a)'s
+  ownership state machine is near-vacuous when the body runs inside the commit
+  and **live** when React owns the render phase, which puts the candidate-ledger
+  tripwire fully in force for the adapter; and the controlled-restore witness as
+  evidence of what correct input behaviour looks like.
+
+Evidence and full text on `rf2-2rtt6`. Design record updated in
+`docs/design/hicasso/` (`rf2-m6if4`).
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
-2. The P2 fork ruling (operator; end of the tournament).
+2. The P2 fork ruling (operator; end of the tournament). **Narrowed 2026-07-31**
+   by the addendum above: the choice between the two Hicasso arms is settled, so
+   what remains is the surviving arm against the null.
 3. The HD-002 read-mechanism adjudication (resolved by P1 instrumentation).
 4. The residual W1 dominance-attribution bead (does not gate the baseline).
 
