@@ -234,13 +234,10 @@
 
   ## What this construction is
 
-  Three arms on the SAME page as the floor — same 300 boundaries, same 901
-  elements, canonical-DOM identical, and NOT exempted from the fairness
-  gate for exactly that reason — differing only in how many of those
-  boundaries change per commit. The statistic is a DIFFERENCE OF
-  DIFFERENCES:
+  Arms that build ONE page and differ only in how many of its boundaries
+  change per commit. The statistic is a DIFFERENCE OF DIFFERENCES:
 
-      (T(200) - T(1)) / (T(100) - T(1))  ->  (200 - 1)/(100 - 1) = 2.0101
+      (T(2D) - T(eps)) / (T(D) - T(eps))  ->  (2D - eps) / (D - eps)
 
   and it is invariant under BOTH of the perturbations this lane has
   measured:
@@ -255,21 +252,104 @@
 
   `ctl-2x` is invariant under the second only. That is the whole repair.
 
-  ## Why the epsilon arm dirties ONE cell and not zero
+  ## THE FIRST BUILD OF THIS CONTROL WAS REFUTED, AND BY WHAT
 
-  Zero would make the prediction exactly 2.00 instead of 2.0101, which is
-  tidier and wrong. A commit that changes nothing produces no style
-  recalculation, no layout and no paint, so `T(0)` would omit the fixed
-  cost of PRODUCING A DIRTY FRAME AT ALL — a constant that `T(100)` and
-  `T(200)` both pay. Differencing against it would leave that constant in
-  both halves of the quotient and push the reading below 2: the very
-  defect being removed, reintroduced by the arm meant to remove it.
+  It was built exactly as `rf2-emvod` ruled it — eps = 1, D = 100, 2D =
+  200, on the floor's own 300-boundary page, canonical-DOM identical and
+  not exempted from the fairness gate. It REFUSED, 11 of 18 blocks inside
+  the band, at a per-block median of 1.609x against a predicted 2.0101x.
+  The refusal was not noise: the denominator was a healthy 0.96 ms
+  [0.84–1.42] and the shortfall was consistent across all three segments.
 
-  One dirty cell buys a real frame, so every fixed cost is present in all
-  three arms and every one of them cancels. The price is that the
-  prediction is `(d₂ - d₀)/(d₁ - d₀)` rather than `d₂/d₁`, and the driver
-  computes it from these numbers rather than carrying a literal."
-  {:ctl-d1 1 :ctl-d100 100 :ctl-d200 200})
+  What refuted it is that the page's cost is NOT affine in the dirty set
+  over `[1, 300]`. Marginal cost per dirty cell, tared p50 over 18 blocks
+  at 40 samples each:
+
+      interval      reagent    uix    hicasso
+      [1, 100]       11.18    9.70     11.49   µs per dirty cell
+      [100, 200]      6.18    5.94      5.25
+      [200, 300]      6.19    6.89      7.05
+
+  The first hundred cells cost about TWICE what the next two hundred do,
+  on every arm. `LayoutDuration` alone is clean — 0.132 / 0.534 / 0.994 /
+  1.337 ms at d = 1 / 100 / 200 / 300 on the Reagent segment, which is the
+  three-point statistic reading 2.14x on the layout counter — so the
+  workload's LAYOUT half is affine and something else is not.
+
+  The mechanism is PAINT, and it saturates. A commit that dirties cells
+  0..d-1 damages a region that grows with `d` only until it covers the
+  VIEWPORT; past that, the extra dirty rows are off-screen, they are laid
+  out but never painted. The viewport holds a few tens of rows, so paint
+  is still growing at d = 1 and has stopped by d = 100, which is exactly
+  the shape in the table. It is a property of the page and the window,
+  not of the instrument, and no amount of differencing removes it because
+  it is not a constant — it is a saturating function of the very axis the
+  control varies.
+
+  RECORDED AS A REFUTATION, and the `eps` arm is kept as the WITNESS of
+  it: [[ctl3-witness-dirty]] is published on every row so the claim that
+  the affine regime starts well below `D` is re-measured every run rather
+  than inherited from this docstring.
+
+  ## Why the page is 3,000 boundaries and not the floor's 300
+
+  Two constraints, and on a 300-cell page they have no common solution.
+
+  The control's three points must sit ABOVE the paint knee, which the
+  table above puts somewhere below d = 100. That leaves `[100, 300]` to
+  work in, so the widest spacing available is 100 cells per interval —
+  and at ~6 µs per cell that is a denominator of 0.60 ms. Measured
+  against it, the per-sample jitter of this instrument gives a p50
+  standard error of roughly 0.2 ms at 40 samples, so the quotient's own
+  spread swamps the 25% band: adjudicated at 100/200/300 the same
+  dataset put only 7 of 18 blocks inside, with the denominator collapsing
+  as low as 0.10 ms in one block. A control that refuses because its
+  denominator went to noise has not caught anything.
+
+  SIGNAL SCALES WITH THE PAGE AND THE NOISE DOES NOT — the jitter is the
+  harness, the protocol round trip and the ambient box, none of which
+  care how many rows the list has. So the fix is a bigger page for the
+  control's own arms: 3,000 boundaries, points at 1,000 / 2,000 / 3,000,
+  spacing 1,000 cells, denominator ~6 ms against the same ~0.28 ms of
+  noise. The required spacing was DERIVED from the measured noise before
+  the page size was chosen, rather than chosen and then justified.
+
+  ## What that costs, stated rather than buried
+
+  These arms no longer build the floor's page, so the canonical-DOM gate
+  must exempt them exactly as it exempts `ctl-2x`, and the guarantee the
+  300-cell build had is gone. What replaces it is narrower and is the one
+  that matters for a control whose arms are compared only with EACH
+  OTHER: the driver checks that all four arms of the control hash to the
+  SAME canonical page as one another, and refuses the row if they do not.
+
+  The wall clock barely moves. A sample on this instrument is dominated
+  by the protocol round trip and the frame settle, not by the page: at
+  10 samples a bulk row took 72 s with the 300-cell arms, and the extra
+  page work here is a few milliseconds on three arms of eight."
+  {:ctl-b1000 1000 :ctl-b2000 2000 :ctl-b3000 3000})
+
+(def ^:private ctl3-cells
+  "The control's own page: 3,000 boundaries, 9,001 elements. See
+  [[ctl3-dirty]] for why it is not the floor's 300."
+  3000)
+
+(def ^:private ctl3-witness-dirty
+  "THE REGIME WITNESS, and it is not a control point.
+
+  One dirty cell on the control's own page. Its job is to re-measure, on
+  every run, the thing that refuted the first build of this control: that
+  the marginal cost per dirty cell is much higher at the bottom of the
+  range than it is between the control's own points, because paint is
+  still growing there and has saturated by the time the control starts.
+
+  Published as a marginal-cost table rather than adjudicated. If a run
+  ever showed the low-end marginal cost AGREEING with the control's own,
+  the paint-saturation account would be wrong — and the control's choice
+  of `eps = 1000` rather than `eps = 1` would be unmotivated, which is a
+  finding about this instrument that a reader should be handed rather
+  than have to reconstruct."
+  1)
 
 (defn- dirty-cells
   "The `d`-dirty arm's next render: the first `d` cells carry `val`, which
@@ -282,17 +362,18 @@
   (into (vec (repeat d val)) (repeat (- n d) 0)))
 
 (defn- dirty-floor-arm
-  "One point of the three-point control: the floor's page, its own share of
-  it dirty.
+  "One point of the three-point control: the control's own page, `d` of its
+  boundaries dirty per commit.
 
-  `scale` is 1 and `:control?` is therefore false, which is DELIBERATE and
-  is the reason the dirty set was chosen as the axis. These arms build the
-  same 300-boundary page the floor builds, so the canonical-DOM gate can
-  and does check them against every substrate arm — a control that had to
-  be exempted from the fairness gate would be a control whose page nothing
-  is watching, which is what `ctl-2x` is."
-  [id n d]
-  (assoc (floor-mount-arm id n 1) :dirty d))
+  `:ctl3?` marks it as belonging to the control, and it is what
+  [[sabotage!]] is scoped to — the floor also dirties every one of its
+  cells, and a falsification that reached it would corrupt the
+  denominator of every published ratio instead of the control it is
+  supposed to break."
+  [id d]
+  (assoc (floor-mount-arm id ctl3-cells (/ ctl3-cells v/cells-n))
+         :dirty d
+         :ctl3? true))
 
 (def ^:private plumb-arm
   "THE TARE. An arm that mounts nothing, writes nothing and settles the
@@ -363,17 +444,30 @@
    (floor-mount-arm :ctl-2x (* 2 v/cells-n) 2)])
 
 (defn- ctl3-arms
-  "The three-point control's arms, and they exist on BULK ROWS ONLY.
+  "The three-point control's arms plus its regime witness, and they exist
+  on BULK ROWS ONLY.
 
   A mount row's operation IS the mount, so it has no standing page to
   write a changed set into and no changed-set axis to be linear in. Its
   control stays `ctl-2x` and stays known to undershoot — recorded on the
   bead rather than papered over here, because the row this instrument
   blocks is a bulk row and an arm invented for a mount row would be an
-  arm nothing had asked for."
+  arm nothing had asked for.
+
+  The witness is FIRST in the plan and lowest in dirty count, so a reader
+  of the marginal-cost table reads it in the order the cells rise."
   []
-  (mapv (fn [[id d]] (dirty-floor-arm id v/cells-n d))
-        (sort-by val ctl3-dirty)))
+  (let [top (apply max (vals ctl3-dirty))]
+    (into [(assoc (dirty-floor-arm :ctl-b-witness ctl3-witness-dirty)
+                  :ctl3? false :ctl3-witness? true)]
+          (mapv (fn [[id d]]
+                  ;; `:ctl3-top?` is the 2D point, and it is the ONE arm
+                  ;; `sabotage!` reaches. Moving all three together would
+                  ;; collapse the denominator to zero and refuse on a
+                  ;; division rather than on a wrong number — a refusal that
+                  ;; demonstrates nothing about the control's sensitivity.
+                  (cond-> (dirty-floor-arm id d) (= d top) (assoc :ctl3-top? true)))
+                (sort-by val ctl3-dirty)))))
 
 (defn- kb-floor-arm [id busy]
   {:id           id
@@ -622,7 +716,8 @@
         ;; the falsification, and it is the page that carries it — the
         ;; driver goes on predicting from the declaration, which is what
         ;; makes the control the only gate that can see it.
-        dirty  (when-some [d (:dirty arm)] (or (:sabotage @state) d))
+        dirty  (when-some [d (:dirty arm)]
+                 (if (:ctl3-top? arm) (or (:sabotage @state) d) d))
         t0     (lane/now-ms)
         ;; The floor renders INSIDE the `flushSync`, element tree and all,
         ;; and neither half is a convenience. `root.render` called outside
@@ -680,8 +775,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn sabotage!
-  "Make the three-point control's arms dirty `d` cells instead of the
-  number they declare, and answer what was installed.
+  "Make the three-point control's 2D arm dirty `d` cells instead of the
+  3,000 it declares, and answer what was installed.
 
   ## This exists so the control can be shown REFUSING
 
@@ -693,19 +788,20 @@
   environment variable.
 
   What it breaks is the one thing the control is for. The arms go on
-  DECLARING 1 / 100 / 200 to the driver, so the prediction stays
-  `(200-1)/(100-1)`, while the page renders `d`. Every other gate is
-  untouched and passes — the canonical DOM is identical (the page is the
-  same page), the read-back verifies (the probes follow the ACTUAL dirty
-  set, so the cells that changed did change and the cold cell is still
-  `0`), the arm-order guard is clean, the band is unmoved. The control is
-  the only gate in this driver that can see it, and a run with the knob on
-  is expected to exit 1 naming exactly that.
+  DECLARING 1,000 / 2,000 / 3,000 to the driver, so the prediction stays
+  `(3000-1000)/(2000-1000) = 2.00`, while the top arm renders `d`. Every
+  other gate is untouched and passes — the four control arms still hash to
+  the same canonical page as one another, the read-back verifies (the
+  probes follow the ACTUAL dirty set, so the cells that changed did change
+  and the cold cell is still `0`), the arm-order guard is clean, the band
+  is unmoved. The control is the only gate in this driver that can see it,
+  and a run with the knob on is expected to exit 1 naming exactly that.
 
-  Applies to every dirty-set arm at once, so the epsilon arm moves too and
-  the falsification cannot be mistaken for a scaling of one arm alone."
+  `d = 2400` is the documented example: it should read
+  `(2400-1000)/(2000-1000) = 1.40x`, which is outside the band and inside
+  the range of values a merely noisy run could not reach."
   [d]
-  (swap! state assoc :sabotage (when (and (number? d) (pos? d) (<= d v/cells-n)) (long d)))
+  (swap! state assoc :sabotage (when (and (number? d) (pos? d) (<= d ctl3-cells)) (long d)))
   (:sabotage @state))
 
 (defn focus-draft!
@@ -799,8 +895,11 @@
              :plan          (fn [row seg]
                               (clj->js (mapv (fn [a] {:id      (name (:id a))
                                                       :scale   (or (:scale a) 1)
+                                                      :cells   (or (:cells a) 0)
                                                       :control (boolean (:control? a))
                                                       :dirty   (or (:dirty a) 0)
+                                                      :ctl3    (boolean (:ctl3? a))
+                                                      :ctl3Witness (boolean (:ctl3-witness? a))
                                                       :lowerBound (boolean (:lower-bound? a))})
                                              (arms-for (keyword row) (keyword seg)))))
              :canon         (fn [row arm] (canon! (keyword row) (keyword arm)))
