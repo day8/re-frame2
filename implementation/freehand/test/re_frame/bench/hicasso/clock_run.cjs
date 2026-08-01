@@ -117,6 +117,12 @@ const CONTROL_SLACK = 0.25;
 // it before the run.
 const CTL_BUSY_MS = 50;
 
+// Subtract the tare arm's reading from every figure. On by default; the
+// switch exists so a reader can reproduce the uncorrected run this
+// instrument's first pass published (`HCLOCK_TARE=off`), not so a run can
+// choose whichever answer it prefers — every table says which it is.
+const TARE = (process.env.HCLOCK_TARE || 'on') !== 'off';
+
 const ALL_ROWS = ['M1', 'bulk300', 'bulk100', 'narrow', 'keystroke'];
 const ONLY = (process.env.HCLOCK_ONLY || '').trim();
 const ROWS = ONLY ? ALL_ROWS.filter((r) => ONLY.split(',').includes(r)) : ALL_ROWS;
@@ -127,6 +133,7 @@ if (ROWS.length === 0) {
 
 const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
 const FLOOR = 'floor';
+const PLUMB = 'plumb';
 
 // ---------------------------------------------------------------------------
 // Build and serve
@@ -392,7 +399,17 @@ async function runRow(browser, rowId) {
           let ok = true;
 
           const m0 = await readMetrics(cdp);
-          if (isKeystroke) {
+          if (armId === PLUMB) {
+            // The tare's operation is the settle and nothing else. It is
+            // driven through the SAME two evaluates a real sample costs on
+            // this row, because what it is measuring is exactly those.
+            if (isKeystroke) {
+              await page.evaluate(() => window.HCLOCK.settle());
+              await page.evaluate(() => window.HCLOCK.settle());
+            } else {
+              await page.evaluate(([r, arm]) => window.HCLOCK.sample(r, arm), [rowId, armId]);
+            }
+          } else if (isKeystroke) {
             await page.evaluate(
               ([arm]) => {
                 window.__ETARM = arm;
@@ -415,6 +432,14 @@ async function runRow(browser, rowId) {
           const m1 = await readMetrics(cdp);
           const d = deltaOf(m0, m1);
           if (d.taskNet > 0) granularity.add(d.taskNet);
+
+          // AFTER the counters. A mount row's arm is left standing by
+          // `sample`, and unmounting 300 or 600 boundaries is real work
+          // that a mount row must not be charged for.
+          if (rowId === 'M1') {
+            const reaped = await page.evaluate((r) => window.HCLOCK.reap(r), rowId);
+            ok = ok && reaped.ok;
+          }
 
           if (isKeystroke) {
             // A second settle before draining: Event Timing entries reach
@@ -481,19 +506,34 @@ async function runRow(browser, rowId) {
 // Adjudication
 // ---------------------------------------------------------------------------
 
+/**
+ * One arm's page cost in one round of one segment, TARED.
+ *
+ * The tare is `plumb`'s p50 in the SAME round of the SAME segment, so it
+ * is never carried across a seam. Correction is subtraction and has no
+ * free parameter: the prediction that it restores the doubling control to
+ * 2.00x is registered before the run and is falsifiable — an overshoot
+ * would say the model is wrong, and would be reported as saying it.
+ */
+function tared(rounds, seg, arm, round) {
+  const t = TARE ? p50(rounds[round][seg][PLUMB]) : 0;
+  return p50(rounds[round][seg][arm]) - t;
+}
+
 /** Per-round ratio of `arm` to the floor measured in THAT round of THAT segment. */
 function ratioToFloor(rounds, seg, arm) {
-  return rounds.map((r) => {
-    const a = p50(r[seg][arm]);
-    const f = p50(r[seg][FLOOR]);
-    return a / f;
-  });
+  return rounds.map((_, i) => tared(rounds, seg, arm, i) / tared(rounds, seg, FLOOR, i));
+}
+
+function rawRatioToFloor(rounds, seg, arm) {
+  return rounds.map((r) => p50(r[seg][arm]) / p50(r[seg][FLOOR]));
 }
 
 /** The bar arithmetic: two floor-normalised ratios, one against the other. */
-function crossSegment(rounds, numSeg, numArm, denSeg, denArm) {
-  const num = ratioToFloor(rounds, numSeg, numArm);
-  const den = ratioToFloor(rounds, denSeg, denArm);
+function crossSegment(rounds, numSeg, numArm, denSeg, denArm, raw) {
+  const f = raw ? rawRatioToFloor : ratioToFloor;
+  const num = f(rounds, numSeg, numArm);
+  const den = f(rounds, denSeg, denArm);
   const per = num.map((x, i) => x / den[i]);
   const b = band(per);
   return { ...b, perRound: per.map(r4), straddles1: b.min <= 1.0 && b.max >= 1.0 };
@@ -529,23 +569,41 @@ function report(out) {
       `(${nonControl.length ? nonControl[0][1].bytes : 0} bytes)`
   );
 
+  // --- the tare -------------------------------------------------------------
+  const armsOf = (seg) => Object.keys(rounds[0][seg]);
+  const plumbAll = summarise(rounds.flatMap((r) => SEGMENTS.flatMap((s) => r[s][PLUMB])));
+  const plumbBySeg = SEGMENTS.map((s) => `${s} ${p50(rounds.flatMap((r) => r[s][PLUMB])).toFixed(3)}`);
+  console.log(
+    `;; tare     plumb p50 ${plumbAll.p50.toFixed(4)} ms [${plumbAll.min.toFixed(4)} – ${plumbAll.max.toFixed(4)}] ` +
+      `(${plumbBySeg.join(', ')}) — ${TARE ? 'SUBTRACTED from every figure below' : 'NOT subtracted (HCLOCK_TARE=off)'}`
+  );
+
+  // --- the floor seam -------------------------------------------------------
+  const floorBySeg = SEGMENTS.map((s) => p50(rounds.flatMap((r) => r[s][FLOOR])));
+  const seamSpread = Math.max(...floorBySeg) / Math.min(...floorBySeg);
+  console.log(
+    `;; seam     the SAME floor read ${SEGMENTS.map((s, i) => `${s} ${floorBySeg[i].toFixed(3)}`).join(', ')} ms ` +
+      `— spread ${((seamSpread - 1) * 100).toFixed(1)}%. Every figure below is floor-normalised WITHIN its ` +
+      `segment, so this cancels; it is published because a segment seam that is not published is not cancelled either`
+  );
+
   // --- the rows -------------------------------------------------------------
   console.log(`;; ---- per-arm, ratio to the floor measured in that round of that segment ----`);
-  const armsOf = (seg) => Object.keys(rounds[0][seg]);
   for (const seg of SEGMENTS) {
     for (const arm of armsOf(seg)) {
-      if (arm === FLOOR) continue;
+      if (arm === FLOOR || arm === PLUMB) continue;
       const per = ratioToFloor(rounds, seg, arm);
       const b = band(per);
+      const rb = band(rawRatioToFloor(rounds, seg, arm));
       console.log(
         `;;   ${(seg + '/' + arm).padEnd(28)} ${b.mean.toFixed(4)}x floor ` +
-          `[${b.min.toFixed(4)} – ${b.max.toFixed(4)}]  n=${per.length} rounds`
+          `[${b.min.toFixed(4)} – ${b.max.toFixed(4)}]  n=${per.length} rounds   (untared ${rb.mean.toFixed(4)}x)`
       );
     }
     const fl = summarise(rounds.flatMap((r) => r[seg][FLOOR]));
     console.log(
       `;;   ${(seg + '/floor').padEnd(28)} ABSOLUTE p50 ${fl.p50.toFixed(4)} ms ` +
-        `[${fl.min.toFixed(4)} – ${fl.max.toFixed(4)}]`
+        `[${fl.min.toFixed(4)} – ${fl.max.toFixed(4)}], tared ${(fl.p50 - plumbAll.p50).toFixed(4)} ms`
     );
   }
 
@@ -553,10 +611,12 @@ function report(out) {
   console.log(`;; ---- THE BAR: candidate against each donor, both floor-normalised ----`);
   const bar = {};
   for (const den of ['reagent-subs', 'uix-subs']) {
-    const v = crossSegment(rounds, 'hicasso', 'hicasso', den, den);
-    bar[den] = v;
+    const v = crossSegment(rounds, 'hicasso', 'hicasso', den, den, false);
+    const rv = crossSegment(rounds, 'hicasso', 'hicasso', den, den, true);
+    bar[den] = { tared: v, untared: rv };
     console.log(
       `;;   hicasso / ${den.padEnd(14)} ${v.mean.toFixed(4)}x [${v.min.toFixed(4)} – ${v.max.toFixed(4)}]` +
+        `   (untared ${rv.mean.toFixed(4)}x [${rv.min.toFixed(4)} – ${rv.max.toFixed(4)}])` +
         (v.straddles1 ? '   — RANGE STRADDLES 1.0, indistinguishable at this n' : '')
     );
   }
@@ -566,7 +626,7 @@ function report(out) {
     console.log(`;; ---- the SAME samples, read on the in-page performance.now() window ----`);
     for (const seg of SEGMENTS) {
       for (const arm of armsOf(seg)) {
-        if (arm === FLOOR) continue;
+        if (arm === FLOOR || arm === PLUMB) continue;
         const per = inPageRounds.map((r) => p50(r[seg][arm]) / p50(r[seg][FLOOR]));
         if (!per.every(Number.isFinite)) continue;
         const b = band(per);
@@ -596,29 +656,43 @@ function report(out) {
     console.log(`;; ---- Event Timing (paint-inclusive; duration rounded to 8 ms, floor 16 ms) ----`);
     if (etError) console.log(`;;   observer error: ${etError}`);
     const warm = eventTiming.filter((e) => e.warm && !e.name.startsWith('first-input:'));
-    const byArm = {};
-    for (const e of warm) {
-      const key = e.arm ? `${e.seg}/${e.arm}` : `${e.seg}/<unattributed>`;
-      (byArm[key] ||= []).push(e);
-    }
     const totalKeys = ROUNDS * SEGMENTS.length * SAMPLES;
     console.log(
-      `;;   ${warm.length} reported entries from ${totalKeys} measured keystrokes; ` +
+      `;;   ${warm.length} reported ENTRIES from ${totalKeys} measured keystrokes ` +
+        `(one keypress raises several: keydown, beforeinput, input, keyup, …); ` +
         `${unattributedET} arrived with no arm in flight`
     );
+    // ONE INTERACTION, not one event. INP's own definition: the events a
+    // keypress raises share an `interactionId`, and the latency of the
+    // interaction is the LONGEST of them — reporting the entries
+    // individually multiplies the sample count by the event count and says
+    // nothing extra, because every entry of one keypress ends at the same
+    // paint.
+    const byArm = {};
+    const inter = new Map();
+    for (const e of warm) {
+      const key = e.arm ? `${e.seg}/${e.arm}` : `${e.seg}/<unattributed>`;
+      const id = `${key}#${e.round}#${e.sampleIndex}#${e.interactionId || 0}`;
+      const cur = inter.get(id);
+      if (!cur || e.duration > cur.duration) inter.set(id, { key, ...e });
+    }
+    for (const v of inter.values()) (byArm[v.key] ||= []).push(v);
+    const names = {};
+    for (const e of warm) names[e.name] = (names[e.name] || 0) + 1;
+    console.log(`;;   event names seen: ${Object.entries(names).map(([n, c]) => `${n}x${c}`).join(', ')}`);
     for (const [k, es] of Object.entries(byArm)) {
       const dur = summarise(es.map((e) => e.duration));
       const proc = summarise(es.map((e) => e.processingEnd - e.processingStart));
       const delay = summarise(es.map((e) => e.processingStart - e.startTime));
       console.log(
-        `;;   ${k.padEnd(28)} n=${String(dur.n).padStart(3)}  duration p50 ${dur.p50.toFixed(1)} ms ` +
+        `;;   ${k.padEnd(28)} interactions=${String(dur.n).padStart(3)}  duration p50 ${dur.p50.toFixed(1)} ms ` +
           `[${dur.min.toFixed(1)} – ${dur.max.toFixed(1)}]  processing p50 ${proc.p50.toFixed(3)} ms  ` +
           `input-delay p50 ${delay.p50.toFixed(3)} ms`
       );
     }
     for (const seg of SEGMENTS) {
       for (const arm of armsOf(seg)) {
-        if (byArm[`${seg}/${arm}`]) continue;
+        if (byArm[`${seg}/${arm}`] || arm === PLUMB) continue;
         console.log(
           `;;   ${(seg + '/' + arm).padEnd(28)} NO ENTRY — every interaction landed under the ` +
             `16 ms reporting floor, which is a result and not a gap`
@@ -626,10 +700,12 @@ function report(out) {
       }
     }
     // THE PREDICTED CONTROL for this instrument.
-    const ctl = byArm[Object.keys(byArm).find((k) => k.endsWith('/ctl-50ms')) || ''] || [];
+    const ctl = Object.entries(byArm)
+      .filter(([k]) => k.endsWith('/ctl-50ms'))
+      .flatMap(([, es]) => es);
     const sawIt = ctl.length > 0 && p50(ctl.map((e) => e.duration)) >= CTL_BUSY_MS - 2;
     etVerdict = {
-      predicted: `ctl-50ms produces Event Timing entries whose duration p50 is >= ${CTL_BUSY_MS - 2} ms`,
+      predicted: `ctl-50ms produces Event Timing interactions whose duration p50 is >= ${CTL_BUSY_MS - 2} ms`,
       measured: ctl.length ? `n=${ctl.length}, p50 ${p50(ctl.map((e) => e.duration)).toFixed(1)} ms` : 'no entries',
       ok: sawIt,
     };
@@ -653,7 +729,12 @@ function report(out) {
         `(${ctlVerdict.rule})`
     );
   } else {
-    const ctlTask = SEGMENTS.flatMap((seg) => rounds.map((r) => p50(r[seg]['ctl-50ms']) - p50(r[seg][FLOOR])));
+    // A DIFFERENCE, so the tare cancels in it whether or not it is
+    // subtracted — which is why this control is stated in milliseconds
+    // rather than as a ratio.
+    const ctlTask = SEGMENTS.flatMap((seg) =>
+      rounds.map((r) => p50(r[seg]['ctl-50ms']) - p50(r[seg][FLOOR]))
+    );
     const b = band(ctlTask);
     ctlVerdict = {
       predicted: `>= ${CTL_BUSY_MS - 10} ms of extra main-thread task time`,
@@ -707,10 +788,26 @@ function report(out) {
     `;; reproduce ${ONLY ? `HCLOCK_ONLY=${ONLY} ` : ''}node ` +
       `implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs`
   );
+  console.log(`;; tare      ${TARE ? 'ON' : 'OFF'} — plumb, an arm that mounts nothing and settles the same frame`);
   console.log(`;; PREDICTIONS, written before the run:`);
   console.log(`;;   ctl-2x     = the floor at twice the boundaries -> 2.00x the floor, +/-${CONTROL_SLACK * 100}%, EVERY round`);
-  console.log(`;;   ctl-50ms   = 50 ms burned inside the handler -> >= ${CTL_BUSY_MS - 10} ms extra task time AND an Event Timing entry >= ${CTL_BUSY_MS - 2} ms`);
-  console.log(`;;   in-page    = the performance.now() window UNDER-reads the frame-inclusive one, by an arm-dependent amount`);
+  console.log(`;;   ctl-50ms   = 50 ms burned inside the handler -> >= ${CTL_BUSY_MS - 10} ms extra task time AND an Event Timing interaction >= ${CTL_BUSY_MS - 2} ms`);
+  console.log(`;;   in-page    = the performance.now() window reads DIFFERENTLY from the frame-inclusive one, by an arm-dependent amount`);
+  console.log(
+    `;;   THE TARE   = run 1 of this instrument (no plumb arm) read ctl-2x at 1.5909x [1.1635 - 2.1509] and FAILED,`
+  );
+  console.log(
+    `;;                while its decomposition showed layout doubling exactly (1.56 -> 3.08 ms) and 3.6 ms/sample`
+  );
+  console.log(
+    `;;                not moving at all. The additive-constant model therefore PREDICTS that subtracting a measured`
+  );
+  console.log(
+    `;;                per-sample constant restores ctl-2x to 2.00x. That is what the plumb arm tests, and an`
+  );
+  console.log(
+    `;;                overshoot past 2.5x would refute the model rather than the instrument.`
+  );
 
   const outcomes = [];
   let died = null;

@@ -47,12 +47,22 @@
   `^on-` position and `codec/prop-name` camelCases it to `onChange`. Same
   prop, same event, same handler.
 
-  ## The keystroke floor holds its draft in React
+  ## The keystroke floor holds its draft in React, and it is NOT a lower
+  ## bound — measured
 
   [[kb-floor]] is the only arm that does not write app-db: it is the
   floor, so it has no substrate to write to, and its draft lives in a
-  `useState`. That makes it a LOWER BOUND on the keystroke path and it is
-  labelled one wherever it is published — never a comparator.
+  `useState`. Everywhere else in this lane the floor is the cheapest arm
+  on the page, and the first instinct is to label this one a lower bound
+  too. **Run 1 of `clock_run.cjs` measured the opposite**: all three
+  substrate arms read BELOW it (0.87–0.92× floor), because a `useState`
+  write re-renders the whole 101-element tree top-down while a
+  subscription write re-renders only the boundary whose value moved.
+
+  So it is a CALIBRATOR and never a bound in either direction — the same
+  page, the same commit, no reactive graph — and a substrate arm reading
+  under 1.0× here is localisation showing up on the clock rather than an
+  anomaly.
 
   Owner: rf2-2rtt6.1 (standard); these witnesses rf2-0qj9w."
   (:require ["react" :as react]
