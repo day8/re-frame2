@@ -558,8 +558,8 @@
 ;; falls through to `native-satisfies?` and is the dearest predicate on
 ;; the path. `keyword?` is one `instanceof`. Prop-map keys are keywords
 ;; essentially always, and skipping the no-op for them is the difference
-;; between the key half costing +30–43% of the walk and costing nothing
-;; measurable (rf2-2rtt6.32, table in [[realize-deep]]).
+;; between the key half costing +51–67% of the walk and costing almost
+;; nothing (rf2-2rtt6.32, table in [[realize-deep]]).
 (defn- realize-entry [_ k x]
   (when-not (keyword? k) (realize-deep k))
   (realize-deep x)
@@ -660,24 +660,37 @@
   ### What the key half costs (rf2-2rtt6.32)
 
   Not nothing, and it was measured rather than assumed. Three walks
-  A/B/C'd in one process, rounds interleaved, best of five per round,
-  four whole repetitions — **ratios only**: the box was carrying another
-  arm's ladder, so absolute figures drifted 2.6x between repetitions
-  while every ratio below held. A is the value-only walk this replaced,
-  B walks keys unconditionally, C is B with the `keyword?` short-circuit
-  above and is what ships.
+  A/B/C'd in one process on an otherwise idle box, rounds interleaved,
+  best of seven per round, four whole repetitions. A is the value-only
+  walk this replaced, B walks keys unconditionally, C is B with the
+  `keyword?` short-circuit above and is what ships.
+
+  **All three arms are written in the measuring namespace, including the
+  one that ships**, and that is not fussiness. Timing two local arms
+  against `realize-deep` itself compares an inline `(throw (ex-info …))`
+  with a call to [[refuse-deferred!]] as much as it compares anything
+  about keys, and it reported the shipping arm 9–20% *faster* than a
+  walk doing strictly less work — an impossible result, and the only
+  reason the confound was caught.
 
   | shape | B vs A | C vs A |
   |---|---|---|
-  | the dogfood row's props | +31%, +35%, +43%, +31% | +8%, +2%, +6%, −2% |
-  | the same plus two hiccup children | +8%, +9%, +9%, +16% | +6%, +4%, +3%, +5% |
-  | a 100-row collection prop | +24%, +27%, +27%, +35% | +3%, +7%, +1%, +11% |
+  | the dogfood row's props | +59%, +57%, +67%, +51% | +4%, +2%, +1%, +18% |
+  | the same plus two hiccup children | +28%, +20%, +20%, +24% | +7%, +3%, +0%, −2% |
+  | a 100-row collection prop | +56%, +40%, +47%, +49% | +7%, +1%, +2%, +3% |
 
-  Against the whole boundary element build, measured in the same process
-  on the same instrument, **B adds 4.3–5.9% of it and C adds 0.2–1.1%**.
-  The unconditional walk is therefore a real cost at the shape that
-  matters most, and one predicate removes it: the dear part was never
-  the traversal, it was proving that a keyword is not a collection.
+  Against the whole boundary element build, measured in the same process:
+  **B adds 7.6–9.9% of it, C adds 0.2–2.8%.** The unconditional walk is a
+  real cost at the shape that matters most, and one predicate removes it
+  — the dear part was never the traversal, it was proving that a keyword
+  is not a collection.
+
+  Two instruments, one denominator: the element build reads 1.08–1.16 µs
+  here, within a few percent of the 1,089 ns in the table above, while
+  the walk itself reads 148–177 ns against that table's 69 ns. They agree
+  on what an element costs and not on what the walk inside it costs, so
+  the rows above are quoted as ratios and the absolute figures are not
+  carried forward.
 
   The 100-row collection prop is the honest ceiling, every element of it
   a map and so every element two positions rather than one; it is still
