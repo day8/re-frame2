@@ -28,8 +28,8 @@ clock and every published row reaches it:
 | producer | clock, at file:line | window closes | class |
 |---|---|---|---|
 | `lane.cljs` — the shared clock | [`lane.cljs:86-92`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) `now-ms` → `js/performance.now()` | — | in-page |
-| `lane/mount-arm!` — every single mount row | [`lane.cljs:183-186`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) `t0` … `flushSync` … `(- (now-ms) t0)` | when `flushSync` returns | in-page |
-| `lane/mount-batch!` — every batched mount row | [`lane.cljs:205-212`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) same shape, `k` mounts inside one window | when `flushSync` returns | in-page |
+| `lane/mount-arm!` — every single mount row | [`lane.cljs:185-187`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) `t0 (now-ms)` · `flushSync` · `{:ms (- (now-ms) t0)}` | when `flushSync` returns | in-page |
+| `lane/mount-batch!` — every batched mount row | [`lane.cljs:208-213`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) same shape, `k` mounts inside one window | when `flushSync` returns | in-page |
 | `p0_converge_app` — M1, M2, broad, narrow | [`p0_converge_app.cljs:750`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
 | `coldmount_app` — the `1.0054×` witness | [`coldmount_app.cljs:425`](../../../../implementation/freehand/test/re_frame/bench/hicasso/coldmount_app.cljs) `(lane/mount-batch! arm props 1)` | via the lane | in-page |
 | `hd8_rows` — the HD-008 donor rows | [`hd8_rows.cljs:416`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) `(lane/mount-arm! arm props)`; own windows at [`665-678`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) and [`1005-1008`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) | when the drain returns | in-page |
