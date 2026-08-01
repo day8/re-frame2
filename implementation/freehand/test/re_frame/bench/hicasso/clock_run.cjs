@@ -1521,13 +1521,13 @@ function report(out) {
     const cells = (armPlan.find((a) => a.ctl3) || {}).cells;
     console.log(
       `;; ---- THREE-POINT CONTROL: dirty ${Object.values(d).join(' / ')} of ${cells} boundaries, FIXED ` +
-        `page size, plus a witness at ${ctl3.witnessDirty} ----`
+        `page size — the floor's own page, so the canonical-DOM gate CHECKS these arms ----`
     );
     console.log(
       `;;   parity   ${ctl3Parity.arms} control arms across ${SEGMENTS.length} segments, canonical DOM ` +
         `${ctl3Parity.ok ? 'IDENTICAL' : 'DISAGREES — ' + ctl3Parity.hashes + ' distinct pages'} ` +
-        `(${ctl3Parity.bytes} bytes). These arms are exempt from the CROSS-ARM gate because their page is ` +
-        `not the floor's; this is the guarantee that replaces it.`
+        `(${ctl3Parity.bytes} bytes) — and they are ALSO inside the cross-arm gate above, because choosing ` +
+        `the dirty set as the axis is what let the control keep the floor's page.`
     );
     console.log(`;;   door     ${ctl3.door}`);
     console.log(
@@ -1562,19 +1562,12 @@ function report(out) {
     // to, and an agreement there would refute the paint-saturation account
     // that put the control where it is.
     const m = ctl3.marginal;
-    const knee = m.witness && Number.isFinite(m.witness.mean) ? m.witness.mean / ((m.lower.mean + m.upper.mean) / 2) : NaN;
+    // NB not `disagree` — that name is the canonical-DOM gate's, above.
+    const margGap = (x) => (Math.abs(x.upper.mean - x.lower.mean) / ((x.upper.mean + x.lower.mean) / 2)) * 100;
     console.log(
-      `;;   REGIME   marginal µs per dirty cell — witness [${ctl3.witnessDirty}–${Object.values(d)[0]}] ` +
-        `${m.witness ? m.witness.mean.toFixed(3) : 'n/a'}, ` +
-        `control [${Object.values(d)[0]}–${Object.values(d)[1]}] ${m.lower.mean.toFixed(3)}, ` +
-        `[${Object.values(d)[1]}–${Object.values(d)[2]}] ${m.upper.mean.toFixed(3)}`
-    );
-    console.log(
-      `;;            the control's two intervals agree to ` +
-        `${(Math.abs(m.upper.mean - m.lower.mean) / ((m.upper.mean + m.lower.mean) / 2) * 100).toFixed(1)}%; the ` +
-        `witness interval below them runs ${Number.isFinite(knee) ? knee.toFixed(2) + 'x' : 'n/a'} their cost — ` +
-        `paint is still growing there and has saturated by the time the control starts, which is WHY the ` +
-        `epsilon point is ${Object.values(d)[0]} cells and not 1 (the eps=1 build of this control was REFUTED)`
+      `;;   REGIME   marginal µs per dirty cell — [${Object.values(d)[0]}–${Object.values(d)[1]}] ` +
+        `${m.lower.mean.toFixed(3)}, [${Object.values(d)[1]}–${Object.values(d)[2]}] ${m.upper.mean.toFixed(3)} ` +
+        `— they disagree by ${margGap(m).toFixed(1)}%, and the statistic above IS that disagreement`
     );
     if (constants) {
       // THE INVERSION IS DEGENERATE WHEN THE DOUBLING CONTROL IS NOISE.
@@ -1618,7 +1611,8 @@ function report(out) {
         `;;   MECHANISM the same statistic on LayoutDuration alone: ${ctl3Layout.ok ? 'PASS' : 'FAIL'} ` +
           `${ctl3Layout.measured.mean.toFixed(4)}x [${ctl3Layout.measured.min.toFixed(4)} – ` +
           `${ctl3Layout.measured.max.toFixed(4)}], marginal ${ctl3Layout.marginal.lower.mean.toFixed(3)} then ` +
-          `${ctl3Layout.marginal.upper.mean.toFixed(3)} µs per dirty cell`
+          `${ctl3Layout.marginal.upper.mean.toFixed(3)} µs per dirty cell — a ` +
+          `${margGap(ctl3Layout.marginal).toFixed(1)}% disagreement against ${margGap(m).toFixed(1)}% on task`
       );
       console.log(
         `;;            layout is the half of a commit that MUST scale with the dirty set; paint is the half ` +
@@ -1744,220 +1738,29 @@ function report(out) {
   console.log(`;; tare      ${TARE ? 'ON' : 'OFF'} — plumb, an arm that mounts nothing and settles the same frame`);
   console.log(`;; PREDICTIONS, written before the run:`);
   console.log(`;;   ctl-2x     = the floor at twice the boundaries -> 2.00x the floor, +/-${CONTROL_SLACK * 100}%, EVERY round`);
-  console.log(
-    `;;   ctl-3pt    = THE REPAIR (rf2-7iqb5, rf2-5xrcd). Three arms on ONE 3,000-boundary page dirtying 1,000 /`
-  );
-  console.log(
-    `;;                2,000 / 3,000 of it per commit, adjudicated as (T(3000)-T(1000))/(T(2000)-T(1000)) ->`
-  );
-  console.log(
-    `;;                2.00x, +/-${CONTROL_SLACK * 100}%, EVERY block. The constant does not have to be estimated: it CANCELS.`
-  );
-  console.log(
-    `;;                THE EPS=1 BUILD OF THIS CONTROL, exactly as rf2-emvod ruled it, WAS REFUTED and the`
-  );
-  console.log(
-    `;;                refutation is why the points are where they are. On the floor's 300-cell page it read a`
-  );
-  console.log(
-    `;;                per-block median 1.609x against 2.0101x, 11/18 blocks inside, on a healthy 0.96 ms`
-  );
-  console.log(
-    `;;                denominator — not noise. Marginal cost per dirty cell ran 9.7-11.5 µs over [1,100] and`
-  );
-  console.log(
-    `;;                5.2-7.1 µs over [100,300] on all three segments, while LayoutDuration alone stayed affine.`
-  );
-  console.log(
-    `;;                That is PAINT saturating: dirtying cells 0..d-1 damages a growing region only until it`
-  );
-  console.log(
-    `;;                covers the viewport, after which the extra rows are laid out but never painted. Moving`
-  );
-  console.log(
-    `;;                the points above the knee left only 0.6 ms of signal on a 300-cell page and the quotient`
-  );
-  console.log(
-    `;;                went to noise (7/18 inside). Signal scales with the page and the jitter does not, so the`
-  );
-  console.log(
-    `;;                spacing was DERIVED from the measured ~0.28 ms noise before the page size was chosen.`
-  );
-  console.log(
-    `;;   WHAT IT CATCHES, exactly: the statistic is 1 + Δ₂/Δ₁, so the band is |Δ₂/Δ₁ - 1| <= 50% — it refuses`
-  );
-  console.log(
-    `;;                any curvature that moves the marginal cost more than half between its two intervals.`
-  );
-  console.log(
-    `;;   ITS BLIND SPOT, stated: a pure power law d^k reads (3^k-1)/(2^k-1), which never falls below ln3/ln2 =`
-  );
-  console.log(
-    `;;                1.585 — inside the band. NO SUBLINEAR workload is refused, however sublinear; superlinear`
-  );
-  console.log(
-    `;;                is refused above about k=1.79. A saturating paint term is sublinear, so the control cannot`
-  );
-  console.log(
-    `;;                certify its own premise. What covers that is the REGIME WITNESS — an arm at 1 dirty cell,`
-  );
-  console.log(
-    `;;                below the control's range, whose marginal cost is printed every run so a reader sees`
-  );
-  console.log(
-    `;;                whether saturation finished before the control's first point. It is never a control point.`
-  );
-  console.log(
-    `;;   ctl-3pt CAN FAIL, and here is how to make it: HCLOCK_CTL3_SABOTAGE=2400 makes the 2D arm render 2,400`
-  );
-  console.log(
-    `;;                cells while still declaring 3,000. Control-arm parity holds, read-back verifies, guard`
-  );
-  console.log(
-    `;;                clean, band unmoved — and the control refuses at ~1.40x. Its offline fixtures are 'node`
-  );
-  console.log(
-    `;;                clock_run.cjs --selftest': eleven cases including a superlinear refusal, a`
-  );
-  console.log(
-    `;;                declaring-3000-rendering-2400 refusal, a degenerate denominator, one bad block in nine,`
-  );
-  console.log(
-    `;;                and the blind spot above asserted rather than described.`
-  );
-  console.log(`;;   ctl-50ms   = 50 ms burned inside the handler -> >= ${CTL_BUSY_MS - 10} ms extra task time AND an Event Timing interaction >= ${CTL_BUSY_MS - 2} ms`);
-  console.log(`;;   in-page    = the performance.now() window reads DIFFERENTLY from the frame-inclusive one, by an arm-dependent amount`);
-  console.log(
-    `;;   THE TARE   = run 1 of this instrument (no plumb arm) read ctl-2x at 1.5909x [1.1635 - 2.1509] and FAILED,`
-  );
-  console.log(
-    `;;                while its decomposition showed layout doubling exactly (1.56 -> 3.08 ms) and 3.6 ms/sample`
-  );
-  console.log(
-    `;;                not moving at all. The additive-constant model therefore PREDICTS that subtracting a measured`
-  );
-  console.log(
-    `;;                per-sample constant restores ctl-2x to 2.00x. That is what the plumb arm tests, and an`
-  );
-  console.log(
-    `;;                overshoot past 2.5x would refute the model rather than the instrument.`
-  );
-  console.log(
-    `;;   SOLO       = run 2 tared cleanly and its MOUNT control passed at 1.9103x every round, while the three`
-  );
-  console.log(
-    `;;                BULK controls failed at 1.4304-1.5214x. The difference between those rows is that a mount`
-  );
-  console.log(
-    `;;                row has ONE arm standing and a bulk row has four (901+901+1801 elements), and a dirty frame`
-  );
-  console.log(
-    `;;                pays pre-paint and paint over the whole document. So this run hides every arm but the one`
-  );
-  console.log(
-    `;;                under test, outside the window. PREDICTION: the bulk controls move up toward 2.00x. If they`
-  );
-  console.log(
-    `;;                do not, the co-mounted document was not the cause and the 2.00x prediction is what is wrong.`
-  );
-  console.log(
-    `;;   DONOR BAR  = uix-subs / reagent-subs is the PUBLISHED row (bulk broad 0.6291x, M1 mount 1.0150x).`
-  );
-  console.log(
-    `;;                PREDICTED for bulk300, written before this run (rf2-yd52q): the frame-inclusive figure`
-  );
-  console.log(
-    `;;                lands NEAR PARITY and NOT near 0.63 — three prior frame-inclusive readings of this row`
-  );
-  console.log(
-    `;;                (1.0509x the in-page audit, 0.9740x/1.1419x the outside instrument, 1.1401x ours) put it`
-  );
-  console.log(
-    `;;                there, and its margin from 1.0 falls INSIDE the band, i.e. instrument-limited. The`
-  );
-  console.log(
-    `;;                in-page window on the SAME samples reads it BELOW 1.0 and near the published 0.63-0.69.`
-  );
-  console.log(
-    `;;                A frame-inclusive reading at or below 0.70 would REFUTE this prediction and restore the row.`
-  );
-  console.log(
-    `;;   CORROBORATE = the SAME donor bar on M1, in the SAME runs, is a control on the whole method. M1 mount`
-  );
-  console.log(
-    `;;                1.0150x [0.9820 - 1.0480] is the row rf2-8nqsl found ROBUST, and read at 1.0110x on a`
-  );
-  console.log(
-    `;;                frame-inclusive clock. PREDICTED: this instrument reproduces it, i.e. the M1 donor bar`
-  );
-  console.log(
-    `;;                lands NEAR that interval. If it does not, this instrument is failing to reproduce a row`
-  );
-  console.log(
-    `;;                already established as robust, and its bulk300 reading in the same run is worth nothing.`
-  );
-  console.log(`;; PREDICTIONS FOR THE RE-ADJUDICATION ENSEMBLE (rf2-emvod), written before its first run:`);
-  console.log(
-    `;;   E1 GUARD    = the arm-order guard added here on raw TaskDuration does NOT refuse a row the taskNet`
-  );
-  console.log(
-    `;;                guard passes. Ground: the two differ by the devtools term, which is dominated by the`
-  );
-  console.log(
-    `;;                same per-sample protocol round trip in every position. A refusal is a finding ABOUT`
-  );
-  console.log(`;;                the published clock and takes the row with it.`);
-  console.log(
-    `;;   E2 CONTROL  = ctl-2x on raw TaskDuration reads within 2% of its taskNet value (rf2-yd52q measured`
-  );
-  console.log(
-    `;;                that agreement), so it FAILS the strict 2.00x +/-25% rule on bulk300/bulk100/narrow and`
-  );
-  console.log(
-    `;;                may pass on M1. Predicting a control FAILURE in advance is the point: if it passes on`
-  );
-  console.log(`;;                the update rows, rf2-7iqb5's mis-specification diagnosis is wrong.`);
-  console.log(
-    `;;   E3 NARROW   = hicasso / reagent-subs on narrow moves BELOW 1.0 on the corrected clock, from 1.0369x`
-  );
-  console.log(
-    `;;                on taskNet. Ground: a one-cell write causes almost no frame (layout 1.35 -> 0.14 ms), so`
-  );
-  console.log(
-    `;;                a frame-ONLY clock is reading a near-constant and dilutes any script difference toward`
-  );
-  console.log(
-    `;;                1.0; the outside instrument, which sees script, reads partial-update at 0.7203/0.7583.`
-  );
-  console.log(`;;                A corrected reading still at or above 1.0 REFUTES this.`);
-  console.log(
-    `;;   E4 BULK     = hicasso / reagent-subs on bulk300 and bulk100 moves ABOVE 1.0 on the corrected clock,`
-  );
-  console.log(
-    `;;                from 1.0100x / 0.9902x. Same dilution mechanism, opposite sign: the outside instrument`
-  );
-  console.log(`;;                reads replace-all at 1.4260 (ours) and 1.6216 (theirs).`);
-  console.log(
-    `;;   E5 THE DOOR = the gap between the two clocks is LARGE on rows driven through page.evaluate (M1,`
-  );
-  console.log(
-    `;;                bulk300, bulk100, narrow) and SMALL on keystroke, whose operation is driven through the`
-  );
-  console.log(
-    `;;                protocol's INPUT domain instead. If DevToolsCommandDuration absorbs page script because`
-  );
-  console.log(
-    `;;                the script runs inside a Runtime.callFunctionOn, then a keypress -- which does not --`
-  );
-  console.log(
-    `;;                cannot be absorbed, and taskNet is already script+frame on that row alone. This is the`
-  );
-  console.log(
-    `;;                door hypothesis tested WITHIN one instrument, and it decides whether the outside`
-  );
-  console.log(
-    `;;                cross-check's own figures (jsfb_ours_run.cjs drives with page.click) need correcting.`
-  );
+  for (const line of [
+    `ctl-3pt    = THE REPAIR (rf2-7iqb5, rf2-5xrcd). Three arms on the FLOOR'S OWN PAGE — 300 boundaries,`,
+    `             901 elements, canonical-DOM identical and NOT exempted from the fairness gate — dirtying`,
+    `             1, 100 and 200 of them per commit. Adjudicated as (T(200)-T(1))/(T(100)-T(1)) -> 2.0101x,`,
+    `             +/-${CONTROL_SLACK * 100}%, EVERY block. The constant is not estimated or bounded: it CANCELS.`,
+    `WHAT IT CATCHES, exactly: with near-equal spacing the statistic is 1 + the ratio of the two intervals'`,
+    `             marginal costs, so the band is a 50% tolerance on the marginal cost moving between them.`,
+    `             At these points a power law d^k reads (200^k-1)/(100^k-1), refused below k~0.55 and above`,
+    `             k~1.33. An equally spaced 1:2:3 design could refuse NEITHER sublinear case — its reading`,
+    `             never falls below ln3/ln2 = 1.585 — which is why the ruled placement is kept.`,
+    `WHAT IT CANNOT DO: it certifies the composite of INSTRUMENT and WORKLOAD. A refusal does not by itself`,
+    `             say which of the two bent, so the SAME statistic is run on LayoutDuration alone and`,
+    `             printed beside it. Layout must scale with the dirty set; paint stops scaling once the`,
+    `             damage region covers the viewport. Holding on layout while refusing on task is a finding`,
+    `             about the PAGE. And it certifies no MOUNT row: a mount has no changed-set axis, so M1`,
+    `             keeps ctl-2x and keeps its known undershoot.`,
+    `ctl-3pt CAN FAIL, and here is how to make it: HCLOCK_CTL3_SABOTAGE=140 makes the 2D arm render 140`,
+    `             cells while still declaring 200. Canonical DOM identical, read-back verified, arm-order`,
+    `             guard clean, band unmoved — and the control refuses. Its offline fixtures are 'node`,
+    `             clock_run.cjs --selftest': eleven cases including a superlinear refusal, a`,
+    `             declaring-200-rendering-140 refusal, a degenerate denominator, one bad block in nine,`,
+    `             and the sensitivity span above asserted rather than described.`,
+  ]) console.log(`;;   ${line}`);
 
   const outcomes = [];
   let died = null;
