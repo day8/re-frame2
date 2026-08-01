@@ -89,9 +89,12 @@
 //     row.
 //
 // `seam.cjs`'s header carries the ladder and the arithmetic. The short of it
-// is that the perturbation a busy box applies is MULTIPLICATIVE and cancels
-// exactly, the seam does not track load at all, and the band is the number
-// that was actually wanted.
+// is that the seam does not track load at all and the band is the number that
+// was actually wanted — and that the band is WIDEST ON AN IDLE BOX, because a
+// busy one is slower and steadier while an idle one parks its cores between
+// samples. `rf2-ymi6j` re-took the ladder on the published clock, withdrew the
+// claim that the perturbation is multiplicative and cancels exactly, and put
+// the ceiling on the band's own sampling distribution.
 //
 // ## EXIT CODES — the guard owns 2, and it is not the arm's to move
 //
@@ -1095,12 +1098,14 @@ function report(out) {
   // rf2-cvvb7 measured what this seam is and what it does. A nineteen-run
   // load ladder — 0, 2, 4, 8, 12 and 20 competing busy cores on a 24-core
   // box — moved the absolute floor by 80% and left the seam unmoved
-  // (0.1–16.4%, no trend), showed the seam is not attributable to the
-  // segment under an exact within-round relabelling null, and showed the
-  // perturbation is MULTIPLICATIVE, so floor-normalisation cancels it
-  // exactly. What a bar row must clear is not the seam; it is the part of a
-  // block's perturbation that survives dividing by that block's own floor,
-  // and `seam.cjs` measures that on `ctl-2x / floor`.
+  // (0.1–16.4%, no trend), and showed the seam is not attributable to the
+  // segment under an exact within-round relabelling null. Its third finding,
+  // that the perturbation is MULTIPLICATIVE and so cancels exactly, was
+  // WITHDRAWN by `rf2-ymi6j`'s re-take: pure multiplicativity predicts
+  // `ctl-2x / floor` = 2.00 with no variance, and nineteen fresh runs read
+  // 1.71 [1.62 – 1.84]. What a bar row must clear is not the seam; it is the
+  // part of a block's perturbation that survives dividing by that block's own
+  // floor, and `seam.cjs` measures that on `ctl-2x / floor`.
   const floorBlocks = rounds.map((r) => SEGMENTS.map((s) => r[s][FLOOR]));
   const floorCells = rounds.map((_, i) => SEGMENTS.map((s) => tared(rounds, s, FLOOR, i)));
   const hasProportionalControl = rowId !== 'keystroke';
@@ -1900,18 +1905,37 @@ function report(out) {
     );
     process.exit(1);
   }
-  // THE BAND CEILING is a tripwire and is honest about being one. The
-  // nineteen-run ladder that calibrated it produced bands of 4.4–18.5%
-  // INCLUDING the rung with twenty of twenty-four cores saturated, and the
-  // ceiling sits at 25% above all of them — so this gate did not fire
-  // anywhere on its own calibration. It catches a box outside that whole
-  // range, in which the instrument's own reproducibility has gone and no
-  // magnitude means anything. The gate that actually bites is the per-row
-  // one printed in the seam block: a margin inside the band is
-  // instrument-limited.
-  const overCeiling = outcomes.filter(
-    (o) => o.verdict.seam.verdict.ceilingBreached || o.verdict.seamTask.ceilingBreached
+  // THE BAND CEILING is a tripwire, and `rf2-ymi6j` re-took the ladder that
+  // sets it because the previous one did not behave like a tripwire: 25%,
+  // calibrated as "above the widest of nineteen draws", fired three times in
+  // two days. The re-take put the figure on the band's own bootstrap sampling
+  // distribution instead — 35%, `P(fire) = 0.2%` per run — and measured the
+  // predecessor at 2.6–9.0% per run, which is a lottery rather than a
+  // tripwire. The gate that actually bites is still the per-row one printed
+  // in the seam block: a margin inside the band is instrument-limited.
+  //
+  // AND IT ADJUDICATES THE CLOCK THE ROWS ARE STATED ON. It used to refuse if
+  // EITHER clock breached, which sounds conservative and is not: `taskNet` is
+  // a difference of two counters and a smaller number, so the same samples
+  // give it a wider band by construction — 28.5% per-sample dispersion against
+  // 23.2%, and a wider band on 14 of the re-take's 19 runs. Refusing a run for
+  // the noise of a subtraction whose result nothing publishes is refusing on a
+  // criterion that does not match what it is judging. The frame-only band is
+  // still computed, printed and stored on every run; it is no longer a ground
+  // of refusal, and a run where it alone breaches says so out loud.
+  const overCeiling = outcomes.filter((o) => o.verdict.seamTask.ceilingBreached);
+  const frameOnlyOver = outcomes.filter(
+    (o) => o.verdict.seam.verdict.ceilingBreached && !o.verdict.seamTask.ceilingBreached
   );
+  for (const o of frameOnlyOver) {
+    console.error(
+      `[clock] ${o.out.rowId}: the SUPERSEDED frame-only band is ` +
+        `${(o.verdict.seam.band * 100).toFixed(1)}%, over the ` +
+        `${(seamlib.BAND_CEILING * 100).toFixed(0)}% ceiling, while the PUBLISHED clock reads ` +
+        `${o.verdict.seamTask.band === null ? 'n/a' : (o.verdict.seamTask.band * 100).toFixed(1) + '%'} ` +
+        `and does not. Reported, not refused (rf2-ymi6j).`
+    );
+  }
   if (overCeiling.length > 0) {
     console.error(
       `[clock] FAILED: the run's own reproducibility band exceeds the ` +
@@ -1919,8 +1943,8 @@ function report(out) {
         overCeiling
           .map(
             (o) =>
-              `${o.out.rowId} (taskNet ${(o.verdict.seam.band * 100).toFixed(1)}%, ` +
-              `TaskDuration ${o.verdict.seamTask.band === null ? 'n/a' : (o.verdict.seamTask.band * 100).toFixed(1) + '%'})`
+              `${o.out.rowId} (TaskDuration ${(o.verdict.seamTask.band * 100).toFixed(1)}%, ` +
+              `taskNet ${o.verdict.seam.band === null ? 'n/a' : (o.verdict.seam.band * 100).toFixed(1) + '%'})`
           )
           .join(', ') +
         `. ctl-2x and floor are two arms in the SAME block whose true ratio is a property of the ` +
