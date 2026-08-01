@@ -121,7 +121,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 |---|---|
 | `re-frame.schemas/app-schema-at` / `app-schemas` / `app-schemas-digest` | read-only schema queries — owned-ns surface, **not** on the `rf/` façade (the `reg-app-schema` registration macro stays on `rf/`) |
 | `re-frame.schemas/set-schema-validator!` / `set-schema-explainer!` | swap-in non-Malli validator — owned-ns surface, **not** on the `rf/` façade |
-| `rf/validate-at-boundary-interceptor` | production-side validation interceptor — the registration-boundary Var; reference it from a handler's metadata `:interceptors` by its registered id `:rf.schema/at-boundary`. Its check is **ungated in a production build** — the survivor an application author reaches for, not the only one the framework keeps ([`../fundamentals/schemas.md`](../fundamentals/schemas.md#what-survives-is-settled-by-ownership-not-by-subject-matter) has the full list) |
+| `rf/validate-at-boundary-interceptor` | production-side validation interceptor — the registration-boundary Var; reference it from a handler's metadata `:interceptors` by its registered id `:rf.schema/at-boundary`. Its check is **ungated in a production build** — the survivor an application author reaches for, not the only one the framework keeps ([`../fundamentals/schemas.md`](../fundamentals/schemas.md#what-survives-is-settled-by-what-the-check-is-for-not-by-who-declared-it) has the full list) |
 
 ## Privacy / egress — `015 Data Classification` (see `cross-cutting/privacy-and-elision.md`)
 
