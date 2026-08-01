@@ -134,7 +134,7 @@
 (defn- zeros [n] (vec (repeat n 0)))
 
 (defonce ^:private state
-  (atom {:segment nil :prepared {} :tally nil :op 0 :gen 1000 :cells []}))
+  (atom {:segment nil :prepared {} :pending nil :tally nil :op 0 :gen 1000 :cells []}))
 
 (defn- next-gen! [] (:gen (swap! state update :gen inc)))
 (defn- next-op! [] (:op (swap! state update :op inc)))
@@ -192,8 +192,38 @@
                  root))
    :unmount  (fn [root] (.unmount root))})
 
+(def ^:private plumb-arm
+  "THE TARE. An arm that mounts nothing, writes nothing and settles the
+  same frame every other arm settles.
+
+  It exists because the driver's window is not free. One sample costs a
+  `Runtime.callFunctionOn` round trip, the task that runs it, a
+  `requestAnimationFrame` callback, a `setTimeout` callback, and the
+  browser producing a frame — main-thread work that lands inside the
+  counters and is the SAME for every arm. An uncorrected ratio therefore
+  reads `(2W + c)/(W + c)`, which is below 2 for any positive `c`. Run 1
+  of this instrument measured that directly: the doubling control read
+  1.5909x [1.1635 – 2.1509] against a prediction of 2.00x, and its
+  decomposition showed layout doubling exactly (1.56 -> 3.08 ms) while
+  3.6 ms of every sample did not move at all.
+
+  This arm measures that 3.6 ms, and every published figure subtracts it.
+
+  **It is not the `zero-reading NOOP arm` this lane records as an
+  instrument fault.** That fault is an arm that was supposed to do work
+  and did none, so its cheapness was mistaken for speed. This one is
+  supposed to do none: its reading IS the quantity, it is published, and
+  it is subtracted rather than compared."
+  {:id       :plumb
+   :cells    0
+   :control? true
+   :plumb?   true
+   :mount    (fn [_container] nil)
+   :unmount  (fn [_] nil)})
+
 (defn- m1-arms [seg-id]
-  [(floor-mount-arm :floor v/cells-n 1)
+  [plumb-arm
+   (floor-mount-arm :floor v/cells-n 1)
    (case seg-id
      :reagent-subs {:id      :reagent-subs
                     :cells   v/cells-n
@@ -243,7 +273,8 @@
    :unmount      (fn [root] (.unmount root))})
 
 (defn- kb-arms [seg-id]
-  [(kb-floor-arm :floor 0)
+  [plumb-arm
+   (kb-floor-arm :floor 0)
    (case seg-id
      :reagent-subs {:id      :reagent-subs
                     :cells   kv/kb-cells-n
@@ -360,7 +391,7 @@
   interleaving — which is what the arm-order guard exists to refuse."
   [row-key arm-id]
   (let [arm (arm-named row-key arm-id)]
-    (if (= :mount (:kind (get rows row-key)))
+    (if (or (:plumb? arm) (= :mount (:kind (get rows row-key))))
       (settle-frame)
       (let [container (lane/fresh-container!)
             handle    ((:mount arm) container)
@@ -388,23 +419,35 @@
     ok?))
 
 (defn- sample-mount!
-  "ONE mount. The container is created and attached OUTSIDE the in-page
-  span — a `document.createElement` billed to one arm and not another is a
+  "ONE mount, and NOTHING ELSE inside the driver's window.
+
+  The container is created and attached outside the in-page span — a
+  `document.createElement` billed to one arm and not another is a
   systematic error the size of some of the effects here — and the mount is
-  read back out of the document against the arm's own element arithmetic
-  before it is released."
-  [row-key arm]
+  left STANDING. Verifying it and tearing it down are [[reap!]]'s, which
+  the driver calls after it has read the counters, because unmounting 300
+  or 600 boundaries is real work and charging it to the mount would price
+  a teardown as part of a mount row."
+  [_row-key arm]
   (let [container (lane/fresh-container!)
         handle    (volatile! nil)
         t0        (lane/now-ms)
         _         (vreset! handle ((:mount arm) container))
-        ms        (- (lane/now-ms) t0)
-        ok?       (= (expected-elements row-key arm) (lane/element-count container))]
-    (bank! ok?)
-    (.then (settle-frame)
-           (fn [_]
-             (lane/release! {:arm arm :container container :handle @handle})
-             #js {:inPageMs ms :ok ok?}))))
+        ms        (- (lane/now-ms) t0)]
+    (swap! state assoc :pending {:arm arm :container container :handle @handle})
+    (.then (settle-frame) (fn [_] #js {:inPageMs ms :ok true}))))
+
+(defn reap!
+  "Verify and release the mount [[sample-mount!]] left standing. Called by
+  the driver AFTER it has read the counters, so nothing here is timed."
+  [row-key]
+  (if-some [p (:pending @state)]
+    (let [ok? (= (expected-elements row-key (:arm p)) (lane/element-count (:container p)))]
+      (bank! ok?)
+      (lane/release! p)
+      (swap! state assoc :pending nil)
+      (.then (settle-frame) (fn [_] #js {:ok ok?})))
+    (.then (settle-frame) (fn [_] #js {:ok true}))))
 
 (defn- sample-bulk!
   "ONE commit. Write, drain, stop the in-page span, then READ THE WRITTEN
@@ -446,14 +489,18 @@
     (.then (settle-frame) (fn [_] #js {:inPageMs ms :ok ok?}))))
 
 (defn sample!
-  "ONE operation of one arm, settled to the next frame."
+  "ONE operation of one arm, settled to the next frame. The tare arm's
+  operation is the settle and nothing else — that is the whole of what it
+  is for."
   [row-key arm-id]
   (let [arm (arm-named row-key arm-id)]
-    (case (:kind (get rows row-key))
-      :mount (sample-mount! row-key arm)
-      :bulk  (sample-bulk! row-key arm)
-      (throw (js/Error. (str "row " (name row-key)
-                             " has no in-page sample door — the driver owns its input"))))))
+    (if (:plumb? arm)
+      (.then (settle-frame) (fn [_] (bank! true) #js {:inPageMs 0 :ok true}))
+      (case (:kind (get rows row-key))
+        :mount (sample-mount! row-key arm)
+        :bulk  (sample-bulk! row-key arm)
+        (throw (js/Error. (str "row " (name row-key)
+                               " has no in-page sample door — the driver owns its input")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The keystroke half the driver cannot do from JavaScript
@@ -511,18 +558,23 @@
   different pages. The driver compares across all three segments, because
   that is where the candidate meets its donors."
   [row-key arm-id]
-  (let [arm (arm-named row-key arm-id)
-        c   (lane/fresh-container!)
-        h   ((:mount arm) c)
-        s   (lane/canonical c)]
-    (lane/release! {:arm arm :container c :handle h})
-    ;; The canon mount wrote nothing, but a Hicasso or Reagent arm mounted
-    ;; here has warmed the frame's caches. Re-seed so a row's first sample
-    ;; meets the same app-db every other one does.
-    (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
-    (swap! state assoc :cells (zeros v/cells-n))
-    #js {:arm (name arm-id) :hash (str-hash s) :bytes (count s)
-         :control (boolean (:control? arm))}))
+  (let [arm (arm-named row-key arm-id)]
+    (if (:plumb? arm)
+      ;; The tare builds no page, so it has none to compare. Marked a
+      ;; control so the gate exempts it by the same rule that exempts the
+      ;; doubling arm.
+      #js {:arm (name arm-id) :hash 0 :bytes 0 :control true}
+      (let [c (lane/fresh-container!)
+            h ((:mount arm) c)
+            s (lane/canonical c)]
+        (lane/release! {:arm arm :container c :handle h})
+        ;; The canon mount wrote nothing, but a Hicasso or Reagent arm
+        ;; mounted here has warmed the frame's caches. Re-seed so a row's
+        ;; first sample meets the same app-db every other one does.
+        (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
+        (swap! state assoc :cells (zeros v/cells-n))
+        #js {:arm (name arm-id) :hash (str-hash s) :bytes (count s)
+             :control (boolean (:control? arm))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The driver's front door
@@ -546,6 +598,7 @@
              :canon         (fn [row arm] (canon! (keyword row) (keyword arm)))
              :prepare       (fn [row arm] (prepare! (keyword row) (keyword arm)))
              :sample        (fn [row arm] (sample! (keyword row) (keyword arm)))
+             :reap          (fn [row] (reap! (keyword row)))
              :finish        (fn [row arm] (finish! (keyword row) (keyword arm)))
              :focusDraft    (fn [arm] (focus-draft! (keyword arm)))
              :settleVerify  (fn [arm expected] (settle-and-verify! (keyword arm) expected))
