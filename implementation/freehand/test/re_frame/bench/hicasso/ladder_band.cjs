@@ -30,8 +30,11 @@
 // function of: the eighteen per-block tared `floor` and `ctl-2x` cells on each
 // clock, the pooled floor medians per segment, and the bar row's per-round
 // legs. From that file the band, the seam, the orthogonal decomposition, the
-// bootstrap and every correlation recompute exactly — `--from` is the check,
-// and it is asserted against the full-dataset pass rather than described.
+// bootstrap and every correlation recompute to the FOUR DECIMAL PLACES the
+// file stores. `--from` against the full-dataset pass is the check, and it
+// reproduces every band, every `ctl-2x / floor` and every bar row digit for
+// digit; a floor absolute and the odd seam move in the fourth significant
+// figure, which is the rounding and is said rather than glossed as "exactly".
 //
 // What it does NOT carry is the per-sample distribution inside a block. A
 // question about within-block shape needs the raw datasets, which are kept
@@ -147,6 +150,12 @@ function statsOf(red) {
     barMin: Math.min(...bar),
     barMax: Math.max(...bar),
     floorSampleCv: red.floorSampleCv ? mean(red.floorSampleCv) : null,
+    // THE ADDITIVE CONSTANT THE TARE DOES NOT REMOVE, per block, inverted from
+    // the doubling control exactly as `rf2-emvod` inverted it:
+    // `ctl-2x/floor = (2W + c)/(W + c)` gives `c = W·(2 − ratio)`. Reported
+    // because the multiplicativity argument turns on whether what fails to
+    // cancel is a constant of the harness or a perturbation of the box.
+    cImplied: blocks.map((p) => p.floor * (2 - p.fixed / p.floor)),
   };
 }
 
@@ -289,12 +298,13 @@ function main() {
   for (const clock of ['net', 'task']) {
     console.log(`### ${clock === 'net' ? '`taskNet` — frame-only (superseded)' : 'raw `TaskDuration` — the published clock'}`);
     console.log('');
-    console.log('| competing cores | runs | floor ms | seam | SEGMENT | ROUND | POSITION | band |');
-    console.log('|---:|---:|---:|---:|---:|---:|---:|---:|');
+    console.log('| competing cores | runs | floor ms | per-sample CV | seam | SEGMENT | ROUND | POSITION | band |');
+    console.log('|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
     for (const L of rungs) {
       const rs = rows.filter((r) => r.run.load === L).map((r) => r[clock]);
       console.log(
         `| ${L} | ${rs.length} | ${mean(rs.map((r) => r.floorPooled)).toFixed(3)} | ` +
+          `${pc(mean(rs.map((r) => r.floorSampleCv)))} | ` +
           `${pc(mean(rs.map((r) => r.seam)))} | ${pc(mean(rs.map((r) => r.effects.segment)))} | ` +
           `${pc(mean(rs.map((r) => r.effects.round)))} | ${pc(mean(rs.map((r) => r.effects.position)))} | ` +
           `${pc(mean(rs.map((r) => r.band)))} |`
@@ -329,14 +339,66 @@ function main() {
     console.log(`- corr(band, floor)         = ${corr(rs.map((r) => r.band), floors).toFixed(2)} — does the BAND track load?`);
     console.log('');
 
+    // THE ADDITIVE CONSTANT, by rung. Pure multiplicativity predicts
+    // `ctl-2x/floor = 2.00` exactly at every rung, because `(2kF)/(kF) = 2`
+    // for any `k`. A fixed additive `c` predicts a ratio BELOW 2 that RISES
+    // toward it as load inflates `W`. Which of those the data does is the
+    // whole question, and it is a table rather than an argument.
+    console.log('**The additive constant the tare does not remove**, by rung — `c = W·(2 − ctl-2x/floor)`:');
+    console.log('');
+    console.log('| competing cores | floor tared ms | ctl-2x/floor | implied c ms | c/W |');
+    console.log('|---:|---:|---:|---:|---:|');
+    for (const L of rungs) {
+      const g = rows.filter((r) => r.run.load === L).map((r) => r[clock]);
+      const W = mean(g.map((r) => r.floorTared));
+      const ratio = mean(g.map((r) => r.ctl2xMean));
+      const c = mean(g.flatMap((r) => r.cImplied));
+      console.log(`| ${L} | ${W.toFixed(3)} | ${ratio.toFixed(4)} | ${c.toFixed(3)} | ${(c / W).toFixed(3)} |`);
+    }
+    console.log('');
+
     // The bootstrap.
     const pooled = rs.flatMap((r) => r.ratios);
     const bs = bootstrapBand(pooled, 20000, 0x5eed5eed);
-    const exceed = bs.filter((b) => b > seamlib.BAND_CEILING).length / bs.length;
+    // AND a within-run bootstrap: resample each run's OWN eighteen blocks, so
+    // the question is "would this run breach again if re-taken under identical
+    // conditions" rather than "would a run drawn from the whole ladder". The
+    // pooled one carries between-run variation and is the wider — a future run
+    // is a future run, not a repeat of a past one, so the pooled one is what a
+    // ceiling should be set against and the within-run one is the floor of the
+    // estimate.
+    const withinRun = mean(
+      rs.map((r) => {
+        const b = bootstrapBand(r.ratios, 2000, 0x5eed5eed);
+        return b.filter((x) => x > seamlib.BAND_CEILING).length / b.length;
+      })
+    );
     console.log(
       `**The band's own run-level sampling distribution**, 20,000 resamples of 18 blocks from this ` +
         `ladder's ${pooled.length} pooled blocks: median ${pc(quant(bs, 0.5))}, q90 ${pc(quant(bs, 0.9))}, ` +
-        `q95 ${pc(quant(bs, 0.95))}, q99 ${pc(quant(bs, 0.99))} — **P(band > 25%) = ${(exceed * 100).toFixed(1)}%** per run.`
+        `q95 ${pc(quant(bs, 0.95))}, q99 ${pc(quant(bs, 0.99))}.`
+    );
+    console.log('');
+    console.log(`| candidate ceiling | P(fire) pooled | P(fire) within-run | runs of these 19 that breach |`);
+    console.log('|---:|---:|---:|---:|');
+    for (const c of [0.2, 0.25, 0.3, 0.35, 0.4]) {
+      const pooledP = bs.filter((b) => b > c).length / bs.length;
+      const wr = mean(
+        rs.map((r) => {
+          const b = bootstrapBand(r.ratios, 2000, 0x5eed5eed);
+          return b.filter((x) => x > c).length / b.length;
+        })
+      );
+      console.log(
+        `| ${pc(c)} | ${(pooledP * 100).toFixed(1)}% | ${(wr * 100).toFixed(1)}% | ` +
+          `${rs.filter((r) => r.band > c).length} of ${rs.length} |`
+      );
+    }
+    console.log('');
+    console.log(
+      `At the ceiling in force (${pc(seamlib.BAND_CEILING)}) the within-run estimate is ` +
+        `${(withinRun * 100).toFixed(1)}% and ${rs.filter((r) => r.band > seamlib.BAND_CEILING).length} of ` +
+        `${rs.length} of this ladder's runs breach.`
     );
     console.log('');
   }

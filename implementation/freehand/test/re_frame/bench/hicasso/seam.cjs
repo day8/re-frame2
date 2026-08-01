@@ -41,14 +41,24 @@
 //     segment: by rung, ROUND 8–41% against SEGMENT 4.0–6.1% and
 //     POSITION-in-round 3.2–9.9%. The three are orthogonal by construction
 //     (see [[effects]]).
-//   * THE PERTURBATION IS MULTIPLICATIVE, so floor-normalisation cancels it
-//     and the arithmetic is exact: `(k·H)/(k·F) = H/F`. Across the ladder's
-//     80% floor span, `ctl-2x / floor` — two arms in the SAME block whose
-//     true ratio is a property of the page — moved 6.5% and moved the WRONG
-//     WAY for additivity (correlation with the floor +0.41; an additive `c`
-//     reads `(2W+c)/(W+c)`, which FALLS as `c` grows). The published bar
-//     row did not move with the floor at all (correlation -0.10), nor with
-//     the seam (-0.18).
+//   * ~~THE PERTURBATION IS MULTIPLICATIVE, so floor-normalisation cancels it
+//     and the arithmetic is exact: `(k·H)/(k·F) = H/F`.~~ **WITHDRAWN
+//     (rf2-ymi6j).** The evidence was `ctl-2x / floor` correlating +0.41 with
+//     the floor, read as the wrong sign for an additive `c` because
+//     `(2W+c)/(W+c)` FALLS as `c` grows. That reasoning holds `W` fixed and
+//     varies `c` — but load varies `W` and leaves `c` roughly where it is, and
+//     under THAT the additive model predicts a ratio that RISES toward 2.00
+//     with the floor. The sign was never diagnostic. What is diagnostic is the
+//     LEVEL: a purely multiplicative perturbation predicts `ctl-2x / floor` =
+//     **2.00 exactly, at every rung, with no variance at all**, and the
+//     re-taken ladder reads **1.71 [1.62 – 1.84]** on the published clock over
+//     nineteen runs across 0–20 competing cores. Floor-normalisation therefore
+//     does NOT cancel exactly, `(k·H)/(k·F) = H/F` is not free, and the
+//     residue is a per-sample cost that does not scale with the page —
+//     measured at `c` = 0.91–1.74 ms by rung, and independently at 0.79–1.04
+//     ms (rf2-emvod) and 1.0397 ms (rf2-7iqb5). The BAND is the measurement of
+//     what fails to cancel; `rf2-7iqb5`'s difference-of-differences control is
+//     the arm that removes it rather than bounding it.
 //
 // **So the seam is the wrong statistic to gate on**, and gating on it would
 // refuse good runs on a tail draw while passing a genuinely additive seam
@@ -84,61 +94,69 @@
 //     carries, slightly conservatively, which is the direction a gate
 //     should err in.
 //
-//     THE CALIBRATION IS ON THE FRAME-ONLY CLOCK (rf2-ymi6j). Every figure
-//     in this header comes from `rf2-cvvb7`'s ladder, which spawns
-//     `clock_run.cjs` on `bulk300` — a `page.evaluate`-driven row — so it
-//     was computed on `taskNet`, the frame with the arm's own script
-//     subtracted out (rf2-yd52q). It cannot be recomputed: at the ladder's
-//     driver blob `roundsTask` did not exist and only `taskNet` readings
-//     were written, and no dataset survives.
+//     THE CALIBRATION WAS RE-TAKEN ON THE PUBLISHED CLOCK (rf2-ymi6j), and
+//     the 8.9% above is `rf2-cvvb7`'s, on `taskNet`. A fresh nineteen-run
+//     ladder of the same design — 0 / 2 / 4 / 8 / 12 / 20 competing cores on
+//     the same 24-core box, silent throughout — reads, on raw `TaskDuration`:
 //
-//     THE BAND STATISTIC ITSELF LARGELY SURVIVES THAT, and the reason is
-//     structural. It is `ctl-2x / floor` — two PURE-REACT arms, whose
-//     script is small and roughly proportional to their frame, which is
-//     exactly the class of arm both clocks rank alike. Measured on later
-//     ensembles: the band reads 10.3–23.6% on `taskNet` against 8.8–19.7%
-//     on raw `TaskDuration` over the same sixteen row-runs, and `ctl-2x`
-//     reads 1.69–1.83x floor on BOTH clocks, agreeing to within 2%. It
-//     moves slightly TIGHTER on the corrected clock, not wider, so the gate
-//     does not become more permissive under the correction.
+//       band 4.4% – 31.1%, mean 14.0%, median 11.7%
 //
-//     WHAT IS NOT ESTABLISHED is the multiplicativity argument above, which
-//     is the one that reasons about how a perturbation ENTERS: a
-//     perturbation multiplicative in frame time need not be multiplicative
-//     in script time, and the +0.41 correlation that evidences it has no
-//     counterpart on the corrected clock. Re-running the ladder at the
-//     current blob settles it in one pass — the driver now writes
-//     `roundsTask` and `inPageRounds`, and [[assess]] is clock-agnostic and
-//     is already run over both.
+//     against `rf2-cvvb7`'s 4.4% – 18.5%, mean 8.9%. The band on this
+//     instrument is HALF AGAIN as wide as the one the ceiling was set above,
+//     and the frame-only reading is wider again (4.9% – 32.6%, mean 15.3%).
+//     A gate set above the widest of nineteen draws has no margin for the
+//     instrument moving, and it moved.
+//   * THE BAND IS WIDEST ON AN IDLE BOX, which is the opposite of what
+//     `rf2-h8o80` expected and is the single most useful thing the re-take
+//     found. By rung on raw `TaskDuration`: **24.6%** at zero load, then
+//     11.8 / 8.3 / 12.8 / 13.2 / **9.6%** at 2 / 4 / 8 / 12 / 20 competing
+//     cores — `corr(band, floor) = -0.49`. The per-sample dispersion of the
+//     floor inside a block falls monotonically with load over the same rungs,
+//     30.0% -> 15.2%, while the floor absolute RISES 3.78 -> 6.93 ms. A busy
+//     box is slower and STEADIER; an idle one is faster and jumpier, because
+//     between samples its cores park and its clock drops and every sample
+//     pays a different wake-up. So a precondition of the form "adjudicate
+//     only when the floor is inside the calibrated range" would refuse the
+//     most reproducible runs this instrument can take.
 //   * A RUN whose band exceeds [[BAND_CEILING]] has no reportable magnitude
-//     at all, whatever its margin. The ladder produced bands of 4.4% –
-//     18.5% across all nineteen runs, so the ceiling is **25%** — above
-//     everything the calibration produced, including the rung with twenty
-//     of twenty-four cores saturated. It therefore did NOT fire anywhere on
-//     its own calibration, and that is stated rather than left for a reader
-//     to discover: it is a tripwire for a box outside the whole range this
-//     ladder could reach, not a gate on a busy one. A ceiling tight enough
-//     to fire on the ladder would have refused an IDLE run (the widest band
-//     of the nineteen, 18.5%, was taken at zero load), which is how a
-//     threshold on a noisy statistic turns into a coin toss.
+//     at all, whatever its margin. The ceiling is **35%**, and unlike its
+//     predecessor it is set from the statistic's own SAMPLING DISTRIBUTION
+//     rather than from the largest of nineteen draws: bootstrapping eighteen
+//     blocks from the ladder's 342 puts the run-level q99 at 29.1% and
+//     `P(band > 35%)` at **0.2%** per run. The 25% it replaces sits inside
+//     the bulk of that distribution — `P(band > 25%)` = **2.6%** pooled and
+//     **9.0%** resampling each run's own blocks, and **2 of the nineteen**
+//     re-take runs breach it, both at ZERO load.
 //
-//     IT HAS SINCE FIRED THREE TIMES, which is worth a reader's attention
-//     because it was calibrated never to. 26.2% on an earlier `bulk300`
-//     ensemble (rf2-yd52q), then 26.2% on `bulk300` and 28.4% on `narrow`
-//     in one run of rf2-emvod's. Either those boxes genuinely left the
-//     calibrated regime — rf2-h8o80 is the bead for that, and its evidence
-//     is a floor ABOVE the whole ladder — or the threshold sits on the
-//     wrong clock. The ladder re-take distinguishes them. Note that the
-//     gate in force is not frame-only whatever its threshold's provenance:
-//     `clock_run.cjs` computes the band on both clocks and refuses if
-//     EITHER breaches.
+//     THAT IS WHY IT FIRED THREE TIMES IN TWO DAYS after being calibrated
+//     never to fire — 26.2% on an earlier `bulk300` ensemble (rf2-yd52q),
+//     then 26.2% on `bulk300` and 28.4% on `narrow` in one run of
+//     rf2-emvod's. Not a regime departure and not, mainly, the clock: a
+//     threshold that was above nineteen draws of a tail was never above the
+//     tail, and roughly one run in eleven to one in forty crosses it.
+//   * THE GATE ADJUDICATES THE CLOCK THE ROWS ARE STATED ON. `clock_run.cjs`
+//     refuses a run whose band on raw `TaskDuration` breaches; the frame-only
+//     band is computed, printed and stored on every run and is never the
+//     ground of a refusal. `taskNet` is a difference of two counters and a
+//     smaller number, so its relative dispersion is larger by construction —
+//     measured on the same samples at 28.5% against 23.2%, giving a band
+//     wider on 14 of 19 runs — and refusing a run for the noise of a
+//     subtraction whose result nothing publishes is refusing on a criterion
+//     that does not match what it is judging.
 
 const SEGMENT_PERMUTATIONS = [
   [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
 ];
 
-/** A run whose band exceeds this has no reportable magnitude. See the header. */
-const BAND_CEILING = 0.25;
+/**
+ * A run whose band exceeds this has no reportable magnitude. See the header.
+ *
+ * 35%, calibrated by `rf2-ymi6j` from the band's own bootstrap sampling
+ * distribution on raw `TaskDuration` — `P(fire) = 0.2%` per run — and not from
+ * the largest of nineteen observed draws, which is how its 25% predecessor came
+ * to fire three times in two days after being calibrated never to.
+ */
+const BAND_CEILING = 0.35;
 
 /** Permutations drawn for the seam null. Fixed, because a null that moves between two reports of the same run is not a null. */
 const NULL_DRAWS = 4000;
