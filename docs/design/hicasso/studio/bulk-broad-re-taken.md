@@ -290,12 +290,12 @@ ones this instrument pre-registered rather than reasons found afterwards:
 
 **What needs no control, and is therefore stated:**
 
-- **`0.6291×` is not reproduced by any clock that sees the whole operation**, on
-  this instrument or on either of the two others that have now looked
-  ([the outside instrument](cross-checked-against-an-outside-instrument.md)'s
-  `0.9740×` / `1.1419×`, and this page's `0.8602×`). Its *instrument* is now
-  understood: it measured the script and not the frame, and the frame is half
-  the operation.
+- **`0.6291×` is not reproduced by any instrument that has looked at the row past
+  the `flushSync` boundary** — this page's `0.8602×`, and
+  [the outside instrument](cross-checked-against-an-outside-instrument.md)'s
+  `0.9740×` on replace-all and `1.1419×` on swap-rows, read by a driver nobody
+  here wrote. Its own instrument is now understood: it measured the script and
+  not the frame, and the frame is half the operation.
 - **The direction survives.** Eight run means below 1.0, 43 of 48 rounds below
   1.0. UIx-on-subs is faster than Reagent-on-subs on a broad commit.
 - **The size is bounded even where it is not pinned.** No run of the corrected
