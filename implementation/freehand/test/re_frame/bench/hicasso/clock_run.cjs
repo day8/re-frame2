@@ -404,8 +404,14 @@ async function runRow(browser, rowId) {
   await page.waitForFunction('window.HCLOCK_READY === true', null, { timeout: 120000 });
 
   const isKeystroke = rowId === 'keystroke';
-  const samples = []; // for the arm-order guard
-  const rounds = []; // [{seg: {arm: [ms...]}}] — taskNet, the banked primary
+  const samples = []; // for the arm-order guard, on taskNet
+  // The SAME samples for the SAME guard on the corrected clock. A figure
+  // whose value depends on where in the plan it was measured is not a
+  // figure, and that claim is about whichever clock the figure is stated
+  // on — so the published clock gets its own guard rather than inheriting
+  // a verdict taken on the one it replaced (rf2-emvod).
+  const samplesTask = [];
+  const rounds = []; // [{seg: {arm: [ms...]}}] — taskNet, the superseded diagnostic
   const roundsTask = []; // the same samples on UNSUBTRACTED TaskDuration (rf2-yd52q)
   const inPageRounds = [];
   const decomposition = {}; // "seg/arm" -> accumulated style/layout/counts
@@ -546,6 +552,7 @@ async function runRow(browser, rowId) {
             if (Number.isFinite(inPageMs)) accInPage[armId].push(inPageMs);
             bump(key, d);
             samples.push({ arm: key, value: d.taskNet, predecessor: previous, position });
+            samplesTask.push({ arm: key, value: d.task, predecessor: previous, position });
             position += 1;
           }
           previous = `${seg}/${armId}`;
@@ -579,7 +586,7 @@ async function runRow(browser, rowId) {
   await page.close();
 
   return {
-    rowId, samples, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
+    rowId, samples, samplesTask, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
     eventTiming, unattributedET, etError, pageErrors,
     granularity: [...granularity].sort((a, b) => a - b),
   };
@@ -624,7 +631,7 @@ function crossSegment(rounds, numSeg, numArm, denSeg, denArm, raw) {
 
 function report(out) {
   const {
-    rowId, samples, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
+    rowId, samples, samplesTask, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
     eventTiming, unattributedET, etError, granularity,
   } = out;
 
@@ -633,8 +640,12 @@ function report(out) {
   console.log(`;; residue  ${residue}`);
   console.log(`;; writes   ${tally.unverified} unverified of ${tally.writes}`);
   console.log(
-    `;; clock    Performance.getMetrics TaskDuration less DevToolsCommandDuration, ` +
-      `frame-settled (rAF + setTimeout) — main thread only, no raster/composite`
+    `;; clock    PUBLISHED: Performance.getMetrics raw TaskDuration, frame-settled (rAF + setTimeout) ` +
+      `— the arm's script AND the frame it caused, main thread only, no raster/composite`
+  );
+  console.log(
+    `;; clock    SUPERSEDED: taskNet = TaskDuration less DevToolsCommandDuration. Reported below as a ` +
+      `frame-ONLY diagnostic — the subtraction removes the operation's own script (rf2-yd52q)`
   );
   console.log(
     `;; grain    smallest non-zero per-sample delta ${granularity.length ? granularity[0].toFixed(6) : 'n/a'} ms ` +
@@ -855,17 +866,32 @@ function report(out) {
     `;;   DevToolsCommandDuration carries the arm's own script, because the driver runs every ` +
       `operation inside a protocol command. Subtracting it takes the script out.`
   );
+  // ABSOLUTES BESIDE EVERY RATIO, and the ordering is the lesson rather than
+  // a preference. BOTH of this instrument's defects — the in-page window that
+  // could not see the frame, and the subtraction that removed the script —
+  // were plainly visible in the milliseconds from run 1 and invisible in the
+  // ratio that was printed instead. A ratio cannot be sanity-checked against
+  // anything; `2.938 > 2.466` refutes a superset claim on sight.
+  const plumbTaskAll = p50(roundsTask.flatMap((r) => SEGMENTS.flatMap((s) => r[s][PLUMB])));
   for (const seg of SEGMENTS) {
     for (const arm of armsOf(seg)) {
       if (arm === PLUMB) continue;
       const b = band(ratioToFloor(roundsTask, seg, arm));
       const nb = band(ratioToFloor(rounds, seg, arm));
+      const absTask = p50(roundsTask.flatMap((r) => r[seg][arm]));
+      const absNet = p50(rounds.flatMap((r) => r[seg][arm]));
+      const absIn = inPageRounds.length ? p50(inPageRounds.flatMap((r) => r[seg][arm] || [])) : NaN;
       console.log(
         `;;   ${(seg + '/' + arm).padEnd(28)} ${b.mean.toFixed(4)}x floor [${b.min.toFixed(4)} – ${b.max.toFixed(4)}]` +
-          `   (on taskNet ${nb.mean.toFixed(4)}x)`
+          `   (on taskNet ${nb.mean.toFixed(4)}x)   ABS task ${absTask.toFixed(3)} ms` +
+          ` (tared ${(absTask - plumbTaskAll).toFixed(3)}) = taskNet ${absNet.toFixed(3)}` +
+          ` + in-page ${Number.isFinite(absIn) ? absIn.toFixed(3) : 'n/a'}`
       );
     }
   }
+  console.log(
+    `;;   ${'(tare) plumb'.padEnd(28)} ABS task ${plumbTaskAll.toFixed(4)} ms — subtracted from every ratio above`
+  );
   const bandTask = assessedTask.bandStats.band;
   console.log(
     `;;   band ${Number.isFinite(bandTask) ? (bandTask * 100).toFixed(1) + '%' : 'n/a'} on this clock ` +
@@ -1007,12 +1033,27 @@ function report(out) {
     );
   }
 
-  // --- the arm-order guard --------------------------------------------------
+  // --- the arm-order guard, on BOTH clocks ----------------------------------
+  //
+  // The guard was only ever run on `taskNet`. That was defensible while
+  // `taskNet` was the published figure and is not now: the claim a guard
+  // certifies — this arm does not read differently for WHERE in the plan it
+  // was measured — is a claim about a particular quantity, and the quantity
+  // now published is raw `TaskDuration`. Both verdicts are printed and either
+  // refusal refuses the row (rf2-emvod).
   const v = guard.verdict(samples, { tolerance: 0.1 });
-  for (const line of guard.format(v, `${rowId} — frame-inclusive task time`)) console.log(line);
+  for (const line of guard.format(v, `${rowId} — taskNet (superseded)`)) console.log(line);
+  const vTask = guard.verdict(samplesTask, { tolerance: 0.1 });
+  for (const line of guard.format(vTask, `${rowId} — raw TaskDuration (PUBLISHED)`)) console.log(line);
 
   return {
     bar, inPageBar, barTask, ctlTask, bandTask, ctlVerdict, etVerdict, guardVerdict: v,
+    guardVerdictTask: vTask,
+    seamTask: {
+      band: Number.isFinite(assessedTask.bandStats.band) ? r4(assessedTask.bandStats.band) : null,
+      ceilingBreached: assessedTask.verdict.ceilingBreached,
+      rows: assessedTask.verdict.rows,
+    },
     parityOk: disagree.length === 0, tally, seam,
   };
 }
@@ -1133,6 +1174,68 @@ function report(out) {
   console.log(
     `;;                already established as robust, and its bulk300 reading in the same run is worth nothing.`
   );
+  console.log(`;; PREDICTIONS FOR THE RE-ADJUDICATION ENSEMBLE (rf2-emvod), written before its first run:`);
+  console.log(
+    `;;   E1 GUARD    = the arm-order guard added here on raw TaskDuration does NOT refuse a row the taskNet`
+  );
+  console.log(
+    `;;                guard passes. Ground: the two differ by the devtools term, which is dominated by the`
+  );
+  console.log(
+    `;;                same per-sample protocol round trip in every position. A refusal is a finding ABOUT`
+  );
+  console.log(`;;                the published clock and takes the row with it.`);
+  console.log(
+    `;;   E2 CONTROL  = ctl-2x on raw TaskDuration reads within 2% of its taskNet value (rf2-yd52q measured`
+  );
+  console.log(
+    `;;                that agreement), so it FAILS the strict 2.00x +/-25% rule on bulk300/bulk100/narrow and`
+  );
+  console.log(
+    `;;                may pass on M1. Predicting a control FAILURE in advance is the point: if it passes on`
+  );
+  console.log(`;;                the update rows, rf2-7iqb5's mis-specification diagnosis is wrong.`);
+  console.log(
+    `;;   E3 NARROW   = hicasso / reagent-subs on narrow moves BELOW 1.0 on the corrected clock, from 1.0369x`
+  );
+  console.log(
+    `;;                on taskNet. Ground: a one-cell write causes almost no frame (layout 1.35 -> 0.14 ms), so`
+  );
+  console.log(
+    `;;                a frame-ONLY clock is reading a near-constant and dilutes any script difference toward`
+  );
+  console.log(
+    `;;                1.0; the outside instrument, which sees script, reads partial-update at 0.7203/0.7583.`
+  );
+  console.log(`;;                A corrected reading still at or above 1.0 REFUTES this.`);
+  console.log(
+    `;;   E4 BULK     = hicasso / reagent-subs on bulk300 and bulk100 moves ABOVE 1.0 on the corrected clock,`
+  );
+  console.log(
+    `;;                from 1.0100x / 0.9902x. Same dilution mechanism, opposite sign: the outside instrument`
+  );
+  console.log(`;;                reads replace-all at 1.4260 (ours) and 1.6216 (theirs).`);
+  console.log(
+    `;;   E5 THE DOOR = the gap between the two clocks is LARGE on rows driven through page.evaluate (M1,`
+  );
+  console.log(
+    `;;                bulk300, bulk100, narrow) and SMALL on keystroke, whose operation is driven through the`
+  );
+  console.log(
+    `;;                protocol's INPUT domain instead. If DevToolsCommandDuration absorbs page script because`
+  );
+  console.log(
+    `;;                the script runs inside a Runtime.callFunctionOn, then a keypress -- which does not --`
+  );
+  console.log(
+    `;;                cannot be absorbed, and taskNet is already script+frame on that row alone. This is the`
+  );
+  console.log(
+    `;;                door hypothesis tested WITHIN one instrument, and it decides whether the outside`
+  );
+  console.log(
+    `;;                cross-check's own figures (jsfb_ours_run.cjs drives with page.click) need correcting.`
+  );
 
   const outcomes = [];
   let died = null;
@@ -1180,12 +1283,24 @@ function report(out) {
             // these; the segment's POSITION in a round is
             // `(SEGMENTS.indexOf(seg) - round) mod 3` by construction.
             rounds: o.out.rounds,
+            // THE PUBLISHED CLOCK'S OWN RAW READINGS, and the in-page
+            // window's, on the same samples. Only `rounds` (taskNet) was
+            // ever written, so a dataset from this driver could not
+            // recompute the figure the page actually quotes — which is the
+            // durable-evidence gap `rf2-cvvb7`'s merged-PR audit recorded
+            // against the seam study. All three windows are here now, so
+            // every table in `the-candidates-clock.md` is reproducible from
+            // the file without re-running the box.
+            roundsTask: o.out.roundsTask,
+            inPageRounds: o.out.inPageRounds,
             decomposition: o.out.decomposition,
             granularity: o.out.granularity,
             seam: o.verdict.seam,
+            seamTask: o.verdict.seamTask,
             tally: o.verdict.tally,
             ctlOk: o.verdict.ctlVerdict ? o.verdict.ctlVerdict.ok : null,
             guardRefuse: o.verdict.guardVerdict.refuse,
+            guardRefuseTask: o.verdict.guardVerdictTask.refuse,
             bar: o.verdict.bar,
             inPageBar: o.verdict.inPageBar,
             ctl: o.verdict.ctlVerdict,
@@ -1210,10 +1325,22 @@ function report(out) {
     );
     process.exit(1);
   }
-  const refused = outcomes.filter((o) => o.verdict.guardVerdict.refuse);
+  const refused = outcomes.filter((o) => o.verdict.guardVerdict.refuse || o.verdict.guardVerdictTask.refuse);
   if (refused.length > 0) {
     console.error(
-      `[clock] ARM-ORDER GUARD REFUSED (exit 2) on: ${refused.map((o) => o.out.rowId).join(', ')}. ` +
+      `[clock] ARM-ORDER GUARD REFUSED (exit 2) on: ` +
+        refused
+          .map(
+            (o) =>
+              `${o.out.rowId} [${[
+                o.verdict.guardVerdict.refuse ? 'taskNet' : null,
+                o.verdict.guardVerdictTask.refuse ? 'TaskDuration' : null,
+              ]
+                .filter(Boolean)
+                .join(' + ')}]`
+          )
+          .join(', ') +
+        `. ` +
         `At least one arm reads differently for WHERE IN THE PLAN it was measured, so no figure in ` +
         `that row is reportable. Repair the ARM — more warm-up, fewer arms per page, a longer ` +
         `measured window. The guard tolerance is not yours to move.`
@@ -1246,12 +1373,20 @@ function report(out) {
   // magnitude means anything. The gate that actually bites is the per-row
   // one printed in the seam block: a margin inside the band is
   // instrument-limited.
-  const overCeiling = outcomes.filter((o) => o.verdict.seam.verdict.ceilingBreached);
+  const overCeiling = outcomes.filter(
+    (o) => o.verdict.seam.verdict.ceilingBreached || o.verdict.seamTask.ceilingBreached
+  );
   if (overCeiling.length > 0) {
     console.error(
       `[clock] FAILED: the run's own reproducibility band exceeds the ` +
         `${(seamlib.BAND_CEILING * 100).toFixed(0)}% ceiling on: ` +
-        overCeiling.map((o) => `${o.out.rowId} (${(o.verdict.seam.band * 100).toFixed(1)}%)`).join(', ') +
+        overCeiling
+          .map(
+            (o) =>
+              `${o.out.rowId} (taskNet ${(o.verdict.seam.band * 100).toFixed(1)}%, ` +
+              `TaskDuration ${o.verdict.seamTask.band === null ? 'n/a' : (o.verdict.seamTask.band * 100).toFixed(1) + '%'})`
+          )
+          .join(', ') +
         `. ctl-2x and floor are two arms in the SAME block whose true ratio is a property of the ` +
         `page, so a band that wide means the box could not reproduce identical work — no magnitude ` +
         `from those rows is reportable, whatever its margin.`
@@ -1259,7 +1394,18 @@ function report(out) {
     process.exit(1);
   }
 
-  const ctlFailed = outcomes.filter((o) => !o.verdict.ctlVerdict.ok || (o.verdict.etVerdict && !o.verdict.etVerdict.ok));
+  // THE CONTROL IS ADJUDICATED ON THE PUBLISHED CLOCK TOO. `ctlVerdict` is
+  // the `taskNet` verdict and was the only one this gate consulted; the row
+  // is now stated on raw `TaskDuration`, so its control has to hold there.
+  // In practice the two agree to within 2% — `rf2-yd52q` measured that — so
+  // this is a gate that should almost never change an answer, and one that
+  // would be indefensible to leave out for exactly that reason.
+  const ctlFailed = outcomes.filter(
+    (o) =>
+      !o.verdict.ctlVerdict.ok ||
+      (o.verdict.ctlTask && !o.verdict.ctlTask.ok) ||
+      (o.verdict.etVerdict && !o.verdict.etVerdict.ok)
+  );
   if (ctlFailed.length > 0) {
     const passed = outcomes.filter((o) => !ctlFailed.includes(o)).map((o) => o.out.rowId);
     console.error(
