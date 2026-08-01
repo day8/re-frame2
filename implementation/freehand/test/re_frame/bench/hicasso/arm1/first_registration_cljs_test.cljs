@@ -27,9 +27,10 @@
   `reg-sub` for the query changed nothing, and no later write notified
   it — **for the life of the mount**, on a query that was by then
   perfectly well registered. That is the shape a lazily loaded module
-  hits, and it is the same failure mode `disposed_cell_cljs_test` pins
-  for the replacement transition: not a stale value but a retired
-  computation, which looks alive.
+  hits. `disposed_cell_cljs_test`'s cell answers a RETIRED computation;
+  this one answers a computation that never arrived. Both look alive —
+  the boundary rendered, it painted, nothing errored, and it will never
+  change again.
 
   The rows below are the direct witness the merged-PR audit asked for.
   One of them is a **pin rather than a repair**: a first registration
