@@ -568,20 +568,7 @@ function ctl3SelfTest() {
       !controlVerdict(2, [1 + 1.51], CONTROL_SLACK).ok,
   });
 
-  //     A PURE POWER LAW `d^k` at points in the ratio 1 : 2 : 3 reads
-  //     `(3^k - 1)/(2^k - 1)`, which is monotone in `k` and tends to
-  //     `ln3/ln2 = 1.585` as `k -> 0`. It therefore NEVER falls below 1.585,
-  //     and 1.585 is inside the band. THE CONTROL CANNOT REFUSE ANY
-  //     SUBLINEAR POWER LAW, however strongly sublinear — while it does
-  //     refuse a superlinear one above about k = 1.79.
-  //
-  //     This is a real blind spot and it is the one that matters, because a
-  //     saturating paint term is exactly a sublinear shape. What covers it
-  //     is NOT the control: it is the regime witness, an arm below the
-  //     control's range whose marginal cost is measured and published every
-  //     run, so a reader can see whether the saturation has finished before
-  //     the control's first point. A control cannot certify its own
-  //     premise, and this one does not pretend to.
+  //     A PURE POWER LAW `d^k` is the sharp way to state that. At
   //     these points that is `(200^k - 1)/(100^k - 1)`, which tends to 1 as
   //     `k -> 0` and rises through 2.0101 at `k = 1`. Unlike an equally
   //     spaced 1 : 2 : 3 design — whose reading never falls below

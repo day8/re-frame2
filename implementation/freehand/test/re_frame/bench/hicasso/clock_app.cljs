@@ -437,8 +437,7 @@
    (floor-mount-arm :ctl-2x (* 2 v/cells-n) 2)])
 
 (defn- ctl3-arms
-  "The three-point control's arms plus its regime witness, and they exist
-  on BULK ROWS ONLY.
+  "The three-point control's arms, and they exist on BULK ROWS ONLY.
 
   A mount row's operation IS the mount, so it has no standing page to
   write a changed set into and no changed-set axis to be linear in. Its

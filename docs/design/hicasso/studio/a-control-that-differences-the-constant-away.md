@@ -275,11 +275,17 @@ Two further constraints on any future attempt:
   standing page and no changed-set axis. `M1` keeps `ctl-2x` and keeps its known
   1.8173× undershoot, so the programme's headline mount figure remains stated
   under a control that fails. That is a separate gap and it is filed as one.
-* **Regime.** `rf2-h8o80` warns the band may not extrapolate outside its
-  calibrated load regime. The floors here — 2.70–2.98 ms tared — sit inside
-  `rf2-cvvb7`'s 3.06–5.50 ms ladder at the low end rather than above it, which is
-  the opposite of `rf2-emvod`'s problem and is stated rather than assumed to be
-  harmless.
+* **Regime, and it is outside the calibrated one.** `rf2-h8o80` warns the band
+  may not extrapolate outside its calibrated load regime. The floors here are
+  **2.70–2.98 ms** tared, which is **below** the 3.06 ms bottom of `rf2-cvvb7`'s
+  3.06–5.50 ms nineteen-run ladder — a quieter box than any rung that ladder
+  calibrated, not a rung inside it. That is the opposite end from `rf2-emvod`'s
+  problem, whose `M1` floor ran 5.98–6.95 ms above the top, and it is the benign
+  direction: the failure mode the ladder warns about is a box too loud to
+  reproduce itself. It is still an extrapolation, it is still stated rather than
+  assumed harmless, and the precedent for reading a bulk floor against that range
+  is [Bulk broad, re-taken](bulk-broad-re-taken.md), which recorded 2.37–2.44 ms
+  the same way.
 
 ## 8. Provenance
 
@@ -290,12 +296,15 @@ Two further constraints on any future attempt:
 | `implementation/freehand/test/re_frame/bench/hicasso/clock_views.cljs` | `7e48dbc0b3a974cd61a5c61e606333848877a31f` |
 
 These are the blobs **that produced the figures above**, and they are what a
-reproduction needs. `clock_app.cljs` has since been corrected in a
-docstring — it over-stated the 3,000-cell run's negative-denominator count as
-three blocks where the dataset says one — and now hashes
-`5e0999c41f5499cacc72ea466cb37b74a3e6056e`. The correction is comment-only and changes no
-behaviour, but the pin above names the blob that ran rather than the blob that
-ships, because those are different questions.
+reproduction needs. Both harness files have since taken **comment-only**
+corrections — an over-stated negative-denominator count, a stale comment block
+left from the abandoned 3,000-cell design — and now hash
+`c5e8801569715e27c5a1ecb543badb88182063fc` and
+`0d54998103649cd8479d3a73eca9e8745a026a8c`.
+Behaviour is unchanged and the adjudicators' fixtures were re-run against them,
+but the table above names the blobs that **ran** rather than the blobs that
+**ship**, because those are different questions and only the first is
+provenance.
 
 Commit `ef30c639162db98492cf0ebb53f00d411deb4bc4`. Chromium 147.0.7727.15
 (Playwright), `:advanced`, `goog.DEBUG` false. Design 6 rounds × (4 warm-up + 20
