@@ -438,7 +438,9 @@ kill-bounded arms, and both did run before the ruling.)
 separated scaling curves (fixed reads × growing boundaries; fixed boundaries ×
 growing reads); the 100-cell controlled grid (same-turn echo, mid-string caret,
 selection, unchanged-model rejection, async normalisation — IME composition is
-named here but **not asserted**, and `rf2-n3dxw` says why);
+named here but **not asserted**, and `rf2-n3dxw` says why; the caret across a
+refusal and across a normalisation is the arm's own since `rf2-fki5d`, taken in
+the element path and witnessed on this grid);
 keyed insert/delete/reorder; changing query identity through an abandoned render;
 a foreign hook/context/ref component and a real error boundary (the runtime's
 `h/boundary` class component, HD-020); StrictMode, abandoned first mount, root

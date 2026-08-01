@@ -169,9 +169,18 @@ nothing re-rendered, so the refused character comes off the screen for free.
 It does not put the caret back: assigning `value` moves the cursor to the end
 of the control, and React restores a selection only around a commit in which
 focus moved. So a mid-string refusal — and every keystroke a normalising model
-rewrites — converges with the caret thrown to the end of the field. The
-matrix, the two implementations UIx chooses between, and a measured option
-that carries both halves in one turn are on
+rewrites — converges with the caret thrown to the end of the field.
+
+**The caret half is the arm's, taken 2026-08-02 (rf2-fki5d), in the element
+path.** `front.codec/native-element` calls `front.controlled/install!`, which
+wraps the change handler the author wrote: at the end of it, inside the same
+discrete event and ahead of React's restore, `flushSync`, write the value the
+element renders if the field disagrees — which makes React's own later write a
+no-op — and put the caret back by offset from the end of the string. The
+authoring surface does not change (an ordinary `:value` / `:on-input` pair),
+**no hook is spent**, and the value the element last rendered is read off the
+node as `defaultValue`, which React maintains there itself. The matrix, the
+two implementations UIx chooses between, and the price are on
 [the studio page](studio/controlled-input-two-implementations.md).
 
 ## Memoization (HD-006)
