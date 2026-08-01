@@ -10,13 +10,59 @@ bulk-broad comparison at **0.9740× — parity**, against a published **0.6291×
 that claimed a 37% win.
 
 That second number is the one that matters, because it is now the **third**
-frame-inclusive reading of that row and the third to refuse the win:
-[the in-page audit](https://github.com/day8/re-frame2/pull/7357) read `1.0509×`,
-this benchmark reads `0.9740×`, and our own clock method on this benchmark's app
-reads `1.1401×`. Three instruments, two of them ours and one of them nobody's
-here, none reproducing a 37% win.
+reading of that row taken past the `flushSync` boundary and the third to refuse
+the win: this benchmark reads `0.9740×`, our own clock method on this benchmark's
+app reads `1.1401×`, and
+[the in-page audit](https://github.com/day8/re-frame2/pull/7357) read `1.0509×`.
+Three instruments, two of them ours and one of them nobody's here, none
+reproducing a 37% win.
+
+**The three are not all on the same clock, and this page originally said they
+were.** Both of *this page's* readings are script-and-frame; the audit's
+`1.0509×` is frame-**only** and is superseded by `0.8602×`. Which is which, and
+why this page's own figures need no correction, is [§0](#0-which-clock-produced-which-number-rf2-emvod).
 
 Owner: `rf2-rguy1`. The bar and the kill criteria live on `rf2-2rtt6.1`.
+
+---
+
+## 0. Which clock produced which number (`rf2-emvod`)
+
+This page states its own figures on `taskNet = TaskDuration −
+DevToolsCommandDuration`. On the programme's *other* harness that subtraction was
+found to remove the operation's own script, making `taskNet` a frame-**only**
+reading (`rf2-yd52q`). **It does not do that here, and the reason is structural
+rather than lucky.**
+
+`DevToolsCommandDuration` bills page script only when that script runs
+**synchronously inside a protocol command**. `Runtime.callFunctionOn` — what
+`page.evaluate` compiles to — owns the whole callback, so a harness that drives
+its operations that way subtracts them away. This harness drives every operation
+with `page.click`
+([`jsfb_ours_run.cjs:211`](../../../../implementation/freehand/test/re_frame/bench/hicasso/jsfb_ours_run.cjs)),
+an **Input-domain** command: `Input.dispatchMouseEvent` delivers an event and
+returns, and the page's handler runs afterwards in an input task the command does
+not own.
+
+**Measured on this harness rather than inferred from the other one.** Across its
+arms the `devtools` term spreads **0.126 ms** while `ScriptDuration` spreads
+**13.97 ms** — the script is on the counter that is *not* subtracted — and the
+published ratios move at most **1.7%** between the two clocks: `run1k` 1.4030×
+on `taskNet` against 1.3913× on raw `TaskDuration` (−0.8%), `replace1k` 1.6265
+against 1.5985 (−1.7%).
+
+**So no figure on this page is restated.** What is restated is the *label*: this
+page's readings are **script and frame**, and where they are tabled beside the
+window audit's, that page's are **frame only** and struck accordingly.
+
+| harness | drives through | what its `taskNet` contains | status |
+|---|---|---|---|
+| **this page** (`jsfb_ours_run.cjs`) | `page.click` — Input domain | script **and** frame | **uncorrupted; figures stand** |
+| the window audit and the candidate's clock (`clock_run.cjs`, rows `M1` / `bulk300` / `bulk100` / `narrow`) | `page.evaluate` → `Runtime.callFunctionOn` | frame only | superseded — restated on raw `TaskDuration` |
+| the same driver's `keystroke` row | `page.keyboard.press` — Input domain | script **and** frame | uncorrupted; no figure restated |
+
+The full door table and its measurement are
+[`rf2-emvod` §2](rows-re-adjudicated-on-the-corrected-clock.md#2-the-door).
 
 ---
 
@@ -155,8 +201,8 @@ and the per-round range is published on every row.
 
 ### 2.3 The one-op-per-frame caution, answered
 
-The audit worker could not re-take the published harnesses frame-inclusive in
-place, because its producer app runs a whole row in one macrotask by design and
+The audit worker could not re-take the published harnesses on a renderer-counter
+clock in place, because its producer app runs a whole row in one macrotask by design and
 adding a settle yields a different row. **That constraint does not bind here**:
 every measured operation on this page is one click → one `dispatch-sync` → one
 React commit → one frame, which is what the benchmark's own driver requires of
@@ -213,7 +259,7 @@ row the programme has actually published, they do:
 | reading | instrument | workload | `hicasso / reagent` |
 |---|---|---|---:|
 | published (`rf2-0qj9w`) | ours, CDP **frame-only** — see below | M1 — 901 elements, 300 boundaries | ~~**1.2107**~~ [0.9756 – 1.7208] |
-| this page | ours, CDP frame-inclusive | benchmark — ~8,000 elements, 1,000 boundaries | **1.2789** [0.9616 – 1.5482] |
+| this page | ours, CDP — **script and frame** ([§0](#0-which-clock-produced-which-number-rf2-emvod)) | benchmark — ~8,000 elements, 1,000 boundaries | **1.2789** [0.9616 – 1.5482] |
 | this page | **the benchmark's own** | the same benchmark page | **1.1756** |
 
 ~~Three readings spanning two instruments and two workloads land in **1.18 – 1.28**.
@@ -262,28 +308,47 @@ of our harness.**
 ### 3.4 Bulk broad — the sharpened target, and the row that changes
 
 The programme published `UIx / Reagent` bulk-broad at **0.6291×**, a 37% win. The
-in-page audit reported that this does not survive a frame-inclusive instrument.
-The benchmark's nearest equivalent operations now give two more independent
-readings:
+in-page audit reported that this does not survive an instrument that looks past
+`flushSync`. The benchmark's nearest equivalent operations now give two more
+independent readings.
 
-| reading | instrument | `UIx / Reagent` | verdict |
-|---|---|---:|---|
-| published, converged page | in-page `performance.now()` | **0.6291** | a 37% win |
-| the audit (`rf2-8nqsl`) | ours, frame-inclusive, same samples | **1.0509** | parity |
-| this page, replace all rows | **the benchmark's own** | **0.9740** | parity |
-| this page, replace all rows | ours, frame-inclusive | **1.1401** | parity or slightly worse |
-| this page, swap rows | **the benchmark's own** | **1.1419** | slightly worse |
-| this page, swap rows | ours, frame-inclusive | **1.1065** | slightly worse |
+**The clock column is load-bearing and was originally wrong.** Three different
+windows appear here, and calling them all *frame-inclusive* is what let two
+complementary halves sit in one table as though they were one quantity — see
+[§0](#0-which-clock-produced-which-number-rf2-emvod):
 
-**Every frame-inclusive reading is at parity or worse, and none is near 0.63.**
-The two instruments disagree with each other by 17% on `replace all` and agree to
-3% on `swap rows`; both disagree with the published figure by 35–80%. That is not
-a close call, and the conclusion does not depend on which of the two
-frame-inclusive instruments a reader prefers.
+| reading | instrument | clock | `UIx / Reagent` | verdict |
+|---|---|---|---:|---|
+| published, converged page | ours, in-page | script only, to where `flushSync` returns | **0.6291** | a 37% win |
+| ~~the audit (`rf2-8nqsl`)~~ | ours, `clock_run.cjs`, same samples | ~~frame-inclusive~~ **frame only** | ~~1.0509~~ | superseded |
+| the re-take (`rf2-yd52q`), same witness | ours, `clock_run.cjs`, 8 runs | **script and frame** | **0.8602** | a real but much smaller win |
+| this page, replace all rows | **the benchmark's own** | click → paint commit | **0.9740** | parity |
+| this page, replace all rows | ours, `jsfb_ours_run.cjs` | **script and frame** | **1.1401** | parity or slightly worse |
+| this page, swap rows | **the benchmark's own** | click → paint commit | **1.1419** | slightly worse |
+| this page, swap rows | ours, `jsfb_ours_run.cjs` | **script and frame** | **1.1065** | slightly worse |
 
-`rf2-yd52q` is the filed re-take. This page does not close it — that row is on the
-programme's own witnesses and this is a different page — but it removes the
-possibility that the audit's finding was an artefact of the audit's instrument.
+**Every reading that looks past `flushSync` refuses the win, and none is near
+0.63.** That conclusion is unchanged by the correction and is now stronger, since
+it no longer rests on a comparator that had the operation subtracted out of it.
+The two instruments on this page's own row disagree with each other by 17% on
+`replace all` and agree to 3% on `swap rows`; both disagree with the published
+figure by 35–80%.
+
+**What the correction does change is the word *parity*.** The audit's `1.0509×`
+put the programme's own witness at parity, and that figure was the frame with the
+work removed. On a clock that sees both, the same witness reads `0.8602×` — still
+a win for UIx, by roughly 14% rather than 37%, and no magnitude is published in
+its place. So this page's `0.9740×` and the re-take's `0.8602×` bracket the row
+from either side of parity rather than agreeing on it, which is a weaker and more
+honest statement than the one this section originally made.
+
+~~`rf2-yd52q` is the filed re-take.~~ **It landed** —
+[bulk broad, re-taken](bulk-broad-re-taken.md) — and it withdrew the published
+row without replacing the magnitude. This page did not close it; what it
+contributed, and still contributes, is that the audit's finding was not an
+artefact of the audit's instrument. It was not — though the audit's instrument
+did turn out to have a defect of its own, which is the thing this page's Input
+domain door happened to sidestep.
 
 ### 3.5 The rows our clock refused, filled in
 
@@ -464,18 +529,32 @@ comparable to the public leaderboard** — which is not what it is for.
 ## 8. What this hands the programme
 
 - **The mount row is corroborated by an outside instrument.** 1.1756 against our
-  published 1.2107, on a different app, on a different Chrome, by a driver nobody
-  here wrote. The candidate's ~20% mount deficit is not a harness artefact.
+  1.2789 on the same app, on a different Chrome, by a driver nobody here wrote —
+  an 8.8% instrument gap with a named mechanism. The candidate's mount deficit is
+  not a harness artefact. ~~1.1756 against our published 1.2107~~ is **not** the
+  comparison: that figure is frame-only and is not a member of the set
+  ([§3.3](#33-the-mount-row-three-ways)). On a clock that sees the whole
+  operation the programme's own witness reads **1.4896×**, so the deficit is
+  worse than published rather than corroborated at 20%.
 - **The bulk-broad win is refused by a third instrument.** `UIx / Reagent` reads
   0.9740 on the benchmark's `replace all rows` and 1.1419 on `swap rows`, against
-  a published 0.6291. Combined with the audit's 1.0509, no frame-inclusive
-  instrument reproduces the win. ~~`rf2-yd52q` should proceed expecting parity.~~
+  a published 0.6291. No instrument that has looked past the `flushSync`
+  boundary reproduces the win. ~~`rf2-yd52q` should proceed expecting parity.~~
   **It did, and found neither the win nor parity**:
   [the re-take](bulk-broad-re-taken.md) reads **0.8602×** on a clock that sees
   the operation's script as well as its frame, **withdraws** the 0.6291 and
-  publishes no magnitude in its place. It also found that the audit's clock —
-  and this page's own `taskNet` comparator — subtract the operation's own script,
-  so both are frame-only readings.
+  publishes no magnitude in its place.
+- **The audit's comparator was frame-only. This page's was not, and the claim
+  that it was is withdrawn (`rf2-emvod`).** ~~It also found that the audit's
+  clock — and this page's own `taskNet` comparator — subtract the operation's own
+  script, so both are frame-only readings.~~ That over-generalised the finding by
+  one step. `DevToolsCommandDuration` absorbs page script only when the script
+  runs *inside* the protocol command, and this harness drives with `page.click`,
+  whose handler runs in an input task the command does not own. Measured on this
+  harness: `devtools` spreads 0.126 ms against a `ScriptDuration` spread of
+  13.97 ms, and the published ratios move at most 1.7% between the two clocks.
+  **Every figure on this page is script-and-frame and none is restated** —
+  [§0](#0-which-clock-produced-which-number-rf2-emvod).
 - **The candidate's refused bulk row has an answer, and it is bad.** `replace all
   rows` at 1.43 (ours) and 1.62 (theirs) — materially worse than its mount row,
   and agreed by both instruments.
