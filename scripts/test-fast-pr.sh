@@ -10,7 +10,8 @@ set -euo pipefail
 #   always     the cheap repo-wide static/drift checks (each paired with its
 #              own self-test where it has one);
 #   docs tier  the documentation-content gates, plus `mkdocs build --strict`
-#              — SOFT-SKIPPED when mkdocs is not on PATH;
+#              — a HARD gate wherever mkdocs can be resolved at all, whether as
+#              a console script or as `python -m mkdocs` (rf2-g7p7l);
 #   JVM tier   `implementation/core` PLUS the suite of every implementation
 #              artefact whose own tree the diff touched (rf2-uwszd).  Core runs
 #              whenever the tier runs — it is the substrate every artefact sits
@@ -34,8 +35,9 @@ set -euo pipefail
 #
 # So `PASS fast PR spine` means "the spine's own tiers passed" — never "what CI
 # will run passed".  The PASS line enumerates every tier and step that was
-# skipped, including the mkdocs soft-skip, so the gap is visible rather than
-# assumed.  `TESTING.md` carries the canonical PR/nightly/release matrix.
+# skipped, and a step that could not run names the surfaces it leaves ungated,
+# so the gap is visible rather than assumed.  `TESTING.md` carries the canonical
+# PR/nightly/release matrix.
 #
 # What it DOES mirror is CI's *tiering* — which tiers run for a given diff —
 # because that decision is delegated wholesale to the classifier CI uses.  Tier
@@ -79,7 +81,7 @@ set -euo pipefail
 #   2. python scripts/check_doc_slugs.py               — docs corpus anchors
 #   3. python scripts/check_ep_status_sync.py          — docs/EP index status-sync
 #   4. python scripts/check_runtime_subsystem_grading.py — EP-0006 grading table
-#   5. mkdocs build --strict (when mkdocs on PATH; soft-skip when not)
+#   5. mkdocs build --strict (console script, else `python -m mkdocs`)
 
 # The spine's own tree (scripts, gate commands, the shared classifier) is
 # always derived from this script's location.  `--repo-root` overrides ONLY
@@ -174,25 +176,45 @@ run() {
   fi
 }
 
-# Soft-run: log + continue when the binary is unavailable.  Used for mkdocs
-# on Windows machines where mkdocs is not always installed in PATH but the
-# CI Linux runners always have it (mkdocs.yml + requirements.txt pinned).
-run_soft() {
-  local surface="$1"
-  local repro="$2"
-  local probe="$3"
-  shift 3
-  printf '==> %s\n' "$surface"
-  if ! command -v "$probe" >/dev/null 2>&1; then
-    printf '    SKIP %s: %s not on PATH (CI will run this; local soft-skip OK)\n' \
-      "$surface" "$probe"
-    note_skipped "$surface ($probe not on PATH)"
+# ---------------------------------------------------------------------------
+# MKDOCS RESOLUTION (rf2-g7p7l).  `command -v mkdocs` is not how mkdocs is
+# necessarily installed.  A `pip install --user` puts the package on sys.path
+# while the console script lands in a per-user Scripts/ directory that is
+# routinely absent from PATH — the state of this project's own Windows
+# checkout, where `command -v mkdocs` fails and `python -m mkdocs --version`
+# prints 1.6.1.  The previous probe asked only for the console script, so the
+# strict docs build soft-skipped on EVERY local run while the spine still
+# printed `PASS ... SKIP ... (local soft-skip OK)`: a gate reporting success
+# without having examined anything.
+#
+# So resolve mkdocs the way it is actually installed — console script first,
+# then the module under each Python launcher.  `-m mkdocs --version` is the
+# probe rather than a bare import because it also proves the entry point runs.
+# It costs ~0.25s and is paid ONLY when the documentation tier runs, so a
+# code-only diff (the common case) pays nothing.
+#
+# The resolved command is invoked through `bash -c`, NOT `bash -lc`: a login
+# shell re-derives PATH from the profile, so probing here and running there
+# could disagree about which mkdocs — or which python — is meant.
+# ---------------------------------------------------------------------------
+mkdocs_cmd=""
+resolve_mkdocs() {
+  if [ -n "$mkdocs_cmd" ]; then
     return 0
   fi
-  if ! "$@"; then
-    printf '\nFAIL %s\nrepro: %s\n' "$surface" "$repro" >&2
-    return 1
+  if command -v mkdocs >/dev/null 2>&1; then
+    mkdocs_cmd="mkdocs"
+    return 0
   fi
+  local launcher
+  for launcher in python python3 py; do
+    if command -v "$launcher" >/dev/null 2>&1 &&
+       "$launcher" -m mkdocs --version >/dev/null 2>&1; then
+      mkdocs_cmd="$launcher -m mkdocs"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -381,8 +403,21 @@ if [ -z "$jvm_run_list" ]; then
 fi
 
 if [ "$plan_only" = true ]; then
+  # Report how mkdocs resolved, so the docs gate's availability is observable
+  # without running an 18-second site build — and so the self-test can pin it
+  # (rf2-g7p7l).  Resolved ONLY when the documentation tier would run, so a
+  # code-only `--plan` stays free.
+  mkdocs_plan="(docs tier skipped)"
+  if [ "$run_docs" = true ]; then
+    if resolve_mkdocs; then
+      mkdocs_plan="$mkdocs_cmd"
+    else
+      mkdocs_plan="unresolved"
+    fi
+  fi
   printf 'fast-pr plan\n'
   printf '  documentation gates: %s\n' "$([ "$run_docs" = true ] && echo run || echo skip)"
+  printf '  mkdocs --strict:     %s\n' "$mkdocs_plan"
   printf '  JVM tier:            %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
   printf '  node/CLJS suite:     %s\n' "$([ "$run_node" = true ] && echo run || echo skip)"
   printf '  reason:              %s\n' "$plan_reason"
@@ -398,6 +433,7 @@ if [ "$plan_only" = true ]; then
   printf ' tool-JVM gate is in any tier.\n'
   printf 'PLAN docs=%s jvm=%s node=%s\n' "$run_docs" "$run_jvm" "$run_node"
   printf 'PLAN-JVM%s\n' "$([ "$run_jvm" = true ] && printf '%s' "$jvm_run_list")"
+  printf 'PLAN-MKDOCS %s\n' "$mkdocs_plan"
   exit 0
 fi
 
@@ -604,8 +640,36 @@ if [ "$run_docs" = true ]; then
   run "runtime-subsystem grading drift" "python scripts/check_runtime_subsystem_grading.py" \
     python "$spine_root/scripts/check_runtime_subsystem_grading.py"
 
-  run_soft "mkdocs --strict build" "mkdocs build --strict" mkdocs \
-    bash -lc "cd '$spine_root' && mkdocs build --strict"
+  # The strict site build.  A HARD gate wherever mkdocs resolves at all; where
+  # it does not, the step says what it did not check and — measured, not
+  # assumed — which surfaces that leaves with no local gate (rf2-g7p7l).
+  #
+  # What ONLY this build covers locally: `mkdocs.yml` itself (nav integrity,
+  # `exclude_docs`, the theme and markdown-extension pipeline), the
+  # `mkdocs_hooks.py` rewrites, `requirements.txt`, and link resolution in the
+  # STAGED tree — the build copies `spec/` and `migration/` under `docs/` and
+  # rewrites their cross-references, so a link correct in the source tree can
+  # still be broken in the site.  No other spine gate reads any of these.
+  #
+  # What it does NOT uniquely cover, so the skip must not claim it does: link
+  # targets and heading anchors across `docs/` (including all of `docs/EP/**`),
+  # `spec/`, `skills/`, `migration/` and `tools/*/spec/`.  `check_doc_slugs.py`
+  # above scans those roots and is the STRONGER gate there — mkdocs 1.6 grades
+  # a missing anchor INFO, so `--strict` does not fail on one.
+  if resolve_mkdocs; then
+    run "mkdocs --strict build" "$mkdocs_cmd build --strict" \
+      bash -c "cd '$spine_root' && $mkdocs_cmd build --strict"
+  else
+    printf '    NOT CHECKED: mkdocs --strict build — mkdocs resolves neither as a\n'
+    printf '      console script nor as `python -m mkdocs` (tried: mkdocs, python,\n'
+    printf '      python3, py).  This is NOT a pass.  Left with NO local gate:\n'
+    printf '      mkdocs.yml (nav, exclude_docs, theme, markdown extensions),\n'
+    printf '      mkdocs_hooks.py, requirements.txt, and link resolution in the\n'
+    printf '      staged docs/spec + docs/migration copies the build creates.\n'
+    printf '      Install it (pip install -r requirements.txt) and re-run, or\n'
+    printf '      rely on CI docs.yml — which does run it, and can fail there.\n'
+    note_skipped "mkdocs --strict build — UNRESOLVED, so mkdocs.yml/mkdocs_hooks.py/requirements.txt and staged-tree link resolution had NO local gate this run"
+  fi
 else
   printf '\n--- documentation surface unchanged → skipping doc gates (override with --with-docs) ---\n'
   note_skipped "documentation gates (surface unchanged; --with-docs forces)"
