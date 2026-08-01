@@ -88,7 +88,9 @@ several hundred percent.
 
 ## 3. The cross-check
 
-**Design.** The `rf2-0qj9w` instrument takes both clocks over the same samples:
+**Design.** The `rf2-0qj9w` instrument — built and first reported on
+[the candidate's clock](the-candidates-clock.md), whose §4.1 raised this
+audit — takes both clocks over the same samples:
 an in-page `performance.now()` window around the arm's own synchronous drain,
 and Chrome's renderer counters over CDP (`Performance.getMetrics`, `TaskDuration`
 less `DevToolsCommandDuration`) read after a `rAF + setTimeout` settle, i.e.
