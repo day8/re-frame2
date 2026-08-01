@@ -99,22 +99,37 @@ const PRUNED_DIRS = new Set([
 ]);
 
 /*
- * Sites that carry the defect and could not be fixed by the sweep's own PR.
- * `max` is an UPPER BOUND on un-timeouted navigations in the file, so:
+ * THE WAIVER TABLE IS GONE, AND THAT IS THE FIX (rf2-p9fa3, rf2-rbyyx).
  *
- *   - fixing a waived file never reds this gate (the count only falls); it just
- *     leaves a dead row for the owning bead to delete;
- *   - ADDING another bare navigation to a waived file DOES red it, so a waiver
- *     is a frozen budget, not an open door.
+ * Six sites carried the defect past the sweep's own PR because they sat behind
+ * another worker's fence, so they were waived by name with `max: 1` — an upper
+ * bound, chosen so that fixing one would never red the gate. All six were then
+ * fixed and the rows were left standing as supposedly dead comments.
  *
- * A waived path that no longer exists reds too — a waiver must never rot into
- * a comment about a file nobody can find.
+ * They were not dead. The sweep branched on path, compared `bare.length >
+ * waiver.max` and continued, so a FIRST regressed bare navigation in a waived
+ * file satisfied `1 > 1 === false` and rode through green. A waiver written to
+ * be harmless once fixed had become an open door for exactly the defect the
+ * gate exists to catch, in exactly the six files most likely to regress.
+ *
+ * So the table, the per-file budget comparison and the waiver-rot check are all
+ * deleted rather than emptied: an empty exemption mechanism is an invitation to
+ * add a row. The six paths are held to ZERO by the ordinary sweep above, and
+ * named once below — not to re-exempt them, but to prove the sweep still
+ * REACHES them. That is the one thing deleting a waiver silently loses.
  */
-const WAIVED = [
+const FORMERLY_WAIVED = [
+  // Held by worker/bench-method-88pie while rf2-taj9b ran. The SHARP end of the
+  // class; all four now route through `bench/navigate.cjs`, which refuses a
+  // navigation with no timeout.
+  { file: 'implementation/freehand/test/re_frame/freehand/bench/b6_prod_run.cjs', bead: 'rf2-p9fa3' },
+  { file: 'implementation/freehand/test/re_frame/freehand/bench/b6_profile_run.cjs', bead: 'rf2-p9fa3' },
+  { file: 'implementation/freehand/test/re_frame/freehand/bench/b7_run.cjs', bead: 'rf2-p9fa3' },
+  { file: 'implementation/freehand/test/re_frame/freehand/bench/b8_run.cjs', bead: 'rf2-p9fa3' },
   // `docs/**` was outside the rf2-taj9b fence. Both wait on `networkidle`,
-  // which settles LATER than `load`, so the 30s default bites harder here.
-  { file: 'docs/scripts/generate-story-tutorial-screenshots.cjs', max: 1, bead: 'rf2-rbyyx' },
-  { file: 'docs/tools/playground/test/smoke.test.mjs', max: 1, bead: 'rf2-rbyyx' },
+  // which settles LATER than `load`, so the 30s default bit harder here.
+  { file: 'docs/scripts/generate-story-tutorial-screenshots.cjs', bead: 'rf2-rbyyx' },
+  { file: 'docs/tools/playground/test/smoke.test.mjs', bead: 'rf2-rbyyx' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -223,11 +238,7 @@ test("every navigation passes an EXPLICIT timeout — none inherits Playwright's
     `the sweep must actually find scripts to read (found ${files.length})`,
   );
 
-  const waivedByPath = new Map(
-    WAIVED.map((w) => [path.resolve(REPO_ROOT, w.file), w]),
-  );
   const offenders = [];
-  const overBudget = [];
   let navigations = 0;
 
   for (const file of files) {
@@ -235,16 +246,6 @@ test("every navigation passes an EXPLICIT timeout — none inherits Playwright's
     if (all.length === 0) continue;
     navigations += all.length;
     const rel = path.relative(REPO_ROOT, file).replace(/\\/g, '/');
-    const waiver = waivedByPath.get(file);
-    if (waiver) {
-      if (bare.length > waiver.max) {
-        overBudget.push(
-          `${rel}: ${bare.length} un-timeouted navigation(s), waiver allows ` +
-            `${waiver.max} (${waiver.bead})`,
-        );
-      }
-      continue;
-    }
     for (const call of bare) offenders.push(`${rel}: ${call}`);
   }
 
@@ -257,13 +258,8 @@ test("every navigation passes an EXPLICIT timeout — none inherits Playwright's
       'budget can reach and whose CI failure line reads like the lane timeout ' +
       'it is not — so the fix reached for is a bigger lane budget, which ' +
       'moves nothing. Spec-side callers can use `navigate` / `reloadPage` ' +
-      'from examples/scripts/spec-helpers.cjs, which require the number.',
-  );
-  assert.deepEqual(
-    overBudget,
-    [],
-    'A waived file may not grow NEW un-timeouted navigations — the waiver is ' +
-      'a frozen budget for sites that predate the sweep, not permission.',
+      'from examples/scripts/spec-helpers.cjs, which require the number. ' +
+      'There is no waiver table any more (rf2-p9fa3, rf2-rbyyx): fix the call.',
   );
 });
 
@@ -415,15 +411,56 @@ test('a runner that ALIASES its navigation ceiling says so, and never disclaims 
   );
 });
 
-test('every waiver still names a real file, so the table cannot rot (rf2-taj9b)', () => {
-  const missing = WAIVED
-    .filter((w) => !fs.existsSync(path.resolve(REPO_ROOT, w.file)))
-    .map((w) => `${w.file} (${w.bead})`);
+/*
+ * The successor to the deleted waiver-rot check (rf2-p9fa3, rf2-rbyyx).
+ *
+ * The sweep above holds these six to zero like everything else — but only if it
+ * READS them, and a path that leaves the walk stops being read in silence. A
+ * rename, a move out of the scanned extensions, a new entry in `PRUNED_DIRS`:
+ * each turns "this file has no bare navigation" into "this file is not
+ * examined", and the two are indistinguishable in a green run. That is the
+ * failure mode the waiver table used to catch by insisting its paths existed,
+ * and deleting the table would otherwise take the check with it.
+ *
+ * So this asserts REACHABILITY, not exemption: the six paths carrying the
+ * original defect are still inside the sweep's own file list, and still clean.
+ * Zero, by name, with the bead that got them there.
+ */
+test('the six formerly-waived paths are still inside the sweep, and still at zero (rf2-p9fa3, rf2-rbyyx)', () => {
+  const scanned = new Set(scannedFiles());
+  const problems = [];
+
+  for (const { file, bead } of FORMERLY_WAIVED) {
+    const abs = path.resolve(REPO_ROOT, file);
+    if (!fs.existsSync(abs)) {
+      problems.push(
+        `${file} (${bead}): no such file — if it moved, repoint this row; the ` +
+          'sweep can only hold a path it can find',
+      );
+      continue;
+    }
+    if (!scanned.has(abs)) {
+      problems.push(
+        `${file} (${bead}): exists but the sweep does not read it — check the ` +
+          'extension filter and PRUNED_DIRS. An unread file passes silently',
+      );
+      continue;
+    }
+    const { bare } = navigationsIn(fs.readFileSync(abs, 'utf8'));
+    for (const call of bare) {
+      problems.push(
+        `${file} (${bead}): regained a bare navigation — ${call}. This path ` +
+          'once carried the defect and is held at ZERO; there is no waiver to ' +
+          'raise',
+      );
+    }
+  }
+
   assert.deepEqual(
-    missing,
+    problems,
     [],
-    'a waived path no longer exists — delete the row (or repoint it if the ' +
-      'file moved). A waiver naming a file nobody can find is a comment.',
+    'the paths that were exempted while the sweep landed are held at zero and ' +
+      'must stay inside the sweep that holds them',
   );
 });
 
