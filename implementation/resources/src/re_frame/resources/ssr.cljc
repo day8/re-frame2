@@ -25,8 +25,8 @@
     durable `:entries`, applying per-entry REDACTION / OMISSION through
     the resource's `:sensitive?` / `:large?` classification and the
     shared `rf/elide-wire-value` walker, and `projection-metadata`
-    records the serialized / redacted / omitted / fresh / stale /
-    refetch-on-client decision per entry.
+    records the serialized / redacted / omitted / key-projected / fresh /
+    stale / refetch-on-client decision per entry.
   - **Server blocking drain** — `blocking-settled?` is the drain
     PREDICATE the host loops on (\"have the blocking resources for this
     nav-token settled?\"); `settle-blocking-timeout` is the timeout
@@ -38,9 +38,9 @@
     reverse indexes from `:entries` (never trusts the wire), reconciles
     owners (SSR owners orphan — they belong to a settled server render),
     and surfaces server clock skew. `hydrate-refetch-plan` decides which
-    hydrated entries need a client refetch (omitted / redacted →
-    metadata-only refetch; stale → background refetch; fresh → no
-    double-fetch).
+    hydrated entries need a client refetch (omitted / redacted /
+    key-projected → metadata-only refetch; stale → background refetch;
+    fresh → no double-fetch).
 
   ## Late-binding both ways
 
@@ -308,7 +308,7 @@
 
     {:resource/key   scoped-key
      :resource-id    <id>
-     :disposition    :serialized | :redacted | :omitted
+     :disposition    :serialized | :redacted | :omitted | :key-projected
      :freshness      :fresh | :stale
      :status         <entry :status>
      :refetch-on-client? <bool>
@@ -319,7 +319,11 @@
     sentinel; the client hydrates it as metadata-only and refetches if the
     route still needs it (`:refetch-on-client? true`);
   - `:omitted`    — `:large?` resource: the `:data` key is dropped entirely;
-    metadata-only, refetch-on-client.
+    metadata-only, refetch-on-client;
+  - `:key-projected` — a `:serialize` resource whose own per-slot `:scope` /
+    `:params` declaration CHANGED its wire key (see the `key-projected?`
+    discussion below): the `:data` key is dropped, metadata-only,
+    refetch-on-client.
 
   `:refresh-error` rides ONLY when the entry's data is serialized (it is
   the same privacy/size class as data — Spec 016 §SSR and hydration: a
@@ -351,10 +355,65 @@
         ;;     registry-projected below.
         [projected-key disposition _spec] (disposition+project-key scoped-key frame-id)
         stale?      (state/entry-stale? entry clock-ms)
+        ;; A `:serialize` key's BOTH classification-bearing components are
+        ;; REGISTRY-PROJECTED — the SCOPE at index 0 (rf2-5e2ye) and the PARAMS
+        ;; at index 2 (rf2-d3pku1). `reconcile-registry` lowers a `:scope`-rooted
+        ;; declaration to `[… :resource/key 0 …]` and a `:params`-rooted one to
+        ;; `[… :resource/key 2 …]`, so each component walks through
+        ;; `project-egress` seeded at its OWN lowered offset and a per-slot
+        ;; declaration redacts in the wire key without the raw value riding. Both
+        ;; arms are declaration-GATED, so an undeclared component rides
+        ;; byte-identical (the resource-id at index 1 is never a classification
+        ;; carrier and always survives).
+        ;;
+        ;; This is computed BEFORE the data decision because the data decision
+        ;; DEPENDS on it — see `key-projected?` immediately below.
+        projected-key (if (= :serialize disposition)
+                        (let [[scope rid params] projected-key]
+                          [(classification/project-entry-scope
+                             scope key-id frame-id
+                             :rf.egress/ssr-hydration)
+                           rid
+                           (classification/project-entry-params
+                             params key-id frame-id
+                             :rf.egress/ssr-hydration)])
+                        projected-key)
+        ;; rf2-rjq9d — DID a per-slot declaration actually change this entry's
+        ;; identity? `state/key-id` is `canonical-bytes` over the WHOLE key
+        ;; vector, so projecting EITHER component re-keys the entry, and
+        ;; `project-resources-runtime-db` installs the wire entry under the
+        ;; key-id of THIS projected key. The live client, however, derives the
+        ;; ORDINARY scoped key from live scope + params and reads
+        ;; `(state/entry-path scoped-key)` — the RAW key-id (`route/route-
+        ;; resource-plan`'s readiness read, `events/ensure-handler`). It
+        ;; therefore CANNOT address a re-keyed entry, and issues a load.
+        ;;
+        ;; That miss is not fixable by making the raw key-id addressable. A
+        ;; `key-id` is a REVERSIBLE plaintext CEDN-1 encoding, so keying the
+        ;; wire map on the raw key-id would egress the declared slot in the
+        ;; clear — the exact leak rf2-5e2ye closed. Nor is it fixable by having
+        ;; the client re-derive the PROJECTED key-id and adopt the entry under
+        ;; it: the per-slot substitution is the CONSTANT `:rf/redacted` /
+        ;; `:rf.size/large-elided` sentinel (`classification/project-entry-key-
+        ;; component`), NOT the content-addressed `{:rf/redacted <digest>}` token
+        ;; the coarse arm uses, so the mapping is MANY-TO-ONE precisely on the
+        ;; slots that carry principal identity. Two tenants' keys project to one
+        ;; key, and an adopt-by-projected-key client would read one principal's
+        ;; data under another's identity.
+        ;;
+        ;; So the entry is NOT reusable, and the honest contract is to say so:
+        ;; a re-keyed entry ships METADATA-ONLY — the same class as the coarse
+        ;; `:redact` / `:omit` arms, reached for the same reason (its wire
+        ;; identity is not the client's) — and is deliberately refetched. That
+        ;; also disarms the many-to-one collapse: two entries that project to
+        ;; one wire key now collapse to one row carrying NO data, so no
+        ;; principal's data can ever ride under another's key.
+        key-projected? (and (= :serialize disposition)
+                            (not= (state/key-id projected-key) key-id))
         ;; metadata-only entries refetch on the client if a live route owner
         ;; needs them; serialized stale entries also refetch (background);
         ;; serialized fresh entries do NOT (no double-fetch).
-        metadata-only? (not= :serialize disposition)
+        metadata-only? (or (not= :serialize disposition) key-projected?)
         base        {:resource/key   scoped-key
                      :resource-id    resource-id
                      :freshness      (if stale? :stale :fresh)
@@ -362,7 +421,18 @@
                      :loaded-at      (:loaded-at entry)
                      :stale-at       (:stale-at entry)
                      :invalidated-at (:invalidated-at entry)}
-        wire-entry  (case disposition
+        wire-entry  (if key-projected?
+                      ;; rf2-rjq9d — a re-keyed entry is METADATA-ONLY. Its wire
+                      ;; identity is not one the live client can derive, so its
+                      ;; data is unreachable by construction: shipping it would
+                      ;; be dead payload beside a duplicate the client loads
+                      ;; anyway, and (under the many-to-one projection above)
+                      ;; potentially one principal's data filed under another's
+                      ;; key. Same drop as the `:omit` arm, reached by the KEY's
+                      ;; classification rather than the entry's size claim.
+                      ;; `:refresh-error` follows the data, as everywhere else.
+                      (dissoc entry :data :refresh-error)
+                      (case disposition
                       ;; ship the data, but PROJECT it through the REGISTRY-DRIVEN
                       ;; egress read (EP-0025, rf2-d3pku1): the resource's
                       ;; per-slot `:data` declarations were lowered into the
@@ -402,7 +472,7 @@
                       ;; large: drop the data key entirely (metadata only).
                       :omit
                       (-> entry
-                          (dissoc :data :refresh-error)))
+                          (dissoc :data :refresh-error))))
         ;; transient host-pointer facts never ride the wire: the work-id the
         ;; entry currently points at references a host handle that does not
         ;; survive the round-trip (Spec 016 §Restore and replay part 2 — a
@@ -414,40 +484,26 @@
         ;; opaque content-addressed tokens here too, so the raw identity never
         ;; rides in EITHER carrier.
         ;;
-        ;; A `:serialize` key's BOTH classification-bearing components are
-        ;; REGISTRY-PROJECTED — the SCOPE at index 0 (rf2-5e2ye) and the PARAMS
-        ;; at index 2 (rf2-d3pku1). `reconcile-registry` lowers a `:scope`-rooted
-        ;; declaration to `[… :resource/key 0 …]` and a `:params`-rooted one to
-        ;; `[… :resource/key 2 …]`, so each component walks through
-        ;; `project-egress` seeded at its OWN lowered offset and a per-slot
-        ;; declaration redacts in the wire key without the raw value riding. Both
-        ;; arms are declaration-GATED, so an undeclared component rides
-        ;; byte-identical (the resource-id at index 1 is never a classification
-        ;; carrier and always survives).
+        ;; The `:serialize` per-slot arm is projected ABOVE (the data decision
+        ;; depends on whether it fired); `projected-key` here is already final.
         ;;
         ;; Projecting either component CHANGES the entry's `key-id`, because
-        ;; `state/key-id` is `canonical-bytes` over the WHOLE key vector. That is
-        ;; the established, intended mechanism, not a hazard:
+        ;; `state/key-id` is `canonical-bytes` over the WHOLE key vector.
         ;; `project-resources-runtime-db` re-keys each wire entry on the `key-id`
         ;; of THIS projected `:resource/key`, so the wire map key and the entry's
         ;; own copy are one value by construction, and the client's
         ;; `recompute-indexes` keys index members on the `:entries` map keys it
         ;; installed. The coarse `:redact` / `:omit` arm has always re-keyed both
-        ;; components this way, and the params arm has since rf2-d3pku1.
-        projected-key (if (= :serialize disposition)
-                        (let [[scope rid params] projected-key]
-                          [(classification/project-entry-scope
-                             scope key-id frame-id
-                             :rf.egress/ssr-hydration)
-                           rid
-                           (classification/project-entry-params
-                             params key-id frame-id
-                             :rf.egress/ssr-hydration)])
-                        projected-key)
+        ;; components this way, and the params arm has since rf2-d3pku1. What
+        ;; rf2-rjq9d added is the CONSEQUENCE being told truthfully: a re-keyed
+        ;; entry is not addressable by the live client, so it rides metadata-only
+        ;; and reports `:refetch-on-client? true` (see `key-projected?` above).
         wire-entry  (assoc wire-entry :resource/key projected-key)
         meta'       (assoc base
                            :disposition (case disposition
-                                          :serialize :serialized
+                                          :serialize (if key-projected?
+                                                       :key-projected
+                                                       :serialized)
                                           :redact    :redacted
                                           :omit      :omitted)
                            :refetch-on-client?
@@ -499,7 +555,7 @@
   of index 0 / index 2 against the frame's elision registry (rf2-d3pku1,
   rf2-5e2ye).
 
-  ## The re-key is the mechanism, not a hazard (rf2-5e2ye)
+  ## The re-key, and what it costs the entry (rf2-5e2ye, rf2-rjq9d)
 
   `state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id params]`
   vector, so projecting EITHER component changes it. The wire map is therefore
@@ -507,10 +563,21 @@
   key and the entry's own copy are ONE value by construction, and the client
   `recompute-indexes` over the `:entries` it installed. A declared slot's
   redaction consequently makes the entry unaddressable by a key the client
-  re-derives from live scope + params, and it refetches — which is the SAME
-  designed consequence the coarse `:redact` / `:omit` digests have always had,
-  and which the params arm has had since rf2-d3pku1. Closing the scope
-  asymmetry extends that accepted cost by one index; it does not introduce it.
+  re-derives from live scope + params, which is the SAME consequence the coarse
+  `:redact` / `:omit` digests have always had, and which the params arm has had
+  since rf2-d3pku1.
+
+  rf2-rjq9d settled what that costs the ENTRY, because for a while only half of
+  it was said: an unaddressable entry was still shipped with its data and still
+  reported `:refetch-on-client? false`, so the server promised a reuse the
+  client could not perform and refetched anyway. `project-entry` now classifies
+  a re-keyed `:serialize` entry `:key-projected` — metadata-only on the wire,
+  `:refetch-on-client? true`, present in `hydrate-refetch-plan` — so the three
+  answers agree with what route/ensure actually does. The reasoning that rules
+  out the alternative (a client-side mapping back to the projected key-id) is
+  on `project-entry`'s `key-projected?` binding: the per-slot substitution is a
+  CONSTANT sentinel, not a content-addressed digest, so it is many-to-one on
+  exactly the slots that carry principal identity.
 
   ## Build posture: ALWAYS-ON
 
@@ -1793,6 +1860,15 @@
   `:metadata-only`). Per Spec 016 §Xray and AI tooling. PURE w.r.t.
   `runtime-db` (the trace emit self-gates on debug, as `hydrate-runtime-db`'s
   `:rf.resource/hydrated` does) — the route slice / host drives the issuing.
+
+  rf2-rjq9d — a `:key-projected` entry (a `:serialize` owner whose own per-slot
+  `:scope` / `:params` declaration re-keyed it, so the live client cannot
+  address it) arrives here with its `:data` dropped, and is therefore planned
+  `:no-data` like any other entry carrying nothing usable. That is what makes
+  the plan AGREE with `project-entry`'s `:refetch-on-client? true` and with the
+  single load `route-resource-plan` / `ensure-handler` then issue under the raw
+  key; before that fix the entry arrived fresh-with-data and was silently
+  omitted from the plan while the client refetched anyway.
 
   `frame-id` (3-arity) is the explicit hydration target the trace rows are
   tagged with; the 1-/2-arity overloads omit it (a frame-agnostic decision)."

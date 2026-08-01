@@ -329,15 +329,38 @@
       (is (= k w))
       (is (= (state/key-id k) (state/key-id w))))))
 
-(deftest the-entry-body-is-untouched-by-a-key-declaration
+(deftest a-key-declaration-does-not-promote-the-entry-to-a-coarse-claim
   (testing "rf2-dl7bz's second finding, on this surface: a declaration naming
-            only the KEY must not promote the entry to a coarse claim and
-            swallow its data. Over-redaction is a defect here, not a default"
+            only the KEY must not promote the entry to a coarse claim. Its
+            SIBLINGS are the proof — an owner that declares nothing under
+            :data must still ride its body verbatim, so the walk is gated on
+            the declaration and not on the owner"
+    (install-entry! :rf/default (key-for :plain/report))
+    (let [[_ e] (wire-entry-for :rf/default :plain/report)]
+      (is (= {:total 1} (:data e))
+          "the body rides: nothing here is declared, and nothing is swallowed")
+      (is (= :loaded (:status e))))))
+
+(deftest a-key-declaration-makes-the-entry-metadata-only
+  (testing "rf2-rjq9d — but the DECLARING owner's own entry does not ride its
+            body, and the reason is reachability rather than privacy.
+            Projecting a key component re-keys the entry (§2 below), and the
+            live client derives the RAW key, so the hydrated entry is
+            unaddressable: shipping its data would be dead payload beside the
+            duplicate the client loads anyway, and — because the per-slot
+            substitution is a CONSTANT sentinel rather than a content-addressed
+            digest — a row two principals can collapse onto. It ships metadata
+            only, exactly as the coarse arms do, and is refetched.
+
+            The end-to-end statement of that contract (hydrate reconcile, live
+            route/ensure, the exactly-one-request count, the collapse control)
+            lives in `resources_ssr_projected_key_refetch_cljs_test`"
     (install-entry! :rf/default (key-for :tenant/report))
     (let [[_ e] (wire-entry-for :rf/default :tenant/report)]
-      (is (= {:total 1} (:data e))
-          "the body rides: this owner declares nothing under :data")
-      (is (= :loaded (:status e)) "…and the entry is still a serialized one"))))
+      (is (not (contains? e :data))
+          "the re-keyed entry ships no data")
+      (is (= :loaded (:status e))
+          "…while its metadata still announces what the server knew"))))
 
 ;; ===========================================================================
 ;; 4. THE CLIENT ROUND-TRIP STILL LANDS (the bead's proof standard).
