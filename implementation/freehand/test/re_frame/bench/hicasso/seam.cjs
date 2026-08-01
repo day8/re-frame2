@@ -44,7 +44,7 @@
 //   * THE PERTURBATION IS MULTIPLICATIVE, so floor-normalisation cancels it
 //     and the arithmetic is exact: `(k·H)/(k·F) = H/F`. Across the ladder's
 //     80% floor span, `ctl-2x / floor` — two arms in the SAME block whose
-//     true ratio is a property of the page — moved 5% and moved the WRONG
+//     true ratio is a property of the page — moved 6.5% and moved the WRONG
 //     WAY for additivity (correlation with the floor +0.41; an additive `c`
 //     reads `(2W+c)/(W+c)`, which FALLS as `c` grows). The published bar
 //     row did not move with the floor at all (correlation -0.10), nor with
@@ -483,11 +483,20 @@ function selfTest() {
       v.rows.tight.clear === false && v.rows.wide.clear === true,
       `${v.rows.tight.why} | ${v.rows.wide.why}`
     );
-    const v2 = adjudicate({ wide: 1.35 }, 0.2);
+    // Stated against BAND_CEILING rather than a literal, so moving the
+    // ceiling cannot leave this check silently testing nothing — which is
+    // exactly what a literal 0.2 did when the ceiling moved from 15% to 25%.
+    const v2 = adjudicate({ wide: 1.35 }, BAND_CEILING + 0.05);
     check(
       'a band above the ceiling takes EVERY magnitude with it, however wide the margin',
       v2.ceilingBreached && v2.rows.wide.clear === false,
       v2.rows.wide.why
+    );
+    const v2ok = adjudicate({ wide: 1.35 }, BAND_CEILING - 0.05);
+    check(
+      'a band just BELOW the ceiling does not breach, so the ceiling check is not vacuous',
+      v2ok.ceilingBreached === false && v2ok.rows.wide.clear === true,
+      v2ok.rows.wide.why
     );
     // A NaN band must refuse rather than pass: `margin > NaN` is false, so
     // `clear` is already false, but the ceiling test has to agree — written
