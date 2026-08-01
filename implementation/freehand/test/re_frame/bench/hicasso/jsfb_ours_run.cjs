@@ -99,7 +99,15 @@ const url = (arm) => `http://${HOST}:${PORT}/frameworks/keyed/${arm}/`;
 // neither is measured. Every row states which benchmark id it mirrors, so
 // the two instruments can be put in one table without a translation step.
 
-const ROWS = [
+// `JSFB_ONLY=run1k,replace1k` narrows the run to named rows. It exists so a
+// question about ONE row can be asked without paying for `create10k`, which
+// is the most expensive row here and the positive control for all of them —
+// so a narrowed run is a PROBE and cannot certify a magnitude. Any run that
+// drops the control says so on its own output rather than leaving a reader
+// to notice the missing block (rf2-emvod).
+const JSFB_ONLY = (process.env.JSFB_ONLY || '').trim();
+
+const ALL_ROWS = [
   {
     id: 'run1k',
     jsfb: '01_run1k',
@@ -174,6 +182,12 @@ const ROWS = [
     verify: async (p) => expectRows(p, 10000),
   },
 ];
+
+const ROWS = JSFB_ONLY ? ALL_ROWS.filter((r) => JSFB_ONLY.split(',').includes(r.id)) : ALL_ROWS;
+if (ROWS.length === 0) {
+  console.error(`[ours] JSFB_ONLY=${JSFB_ONLY} selects no row; known ids: ${ALL_ROWS.map((r) => r.id).join(', ')}`);
+  process.exit(1);
+}
 
 // THE PREDICTION, REGISTERED BEFORE THE RUN.
 //
@@ -253,6 +267,17 @@ function deltaOf(a, b) {
   const devtools = d.DevToolsCommandDuration * 1000;
   return {
     taskNet: task - devtools,
+    // RAW TaskDuration, and on THIS harness it is very nearly the same
+    // number (rf2-emvod). `rf2-yd52q` found that `DevToolsCommandDuration`
+    // absorbs page script — but only script that runs INSIDE a protocol
+    // command. `clock_run.cjs` drives every operation through
+    // `page.evaluate`, so its `taskNet` lost the arm's whole write. This
+    // harness drives every operation through `page.click`, an INPUT-domain
+    // command, and the page's handler runs in an input task the command
+    // does not own. Both are reported so the claim is measured here rather
+    // than inherited from the other harness's finding.
+    task,
+    devtools,
     script: d.ScriptDuration * 1000,
     layout: d.LayoutDuration * 1000,
     style: d.RecalcStyleDuration * 1000,
@@ -424,6 +449,7 @@ async function main() {
         const { samples, unverified, errors } = await measureArm(browser, arm, row, r);
         const a = acc[row.id][arm];
         a.rounds.push(median(samples.map((s) => s.taskNet)));
+        (a.roundsTask ||= []).push(median(samples.map((s) => s.task)));
         a.unverified += unverified;
         a.errors.push(...errors);
         if (!a.decomp) a.decomp = [];
@@ -431,6 +457,9 @@ async function main() {
           script: median(samples.map((s) => s.script)),
           layout: median(samples.map((s) => s.layout)),
           style: median(samples.map((s) => s.style)),
+          devtools: median(samples.map((s) => s.devtools)),
+          task: median(samples.map((s) => s.task)),
+          taskNet: median(samples.map((s) => s.taskNet)),
         });
       }
     }
@@ -484,6 +513,44 @@ async function main() {
     }
   }
 
+  // THE SAME SAMPLES ON RAW `TaskDuration` (rf2-emvod).
+  //
+  // The question this answers is whether the figures above needed
+  // `rf2-yd52q`'s correction at all. On `clock_run.cjs` they did, badly —
+  // `taskNet` there is the operation's frame with the operation's script
+  // removed. The claim here is that this harness was never exposed, because
+  // it clicks rather than evaluates. A claim is not a measurement, so the
+  // two clocks are printed side by side and the reader can see the gap.
+  console.log('');
+  console.log(';; THE SAME SAMPLES ON RAW TaskDuration — script AND frame (rf2-emvod)');
+  console.log(';; row          arm             taskNet     task     ratio-on-taskNet  ratio-on-task   gap');
+  const summaryTask = {};
+  for (const row of ROWS) {
+    const Rn = acc[row.id][BASE].rounds;
+    const Rt = acc[row.id][BASE].roundsTask;
+    summaryTask[row.id] = { baseNet: mean(Rn), baseTask: mean(Rt), arms: {} };
+    console.log(
+      `;; ${row.id.padEnd(12)} ${BASE.padEnd(14)} ${fmt(mean(Rn), 3).padStart(8)} ${fmt(mean(Rt), 3).padStart(8)}` +
+        `${'1.0000'.padStart(18)} ${'1.0000'.padStart(14)}       —`
+    );
+    for (const arm of OTHERS) {
+      const Hn = acc[row.id][arm].rounds;
+      const Ht = acc[row.id][arm].roundsTask;
+      const rNet = mean(Hn) / mean(Rn);
+      const rTask = mean(Ht) / mean(Rt);
+      const perRoundTask = Rt.map((v, i) => Ht[i] / v);
+      summaryTask[row.id].arms[arm] = {
+        msNet: mean(Hn), msTask: mean(Ht), ratioNet: rNet, ratioTask: rTask,
+        perRoundTask, lo: Math.min(...perRoundTask), hi: Math.max(...perRoundTask),
+      };
+      console.log(
+        `;; ${''.padEnd(12)} ${arm.padEnd(14)} ${fmt(mean(Hn), 3).padStart(8)} ${fmt(mean(Ht), 3).padStart(8)}` +
+          `${fmt(rNet).padStart(18)} ${fmt(rTask).padStart(14)}   ${fmt(((rTask - rNet) / rNet) * 100, 1).padStart(6)}%` +
+          `   [${fmt(Math.min(...perRoundTask))} – ${fmt(Math.max(...perRoundTask))}]`
+      );
+    }
+  }
+
   console.log('');
   console.log(';; UNVERIFIED SAMPLES (must be 0 on every row)');
   for (const row of ROWS) console.log(`;;   ${row.id.padEnd(12)} ${summary[row.id].unverified}`);
@@ -492,25 +559,54 @@ async function main() {
   console.log('');
   console.log(';; POSITIVE CONTROL — create10k against run1k, predicted ' + `[${CONTROL.lo} – ${CONTROL.hi}]x before the run`);
   let controlPass = true;
-  for (const arm of ARMS) {
-    const num = mean(acc[CONTROL.row][arm].rounds);
-    const den = mean(acc[CONTROL.against][arm].rounds);
-    const x = num / den;
-    const ok = x >= CONTROL.lo && x <= CONTROL.hi;
-    if (!ok) controlPass = false;
-    console.log(`;;   ${arm.padEnd(14)} ${fmt(x, 3)}x  ${ok ? 'PASS' : 'FAIL'}`);
+  const haveControl = acc[CONTROL.row] && acc[CONTROL.against];
+  if (!haveControl) {
+    controlPass = false;
+    console.log(
+      `;;   NOT RUN — JSFB_ONLY=${JSFB_ONLY} dropped ${!acc[CONTROL.row] ? CONTROL.row : CONTROL.against}. ` +
+        `THIS RUN IS A PROBE AND CERTIFIES NO MAGNITUDE: with no control there is nothing saying the ` +
+        `instrument saw the work at all. Use it to compare two clocks on the SAME samples, which is a ` +
+        `question the control does not guard, and never to publish a ratio.`
+    );
+  } else {
+    for (const arm of ARMS) {
+      const num = mean(acc[CONTROL.row][arm].rounds);
+      const den = mean(acc[CONTROL.against][arm].rounds);
+      const x = num / den;
+      const ok = x >= CONTROL.lo && x <= CONTROL.hi;
+      if (!ok) controlPass = false;
+      console.log(`;;   ${arm.padEnd(14)} ${fmt(x, 3)}x  ${ok ? 'PASS' : 'FAIL'}`);
+    }
   }
 
   console.log('');
   console.log(';; DECOMPOSITION — median ms per sample, round 1');
-  console.log(';; row          arm             script    layout     style');
+  console.log(';; row          arm             script    layout     style  devtools      task   taskNet');
   for (const row of ROWS) {
     for (const arm of ARMS) {
       const d = acc[row.id][arm].decomp[0];
       console.log(
-        `;; ${row.id.padEnd(12)} ${arm.padEnd(14)} ${fmt(d.script, 3).padStart(8)} ${fmt(d.layout, 3).padStart(9)} ${fmt(d.style, 3).padStart(9)}`
+        `;; ${row.id.padEnd(12)} ${arm.padEnd(14)} ${fmt(d.script, 3).padStart(8)} ${fmt(d.layout, 3).padStart(9)} ${fmt(d.style, 3).padStart(9)}` +
+          ` ${fmt(d.devtools, 3).padStart(9)} ${fmt(d.task, 3).padStart(9)} ${fmt(d.taskNet, 3).padStart(9)}`
       );
     }
+  }
+  // THE TELL, in one line per row. If `devtools` is roughly CONSTANT across
+  // arms that differ by milliseconds of script, the counter is not carrying
+  // their script and `taskNet` is a script-inclusive reading here. If it
+  // TRACKS the arm — as it does on `clock_run.cjs`, where the operation runs
+  // inside the command — it is carrying it, and this harness's published
+  // ratios would need the same correction `clock_run.cjs` needed.
+  console.log('');
+  console.log(';; IS devtools TRACKING THE ARM? (spread across arms, per row)');
+  for (const row of ROWS) {
+    const dv = ARMS.map((arm) => acc[row.id][arm].decomp[0].devtools);
+    const sc = ARMS.map((arm) => acc[row.id][arm].decomp[0].script);
+    const spread = (xs) => (Math.max(...xs) - Math.min(...xs));
+    console.log(
+      `;;   ${row.id.padEnd(12)} devtools ${ARMS.map((a, i) => fmt(dv[i], 3)).join(' / ')}` +
+        ` spread ${fmt(spread(dv), 3)} ms   against a SCRIPT spread of ${fmt(spread(sc), 3)} ms`
+    );
   }
 
   const pageErrors = ROWS.flatMap((row) => ARMS.flatMap((arm) => acc[row.id][arm].errors));
@@ -518,7 +614,14 @@ async function main() {
   console.log(`;; PAGE ERRORS: ${pageErrors.length}`);
   pageErrors.slice(0, 5).forEach((e) => console.log(`;;   ${e.slice(0, 160)}`));
 
-  const out = { provenance, parity, summary, control: { ...CONTROL, pass: controlPass }, pageErrors: pageErrors.length };
+  const out = {
+    provenance, parity, summary, summaryTask,
+    decomposition: Object.fromEntries(
+      ROWS.map((row) => [row.id, Object.fromEntries(ARMS.map((arm) => [arm, acc[row.id][arm].decomp]))])
+    ),
+    control: { ...CONTROL, pass: controlPass },
+    pageErrors: pageErrors.length,
+  };
   const dest = process.env.JSFB_OURS_JSON;
   if (dest) {
     fs.writeFileSync(dest, JSON.stringify(out, null, 2));
