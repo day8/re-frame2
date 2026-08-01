@@ -105,6 +105,12 @@ const WARMUP = Number(process.env.HCLOCK_WARMUP || 4);
 const SAMPLES = Number(process.env.HCLOCK_SAMPLES || 10);
 const NO_BUILD = process.argv.includes('--no-build');
 
+// Where to write the run's RAW per-sample readings, if anywhere. The seam
+// study (rf2-cvvb7) had to compare eleven runs against each other, and a
+// console line is not a dataset: the segment decomposition below is
+// recomputed from this file rather than scraped back out of the log.
+const JSON_OUT = (process.env.HCLOCK_JSON || '').trim();
+
 // The lane's slack, unchanged and for its reason: the claim a clock
 // control certifies is THE INSTRUMENT HAS SIGNAL, not THE MODEL IS EXACT.
 // A top-down React re-render is not perfectly linear in element count —
@@ -598,6 +604,7 @@ function report(out) {
   // --- the floor seam -------------------------------------------------------
   const floorBySeg = SEGMENTS.map((s) => p50(rounds.flatMap((r) => r[s][FLOOR])));
   const seamSpread = Math.max(...floorBySeg) / Math.min(...floorBySeg);
+  const seam = { floorBySeg: floorBySeg.map(r4), pooledSpread: r4(seamSpread - 1) };
   console.log(
     `;; seam     the SAME floor read ${SEGMENTS.map((s, i) => `${s} ${floorBySeg[i].toFixed(3)}`).join(', ')} ms ` +
       `— spread ${((seamSpread - 1) * 100).toFixed(1)}%. Every figure below is floor-normalised WITHIN its ` +
@@ -770,7 +777,7 @@ function report(out) {
   const v = guard.verdict(samples, { tolerance: 0.1 });
   for (const line of guard.format(v, `${rowId} — frame-inclusive task time`)) console.log(line);
 
-  return { bar, ctlVerdict, etVerdict, guardVerdict: v, parityOk: disagree.length === 0, tally };
+  return { bar, ctlVerdict, etVerdict, guardVerdict: v, parityOk: disagree.length === 0, tally, seam };
 }
 
 // ---------------------------------------------------------------------------
@@ -863,8 +870,47 @@ function report(out) {
   }
 
   if (died) {
+    // A RUN THAT DIED IS NOT A RUN. Nothing is written, including the
+    // rows that completed before it: a partial dataset on disk is the
+    // shape of `rf2-6t03c`'s recorded fault, where a stale artefact was
+    // silently measured after the thing that produced it had aborted.
     console.error(`[clock] FAILED: ${died}`);
     process.exit(1);
+  }
+
+  if (JSON_OUT) {
+    fs.mkdirSync(path.dirname(path.resolve(JSON_OUT)), { recursive: true });
+    fs.writeFileSync(
+      path.resolve(JSON_OUT),
+      JSON.stringify(
+        {
+          label: process.env.HCLOCK_LABEL || null,
+          load: process.env.HCLOCK_LOAD === undefined ? null : Number(process.env.HCLOCK_LOAD),
+          chromium: version,
+          node: process.version,
+          when: new Date().toISOString(),
+          design: { rounds: ROUNDS, warmup: WARMUP, samples: SAMPLES, tare: TARE, segments: SEGMENTS },
+          rows: outcomes.map((o) => ({
+            rowId: o.out.rowId,
+            // Raw per-sample task-time readings, [round][segment][arm].
+            // Everything the seam decomposition needs is derived from
+            // these; the segment's POSITION in a round is
+            // `(SEGMENTS.indexOf(seg) - round) mod 3` by construction.
+            rounds: o.out.rounds,
+            decomposition: o.out.decomposition,
+            granularity: o.out.granularity,
+            seam: o.verdict.seam,
+            tally: o.verdict.tally,
+            ctlOk: o.verdict.ctlVerdict ? o.verdict.ctlVerdict.ok : null,
+            guardRefuse: o.verdict.guardVerdict.refuse,
+            bar: o.verdict.bar,
+          })),
+        },
+        null,
+        1
+      )
+    );
+    console.error(`[clock] raw readings -> ${path.resolve(JSON_OUT)}`);
   }
 
   const errored = outcomes.filter((o) => o.out.pageErrors.length > 0);
