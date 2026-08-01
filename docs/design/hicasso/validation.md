@@ -361,7 +361,7 @@ ours.
 
 | row | outside instrument | our published figure | disposition |
 |---|---|---|---|
-| **candidate mount** | `1.1756×` on create-1,000 | `1.2107×` on M1 | **corroborated.** Two instruments and two workloads span 1.18–1.28; the ~20% mount deficit is not a harness artefact |
+| **candidate mount** | `1.1756×` on create-1,000 | ~~`1.2107×`~~ **`1.4896×`** on M1 | **corroborated in direction, and the span was across two clocks** (`rf2-emvod`). `1.2107×` is a frame-**only** figure and the outside instrument's is script-and-frame, so "1.18–1.28" compared unlike things. On one clock the gap decomposes into **workload 16.5%** and **instrument 8.8%**, which compound to the observed 1.267. The mount deficit is not a harness artefact and is **larger on our own witness** than this row read |
 | **donor bulk broad** | `0.9740×` on replace-all, `1.1419×` on swap | ~~`0.6291×`~~ **withdrawn** | **refused a third time, and now [re-taken](studio/bulk-broad-re-taken.md).** No instrument that sees the whole operation reproduces the 37% win; the re-take reads `0.8602×`, keeps the direction and publishes no magnitude. It expected parity and did not find it either — the row is a real but much smaller win, at the edge of the instrument's resolution |
 | candidate bulk | `1.6216×` theirs / `1.4260×` ours on replace-all | **refused** by the clock page | the candidate's **worst** row, agreed by both instruments and materially worse than its mount |
 | candidate narrow | `0.7203×` theirs / `0.7583×` ours on partial-update | **refused** by the clock page | a **win** — 24–28% faster than Reagent-on-subs. UIx wins it slightly harder |
