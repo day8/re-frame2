@@ -1802,6 +1802,30 @@ Failure modes:
 | `:unknown-version` | `:rf.machines-viz.share/v` is newer than the decoder knows. |
 | `:invalid-chart-state` | `:rf.machines-viz.share/chart` doesn't validate. The `:definition` slot is checked by the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18), so a forged URL carrying a definition that is structurally invalid BELOW the root (a nested compound missing `:initial`, a dangling target, an unknown bare node key) fails closed at BOTH encode and decode, not just a shallow root-shape violation. |
 
+#### What the thrown `ex-data` may carry
+
+A share-URL is forged input by assumption — the encoder's privacy filter
+exists because a hand-edited fragment can smuggle `:snapshot {:data …}` and
+arbitrary runtime values — and projection cannot walk `ex-data` after the
+fact (EP-0015 / Spec 015 §exception-path residual). So no decode failure
+retains any part of what it rejected (rf2-m46qv):
+
+| Slot | Carries |
+|---|---|
+| `:url-summary`, `:envelope-summary`, `:chart-summary` | A value-free summary of the rejected value: `:type` drawn from the closed vocabulary `:map` / `:vector` / `:seq` / `:set` / `:keyword` / `:symbol` / `:string` / `:number` / `:boolean` / `:nil` / `:fn` / `:scalar`, plus an integer `:count` for a counted collection or string. Nothing else. It is content-free BY CONSTRUCTION rather than by redaction, so it serializes to a fixed size whatever arrives — there is no key set to cap and no prefix to bound. The same closed vocabulary `re-frame.error/diag-value-summary` uses, so one diagnostic vocabulary reads across both surfaces. |
+| `:payload-version` | For `:unknown-version` only: the INTEGER the version comparison used, or `nil` when `:v` did not parse as a number at all. Never the raw `:v`, which a forged payload chooses freely and without bound. |
+| `:reason`, `:message` | The category and the human sentence — both framework-authored, neither derived from the payload. |
+
+There is deliberately **no `:cause` slot**. `transit/read` calls `JSON.parse`,
+and V8 embeds a prefix of its input in the `SyntaxError` it throws
+(`Unexpected token 'h', "hunter2-sw"... is not valid JSON`), so republishing
+the host's message republished the payload under a slot named for the cause.
+`:reason` already names which stage failed and `:message` says so in words.
+
+The encoder holds the same line: `:host-carries-fragment` reports
+`:fragment-index` rather than the host, and `:invalid-chart-state` reports
+`:chart-state-summary` rather than the chart state.
+
 ### Pipeline
 
 ```
