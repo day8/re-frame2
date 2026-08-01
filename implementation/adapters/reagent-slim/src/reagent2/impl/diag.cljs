@@ -10,8 +10,8 @@
   classify the original paths — path-based projection cannot recover a
   value that no longer sits at a path, and hiccup children can carry
   app-owned sensitive/large values. The fix is to carry a SUMMARY of the
-  offending value (shape / type / count / keys / bounded head), never the
-  value itself.
+  offending value (its type, and the size of a counted collection), never
+  the value itself.
 
   This is a content-byte-for-byte mirror of
   `re-frame.error/diag-value-summary` (one diagnostic vocabulary across
@@ -24,46 +24,39 @@
   Pure; no runtime state. Hot-path safe — runs only on the failure path."
   (:refer-clojure :exclude []))
 
-(def ^:private head-limit
-  "Max chars of a leaf scalar's printed form to retain in a diagnostic
-  head — bounded so a large/secret scalar never rides whole into ex-data."
-  24)
-
-(defn- head
-  "A bounded, content-light head string for a scalar leaf — enough to
-  recognise the value's flavour without carrying the whole value off-box."
-  [v]
-  (cond
-    (keyword? v) (str v)
-    (symbol? v)  (str v)
-    :else
-    (let [s (str v)]
-      (if (> (count s) head-limit)
-        (str (subs s 0 head-limit) "…")
-        s))))
-
 (defn value-summary
   "EP-0015-safe SUMMARY of a value for a reagent-slim diagnostic message
   or ex-data slot (Spec 015 §Data-Classification, rf2-uwqale). Returns a
   small data map describing the value's SHAPE — never the value itself —
   so the diagnostic survives off-box capture without leaking app-owned
   sensitive/large hiccup content. Mirrors
-  `re-frame.error/diag-value-summary` exactly."
+  `re-frame.error/diag-value-summary` exactly.
+
+  Shape (`:count` present only for a counted collection or string):
+
+    {:type   :map | :vector | :seq | :set | :keyword | :symbol
+             | :string | :number | :boolean | :nil | :fn | :scalar
+     :count  <int>}
+
+  **Content-free BY CONSTRUCTION (rf2-210uq).** Every value the summary
+  can carry is either a member of the closed `:type` vocabulary above or
+  an integer count, so nothing here is derived from the input's CONTENT
+  and the serialized summary is a fixed size whatever arrives. The former
+  `:head` (a raw 24-char prefix, unbounded for keywords/symbols) and map
+  `:keys` (uncapped, unsanitised, app-controlled) legs are gone; so is the
+  `(str v)` that let a hostile `toString` throw out of a diagnostic."
   [v]
   (cond
     (nil? v)     {:type :nil}
-    (map? v)     {:type  :map
-                  :count (count v)
-                  :keys  (try (vec (sort-by str (keys v)))
-                              (catch :default _ (vec (keys v))))}
+    (map? v)     {:type :map :count (count v)}
     (vector? v)  {:type :vector :count (count v)}
     (set? v)     {:type :set :count (count v)}
-    (string? v)  {:type :string :count (count v) :head (head v)}
-    (keyword? v) {:type :keyword :head (head v)}
-    (symbol? v)  {:type :symbol :head (head v)}
-    (boolean? v) {:type :boolean :head (str v)}
-    (number? v)  {:type :number :head (head v)}
+    (string? v)  {:type :string :count (count v)}
+    (keyword? v) {:type :keyword}
+    (symbol? v)  {:type :symbol}
+    (boolean? v) {:type :boolean}
+    (number? v)  {:type :number}
     (seq? v)     {:type :seq}
     (fn? v)      {:type :fn}
     (seqable? v) {:type :seq}
-    :else        {:type :scalar :head (head v)}))
+    :else        {:type :scalar}))
