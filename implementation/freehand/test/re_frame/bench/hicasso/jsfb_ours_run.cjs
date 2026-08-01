@@ -74,6 +74,13 @@ const ROUNDS = Number(process.env.JSFB_ROUNDS || 6);
 const WARMUP = Number(process.env.JSFB_WARMUP || 5);
 const SAMPLES = Number(process.env.JSFB_SAMPLES || 10);
 
+// Every navigation states its own ceiling. Playwright's silent 30s default
+// is the trap `_navigation-ceiling-policy` exists to catch: its failure line
+// reads like a lane budget, so the fix reached for is a bigger budget, which
+// moves nothing. This bounds a page load of a ~636 KB :advanced bundle from
+// localhost, so it is generous rather than tight.
+const NAV_TIMEOUT_MS = Number(process.env.JSFB_NAV_TIMEOUT_MS || 60000);
+
 const ARMS = ['rf2-reagent', 'rf2-hicasso'];
 
 const url = (arm) => `http://${HOST}:${PORT}/frameworks/keyed/${arm}/`;
@@ -150,6 +157,12 @@ const ROWS = [
     id: 'create10k',
     jsfb: '07_create10k',
     maps: 'THE POSITIVE CONTROL — exactly 10x run1k’s rows',
+    // A tenth of the samples, because each one costs about ten times as
+    // much and the row is a CONTROL rather than a published magnitude:
+    // what it has to resolve is "did the instrument see ~10x", and a
+    // 10x effect does not need 10 samples to clear a 5-wide band.
+    warmup: 2,
+    samples: 4,
     setup: async (p) => { await click(p, '#clear'); await expectRows(p, 0); },
     op: async (p) => { await click(p, '#runlots'); },
     verify: async (p) => expectRows(p, 10000),
@@ -264,17 +277,20 @@ async function measureArm(browser, arm, row, roundIdx) {
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 
-  await page.goto(url(arm), { waitUntil: 'load', timeout: 60000 });
-  await page.waitForSelector('#run', { timeout: 60000 });
+  await page.goto(url(arm), { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
+  await page.waitForSelector('#run', { timeout: NAV_TIMEOUT_MS });
   await settle(page);
 
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');
 
-  const samples = [];
+  const out = [];
   let unverified = 0;
 
-  for (let i = 0; i < WARMUP + SAMPLES; i++) {
+  const warmup = row.warmup ?? WARMUP;
+  const samples = row.samples ?? SAMPLES;
+
+  for (let i = 0; i < warmup + samples; i++) {
     await row.setup(page);
     await settle(page);
 
@@ -293,11 +309,11 @@ async function measureArm(browser, arm, row, roundIdx) {
       }
     }
 
-    if (i >= WARMUP) samples.push(d);
+    if (i >= warmup) out.push(d);
   }
 
   await page.close();
-  return { samples, unverified, errors };
+  return { samples: out, unverified, errors };
 }
 
 async function main() {
@@ -320,7 +336,7 @@ async function main() {
   // much headroom the figures had.
   {
     const p = await browser.newPage();
-    await p.goto(url(ARMS[0]), { waitUntil: 'load' });
+    await p.goto(url(ARMS[0]), { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
     provenance.hardwareConcurrency = await p.evaluate(() => navigator.hardwareConcurrency);
     provenance.deviceMemory = await p.evaluate(() => navigator.deviceMemory);
     await p.close();
@@ -335,7 +351,7 @@ async function main() {
     const html = {};
     for (const arm of ARMS) {
       const p = await browser.newPage();
-      await p.goto(url(arm), { waitUntil: 'load' });
+      await p.goto(url(arm), { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
       await p.waitForSelector('#run');
       await click(p, '#run');
       await expectRows(p, 1000);
