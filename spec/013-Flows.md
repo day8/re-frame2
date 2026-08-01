@@ -373,7 +373,7 @@ A flow's optional `:schema` key (per [§The registration shape](#the-registratio
   (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0))))))
 ```
 
-Flow output validation is dev-only: it sits behind `re-frame.interop/debug-enabled?` and is compile-time eliminated in production builds. That is a fact about this surface, not about the validation surface at large. [C-000.35](000-Vision.md#contract--pattern-obligations) settles what may be elided by ownership rather than by subject matter, and a `reg-flow` `:schema` is a declaration the programmer writes over their own flow — so it goes, while the checks the framework makes on its own boundaries stay ([010 §Production builds](010-Schemas.md#production-builds) names them).
+Flow output validation is dev-only: it sits behind `re-frame.interop/debug-enabled?` and is compile-time eliminated in production builds. That is a fact about this surface, not about the validation surface at large. [C-000.35](000-Vision.md#contract--pattern-obligations) settles what may be elided by what the check is for rather than by who declared the schema it reads, and a `reg-flow` `:schema` is an ordinary registration diagnostic over the programmer's own flow — so it goes, while the checks the framework relies on to keep its own promises stay ([010 §Production builds](010-Schemas.md#production-builds) names them).
 
 ## Sub integration
 
