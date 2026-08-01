@@ -394,7 +394,7 @@ A form-action implementation conforms to this convention when:
 - [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract) — the side-channel response accumulator (read via `get-response`) and the seven standard server-only fxs.
 - [011-SSR.md §Standard fx](011-SSR.md#standard-fx) — `:rf.server/redirect` and the multi-status policy.
 - [011-SSR.md §Server error projection](011-SSR.md#server-error-projection) — the default mapping from `:rf.error/schema-validation-failure` to a 400 public-error response, and which build each of its inputs survives into.
-- [000-Vision.md §C-000.35](000-Vision.md#contract--pattern-obligations) — the ownership line this pattern's validation story rests on: a `:schema` the programmer declares elides; a check the framework makes on its own boundaries holds in every build.
+- [000-Vision.md §C-000.35](000-Vision.md#contract--pattern-obligations) — the line this pattern's validation story rests on: an ordinary registration diagnostic elides; a check the framework relies on to keep a promise of its own holds in every build, whoever declared the schema it reads.
 - [011-SSR.md §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx) — the platform-gating that lets one handler emit both server and client effects.
 - [010-Schemas.md §Validation timing](010-Schemas.md#validation-timing) — the `:schema` check that runs on every dispatched event in a development build.
 - [010-Schemas.md §Production builds](010-Schemas.md#production-builds) — why that check is absent from a release build, and what `:rf.schema/at-boundary` does and does not cover. The reason this pattern's validation lives in the handler.
