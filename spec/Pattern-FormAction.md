@@ -30,18 +30,59 @@ A cart page lets the user add an item to their basket from a product-detail card
 
 ### The form schema and slice
 
+Two shapes reach the action handler, and they are not the same shape. The no-JS
+POST body carries the editable fields **plus a CSRF token**; the hydrated
+client dispatches the editable fields **alone**. One schema describes what they
+share, and it is the one everything else is built from.
+
 ```clojure
-(def AddToCartForm
+;; The editable fields — what the user may type, what the form slice's :draft
+;; holds, and what BOTH platforms submit. This is the schema the handler
+;; validates against.
+(def AddToCartFields
   [:map
-   [:item-id   [:string {:min 1}]]
-   [:quantity  [:and :int [:>= 1] [:<= 99]]]
-   [:csrf-token [:string {:min 1}]]])
+   [:item-id  [:string {:min 1}]]
+   [:quantity [:and :int [:>= 1] [:<= 99]]]])
+
+;; What the event ACCEPTS, on either platform: the fields, plus the token the
+;; server POST carries and the client does not. `:optional` is what makes one
+;; registration admit both call sites; `:sensitive?` keeps the token out of the
+;; dev-time validation trace, which would otherwise carry the event args
+;; verbatim ([010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)).
+(def AddToCartSubmission
+  (conj AddToCartFields
+        [:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]))
 
 (rf/reg-app-schema [:cart :add-form]        FormSlice)
-(rf/reg-app-schema [:cart :add-form :draft] AddToCartForm)
+(rf/reg-app-schema [:cart :add-form :draft] AddToCartFields)   ;; the fields, never the token
 ```
 
 (`FormSlice` is the standard slice from [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice).)
+
+**Why the token is not a field.** It is tempting to write one schema with
+`:csrf-token` required and point everything at it. That single decision breaks
+the pattern in three places at once, and each break is silent:
+
+- **The draft would have to hold a secret.** `[:cart :add-form :draft]` is
+  re-rendered into the page on every failure, and the token is a credential.
+  The failure arm below deliberately writes only the editable fields, so a
+  draft typed with a token-bearing schema is invalid by construction — its own
+  canonical value can never satisfy it.
+- **The client's own dev tripwire would reject the client.** The hydrated
+  `:on-submit` has no session token to add. An event `:schema` that requires
+  one fails every post-hydration submission in development.
+- **The client would never get past validation in production.** The handler's
+  validation arm runs on both platforms. Against a token-requiring schema every
+  client submission takes the failure arm, so the form 400s and never
+  navigates — and because the arm is ordinary handler code, that one is *not*
+  elided in a release build. It is the shipped behaviour.
+
+The token is not form state and not a field; it is a per-request credential
+that belongs to the POST envelope. It gets the check it actually deserves — an
+equality compare against the session's active token, in the server-guarded CSRF
+arm — which is strictly stronger than any string schema could be. Malli maps
+are open, so `AddToCartFields` validates the server's POST body unchanged; the
+extra key simply passes through to the arm that owns it.
 
 ### The view (runs on both platforms)
 
@@ -54,6 +95,9 @@ A cart page lets the user add an item to their basket from a product-detail card
     [:form
      {:method    "POST"
       :action    (str "/cart/add")
+      ;; The fields only. No token: there is no session token to read in the
+      ;; browser, and a same-frame dispatch crosses no trust boundary. The
+      ;; hidden input below still renders, because the NO-JS path needs it.
       :on-submit (fn [e]
                    (.preventDefault e)
                    (dispatch [:cart/add-item (assoc draft :item-id item-id)]))}
@@ -101,7 +145,11 @@ The `action` attribute is what makes the form work without JS: the browser will 
 
 (rf/reg-event :cart/add-item
   {:doc              "Add an item to the user's cart. Runs on both platforms; the POST entry point lives on the server."
-   :schema           [:cat [:= :cart/add-item] AddToCartForm]  ;; DEV TRIPWIRE ONLY — elided in production (010 §Production builds)
+   ;; DEV TRIPWIRE ONLY — elided in production (010 §Production builds). It
+   ;; admits BOTH call sites: the server's POST body (fields + token) and the
+   ;; client's dispatch (fields alone). `:csrf-token` is `:optional` in
+   ;; `AddToCartSubmission` precisely so this one registration covers both.
+   :schema           [:cat [:= :cart/add-item] AddToCartSubmission]
    :rf.cofx/requires [:rf.server/request                       ;; server request context — SERVER-ONLY, see below
                       :app.csrf/active-token]}                 ;; app-owned cofx — see §CSRF
   (fn [{:keys [db] :as cofx} [_ form-params]]
@@ -112,7 +160,12 @@ The `action` attribute is what makes the form work without JS: the browser will 
           ;; request slot is a legitimately nil value under a present key.
           server?      (contains? cofx :rf.server/request)
           active-token (:app.csrf/active-token cofx)
-          explanation  (m/explain AddToCartForm form-params)   ;; nil when the form is clean
+          ;; The FIELDS, on both platforms — not the envelope. Malli maps are
+          ;; open, so the server's extra `:csrf-token` passes straight through
+          ;; to the CSRF arm, which is the thing that actually checks it.
+          ;; Validating the token here instead would 400 every client
+          ;; submission, which is the one arm production does NOT elide.
+          explanation  (m/explain AddToCartFields form-params) ;; nil when the fields are clean
           ;; The editable fields, and only those. `:csrf-token` is a secret
           ;; carrier and never belongs in a slice the page re-renders — the
           ;; view emits a fresh one from the session on every render.
@@ -122,7 +175,11 @@ The `action` attribute is what makes the form work without JS: the browser will 
         ;; `server?`: the token check belongs to the POST entry point, and on
         ;; the client `active-token` is absent, so an unguarded compare would
         ;; measure every client submission against nil and 403 all of them.
-        (and server? (not= (:csrf-token form-params) active-token))
+        ;; BOTH limbs must hold. A bare `(not= submitted active-token)` fails
+        ;; OPEN on a request with no session: `active-token` is nil, a POST
+        ;; carrying no token is nil, and nil = nil would wave it through.
+        (and server? (not (and (some? active-token)
+                               (= (:csrf-token form-params) active-token))))
         {:db (assoc-in db [:cart :add-form :errors :_form]
                        ["Session expired. Please refresh and try again."])
          :fx [[:rf.server/set-status 403]]}
@@ -167,11 +224,13 @@ The success path **chooses** its destination; it does not emit both and let the 
 
 A form POST is untrusted input arriving on a production server, and the response it deserves — `400`, plus the form re-rendered with inline errors and the user's values still in the fields — has to be produced by code that is actually in the production build. The handler's own `cond` arm is that code. Three framework surfaces sit close enough to be mistaken for it, and it is worth being precise about how far each one gets:
 
-- **`:schema` on `reg-event` is a tripwire, not a guard.** Per [010 §Production builds](010-Schemas.md#production-builds), every dev-time validation site is compile-time eliminated under `:advanced` + `goog.DEBUG=false` (and on the JVM under `-Dre-frame.debug=false`). On a production server the `:schema` check never runs, and a POST body that violates `AddToCartForm` flows straight into the handler body. Keep the `:schema` — it catches the day someone deletes the branch, and it is what tools and agents introspect — but never let it be the check. This one gets nowhere in production.
+- **`:schema` on `reg-event` is a tripwire, not a guard.** Per [010 §Production builds](010-Schemas.md#production-builds), every dev-time validation site is compile-time eliminated under `:advanced` + `goog.DEBUG=false` (and on the JVM under `-Dre-frame.debug=false`). On a production server the `:schema` check never runs, and a POST body that violates `AddToCartSubmission` flows straight into the handler body. Keep the `:schema` — it catches the day someone deletes the branch, and it is what tools and agents introspect — but never let it be the check. This one gets nowhere in production.
 - **`:rf.schema/at-boundary` gets you a status, not a page.** The boundary interceptor ([010 §Production builds](010-Schemas.md#production-builds)) forces the `:schema` check past elision: its check is ungated and runs in every build, which is exactly right for an untrusted HTTP response or websocket frame. A rejection in a release build is real and it is visible — the handler is skipped so the payload never reaches `app-db`, one always-on structural `:rf.error/schema-validation-failure` record is fanned (`:source :boundary`, identifiers only — no event vector, no offending value, because a boundary payload is attacker-controlled by definition), the event-emit record settles `:outcome :rejected`, and the SSR error projector turns that record into a `400` ([011 §Server error projection](011-SSR.md#server-error-projection)). What the interceptor cannot do is *shape* the answer. A skipped handler writes no `:errors`, keeps no submitted values, and re-renders no form, so the user is handed a generic public-error body instead of their own form back. Reach for `:rf.schema/at-boundary` on the fire-and-forget ingress events described in 010, where a status is the whole answer owed; on a form action, write the branch.
 - **The error projector answers in the public-error shape, which is not a form.** [011 §Server error projection](011-SSR.md#server-error-projection) maps `:rf.error/schema-validation-failure` to a `400`, and that arm does reach a release server — but only via the record a boundary rejection fans, because that is the only schema-validation failure a production build still produces. It never sees a `:schema` step-1 failure, since in production there is no step-1 check left to fail. And what it emits is a status and a generic body. The field errors above the inputs, and the values the user typed, come from the handler's `[:rf.server/set-status 400]` and the slice it wrote.
 
 So the gap the handler's arm closes is not "nothing else runs" — under [000 §C-000.35](000-Vision.md#contract--pattern-obligations) what the *programmer* declares is a development aid and elides, while what the *framework* promises about its own boundaries holds in every build, and the boundary interceptor is one of the latter. The gap is narrower and more stubborn: a form action owes the user a *page*, and only handler code can compose one. The CSRF check in the worked example above was always written this way — an explicit arm, failing closed with its own status — and form validation is the same kind of rule, so it gets the same shape.
+
+The two arms check different things, and keeping them separate is what lets one handler serve both platforms. The **fields** arm validates `AddToCartFields` on every submission, server and client alike. The **credential** arm validates the token, on the server alone, by comparing it to the session. Fold the credential into the field schema and the client — which has no token to send — fails its own validation on every submit, in production, where nothing elides the arm that rejects it.
 
 ### Failure path — re-render with errors
 
@@ -225,7 +284,11 @@ An app-owned `:app.csrf/active-token` cofx exposes the session token to action h
 
 Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite=Lax`, `HttpOnly`, `Secure`) are host concerns — the pattern names *where* the check happens (in the action handler, before any state mutation), not *which* token scheme the app uses.
 
-The CSRF token field is also on the `[:rf.http :sensitive-headers]` denylist via the `X-CSRF-Token` / `X-XSRF-Token` entries in the standard set ([014 §Header denylist](014-HTTPRequests.md#1-header-denylist-always-on)) — when the token is carried in a request header (the JS-fetch path), the redaction is automatic. When carried in a form-body field that lands in `app-db`, mark the token's app-db slot sensitive at the schema — `[:csrf-token {:sensitive? true} [:string {:min 1}]]` — so a schema-validation-failure trace redacts the value at that path ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)). Sensitivity is path-marked at the data value, not declared on the handler that touched it.
+The CSRF token field is also on the `[:rf.http :sensitive-headers]` denylist via the `X-CSRF-Token` / `X-XSRF-Token` entries in the standard set ([014 §Header denylist](014-HTTPRequests.md#1-header-denylist-always-on)) — when the token is carried in a request header (the JS-fetch path), the redaction is automatic.
+
+In the form-body path it is not automatic, and the slot to mark is **not** an `app-db` slot. This pattern deliberately keeps the token out of `app-db` altogether: the failure arm's `select-keys` writes the editable fields and nothing else, so there is no persisted slot to declare sensitive. What the token *does* travel through is the **event args** — `:rf/server-init` dispatches the whole POST body as `[:cart/add-item form-params]` — and a dev-time `:schema` failure on that event carries the args verbatim. That is why `AddToCartSubmission` marks its `:csrf-token` entry `{:sensitive? true}`: it is the schema at the path the token actually occupies, and the mark is what redacts it out of the `:rf.error/schema-validation-failure` trace ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)). Sensitivity is path-marked at the data value, not declared on the handler that touched it — so it goes on the schema describing the shape the secret is *in*, whichever surface that is.
+
+(A form whose secret genuinely must persist — a password held in a draft across a wizard step, say — marks the `app-db` slot instead, at the schema registered for that path. The rule is the same; only the surface differs.)
 
 ## File uploads — multipart POST
 
@@ -256,8 +319,10 @@ The `:cart/add-item` event runs unchanged on both platforms — one registration
 |---|---|---|
 | Dispatch site | `:rf/server-init`'s POST branch | view's `:on-submit` handler |
 | Source of `form-params` | parsed by host adapter from POST body | the view's `:draft` slice (Pattern-Forms) |
+| Shape of `form-params` | fields **+ `:csrf-token`** (the POST envelope) | fields **alone** — the browser has no session token |
+| Field validation | `(m/explain AddToCartFields form-params)` | identical — same call, same schema, both platforms |
 | `:rf.server/request` cofx | delivered | **absent** (platform-skipped) — this is the platform test |
-| CSRF check | compares against the app-owned `:app.csrf/active-token` cofx | not run — the cofx is server-only, and the submission crosses no trust boundary |
+| CSRF check | compares against the app-owned `:app.csrf/active-token` cofx, failing closed when either side is absent | not run — the cofx is server-only, and the submission crosses no trust boundary |
 | Success effect | `[:rf.server/redirect …]` (full-page navigation) | `[:dispatch [:rf.route/navigate {:to :route/cart}]]` (SPA navigation, shipped routing event) |
 | Failure render | `render-to-string` re-emits the page with errors, fields repopulated from `:draft` | the form view's existing error subs re-render in place |
 
@@ -296,6 +361,8 @@ An action without a form slice (a pure-API endpoint sharing the action-event sur
 - **Skipping the `action` attribute.** A form without `method` and `action` only works with JS — the progressive-enhancement guarantee breaks. Always emit the attributes; the `:on-submit` interceptor is purely additive.
 - **Validating only on the client.** Client validation is for UX; the server is the authority. The action handler MUST re-check the POST body in its own body — never trust what the browser sent.
 - **Letting `:schema` be the server-side validation.** The commonest way to ship an unvalidated form endpoint: declare `:schema` on the action handler, read it as "the framework checks this", and write no branch. It is a dev tripwire and is absent from the production build ([010 §Production builds](010-Schemas.md#production-builds)), so the endpoint that passes every test accepts anything in production. Attaching `:rf.schema/at-boundary` gets you further than nothing — the interceptor's check is ungated, so the payload is refused and the projector answers 400 — but it skips the handler, so the user gets a generic error body instead of their form back, with everything they typed gone. See [§Validation is the handler's job](#validation-is-the-handlers-job).
+- **Requiring the CSRF token in the form's field schema.** One `[:map … [:csrf-token [:string {:min 1}]]]` pointed at the draft, the event `:schema`, and the handler's validation call looks like admirable economy and is a live production bug. The hydrated client submits no token, so the handler's own validation arm rejects every client submission — and that arm is ordinary handler code, so unlike the `:schema` tripwire it is *not* elided; the form 400s in the release build and never navigates. The same schema also makes the draft unsatisfiable, since the failure arm must not write a secret into a slice the page re-renders. Type the draft and the validation call with the **fields**; let the token be `{:optional true :sensitive? true}` on the event-args schema and check it in the server-guarded CSRF arm.
+- **Comparing the submitted token against the session token with `not=` alone.** `(not= (:csrf-token form-params) active-token)` fails **open** on a request with no session: `active-token` is `nil`, an attacker's token-less POST supplies `nil`, and the arm does not fire. Require both: the session token present, *and* equal to the submitted one.
 - **Emitting the redirect and the navigate together.** The tempting shape is one `:fx` vector carrying both, on the theory that each platform no-ops the one it does not own. Only half of that is true. `:platforms` gating is a `reg-fx` / `reg-cofx` property ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)), so `:rf.server/redirect` really does lapse on the client — but `:rf.route/navigate` is an event reached through `:dispatch`, and `:dispatch` has no platform gate, so on the server it runs: route slice written, destination route work possibly fired, no browser history behind it. Choose one arm per platform from the presence of a server-only coeffect key.
 - **Deciding the platform by truthiness instead of key presence.** `(if request …)` looks equivalent to `(if (contains? cofx :rf.server/request) …)` and is not. A platform-skipped supplier delivers no key; a supplier that *ran* on the server and found its slot unpopulated delivers the key carrying `nil`. Under truthiness the second case reads as "client" and dispatches a browser navigation on a request thread.
 - **Inventing an app-owned effect for a plain URL.** `[:rf.route/navigate {:url "/cart"}]` is shipped — `:url` is the raw-URL escape in the navigate request grammar, exclusive with `:to`. An app-owned navigation effect earns its place only when you mean to bypass the router outright (hard `window.location`, external redirect). And do not reach for a navigate fx under `:rf.nav/*`: the framework ships none.
@@ -309,11 +376,12 @@ An action without a form slice (a pure-API endpoint sharing the action-event sur
 A form-action implementation conforms to this convention when:
 
 - The form HTML carries both `method="POST"` and `action="/<route>"`; submit-handler interception is purely additive on top.
-- The form carries a CSRF token in a hidden `<input>` field with name `csrf-token` (or via header for JS-fetch submits); the action handler MUST verify it on the server, before any state mutation.
+- The form carries a CSRF token in a hidden `<input>` field with name `csrf-token` (or via header for JS-fetch submits); the action handler MUST verify it on the server, before any state mutation. The check fails closed on **both** limbs — it MUST reject when the session carries no active token, not merely when the two differ.
+- The field schema and the POST envelope are **distinct**. The editable-field schema types the form slice's `:draft` and is what the handler validates on both platforms; the token appears only on the event-args schema, `{:optional true}` so one registration admits both call sites, and `{:sensitive? true}` so a dev-time validation trace does not carry it. A schema that requires the token of every submission is non-conformant: it rejects the hydrated client in production and makes the draft unsatisfiable.
 - The host adapter parses POST bodies (form-urlencoded and multipart) and binds them to `*current-request*` under a `:form-params` slot.
 - `:rf/server-init` routes GET → page loader; POST → action event. Apps MAY collapse the two when the route's action and loader share an event.
 - The action handler validates `form-params` **in its own body** and branches on the result. This check is what runs on a production server; it is NEVER skipped, even when client validation matches.
-- The action handler ALSO carries a `:schema` matching the form schema, as the dev tripwire and the introspection surface — but the conformance criterion above is not satisfied by the `:schema` alone ([010 §Production builds](010-Schemas.md#production-builds)).
+- The action handler ALSO carries a `:schema` describing what the event accepts — the fields plus the optional token — as the dev tripwire and the introspection surface. It MUST admit both call sites: the server's POST envelope and the client's field-only dispatch. The conformance criterion above is not satisfied by the `:schema` alone ([010 §Production builds](010-Schemas.md#production-builds)).
 - On validation failure, the handler repopulates the per-form slice's `:draft` from the submitted fields — editable fields only, never a token or other secret carrier — populates its `:errors` map, emits `[:rf.server/set-status 400]`, and the page re-renders. Without the `:draft` write the no-JS path returns a blank form, since the server renders the fields from the slice and not from the POST body.
 - On success, the handler emits `[:rf.server/redirect {:status 303 :location "..."}]`.
 - When the form's fields carry credentials, PII, or other secrets, the credential-bearing app-db slots MUST be marked `{:sensitive? true}` at the schema so a schema-validation-failure trace redacts the value at that path ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)); on the JS-fetch submit path, the re-POST via `:rf.http/managed` additionally carries the per-request / per-call `:sensitive?` flag ([014 §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive)). Sensitivity is a property of the data value at a path, not a flag on the action handler.
