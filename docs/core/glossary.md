@@ -577,7 +577,7 @@ Hyphenate **run-to-completion** consistently.
 
 ### **elide**
 
-Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). Removes the dev trace surface, the [epoch](#epoch) buffer, and the [schema](#schema) *checks a programmer declares over their own code*. What elides is settled by **ownership**, not by subject matter: a check the framework makes on its own boundaries — `:rf.schema/at-boundary`, a recordable [coeffect](#coeffect)'s `:schema`, a declared route's shape — is a promise about framework behaviour, and holds in every build. Always-on `:errors` and `:events` streams survive.
+Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). Removes the dev trace surface, the [epoch](#epoch) buffer, and the *ordinary registration diagnostics* among the [schema](#schema) checks. What elides is settled by **what the check is for**, not by who declared the schema it reads: a check the framework relies on to keep a promise of its own — `:rf.schema/at-boundary`, a recordable [coeffect](#coeffect)'s `:schema`, a declared route's shape — holds in every build, and those three all validate against a schema the programmer wrote. Always-on `:errors` and `:events` streams survive.
 
 ```clojure
 ;; goog.DEBUG=false removes the dev trace surface and the schema

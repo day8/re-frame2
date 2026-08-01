@@ -43,7 +43,7 @@
                    UNGATED per Spec 010, so `:rejected` DOES have a
                    producer in a release build. It is not the only
                    ungated schema check (C-000.35 settles that by
-                   ownership), but it is the only one this `:outcome`
+                   what the check is for), but it is the only one this `:outcome`
                    vocabulary names in its own right — the others throw,
                    and a throw reports `:error` —
                    it is the outcome to alert on for hostile or

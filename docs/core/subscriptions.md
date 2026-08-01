@@ -563,8 +563,8 @@ downstream where some view chokes on it. A strict mode re-raises, for CI. The
 whole `:sub-return` boundary is [elided](glossary.md#elide) from production — a
 sub's `:schema` is a claim you make about a derivation you wrote, and a release
 build takes you at your word. (That is a fact about *this* boundary, not about
-schema checking at large: the checks the framework makes on its own boundaries
-hold in every build. [What goes and what
+schema checking at large: the checks the framework relies on to keep its own
+promises hold in every build. [What goes and what
 stays](how-to/validate-with-schemas.md#in-production-what-goes-what-stays).)
 
 **Subscribing during teardown.** A stray async callback fires after its
