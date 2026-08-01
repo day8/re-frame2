@@ -58,13 +58,18 @@
 
   TWO deliberate differences from the converged mount rows, both stated:
 
-    * ROUNDS = 4, EVEN. The converged page measured a systematic
+    * ROUNDS = 4, EVEN. The converged page once reported a systematic
       segment-order effect (11 of 12 row-runs read higher Reagent-first,
-      p = 0.0032) and named an even round count as the arm-level repair —
-      the 3:2 design over-weights one order. A balanced 2:2 design makes
-      the raw mean and the order-balanced mean coincide by construction.
-      This entry takes that repair; it re-derives its own denominator, so
-      no published row moves.
+      p = 0.0032) and named an even round count as the arm-level repair.
+      THAT FINDING IS WITHDRAWN — the twelve were four correlated rows
+      inside each of only three runs, not twelve trials, and the fixed
+      start confounded order with time; the counterbalanced ten-run
+      ensemble does not establish the effect on any row (rf2-6i0i2).
+      THE REPAIR STANDS ON ITS OWN AND IS WHY THIS ENTRY KEEPS IT: a 3:2
+      design over-weights one order, while a balanced 2:2 makes the raw
+      mean and the order-balanced mean coincide BY CONSTRUCTION, which is
+      a design property and needs no effect to justify it. This entry
+      re-derives its own denominator, so no published row moves.
     * A RESIDUE GATE per segment-round (`lane/residue` back to baseline
       after a settle). The `handoff` arm holds a provisional +1 between
       render and commit; a plan in which every render commits must drive

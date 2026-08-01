@@ -150,19 +150,27 @@
   strata pointing opposite ways across 1.0 refuse the row), and MAGNITUDE
   is publishable only when the strata OVERLAP.
 
-  It found something. Across three independent five-round runs the
-  cross-segment figure reads HIGHER when the Reagent segment ran first in
-  11 of 12 row-runs — one-sided binomial p = 0.0032. The per-row
-  disjointness test cannot see that (at 3:2 a disjoint split arises 20% of
-  the time under the null, and which row splits is not stable across
-  runs); the sign across rows and runs can. Five rounds cannot balance two
-  orders, so the raw mean over-weights whichever order got the extra round
-  — which is why `:order-balanced-mean`, the mean of the two stratum
-  means, is published on every row beside it. The studio page carries the
-  table and the consequence for `1.2301`. rf2-6i0i2 then took both
-  repairs: [[rounds]] is even, and the start is a counterbalanced per-run
-  parameter, so the order question is answered across independently
-  launched runs rather than inside one.
+  It looked like it had found something, AND THAT READING IS WITHDRAWN.
+  Across three independent five-round runs the cross-segment figure read
+  HIGHER when the Reagent segment ran first in 11 of 12 row-runs, which
+  this comment once called a one-sided binomial p = 0.0032. IT IS NOT
+  TWELVE TRIALS: the four rows inside a run share a machine, a heap and a
+  collector, so the honest unit is the RUN and the sample was n = 3. And
+  every one of those runs started with Reagent, so segment order was
+  welded to round parity and a page that simply gets slower as it runs
+  produces the identical partition. On the counterbalanced ten-run
+  ensemble the effect is not established on any row, and counted the old
+  way it reads 23 of 40 (rf2-6i0i2). The QUALITATIVE suspicion was worth
+  chasing; the p-value was not warranted.
+
+  What survives is the DESIGN repair, which never needed the effect: five
+  rounds cannot balance two orders, so the raw mean over-weights whichever
+  order got the extra round — which is why `:order-balanced-mean`, the
+  mean of the two stratum means, is published on every row beside it, and
+  why [[rounds]] is even and the start is a counterbalanced per-run
+  parameter. The order question is asked across independently launched
+  runs rather than inside one. The studio page carries the ten-run table,
+  the withdrawal, and the consequence for `1.2301`.
 
   ## One row per page
 
