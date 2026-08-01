@@ -1,0 +1,784 @@
+#!/usr/bin/env node
+// THE CANDIDATE'S CLOCK ROWS — driver (rf2-0qj9w).
+//
+//   node implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs
+//
+// The programme has no wall-clock measurement of its own candidate. Hook
+// count and per-read retained heap are measured; mount, bulk K=100/300,
+// narrow and per-keystroke are not, and every clock figure it has
+// published is about the DONORS. This driver takes those rows, with the
+// donors in the same runs on the same instrument, because validation.md
+// is explicit that a candidate is judged against the donor row taken on
+// its own instrument and that a margin under 5% is instrument-limited
+// rather than cleared.
+//
+// ## WHY THIS IS NOT `performance.now()` AROUND A `flushSync`
+//
+// Every other clock entry in this lane wraps an in-page span around the
+// substrate's own call. That span ends when the JavaScript returns —
+// BEFORE the style recalculation, layout, pre-paint and paint the
+// mutation causes. The error would be tolerable if it were common-mode.
+// It is not: how much work a substrate leaves for the browser after its
+// stack unwinds is precisely what differs between these arms, and
+// Hicasso's whole design concerns WHEN work happens, so an in-page window
+// systematically flatters whichever arm defers most.
+//
+// So the clock here is CHROME'S OWN. `Performance.getMetrics` over the
+// DevTools protocol reports the renderer's cumulative counters, and the
+// delta across one operation — taken after the page has been made to
+// produce the frame that follows it — is main-thread task time INCLUDING
+// style, layout and paint recording.
+//
+// Two properties of that choice are worth stating because they are the
+// reason for it:
+//
+//   * `TaskDuration` is a PROTOCOL value, not a web-exposed one, so it
+//     does not carry the Spectre clamp. Chrome restricts
+//     `performance.now()` to 100 µs from version 91 across platforms
+//     (5 µs only under cross-origin isolation) — verified against
+//     Chrome's own "Aligning timers with cross origin isolation
+//     restrictions" and MDN's `Performance.now` security section, both
+//     read on 2026-08-01. The page here is NOT cross-origin isolated, so
+//     its in-page span carries the 100 µs quantum and this one does not.
+//     The observed granularity of the counters is measured and reported
+//     rather than assumed.
+//   * It does NOT capture off-main-thread rasterisation or compositing.
+//     Everything below is main-thread cost. That is stated on every row
+//     rather than implied.
+//
+// The in-page span is taken anyway, on the same operation in the same
+// sample, and published beside the frame-inclusive one. The gap between
+// them measures the error the other instrument makes, per arm.
+//
+// ## PER-KEYSTROKE IS EVENT TIMING, AND THE KEY IS A REAL KEY
+//
+// `PerformanceEventTiming` decomposes real input latency into input
+// delay, processing time and time to next paint — it CAPTURES THE PAINT,
+// which is strictly better than asserting on the line after
+// `dispatchEvent` returns. Two limits of it are load-bearing and are
+// reported rather than papered over: `duration` is rounded to the nearest
+// 8 ms, and the minimum `durationThreshold` an observer may ask for is
+// 16 ms, so an interaction faster than that produces NO `event` entry at
+// all. Both verified against MDN's `PerformanceEventTiming`, read
+// 2026-08-01. A row whose interactions all land under the reporting floor
+// is reported as exactly that.
+//
+// The driver sends the key through the protocol's input domain
+// (Playwright's `keyboard.press`), because a JavaScript-dispatched event
+// is not a user interaction and Event Timing reports user interactions.
+//
+// ## EXIT CODES — the guard owns 2, and it is not the arm's to move
+//
+//   0  measured, guard clean, controls passed
+//   1  the run failed (build, page error, a fatal the page recorded, a
+//      positive control that did not see what its own arithmetic predicts,
+//      an unverified write, a teardown that did not tear down)
+//   2  THE ARM-ORDER GUARD REFUSED. A figure whose value depends on where
+//      in the plan it was measured is not a figure. The repair is the ARM
+//      — more warm-up, fewer arms per page, a longer window — never the
+//      guard's tolerance.
+//
+// A Chromium `pageerror` is FATAL: a benchmark that threw and kept going
+// publishes a precise number for a page that is not the page under test.
+
+'use strict';
+
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
+
+const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
+const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
+const guard = require('../../freehand/bench/order_guard.cjs');
+
+const IMPL = path.resolve(__dirname, '../../../../..');
+
+const BUILD_ID = 'hicasso-bench';
+const OUT_DIR = process.env.HCLOCK_OUT_DIR || 'out/hicasso-clock';
+const INIT_FN = 're-frame.bench.hicasso.clock-app/-main';
+const OUT = path.join(IMPL, OUT_DIR);
+const PORT = Number(process.env.HCLOCK_PORT || 8137);
+
+const ROUNDS = Number(process.env.HCLOCK_ROUNDS || 6);
+const WARMUP = Number(process.env.HCLOCK_WARMUP || 4);
+const SAMPLES = Number(process.env.HCLOCK_SAMPLES || 10);
+const NO_BUILD = process.argv.includes('--no-build');
+
+// The lane's slack, unchanged and for its reason: the claim a clock
+// control certifies is THE INSTRUMENT HAS SIGNAL, not THE MODEL IS EXACT.
+// A top-down React re-render is not perfectly linear in element count —
+// the root, the commit and the diff walk do not double — so 2.00 ± 5%
+// would fail an instrument that is working.
+const CONTROL_SLACK = 0.25;
+
+// The keystroke control burns this many milliseconds inside its handler
+// (`clock-views/kb-floor`), and the prediction below is written against
+// it before the run.
+const CTL_BUSY_MS = 50;
+
+const ALL_ROWS = ['M1', 'bulk300', 'bulk100', 'narrow', 'keystroke'];
+const ONLY = (process.env.HCLOCK_ONLY || '').trim();
+const ROWS = ONLY ? ALL_ROWS.filter((r) => ONLY.split(',').includes(r)) : ALL_ROWS;
+if (ROWS.length === 0) {
+  console.error(`[clock] HCLOCK_ONLY=${ONLY} selects no row; known ids: ${ALL_ROWS.join(', ')}`);
+  process.exit(1);
+}
+
+const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
+const FLOOR = 'floor';
+
+// ---------------------------------------------------------------------------
+// Build and serve
+// ---------------------------------------------------------------------------
+
+const CONFIG_MERGE =
+  `{:output-dir "${OUT_DIR}" :asset-path "." ` + `:modules {:main {:init-fn ${INIT_FN}}}}`;
+
+function build() {
+  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+    console.error(`[clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+  }
+  console.error(`[clock] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
+  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
+  const r = spawnSync(process.execPath, [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE], {
+    cwd: IMPL,
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  if (r.status !== 0) {
+    console.error(`[clock] build failed with status ${r.status}`);
+    process.exit(1);
+  }
+}
+
+const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };
+
+function serve() {
+  fs.writeFileSync(
+    path.join(OUT, 'index.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso clock</title></head>' +
+      '<body><div id="app"></div><script src="main.js"></script></body></html>'
+  );
+  return http
+    .createServer((req, res) => {
+      const rel = decodeURIComponent(req.url.split('?')[0]);
+      const file = path.join(OUT, rel === '/' ? 'index.html' : rel);
+      if (!file.startsWith(OUT) || !fs.existsSync(file)) {
+        res.writeHead(404).end('not found');
+        return;
+      }
+      res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
+      fs.createReadStream(file).pipe(res);
+    })
+    .listen(PORT);
+}
+
+// ---------------------------------------------------------------------------
+// Statistics — ranges, never a bare mean
+// ---------------------------------------------------------------------------
+
+const r4 = (x) => Math.round(x * 10000) / 10000;
+
+function p50(xs) {
+  const v = [...xs].sort((a, b) => a - b);
+  if (v.length === 0) return NaN;
+  return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+}
+
+function summarise(xs) {
+  const v = [...xs].sort((a, b) => a - b);
+  return { n: v.length, min: v[0], p50: p50(v), max: v[v.length - 1] };
+}
+
+function band(xs) {
+  return { mean: r4(xs.reduce((a, b) => a + b, 0) / xs.length), min: r4(Math.min(...xs)), max: r4(Math.max(...xs)) };
+}
+
+/**
+ * A positive control is a STATED prediction against a measured range, and
+ * the STRICT rule is used: every round must sit inside the band.
+ * `lane/control-verdict`'s overlap rule is documented in its own docstring
+ * as the lane's known defect (rf2-egdaq) — a control whose worst round is
+ * wrong has caught something, and letting a good round vouch for a bad one
+ * is how an instrument stops being one. Nothing here is already published
+ * under the weaker rule, so there is nothing to re-adjudicate.
+ */
+function controlVerdict(predicted, perRound, slack) {
+  const lo = predicted * (1 - slack);
+  const hi = predicted * (1 + slack);
+  const b = band(perRound);
+  const ok = perRound.every((x) => x >= lo && x <= hi);
+  return {
+    predicted: r4(predicted),
+    band: [r4(lo), r4(hi)],
+    measured: b,
+    perRound: perRound.map(r4),
+    ok,
+    rule: 'strict — EVERY round inside the band',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The instrument: Chrome's own renderer counters
+// ---------------------------------------------------------------------------
+
+const METRICS = [
+  'TaskDuration',
+  'ScriptDuration',
+  'LayoutDuration',
+  'RecalcStyleDuration',
+  'DevToolsCommandDuration',
+  'LayoutCount',
+  'RecalcStyleCount',
+];
+
+async function readMetrics(cdp) {
+  const { metrics } = await cdp.send('Performance.getMetrics');
+  const out = {};
+  for (const m of metrics) if (METRICS.includes(m.name)) out[m.name] = m.value;
+  return out;
+}
+
+function deltaOf(a, b) {
+  const d = {};
+  for (const k of METRICS) d[k] = (b[k] || 0) - (a[k] || 0);
+  // The counters are seconds; milliseconds is what every other row in this
+  // lane is stated in.
+  const task = d.TaskDuration * 1000;
+  const devtools = d.DevToolsCommandDuration * 1000;
+  return {
+    // PRIMARY. The driver's own protocol traffic is subtracted because it
+    // is instrument cost rather than page cost, and Chrome accounts for it
+    // separately for exactly this reason. Both are reported.
+    taskNet: task - devtools,
+    task,
+    devtools,
+    script: d.ScriptDuration * 1000,
+    layout: d.LayoutDuration * 1000,
+    style: d.RecalcStyleDuration * 1000,
+    layoutCount: d.LayoutCount,
+    styleCount: d.RecalcStyleCount,
+  };
+}
+
+// The Event Timing observer. Installed from the driver rather than from
+// the page program: it is instrument code, it belongs to whoever is doing
+// the measuring, and `addInitScript` puts it in before any page script
+// runs so `buffered: true` has something to buffer.
+const EVENT_TIMING_INIT = `
+  window.__ET = [];
+  window.__ETARM = null;
+  window.__ETUNATTRIBUTED = 0;
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (!window.__ETARM) { window.__ETUNATTRIBUTED++; }
+        window.__ET.push({
+          arm: window.__ETARM,
+          name: e.name,
+          startTime: e.startTime,
+          processingStart: e.processingStart,
+          processingEnd: e.processingEnd,
+          duration: e.duration,
+          interactionId: e.interactionId,
+        });
+      }
+    }).observe({ type: 'event', durationThreshold: 16, buffered: true });
+  } catch (err) { window.__ETERROR = String(err); }
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        window.__ET.push({
+          arm: window.__ETARM, name: 'first-input:' + e.name,
+          startTime: e.startTime, processingStart: e.processingStart,
+          processingEnd: e.processingEnd, duration: e.duration, interactionId: e.interactionId,
+        });
+      }
+    }).observe({ type: 'first-input', buffered: true });
+  } catch (err) { window.__ETERROR2 = String(err); }
+`;
+
+// ---------------------------------------------------------------------------
+// One row
+// ---------------------------------------------------------------------------
+
+async function runRow(browser, rowId) {
+  // A FRESH PAGE per row, not a fresh navigation in the same one: this
+  // lane's recorded fault is a page that gets slower the longer it runs,
+  // and a reused page carries whatever caused that across the row boundary.
+  const page = await browser.newPage();
+  await page.addInitScript(EVENT_TIMING_INIT);
+  const pageErrors = [];
+  page.on('pageerror', (e) => {
+    pageErrors.push(e.message);
+    console.error('[clock] PAGE ERROR:', e.message);
+  });
+  page.on('console', (msg) => {
+    const t = msg.text();
+    if (t.startsWith(';; ') || t.startsWith('[clock]')) console.log(t);
+  });
+
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Performance.enable');
+
+  await navigate(page, `http://127.0.0.1:${PORT}/`, {
+    waitUntil: 'commit',
+    timeoutMs: NAV_TIMEOUT_MS,
+    budget: 'the wait for window.HCLOCK_READY',
+  });
+  await page.waitForFunction('window.HCLOCK_READY === true', null, { timeout: 120000 });
+
+  const isKeystroke = rowId === 'keystroke';
+  const samples = []; // for the arm-order guard
+  const rounds = []; // [{seg: {arm: [ms...]}}]
+  const inPageRounds = [];
+  const decomposition = {}; // "seg/arm" -> accumulated style/layout/counts
+  const canon = {}; // "seg/arm" -> {hash, bytes, control}
+  const eventTiming = []; // raw PerformanceEventTiming records
+  let unattributedET = 0;
+  let position = 0;
+  let previous = null;
+  const granularity = new Set();
+
+  const bump = (key, d) => {
+    const acc = (decomposition[key] ||= {
+      n: 0, taskNet: 0, script: 0, style: 0, layout: 0, layoutCount: 0, styleCount: 0, inPage: 0,
+    });
+    acc.n += 1;
+    acc.taskNet += d.taskNet;
+    acc.script += d.script;
+    acc.style += d.style;
+    acc.layout += d.layout;
+    acc.layoutCount += d.layoutCount;
+    acc.styleCount += d.styleCount;
+  };
+
+  for (let round = 0; round < ROUNDS; round++) {
+    // The segment order ROTATES with the round, so no segment is
+    // permanently first and a segment effect cannot hide inside a temporal
+    // one. Three segments give three orders; six rounds visit each twice.
+    const segOrder = SEGMENTS.map((_, i) => SEGMENTS[(i + round) % SEGMENTS.length]);
+    const perSeg = {};
+    const perSegInPage = {};
+
+    for (const seg of segOrder) {
+      await page.evaluate((s) => window.HCLOCK.enterSegment(s), seg);
+      const plan = await page.evaluate(([r, s]) => window.HCLOCK.plan(r, s), [rowId, seg]);
+      const armIds = plan.map((a) => a.id);
+
+      if (round === 0) {
+        for (const a of armIds) {
+          const c = await page.evaluate(([r, arm]) => window.HCLOCK.canon(r, arm), [rowId, a]);
+          canon[`${seg}/${a}`] = c;
+        }
+      }
+
+      for (const a of armIds) await page.evaluate(([r, arm]) => window.HCLOCK.prepare(r, arm), [rowId, a]);
+
+      const typed = {}; // per-arm accumulated field value, keystroke row only
+      for (const a of armIds) typed[a] = '';
+
+      const acc = {};
+      const accInPage = {};
+      for (const a of armIds) {
+        acc[a] = [];
+        accInPage[a] = [];
+      }
+
+      for (let s = 0; s < WARMUP + SAMPLES; s++) {
+        for (const j of guard.schedule(armIds.length, s)) {
+          const armId = armIds[j];
+          let inPageMs = NaN;
+          let ok = true;
+
+          const m0 = await readMetrics(cdp);
+          if (isKeystroke) {
+            await page.evaluate(
+              ([arm]) => {
+                window.__ETARM = arm;
+                return window.HCLOCK.focusDraft(arm);
+              },
+              [armId]
+            );
+            typed[armId] += 'a';
+            await page.keyboard.press('a');
+            const res = await page.evaluate(
+              ([arm, exp]) => window.HCLOCK.settleVerify(arm, exp),
+              [armId, typed[armId]]
+            );
+            ok = res.ok;
+          } else {
+            const res = await page.evaluate(([r, arm]) => window.HCLOCK.sample(r, arm), [rowId, armId]);
+            inPageMs = res.inPageMs;
+            ok = res.ok;
+          }
+          const m1 = await readMetrics(cdp);
+          const d = deltaOf(m0, m1);
+          if (d.taskNet > 0) granularity.add(d.taskNet);
+
+          if (isKeystroke) {
+            // A second settle before draining: Event Timing entries reach
+            // the observer in a task AFTER the frame that painted them.
+            await page.evaluate(() => window.HCLOCK.settle());
+            const drained = await page.evaluate(() => {
+              const es = window.__ET;
+              window.__ET = [];
+              const u = window.__ETUNATTRIBUTED;
+              window.__ETUNATTRIBUTED = 0;
+              window.__ETARM = null;
+              return { es, u };
+            });
+            unattributedET += drained.u;
+            for (const e of drained.es) {
+              eventTiming.push({ ...e, seg, round, sampleIndex: s, warm: s >= WARMUP });
+            }
+          }
+
+          if (s >= WARMUP) {
+            const key = `${seg}/${armId}`;
+            acc[armId].push(d.taskNet);
+            if (Number.isFinite(inPageMs)) accInPage[armId].push(inPageMs);
+            bump(key, d);
+            samples.push({ arm: key, value: d.taskNet, predecessor: previous, position });
+            position += 1;
+          }
+          previous = `${seg}/${armId}`;
+          if (!ok) {
+            // Not fatal here — the tally is adjudicated at the end of the
+            // row, where the count is what makes it reportable or not.
+          }
+        }
+      }
+
+      for (const a of armIds) await page.evaluate(([r, arm]) => window.HCLOCK.finish(r, arm), [rowId, a]);
+      const td = await page.evaluate(() => window.HCLOCK.teardownCheck());
+      if (td.length > 0) {
+        await page.close();
+        throw new Error(`teardown FAILED in segment ${seg} round ${round}: ${td.join(', ')}`);
+      }
+
+      perSeg[seg] = acc;
+      perSegInPage[seg] = accInPage;
+    }
+    rounds.push(perSeg);
+    inPageRounds.push(perSegInPage);
+  }
+
+  const tally = await page.evaluate(() => window.HCLOCK.tally());
+  const residue = await page.evaluate(() => window.HCLOCK.residue());
+  const runtime = await page.evaluate(() => window.HCLOCK.runtime());
+  const etError = await page.evaluate(() => window.__ETERROR || null);
+  await page.close();
+
+  return {
+    rowId, samples, rounds, inPageRounds, decomposition, canon, tally, residue, runtime,
+    eventTiming, unattributedET, etError, pageErrors,
+    granularity: [...granularity].sort((a, b) => a - b),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Adjudication
+// ---------------------------------------------------------------------------
+
+/** Per-round ratio of `arm` to the floor measured in THAT round of THAT segment. */
+function ratioToFloor(rounds, seg, arm) {
+  return rounds.map((r) => {
+    const a = p50(r[seg][arm]);
+    const f = p50(r[seg][FLOOR]);
+    return a / f;
+  });
+}
+
+/** The bar arithmetic: two floor-normalised ratios, one against the other. */
+function crossSegment(rounds, numSeg, numArm, denSeg, denArm) {
+  const num = ratioToFloor(rounds, numSeg, numArm);
+  const den = ratioToFloor(rounds, denSeg, denArm);
+  const per = num.map((x, i) => x / den[i]);
+  const b = band(per);
+  return { ...b, perRound: per.map(r4), straddles1: b.min <= 1.0 && b.max >= 1.0 };
+}
+
+function report(out) {
+  const {
+    rowId, samples, rounds, inPageRounds, decomposition, canon, tally, residue, runtime,
+    eventTiming, unattributedET, etError, granularity,
+  } = out;
+
+  console.log(`;; ==== ROW ${rowId} ====`);
+  console.log(`;; runtime  ${runtime}`);
+  console.log(`;; residue  ${residue}`);
+  console.log(`;; writes   ${tally.unverified} unverified of ${tally.writes}`);
+  console.log(
+    `;; clock    Performance.getMetrics TaskDuration less DevToolsCommandDuration, ` +
+      `frame-settled (rAF + setTimeout) — main thread only, no raster/composite`
+  );
+  console.log(
+    `;; grain    smallest non-zero per-sample delta ${granularity.length ? granularity[0].toFixed(6) : 'n/a'} ms ` +
+      `over ${granularity.length} distinct values ` +
+      `(the page is NOT cross-origin isolated; performance.now() here carries a 100 µs quantum)`
+  );
+
+  // --- the fairness gate ----------------------------------------------------
+  const nonControl = Object.entries(canon).filter(([, c]) => !c.control);
+  const refHash = nonControl.length ? nonControl[0][1].hash : null;
+  const disagree = nonControl.filter(([, c]) => c.hash !== refHash).map(([k]) => k);
+  console.log(
+    `;; parity   ${nonControl.length} non-control arms across ${SEGMENTS.length} segments, ` +
+      `canonical DOM ${disagree.length === 0 ? 'IDENTICAL' : 'DISAGREES: ' + disagree.join(', ')} ` +
+      `(${nonControl.length ? nonControl[0][1].bytes : 0} bytes)`
+  );
+
+  // --- the rows -------------------------------------------------------------
+  console.log(`;; ---- per-arm, ratio to the floor measured in that round of that segment ----`);
+  const armsOf = (seg) => Object.keys(rounds[0][seg]);
+  for (const seg of SEGMENTS) {
+    for (const arm of armsOf(seg)) {
+      if (arm === FLOOR) continue;
+      const per = ratioToFloor(rounds, seg, arm);
+      const b = band(per);
+      console.log(
+        `;;   ${(seg + '/' + arm).padEnd(28)} ${b.mean.toFixed(4)}x floor ` +
+          `[${b.min.toFixed(4)} – ${b.max.toFixed(4)}]  n=${per.length} rounds`
+      );
+    }
+    const fl = summarise(rounds.flatMap((r) => r[seg][FLOOR]));
+    console.log(
+      `;;   ${(seg + '/floor').padEnd(28)} ABSOLUTE p50 ${fl.p50.toFixed(4)} ms ` +
+        `[${fl.min.toFixed(4)} – ${fl.max.toFixed(4)}]`
+    );
+  }
+
+  // --- the bar row ----------------------------------------------------------
+  console.log(`;; ---- THE BAR: candidate against each donor, both floor-normalised ----`);
+  const bar = {};
+  for (const den of ['reagent-subs', 'uix-subs']) {
+    const v = crossSegment(rounds, 'hicasso', 'hicasso', den, den);
+    bar[den] = v;
+    console.log(
+      `;;   hicasso / ${den.padEnd(14)} ${v.mean.toFixed(4)}x [${v.min.toFixed(4)} – ${v.max.toFixed(4)}]` +
+        (v.straddles1 ? '   — RANGE STRADDLES 1.0, indistinguishable at this n' : '')
+    );
+  }
+
+  // --- the two instruments, side by side ------------------------------------
+  if (inPageRounds[0] && Object.keys(inPageRounds[0][SEGMENTS[0]][FLOOR] || {}).length !== 0) {
+    console.log(`;; ---- the SAME samples, read on the in-page performance.now() window ----`);
+    for (const seg of SEGMENTS) {
+      for (const arm of armsOf(seg)) {
+        if (arm === FLOOR) continue;
+        const per = inPageRounds.map((r) => p50(r[seg][arm]) / p50(r[seg][FLOOR]));
+        if (!per.every(Number.isFinite)) continue;
+        const b = band(per);
+        const fi = band(ratioToFloor(rounds, seg, arm));
+        console.log(
+          `;;   ${(seg + '/' + arm).padEnd(28)} in-page ${b.mean.toFixed(4)}x  vs  ` +
+            `frame-inclusive ${fi.mean.toFixed(4)}x   (in-page reads ` +
+            `${(((b.mean - fi.mean) / fi.mean) * 100).toFixed(1)}% differently)`
+        );
+      }
+    }
+  }
+
+  // --- where the time goes --------------------------------------------------
+  console.log(`;; ---- decomposition, mean ms per sample ----`);
+  for (const [k, a] of Object.entries(decomposition)) {
+    console.log(
+      `;;   ${k.padEnd(28)} task ${(a.taskNet / a.n).toFixed(4)}  script ${(a.script / a.n).toFixed(4)}  ` +
+        `style ${(a.style / a.n).toFixed(4)}  layout ${(a.layout / a.n).toFixed(4)}  ` +
+        `layouts/sample ${(a.layoutCount / a.n).toFixed(2)}`
+    );
+  }
+
+  // --- event timing ---------------------------------------------------------
+  let etVerdict = null;
+  if (rowId === 'keystroke') {
+    console.log(`;; ---- Event Timing (paint-inclusive; duration rounded to 8 ms, floor 16 ms) ----`);
+    if (etError) console.log(`;;   observer error: ${etError}`);
+    const warm = eventTiming.filter((e) => e.warm && !e.name.startsWith('first-input:'));
+    const byArm = {};
+    for (const e of warm) {
+      const key = e.arm ? `${e.seg}/${e.arm}` : `${e.seg}/<unattributed>`;
+      (byArm[key] ||= []).push(e);
+    }
+    const totalKeys = ROUNDS * SEGMENTS.length * SAMPLES;
+    console.log(
+      `;;   ${warm.length} reported entries from ${totalKeys} measured keystrokes; ` +
+        `${unattributedET} arrived with no arm in flight`
+    );
+    for (const [k, es] of Object.entries(byArm)) {
+      const dur = summarise(es.map((e) => e.duration));
+      const proc = summarise(es.map((e) => e.processingEnd - e.processingStart));
+      const delay = summarise(es.map((e) => e.processingStart - e.startTime));
+      console.log(
+        `;;   ${k.padEnd(28)} n=${String(dur.n).padStart(3)}  duration p50 ${dur.p50.toFixed(1)} ms ` +
+          `[${dur.min.toFixed(1)} – ${dur.max.toFixed(1)}]  processing p50 ${proc.p50.toFixed(3)} ms  ` +
+          `input-delay p50 ${delay.p50.toFixed(3)} ms`
+      );
+    }
+    for (const seg of SEGMENTS) {
+      for (const arm of armsOf(seg)) {
+        if (byArm[`${seg}/${arm}`]) continue;
+        console.log(
+          `;;   ${(seg + '/' + arm).padEnd(28)} NO ENTRY — every interaction landed under the ` +
+            `16 ms reporting floor, which is a result and not a gap`
+        );
+      }
+    }
+    // THE PREDICTED CONTROL for this instrument.
+    const ctl = byArm[Object.keys(byArm).find((k) => k.endsWith('/ctl-50ms')) || ''] || [];
+    const sawIt = ctl.length > 0 && p50(ctl.map((e) => e.duration)) >= CTL_BUSY_MS - 2;
+    etVerdict = {
+      predicted: `ctl-50ms produces Event Timing entries whose duration p50 is >= ${CTL_BUSY_MS - 2} ms`,
+      measured: ctl.length ? `n=${ctl.length}, p50 ${p50(ctl.map((e) => e.duration)).toFixed(1)} ms` : 'no entries',
+      ok: sawIt,
+    };
+    console.log(
+      `;;   CONTROL  ${etVerdict.ok ? 'PASS' : 'FAIL'} — predicted ${etVerdict.predicted}; measured ${etVerdict.measured}`
+    );
+  }
+
+  // --- the positive control -------------------------------------------------
+  let ctlVerdict = null;
+  if (rowId !== 'keystroke') {
+    const per = SEGMENTS.flatMap((seg) => ratioToFloor(rounds, seg, 'ctl-2x'));
+    ctlVerdict = controlVerdict(2.0, per, CONTROL_SLACK);
+    console.log(
+      `;; ---- POSITIVE CONTROL: ctl-2x builds exactly twice the page, so the prediction is 2.00x ----`
+    );
+    console.log(
+      `;;   ${ctlVerdict.ok ? 'PASS' : 'FAIL'}  predicted ${ctlVerdict.predicted}x, band ` +
+        `[${ctlVerdict.band[0]} – ${ctlVerdict.band[1]}], measured ${ctlVerdict.measured.mean}x ` +
+        `[${ctlVerdict.measured.min} – ${ctlVerdict.measured.max}] over ${per.length} segment-rounds ` +
+        `(${ctlVerdict.rule})`
+    );
+  } else {
+    const ctlTask = SEGMENTS.flatMap((seg) => rounds.map((r) => p50(r[seg]['ctl-50ms']) - p50(r[seg][FLOOR])));
+    const b = band(ctlTask);
+    ctlVerdict = {
+      predicted: `>= ${CTL_BUSY_MS - 10} ms of extra main-thread task time`,
+      measured: b,
+      ok: ctlTask.every((x) => x >= CTL_BUSY_MS - 10),
+      rule: 'strict — EVERY segment-round',
+    };
+    console.log(`;; ---- POSITIVE CONTROL: ctl-50ms burns 50 ms inside its own handler ----`);
+    console.log(
+      `;;   ${ctlVerdict.ok ? 'PASS' : 'FAIL'}  predicted ${ctlVerdict.predicted}; measured ` +
+        `${b.mean.toFixed(2)} ms [${b.min.toFixed(2)} – ${b.max.toFixed(2)}] over ${ctlTask.length} segment-rounds`
+    );
+  }
+
+  // --- the arm-order guard --------------------------------------------------
+  const v = guard.verdict(samples, { tolerance: 0.1 });
+  for (const line of guard.format(v, `${rowId} — frame-inclusive task time`)) console.log(line);
+
+  return { bar, ctlVerdict, etVerdict, guardVerdict: v, parityOk: disagree.length === 0, tally };
+}
+
+// ---------------------------------------------------------------------------
+
+(async () => {
+  if (!NO_BUILD) build();
+  if (!fs.existsSync(OUT)) {
+    console.error(`[clock] ${OUT} does not exist — run without --no-build first`);
+    process.exit(1);
+  }
+  const server = serve();
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch();
+  const version = browser.version();
+
+  const st = guard.selfTest();
+  const badSelfTest = st.checks.filter((c) => !c.ok);
+  if (badSelfTest.length > 0) {
+    console.error(`[clock] the arm-order guard's own self-test FAILED: ${badSelfTest.map((c) => c.name).join(', ')}`);
+    await browser.close();
+    server.close();
+    process.exit(1);
+  }
+  console.error(`[clock] arm-order guard self-test: ${st.checks.length} checks, all ok`);
+
+  console.log(`;; ==== HICASSO CANDIDATE CLOCK ====`);
+  console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
+  console.log(`;; rows      ${ROWS.join(', ')}`);
+  console.log(`;; segments  ${SEGMENTS.join(', ')}  (order rotates with the round)`);
+  console.log(`;; design    ${ROUNDS} rounds x (${WARMUP} warm-up + ${SAMPLES} samples) per arm per segment`);
+  console.log(
+    `;; reproduce ${ONLY ? `HCLOCK_ONLY=${ONLY} ` : ''}node ` +
+      `implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs`
+  );
+  console.log(`;; PREDICTIONS, written before the run:`);
+  console.log(`;;   ctl-2x     = the floor at twice the boundaries -> 2.00x the floor, +/-${CONTROL_SLACK * 100}%, EVERY round`);
+  console.log(`;;   ctl-50ms   = 50 ms burned inside the handler -> >= ${CTL_BUSY_MS - 10} ms extra task time AND an Event Timing entry >= ${CTL_BUSY_MS - 2} ms`);
+  console.log(`;;   in-page    = the performance.now() window UNDER-reads the frame-inclusive one, by an arm-dependent amount`);
+
+  const outcomes = [];
+  let died = null;
+  try {
+    for (const rowId of ROWS) {
+      console.error(`[clock] row ${rowId}`);
+      try {
+        const out = await runRow(browser, rowId);
+        outcomes.push({ out, verdict: report(out) });
+      } catch (e) {
+        died = `${rowId}: ${e.message}`;
+        break;
+      }
+    }
+  } finally {
+    await browser.close();
+    server.close();
+  }
+
+  if (died) {
+    console.error(`[clock] FAILED: ${died}`);
+    process.exit(1);
+  }
+
+  const errored = outcomes.filter((o) => o.out.pageErrors.length > 0);
+  if (errored.length > 0) {
+    console.error(
+      `[clock] FAILED: uncaught page error(s) — every figure above was taken on a page that had ` +
+        `already thrown:\n  ` +
+        errored.map((o) => `${o.out.rowId}: ${o.out.pageErrors.join(' | ')}`).join('\n  ')
+    );
+    process.exit(1);
+  }
+  const refused = outcomes.filter((o) => o.verdict.guardVerdict.refuse);
+  if (refused.length > 0) {
+    console.error(
+      `[clock] ARM-ORDER GUARD REFUSED (exit 2) on: ${refused.map((o) => o.out.rowId).join(', ')}. ` +
+        `At least one arm reads differently for WHERE IN THE PLAN it was measured, so no figure in ` +
+        `that row is reportable. Repair the ARM — more warm-up, fewer arms per page, a longer ` +
+        `measured window. The guard tolerance is not yours to move.`
+    );
+    process.exit(2);
+  }
+  const badParity = outcomes.filter((o) => !o.verdict.parityOk);
+  if (badParity.length > 0) {
+    console.error(
+      `[clock] FAILED: the canonical-DOM gate found arms building DIFFERENT PAGES on: ` +
+        `${badParity.map((o) => o.out.rowId).join(', ')}. A ratio between two different pages is not a ratio.`
+    );
+    process.exit(1);
+  }
+  const unverified = outcomes.filter((o) => o.verdict.tally.unverified > 0);
+  if (unverified.length > 0) {
+    console.error(
+      `[clock] FAILED: unverified operations — a window whose value never reached the page is not a ` +
+        `measurement of that page: ` +
+        unverified.map((o) => `${o.out.rowId}: ${o.verdict.tally.unverified} of ${o.verdict.tally.writes}`).join(', ')
+    );
+    process.exit(1);
+  }
+  const ctlFailed = outcomes.filter((o) => !o.verdict.ctlVerdict.ok || (o.verdict.etVerdict && !o.verdict.etVerdict.ok));
+  if (ctlFailed.length > 0) {
+    console.error(
+      `[clock] FAILED: the positive control did not see the change its own arithmetic predicts on: ` +
+        `${ctlFailed.map((o) => o.out.rowId).join(', ')}. An instrument that cannot see a predicted ` +
+        `change cannot be trusted with an unpredicted one.`
+    );
+    process.exit(1);
+  }
+  console.error('[clock] ok');
+})();
