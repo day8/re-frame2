@@ -48,15 +48,27 @@
   **rf2-2rtt6.44 settled both, and the rows below survive it unchanged** —
   which is the point of keeping this file. The commit basis is still blind
   to a re-registration, still blind to a reincarnation, and *should be*:
-  the costing found that a registry term would have bought nothing. Both
-  events dispose the reaction the arm's cell holds, so the cell is deaf
-  and derives through a retired computation from that instant; the extra
-  render a moved number scheduled would have read straight back through
-  it. What closes them is the substrate's own disposal event
-  (`arm1.runtime/invalidate-cell!`), armed per unique key, costing nothing
-  in this arithmetic — so `observation/registry-epoch*` stayed `^:private`
-  and no substrate reader was added. `arm1/disposed-cell-cljs-test` is the
-  measurement, both failures pinned and mutation-proved.
+  the costing found that a registry term would have bought nothing. Every
+  one of those events leaves the arm's cell holding a reaction that can no
+  longer answer for its key, so the cell is deaf from that instant; the
+  extra render a moved number scheduled would have read straight back
+  through it. What closes them is `arm1.runtime/invalidate-cell!`, costing
+  nothing in this arithmetic — so `observation/registry-epoch*` stayed
+  `^:private` and no substrate reader was added.
+  `arm1/disposed-cell-cljs-test` is the measurement for the two
+  transitions that reach it as a *disposal*, armed per unique key: a
+  re-registration and a frame teardown.
+
+  The registry axis has one more transition, and it is the one this
+  arithmetic is least able to help with: a **first** registration. It
+  disposes nothing — `registrar/add-replacement-hook!` fires only when a
+  previous handler existed — and it moves neither term of the basis for
+  the same reason a re-registration does not. The arm hears it from
+  `registrar/add-registration-hook!` instead
+  (`arm1.runtime/first-registration!`), still off this arithmetic and
+  still without a registry reader.
+  `arm1/first-registration-cljs-test` is that measurement. All three
+  failures pinned and mutation-proved.
 
   These rows are therefore a **standing statement of scope**: this number
   answers the version axis and only the version axis.
@@ -135,8 +147,11 @@
 
             That is correct and permanent, not a gap awaiting a term:
             rf2-2rtt6.44 closed this axis (and the `:node-key` axis the
-            same argument covers) off the substrate's disposal event
-            instead, leaving this arithmetic exactly as it stands."
+            same argument covers) off the substrate's own events instead
+            — the reaction's disposal for a re-registration and a frame
+            teardown, the registration itself for a first `reg-sub`,
+            which disposes nothing — leaving this arithmetic exactly as
+            it stands."
     (rf/reg-sub (first q) (fn [db _] (:v db)))
     (let [seen (volatile! nil)
           f    (make-frame! ::registry {:v 1})]
