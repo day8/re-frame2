@@ -763,10 +763,10 @@
     ;;
     ;; — so a `:cause (.-message e)` republished the forged payload's own
     ;; plaintext under a slot named for the cause: a disclosure nobody wrote,
-    ;; inherited from the host and revised by the host at will. The message it
-    ;; replaced nothing of: `:reason` already discriminates WHICH stage failed
-    ;; and `:message` says so in words, which is the whole of the recovery
-    ;; ("this is not a share-URL this build can read").
+    ;; inherited from the host and revisable by the host at will. It replaced
+    ;; nothing, either — `:reason` already discriminates WHICH stage failed and
+    ;; `:message` says so in words, which is the whole of the recovery ("this
+    ;; is not a share-URL this build can read").
     (let [transit-str (try
                         (base64url->str fragment)
                         (catch :default _e
