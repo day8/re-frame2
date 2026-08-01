@@ -2657,15 +2657,30 @@
             (response/delete-cookie-fx {:frame f} {:name 99 :path "/"}))
           "delete-cookie-fx runs the same cookie-name type guard")))
 
-  (testing "rf2-9t17id regression guard — string / keyword / symbol :name
-            still pass the type guard and reach the token-grammar check
-            (a keyword :name coerces via `name`)."
+  (testing "rf2-9t17id regression guard — the type gate still separates a
+            Named from the values `(name n)` cannot survive, and a string
+            :name still lands.
+
+            NARROWED by rf2-dtpfv's audit: a keyword / symbol :name passes THIS
+            gate (`(name :csrf)` is a fine token) and is then refused by the
+            always-on SHAPE gate, because the schemas, Spec 011 §Cookie shape
+            and Spec-Schemas all publish `:string` — admitting a Named here
+            meant `{:name :csrf}` was skipped in dev, landed in production, and
+            reached host adapters as a keyword. Same ordering as set-header:
+            grammar gate first with its own catalogued id, shape gate second.
+            The full contract lives in `re-frame.ssr-reserved-fx-guards-test`."
     (let [f (frame/make-anon-frame-record! {:platform :server})]
       (response/set-cookie-fx {:frame f} {:name "session" :value "a"})
-      (response/set-cookie-fx {:frame f} {:name :csrf     :value "b"})
-      (response/set-cookie-fx {:frame f} {:name 'tracker  :value "c"})
-      (is (= 3 (count (:cookies (response/response-of f))))
-          "string, keyword, and symbol cookie names all pass the type guard"))))
+      (doseq [named-name [:csrf 'tracker]]
+        (is (thrown-with-msg?
+              clojure.lang.ExceptionInfo
+              #":rf\.error/server-fx-args-invalid"
+              (response/set-cookie-fx {:frame f} {:name named-name :value "b"}))
+            (str "a " (pr-str named-name) " :name is refused by the shape gate,"
+                 " not by the type gate — it is a well-formed token of the"
+                 " wrong published type")))
+      (is (= ["session"] (mapv :name (:cookies (response/response-of f))))
+          "only the string-named cookie landed, and its :name is a string"))))
 
 (deftest ssr-set-cookie-clean-attributes-still-accepted
   (testing "rf2-kjf3m.1 regression guard: legitimate cookie attributes still

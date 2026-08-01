@@ -68,7 +68,20 @@
   keeps EDN in this file aligned with predicates in another. So they don't
   rely on discipline: `ssr-reserved-fx-guards-test` drives ONE acceptance
   corpus through both, and a widened schema that the guard still rejects
-  (or the reverse) fails there.")
+  (or the reverse) fails there.
+
+  ## An optional key present with `nil` is absent
+
+  Every OPTIONAL slot below is `[:maybe …]`, because `{:path nil}` and `{}` say
+  the same thing in Clojure and the always-on guards read them that way — a
+  cookie assembled from an options map (`{:secure (:secure? opts)}`) writes the
+  first while meaning the second. A bare `[:path {:optional true} :string]`
+  says something different: absent is fine, present-and-nil is a violation. The
+  audit of the first fix measured what that gap did — `{:secure nil}` skipped
+  in dev, persisted in production — which is the same posture-dependent
+  accumulator this whole gate exists to close, just one key deep. REQUIRED
+  slots keep the bare type: `{:value nil}` is a cookie with no value, and `nil`
+  is not a status.")
 
 ;; ---- :rf.server/cookie — the structured-cookie shape ---------------------
 ;;
@@ -105,8 +118,13 @@
   the three coercible attrs widen to `[:or <canonical-type> :string]`: the
   canonical type is documented + validated, AND the deliberately-tolerated
   string form passes the shape gate so it reaches the CRLF defence.
-  `:secure` / `:http-only` / `:name` / `:value` / `:path` / `:domain` are
-  the bare canonical types. This is ingress CR/LF-inspection tolerance,
+  `:secure` / `:http-only` / `:name` / `:value` / `:path` / `:domain` carry
+  their canonical type and nothing else (the optional ones inside the
+  `[:maybe …]` every optional slot carries — see the ns docstring). `:name` in
+  particular is a `:string`: `re-frame.ssr.response/validate-cookie!` refuses a
+  keyword / symbol name in every build, so what an adapter reads off
+  `(:cookies response)` is the type published here. This is ingress
+  CR/LF-inspection tolerance,
   NOT a serialisability promise: the string form is tolerated at the fx
   ingress but is not a generally-valid canonical shape — `:expires`, in
   particular, MUST be an epoch-millis int at the host boundary (the Ring
@@ -116,13 +134,13 @@
   [:map
    [:name      :string]
    [:value     :string]
-   [:max-age   {:optional true} [:or :int :string]]    ;; spec: :int (see divergence note)
-   [:expires   {:optional true} [:or :int :string]]    ;; spec: :int ms-since-epoch (see divergence note)
-   [:secure    {:optional true} :boolean]
-   [:http-only {:optional true} :boolean]
-   [:same-site {:optional true} [:or [:enum :strict :lax :none] :string]] ;; spec: enum only (see divergence note)
-   [:path      {:optional true} :string]
-   [:domain    {:optional true} :string]])
+   [:max-age   {:optional true} [:maybe [:or :int :string]]]    ;; spec: :int (see divergence note)
+   [:expires   {:optional true} [:maybe [:or :int :string]]]    ;; spec: :int ms-since-epoch (see divergence note)
+   [:secure    {:optional true} [:maybe :boolean]]
+   [:http-only {:optional true} [:maybe :boolean]]
+   [:same-site {:optional true} [:maybe [:or [:enum :strict :lax :none] :string]]] ;; spec: enum only (see divergence note)
+   [:path      {:optional true} [:maybe :string]]
+   [:domain    {:optional true} [:maybe :string]]])
 
 ;; ---- :rf.fx.server/*-args — the standard fx args schemas -----------------
 ;;
@@ -183,8 +201,8 @@
   cookie at a path/domain."
   [:map
    [:name   :string]
-   [:path   {:optional true} :string]
-   [:domain {:optional true} :string]])
+   [:path   {:optional true} [:maybe :string]]
+   [:domain {:optional true} [:maybe :string]]])
 
 (def redirect-args
   "Args of `:rf.server/redirect` — `:rf.fx.server/redirect-args`.
@@ -214,8 +232,8 @@
   stays a pure shape check (key types only) and lets the no-target case
   fall through to the runtime's warning path."
   [:map
-   [:status   {:optional true} http-status]  ;; default 302
-   [:location {:optional true} :string]])    ;; canonical and only target key
+   [:status   {:optional true} [:maybe http-status]]  ;; default 302
+   [:location {:optional true} [:maybe :string]]])    ;; canonical and only target key
 
 (def safe-redirect-args
   "Args of `:rf.server/safe-redirect` — `:rf.fx.server/safe-redirect-args`.
@@ -239,6 +257,6 @@
   so the shape gate never over-constrains a legitimate call."
   [:map
    [:location       :string]
-   [:status         {:optional true} http-status]     ;; default 302
-   [:relative-only? {:optional true} :boolean]
-   [:allow          {:optional true} [:sequential :string]]])
+   [:status         {:optional true} [:maybe http-status]]     ;; default 302
+   [:relative-only? {:optional true} [:maybe :boolean]]
+   [:allow          {:optional true} [:maybe [:sequential :string]]]])
