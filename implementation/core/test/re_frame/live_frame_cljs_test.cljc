@@ -481,9 +481,14 @@
         (is (= before (lf/live-frame-ids))
             "a rejected non-map opts leaves the live-frame registry untouched")))
     (testing "the ex-data carries an EP-0015-safe :received shape summary, never
-              the raw value"
-      (is (= {:type :keyword :head ":not-a-map"}
-             (:received (err-data #(lf/make-frame :not-a-map counter-pool))))))
+              the raw value. rf2-210uq — the keyword `:head` was returned with
+              NO length bound at all, on the guess that a keyword is always
+              structural; `(keyword user-string)` is not, so it is gone"
+      (is (= {:type :keyword}
+             (:received (err-data #(lf/make-frame :not-a-map counter-pool)))))
+      (is (= {:type :string}
+             (dissoc (:received (err-data #(lf/make-frame "oops" counter-pool)))
+                     :count))))
     (testing "the EMPTY map is ACCEPTED — the explicit all-defaults frame"
       (is (lf/frame-object? (lf/make-frame {} counter-pool))))))
 
