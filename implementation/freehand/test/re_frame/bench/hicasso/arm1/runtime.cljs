@@ -633,8 +633,14 @@
   here — and at namespace load there are no cells to scan."
   [{:keys [kind id was]}]
   (when (and (= :sub kind) (nil? was))
-    (doseq [[sub-key ^js cell] @!cells]
-      (when (and (= id (nth (nth sub-key 1) 0))
+    ;; `first`, not `(nth … 0)`: a registrar hook's throw is SWALLOWED by
+    ;; `registrar/register!`, so an exception here would not surface as a
+    ;; failure — it would abandon the rest of the scan silently, leaving
+    ;; some cells repaired and some not. `(sub [])` is a legal call that
+    ;; reaches a cell (`subs/subscribe` treats a nil query-id as a miss
+    ;; like any other), and `nth` on it would throw.
+    (doseq [^js cell (vals @!cells)]
+      (when (and (= id (first (.-queryV cell)))
                  (some? (.-reaction cell)))
         (invalidate-cell! cell))))
   nil)
