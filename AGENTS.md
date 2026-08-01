@@ -24,6 +24,28 @@ powershell -ExecutionPolicy Bypass -File scripts/assert-worker-worktree.ps1
 Report the printed `WORKTREE_ROOT` in your final handoff. If the guard fails,
 stop and switch to the correct worktree before editing.
 
+## The `node_modules` Junction — Remove the Link, Never Its Target
+
+A worker worktree cannot compile without a `node_modules`, so the convention
+here is to point `<worktree>/implementation/node_modules` at the mayor
+checkout's **real** one — a directory junction on Windows, a symlink
+elsewhere. Anything that deletes *through* that link destroys shared state: a
+bare `git worktree remove`, or an `rm -rf` of the link itself, follows the
+reparse point and empties the mayor's real `node_modules` — exit 0, silently,
+breaking every local build in the repo until `npm ci --prefix implementation`
+restores it. That has happened twice.
+
+So if you create the link, unlink it as your last act before reporting done —
+`cmd /c rmdir <path>` on Windows, or `rm` **without** `-r` elsewhere; both
+unlink, `rm -rf` deletes through. And never remove a worktree by hand: the
+removal scripts disarm every link first, remove second, and fail loudly if the
+mayor's `node_modules` shrank.
+
+```bash
+sh scripts/remove-worker-worktree.sh <worktree-path>   # POSIX (primary)
+# Windows: powershell -ExecutionPolicy Bypass -File scripts/remove-worker-worktree.ps1 <worktree-path>
+```
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
