@@ -49,6 +49,12 @@
  * `'load'`-keeping sites under rf2-taj9b). The rule is narrower and entirely
  * mechanical: whatever event you wait for, NAME THE NUMBER.
  *
+ * Nor does it decide WHERE the number comes from. A site may give the
+ * navigation its own literal (`b10_prod_run.cjs`'s 60s, the two `docs/` sites)
+ * or alias the lane's existing budget (`NAV_TIMEOUT_MS = TIMEOUT_MS` in
+ * `run-browser-tests.cjs`). Both are sound. What the second gate below forbids
+ * is DESCRIBING the second as the first — see its own header.
+ *
  * Wired into `package.json` via `test:script-policy`.
  */
 
@@ -266,6 +272,154 @@ test("every navigation passes an EXPLICIT timeout — none inherits Playwright's
     [],
     'A waived file may not grow NEW un-timeouted navigations — the waiver is ' +
       'a frozen budget for sites that predate the sweep, not permission.',
+  );
+});
+
+/*
+ * Gate 2: AN ALIASED CEILING MAY NOT BE DESCRIBED AS AN INDEPENDENT ONE.
+ * ---------------------------------------------------------------------
+ * The first gate made every navigation name its number. Three runners named it
+ * by ALIASING the budget they already had — `NAV_TIMEOUT_MS = TIMEOUT_MS` in
+ * `run-browser-tests.cjs`, `NAV_TIMEOUT = TIMEOUT` in `run-ui-g8.cjs` and
+ * `run-ui-g13.cjs` — and then copied their failure wording from the sites that
+ * had picked a SEPARATE literal, where "raising the lane budget cannot move
+ * this" is simply true. On an alias it is false: one configured value bounds
+ * both phases, so raising it moves both.
+ *
+ * That is not a nitpick about prose. The whole point of naming the ceiling was
+ * to stop a CI log sending the reader to the wrong knob, and a message that
+ * disclaims the knob which DOES control the failed phase sends them nowhere at
+ * all — the same defect wearing the opposite hat (audits of PRs #7193, #7221,
+ * #7224).
+ *
+ * The rule is mechanical and reads EXECUTABLE source only, so the doc-comments
+ * that recount the original defect in the past tense stay legal:
+ *
+ *   a file whose navigation ceiling is `= SOME_OTHER_CONSTANT;`
+ *     - must NOT disclaim that constant ("raising X will not help", "a bigger
+ *       X, which cannot touch it"), and
+ *     - MUST carry the shared marker below, so all three say it identically
+ *       and a fourth aliasing runner cannot invent a fifth phrasing.
+ *
+ * A site that picks its own literal is untouched by this gate: its disclaimer
+ * is true, and it should keep it.
+ */
+
+// The one sentence, stated here so the runners quote it rather than each
+// paraphrasing. It is the model, not decoration: one knob, two phases, in that
+// order.
+const SHARED_BUDGET_MARKER = 'ONE configured value applied to TWO sequential phases';
+
+// `const NAV…TIMEOUT… = OTHER_IDENT;` — an alias. A numeric literal, an
+// arithmetic expression or a `parseInt(...)` is an independent budget and does
+// not match, which is exactly the distinction the gate turns on.
+const ALIAS_DECL_RE =
+  /\bconst\s+([A-Z][A-Z0-9_]*)\s*=\s*([A-Za-z_$][\w$]*)\s*;/g;
+const NAV_CONST_RE = /NAV/;
+const TIMEOUT_CONST_RE = /TIMEOUT/;
+
+/*
+ * A claim that some named budget is powerless over this failure. Two subject
+ * cues, both drawn from wording that actually shipped: "raising X …" and "a
+ * bigger X …". The subject must be a SCREAMING_SNAKE constant or a `${…}`
+ * interpolation of one — `raising it` and `raising the bench budget` are prose
+ * about something else and are none of this gate's business.
+ */
+const DISCLAIMER_RE = new RegExp(
+  String.raw`\b(?:raising|a bigger)\s+(?:\$\{\s*([A-Za-z_$][\w$]*)\s*\}|\$?([A-Z][A-Z0-9_]{2,}))` +
+    String.raw`[\s\S]{0,200}?(will not help|cannot (?:move|touch|help)|does nothing)`,
+  'gi',
+);
+
+/*
+ * Rejoin a failure message that the source breaks across concatenated
+ * literals. `'… TWO sequential ' + 'phases: …'` is ONE sentence to the
+ * operator reading the CI log and two string literals to a grep, and a gate
+ * that searched the raw source would be asserting about where the author
+ * happened to wrap the line. Seams are dropped and runs of whitespace
+ * collapsed, so the scan below reads the text as printed.
+ */
+function joinedText(code) {
+  return code.replace(/(['"`])\s*\+\s*(['"`])/g, '').replace(/\s+/g, ' ');
+}
+
+// Read one `const NAME = …;` initializer out of a source, or null.
+function initializerOf(code, name) {
+  const m = new RegExp(String.raw`\bconst\s+` + name + String.raw`\s*=([^;]*);`).exec(code);
+  return m ? m[1] : null;
+}
+
+/*
+ * The identifiers a file's navigation ceiling is made of, so a message that
+ * disclaims `${BROWSER_TEST_TIMEOUT_ENV_VAR}` is caught alongside one that
+ * disclaims `TIMEOUT_MS` directly. ONE hop through the alias source's own
+ * initializer, plus the string a name-holding constant resolves to — that is
+ * every shape these runners use, and stopping there keeps this a scanner
+ * rather than a half-built resolver.
+ */
+function budgetTokens(code, aliasSource) {
+  const tokens = new Set([aliasSource]);
+  const init = initializerOf(code, aliasSource);
+  if (!init) return tokens;
+  for (const [ident] of init.matchAll(/\b[A-Z][A-Z0-9_]{2,}\b/g)) {
+    tokens.add(ident);
+    // `const BROWSER_TEST_TIMEOUT_ENV_VAR = 'BROWSER_TEST_TIMEOUT_MS';` — the
+    // message interpolates the constant, the reader sees the env var name.
+    // Both are the same knob, so both are the file's budget.
+    const holder = initializerOf(code, ident);
+    const literal = holder && /^\s*'([A-Z][A-Z0-9_]*)'\s*$/.exec(holder);
+    if (literal) tokens.add(literal[1]);
+  }
+  return tokens;
+}
+
+test('a runner that ALIASES its navigation ceiling says so, and never disclaims the knob that moves it (rf2-dczpv, rf2-bhjzn)', () => {
+  const aliasing = [];
+  const untruthful = [];
+  const unmarked = [];
+
+  for (const file of scannedFiles()) {
+    const code = codeOnly(fs.readFileSync(file, 'utf8'));
+    const rel = path.relative(REPO_ROOT, file).replace(/\\/g, '/');
+    let aliasSource = null;
+    for (const m of code.matchAll(ALIAS_DECL_RE)) {
+      if (NAV_CONST_RE.test(m[1]) && TIMEOUT_CONST_RE.test(m[1])) aliasSource = m[2];
+    }
+    if (!aliasSource) continue;
+    aliasing.push(rel);
+
+    const text = joinedText(code);
+    const tokens = budgetTokens(code, aliasSource);
+    for (const m of text.matchAll(DISCLAIMER_RE)) {
+      const subject = m[1] || m[2];
+      if (tokens.has(subject)) untruthful.push(`${rel}: "${m[0].trim()}"`);
+    }
+    if (!text.includes(SHARED_BUDGET_MARKER)) unmarked.push(rel);
+  }
+
+  // The gate must have something to be true ABOUT: if the three aliasing
+  // runners are ever renamed away, this assertion fails rather than passing
+  // vacuously over an empty set.
+  assert.ok(
+    aliasing.length >= 3,
+    `expected the aliasing runners to still alias (found ${aliasing.length}: ` +
+      `${aliasing.join(', ')})`,
+  );
+  assert.deepEqual(
+    untruthful,
+    [],
+    'A runner whose navigation ceiling IS the lane budget may not tell the ' +
+      'reader that raising the lane budget cannot move it — one configured ' +
+      'value bounds both phases, so raising it moves both. Name the phase that ' +
+      'fired, then say what the knob does and what it cannot cure (a page that ' +
+      'never answered fails at the navigation at any size).',
+  );
+  assert.deepEqual(
+    unmarked,
+    [],
+    `an aliasing runner must state the model verbatim — "${SHARED_BUDGET_MARKER}" ` +
+      '— so all of them say it identically and the next one cannot invent a ' +
+      'fifth phrasing of the same relationship',
   );
 });
 
