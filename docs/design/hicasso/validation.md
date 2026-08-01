@@ -290,6 +290,36 @@ result, and it is back in. No disposition changed.)* Full record, the launch set
 in full, and the committed observation table every figure is derived from:
 [the re-take](studio/p0-converged-witness-set.md#the-re-take-on-the-post-25-tree-rf2-b0tz5).
 
+### The candidate's own clock rows (rf2-0qj9w)
+
+Every row above is about the **donors**. The candidate had no wall-clock
+measurement at all until `rf2-0qj9w`: hook count and per-read retained heap were
+measured, mount, bulk and per-keystroke were not. It now has mount and
+per-keystroke, on a **frame-inclusive** instrument — Chrome's own renderer
+counters over CDP, read after the browser has produced the frame the operation
+caused, so the style, layout and paint an in-page `performance.now()` window
+excludes are inside the number. Per-keystroke is Event Timing, which captures
+the paint. Full record, both positive controls, and the two instrument repairs a
+refusing control forced:
+[the candidate's clock](studio/the-candidates-clock.md).
+
+| row | candidate | disposition |
+|---|---|---|
+| **M1 mount** | **1.2107× Reagent-on-subs** [0.9756 – 1.7208] | above the `≤ 1.0×` win condition and above the `1.0150×` red zone. The range straddles 1.0, so a deficit is not *established* at n = 6 — but **five runs read 1.01, 1.11, 1.10, 1.11 and 1.21**, above parity in every one and below it in none. The deficit is the runtime hiccup **codec**, not the spine: the candidate pays +1.06 ms over its own floor where `uix-subs` — same spine, same adapter, same 300 reads, byte-identical DOM — pays +0.38 ms |
+| **per-keystroke** | one frame, as are both donors | Event Timing puts every arm at its 16 ms reporting floor; the finer clock reads 2.0–2.3 ms of main-thread work inside a 16.7 ms budget. Indistinguishable, and a pass for all three |
+| bulk K=100/300, narrow | **refused** | the doubling control failed the strict rule in every run, and the rows move more between runs (0.87 → 1.38 on one) than the effect they report. The page names three repairs, one of which is that `ctl-2x` is mis-specified for an *update* row — it doubles the page, and on an update the work does not follow |
+
+**One methodological finding rides these rows and outranks them.** On the same
+samples, an in-page `performance.now()` window reads a substrate arm 300–610%
+differently from the frame-inclusive clock, **and by a different factor per
+arm** — on M1 it would put the candidate at 1.56× Reagent where the
+frame-inclusive clock reads 1.21×. It is not a scale error that cancels in a
+ratio. The pure-React control arms differ by only 6–13%, which is how a lane
+that checks only its controls in-page would never see it. No published clock row
+in this programme has been checked against a frame-inclusive instrument, and
+that raises `rf2-rguy1` — the external cross-check against an instrument built
+on Chrome's timeline — from a nicety to the next question.
+
 ### P1 — the tournament, and its one surviving arm (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
 
 > **Since 2026-07-31 there is one arm.** Mike ruled Hicasso a React adapter and
