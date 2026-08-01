@@ -266,7 +266,7 @@ clean:
 | bar row | published *(pre-landing)* | **restated, post-`.25`** | disposition |
 |---|---|---|---|
 | **M1 mount** | ~~1.2310×~~ | **1.0150×** [0.9820 – 1.0480] | **RESTATED — the L1 mount red zone has CLOSED.** Under Ruling 1 the red-zone *is* the measured UIx ratio, so the mount line now sits at parity |
-| **bulk broad** | 0.6291× | not distinguishable at n = 5 | **UNDER QUESTION (rf2-8nqsl)** — direction unchanged *on this instrument*, but a frame-inclusive clock reads the same witness at parity. See the note below |
+| **bulk broad** | 0.6291× | not distinguishable at n = 5 | **UNDER QUESTION (rf2-8nqsl)** — direction unchanged *on this instrument*, but a frame-inclusive clock reads the same witness at parity, and `rf2-rguy1` has since read it at parity twice more on an outside instrument (`0.9740×`) and on ours (`1.1401×`). See the note below |
 | **bulk narrow** | 1.1754× | not distinguishable at n = 5 | **stands** — direction unchanged, UIx slower |
 | M2 mount *(diagnostic)* | 1.0601× | not distinguishable at n = 5 | **stands**, still not quotable against the bar |
 
@@ -344,6 +344,29 @@ rows](studio/the-clock-behind-the-published-rows.md). That audit also sharpens
 `rf2-rguy1` — the external cross-check against an instrument built on Chrome's
 timeline — from a nicety to the next question, and names **bulk broad** as the
 row to point it at first.
+
+**`rf2-rguy1` has now run, and it answers both halves.**
+[Cross-checked against an instrument nobody here wrote](studio/cross-checked-against-an-outside-instrument.md)
+implements the krausest/js-framework-benchmark app in **three** re-frame2 arms —
+Reagent-on-subs, UIx-on-subs and Hicasso Arm 1, one shared model, canonically
+identical DOM — and runs them under **the benchmark's own driver** as well as
+ours.
+
+| row | outside instrument | our published figure | disposition |
+|---|---|---|---|
+| **candidate mount** | `1.1756×` on create-1,000 | `1.2107×` on M1 | **corroborated.** Two instruments and two workloads span 1.18–1.28; the ~20% mount deficit is not a harness artefact |
+| **donor bulk broad** | `0.9740×` on replace-all, `1.1419×` on swap | `0.6291×` | **refused a third time.** With the in-page audit's `1.0509×`, no frame-inclusive instrument reproduces the 37% win. `rf2-yd52q` should proceed expecting parity |
+| candidate bulk | `1.6216×` theirs / `1.4260×` ours on replace-all | **refused** by the clock page | the candidate's **worst** row, agreed by both instruments and materially worse than its mount |
+| candidate narrow | `0.7203×` theirs / `0.7583×` ours on partial-update | **refused** by the clock page | a **win** — 24–28% faster than Reagent-on-subs. UIx wins it slightly harder |
+
+Six of ten comparable rows agree within a pre-declared 15% band. The largest
+disagreement — teardown, `1.8638×` ours against `1.2877×` theirs — has a named
+mechanism rather than a shrug: our window runs to `setTimeout(0)` and contains the
+post-paint macrotask where disposals land, theirs ends at the paint commit. Its
+positive control **failed** (13.1–13.7× against a pre-registered 8–13×, on all
+three arms alike) and the page records that rather than widening the band. The
+benchmark's app has trivial state, so it can price rendering and says nothing
+about subscription fan-out, frame isolation or boundary-scoped reactivity.
 
 ### P1 — the tournament, and its one surviving arm (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
 
