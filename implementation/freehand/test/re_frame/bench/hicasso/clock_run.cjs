@@ -487,11 +487,10 @@ function ctl3Verdict(rounds, plan, slack) {
  * fixtures rather than as prose.
  */
 function ctl3SelfTest() {
-  const D = [1000, 2000, 3000];
-  const ids = ['ctl-b1000', 'ctl-b2000', 'ctl-b3000'];
-  const plan = ids.map((id, i) => ({ id, dirty: D[i], ctl3: true, ctl3Witness: false, cells: 3000 }))
-    .concat([{ id: 'ctl-b-witness', dirty: 1, ctl3: false, ctl3Witness: true, cells: 3000 }]);
-  const predicted = (3000 - 1000) / (2000 - 1000); // 2.00
+  const D = [1, 100, 200];
+  const ids = ['ctl-d1', 'ctl-d100', 'ctl-d200'];
+  const plan = ids.map((id, i) => ({ id, dirty: D[i], ctl3: true, ctl3Witness: false, cells: 300 }));
+  const predicted = (200 - 1) / (100 - 1); // 2.0101
   // A synthetic block set: `t(d)` per block, three segments x three rounds.
   const synth = (t) => {
     const rs = [];
@@ -499,9 +498,8 @@ function ctl3SelfTest() {
       const perSeg = {};
       for (let i = 0; i < SEGMENTS.length; i++) {
         perSeg[SEGMENTS[i]] = {
-          'ctl-b1000': [t(1000, r, i)], 'ctl-b2000': [t(2000, r, i)], 'ctl-b3000': [t(3000, r, i)],
-          'ctl-b-witness': [t(1, r, i)],
-          [PLUMB]: [0.7],
+          'ctl-d1': [t(1, r, i)], 'ctl-d100': [t(100, r, i)], 'ctl-d200': [t(200, r, i)],
+          [FLOOR]: [t(300, r, i)], [PLUMB]: [0.7],
         };
       }
       rs.push(perSeg);
@@ -547,7 +545,7 @@ function ctl3SelfTest() {
   // 4. SUPERLINEAR work must REFUSE. If the page's cost per dirty cell grows
   //    with the dirty set, the row's own premise is wrong and the control is
   //    the thing that says so.
-  const sup = ctl3Verdict(synth((d) => (A * Math.pow(d, 2)) / 3000 + C), plan, CONTROL_SLACK);
+  const sup = ctl3Verdict(synth((d) => (A * Math.pow(d, 2)) / 300 + C), plan, CONTROL_SLACK);
   checks.push({ name: 'superlinear work (d^2) REFUSES', ok: !sup.ok });
 
   // 4b. THE CONTROL'S SENSITIVITY, DERIVED AND ASSERTED RATHER THAN HOPED
@@ -584,23 +582,37 @@ function ctl3SelfTest() {
   //     run, so a reader can see whether the saturation has finished before
   //     the control's first point. A control cannot certify its own
   //     premise, and this one does not pretend to.
-  const kOf = (k) => (Math.pow(3, k) - 1) / (Math.pow(2, k) - 1);
+  //     these points that is `(200^k - 1)/(100^k - 1)`, which tends to 1 as
+  //     `k -> 0` and rises through 2.0101 at `k = 1`. Unlike an equally
+  //     spaced 1 : 2 : 3 design — whose reading never falls below
+  //     `ln3/ln2 = 1.585` and so can NEVER refuse a sublinear workload —
+  //     this placement refuses below about `k = 0.55` and above about
+  //     `k = 1.33`. That asymmetric span is the one real advantage the
+  //     ruled point placement has over the wider-spaced alternative, and it
+  //     is why the sublinear refusal this control actually returned is a
+  //     finding rather than a shrug.
+  const kOf = (k) => (Math.pow(200, k) - 1) / (Math.pow(100, k) - 1);
   checks.push({
-    name: 'BLIND SPOT, asserted: no sublinear power law is refused (floor is ln3/ln2 = 1.585, inside the band)',
+    name: 'sensitivity, asserted: refuses a power law below k~0.55 and above k~1.33 (1:2:3 spacing could do neither below)',
     ok:
-      Math.abs(kOf(1) - 2) < 1e-12 &&
-      Math.abs(kOf(0.0001) - Math.log(3) / Math.log(2)) < 1e-3 &&
-      [0.05, 0.2, 0.5, 0.8].every((k) => controlVerdict(2, [kOf(k)], CONTROL_SLACK).ok) &&
-      controlVerdict(2, [kOf(1.75)], CONTROL_SLACK).ok &&
-      !controlVerdict(2, [kOf(1.85)], CONTROL_SLACK).ok,
+      Math.abs(kOf(1) - predicted) < 1e-9 &&
+      controlVerdict(predicted, [kOf(0.65)], CONTROL_SLACK).ok &&
+      !controlVerdict(predicted, [kOf(0.45)], CONTROL_SLACK).ok &&
+      controlVerdict(predicted, [kOf(1.25)], CONTROL_SLACK).ok &&
+      !controlVerdict(predicted, [kOf(1.4)], CONTROL_SLACK).ok &&
+      // and the equally-spaced alternative genuinely cannot: its floor is
+      // 1.585, which is inside the band for every sublinear exponent.
+      [0.05, 0.3, 0.6, 0.9].every((k) =>
+        controlVerdict(2, [(Math.pow(3, k) - 1) / (Math.pow(2, k) - 1)], CONTROL_SLACK).ok
+      ),
   });
 
   // 5. AN ARM THAT DOES NOT DO WHAT IT DECLARES must REFUSE. This is the
   //    fixture form of `HCLOCK_CTL3_SABOTAGE`: the page renders 140 while
   //    still declaring 200, every other gate passes, and the control is the
   //    only one that can see it.
-  const sab = ctl3Verdict(synth((d) => A * (d === 3000 ? 2400 : d) + C), plan, CONTROL_SLACK);
-  checks.push({ name: 'an arm dirtying 2400 while declaring 3000 REFUSES', ok: !sab.ok });
+  const sab = ctl3Verdict(synth((d) => A * (d === 200 ? 140 : d) + C), plan, CONTROL_SLACK);
+  checks.push({ name: 'an arm dirtying 140 while declaring 200 REFUSES', ok: !sab.ok });
 
   // 6. A DEAD DENOMINATOR must REFUSE rather than read as a pass. This
   //    statistic's characteristic failure is not a wrong number, it is a
@@ -620,7 +632,7 @@ function ctl3SelfTest() {
   //     block-wide SCALING would not do as a fixture here: it cancels in the
   //     quotient by design, so the one bad block has to be bad in SHAPE.
   const oneBad = ctl3Verdict(
-    synth((d, r, i) => (r === 1 && i === 2 ? (A * Math.pow(d, 2)) / 3000 : A * d) + C),
+    synth((d, r, i) => (r === 1 && i === 2 ? (A * Math.pow(d, 2)) / 300 : A * d) + C),
     plan, CONTROL_SLACK
   );
   checks.push({
@@ -635,14 +647,14 @@ function ctl3SelfTest() {
   //    literal `2.00` would then be silently wrong by 0.5% for every other
   //    choice of counts. Re-deriving it under a different epsilon proves the
   //    number tracks the page's declaration.
-  const widerPlan = plan.map((a) => (a.id === 'ctl-b1000' ? { ...a, dirty: 1500 } : a));
-  const widerV = ctl3Verdict(synth((d) => A * (d === 1000 ? 1500 : d) + C), widerPlan, CONTROL_SLACK);
+  const widerPlan = plan.map((a) => (a.id === 'ctl-d1' ? { ...a, dirty: 20 } : a));
+  const widerV = ctl3Verdict(synth((d) => A * (d === 1 ? 20 : d) + C), widerPlan, CONTROL_SLACK);
   checks.push({
     name: 'the prediction is (d2-d0)/(d1-d0), derived from the page plan',
     ok:
-      Math.abs(lin.predicted - r4(2000 / 1000)) < 1e-9 &&
-      Math.abs(widerV.predicted - r4(1500 / 500)) < 1e-9 &&
-      Math.abs(widerV.measured.mean - 3) < 5e-5 &&
+      Math.abs(lin.predicted - r4(199 / 99)) < 1e-9 &&
+      Math.abs(widerV.predicted - r4(180 / 80)) < 1e-9 &&
+      Math.abs(widerV.measured.mean - r4(180 / 80)) < 5e-5 &&
       widerV.ok,
   });
 
@@ -805,6 +817,12 @@ async function runRow(browser, rowId) {
   const samplesTask = [];
   const rounds = []; // [{seg: {arm: [ms...]}}] — taskNet, the superseded diagnostic
   const roundsTask = []; // the same samples on UNSUBTRACTED TaskDuration (rf2-yd52q)
+  // PER-BLOCK LayoutDuration. The decomposition below already reports layout
+  // as a per-arm MEAN, which cannot be adjudicated: a control is a per-block
+  // statistic and a pooled mean has no blocks. Collected here so the SAME
+  // three-point statistic can be run on the layout counter alone, which is
+  // what separates a workload finding from an instrument one (rf2-7iqb5).
+  const roundsLayout = [];
   const inPageRounds = [];
   const decomposition = {}; // "seg/arm" -> accumulated style/layout/counts
   const canon = {}; // "seg/arm" -> {hash, bytes, control}
@@ -838,6 +856,7 @@ async function runRow(browser, rowId) {
     const perSeg = {};
     const perSegTask = {};
     const perSegInPage = {};
+    const perSegLayout = {};
 
     for (const seg of segOrder) {
       await page.evaluate((s) => window.HCLOCK.enterSegment(s), seg);
@@ -860,10 +879,12 @@ async function runRow(browser, rowId) {
       const acc = {};
       const accTask = {};
       const accInPage = {};
+      const accLayout = {};
       for (const a of armIds) {
         acc[a] = [];
         accTask[a] = [];
         accInPage[a] = [];
+        accLayout[a] = [];
       }
 
       for (let s = 0; s < WARMUP + SAMPLES; s++) {
@@ -942,6 +963,7 @@ async function runRow(browser, rowId) {
             const key = `${seg}/${armId}`;
             acc[armId].push(d.taskNet);
             accTask[armId].push(d.task);
+            accLayout[armId].push(d.layout);
             if (Number.isFinite(inPageMs)) accInPage[armId].push(inPageMs);
             bump(key, d);
             samples.push({ arm: key, value: d.taskNet, predecessor: previous, position });
@@ -966,10 +988,12 @@ async function runRow(browser, rowId) {
       perSeg[seg] = acc;
       perSegTask[seg] = accTask;
       perSegInPage[seg] = accInPage;
+      perSegLayout[seg] = accLayout;
     }
     rounds.push(perSeg);
     roundsTask.push(perSegTask);
     inPageRounds.push(perSegInPage);
+    roundsLayout.push(perSegLayout);
   }
 
   const tally = await page.evaluate(() => window.HCLOCK.tally());
@@ -979,7 +1003,7 @@ async function runRow(browser, rowId) {
   await page.close();
 
   return {
-    rowId, samples, samplesTask, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
+    rowId, samples, samplesTask, rounds, roundsTask, roundsLayout, inPageRounds, decomposition, canon, tally, residue, runtime,
     eventTiming, unattributedET, etError, pageErrors, armPlan, sabotage,
     granularity: [...granularity].sort((a, b) => a - b),
   };
@@ -1024,7 +1048,7 @@ function crossSegment(rounds, numSeg, numArm, denSeg, denArm, raw) {
 
 function report(out) {
   const {
-    rowId, samples, samplesTask, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
+    rowId, samples, samplesTask, rounds, roundsTask, roundsLayout, inPageRounds, decomposition, canon, tally, residue, runtime,
     eventTiming, unattributedET, etError, granularity, armPlan, sabotage,
   } = out;
 
@@ -1478,6 +1502,7 @@ function report(out) {
   // --- THE THREE-POINT CONTROL ----------------------------------------------
   const ctl3 = ctl3Verdict(roundsTask, armPlan, CONTROL_SLACK);
   const ctl3Net = ctl3 ? ctl3Verdict(rounds, armPlan, CONTROL_SLACK) : null;
+  const ctl3Layout = ctl3 ? ctl3Verdict(roundsLayout, armPlan, CONTROL_SLACK) : null;
   // THE CONTROL'S ARMS MUST BUILD ONE PAGE AS EACH OTHER. They are exempt
   // from the cross-arm canonical-DOM gate because their page is not the
   // floor's — that is the price of the page size the signal needed — so the
@@ -1579,6 +1604,28 @@ function report(out) {
       constants.orderAsPredicted = usable ? ordered : null;
       constants.orderUsable = usable;
     }
+    // THE SAME STATISTIC ON THE LAYOUT COUNTER ALONE. This is the line that
+    // decides whether a refusal is about the INSTRUMENT or about the
+    // WORKLOAD, and it is the question a three-point control cannot answer
+    // by itself. `LayoutDuration` is the part of a commit that must scale
+    // with the dirty set — d dirty rows, d relayouts — while paint does not
+    // once the damage region covers the viewport. If the control refuses on
+    // `task` and PASSES on `layout`, the arithmetic is sound and the page's
+    // cost simply is not affine in the dirty set; if it refuses on both,
+    // the fault is upstream of the workload.
+    if (ctl3Layout) {
+      console.log(
+        `;;   MECHANISM the same statistic on LayoutDuration alone: ${ctl3Layout.ok ? 'PASS' : 'FAIL'} ` +
+          `${ctl3Layout.measured.mean.toFixed(4)}x [${ctl3Layout.measured.min.toFixed(4)} – ` +
+          `${ctl3Layout.measured.max.toFixed(4)}], marginal ${ctl3Layout.marginal.lower.mean.toFixed(3)} then ` +
+          `${ctl3Layout.marginal.upper.mean.toFixed(3)} µs per dirty cell`
+      );
+      console.log(
+        `;;            layout is the half of a commit that MUST scale with the dirty set; paint is the half ` +
+          `that stops scaling once the damage region covers the viewport. A control that holds on layout and ` +
+          `refuses on task is reporting the PAGE, not the clock.`
+      );
+    }
     console.log(
       `;;   ${ctl3.ok ? 'PASS' : 'FAIL'}     measured ${ctl3.measured.mean.toFixed(4)}x ` +
         `[${ctl3.measured.min.toFixed(4)} – ${ctl3.measured.max.toFixed(4)}] against band ` +
@@ -1617,7 +1664,7 @@ function report(out) {
 
   return {
     bar, inPageBar, barTask, ctlTask, bandTask, ctlVerdict, etVerdict, guardVerdict: v,
-    guardVerdictTask: vTask, ctl3, ctl3Net, ctl3Parity, constants, sabotage,
+    guardVerdictTask: vTask, ctl3, ctl3Net, ctl3Layout, ctl3Parity, constants, sabotage,
     seamTask: {
       band: Number.isFinite(assessedTask.bandStats.band) ? r4(assessedTask.bandStats.band) : null,
       ceilingBreached: assessedTask.verdict.ceilingBreached,
@@ -1982,6 +2029,8 @@ function report(out) {
             // falsification run rather than a measurement.
             ctl3: o.verdict.ctl3,
             ctl3Net: o.verdict.ctl3Net,
+            ctl3Layout: o.verdict.ctl3Layout,
+            roundsLayout: o.out.roundsLayout,
             ctl3Parity: o.verdict.ctl3Parity,
             constants: o.verdict.constants,
             armPlan: o.out.armPlan,
