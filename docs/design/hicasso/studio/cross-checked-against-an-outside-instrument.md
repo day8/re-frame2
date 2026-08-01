@@ -343,7 +343,8 @@ The band is not widened after the fact. It is recorded as failed.
 
 | | |
 |---|---|
-| Producing commit | `19a3710bc9604684ddbc7b2b72ec901dcc0f0ea7` on `worker/xbench-rguy1` |
+| Landed whole-tree anchor | *(filled on merge — a rebase-merge mints a new landed SHA, which is why the blob table below is the real pin)* |
+| Authoring anchor | `19a3710bc9604684ddbc7b2b72ec901dcc0f0ea7` on `worker/xbench-rguy1`, the tree both runs were taken at. A later rebase moved it to `3680992949a6eec842ba033ae50f3a9a34af7884`; **every blob below is unchanged across that rebase**, which is the check that matters |
 | Runtime, ours | Chromium `147.0.7727.15` headless, Playwright 1.59.1, node v24.13.0, `hardware-concurrency` 24, `device-memory` 32 |
 | Runtime, theirs | Chrome **150.0.7871.186** (system), puppeteer-core 25.3.0 via `webdriver-ts`, headless, chromedriver 150.0.1 present and version-matched |
 | Benchmark revision | `krausest/js-framework-benchmark` `master`, shallow clone taken 2026-08-01, kept at `%LOCALAPPDATA%\Temp\jsfb-rguy1\repo` — **outside this repository, never committed** |
