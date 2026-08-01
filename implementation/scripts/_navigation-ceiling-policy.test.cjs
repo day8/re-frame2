@@ -314,9 +314,9 @@ const TIMEOUT_CONST_RE = /TIMEOUT/;
  * about something else and are none of this gate's business.
  */
 const DISCLAIMER_RE = new RegExp(
-  String.raw`\b(?:raising|a bigger)\s+(?:\$\{\s*([A-Za-z_$][\w$]*)\s*\}|\$?([A-Z][A-Z0-9_]{2,}))` +
-    String.raw`[\s\S]{0,200}?(will not help|cannot (?:move|touch|help)|does nothing)`,
-  'gi',
+  String.raw`\b(?:[Rr]aising|[Aa] bigger)\s+(?:\$\{\s*([A-Za-z_$][\w$]*)\s*\}|\$?([A-Z][A-Z0-9_]{2,}))` +
+    String.raw`[\s\S]{0,200}?([Ww]ill not help|cannot (?:move|touch|help)|does nothing)`,
+  'g',
 );
 
 /*
