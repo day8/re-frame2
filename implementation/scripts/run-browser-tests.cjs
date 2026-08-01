@@ -109,17 +109,29 @@ const TIMEOUT_MS = parseInt(
   process.env[BROWSER_TEST_TIMEOUT_ENV_VAR] || String(DEFAULT_TIMEOUT_MS), 10);
 const POLL_MS = 200;
 
-// rf2-dczpv — the lane's OTHER ceiling, now named and disarmed.
+// rf2-dczpv — the lane's second PHASE, now sharing the lane's one budget.
 //
-// `page.goto(URL, { waitUntil: 'load' })` with no explicit timeout takes
-// Playwright's default 30s. That is a second budget on this lane, entirely
-// separate from TIMEOUT_MS above, and it fired for real: a local run of the
-// `:browser-test` bundle died with `page.goto: Timeout 30000ms exceeded` after
-// 21 namespaces had already run and printed, and two immediately-following runs
-// of the identical bundle passed. Worse than the flake is the READING — in a CI
-// log that line is nearly indistinguishable from this runner's own summary
-// timeout, so the fix reached for would be a bigger BROWSER_TEST_TIMEOUT_MS,
-// which cannot touch it.
+// WHAT IT USED TO BE. `page.goto(URL, { waitUntil: 'load' })` with no explicit
+// timeout took Playwright's default 30s. That WAS a second budget on this lane,
+// entirely separate from TIMEOUT_MS above and unreachable from it, and it fired
+// for real: a local run of the `:browser-test` bundle died with `page.goto:
+// Timeout 30000ms exceeded` after 21 namespaces had already run and printed,
+// and two immediately-following runs of the identical bundle passed. Worse than
+// the flake was the READING — in a CI log that line is nearly indistinguishable
+// from this runner's own summary timeout, so the fix reached for was a bigger
+// BROWSER_TEST_TIMEOUT_MS, which back then could not touch it.
+//
+// WHAT IT IS NOW, and this is the part the first cut of this comment got wrong
+// (audit of PR #7193). `NAV_TIMEOUT_MS = TIMEOUT_MS`, so the lane is ONE
+// configured value applied to TWO sequential phases: $BROWSER_TEST_TIMEOUT_MS
+// bounds the navigation AND the summary wait that follows it. Raising it moves
+// BOTH ceilings. Saying otherwise sends the reader away from the only knob the
+// failed phase has — which is the same navigate-by-the-wrong-budget mistake
+// this bead was filed to stop, wearing the opposite hat.
+//
+// The two phases stay distinguishable by what the failure line SAYS, not by
+// carrying different numbers. One number is the point: a lane with two knobs is
+// a lane where one of them is stale.
 //
 // WHY 'load' WAS ALWAYS WRONG HERE, not merely tight. `shadow.test.browser`
 // starts running the suite during page load, so the `load` event cannot fire
@@ -345,18 +357,23 @@ async function main() {
     try {
       await page.goto(URL, { waitUntil: NAV_WAIT_UNTIL, timeout: NAV_TIMEOUT_MS });
     } catch (err) {
-      // rf2-dczpv: name the ceiling that actually fired. A `page.goto: Timeout
-      // …ms exceeded` line and a `Timed out … waiting for cljs.test summary`
-      // line are near-indistinguishable in a CI log, and they are two different
-      // budgets — raising BROWSER_TEST_TIMEOUT_MS does nothing for this one.
+      // rf2-dczpv: say WHICH PHASE fired, and tell the truth about the knob.
+      // A `page.goto: Timeout …ms exceeded` line and a `Timed out … waiting
+      // for cljs.test summary` line are near-indistinguishable in a CI log, so
+      // the phase has to name itself. But the two phases share one number, and
+      // the first cut of this message denied that — see the NAV_TIMEOUT_MS
+      // comment above.
       console.error(
-        `NAVIGATION FAILED — this is the page.goto ceiling ` +
-          `(waitUntil: '${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT_MS}ms), NOT ` +
-          `the cljs.test summary budget of ${TIMEOUT_MS}ms ` +
-          `(${BROWSER_TEST_TIMEOUT_ENV_VAR}). The suite never got as far as ` +
-          `being observed, so no summary and no failing assertion exist to ` +
-          `read. Raising ${BROWSER_TEST_TIMEOUT_ENV_VAR} will not help ` +
-          `(rf2-dczpv).`,
+        `NAVIGATION FAILED — the page.goto ceiling fired (waitUntil: ` +
+          `'${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT_MS}ms). The suite was ` +
+          `never observed, so no cljs.test summary and no failing assertion ` +
+          `exist to read.\n` +
+          `  This lane is ONE configured value applied to TWO sequential ` +
+          `phases: ${BROWSER_TEST_TIMEOUT_ENV_VAR} (${TIMEOUT_MS}ms) bounds ` +
+          `this navigation AND the summary wait that follows it, so a larger ` +
+          `value moves both ceilings. It cannot cure a page that never ` +
+          `answered, though: a server that is not listening, or a bundle that ` +
+          `was never built, fails HERE at any size (rf2-dczpv).`,
       );
       throw err;
     }
