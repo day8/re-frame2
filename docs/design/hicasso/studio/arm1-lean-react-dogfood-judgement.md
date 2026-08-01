@@ -387,7 +387,7 @@ property of Surface B and not a later discovery.
 
 | Witness | Asserts |
 |---|---|
-| `deferred-read-cljs-test` (10 rows) | the unforced `delay` is refused at the crossing, with the id, the refusing position and the recovery; at every position the walk reaches — bare prop, vector, nested map, list, lazy seq, set, and the children slot; a realised `delay` crosses untouched and the read stays the parent's; the refused render installs nothing |
+| `deferred-read-cljs-test` (13 rows) | the unforced `delay` is refused at the crossing, with the id, the refusing position and the recovery; at every position the walk reaches — bare prop, vector, nested map, list, lazy seq, set, and the children slot; a realised `delay` crosses untouched and the read stays the parent's; the refused render installs nothing |
 | the same file, classification rows | the fault the refusal replaces, driven around the codec; a function prop keeping its edge across two renders; a function prop invoked outside a render raising the existing error; a body that stops calling one holding no edge; and the mutable-reference limit, asserted unrepaired |
 
 Mutation-proved by deleting the guard from `realize-deep`: node exit 1, 12
@@ -396,6 +396,61 @@ deliberate — the refusal is a pure codec verdict reached before any element is
 built, so a Chromium mount would re-prove what the node rows already prove. The
 DOM half was earned for `rf2-2rtt6.45` because *that* claim was about liveness,
 which a first paint cannot tell you; this one is not.
+
+#### The refusal checked a map's values and not its keys
+
+The walk it was built into descended into a map's **values** only, and said so
+in a comment that gave the reason: hashing a seq realises it, so nothing
+unrealised can already be a key. The claim the walk makes is about **reach** —
+every unforced `delay` reachable from a boundary's props — and a map entry is
+two reachable positions. So an unforced `Delay` written as a map key crossed
+untouched (`rf2-2rtt6.32`, the merged-PR audit of #7333).
+
+The comment's reason is wrong twice, and both halves are worth recording because
+each is a plausible thing to believe. A `Delay` **hashes by object identity** —
+`cljs.core` extends `IHash` on `default` to `goog/getUid` — so hashing a map
+containing one never forces it; hashing realises a *seq*, and only a seq. And a
+map small enough to be a `PersistentArrayMap`, which every props map is,
+compares keys with `=` against the entries it has already accumulated and hashes
+nothing at all — so the first key of a one-entry map is not so much as looked
+at, and even an unrealised **lazy seq** can sit there. Both are asserted:
+`realize-deep-reaches-a-lazy-seq-at-a-key-position-too` checks that the seq is
+still unrealised *after construction* before it checks that the walk forces it.
+
+The repair is the one call the position was missing, and no more: `realize-entry`
+walks the key half through the same `realize-deep`, so a key-held deferral meets
+the same refusal, in the same window, naming the same recovery. No walker, no
+render identity, nothing forced.
+
+**It cost something, and it was measured rather than assumed.** Three walks
+A/B/C'd in one process with the rounds interleaved, best of five per round, four
+whole repetitions — ratios only, because the box was carrying another arm's
+ladder and absolute figures drifted 2.6x between repetitions while every ratio
+held. Walking keys unconditionally costs **+31% to +43%** of the walk at the
+dogfood row's props and **+24% to +35%** at the 100-row collection prop; against
+the whole boundary element build measured in the same process, **+4.3% to
++5.9%**. That is a real cost at the shape that matters most, and one predicate
+removes it: a `Keyword` is provably neither a collection nor a `Delay`, so the
+key half short-circuits on one `instanceof` rather than paying `coll?` — which,
+for anything without the `ICollection` marker, falls through to
+`native-satisfies?` and is the dearest predicate on the path. With the
+short-circuit the repair costs **0.2% to 1.1%** of the element build. The dear
+part was never the traversal; it was proving that a keyword is not a collection.
+
+| Witness | Asserts |
+|---|---|
+| `a-delay-held-as-a-map-key-is-refused-exactly-as-a-value-is` | six key positions the walk reaches — a key of the props map, of a nested map, inside a *collection* key, and of a map held in a vector, a seq and a set |
+| `a-key-held-delay-is-refused-before-the-child-can-cache-it` | the crossing refuses; and on a runtime that does not, the row's second half prints the two child read sets that should have been equal |
+| `the-fault-a-key-held-delay-would-restore` | the mechanism, driven around the codec: first render `#{[:dogfood/todo 1]}`, second render `#{}` |
+| `realize-deep-walks-map-keys-without-disturbing-the-map` | identity and lookup are untouched — the map, each key, and retrieval by an identical and by an equal key, on an array map and on a hash map |
+| `the-keyword-key-short-circuit-skips-only-a-provable-no-op` | the premise the short-circuit rests on, pinned; and that it skips the **key**, never the entry |
+
+Mutation-proved by restoring `(defn- realize-entry [_ _ x] (realize-deep x) nil)`
+— the exact text at merge `9d3b423d17`: node exit 1, **9 failures**, among them
+the two-render receipt reading
+`(not (= #{[…/arm1-deferred-read [:dogfood/todo 1]]} #{}))`. Restored, node exit
+0 with `git diff` empty. Every first-paint assertion in the file passed on the
+mutated runtime, which is why the decisive row is two renders deep.
 
 ## 3. Two places the record did not survive contact with the substrate
 
