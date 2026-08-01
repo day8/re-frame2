@@ -168,6 +168,29 @@ const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
 const FLOOR = 'floor';
 const PLUMB = 'plumb';
 
+// THE BAR ROWS, `[numerator, denominator]` by segment — and the third one is
+// not the candidate's (rf2-yd52q).
+//
+// The first two are what this driver was built for: the candidate against each
+// donor. The third, `uix-subs / reagent-subs`, is THE PUBLISHED DONOR ROW —
+// `bulk broad 0.6291x` on the converged page, and `M1 mount 1.0150x` — formed
+// by exactly the arithmetic the converged harness forms it by: each donor
+// divided by the floor measured in its own segment of that round, then one
+// quotient over the other.
+//
+// It was computable from this driver's data from the first run and was not
+// computed. `rf2-8nqsl`'s audit had to derive it BY HAND from the same
+// readings to reach `1.0509x` on `bulk300`, and a statistic a page recomputes
+// off-instrument is a statistic no gate is watching: it carries no band, no
+// regime and no control verdict. Adding it here costs one line of arithmetic
+// and puts the programme's most-quoted clock row under the same adjudication
+// as every other row this driver prints.
+const BAR_PAIRS = [
+  ['hicasso', 'reagent-subs'],
+  ['hicasso', 'uix-subs'],
+  ['uix-subs', 'reagent-subs'],
+];
+
 // ---------------------------------------------------------------------------
 // Build and serve
 // ---------------------------------------------------------------------------
@@ -634,11 +657,12 @@ function report(out) {
   // and the band has to be in hand before the seam block can say so.
   const bar = {};
   const barMeans = {};
-  for (const den of ['reagent-subs', 'uix-subs']) {
-    const v = crossSegment(rounds, 'hicasso', 'hicasso', den, den, false);
-    const rv = crossSegment(rounds, 'hicasso', 'hicasso', den, den, true);
-    bar[den] = { tared: v, untared: rv };
-    barMeans[`hicasso / ${den}`] = v.mean;
+  const inPageBar = {};
+  for (const [num, den] of BAR_PAIRS) {
+    const v = crossSegment(rounds, num, num, den, den, false);
+    const rv = crossSegment(rounds, num, num, den, den, true);
+    bar[`${num} / ${den}`] = { tared: v, untared: rv };
+    barMeans[`${num} / ${den}`] = v.mean;
   }
 
   // --- the floor seam, its null, and the band a magnitude must clear ---------
@@ -703,16 +727,20 @@ function report(out) {
   }
 
   // --- the bar row ----------------------------------------------------------
-  console.log(`;; ---- THE BAR: candidate against each donor, both floor-normalised ----`);
-  for (const den of ['reagent-subs', 'uix-subs']) {
-    const { tared: v, untared: rv } = bar[den];
-    const adj = assessed.verdict.rows[`hicasso / ${den}`];
+  console.log(
+    `;; ---- THE BAR: candidate against each donor, and the DONOR ROW itself, all floor-normalised ----`
+  );
+  for (const [num, den] of BAR_PAIRS) {
+    const key = `${num} / ${den}`;
+    const { tared: v, untared: rv } = bar[key];
+    const adj = assessed.verdict.rows[key];
     console.log(
-      `;;   hicasso / ${den.padEnd(14)} ${v.mean.toFixed(4)}x [${v.min.toFixed(4)} – ${v.max.toFixed(4)}]` +
+      `;;   ${key.padEnd(27)} ${v.mean.toFixed(4)}x [${v.min.toFixed(4)} – ${v.max.toFixed(4)}]` +
         `   (untared ${rv.mean.toFixed(4)}x [${rv.min.toFixed(4)} – ${rv.max.toFixed(4)}])` +
         (v.straddles1 ? '   — RANGE STRADDLES 1.0, indistinguishable at this n' : '')
     );
     console.log(`;;     ${adj.unadjudicated ? 'UNADJ  ' : adj.clear ? 'CLEARS ' : 'LIMITED'} ${adj.why}`);
+    console.log(`;;     per-round ${v.perRound.join(', ')}`);
   }
 
   // --- the two instruments, side by side ------------------------------------
@@ -731,6 +759,26 @@ function report(out) {
             `${(((b.mean - fi.mean) / fi.mean) * 100).toFixed(1)}% differently)`
         );
       }
+    }
+    // THE BAR ROWS ON BOTH CLOCKS. Per-arm gaps are not the comparison a
+    // published row is quoted at: the row IS a bar, and the in-page window's
+    // error only matters to the extent it fails to cancel between the two
+    // legs. Printing the bar both ways answers that directly, and it is what
+    // `rf2-8nqsl` had to compute by hand.
+    const ipRatio = (seg, arm) => inPageRounds.map((r) => p50(r[seg][arm]) / p50(r[seg][FLOOR]));
+    for (const [num, den] of BAR_PAIRS) {
+      const n = ipRatio(num, num);
+      const d = ipRatio(den, den);
+      if (!n.every(Number.isFinite) || !d.every(Number.isFinite)) continue;
+      const b = band(n.map((x, i) => x / d[i]));
+      const fi = bar[`${num} / ${den}`].tared;
+      console.log(
+        `;;   BAR ${(num + ' / ' + den).padEnd(24)} in-page ${b.mean.toFixed(4)}x ` +
+          `[${b.min.toFixed(4)} – ${b.max.toFixed(4)}]  vs  frame-inclusive ${fi.mean.toFixed(4)}x ` +
+          `[${fi.min.toFixed(4)} – ${fi.max.toFixed(4)}]   (in-page reads ` +
+          `${(((b.mean - fi.mean) / fi.mean) * 100).toFixed(1)}% differently)`
+      );
+      inPageBar[`${num} / ${den}`] = b;
     }
   }
 
@@ -847,7 +895,10 @@ function report(out) {
   const v = guard.verdict(samples, { tolerance: 0.1 });
   for (const line of guard.format(v, `${rowId} — frame-inclusive task time`)) console.log(line);
 
-  return { bar, ctlVerdict, etVerdict, guardVerdict: v, parityOk: disagree.length === 0, tally, seam };
+  return {
+    bar, inPageBar, ctlVerdict, etVerdict, guardVerdict: v,
+    parityOk: disagree.length === 0, tally, seam,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -930,6 +981,27 @@ function report(out) {
   console.log(
     `;;                do not, the co-mounted document was not the cause and the 2.00x prediction is what is wrong.`
   );
+  console.log(
+    `;;   DONOR BAR  = uix-subs / reagent-subs is the PUBLISHED row (bulk broad 0.6291x, M1 mount 1.0150x).`
+  );
+  console.log(
+    `;;                PREDICTED for bulk300, written before this run (rf2-yd52q): the frame-inclusive figure`
+  );
+  console.log(
+    `;;                lands NEAR PARITY and NOT near 0.63 — three prior frame-inclusive readings of this row`
+  );
+  console.log(
+    `;;                (1.0509x the in-page audit, 0.9740x/1.1419x the outside instrument, 1.1401x ours) put it`
+  );
+  console.log(
+    `;;                there, and its margin from 1.0 falls INSIDE the band, i.e. instrument-limited. The`
+  );
+  console.log(
+    `;;                in-page window on the SAME samples reads it BELOW 1.0 and near the published 0.63-0.69.`
+  );
+  console.log(
+    `;;                A frame-inclusive reading at or below 0.70 would REFUTE this prediction and restore the row.`
+  );
 
   const outcomes = [];
   let died = null;
@@ -984,6 +1056,8 @@ function report(out) {
             ctlOk: o.verdict.ctlVerdict ? o.verdict.ctlVerdict.ok : null,
             guardRefuse: o.verdict.guardVerdict.refuse,
             bar: o.verdict.bar,
+            inPageBar: o.verdict.inPageBar,
+            ctl: o.verdict.ctlVerdict,
           })),
         },
         null,
