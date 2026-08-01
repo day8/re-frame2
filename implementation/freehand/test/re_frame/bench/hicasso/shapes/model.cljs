@@ -87,7 +87,7 @@
 (defn- author-for [i]
   (let [name (nth authors (mod i (count authors)))]
     {:username  name
-     :image     (str "https://example.invalid/avatar/" name ".png")
+     :image     name
      :following (odd? i)}))
 
 (defn- tags-for
@@ -298,6 +298,15 @@
 (defn avatar-src
   "The census screens call `realworld-shared.avatar/avatar-src`; the
   examples tree is not on this classpath, so the one line it contributes
-  is inlined rather than depended on."
+  is inlined rather than depended on.
+
+  It answers a `data:` URI rather than a URL, and that is deliberate: the
+  bulk page renders **300 `<img>` elements**, and a witness that is not
+  about images should not open 300 network requests to find out whether a
+  commit re-rendered a row. A hostname that does not resolve is worse than
+  useless — it fills the console with `ERR_NAME_NOT_RESOLVED` and buries
+  the failures a reader is actually looking for. The author's own token
+  stays *in* the URI, so per-author distinctness survives into the DOM and
+  a card comparison still compares something."
   [image]
-  (or image "https://example.invalid/avatar/default.png"))
+  (str "data:," (or image "anon")))
