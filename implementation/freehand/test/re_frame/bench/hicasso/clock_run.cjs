@@ -405,7 +405,8 @@ async function runRow(browser, rowId) {
 
   const isKeystroke = rowId === 'keystroke';
   const samples = []; // for the arm-order guard
-  const rounds = []; // [{seg: {arm: [ms...]}}]
+  const rounds = []; // [{seg: {arm: [ms...]}}] — taskNet, the banked primary
+  const roundsTask = []; // the same samples on UNSUBTRACTED TaskDuration (rf2-yd52q)
   const inPageRounds = [];
   const decomposition = {}; // "seg/arm" -> accumulated style/layout/counts
   const canon = {}; // "seg/arm" -> {hash, bytes, control}
@@ -417,10 +418,13 @@ async function runRow(browser, rowId) {
 
   const bump = (key, d) => {
     const acc = (decomposition[key] ||= {
-      n: 0, taskNet: 0, script: 0, style: 0, layout: 0, layoutCount: 0, styleCount: 0, inPage: 0,
+      n: 0, taskNet: 0, task: 0, devtools: 0, script: 0, style: 0, layout: 0,
+      layoutCount: 0, styleCount: 0, inPage: 0,
     });
     acc.n += 1;
     acc.taskNet += d.taskNet;
+    acc.task += d.task;
+    acc.devtools += d.devtools;
     acc.script += d.script;
     acc.style += d.style;
     acc.layout += d.layout;
@@ -434,6 +438,7 @@ async function runRow(browser, rowId) {
     // one. Three segments give three orders; six rounds visit each twice.
     const segOrder = SEGMENTS.map((_, i) => SEGMENTS[(i + round) % SEGMENTS.length]);
     const perSeg = {};
+    const perSegTask = {};
     const perSegInPage = {};
 
     for (const seg of segOrder) {
@@ -454,9 +459,11 @@ async function runRow(browser, rowId) {
       for (const a of armIds) typed[a] = '';
 
       const acc = {};
+      const accTask = {};
       const accInPage = {};
       for (const a of armIds) {
         acc[a] = [];
+        accTask[a] = [];
         accInPage[a] = [];
       }
 
@@ -535,6 +542,7 @@ async function runRow(browser, rowId) {
           if (s >= WARMUP) {
             const key = `${seg}/${armId}`;
             acc[armId].push(d.taskNet);
+            accTask[armId].push(d.task);
             if (Number.isFinite(inPageMs)) accInPage[armId].push(inPageMs);
             bump(key, d);
             samples.push({ arm: key, value: d.taskNet, predecessor: previous, position });
@@ -556,9 +564,11 @@ async function runRow(browser, rowId) {
       }
 
       perSeg[seg] = acc;
+      perSegTask[seg] = accTask;
       perSegInPage[seg] = accInPage;
     }
     rounds.push(perSeg);
+    roundsTask.push(perSegTask);
     inPageRounds.push(perSegInPage);
   }
 
@@ -569,7 +579,7 @@ async function runRow(browser, rowId) {
   await page.close();
 
   return {
-    rowId, samples, rounds, inPageRounds, decomposition, canon, tally, residue, runtime,
+    rowId, samples, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
     eventTiming, unattributedET, etError, pageErrors,
     granularity: [...granularity].sort((a, b) => a - b),
   };
@@ -614,7 +624,7 @@ function crossSegment(rounds, numSeg, numArm, denSeg, denArm, raw) {
 
 function report(out) {
   const {
-    rowId, samples, rounds, inPageRounds, decomposition, canon, tally, residue, runtime,
+    rowId, samples, rounds, roundsTask, inPageRounds, decomposition, canon, tally, residue, runtime,
     eventTiming, unattributedET, etError, granularity,
   } = out;
 
@@ -799,11 +809,94 @@ function report(out) {
     }
   }
 
+  // --- THE SAME SAMPLES ON UNSUBTRACTED TaskDuration (rf2-yd52q) -------------
+  //
+  // `taskNet` subtracts `DevToolsCommandDuration`, and this run measured what
+  // that subtraction actually removes. Chromium bills a `Runtime.callFunctionOn`
+  // to `DevToolsCommandDuration` INCLUDING the page script the command invokes
+  // — and this driver invokes every arm's operation through exactly that door.
+  // So the excess of an arm's `devtools` term over the tare's baseline tracks
+  // that arm's own in-page window: on one bulk300 run, floor 0.62 ms against an
+  // in-page 0.40, `reagent-subs` 2.76 against 2.30, `uix-subs` 2.01 against
+  // 1.60, `hicasso` 3.26 against 2.80.
+  //
+  // The consequence is not small. `taskNet` is style + layout + paint with the
+  // OPERATION'S OWN SCRIPT REMOVED — a frame-ONLY clock, not a frame-inclusive
+  // one — and it is not a superset of the in-page window but very nearly its
+  // complement. That is visible without any of this arithmetic: on a substrate
+  // arm the in-page absolute exceeds the `taskNet` absolute, which no superset
+  // can do.
+  //
+  // Raw `TaskDuration` is the quantity that was wanted: the arm's script AND
+  // the frame it caused, in one number, with the protocol's own round trip
+  // carried by the tare exactly as before. It is reported here beside the
+  // banked reading rather than replacing it, because every other row this
+  // driver has published is stated on `taskNet` and a silent swap would
+  // re-state them without saying so.
+  const barTask = {};
+  const barTaskMeans = {};
+  for (const [num, den] of BAR_PAIRS) {
+    barTask[`${num} / ${den}`] = crossSegment(roundsTask, num, num, den, den, false);
+    barTaskMeans[`${num} / ${den}`] = barTask[`${num} / ${den}`].mean;
+  }
+  const assessedTask = seamlib.assess({
+    floorBlocks: roundsTask.map((r) => SEGMENTS.map((s) => r[s][FLOOR])),
+    floorCells: roundsTask.map((_, i) => SEGMENTS.map((s) => tared(roundsTask, s, FLOOR, i))),
+    fixedCells: hasProportionalControl
+      ? roundsTask.map((_, i) => SEGMENTS.map((s) => tared(roundsTask, s, 'ctl-2x', i)))
+      : null,
+    bars: barTaskMeans,
+    noFixedPairWhy: "this row's control burns a fixed 50 ms rather than doubling the page",
+  });
+  console.log(
+    `;; ---- the SAME samples on UNSUBTRACTED TaskDuration — script AND frame (rf2-yd52q) ----`
+  );
+  console.log(
+    `;;   DevToolsCommandDuration carries the arm's own script, because the driver runs every ` +
+      `operation inside a protocol command. Subtracting it takes the script out.`
+  );
+  for (const seg of SEGMENTS) {
+    for (const arm of armsOf(seg)) {
+      if (arm === PLUMB) continue;
+      const b = band(ratioToFloor(roundsTask, seg, arm));
+      const nb = band(ratioToFloor(rounds, seg, arm));
+      console.log(
+        `;;   ${(seg + '/' + arm).padEnd(28)} ${b.mean.toFixed(4)}x floor [${b.min.toFixed(4)} – ${b.max.toFixed(4)}]` +
+          `   (on taskNet ${nb.mean.toFixed(4)}x)`
+      );
+    }
+  }
+  const bandTask = assessedTask.bandStats.band;
+  console.log(
+    `;;   band ${Number.isFinite(bandTask) ? (bandTask * 100).toFixed(1) + '%' : 'n/a'} on this clock ` +
+      `(ctl-2x/floor p50 ${assessedTask.bandStats.p50 ? assessedTask.bandStats.p50.toFixed(4) : 'n/a'})`
+  );
+  for (const [num, den] of BAR_PAIRS) {
+    const key = `${num} / ${den}`;
+    const v = barTask[key];
+    const adj = assessedTask.verdict.rows[key];
+    console.log(
+      `;;   BAR ${key.padEnd(24)} ${v.mean.toFixed(4)}x [${v.min.toFixed(4)} – ${v.max.toFixed(4)}]` +
+        `   (on taskNet ${bar[key].tared.mean.toFixed(4)}x)`
+    );
+    console.log(`;;     ${adj.unadjudicated ? 'UNADJ  ' : adj.clear ? 'CLEARS ' : 'LIMITED'} ${adj.why}`);
+  }
+  const ctlTaskPer = SEGMENTS.flatMap((seg) => ratioToFloor(roundsTask, seg, 'ctl-2x'));
+  const ctlTask = hasProportionalControl ? controlVerdict(2.0, ctlTaskPer, CONTROL_SLACK) : null;
+  if (ctlTask) {
+    console.log(
+      `;;   CONTROL on this clock: ${ctlTask.ok ? 'PASS' : 'FAIL'} ${ctlTask.measured.mean}x ` +
+        `[${ctlTask.measured.min} – ${ctlTask.measured.max}] against 2.00x +/-${CONTROL_SLACK * 100}%, ` +
+        `${ctlTask.rule}`
+    );
+  }
+
   // --- where the time goes --------------------------------------------------
   console.log(`;; ---- decomposition, mean ms per sample ----`);
   for (const [k, a] of Object.entries(decomposition)) {
     console.log(
-      `;;   ${k.padEnd(28)} task ${(a.taskNet / a.n).toFixed(4)}  script ${(a.script / a.n).toFixed(4)}  ` +
+      `;;   ${k.padEnd(28)} taskNet ${(a.taskNet / a.n).toFixed(4)}  = task ${(a.task / a.n).toFixed(4)} ` +
+        `less devtools ${(a.devtools / a.n).toFixed(4)}   script ${(a.script / a.n).toFixed(4)}  ` +
         `style ${(a.style / a.n).toFixed(4)}  layout ${(a.layout / a.n).toFixed(4)}  ` +
         `layouts/sample ${(a.layoutCount / a.n).toFixed(2)}`
     );
@@ -913,7 +1006,7 @@ function report(out) {
   for (const line of guard.format(v, `${rowId} — frame-inclusive task time`)) console.log(line);
 
   return {
-    bar, inPageBar, ctlVerdict, etVerdict, guardVerdict: v,
+    bar, inPageBar, barTask, ctlTask, bandTask, ctlVerdict, etVerdict, guardVerdict: v,
     parityOk: disagree.length === 0, tally, seam,
   };
 }
@@ -1090,6 +1183,9 @@ function report(out) {
             bar: o.verdict.bar,
             inPageBar: o.verdict.inPageBar,
             ctl: o.verdict.ctlVerdict,
+            barTask: o.verdict.barTask,
+            ctlTask: o.verdict.ctlTask,
+            bandTask: o.verdict.bandTask,
           })),
         },
         null,
