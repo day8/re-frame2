@@ -14,7 +14,10 @@ it.
 On per-keystroke it is **indistinguishable from both donors**, and all three are
 one frame. The three bulk rows **could not be measured honestly**; this page
 publishes no magnitude for them and [§6](#6-the-three-rows-this-page-refuses)
-says exactly why.
+says exactly why — including one ground it has since **withdrawn as refuted**,
+and the measured band that replaced it
+([§6.1](#61-the-seam-measured-against-load), [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)).
+Every row now carries the regime it was taken in.
 
 That is the first paragraph because the result is negative, and a negative here
 is decisive information about the six-week clock rather than a failure to
@@ -119,7 +122,12 @@ and is untouched by which adapter is installed. Every figure is a ratio to the
 floor measured in **that round of that segment**, so a cross-segment figure is a
 ratio of two floor-normalised ratios with the seam cancelled. That is a weaker
 interleaving than one segment's, and this page says so rather than describing it
-as though it were sample-level. The seam is measured and published on every row.
+as though it were sample-level. **That the seam cancels is now measured rather
+than asserted** ([§6.1](#61-the-seam-measured-against-load)): the perturbation a
+busy box applies is multiplicative, and a multiplicative perturbation cancels
+exactly. Every row publishes the seam, the null of the seam's own statistic, an
+orthogonal decomposition of where the floor's variation lives, and the **band** a
+magnitude must clear to be one.
 
 - **Witness**: the `M1` page — 300 sub-reading boundaries, 901 elements, one
   `[:p0/cell i]` read per boundary. Identical markup on all three substrates,
@@ -210,11 +218,20 @@ declared beside it.
 ### 3.3 The published run, and the four before it
 
 Run 5 is the published run: it is the only one taken on a genuinely idle box at
-the final tree, and it has the tightest segment seams of any (3.8–8.4% against
-22–34% on runs 3 and 4). All five are tabulated because selecting a run after
-seeing its result is the fault this whole page is built to avoid, and the
-selection here is on a stated pre-condition — a quiet box — with objective
-evidence for it.
+the final tree. All five are tabulated because selecting a run after seeing its
+result is the fault this whole page is built to avoid, and the selection here is
+on a stated pre-condition — a quiet box — with objective evidence for it.
+
+**The evidence originally cited for that pre-condition was the wrong one, and
+[§6.1](#61-the-seam-measured-against-load) is why.** This paragraph used to
+offer run 5's tight segment seams (3.8–8.4% against 22–34% on runs 3 and 4) as
+the objective sign of a quiet box. A nineteen-run load ladder has since shown
+the seam does not track load at all — 4.3% at idle against 4.6% with twenty of
+twenty-four cores saturated — so it cannot be evidence of quietness, and
+selecting on it would have been selecting on noise. The evidence that *does*
+hold is the one the next paragraph already used: **the absolute floor level**,
+which over that same ladder rose from 3.06 to 5.50 ms, an 80% span, and tracks
+load exactly as a busy box should make it.
 
 | run | instrument | `hicasso / reagent-subs` on M1 | `ctl-2x` | box |
 |---|---|---|---|---|
@@ -403,14 +420,18 @@ earns its place. It refused.
    (run 3), **0.9802×** (run 4) and **1.0100×** (run 5). A 59% spread that
    changes the sign of the verdict. The mount row's five estimates span 1.01 to
    1.21 and never change sign; these do.
-3. **On runs 3 and 4 the cross-segment floor seam exceeded the effect.** The
-   *same* floor — identical work, no substrate — read 3.147 / 2.437 / 2.349 ms
-   across the three segments on run 3's `bulk300`: a **34% spread**, against 23%
-   and 22% on the other two bulk rows. Floor-normalisation cancels a
-   *multiplicative* seam, not an additive one. **This reason does not apply to
-   run 5**, whose seams are 3.8–8.4%, and it is kept because a refusal that
-   quietly drops one of its grounds when a later run looks better is not a
-   refusal.
+3. ~~**On runs 3 and 4 the cross-segment floor seam exceeded the effect.**~~
+   **WITHDRAWN — measured and refuted, `rf2-cvvb7`.** The observation stands:
+   the *same* floor — identical work, no substrate — read 3.147 / 2.437 /
+   2.349 ms across the three segments on run 3's `bulk300`, a **34% spread**,
+   against 23% and 22% on the other two bulk rows. The *inference* does not.
+   Floor-normalisation cancels a multiplicative seam and not an additive one,
+   and [§6.1](#61-the-seam-measured-against-load) measures which this is: it is
+   multiplicative, it cancels exactly, and the seam is not attributable to the
+   segment at all. **The rows are still refused, on grounds 1 and 2 and on the
+   band `rf2-cvvb7` put in this ground's place** — which refuses them on a
+   quantity that was measured rather than assumed. A ground is withdrawn here
+   because it was shown wrong, which is the only reason a refusal may drop one.
 
 **One qualitative result from these rows is robust and needs no control**,
 because it does not depend on a magnitude. On the `narrow` row all three
@@ -422,7 +443,151 @@ neither better nor worse at it than the donors are.** The `narrow`-as-a-law win
 condition — commit-side dirty-set flat in `B` across 300/600/1,200/2,400 — is a
 different experiment and this run does not attempt it.
 
-### What a future run would have to change
+### 6.1 The seam, measured against load
+
+Ground 3 above rested on a comparison between two runs — 34% on one, 3.8% on
+another — with *"nothing changed but how busy the machine was"* offered as the
+difference. Two points are a line through two dots. `rf2-cvvb7` put a stated
+number of competing busy cores on the box and took the row nineteen times.
+
+`seam_ladder.cjs` forks *N* spinners, each walking a 4 MB array so it competes
+for cache and memory bandwidth as well as cycles, runs the clock, and kills
+them. Every spinner carries its own deadline, so it cannot outlive its window if
+the parent dies, and `--load` is capped four cores below the box.
+
+| competing cores | runs | floor ms | seam | SEGMENT | ROUND | POSITION | band |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 4 | 3.433 | 4.3% | 5.5% | 30.2% | 6.1% | 9.3% |
+| 2 | 3 | 3.728 | 7.0% | 4.9% | 41.4% | 9.9% | 6.8% |
+| 4 | 3 | 4.442 | 5.9% | 6.1% | 17.0% | 5.9% | 8.0% |
+| 8 | 3 | 4.696 | 3.5% | 4.0% | 27.4% | 5.0% | 9.5% |
+| 12 | 3 | 5.365 | 3.7% | 4.8% | 20.3% | 3.8% | 13.5% |
+| 20 | 3 | 4.659 | 4.6% | 4.0% | 8.2% | 3.2% | 6.4% |
+
+**The ladder unquestionably moved the box**: the absolute floor rose from 3.06
+to 5.50 ms, an **80% span**. It is monotone to twelve cores and turns over at
+twenty, which is not explained here and is left in rather than smoothed.
+
+**The seam did not move with it.** Over all nineteen runs it read **0.1%–16.4%,
+mean 4.8%**, with no trend — 4.3% at idle against 4.6% at twenty saturated
+cores. Row position inside the process does not explain it either: a five-row
+run read 4.9 / 2.4 / 1.1 / 9.4 / 3.3% across its five rows. So the published
+34% is not what a busy box does to this design, and **what produced it remains
+unidentified**.
+
+**And it is not attributable to the segment.** The seam is a max-over-min of
+three noisy block medians, which has a long right tail even when segment
+identity means nothing at all, so the instrument now takes that tail
+explicitly: relabel the three segments *within* each round — keeping every
+round's three blocks together and destroying only which segment owned which —
+and recompute the same statistic.
+
+| the seam's own null, pooled over 19 runs × 2,000 relabellings | |
+|---|---:|
+| median | 5.5% |
+| q95 | 14.1% |
+| q99 | 17.6% |
+| q99.9 | 23.9% |
+| largest of 38,000 draws | 26.8% |
+
+Every observed seam sat at or below that null's median, and **not one of the
+nineteen runs reached p < 0.2**. The published 22% is a 1-in-400 draw from it.
+The published 34% is beyond all 38,000 draws — which is the honest shape of the
+finding: it is not noise of this kind either, and nothing this study could
+produce reproduced it.
+
+Where the floor's variation actually lives is the **round**, not the segment.
+The rotation makes segment, round and position-in-round mutually orthogonal
+whenever the number of rounds is a multiple of the number of segments, and the
+instrument checks that balance rather than assuming it.
+
+**The perturbation is multiplicative, so floor-normalisation cancels it, and
+the arithmetic is exact**: `(k·H)/(k·F) = H/F`, to the last bit, for any `k`.
+The measurement that says it is multiplicative rather than additive is
+`ctl-2x / floor` — two arms in the *same* block whose true ratio is a property
+of the page and not of the box:
+
+| across the ladder's 80% floor span | |
+|---|---:|
+| `ctl-2x / floor` moved | 6.5% (1.657 → 1.765) |
+| correlation of that ratio with the floor | **+0.41** — an additive `c` reads `(2W+c)/(W+c)`, which *falls* as `c` grows, so the sign is wrong for additivity |
+| correlation of the published bar row with the floor | **−0.10** |
+| correlation of the published bar row with the seam | **−0.18** |
+| `hicasso / reagent-subs` over all 19 runs | 1.0161, [0.9643 – 1.1041] |
+
+So a bar row does not move when the floor moves by 80%, and does not move with
+the seam. **The bar row was not quoting the seam.**
+
+### 6.2 What replaces it: the band a magnitude must clear
+
+The seam was the wrong statistic to gate on. What bounds a bar row is not how
+far apart two segments' floors are; it is **how much of a block's perturbation
+fails to cancel when that block's own floor is divided out** — and `ctl-2x /
+floor` measures exactly that, because its true value is fixed. The **band** is
+the half-width of the p10–p90 interval of that ratio over the run's eighteen
+segment-blocks, relative to its median. An interior quantile rather than a
+max/min, because a max/min over eighteen blocks is the tail-heavy statistic this
+section exists to stop trusting.
+
+It is deliberately conservative: `ctl-2x` and `floor` differ in size (1,801
+against 901 elements), so a perturbation that is multiplicative but
+size-dependent lands in this ratio and would not land between a substrate arm
+and its own same-size floor. The band therefore over-states the noise a real bar
+row carries, which is the direction a gate should err in.
+
+It is also calibrated. Over the ladder the band averaged **8.9%** while the bar
+row's own run-to-run spread was ±7% around 1.016 — it predicts the noise a bar
+row actually carries.
+
+**The rule, and it is a generalisation of one this programme already has.**
+`validation.md` holds that *a margin under 5% is instrument-limited rather than
+cleared*. That 5% is assumed. The band is the same rule with the figure
+**measured by the run itself**: a magnitude whose distance from 1.0 is inside
+the band is instrument-limited and the row says so. A run whose band exceeds
+**25%** has no reportable magnitude at all — a tripwire that did *not* fire
+anywhere on the ladder that calibrated it (bands 4.4%–18.5%), because a ceiling
+tight enough to fire there would have refused an **idle** run: the widest band
+of the nineteen was taken at zero load.
+
+**The new rule reproduces both verdicts this page already reached**, from one
+measured quantity instead of three assorted grounds — which is the check on it,
+since a gate that changed the answers would need arguing for rather than
+adopting.
+
+Run 5 predates the band and its raw readings were not kept, so the band cannot
+be recomputed for it. Only `M1` publishes both ends of its control's range and
+so admits a conservative max/min stand-in — `(2.1817 − 1.7258) / (2 × 1.9534)`
+= 11.7%, which the shipped p10–p90 definition would put *below*. The bulk rows
+publish only their worst round, which is not enough to reconstruct a band; what
+settles them is that their margins are smaller than **any** band this
+instrument has ever produced, the tightest of twenty runs being 4.4%.
+
+| run 5 row | margin from 1.0 | against | verdict |
+|---|---:|---|---|
+| `M1`, `hicasso / reagent-subs` 1.2107 | 21.1% | its own band, ≤ 11.7% | **clears** — published, as it was |
+| `bulk300` 1.0100 | 1.0% | smaller than every band ever measured here | instrument-limited — refused, as it was |
+| `bulk100` 0.9902 | 1.0% | the same | instrument-limited — refused, as it was |
+| `narrow` 1.0369 | 3.7% | the same | instrument-limited — refused, as it was |
+
+And on the first run taken with the band instrument itself in place — five rows,
+idle box, same design — every row now carries its regime:
+
+| row | seam | band | `hicasso / reagent-subs` | disposition |
+|---|---:|---:|---:|---|
+| `M1` | 6.7% | 9.4% | 1.0952 | margin 9.5% **clears**, barely |
+| `bulk300` | 3.3% | 7.7% | 1.0084 | margin 0.8% — instrument-limited |
+| `bulk100` | 3.9% | 7.7% | 1.0299 | margin 3.0% — instrument-limited |
+| `narrow` | 6.2% | 10.6% | 1.0358 | margin 3.6% — instrument-limited |
+| `keystroke` | 0.7% | — | 0.9284 | **unadjudicated** — no proportional control |
+
+`keystroke` has no band and is marked rather than passed. Its control burns a
+fixed 50 ms instead of doubling the page, so `control / floor` reads `(F+50)/F`
+and moves with `F`; it is not a pair whose true ratio is a property of the page,
+and a row with no gate must not report as though it had cleared one. That is a
+result about the keystroke row's control, and it is [§6.3](#63-what-a-future-run-would-have-to-change)'s
+first bullet arriving from the other direction.
+
+### 6.3 What a future run would have to change
 
 Filed rather than attempted here, because each is a different instrument:
 
@@ -432,11 +597,13 @@ Filed rather than attempted here, because each is a different instrument:
   even a perfect instrument reads below 2.00 and the control is mis-specified
   for the row rather than the clock being wrong. A control that doubles the
   *changed set* at fixed page size is the right one.
-- **The segment seam, measured rather than assumed to cancel.** It was 34% on
-  one run and 3.8% on another with nothing changed but how busy the machine was.
-  A run that alternates segments *within* a round, or prices the seam with a
-  second floor at the segment's other end, would say whether it is an order
-  effect, GC, or the adapter install itself.
+- ~~**The segment seam, measured rather than assumed to cancel.**~~ **Done —
+  [§6.1](#61-the-seam-measured-against-load), `rf2-cvvb7`.** A nineteen-run load
+  ladder and an exact within-round relabelling null answered it without needing
+  a second floor arm: the variation is on the **round**, the perturbation is
+  multiplicative and cancels exactly, and the seam is not attributable to the
+  segment. The band in [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)
+  replaces it as the gate.
 - **More rounds.** The strict rule bites on round-level variance, and 6 × 10 is
   what the mount row needed rather than what these rows need.
 
@@ -444,9 +611,19 @@ Filed rather than attempted here, because each is a different instrument:
 
 ## 7. Provenance
 
-Every row on this page comes from **one run** — run 5 — of one instrument. The
-four runs before it are tabulated in [§3.3](#33-the-published-run-and-the-four-before-it)
-as the instrument's development record and are never averaged with it.
+Every **magnitude** on this page comes from **one run** — run 5 — of one
+instrument. The four runs before it are tabulated in
+[§3.3](#33-the-published-run-and-the-four-before-it) as the instrument's
+development record and are never averaged with it.
+
+**[§6.1](#61-the-seam-measured-against-load) and [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)
+are a separate study on separate runs and are kept separate deliberately.** They
+are twenty runs taken for `rf2-cvvb7` on the same box, at the blobs in the
+second table below, and they contribute **no magnitude** to any row above — they
+are about the instrument, not about the candidate. The one figure they publish
+about an arm, `hicasso / reagent-subs` over nineteen `bulk300` runs, is there to
+show that the bar row does not move with the floor or with the seam, and it is
+not offered as a `bulk300` result: `bulk300` is refused.
 
 | | |
 |---|---|
@@ -479,6 +656,34 @@ and 5 comparable, and `git diff` between the two commits is the check. Runs 1
 and 2 were taken on the two commits before that and are the *different*
 instruments §3.1 describes.
 
+### 7.1 The seam study (`rf2-cvvb7`)
+
+Twenty runs, on the same box and the same Chromium, taken **after** the rows
+above and contributing no magnitude to them. The page half was untouched, which
+is what makes the seam study's floor comparable with run 5's: `clock_app.cljs`
+and `clock_views.cljs` are at the blobs in the table above, unchanged.
+
+| file | blob |
+|---|---|
+| `implementation/freehand/test/re_frame/bench/hicasso/seam.cjs` | `a6789197e1bd9744879a2c8a143e48dc643b7f26` |
+| `implementation/freehand/test/re_frame/bench/hicasso/seam_ladder.cjs` | `ae0ddf6e1df15c8d5ad2e90a35154258762a553a` |
+| `implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs` | `f5bb751d6692b894cfc361ff1c54bfd782cf95d0` |
+
+| | |
+|---|---|
+| Design | 6 rounds × (4 warm-up + 10 samples) per arm per segment, unchanged from run 5 |
+| Ladder | 19 runs of `bulk300` at 0 / 2 / 4 / 8 / 12 / 20 competing busy cores, 3–4 replicates a rung, plus one five-row run at zero load for the row-position control |
+| Band run | 1 five-row run at zero load, the first taken with the band instrument in place |
+| Load windows | two, 23:10–23:17 and 23:18–23:23 AUSEST 2026-08-01, each rung a single ~40 s run with the load released between runs |
+| Reproduction | `node freehand/test/re_frame/bench/hicasso/seam_ladder.cjs --load 12 --label x --json out/x.json`, and `node freehand/test/re_frame/bench/hicasso/seam.cjs` for the adjudicator's own self-test |
+| Discarded | none. Every run that started finished; the driver writes no dataset for a run that died part-way, so a partial one cannot be analysed by mistake |
+
+The 19 ladder runs were taken with the seam adjudicator **not yet wired in**, so
+nothing they measured was influenced by the gate they calibrate; the ladder
+figures in [§6.1](#61-the-seam-measured-against-load) are recomputed from their
+stored raw readings using the shipped `seam.cjs`, so the published figures and
+the instrument's figures are the same figures.
+
 ---
 
 ## 8. What this hands the programme
@@ -497,7 +702,20 @@ instruments §3.1 describes.
   them. A pass on the user-facing axis, for the candidate and both donors alike.
 - **The bulk rows remain unmeasured** — the same place they were before this
   page, but now with a named instrument, a named failure mode and three named
-  repairs.
+  repairs, and refused on a **measured** quantity rather than an assumed one.
+- **Every row now says which regime produced it.** The seam is published with
+  the null of its own statistic and an orthogonal decomposition; the band — the
+  part of a block's perturbation that survives floor-normalisation — is measured
+  on every row and a magnitude inside it is marked instrument-limited. That
+  turns `validation.md`'s assumed *"a margin under 5% is instrument-limited"*
+  into a figure each run measures for itself.
+- **One of this page's own refusal grounds was wrong, and a load ladder found
+  it.** The seam does not track load, is not attributable to the segment, and is
+  multiplicative — so it cancels, exactly. The ground is withdrawn and the
+  measurement that withdrew it is published beside it. The general lesson is
+  cheap and reusable: a max-over-min of three noisy block medians has a long
+  right tail, and quoting one without its null invites a reader to treat 6% as a
+  finding.
 - **An in-page `performance.now()` window mis-reads a substrate arm by 300–610%,
   and by a different factor per arm.** That is the strongest methodological
   finding here. It does not overturn a published row, and it does mean no
