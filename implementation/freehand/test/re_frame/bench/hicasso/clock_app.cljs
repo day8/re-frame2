@@ -315,9 +315,9 @@
     1.7–2.0 ms against the floor's 0.33 ms. Every sample allocates a
     9,001-element React tree and the garbage lands inside the window.
 
-  The result was a per-block ratio scattered over `[0.09, 9.63]` with
-  denominators that went NEGATIVE — `T(2000)` reading below `T(1000)` in
-  three blocks of eighteen. Worse conditioned than the build it was meant
+  The result was a per-block ratio scattered over `[0.09, 9.63]`, with the
+  denominator going NEGATIVE — `T(2000)` reading below `T(1000)` — in one
+  block of eighteen. Worse conditioned than the build it was meant
   to rescue, and it perturbs the page under test ten times as hard, so
   the 300-cell construction is what ships.
 

@@ -184,9 +184,9 @@ rather than discarded:
   floor's 0.33 ms. Every sample allocates a 9,001-element React tree and the
   garbage lands inside the window.
 
-The result was a per-block ratio scattered over `[0.09, 9.63]` with denominators
-that went **negative** — `T(2000)` reading below `T(1000)` in three blocks of
-eighteen. Worse conditioned than the build it was meant to rescue, and it
+The result was a per-block ratio scattered over `[0.09, 9.63]`, with the
+denominator going **negative** — `T(2000)` reading below `T(1000)` — in one block
+of eighteen. Worse conditioned than the build it was meant to rescue, and it
 perturbs the page under test ten times as hard, so the 300-cell construction is
 what ships.
 
@@ -264,9 +264,10 @@ the page and the instrument rather than of the control.
 Everything else about the published run is clean, which is what makes the refusal
 worth trusting: arm-order guard reportable on both clocks on all three rows, 0
 unverified of 3024 writes per row, canonical DOM identical across 15 non-control
-arms, bands 20.1 / 13.8 / 15.7% (taskNet) and 16.1 / 12.3% (`TaskDuration`), all
-under the 25% ceiling. **No bulk magnitude is published from these runs**, and
-the figures the run printed are deliberately not repeated here.
+arms, bands 20.1 / 13.8 / 15.7% (taskNet), all
+under the 25% ceiling — 16.1 / 12.3 / 17.5% on the published `TaskDuration`
+clock. **No bulk magnitude is published from these runs**, and the figures the
+run printed are deliberately not repeated here.
 
 Two further constraints on any future attempt:
 
@@ -287,6 +288,14 @@ Two further constraints on any future attempt:
 | `implementation/freehand/test/re_frame/bench/hicasso/clock_app.cljs` | `703f5074e14839460984542597e031bd632662b4` |
 | `implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs` | `46b34911fd4e9a70d218dadaa503731e29e4fa52` |
 | `implementation/freehand/test/re_frame/bench/hicasso/clock_views.cljs` | `7e48dbc0b3a974cd61a5c61e606333848877a31f` |
+
+These are the blobs **that produced the figures above**, and they are what a
+reproduction needs. `clock_app.cljs` has since been corrected in a
+docstring — it over-stated the 3,000-cell run's negative-denominator count as
+three blocks where the dataset says one — and now hashes
+`5e0999c41f5499cacc72ea466cb37b74a3e6056e`. The correction is comment-only and changes no
+behaviour, but the pin above names the blob that ran rather than the blob that
+ships, because those are different questions.
 
 Commit `ef30c639162db98492cf0ebb53f00d411deb4bc4`. Chromium 147.0.7727.15
 (Playwright), `:advanced`, `goog.DEBUG` false. Design 6 rounds × (4 warm-up + 20
