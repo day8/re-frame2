@@ -275,11 +275,14 @@ clean:
 > witness and the HD-008 donor rows — was taken on `lane/now-ms`, a
 > `performance.now()` window that closes the instant `flushSync` returns, before
 > the style recalculation, layout and paint the operation caused. Measured
-> against a frame-inclusive clock on the same samples, substrate arms read
-> **+268% to +704%** differently while the pure-React control arms differ by
-> under 13% — which is exactly how a lane that certifies its instrument on its
-> controls never saw it. **`M1 mount 1.0150×` survives**: a frame-inclusive clock
-> puts the same components at `1.0110×`, inside the published interval, as does
+> against a second clock on the same samples, substrate arms **split
+> +268% to +704%** apart while the pure-React control arms split by under 13% —
+> which is exactly how a lane that certifies its instrument on its controls never
+> saw it. **That second clock was `taskNet`, a frame-ONLY reading** (below), so
+> the two windows are near complements and the separation is a *split* between
+> two halves rather than one instrument's error rate. **`M1 mount 1.0150×`
+> survives**: `taskNet` puts the same components at `1.0110×` and the corrected
+> clock at `1.0011×`, both inside the published interval, as does
 > [the coldmount page](studio/coldmount-double-build-priced.md)'s `1.0054×`.
 > **`bulk broad 0.6291×` does not**: the cross-check's in-page reading of
 > `0.6924×` lands inside this row's own run-mean spread, and no clock that sees
