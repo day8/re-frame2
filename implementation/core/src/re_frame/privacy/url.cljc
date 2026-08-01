@@ -56,10 +56,12 @@
   It is NOT a fail-closed projection of an ARBITRARY FOREIGN URL. It does
   string surgery only after the first `?` or `#`, so it never reaches userinfo
   (`https://alice:pw@host/…`), a path-borne reset token, or an attacker-chosen
-  value-less query key. A record that ships an attacker-authored URL off-box
-  needs an ALLOW-list over parsed structural components instead — see
-  `re-frame.ssr.egress/safe-redirect-record-slots`, which is built FROM a
-  closed slot set rather than filtered down to one.
+  value-less query key. A record fed by an attacker-authored URL needs an
+  ALLOW-list instead — see `re-frame.ssr.egress/safe-redirect-record-slots`,
+  which is built FROM a closed slot set rather than filtered down to one, and
+  carries CLASSIFIED components rather than parsed ones: a parsed component is
+  still caller-authored text, so a closed set of keys is not yet a closed set
+  of values.
 
   Internal namespace; nothing here is published from the `re-frame.core`
   facade."
