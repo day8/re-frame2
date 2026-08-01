@@ -345,12 +345,57 @@
   lines.  `Ran N tests containing M assertions.` / `K failures, J errors.`"
   #"^(Ran \d+ tests containing \d+ assertions\.|\d+ failures, \d+ errors\.)$")
 
+(def ^:private spawn-timeout-env-var
+  "Override for the spawn ceiling, in milliseconds.  A machine running
+  several worker checkouts at once needs a larger one than a quiet CI
+  runner; see `default-spawn-timeout-ms` for why the ceiling is a
+  wall-clock backstop rather than a performance assertion."
+  "RF2_SPAWN_TIMEOUT_MS")
+
+(def ^:private default-spawn-timeout-ms
+  "Hard ceiling for a spawned focused runner (rf2-hofhx).
+
+  THIS IS A BACKSTOP, NOT A PERFORMANCE ASSERTION.  The previous 60 s
+  value was justified by the claim that `a correctly-exiting child
+  returns in well under a second`.  That was never true of this build.
+  `out/node-test.js` is a dev-mode loader: every spawn re-`require`s the
+  whole consolidated node-test output — measured on this tree at 4201
+  modules / 484 MB — so a perfectly healthy child costs
+
+    ~10-13 s   on an idle box
+    ~30-450 s  while sibling worker checkouts saturate the machine
+               (measured: 449 s, and the child still exited 0)
+
+  Against a 60 s ceiling that starves a HEALTHY child to death, and the
+  resulting failure is indistinguishable at a glance from a regression:
+  spawnSync reports ETIMEDOUT with both child streams empty.  The field
+  report has the failure count tracking box load on an unchanged tree,
+  0 -> 9 -> 18 -> 9.
+
+  Raising it does NOT weaken the fail-fast contract.  That contract is
+  pinned separately and strictly by `spawn-timeout-kills-a-hanging-child`,
+  which proves a never-exiting child is SIGTERM-killed using its own 1.5 s
+  ceiling.  This constant only bounds how long a wedged child may stall
+  the suite before that same mechanism ends it."
+  300000)
+
+(defn- resolve-spawn-timeout-ms
+  "Parse the ceiling override.  A malformed value THROWS rather than
+  falling back: `RF2_SPAWN_TIMEOUT_MS=60O` (letter O) silently restoring a
+  starvation-prone ceiling would be this defect wearing a hat."
+  [raw]
+  (if (or (nil? raw) (str/blank? (str raw)))
+    default-spawn-timeout-ms
+    (let [n (js/Number (str/trim (str raw)))]
+      (when-not (and (js/Number.isInteger n) (pos? n))
+        (throw (ex-info (str spawn-timeout-env-var "=\"" raw "\" is not a positive"
+                             " integer number of milliseconds.  Leave it unset for"
+                             " the default (" default-spawn-timeout-ms " ms).")
+                        {:value raw})))
+      n)))
+
 (def ^:private spawn-timeout-ms
-  "Hard ceiling for a spawned focused runner.  A correctly-exiting child
-  returns in well under a second; this generous bound makes a child that
-  stops exiting FAIL with a structured `:timed-out?` diagnostic instead
-  of hanging the whole CLJS suite."
-  60000)
+  (resolve-spawn-timeout-ms (aget js/process.env spawn-timeout-env-var)))
 
 (def ^:private spawn-max-buffer-bytes
   "Output cap for a spawned focused runner — `spawnSync` kills the child
@@ -403,6 +448,31 @@
        ;; a signal shorthand; `:error` carries the precise spawn failure.
       :timed-out? (= signal "SIGTERM")})))
 
+(defn- spawn-error-explanation
+  "Message for the `(is (nil? err) ...)` pin every process-level test makes.
+
+  A spawn killed at the ceiling is STILL A FAILURE — a run whose child never
+  started has verified nothing, and downgrading it to a skip would be a
+  fail-open gate.  But it is a failure of the BOX, not of the diff under
+  test, and the bare `spawnSync ... ETIMEDOUT` it used to print gave a
+  reader nothing to tell those apart: both child streams are empty, so it
+  reads exactly like a runner that produced no output.  That ambiguity cost
+  real diagnosis time (rf2-hofhx), so the ETIMEDOUT case names the ceiling,
+  the knob that moves it, and what the child was actually doing."
+  [err]
+  (str "spawning the real runner must not error; got: " (pr-str err)
+       (when (and (some? err) (= "ETIMEDOUT" (.-code err)))
+         (str "\n\n  The child was KILLED at the " spawn-timeout-ms " ms spawn"
+              " ceiling, so BOTH of its streams are empty — it never produced"
+              " a byte.\n  Each spawn re-loads the whole consolidated"
+              " node-test build (~4200 dev modules), which costs ~10-13 s on"
+              " an idle box\n  and has been measured above 400 s while sibling"
+              " worker checkouts saturate the machine.  An oversubscribed box"
+              "\n  is therefore a far likelier explanation than a defect in"
+              " your change: re-run on a quiet box, or raise the ceiling with"
+              "\n  " spawn-timeout-env-var "=<ms>.  A child that never ran"
+              " cannot verify the contract, so this stays RED either way."))))
+
 (deftest real-shadow-node-green-run-is-quiet
   (testing "the real out/node-test.js entry point emits only the canonical summary on green"
     ;; Re-running the runner focused on the green fixture exercises the real
@@ -411,7 +481,7 @@
           {status :status stdout :stdout stderr :stderr err :error}
           (spawn-runner [(str "--test=" green-ns)])]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (zero? status)
           (str "the focused green run must exit 0; got " status
                "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
@@ -450,7 +520,7 @@
     (let [{status :status stdout :stdout stderr :stderr err :error}
           (spawn-runner ["--tests=re-frame.test-quiet-green-fixture-cljs-test"])]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (and (number? status) (not (zero? status)))
           (str "a misspelled selector flag must exit NONZERO (not fall"
                " through to a green full-suite run); got status " status
@@ -469,7 +539,7 @@
     (let [{status :status stdout :stdout stderr :stderr err :error}
           (spawn-runner ["--test" "missing.ns"])]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (and (number? status) (not (zero? status)))
           (str "space-separated --test <selector> must exit NONZERO; got "
                status "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
@@ -485,7 +555,7 @@
     (let [{status :status stdout :stdout stderr :stderr err :error}
           (spawn-runner ["--test=re-frame.test-quiet-green-fixture-cljs-test"])]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (zero? status)
           (str "a clean focused run must STILL exit 0 — the guard must not"
                " reject valid args; got status " status
@@ -501,7 +571,7 @@
     (let [{status :status stdout :stdout stderr :stderr err :error}
           (spawn-runner ["--test=definitely.absent.namespace"])]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (and (number? status) (not (zero? status)))
           (str "an unmatched --test= selector must exit NONZERO (not a"
                " 0-test green); got status " status
@@ -536,7 +606,7 @@
           (spawn-runner [(str "--test=" red-ns)]
                         {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (not timed-out?)
           "the armed fixture run must not time out")
       (is (and (number? status) (not (zero? status)))
@@ -561,7 +631,7 @@
           {status :status stdout :stdout stderr :stderr err :error}
           (spawn-runner [(str "--test=" red-ns)])]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (zero? status)
           (str "the unarmed fixture is GREEN; must exit 0; got " status
                "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
@@ -600,7 +670,7 @@
                         {:env {:RF2_TQ_RED_REPLAY_VOLUME "1"}})
           combined (str stdout stderr)]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (not timed-out?)
           "the armed volume fixture run must not time out")
       (is (and (number? status) (not (zero? status)))
@@ -638,7 +708,7 @@
           (spawn-runner [(str "--test=" red-ns)]
                         {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (not timed-out?)
           "the armed fixture run must not time out")
       ;; The CORE pin: a printed failure MUST drive a non-zero exit.
@@ -665,7 +735,7 @@
           {status :status stdout :stdout stderr :stderr err :error}
           (spawn-runner [(str "--test=" red-ns)])]
       (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
+          (spawn-error-explanation err))
       (is (zero? status)
           (str "the unarmed fixture is GREEN; a correct run must still exit 0"
                " — the exit code tracks the real result, it is not always"
