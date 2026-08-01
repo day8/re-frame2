@@ -146,14 +146,16 @@
     ;; prefixed apart inside one flat kit namespace.
     ;;
     ;; It landed on main (PR #7181) WITHOUT reaching this list, and nothing
-    ;; went red — which is the point. The generator introspects an EXPLICIT
-    ;; roster, so an unlisted namespace is not unclassified, it is UNSCANNED:
-    ;; `--check` passes, and `doc_api_check` derives ITS namespace roster
+    ;; went red — which was the point. The generator introspects an EXPLICIT
+    ;; roster, so an unlisted namespace was not unclassified, it was UNSCANNED:
+    ;; `--check` passed, and `doc_api_check` derives ITS namespace roster
     ;; from the manifest rows, so the surface received no documentation
     ;; coverage check either. Fourteen public names were invisible to every
     ;; manifest-derived gate at once (rf2-h0b0l) — the same defect class
     ;; rf2-ivuun repaired for `re-frame.resources`, and the reason the
-    ;; comment below no longer states a COUNT of sanctioned siblings.
+    ;; comment below no longer states a COUNT of sanctioned siblings. The
+    ;; roster-completeness gate further down (rf2-o8xev) is what now makes an
+    ;; unlisted namespace impossible to ship quietly.
     ;;
     ;; `.cljc` and host-neutral, and here the JVM enumeration is not a proxy
     ;; for a browser surface — the bounds, the settle arithmetic, the
@@ -253,6 +255,239 @@
     ;; internal plumbing.
     [re-frame.interop     debug-enabled?]
     [re-frame.performance enabled?]])
+
+;; ---------------------------------------------------------------------------
+;; Freehand roster completeness (rf2-o8xev).
+;;
+;; THE HOLE. `jvm-namespaces` above is an EXPLICIT roster, and
+;; `doc_api_check` derives ITS namespace roster from the rows that roster
+;; produces. So a namespace absent from the roster is not UNCLASSIFIED — it is
+;; UNSCANNED. `--check` stays green, no documentation-coverage check reaches
+;; it, and every public var in it is invisible to every manifest-derived gate
+;; at once. That has now happened three times: `re-frame.resources`
+;; (rf2-ivuun — zero manifest rows while every sibling artefact carried 8-36),
+;; then `re-frame.freehand.splitter` (rf2-h0b0l — fourteen public names) and
+;; `re-frame.freehand.collection` (rf2-cfhuv — seven). Each repair added the
+;; missing namespace and left the roster exactly as unable to notice the next
+;; one; the sweep was point-in-time, so the class survived every fix of it.
+;;
+;; THE GATE. This one notices. It infers NOTHING about publicness: no
+;; namespace is auto-enrolled, no var is auto-published, and `^:no-doc`
+;; plumbing stays out of the manifest exactly as before. It asserts only that
+;; every Freehand SOURCE namespace has been ACCOUNTED FOR — named either in
+;; the public roster above (a supported sibling, whose editorial roster of
+;; record is `spec/Conventions.md` §Freehand) or in the internal roster below
+;; (plumbing nobody authors against). A newly shipped namespace is in neither
+;; set, so it fails BY NAME with the two ways to answer for it. Classification
+;; stays a human decision; only the OBLIGATION to make one is automated.
+;;
+;; WHY FREEHAND AND NOT EVERY TREE. Deliberately narrow. Freehand is where
+;; the class recurred twice inside a fortnight, it is the one artefact whose
+;; sibling roster is normative prose someone must keep in step
+;; (`spec/Conventions.md` §Freehand — "one public namespace, one alias, one
+;; reserved root"), and it is a single `src` tree with a single reserved ns
+;; root, so "every source namespace" is a well-defined question here. Widening
+;; it to the other artefacts is a separate decision with a separate cost, not
+;; a free generalisation.
+;; ---------------------------------------------------------------------------
+
+(def freehand-source-root
+  "implementation/freehand/src — the Freehand substrate's whole source tree.
+   Every namespace beneath it must be accounted for by one of the two rosters."
+  (delay (io/file repo-root "implementation" "freehand" "src")))
+
+(def freehand-internal-namespaces
+  "Freehand source namespaces that are deliberately NOT a supported surface:
+  compiler internals, runtime plumbing, host seams and the benchmark harness.
+  Nothing here is published, documented, or rowed in the manifest — being on
+  this list is the RECORD of that decision, not a consequence of it.
+
+  This is not a synonym for `^:no-doc`. Only six of these carry that metadata
+  on their `ns` form (`checkpoint`, `control`, `descriptor`, `occurrences`,
+  `registry`, `to-react`), so the marker cannot be the classifier — which is
+  precisely why the roster is written down instead of derived.
+
+  Two entries deserve their tension noted rather than hidden. `evidence` and
+  `presence-runtime` are required by TOOL production source (Xray's mounted-
+  views reader and Story's presence host), and `spec/Conventions.md` names
+  `re-frame.freehand.evidence/schema` in a normative row. They are in-tree
+  cross-artefact seams consumed through `:local/root`, not published doors,
+  and the §Freehand roster does not list them — so they are internal here.
+  Whether a tool-consumed seam should be rowed at the `:tooling` tier the way
+  `re-frame.mcp-base.elision` is is an editorial question for that roster's
+  owner, and this gate deliberately does not answer it."
+  '#{;; The declared-view + occurrence indexes, the descriptor type, and the
+     ;; host/lifecycle seams beneath the door. `^:no-doc` on their ns forms.
+     re-frame.freehand.checkpoint
+     re-frame.freehand.control
+     re-frame.freehand.descriptor
+     re-frame.freehand.occurrences
+     re-frame.freehand.registry
+     re-frame.freehand.to-react
+     ;; The template compiler: analyzer, grammar, emitters, build hooks.
+     re-frame.freehand.compiler
+     re-frame.freehand.compiler.a11y
+     re-frame.freehand.compiler.analyze
+     re-frame.freehand.compiler.binding-plan
+     re-frame.freehand.compiler.build
+     re-frame.freehand.compiler.build-hook
+     re-frame.freehand.compiler.check
+     re-frame.freehand.compiler.emit-jvm
+     re-frame.freehand.compiler.emit-react
+     re-frame.freehand.compiler.env
+     re-frame.freehand.compiler.grammar
+     re-frame.freehand.compiler.harvest
+     re-frame.freehand.compiler.header
+     re-frame.freehand.compiler.root
+     ;; Runtime: the reactive cell, the tree walk, conversion, node
+     ;; discrimination, equality, fingerprints, errors, event sites.
+     re-frame.freehand.behaviors
+     re-frame.freehand.cell
+     re-frame.freehand.compiled-react
+     re-frame.freehand.controlled
+     re-frame.freehand.conversion
+     re-frame.freehand.eq
+     re-frame.freehand.error-react
+     re-frame.freehand.errors
+     re-frame.freehand.events
+     re-frame.freehand.fingerprint
+     re-frame.freehand.node
+     re-frame.freehand.phase
+     re-frame.freehand.props-schema
+     re-frame.freehand.react
+     re-frame.freehand.reactive
+     re-frame.freehand.refs
+     re-frame.freehand.root
+     re-frame.freehand.root-id
+     re-frame.freehand.route-link-seam
+     re-frame.freehand.rules
+     re-frame.freehand.shell
+     re-frame.freehand.substrate
+     re-frame.freehand.top-layer
+     re-frame.freehand.tree
+     re-frame.freehand.web
+     ;; In-tree cross-artefact seams consumed by tools (see the docstring).
+     re-frame.freehand.evidence
+     re-frame.freehand.presence-runtime
+     ;; The benchmark harness — a dev-only measurement rig, never shipped.
+     re-frame.freehand.bench
+     re-frame.freehand.bench.b1
+     re-frame.freehand.bench.b1-react
+     re-frame.freehand.bench.b1.compiled
+     re-frame.freehand.bench.b1.interpreted
+     re-frame.freehand.bench.b2
+     re-frame.freehand.bench.b2.interpreted
+     re-frame.freehand.bench.b3
+     re-frame.freehand.bench.b5
+     re-frame.freehand.bench.falsifiability
+     re-frame.freehand.bench.measure
+     re-frame.freehand.bench.node
+     re-frame.freehand.bench.provenance
+     re-frame.freehand.bench.runner})
+
+(defn- source-file->ns-sym
+  "Namespace symbol for a Clojure source file at `rel-path` (a `/`-joined
+   path relative to a source root, extension included). Reverses the standard
+   munge: strip the extension, `/` → `.`, `_` → `-`. Returns nil for a
+   non-source file."
+  [rel-path]
+  (when-let [[_ base] (re-matches #"(.+)\.clj[cs]?$" rel-path)]
+    (symbol (-> base (str/replace "/" ".") (str/replace "_" "-")))))
+
+(defn namespaces-under
+  "The sorted set of namespace symbols for every `.clj` / `.cljc` / `.cljs`
+   source file beneath `root`. Throws when `root` does not exist — a
+   completeness gate that quietly finds nothing is the defect it exists to
+   prevent, so an unreadable tree must be loud rather than green."
+  [^java.io.File root]
+  (when-not (.isDirectory root)
+    (throw (ex-info (str "Freehand source root not found: " (.getPath root)
+                         " — the roster-completeness gate cannot run, and must "
+                         "not pass by default. Run the generator from "
+                         "implementation/scripts/api-manifest/.")
+                    {:root (.getPath root)})))
+  (let [root-path (.getPath root)
+        prefix    (count (str root-path java.io.File/separator))]
+    (into (sorted-set)
+          (comp (filter #(.isFile ^java.io.File %))
+                (map (fn [^java.io.File f]
+                       (-> (.getPath f)
+                           (subs prefix)
+                           (str/replace "\\" "/"))))
+                (keep source-file->ns-sym))
+          (file-seq root))))
+
+(defn- accounted-freehand-namespaces
+  "The union of the two rosters: Freehand namespaces enrolled for JVM
+   introspection (supported public surface) plus those recorded as internal."
+  []
+  (into freehand-internal-namespaces
+        (filter #(str/starts-with? (name %) "re-frame.freehand"))
+        jvm-namespaces))
+
+(defn freehand-roster-drift
+  "Reconcile the two rosters against the live source tree. Returns
+   `{:unaccounted [...] :stale [...] :contradictory [...]}`:
+
+     :unaccounted   — a source namespace named by NEITHER roster. The new
+                      surface that would otherwise ship unscanned.
+     :stale         — an INTERNAL roster entry with no source file left. The
+                      roster rots the same way the sidecar does, and is
+                      reconciled the same way.
+     :contradictory — a namespace claimed by BOTH rosters at once, which is
+                      not a classification but a contradiction.
+
+   `present` is the live set from `namespaces-under`; passing it in keeps the
+   reconciliation pure and lets a test drive a synthetic tree through it."
+  [present]
+  (let [enrolled (into #{}
+                       (filter #(str/starts-with? (name %) "re-frame.freehand"))
+                       jvm-namespaces)]
+    {:unaccounted   (vec (sort (set/difference (set present)
+                                               (accounted-freehand-namespaces))))
+     :stale         (vec (sort (set/difference freehand-internal-namespaces
+                                               (set present))))
+     :contradictory (vec (sort (set/intersection enrolled
+                                                 freehand-internal-namespaces)))}))
+
+(defn assert-freehand-roster-complete!
+  "Throw with an actionable message when `present` reveals roster drift.
+   Returns `present` unchanged when the rosters account for the tree exactly."
+  [present]
+  (let [{:keys [unaccounted stale contradictory]} (freehand-roster-drift present)]
+    (when (seq unaccounted)
+      (throw (ex-info
+              (str "Unaccounted Freehand source namespace(s) — every namespace "
+                   "under implementation/freehand/src must be classified, or it "
+                   "ships UNSCANNED (no manifest rows, no documentation-coverage "
+                   "check, and this gate green). Classify each one of:\n  "
+                   (str/join "\n  " unaccounted)
+                   "\n\nEither (a) SUPPORTED PUBLIC SIBLING — add it to "
+                   "`jvm-namespaces` in this generator, add it to the "
+                   "spec/Conventions.md §Freehand roster with the edge it earns, "
+                   "classify each public var in spec/api-manifest-metadata.edn, "
+                   "and add its docs/api/<ns>.md page; or (b) INTERNAL — add it "
+                   "to `freehand-internal-namespaces` in this generator, with a "
+                   "one-line reason in the grouping comment.")
+              {:unaccounted unaccounted})))
+    (when (seq stale)
+      (throw (ex-info
+              (str "Stale `freehand-internal-namespaces` entries — these are "
+                   "recorded as internal Freehand plumbing but no source file "
+                   "under implementation/freehand/src answers to them any more "
+                   "(remove them from the roster in this generator):\n  "
+                   (str/join "\n  " stale))
+              {:stale stale})))
+    (when (seq contradictory)
+      (throw (ex-info
+              (str "Contradictory Freehand classification — these namespaces are "
+                   "BOTH enrolled for public introspection in `jvm-namespaces` "
+                   "AND recorded as internal in `freehand-internal-namespaces`. "
+                   "A namespace is one or the other; remove the wrong "
+                   "entry:\n  "
+                   (str/join "\n  " contradictory))
+              {:contradictory contradictory})))
+    present))
 
 ;; ---------------------------------------------------------------------------
 ;; Derivation from live vars.
@@ -421,6 +656,13 @@
    spec/api-manifest.edn). Throws on missing / stale sidecar entries with
    an actionable message — that throw is what turns the drift-check red."
   [sidecar]
+  ;; ROSTER COMPLETENESS FIRST (rf2-o8xev). The three reconciliations below
+  ;; all read `jvm-namespaces`, so they can only report on namespaces the
+  ;; roster already names — an unenrolled namespace is invisible to every one
+  ;; of them. Asserting the roster accounts for the source tree BEFORE any of
+  ;; them run is what turns "a new public namespace shipped unscanned" from a
+  ;; green run into a named failure.
+  (assert-freehand-roster-complete! (namespaces-under @freehand-source-root))
   (let [[rows missing] (build-rows sidecar)
         stale          (stale-sidecar-entries sidecar)
         dups           (duplicate-rows rows)]
