@@ -128,9 +128,15 @@ for (const rowId of rowIds) {
     const task = runs.map(({ row }) => (row.barTask && row.barTask[pair] ? row.barTask[pair].mean : NaN));
     if (!task.some(Number.isFinite)) continue;
 
-    // The control-passing subset, reported BESIDE the whole ensemble and
-    // never instead of it.
-    const passIdx = runs.map(({ row }, i) => (row.ctlTask && row.ctlTask.ok ? i : -1)).filter((i) => i >= 0);
+    // The REPORTABLE subset, beside the whole ensemble and never instead of
+    // it. A run is reportable on this row when its control held AND its band
+    // stayed under the ceiling — the ceiling is a whole-run refusal that
+    // fires before any control is consulted, so a run that breached it
+    // contributes no magnitude even if its control passed.
+    const reportable = ({ row }) =>
+      row.ctlTask && row.ctlTask.ok && !(row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) &&
+      !(row.seamTask && row.seamTask.ceilingBreached);
+    const passIdx = runs.map((r, i) => (reportable(r) ? i : -1)).filter((i) => i >= 0);
     const taskPass = passIdx.map((i) => task[i]);
 
     const e = ens(task);
@@ -151,13 +157,18 @@ for (const rowId of rowIds) {
       const b = row.bandTask;
       const margin = Math.abs(task[i] - 1) * 100;
       const bandPct = Number.isFinite(b) ? b * 100 : NaN;
-      const verdict = !Number.isFinite(bandPct)
-        ? 'UNADJUDICATED — no proportional control on this row'
-        : !(row.ctlTask && row.ctlTask.ok)
-          ? `control FAILED — no magnitude reportable`
-          : margin > bandPct
-            ? `clears its ${fmt(bandPct, 1)}% band`
-            : `INSIDE the band — instrument-limited`;
+      const breached =
+        (row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) ||
+        (row.seamTask && row.seamTask.ceilingBreached);
+      const verdict = breached
+        ? `BAND CEILING BREACHED — whole run refused before any control is consulted`
+        : !Number.isFinite(bandPct)
+          ? 'UNADJUDICATED — no proportional control on this row'
+          : !(row.ctlTask && row.ctlTask.ok)
+            ? `control FAILED — no magnitude reportable`
+            : margin > bandPct
+              ? `clears its ${fmt(bandPct, 1)}% band`
+              : `INSIDE the band — instrument-limited`;
       console.log(
         `;;     ${shortName(file).padEnd(5)} ${fmt(inPage[i]).padStart(8)} ${fmt(net[i]).padStart(9)}` +
           `${fmt(task[i]).padStart(14)} ${(Number.isFinite(bandPct) ? fmt(bandPct, 1) + '%' : 'n/a').padStart(7)}` +
