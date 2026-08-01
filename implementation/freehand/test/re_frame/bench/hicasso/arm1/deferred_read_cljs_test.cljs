@@ -156,6 +156,85 @@
                             (codec/realize-deep v))
           label))))
 
+;; ---------------------------------------------------------------------------
+;; 1b — the same deferral, held as a map KEY (rf2-2rtt6.32)
+;; ---------------------------------------------------------------------------
+
+(defn- child-derefs-key-body
+  "Forces a `delay` it finds at a KEY position. Nothing about the child is
+  unusual — a map arrives as a prop and the child reads it — which is the
+  point: the carrier is the same, only the half of the entry differs."
+  [{:keys [m]}]
+  [:li.deref-key (str @(first (keys m)))])
+
+(def ^:private child-derefs-key
+  (rt/mint-view! "deferred/child-derefs-key" child-derefs-key-body))
+
+(defn- parent-key-delay-body [_]
+  [child-derefs-key {:m {(delay (:title (rt/sub [:dogfood/todo 1]))) :marked}}])
+
+(deftest a-delay-held-as-a-map-key-is-refused-exactly-as-a-value-is
+  (testing "the invariant is about **reach** — every unforced `delay`
+           reachable from the props — and a map entry is two reachable
+           positions rather than one. The walk descended into values only
+           until `rf2-2rtt6.32`, on an argument that does not survive
+           contact with either half of the substrate: a `delay` hashes by
+           object identity, so hashing never forces one; and a small map
+           literal is a `PersistentArrayMap`, which compares keys with `=`
+           and hashes nothing at all, so a one-entry map never so much as
+           looks at its key. Both halves now go through the same refusal."
+    (doseq [[label v] [["a key of the props map"          {(delay 1) :marked}]
+                       ["a key of a nested map"           {:m {(delay 1) :marked}}]
+                       ["inside a COLLECTION key"         {:m {[(delay 1)] :marked}}]
+                       ["a key of a map inside a vector"  {:v [{(delay 1) :marked}]}]
+                       ["a key of a map inside a seq"     {:v (list {(delay 1) :marked})}]
+                       ["a key of a map inside a set"     {:v #{{(delay 1) :marked}}}]]]
+      (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
+                            (codec/realize-deep v))
+          label))))
+
+(deftest a-key-held-delay-is-refused-before-the-child-can-cache-it
+  (seeded!)
+  (testing "**Deliberately two renders deep.** A witness that stopped at
+           the first paint would pass on a runtime that never looked at a
+           key: the child's FIRST render forces the delay and files the
+           read under itself, so the screen is right. The SECOND render is
+           the wrong one — a `Delay` caches, so that walk calls `sub` zero
+           times, the read set collapses to empty, React re-subscribes and
+           the edge is dropped. The parent holds no edge either, so nothing
+           ever rebuilds the delay.
+
+           On this runtime the crossing refuses and the branch below is
+           never entered. On one whose walk skips keys the crossing
+           succeeds, and the assertion inside prints the two read sets that
+           should have been equal and are not."
+    (let [built (try (render parent-key-delay-body {}) (catch :default _ ::refused))]
+      (is (= ::refused built)
+          "an unforced `delay` at a key position refuses at the crossing")
+      (when (not= ::refused built)
+        (let [props  (crossing-props (:element built))
+              first' (:reads (render child-derefs-key-body props))
+              again  (:reads (render child-derefs-key-body props))]
+          (is (= first' again)
+              "UNREFUSED: the child's first render holds the edge and its
+               cached second render drops it"))))))
+
+(deftest the-fault-a-key-held-delay-would-restore
+  (seeded!)
+  (testing "driven around the codec, because the codec now refuses to build
+           it. Identical to `the-fault-the-refusal-replaces` in every
+           respect but where the `delay` sits, and that is the finding: the
+           position it occupies changes nothing about what it does to the
+           edge, so the walk's **reach** was the whole of the defect."
+    (let [d      (delay (:title (rt/sub [:dogfood/todo 1])))
+          props  {:m {d :marked}}
+          first' (render child-derefs-key-body props)
+          again  (render child-derefs-key-body props)]
+      (is (= #{(key-of [:dogfood/todo 1])} (:reads first'))
+          "the first walk files the read under whoever forced it")
+      (is (= #{} (:reads again))
+          "and the second calls `sub` zero times, so the edge is dropped"))))
+
 (deftest a-delay-in-the-children-position-is-refused-too
   (seeded!)
   (testing "`:children` is a key in the same props map, so the one walk
