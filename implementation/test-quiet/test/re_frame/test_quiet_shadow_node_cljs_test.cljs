@@ -376,8 +376,19 @@
   pinned separately and strictly by `spawn-timeout-kills-a-hanging-child`,
   which proves a never-exiting child is SIGTERM-killed using its own 1.5 s
   ceiling.  This constant only bounds how long a wedged child may stall
-  the suite before that same mechanism ends it."
-  300000)
+  the suite before that same mechanism ends it.
+
+  WHY 600 s AND NOT SOMETHING TIGHTER.  The two errors are not symmetric.
+  Too tight costs a false RED on an honest change — the failure this bead
+  is about, which burns a 15-minute suite and a human diagnosis every time
+  it fires.  Too loose costs one wedged child sitting for a few extra
+  minutes before the mechanism above ends it anyway, in a scenario that has
+  never been observed.  On an unloaded CI runner a child costs ~10 s, so
+  this ceiling is never approached there and the choice is free; it is only
+  reachable on a developer box running several checkouts, which is exactly
+  the case that must not go red.  600 s is set above the slowest HEALTHY
+  child actually measured (449 s), not guessed."
+  600000)
 
 (defn- resolve-spawn-timeout-ms
   "Parse the ceiling override.  A malformed value THROWS rather than
