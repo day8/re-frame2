@@ -179,11 +179,19 @@
   `:control?` is DERIVED from it: an arm that builds a different page ON
   PURPOSE is exactly the arm the canonical-DOM gate must exempt, and
   keeping the two facts independent is how a control's doubled page goes
-  unchecked."
+  unchecked.
+
+  `:floor?` marks an arm that writes through `root.render` rather than
+  through the substrate. It is a PROPERTY OF THE ARM rather than a set of
+  arm ids held in [[sample-bulk!]], because the id set was already wrong
+  once the moment a fourth floor-shaped arm existed, and a floor-shaped
+  arm mistaken for a substrate one would write app-db and be timed as
+  though it had re-rendered."
   [id n scale]
   {:id       id
    :scale    scale
    :cells    n
+   :floor?   true
    :control? (not= 1 scale)
    :mount    (fn [container]
                (let [root (react-dom-client/createRoot container)]
@@ -191,6 +199,100 @@
                    (fn [] (.render root (v/m1-floor (zeros n)))))
                  root))
    :unmount  (fn [root] (.unmount root))})
+
+;; ---------------------------------------------------------------------------
+;; THE THREE-POINT CONTROL — the one that differences the constant away
+;; ---------------------------------------------------------------------------
+
+(def ^:private ctl3-dirty
+  "The dirty-set sizes of the three-point control's arms, at FIXED page
+  size. The floor supplies a fourth point at 300 for free, because a floor
+  sample rewrites every one of its cells with a value that is fresh on
+  every operation.
+
+  ## Why the control this replaces cannot be repaired by widening it
+
+  `ctl-2x` is the floor at twice the boundaries and its prediction is
+  2.00x. Over seven runs (rf2-emvod) it read 1.8173x on the MOUNT row and
+  1.7334 / 1.7696 / 1.7796 on bulk300 / bulk100 / narrow — four rows doing
+  wildly different work, all undershooting by 9-13%. `rf2-5xrcd`'s
+  diagnosis was that doubling the PAGE does not double an UPDATE's work,
+  but that argument does not reach the mount row, where the work does
+  scale with the page.
+
+  ONE ADDITIVE CONSTANT fits all four at once. A ratio of two arms one of
+  which is twice the other reads `(2W + c)/(W + c)`, which is below 2 for
+  any positive `c` and does not care what kind of row it is. Inverting the
+  four measured ratios against their own floors gives c = 1.040 / 1.043 /
+  0.873 / 0.790 ms — one constant across a 901-element cold mount and a
+  one-cell write, on floors spanning 3.58 to 5.70 ms.
+
+  `rf2-7iqb5` proposed doubling the CHANGED SET instead. That removes the
+  update-row confound and leaves `c` exactly where it was, because
+  `(2D + c)/(D + c)` has the same shape as `(2W + c)/(W + c)`: a
+  differently-wrong number, not a right one.
+
+  ## What this construction is
+
+  Three arms on the SAME page as the floor — same 300 boundaries, same 901
+  elements, canonical-DOM identical, and NOT exempted from the fairness
+  gate for exactly that reason — differing only in how many of those
+  boundaries change per commit. The statistic is a DIFFERENCE OF
+  DIFFERENCES:
+
+      (T(200) - T(1)) / (T(100) - T(1))  ->  (200 - 1)/(100 - 1) = 2.0101
+
+  and it is invariant under BOTH of the perturbations this lane has
+  measured:
+
+  * an ADDITIVE per-sample constant `c` — the protocol round trip, the
+    settle, React's whole-tree reconciliation walk, the document's
+    pre-paint — cancels in each difference, whatever its size, and the
+    control needs no claim about what it is;
+  * a MULTIPLICATIVE block-level perturbation `λ` — which is what
+    `rf2-cvvb7`'s nineteen-run load ladder found ambient load to be —
+    cancels in the quotient, because `λaΔd₂ / λaΔd₁` drops `λ`.
+
+  `ctl-2x` is invariant under the second only. That is the whole repair.
+
+  ## Why the epsilon arm dirties ONE cell and not zero
+
+  Zero would make the prediction exactly 2.00 instead of 2.0101, which is
+  tidier and wrong. A commit that changes nothing produces no style
+  recalculation, no layout and no paint, so `T(0)` would omit the fixed
+  cost of PRODUCING A DIRTY FRAME AT ALL — a constant that `T(100)` and
+  `T(200)` both pay. Differencing against it would leave that constant in
+  both halves of the quotient and push the reading below 2: the very
+  defect being removed, reintroduced by the arm meant to remove it.
+
+  One dirty cell buys a real frame, so every fixed cost is present in all
+  three arms and every one of them cancels. The price is that the
+  prediction is `(d₂ - d₀)/(d₁ - d₀)` rather than `d₂/d₁`, and the driver
+  computes it from these numbers rather than carrying a literal."
+  {:ctl-d1 1 :ctl-d100 100 :ctl-d200 200})
+
+(defn- dirty-cells
+  "The `d`-dirty arm's next render: the first `d` cells carry `val`, which
+  is fresh on every operation, and the remaining `n - d` hold 0 and never
+  move. EXACTLY `d` boundaries change per commit, by construction rather
+  than by assertion — and the read-back in [[sample-bulk!]] probes a cold
+  cell as well as two hot ones, so an arm that dirtied more than it
+  declared fails its own verification."
+  [n d val]
+  (into (vec (repeat d val)) (repeat (- n d) 0)))
+
+(defn- dirty-floor-arm
+  "One point of the three-point control: the floor's page, its own share of
+  it dirty.
+
+  `scale` is 1 and `:control?` is therefore false, which is DELIBERATE and
+  is the reason the dirty set was chosen as the axis. These arms build the
+  same 300-boundary page the floor builds, so the canonical-DOM gate can
+  and does check them against every substrate arm — a control that had to
+  be exempted from the fairness gate would be a control whose page nothing
+  is watching, which is what `ctl-2x` is."
+  [id n d]
+  (assoc (floor-mount-arm id n 1) :dirty d))
 
 (def ^:private plumb-arm
   "THE TARE. An arm that mounts nothing, writes nothing and settles the
@@ -260,6 +362,19 @@
                     :unmount (fn [handle] (.unmount ^js (:root handle)))})
    (floor-mount-arm :ctl-2x (* 2 v/cells-n) 2)])
 
+(defn- ctl3-arms
+  "The three-point control's arms, and they exist on BULK ROWS ONLY.
+
+  A mount row's operation IS the mount, so it has no standing page to
+  write a changed set into and no changed-set axis to be linear in. Its
+  control stays `ctl-2x` and stays known to undershoot — recorded on the
+  bead rather than papered over here, because the row this instrument
+  blocks is a bulk row and an arm invented for a mount row would be an
+  arm nothing had asked for."
+  []
+  (mapv (fn [[id d]] (dirty-floor-arm id v/cells-n d))
+        (sort-by val ctl3-dirty)))
+
 (defn- kb-floor-arm [id busy]
   {:id           id
    :cells        kv/kb-cells-n
@@ -300,7 +415,10 @@
    (kb-floor-arm :ctl-50ms 50)])
 
 (defn- arms-for [row-key seg-id]
-  (if (= :keystroke row-key) (kb-arms seg-id) (m1-arms seg-id)))
+  (cond
+    (= :keystroke row-key)              (kb-arms seg-id)
+    (= :bulk (:kind (get rows row-key))) (into (m1-arms seg-id) (ctl3-arms))
+    :else                                (m1-arms seg-id)))
 
 (defn- arm-named [row-key arm-id]
   (first (filter #(= arm-id (:id %)) (arms-for row-key (:segment @state)))))
@@ -498,7 +616,13 @@
         mnt    (get-in @state [:prepared (:id arm)])
         cont   (:container mnt)
         root   (:handle mnt)
-        floor? (contains? #{:floor :ctl-2x} (:id arm))
+        n      (:cells arm)
+        ;; The DECLARED dirty count is the arm's; the ACTUAL one is what
+        ;; [[sabotage!]] may have replaced it with. The gap between them is
+        ;; the falsification, and it is the page that carries it — the
+        ;; driver goes on predicting from the declaration, which is what
+        ;; makes the control the only gate that can see it.
+        dirty  (when-some [d (:dirty arm)] (or (:sabotage @state) d))
         t0     (lane/now-ms)
         ;; The floor renders INSIDE the `flushSync`, element tree and all,
         ;; and neither half is a convenience. `root.render` called outside
@@ -509,16 +633,31 @@
         ;; floor samples ending on a cell that still held its old value.
         ;; And hoisting the element tree out would under-charge the
         ;; denominator every published ratio is taken against.
-        probes (if floor?
+        ;;
+        ;; A probe is `[index expected-text]` rather than a bare index,
+        ;; because a dirty-set arm has to prove BOTH halves of its own
+        ;; claim: that the cells it said it would change did, and that a
+        ;; cell it said it would leave alone still holds `0`. An arm that
+        ;; quietly dirtied its whole page would pass an index-only
+        ;; read-back while destroying the control it belongs to.
+        probes (cond
+                 (some? dirty)
                  (do (react-dom/flushSync
-                       (fn [] (.render ^js root
-                                       (v/m1-floor (vec (repeat (:cells arm) val))))))
-                     [0 (dec (:cells arm))])
+                       (fn [] (.render ^js root (v/m1-floor (dirty-cells n dirty val)))))
+                     (cond-> [[0 (str val)] [(dec dirty) (str val)]]
+                       (< dirty n) (conj [(dec n) "0"])))
+
+                 (:floor? arm)
+                 (do (react-dom/flushSync
+                       (fn [] (.render ^js root (v/m1-floor (vec (repeat n val))))))
+                     [[0 (str val)] [(dec n) (str val)]])
+
+                 :else
                  (let [ps (write-cells! k val op)]
                    (drain! (:id arm))
-                   ps))
+                   (mapv (fn [i] [i (str val)]) ps)))
         ms     (- (lane/now-ms) t0)
-        ok?    (every? (fn [i] (= (str val) (lane/text-at cont i))) probes)]
+        ok?    (every? (fn [[i expect]] (= expect (lane/text-at cont i))) probes)]
     (bank! ok?)
     (.then (settle-frame) (fn [_] #js {:inPageMs ms :ok ok?}))))
 
@@ -539,6 +678,35 @@
 ;; ---------------------------------------------------------------------------
 ;; The keystroke half the driver cannot do from JavaScript
 ;; ---------------------------------------------------------------------------
+
+(defn sabotage!
+  "Make the three-point control's arms dirty `d` cells instead of the
+  number they declare, and answer what was installed.
+
+  ## This exists so the control can be shown REFUSING
+
+  A control that has never been seen to fail is not evidence that the
+  instrument is sound; it is a control whose sensitivity is unmeasured,
+  and this lane has found that defect nine times in two days. So the
+  falsification is a KNOB rather than a hand edit someone once made and
+  described afterwards: a reader reproduces the refusal with an
+  environment variable.
+
+  What it breaks is the one thing the control is for. The arms go on
+  DECLARING 1 / 100 / 200 to the driver, so the prediction stays
+  `(200-1)/(100-1)`, while the page renders `d`. Every other gate is
+  untouched and passes — the canonical DOM is identical (the page is the
+  same page), the read-back verifies (the probes follow the ACTUAL dirty
+  set, so the cells that changed did change and the cold cell is still
+  `0`), the arm-order guard is clean, the band is unmoved. The control is
+  the only gate in this driver that can see it, and a run with the knob on
+  is expected to exit 1 naming exactly that.
+
+  Applies to every dirty-set arm at once, so the epsilon arm moves too and
+  the falsification cannot be mistaken for a scaling of one arm alone."
+  [d]
+  (swap! state assoc :sabotage (when (and (number? d) (pos? d) (<= d v/cells-n)) (long d)))
+  (:sabotage @state))
 
 (defn focus-draft!
   "Focus this arm's controlled field, so the driver's key events land in
@@ -623,10 +791,16 @@
              :cellsN   v/cells-n
              :kbCellsN kv/kb-cells-n
              :enterSegment  (fn [seg] (enter-segment! (keyword seg)) true)
+             ;; `dirty` is the DECLARED count and never the sabotaged one.
+             ;; The driver's prediction is derived from what the page says
+             ;; each arm will change rather than from a literal it carries,
+             ;; so the two can be made to disagree on purpose and the
+             ;; control is what notices.
              :plan          (fn [row seg]
                               (clj->js (mapv (fn [a] {:id      (name (:id a))
                                                       :scale   (or (:scale a) 1)
                                                       :control (boolean (:control? a))
+                                                      :dirty   (or (:dirty a) 0)
                                                       :lowerBound (boolean (:lower-bound? a))})
                                              (arms-for (keyword row) (keyword seg)))))
              :canon         (fn [row arm] (canon! (keyword row) (keyword arm)))
@@ -638,6 +812,7 @@
              :focusDraft    (fn [arm] (focus-draft! (keyword arm)))
              :settleVerify  (fn [arm expected] (settle-and-verify! (keyword arm) expected))
              :settle        (fn [] (settle-frame))
+             :sabotage      (fn [d] (sabotage! d))
              :tally         (fn [] (clj->js (lane/tally-value (:tally @state))))
              :teardownCheck (fn [] (clj->js (mapv :where (lane/drain-teardown-failures!))))
              :runtime       (fn [] (pr-str (lane/runtime-label)))
