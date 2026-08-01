@@ -1,12 +1,15 @@
 # A controlled input has two implementations, and the bundle was picking
 
 **Bead** `rf2-n3dxw` · **epic** `rf2-2rtt6` (EP-0038)
-**Witness content hash** `966e6d8390ecc9945193417bb221b6c574c9681f`
+**Witness content hash** `d747b10d82daa24ce39a4a7a6cff825ce7716483`
 (`implementation/freehand/test/re_frame/bench/hicasso/controlled_restore_dom_cljs_test.cljs`;
-authored on `worker/reject-n3dxw`). A SHA does not survive a rebase and this
-branch was rebased once already — the content hash is the identifier, and
-`git log --oneline --all -- <path>` plus `git rev-parse <candidate>:<path>`
-finds a commit carrying the blob.
+authored on `worker/reject-n3dxw`, amended on `worker/heqwo-default` when
+`rf2-heqwo` pinned the selector — the measured rows are unchanged, the
+restore-to-default helper is not; the previous blob was
+`966e6d8390ecc9945193417bb221b6c574c9681f`). A SHA does not survive a rebase
+and this branch was rebased once already — the content hash is the
+identifier, and `git log --oneline --all -- <path>` plus
+`git rev-parse <candidate>:<path>` finds a commit carrying the blob.
 **Measured** 2026-08-01 AUSEST
 
 **Runtime for every row on this page**: headless Chromium via Playwright
@@ -37,14 +40,21 @@ UIx decides, per element and at element-creation time, between plain React
 and a port of Reagent's controlled-input workaround.
 `uix.compiler.aot/create-uix-input` branches on
 `uix.compiler.input/should-use-reagent-input?`, and that predicate — with
-`*use-reagent-input-enabled?*` unset, which is the shipped default — answers
+`*use-reagent-input-enabled?*` unset, which was the shipped default when this
+page was measured — answers
 
 > is `reagent.impl.util/*non-reactive*` present, and false?
 
-So the answer is a fact about **what else is on the classpath**, not a
+So the answer was a fact about **what else is on the classpath**, not a
 decision the application makes. Every `:browser-test` bundle in this repo
 carries Reagent, because the Reagent adapter is first-class and ships with
-tests. A UIx-only consumer app gets the other implementation.
+tests. A UIx-only consumer app got the other implementation.
+
+**This is the part that has since been fixed** — see [Option C](#c--pin-the-selector)
+below. `re-frame.adapter.uix` now pins the var at load, so a re-frame2 UIx app
+gets React's implementation whatever else is in the bundle. Every row below
+still measures what it says it measures: each one names its implementation and
+pins it explicitly, which is why the ruling did not move a single figure.
 
 The probe that found it read the props React had committed to the DOM node.
 Where the view had written `:value`, the node carried `defaultValue "12"` and
@@ -185,18 +195,35 @@ an authoring pattern.
 
 ### C — pin the selector
 
-Independent of A and B, and cheap: decide which implementation a re-frame2
-UIx app gets, instead of inheriting whatever the bundle implies. One `set!`
-of `uix.compiler.input/*use-reagent-input-enabled?*` at adapter load. The
-cost is not implementation, it is the ruling — the two implementations have
-materially different behaviour, and today a consumer's choice of a *second*
-adapter silently changes the first one's inputs.
+**TAKEN** (`rf2-heqwo`; Mike, 2026-08-01: *"make the React path the
+default"*). Independent of A and B, and cheap: decide which implementation a
+re-frame2 UIx app gets, instead of inheriting whatever the bundle implies.
+One `set!` of `uix.compiler.input/*use-reagent-input-enabled?*` to `false` at
+`re-frame.adapter.uix` load. The cost was never the implementation, it was
+the ruling — the two implementations have materially different behaviour, and
+a consumer's choice of a *second* adapter silently changed the first one's
+inputs.
+
+The ruling takes in-turn convergence and a React-native, predictable path
+over late caret preservation, and more importantly takes determinism over a
+silent classpath dependency: an app that behaves differently because of what
+else is in its bundle is the worse defect. The var stays public and dynamic,
+so the port remains reachable by an explicit `set!` — what is gone is getting
+either one by accident. The consumer-facing statement of the trade-off,
+including the caret, lives in `docs/api/re-frame.adapter.uix.md`.
+
+What this does **not** settle: the mid-string refusal row above is still red
+on the caret, because React is now the path every UIx consumer is on. Pinning
+the selector made the default honest; it did not give either implementation
+the half it lacks. `rf2-n3dxw` stays open, and B (priced as `rf2-fki5d`)
+remains the route to both halves.
 
 ## What this changes in the record
 
 - `architecture.md`'s "React owns ... the controlled-input end-of-event
   restore" is **confirmed**, with the qualification that it holds only while
-  the element is actually controlled, which UIx does not guarantee.
+  the element is actually controlled — which UIx did not guarantee, and which
+  `re-frame.adapter.uix` now does (`rf2-heqwo`, Option C above).
 - HD-019's "rejected/unchanged-model paths lean on React's own end-of-event
   restore" is **confirmed for the value and refuted for the caret**.
 - `rf2-n3dxw` stays open on the residue: no shipped path gives both halves.
