@@ -56,14 +56,23 @@ const TIMEOUT = 90000;
 // class rf2-dczpv removed from run-browser-tests.cjs and rf2-bhjzn from
 // run-ui-g8.cjs; G-13 has the identical defect twice, once per page.
 //
-// Both `dev.goto(...)` and `prod.goto(...)` were called with no options, so
-// each took BOTH Playwright defaults: `waitUntil: 'load'` AND a 30s timeout.
-// That 30s is a second budget on this gate, entirely separate from TIMEOUT
-// above — and the very next line of each pair already passes TIMEOUT
-// explicitly to `waitForFunction` / `waitForSelector`, so the file already
-// knew the pattern. Nothing named the ceiling, which is what costs money: a
-// `page.goto: Timeout 30000ms exceeded` line reads like this gate's own
-// budget, so the fix reached for is a bigger TIMEOUT, which cannot touch it.
+// WHAT IT USED TO BE. Both `dev.goto(...)` and `prod.goto(...)` were called
+// with no options, so each took BOTH Playwright defaults: `waitUntil: 'load'`
+// AND a 30s timeout. That 30s WAS a second budget on this gate, entirely
+// separate from TIMEOUT above and unreachable from it — while the very next
+// line of each pair already passed TIMEOUT explicitly to `waitForFunction` /
+// `waitForSelector`, so the file already knew the pattern. Nothing named the
+// ceiling, which is what costs money: a `page.goto: Timeout 30000ms exceeded`
+// line read like this gate's own budget, so the fix reached for was a bigger
+// TIMEOUT, which back then could not touch it.
+//
+// WHAT IT IS NOW, and this is the part the first cut got wrong (audit of PR
+// #7224). `NAV_TIMEOUT = TIMEOUT`, so the gate is ONE configured value applied
+// to TWO sequential phases: TIMEOUT bounds each navigation AND the readiness
+// wait that follows it. Raising it moves BOTH. Telling the reader otherwise
+// sends them away from the only knob the failed phase has. The phases stay
+// distinguishable by what the failure line SAYS, not by carrying different
+// numbers — one number is the point.
 //
 // `'load'` is the WRONG event here, not merely a tight one. The development
 // page runs the G-13 measurement fixture during load — it is what sets
@@ -78,19 +87,23 @@ const TIMEOUT = 90000;
 const NAV_WAIT_UNTIL = 'commit';
 const NAV_TIMEOUT = TIMEOUT;
 
-// Navigate, and make a navigation failure say so. `page.goto: Timeout …ms
-// exceeded` and this gate's own fixture waits are different budgets that read
-// alike in a CI log.
+// Navigate, and make a navigation failure say WHICH PHASE it is. `page.goto:
+// Timeout …ms exceeded` and this gate's own readiness waits read alike in a CI
+// log — but they share one number, and the message must say that too.
 async function navigateOrFail(page, label, url) {
   try {
     await page.goto(url, { waitUntil: NAV_WAIT_UNTIL, timeout: NAV_TIMEOUT });
   } catch (err) {
     fail(
-      `[${label}] NAVIGATION FAILED — this is the page.goto ceiling ` +
-        `(waitUntil: '${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT}ms), NOT the ` +
-        `${TIMEOUT}ms wait for the ${label} page's readiness sentinel. The ` +
-        'fixture was never observed, so no G-13 result exists to read. ' +
-        `Raising TIMEOUT will not help (rf2-taj9b). Underlying: ${err.message}`);
+      `[${label}] NAVIGATION FAILED — the page.goto ceiling fired (waitUntil: ` +
+        `'${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT}ms) before the ${label} ` +
+        "page's readiness sentinel was waited for, so no G-13 result exists to " +
+        `read. This gate is ONE configured value applied to TWO sequential ` +
+        `phases: TIMEOUT (${TIMEOUT}ms) bounds this navigation AND the ` +
+        `readiness wait that follows it, so a larger value moves both ` +
+        `ceilings. It cannot cure a page that never answered, though: an ` +
+        `unbuilt bundle or a dead server fails HERE at any size (rf2-taj9b, ` +
+        `rf2-bhjzn). Underlying: ${err.message}`);
   }
 }
 const SENTINELS = [

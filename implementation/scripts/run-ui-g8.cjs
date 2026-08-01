@@ -60,14 +60,23 @@ const TIMEOUT = 90000;
 // rf2-bhjzn — the gate's OTHER ceiling, now named and disarmed. Same class
 // rf2-dczpv removed from run-browser-tests.cjs, one file over.
 //
-// `page.goto(url)` was called with no options at all, so it took BOTH of
-// Playwright's defaults: `waitUntil: 'load'` AND a 30s timeout. That 30s is a
-// second budget on this gate, entirely separate from TIMEOUT above — and the
-// very next line already passes TIMEOUT explicitly to `waitForFunction`, so the
-// file already knew the pattern. Nothing named the ceiling, which is the part
-// that costs money: a `page.goto: Timeout 30000ms exceeded` line in a CI log
-// reads like this gate's own budget, so the fix reached for is a bigger
-// TIMEOUT, which cannot touch it.
+// WHAT IT USED TO BE. `page.goto(url)` was called with no options at all, so
+// it took BOTH of Playwright's defaults: `waitUntil: 'load'` AND a 30s timeout.
+// That 30s WAS a second budget on this gate, entirely separate from TIMEOUT
+// above and unreachable from it — while the very next line already passed
+// TIMEOUT explicitly to `waitForFunction`, so the file already knew the
+// pattern. Nothing named the ceiling, which is the part that costs money: a
+// `page.goto: Timeout 30000ms exceeded` line in a CI log read like this gate's
+// own budget, so the fix reached for was a bigger TIMEOUT, which back then
+// could not touch it.
+//
+// WHAT IT IS NOW, and this is the part the first cut got wrong (audits of PRs
+// #7221, #7224). `NAV_TIMEOUT = TIMEOUT`, so the gate is ONE configured value
+// applied to TWO sequential phases: TIMEOUT bounds the navigation AND the
+// `__RF2_G8_RESULT__` wait that follows it. Raising it moves BOTH. Telling the
+// reader otherwise sends them away from the only knob the failed phase has.
+// The phases stay distinguishable by what the failure line SAYS, not by
+// carrying different numbers — one number is the point.
 //
 // `'load'` is the WRONG event to wait on here, not merely a tight one. It
 // cannot fire until `main.js` — an un-optimized `:ui-g8` dev bundle — has both
@@ -331,15 +340,19 @@ async function driveEngine(name, url) {
     try {
       await page.goto(url, { waitUntil: NAV_WAIT_UNTIL, timeout: NAV_TIMEOUT });
     } catch (err) {
-      // rf2-bhjzn: name the ceiling that actually fired. `page.goto: Timeout
-      // …ms exceeded` and this gate's own fixture-result timeout are two
-      // different budgets that read alike in a CI log.
+      // rf2-bhjzn: say WHICH PHASE fired — `page.goto: Timeout …ms exceeded`
+      // and this gate's own fixture-result timeout read alike in a CI log —
+      // and tell the truth about the knob, which the first cut did not.
       fail(
-        `[${name}] NAVIGATION FAILED — this is the page.goto ceiling ` +
-          `(waitUntil: '${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT}ms), NOT the ` +
-          `${TIMEOUT}ms wait for __RF2_G8_RESULT__. The fixture was never ` +
-          `observed, so no result and no matrix verdict exist to read. Raising ` +
-          `TIMEOUT will not help (rf2-bhjzn). Underlying: ${err.message}`);
+        `[${name}] NAVIGATION FAILED — the page.goto ceiling fired (waitUntil: ` +
+          `'${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT}ms) before any fixture ` +
+          `verdict was waited for, so no __RF2_G8_RESULT__ and no matrix ` +
+          `verdict exist to read. This gate is ONE configured value applied to ` +
+          `TWO sequential phases: TIMEOUT (${TIMEOUT}ms) bounds this navigation ` +
+          `AND the __RF2_G8_RESULT__ wait that follows it, so a larger value ` +
+          `moves both ceilings. It cannot cure a page that never answered, ` +
+          `though: an unbuilt :ui-g8 bundle or a dead server fails HERE at any ` +
+          `size (rf2-bhjzn). Underlying: ${err.message}`);
     }
     await page.waitForFunction(
       () => globalThis.__RF2_G8_RESULT__ || globalThis.__RF2_G8_ERROR__,
