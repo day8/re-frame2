@@ -333,8 +333,12 @@ question all four agree: registering a schema is not the same act as checking
 one. A production build performs every registration above — the schemas stay
 introspectable, which is why tools and agents can read them — and elides the
 checking ([010 §Production builds](010-Schemas.md#production-builds)). An
-invariant that must hold in production belongs in handler code; the
-`:rf.schema/at-boundary` interceptor is the one seam that survives the gate.
+invariant that must hold in production belongs in handler code; untrusted input
+crossing a system boundary belongs behind the `:rf.schema/at-boundary`
+interceptor, whose check is ungated. It is the seam an application author
+reaches for, not the only one that survives — [C-000.35](000-Vision.md#contract--pattern-obligations)
+settles that by ownership, so the framework's other checks on its own boundaries
+are ungated alongside it.
 
 **Enforcement.** A retired spelling appearing in framework source is a CI
 failure (the no-floor-lint treatment) where the shape allows it, not a doc note.

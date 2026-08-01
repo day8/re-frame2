@@ -40,8 +40,12 @@
                    never ran; entered interceptors still unwound in
                    full. This is the exact COMPLEMENT of `:rolled-back`
                    on the production question: boundary validation is
-                   the one schema surface Spec 010 keeps UNGATED, so
-                   `:rejected` DOES have a producer in a release build —
+                   UNGATED per Spec 010, so `:rejected` DOES have a
+                   producer in a release build. It is not the only
+                   ungated schema check (C-000.35 settles that by
+                   ownership), but it is the only one this `:outcome`
+                   vocabulary names in its own right — the others throw,
+                   and a throw reports `:error` —
                    it is the outcome to alert on for hostile or
                    malformed input at an untrusted ingress. Reported
                    only when the boundary skip is the whole story: a

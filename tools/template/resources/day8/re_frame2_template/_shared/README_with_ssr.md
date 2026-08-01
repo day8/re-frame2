@@ -114,9 +114,9 @@ The 400 arm rides `:rf.error/schema-validation-failure` from the
 `:rf.schema/at-boundary` interceptor. Schema validation is *broadly* a
 development-build assertion — under `:advanced` + `goog.DEBUG=false`, or the
 `-Dre-frame.debug=false` this server sets, the validator family behind the
-`:schema` declarations you write over your own code does not run — but that one
-interceptor is the deliberate exception, and it is the arm a server endpoint
-leans on. Its check is ungated, so a handler registered
+`:schema` declarations you write over your own code does not run — but the
+framework's checks on its own boundaries are ungated, and that interceptor is the
+one a server endpoint leans on. Its check is ungated, so a handler registered
 `{:interceptors [:rf.schema/at-boundary]}` rejects a malformed request body in
 production: the handler is skipped, the payload never reaches app-db, and the
 rejection fans an always-on record the projector maps to 400 — the status
@@ -258,9 +258,12 @@ error event.
 Those categories do not all reach production, though. Handler exceptions, sub
 exceptions, `:rf.error/no-such-handler` and drain-depth overflow ride the
 **always-on** error records as well as the trace bus, so they project under
-production hardening. The **schema violation is the exception**: it rides the dev
-trace bus alone, because the validation that would raise it is itself elided from
-a release build. In production there is no reject to project.
+production hardening. Schema violations **split**, and the split is worth
+knowing: a `:schema` you declare over your own handler is checked in dev only, so
+that arm really does ride the trace bus alone. A handler carrying the
+`:rf.schema/at-boundary` interceptor is the other arm — its check is ungated, and
+its rejection fans an always-on record — so in production there *is* a reject to
+project, and it is the one the `400` above comes from.
 
 ### Typed app-db boundaries
 

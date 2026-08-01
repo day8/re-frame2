@@ -359,8 +359,10 @@
 
   THE BOUNDARY ENTRY USED TO SIT IN THE DEV-ONLY LIST, and both halves of
   its stated reason were wrong even before rf2-mwv4e promoted it. Boundary
-  validation is the ONE validation surface Spec 010 §Production builds keeps
-  ungated: the CHECK was never elided, only its `trace/emit-error!` — the
+  validation is ungated per Spec 010 §Production builds (one of several
+  framework checks that are — C-000.35 settles what may be elided by
+  OWNERSHIP, not by subject matter; it is the one an application author
+  installs): the CHECK was never elided, only its `trace/emit-error!` — the
   same overclaim rf2-mnmzh and rf2-bx4bf corrected elsewhere — so a
   production reject always existed; what did not exist was a record to
   project it from. rf2-mwv4e supplied that record (structural-only,
