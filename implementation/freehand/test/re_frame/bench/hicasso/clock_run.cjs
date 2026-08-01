@@ -893,10 +893,22 @@ function report(out) {
   }
   const ctlFailed = outcomes.filter((o) => !o.verdict.ctlVerdict.ok || (o.verdict.etVerdict && !o.verdict.etVerdict.ok));
   if (ctlFailed.length > 0) {
+    const passed = outcomes.filter((o) => !ctlFailed.includes(o)).map((o) => o.out.rowId);
     console.error(
       `[clock] FAILED: the positive control did not see the change its own arithmetic predicts on: ` +
-        `${ctlFailed.map((o) => o.out.rowId).join(', ')}. An instrument that cannot see a predicted ` +
-        `change cannot be trusted with an unpredicted one.`
+        `${ctlFailed.map((o) => o.out.rowId).join(', ')}. No MAGNITUDE from those rows is reportable.`
+    );
+    // EXIT 1 HERE IS PER-ROW, AND THE ROWS THAT PASSED ARE STILL ROWS.
+    // Everything before this line is a whole-run gate — a page that threw,
+    // a guard refusal, two arms building different pages, an unverified
+    // write — and reaching here means every one of them cleared on every
+    // row. A control is the only gate this driver scopes to the row that
+    // failed it, because that is the only one whose claim is about a row.
+    console.error(
+      passed.length > 0
+        ? `[clock] REPORTABLE: ${passed.join(', ')} — control passed, guard clean, canonical DOM identical, ` +
+            `0 unverified. Publish those and mark the rest.`
+        : `[clock] REPORTABLE: none.`
     );
     process.exit(1);
   }
