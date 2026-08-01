@@ -502,3 +502,119 @@
         (is (= 200 (:status (ssr/peek-response f)))
             "the fx was skipped and the app's status is untouched — the dev
              recovery is `:skipped`, not a 500")))))
+
+;; ===========================================================================
+;; (5) THE REJECTION DISCLOSES NOTHING IT WAS HANDED (rf2-210uq)
+;;
+;; This guard routes the offending value through
+;; `re-frame.error/diag-value-summary` into BOTH the thrown message and the
+;; ex-data, on the stated grounds that the summary carries shape and never
+;; value — "a cookie `:value` is a session token". When the guard landed, the
+;; summary did not meet that claim: its `:head` leg returned any string of 24
+;; characters or fewer VERBATIM and a longer one's raw first 24 characters,
+;; applied no bound at all to keywords/symbols, and printed numbers; its
+;; `:keys` leg returned every top-level map key, uncapped and unsanitised.
+;;
+;; rf2-210uq made the summary content-free by construction. This section is
+;; the PRODUCTION-FACING pin for that: a rejection reached through the real
+;; public fx handlers must carry no fragment of what it rejected, into the
+;; message OR the ex-data. The handlers are called directly rather than
+;; dispatched, so the Spec 010 step-5 schema boundary cannot intercept and
+;; these assertions hold under BOTH postures — the guard is always-on, and
+;; so is its diagnostic.
+;; ===========================================================================
+
+(def ^:private sentinel
+  "EXACTLY 24 characters — the historic `diag-head-limit`. A secret whose
+  first 24 chars are this marker was reproduced WHOLE by the old
+  `(subs s 0 24)` head, so it is the sharpest available witness."
+  "SENTINELSENTINELSENTINEL")
+
+(defn- rejection-of
+  "Call `handler-fn` with a live server frame and `args`, and return the
+  thrown `:rf.error/server-fx-args-invalid` — or nil if it did not throw."
+  [handler-fn args]
+  (try
+    (handler-fn {:frame (server-frame)} args)
+    nil
+    (catch clojure.lang.ExceptionInfo e e)))
+
+(def ^:private token-bearing-malformations
+  "Malformed reserved-fx args whose OFFENDING VALUE carries the sentinel, one
+  per path the old summary disclosed through. Each is a genuine type
+  violation — the published contract wants a string — so each reaches
+  `reject-arg!` with a value that is, in production, a session token."
+  [;; A raw STRING reaching a slot whose published type is not a string —
+   ;; the two cases the old `:head` leg disclosed most directly. A string
+   ;; cookie `:value` is LEGAL and never reaches the guard, so the token is
+   ;; routed through `:status` and the boolean `:secure` instead.
+   ["status — a SHORT token (under the old 24-char head, so returned verbatim)"
+    response/set-status-fx (subs sentinel 0 16)]
+   ["status — a long token whose first 24 chars ARE the sentinel"
+    response/set-status-fx (str sentinel "-tail-0123456789")]
+   ["cookie :secure — a raw token where a boolean was published"
+    response/set-cookie-fx {:name "session" :value "v" :secure (str sentinel "-x")}]
+   ;; Non-string values in the session-token slot itself.
+   ["cookie :value — a keyword, which the old head bounded not at all"
+    response/set-cookie-fx {:name "session" :value (keyword sentinel)}]
+   ["cookie :value — a number that IS the secret"
+    response/set-cookie-fx {:name "session" :value 4111111111111111}]
+   ["cookie :value — a MAP, whose keys the old `:keys` leg reproduced"
+    response/set-cookie-fx {:name "session" :value {sentinel "v" (keyword sentinel) 2}}]
+   ["header :value — a map with sentinel-bearing keys"
+    response/set-header-fx {:name "X-Auth" :value {sentinel "v"}}]
+   ["header :value — a vector carrying the token"
+    response/set-header-fx {:name "X-Auth" :value [sentinel]}]
+   ["header :value — an attacker-sized map (the old `:keys` leg grew unbounded)"
+    response/set-header-fx {:name "X-Auth"
+                            :value (into {} (map (fn [i] [(str sentinel "-" i) i]))
+                                         (range 500))}]
+   ;; The args value is not a map at all — `validate-args-map!`'s own leg.
+   ["args map — a bare token string where a map was required"
+    response/set-cookie-fx (str sentinel "-not-a-map")]
+   ["args map — a token-bearing vector where a map was required"
+    response/set-header-fx [sentinel]]])
+
+(deftest a-rejection-carries-no-fragment-of-the-value-it-rejected
+  (doseq [[label handler-fn args] token-bearing-malformations]
+    (testing label
+      (let [e (rejection-of handler-fn args)]
+        (is (some? e) "the always-on guard rejected the malformed arg")
+        (when e
+          (is (= :rf.error/server-fx-args-invalid (:rf.error/id (ex-data e)))
+              "the catalogued Spec 009 category")
+          (is (not (clojure.string/includes? (ex-message e) "SENTINEL"))
+              (str "the THROWN MESSAGE disclosed the value: " (ex-message e)))
+          (is (not (clojure.string/includes? (pr-str (ex-data e)) "SENTINEL"))
+              (str "the EX-DATA disclosed the value: " (pr-str (ex-data e)))))))))
+
+(deftest a-rejection-still-names-the-fx-the-key-and-the-shape
+  (testing "rf2-210uq removed disclosure, not diagnosis. WHICH fx and WHICH
+            argument failed ride explicitly trusted ex-data slots the emit
+            site controls — never a guess recovered from the value — and the
+            shape summary still answers 'what did I actually get?'"
+    (let [e    (rejection-of response/set-cookie-fx
+                             {:name "session" :value {sentinel "v"}})
+          data (ex-data e)]
+      (is (= :rf.server/set-cookie (:fx-id data)) "the trusted fx-id slot")
+      (is (= :value (:key data))                  "the trusted arg-key slot")
+      (is (= {:type :map :count 1} (:value data))
+          "the summary names the shape that arrived, and nothing else")
+      (is (clojure.string/includes? (ex-message e) "must be a string")
+          "and the published expectation is still spelled out"))))
+
+(deftest a-rejection-message-is-a-fixed-size-whatever-arrives
+  (testing "the old `:keys` leg grew the 'bounded' summary with the offending
+            map's key set, so an attacker-sized value inflated a message
+            headed for an SSR host log. The summary is now fixed-size, so the
+            message length no longer tracks the input's"
+    (let [small (ex-message (rejection-of response/set-header-fx
+                                          {:name "X-Auth" :value {:a 1}}))
+          huge  (ex-message (rejection-of response/set-header-fx
+                                          {:name "X-Auth"
+                                           :value (into {} (map (fn [i]
+                                                                  [(str sentinel "-" i) i]))
+                                                        (range 2000))}))]
+      ;; The two messages differ ONLY in the rendered `:count` digits.
+      (is (< (- (count huge) (count small)) 8)
+          (str "message grew with the input: " (count small) " → " (count huge))))))

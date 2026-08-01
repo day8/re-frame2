@@ -157,8 +157,18 @@
   `value` never reaches the payload raw. A cookie `:value` is a session
   token and a header `:value` routinely carries app-owned content, so both
   the message and the ex-data slot carry `error/diag-value-summary` — the
-  EP-0015-safe SHAPE summary (`{:type …:count …:head …}`), which is also
-  precisely what a type violation needs to be diagnosable."
+  EP-0015-safe SHAPE summary (`{:type … :count …}`), which is also
+  precisely what a type violation needs to be diagnosable.
+
+  That summary is content-free BY CONSTRUCTION (rf2-210uq): it carries a
+  closed-vocabulary `:type` keyword and an integer `:count`, and nothing
+  else, so this site may hand it a session token without further thought.
+  It did NOT hold when this guard landed — the summary then carried a raw
+  24-char `:head` (a short token rode back whole) and a map's uncapped
+  `:keys` — which is why WHICH argument failed rides the separate `:key`
+  slot below rather than being recovered from the value. A structural
+  identifier travels through an explicitly trusted field; the summary is
+  never asked to guess that an app-supplied value is structural."
   [fx-id arg-key value expected]
   (error/throw-error!
     :rf.error/server-fx-args-invalid
