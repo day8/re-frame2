@@ -111,14 +111,6 @@ const PRUNED_DIRS = new Set([
  * a comment about a file nobody can find.
  */
 const WAIVED = [
-  // Held by worker/bench-method-88pie while rf2-taj9b ran; that branch had
-  // already rewritten b8_run.cjs, so the fence forbade editing the directory.
-  // These are the SHARP end of the class: b10_prod_run.cjs in the same
-  // directory already carries `{ waitUntil: 'commit', timeout: 60000 }`.
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b6_prod_run.cjs', max: 1, bead: 'rf2-p9fa3' },
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b6_profile_run.cjs', max: 1, bead: 'rf2-p9fa3' },
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b7_run.cjs', max: 1, bead: 'rf2-p9fa3' },
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b8_run.cjs', max: 1, bead: 'rf2-p9fa3' },
   // `docs/**` was outside the rf2-taj9b fence. Both wait on `networkidle`,
   // which settles LATER than `load`, so the 30s default bites harder here.
   { file: 'docs/scripts/generate-story-tutorial-screenshots.cjs', max: 1, bead: 'rf2-rbyyx' },
