@@ -351,8 +351,8 @@
         ;;     SAME way as the wire MAP key (rf2-9e0tyq) — a `:redact` / `:omit`
         ;;     resource redacts its scope + params to opaque content-addressed
         ;;     tokens, so the raw identity never rides in EITHER carrier; a
-        ;;     `:serialize` key rides verbatim and its per-slot params are
-        ;;     registry-projected below.
+        ;;     `:serialize` key rides verbatim and its per-slot scope + params
+        ;;     are registry-projected below.
         [projected-key disposition _spec] (disposition+project-key scoped-key frame-id)
         stale?      (state/entry-stale? entry clock-ms)
         ;; A `:serialize` key's BOTH classification-bearing components are
