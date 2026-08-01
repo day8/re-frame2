@@ -258,17 +258,24 @@ resources/mutations own async status; the controls kit owns drafts/revisions);
 host-private React state at host edges for geometry/composition; and app-db for
 everything semantically meaningful — where the tax is per-*concern*, not
 per-instance (one parametric sub + one named event serve every instance). If the
-dogfood shows the residual ceremony registering, the pre-designed answer is
-one-declaration sugar, not a state system:
+dogfood shows the residual ceremony registering, the pre-agreed *response class*
+is one-declaration sugar — never a state system:
 
 ```clojure
+;; SKETCH — v0 ships nothing here, and the shape is unfrozen.
 (h/defstate ::open {:default false})
-;; mints a parametric sub (sub [::open id]) + a named setter event [::open id v]
-;; homed in the declared :ui tier of app-db — Xray-visible, time-travelling,
-;; excluded from persistence by convention; never a generic ui/set event
+;; would mint: a parametric sub (sub [::open id])
+;;             and a NAMED setter event [::open id v] — never a generic ui/set
 ```
 
-v0 ships nothing here; the concept budget arbitrates.
+Read that as an illustration of the response *class*, not a plan of record.
+HD-009 freezes two things about it and nothing else: that any such sugar mints a
+**named** setter event rather than a generic `ui/set`, and that it is sugar
+rather than a state system. Its concrete shape — the `defstate` spelling,
+whether a declared app-db tier is involved at all, and what that tier's frame
+and persistence scope would be — stays **unfrozen until the evidence exists**,
+and so does whether it ever ships. v0 ships nothing here; the concept budget
+arbitrates.
 
 ## Testing doors
 
