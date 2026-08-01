@@ -52,14 +52,32 @@
   What it does not do is put the caret back. Assigning `value` moves the
   cursor to the end of the control (the HTML `value` IDL setter), and
   React restores a selection only around a commit in which focus MOVED.
-  So every write React makes lands the caret at the end. Neither shipped
-  implementation gives both same-turn convergence and the caret where the
-  edit left it — React converges in-turn and throws the caret to the end,
-  UIx's port gets the caret right a frame late. rf2-n3dxw records it and
-  rf2-fki5d prices the third behaviour that would have both. **The rows
-  below assert the MEASURED value, not the desired one**: the day
-  something puts the caret back, they go red, and whoever makes them red
-  is exactly the person who should be reading those two beads.
+  So every write React makes lands the caret at the end.
+
+  ## The half the arm adds, and where it lives (rf2-fki5d)
+
+  Neither shipped implementation gives both same-turn convergence and the
+  caret where the edit left it: React converges in-turn and throws the
+  caret to the end, UIx's port gets the caret right an animation frame
+  late. rf2-n3dxw recorded that residue and this arm closes it, in the
+  **element path** — `front.controlled/install!` wraps the change handler
+  `front.codec` was about to emit, and at the end of that handler, still
+  inside the discrete event and still ahead of React's own restore, it
+  flushes the synchronous door's commit, writes the value the element
+  renders if the field disagrees, and puts the caret back by offset from
+  the END of the string.
+
+  Two consequences the rows below turn on. Writing the value first makes
+  React's later `updateInput` a no-op, because it only assigns when the
+  two differ — which is what lets the restored caret survive the restore.
+  And the converge is on the CHANGE path only: an out-of-band correction
+  fires no change event, so a write arriving from a timer is still
+  React's to converge, with React's caret.
+
+  Nothing was added to the cell, to `defview`, or to the boundary shell.
+  The grid below is the same grid, `grid.cljs` is unchanged, and HD-020's
+  ≤2-hook budget is untouched — `arm1_hook_ledger_dom_cljs_test` still
+  reads the same ledger.
 
   ## Typing is simulated the way the browser does it
 
@@ -78,6 +96,7 @@
             [re-frame.bench.hicasso.arm1.grid :as grid]
             [re-frame.bench.hicasso.arm1.mount :as mount]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
@@ -393,13 +412,17 @@
             (is (= [3 3] (caret n))
                 "the caret did not jump to the end")))))))
 
-(deftest a-normalising-model-moves-the-caret-to-the-end
-  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw,
-           rf2-fki5d). The model uppercases what was typed, so React
-           WRITES — and every write React makes lands the caret at the end
-           of the string. This is the classic controlled-input caret jump,
-           and it belongs to React's restore rather than to anything this
-           arm does"
+(deftest a-normalising-model-keeps-the-caret-after-the-character-just-typed
+  (testing "the classic controlled-input caret jump, and the row that says
+           this arm does not have it. The model uppercases what was typed,
+           so a write happens — and every write React makes lands the
+           caret at the end of the string. The converge puts it back
+           before the event returns, by offset from the END, so the user
+           carries on typing where they were (rf2-fki5d).
+
+           Measured against the same keystroke on the shipped paths:
+           React alone leaves [5 5], and UIx's port reaches [3 3] one
+           animation frame later"
     (if-not (mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
@@ -411,16 +434,17 @@
             (type-into! n "x")
             (is (= "ABXCD" (model-value 13)) "the model normalised the case")
             (is (= "ABXCD" (.-value n)) "and the field followed, in the same turn")
-            (is (= [5 5] (caret n))
-                "but the caret is at the END, not after the character just
-                 typed — React restores a selection only around a commit in
-                 which focus MOVED, and focus did not move")))))))
+            (is (= [3 3] (caret n))
+                "with the caret still after the character just typed, on
+                 the line after `dispatchEvent`")))))))
 
 (deftest a-grouping-model-keeps-the-caret-after-the-digit-just-typed
   (testing "1,234 + \"5\" becomes 12,345 — one character longer than what
-           was typed. The caret survives here only because the edit was at
-           the END of the field, which is where React's write puts it
-           anyway"
+           was typed, so every absolute offset in the string moved. This
+           row was green before the converge existed, because the edit was
+           at the END of the field and that is where React's write leaves
+           the caret anyway; it stays green for the better reason, which
+           is that the offset is taken from the end"
     (if-not (mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
@@ -459,8 +483,13 @@
   (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw). Arm 2
            restored both ends of a selection by distance from the end of
            the string. React does not: it assigns `value`, which collapses
-           the selection to a cursor at the end of the new string. Nothing
-           here pretends otherwise"
+           the selection to a cursor at the end of the new string.
+
+           The converge does not reach this row and is not meant to: an
+           out-of-band write fires no change event, so there is no handler
+           to run at the end of. Restoring a RANGE is a second algorithm
+           besides — two offsets rather than one — and rf2-n3dxw keeps it.
+           Nothing here pretends otherwise"
     (if-not (mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
@@ -621,12 +650,15 @@
                  because the edit was AT the end, which is where React's
                  write leaves it anyway")))))))
 
-(deftest a-refused-keystroke-mid-string-converges-with-the-caret-at-the-end
-  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw,
-           rf2-fki5d). The residue after the headline row is met: the
-           refused character IS removed, in the same turn — but React's
-           write moves the cursor to the end, so a user editing mid-string
-           is thrown to the end of the field on every refused keystroke"
+(deftest a-refused-keystroke-mid-string-converges-with-the-caret-where-it-was
+  (testing "THE ROW NEITHER SHIPPED IMPLEMENTATION GETS RIGHT, and the
+           reason rf2-fki5d exists. React removes the refused character
+           in the same turn and throws the cursor to the end of the field
+           — so a user correcting the middle of a number is dumped at the
+           end of it on every keystroke the model refuses. UIx's port
+           gets the caret right and arrives an animation frame late.
+
+           Here both halves land before `dispatchEvent` returns"
     (if-not (mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
@@ -638,8 +670,120 @@
             (type-into! n "z")
             (is (= "12345" (.-value n)) "the refused character is gone")
             (is (= "12345" (model-value 11)))
-            (is (= [5 5] (caret n))
-                "but the caret is at the end of the field, not at 2")))))))
+            (is (= [2 2] (caret n))
+                "and the caret is at the position before it, not at the
+                 end of the field")))))))
+
+;; ---------------------------------------------------------------------------
+;; 5b — the whole family, in one turn, and the record underneath it
+;; ---------------------------------------------------------------------------
+
+(deftest the-family-converges-in-one-turn-with-the-caret-where-the-edit-left-it
+  (testing "every row of validation.md's controlled family, on one mounted
+           grid, in one turn, through the arm's ordinary authoring
+           surface — a `:value` and an `:on-input` intent, no ref, no
+           effect, no escape hatch, and nothing in the boundary shell.
+
+           The fifth row is not a formality. It is the one the naive
+           form regresses: a keystroke the model takes VERBATIM looks
+           exactly like a refusal from inside the handler, and a converge
+           that writes the value its closure holds deletes the character
+           the user just typed. `front/controlled_dom_cljs_test`
+           reproduces that deletion; this row is what says it does not
+           happen here"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (with-grid
+        (fn [handle]
+          (let [reject (cell-input handle 11)
+                upper  (cell-input handle 13)
+                group  (cell-input handle 17)
+                plain  (cell-input handle 7)]
+            (testing "a refused keystroke at the end of the field"
+              (set-model! 11 "12")
+              (.focus reject)
+              (.setSelectionRange reject 2 2)
+              (type-into! reject "a")
+              (is (= "12" (.-value reject)))
+              (is (= [2 2] (caret reject))))
+            (testing "a refused keystroke MID-STRING — the row React alone loses"
+              (set-model! 11 "12345")
+              (.focus reject)
+              (.setSelectionRange reject 2 2)
+              (type-into! reject "z")
+              (is (= "12345" (.-value reject)))
+              (is (= [2 2] (caret reject))
+                  "the caret is at the position before the refused
+                   character, in the same turn"))
+            (testing "a length-preserving normalisation"
+              (set-model! 13 "ABCD")
+              (.focus upper)
+              (.setSelectionRange upper 2 2)
+              (type-into! upper "x")
+              (is (= "ABXCD" (.-value upper)))
+              (is (= [3 3] (caret upper))))
+            (testing "a length-CHANGING normalisation"
+              (set-model! 17 "1,234")
+              (.focus group)
+              (.setSelectionRange group 5 5)
+              (type-into! group "5")
+              (is (= "12,345" (.-value group)))
+              (is (= [6 6] (caret group))))
+            (testing "and an ordinary accepted keystroke is not disturbed"
+              (set-model! 7 "abcd")
+              (.focus plain)
+              (.setSelectionRange plain 2 2)
+              (type-into! plain "X")
+              (is (= "abXcd" (.-value plain)))
+              (is (= "abXcd" (model-value 7)) "the model has it too")
+              (is (= [3 3] (caret plain))))
+            (testing "the model and the field agree everywhere afterwards"
+              (is (= ["12345" "ABXCD" "12,345" "abXcd"]
+                     [(model-value 11) (model-value 13)
+                      (model-value 17) (model-value 7)]))
+              (is (= [(.-value reject) (.-value upper)
+                      (.-value group) (.-value plain)]
+                     [(model-value 11) (model-value 13)
+                      (model-value 17) (model-value 7)])))))))))
+
+(deftest the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure
+  (testing "THE ONE THING THE CONVERGE DEPENDS ON, pinned against a live
+           React tree.
+
+           The converge has to know what the element renders NOW, and the
+           value a change handler closed over is one render behind the
+           moment its own `flushSync` commits. The record it reads
+           instead is `node.defaultValue` — React's mirror of the
+           committed `value` prop, written by `initInput` on mount and by
+           `updateInput` on every commit of a genuinely controlled field.
+
+           This row asserts the mirror directly, and asserts that it
+           MOVES when the rendered value moves. If React ever stopped
+           writing it, this goes red by name instead of five caret rows
+           going quietly wrong"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (with-grid
+        (fn [handle]
+          (let [n (cell-input handle 7)]
+            (set-model! 7 "abcd")
+            (is (= "abcd" (controlled/last-rendered n))
+                "the record is what the last render put on the element")
+            (is (= (.-value n) (controlled/last-rendered n))
+                "and the field agrees with it before anything is typed")
+            (set-model! 7 "wxyz")
+            (is (= "wxyz" (controlled/last-rendered n))
+                "a re-render moves the record with it — which is exactly
+                 what a closure minted by the PREVIOUS render cannot do")
+            (testing "and typing does not disturb it, because the value
+                     IDL setter sets the value and the dirty flag, never
+                     the content attribute the record reflects"
+              (.focus n)
+              (.setSelectionRange n 4 4)
+              (set-native-value! n "wxyzQ")
+              (is (= "wxyz" (controlled/last-rendered n))
+                  "still the value the element rendered, not the value
+                   the field shows"))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — :async-normalisation
