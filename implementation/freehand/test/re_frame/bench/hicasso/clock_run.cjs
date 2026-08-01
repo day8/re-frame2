@@ -881,8 +881,14 @@ function report(out) {
     );
     console.log(`;;     ${adj.unadjudicated ? 'UNADJ  ' : adj.clear ? 'CLEARS ' : 'LIMITED'} ${adj.why}`);
   }
-  const ctlTaskPer = SEGMENTS.flatMap((seg) => ratioToFloor(roundsTask, seg, 'ctl-2x'));
-  const ctlTask = hasProportionalControl ? controlVerdict(2.0, ctlTaskPer, CONTROL_SLACK) : null;
+  // GUARDED, and the guard is the row's rather than the arm-name's: a row
+  // without a proportional control has no `ctl-2x` arm at all — `keystroke`
+  // has `ctl-50ms` — so reaching for one outside this branch reads an
+  // undefined arm and dies mid-row. Which is what it did, and what the
+  // keystroke smoke was run to find.
+  const ctlTask = hasProportionalControl
+    ? controlVerdict(2.0, SEGMENTS.flatMap((seg) => ratioToFloor(roundsTask, seg, 'ctl-2x')), CONTROL_SLACK)
+    : null;
   if (ctlTask) {
     console.log(
       `;;   CONTROL on this clock: ${ctlTask.ok ? 'PASS' : 'FAIL'} ${ctlTask.measured.mean}x ` +
