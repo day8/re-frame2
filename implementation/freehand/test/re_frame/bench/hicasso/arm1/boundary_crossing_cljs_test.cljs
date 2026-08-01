@@ -266,6 +266,65 @@
         (codec/realize-deep v)
         (is (= 3 @!n) label)))))
 
+(deftest realize-deep-walks-map-keys-without-disturbing-the-map
+  (testing "descending into the key half of an entry is a READ, not a
+           rewrite (rf2-2rtt6.32). The map comes back by identity, each key
+           comes back by identity, and lookup still finds what it found
+           before — by the identical key and by an equal one, so nothing
+           the map hashed has moved"
+    (let [composite [:composite 1]
+          m         {composite :a :plain :b "s" :c 7 :d}
+          walked    (codec/realize-deep m)]
+      (is (identical? m walked))
+      (is (= m walked))
+      (is (= (keys m) (keys walked)))
+      (is (identical? composite (first (filter vector? (keys walked)))))
+      (is (= :a (get walked composite)))
+      (is (= :a (get walked [:composite 1])))
+      (is (= :b (get walked :plain)))
+      (is (= :c (get walked "s")))
+      (is (= :d (get walked 7)))))
+  (testing "a map big enough to be a hash map rather than an array map is
+           equally untouched"
+    (let [m      (into {} (map (fn [i] [[:k i] i]) (range 32)))
+          walked (codec/realize-deep m)]
+      (is (identical? m walked))
+      (is (= 32 (count walked)))
+      (is (= 17 (get walked [:k 17]))))))
+
+(deftest realize-deep-reaches-a-lazy-seq-at-a-key-position-too
+  (testing "the reason keys were skipped was that hashing a seq realises
+           it, so nothing unrealised could already be one. A small map
+           literal is a `PersistentArrayMap`: it compares keys with `=`
+           against what it has already accumulated and hashes nothing, so
+           the first key of a one-entry map is never touched. The seq
+           arrives unrealised and the walk is what forces it"
+    (let [!n             (volatile! 0)
+          m              {(map (fn [i] (vswap! !n inc) i) (range 3)) :marked}
+          at-construction @!n]
+      (is (zero? at-construction)
+          "constructing the map neither hashed nor compared the key")
+      (codec/realize-deep m)
+      (is (= 3 @!n)
+          "and the walk reaches it, inside the window of the body that
+           wrote it"))))
+
+(deftest the-keyword-key-short-circuit-skips-only-a-provable-no-op
+  (testing "the key half is walked through one guard — a `Keyword` is
+           neither a collection nor a `Delay`, so the walk on one can
+           reach nothing and return nothing. The premise is pinned here
+           rather than assumed, because the guard is only sound while it
+           holds"
+    (is (not (coll? :k)))
+    (is (not (delay? :k))))
+  (testing "and the guard skips the KEY, never the entry: a keyword-keyed
+           entry's value half is walked exactly as before"
+    (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
+                          (codec/realize-deep {:k (delay 1)})))
+    (let [!n (volatile! 0)]
+      (codec/realize-deep {:k (map (fn [i] (vswap! !n inc) i) (range 3))})
+      (is (= 3 @!n)))))
+
 (deftest realize-deep-does-not-walk-into-a-react-element-or-a-function
   (testing "a React element is an opaque JS object and a function is a
            value, not a structure; neither is a collection and neither is

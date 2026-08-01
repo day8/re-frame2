@@ -540,7 +540,30 @@
 ;; mint a fresh function object on every collection visited, and `run!`
 ;; mints one of its own. Named here, the walk allocates nothing at all.
 
-(defn- realize-entry [_ _ x] (realize-deep x) nil)
+;; A map entry is TWO reachable positions, not one. Keys were skipped
+;; here until rf2-2rtt6.32 on the argument that hashing a seq realises
+;; it, so nothing unrealised can already be a key — and that argument is
+;; wrong twice. A `delay` hashes by object identity (cljs.core extends
+;; `IHash` on `default` to `goog/getUid`), so hashing never forces one;
+;; and a small map literal is a `PersistentArrayMap`, which compares keys
+;; with `=` against the entries already accumulated and hashes nothing at
+;; all, so the first key of a one-entry map is never even compared. Both
+;; positions therefore go through the same walk.
+;;
+;; The `keyword?` short-circuit is not a special case, it is the same
+;; allocation-and-predicate accounting as the two named vars above, and
+;; it is worth as much. A `Keyword` is neither a collection nor a
+;; `Delay`, so [[realize-deep]] on one is a provable no-op — but proving
+;; it costs `coll?`, which for anything without the `ICollection` marker
+;; falls through to `native-satisfies?` and is the dearest predicate on
+;; the path. `keyword?` is one `instanceof`. Prop-map keys are keywords
+;; essentially always, and skipping the no-op for them is the difference
+;; between the key half costing +30–43% of the walk and costing nothing
+;; measurable (rf2-2rtt6.32, table in [[realize-deep]]).
+(defn- realize-entry [_ k x]
+  (when-not (keyword? k) (realize-deep k))
+  (realize-deep x)
+  nil)
 (defn- realize-item  [_ x]   (realize-deep x) nil)
 
 (defn- refuse-deferred!
@@ -628,10 +651,38 @@
   already rested on is 4.7x dearer than the position this walk repairs.
 
   Maps are reduced with `reduce-kv` rather than over their entries, so
-  the walk allocates no `MapEntry`; their keys are not descended into
-  because hashing a seq realises it, so a lazy seq cannot already be a
-  key in a map. `coll?` is tested before `map?` so a scalar — the
-  overwhelming case — costs exactly one predicate.
+  the walk allocates no `MapEntry`; **both** halves of an entry are
+  descended into, because a map entry is two reachable positions and the
+  invariant above is about reach, not about position. `coll?` is tested
+  before `map?` so a scalar — the overwhelming case — costs exactly one
+  predicate.
+
+  ### What the key half costs (rf2-2rtt6.32)
+
+  Not nothing, and it was measured rather than assumed. Three walks
+  A/B/C'd in one process, rounds interleaved, best of five per round,
+  four whole repetitions — **ratios only**: the box was carrying another
+  arm's ladder, so absolute figures drifted 2.6x between repetitions
+  while every ratio below held. A is the value-only walk this replaced,
+  B walks keys unconditionally, C is B with the `keyword?` short-circuit
+  above and is what ships.
+
+  | shape | B vs A | C vs A |
+  |---|---|---|
+  | the dogfood row's props | +31%, +35%, +43%, +31% | +8%, +2%, +6%, −2% |
+  | the same plus two hiccup children | +8%, +9%, +9%, +16% | +6%, +4%, +3%, +5% |
+  | a 100-row collection prop | +24%, +27%, +27%, +35% | +3%, +7%, +1%, +11% |
+
+  Against the whole boundary element build, measured in the same process
+  on the same instrument, **B adds 4.3–5.9% of it and C adds 0.2–1.1%**.
+  The unconditional walk is therefore a real cost at the shape that
+  matters most, and one predicate removes it: the dear part was never
+  the traversal, it was proving that a keyword is not a collection.
+
+  The 100-row collection prop is the honest ceiling, every element of it
+  a map and so every element two positions rather than one; it is still
+  the position whose eagerness costs far less than the NATIVE prop
+  position's `clj->js` beside it.
 
   A seq of unbounded length at a boundary prop position now diverges here
   rather than in the child. That is the same thing `clj->js` already does
