@@ -151,9 +151,13 @@
             the supported vocabulary, the recovery, and a fixed
             closed-vocabulary type discriminator that cannot reproduce the
             value. `:strategy-type` reuses `re-frame.error/diag-value-summary`'s
-            `:type` axis (one diagnostic vocabulary across surfaces); the
-            summary's own `:keys` / `:head` legs are NOT taken — `:keys` is
-            unbounded in the number of map keys and reproduces key content"
+            `:type` axis (one diagnostic vocabulary across surfaces) because
+            the record wants a discriminator, not a size. When this test
+            landed, taking only `:type` was also load-bearing: the summary's
+            `:keys` leg was unbounded in map-key count and reproduced key
+            content, and its `:head` leg reproduced a scalar's raw prefix.
+            rf2-210uq removed both, so the summary is now content-free by
+            construction and this assertion no longer depends on that"
     (let [record (reject! (adversarial-strategy 50))]
       (is (= [:top :restore :preserve] (:supported record))
           "the supported vocabulary is named — fixed size, author-independent")
