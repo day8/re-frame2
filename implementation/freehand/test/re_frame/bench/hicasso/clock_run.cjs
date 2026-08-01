@@ -753,12 +753,29 @@ function report(out) {
         if (!per.every(Number.isFinite)) continue;
         const b = band(per);
         const fi = band(ratioToFloor(rounds, seg, arm));
+        // The two windows in MILLISECONDS as well as in ratios. A ratio says
+        // the two clocks disagree; only the absolutes say WHAT they disagree
+        // about — how much of each arm's frame lands inside `flushSync` — and
+        // that is the whole mechanism behind a published row moving.
+        const ipAbs = p50(inPageRounds.flatMap((r) => r[seg][arm]));
+        const fiAbs = p50(rounds.flatMap((r) => r[seg][arm]));
         console.log(
           `;;   ${(seg + '/' + arm).padEnd(28)} in-page ${b.mean.toFixed(4)}x  vs  ` +
             `frame-inclusive ${fi.mean.toFixed(4)}x   (in-page reads ` +
-            `${(((b.mean - fi.mean) / fi.mean) * 100).toFixed(1)}% differently)`
+            `${(((b.mean - fi.mean) / fi.mean) * 100).toFixed(1)}% differently)` +
+            `   [abs ${ipAbs.toFixed(3)} of ${fiAbs.toFixed(3)} ms = ` +
+            `${((ipAbs / fiAbs) * 100).toFixed(0)}% of the frame]`
         );
       }
+      // The floor's own two windows, because every ratio above is taken
+      // against it and its in-page share is the smaller half of why the two
+      // clocks rank these arms differently.
+      const ipF = p50(inPageRounds.flatMap((r) => r[seg][FLOOR]));
+      const fiF = p50(rounds.flatMap((r) => r[seg][FLOOR]));
+      console.log(
+        `;;   ${(seg + '/floor').padEnd(28)} in-page 1.0000x  vs  frame-inclusive 1.0000x   (the denominator)` +
+          `   [abs ${ipF.toFixed(3)} of ${fiF.toFixed(3)} ms = ${((ipF / fiF) * 100).toFixed(0)}% of the frame]`
+      );
     }
     // THE BAR ROWS ON BOTH CLOCKS. Per-arm gaps are not the comparison a
     // published row is quoted at: the row IS a bar, and the in-page window's
@@ -1001,6 +1018,21 @@ function report(out) {
   );
   console.log(
     `;;                A frame-inclusive reading at or below 0.70 would REFUTE this prediction and restore the row.`
+  );
+  console.log(
+    `;;   CORROBORATE = the SAME donor bar on M1, in the SAME runs, is a control on the whole method. M1 mount`
+  );
+  console.log(
+    `;;                1.0150x [0.9820 - 1.0480] is the row rf2-8nqsl found ROBUST, and read at 1.0110x on a`
+  );
+  console.log(
+    `;;                frame-inclusive clock. PREDICTED: this instrument reproduces it, i.e. the M1 donor bar`
+  );
+  console.log(
+    `;;                lands NEAR that interval. If it does not, this instrument is failing to reproduce a row`
+  );
+  console.log(
+    `;;                already established as robust, and its bulk300 reading in the same run is worth nothing.`
   );
 
   const outcomes = [];
