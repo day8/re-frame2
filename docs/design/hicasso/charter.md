@@ -158,7 +158,10 @@ per-keystroke envelopes as a gate.
 5. Controlled text through the synchronous door: zero dropped keystrokes,
    caret/IME honesty (the `composing?`/keyCode-229 laws). The runtime-owned
    controlled-restore obligation applies only to a back end that leaves React's
-   discrete-event path — hard-gated in any PATCH work.
+   discrete-event path — hard-gated in any PATCH work. **No such back end
+   remains**: Arm 2 was withdrawn 2026-07-31, so the clause is dormant rather
+   than live, and the adapter takes React's own end-of-event restore (with the
+   caveat on [the two implementations](studio/controlled-input-two-implementations.md)).
 6. Forms at scale: per-leaf narrow reads, buffered/revision fields, validation and
    submit lifecycle, the 100-cell editing grid. (Post-v0.)
 
