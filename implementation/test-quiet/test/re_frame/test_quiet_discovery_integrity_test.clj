@@ -11,6 +11,16 @@
   `implementation/core` from 2190 tests to 2182 — exactly that file's eight
   deftests — reporting `0 failures, 0 errors.` and exiting 0.
 
+  A file can also fail to run while spelling its own path PERFECTLY, which
+  is the second door and the one a per-file check cannot see. Discovery
+  returns a namespace once per FILE, so when two files declare the same one
+  — a `.clj` beside a `.cljc`, or one relative path repeated under two `-d`
+  roots — `require` loads whichever the classpath resolves, skips the rest
+  as already loaded, and hands `run-tests` the symbol twice. One file runs
+  TWICE and the other never runs. The tally goes UP, so no coverage floor
+  can see the substitution either. Hence two rules, not one: own-path, and
+  global uniqueness across every selected root.
+
   EVERY TEST HERE PINS THE DEFECT BEFORE IT PINS THE GUARD. Each fixture is
   handed to `find/find-namespaces-in-dir` FIRST, and the assertion is on
   what discovery does or does not return; only then is `discovery-defects`
@@ -160,6 +170,70 @@
                 because their paths differ"
         (is (= ["shadow_test.clj"]
                (defect-paths (runner/discovery-defects [(.getPath dir)]))))))))
+
+(def ^:private duplicate-body
+  (str "  (:require [clojure.test :refer [deftest is]]))\n"
+       "(deftest f (is (= 1 1)))\n"))
+
+(deftest a-clj-and-cljc-sibling-declaring-one-namespace-are-named
+  (with-tree {"probe/good_test.clj"       well-formed
+              "probe/duplicate_test.clj"  (str "(ns probe.duplicate-test\n"
+                                               duplicate-body)
+              "probe/duplicate_test.cljc" (str "(ns probe.duplicate-test\n"
+                                               duplicate-body)}
+    (fn [dir]
+      (testing "THE DEFECT: each sibling spells its OWN path under its own
+                extension, so the per-file rule clears both — yet discovery
+                returns the one name twice and only the `.clj` ever loads"
+        (is (= ['probe.duplicate-test 'probe.duplicate-test]
+               (vec (filter #{'probe.duplicate-test}
+                            (ns-find/find-namespaces-in-dir dir))))
+            "one namespace, two files, two entries in the discovered seq"))
+
+      (testing "THE GUARD: both files are named, each pointing at the other"
+        (let [defects (runner/discovery-defects [(.getPath dir)])]
+          (is (= ["duplicate_test.clj" "duplicate_test.cljc"]
+                 (defect-paths defects))
+              "every colliding file is named, not just one of them")
+          (is (str/includes? (complaint-for defects "duplicate_test.clj")
+                             "duplicate_test.cljc")
+              "the .clj complaint names the .cljc it shadows")
+          (is (str/includes? (complaint-for defects "duplicate_test.cljc")
+                             "duplicate_test.clj")
+              "and the .cljc complaint names the .clj that shadows it"))))))
+
+(deftest one-relative-path-under-two-roots-is-named
+  (with-tree {"probe/duplicate_test.clj" (str "(ns probe.duplicate-test\n"
+                                              duplicate-body)}
+    (fn [a]
+      (with-tree {"probe/duplicate_test.clj" (str "(ns probe.duplicate-test\n"
+                                                  duplicate-body)}
+        (fn [b]
+          (testing "THE DEFECT: each root's file spells its own relative path,
+                    so per-file checking clears both, and the collision only
+                    exists ACROSS roots"
+            (is (= ['probe.duplicate-test 'probe.duplicate-test]
+                   (vec (mapcat #(ns-find/find-namespaces-in-dir (io/file %))
+                                [(.getPath a) (.getPath b)])))))
+
+          (testing "THE GUARD: uniqueness is global to the selected roots"
+            (is (= ["duplicate_test.clj" "duplicate_test.clj"]
+                   (defect-paths (runner/discovery-defects
+                                   [(.getPath a) (.getPath b)])))
+                "both copies are named")
+            (is (= [] (runner/discovery-defects [(.getPath a)]))
+                "and either root ALONE is clean: the defect is the pairing,
+                 so a single-root lane must not be reddened by it")))))))
+
+(deftest one-directory-reached-by-two-spellings-is-not-a-collision
+  (testing "a lane naming one directory twice — `-d test -d ./test` — walks
+            each file twice, and the same file is one file. Deduplicating by
+            canonical path is what keeps this guard from reddening a lane
+            over its alias spelling rather than over its sources"
+    (with-tree {"probe/good_test.clj" well-formed}
+      (fn [dir]
+        (let [p (.getPath dir)]
+          (is (= [] (runner/discovery-defects [p (str p "/.")]))))))))
 
 (deftest a-well-formed-tree-has-nothing-to-say
   (testing "silent on success: the rule is a refusal, not a report"
