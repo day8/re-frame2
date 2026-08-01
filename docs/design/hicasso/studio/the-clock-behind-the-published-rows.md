@@ -34,14 +34,20 @@ clock and every published row reaches it:
 | `coldmount_app` — the `1.0054×` witness | [`coldmount_app.cljs:425`](../../../../implementation/freehand/test/re_frame/bench/hicasso/coldmount_app.cljs) `(lane/mount-batch! arm props 1)` | via the lane | in-page |
 | `hd8_rows` — the HD-008 donor rows | [`hd8_rows.cljs:416`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) `(lane/mount-arm! arm props)`; own windows at [`665-678`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) and [`1005-1008`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) | when the drain returns | in-page |
 | `p0_reagent_app` — the first author's baseline | [`p0_reagent_app.cljs:373`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
+| `p0_harness` — the UIx frontier arm's rows, in a **different tree** | [`p0_harness.cljs:64-69, 220-221`](../../../../implementation/core/test/re_frame/bench/p0_harness.cljs) its own `now-ms` → `js/performance.now()`, `t0` then `flushSync` | when `flushSync` returns | in-page |
+| `hicasso_narrow` — the ratom-spine narrow write, in a **third tree** | [`hicasso_narrow.cljs:179`](../../../../implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
 
-**The roster is closed and the answer is uniform.** A sweep of the whole
-`bench/hicasso` tree finds no `requestAnimationFrame` in any measuring path —
-the only occurrences are in DOM correctness tests and in `z3vlz_probe`'s
-settle helper — and the only CDP traffic in any driver before this audit is
-`HeapProfiler.collectGarbage` in `retention_run.cjs`, which is a collector door
-for the heap rows and not a clock. There was no frame-inclusive instrument in
-this lane until `rf2-0qj9w` built one.
+**The roster is closed and the answer is uniform — across all three producer
+trees.** A sweep of the whole `bench/hicasso` tree finds no
+`requestAnimationFrame` in any measuring path — the only occurrences are in DOM
+correctness tests and in `z3vlz_probe`'s settle helper — and the only CDP traffic
+in any driver before this audit is `HeapProfiler.collectGarbage` in
+`retention_run.cjs`, which is a collector door for the heap rows and not a clock.
+The two producers that live outside `bench/hicasso` reach the same answer by
+their own code rather than through the lane: `p0_harness`'s docstring states it
+outright — *"A reading is one `flushSync` window"* — and `hicasso_narrow` defines
+its own bare `performance.now()`. There was no frame-inclusive instrument
+anywhere in this programme until `rf2-0qj9w` built one.
 
 Three published families are **not** clock rows and are out of scope:
 `reads-per-boundary-heap-ladder`, `heap-fan-out-sweep` and
