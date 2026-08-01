@@ -212,14 +212,38 @@ row the programme has actually published, they do:
 
 | reading | instrument | workload | `hicasso / reagent` |
 |---|---|---|---:|
-| published (`rf2-0qj9w`) | ours, CDP frame-inclusive | M1 — 901 elements, 300 boundaries | **1.2107** [0.9756 – 1.7208] |
+| published (`rf2-0qj9w`) | ours, CDP **frame-only** — see below | M1 — 901 elements, 300 boundaries | ~~**1.2107**~~ [0.9756 – 1.7208] |
 | this page | ours, CDP frame-inclusive | benchmark — ~8,000 elements, 1,000 boundaries | **1.2789** [0.9616 – 1.5482] |
 | this page | **the benchmark's own** | the same benchmark page | **1.1756** |
 
-Three readings spanning two instruments and two workloads land in **1.18 – 1.28**.
+~~Three readings spanning two instruments and two workloads land in **1.18 – 1.28**.
 Changing the *workload* moves the ratio by 5.6%; changing the *instrument* moves
-it by 8.8%. **The candidate's mount deficit is real, it is about 20%, and it is
-not an artefact of our harness.**
+it by 8.8%.~~ **The candidate's mount deficit is real, and it is not an artefact
+of our harness.**
+
+> **THE FIRST ROW WAS ON A DIFFERENT CLOCK, so the 5.6% was arithmetic across
+> two of them (`rf2-emvod`).** `1.2107×` is `TaskDuration` less
+> `DevToolsCommandDuration`, which `rf2-yd52q` showed removes the operation's
+> own script — a frame-**only** figure. This page's `1.2789×` is the same
+> subtraction but **not** the same quantity, because the two harnesses drive
+> the operation through different doors: `clock_run.cjs` runs it inside a
+> `page.evaluate`, whose script the counter absorbs, and `jsfb_ours_run.cjs`
+> **clicks**, whose handler runs in an input task the command does not own.
+>
+> That is measured on this harness rather than argued from the other one. On
+> the same samples `run1k` reads **1.4030×** on `taskNet` and **1.3913×** on
+> raw `TaskDuration` — a 0.8% gap — and `DevToolsCommandDuration` varies by
+> **0.126 ms** across three arms whose `ScriptDuration` varies by **13.97 ms**.
+> A counter that carried the arms' script could not do that. **So every figure
+> on this page is a script-and-frame reading and none of them is restated.**
+>
+> The decomposition is. Against the M1 witness re-taken on the corrected clock
+> — `1.4896×` — the two legs are **workload 16.5%** (`1.4896 → 1.2789`, our
+> instrument throughout) and **instrument 8.8%** (`1.2789 → 1.1756`, the same
+> app throughout). They compound to 1.267, against an observed
+> `1.4896 / 1.1756` = **1.267**. The gap is fully accounted for; what is wrong
+> above is only the claim that the three readings span 1.18 – 1.28, and on one
+> clock they span **1.18 – 1.49**.
 
 ### 3.4 Bulk broad — the sharpened target, and the row that changes
 
