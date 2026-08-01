@@ -776,6 +776,34 @@ jobs:
       - name: Guard the current adapter disposition
         run: python scripts/check_adapter_disposition.py --verbose --ci
 
+      # Fast-PR spine tiering + mkdocs-resolution self-test (rf2-03298,
+      # rf2-fhdd3). The harness at
+      # scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh drives
+      # the REAL spine in `--plan` mode against disposable git repos and
+      # asserts the tier decision and the exact mkdocs command it selected. It
+      # has existed since rf2-lwweq and NO workflow or npm script has ever run
+      # it — so every assertion in it was local-only, i.e. skippable, i.e. not
+      # a gate.
+      #
+      # What that cost concretely: rf2-g7p7l taught the spine to fall back from
+      # a bare `mkdocs` console script to `python -m mkdocs` for the
+      # `pip install --user` checkouts where the console script is off PATH.
+      # This runner installs requirements.txt, so a bare `mkdocs` IS on PATH
+      # here and the host-consulting case takes the console-script branch —
+      # deleting the module fallback outright would have stayed green remotely
+      # and reopened the fail-open on exactly the contributor installs it was
+      # written for. The harness now carries hermetic cases (AC-AE) that
+      # CONSTRUCT a module-only PATH instead of asking this host what it has,
+      # and running it here is what makes breaking that fallback red a REQUIRED
+      # check.
+      #
+      # Belongs in this always-on job for the same reason its four predecessors
+      # do: the drift is introduced by editing the spine or its fixtures, which
+      # no surface gate covers, and a gate that only lives in the local spine is
+      # skippable. Needs bash + git + python, all already present; ~20s.
+      - name: Self-test the fast-PR spine's tiering + mkdocs resolution
+        run: bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
+
   # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
   #
   # `bd` auto-stages the full-database JSONL export in EVERY checkout, so a
