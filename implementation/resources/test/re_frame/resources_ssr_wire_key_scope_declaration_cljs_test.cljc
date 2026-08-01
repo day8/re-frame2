@@ -178,8 +178,26 @@
           (when (= (second (:resource/key e)) resource-id) [k-id e]))
         (wire-entries frame-id)))
 
-(defn- wire-key [frame-id resource-id]
-  (:resource/key (second (wire-entry-for frame-id resource-id))))
+(defn- wire-key
+  "The key the SSR projection PRODUCED for `resource-id`, read off
+  `projection-metadata`'s `:projected-key`.
+
+  It is read from the metadata rather than from the wire row because a re-keyed
+  `:serialize` entry no longer HAS a wire row: rf2-rjq9d withholds it, since an
+  unaddressable row installs on the client as an ownerless duplicate that
+  nothing can reach and nothing can collect. The projection is unchanged — the
+  registry-driven per-slot walk still runs and still produces this key — so
+  every assertion in this suite about what the projection does to a key is
+  unaffected. Only the carrier moved.
+
+  For an entry that DOES ride, this is byte-identical to the wire row's own
+  `:resource/key`, which `the-wire-map-key-is-the-key-id-of-the-projected-key`
+  pins directly against the map key."
+  [frame-id resource-id]
+  (some (fn [m] (when (= resource-id (second (:resource/key m))) (:projected-key m)))
+        (ssr/projection-metadata
+          frame-id 5000
+          (get-in (frame/frame-runtime-db-value frame-id) (state/entries-path)))))
 
 (defn- leaks?
   "Whether `secret` survives ANYWHERE in `v` — the plaintext test."
@@ -216,11 +234,25 @@
             key-id is a REVERSIBLE plaintext CEDN-1 encoding, so a stale raw
             key-id in the wire MAP key would leak just as loudly)"
     (install-entry! :rf/default (key-for :tenant/report))
+    ;; the COARSE owner is the filler: it shares this suite's session scope but
+    ;; digests it, so the slice is non-empty WITHOUT the secret riding by
+    ;; design. `:plain/report` cannot serve here — it declares nothing, so its
+    ;; scope rides verbatim, which is exactly what
+    ;; `an-undeclared-owners-key-rides-byte-identical` asserts.
+    (install-entry! :rf/default (key-for :sealed/report))
     (let [slice (ssr/project-resources-runtime-db
-                  (frame/frame-runtime-db-value :rf/default) :rf/default)]
+                  (frame/frame-runtime-db-value :rf/default) :rf/default)
+          w     (wire-key :rf/default :tenant/report)]
+      (is (seq (get-in slice [state/resources-key :entries]))
+          "premise: the slice is not empty — rf2-rjq9d withholds the declaring
+           owner's row, so this claim would otherwise be satisfied by a slice
+           with nothing in it at all")
       (is (not (leaks? tenant-secret slice))
           (str "the tenant id survived somewhere in the wire slice: "
-               (pr-str slice))))))
+               (pr-str slice)))
+      (is (not (leaks? tenant-secret [w (state/key-id w)]))
+          (str "…nor in the projected key or its key-id, which is where it
+                would ride if the row were sent — " (pr-str w))))))
 
 (deftest both-components-of-one-key-are-projected
   (testing "an owner declaring on BOTH components has both redacted in the ONE
@@ -257,6 +289,10 @@
                                          {:account-id account-secret :page 3}))
     (install-entry! :rf/default (key-for :plain/report))
     (install-entry! :rf/default (key-for :sealed/report))
+    (is (= 2 (count (wire-entries :rf/default)))
+        "premise: two of the four rows ride — the two re-keyed by a per-slot
+         declaration are withheld (rf2-rjq9d), so a `doseq` over the wire is
+         not a `doseq` over nothing")
     (doseq [[k-id e] (wire-entries :rf/default)]
       (is (= k-id (state/key-id (:resource/key e)))
           (str "wire map key must equal key-id of the entry's own projected "
@@ -341,26 +377,37 @@
           "the body rides: nothing here is declared, and nothing is swallowed")
       (is (= :loaded (:status e))))))
 
-(deftest a-key-declaration-makes-the-entry-metadata-only
-  (testing "rf2-rjq9d — but the DECLARING owner's own entry does not ride its
-            body, and the reason is reachability rather than privacy.
-            Projecting a key component re-keys the entry (§2 below), and the
-            live client derives the RAW key, so the hydrated entry is
-            unaddressable: shipping its data would be dead payload beside the
-            duplicate the client loads anyway, and — because the per-slot
-            substitution is a CONSTANT sentinel rather than a content-addressed
-            digest — a row two principals can collapse onto. It ships metadata
-            only, exactly as the coarse arms do, and is refetched.
+(deftest a-key-declaration-withholds-the-entry-from-the-wire
+  (testing "rf2-rjq9d — the DECLARING owner's own entry does not ride AT ALL,
+            and the reason is reachability rather than privacy. Projecting a key
+            component re-keys the entry (§2 below), and the live client derives
+            the RAW key, so a shipped row would be unaddressable: dead payload
+            beside the duplicate the client loads anyway, and — because the
+            per-slot substitution is a CONSTANT sentinel rather than a
+            content-addressed digest — a row two principals can collapse onto.
+            Shipping it EMPTY was the first answer, and it left an ownerless row
+            in the client's cache that nothing addresses and nothing collects.
+            So it is withheld.
 
             The end-to-end statement of that contract (hydrate reconcile, live
-            route/ensure, the exactly-one-request count, the collapse control)
+            route/ensure, the exactly-one-request count, the zero-ghost control)
             lives in `resources_ssr_projected_key_refetch_cljs_test`"
     (install-entry! :rf/default (key-for :tenant/report))
-    (let [[_ e] (wire-entry-for :rf/default :tenant/report)]
-      (is (not (contains? e :data))
-          "the re-keyed entry ships no data")
-      (is (= :loaded (:status e))
-          "…while its metadata still announces what the server knew"))))
+    (install-entry! :rf/default (key-for :plain/report))
+    (is (nil? (wire-entry-for :rf/default :tenant/report))
+        "no wire row names the re-keyed owner, under any key")
+    (is (some? (wire-entry-for :rf/default :plain/report))
+        "…while the undeclared sibling still rides, so this is withholding and
+         not an empty projection")
+    (let [m (some (fn [m] (when (= :tenant/report (second (:resource/key m))) m))
+                  (ssr/projection-metadata
+                    :rf/default 5000
+                    (get-in (frame/frame-runtime-db-value :rf/default)
+                            (state/entries-path))))]
+      (is (= :key-projected (:disposition m))
+          "the server-side metadata still announces what the server knew")
+      (is (true? (:refetch-on-client? m))
+          "…including that the client will have to fetch it"))))
 
 ;; ===========================================================================
 ;; 4. THE CLIENT ROUND-TRIP STILL LANDS (the bead's proof standard).
@@ -373,9 +420,16 @@
             resolve back to an entry"
     (install-entry! :rf/default (key-for :tenant/report))
     (install-entry! :rf/default (key-for :plain/report))
+    ;; the COARSE owner is what keeps a re-keyed row in this round-trip:
+    ;; `:tenant/report`'s row is withheld (rf2-rjq9d), and a round-trip over
+    ;; nothing but byte-identical keys would not exercise the projected map key
+    ;; at all.
+    (install-entry! :rf/default (key-for :sealed/report))
     (let [wired    (wire-entries :rf/default)
           subtree  (state/recompute-indexes {:entries wired})
           members  (into #{} cat (vals (:owner-index subtree)))]
+      (is (not (contains? wired (state/key-id (key-for :sealed/report))))
+          "premise: the coarse row IS re-keyed — its raw key-id is not a map key")
       (is (= (set (keys wired))
              (set (keys (:entries subtree))))
           "install is lossless — one entry in, one entry out")

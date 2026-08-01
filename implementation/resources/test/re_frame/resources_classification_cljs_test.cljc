@@ -106,6 +106,24 @@
   (let [we (val (first (get-in proj [state/resources-key :entries])))]
     [(:resource/key we) we]))
 
+(defn- ssr-projected-key
+  "The key the SSR projection PRODUCED for the single entry in `runtime-db`.
+
+  Read from `projection-metadata` rather than from the wire row, because a
+  `:serialize` entry re-keyed by its own per-slot declaration is WITHHELD from
+  the wire (rf2-rjq9d): shipping it left an unaddressable, ownerless row in the
+  client's cache. The per-slot projection itself is unchanged, so the co-equality
+  this suite asserts — the params surface is projected exactly as the data
+  surface is — is read off the carrier that survives."
+  [frame-id runtime-db]
+  (let [lowered (classification/reconcile-registry runtime-db registry/resource-meta)]
+    (when-let [reg (get lowered :rf.runtime/elision)]
+      (elision/swap-elision-slot! frame-id (constantly reg)))
+    (rf/with-frame frame-id
+      (first (map :projected-key
+                  (ssr/projection-metadata
+                    frame-id 5000 (get-in lowered (state/entries-path))))))))
+
 ;; ===========================================================================
 ;; 1. whole-entry-disposition — the coarse root-prop owner classification
 ;; ===========================================================================
@@ -351,7 +369,8 @@
     (let [k   (state/scoped-resource-key :rf.scope/global :report/by-account
                                          {:account-id "acct-secret-42" :slug "q3"})
           e   (entry {:resource-id :report/by-account :data {:total 99}})
-          [wk we] (only-wire-entry (ssr-project :rcfg/owner-params (runtime-db-with {k e})))]
+          rdb (runtime-db-with {k e})
+          wk  (ssr-projected-key :rcfg/owner-params rdb)]
       (is (= :serialize (classification/whole-entry-disposition
                           (rf/resource-meta :report/by-account)))
           "no coarse claim → :serialize (the per-slot params mark is the surface)")
@@ -359,17 +378,18 @@
       (is (= privacy/redacted-sentinel (get-in wk [2 :account-id]))
           "the owner-declared :account-id params slot is redacted in the wire key")
       (is (= "q3" (get-in wk [2 :slug])) "the unmarked params sibling rides verbatim")
-      (is (not (contains? we :data))
+      (is (empty? (get-in (ssr-project :rcfg/owner-params rdb)
+                          [state/resources-key :entries]))
           ;; rf2-rjq9d — redacting a params slot re-keys the entry (identity is
           ;; the canonical bytes of the WHOLE key), and the live client derives
-          ;; the RAW key, so the hydrated entry is unaddressable. It therefore
-          ;; ships METADATA-ONLY and is deliberately refetched, rather than
-          ;; carrying data no client can reach. The end-to-end contract is
+          ;; the RAW key, so a shipped row would be unaddressable. Shipping it
+          ;; metadata-only was the first answer and left an ownerless row in the
+          ;; client's cache that nothing addresses and nothing collects, so the
+          ;; row is WITHHELD. The end-to-end contract is
           ;; `resources_ssr_projected_key_refetch_cljs_test`; the co-equality
           ;; this test exists for — the params surface is projected exactly as
           ;; the data surface is — is unchanged and asserted on `wk` above.
-          "a re-keyed entry ships no data (rf2-rjq9d)")
-      (is (= :loaded (:status we)) "…while its metadata still rides")
+          "a re-keyed entry does not ride at all (rf2-rjq9d)")
       (is (not (str/includes? (pr-str wk) "acct-secret-42"))
           "no raw sensitive params value rides in the wire key"))))
 
