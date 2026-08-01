@@ -25,6 +25,25 @@
 # Add a `:local/root` dependency and its rewrite happens on the next
 # release with no edit here and none in the workflow.
 #
+# # WHEN NOT TO USE THIS SCRIPT (rf2-5dut1)
+#
+# It rewrites EVERY declared coordinate, and it does not ask whether the
+# artefact on the other end is publishable. For an artefact whose in-repo
+# dependencies are all publishable — story-mcp, its only caller today —
+# that is exactly right. For one that declares a coordinate on an artefact
+# with NO `:clein/build`, it is worse than the drift it prevents: the pom
+# would name `<group>/<artifact>:<VERSION>`, a coordinate that does not and
+# cannot exist, and a presence-based package preflight would pass it
+# straight through to a registry with no yank. The failure moves from our
+# release job to the consumer's build.
+#
+# tools/xray is that case today (`day8/re-frame2-freehand`, unpublishable
+# until the EP-0036 F6 gate), which is why release-xray.yml drives the
+# single-coordinate helper over an explicit roster instead. Before pointing
+# a new artefact at this script, check that every `:local/root` target
+# carries a `:clein/build` — or teach this script to partition on it and
+# report the skipped coordinates loudly.
+#
 # The EDN is parsed with Clojure's own reader, never grepped: a
 # reformatted deps.edn, or a coordinate quoted inside a `;;` comment or a
 # `#_` discard, must not be able to change what gets rewritten. The reader

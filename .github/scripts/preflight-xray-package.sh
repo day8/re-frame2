@@ -6,12 +6,11 @@
 # `clein pom` SILENTLY SKIPS `:local/root` coordinates. tools/xray/deps.edn
 # declares TEN of them in its main `:deps` — core, epoch, routing, flows,
 # schemas, resources, machines, freehand, machines-viz and reagent-slim —
-# and release-xray.yml rewrites only TWO (core, reagent-slim). Run against
-# the in-tree deps.edn today, `clein pom` prints ten `Skipping coordinate`
-# lines and writes a pom whose `<dependencies>` are four third-party
-# artefacts and nothing else. A jar cut from the release workflow would
-# therefore publish a pom declaring two of Xray's ten in-repo runtime
-# dependencies.
+# and release-xray.yml rewrites the NINE that are publishable. Run against
+# the in-tree deps.edn with no rewrite at all, `clein pom` prints ten
+# `Skipping coordinate` lines and writes a pom whose `<dependencies>` are
+# four third-party artefacts and nothing else; that was the shipping state
+# when rf2-5dut1 was filed, with the workflow rewriting two of the ten.
 #
 # That is precisely the failure class rf2-wht9a found in Story and closed
 # with preflight-story-package.sh: the consumer installs the artefact,
@@ -59,15 +58,15 @@
 # is the maintenance shape this script is avoiding, and Xray's third-party
 # pins are already guarded in deps.edn by the lockstep script.
 #
-# # This gate is EXPECTED TO FAIL TODAY, and that is the point
+# # This gate is EXPECTED TO FAIL TODAY, on ONE coordinate, and that is the
+# # point
 #
-# Eight of Xray's ten coordinates are unrewritten, so the first `xray-v*`
-# tag push after this lands will be REFUSED here, with all eight named,
-# instead of publishing a broken pom quietly. Seven of the eight are a
-# mechanical fix — add the rewrite line, add the coordinate to
-# TOOLS_LOCAL_ROOTS in .github/scripts/verify-version-lockstep.sh.
+# Nine of Xray's ten coordinates are rewritten by release-xray.yml, and the
+# generated pom carries all nine at the lockstep VERSION. The tenth is not,
+# so an `xray-v*` tag push is REFUSED here — with that one coordinate named
+# — instead of publishing a broken pom quietly.
 #
-# The eighth is an OPEN OPERATOR DECISION and this script does not make it:
+# It is an OPEN OPERATOR DECISION and this script does not make it:
 # `day8/re-frame2-freehand` CANNOT be rewritten to a `:mvn/version` at all.
 # implementation/freehand/deps.edn carries no `:clein/build` — deliberately
 # ("NO :clein deploy aliases — deliberate, not an omission. Publication is
@@ -175,8 +174,14 @@ FREEHAND_HINT = (
     " :clein/build — deliberately; publication is EP-0036 F6 territory."
     " Xray therefore declares a RUNTIME dependency on an artefact that is"
     " not publishable yet. Either Xray is not publishable until Freehand"
-    " ships, or the Freehand edge moves to late-bind. That is an operator"
-    " decision; until it is made, this refusal is the correct outcome."
+    " ships, or the Freehand edge moves to late-bind — Xray's ONLY"
+    " production require on Freehand is day8.re-frame2-xray.mounted-views,"
+    " which reads re-frame.freehand.tool and re-frame.freehand.evidence."
+    " That is an operator decision; until it is made, this refusal is the"
+    " correct outcome. And do NOT make it go green by rewriting the"
+    " coordinate anyway: a pom naming day8/re-frame2-freehand at a version"
+    " Clojars does not have moves the failure from our release job to the"
+    " consumer's build, where there is no yank to undo it."
 )
 
 
