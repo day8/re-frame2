@@ -357,10 +357,20 @@ absolutes added for runs 11–14 are what exposed it.
 | `M1` donor bar | 0.8953 [0.7914 – 0.9749] | 1.0445 [0.9405 – 1.1696] | 14 |
 
 They agree with the published ensemble on both readings they share, and they
-carry one figure worth keeping: **seven of the first ten ensemble's in-page run
-means fall inside the published row's own run-mean spread** of 0.5792 – 0.6987.
+carry one figure worth keeping: of the first ten, **seven runs' in-page means
+fall inside the published row's own run-mean spread** of 0.5792 – 0.6987.
 That is the check that the two harnesses are measuring the same quantity on the
 same clock, which is what licences comparing them on a different one.
+
+One run of that ensemble is worth recording for a reason of its own:
+**`rf2-cvvb7`'s band ceiling fired for the first time.** Its `bulk300` band came
+out at **26.2%**, above the 25% tripwire and above the 4.4–18.5% the
+nineteen-run ladder that calibrated it produced. The gate did what it was
+written to do — refused every magnitude from that run before any control was
+consulted — and its donor bar, 1.0952 on `taskNet`, was in line with the rest,
+which is the shape a tripwire on a noisy statistic should have. No run of the
+published ensemble came near it (8.8–19.7% on the corrected clock, 10.3–23.6% on
+`taskNet`).
 
 The two earlier blobs differ from the published one in what the driver
 **prints** and in nothing it measures or adjudicates; `git log -p` over the three
