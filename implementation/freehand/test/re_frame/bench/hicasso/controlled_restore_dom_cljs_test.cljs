@@ -272,18 +272,35 @@
 (def input-implementations
   "The two things `uix.compiler.aot/create-uix-input` can build, and the
   value of `uix.compiler.input/*use-reagent-input-enabled?*` that selects
-  each. `nil` — the shipped default — is not a third option; it is
+  each. `nil` — UIx's OWN unset default — is not a third option; it is
   *whichever of these two the bundle's contents imply*, which is what
-  this file exists to stop measuring by accident."
+  this file exists to stop measuring by accident. Since rf2-heqwo,
+  `re-frame.adapter.uix` pins the var to `false` at load, so `nil` is no
+  longer what a re-frame2 UIx app runs; it is reachable here only by
+  deliberately clearing the pin."
   {:react             false
    :uix-reagent-input true})
+
+(def adapter-default-implementation
+  "What `re-frame.adapter.uix` pins at load (rf2-heqwo). Rows restore THIS,
+  not `nil`: leaving the var cleared would hand the choice back to the
+  bundle for every later namespace in the same test build — the exact
+  accident this file exists to stop."
+  :react)
 
 (defn- pin-input-implementation! [impl]
   (set! uix.compiler.input/*use-reagent-input-enabled?*
         (get input-implementations impl)))
 
 (defn- unpin-input-implementation! []
-  (set! uix.compiler.input/*use-reagent-input-enabled?* nil))
+  (pin-input-implementation! adapter-default-implementation))
+
+(defn- with-uix-raw-default
+  "Run `f` with the adapter's pin CLEARED, so UIx's own classpath sniff can
+  be observed, and restore the pin however `f` ends."
+  [f]
+  (set! uix.compiler.input/*use-reagent-input-enabled?* nil)
+  (try (f) (finally (unpin-input-implementation!))))
 
 ;; ---------------------------------------------------------------------------
 ;; The harness
@@ -395,21 +412,28 @@
 ;; The selector itself — the reason every row below names an implementation
 ;; ---------------------------------------------------------------------------
 
-(deftest the-input-implementation-is-chosen-by-the-bundle-not-the-app
-  (testing "UIx's default answer is a fact about the classpath, and this
-           bundle carries Reagent, so the shipped default here is the port
-           rather than plain React"
+(deftest the-input-implementation-is-the-adapters-choice-not-the-bundles
+  (testing "UIx's own unset answer is a fact about the classpath, and this
+           bundle carries Reagent — so unset, a UIx `:input` here would be
+           the port. `re-frame.adapter.uix` pins it to React (rf2-heqwo), so
+           it is not."
     (is (some? reagent.impl.batching/do-after-render)
         "Reagent's after-render queue is in this bundle — which is exactly
-         what makes UIx's default answer `true`")
-    (unpin-input-implementation!)
-    (is (true? (uix.compiler.input/should-use-reagent-input?))
-        "with nothing pinned, a UIx `:input` in THIS bundle is not a plain
-         React controlled input at all")
+         what makes UIx's own unset answer `true`")
+    (with-uix-raw-default
+      (fn []
+        (is (true? (uix.compiler.input/should-use-reagent-input?))
+            "clear the adapter's pin and this bundle's contents choose:
+             a UIx `:input` here would not be a plain React controlled
+             input at all")))
+    (is (false? (uix.compiler.input/should-use-reagent-input?))
+        "the adapter's load-time pin holds — React's own implementation,
+         whatever else the bundle carries")
     (pin-input-implementation! :react)
     (is (false? (uix.compiler.input/should-use-reagent-input?)))
     (pin-input-implementation! :uix-reagent-input)
-    (is (true? (uix.compiler.input/should-use-reagent-input?)))
+    (is (true? (uix.compiler.input/should-use-reagent-input?))
+        "the explicit opt-in still reaches the port")
     (unpin-input-implementation!)))
 
 ;; ---------------------------------------------------------------------------

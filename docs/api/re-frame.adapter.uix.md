@@ -211,6 +211,26 @@ For narrative coverage and the substrate decision set, see [Use UIx or reagent-s
 
 - **Shared React Context.** The `frame-provider` in both adapters (Reagent and UIx) consumes the same `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not two. A mixed-substrate app therefore composes: a UIx `frame-provider` can wrap a Reagent subtree, and vice versa.
 - **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element; `wrap-view` is the explicit seam for that injection. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes. It powers click-to-source in Xray and re-frame2-pair. The full contract is in the [Observability concept guide](../core/observability.md).
+- **Controlled inputs use React's own implementation.** UIx can build a `<input>` two ways, and unset it chooses by asking whether Reagent happens to be on the classpath — so adding the Reagent adapter beside UIx used to change how the UIx app's inputs behaved, silently. Requiring `re-frame.adapter.uix` pins the choice to React's own path. See the note below for what that means for the caret.
+
+## Controlled inputs and the caret
+
+A UIx `:input` with a `:value` and an `:on-change` is a plain React controlled input, and it stays one whatever else is in the bundle. Requiring this namespace sets `uix.compiler.input/*use-reagent-input-enabled?*` to `false` at load, which is what makes that true.
+
+**What this means when your handler refuses or rewrites a keystroke.** React converges the field inside the discrete event — the character the model refused is off the screen before `dispatchEvent` returns, with nothing re-rendered. Writing `value` moves the text cursor to the end of the field, though, so the caret lands at the end rather than where the edit was: type `z` into `"12345"` with the caret at position 2, have the model refuse it, and you get `"12345"` with the caret at 5. Every write React makes does this; it is React's own long-standing controlled-input caret jump, not something re-frame2 introduces. A model that takes the keystroke verbatim never triggers a write and never moves the caret.
+
+**What changed, and why.** UIx also ships a port of Reagent's controlled-input workaround, which makes the element uncontrolled and restores value *and* caret itself — but one animation frame later, off Reagent's `requestAnimationFrame` queue, never inside the event. Before this pin you got that one whenever Reagent was on the classpath and React's one when it wasn't. An app whose inputs behave differently because of what else is in its bundle is the worse defect, so the adapter takes in-turn convergence and a predictable, React-native path over late caret preservation. Neither implementation gives you both halves; `rf2-fki5d` is the priced route to a path that does.
+
+**If you want the port instead**, ask for it explicitly — after requiring the adapter, and before you render:
+
+```clojure
+(:require [re-frame.adapter.uix :as uix-adapter]
+          [uix.compiler.input])
+
+(set! uix.compiler.input/*use-reagent-input-enabled?* true)
+```
+
+That is the whole opt-in, and it is deliberately explicit. `true` selects UIx's port, `false` selects React's implementation, and `nil` restores UIx's own classpath-sniffing default — which is the behaviour this pin exists to keep you out of. The port reaches for `reagent.impl.batching`, so it needs Reagent on the classpath; it is not an option for a UIx-only bundle.
 
 ## See also
 

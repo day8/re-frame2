@@ -11,10 +11,36 @@
   UIx's CLJS prop and trailing-child marshalling."
   (:require [uix.core          :as uix :refer-macros [defui]]
             [uix.hooks.alpha   :as uix-hooks]
+            [uix.compiler.input]
             [re-frame.frame             :as frame]
             [re-frame.substrate.spine   :as spine]
             [re-frame.adapter.use-frame :as use-frame-hook]
             [re-frame.views.frame-boundary :as boundary]))
+
+;; ---- controlled inputs: React's implementation, not the classpath's -------
+;;
+;; `uix.compiler.aot/create-uix-input` picks, per `:input` element and at
+;; element-creation time, between plain React and a port of Reagent's
+;; controlled-input workaround. Left unset, the var below makes that choice by
+;; asking whether `reagent.impl.util/*non-reactive*` happens to EXIST — so
+;; adding the Reagent adapter to a UIx app silently changed how the UIx app's
+;; controlled inputs behave, with no diagnostic and no opt-in (rf2-heqwo).
+;;
+;; re-frame2 pins it. React's own path keeps the element controlled and
+;; converges inside the discrete event, before `dispatchEvent` returns, through
+;; React's end-of-event state restore. The port makes the element UNCONTROLLED
+;; (deletes `:value`, installs `defaultValue` + a `ref`) and drives the value
+;; from `reagent.impl.batching/do-after-render` — a requestAnimationFrame
+;; queue, so one frame late, never in-turn. Both were measured in real Chromium
+;; against react-dom 19.2.0 (rf2-n3dxw); the trade-off and the caret behaviour
+;; consumers will see are documented in `docs/api/re-frame.adapter.uix.md`.
+;;
+;; This runs at namespace load — ahead of any render, and therefore ahead of
+;; any element creation. The var stays `^:dynamic` and public: a consumer who
+;; genuinely wants the port asks for it EXPLICITLY, by `set!`ing it back to
+;; `true` after requiring this namespace (or `binding` it around a render).
+;; What is no longer possible is getting either one by accident.
+(set! uix.compiler.input/*use-reagent-input-enabled?* false)
 
 ;; ---- shared spine wiring --------------------------------------------------
 
