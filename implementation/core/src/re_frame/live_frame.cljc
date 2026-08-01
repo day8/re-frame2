@@ -602,13 +602,19 @@
 ;; memory, bounded by the number of distinct frame ids ever created in a
 ;; session.
 ;;
-;; ---- WHEN the row is written, and why that is load-bearing (rf2-rt4jz) ----
+;; ---- WHEN the row is written, and under WHOSE authority (rf2-rt4jz) -------
 ;;
-;; The row is written BEFORE the `upsert-frame!` engine commit and rolled back
-;; EXACTLY on failure. It used to be written after the commit returned, which
-;; reads as the safer order — a failed construction cannot leave residue if it
-;; never writes — but it is not, because the record and the row are two stores
-;; and the frame is REPROJECTABLE the moment the first of them lands.
+;; The row is written BEFORE the `upsert-frame!` engine commit, rolled back
+;; EXACTLY on failure, and the whole pair runs INSIDE the engine's own exact
+;; per-id construction reservation (`frame/call-with-frame-construction-claim!`).
+;; Order and admission are separate properties and the row needs both: the
+;; order decides what the CONSTRUCTING thread's own cascade reads, the
+;; reservation decides who is allowed to write the row at all.
+;;
+;; ORDER. The row used to be written after the commit returned, which reads as
+;; the safer order — a failed construction cannot leave residue if it never
+;; writes — but it is not, because the record and the row are two stores and
+;; the frame is REPROJECTABLE the moment the first of them lands.
 ;;
 ;; `upsert-frame!` publishes the record carrying the new generation and then,
 ;; still inside the call, runs the `:initial-events` setup steps (EP-0027).
@@ -632,15 +638,41 @@
 ;; what it means at the site, instead of depending on nothing ever resolving
 ;; between the two writes.
 ;;
-;; The one thing the early write does NOT buy: on a RE-construction the row
-;; names the incoming pool for the brief interval before `upsert-frame!`'s
-;; surgical swap installs the incoming generation, so a JVM-concurrent flush
-;; landing in THAT interval re-resolves the OUTGOING composition against the
-;; INCOMING pool. That is transient and self-correcting — the swap that
-;; follows overwrites it unconditionally, so no completed call can observe it —
-;; whereas the window it replaces corrupted the value the constructor returned.
-;; The remaining exposure is at worst one spurious
-;; `:rf.warning/reprojection-failed` diagnostic on the dev channel.
+;; ADMISSION. Order alone is a single-threaded property, and it left the row
+;; open to attempts the ENGINE REJECTS. `upsert-frame!` admits exactly ONE
+;; construction per id and fails every other promptly with
+;; `:rf.error/frame-construction-in-progress` — a loss that writes nothing,
+;; which is the whole point of failing at admission rather than inside an
+;; adapter or setup callback. A row written AHEAD of that admission broke the
+;; property: a same-id contender published its own pool into this shared table
+;; on its way to being rejected. While the WINNER sat inside its commit and its
+;; `:initial-events` cascade, a reprojection landing in the loser's interval
+;; read the loser's pool, re-resolved the winner's frame against it and swapped
+;; that on — the original defect, reached by a second route. The rollback was
+;; no safer in the other direction: an undo computed from a row read outside
+;; any reservation can restore over a row a NEWER owner has since written.
+;;
+;; So the write, the commit and the rollback all happen inside ONE exact
+;; reservation for the id. A losing attempt throws at the claim, before the
+;; first `swap!`; a winning attempt cannot be interleaved with any other
+;; attempt on the same id, so the row it restores is still the row it
+;; displaced. `frame/call-with-frame-construction-claim!` ADOPTS an outer
+;; preflight's existing reservation (re-frame.ui's multi-plan
+;; `execute-frame-plans!` claims its whole plan set up front and hands each id
+;; off), so that path keeps one reservation for its whole run rather than
+;; nesting a second.
+;;
+;; What the reservation does NOT do is fence READERS: a reprojection takes no
+;; claim, and must not — it is a resolution, not a construction. So one
+;; interval survives, on a RE-construction only: the row names the incoming
+;; pool from the moment it is written until `upsert-frame!`'s surgical swap
+;; installs the incoming generation, and a JVM-concurrent flush landing in THAT
+;; interval re-resolves the OUTGOING composition against the INCOMING pool.
+;; Transient and self-correcting — the swap that follows overwrites it
+;; unconditionally, so no completed call can observe it — where the window it
+;; replaced corrupted the value the constructor returned. The remaining
+;; exposure is at worst one spurious `:rf.warning/reprojection-failed`
+;; diagnostic on the dev channel.
 
 (defonce ^{:private true
            :doc "frame id -> the descriptor pool its CURRENT generation was
@@ -652,7 +684,11 @@
   INSIDE that commit (rf2-rt4jz) — and rolled back exactly on failure by
   `restore-frame-generation-pool!`, which is how rf2-ktmto9's contract (a
   failed creation records nothing; a failed re-construction preserves the old
-  row) is kept. Reprojection then re-resolves against the SAME provenance
+  row) is kept. Both the write and its rollback run inside the engine's exact
+  per-id construction reservation, so the only attempt that ever touches an
+  id's row is the one the engine ADMITTED: a rejected same-id contender
+  publishes nothing, and a rollback cannot land on a successor's row.
+  Reprojection then re-resolves against the SAME provenance
   (rf2-rf3zgt) instead of silently defaulting to the live store for a frame
   that was never resolved against it. See the §Generation PROVENANCE section
   above for the full rationale."}
@@ -678,7 +714,12 @@
 
   This is rf2-ktmto9's no-residue contract, stated (rf2-rt4jz): a failed
   creation records nothing, and a failed re-construction preserves the old row.
-  Returns nil."
+
+  Callers MUST still hold the id's construction reservation here. The undo is
+  computed from a row read at `record-frame-generation-pool!` time, so it is
+  only exact while no other attempt can have written in between — which is
+  precisely what the reservation guarantees, and why `make-frame` performs both
+  halves inside `frame/call-with-frame-construction-claim!`. Returns nil."
   [runnable-id had-row? prior]
   (if had-row?
     (swap! frame-generation-pool assoc runnable-id prior)
@@ -897,37 +938,64 @@
      ;; VALUE (below) is what gives an owner exact teardown authority — with NO
      ;; post-return `frame-incarnation-token` re-sample that a concurrent
      ;; destroy + same-id reseat could race into a successor's token.
-     (let [token-box (volatile! nil)
-           ;; Record which pool this generation was resolved against — see
-           ;; §Generation PROVENANCE above (rf2-rf3zgt): a later reprojection
-           ;; reads this back so it re-resolves against the SAME pool (explicit
-           ;; or live) rather than always falling through to the live store.
-           ;; Written on every call (creation + hot-reload re-construction), so a
-           ;; re-`make-frame` that changes arity keeps the row current.
-           ;;
-           ;; rf2-rt4jz — BEFORE the engine commit, not after it. The record and
-           ;; this row are two stores, and the frame becomes REPROJECTABLE the
-           ;; moment the FIRST of them lands: `upsert-frame!` publishes the record
-           ;; carrying the new generation and then, still inside the call, runs
-           ;; the `:initial-events` setup steps, whose dispatches flush any
-           ;; pending reprojection through `call-with-frame-resolution`. Recording
-           ;; afterwards left that flush reading a PREVIOUS incarnation's row: it
-           ;; re-resolved the frame against the wrong pool and `set-generation!`d
-           ;; the result over what had just been installed, so the constructor
-           ;; returned having silently lost its own swap. One synchronous call,
-           ;; both hosts, no race.
-           ;;
-           ;; rf2-ktmto9's no-residue contract survives the move by being STATED
-           ;; instead of implied: the prior row is captured here and restored
-           ;; exactly if the commit throws, so a FAILED creation still records
-           ;; nothing and a FAILED re-construction still preserves the OLD row.
-           [had-pool-row? prior-pool]
-           (record-frame-generation-pool! runnable-id descriptors)]
-       (try
-         (frame/upsert-frame! runnable-id record-config token-box)
-         (catch #?(:clj Throwable :cljs :default) e
-           (restore-frame-generation-pool! runnable-id had-pool-row? prior-pool)
-           (throw e)))
+     (let [token-box (volatile! nil)]
+       ;; ONE per-id construction transaction covers BOTH stores this constructor
+       ;; writes — see §Generation PROVENANCE above.
+       ;;
+       ;; The provenance row records which pool this generation was resolved
+       ;; against (rf2-rf3zgt): a later reprojection reads it back so it
+       ;; re-resolves against the SAME pool (explicit or live) rather than
+       ;; falling through to the live store. It is written on every call
+       ;; (creation + hot-reload re-construction), so a re-`make-frame` that
+       ;; changes arity keeps the row current.
+       ;;
+       ;; rf2-rt4jz — the row is written BEFORE the engine commit, and the whole
+       ;; pair is INSIDE the engine's own exact per-id reservation. Both halves
+       ;; are load-bearing and each fixes what the other cannot:
+       ;;
+       ;;   ORDER. The record and the row are two stores, and the frame becomes
+       ;;   REPROJECTABLE the moment the FIRST of them lands: `upsert-frame!`
+       ;;   publishes the record carrying the new generation and then, still
+       ;;   inside the call, runs the `:initial-events` setup steps, whose
+       ;;   dispatches flush any pending reprojection through
+       ;;   `call-with-frame-resolution`. Recording afterwards left that flush
+       ;;   reading a PREVIOUS incarnation's row: it re-resolved the frame
+       ;;   against the wrong pool and `set-generation!`d the result over what
+       ;;   had just been installed, so the constructor returned having silently
+       ;;   lost its own swap. One synchronous call, both hosts, no race.
+       ;;
+       ;;   ADMISSION. Ordering alone left the row written by attempts the
+       ;;   ENGINE REJECTS. `frame/upsert-frame!` admits exactly one
+       ;;   construction per id and fails every other promptly with
+       ;;   `:rf.error/frame-construction-in-progress` — a loss that writes
+       ;;   NOTHING. Writing the row ahead of that admission broke the
+       ;;   zero-write property: a same-id contender published its own pool into
+       ;;   the shared table on its way to being rejected, and a reprojection
+       ;;   landing in that interval — while the WINNER was inside its commit /
+       ;;   `:initial-events` cascade — resolved the winner's frame against the
+       ;;   LOSER's pool and swapped it on. Its rollback was no safer: an undo
+       ;;   computed from a row it read outside any reservation can restore over
+       ;;   a newer owner's row. Claiming FIRST makes both impossible rather
+       ;;   than unlikely — a loser throws before `f` runs, and the winner's
+       ;;   write, commit and rollback are all serialised against every other
+       ;;   attempt on the id.
+       ;;
+       ;; rf2-ktmto9's no-residue contract survives the reordering by being
+       ;; STATED instead of implied: the prior row is captured here and restored
+       ;; exactly if the commit throws, so a FAILED creation still records
+       ;; nothing and a FAILED re-construction still preserves the OLD row — and
+       ;; because the restore runs while this attempt still OWNS the id, the row
+       ;; it restores is still the row it displaced.
+       (frame/call-with-frame-construction-claim!
+         runnable-id :construction
+         (fn []
+           (let [[had-pool-row? prior-pool]
+                 (record-frame-generation-pool! runnable-id descriptors)]
+             (try
+               (frame/upsert-frame! runnable-id record-config token-box)
+               (catch #?(:clj Throwable :cljs :default) e
+                 (restore-frame-generation-pool! runnable-id had-pool-row? prior-pool)
+                 (throw e))))))
        ;; rf2-djkr0 — THE INVARIANT: a PARTIALLY-CONSTRUCTED frame is never
        ;; observable as live, so a registration that lands while a frame is
        ;; mid-construction is never lost.
