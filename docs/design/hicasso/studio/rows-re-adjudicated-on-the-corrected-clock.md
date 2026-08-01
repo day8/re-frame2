@@ -284,6 +284,25 @@ for part of the window. So these runs were taken **outside the regime the band
 was calibrated in**, and a run outside its calibration is not rescued by its
 gates passing.
 
+> **THE ARITHMETIC IN THIS PARAGRAPH IS WRONG, AND THE CONCLUSION SURVIVES IT
+> ON OTHER GROUNDS (`rf2-ymi6j`).** The two figures are on **two clocks**: the
+> 5.98–6.95 ms is raw `TaskDuration` and this page's own table above gives that
+> `M1` floor as `task` 6.242 against `taskNet` **4.841**, while the ladder's
+> 3.06–5.50 ms range is `taskNet` throughout. Subtracting this page's own
+> 1.401 ms gap puts the ensemble's floors at **≈4.58 – 5.55 ms on the ladder's
+> clock** — *inside* the calibrated range, its top level with the top rung. (It
+> also holds an `M1` floor against a `bulk300` range.) And
+> [the re-taken ladder](the-band-re-calibrated.md#3-the-band-is-widest-on-an-idle-box)
+> finds the band **widest on an idle box**, `corr(band, floor) = −0.49`, so a
+> high floor is not the direction in which the instrument stops reproducing.
+>
+> **What still stands is the refusal itself.** The corroboration control failed,
+> that is a pre-registered gate, and a failed gate refuses the ensemble whatever
+> the box was doing. The box remains a *candidate* explanation — a sibling
+> worker really was running the spine — but "outside the calibrated load regime"
+> is not the mechanism, and this page's decision to publish `1.3737×` as a
+> second regime rather than as the magnitude is unaffected.
+
 Therefore:
 
 - **The published `M1` magnitude is `rf2-yd52q`'s `1.4896×`** [1.3488 – 1.5989],
@@ -307,6 +326,14 @@ ever had, after
 [its first at 26.2%](bulk-broad-re-taken.md#8-the-earlier-ensemble). It
 contributes no magnitude to those two rows and the driver refused them before
 any control was consulted.
+
+> **THE TRIPWIRE WAS THE PROBLEM (`rf2-ymi6j`).** A re-take of the ladder that
+> set it measures `P(band > 25%)` at **2.6–9.0% per run**, so three firings in
+> two days is the rate rather than an event, and the ceiling is now **35%**, set
+> from the statistic's own bootstrap q99. Run 8 would today be *adjudicated*
+> rather than refused — and **no magnitude changes**, because `bulk300` is
+> refused by `rf2-7iqb5`'s three-point control and `narrow`'s 2–9% margin is
+> inside its own 28.4% band at any ceiling.
 
 ---
 
