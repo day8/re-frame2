@@ -127,6 +127,36 @@ function packageJson(dir, title) {
   );
 }
 
+// The server's `isFrameworkDir` requires BOTH `package.json` and
+// `package-lock.json` to be present before a directory appears in `/ls`,
+// and a directory that does not appear in `/ls` cannot be benchmarked —
+// silently, with no error anywhere. Verified by reading
+// `server/src/frameworks/frameworksServices.ts`, after the first run
+// listed 248 frameworks and neither of these.
+//
+// There are no npm dependencies to lock: both bundles are compiled by
+// shadow-cljs from this repository and the directory ships only the
+// emitted JavaScript. So this is the empty-but-valid lockfile that
+// satisfies the check without claiming a dependency tree that does not
+// exist.
+function packageLockJson(dir) {
+  return (
+    JSON.stringify(
+      {
+        name: `js-framework-benchmark-${dir}`,
+        version: '1.0.0',
+        lockfileVersion: 3,
+        requires: true,
+        packages: {
+          '': { name: `js-framework-benchmark-${dir}`, version: '1.0.0' },
+        },
+      },
+      null,
+      2
+    ) + '\n'
+  );
+}
+
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
@@ -176,6 +206,7 @@ for (const arm of ARMS) {
 
   fs.writeFileSync(path.join(frameworkDir, 'index.html'), indexHtml(arm.title));
   fs.writeFileSync(path.join(frameworkDir, 'package.json'), packageJson(arm.dir, arm.title));
+  fs.writeFileSync(path.join(frameworkDir, 'package-lock.json'), packageLockJson(arm.dir));
 
   const bytes = fs.statSync(main).size;
   const digest = sha256(main);
