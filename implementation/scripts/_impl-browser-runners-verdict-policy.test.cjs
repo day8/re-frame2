@@ -218,10 +218,14 @@ test('run-browser-tests: the duplicate-`done` matcher is checked against the INS
   );
   // Fail-closed. A drift check that returns "fine" when it cannot look is the
   // same fail-open shape this bead exists to remove.
+  // An unreachable `run_block` must be REPORTED. The one exception — an
+  // `:advanced` lane that declares itself blind — is pinned separately below;
+  // what must never exist is a silent pass, so the branch has to end in a
+  // returned reason.
   assert.match(
     src,
-    /if\s*\(\s*source\s*==\s*null\s*\)\s*\{\s*return\s*\(/,
-    'an unreachable `run_block` must be REPORTED, never skipped',
+    /if\s*\(\s*source\s*==\s*null\s*\)\s*\{[\s\S]{0,1400}?It cannot be skipped/,
+    'an unreachable `run_block` must be REPORTED, never silently skipped',
   );
   // And the verdict must actually consume it, before any tally-based return.
   assert.match(
@@ -236,6 +240,77 @@ test('run-browser-tests: the duplicate-`done` matcher is checked against the INS
     driftIdx < countsIdx,
     'the drift check must run before the failure-tally verdict, so a red run cannot mask a guard that stopped guarding',
   );
+});
+
+test('run-browser-tests: an `:advanced` lane may only skip the drift check by DECLARING it (rf2-u0cy4)', () => {
+  // Closure renames `cljs.test.run_block`, so on an `:advanced` bundle the
+  // drift check is BLIND rather than failing. That must not be inferred by the
+  // runner (an inference would silently spread to a lane that merely broke),
+  // and must not be silent. It is a per-lane declaration, made on the lane's
+  // own command line, and announced when used.
+  const src = read('run-browser-tests.cjs');
+  assert.match(
+    src,
+    /RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE/,
+    'the declaration must arrive through an explicit, named channel',
+  );
+  // Only the unreachable branch may honour it. If introspection SUCCEEDS the
+  // check runs regardless, so a stale declaration cannot disable a working
+  // check.
+  const nullBranch = src.slice(src.search(/if\s*\(\s*source\s*==\s*null\s*\)/));
+  const driftBranch = nullBranch.slice(nullBranch.search(/if\s*\(\s*!FATAL_CONSOLE_RE\.test/));
+  assert.match(
+    nullBranch.slice(0, nullBranch.search(/if\s*\(\s*!FATAL_CONSOLE_RE\.test/)),
+    /DRIFT_UNVERIFIABLE_ENV_VAR\]\s*===\s*'1'/,
+    'the declaration may only be honoured where the symbol is unreachable',
+  );
+  assert.doesNotMatch(
+    driftBranch,
+    /DRIFT_UNVERIFIABLE_ENV_VAR/,
+    'a REAL drift (matcher present but not matching) must fail even on a lane that '
+      + 'declares itself unverifiable — the declaration is about blindness, not about drift',
+  );
+  assert.match(
+    src,
+    /console\.warn\([\s\S]{0,400}?did NOT run on this lane/,
+    'a skipped drift check must announce itself, not pass in silence',
+  );
+});
+
+test('the default `test:browser` lane CARRIES the drift check; only `:advanced` lanes waive it (rf2-u0cy4)', () => {
+  // The load-bearing assertion of the pair above: the waiver is only safe
+  // because at least one lane still verifies. If the default lane ever
+  // acquired the flag, the verification would stop happening anywhere and
+  // every lane would still be green.
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(path.resolve(SCRIPTS_DIR, '..'), 'package.json'), 'utf8'),
+  );
+  const FLAG = '--duplicate-done-drift-unverifiable';
+  assert.ok(
+    !pkg.scripts['test:browser'].includes(FLAG),
+    'the default `test:browser` lane must NEVER declare itself unverifiable — it is '
+      + 'the lane that carries the duplicate-`done` drift verification (rf2-u0cy4)',
+  );
+  // And the lanes that DO waive it must be exactly the advanced-compiled ones,
+  // each of which is a `shadow-cljs release` of a prod build.
+  const waivers = Object.entries(pkg.scripts)
+    .filter(([, cmd]) => cmd.includes(FLAG))
+    .map(([name]) => name)
+    .sort();
+  assert.deepEqual(
+    waivers,
+    ['test:browser-prod-elision', 'test:browser-schemas-boundary-prod'],
+    'exactly the two `:advanced` + goog.DEBUG=false production lanes may waive the '
+      + 'drift check; a new waiver is a decision, not a default',
+  );
+  for (const lane of waivers) {
+    assert.match(
+      pkg.scripts[lane],
+      /shadow-cljs release/,
+      `${lane} waives the drift check, so it must actually be a release (\`:advanced\`) `
+        + 'build — the waiver exists only because Closure renames `cljs.test.run_block`',
+    );
+  }
 });
 
 test('run-browser-tests: diagnostics are stamped at capture time, not flush time (rf2-76lhy)', () => {
