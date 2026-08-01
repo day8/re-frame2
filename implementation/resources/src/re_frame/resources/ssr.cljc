@@ -37,10 +37,12 @@
     INSTALLED resource subtree on `:rf/hydrate`: it recomputes the
     reverse indexes from `:entries` (never trusts the wire), reconciles
     owners (SSR owners orphan — they belong to a settled server render),
-    and surfaces server clock skew. `hydrate-refetch-plan` decides which
-    hydrated entries need a client refetch (omitted / redacted /
-    key-projected → metadata-only refetch; stale → background refetch;
-    fresh → no double-fetch).
+    DROPS any row whose key the live client cannot derive, and surfaces
+    server clock skew. `hydrate-refetch-plan` decides which hydrated
+    entries need a client refetch (omitted / redacted → metadata-only
+    refetch; stale → background refetch; fresh → no double-fetch). A
+    `:key-projected` entry appears in neither: it is withheld from the
+    wire, so there is no hydrated row to reuse, plan, or leave behind.
 
   ## Late-binding both ways
 
@@ -59,7 +61,8 @@
   recomputable-from-`:entries` (rebuilt on install, never trusted from the
   snapshot — Spec 016 §Restore and replay part 5) and need not ride. Per
   Spec 016 §Runtime-subsystem graduation clause 4."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.elision :as elision]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
@@ -226,6 +229,84 @@
     {:rf/redacted nil}
     {:rf/redacted (fnv-1a-32 (pr-str value))}))
 
+;; ---- is a wire key one the live client can DERIVE? (rf2-rjq9d) ------------
+;;
+;; The client never receives a key; it RE-DERIVES one, from its live scope and
+;; params, and reads `(state/entry-path scoped-key)` (`route/route-resource-
+;; plan`, `events/ensure-handler`). So a wire key is only useful to it if that
+;; re-derivation can reproduce it. A per-slot `:scope` / `:params` declaration
+;; breaks exactly that: `classification/project-entry-key-component` substitutes
+;; the CONSTANT `:rf/redacted` / `:rf.size/large-elided` sentinel into the
+;; declared slot, and no live value re-derives to a constant.
+;;
+;; That is a strictly stronger break than a missed cache hit, and it is why the
+;; row must not merely be emptied but REMOVED (the acceptance criterion of
+;; rf2-rjq9d). A constant substitution is MANY-TO-ONE on precisely the slots
+;; that name a principal — two tenants project to one key — so there is no
+;; client-side mapping back, and the row is unreachable for the whole session:
+;; nothing addresses it, and nothing collects it either. GC is TIMER-driven
+;; (`events/gc-fired-handler` fires against a handle armed by a commit fx), and
+;; hydration installs entries without arming any timer, so an ownerless hydrated
+;; row has no collector. Unreachable AND uncollectable leaves removal as the
+;; only lifecycle it can have.
+;;
+;; The COARSE `:redact` / `:omit` arm is deliberately NOT matched here. Its
+;; substitution is `redact-value`'s CONTENT-ADDRESSED `{:rf/redacted <digest>}`
+;; token: one-to-one, derivable in principle from the live value by the same
+;; pure function, and never a collision between two principals. Its rows are
+;; unchanged by this file, in shape and in count.
+
+(defn- coarse-redaction-token?
+  "True iff `v` is the coarse CONTENT-ADDRESSED `{:rf/redacted <digest>}` token
+  `redact-value` mints for a `:redact` / `:omit` resource's whole scope / params
+  component. Recognising it MATTERS: its map KEY is the `:rf/redacted` keyword,
+  which is also the per-slot constant sentinel, so a naive deep scan would read
+  every coarse key as per-slot-projected and delete rows this bead does not
+  touch. Pure."
+  [v]
+  (and (map? v) (= #{:rf/redacted} (set (keys v)))))
+
+(defn- carries-constant-sentinel?
+  "Deep-scan `v` for a CONSTANT projection sentinel — `privacy/redacted-sentinel`
+  (`:rf/redacted`) or an `:rf.size/large-elided` marker map (`elision/marker?`).
+  The scan is deep because a declaration names a SLOT INSIDE a component: an
+  owner declaring `[[:scope :tenant-id]]` leaves `[:rf.scope/session {:tenant-id
+  :rf/redacted :region \"au\"}]`, with the sentinel nested two levels down.
+
+  Maps are scanned by VALUE only — a projection replaces values, never keys —
+  which is also what keeps `coarse-redaction-token?`'s `:rf/redacted` map key
+  from reading as a substitution. A coarse token short-circuits to false.
+
+  Safe as a wire-shape test because `:rf/*` is a RESERVED namespace
+  (`spec/Conventions.md`): an application value is never spelled `:rf/redacted`.
+  `hydrated-data-usable?` already rests on that same reservation for `:data`.
+  Pure."
+  [v]
+  (cond
+    (= v privacy/redacted-sentinel) true
+    (elision/marker? v)             true
+    (coarse-redaction-token? v)     false
+    (map? v)                        (boolean (some carries-constant-sentinel? (vals v)))
+    (coll? v)                       (boolean (some carries-constant-sentinel? v))
+    :else                           false))
+
+(defn- unaddressable-wire-key?
+  "True iff `scoped-key` is a hydrated wire key the live client CANNOT derive:
+  its SCOPE (index 0) or PARAMS (index 2) carries a constant per-slot projection
+  sentinel. The resource-id at index 1 is never a classification carrier and is
+  not scanned.
+
+  This is the CLIENT's test. The server has an exact one — `project-entry`
+  compares the projected `key-id` against the raw one — and does not need to
+  sniff; the client has no raw key to compare against, so it reads the shape the
+  substitution left behind. The two agree by construction: the server re-keys
+  an entry precisely WHEN a constant sentinel was substituted into a component.
+  Pure."
+  [scoped-key]
+  (let [[scope _resource-id params] scoped-key]
+    (or (carries-constant-sentinel? scope)
+        (carries-constant-sentinel? params))))
+
 (defn project-scoped-key
   "Project a scoped resource KEY (`[scope resource-id params]`) to its wire
   shape per the resource's `disposition` (Spec 016 clause 4 / rf2-otms75):
@@ -306,7 +387,8 @@
   the frame registry). Returns `[wire-entry metadata]` where `metadata` records the
   per-entry projection decision (Spec 016 §SSR and hydration step 7):
 
-    {:resource/key   scoped-key
+    {:resource/key   scoped-key          ; the RAW key, as the server holds it
+     :projected-key  <wire-shaped key>   ; what the projection made of it
      :resource-id    <id>
      :disposition    :serialized | :redacted | :omitted | :key-projected
      :freshness      :fresh | :stale
@@ -322,8 +404,12 @@
     metadata-only, refetch-on-client;
   - `:key-projected` — a `:serialize` resource whose own per-slot `:scope` /
     `:params` declaration CHANGED its wire key (see the `key-projected?`
-    discussion below): the `:data` key is dropped, metadata-only,
-    refetch-on-client.
+    discussion below): the `:data` key is dropped and the row is WITHHELD from
+    the wire by `project-resources-runtime-db`. The metadata still reports the
+    entry — `:refetch-on-client? true`, naming the RAW `:resource/key` — because
+    it is a SERVER-side diagnostic over the server's own entries, and \"this
+    entry existed here and the client will have to fetch it\" is the true and
+    useful thing to say about it.
 
   `:refresh-error` rides ONLY when the entry's data is serialized (it is
   the same privacy/size class as data — Spec 016 §SSR and hydration: a
@@ -422,14 +508,19 @@
                      :stale-at       (:stale-at entry)
                      :invalidated-at (:invalidated-at entry)}
         wire-entry  (if key-projected?
-                      ;; rf2-rjq9d — a re-keyed entry is METADATA-ONLY. Its wire
+                      ;; rf2-rjq9d — a re-keyed entry carries NOTHING. Its wire
                       ;; identity is not one the live client can derive, so its
                       ;; data is unreachable by construction: shipping it would
                       ;; be dead payload beside a duplicate the client loads
                       ;; anyway, and (under the many-to-one projection above)
                       ;; potentially one principal's data filed under another's
-                      ;; key. Same drop as the `:omit` arm, reached by the KEY's
-                      ;; classification rather than the entry's size claim.
+                      ;; key. `project-resources-runtime-db` goes further and
+                      ;; WITHHOLDS the row outright — emptying it left an
+                      ;; ownerless, unaddressable, uncollectable duplicate in the
+                      ;; client's cache (see `unaddressable-wire-key?`). Dropping
+                      ;; the data here still matters: it is what makes the
+                      ;; withheld row's metadata safe to compute and report, and
+                      ;; it fails CLOSED if any future caller ships this entry.
                       ;; `:refresh-error` follows the data, as everywhere else.
                       (dissoc entry :data :refresh-error)
                       (case disposition
@@ -500,6 +591,19 @@
         ;; and reports `:refetch-on-client? true` (see `key-projected?` above).
         wire-entry  (assoc wire-entry :resource/key projected-key)
         meta'       (assoc base
+                           ;; rf2-rjq9d — the key the projection PRODUCED, beside
+                           ;; the raw `:resource/key` it started from. It rode
+                           ;; only on the wire entry until withholding removed
+                           ;; that carrier for the `:key-projected` arm, and the
+                           ;; projected key is not incidental: it is the answer
+                           ;; the registry-driven per-slot walk computed, and the
+                           ;; value the trace-egress projection must stay
+                           ;; byte-equal to (rf2-5e2ye, rf2-dl7bz — two
+                           ;; derivations, one answer). Naming it here keeps ONE
+                           ;; observation point for that agreement whether or not
+                           ;; the row ships, and egresses nothing new: this is
+                           ;; the redacted form, and it is what used to ride.
+                           :projected-key projected-key
                            :disposition (case disposition
                                           :serialize (if key-projected?
                                                        :key-projected
@@ -570,14 +674,23 @@
   rf2-rjq9d settled what that costs the ENTRY, because for a while only half of
   it was said: an unaddressable entry was still shipped with its data and still
   reported `:refetch-on-client? false`, so the server promised a reuse the
-  client could not perform and refetched anyway. `project-entry` now classifies
-  a re-keyed `:serialize` entry `:key-projected` — metadata-only on the wire,
-  `:refetch-on-client? true`, present in `hydrate-refetch-plan` — so the three
-  answers agree with what route/ensure actually does. The reasoning that rules
+  client could not perform and refetched anyway. `project-entry` classifies such
+  an entry `:key-projected` and reports `:refetch-on-client? true`, and this
+  projection WITHHOLDS the row from the wire entirely. The reasoning that rules
   out the alternative (a client-side mapping back to the projected key-id) is
   on `project-entry`'s `key-projected?` binding: the per-slot substitution is a
   CONSTANT sentinel, not a content-addressed digest, so it is many-to-one on
   exactly the slots that carry principal identity.
+
+  Withholding, rather than shipping the row empty, is the second half of that
+  same settlement. An emptied row is still a row: it installs, it survives the
+  hydrate reconcile, and it sits in the client's `:entries` beside the entry
+  `ensure` writes under the raw key — ownerless, addressable by nothing, and
+  collectable by nothing, since GC is timer-driven and hydration arms no timers.
+  It is also, on every SSR render of every page, bytes that no client can use.
+  So the row does not ride, and `hydrate-runtime-db` drops one that arrives from
+  an older render anyway. The many-to-one collapse it used to have to survive is
+  now vacuous: nothing collides because nothing is shipped.
 
   ## Build posture: ALWAYS-ON
 
@@ -606,9 +719,17 @@
              ;; client installs them under the same byte identity it will then
              ;; `recompute-indexes` over. `entries` here is keyed on the byte
              ;; `key-id`; the scoped-key vector is read from each entry.
+             ;; rf2-rjq9d — a `:key-projected` entry is WITHHELD, not shipped
+             ;; empty. `project-entry` already decided the fact exactly (it
+             ;; compared the projected `key-id` against the raw one), so the
+             ;; server reads its own metadata rather than sniffing the key
+             ;; shape the way the client's `unaddressable-wire-key?` must.
              wired    (into {}
-                            (map (fn [[_k-id entry]]
-                                   (let [wire-entry (first (project-entry frame-id clock-ms entry))]
+                            (comp
+                              (map (fn [[_k-id entry]] (project-entry frame-id clock-ms entry)))
+                              (remove (fn [[_wire-entry meta']]
+                                        (= :key-projected (:disposition meta'))))
+                              (map (fn [[wire-entry _meta]]
                                      [(state/key-id (:resource/key wire-entry)) wire-entry])))
                             entries)]
          {state/resources-key {:entries wired}})
@@ -1048,6 +1169,14 @@
        fresh / background-refetches if stale), `:loading`-with-no-data → `:idle`
        (the planner then refetches it). This mirrors the restore reconcile (the
        unprojected snapshot needs the same settle — `reconcile-on-restore`);
+    1b. DROP any row whose key the live client cannot derive
+       (`unaddressable-wire-key?` — rf2-rjq9d). `project-resources-runtime-db`
+       withholds such rows, so a payload rendered by this build carries none;
+       this is the never-trust-the-wire half, for cached HTML rendered by an
+       earlier deploy. Installing one would leave an ownerless duplicate beside
+       the entry `ensure` later writes under the raw key, reachable by nothing
+       and collectable by nothing (GC is timer-driven; hydration arms no
+       timers). Dropped rows are named on the `:rf.resource/hydrated` trace;
     2. recompute `:tag-index` / `:owner-index` from the reconciled
        `:entries` (never trust the wire — part 5);
     3. emit a `:rf.resource/hydrated` trace summarising installed / orphaned
@@ -1119,18 +1248,36 @@
              ;; key-id once, so one entry in is one member out, and the scoped
              ;; key rides in the VALUE where it is emitted rather than in a
              ;; position where it decides identity.
+             ;;
+             ;; rf2-rjq9d — a row whose key the live client cannot DERIVE is
+             ;; dropped rather than installed. `project-resources-runtime-db`
+             ;; already withholds it, so a payload this build rendered carries
+             ;; none; this is the "never trust the wire" half, and the skew it
+             ;; guards is real rather than hypothetical — a hydration payload is
+             ;; HTML, and cached HTML from an earlier deploy is routinely served
+             ;; to a newer JS bundle. Installing such a row would leave an
+             ;; ownerless duplicate beside the entry `ensure` later writes under
+             ;; the raw key, addressable by nothing and collectable by nothing
+             ;; (GC is timer-driven and hydration arms no timers). It is dropped
+             ;; HERE rather than at `ensure-handler` because here the fact is
+             ;; known exactly and once, for every such row; `ensure` would have
+             ;; to scan `:entries` for a resource-id match on every call — a
+             ;; heuristic, per-ensure cost that still leaves the rows of every
+             ;; resource the client never ensures.
              reconciled (reduce-kv
                           (fn [acc k entry]
-                            (let [[entry' dropped] (reconcile-entry-owners
-                                                     entry hydration-route-owner-policy)
-                                  entry''          (settle-entry-to-last-stable entry')
-                                  skew             (clock-skew-ms entry clock-ms)
-                                  sk               (:resource/key entry)]
-                              (-> acc
-                                  (assoc-in [:entries k] entry'')
-                                  (update :orphaned into (map (fn [o] [sk o])) dropped)
-                                  (cond-> skew (update :skews conj [sk skew])))))
-                          {:entries {} :orphaned [] :skews []}
+                            (let [sk (:resource/key entry)]
+                              (if (unaddressable-wire-key? sk)
+                                (update acc :unaddressable conj sk)
+                                (let [[entry' dropped] (reconcile-entry-owners
+                                                         entry hydration-route-owner-policy)
+                                      entry''          (settle-entry-to-last-stable entry')
+                                      skew             (clock-skew-ms entry clock-ms)]
+                                  (-> acc
+                                      (assoc-in [:entries k] entry'')
+                                      (update :orphaned into (map (fn [o] [sk o])) dropped)
+                                      (cond-> skew (update :skews conj [sk skew])))))))
+                          {:entries {} :orphaned [] :skews [] :unaddressable []}
                           entries)
              entries'  (:entries reconciled)
              ;; recompute the reverse indexes from the reconciled entries
@@ -1147,7 +1294,14 @@
                        ;; keyed by the scoped key. The off-box shape default
                        ;; walks it per member, so each key projects through its
                        ;; own owner and per-key joins survive.
-                       :clock-skews    (vec (:skews reconciled))})
+                       :clock-skews    (vec (:skews reconciled))
+                       ;; rf2-rjq9d — the wire rows DROPPED as unaddressable,
+                       ;; named by the projected key that arrived. Reporting the
+                       ;; count alone would make a version-skewed payload look
+                       ;; like a payload that simply carried fewer entries. The
+                       ;; keys are already projected, so naming them egresses
+                       ;; nothing the payload did not already contain.
+                       :unaddressable  (vec (:unaddressable reconciled))})
          (doseq [[sk skew] (:skews reconciled)]
            (trace/emit! :warning :rf.resource/hydrate-clock-skew
                         {:rf.frame/id  frame-id
@@ -1861,14 +2015,18 @@
   `runtime-db` (the trace emit self-gates on debug, as `hydrate-runtime-db`'s
   `:rf.resource/hydrated` does) — the route slice / host drives the issuing.
 
-  rf2-rjq9d — a `:key-projected` entry (a `:serialize` owner whose own per-slot
-  `:scope` / `:params` declaration re-keyed it, so the live client cannot
-  address it) arrives here with its `:data` dropped, and is therefore planned
-  `:no-data` like any other entry carrying nothing usable. That is what makes
-  the plan AGREE with `project-entry`'s `:refetch-on-client? true` and with the
-  single load `route-resource-plan` / `ensure-handler` then issue under the raw
-  key; before that fix the entry arrived fresh-with-data and was silently
-  omitted from the plan while the client refetched anyway.
+  rf2-rjq9d — a row the client cannot ADDRESS is not planned. A plan entry is
+  consumed by `:resource/key`: the route slice carries that key into
+  `:rf.resource/refetch`. A key no live derivation reproduces therefore names a
+  fetch nobody can issue and a cache slot nobody can fill, which is not a plan
+  entry but a second copy of the defect. A `:key-projected` entry never reaches
+  here at all — `project-resources-runtime-db` withholds it and
+  `hydrate-runtime-db` drops any that arrives — and the client still issues
+  exactly the one load `route-resource-plan` / `ensure-handler` derive from the
+  RAW key, which is the load it was always going to issue. Before the fix the
+  entry arrived fresh-with-data, was silently omitted from the plan, and the
+  client refetched anyway; the correction is that the plan and the cache both
+  stop mentioning an identity the client does not have.
 
   `frame-id` (3-arity) is the explicit hydration target the trace rows are
   tagged with; the 1-/2-arity overloads omit it (a frame-agnostic decision)."
@@ -1882,6 +2040,16 @@
          ;; and reads the resource-id from position 1 of THAT vector.
          plan    (into []
                        (comp
+                         ;; rf2-rjq9d — a row the client cannot ADDRESS cannot be
+                         ;; planned: `:resource/key` is what the route slice
+                         ;; carries into `:rf.resource/refetch`, and a key no live
+                         ;; derivation reproduces names a fetch nobody can issue
+                         ;; and a cache slot nobody can fill. The reconcile above
+                         ;; drops such rows, so on the `:rf/hydrate` path this
+                         ;; filter sees none; it holds the property for the
+                         ;; function ITSELF, which hosts and tests call directly
+                         ;; on an unreconciled payload slice.
+                         (remove (fn [[_ entry]] (unaddressable-wire-key? (:resource/key entry))))
                          (filter (fn [[_ entry]] (entry-needs-refetch? entry clock-ms)))
                          (map (fn [[_k-id entry]]
                                 {:resource/key (:resource/key entry)

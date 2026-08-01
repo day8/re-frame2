@@ -176,16 +176,23 @@
   scoped-key)
 
 (defn- ssr-wire-key
-  "The SSR DURABLE wire key for `scoped-key`'s entry — the registry-driven
-  counterpart this suite must agree with byte for byte."
+  "The SSR DURABLE wire key the registry-driven projection produced for
+  `scoped-key`'s entry — the counterpart this suite must agree with byte for
+  byte.
+
+  Read from `projection-metadata`'s `:projected-key` rather than from the wire
+  row, because a `:serialize` entry re-keyed by its own per-slot declaration is
+  WITHHELD from the wire (rf2-rjq9d — an unaddressable row hydrates as an
+  ownerless duplicate nothing can reach or collect). The projection itself is
+  untouched: `classification/project-entry-params` still runs and still produces
+  this key, so the agreement asserted below is the same agreement, read off the
+  carrier that survives."
   [frame-id scoped-key]
-  (let [rdb   (frame/frame-runtime-db-value frame-id)
-        wired (get-in (ssr/project-resources-runtime-db rdb frame-id)
-                      [state/resources-key :entries])]
-    (some (fn [[_k-id e]]
-            (when (= (second (:resource/key e)) (second scoped-key))
-              (:resource/key e)))
-          wired)))
+  (let [rdb (frame/frame-runtime-db-value frame-id)]
+    (some (fn [m]
+            (when (= (second (:resource/key m)) (second scoped-key))
+              (:projected-key m)))
+          (ssr/projection-metadata frame-id 5000 (get-in rdb (state/entries-path))))))
 
 ;; ===========================================================================
 ;; 1. THE LEAK. A `:serialize` owner's declared params slot must not ride raw
