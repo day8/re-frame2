@@ -67,6 +67,32 @@
 // (Playwright's `keyboard.press`), because a JavaScript-dispatched event
 // is not a user interaction and Event Timing reports user interactions.
 //
+// ## EVERY ROW SAYS WHICH REGIME PRODUCED IT (rf2-cvvb7)
+//
+// The first pass of this driver printed a cross-segment floor seam and hoped
+// it cancelled, and `the-candidates-clock.md` §6 refused three rows partly
+// because that seam once read 34% where a later run read 3.8%. A run whose
+// seam swings like that cannot tell a reader which regime it was taken in,
+// so `seam.cjs` now measures the regime and every row carries it:
+//
+//   * the seam, WITH THE NULL of its own statistic — segments relabelled
+//     within each round — because a max-over-min of three noisy block
+//     medians has a long right tail with nothing to attribute it to, and a
+//     seam published bare invites a reader to treat 6% as a finding;
+//   * where the floor's variation lives, decomposed orthogonally into
+//     SEGMENT, ROUND and POSITION-IN-ROUND. A nineteen-run load ladder put
+//     it on the round, not the segment;
+//   * THE BAND — how much of a block's perturbation survives dividing by
+//     that block's own floor, measured on `ctl-2x / floor`, two arms in one
+//     block whose true ratio is a property of the page. A magnitude whose
+//     margin is inside the band is INSTRUMENT-LIMITED and says so on the
+//     row.
+//
+// `seam.cjs`'s header carries the ladder and the arithmetic. The short of it
+// is that the perturbation a busy box applies is MULTIPLICATIVE and cancels
+// exactly, the seam does not track load at all, and the band is the number
+// that was actually wanted.
+//
 // ## EXIT CODES — the guard owns 2, and it is not the arm's to move
 //
 //   0  measured, guard clean, controls passed
@@ -91,6 +117,7 @@ const path = require('node:path');
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
 const guard = require('../../freehand/bench/order_guard.cjs');
+const seamlib = require('./seam.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -601,15 +628,59 @@ function report(out) {
       `(${plumbBySeg.join(', ')}) — ${TARE ? 'SUBTRACTED from every figure below' : 'NOT subtracted (HCLOCK_TARE=off)'}`
   );
 
-  // --- the floor seam -------------------------------------------------------
-  const floorBySeg = SEGMENTS.map((s) => p50(rounds.flatMap((r) => r[s][FLOOR])));
-  const seamSpread = Math.max(...floorBySeg) / Math.min(...floorBySeg);
-  const seam = { floorBySeg: floorBySeg.map(r4), pooledSpread: r4(seamSpread - 1) };
-  console.log(
-    `;; seam     the SAME floor read ${SEGMENTS.map((s, i) => `${s} ${floorBySeg[i].toFixed(3)}`).join(', ')} ms ` +
-      `— spread ${((seamSpread - 1) * 100).toFixed(1)}%. Every figure below is floor-normalised WITHIN its ` +
-      `segment, so this cancels; it is published because a segment seam that is not published is not cancelled either`
-  );
+  // --- the bar row ----------------------------------------------------------
+  // Computed HERE and printed below, because the seam block adjudicates it:
+  // a magnitude is reportable only against the band the same run measured,
+  // and the band has to be in hand before the seam block can say so.
+  const bar = {};
+  const barMeans = {};
+  for (const den of ['reagent-subs', 'uix-subs']) {
+    const v = crossSegment(rounds, 'hicasso', 'hicasso', den, den, false);
+    const rv = crossSegment(rounds, 'hicasso', 'hicasso', den, den, true);
+    bar[den] = { tared: v, untared: rv };
+    barMeans[`hicasso / ${den}`] = v.mean;
+  }
+
+  // --- the floor seam, its null, and the band a magnitude must clear ---------
+  //
+  // rf2-cvvb7 measured what this seam is and what it does. A nineteen-run
+  // load ladder — 0, 2, 4, 8, 12 and 20 competing busy cores on a 24-core
+  // box — moved the absolute floor by 80% and left the seam unmoved
+  // (0.1–16.4%, no trend), showed the seam is not attributable to the
+  // segment under an exact within-round relabelling null, and showed the
+  // perturbation is MULTIPLICATIVE, so floor-normalisation cancels it
+  // exactly. What a bar row must clear is not the seam; it is the part of a
+  // block's perturbation that survives dividing by that block's own floor,
+  // and `seam.cjs` measures that on `ctl-2x / floor`.
+  const floorBlocks = rounds.map((r) => SEGMENTS.map((s) => r[s][FLOOR]));
+  const floorCells = rounds.map((_, i) => SEGMENTS.map((s) => tared(rounds, s, FLOOR, i)));
+  const hasProportionalControl = rowId !== 'keystroke';
+  const fixedCells = hasProportionalControl
+    ? rounds.map((_, i) => SEGMENTS.map((s) => tared(rounds, s, 'ctl-2x', i)))
+    : null;
+  const assessed = seamlib.assess({
+    floorBlocks,
+    floorCells,
+    fixedCells,
+    bars: barMeans,
+    noFixedPairWhy:
+      "this row's control burns a fixed 50 ms rather than doubling the page, so control/floor " +
+      'reads (F+50)/F and moves with F — not a pair whose true ratio is a property of the page',
+  });
+  for (const line of seamlib.format(assessed, SEGMENTS)) console.log(line);
+  const seam = {
+    floorBySeg: assessed.seam.bySeg.map(r4),
+    pooledSpread: r4(assessed.seam.spread),
+    null: { q50: r4(assessed.null.q50), q95: r4(assessed.null.q95), q99: r4(assessed.null.q99), p: assessed.null.p },
+    effects: {
+      segment: r4(assessed.effects.segment),
+      round: r4(assessed.effects.round),
+      position: r4(assessed.effects.position),
+      balanced: assessed.effects.balanced,
+    },
+    band: Number.isFinite(assessed.bandStats.band) ? r4(assessed.bandStats.band) : null,
+    verdict: assessed.verdict,
+  };
 
   // --- the rows -------------------------------------------------------------
   console.log(`;; ---- per-arm, ratio to the floor measured in that round of that segment ----`);
@@ -633,16 +704,15 @@ function report(out) {
 
   // --- the bar row ----------------------------------------------------------
   console.log(`;; ---- THE BAR: candidate against each donor, both floor-normalised ----`);
-  const bar = {};
   for (const den of ['reagent-subs', 'uix-subs']) {
-    const v = crossSegment(rounds, 'hicasso', 'hicasso', den, den, false);
-    const rv = crossSegment(rounds, 'hicasso', 'hicasso', den, den, true);
-    bar[den] = { tared: v, untared: rv };
+    const { tared: v, untared: rv } = bar[den];
+    const adj = assessed.verdict.rows[`hicasso / ${den}`];
     console.log(
       `;;   hicasso / ${den.padEnd(14)} ${v.mean.toFixed(4)}x [${v.min.toFixed(4)} – ${v.max.toFixed(4)}]` +
         `   (untared ${rv.mean.toFixed(4)}x [${rv.min.toFixed(4)} – ${rv.max.toFixed(4)}])` +
         (v.straddles1 ? '   — RANGE STRADDLES 1.0, indistinguishable at this n' : '')
     );
+    console.log(`;;     ${adj.unadjudicated ? 'UNADJ  ' : adj.clear ? 'CLEARS ' : 'LIMITED'} ${adj.why}`);
   }
 
   // --- the two instruments, side by side ------------------------------------
@@ -803,6 +873,16 @@ function report(out) {
   }
   console.error(`[clock] arm-order guard self-test: ${st.checks.length} checks, all ok`);
 
+  const sst = seamlib.selfTest();
+  const badSeam = sst.checks.filter((c) => !c.ok);
+  if (badSeam.length > 0) {
+    console.error(`[clock] the seam adjudicator's own self-test FAILED: ${badSeam.map((c) => c.name).join(', ')}`);
+    await browser.close();
+    server.close();
+    process.exit(1);
+  }
+  console.error(`[clock] seam adjudicator self-test: ${sst.checks.length} checks, all ok`);
+
   console.log(`;; ==== HICASSO CANDIDATE CLOCK ====`);
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; rows      ${ROWS.join(', ')}`);
@@ -949,6 +1029,28 @@ function report(out) {
     );
     process.exit(1);
   }
+  // THE BAND CEILING is a tripwire and is honest about being one. The
+  // nineteen-run ladder that calibrated it produced bands of 4.4–18.5%
+  // INCLUDING the rung with twenty of twenty-four cores saturated, and the
+  // ceiling sits at 25% above all of them — so this gate did not fire
+  // anywhere on its own calibration. It catches a box outside that whole
+  // range, in which the instrument's own reproducibility has gone and no
+  // magnitude means anything. The gate that actually bites is the per-row
+  // one printed in the seam block: a margin inside the band is
+  // instrument-limited.
+  const overCeiling = outcomes.filter((o) => o.verdict.seam.verdict.ceilingBreached);
+  if (overCeiling.length > 0) {
+    console.error(
+      `[clock] FAILED: the run's own reproducibility band exceeds the ` +
+        `${(seamlib.BAND_CEILING * 100).toFixed(0)}% ceiling on: ` +
+        overCeiling.map((o) => `${o.out.rowId} (${(o.verdict.seam.band * 100).toFixed(1)}%)`).join(', ') +
+        `. ctl-2x and floor are two arms in the SAME block whose true ratio is a property of the ` +
+        `page, so a band that wide means the box could not reproduce identical work — no magnitude ` +
+        `from those rows is reportable, whatever its margin.`
+    );
+    process.exit(1);
+  }
+
   const ctlFailed = outcomes.filter((o) => !o.verdict.ctlVerdict.ok || (o.verdict.etVerdict && !o.verdict.etVerdict.ok));
   if (ctlFailed.length > 0) {
     const passed = outcomes.filter((o) => !ctlFailed.includes(o)).map((o) => o.out.rowId);
