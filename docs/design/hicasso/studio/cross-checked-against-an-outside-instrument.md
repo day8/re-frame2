@@ -331,7 +331,7 @@ caveat on the rows it guards, and that is not being re-described here. What this
 control certifies is *the instrument tracks work over a 10× change*, and it
 certifies that with a 31–37% overshoot rather than cleanly. The right control for
 these rows would hold page size fixed and double the **changed set** — the same
-repair [the clock page](the-candidates-clock.md#what-a-future-run-would-have-to-change)
+repair [the clock page](the-candidates-clock.md#63-what-a-future-run-would-have-to-change)
 already filed for its own bulk rows, and this run inherits the gap rather than
 closing it.
 
