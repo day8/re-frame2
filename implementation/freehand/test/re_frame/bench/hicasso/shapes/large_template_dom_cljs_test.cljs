@@ -89,7 +89,13 @@
             (is (= 2 (count (q* handle ".feed-toggle .nav-item"))))
             (is (some? (q handle "[data-testid=\"global-feed-tab\"].active"))
                 "the default tab is the global feed")
-            (is (= shape/tag-count (count (q* handle ".tag-list > .tag-pill")))))
+            ;; `[data-testid="tag-list"]`, not `.tag-list`: the census gives
+            ;; the sidebar's tag cloud and every card's own tag row the SAME
+            ;; class, so the bare selector answers 10 + 69x2 = 148. Its own
+            ;; collision, faithfully ported — and the reason the sidebar is
+            ;; addressed by the test id the census also wrote.
+            (is (= shape/tag-count
+                   (count (q* handle "[data-testid=\"tag-list\"] > .tag-pill")))))
           (testing "and the cards are the model's"
             (is (= shape/article-count (count (q* handle ".article-list > .article-preview"))))
             (doseq [i [0 1 34 68]]
@@ -159,7 +165,7 @@
               (let [other (:slug (m/article 8))]
                 (is (= (str (:favoritesCount (m/article 8)))
                        (.-textContent (q handle (str "[data-testid=\"favorites-count-"
-                                                     other "\"]")))))))))
+                                                     other "\"]"))))))))
           (finally (mount/release! handle)))))))
 
 (deftest the-feed-toggle-flips-the-chrome
