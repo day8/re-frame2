@@ -27,6 +27,15 @@
             [uix.compiler.input]
             [re-frame.adapter.uix :as uix-adapter]))
 
+(def ^:private value-at-load
+  "The var as `re-frame.adapter.uix`'s load left it, snapshotted at THIS
+  namespace's load — which CLJS runs after the adapter's, and before any
+  test runs. Asserting the snapshot rather than only the live read is what
+  makes the pin order-independent: sibling suites pin the var per row, and
+  a live read alone would be masked by whichever of them the runner happens
+  to schedule first."
+  uix.compiler.input/*use-reagent-input-enabled?*)
+
 (defn- selector []
   (uix.compiler.input/should-use-reagent-input?))
 
@@ -42,6 +51,10 @@
            controlled input"
     (is (some? uix-adapter/adapter)
         "the adapter namespace is loaded — which is what runs the pin")
+    (is (false? value-at-load)
+        "the adapter's load left the var at false — asserted from the
+         load-time snapshot, so no sibling suite's per-row pinning can
+         stand in for the pin and mask its absence")
     (is (false? (selector))
         "`should-use-reagent-input?` answers false, so
          `create-uix-input` builds a plain React element")))
