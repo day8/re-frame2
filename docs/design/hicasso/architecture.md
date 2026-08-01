@@ -1,29 +1,39 @@
 # Hicasso — architecture
 
-The runtime architecture space, the two spike arms, what they share, and the
-mechanism ladders. Decisions cited as HD-nnn are normative in
-[decisions.md](decisions.md); the proof obligations live in
+The runtime architecture space, the one live arm, the front half it inherited
+from the two-arm period, and the mechanism ladders. Decisions cited as HD-nnn are
+normative in [decisions.md](decisions.md); the proof obligations live in
 [validation.md](validation.md).
+
+> **Status, 2026-07-31: Hicasso is a React adapter, and there is one arm.** Mike
+> ruled that Hicasso is "an adaptor for React that is optimised for re-frame2,
+> user ergonomics and performance", and dropped Arm 2 (PATCH). The tournament is
+> over, decided on **product direction, not on measurement**: Arm 2 *met* its
+> hard gate in real Chromium and its code was retired afterwards (`rf2-m6if4`),
+> not because it lost. HD-007's two-equal-arms ruling is superseded accordingly;
+> the Arm 2 material below is kept as the design record of a road not taken.
 
 ## The space
 
 | | **Views re-run when dirty** | **Views run once; reactive holes** |
 |---|---|---|
-| **React owns the DOM** | **Hicasso lean-React** (leading) | dead — two-owner input clobber |
-| **Own renderer, React at islands** | **Hicasso/PATCH** (equal-class spike arm, HD-007) | dead — authoring pin (HD-002) |
+| **React owns the DOM** | **Hicasso lean-React** — the product line | dead — two-owner input clobber |
+| **Own renderer, React at islands** | ~~**Hicasso/PATCH**~~ — withdrawn 2026-07-31 (HD-007, superseded) | dead — authoring pin (HD-002) |
 
 `sub`-as-a-value in open Clojure forces the re-run column: without a compiler to
 thunk expressions, run-once economics require hole-based authoring, which the
-product rejects. The two live arms share one front half and diverge only at **who
-applies the patch** (React elements vs own DOM).
+product rejects. The surviving arm owns the front half outright; while both arms
+were live they shared it and diverged only at **who applies the patch** (React
+elements vs own DOM).
 
-## The shared front half (built once, serves both arms)
+## The shared front half (built once for both arms; now the adapter's alone)
 
 1. **The Hiccup codec** — runtime interpretation of arbitrary hiccup to the arm's
    element representation, built by extracting reagent-slim's measured tag/prop/
    child plumbing (never its component protocol, ratoms, argv equality, or
    scheduler). Codec-work caching (parsed tags, prop-name conversion, cached
-   stable component heads) is in scope for both arms (HD-004).
+   stable component heads) is in scope (HD-004; it was in scope for both arms
+   when both ran).
 2. **The subscription→boundary index** — sub-key `(query-id, args)` → boundary
    set; dirty set computed at commit; edge add/remove on mount/unmount/re-run;
    conditional reads as an edge-set diff. The pure model is proven (spike-01)
@@ -45,7 +55,7 @@ applies the patch** (React elements vs own DOM).
 4. **Sub-layer push-cheap/pull-lazy** — equality cutoff on subscription values at
    the existing sub layer; unchanged hot reads perform no new attach/release.
 
-## Arm 1 — Hicasso lean-React (leading; HD-007)
+## Arm 1 — Hicasso lean-React (the product line since 2026-07-31)
 
 - A boundary is a **real React function component** minted by `defview`
   (invocation semantics: HD-016). React owns identity, reconciliation, context,
@@ -110,8 +120,9 @@ applies the patch** (React elements vs own DOM).
   bridge (context/error/event semantics at the seam) and an SSR/hydration story
   of its own. Any PATCH spike that cannot demonstrate the controlled-restore on
   the 100-cell grid witness has failed regardless of its clock numbers.
-- **Why it stays in the tournament**: it is the only family that can *beat* the
-  UIx frontier on bulk and memory rather than approach it.
+- **Why it stayed in the tournament while one ran**: it is the only family that
+  can *beat* the UIx frontier on bulk and memory rather than approach it. That
+  argument was never refuted — it was set aside by the product ruling.
 
 ## The sub-read mechanism (HD-002: grouped default, collector challenger, scalar comparator)
 
@@ -174,6 +185,9 @@ recreate Reagent's equality semantics from taste.
 
 Instrument arms live on branches against the existing tracked bench trees, with
 results published to their beads and the studio table. Runtime skeletons stay
-disposable (spike branch or the local `ai/` tree) until the P2 ruling graduates
-exactly one arm into a tracked `implementation/hicasso/` artefact. The spike-01
-index model is library input to the front half, not a product namespace.
+disposable (spike branch or the local `ai/` tree) until the surviving arm
+graduates into a tracked `implementation/hicasso/` artefact. (HD-017 wrote that
+condition as "the P2 ruling graduates exactly one arm"; the 2026-07-31 product
+ruling settled *which* arm ahead of P2, and the residence rule is otherwise
+unchanged.) The spike-01 index model is library input to the front half, not a
+product namespace.

@@ -2,9 +2,10 @@
 
 What a programmer (and their AI) writes. This page is design intent for the v0
 dogfood and the eventual guide; the declaration spellings stay unfrozen until the
-donor arm and tournament have measured (HD-008) — nothing here licenses freezing
-an API early. Decisions cited as HD-nnn are normative in
-[decisions.md](decisions.md).
+donor arm and the surviving lean-React arm have measured (HD-008) — nothing here
+licenses freezing an API early. (Written when the tournament had two arms; Arm 2
+was withdrawn 2026-07-31 and the unfrozen rule is otherwise unchanged.) Decisions
+cited as HD-nnn are normative in [decisions.md](decisions.md).
 
 ## Views and reads
 

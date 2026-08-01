@@ -129,16 +129,26 @@ is an opt-in escape.
 default comparison is a cost every render pays.
 **Reopens** only on keyed-row / broad witness evidence demanding it.
 
-## HD-007 — Two arms, equal class
+## HD-007 — Two arms, equal class — **SUPERSEDED 2026-07-31**
 
-**Ruling.** P1 runs **two** kill-bounded Hicasso arms under the one product name:
-lean-React (leading) and PATCH (own renderer, React at islands). PATCH is an
-equal-class spike, not a contingency reserve.
+> **Superseded by operator ruling, 2026-07-31.** Mike ruled that Hicasso is "an
+> adaptor for React that is optimised for re-frame2, user ergonomics and
+> performance" and dropped Arm 2. **There is one arm: lean-React, and it is the
+> product line rather than a contender.** The decision below is superseded on
+> **product direction, not on measurement** — PATCH *met* its hard gate
+> (controlled-restore on the 100-cell grid in real Chromium, 920 tests / 5,743
+> assertions / 0 failures) and its bench tree was retired afterwards
+> (`rf2-m6if4`), not because it lost. Its rationale was never refuted; the
+> operator chose not to own a renderer. Recorded on `rf2-2rtt6`.
+
+**Ruling (superseded).** P1 runs **two** kill-bounded Hicasso arms under the one
+product name: lean-React (leading) and PATCH (own renderer, React at islands).
+PATCH is an equal-class spike, not a contingency reserve.
 **Rationale.** Lean-React is the smallest falsifiable bet but may ceiling at
 UIx-parity; PATCH is the only family that can beat the frontier on bulk and
 memory. Running both against one witness set is the only way the P2 ruling is
 made on numbers rather than priors.
-**Reopens** n/a — P2 consumes this decision.
+**Reopens** n/a — superseded ahead of P2 by the ruling above.
 
 ## HD-008 — The composed donor arm is a stop-gate
 

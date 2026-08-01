@@ -290,10 +290,17 @@ result, and it is back in. No disposition changed.)* Full record, the launch set
 in full, and the committed observation table every figure is derived from:
 [the re-take](studio/p0-converged-witness-set.md#the-re-take-on-the-post-25-tree-rf2-b0tz5).
 
-### P1 — the tournament (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
+### P1 — the tournament, and its one surviving arm (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
 
-Two kill-bounded Hicasso arms plus controls, on one shared minimal codec and
-identical witnesses; challengers time-boxed to 1–3 days:
+> **Since 2026-07-31 there is one arm.** Mike ruled Hicasso a React adapter and
+> dropped Arm 2 (PATCH) on **product direction, not on measurement** — it met its
+> hard gate in real Chromium. P1 is therefore no longer a two-arm contest: the
+> lean-React arm is the product line, measured against the same controls and the
+> same witness set. The Arm 2 bullet is kept below as the record of what ran.
+
+One kill-bounded Hicasso arm plus controls, on the minimal codec and identical
+witnesses; challengers time-boxed to 1–3 days. (It was written for **two**
+kill-bounded arms, and both did run before the ruling.)
 
 - **Controls**: direct UIx `$` (floor); stock Reagent and reagent-slim on the
   identical sub graph (comparators); **Adapter-Prime** — the composed donor-arm
@@ -353,15 +360,24 @@ binding method.
 
 ### P2 — the fork ruling (HD-013)
 
-On P0/P1 numbers: **Hicasso/lean-React vs Hicasso/PATCH vs null**. **The decider
-is the operator** (HD-013); one adversarial and one creative review pass over the
-evidence are prepared and recorded on the standard bead to advise the ruling. A
-candidate dies if it does not clearly beat the better Reagent path on matched
-witnesses, costs material latency or memory against direct UIx without a
-commensurate ergonomic win, or its win disappears once the sub graph and writes
-are matched. On a "go", exactly one arm graduates into a tracked
-`implementation/hicasso/` artefact and the v0 build proceeds under EP-0038's
-wave 2; on a stop, adapters win and the donors' status quo stands.
+On P0/P1 numbers: **Hicasso/lean-React vs null**. **The decider is the operator**
+(HD-013); one adversarial and one creative review pass over the evidence are
+prepared and recorded on the standard bead to advise the ruling. The candidate
+dies if it does not clearly beat the better Reagent path on matched witnesses,
+costs material latency or memory against direct UIx without a commensurate
+ergonomic win, or its win disappears once the sub graph and writes are matched.
+On a "go", it graduates into a tracked `implementation/hicasso/` artefact and the
+v0 build proceeds under EP-0038's wave 2; on a stop, adapters win and the donors'
+status quo stands.
+
+**What the 2026-07-31 ruling did and did not decide.** It removed Arm 2 from this
+comparison, so the ruling is no longer a three-way choice and no longer picks a
+winner between two Hicasso arms — that half is settled, on direction rather than
+on numbers. It did **not** decide the arm-versus-null question: the null control
+(Adapter-Prime, adapters-plus-sugar) still rides every measurement, adapters-only
+is still a *successful* outcome, and the kill criteria below still bite. The
+comparison this section schedules was originally written as
+*lean-React vs PATCH vs null*.
 
 ## Kill criteria (any tripping = stop or narrow; adapters-only is success)
 
