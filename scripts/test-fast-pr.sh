@@ -258,9 +258,9 @@ changed_files="$(gather_changed_files)"
 # how the classifier arms a gate whenever its own gate-script changes, and how
 # docs.yml keys the MkDocs build on documentation paths.
 #
-# THE SPINE'S OWN TREE IS ON THIS SURFACE (rf2-fhdd3).  The last two arms are
-# `scripts/test-fast-pr.sh` — this very file — and the fixture tree of its
-# self-test.  Until they were listed, a diff touching only the spine matched no
+# THE SPINE'S OWN TREE IS ON THIS SURFACE (rf2-fhdd3) — `scripts/test-fast-pr.sh`,
+# this very file, and the fixture tree of its self-test, delegated to
+# `is_spine_self_path`.  Until they were listed, a diff touching only the spine matched no
 # runtime surface AND no documentation surface: the runtime classifier does not
 # know the runner (it classifies runtime source), and `run_docs` keyed on the
 # predicate above, which the runner never matched.  So A CHANGE TO THE SPINE'S
@@ -284,17 +284,16 @@ is_doc_surface_path() {
     scripts/check_readme_links.py|scripts/check_doc_slugs.py) return 0 ;;
     scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
     scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
-    scripts/test-fast-pr.sh) return 0 ;;
-    scripts/_test_fixtures/test_fast_pr_docs_gate/*) return 0 ;;
-    *) return 1 ;;
   esac
+  # The spine's own tree is on this surface too — delegated rather than
+  # re-listed, so the two predicates cannot drift apart.
+  is_spine_self_path "$1"
 }
 
 # The spine's own tree — the runner plus the fixture tree of its self-test.
-# Exactly the two arms added to the documentation surface above, kept as their
-# own predicate because they are load-bearing TWICE over: they arm the
-# documentation tier (via `doc_surface` below), and they arm the spine's own
-# self-test, which is the only thing that proves the tiering still routes.
+# Its own predicate because it is load-bearing TWICE over: it puts these paths
+# on the documentation surface above, and it arms the spine's own self-test,
+# which is the only thing that proves the tiering still routes.
 is_spine_self_path() {
   case "$1" in
     scripts/test-fast-pr.sh) return 0 ;;
