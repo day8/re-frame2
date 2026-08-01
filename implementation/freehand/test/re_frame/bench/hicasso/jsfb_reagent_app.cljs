@@ -32,7 +32,26 @@
             [re-frame.bench.hicasso.jsfb-model :as m]
             [re-frame.core :as rf]
             [reagent.dom.client :as rdc])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+
+(defn- go!
+  "Dispatch `event` synchronously, inside the frame.
+
+  **The frame has to be named here, and that is a real difference between
+  the two arms rather than a wart of this witness.** A `reg-view`
+  boundary resolves `subscribe` through React context during render, but
+  a click handler is a closure that fires AFTER that render returned, so
+  there is no ambient frame when it runs — `with-frame`'s own docstring
+  names this case. The Hicasso arm writes `[:jsfb/select id]` and its
+  runtime carries the frame for it.
+
+  `dispatch-sync` and not `dispatch`, so both arms drain the event inside
+  the click turn. An async `dispatch` would land the work in a later
+  task, and the benchmark measures click-to-paint: the two arms would
+  then differ in WHEN they did the work as well as in how, and the ratio
+  would stop being a substrate ratio."
+  [event]
+  (with-frame m/frame-id (rf/dispatch-sync event)))
 
 (reg-view ^{:rf/id :jsfb/row-view} row
   "One row boundary — two subscription reads, one `<tr>`.
@@ -48,9 +67,9 @@
     [:tr (when selected? {:class "danger"})
      [:td.col-md-1 id]
      [:td.col-md-4
-      [:a {:on-click #(rf/dispatch-sync [:jsfb/select id])} label]]
+      [:a {:on-click #(go! [:jsfb/select id])} label]]
      [:td.col-md-1
-      [:a {:on-click #(rf/dispatch-sync [:jsfb/remove id])}
+      [:a {:on-click #(go! [:jsfb/remove id])}
        [:span.glyphicon.glyphicon-remove {:aria-hidden "true"}]]]
      [:td.col-md-6]]))
 
@@ -69,7 +88,7 @@
   [id label event]
   [:div.col-sm-6.smallpad
    [:button.btn.btn-primary.btn-block
-    {:type "button" :id id :on-click #(rf/dispatch-sync [event])}
+    {:type "button" :id id :on-click #(go! [event])}
     label]])
 
 (reg-view ^{:rf/id :jsfb/app-view} app
@@ -77,7 +96,7 @@
   [:div.container
    [:div.jumbotron
     [:div.row
-     [:div.col-md-6 [:h1 "re-frame2 Reagent-on-subs"]]
+     [:div.col-md-6 [:h1 "re-frame2"]]
      [:div.col-md-6
       [:div.row
        [button "run" "Create 1,000 rows" :jsfb/run]

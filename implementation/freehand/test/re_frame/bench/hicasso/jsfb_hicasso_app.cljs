@@ -88,7 +88,7 @@
   [:div.container
    [:div.jumbotron
     [:div.row
-     [:div.col-md-6 [:h1 "re-frame2 Hicasso Arm 1"]]
+     [:div.col-md-6 [:h1 "re-frame2"]]
      [:div.col-md-6
       [:div.row
        [button {:key "run" :id "run" :label "Create 1,000 rows" :event :jsfb/run}]
