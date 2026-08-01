@@ -81,7 +81,13 @@ const SAMPLES = Number(process.env.JSFB_SAMPLES || 10);
 // localhost, so it is generous rather than tight.
 const NAV_TIMEOUT_MS = Number(process.env.JSFB_NAV_TIMEOUT_MS || 60000);
 
-const ARMS = ['rf2-reagent', 'rf2-hicasso'];
+// ARMS[0] is the DENOMINATOR every ratio is taken against — Reagent-on-subs,
+// which is what HD-012 names the bar. The third arm was added after the first
+// run: the contested bulk-broad row is `UIx / Reagent`, so a Reagent-and-
+// Hicasso pair cannot speak to it. See `jsfb_uix_app`'s docstring.
+const ARMS = ['rf2-reagent', 'rf2-hicasso', 'rf2-uix'];
+const BASE = ARMS[0];
+const OTHERS = ARMS.slice(1);
 
 const url = (arm) => `http://${HOST}:${PORT}/frameworks/keyed/${arm}/`;
 
@@ -358,17 +364,15 @@ async function main() {
       html[arm] = await p.$eval('#main', (e) => e.innerHTML);
       await p.close();
     }
-    const [a, b] = ARMS.map((x) => html[x]);
-    parity.identical = a === b;
-    parity.lens = { [ARMS[0]]: a.length, [ARMS[1]]: b.length };
+    const base = html[BASE];
+    parity.identical = ARMS.every((x) => html[x] === base);
+    parity.lens = Object.fromEntries(ARMS.map((x) => [x, html[x].length]));
     if (!parity.identical) {
+      const bad = OTHERS.find((x) => html[x] !== base);
+      const b = html[bad];
       let i = 0;
-      while (i < Math.min(a.length, b.length) && a[i] === b[i]) i++;
-      parity.firstDiff = {
-        at: i,
-        reagent: a.slice(Math.max(0, i - 80), i + 120),
-        hicasso: b.slice(Math.max(0, i - 80), i + 120),
-      };
+      while (i < Math.min(base.length, b.length) && base[i] === b[i]) i++;
+      parity.firstDiff = { arm: bad, at: i, base: base.slice(Math.max(0, i - 80), i + 120), other: b.slice(Math.max(0, i - 80), i + 120) };
     }
   }
 
@@ -417,31 +421,33 @@ async function main() {
   console.log('');
   console.log(`;; DOM PARITY: ${parity.identical ? 'IDENTICAL' : 'DIFFERENT'} — ${JSON.stringify(parity.lens)}`);
   if (parity.firstDiff) {
-    console.log(`;;   first diff at ${parity.firstDiff.at}`);
-    console.log(`;;   reagent: ${JSON.stringify(parity.firstDiff.reagent)}`);
-    console.log(`;;   hicasso: ${JSON.stringify(parity.firstDiff.hicasso)}`);
+    console.log(`;;   ${parity.firstDiff.arm} diverges at ${parity.firstDiff.at}`);
+    console.log(`;;   ${BASE}: ${JSON.stringify(parity.firstDiff.base)}`);
+    console.log(`;;   ${parity.firstDiff.arm}: ${JSON.stringify(parity.firstDiff.other)}`);
   }
   console.log('');
 
   const summary = {};
-  console.log(';; row          jsfb id              reagent ms  hicasso ms   hicasso/reagent   range over rounds');
+  console.log(`;; ratios are against ${BASE}, the denominator HD-012 names`);
+  console.log('');
+  console.log(';; row          jsfb id               arm            ms      ratio   range over rounds');
   for (const row of ROWS) {
-    const R = acc[row.id][ARMS[0]].rounds;
-    const H = acc[row.id][ARMS[1]].rounds;
-    const perRound = R.map((v, i) => H[i] / v);
-    const ratio = mean(H) / mean(R);
-    summary[row.id] = {
-      reagent: mean(R),
-      hicasso: mean(H),
-      ratio,
-      perRound,
-      lo: Math.min(...perRound),
-      hi: Math.max(...perRound),
-      unverified: acc[row.id][ARMS[0]].unverified + acc[row.id][ARMS[1]].unverified,
-    };
-    console.log(
-      `;; ${row.id.padEnd(12)} ${row.jsfb.padEnd(20)} ${fmt(mean(R), 3).padStart(10)}  ${fmt(mean(H), 3).padStart(10)}  ${fmt(ratio).padStart(15)}   [${fmt(summary[row.id].lo)} – ${fmt(summary[row.id].hi)}]`
-    );
+    const R = acc[row.id][BASE].rounds;
+    const unverified = ARMS.reduce((a, x) => a + acc[row.id][x].unverified, 0);
+    summary[row.id] = { base: mean(R), unverified, arms: {} };
+    console.log(`;; ${row.id.padEnd(12)} ${row.jsfb.padEnd(21)} ${BASE.padEnd(13)} ${fmt(mean(R), 3).padStart(8)}     1.0000   —`);
+    for (const arm of OTHERS) {
+      const H = acc[row.id][arm].rounds;
+      const perRound = R.map((v, i) => H[i] / v);
+      const ratio = mean(H) / mean(R);
+      summary[row.id].arms[arm] = {
+        ms: mean(H), ratio, perRound,
+        lo: Math.min(...perRound), hi: Math.max(...perRound),
+      };
+      console.log(
+        `;; ${''.padEnd(12)} ${''.padEnd(21)} ${arm.padEnd(13)} ${fmt(mean(H), 3).padStart(8)}  ${fmt(ratio).padStart(9)}   [${fmt(perRound.length ? Math.min(...perRound) : NaN)} – ${fmt(perRound.length ? Math.max(...perRound) : NaN)}]`
+      );
+    }
   }
 
   console.log('');

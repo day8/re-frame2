@@ -56,6 +56,14 @@ const ARMS = [
     initFn: 're-frame.bench.hicasso.jsfb-hicasso-app/-main',
     title: 're-frame2 Hicasso Arm 1',
   },
+  // Added after the first two had run, because the contested bulk-broad
+  // row is `UIx / Reagent` and a Reagent-and-Hicasso pair cannot speak to
+  // it. See `jsfb_uix_app`'s docstring.
+  {
+    dir: 'rf2-uix',
+    initFn: 're-frame.bench.hicasso.jsfb-uix-app/-main',
+    title: 're-frame2 UIx-on-subs',
+  },
 ];
 
 function arg(name, fallback) {
