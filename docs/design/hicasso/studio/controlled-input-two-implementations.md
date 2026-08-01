@@ -1,5 +1,13 @@
 # A controlled input has two implementations, and the bundle was picking
 
+> **Amended 2026-08-02 (`rf2-fki5d`).** Option B below is **TAKEN** and
+> shipped in Arm 1's element path, so there is now a third behaviour on this
+> page and the matrix has a column for it. Nothing measured here moved: the
+> two shipped implementations behave exactly as the rows below record, and
+> the arm's converge is a third thing sitting on top of React's. The one
+> figure that changed is the price — see
+> [the record turned out to be React's own](#the-record-turned-out-to-be-reacts-own).
+
 **Bead** `rf2-n3dxw` · **epic** `rf2-2rtt6` (EP-0038)
 **Witness content hash** `d747b10d82daa24ce39a4a7a6cff825ce7716483`
 (`implementation/freehand/test/re_frame/bench/hicasso/controlled_restore_dom_cljs_test.cljs`;
@@ -11,6 +19,14 @@ and this branch was rebased once already — the content hash is the
 identifier, and `git log --oneline --all -- <path>` plus
 `git rev-parse <candidate>:<path>` finds a commit carrying the blob.
 **Measured** 2026-08-01 AUSEST
+
+**The arm's own witnesses** (`rf2-fki5d`, measured 2026-08-02 AUSEST, same
+runtime): `22e7e6f456fd1ac9a1628fd985588ff87e68532d`
+(`…/hicasso/arm1/controlled_grid_dom_cljs_test.cljs`) and
+`176442a54e1be2ea346e7cfee460f4583bf10233`
+(`…/hicasso/front/controlled_dom_cljs_test.cljs`). The mechanism is
+`e625d031cb251614899015894bccc2703052ddfd`
+(`…/hicasso/front/controlled.cljs`).
 
 **Runtime for every row on this page**: headless Chromium via Playwright
 1.59.1, shadow-cljs `:browser-test` (development optimisations, `goog.DEBUG`
@@ -116,11 +132,39 @@ uppercases, cell 17 regroups, cell 7 takes what it is given.
 
 Read the table as one sentence: **React converges in the same turn and puts
 the caret in the wrong place; UIx's port puts the caret in the right place
-one frame late.** Neither gives both.
+one frame late.** Neither *shipped implementation* gives both.
 
 The regrouping row is green on React only because the edit was at the *end*
 of the field, which is where React's write leaves the caret anyway. It is not
 evidence that React preserves a caret across a length change.
+
+### The third column — Arm 1's element path
+
+**Taken 2026-08-02 (`rf2-fki5d`).** The same five rows, same model, same
+keystrokes, on Arm 1's own grid
+(`arm1_controlled_grid_dom_cljs_test/the-family-converges-in-one-turn-with-the-caret-where-the-edit-left-it`),
+every reading taken on the line after `dispatchEvent` returns:
+
+| row | `:react` in-turn | Arm 1 in-turn |
+|---|---|---|
+| refusal at the end — `"12"` + `a` at `[2 2]` | `"12"` `[2 2]` ✅ | `"12"` `[2 2]` ✅ |
+| refusal mid-string — `"12345"` + `z` at `[2 2]` | `"12345"` **`[5 5]`** ⚠️ | `"12345"` **`[2 2]`** ✅ |
+| uppercasing mid-string — `"ABCD"` + `x` at `[2 2]` | `"ABXCD"` **`[5 5]`** ⚠️ | `"ABXCD"` **`[3 3]`** ✅ |
+| regrouping at the end — `"1,234"` + `5` at `[5 5]` | `"12,345"` `[6 6]` ✅ | `"12,345"` `[6 6]` ✅ |
+| accepted keystroke mid-string — `"abcd"` + `X` at `[2 2]` | `"abXcd"` `[3 3]` ✅ | `"abXcd"` `[3 3]` ✅ |
+
+There is no "settled" column because there is nothing to settle: every row
+above is final when the discrete event returns, and no later frame moves it.
+
+**Mutation-proved, twice.** Removing the one call in
+`front.codec/native-element` that installs the converge reds 14 assertions,
+and every caret reading falls back to `[5 5]` with the refused character
+still on the screen — React's own behaviour, exactly as the matrix records
+it. Removing only the `flushSync` reds 4, all of them caret readings at
+`[5 5]`, including the **ordinary accepted keystroke**: without it the
+record is one render stale, the converge writes the wrong value, and React's
+restore repairs the value and throws the caret away. Both were restored and
+the suite is green at 59 tests / 303 assertions.
 
 ### The range row
 
@@ -156,10 +200,12 @@ re-frame2 introduced.
 
 ### B — converge at the end of the change handler
 
-Measured, green, and committed as
-`a-same-turn-converge-can-have-both-halves-at-a-stated-price`. At the end of
-the change handler, still inside the discrete event and still ahead of
-React's own restore:
+**TAKEN** (`rf2-fki5d`, 2026-08-02). Prototyped as
+`a-same-turn-converge-can-have-both-halves-at-a-stated-price` and now
+shipped in Arm 1's element path:
+`front.codec/native-element` calls `front.controlled/install!`, which wraps
+the change handler the author already wrote. At the end of that handler,
+still inside the discrete event and still ahead of React's own restore:
 
 1. `flushSync` so the synchronous door's commit lands now rather than in the
    `finally` of `batchedUpdates$1`;
@@ -172,26 +218,64 @@ Every row of the family, in one turn, including the mid-string refusal that
 neither shipped path gets right.
 
 **Price, stated rather than hidden.** One `flushSync` per keystroke on a
-controlled element. A per-instance record of the value that element last
-rendered — the handler's own closure carries the value from the render that
-*minted* it, which is stale after a re-render, and `(= (.-value node)
-dom-value)` alone cannot tell a refusal from a keystroke the model took
-verbatim. The synchronous door only: `dispatch` drains on a macrotask, so at
-the end of the handler the model has not moved and there is nothing to
-converge to.
+controlled element, and the synchronous door only: `dispatch` drains on a
+macrotask, so at the end of the handler the model has not moved and there is
+nothing to converge to. A queued field converges one macrotask later, as it
+always did.
 
 **What it does not cost.** No user-visible ceremony — the view still writes
 an ordinary `:value`/`:on-change` pair, with no ref, no effect and no escape
 hatch. No hook in the boundary shell, so the ≤2-hook budget (HD-020) is
-untouched. UIx's own answer to the same problem costs a wrapper *component*
-per input with three hooks in it (`uix/compiler/input.cljs:132-143`); this
-one costs none, because it lives in the element path rather than in a
-component.
+untouched, and `arm1_hook_ledger_dom_cljs_test` reads the same ledger it did
+before. UIx's own answer to the same problem costs a wrapper *component* per
+input with three hooks in it (`uix/compiler/input.cljs:132-143`); this one
+costs none, because it lives in the element path rather than in a component.
+`grid.cljs` — the 100-cell witness's view — did not change by a character.
 
-Where it would live is the open question: neither Hicasso nor the shipped
-UIx adapter mints its own `:input` element today — UIx does — so the
-prototype sits in the witness's view, labelled as a measurement rather than
-an authoring pattern.
+#### The record turned out to be React's own
+
+The third item on the quoted price was **a per-instance record of the value
+that element last rendered**, and it is not charged. The handler's own
+closure cannot serve: it carries the value from the render that *minted* it,
+which is one behind the moment step 1 commits a new one, and writing it back
+**deletes a keystroke the model took verbatim** — reproduced in
+`front/controlled_dom_cljs_test/the-closure-value-wipes-a-keystroke-the-model-took-verbatim`,
+which calls the same function twice with one argument different. Comparing
+the field against what the handler saw cannot serve either: `(= (.-value
+node) dom-value)` reads true on a refusal *and* on a keystroke taken
+verbatim — the same reading, two opposite obligations.
+
+What does serve is `node.defaultValue`, and **React already maintains it**.
+On any genuinely controlled input or textarea, every commit mirrors the
+committed `value` prop into the element's default value —
+`updateInput:1671-1672` → `setDefaultValue:1737-1741`, `initInput:1721` on
+mount, `updateTextarea:1842-1851` for the other tag. It is the element's own
+bookkeeping, per instance, on the node: no `ref`, no `WeakMap`, no extra
+prop, nothing to keep in step. Typing does not disturb it, because the
+`value` IDL setter sets the value and the dirty flag and never the content
+attribute `defaultValue` reflects.
+
+That leaves a **dependency** rather than a cost, and it is named in one
+place. `front.controlled/last-rendered` is the only reader, every guard in
+`install!` is a condition under which React's mirror really is the rendered
+value — `input`/`textarea` only, a non-nil `value`, no author `defaultValue`
+(a `<textarea>` honours that one over the mirror), and a type with a text
+cursor (`setDefaultValue` deliberately skips a focused `number` field, and
+`setSelectionRange` does not apply to it either — the same exclusion twice)
+— and
+`arm1_controlled_grid_dom_cljs_test/the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure`
+asserts the invariant against a live React tree, including that it *moves*
+when the rendered value moves. If React ever stops mirroring, that row goes
+red by name instead of five caret rows going quietly wrong.
+
+#### One thing for the decisions record
+
+HD-019 says `flushSync` is "the evidence-gated last resort, never the
+default". This makes it the default for every controlled element, and the
+evidence gate is met — the mutation probe above shows the ordinary accepted
+keystroke regressing without it — but the ruling's text and the code now
+disagree in letter. Raised rather than resolved here; the amendment is
+Mike's.
 
 ### C — pin the selector
 
@@ -213,10 +297,10 @@ either one by accident. The consumer-facing statement of the trade-off,
 including the caret, lives in `docs/api/re-frame.adapter.uix.md`.
 
 What this does **not** settle: the mid-string refusal row above is still red
-on the caret, because React is now the path every UIx consumer is on. Pinning
-the selector made the default honest; it did not give either implementation
-the half it lacks. `rf2-n3dxw` stays open, and B (priced as `rf2-fki5d`)
-remains the route to both halves.
+on the caret **for a UIx consumer**, because React is now the path every UIx
+consumer is on. Pinning the selector made the default honest; it did not give
+either implementation the half it lacks. Option B closed it for Arm 1, in the
+element path — a UIx consumer is not on that path and does not get it.
 
 ## What this changes in the record
 
@@ -225,5 +309,13 @@ remains the route to both halves.
   the element is actually controlled — which UIx did not guarantee, and which
   `re-frame.adapter.uix` now does (`rf2-heqwo`, Option C above).
 - HD-019's "rejected/unchanged-model paths lean on React's own end-of-event
-  restore" is **confirmed for the value and refuted for the caret**.
-- `rf2-n3dxw` stays open on the residue: no shipped path gives both halves.
+  restore" is **confirmed for the value and refuted for the caret** — and the
+  caret is now the *arm's*, taken in the element path rather than leaned on
+  (`rf2-fki5d`, Option B above). HD-019's `flushSync` clause needs the
+  amendment noted under B.
+- `rf2-n3dxw`'s headline residue is **answered for Arm 1**: a refused
+  keystroke converges in the same turn with the caret at the position before
+  it. Two things it recorded are not answered and are not rounded up — the
+  **range** row (a second algorithm, and off the change path entirely) and
+  the **IME** fence (`rf2-o27h3`, still needing a real `CompositionEvent`
+  harness). And nothing here reaches a UIx consumer's `:input`.
