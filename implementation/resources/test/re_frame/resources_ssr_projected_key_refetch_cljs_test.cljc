@@ -276,21 +276,31 @@
   [[:rf.scope/session {:tenant-id :rf/redacted :region "au"}] :scoped/report {:page 3}])
 
 (defn- legacy-row
-  "One wire row as a PRE-#7354 render emitted it: under the projected key, and
-  carrying its `:data`. Carrying data is the point — it is the strongest form
-  of the row this client must refuse."
-  [wire-key]
-  [(state/key-id wire-key)
-   (assoc (state/empty-entry (second wire-key) wire-key)
-          :status :loaded :data {:total 1} :loaded-at 1000)])
+  "One wire row as an earlier render emitted it, under the projected key.
 
-(defn- wire-slice-including-withheld
-  "Today's wire slice PLUS the two rows an older render would have included."
-  []
+  `data` distinguishes the two shapes that ever rode, and which one a test wants
+  is never arbitrary. `{:total 1}` is the PRE-#7354 shape, where the row carried
+  its data — the strongest form of the row a client must refuse, and so the one
+  the cache controls forge. `nil` is the #7354 shape, shipped metadata-only —
+  the one that reached `hydrate-refetch-plan` and got NAMED there, which is the
+  half of the defect the audit found. A data-carrying row cannot stand in for it:
+  it is fresh-with-usable-data, so `entry-needs-refetch?` excludes it on
+  FRESHNESS and the plan omits it whether or not the addressability filter
+  exists."
+  [wire-key data]
+  [(state/key-id wire-key)
+   (cond-> (assoc (state/empty-entry (second wire-key) wire-key)
+                  :status :loaded :loaded-at 1000)
+     (some? data) (assoc :data data))])
+
+(defn- slice-with-legacy-rows
+  "Today's wire slice PLUS the two rows an earlier render would have included,
+  in the shape `data` selects (see `legacy-row`)."
+  [data]
   (update-in (wire-slice) [state/resources-key :entries]
              (fn [entries]
-               (into entries [(legacy-row legacy-params-wire-key)
-                              (legacy-row legacy-scope-wire-key)]))))
+               (into entries [(legacy-row legacy-params-wire-key data)
+                              (legacy-row legacy-scope-wire-key data)]))))
 
 ;; ===========================================================================
 ;; 1. THE ROW DOES NOT RIDE.
@@ -459,13 +469,18 @@
             property must hold for the FUNCTION, not only for the path that
             drops the row first"
     (install-all!)
-    (let [forged (get (wire-slice-including-withheld) state/resources-key)
+    ;; the METADATA-ONLY forgery (`nil` data) is load-bearing: it is the shape
+    ;; #7354 actually shipped and the plan actually named. A data-carrying row
+    ;; would be excluded on freshness instead, and this test would pass with the
+    ;; addressability filter deleted.
+    (let [forged (get (slice-with-legacy-rows nil) state/resources-key)
+          row    (some (fn [[_ e]] (when (= :params/report (second (:resource/key e))) e))
+                       (:entries forged))
           plan   (ssr/hydrate-refetch-plan {state/resources-key forged} 5000)]
-      (is (seq (:entries forged))
-          "premise: the forged slice really does carry rows")
-      (is (some (fn [[_ e]] (= :params/report (second (:resource/key e))))
-                (:entries forged))
-          "premise: including an unaddressable one")
+      (is (some? row) "premise: the forged slice carries an unaddressable row")
+      (is (true? (ssr/entry-needs-refetch? row 5000))
+          "premise: and one the planner WOULD name — every other reason to omit
+           it is absent, so only addressability can be doing the work")
       (is (not (contains? (plan-by-resource plan) :params/report))
           "…which the plan refuses to name")
       (is (contains? (plan-by-resource plan) :sealed/report)
@@ -609,7 +624,7 @@
             derivation reproduces, exactly as `recompute-indexes` refuses to
             trust the wire's indexes"
     (install-all!)
-    (let [forged (get (wire-slice-including-withheld) state/resources-key)]
+    (let [forged (get (slice-with-legacy-rows {:total 1}) state/resources-key)]
       (is (= 5 (count (:entries forged)))
           "premise: the forged payload carries the two withheld rows too")
       (is (some (fn [[_ e]] (some? (:data e)))
@@ -635,7 +650,7 @@
             behaves identically to one hydrating a withheld payload — one
             intentional load, and nothing left over"
     (install-all!)
-    (let [forged (get (wire-slice-including-withheld) state/resources-key)]
+    (let [forged (get (slice-with-legacy-rows {:total 1}) state/resources-key)]
       (frame/swap-runtime-db!
         :rf/default
         (fn [rdb] (assoc (or rdb {}) state/resources-key forged)))
