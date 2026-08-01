@@ -186,6 +186,75 @@ const capturedAt = () =>
 // textual lint over one suite's source, which is why it belongs here.
 const FATAL_CONSOLE_RE = /Async test called done more than one time/;
 
+// rf2-u0cy4 (merged-PR audit of #7190): the matcher above is a COPY of a
+// literal that lives in ClojureScript, not in this repo. Nothing in this
+// tree changes when cljs.test rewords it — so on a dependency bump the
+// regex would quietly stop matching, `fatalConsole` would stay empty, and
+// the gate would report green while guarding nothing. The committed policy
+// test could not catch that either: it asserts this file still contains
+// the regex, which a reworded upstream leaves perfectly true.
+//
+// Close it by comparing the matcher against the INSTALLED emission rather
+// than against our own copy of it. `cljs.test/run-block` is where the
+// warning is printed:
+//
+//     (if (realized? d) (println "WARNING: Async test called done more
+//                                 than one time.") @d)
+//
+// and that `println` compiles inline into `cljs.test.run_block`'s body, so
+// the live function's source carries the exact string the browser would
+// emit. `:browser-test` builds are never `:advanced` (shadow's
+// `:browser-test` target cannot be advanced-compiled), so the namespace
+// object is reachable and the source is unmunged.
+//
+// Deliberately fail-CLOSED: an unreachable `run_block` is reported, never
+// skipped. A drift check that goes quiet when it cannot look is worth
+// nothing, and this whole bead exists because a fail-open gate shipped.
+// Namespaces are reachable either directly on the global object or under
+// shadow-cljs's `$CLJS` holder depending on the target; check both rather
+// than assume one, so this reports genuine drift and not a build-shape
+// difference.
+const RUN_BLOCK_PROBE = () => {
+  const roots = [globalThis, globalThis.$CLJS].filter(
+    (r) => r && typeof r === 'object',
+  );
+  for (const root of roots) {
+    const test = root.cljs && root.cljs.test;
+    const runBlock = test && test.run_block;
+    if (typeof runBlock === 'function') return String(runBlock);
+  }
+  return null;
+};
+
+// Compare FATAL_CONSOLE_RE with what the installed ClojureScript actually
+// emits. Returns null when they agree, else the reason they do not.
+async function duplicateDoneMatcherDrift(page) {
+  let source;
+  try {
+    source = await page.evaluate(RUN_BLOCK_PROBE);
+  } catch (err) {
+    return `could not introspect \`cljs.test.run_block\` in the page: ${err.message}`;
+  }
+  if (source == null) {
+    return (
+      '`cljs.test.run_block` was not reachable as a function on the page. The ' +
+      'duplicate-`done` guard is a copy of a ClojureScript string literal, and ' +
+      'this is the only check that it still corresponds to the installed ' +
+      'ClojureScript — it cannot be skipped.'
+    );
+  }
+  if (!FATAL_CONSOLE_RE.test(source)) {
+    return (
+      'the installed ClojureScript no longer emits the duplicate-`done` warning ' +
+      `this runner matches on (${FATAL_CONSOLE_RE}). cljs.test reworded it, so ` +
+      'the guard would silently stop catching double-fired `done` calls. Update ' +
+      "FATAL_CONSOLE_RE to the new wording — read it out of `cljs.test/run-block`'s " +
+      '`realized?` branch.'
+    );
+  }
+  return null;
+}
+
 // The test-count floor (rf2-qqzmf). ONE name across every whole-suite lane:
 // the JVM runner (re-frame.test-quiet.runner) and the CLJS node runner
 // (re-frame.test-quiet.shadow-node) read the same variable. Because it is
@@ -428,6 +497,21 @@ async function main() {
       printSummaryDetails(summary);
       flushDiagnostics(diagnostics);
       return 1;
+    }
+
+    // rf2-u0cy4: verify the duplicate-`done` matcher still corresponds to the
+    // ClojureScript this run actually loaded. Checked here — after the suite
+    // has demonstrably executed, before any verdict returns — so a red tally
+    // cannot mask a guard that has stopped guarding. Exit 2 (configuration),
+    // not 1 (red): the fix is to update the matcher, not a test.
+    const matcherDrift = await duplicateDoneMatcherDrift(page);
+    if (matcherDrift) {
+      console.error(
+        `The duplicate-\`done\` guard (rf2-u0cy4) can no longer be trusted: ${matcherDrift}`,
+      );
+      printSummaryDetails(summary);
+      flushDiagnostics(diagnostics);
+      return 2;
     }
 
     const counts = parseFailureCounts(summary.failErr);
