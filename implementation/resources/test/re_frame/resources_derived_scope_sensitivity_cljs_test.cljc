@@ -30,7 +30,6 @@
    [re-frame.core :as rf]
    [re-frame.elision :as elision]
    [re-frame.frame :as frame]
-   [re-frame.privacy :as privacy]
    [re-frame.registrar :as registrar]
    [re-frame.resources.classification :as classification]
    [re-frame.resources.scope-registry :as scope-registry]
@@ -181,23 +180,32 @@
       (is (= k wk) "the wire key rides verbatim (no inheritance redaction)"))))
 
 (deftest ssr-owner-declared-sensitive-redacts-via-own-claim
-  (testing "a resource declared :sensitive? ships METADATA ONLY via its OWN
-            coarse claim — data redacted + scope/params in the wire KEY redacted
-            (confirm-by-revert: the owner boundary, not propagation)"
+  (testing "a resource declared :sensitive? is projected via its OWN coarse claim
+            — scope + params tokenized in the projected KEY, and (rf2-4bjep) the
+            row withheld outright, since substituting both components leaves an
+            identity no live client derives (confirm-by-revert: the owner
+            boundary, not propagation)"
     (rf/reg-resource :t/secret-feed
       {:scope         {:from-db :t/session}
        :sensitive?    true
        :params-schema [:map [:page :int]]}
       (fn [_ _] {:request {:method :get :url "/secret"}}))
-    (let [k   (state/scoped-resource-key [:rf.scope/session {:username "jake"}] :t/secret-feed {:page 1})
-          e   (entry :t/secret-feed {:articles [:a :b]})
-          proj (rf/with-frame frame-id
-                 (ssr/project-resources-runtime-db (runtime-db-with {k e})))
-          [wk we] (only-wire proj)]
-      (is (= privacy/redacted-sentinel (:data we))
-          "the owner-:sensitive? entry's data is replaced by the redaction sentinel")
+    (let [k    (state/scoped-resource-key [:rf.scope/session {:username "jake"}] :t/secret-feed {:page 1})
+          e    (entry :t/secret-feed {:articles [:a :b]})
+          rdb  (runtime-db-with {k e})
+          proj (rf/with-frame frame-id (ssr/project-resources-runtime-db rdb))
+          m    (rf/with-frame frame-id
+                 (first (ssr/projection-metadata
+                          frame-id 5000
+                          (get-in rdb [state/resources-key :entries]))))
+          wk   (:projected-key m)]
+      (is (= :redacted (:disposition m))
+          "the owner-:sensitive? entry is classified by its own coarse claim")
+      (is (true? (:withheld? m)))
+      (is (empty? (get-in proj [state/resources-key :entries]))
+          (str "and its row does not ride at all: " (pr-str proj)))
       (is (= :t/secret-feed (nth wk 1)) "the resource-id rides at position 1")
-      (is (contains? (nth wk 0) :rf/redacted) "the scope is redacted in the wire key")
-      (is (contains? (nth wk 2) :rf/redacted) "the params are redacted in the wire key")
+      (is (contains? (nth wk 0) :rf/redacted) "the scope is tokenized in the key")
+      (is (contains? (nth wk 2) :rf/redacted) "the params are tokenized in the key")
       (is (not (str/includes? (pr-str proj) "jake"))
           "the raw viewer identity does not ride on the wire"))))

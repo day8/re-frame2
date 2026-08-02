@@ -187,42 +187,75 @@
   (let [we (val (first (get-in proj [state/resources-key :entries])))]
     [(:resource/key we) we]))
 
-(deftest sensitive-resource-is-redacted
+(defn- only-projection-metadata
+  "The single per-entry projection metadata map for a one-entry runtime-db,
+  against the same fixed clock the other metadata tests read (5000).
+
+  rf2-4bjep — this is the observation point for an entry whose ROW is withheld.
+  A coarse `:redact` / `:omit` entry is re-keyed on both components, so like a
+  per-slot-declared `:serialize` entry it is not addressable by the key the live
+  client derives and its row does not ride at all. The projection decision is
+  still fully observable — `:disposition` says why, `:projected-key` says what
+  it projected to, `:withheld?` says the row did not ride — which is what keeps
+  the SSR and trace-egress derivations of one answer comparable (rf2-5e2ye,
+  rf2-dl7bz) now that the wire entry is no longer a carrier."
+  [runtime-db]
+  (first (ssr/projection-metadata
+           nil 5000 (get-in runtime-db [state/resources-key :entries]))))
+
+(deftest sensitive-resource-row-is-withheld-not-shipped-redacted
   (reg! :secret/thing {:sensitive? true})
-  (testing "a :sensitive? resource ships METADATA ONLY — data redacted, refresh-error dropped"
+  (testing "rf2-4bjep — a `:sensitive?` resource's row does not ride AT ALL. Its
+            key is re-keyed on both components, so no live client can address
+            it, and an emptied row would be an ownerless duplicate nothing
+            collects. The projection decision stays fully observable on the
+            metadata"
     (let [k   (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
           e   (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}
                       :loaded-at 1000 :stale-at 9.0e15
                       :refresh-error {:kind :rf.http/http-5xx}})
-          proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
-          [wk we] (only-wire-entry proj)]
-      (is (not= {:ssn "123-45-6789"} (:data we))
-          "the sensitive data must NOT ride verbatim")
-      (is (nil? (:refresh-error we))
-          "refresh-error is the same privacy class as data — dropped on a redacted entry")
-      (is (= :loaded (:status we)) "metadata (status / timestamps) still rides")
-      (testing "rf2-otms75 — the scoped KEY's scope + params are redacted too"
+          rdb (runtime-db-with {k e})
+          proj (ssr/project-resources-runtime-db rdb)
+          m    (only-projection-metadata rdb)
+          wk   (:projected-key m)]
+      (is (empty? (get-in proj [state/resources-key :entries]))
+          (str "no row rides — stated as absence of the ROW, not of its data: "
+               (pr-str proj)))
+      (is (not (str/includes? (pr-str proj) "123-45-6789"))
+          "so the sensitive data cannot ride, verbatim or otherwise")
+      (is (= :redacted (:disposition m)) "the metadata still names WHY")
+      (is (true? (:withheld? m)))
+      (is (true? (:refetch-on-client? m)) "and admits the client must fetch it")
+      (is (= :loaded (:status m)) "metadata (status / timestamps) is still reported")
+      (testing "rf2-otms75 — the projected KEY's scope + params are redacted"
         (is (= :secret/thing (nth wk 1)) "the resource-id rides verbatim (position 1, never sensitive)")
         (is (contains? (nth wk 0) :rf/redacted)
-            "the scope is redacted in the wire key (a redaction token, not the raw scope)")
-        (is (not= :rf.scope/global (nth wk 0)) "the raw scope does not ride in the key")
+            "the scope is a redaction token, not the raw scope")
+        (is (not= :rf.scope/global (nth wk 0)) "the raw scope does not ride")
         (is (map? (nth wk 2)) "the params component is a redaction token, not raw")
-        (is (contains? (nth wk 2) :rf/redacted) "the params are redacted in the wire key")
-        (is (not= {:slug "s"} (nth wk 2)) "the raw sensitive params do NOT ride in the key")))))
+        (is (contains? (nth wk 2) :rf/redacted))
+        (is (not= {:slug "s"} (nth wk 2)) "the raw sensitive params do NOT ride")))))
 
-(deftest large-resource-is-omitted
+(deftest large-resource-row-is-withheld-not-shipped-omitted
   (reg! :big/thing {:large? true})
-  (testing "a :large? resource ships metadata only — the :data key is dropped"
+  (testing "rf2-4bjep — the same for a `:large?` resource. The two coarse arms
+            differ in what they do to the data and not at all in what they do to
+            the key, so withholding reaches both"
     (let [k   (state/scoped-resource-key :rf.scope/global :big/thing {:slug "b"})
           e   (entry {:resource-id :big/thing :data (vec (range 10000))
                       :loaded-at 1000 :stale-at 9.0e15})
-          proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
-          [wk we] (only-wire-entry proj)]
-      (is (not (contains? we :data)) "the large data key is omitted entirely")
-      (is (= :loaded (:status we)))
+          rdb (runtime-db-with {k e})
+          proj (ssr/project-resources-runtime-db rdb)
+          m    (only-projection-metadata rdb)
+          wk   (:projected-key m)]
+      (is (empty? (get-in proj [state/resources-key :entries]))
+          (str "no row rides, so the large payload cannot: " (pr-str proj)))
+      (is (= :omitted (:disposition m)))
+      (is (true? (:withheld? m)))
+      (is (true? (:refetch-on-client? m)))
       (testing "rf2-otms75 — the large resource's scope + params are redacted in the key"
         (is (= :big/thing (nth wk 1)))
-        (is (contains? (nth wk 2) :rf/redacted) "the (large) params do not ride raw in the key")
+        (is (contains? (nth wk 2) :rf/redacted) "the (large) params do not ride raw")
         (is (not= {:slug "b"} (nth wk 2)))))))
 
 (deftest projection-metadata-records-decisions
@@ -270,9 +303,15 @@
 ;;
 ;; A :sensitive? / :large? resource's scope + params must NOT ride RAW in the
 ;; projected map KEY (Spec 016 clause 4: params, scopes, and data carry the
-;; same classification). They are projected to opaque content-addressed
+;; same classification). They are projected to content-addressed
 ;; {:rf/redacted <digest>} tokens — distinct values stay distinct, the raw
-;; identity never rides, and the resource-id (position 1) is preserved.
+;; identity does not ride, and the resource-id (position 1) is preserved.
+;;
+;; rf2-4bjep — the coarse arms' rows no longer RIDE at all (§1), so these
+;; claims are now read off `projection-metadata`'s `:projected-key`, which is
+;; the one observation point for the projection's answer whether or not a row
+;; ships. They are not weaker for it: `:projected-key` is byte-identical to what
+;; used to ride, and the row's absence is asserted here too.
 
 (deftest serialize-resource-key-rides-verbatim
   (reg! :article/by-slug)
@@ -290,40 +329,56 @@
     (let [scope [:rf.scope/session {:user "alice@example.com" :tenant "acme"}]
           k    (state/scoped-resource-key scope :secret/thing {:account-id "secret-42"})
           e    (entry {:resource-id :secret/thing :data {:ssn "x"} :loaded-at 1000 :stale-at 9.0e15})
-          [wk _] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+          rdb  (runtime-db-with {k e})
+          wk   (:projected-key (only-projection-metadata rdb))]
       (is (= :secret/thing (nth wk 1)) "resource-id preserved")
       (is (contains? (nth wk 0) :rf/redacted) "scope redacted")
       (is (contains? (nth wk 2) :rf/redacted) "params redacted")
-      ;; the raw sensitive substrings must not appear anywhere in the wire key
+      ;; the raw sensitive substrings must not appear anywhere in the key…
       (let [s (pr-str wk)]
         (is (not (str/includes? s "alice@example.com")) "no raw user in the key")
         (is (not (str/includes? s "acme")) "no raw tenant in the key")
-        (is (not (str/includes? s "secret-42")) "no raw param in the key")))))
+        (is (not (str/includes? s "secret-42")) "no raw param in the key"))
+      ;; …nor anywhere on the wire, which now carries no row for this entry at
+      ;; all. rf2-4bjep: a 32-bit digest of a low-entropy identity is
+      ;; enumerable, so the TOKEN was itself a small egress of what the coarse
+      ;; claim asked to hide, and withholding removes its last carrier.
+      (let [s (pr-str (ssr/project-resources-runtime-db rdb))]
+        (is (not (str/includes? s "alice@example.com")))
+        (is (not (str/includes? s "acme")))
+        (is (not (str/includes? s "secret-42")))
+        (is (not (str/includes? s "rf/redacted"))
+            (str "and no digest rides either — the row is absent: " s))))))
 
 (deftest redacted-keys-stay-distinct-no-collision
   (reg! :secret/thing {:sensitive? true})
   (testing "ADVERSARIAL: two distinct sensitive entries (same scope+resource,
-            DIFFERENT params) project to DISTINCT wire keys — the redaction
-            never collapses them into one (no lost entry; rf2-otms75)"
+            DIFFERENT params) project to DISTINCT keys — the redaction does not
+            collapse them into one (no lost entry; rf2-otms75). rf2-4bjep: read
+            off the projection metadata, since neither row rides"
     (let [k1 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "alpha"})
           k2 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "beta"})
           e1 (entry {:resource-id :secret/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
           e2 (entry {:resource-id :secret/thing :data {:s 2} :loaded-at 1000 :stale-at 9.0e15})
-          proj (ssr/project-resources-runtime-db (runtime-db-with {k1 e1 k2 e2}))
-          ;; rf2-9e0tyq — the wire MAP is byte-keyed (distinct byte ids prove no
-          ;; collision); the projected (redacted) scoped keys live as each wire
-          ;; entry's `:resource/key`.
-          wire-entries (vals (get-in proj [state/resources-key :entries]))
-          wks  (set (map :resource/key wire-entries))]
-      (is (= 2 (count (set (keys (get-in proj [state/resources-key :entries])))))
-          "two distinct entries → two distinct byte wire keys (no collision)")
+          rdb  (runtime-db-with {k1 e1 k2 e2})
+          metas (ssr/projection-metadata
+                  nil 5000 (get-in rdb [state/resources-key :entries]))
+          wks   (set (map :projected-key metas))]
+      (is (= 2 (count metas)) "premise: the metadata still accounts for both entries")
       (is (= 2 (count wks)) "two distinct projected (redacted) scoped keys (no collision)")
+      (is (= 2 (count (set (map (comp state/key-id :projected-key) metas))))
+          "…and two distinct BYTE identities, which is the form the collapse
+           would have taken")
       (is (every? (fn [wk] (= :secret/thing (nth wk 1))) wks)
           "both projected keys preserve the resource-id")
       (is (every? (fn [wk] (and (contains? (nth wk 2) :rf/redacted)
                                 (not= {:slug "alpha"} (nth wk 2))
                                 (not= {:slug "beta"} (nth wk 2)))) wks)
-          "neither projected key carries the raw params"))))
+          "neither projected key carries the raw params")
+      (is (empty? (get-in (ssr/project-resources-runtime-db rdb)
+                          [state/resources-key :entries]))
+          "and neither row rides — distinctness is a property of the projection,
+           which the trace / tool egress boundaries still consume"))))
 
 (deftest project-scoped-key-is-pure
   (testing "project-scoped-key: :serialize rides verbatim; :redact/:omit redact
@@ -340,6 +395,72 @@
         (is (= r1 (ssr/project-scoped-key k1 :redact nil)) "deterministic (same input → same digest)")
         (is (= (ssr/project-scoped-key k1 :redact nil) (ssr/project-scoped-key k1 :omit nil))
             ":redact and :omit redact the key identically (both metadata-only)")))))
+
+;; ---- the tokenizer is byte-identical across hosts (rf2-4bjep) --------------
+;;
+;; `redact-value`'s digest was called "cross-process-stable" and was not: the
+;; JVM branch hashed UTF-8 bytes with exact integer arithmetic, while the CLJS
+;; branch hashed UTF-16 CODE UNITS masked to their low byte, multiplied 32-bit
+;; states with a double `*` whose product exceeds 2^53, and emitted a SIGNED
+;; result. The two agreed on NO input — `"tenant"` was `f93325e5` on the server
+;; and `74e22aec` in the browser — and roughly half of all inputs rendered as a
+;; negative 9-character hex, which is not the shape the function documents.
+;;
+;; This fixture is what makes the claim testable rather than asserted. It is a
+;; `.cljc` deftest with LITERAL expected digests, so the JVM run and the
+;; `:node-test` run each check the same constants: a divergence reds on one host
+;; and not the other, and a shared regression reds on both. The cases are the
+;; three places the two encodings can part company — pure ASCII (where only the
+;; arithmetic can differ), a 2-byte non-ASCII code point (where UTF-8 and UTF-16
+;; disagree), and a SURROGATE PAIR (where a per-code-unit walk splits one code
+;; point in half). The non-ASCII strings are built from `char` code points rather
+;; than written as literals, so the fixture cannot be silently changed by a
+;; re-encoding of this file.
+
+(def ^:private cafe-str (str "caf" (char 0xe9)))                      ;; "café"
+(def ^:private emoji-str (str "a" (char 0xd83d) (char 0xde00) "b"))   ;; "a<U+1F600>b"
+
+(deftest the-redaction-digest-is-byte-identical-across-clj-and-cljs
+  (testing "rf2-4bjep — `redact-value`'s digest is a fixed function of the
+            canonical value on EVERY host. The expected digests are literals
+            checked by both runs of this `.cljc`, which is the only shape of
+            assertion that can catch one host drifting from the other"
+    (is (= {:rf/redacted "f93325e5"} (ssr/redact-value "tenant"))
+        "ASCII: the case the two branches disagreed on even though their bytes
+         were identical — the double multiply lost the low bits")
+    (is (= {:rf/redacted "ffcaaa85"} (ssr/redact-value ""))
+        "the empty string still hashes (it is not the nil/empty-COLLECTION case)")
+    (is (= {:rf/redacted "d1ace591"} (ssr/redact-value cafe-str))
+        "non-ASCII: one code point, two UTF-8 bytes, one UTF-16 code unit")
+    (is (= {:rf/redacted "215644f1"} (ssr/redact-value emoji-str))
+        "a SURROGATE PAIR: one code point, four UTF-8 bytes, TWO UTF-16 code
+         units — the case a per-code-unit walk cannot get right")
+    (is (= {:rf/redacted "a94ffb07"} (ssr/redact-value {:tenant-id cafe-str}))
+        "and the same through a whole scope map, which is how it is really used")
+    (is (= {:rf/redacted nil} (ssr/redact-value nil))
+        "nil / empty projects to the stable no-digest token")
+    (is (= {:rf/redacted nil} (ssr/redact-value {})))))
+
+(deftest the-redaction-digest-has-the-shape-it-documents
+  (testing "rf2-4bjep — 8 lower-case hex characters, always. The CLJS branch's
+            `bit-and` yielded a SIGNED int32, so about half of all inputs came
+            out as a NEGATIVE 9-character string with a leading `-`. Stated over
+            a spread wide enough to hit the negative half rather than over one
+            lucky value"
+    (let [digests (into []
+                        (map (fn [i] (:rf/redacted (ssr/redact-value {:n i :s (str "id-" i)}))))
+                        (range 256))]
+      (is (every? (fn [d] (and (string? d)
+                               (= 8 (count d))
+                               (re-matches #"[0-9a-f]{8}" d)))
+                  digests)
+          (str "every digest is 8 lower-case hex chars — "
+               (pr-str (remove (fn [d] (re-matches #"[0-9a-f]{8}" d)) digests))))
+      (is (some (fn [d] (>= (compare d "80000000") 0)) digests)
+          "…and the spread reaches the high half, so the signed-int32 defect
+           would have been in range rather than merely unlucky to miss")
+      (is (= 256 (count (set digests)))
+          "and the 256 distinct values keep 256 distinct digests"))))
 
 ;; ===========================================================================
 ;; 2. SERVER blocking drain + timeout
@@ -1009,33 +1130,59 @@
           "REDACTED (sentinel) → metadata-only refetch (NOT misclassified as fresh)")
       (is (= :no-data       (:reason (plan kd))) "OMITTED (no data key) → no-data refetch"))))
 
-(deftest project-then-hydrate-roundtrip-sensitive-refetches
+(deftest project-then-hydrate-roundtrip-sensitive-installs-no-row
   (reg! :secret/thing {:sensitive? true})
-  (testing "END-TO-END: a fresh :sensitive? entry PROJECTS to the redaction
-            sentinel, then on HYDRATION is classified metadata-only and
-            refetches — never rendered as if the sentinel were the real value
-            (rf2-fopuj9)"
+  (testing "END-TO-END, restated for a contract that WITHHOLDS (rf2-4bjep). The
+            defect rf2-fopuj9 closed was a redacted entry being read as
+            fresh-with-data and never refetched; the answer then was to classify
+            it `:metadata-only` and PLAN it. But the plan named the entry by its
+            projected key — an identity the route slice cannot resolve — and the
+            row it planned was an ownerless duplicate nothing collects. Both
+            halves go away together: the row does not ride, so there is nothing
+            to misclassify and nothing to plan, and the client issues the one
+            load it derives from the raw key"
     (let [k    (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
           ;; a FRESH sensitive entry on the server (stale-at far ahead)
           e    (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}
                        :loaded-at 1000 :stale-at 9.0e15})
-          ;; SERVER projection redacts the data to the sentinel AND the key
-          ;; (rf2-otms75) — look the wire entry up by the PROJECTED key.
-          proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
-          [wk we] (only-wire-entry proj)]
-      (is (= privacy/redacted-sentinel (:data we))
-          "projection redacts the sensitive data to the sentinel")
-      (is (not= {:slug "s"} (nth wk 2)) "the sensitive params do not ride raw in the wire key (rf2-otms75)")
+          rdb  (runtime-db-with {k e})
+          proj (ssr/project-resources-runtime-db rdb)
+          m    (only-projection-metadata rdb)
+          wk   (:projected-key m)]
+      (is (empty? (get-in proj [state/resources-key :entries]))
+          (str "the row does not ride: " (pr-str proj)))
+      (is (not= {:slug "s"} (nth wk 2)) "the sensitive params do not ride raw (rf2-otms75)")
       (is (= :secret/thing (nth wk 1)) "the resource-id is preserved for refetch identity")
-      ;; CLIENT hydration over the projected slice (a coherent runtime-db)
-      (let [installed {state/resources-key {:entries {wk we}}}
-            plan      (->> (ssr/hydrate-refetch-plan installed 5000)
-                           (into {} (map (juxt :resource/key identity))))]
-        (is (contains? plan wk)
-            "the redacted (fresh-on-server) entry IS in the refetch plan — the sentinel is not usable data")
-        (is (= :metadata-only (:reason (plan wk))))
-        (is (= :secret/thing (:resource-id (plan wk)))
-            "the refetch plan still names the resource-id from the (redacted) key — enough to reconcile/refetch")))))
+      (is (true? (:refetch-on-client? m))
+          "and the server's own metadata still says the client must fetch it —
+           the fact rf2-fopuj9 was about is reported, not lost")
+      ;; CLIENT hydration over what actually ships.
+      (let [out  (ssr/hydrate-runtime-db proj nil)
+            plan (ssr/hydrate-refetch-plan proj 5000)]
+        (is (empty? (get-in out [state/resources-key :entries]))
+            "the client's cache holds no row for it — so the sentinel can never
+             be rendered as if it were the real value")
+        (is (empty? plan)
+            (str "and the plan names nothing: a plan entry is consumed by its "
+                 ":resource/key, and there is no key here the client has — "
+                 (pr-str plan)))))))
+
+(deftest a-redacted-entry-reaching-the-planner-by-any-other-route-is-still-metadata-only
+  (reg! :secret/thing {:sensitive? true})
+  (testing "rf2-fopuj9's classification contract is UNCHANGED by the withholding
+            — this is the control that stops the test above passing because the
+            planner has quietly stopped distinguishing a sentinel from data. A
+            sentinel-bearing entry under an ADDRESSABLE key (a restore snapshot,
+            a host-assembled slice) is still `:metadata-only`, never fresh"
+    (let [k (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "s"})
+          e (entry {:resource-id :article/by-slug :data privacy/redacted-sentinel
+                    :loaded-at 1000 :stale-at 9.0e15 :status :loaded})
+          plan (ssr/hydrate-refetch-plan (runtime-db-with {k e}) 5000)]
+      (is (= 1 (count plan)) "premise: the addressable row IS planned")
+      (is (= :metadata-only (:reason (first plan)))
+          "the sentinel is metadata-only, not fresh usable data")
+      (is (= k (:resource/key (first plan)))
+          "and it is named by the key the client derives"))))
 
 ;; ===========================================================================
 ;; 5. SCOPE isolation
