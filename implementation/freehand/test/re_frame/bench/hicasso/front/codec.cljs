@@ -320,7 +320,8 @@
     (let [n (name k)]
       (if (reserved-name? n)
         (prop-name k)
-        (.-js-name (prop-slot k n))))))
+        (let [^PropSlot s (prop-slot k n)]
+          (.-js-name s))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical structural-slot filter (rf2-2rtt6.36)
