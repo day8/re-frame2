@@ -37,17 +37,26 @@
   page, and nothing after the shell that is not the widget's own
   roster.
 
-  ## One honest limit, found rather than smoothed
+  ## The gap this suite found, and the half only the door can witness
 
-  A child handed to `h/presence` is lowered inside the presence
-  component's OWN render, where no ambient frame is bound — presence
-  binds none — so an intent-bearing prop on ANY presence child (native
-  or host alike) lowers against no dispatch: a vector refuses at render,
-  a declared-`:event` `h/fn` refuses loudly at invocation. Loud, never
-  silent, but dead. The presence rows below therefore drive the host
-  child through model changes and prove state/retention/override
-  crossing; the gap is filed as rf2-2rtt6.66 rather than smoothed here,
-  because it is presence's frame plumbing, not the door's.
+  Proving the crossing turned up a defect one component along: a child
+  handed to `h/presence` is lowered inside the presence component's OWN
+  render, and presence bound no frame there — so an intent-bearing prop
+  on ANY presence child, native or host alike, lowered against no
+  dispatch. Filed as rf2-2rtt6.66 rather than smoothed here, because it
+  was presence's frame plumbing and not the door's; repaired on main
+  (presence resolves the frame through the substrate's context and binds
+  it around its one `as-element` call), and `h/boundary` since took the
+  identical repair for its fallback and children (rf2-uo9di).
+
+  That repair could not witness its own host half — the door was still
+  in flight — and its bead says so, naming this suite's then-fenced
+  presence children as what it un-fences. So the fence is lifted below
+  and both shapes are driven through the door from the RETAINED window:
+  an intent vector, which lowers during presence's render, and a
+  declared-`:event` `h/fn`, which fails a whole phase later at
+  invocation. Two shapes that break at different moments is exactly why
+  witnessing one is not witnessing the other.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every DOM claim degrades to a stated
@@ -247,17 +256,34 @@
   [picker {:label (rt/sub [:hatch/label])}])
 
 (defview tray
-  "The host under presence. No callback props here, deliberately — see
-  the ns docstring's honest limit: presence lowers its children with no
-  ambient frame, so intent-bearing props on any presence child are a
-  filed gap, not this witness's subject."
+  "The host under presence, WITH callbacks — the fence rf2-2rtt6.66's
+  repair lifted. Both shapes, because they break a phase apart: the
+  vector at `:on-close` is lowered during presence's own render, and the
+  `h/fn` at `:on-pick` survives lowering and would fail at invocation."
   [_]
   [presence {:timeout-ms timeout-ms}
    (for [w (rt/sub [:hatch/widgets])]
-     ;; no callback props on a presence child — rf2-2rtt6.66
-     [picker {:key   (:id w)
-              :label (:name w)
+     [picker {:key      (:id w)
+              :label    (:name w)
+              :value    (:name w)
+              :on-pick  (hfn [city e] [:hatch/picked city (.-type e)])
+              :on-close [:hatch/closed]
               :re-frame.hicasso/unmounting {:class "widget--exit"}}])])
+
+(defview hosted-row
+  "A host inside an ordinary boundary — which since rf2-2rtt6.52/HD-028
+  is a memoised one, every boundary being a `React.memo` carrying a
+  value-equality comparator."
+  [{:keys [label]}]
+  [picker {:label label :on-imperative stable-imperative}])
+
+(defview chrome-page
+  "Page chrome reads a key; the row below it reads nothing and takes
+  value-equal props. The write moves the chrome only."
+  [_]
+  [:div
+   [:span.chrome (str (rt/sub [:hatch/label]))]
+   [hosted-row {:label "fixed"}]])
 
 (defview memo-page
   [_]
@@ -635,12 +661,30 @@
           (is (= "1" (attr handle ".widget" "data-clicks"))
               "React-owned state survived entering the exit phase")
           (is (= 1 (:mounts @!instr)))
+          (testing "AND THE RETAINED HOST IS STILL LIVE — the half
+                    rf2-2rtt6.66's repair could not witness for itself,
+                    because the door was in flight when it landed. A
+                    declared :event h/fn on a child being animated OUT
+                    dispatches into the tray's frame: presence lowered this
+                    host's props inside its own render, and the frame it
+                    bound there is what the callback closed over"
+            (click! handle ".widget-pick")
+            (is (= [["one" "click"] ["one" "click"]] (:picked (db)))
+                "the retained host's callback reached the frame — a toast
+                 mid-exit is still clickable, which is the whole pitch"))
+          (testing "and the OTHER shape, which breaks a phase earlier: an
+                    intent VECTOR is lowered during presence's render, so it
+                    would have refused before any click could happen"
+            (click! handle ".widget-close")
+            (is (= 1 (:closed (db)))))
           (mount/dispatch! handle [:hatch/set :widgets [{:id 1 :name "one"}]])
           (is (not (.contains (.-classList (q handle ".widget")) "widget--exit"))
               "re-entry cancelled the exit and took the override off")
-          (is (= "1" (attr handle ".widget" "data-clicks"))
-              "and the state survived the WHOLE transition — retained key
-               identity means the fiber never remounted")
+          (is (= "2" (attr handle ".widget" "data-clicks"))
+              "and the state survived the WHOLE transition — one click before
+               it, one DURING the retained window, both still counted after
+               re-entry. Retained key identity means the fiber never
+               remounted, so the library's own state was never reset")
           (is (= 1 (:mounts @!instr)))
           ;; and a real departure is a real unmount, on the clock
           (mount/dispatch! handle [:hatch/set :widgets []])
@@ -685,6 +729,40 @@
 ;; 9 — React.memo at the door: what holds, and the honest cost
 ;; ---------------------------------------------------------------------------
 
+(deftest a-page-write-does-not-re-render-a-host-under-an-unchanged-boundary
+  (testing "the composition hazard, now that HD-028 ships: a hosted foreign
+            component sitting inside a memoised boundary. A write that moves
+            only the page chrome re-renders the chrome and stops at the row —
+            so the third-party component is not re-rendered AT ALL, and the
+            door did not have to know that. The cascade claim rf2-2rtt6.52
+            repaired, extended to foreign components, which are exactly the
+            ones whose render cost nobody controls."
+    (async done
+      (if-not (mount/browser?)
+        (do (skip! ":node-test has no DOM") (done))
+        (do
+          (instr!)
+          (fresh!)
+          (let [handle (mount/root! (mount/fresh-container!) frame-id
+                                    [chrome-page {}])]
+            (-> (settled!)
+                (.then
+                  (fn [_]
+                    (try
+                      (let [before (:renders @!instr)]
+                        (is (pos? before) "the host mounted")
+                        (mount/dispatch! handle [:hatch/set :label "chrome moved"])
+                        (is (= "chrome moved" (.-textContent (q handle ".chrome")))
+                            "the page chrome really re-rendered")
+                        (is (= before (:renders @!instr))
+                            "and the hosted component did not render again —
+                             the boundary above it bailed out on value-equal
+                             props, so the crossing was never re-run")
+                        (is (= 1 (:mounts @!instr))
+                            "nor was it remounted"))
+                      (finally (mount/release! handle) (done)))))
+                (.catch (fn [e] (is false (str e)) (done))))))))))
+
 (deftest a-memoised-hosted-component-and-the-doors-honest-cost
   (async done
     (if-not (mount/browser?)
@@ -725,10 +803,10 @@
                               closure per parent render, so it defeats a
                               memoised host — the same price every native
                               event position pays. (The boundary-level
-                              value-equality bail-out in flight on
-                              rf2-2rtt6.52 sits ABOVE this seam and stops the
+                              value-equality bail-out now SHIPS as HD-028,
+                              and it sits ABOVE this seam: it stops the
                               equal-props parent re-render before the door is
-                              reached at all.)"
+                              reached at all, which is the row below.)"
                       (let [before (:renders @!instr)]
                         (mount/dispatch! @handle [:hatch/set :label "moved-again"])
                         (is (= "moved-again" (.-textContent (q @handle ".mlabel"))))
