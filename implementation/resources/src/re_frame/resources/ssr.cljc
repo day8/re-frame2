@@ -178,33 +178,115 @@
 ;; does NOT need its original raw scope/params to refetch — it only needs (a)
 ;; the resource-id (position 1, never sensitive) so the refetch plan can name
 ;; it, and (b) a DISTINCT key so the index recompute does not collapse two
-;; entries. We therefore project the sensitive/large scope + params to an
-;; OPAQUE, content-addressed DIGEST: distinct values stay distinct (no
-;; collision / lost entry), the raw identity never rides, and the digest is
-;; deliberately one-way (refetch is route-driven, not key-driven).
+;; entries. We therefore project the sensitive/large scope + params to a
+;; content-addressed DIGEST: distinct values almost always stay distinct (no
+;; collision / lost entry) and the raw identity does not ride.
+;;
+;; What the digest is NOT (rf2-4bjep). It is a 32-bit NON-CRYPTOGRAPHIC hash,
+;; so it is neither injective nor one-way: FNV-1a-32 reaches birthday
+;; collisions at roughly 2^16 distinct identities, and a low-entropy identity
+;; (a tenant slug, an account id) is BRUTE-FORCEABLE from its digest in
+;; milliseconds. "Distinct values stay distinct" is a cache-hygiene property
+;; that holds overwhelmingly in practice, NOT a security guarantee, and the
+;; token is opaque only in the sense that the raw bytes are absent. Nothing may
+;; therefore treat it as a principal-safe identity — which is exactly why the
+;; coarse rows are WITHHELD from the wire rather than made addressable by it
+;; (see `unaddressable-wire-key?`), and it is why the digest no longer egresses
+;; from an SSR render at all.
 
 (def ^:private fnv-offset-basis 2166136261)
 (def ^:private fnv-prime 16777619)
 
+#?(:cljs
+   (defn- utf8-bytes
+     "UTF-8 encode the string `s` to a JS array of byte values, byte-identical to
+     the JVM's `(.getBytes s \"UTF-8\")`. A JS string is a sequence of UTF-16
+     CODE UNITS, so this is not a per-character walk: a surrogate PAIR is one
+     code point and encodes as four bytes, and an UNPAIRED surrogate encodes as
+     `?` (0x3f) — which is what `String.getBytes` does with a malformed input,
+     verified against the JVM rather than assumed. Pure."
+     [s]
+     (let [out #js []
+           n   (.-length s)]
+       (loop [i 0]
+         (if (>= i n)
+           out
+           (let [c (.charCodeAt s i)]
+             (cond
+               ;; a HIGH surrogate: one code point if a low surrogate follows.
+               (and (>= c 0xd800) (<= c 0xdbff))
+               (let [c2 (when (< (inc i) n) (.charCodeAt s (inc i)))]
+                 (if (and c2 (>= c2 0xdc00) (<= c2 0xdfff))
+                   (let [cp (+ 0x10000
+                               (bit-shift-left (- c 0xd800) 10)
+                               (- c2 0xdc00))]
+                     (doto out
+                       (.push (bit-or 0xf0 (bit-shift-right cp 18)))
+                       (.push (bit-or 0x80 (bit-and (bit-shift-right cp 12) 0x3f)))
+                       (.push (bit-or 0x80 (bit-and (bit-shift-right cp 6) 0x3f)))
+                       (.push (bit-or 0x80 (bit-and cp 0x3f))))
+                     (recur (+ i 2)))
+                   (do (.push out 0x3f) (recur (inc i)))))
+
+               ;; an unpaired LOW surrogate.
+               (and (>= c 0xdc00) (<= c 0xdfff))
+               (do (.push out 0x3f) (recur (inc i)))
+
+               (< c 0x80)
+               (do (.push out c) (recur (inc i)))
+
+               (< c 0x800)
+               (do (doto out
+                     (.push (bit-or 0xc0 (bit-shift-right c 6)))
+                     (.push (bit-or 0x80 (bit-and c 0x3f))))
+                   (recur (inc i)))
+
+               :else
+               (do (doto out
+                     (.push (bit-or 0xe0 (bit-shift-right c 12)))
+                     (.push (bit-or 0x80 (bit-and (bit-shift-right c 6) 0x3f)))
+                     (.push (bit-or 0x80 (bit-and c 0x3f))))
+                   (recur (inc i))))))))))
+
 (defn- fnv-1a-32
-  "A deterministic, cross-process-stable 32-bit FNV-1a hash of `s` (a string),
-  returned as an 8-char lower-case hex. Used to content-address a redacted
-  scope / params value so distinct keys stay distinct on the wire without the
-  raw value riding. Self-contained (no dep on the SSR artefact's hash)."
+  "The 32-bit FNV-1a hash of `s` (a string) as an 8-char lower-case hex.
+  Content-addresses a redacted scope / params value so distinct keys stay
+  distinct without the raw value riding. Self-contained (no dep on the SSR
+  artefact's hash).
+
+  BYTE-IDENTICAL ACROSS CLJ AND CLJS, which it was not (rf2-4bjep). Both
+  branches were nominally FNV-1a-32 and neither agreed with the other on any
+  input, because a 32-bit hash cannot be written in portable Clojure by
+  accident:
+
+    - the INPUT must be UTF-8 BYTES. The JVM branch always took them; the CLJS
+      branch walked UTF-16 CODE UNITS and masked each to its low byte, so it
+      disagreed on every non-ASCII string AND — because masking discards the
+      high byte — mapped distinct code points onto one byte;
+    - the MULTIPLY must be a 32-bit wrapping multiply. `(* h fnv-prime)` in
+      CLJS is a DOUBLE multiply whose product exceeds 2^53 and silently loses
+      its low bits before `bit-and` can wrap it, which broke the avalanche as
+      well as the value. `Math.imul` is the wrapping multiply; the JVM branch's
+      long multiply + mask is already exact;
+    - the OUTPUT must be UNSIGNED. `bit-and` in CLJS yields a SIGNED int32, so
+      roughly half of all inputs rendered as a NEGATIVE 9-character hex with a
+      leading `-`, which is not the shape this function documents.
+
+  The two branches are pinned equal by a shared fixture (ASCII, non-ASCII, a
+  surrogate pair, and an unpaired surrogate) in `resources-ssr-cljs-test`. Pure."
   [^String s]
-  (let [bytes #?(:clj (.getBytes s "UTF-8") :cljs s)
+  (let [bytes #?(:clj (.getBytes s "UTF-8") :cljs (utf8-bytes s))
         n     #?(:clj (alength ^bytes bytes) :cljs (.-length bytes))]
     (loop [i 0
            h fnv-offset-basis]
       (if (< i n)
-        (let [b #?(:clj (bit-and (aget ^bytes bytes i) 0xff)
-                   :cljs (bit-and (.charCodeAt bytes i) 0xff))
-              h' (-> (bit-xor h b)
-                     (* fnv-prime)
-                     (bit-and 0xffffffff))]
+        (let [b  #?(:clj (bit-and (aget ^bytes bytes i) 0xff)
+                    :cljs (aget bytes i))
+              h' #?(:clj  (-> (bit-xor h b) (* fnv-prime) (bit-and 0xffffffff))
+                    :cljs (js/Math.imul (bit-xor h b) fnv-prime))]
           (recur (inc i) h'))
         #?(:clj  (format "%08x" (bit-and h 0xffffffff))
-           :cljs (let [hx (.toString (bit-and h 0xffffffff) 16)]
+           :cljs (let [hx (.toString (unsigned-bit-shift-right h 0) 16)]
                    (str (subs "00000000" 0 (max 0 (- 8 (count hx)))) hx)))))))
 
 (defn redact-value
@@ -213,11 +295,19 @@
   <digest>}` token whose digest content-addresses the canonical value (Spec
   016 clause 4 / rf2-otms75). Distinct values get distinct digests (so a
   projected key / cursor stays unique — the index recompute never collapses
-  two entries, and a tool's per-page joins survive), the raw value never
-  rides, and the token is opaque (the client refetches route-driven, not from
-  this digest). A nil / empty value (the empty-scope / no-params case)
-  projects to a stable `{:rf/redacted nil}` — there is nothing sensitive to
-  hide.
+  two entries, and a tool's per-page joins survive) and the raw value does not
+  ride. A nil / empty value (the empty-scope / no-params case) projects to a
+  stable `{:rf/redacted nil}` — there is nothing sensitive to hide.
+
+  THE TOKEN IS NOT A PRINCIPAL-SAFE IDENTITY (rf2-4bjep). `fnv-1a-32` is a
+  32-bit non-cryptographic hash: distinctness is overwhelming but not
+  guaranteed (birthday collisions from roughly 2^16 identities), and a
+  low-entropy identity is recoverable from its digest by enumeration. So the
+  token may be used to KEEP APART values that are already on the same side of
+  a trust boundary, and never to decide that two values are the same principal
+  or to carry an identity across one. The SSR hydration wire consequently does
+  not ship it at all — a coarse row is withheld (`project-resources-runtime-db`)
+  rather than made addressable by its digest.
 
   Used both for a scoped key's scope / params components (`project-scoped-key`)
   and for the off-box trace-egress projection of the load-more cursor tag
@@ -250,32 +340,64 @@
 ;; row has no collector. Unreachable AND uncollectable leaves removal as the
 ;; only lifecycle it can have.
 ;;
-;; The COARSE `:redact` / `:omit` arm is deliberately NOT matched here. Its
-;; substitution is `redact-value`'s CONTENT-ADDRESSED `{:rf/redacted <digest>}`
-;; token: one-to-one, derivable in principle from the live value by the same
-;; pure function, and never a collision between two principals. Its rows are
-;; unchanged by this file, in shape and in count.
+;; ---- the COARSE arm reaches the same end by a different road (rf2-4bjep) ---
+;;
+;; rf2-rjq9d fenced the coarse `:redact` / `:omit` arm out, on the reasoning
+;; that its `{:rf/redacted <digest>}` token is content-addressed and therefore
+;; "one-to-one and derivable in principle" — so the coarse row had a repair the
+;; per-slot row provably did not: ADOPTION, the client re-deriving the digest
+;; from its own live scope + params. Every part of that turned out to be false,
+;; and the row is withheld for the same reason after all.
+;;
+;;   NOT DERIVABLE. `redact-value`'s two branches did not agree on ANY input.
+;;   The JVM hashed UTF-8 bytes with exact integer arithmetic; CLJS hashed
+;;   UTF-16 code units masked to their low byte and multiplied with a double
+;;   `*` past 2^53, emitting a SIGNED result. `"tenant"` was `f93325e5` on the
+;;   server and `74e22aec` in the browser. `fnv-1a-32` is now byte-identical
+;;   across the two — but that only removes an obstacle, it does not make
+;;   adoption safe.
+;;
+;;   NOT ONE-TO-ONE, AND NOT ONE-WAY. FNV-1a-32 is a 32-bit non-cryptographic
+;;   hash. Two principals CAN collide (birthday collisions from roughly 2^16
+;;   identities), so adopting by digest is the same cross-principal read the
+;;   per-slot arm was refused for — probabilistic rather than certain, which is
+;;   not a difference a privacy contract can rest on. And a low-entropy tenant
+;;   id is recoverable from its digest by enumeration, so shipping the token was
+;;   itself a small egress of the identity the coarse claim asked to hide.
+;;
+;;   AND THE PRIZE IS EMPTY. A coarse row is metadata-only BY CONSTRUCTION —
+;;   `:redact` replaces `:data` with the sentinel, `:omit` drops the key — so
+;;   `entry-needs-refetch?` is true of every one of them and the client loads
+;;   regardless. Adoption could not have suppressed a single request; it would
+;;   only have moved WHERE the refetch was planned from.
+;;
+;; So the coarse row is unreachable and uncollectable exactly as the per-slot
+;; one, it buys nothing, and it egresses an enumerable digest of an
+;; identity-bearing scope to every visitor of every page. It is withheld too,
+;; and `unaddressable-wire-key?` matches BOTH substitutions.
 
 (defn- coarse-redaction-token?
   "True iff `v` is the coarse CONTENT-ADDRESSED `{:rf/redacted <digest>}` token
   `redact-value` mints for a `:redact` / `:omit` resource's whole scope / params
-  component. Recognising it MATTERS: its map KEY is the `:rf/redacted` keyword,
-  which is also the per-slot constant sentinel, so a naive deep scan would read
-  every coarse key as per-slot-projected and delete rows this bead does not
-  touch. Pure."
+  component. Distinguished from the per-slot constant sentinel — they share the
+  `:rf/redacted` spelling and both make a key underivable, but only this one is
+  value-dependent, and the two are reported apart on the hydrate trace. Pure."
   [v]
   (and (map? v) (= #{:rf/redacted} (set (keys v)))))
 
-(defn- carries-constant-sentinel?
-  "Deep-scan `v` for a CONSTANT projection sentinel — `privacy/redacted-sentinel`
-  (`:rf/redacted`) or an `:rf.size/large-elided` marker map (`elision/marker?`).
-  The scan is deep because a declaration names a SLOT INSIDE a component: an
-  owner declaring `[[:scope :tenant-id]]` leaves `[:rf.scope/session {:tenant-id
-  :rf/redacted :region \"au\"}]`, with the sentinel nested two levels down.
+(defn- carries-projection-substitution?
+  "Deep-scan `v` for ANY projection substitution that makes a wire key
+  underivable by the live client — `privacy/redacted-sentinel` (`:rf/redacted`)
+  or an `:rf.size/large-elided` marker map (`elision/marker?`) from a per-slot
+  declaration, or a whole-component coarse `{:rf/redacted <digest>}` token.
 
-  Maps are scanned by VALUE only — a projection replaces values, never keys —
-  which is also what keeps `coarse-redaction-token?`'s `:rf/redacted` map key
-  from reading as a substitution. A coarse token short-circuits to false.
+  The scan is deep because a per-slot declaration names a SLOT INSIDE a
+  component: an owner declaring `[[:scope :tenant-id]]` leaves
+  `[:rf.scope/session {:tenant-id :rf/redacted :region \"au\"}]`, with the
+  sentinel nested two levels down. The coarse token, by contrast, replaces the
+  whole component and is matched at its own level BEFORE the map walk — its
+  `:rf/redacted` is a map KEY, and maps are otherwise scanned by VALUE only,
+  since a projection replaces values and never keys.
 
   Safe as a wire-shape test because `:rf/*` is a RESERVED namespace
   (`spec/Conventions.md`): an application value is never spelled `:rf/redacted`.
@@ -285,27 +407,28 @@
   (cond
     (= v privacy/redacted-sentinel) true
     (elision/marker? v)             true
-    (coarse-redaction-token? v)     false
-    (map? v)                        (boolean (some carries-constant-sentinel? (vals v)))
-    (coll? v)                       (boolean (some carries-constant-sentinel? v))
+    (coarse-redaction-token? v)     true
+    (map? v)                        (boolean (some carries-projection-substitution? (vals v)))
+    (coll? v)                       (boolean (some carries-projection-substitution? v))
     :else                           false))
 
 (defn- unaddressable-wire-key?
   "True iff `scoped-key` is a hydrated wire key the live client CANNOT derive:
-  its SCOPE (index 0) or PARAMS (index 2) carries a constant per-slot projection
-  sentinel. The resource-id at index 1 is never a classification carrier and is
-  not scanned.
+  its SCOPE (index 0) or PARAMS (index 2) carries a projection substitution —
+  a per-slot constant sentinel (rf2-rjq9d) or a coarse content-addressed token
+  (rf2-4bjep). The resource-id at index 1 is never a classification carrier and
+  is not scanned.
 
   This is the CLIENT's test. The server has an exact one — `project-entry`
   compares the projected `key-id` against the raw one — and does not need to
   sniff; the client has no raw key to compare against, so it reads the shape the
-  substitution left behind. The two agree by construction: the server re-keys
-  an entry precisely WHEN a constant sentinel was substituted into a component.
-  Pure."
+  substitution left behind. The two agree by construction: the server re-keys an
+  entry precisely WHEN a substitution replaced part of a component, and both
+  substitutions are spelled in the reserved `:rf/*` namespace. Pure."
   [scoped-key]
   (let [[scope _resource-id params] scoped-key]
-    (or (carries-constant-sentinel? scope)
-        (carries-constant-sentinel? params))))
+    (or (carries-projection-substitution? scope)
+        (carries-projection-substitution? params))))
 
 (defn project-scoped-key
   "Project a scoped resource KEY (`[scope resource-id params]`) to its wire
@@ -494,8 +617,22 @@
         ;; also disarms the many-to-one collapse: two entries that project to
         ;; one wire key now collapse to one row carrying NO data, so no
         ;; principal's data can ever ride under another's key.
-        key-projected? (and (= :serialize disposition)
-                            (not= (state/key-id projected-key) key-id))
+        ;;
+        ;; rf2-4bjep — this is the ONE exact addressability question, and it is
+        ;; asked of EVERY disposition rather than only `:serialize`: did the
+        ;; projection preserve the entry's identity? A coarse `:redact` /
+        ;; `:omit` key answers no just as a per-slot-declared `:serialize` key
+        ;; does — `project-scoped-key` replaces BOTH its components with
+        ;; content-addressed tokens — and its row is withheld for the same
+        ;; reason (see `unaddressable-wire-key?` for why the token's
+        ;; content-addressing does not buy the coarse arm an adoption path).
+        ;; Comparing key-ids is exact, so nothing here sniffs a shape.
+        key-derivable? (= (state/key-id projected-key) key-id)
+        ;; the `:serialize`-specific NAME for that answer, which drives the
+        ;; `:key-projected` disposition and the data decision below. It is
+        ;; narrower than `key-derivable?` on purpose: a coarse entry is already
+        ;; metadata-only by its own classification and must not be relabelled.
+        key-projected? (and (= :serialize disposition) (not key-derivable?))
         ;; metadata-only entries refetch on the client if a live route owner
         ;; needs them; serialized stale entries also refetch (background);
         ;; serialized fresh entries do NOT (no double-fetch).
@@ -610,6 +747,20 @@
                                                        :serialized)
                                           :redact    :redacted
                                           :omit      :omitted)
+                           ;; rf2-4bjep — did this entry's ROW ride? The
+                           ;; withholding decision, named on the metadata rather
+                           ;; than re-derived by the caller from `:disposition`,
+                           ;; because it is one fact with one owner: the exact
+                           ;; key-id comparison above. Two dispositions reach it
+                           ;; (`:key-projected` and both coarse arms), and a
+                           ;; caller enumerating those would have to be revisited
+                           ;; every time a projection learns to re-key. The
+                           ;; server's diagnostics still account for a withheld
+                           ;; entry in full — `:disposition` says why it could
+                           ;; not ride, `:projected-key` says what it projected
+                           ;; to, `:refetch-on-client?` says what the client will
+                           ;; do about it.
+                           :withheld? (not key-derivable?)
                            :refetch-on-client?
                            (boolean (or metadata-only? stale?)))]
     [wire-entry meta']))
@@ -678,9 +829,9 @@
   an entry `:key-projected` and reports `:refetch-on-client? true`, and this
   projection WITHHOLDS the row from the wire entirely. The reasoning that rules
   out the alternative (a client-side mapping back to the projected key-id) is
-  on `project-entry`'s `key-projected?` binding: the per-slot substitution is a
-  CONSTANT sentinel, not a content-addressed digest, so it is many-to-one on
-  exactly the slots that carry principal identity.
+  on `unaddressable-wire-key?`: the per-slot substitution is a CONSTANT
+  sentinel, so it is many-to-one on exactly the slots that carry principal
+  identity.
 
   Withholding, rather than shipping the row empty, is the second half of that
   same settlement. An emptied row is still a row: it installs, it survives the
@@ -691,6 +842,19 @@
   So the row does not ride, and `hydrate-runtime-db` drops one that arrives from
   an older render anyway. The many-to-one collapse it used to have to survive is
   now vacuous: nothing collides because nothing is shipped.
+
+  rf2-4bjep extends BOTH halves to the coarse `:redact` / `:omit` arm, which
+  rf2-rjq9d had fenced out. A coarse key is re-keyed no less than a declared
+  one — `project-scoped-key` replaces both its components — so its row was
+  unaddressable and uncollectable in exactly the same way, and it persisted for
+  the same reason. The exemption rested on the digest being one-to-one and
+  client-derivable, and it is neither (`unaddressable-wire-key?` carries the
+  three-part refutation); worse, a coarse row's key was itself a small egress,
+  since a 32-bit digest of a low-entropy tenant id is enumerable. Withholding it
+  costs the client nothing measurable: a coarse entry is metadata-only by
+  construction, so `entry-needs-refetch?` was already true of every one of them.
+  The withholding rule is therefore stated once, over the exact key-id
+  comparison (`:withheld?`), rather than per disposition.
 
   ## Build posture: ALWAYS-ON
 
@@ -719,16 +883,18 @@
              ;; client installs them under the same byte identity it will then
              ;; `recompute-indexes` over. `entries` here is keyed on the byte
              ;; `key-id`; the scoped-key vector is read from each entry.
-             ;; rf2-rjq9d — a `:key-projected` entry is WITHHELD, not shipped
-             ;; empty. `project-entry` already decided the fact exactly (it
-             ;; compared the projected `key-id` against the raw one), so the
-             ;; server reads its own metadata rather than sniffing the key
+             ;; rf2-rjq9d / rf2-4bjep — an entry the projection RE-KEYED is
+             ;; WITHHELD, not shipped empty, whatever re-keyed it: a per-slot
+             ;; `:scope` / `:params` declaration on a `:serialize` owner, or the
+             ;; coarse `:redact` / `:omit` tokenisation of both components.
+             ;; `project-entry` already decided the fact exactly (it compared the
+             ;; projected `key-id` against the raw one) and named it `:withheld?`,
+             ;; so the server reads its own metadata rather than sniffing the key
              ;; shape the way the client's `unaddressable-wire-key?` must.
              wired    (into {}
                             (comp
                               (map (fn [[_k-id entry]] (project-entry frame-id clock-ms entry)))
-                              (remove (fn [[_wire-entry meta']]
-                                        (= :key-projected (:disposition meta'))))
+                              (remove (fn [[_wire-entry meta']] (:withheld? meta')))
                               (map (fn [[wire-entry _meta]]
                                      [(state/key-id (:resource/key wire-entry)) wire-entry])))
                             entries)]
@@ -1170,13 +1336,15 @@
        (the planner then refetches it). This mirrors the restore reconcile (the
        unprojected snapshot needs the same settle — `reconcile-on-restore`);
     1b. DROP any row whose key the live client cannot derive
-       (`unaddressable-wire-key?` — rf2-rjq9d). `project-resources-runtime-db`
-       withholds such rows, so a payload rendered by this build carries none;
-       this is the never-trust-the-wire half, for cached HTML rendered by an
-       earlier deploy. Installing one would leave an ownerless duplicate beside
-       the entry `ensure` later writes under the raw key, reachable by nothing
-       and collectable by nothing (GC is timer-driven; hydration arms no
-       timers). Dropped rows are named on the `:rf.resource/hydrated` trace;
+       (`unaddressable-wire-key?` — rf2-rjq9d for the per-slot substitution,
+       rf2-4bjep for the coarse `:redact` / `:omit` token).
+       `project-resources-runtime-db` withholds such rows, so a payload rendered
+       by this build carries none; this is the never-trust-the-wire half, for
+       cached HTML rendered by an earlier deploy. Installing one would leave an
+       ownerless duplicate beside the entry `ensure` later writes under the raw
+       key, reachable by nothing and collectable by nothing (GC is timer-driven;
+       hydration arms no timers). Dropped rows are named on the
+       `:rf.resource/hydrated` trace;
     2. recompute `:tag-index` / `:owner-index` from the reconciled
        `:entries` (never trust the wire — part 5);
     3. emit a `:rf.resource/hydrated` trace summarising installed / orphaned
@@ -1249,8 +1417,10 @@
              ;; key rides in the VALUE where it is emitted rather than in a
              ;; position where it decides identity.
              ;;
-             ;; rf2-rjq9d — a row whose key the live client cannot DERIVE is
-             ;; dropped rather than installed. `project-resources-runtime-db`
+             ;; rf2-rjq9d / rf2-4bjep — a row whose key the live client cannot
+             ;; DERIVE is dropped rather than installed, whether a per-slot
+             ;; declaration or the coarse tokenisation re-keyed it.
+             ;; `project-resources-runtime-db`
              ;; already withholds it, so a payload this build rendered carries
              ;; none; this is the "never trust the wire" half, and the skew it
              ;; guards is real rather than hypothetical — a hydration payload is
@@ -2015,18 +2185,21 @@
   `runtime-db` (the trace emit self-gates on debug, as `hydrate-runtime-db`'s
   `:rf.resource/hydrated` does) — the route slice / host drives the issuing.
 
-  rf2-rjq9d — a row the client cannot ADDRESS is not planned. A plan entry is
-  consumed by `:resource/key`: the route slice carries that key into
+  rf2-rjq9d / rf2-4bjep — a row the client cannot ADDRESS is not planned. A plan
+  entry is consumed by `:resource/key`: the route slice carries that key into
   `:rf.resource/refetch`. A key no live derivation reproduces therefore names a
   fetch nobody can issue and a cache slot nobody can fill, which is not a plan
-  entry but a second copy of the defect. A `:key-projected` entry never reaches
-  here at all — `project-resources-runtime-db` withholds it and
-  `hydrate-runtime-db` drops any that arrives — and the client still issues
-  exactly the one load `route-resource-plan` / `ensure-handler` derive from the
-  RAW key, which is the load it was always going to issue. Before the fix the
-  entry arrived fresh-with-data, was silently omitted from the plan, and the
-  client refetched anyway; the correction is that the plan and the cache both
-  stop mentioning an identity the client does not have.
+  entry but a second copy of the defect. Neither a `:key-projected` entry nor a
+  coarse `:redact` / `:omit` one reaches here at all —
+  `project-resources-runtime-db` withholds both and `hydrate-runtime-db` drops
+  any that arrives — and the client still issues exactly the one load
+  `route-resource-plan` / `ensure-handler` derive from the RAW key, which is the
+  load it was always going to issue. Before the fix the `:key-projected` entry
+  arrived fresh-with-data and was silently omitted from the plan while the
+  client refetched anyway, and the coarse entry was PLANNED under its projected
+  key — a refetch request naming an identity the route slice could not resolve.
+  The correction is that the plan and the cache both stop mentioning an identity
+  the client does not have.
 
   `frame-id` (3-arity) is the explicit hydration target the trace rows are
   tagged with; the 1-/2-arity overloads omit it (a frame-agnostic decision)."
