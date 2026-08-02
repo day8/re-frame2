@@ -41,6 +41,13 @@ const {
 // `setTimeout`-backed Promise this runner used to define inline
 // (rf2-j552l2 dedup; exported from lib/local-browser-harness.cjs).
 const { sleep } = require('./lib/local-browser-harness.cjs');
+// rf2-u0cy4: the env-var name and flag name are shared with
+// serve-and-run-browser-tests.cjs (which sets the var) via one module, so
+// the two sides cannot drift into different literals.
+const {
+  DRIFT_UNVERIFIABLE_ENV_VAR,
+  DRIFT_UNVERIFIABLE_FLAG,
+} = require('./lib/browser-runner-drift-env.cjs');
 
 const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
 // How long to wait for the cljs.test summary before calling it a timeout.
@@ -218,8 +225,7 @@ const FATAL_CONSOLE_RE = /Async test called done more than one time/;
 // (`--duplicate-done-drift-unverifiable`) — see the note on `source == null`
 // in duplicateDoneMatcherDrift for why an `:advanced` lane needs it and why
 // it is a declaration rather than something this runner infers.
-const DRIFT_UNVERIFIABLE_ENV_VAR = 'RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE';
-const DRIFT_UNVERIFIABLE_FLAG = '--duplicate-done-drift-unverifiable';
+// (DRIFT_UNVERIFIABLE_ENV_VAR / DRIFT_UNVERIFIABLE_FLAG imported above.)
 
 const RUN_BLOCK_PROBE = () => {
   const roots = [globalThis, globalThis.$CLJS].filter(

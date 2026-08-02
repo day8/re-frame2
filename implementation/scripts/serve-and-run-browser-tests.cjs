@@ -30,6 +30,16 @@ const {
   spawnHarnessProcess,
   waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
+// rf2-u0cy4: computeRunnerEnv + the two constants live in their own module
+// (scripts/lib/browser-runner-drift-env.cjs) so the env-forwarding rule is
+// unit-testable without requiring this whole file (which runs real
+// top-level side effects — CLI parsing off process.argv, path-policy
+// enforcement, signal-handler installation — on require).
+const {
+  computeRunnerEnv,
+  DRIFT_UNVERIFIABLE_ENV_VAR,
+  DRIFT_UNVERIFIABLE_FLAG,
+} = require('./lib/browser-runner-drift-env.cjs');
 
 // The production browser gates call this runner with `--root` and `--port`.
 // CLI options take precedence over environment variables, then defaults.
@@ -47,8 +57,6 @@ const {
 // by default (fail-closed); only a lane that says so in its own npm script may
 // proceed without one, it says so loudly when it does, and the flag has no
 // effect at all when introspection turns out to be possible.
-const DRIFT_UNVERIFIABLE_FLAG = '--duplicate-done-drift-unverifiable';
-const DRIFT_UNVERIFIABLE_ENV_VAR = 'RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE';
 
 function parseCliOptions(argv) {
   const opts = { root: null, port: null, driftUnverifiable: false };
@@ -246,7 +254,7 @@ async function resolvePort() {
   });
 }
 
-(async () => {
+async function run() {
   ensureMountPoint();
 
   // Publish the per-run ownership token (rf2-gkf9) before spawning
@@ -326,15 +334,13 @@ async function resolvePort() {
     return 1;
   }
 
+  const runnerEnv = computeRunnerEnv(process.env, {
+    driftUnverifiable: CLI.driftUnverifiable,
+    browserTestUrl: `http://127.0.0.1:${port}`,
+  });
   const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      BROWSER_TEST_URL: `http://127.0.0.1:${port}`,
-      // Forwarded, not inherited: the declaration must come from the lane's
-      // own command line, so it cannot leak in from an ambient environment.
-      ...(CLI.driftUnverifiable ? { [DRIFT_UNVERIFIABLE_ENV_VAR]: '1' } : {}),
-    },
+    env: runnerEnv,
   }));
 
   // Resolve on either 'exit' or 'error'. A spawn failure (e.g. the runner
@@ -349,11 +355,23 @@ async function resolvePort() {
   });
 
   return code == null ? 1 : code;
-})().then(async (code) => {
-  await cleanup.cleanup();
-  process.exit(code);
-}).catch(async (err) => {
-  console.error(err);
-  await cleanup.cleanup();
-  process.exit(1);
-});
+}
+
+// rf2-u0cy4: guard the real launch behind require.main. Matches the
+// established convention (e.g. check-ui-adapter-isolation.cjs's
+// `--self-test`). Production invocation is always `node
+// scripts/serve-and-run-browser-tests.cjs ...` (require.main === module is
+// always true there), so this changes nothing about how the two production
+// browser gates run this file.
+if (require.main === module) {
+  run().then(async (code) => {
+    await cleanup.cleanup();
+    process.exit(code);
+  }).catch(async (err) => {
+    console.error(err);
+    await cleanup.cleanup();
+    process.exit(1);
+  });
+}
+
+module.exports = { parseCliOptions };
