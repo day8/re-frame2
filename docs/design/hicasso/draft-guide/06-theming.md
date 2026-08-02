@@ -1,7 +1,7 @@
 # Theming
 
 > **Draft ahead of the product artefact.** This page teaches the ruled surface —
-> [decisions.md](../decisions.md) (HD-001…HD-027) — and spellings marked
+> [decisions.md](../decisions.md) (HD-001…HD-028) — and spellings marked
 > **[unfrozen]** stay provisional until the API freeze. Theming is ruled (HD-010,
 > HD-023) but largely unexercised by the bench arm, and this page still carries
 > the record's one genuine hole, named below.

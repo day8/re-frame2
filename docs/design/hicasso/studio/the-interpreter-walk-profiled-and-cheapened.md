@@ -148,7 +148,7 @@ props object per element per render stands.
   minority at an unbounded-memory cost. HD-006's no-element-memoisation
   line therefore stands untouched.
 - **Amortisation across commits** (the bead's direction 3): the memo
-  wrapper (HD-026, PR #7375, held) stops child re-walks on re-render; what
+  wrapper (HD-028, PR #7375) stops child re-walks on re-render; what
   mount prices is the first walk, which no cross-commit amortisation can
   reach. Within-mount amortisation IS the literal caches, extended here.
 

@@ -1,7 +1,7 @@
 # Hicasso — draft user guide
 
 > **Draft ahead of the product artefact.** These pages teach the *landed* authoring
-> surface: ruled in [decisions.md](../decisions.md) (HD-001…HD-027) and witnessed by
+> surface: ruled in [decisions.md](../decisions.md) (HD-001…HD-028) and witnessed by
 > the bench arm's tests under
 > `implementation/freehand/test/re_frame/bench/hicasso/`. No
 > `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
