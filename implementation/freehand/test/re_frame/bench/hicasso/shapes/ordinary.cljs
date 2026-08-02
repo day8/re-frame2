@@ -67,6 +67,42 @@
             [re-frame.bench.hicasso.shapes.model :as m])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
+;; ---------------------------------------------------------------------------
+;; The screen's size, as arithmetic
+;; ---------------------------------------------------------------------------
+;;
+;; Written down for the same reason the large template's is: a page whose
+;; size is arithmetic is a page a witness can CHECK, and a page whose size
+;; is whatever the DOM says is a page that re-baselines itself on every
+;; markup edit. "~50 elements" is the charter's phrase for this shape, and
+;; a band would have let a card silently gain or lose an element inside it.
+
+(def chrome-elements
+  "article-page, container.page, row, column, h2, hr, comments-list."
+  7)
+
+(def form-elements
+  "form.card, card-block, textarea, card-footer, button."
+  5)
+
+(def elements-per-card
+  "card, card-block, card-text, card-footer, author link, avatar,
+  date-posted."
+  7)
+
+(def elements-per-own-card
+  "The same, plus the author-only delete control and its icon — the two
+  elements the `(when mine? …)` branch contributes."
+  9)
+
+(defn element-arithmetic
+  "The screen's element count, predicted rather than measured."
+  [comment-count mine-count]
+  (+ chrome-elements
+     form-elements
+     (* elements-per-card (- comment-count mine-count))
+     (* elements-per-own-card mine-count)))
+
 (def !body-runs
   "How many bodies have run, by view name. The narrow-write claims on this
   screen are counted here rather than asserted about."

@@ -92,11 +92,18 @@
             (is (some? (q handle "button[data-testid=\"comment-submit\"]"))))
           (testing "list — keyed cards"
             (is (= comment-count (count (q* handle ".comments-list > .card")))))
-          (testing "and the whole screen is the ~50-element shape"
-            (let [n (lane/element-count (:container handle))]
+          (testing "and the whole screen is the ~50-element shape, at the size
+                   the arithmetic predicts"
+            (let [predicted (shape/element-arithmetic comment-count mine-count)
+                  n         (lane/element-count (:container handle))]
+              (is (= predicted n)
+                  (str "chrome " shape/chrome-elements " + form "
+                       shape/form-elements " + " (- comment-count mine-count)
+                       " cards x " shape/elements-per-card " + " mine-count
+                       " own cards x " shape/elements-per-own-card " = " predicted
+                       "; the DOM holds " n))
               (is (<= 40 n 60)
-                  (str "the ordinary-view shape is ~50 elements; this screen "
-                       "renders " n))))
+                  (str "and that is the charter's ~50-element shape (" n ")"))))
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
