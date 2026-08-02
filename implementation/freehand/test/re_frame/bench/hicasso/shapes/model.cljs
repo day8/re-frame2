@@ -138,11 +138,6 @@
   event, not in a component-local cell."
   ::comment-draft)
 
-(def page-size
-  "Articles per page — Conduit's own. It decides the pagination control's
-  size, which is part of the ported chrome rather than a knob."
-  10)
-
 (defn seed-db
   "`articles` articles, `comments` comments, one signed-in reader. The one
   place the shape is written out."
@@ -173,10 +168,11 @@
 
 (rf/reg-sub :conduit/your-feed? (fn [db _] (boolean (:your-feed? db))))
 
+;; Registered and read by nothing, deliberately. `:conduit/go-to-page` is
+;; the roster's **negative control** — a commit that moves a key no
+;; boundary holds — and `bulk_dom_cljs_test/the-broad-write-can-answer-false`
+;; needs it to move something real rather than nothing at all.
 (rf/reg-sub :conduit/page (fn [db _] (:page db)))
-
-(rf/reg-sub :conduit/page-count
-  (fn [db _] (max 1 (long (Math/ceil (/ (count (:order db)) page-size))))))
 
 (rf/reg-sub :conduit/comment-ids (fn [db _] (:comment-order db)))
 
