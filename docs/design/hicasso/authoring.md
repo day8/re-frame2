@@ -110,6 +110,19 @@ steady-state change belongs on an effect, not on the ref.
 - Callbacks generated from intents close over the boundary's frame (resolved once
   per boundary from the substrate's single internal context) so they remain valid
   when the browser invokes them after render scope unwinds.
+- **The route-link is a plain function over routing's link seam** (HD-027; the
+  census counts 106 and calls the form tier-1). The author names a route and
+  params and never sees a URL —
+  `(route-link {:to :conduit.profile/show :params {:username u}} u)` — and what
+  comes back is one real `<a>` whose href is routing's and whose click decision
+  travels as data under the second reserved head, `[::h/navigate {…}]`. It
+  inlines (no boundary, no hook, no read), the click law is routing's
+  `activate-link!` seam verbatim (modifier-click and native anchors stay the
+  browser's), and its `:on-click` is the pre-navigation veto:
+  `[::h/prevent [:app/event]]` there cancels the navigation and dispatches the
+  app intent instead — the cancelable-navigation case the prevent head was built
+  for. A bare intent vector at that position is refused loudly: the click
+  already produces the one routing intent.
 
 ### When a vector is not enough: one form, and the position decides (HD-024)
 

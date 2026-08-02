@@ -1088,7 +1088,7 @@
   (set! (.-grouped rstate) false)
   (set! (.-frame rstate) frame-kw)
   (try
-    (intent/with-frame (frame-dispatch frame-kw)
+    (intent/with-frame frame-kw (frame-dispatch frame-kw)
       (fn [] (codec/as-element (body-fn props))))
     (finally (set! (.-frame rstate) nil))))
 

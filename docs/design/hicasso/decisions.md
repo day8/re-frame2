@@ -1,4 +1,4 @@
-# Hicasso — decisions (HD-001 … HD-026)
+# Hicasso — decisions (HD-001 … HD-027)
 
 Every design decision for the Hicasso programme, resolved. Each record carries the
 ruling, the decisive rationale, and the condition under which it reopens. These
@@ -852,3 +852,104 @@ click** on the census feed tab against an un-decorated control on the same page:
 `shapes/large_template_dom_cljs_test/the-prevent-head-is-what-prevents`.
 **Amends** HD-021: its equality promise now holds for the prevent axis at the spine
 shapes. **Reopens** on the dogfooding condition named under Scope.
+
+## HD-027 — `route-link`: a plain function over routing's link seam, and a second reserved head
+
+**Ruling.** The fifth tier-1 shape's Hicasso spelling is **`route-link`, a plain
+function** (`front/route_link.cljs` in the bench arm): the author writes
+`(route-link {:to :conduit.profile/show :params {:username u}} u)` and never sees
+a URL. It renders ONE real `<a>` whose `:href` is routing's own synthesis and
+whose `:on-click` carries the click decision **as data**, under the SECOND
+reserved head:
+
+```clojure
+[:a {:href     "/profile/jane"
+     :on-click [::h/navigate {:frame    :app/frame     ; captured at render
+                              :payload  [:rf.route/url-requested {…}]
+                              :native?  false           ; target/download verdict
+                              :veto     nil}]}          ; the caller's :on-click
+ "jane"]
+```
+
+The grammar is **closed, and this is all of it**: `[::h/navigate MAP]` — exactly
+two forms, the map carrying `:frame` (keyword), `:payload` (non-empty vector),
+`:native?` (boolean) and `:veto`. Everything else is
+`:rf.error/hicasso-malformed-navigate`, naming the position; decorators do not
+nest in either order. Classified and lowered once per render, beside the prevent
+head, in `front/intent.cljs`.
+
+**How far into routing it reaches — no further than the published seam.** The
+href, payload and `:native?` come from `:routing/link-model` at render; the click
+runs `:routing/activate-link!` — the substrate-neutral late-bound seams routing
+publishes for exactly this consumer class, already consumed by `rf/route-link`,
+`ui/route-link` and Freehand's `v/route-link`. Hicasso restates **none** of the
+click law (caller veto first, modifier/auxiliary and native-anchor deferral,
+`preventDefault` + dispatch to the render-captured frame with `:source :router`),
+and the packaging graph stays `hicasso → core late-bind ← routing`. A missing
+routing artefact fails at RENDER with `:rf.error/routing-artefact-missing` naming
+the link's `:to`; a hook that vanished between render and click (dev hot-reload)
+degrades to native navigation after the veto runs, never a throw at a detached
+click.
+
+**Composition with `::h/prevent` — the existing grammar is the veto.** The
+caller's `:on-click` rides the `:veto` slot, and its roster is closed: nil,
+`[::h/prevent [:app/event]]`, `h/fn`, or a plain fn. The prevent form lowers to
+the ordinary prevent closure; routing runs it FIRST and stands down on
+`defaultPrevented` — the navigation is cancelled and the app intent dispatched
+instead, which is precisely the cancelable-navigation case HD-026 named. A BARE
+intent vector is refused at render AND at lowering (the route click already
+produces the one routing intent; an un-prevented second intent would be one user
+action yielding two semantic events — Freehand's route-link law, kept). No new
+composition machinery exists: `activate-link!` already honours `defaultPrevented`,
+and the prevent head already sets it.
+
+**Not a boundary, deliberately.** Freehand's `v/route-link` is a `defview`; here
+that citation is declined. A Hicasso boundary costs two hooks and a row in every
+boundary count, and the census's 106 links live INSIDE rows that are already
+boundaries — an author byline is not a unit of re-render. `route-link` is a plain
+function like the card: it inlines, mints no boundary, adds no hook, and reads no
+subscription (the link model is a pure calculation), so the ≤2-hook budget and
+every roster page's boundary/read arithmetic are untouched by links. The frame is
+captured at render from the ambient binding the arm establishes
+(`intent/*frame*`, bound by the 3-arity `with-frame` beside the ambient
+dispatch), because a click fires after the render's dynamic extent has unwound —
+Freehand's `require-current-frame!` precedent, in the collector's ambient idiom.
+
+**Prior art, cited.** **Routing (taken whole):** the two-seam split and the one
+click law. **Freehand (taken):** render-time frame capture; render-time
+artefact-missing refusal; the one-intent-per-click law at the veto position.
+**(Declined:** its fn-only `:on-click` roster — Freehand has no in-band spelling
+for "cancel-and-replace"; Hicasso does, and admits exactly it.**)**
+**Replicant via HD-026 (taken):** behaviour as a namespaced-keyword-headed vector
+`=` can see — two renders of one link are equal data, and a structural test reads
+the click decision off the tree. **(Declined:** Replicant's global body-level
+click interceptor for routing — ambient behaviour no vector carries is what the
+in-band school exists to avoid.**)** **Also declined for v0:** the
+`:prefetch :intent` trio routing publishes and Freehand consumes — the census
+counts no prefetch site, and the opt-in is sugar over an event a Hicasso author
+can already spell at an ordinary intent position.
+
+**Rejected.** (b) A boundary (`defview`) route-link — costs two hooks per link
+and pollutes every boundary count for a form that appears 106 times per census
+(see "Not a boundary"). (c) A closure at `:on-click` (Freehand's own anchor
+shape) — loses hiccup equality exactly where the census's most-repeated tier-1
+form lives; HD-026's axis, again. (d) A codec-recognised element head
+(`[::h/route-link …]`) — puts routing knowledge in the codec, which is the one
+shared surface the school keeps semantics-free, and makes the link a special form
+rather than a view.
+
+**Cost, stated.** One reserved head joins the roster-as-list (two members now),
+one `=` per lowered event position to classify it, and three `route-url`
+syntheses per card per render on the roster pages — priced on the routing
+artefact's own render path, the same cost every other link surface pays.
+
+**Demonstrated, not asserted.** Equality and grammar refusals:
+`front/route_link_cljs_test` (two renders `=`, the decision readable off the
+tree, every malformed form loud, the veto composition mechanical). The browser
+half: `shapes/route_link_dom_cljs_test` — the ported census card's three anchors
+mount as real routed anchors, a real `MouseEvent` click installs the destination
+through the routing cascade and the `[:rf/route]`-reading boundary re-renders,
+a modifier click moves nothing, and the prevent veto cancels the navigation while
+its unvetoed sibling (the mutation control) still navigates. **Reopens** if
+dogfooding surfaces a real site needing `:prefetch`, or if the census's
+zero-prefetch count stops describing the corpus.
