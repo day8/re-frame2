@@ -968,10 +968,34 @@ form lives; HD-026's axis, again. (d) A codec-recognised element head
 shared surface the school keeps semantics-free, and makes the link a special form
 rather than a view.
 
-**Cost, stated.** One reserved head joins the roster-as-list (two members now),
-one `=` per lowered event position to classify it, and three `route-url`
-syntheses per card per render on the roster pages — priced on the routing
-artefact's own render path, the same cost every other link surface pays.
+**Cost, stated — and since MEASURED.** One reserved head joins the
+roster-as-list (two members now), one `=` per lowered event position to classify
+it, and three `route-url` syntheses per card per render on the roster pages —
+priced on the routing artefact's own render path, the same cost every other link
+surface pays.
+
+`rf2-6c237`'s clock re-take put a number on that last clause and it was bigger
+than the sentence implies: **8.21 µs per link at mount**, 207 links on the
+acceptance page and 900 on the feed, enough to move both census rows back above
+the line. `rf2-cno31` then decomposed it
+([the route-link term page](studio/the-route-link-render-term-priced.md)) and
+the ruling survives the measurement intact, for two reasons the profile
+establishes:
+
+- **77% of the term was routing's, not Hicasso's** — `route-url` synthesis
+  (66.6%) plus the render-time strategy consult (10.2%). "The same cost every
+  other link surface pays" was exactly right, and it is why the remedy landed in
+  routing rather than behind `route-link`: cheapening it there would have left
+  `rf/route-link`, `ui/route-link` and `v/route-link` paying the whole bill.
+- **`route-link` is still a plain function.** Nothing was added to it — no memo,
+  no cache, no hook, no boundary, no subscription read. The seam call it makes
+  now costs **0.48×** what it did (7.07 → 3.38 µs measured in one session), from
+  six specialisations inside routing that remember nothing.
+
+A per-frame memo on the seam call was considered and **declined on the
+evidence**: the regression is a MOUNT regression and a memo is empty at mount,
+and this bench draws its bylines from four authors, so a memo's apparent hit
+rate would have been a property of the fixture rather than of Conduit.
 
 **Demonstrated, not asserted.** Equality and grammar refusals:
 `front/route_link_cljs_test` (two renders `=`, the decision readable off the
