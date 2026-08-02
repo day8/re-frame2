@@ -302,10 +302,27 @@
 
 (defn make-frame!
   "Create (or idempotently replace) `frame-id`'s frame, seeded per `opts`,
-  with the [[register-routes!]] table its pages' links resolve against."
+  with the [[register-routes!]] table its pages' links resolve against.
+
+  **The frame declares the census's own URL strategy** (rf2-6c237, the
+  repair for the rf2-2rtt6.54 parity gap). Conduit is a hash-URL app —
+  every anchor in the census markup reads `#/profile/…` — and the
+  uix/reagent/floor twins in `census_clock_arms` port that markup
+  verbatim, hand-writing the `#`. Hicasso's anchors go through routing's
+  `link-model`, whose strategy consult defaults to the HISTORY strategy
+  when a frame declares none — so after the rf2-2rtt6.54 migration the
+  Hicasso pages rendered path-form hrefs against the twins' hash-form and
+  the census clock's boot parity gate refused every row (PR #7383's rows
+  did not see it: its runs measured the pre-migration blobs its
+  provenance table records, and the branch was rebase-merged over the
+  migration without a clock re-run). Declaring the shipped
+  `routing/hash-url-strategy` here makes the routing-owned href the
+  census's own form, through routing's law rather than around it."
   [frame-id opts]
   (register-routes!)
-  (rf/make-frame {:id frame-id :initial-events [[:conduit/seed opts]]})
+  (rf/make-frame {:id frame-id
+                  :url-strategy routing/hash-url-strategy
+                  :initial-events [[:conduit/seed opts]]})
   frame-id)
 
 (defn reseed!
