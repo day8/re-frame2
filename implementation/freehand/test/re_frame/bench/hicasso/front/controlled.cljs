@@ -111,6 +111,24 @@
   that quietly does less. The element then behaves exactly as it did
   before this namespace existed.
 
+  ## The guard that has to be taken twice
+
+  Every condition above is read off the props that MINT a wrapper, and
+  those props are one render old the moment step 1 returns — because
+  step 1 *is* a render. A synchronous handler can re-render the same
+  `<input>` from `text` to `number`; React keeps the node and updates
+  the attribute, so a wrapper installed on a caret-bearing element
+  goes on running against one that is not.
+
+  So [[converge!]] asks the caret question again after the flush.
+  Answered no, it does nothing at all — which matters twice over:
+  `setSelectionRange` throws `InvalidStateError` on such a type, and
+  `setDefaultValue` skips a focused `number` field (`:1738`), leaving
+  the record holding what the *text* render wrote rather than what
+  the element now renders. The throw is the measured defect;
+  `arm1_controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`
+  quotes it and reds by name without this reading.
+
   ## The one handler, and the door
 
   `onChange` when the author wrote one, `onInput` otherwise. React's
@@ -216,19 +234,47 @@
   both: they are what the user's edit left behind, and the caret is
   only meaningful as an offset into that string.
 
-  Two readings make this inert rather than wrong where it does not
-  apply. A caret that is not a number is not a text-entry control —
-  a synthetic target in a unit test, or a type whose selection is not
-  applicable — and a record that is not a string is an element React
-  never wrote a mirror for. Either way the element is left exactly as
-  React leaves it."
+  Three readings make this inert rather than wrong where it does not
+  apply. A caret that is not a number is not a text-entry control — a
+  synthetic target in a unit test, or a type whose selection is not
+  applicable. A record that is not a string is an element React never
+  wrote a mirror for. And the caret is read a SECOND time, after the
+  flush, because the flush is a render.
+
+  ## Why the caret is read twice
+
+  [[install!]] decided this element was caret-bearing from the props
+  that minted *this* wrapper, and those props are one render old the
+  moment `flushSync` returns. A synchronous handler may re-render the
+  same `<input>` from `text` to `number` — React keeps the node and
+  updates the attribute, so the wrapper from the text render is still
+  the one running, against an element that no longer has a caret.
+
+  Both halves of the converge are wrong there. `setSelectionRange`
+  throws `InvalidStateError` on a type whose selection is not
+  applicable — that is the measured failure, and it is the whole of
+  why this is a correctness fix rather than a tidy-up. And the record
+  is stale rather than merely unused: `setDefaultValue` deliberately
+  skips a focused `number` field (`react-dom@19.2.0:1738`), so
+  `defaultValue` still holds what the *text* render put there. The
+  converge would write that over the field mid-event; React's own
+  end-of-event restore happens to put the committed value back
+  afterwards, so the field survives — but only by accident, and the
+  write was never this code's to make.
+
+  So the post-flush reading is not a guard bolted onto the caret
+  restore; it is the same question [[install!]] asked, asked again at
+  the only other moment it can change. Answered no, the element is
+  left exactly as React leaves it — which is what it would have been
+  had it been minted as a `number` field to begin with."
   [node]
   (let [dom-value (.-value node)
         caret-was (.-selectionStart node)]
     (when (number? caret-was)
       (react-dom/flushSync noop)
       (let [rendered (last-rendered node)]
-        (when (string? rendered)
+        (when (and (string? rendered)
+                   (number? (.-selectionStart node)))
           (converge-to! node dom-value caret-was rendered)))))
   nil)
 
