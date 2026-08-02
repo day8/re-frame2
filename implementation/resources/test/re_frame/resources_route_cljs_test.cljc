@@ -1020,6 +1020,221 @@
         (is (= [n-key] (:ensured-identities forward)))
         (is (= [v-key] (:kept-identities forward)))))))
 
+(deftest r2-identity-membership-is-byte-exact-not-clojure-equal
+  ;; rf2-dlkou (merged-PR audit of #7228) — the identity partition is keyed on
+  ;; the CEDN-1 BYTE key-id, not on Clojure `=`.
+  ;;
+  ;; Resource identity is `state/key-id`, and it is collection-KIND sensitive
+  ;; (rf2-wgutc2): `{:slug "s" :tags ["a"]}` and `{:slug "s" :tags '("a")}` live
+  ;; at two `state/entry-path`s, and yet the two scoped keys are `=` to Clojure
+  ;; AND hash alike. Every `=`-keyed carrier therefore collapses the pair, and
+  ;; the row's canonical `key-id` ordering runs AFTER the loss rather than
+  ;; before it — so sorting could not save it.
+  ;;
+  ;; The defect this pins: a navigation whose prior plan held the LIST-bearing
+  ;; identity and whose next plan holds the VECTOR-bearing one reported
+  ;; `:removed 0` with an EMPTY `:removed-identities`, because the prior identity
+  ;; tested as still-present against a set that only knows `=`. The removal was
+  ;; real — the entry sits at its own byte path and the prior owner's release did
+  ;; let it go — so the row contradicted the runtime, which is exactly what this
+  ;; bead's acceptance forbids.
+  ;;
+  ;; The pair is `=` under `clojure.core/=`, so an assertion written with `=`
+  ;; would pass on the WRONG key. Every claim below is therefore made on
+  ;; `state/key-id` of the emitted value.
+  (rf/reg-resource :bx/v (article-spec {}) article-spec-request)
+  (rf/reg-resource :bx/n (article-spec {}) article-spec-request)
+  (rf/reg-resource :bx/p (article-spec {}) article-spec-request)
+  (let [vec-key     (state/scoped-resource-key* :rf.scope/global :bx/p {:slug "p" :tags ["a"]})
+        list-key    (state/scoped-resource-key* :rf.scope/global :bx/p {:slug "p" :tags '("a")})
+        v-key       (state/scoped-resource-key* :rf.scope/global :bx/v {:slug "v"})
+        n-key       (state/scoped-resource-key* :rf.scope/global :bx/n {:slug "n"})
+        parent-meta {:resources [{:resource :bx/v :params (fn [_] {:slug "v"}) :blocking? true}]}
+        leaf-with-p {:resources [{:resource :bx/n :params (fn [_] {:slug "n"})}
+                                 {:resource :bx/p :params (fn [_] {:slug "p" :tags ["a"]})}]}
+        leaf-sans-p {:resources [{:resource :bx/n :params (fn [_] {:slug "n"})}]}
+        ;; `branch+p` plans the VECTOR-bearing identity; `branch-p` plans
+        ;; neither member of the pair, so both are dropped.
+        branch+p    [{:route-id :route/b :route-meta parent-meta}
+                     {:route-id :route/b.n :route-meta leaf-with-p}]
+        branch-p    [{:route-id :route/b :route-meta parent-meta}
+                     {:route-id :route/b.n :route-meta leaf-sans-p}]
+        loaded      (fn [k rid] [(state/key-id k)
+                                 {:resource/id rid :resource/key k
+                                  :status :loaded :data {:n 1} :attempt 1}])
+        ;; the shared ancestor is LOADED, so it is genuinely adoptable.
+        rdb         {:rf.runtime/resources {:entries (into {} [(loaded v-key :bx/v)])}}
+        ;; …and here the VECTOR-bearing identity is loaded too, so adoption
+        ;; across the pair is REACHABLE if membership were `=`-keyed.
+        rdb+p       {:rf.runtime/resources {:entries (into {} [(loaded v-key :bx/v)
+                                                               (loaded vec-key :bx/p)])}}
+        tags-for    (fn [branch runtime-db prev-identities]
+                      (:tags (first (record-op-traces!
+                                      :rf.resource/route-plan
+                                      (fn [] (route/route-resource-plan
+                                               {:id :route/b.n :params {} :query {}} {}
+                                               {:nav-token       2
+                                                :prev-id         :route/b.a
+                                                :prev-nav-token  1
+                                                :prev-identities prev-identities
+                                                :branch          branch
+                                                :runtime-db      runtime-db}))))))
+        ids         (fn [ks] (mapv state/key-id ks))]
+    (testing "premise: the two params shapes are ONE value to Clojure and TWO
+              identities to the cache"
+      (is (= vec-key list-key)
+          "clojure.core/= cannot tell them apart, which is why every =-keyed
+           carrier collapsed them")
+      (is (= 1 (count (set [vec-key list-key])))
+          "…and neither can a set: the collapse is in the carrier, not in a
+           comparison this code could have written differently")
+      (is (not= (state/key-id vec-key) (state/key-id list-key))
+          "premise: while the CEDN-1 byte identities differ (rf2-wgutc2)")
+      (is (not= (state/entry-path vec-key) (state/entry-path list-key))
+          "premise: so the cache holds two entries, and dropping one IS a
+           removal"))
+    (when interop/debug-enabled?
+      (testing "the prior plan's LIST-bearing identity is reported REMOVED when
+                the next plan holds only its VECTOR-bearing twin"
+        (let [tags (tags-for branch+p rdb [v-key list-key])]
+          (is (= 1 (:removed tags))
+              "one prior identity was dropped, and the row says so — it read
+               `:removed 0` before this repair")
+          (is (= (ids [list-key]) (ids (:removed-identities tags)))
+              "…and names the LIST-bearing key, asserted on its byte identity
+               because `=` would accept the vector-bearing one here")
+          (is (= (ids [n-key vec-key]) (ids (:ensured-identities tags)))
+              "the VECTOR-bearing identity is ENSURED — it has no entry of its
+               own, and membership no longer matches its twin")
+          (is (= (ids [v-key]) (ids (:kept-identities tags)))
+              "…while the genuinely adoptable ancestor is still kept")))
+      (testing "ADOPTION does not cross the pair either: a LIST-bearing prior
+                identity must not hand its owner to the VECTOR-bearing twin,
+                even when that twin's own entry is adoptable"
+        (let [tags (tags-for branch+p rdb+p [v-key list-key])]
+          (is (= (ids [n-key vec-key]) (ids (:ensured-identities tags)))
+              "the twin is ENSURED — it is loaded and adoptable, so ONLY the
+               byte-exact membership test keeps it out of the kept vector")
+          (is (= (ids [v-key]) (ids (:kept-identities tags))))
+          (is (= (ids [list-key]) (ids (:removed-identities tags))))))
+      (testing "…while a prior identity that IS the planned one is adopted, so
+                the claim above is about the pair and not about adoption
+                being broken"
+        (let [tags (tags-for branch+p rdb+p [v-key vec-key])]
+          (is (= (ids [v-key vec-key]) (ids (:kept-identities tags)))
+              "both adoptable prior identities are kept")
+          (is (= (ids [n-key]) (ids (:ensured-identities tags))))
+          (is (= 0 (:removed tags)) "and nothing was dropped")))
+      (testing "both members are dropped together when NEITHER is planned"
+        (let [gone (tags-for branch-p rdb [list-key vec-key])]
+          (is (= 2 (:removed gone))
+              "both byte identities are removed — a set-backed carrier reported
+               ONE, having already thrown the other away")
+          (is (= (sort (ids [list-key vec-key])) (sort (ids (:removed-identities gone))))
+              "…and both are named")
+          (is (= (:removed-identities gone)
+                 (:removed-identities (tags-for branch-p rdb [vec-key list-key])))
+              "the row is still a pure function of the removal MEMBERSHIP —
+               swapping the caller's order does not move it")
+          (is (= (:removed gone) (count (:removed-identities gone)))
+              "and :removed is the SIZE of the vector, so the count cannot
+               drift from the membership it summarizes"))))))
+
+(deftest r2-navigating-between-byte-distinct-twins-reports-the-removal
+  ;; rf2-dlkou (merged-PR audit of #7228) — the same defect END TO END, through
+  ;; the real `:rf.route/navigate` path and the real routing handoff, rather
+  ;; than a direct planner call.
+  ;;
+  ;; Two sibling routes declare the SAME resource under the SAME scope, with
+  ;; params that differ only in the KIND of one collection: `{:tags ["a"]}` vs
+  ;; `{:tags '("a")}`. Those are two cache entries at two `state/entry-path`s
+  ;; and one value to Clojure `=`. Navigating between them therefore removes one
+  ;; identity and ensures the other — and the row said `:removed 0`.
+  ;;
+  ;; This is the case the LIVE handoff can express, because each plan holds one
+  ;; member of the pair: the set-shaped `[:rf.runtime/routing :resource-plan]`
+  ;; slot round-trips a single identity faithfully. It is a plan holding BOTH at
+  ;; once that the slot cannot carry, which is rf2-btdl1 and not this bead.
+  (rf/reg-resource :tw/feed (article-spec {}) article-spec-request)
+  (rf/reg-route :route/tw-vec
+                {:resources [{:resource :tw/feed :params (fn [_] {:slug "f" :tags ["a"]})}]}
+                "/tw/vec")
+  (rf/reg-route :route/tw-list
+                {:resources [{:resource :tw/feed :params (fn [_] {:slug "f" :tags '("a")})}]}
+                "/tw/list")
+  (let [vec-key  (state/scoped-resource-key* :rf.scope/global :tw/feed {:slug "f" :tags ["a"]})
+        list-key (state/scoped-resource-key* :rf.scope/global :tw/feed {:slug "f" :tags '("a")})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/tw-list}])
+    (settle-success! list-key [{:id 1}])
+    (testing "premise: the first navigation created the LIST-bearing entry, and
+              the VECTOR-bearing twin does not exist"
+      (is (some? (entry list-key)))
+      (is (nil? (entry vec-key))
+          "the cache keys on canonical bytes, so the twin is genuinely absent
+           even though its scoped key is `=` to the one that is present"))
+    (let [tags (:tags (first (record-op-traces!
+                               :rf.resource/route-plan
+                               (fn [] (rf/dispatch-sync
+                                        [:rf.route/navigate {:to :route/tw-vec}])))))]
+      (testing "the sibling navigation ensures the twin"
+        (is (some? (entry vec-key))
+            "a second entry now exists at the VECTOR-bearing byte path — the
+             navigation really did dispatch an ensure rather than adopt across
+             the pair"))
+      (when interop/debug-enabled?
+        (testing "…and the row reports the removal it performed"
+          (is (= 1 (:removed tags))
+              "the LIST-bearing identity left the plan — the row read
+               `:removed 0` before this repair, because the prior identity
+               tested as still-present against an `=`-keyed set")
+          (is (= [(state/key-id list-key)] (mapv state/key-id (:removed-identities tags)))
+              "…and it is named, asserted on the byte identity because `=`
+               would have accepted the vector-bearing key here")
+          (is (= [(state/key-id vec-key)] (mapv state/key-id (:ensured-identities tags)))
+              "while the twin is ENSURED")
+          (is (empty? (:kept-identities tags))
+              "and nothing was kept — the two are not one identity"))))))
+
+(deftest r2-plan-order-is-witnessed-not-merely-membership
+  ;; rf2-dlkou — `:identities` / `:ensured-identities` / `:kept-identities` carry
+  ;; the planner's GROUPED PLAN ORDER, and order is the whole claim: a test that
+  ;; checked set membership would pass on a shuffled vector. So the branch is
+  ;; built so that plan order is NOT the order any other structure would produce
+  ;; — the leaf declares its two resources in REVERSE alphabetical order, and the
+  ;; parent's identity must still come first because the branch is walked
+  ;; parent-most first.
+  (rf/reg-resource :po/mid (article-spec {}) article-spec-request)
+  (rf/reg-resource :po/zulu (article-spec {}) article-spec-request)
+  (rf/reg-resource :po/alpha (article-spec {}) article-spec-request)
+  (let [mid-key   (state/scoped-resource-key* :rf.scope/global :po/mid {:slug "m"})
+        zulu-key  (state/scoped-resource-key* :rf.scope/global :po/zulu {:slug "z"})
+        alpha-key (state/scoped-resource-key* :rf.scope/global :po/alpha {:slug "a"})
+        branch    [{:route-id :route/p
+                    :route-meta {:resources [{:resource :po/mid :params (fn [_] {:slug "m"})}]}}
+                   {:route-id :route/p.leaf
+                    :route-meta {:resources [{:resource :po/zulu  :params (fn [_] {:slug "z"})}
+                                             {:resource :po/alpha :params (fn [_] {:slug "a"})}]}}]
+        tags      (:tags (first (record-op-traces!
+                                  :rf.resource/route-plan
+                                  (fn [] (route/route-resource-plan
+                                           {:id :route/p.leaf :params {} :query {}} {}
+                                           {:nav-token 2 :branch branch :runtime-db {}})))))]
+    (when interop/debug-enabled?
+      (testing "the vectors carry PLAN order, which is neither declaration-name
+                order nor the canonical byte order the removal vector uses"
+        (is (= [mid-key zulu-key alpha-key] (:identities tags))
+            (str "parent-most first, then the leaf's two in DECLARATION order — "
+                 (pr-str (:identities tags))))
+        (is (= (:identities tags) (:ensured-identities tags))
+            "nothing is adoptable here, so the ensured vector is the whole plan
+             in the same order")
+        (is (not= (sort-by state/key-id (:identities tags)) (:identities tags))
+            "and plan order is DISTINGUISHABLE from key-id order on this
+             branch — otherwise the assertion above could not tell them apart")
+        (is (not= (vec (sort-by (comp name second) (:identities tags))) (:identities tags))
+            "…nor is it alphabetical by resource-id, which the leaf's reversed
+             declaration order rules out")))))
+
 (deftest r2-branch-resolve-fails-loud
   ;; A :parent naming an unregistered route aborts the plan (a committed failed
   ;; activation): empty next ownership, no partial ensure/adopt, prior owner

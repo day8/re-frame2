@@ -1035,6 +1035,22 @@ general-purpose public plan debugger.
 > plus the shape-driven egress test. A future EP that graduates a plan
 > projection owns its own row.
 
+> **Erratum — 2026-08-03 (rf2-dlkou, audit of the shipping PR).** The partition
+> is computed on **resource identity** — the canonical bytes of the whole scoped
+> key — and not on host value equality. The two differ: canonical bytes preserve
+> a collection's kind, so a vector-bearing and a list-bearing parameter are two
+> cache entries that Clojure `=` calls one. Computing the diff on `=` reported a
+> removed identity as still present (`:removed 0` against a real removal) and
+> could match a prior identity to its byte-distinct twin when deciding adoption.
+> See [Spec 016 §Plan diff and owner handoff](../../spec/016-Resources.md#plan-diff-and-owner-handoff).
+> Two carriers **either side** of the planner still collapse the same pair — the
+> occurrence dedupe that builds the plan's grouped order, and the set-shaped
+> `[:rf.runtime/routing :resource-plan]` / `:resource-blocking` handoff slots —
+> so a single plan cannot yet contain both members and the live handoff cannot
+> yet deliver both. Closing that moves a documented cross-feature slot shape and
+> is tracked separately (**rf2-btdl1**); it is a dispatch question rather than a
+> trace-contract one, and it does not reopen this erratum.
+
 `:rf.resource/route-plan` is the existing Spec 016 route/resource graph
 operation and is extended rather than replaced by a parallel trace. Prefetch
 emits one `:rf.route/prefetched` summary trace; its plan trace carries
