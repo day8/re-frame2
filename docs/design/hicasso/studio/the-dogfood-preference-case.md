@@ -164,7 +164,7 @@ new-item keys, filter click, toggle, draft change, draft keys, remove).
   event-object interop, zero IME handling. The runtime writes the closures,
   the submit position auto-prevents (census-weighted default), and the
   key-maps inherit the composition law centrally.
-- **Raw UIx:** all eight are **hand-written closures** — six reaching into
+- **Raw UIx:** all eight are **hand-written closures** — five reaching into
   the event (`(.. % -target -value)`) or dispatching directly, one calling
   `.preventDefault`, and two built by the file's own `ime-gated` helper,
   which the author had to know to write (§1's finding: the first cut got it
