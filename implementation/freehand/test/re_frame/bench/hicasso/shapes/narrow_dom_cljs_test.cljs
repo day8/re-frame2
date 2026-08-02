@@ -20,14 +20,15 @@
      text in place rather than replacing a subtree.
   3. **It is flat in B.** The same commit on pages of 50, 150 and 300
      boundaries re-runs one body every time.
-  4. **What narrow does NOT cover, measured.** A write the *page*
-     boundary reads re-renders the page, and React then re-renders all
-     300 cards beneath it, because a Hicasso boundary is a plain function
-     component with no props-equality bail-out — where Reagent's default
-     `shouldComponentUpdate` compares argv and stops the cascade. This is
-     recorded as a **finding** with a number against it, not repaired
-     here: repairing it is a runtime change and this file's job is to find
-     out what the shape costs. See the bead's Findings.
+  4. **A page-chrome write stops at the cards.** A write the *page*
+     boundary reads re-renders the page and **no** card beneath it. This
+     row is where the roster earned its keep: it read 300 of 300 when
+     first taken, because a Hicasso boundary was a plain function
+     component with no value-equality bail-out — where Reagent's default
+     `shouldComponentUpdate` compares argv and stops the cascade. That
+     was the evidence HD-006 had pre-registered as its own reopen
+     condition, and it fired: the bail-out is now the boundary default
+     (rf2-2rtt6.52), and the number here is 0.
 
   Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
   stated skip."
@@ -159,16 +160,17 @@
 ;; 4 — the cascade, measured rather than discovered on a clock
 ;; ---------------------------------------------------------------------------
 
-(deftest a-page-chrome-write-re-renders-every-row
-  (testing "**FINDING, not a repair.** A Hicasso boundary is a plain React
-           function component with no props-equality bail-out, so a write the
-           PAGE reads re-renders the page and React re-renders all 300 cards
-           beneath it — even though every card's props and every card's
-           subscription values are unchanged. Reagent's default
-           `shouldComponentUpdate` compares argv and stops exactly this
-           cascade, so this is a real difference on the axis the bar is set
-           on. Pinned here so it is a number in the record rather than
-           something a bulk clock discovers later and cannot attribute."
+(deftest a-page-chrome-write-re-renders-no-unchanged-row
+  (testing "**REPAIRED, and this was the finding that carried it** — the
+           reopen condition HD-006 pre-registered for itself. This read 300
+           of 300 when the roster first took it: a write the PAGE reads
+           re-rendered the page, and React re-rendered every card beneath
+           it, though every card's props and every card's subscription
+           values were equal. HD-006 is amended (rf2-2rtt6.52) and a
+           value-equality bail-out is now the boundary default, so the same
+           write re-runs the page and NOT ONE card. The card count is what
+           witnesses this and not a DOM comparison — the tab chrome does
+           move."
     (if-not (mount/browser?)
       (skip! ":node-test has no DOM")
       (do
@@ -181,12 +183,15 @@
               (mount/settle!)
               (is (= 1 (:page (shape/runs)))
                   "the page re-ran once, which is correct — it reads the tab")
-              (is (= shape/article-count (:cards (shape/runs)))
-                  (str "and so did every one of the " shape/article-count
-                       " cards, none of whose reads moved"))
+              (is (= 0 (:cards (shape/runs)))
+                  (str "and not one of the " shape/article-count
+                       " cards did, none of whose reads moved — this read "
+                       shape/article-count " before the repair"))
               (is (= before (favourite-counts handle))
-                  "producing an identical DOM — which is why a DOM-only witness
-                   could never have seen this"))
+                  "and the cards' own DOM is untouched")
+              (is (some? (q handle "[data-testid=\"your-feed-tab\"].active"))
+                  "while the chrome the write was ABOUT did move, so the
+                   row above is not passing because the write did nothing"))
             (finally (mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
