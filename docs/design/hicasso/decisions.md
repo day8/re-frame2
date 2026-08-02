@@ -1,4 +1,4 @@
-# Hicasso — decisions (HD-001 … HD-025)
+# Hicasso — decisions (HD-001 … HD-026)
 
 Every design decision for the Hicasso programme, resolved. Each record carries the
 ruling, the decisive rationale, and the condition under which it reopens. These
@@ -754,3 +754,101 @@ identical, and driven through React and a real DOM in
 `arm1/presence_dom_cljs_test`.
 **Reopens** if a witness needs a phase on a node the boundary genuinely cannot see
 and `:rf/phase` cannot reach.
+
+## HD-026 — `preventDefault` is opted in by a reserved HEAD, not by metadata
+
+**Ruling.** The `^{::h/prevent? true}` metadata spelling is **retired**. Prevention
+is opted in by **one reserved intent head** at an event position:
+
+```clojure
+[:a.nav-link {:href "#" :on-click [::h/prevent [:conduit/show-your-feed]]}]
+```
+
+The grammar is **closed, and this is all of it**: `[::h/prevent INTENT]` — exactly
+two forms, the second a non-empty intent vector that is not itself a decorator.
+Anything else is `:rf.error/hicasso-malformed-prevent`, **naming the position**.
+The decorator is **classified and unwrapped at lowering time**, once per render,
+*before* marker analysis — so `::h/value` and `::h/checked` compose inside a
+prevented intent — and what reaches `dispatch` is the ordinary inner vector.
+Key-map branches are accepted through the same call, because a branch is lowered by
+the same code.
+
+**Scope, fenced.** `:on-submit` auto-prevent is **unchanged**; the rare form that
+wants a real submission opts out through the existing `h/fn` escape, because a
+callback is handed the event and the event is the callback's (HD-024). There is
+**no** `::h/allow-default`, **no** event-options map, and **no** modifier language;
+a symmetric allow head is added only if dogfooding produces a real site needing
+both native submission *and* equality-based structural testing. Auto-prevent cannot
+absorb the click case in the other direction either: a click intent on a real link
+must **not** prevent by default — modifier-click, open-in-new-tab — so the
+anchor-acting-as-a-button genuinely needs an explicit opt-in, and this ruling only
+picks its spelling.
+
+**Rationale — one defect is disqualifying, and it is a correctness one.**
+**Metadata does not participate in `=`.** HD-021's headless door returns the tree
+as data and sells itself on *intent vectors assertable by equality*, and the
+measured probe is unambiguous:
+
+```clojure
+(= [:app/go] (with-meta [:app/go] {::h/prevent? true})) ;=> true
+(= [:app/go] [::h/prevent [:app/go]])                   ;=> false
+```
+
+So the one axis the annotation carried was exactly the axis a structural test could
+not see — and neither could a hash-keyed lookup, a log line or a snapshot, since
+metadata is omitted from printing unless `*print-meta*`. `preventDefault` changes
+the event's `canceled` flag per the DOM standard: it is **behaviour**, not
+annotation, and a spelling that hides behaviour from the product's own
+structural-testing story contradicts that story. Two further defects stand
+alongside and would not alone have forced the change: the metadata value **does not
+fit on the attribute key's line at any sane indent**, so the one attribute carrying
+behaviour is the one that looks like a mistake; and `^{…}` before a vector **reads
+as a type hint**, invisible to a reader scanning for behaviour. The shape is not
+exotic — the census's home page has three anchors-acting-as-buttons (feed tabs, tag
+pills) and every Bootstrap-shaped nav has more, against ten such sites across the
+two RealWorld implementations and 35 direct `preventDefault` calls in `examples/`.
+
+**Prior art: Replicant, the most data-oriented neighbour** (verified 2026-08-02,
+replicant.fun). **Taken:** its shape for *data that means behaviour* is a vector
+with a namespaced-keyword head and positional payload — `{:replicant/on-render
+[::update-map-places places]}` — which is the shape this ruling picks, arrived at
+independently and confirmed against the library that has pushed the school
+furthest. **Declined, deliberately:** Replicant carries listener modifiers as
+sibling attribute keys (`:replicant.event/capture`, `:replicant.event/once`,
+`:replicant.event/passive`), which is the sibling-attribute option this ruling
+rejects — an intent in Hicasso **travels as a value** (a view may hand one to a
+child, which places it on an element), and a policy written in a sibling key cannot
+travel with it. **Also declined:** Replicant *infers no meaning* from handler data,
+so it owes no diagnostic and offers none. Hicasso's roster is interpreted —
+`::h/value`, `::h/checked`, and now `::h/prevent` — so it owes one, and the
+refusal follows Freehand's house style instead: state the legal grammar, then what
+was found, then the form to write (`events/event-plan`'s `:rf.error/view-bad-event`
+is the model, down to the imperative `recovery` key).
+
+**Rejected.** (b) A keyed attribute `{:intent [...] :prevent? true}` makes maps
+legal at event positions — a second broad calling convention at every event key,
+against the census's ~97%-literal-vector grain, and an invitation to the options
+language HD-024's collapse deliberately deleted (it is precisely Freehand's
+`{:event [...] :prevent-default true}`). (c) Keep the metadata and add a
+headless-door lint — patches the equality defect with tooling that would have to
+duplicate the semantic knowledge, while defects 1 and 3 stand and printing stays
+blind. Also rejected: a sibling element attribute (separates the policy from the
+intent it decorates, and cannot travel with it); and requiring `h/fn` for the
+recurring click case (discards the data benefit exactly where a one-head wrapper
+preserves it).
+
+**Cost, stated.** One reserved head and one extra pair of brackets. Against K5 it
+is a swap rather than a growth: the metadata *mechanism* is deleted — one fewer
+kind of place for behaviour to hide — and one member joins a roster that is a
+list rather than a convention. The event-time path acquires nothing: the
+classification is one `=` against the head, taken once per lowered position per
+render, and the closure that runs on the click is the same closure as before.
+
+**Demonstrated, not asserted.** The equality property is asserted directly in
+`front/intent_cljs_test/a-prevented-intent-is-assertable-by-equality` — including
+the retired spelling's `=`, `hash` and `pr-str` blindness, stated as the defect it
+was — and the browser half, which no equality can show, is a **real cancelable
+click** on the census feed tab against an un-decorated control on the same page:
+`shapes/large_template_dom_cljs_test/the-prevent-head-is-what-prevents`.
+**Amends** HD-021: its equality promise now holds for the prevent axis at the spine
+shapes. **Reopens** on the dogfooding condition named under Scope.
