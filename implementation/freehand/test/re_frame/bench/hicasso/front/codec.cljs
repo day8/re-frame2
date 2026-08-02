@@ -33,10 +33,15 @@
 
   Also absent, and worth naming so their absence reads as a decision
   rather than an omission: the `:r>` raw-props path, the class-component
-  `__rfArgv` crossing, `defhost`/`[:>]` interop (HD-011 — its own
-  surface), and the adapters' reserved-head and keyword-prop diagnostics
-  (public-boundary policy for a shipped adapter; this codec has no public
-  boundary, and the pre-alpha stance is to trust the programmer).
+  `__rfArgv` crossing, the `[:>]` raw escape (HD-011 keeps it explicitly
+  secondary — the taught door is built below, and the escape stays
+  unbuilt until a case a static declaration cannot express actually
+  appears in the corpus), and the adapters' reserved-head and
+  keyword-prop diagnostics (public-boundary policy for a shipped
+  adapter; this codec has no public boundary, and the pre-alpha stance
+  is to trust the programmer). `defhost` — HD-011's taught door — is
+  NOT absent any more: [[mint-host!]] is the declaration and the host
+  head is the fourth element class, §Host heads below (rf2-2rtt6.65).
 
   ## Codec-work caching only (HD-004)
 
@@ -104,6 +109,7 @@
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
   | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
+  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -836,6 +842,106 @@
   (or (unchecked-get head "hicassoMemo") head))
 
 ;; ---------------------------------------------------------------------------
+;; Host heads (HD-011) — the declared door for a foreign React component
+;; ---------------------------------------------------------------------------
+;;
+;; `defhost` is the door, and the only form taught. The declaration is a
+;; VALUE — the foreign component, the finite `:callbacks` contract map,
+;; and a name for the crossing — minted once and legal as a hiccup head
+;; anywhere. The `[:>]` raw escape stays unbuilt here, deliberately: it
+;; is HD-011's explicitly secondary form, for the cases a static
+;; declaration cannot express, and the census counts none.
+;;
+;; The declaration's `:callbacks` is a finite map from EXACT prop names
+;; to `:event`, `:handler` or `:render` — NEVER inferred from an `on*`
+;; spelling. "Exact" is enforced on the CANONICAL SLOT, like every other
+;; rule in this codec: `{:on-pick :event}` and a call site writing
+;; `:onPick` name the same slot, so the declaration binds however the
+;; author spells the prop — while an undeclared `onFoo` never becomes an
+;; event position no matter how event-shaped its name is.
+
+(def ^:private host-marker "hicassoHost")
+
+(def ^:private callback-contracts
+  "The three contracts a declaration may name — the position table's
+  roster in `front.intent`, verbatim."
+  #{:event :handler :render})
+
+(defn mint-host!
+  "THE ONE-LINE DECLARATION (HD-011). Give the crossing to `component` a
+  name, a policy, and a place: returns the host HEAD — a marked carrier
+  legal in hiccup head position, rendered by [[vec->element]]'s fourth
+  branch.
+
+  `component` is anything React accepts as an element type — a function
+  component, a class, a `memo`/`lazy` product, a context provider. `nil`
+  is refused HERE, at the declaration, because it is the classic broken
+  interop symptom (`:default` against a library that has no default
+  export) and the render-time alternative is React's own error naming
+  nothing the author wrote.
+
+  `opts` carries `:callbacks` — the finite contract map above. Each key
+  is normalized to its canonical slot at MINT time, so the lookup the
+  crossing performs per prop is one `get`; a contract outside the roster,
+  a declaration on a structural slot (`key`/`ref` are React's, not
+  positions), and two spellings landing on one slot are all refused at
+  the declaration, where the author's stack is the declaration site."
+  ([host-name component] (mint-host! host-name component {}))
+  ([host-name component opts]
+   (when (nil? component)
+     (fail! :rf.error/hicasso-host-no-component
+            'front.codec/mint-host!
+            (str "defhost " host-name " was given nil as its component. The "
+                 "usual cause is a JS import that resolved nothing — e.g. "
+                 "`:default` against a library with no default export.")
+            :hand-the-declaration-a-real-component
+            {:host host-name}))
+   (let [declared
+         (reduce-kv
+           (fn [m k contract]
+             (let [slot (cached-prop-name k)]
+               (when-not (contains? callback-contracts contract)
+                 (fail! :rf.error/hicasso-unknown-callback-contract
+                        'front.codec/mint-host!
+                        (str "defhost " host-name " declares " (pr-str k) " with "
+                             "the callback contract " (pr-str contract)
+                             ". The contracts are :event, :handler and :render.")
+                        :declare-event-handler-or-render
+                        {:host host-name :position k :contract contract}))
+               (when (structural-slot? k)
+                 (fail! :rf.error/hicasso-host-structural-callback
+                        'front.codec/mint-host!
+                        (str "defhost " host-name " declares a callback contract on "
+                             (pr-str k) ", whose canonical slot is structural. `key` "
+                             "is React's identity contract and `ref` is HD-016's "
+                             "node handle; neither is a callback position.")
+                        :declare-contracts-on-ordinary-props-only
+                        {:host host-name :position k}))
+               (when (contains? m slot)
+                 (fail! :rf.error/hicasso-host-callback-slot-collision
+                        'front.codec/mint-host!
+                        (str "defhost " host-name " declares " (pr-str k) ", but the "
+                             "slot " (pr-str slot) " already carries a contract from "
+                             "another spelling. Two spellings of one prop are one "
+                             "position; declare it once.")
+                        :declare-each-slot-once
+                        {:host host-name :position k :slot slot}))
+               (assoc m slot contract)))
+           {}
+           (or (:callbacks opts) {}))
+         ^js head #js {"component"   component
+                       "callbacks"   declared
+                       "displayName" host-name}]
+     (unchecked-set head host-marker true)
+     head)))
+
+(defn host-head?
+  "Is `v` a minted host head? One own-property read behind a nil guard;
+  no registry, no map — the same shape as [[boundary-head?]]."
+  [v]
+  (and (some? v) (true? (unchecked-get v host-marker))))
+
+;; ---------------------------------------------------------------------------
 ;; Hiccup shape
 ;; ---------------------------------------------------------------------------
 
@@ -1153,6 +1259,107 @@
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (react/createElement (element-type (nth argv 0)) js-props)))
 
+(defn host-prop-value
+  "A host prop value, converted SHALLOWLY — HD-011's default. The
+  top-level KEY is camelCased (that is [[cached-prop-name]], applied by
+  [[host-element]]'s walk); the VALUE crosses with no renaming inside
+  it: functions by identity (so `React.memo` and every downstream
+  bail-out that compares handler identity keep working), keywords and
+  symbols by name, collections through `clj->js` — whose nested map keys
+  keep the spelling the author wrote. A library expecting camelCase
+  inside a nested option map is handed exactly what the author typed,
+  and the guide's answer is to convert that one map yourself: deep
+  conversion guessing at which nested maps are options and which are
+  data is the documented support burden the shallow default deletes."
+  [v]
+  (cond
+    (fn? v)                       v
+    (or (keyword? v) (symbol? v)) (name v)
+    (coll? v)                     (clj->js v)
+    :else                         v))
+
+(defn- refuse-undeclared-host-event!
+  "An intent vector or key-map at an event-SPELLED prop the declaration
+  does not name. The contract rule is 'never inferred from an `on*`
+  name', and this refusal is the loud half of it: no contract is guessed
+  — but the alternative to refusing is `clj->js` shipping the author's
+  intent to the library as an inert array, which is the silently dead
+  handler class every loud error in this codec exists to delete. A
+  FUNCTION at an undeclared prop is different and legal: it is a value
+  handed to a foreign API — not a position — so it crosses by identity
+  and simply runs (the position table's deletion row)."
+  [^js head k v]
+  (fail! :rf.error/hicasso-host-undeclared-callback
+         'front.codec/host-element
+         (str "The host " (unchecked-get head "displayName") " was handed "
+              (pr-str v) " at " (pr-str k) ", which its declaration does not "
+              "name. A host's callback contracts are a finite map from exact "
+              "prop names to :event, :handler or :render — never inferred "
+              "from an on* spelling — so an undeclared intent would cross as "
+              "inert data. Declare " (pr-str k) " in :callbacks, or hand a "
+              "function.")
+         :declare-the-callback-contract
+         {:host     (unchecked-get head "displayName")
+          :position k
+          :value    v
+          :declared (into #{} (keys (unchecked-get head "callbacks")))}))
+
+(defn- host-element
+  "One declared foreign component as a React element — THE CROSSING
+  (HD-011). Runs inside the render window of the boundary that wrote it,
+  like every other lowering in this walk, so a declared `:event`
+  contract closes over that boundary's frame-locked dispatch and a
+  crossing written outside any boundary is the same loud
+  `:rf.error/hicasso-intent-outside-boundary` an intent vector raises.
+
+  One pass over the attr map, mirroring [[convert-props]] with the
+  position table's second row swapped in for the first: fold a `:&`
+  remainder under the owned-literal law (the same one merge, at a third
+  position), extract `:key` (React's contract, not an attribute), refuse
+  a reserved `:ref` vector and pass a callback ref through untouched,
+  lower every DECLARED slot by its declared contract
+  ([[re-frame.bench.hicasso.front.intent/lower-declared-prop]] — an
+  `h/fn` takes the contract's wrapper, an intent vector or key-map
+  lowers as at a native position), refuse an event-spelled intent at an
+  UNDECLARED slot, and convert everything else shallowly
+  ([[host-prop-value]]) under its camelCased name.
+
+  Children are trailing forms converted hiccup→element and handed to the
+  foreign component as ordinary React children — HD-011's third default.
+
+  The head itself contributes NOTHING at render: no wrapper component,
+  no fiber, no hook. The foreign component is the element's own type, so
+  its hooks, its state and its refs are React's affair under React's
+  rules — which is the whole point of the door, and what keeps HD-020's
+  ≤2-hook budget a statement about Hicasso's boundaries alone."
+  [argv]
+  (let [^js head   (nth argv 0)
+        declared   (unchecked-get head "callbacks")
+        has-props? (props-map? argv 1)
+        props      (merge-caller (if has-props? (nth argv 1) {}))
+        js-props   (reduce-kv
+                     (fn [o k v]
+                       (let [slot (cached-prop-name k)]
+                         (when-not (reserved-cache-keys slot)
+                           (unchecked-set o slot
+                             (cond
+                               (= ref-slot slot)
+                               (check-ref! k v)
+
+                               (contains? declared slot)
+                               (intent/lower-declared-prop k v (get declared slot))
+
+                               :else
+                               (do (when (and (intent/event-prop? k)
+                                              (or (vector? v) (map? v)))
+                                     (refuse-undeclared-host-event! head k v))
+                                   (host-prop-value v)))))
+                         o))
+                     #js {}
+                     (dissoc props :key))]
+    (when-some [k (:key props)] (unchecked-set js-props "key" k))
+    (make-element (unchecked-get head "component") js-props argv (if has-props? 2 1))))
+
 (defn- fragment-element [argv]
   (let [has-props? (props-map? argv 1)
         props      (if has-props? (nth argv 1) nil)
@@ -1187,17 +1394,21 @@
       (fragment-head? head)   (fragment-element argv)
       (hiccup-tag? head)      (native-element argv)
       (boundary-head? head)   (boundary-element argv)
+      (host-head? head)       (host-element argv)
       :else
       (throw (ex-info (str "Hiccup head " (pr-str head) " is not a valid element head; "
-                           "use a tag keyword, :<>, or a view minted by defview. "
+                           "use a tag keyword, :<>, a view minted by defview, or a "
+                           "host minted by defhost. "
                            "A plain function in head position is never a silent "
-                           "embedding — call it, or make it a view. "
+                           "embedding — call it, or make it a view. A raw JS "
+                           "component is never a silent embedding either — "
+                           "declare it (HD-011). "
                            "[:rf.error/hicasso-bad-head]")
                       {:rf.error/id :rf.error/hicasso-bad-head
                        :where       'front.codec/vec->element
                        :reason      (if (fn? head)
                                       "A plain function in head position is a loud error (HD-016)."
-                                      "Hiccup head must be a tag keyword, :<>, or a defview product.")
+                                      "Hiccup head must be a tag keyword, :<>, a defview product, or a defhost product.")
                        :recovery    (if (fn? head) :call-it-or-make-it-a-view :supply-a-valid-hiccup-head)})))))
 
 (defn as-element

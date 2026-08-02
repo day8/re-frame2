@@ -1,6 +1,6 @@
 (ns re-frame.bench.hicasso.arm1.lang
-  "`defview` and `hfn` — the two macros Arm 1 has (rf2-2rtt6.9,
-  rf2-2rtt6.35).
+  "`defview`, `hfn` and `defhost` — the three macros Arm 1 has
+  (rf2-2rtt6.9, rf2-2rtt6.35, rf2-2rtt6.65).
 
   It exists because the authoring surface is a *deliverable*: HD-002 has
   the dogfood screen written in three renderings and judged on diff and
@@ -67,3 +67,31 @@
   [[re-frame.bench.hicasso.front.intent]] for the position table."
   [argv & body]
   `(re-frame.bench.hicasso.front.intent/callback (fn ~argv ~@body)))
+
+(defmacro defhost
+  "**The interop door — the one-line declaration (HD-011).** Name the
+  crossing to a foreign React component once; use the resulting var as a
+  hiccup head anywhere, indistinguishable from a view:
+
+      (defhost date-picker DatePicker
+        {:callbacks {:on-change :event}})
+
+      [date-picker {:selected  due-date
+                    :on-change [:task/set-due ::h/value]}]
+
+  `opts` is optional and carries `:callbacks` — a FINITE map from exact
+  prop names to `:event`, `:handler` or `:render`, never inferred from an
+  `on*` spelling. Policy lives on the declaration, so every use site
+  inherits it; the defaults, the refusals and the crossing itself are
+  [[re-frame.bench.hicasso.front.codec/mint-host!]]'s.
+
+  Like [[defview]] it is not a compiler: it expands to a `def` of the
+  minted head, reads no body, and captures only the name — for
+  `displayName` and for every diagnostic the crossing raises."
+  [sym & more]
+  (let [doc         (when (string? (first more)) (first more))
+        [component opts] (if doc (rest more) more)
+        host-name   (str (ns-name *ns*) "/" sym)]
+    `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
+       (re-frame.bench.hicasso.front.codec/mint-host!
+         ~host-name ~component ~(or opts {})))))
