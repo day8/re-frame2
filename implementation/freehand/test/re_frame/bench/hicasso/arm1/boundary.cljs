@@ -25,10 +25,13 @@
 
   **A class component calls no hooks, so this costs the ≤2-hook shell
   budget exactly nothing** — the boundary is not a boundary *shell*, it
-  reads no subscription, mints no registration and takes no cell.
-  `arm1_lifecycle_dom_cljs_test` counts that at React's own dispatcher
-  rather than asserting it here: a page wrapping a Hicasso boundary in
-  one of these still reads two.
+  reads no subscription, mints no registration and takes no cell. That
+  stayed true when the frame binding below arrived: `contextType` is a
+  property of the component, not a hook call, so it is invisible at
+  React's dispatcher. `arm1_lifecycle_dom_cljs_test` counts a healthy
+  page there and `arm1_boundary_intent_dom_cljs_test` counts one in its
+  ERROR state, rather than either asserting it here: a page wrapping a
+  Hicasso boundary in one of these still reads two.
 
   ## The three keys
 
@@ -66,6 +69,43 @@
   was mounted under rather than in whatever happened to be ambient when
   the throw arrived.
 
+  ## The fallback and the children are lowered HERE (rf2-uo9di)
+
+  Both are hiccup **data**, written in the parent boundary's body — and
+  both are walked by the codec inside **this class's own React render**,
+  one render later, after that body's dynamic extent has unwound. So
+  `intent/*dispatch*` was unbound at the moment the codec reached them,
+  and before the binding below existed an intent at an event position on
+  the fallback or on a native child raised
+  `:rf.error/hicasso-intent-outside-boundary` at render, while an `h/fn`
+  at one raised the same id at invocation.
+
+  The fallback half is the sharp one, because it is the half the ruling
+  above is sold on: `:fallback` sits beside `:reset-key` precisely so
+  that \"the retry is the CALLER's to schedule\", and the control that
+  schedules it is a button whose `:on-click` is an intent. So the table's
+  own worked example could not be written — and a fallback that throws
+  while rendering does not fail quietly in a corner, it takes the *next*
+  boundary up, turning an application's error path into an
+  application-wide failure.
+
+  The repair is [[re-frame.bench.hicasso.arm1.presence]]'s, one component
+  along, and **cheaper**: presence had to buy a `useContext` to find its
+  frame and paid for it in HD-025's stated cost, while this class already
+  has [[frame-of]] through `contextType`. So there is no new hook and no
+  new accessor — only HD-020(a)'s rule applied where the lowering
+  actually happens rather than where the hiccup was written, with
+  `runtime/frame-dispatch`'s memoised frame-locked dispatch so a child
+  here lowers *identically* to one written in the parent's body and
+  nothing is allocated per render.
+
+  **No frame in scope is not an error here.** The class reads nothing, so
+  a boundary mounted outside a frame is legal until something below it
+  writes an intent — at which point the existing loud error fires and
+  names the intent, which is better attribution than a generic
+  no-frame-context throw from the boundary. The binding is therefore
+  unconditional and simply carries `nil` when there is no provider.
+
   ## What it does NOT catch, stated because a boundary that quietly does
   ## not catch is worse than none
 
@@ -78,6 +118,7 @@
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
+            [re-frame.bench.hicasso.front.intent :as intent]
             ["react" :as react]))
 
 (defn- props-of
@@ -151,8 +192,23 @@
           (fn []
             (this-as ^js this
               (let [{:keys [fallback children]} (props-of this)
-                    error (unchecked-get (.-state this) "error")]
-                (if (some? error)
-                  (codec/as-element (if (fn? fallback) (fallback error) fallback))
-                  (codec/as-element (into [:<>] children)))))))
+                    error    (unchecked-get (.-state this) "error")
+                    frame-kw (frame-of this)]
+                ;; THE LOWERING, inside the frame (rf2-uo9di). The fallback
+                ;; and the children were both written in the parent's body
+                ;; and are both walked HERE, so the ambient frame the codec's
+                ;; intent lowering reads has to be re-established around this
+                ;; call and nowhere else. ONE binding covers both branches
+                ;; because both are the same crossing — including
+                ;; `(fallback error)` itself, so hiccup the fallback function
+                ;; mints is lowered under the same frame as hiccup it was
+                ;; handed. `nil` when no provider is above the boundary: the
+                ;; binding is unconditional so the branch does not exist, and
+                ;; an intent written under a frameless boundary still lands on
+                ;; the existing loud error naming the intent.
+                (intent/with-frame frame-kw (when frame-kw (rt/frame-dispatch frame-kw))
+                  (fn []
+                    (if (some? error)
+                      (codec/as-element (if (fn? fallback) (fallback error) fallback))
+                      (codec/as-element (into [:<>] children)))))))))
     (codec/mark-boundary! ctor)))
