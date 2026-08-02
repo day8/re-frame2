@@ -39,8 +39,9 @@ did not have: an intent-parity witness and the authoring counted.
 A preference judged between a stale candidate and a stale control measures
 drift, not design. Both files were audited against everything that has landed
 since they were written (`rf2-2rtt6.35` `h/fn`, HD-023 `:&`, HD-026
-`::h/prevent`, `rf2-2rtt6.54` `::h/navigate`, HD-025 presence-as-data, and the
-retirement of the prevent metadata in `rf2-2rtt6.57`).
+`::h/prevent`, HD-027 `::h/navigate`, HD-025 presence-as-data, the
+retirement of the prevent metadata in `rf2-2rtt6.57`, and HD-028's
+value-equality boundary default — see §3.7).
 
 **The collector rendering needed no code change.** Every event position takes
 a literal intent vector, nothing forwards a props remainder, no anchor acts as
@@ -236,6 +237,39 @@ Three requires each — `[runtime :refer [sub]]` + shared model + the
 `defview` macro on one side; `adapter.uix` + shared model + `uix.core` on
 the other. No difference worth a preference.
 
+### 3.7 The bail-out: a default against an opt-in (HD-028)
+
+Landed 2026-08-02, after the first cut of this page, and it moves one
+row: **a value-equality bail-out is now the Hicasso boundary default**
+(HD-028, amending HD-006 on the reopen condition HD-006 had
+pre-registered for itself). A `defview` head carries an internal stable
+memo wrapper comparing its whole props value with `=`, failing *open* on
+a throw.
+
+The comparison it creates is an authoring one rather than a clock one,
+so it belongs here: **UIx has the same tool and it is opt-in.**
+`uix.core/memo` (1.4.4) compares `argv` plus `:children` — the codec's
+own note records that the compared value matches Hicasso's without a
+special case — but a raw-UIx author must reach for it, per component,
+having first noticed they need it. Neither this screen's UIx rendering
+nor any UIx example in this repo does.
+
+Where it bites on *this* screen: a filter change moves `visible-ids`, so
+`todo-list` re-runs and re-creates every row element; the Hicasso rows
+whose props are unchanged bail out, the raw-UIx rows all re-run their
+bodies and re-read their hooks. **Both render the same DOM** — which is
+why the parity witness in §2 passes across exactly that interaction —
+so what differs is work done, not output. No figure for that work is
+quoted here (see the no-timing-row note at the head of this page); the
+authoring fact is that one side got the bail-out by writing nothing and
+the other must know to ask.
+
+Recorded as a *change since the first cut* rather than folded in
+silently, because the honest reading of §4 item 3 depends on it: raw
+UIx's fixed hook set is still the thing that never re-subscribes, and
+that loss stands unchanged — this is a second, separate axis on which
+the default now runs the other way.
+
 ## 4. What raw UIx does better here
 
 The charter keeps a "Known losses coming from Reagent" section on principle;
@@ -300,7 +334,9 @@ read and maintain?** The evidence on the table:
   the difference §1's control-side bug makes concrete.
 - Raw UIx answers with compile-time checking, the event in hand, fixed
   subscription identity, and a smaller machinery bet (§4) — and it ties on
-  concept count (§3.5) and imports (§3.6).
+  concept count (§3.5) and imports (§3.6). Since HD-028 it no longer ties
+  on the bail-out: Hicasso's is the default, UIx's is a per-component
+  opt-in the author must know to reach for (§3.7).
 - Neither side needed an escape hatch: the four collapsed spellings stayed
   unused here exactly as they did on the spine shapes (§1), so the
   comparison is between each surface's *core*, which is the comparison the

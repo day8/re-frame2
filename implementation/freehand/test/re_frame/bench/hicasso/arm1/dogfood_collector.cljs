@@ -22,7 +22,7 @@
 
   Checked against every authoring spelling that has landed since this
   file was written: `h/fn` (HD-024), `:&` (HD-023), the `::h/prevent`
-  head (HD-026), the `::h/navigate` head (rf2-2rtt6.54), and presence as
+  head (HD-026), the `::h/navigate` head (HD-027), and presence as
   data (HD-025). **None is needed on this screen** — every event position
   takes a literal intent vector, nothing forwards a props remainder, no
   anchor acts as a button (the one submit position takes the
