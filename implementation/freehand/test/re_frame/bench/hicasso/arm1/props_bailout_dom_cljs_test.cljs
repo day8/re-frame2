@@ -261,6 +261,44 @@
             (finally (mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
+;; 2b — a CONTEXT change still propagates
+;; ---------------------------------------------------------------------------
+
+(def ^:private other-frame-id ::arm1-props-bailout-dom-other)
+
+(deftest a-context-change-re-renders-rows-whose-props-did-not-move
+  (testing "the third channel into the shell. `useContext` carries the frame,
+           and React propagates a context change to its consumers directly —
+           ahead of the comparator and through a memo. Witnessed by
+           re-rendering the SAME root under a DIFFERENT frame whose rows
+           carry different titles: every row's props map is `{:id n}` before
+           and after, so props alone would bail every one of them out and
+           freeze the page on the old frame's data"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (do
+        (fresh!)
+        (lane/leave-act-environment!)
+        (dogfood/make-frame! other-frame-id row-count)
+        (dogfood/reseed! other-frame-id row-count)
+        ;; Give the other frame a row the first frame does not have.
+        (rt/dispatch! other-frame-id [:dogfood/edit-draft moved-row "from the other frame"])
+        (rt/dispatch! other-frame-id [:dogfood/commit moved-row])
+        (let [handle (mount-page!)]
+          (try
+            (is (re-find #"todo" (nth (row-texts handle) moved-row))
+                "the first frame's data is on screen")
+            (reset-runs!)
+            (mount/render! (assoc handle :frame other-frame-id) [page {}])
+            (mount/settle!)
+            (is (= row-count (:rows (runs)))
+                "every row re-rendered, though not one row's props moved")
+            (is (re-find #"from the other frame" (nth (row-texts handle) moved-row))
+                "and the DOM carries the NEW frame's value — a memo that
+                 outranked context would have frozen the page here")
+            (finally (mount/release! handle))))))))
+
+;; ---------------------------------------------------------------------------
 ;; 3 — props still propagate
 ;; ---------------------------------------------------------------------------
 
