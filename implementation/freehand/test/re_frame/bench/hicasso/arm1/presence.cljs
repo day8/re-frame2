@@ -6,19 +6,51 @@
 
   ## What this costs, stated rather than buried
 
-  **Two React hooks — `useState` and `useEffect` — in THIS component.**
-  The ≤2-hook budget HD-020(b) polices is the *boundary shell's*, and
-  this is not a boundary shell: it reads no subscription, mounts no
-  registration and takes no cell. `runtime/shell` is untouched and the
-  dispatcher-level ledger still counts exactly two there.
+  **Three React hooks — `useContext`, `useState` and `useEffect` — in
+  THIS component.** The ≤2-hook budget HD-020(b) polices is the *boundary
+  shell's*, and this is not a boundary shell: it reads no subscription,
+  mounts no registration and takes no cell. `runtime/shell` is untouched
+  and the dispatcher-level ledger still counts exactly two there.
 
-  The hooks are legitimate under HD-003's placement rule rather than in
-  spite of it: presence is animation lifecycle, which is component
-  mechanics by that rule's own list, and it is a *library* mechanic paid
-  once rather than an application one paid per view. The alternative
-  — keeping retention in a module-level registry keyed by instance —
-  would be a second reactivity system, which is the top item on the
-  anti-regression fence.
+  The two lifecycle hooks are legitimate under HD-003's placement rule
+  rather than in spite of it: presence is animation lifecycle, which is
+  component mechanics by that rule's own list, and it is a *library*
+  mechanic paid once rather than an application one paid per view. The
+  alternative — keeping retention in a module-level registry keyed by
+  instance — would be a second reactivity system, which is the top item
+  on the anti-regression fence.
+
+  ## The frame hook, and why children lowered here need one (rf2-2rtt6.66)
+
+  A presence child is hiccup **data**, written in the parent boundary's
+  body — but it is **lowered in THIS component's render**, one React
+  render later, after that body's dynamic extent has unwound. So
+  `intent/*dispatch*` is unbound at the moment the codec walks it, and
+  before this hook existed an intent at an event position on ANY presence
+  child raised `:rf.error/hicasso-intent-outside-boundary` at render, and
+  an `h/fn` at one raised it at invocation. Loud, never silent — and it
+  meant the tray this whole ruling is sold on,
+
+      [:div.toast {:key id :on-click [:toasts/dismiss id]} …]
+
+  could not be written. The retained half is where it bit hardest: a
+  child the author has already removed from app-db is still on screen and
+  still clickable for `:timeout-ms`, and its dismiss button is exactly
+  the control an exiting toast wants.
+
+  The frame is therefore resolved once, from the substrate's single
+  internal context — the same object `runtime/shell` reads and
+  `arm1.boundary` takes through `contextType` — and re-bound around the
+  one `as-element` call below, with `runtime/frame-dispatch`'s memoised
+  frame-locked dispatch. That is HD-020(a)'s rule applied where the
+  lowering actually happens rather than where the hiccup was written.
+
+  **No frame in scope is not an error here.** Presence reads nothing, so
+  a tray mounted outside a frame is legal until one of its children
+  writes an intent — at which point the existing loud error fires and
+  names the intent, which is better attribution than a generic
+  no-frame-context throw from the tray. The binding is therefore
+  unconditional and simply carries `nil` when there is no provider.
 
   ## Why the machine is adjusted during render and not in an effect
 
@@ -34,7 +66,10 @@
   `:mounting` to `:present` after paint, and it arms **one** timer at the
   earliest deadline. Deadlines are absolute instants, so a timer re-armed
   because some *other* key changed cannot extend a child's retention."
-  (:require [re-frame.bench.hicasso.front.codec :as codec]
+  (:require [re-frame.adapter.context :as adapter-context]
+            [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.bench.hicasso.front.codec :as codec]
+            [re-frame.bench.hicasso.front.intent :as intent]
             [re-frame.bench.hicasso.front.presence :as presence]
             ["react" :as react]))
 
@@ -44,6 +79,11 @@
   (let [props      (or (unchecked-get js-props "rfProps") {})
         timeout-ms (presence/check-timeout! (:timeout-ms props))
         children   (:children props)
+        ;; The frame hook. Classified through the shared reader the whole
+        ;; substrate uses, so the no-provider sentinel resolves to nil
+        ;; ("no scope") rather than being mistaken for a frame keyword.
+        frame-kw   (adapter-context/context-value->current-frame
+                     (react/useContext adapter-context/frame-context))
         hook       (react/useState presence/initial)
         state      (aget hook 0)
         set-state  (aget hook 1)
@@ -68,7 +108,15 @@
             (when expiry (js/clearTimeout expiry))
             (when enter (js/clearTimeout enter)))))
       #js [(presence/pending-signature next)])
-    (codec/as-element (into [:<>] (presence/render next)))))
+    ;; THE LOWERING, inside the frame (rf2-2rtt6.66). These children were
+    ;; written in the parent's body and are walked here, so the ambient
+    ;; frame the codec's intent lowering reads has to be re-established
+    ;; around this call and nowhere else. `nil` when no provider is above
+    ;; the tray — the binding is unconditional so the branch does not
+    ;; exist, and an intent written under a frameless tray still lands on
+    ;; the existing loud error naming the intent.
+    (intent/with-frame frame-kw (when frame-kw (rt/frame-dispatch frame-kw))
+      (fn [] (codec/as-element (into [:<>] (presence/render next)))))))
 
 (def presence
   "`h/presence` — a boundary that retains exiting keyed children for

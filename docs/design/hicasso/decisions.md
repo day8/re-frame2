@@ -757,20 +757,31 @@ length and the hard terminal bound; re-entry cancels exit; keys are required on
 every dynamic child; presence never dispatches domain mount/unmount events.
 **Cost, stated.** The phase transform and the retention machine are **pure**
 (`front/presence`), which is what makes the whole thing assertable with no clock.
-The React component that drives them (`arm1/presence`) spends **two hooks —
-`useState` and `useEffect` — in its own component**. That is not a shell-budget
-breach: HD-020(b)'s ≤2 is the *boundary shell's*, and presence reads no
+The React component that drives them (`arm1/presence`) spends **three hooks —
+`useContext`, `useState` and `useEffect` — in its own component**. That is not a
+shell-budget breach: HD-020(b)'s ≤2 is the *boundary shell's*, and presence reads no
 subscription, mounts no registration and takes no cell; the dispatcher-level ledger
-still counts exactly two in `runtime/shell`. The hooks are legitimate under
-HD-003's placement rule rather than in spite of it — animation lifecycle is
+still counts exactly two in `runtime/shell`. The two lifecycle hooks are legitimate
+under HD-003's placement rule rather than in spite of it — animation lifecycle is
 component mechanics by that rule's own list — and they are a library mechanic paid
 once, not an application one paid per view. The machine is adjusted **during
 render** rather than in an effect (`step` is idempotent, so the comparison
 converges), because an effect there would cost a paint with the wrong tree in it.
+**The frame hook is the third, and it was bought by a defect rather than by a
+design** (rf2-2rtt6.66). A presence child is hiccup written in the parent's body
+and **lowered inside presence's own render**, so `intent/*dispatch*` was unbound
+when the codec walked it and *any* intent on *any* presence child raised
+`:rf.error/hicasso-intent-outside-boundary` — the inline dismiss button this
+ruling is sold on could not be written. Presence therefore resolves the frame once
+from the substrate's single internal context and re-binds it (HD-020(a)) around the
+one `as-element` call, so a child lowers exactly as it would have in the parent's
+body. No frame in scope stays legal — presence reads nothing — and an intent
+written under a frameless tray remains the same loud error, naming the intent.
 **Demonstrated, not asserted.** The predecessor's own worked toast tray is ported
 both ways in `front/presence_cljs_test` with the rendered attributes asserted
-identical, and driven through React and a real DOM in
-`arm1/presence_dom_cljs_test`.
+identical, driven through React and a real DOM in `arm1/presence_dom_cljs_test`,
+and clicked — both intent shapes, live and retained, against a second live frame —
+in `arm1/presence_intent_dom_cljs_test`.
 **Reopens** if a witness needs a phase on a node the boundary genuinely cannot see
 and `:rf/phase` cannot reach.
 
