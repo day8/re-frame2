@@ -9,7 +9,7 @@ by [EP-0038](../../EP/EP-0038-the-hicasso-view-layer-programme.md).
 |---|---|
 | [charter.md](charter.md) | Product identity, evidence base, goals, constraints, use-case roster, known losses |
 | [decisions.md](decisions.md) | HD-001…HD-028 — every design decision, resolved, with rationale and reopen conditions |
-| [hd-002-adjudication.md](hd-002-adjudication.md) | HD-002 adjudicated — the tripwire, the boundary, ownership, and the hypotheses under test |
+| [hd-002-adjudication.md](hd-002-adjudication.md) | HD-002's correctness/cost gates, adjudicated and still binding — the tripwire, the boundary, ownership, and the hypotheses under test. Written before the operator's 2026-07-31 ergonomics ruling ([decisions.md](decisions.md) HD-002) and stands as written per that ruling; read it alongside HD-002, not in place of it |
 | [architecture.md](architecture.md) | The architecture space, the one live arm (and the withdrawn second), the shared front half, inside-React feasibility, the sub-read mechanism ladder |
 | [validation.md](validation.md) | The bar, the budgets, the P0→P1→P2 plan, witnesses, tournament and measurement discipline, kill criteria |
 | [authoring.md](authoring.md) | The authoring surface: views, subs, intents, interop door, theming, ephemeral state, testing doors |

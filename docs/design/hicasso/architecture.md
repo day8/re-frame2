@@ -18,7 +18,7 @@ normative in [decisions.md](decisions.md); the proof obligations live in
 | | **Views re-run when dirty** | **Views run once; reactive holes** |
 |---|---|---|
 | **React owns the DOM** | **Hicasso lean-React** — the product line | dead — two-owner input clobber |
-| **Own renderer, React at islands** | ~~**Hicasso/PATCH**~~ — withdrawn 2026-07-31 (HD-007, superseded) | dead — authoring pin (HD-002) |
+| **Own renderer, React at islands** | ~~**Hicasso/PATCH**~~ — withdrawn 2026-07-31 (HD-007, superseded) | dead — the shipped read surface requires a re-running body (HD-002) |
 
 `sub`-as-a-value in open Clojure forces the re-run column: without a compiler to
 thunk expressions, run-once economics require hole-based authoring, which the
@@ -44,9 +44,10 @@ elements vs own DOM).
    dirty set is the union of all readers of any dirty sub; (6) an unknown dirty
    sub yields the empty set — no phantom boundaries. Index edges live in global
    maps — shared structure, not per-boundary object fan-out — and are not
-   reactions: only the commit applies the dirty set. **The index serves the two
-   product read tiers** (grouped declares its edges; the collector records
-   them); the scalar comparator arm does not use it. The index carries a
+   reactions: only the commit applies the dirty set. **The index serves the
+   one product read tier** — the ambient collector, which records edges — **and
+   its comparator**, grouped, which declares them; the scalar comparator arm
+   does not use it. The index carries a
    ~3-line nil-checked evidence sink seam (HD-005) so tooling can attach later;
    no evidence subsystem ships in v0.
 3. **Ergonomics-as-data** — event vectors in attributes, the value placeholder,
@@ -124,31 +125,34 @@ elements vs own DOM).
   can *beat* the UIx frontier on bulk and memory rather than approach it. That
   argument was never refuted — it was set aside by the product ruling.
 
-## The sub-read mechanism (HD-002: grouped default, collector challenger, scalar comparator)
+## The sub-read mechanism (HD-002, superseded 2026-07-31 — `sub` is the one product surface)
 
-Three tiers, one product. **Tier 1 — scalar per-read hooks** (the raw UIx
-spine): a comparator arm only, the measured floor, exempt from the product hook
-budget because it is the control (N reads = N hooks can never satisfy the
-product budget, and hook rules forbid conditional reads). **Tier 2 — grouped
-`use-subs`, the product default**: one fixed hook receiving the complete query
-collection before the body; query values may vary while hook count and order
-stay fixed; conditional needs are met by conditional child boundaries and
-conditionally-constructed query values at fixed sites; its canonical spelling
-is pre-declared and dogfooded from P1 start. **Tier 3 — the ambient collector,
-the challenger ridden hardest**: `(sub q)` as a plain tracked read anywhere in
-the body, one fixed runtime hook, edge diff after the body; it replaces grouped
-only by winning the per-read instrumentation under the HD-002 adjudication
-clauses (the render/commit ownership state machine; the allowed edge-diff
-operation vs the forbidden ledger; two pre-registered strategy hypotheses
-counted by benchmarked commits; the warm 1/3/7/20 allocation-slope survival
-metric) — and the standing tripwire **overrides the clock**: the first need for
-a candidate ledger or generic post-render dependency reconciliation kills the
-collector outright. It is the same mechanism class as the predecessor's
-per-read ledger — the single largest measured killer — which is why it must win
-its place rather than defend it, and why it is worth riding hard: it carries
-the census's tier-1 authoring shape (conditional reads legal) and most of the
-differentiation vs raw UIx. If both product tiers fail their gates, the outcome
-is null — never a fourth read model.
+The operator ruled on ergonomics, not on the measurement this section
+originally set up: **the ambient collector — `(sub q)` as a plain tracked read
+anywhere in the body — is the only read surface acceptable**, and grouped
+`use-subs` sits below the usability bar. **Tier 1 — scalar per-read hooks**
+(the raw UIx spine) stays a comparator arm only, the measured floor, exempt
+from the product hook budget because it is the control (N reads = N hooks can
+never satisfy the product budget, and hook rules forbid conditional reads).
+**Grouped `use-subs`** — one fixed hook receiving the complete query
+collection before the body — is ergonomically rejected as a product surface
+and is kept, and kept working, only as the **comparator** the collector is
+measured against; it is not a fallback, and a collector loss does not promote
+it. **The ambient collector** — one fixed runtime hook, edge diff after the
+body — is the one product tier, and the correctness and cost gates this
+ruling did **not** waive still bind in full, adjudicated in
+[hd-002-adjudication.md](hd-002-adjudication.md): the render/commit ownership
+state machine, the allowed edge-diff operation vs the forbidden ledger, two
+pre-registered strategy hypotheses counted only by benchmarked commits, and
+the warm 1/3/7/20 allocation-slope survival metric — and the standing
+tripwire **overrides the clock**: the first need for a candidate ledger or
+generic post-render dependency reconciliation kills the collector outright,
+however good its numbers look. It is the same mechanism class as the
+predecessor's per-read ledger — the single largest measured killer — which is
+why it must win its place rather than defend it. **If the collector trips the
+tripwire or fails the survival metric, the outcome is null — never a fallback
+to grouped** — or a mechanism not currently on the table must earn its way in
+(decisions.md HD-002).
 
 **Frame plumbing and the hook ledger (HD-020)**: each boundary reads the frame
 once via the substrate's single internal context, then binds it ambiently for

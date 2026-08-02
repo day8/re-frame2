@@ -440,12 +440,13 @@ kill-bounded arms, and both did run before the ruling.)
 - A root-pull arm may run as a non-product assumption-challenge that leaves no
   API behind.
 - **The dogfood screen**: one list + one controlled field + sub reads, written
-  in **three renderings** (HD-002) — the collector surface, the grouped
-  `use-subs` surface (its canonical spelling pre-declared), and raw UIx —
-  judged on diff and preference by its authors. The grouped rendering rides the
-  comparator spine, not a third runtime. The ergonomics half of the verdict,
-  and the guarantee that a collector loss promotes an already-scored surface
-  rather than triggering a mid-clock API rewrite.
+  in **three renderings** (HD-002) — the collector surface (the ruled product
+  surface), the grouped `use-subs` surface (kept as its comparator, canonical
+  spelling pre-declared), and raw UIx. The grouped rendering rides the
+  comparator spine, not a third runtime. **Ergonomics is decided by direct
+  ruling** (2026-07-31, on the draft guide) rather than by this comparison;
+  the renderings still carry the cost/correctness measurement, where a
+  collector loss is **null** — never a promotion of grouped.
 
 **Witness set**: the 300-boundary shapes; 1/3/7/20 reads-per-boundary as two
 separated scaling curves (fixed reads × growing boundaries; fixed boundaries ×
