@@ -208,12 +208,22 @@
 
 (defn- timed-walks
   "One sample: K walks of one already-realized witness under one clock.
-  Answers ms for the window."
+  Answers ms for the window.
+
+  **Every arm runs inside the body door**, including the two that do not
+  need it. Hicasso's intent lowering refuses to run with no ambient
+  dispatch (`front.intent/require-dispatch`), so the native arm has no
+  choice; running the donors inside the same door keeps the four arms on
+  ONE call convention, which is the confound `rf2-2rtt6.32` recorded and
+  the only reason that measurement's error was caught. The clock starts
+  INSIDE the door, so the door itself is never in the window."
   [witness walk-one]
-  (let [t0 (lane/now-ms)]
-    (dotimes [_ walks-per-sample]
-      (walk-one witness))
-    (- (lane/now-ms) t0)))
+  (wp/in-body
+    (fn []
+      (let [t0 (lane/now-ms)]
+        (dotimes [_ walks-per-sample]
+          (walk-one witness))
+        (- (lane/now-ms) t0)))))
 
 (def ^:private sampling {:warmup 4 :samples 10})
 (def ^:private rounds 6)
@@ -307,30 +317,36 @@
 ;; Candidates — costed here, landed only if this table convicts
 ;; ---------------------------------------------------------------------------
 ;;
-;; The shipping cache lookup is a three-step: `reserved-name?` (three
-;; `===` compares against the JS prototype-poisoning roster), `own-key?`
+;; The shipping cache lookup is a three-step, and every step of it is on
+;; the HIT path — the path a mount takes 1,202 times for tags and ~1,075
+;; times for props: `reserved-name?` (three `===` compares against the JS
+;; prototype-poisoning roster), `own-key?`
 ;; (`Object.prototype.hasOwnProperty.call`), then `unchecked-get`. All
 ;; three exist because the caches are `#js {}` objects and therefore carry
-;; `Object.prototype`: a literal named `__proto__` would poison a write,
-;; and an inherited name (`toString`) would falsely hit a read.
+;; `Object.prototype`: a literal named `__proto__` would poison a WRITE,
+;; and an inherited name (`toString`, `constructor`) would falsely hit a
+;; READ.
 ;;
-;; A cache made with `Object.create(null)` has NO prototype chain at all.
-;; `__proto__` on it is an ordinary own property with no setter to invoke,
-;; and a lookup can only ever answer an own property — so the whole guard
-;; collapses to one `unchecked-get` and an `undefined?` test, and it is
-;; STRICTLY SAFER than the guarded version rather than a relaxation of it.
-;; The arms below price that collapse over the page's own key roster
-;; before anything is landed in the codec.
-
-(defn- mint-name
-  "The candidate arms cache a NAME, which is enough to price the lookup
-  shape; the shipping cache holds a `PropSlot` whose extra fields are
-  minted by the same miss path either way."
-  [k]
-  (codec/prop-name k))
+;; Both candidates below move the write guard to the MISS path, where it
+;; runs once per distinct literal for the life of the build instead of
+;; once per element per mount, and answer the false-hit problem in the
+;; lookup itself. They differ in how:
+;;
+;;   nullproto  the cache is `Object.create(null)` — no prototype chain,
+;;              so a lookup can only ever answer an own property and the
+;;              test is `undefined?`. Strictly safer than the guard it
+;;              replaces. RISK, which is why it is costed and not
+;;              assumed: V8 starts `Object.create(null)` objects in
+;;              DICTIONARY mode, and a dictionary-mode lookup can be
+;;              dearer than the fast-mode lookup plus its guards.
+;;   instcheck  the cache stays a `#js {}` in fast mode and the hit is
+;;              validated by TYPE — nothing on `Object.prototype` is a
+;;              `ParsedTag` or a `PropSlot`, so `instance?` rejects every
+;;              inherited name in one test.
 
 (def ^:private guarded-cache #js {})
 (def ^:private nullproto-cache (js/Object.create nil))
+(def ^:private instcheck-cache #js {})
 (def ^:private has-own (.-hasOwnProperty (.-prototype js/Object)))
 
 (defn- reserved-name? [n]
@@ -338,31 +354,45 @@
       (identical? "prototype" n)
       (identical? "constructor" n)))
 
+(defn- mint-slot
+  "All three arms cache the same value shape the codec caches, so the
+  rows price the LOOKUP and not two different payloads."
+  [k n]
+  (codec/->PropSlot (codec/prop-name k) (reserved-name? n) false false))
+
 (defn- guarded-lookup
-  "The shipping lookup shape, written here so both arms are local."
+  "The shipping lookup shape, written here so every arm is local."
   [k]
   (let [n (name k)]
     (if (reserved-name? n)
-      (mint-name k)
+      (mint-slot k n)
       (if (.call has-own guarded-cache n)
         (unchecked-get guarded-cache n)
-        (let [v (mint-name k)]
+        (let [v (mint-slot k n)]
           (unchecked-set guarded-cache n v)
           v)))))
 
-(defn- nullproto-lookup
-  "The candidate: one `unchecked-get` on a prototype-less cache."
-  [k]
+(defn- nullproto-lookup [k]
   (let [n (name k)
         v (unchecked-get nullproto-cache n)]
     (if (undefined? v)
-      (let [v' (mint-name k)]
-        (unchecked-set nullproto-cache n v')
+      (let [v' (mint-slot k n)]
+        (when-not (reserved-name? n) (unchecked-set nullproto-cache n v'))
         v')
       v)))
 
+(defn- instcheck-lookup [k]
+  (let [n (name k)
+        v (unchecked-get instcheck-cache n)]
+    (if (instance? codec/PropSlot v)
+      v
+      (let [v' (mint-slot k n)]
+        (when-not (reserved-name? n) (unchecked-set instcheck-cache n v'))
+        v'))))
+
 (def ^:private guarded-tag-cache #js {})
 (def ^:private nullproto-tag-cache (js/Object.create nil))
+(def ^:private instcheck-tag-cache #js {})
 
 (defn- tag-cache-key [k]
   (if-let [ns' (namespace k)] (str ns' "/" (name k)) (name k)))
@@ -382,47 +412,77 @@
         v (unchecked-get nullproto-tag-cache k)]
     (if (undefined? v)
       (let [v' (codec/parse-tag t)]
-        (unchecked-set nullproto-tag-cache k v')
+        (when-not (reserved-name? k) (unchecked-set nullproto-tag-cache k v'))
         v')
       v)))
 
+(defn- instcheck-tag-lookup [t]
+  (let [k (tag-cache-key t)
+        v (unchecked-get instcheck-tag-cache k)]
+    (if (instance? codec/ParsedTag v)
+      v
+      (let [v' (codec/parse-tag t)]
+        (when-not (reserved-name? k) (unchecked-set instcheck-tag-cache k v'))
+        v'))))
+
+(defn- warm-candidates! [^js tags ^js prop-keys]
+  (dotimes [i (.-length prop-keys)]
+    (let [k (aget prop-keys i)]
+      (guarded-lookup k) (nullproto-lookup k) (instcheck-lookup k)))
+  (dotimes [i (.-length tags)]
+    (let [t (aget tags i)]
+      (guarded-tag-lookup t) (nullproto-tag-lookup t) (instcheck-tag-lookup t))))
+
 (defn- candidate-table
   [{:keys [^js tags ^js prop-keys]}]
-  ;; Warm both caches before timing: a lookup arm must measure hits.
-  (dotimes [i (.-length prop-keys)]
-    (guarded-lookup (aget prop-keys i))
-    (nullproto-lookup (aget prop-keys i)))
-  (dotimes [i (.-length tags)]
-    (guarded-tag-lookup (aget tags i))
-    (nullproto-tag-lookup (aget tags i)))
+  (warm-candidates! tags prop-keys)
   [[:prop-lookup-guarded   (ns-per-op micro-reps prop-keys guarded-lookup)]
    [:prop-lookup-nullproto (ns-per-op micro-reps prop-keys nullproto-lookup)]
+   [:prop-lookup-instcheck (ns-per-op micro-reps prop-keys instcheck-lookup)]
    [:tag-lookup-guarded    (ns-per-op micro-reps tags guarded-tag-lookup)]
-   [:tag-lookup-nullproto  (ns-per-op micro-reps tags nullproto-tag-lookup)]])
+   [:tag-lookup-nullproto  (ns-per-op micro-reps tags nullproto-tag-lookup)]
+   [:tag-lookup-instcheck  (ns-per-op micro-reps tags instcheck-tag-lookup)]])
+
+;; No `^js` hint: these read DEFTYPE fields, whose names the compiler
+;; munges (`js-name` -> `js_name`, `reserved?` -> `reserved_QMARK_`). The
+;; codec reads them the same way, through its own `^PropSlot` hint.
+(defn- slot= [^codec/PropSlot a ^codec/PropSlot b]
+  (and (= (.-js-name a) (.-js-name b))
+       (= (.-reserved? a) (.-reserved? b))))
+
+(defn- tag= [a b]
+  (and (= (.-tag a) (.-tag b))
+       (= (.-id a) (.-id b))
+       (= (.-className a) (.-className b))))
 
 (defn- candidate-agreement
-  "The candidate answers what the shipping shape answers, for every
-  literal on the page — checked, not asserted, before any figure is
-  read."
+  "Each candidate answers what the shipping shape answers, for every
+  literal on the page AND for the five hostile names the page does not
+  carry — checked, not asserted, before any figure is read."
   [{:keys [^js tags ^js prop-keys]}]
+  (warm-candidates! tags prop-keys)
   (let [bad (atom [])]
     (dotimes [i (.-length prop-keys)]
-      (let [k (aget prop-keys i)]
-        (when-not (= (guarded-lookup k) (nullproto-lookup k))
-          (swap! bad conj [:prop k]))))
+      (let [k (aget prop-keys i)
+            g (guarded-lookup k)]
+        (when-not (slot= g (nullproto-lookup k)) (swap! bad conj [:prop :nullproto k]))
+        (when-not (slot= g (instcheck-lookup k)) (swap! bad conj [:prop :instcheck k]))))
     (dotimes [i (.-length tags)]
-      (let [t   (aget tags i)
-            ^js a (guarded-tag-lookup t)
-            ^js b (nullproto-tag-lookup t)]
-        (when-not (and (= (.-tag a) (.-tag b))
-                       (= (.-id a) (.-id b))
-                       (= (.-className a) (.-className b)))
-          (swap! bad conj [:tag t]))))
-    ;; The poisoning literals themselves, which the page does not carry.
-    (doseq [n ["__proto__" "prototype" "constructor" "toString" "hasOwnProperty"]]
-      (let [k (keyword n)]
-        (when-not (= (guarded-lookup k) (nullproto-lookup k))
-          (swap! bad conj [:hostile k]))))
+      (let [t (aget tags i)
+            g (guarded-tag-lookup t)]
+        (when-not (tag= g (nullproto-tag-lookup t)) (swap! bad conj [:tag :nullproto t]))
+        (when-not (tag= g (instcheck-tag-lookup t)) (swap! bad conj [:tag :instcheck t]))))
+    (doseq [n ["__proto__" "prototype" "constructor" "toString" "hasOwnProperty"
+               "valueOf" "isPrototypeOf"]]
+      (let [k (keyword n)
+            g (guarded-lookup k)]
+        (when-not (slot= g (nullproto-lookup k)) (swap! bad conj [:hostile :nullproto k]))
+        (when-not (slot= g (instcheck-lookup k)) (swap! bad conj [:hostile :instcheck k]))
+        (let [gt (guarded-tag-lookup k)]
+          (when-not (tag= gt (nullproto-tag-lookup k))
+            (swap! bad conj [:hostile-tag :nullproto k]))
+          (when-not (tag= gt (instcheck-tag-lookup k))
+            (swap! bad conj [:hostile-tag :instcheck k])))))
     @bad))
 
 ;; ---------------------------------------------------------------------------
@@ -463,9 +523,13 @@
                            {:id :hicasso-native :witness native
                             :walk (fn [h] (codec/as-element h))}]
                   ;; ---- workload matching, before any figure ------------
+                  ;; The tree is built inside the body door (the native
+                  ;; arm's lowering needs it) and RENDERED outside it, so
+                  ;; no React commit happens inside a body context.
                   canons  (into {}
                                 (map (fn [{:keys [id witness walk]}]
-                                       [id (render-canonical (walk witness))]))
+                                       [id (render-canonical
+                                             (wp/in-body (fn [] (walk witness))))]))
                                 arms)
                   ref-canon (first (get canons :hicasso))
                   parity  (into {}
