@@ -1,11 +1,15 @@
 # Interop
 
-> **Draft ahead of the product artefact.** This page teaches the ruled surface —
-> [decisions.md](../decisions.md) (HD-001…HD-028) — and spellings marked
-> **[unfrozen]** stay provisional until the API freeze. One honesty note specific
-> to this page: `defhost` is ruled (HD-011) but is the one tier-1 door the bench
-> arm has not yet exercised, so unlike its siblings this page still describes
-> design rather than witnessed behaviour.
+> **Draft ahead of the product artefact.** This page teaches the landed surface —
+> ruled in [decisions.md](../decisions.md) (HD-001…HD-028). `defhost`'s door is
+> now witnessed end-to-end by the bench arm's tests under
+> `implementation/freehand/test/re_frame/bench/hicasso/` (rf2-2rtt6.65), but no
+> `implementation/hicasso/` artefact ships yet, and spellings marked
+> **[unfrozen]** stay provisional until the API freeze. Two things stay
+> deliberately unbuilt at v0 — the `[:>]` raw escape and SSR — and one default,
+> deep prop conversion, is deliberately not offered at all; two things stay
+> genuinely unsettled — `defhost`'s option keys and the codemod. See
+> **Not settled yet**.
 
 You want a date picker from npm. In Reagent you write `[:> DatePicker {...}]` and
 move on. Hicasso asks you to write one line first:
@@ -15,17 +19,21 @@ move on. Hicasso asks you to write one line first:
   (:require [re-frame.hicasso :as h]
             ["react-datepicker" :default DatePicker]))
 
-(h/defhost date-picker DatePicker)     ;; defhost is [unfrozen]
+(h/defhost date-picker DatePicker
+  {:callbacks {:on-change :event}})     ;; defhost is [unfrozen]
 ```
 
 Then use it anywhere, and it is indistinguishable from a native view:
 
 ```clojure
 (ns app.views
-  (:require [app.hosts.date-picker :refer [date-picker]]))
+  (:require [re-frame.hicasso :as h]
+            [app.hosts.date-picker :refer [date-picker]]))
 
 [date-picker {:selected  due-date
-              :on-change [:task/set-due ::h/value]}]
+              ;; the library hands the date first, not an event — no target
+              ;; for ::h/value to read, so h/fn takes the value directly
+              :on-change (h/fn [date & _] [:task/set-due date])}]
 ```
 
 ## Why a declaration instead of `[:>]`
@@ -68,23 +76,97 @@ Policy overrides live on the declaration rather than at the call site, which is 
 whole point: one place decides how this component is crossed, and every use site
 inherits it. The option keys are not in the record; see **Not settled yet**.
 
+Deep conversion — camelCasing keys *inside* a nested option map — is deliberately
+not offered at any level. Guessing which nested maps are options and which are data
+is the support burden the shallow default exists to delete; convert the map yourself
+when a library wants camelCase inside it.
+
+## Callbacks: `:event` and `:handler`
+
+A declared slot in `:callbacks` carries a contract, never inferred from an `on*`
+spelling:
+
+```clojure
+(h/defhost picker Widget
+  {:callbacks {:on-pick       :event
+               :on-imperative :handler}})
+```
+
+**`:event`** is the door's version of an ordinary `:on-*` position — an intent
+vector, or an `h/fn` when you need to read what the library handed you. The proof
+pins the detail a native position doesn't have to: a foreign invoker calls with
+*its own* arguments, not a lone DOM event — `onPick(value, event)`,
+`onDraft(event)` — and **every argument the invoker passed reaches the `h/fn`
+body**, in the order the library sent them. `::h/prevent` works at a declared
+`:event` position too, and calls `.preventDefault` on whichever argument is the
+real DOM event.
+
+**`:handler`** crosses the function by identity rather than wrapping it: the
+library gets exactly the function you wrote — so a library that memoises on
+callback identity is not defeated — and whatever the library's own call returns
+goes back to *that caller*; Hicasso never sees the return and never dispatches
+from it. This is the shape for a library's imperative surface (`open()`,
+`scrollTo()`): `defhost` doesn't know what an arbitrary imperative call means, so
+`:handler` stays out of its way entirely.
+
+## Providers cross the door too
+
+A provider an ecosystem library hands you is hosted like anything else — it's a
+component, not a special case:
+
+```clojure
+(h/defhost themed (.-Provider some-context))
+```
+
+A consumer reading the same context below the crossing reads it correctly: the
+crossing is a real React element, so React's own context plumbing runs through
+the Hicasso tree exactly as it would through any other one.
+
+## When a boundary bails out, the host inside it does too
+
+Every Hicasso boundary is a `React.memo` comparing its props by value (HD-028), and
+that bail-out reaches a hosted component exactly as it reaches a native one:
+
+```clojure
+(defview chrome-page [_]
+  [:div
+   [:span.chrome (str (sub [:hatch/label]))]   ;; re-renders on every write
+   [hosted-row {:label "fixed"}]])             ;; value-equal props — bails out
+```
+
+A write that only moves `:hatch/label` re-renders `.chrome` and stops there.
+`hosted-row`'s boundary receives the same `{:label "fixed"}` it always does, the
+comparator holds, the boundary bails out, and the foreign component inside it is
+not re-rendered at all — not once, not with stale props, simply never re-entered.
+That is the memo working exactly as designed: nothing in `hosted-row`'s own props
+moved. It is also exactly the shape that sends someone hunting a bug in the
+third-party library they are hosting, when the library never got a render to be
+wrong in. If a host should react to a subscription, that subscription's value has
+to reach *its own* boundary's props — reading it one component further up and
+stopping there is indistinguishable, from the host's side, from the value never
+having changed.
+
 ## The escape: `[:>]` is legal
 
-`[:> Component props & children]` lowers through the same foreign path with the same
-default conversions. It is `.cljs`-only at that node and has reduced structural
+`[:> Component props & children]` is HD-011's explicitly secondary form — ruled
+legal, not merely tolerated, for the cases a static declaration cannot express.
+It stays **unbuilt in the bench arm**, deliberately: the census found zero
+raw-escape sites to build against, so the door's proof took the v0 budget instead.
+When it lands, the design is that it lowers through the same foreign path with the
+same default conversions, `.cljs`-only at that node, with reduced structural
 identity — exactly the costs listed above, accepted knowingly.
 
-Use it when a static declaration genuinely cannot express the case:
+Reach for it, once it exists, when a static declaration genuinely cannot express
+the case:
 
 - the component is **selected at runtime** from a map or a prop;
 - it is a `memo` or `lazy` value;
 - it arrives from a **render prop**;
-- it is a **provider an ecosystem library hands you**, not one you named;
 - it is a **one-off migration site** you have not got to yet.
 
-**The rule is: declare what you use twice.** First use, take the escape if it's
-faster. Second use, write the `defhost`. That is not a moral position; it is where
-the amortization crosses over.
+**The rule, once it exists, is: declare what you use twice.** First use, take the
+escape if it's faster. Second use, write the `defhost`. That is not a moral
+position; it is where the amortization crosses over.
 
 One thing stays rejected: **bare-head auto-hosting**. Putting a raw JS component in
 head position — `[DatePicker {...}]` — and having the runtime identity-key it is
@@ -252,10 +334,11 @@ This table names mechanisms; the one minted id on this surface —
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Prop arrives as `on-change` and the library ignores it | Deep conversion expected; the default is shallow | Convert the nested map yourself, or set a policy on the declaration |
+| Prop arrives as `on-change` and the library ignores it | Nested keys expected in camelCase; deep conversion is deliberately not offered | Convert the nested map yourself before it crosses |
 | A namespace stops loading on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host namespace |
 | Structural test can't match a node | It's a `[:>]` node — reduced structural identity, by design | Declare it with `defhost`, or assert around it |
 | Provider from a library needs to wrap the tree | Hosted like anything else | `defhost` the provider; it is a component |
+| A hosted component doesn't update when the page clearly changed | The boundary above it bailed out on value-equal props (HD-028) — it was never re-entered, so the host was never asked to render | Trace the value to the host's *own* boundary's props, not a parent's |
 | The SDK mounts twice in dev and you end with two live handles | StrictMode double-invoke, plus a handle stored outside the attach's closure — so the second attach overwrote the first instead of replacing it | One attach, one handle, one cleanup, all in one closure; return the cleanup from the ref |
 | The SDK is destroyed and rebuilt on every unrelated render | The ref function has a fresh identity each render, so React detaches and re-attaches | `useCallback` with `#js []` — a stable ref identity |
 | A `nil`-node branch in a ref never runs | The callback returns a cleanup, so React calls that instead of re-invoking with `nil` | Pick one contract; with React 19, pick the return |
@@ -278,7 +361,7 @@ two or three genuinely hard widgets.
 | The codemod's name and invocation | **Not addressed** |
 | When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** HD-022 rules the refusal and the value-space; the registry, the timings and the commands roster are explicitly out of v0 |
 | Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
-| Whether `::h/value` works across a host crossing | **Not addressed.** The example above assumes it does; a foreign `onChange` may hand you something other than a DOM event |
+| Whether `::h/value` works across a host crossing | **Proven, conditionally.** It works exactly when the foreign contract hands the DOM event first — the way `onChange`/`onInput` do. A value-first invoker (`onPick(value, event)`, or the date picker's `onChange` above) has no event at that position for `::h/value` to read a target from; write an `h/fn` there instead, as the opening example does |
 | The SSR placeholder's shape | Declared policy, inert in v0 |
 | Whether a hosted component can be a `defview`'s child via `(:children props)` | The ABI says an existing React element is a legal child anywhere, which implies yes; not stated for the host case specifically |
 | Embedding Hicasso *inside* a React-primary app | Named in the charter's use-case roster (item 11); no surface designed |
