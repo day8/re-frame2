@@ -1,10 +1,10 @@
 # Controlled inputs
 
-> **Pre-implementation draft — Hicasso does not exist yet.** This page describes the
-> *designed* surface so it can be read before it is built. Spellings marked
-> **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
-> is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-025).
+> **Draft ahead of the product artefact.** This page teaches the landed surface —
+> ruled in [decisions.md](../decisions.md) (HD-001…HD-027), witnessed by the bench
+> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
+> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
+> stay provisional until the API freeze.
 
 A controlled text input is the hardest correctness problem a view layer has, and
 almost none of the difficulty is visible in the code you write.
@@ -13,21 +13,15 @@ Here is what you write:
 
 ```clojure
 (defview title-field [{:keys [id]}]
-  (let [{:keys [draft]} (use-subs {:draft [:todo.ui/draft id]})]
-    [:input {:type     :text
-             :value    draft
-             :on-input [:todo.ui/edit id ::h/value]}]))
+  [:input {:type     :text
+           :value    (sub [:todo.ui/draft id])
+           :on-input [:todo.ui/edit id ::h/value]}])
 ```
 
-That's it. Value in from a subscription, intent out to an event. The rest of this
-page is about the machinery underneath, because you need to know what it guarantees
-and where it stops.
-
-The read above uses the grouped surface; on the collector surface the same line is
-`(sub [:todo.ui/draft id])` inline in the attribute map.
-[Views and reads](02-views-and-reads.md) explains why there are two and why this
-draft doesn't choose. Nothing on this page depends on which one wins — the door is
-below both of them.
+That's it. Value in from a subscription, intent out to an event — ordinary
+`:value` and `:on-input`, no ceremony. The rest of this page is about the
+machinery underneath, because you need to know what it guarantees and where it
+stops.
 
 ## Why this is hard
 
@@ -47,17 +41,22 @@ generous.
 HD-019 names the mechanism instead of leaving it to taste, because the first
 controlled-input commit cannot stall on an undecided design.
 
-On the lean-React arm, a controlled element's intent **dispatches synchronously
-inside the discrete browser event**, and the subscription layer's store notification
-runs synchronously too, so React commits the echo in the same turn. The value is
-back in the DOM before the browser's event handling finishes.
+A controlled element's intent **dispatches synchronously inside the discrete
+browser event**, and the subscription layer's store notification runs
+synchronously too, so React commits the echo in the same turn. The value is back
+in the DOM before the browser's event handling finishes.
 
-`flushSync` is never the general default, and the one exception is named rather than
-left to taste: the controlled-text converge flushes the door's pending commit before
-React's end-of-event restore, so the caret survives a rejected or normalised
-keystroke. That exception is evidence-gated and scoped to controlled text entry in
-the element path. Needing `flushSync` anywhere else would still be a finding, not an
-implementation detail.
+`flushSync` is never the general default, and the one exception is named rather
+than left to taste: the controlled-text **converge** flushes the door's pending
+commit before React's end-of-event restore, so value *and caret* are correct
+in-turn — including when the model rejected or normalised the keystroke. What you
+get for free is exactly what the first example shows: ordinary `:value` and
+`:on-change`/`:on-input`, no ceremony, and a caret that stays put. The boundary
+is equally exact: the exception is one audited call site, reached from the
+element path once per keystroke, on controlled text entry only (a caret-bearing
+`input` or a `textarea` with a non-nil `:value`), and inert everywhere else.
+Needing `flushSync` anywhere else would still be a finding, not an implementation
+detail.
 
 ## What the door guarantees
 
@@ -94,17 +93,14 @@ Your handler doesn't have to accept what was typed:
       nil)))                                       ;; rejected — no-op, model unchanged
 ```
 
-On the lean-React arm the rejected path leans on **React's own end-of-discrete-event
-restore**: the DOM node briefly holds the typed character, the model doesn't change,
-and React reasserts the model value when the discrete event ends. You get the
-rejection for free from the host, and R-A2 says the caret survives it.
-
-This is one of the concrete payoffs of accepting React's model rather than owning
-the DOM. On a PATCH back end the obligation transfers to the renderer, which must
-converge value and checked state against the live node after every controlled
-dispatch, caret preserved, composition fenced — a hard gate in
-[architecture.md](../architecture.md). A PATCH spike that cannot demonstrate that on
-the 100-cell grid has failed regardless of its clock numbers.
+The rejected path leans on **React's own end-of-discrete-event restore** for the
+*value*: the DOM node briefly holds the typed character, the model doesn't change,
+and React reasserts the model value when the discrete event ends. The **caret**,
+though, React's restore throws away — so the runtime takes it itself, in the
+element path, which is what the converge above is for. The gap was measured
+before it was closed (HD-019 records both beads), and R-A2 is why closing it was
+not optional. Either way, none of this is your code: return `nil` from the
+handler and the field shows the model, caret intact.
 
 ## Forwarding attributes onto a controlled input
 
@@ -168,7 +164,7 @@ the revision does not have a Hicasso spelling yet; see **Not settled yet**.
 
 ## Troubleshooting
 
-No Hicasso error ids exist yet; this table names mechanisms.
+This table names mechanisms; the door's failures are behavioural, not error ids.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
@@ -199,5 +195,5 @@ with a commit on blur is not a compromise. It is the right shape.
 | The revision prop's spelling on a controlled element | **Not addressed.** The reset law is ruled; the attribute that carries the revision is unnamed |
 | The buffered / draft-and-commit input ladder | **Post-v0, explicitly.** The charter defers "the full buffered/revision input ladder"; v0 ships R-A1/R-A2 and no more |
 | The controls kit that owns drafts and revisions | **Post-v0.** HD-009 leans on it for ephemeral state, and it does not exist in v0 — so in v0 a draft is app-db state you write yourself |
-| Which props count as controlled | HD-010's merge law names `:value` and `:checked`; whether the roster is longer is unstated |
-| Whether `:on-input` or `:on-change` is the taught attribute | Both appear across the record. This guide uses `:on-input` for text and `:on-change` for checkboxes, matching the source examples, but the choice is not ruled |
+| Which props count as controlled | HD-010's merge law names `:value` and `:checked`; the converge's own scope is exact (caret-bearing `input` or `textarea`, non-nil `:value`); whether the controlled roster is longer is unstated |
+| Whether `:on-input` or `:on-change` is the taught attribute | The landed screens write `:on-input` for text and `:on-change` for checkboxes; the choice is convention, not ruling |

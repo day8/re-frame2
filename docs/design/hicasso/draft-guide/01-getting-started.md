@@ -13,7 +13,7 @@ thirty lines and every app gets one of them subtly wrong at least once.
 
 Hicasso collapses that into one call. HD-021 pins the semantics: **one root
 operation associates a DOM node, a frame, and initial events, and returns an
-idempotent teardown.** The names wait for the donor spike; the behaviour does not.
+idempotent teardown.** The names wait for the API freeze; the behaviour does not.
 
 ## Your first app
 
@@ -135,9 +135,8 @@ into another frame's state.
 
 ## Troubleshooting
 
-No Hicasso error ids exist yet, so this table names mechanisms rather than
-`:rf.error/*` ids. Expect the real guide to replace the middle column with minted
-ids.
+No boot-path error ids are minted yet, so this table names mechanisms rather than
+`:rf.error/*` ids.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
@@ -163,7 +162,7 @@ be the answer is a *successful* outcome for Hicasso, not a failure mode.
 
 | Question | Status |
 |---|---|
-| The root operation's name, its config keys, and the teardown's name | Semantics pinned by HD-021; names explicitly unfrozen until the donor spike |
+| The root operation's name, its config keys, and the teardown's name | Semantics pinned by HD-021; names explicitly unfrozen until the API freeze |
 | Does `rf/init!` and adapter installation still apply? | **Not addressed.** Hicasso is a native view layer rather than an adapter, but the record never says whether the root operation subsumes process setup or whether an `init!`-equivalent survives |
 | May a boundary child omit its props map — `[views/todo-app]` rather than `[views/todo-app {}]`? | **Not addressed.** HD-016 says bodies take a single props map; whether the map is optional at the call site is unstated. This page writes `{}` to stay inside what is ruled |
 | Does a hot-reload body swap need an explicit re-render call? | **Not addressed.** HD-021 pins the guarantees, not the mechanism |

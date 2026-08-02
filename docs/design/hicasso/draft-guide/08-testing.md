@@ -1,10 +1,10 @@
 # Testing
 
-> **Pre-implementation draft — Hicasso does not exist yet.** This page describes the
-> *designed* surface so it can be read before it is built. Spellings marked
-> **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
-> is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-025).
+> **Draft ahead of the product artefact.** This page teaches the landed surface —
+> ruled in [decisions.md](../decisions.md) (HD-001…HD-027), witnessed by the bench
+> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
+> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
+> stay provisional until the API freeze.
 
 There are two doors into a Hicasso view under test, and knowing which one you are
 allowed through is most of the skill.
@@ -37,15 +37,19 @@ Two things are doing the work here.
 
 **Sub reads are overridable through a pure read resolver.** You hand the render a
 map of query vector to value, and the body reads from it. No frame, no app-db, no
-registration — just the values the view is a function of. This works identically
-under either read surface from [Views and reads](02-views-and-reads.md): grouped or
-collector, a read is a read, and the resolver answers it.
+registration — just the values the view is a function of. `sub` is an ordinary
+call ([Views and reads](02-views-and-reads.md)), and the resolver answers it
+wherever the body makes it.
 
 **Intent vectors are assertable by equality.** `{:on-click [:todo/toggle 7]}` is
 data. You can `=` it. Compare that with the alternative — asserting that a node
 holds *some function* which, when called, dispatches something — which is why
 codebases end up rendering to a DOM and clicking things just to find out what a
-button was going to do.
+button was going to do. This is not aspiration: the bench arm's own tests already
+work this way — a prevented intent, a route-link's whole click decision, and a
+presence child's exit rendering are each asserted by `=`, with no browser and no
+clock (`front/intent_cljs_test`, `front/route_link_cljs_test`,
+`front/presence_cljs_test`).
 
 This is what deletes the retail. The census counted **364 `data-testid` attributes**
 across the corpus, most of them scaffolding for browser tests that only existed
@@ -101,7 +105,7 @@ these reads?" — which is the headless door's whole job.
 
 ## Troubleshooting
 
-No Hicasso error ids exist yet; this table names mechanisms.
+This table names mechanisms rather than error ids.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
