@@ -234,7 +234,72 @@ answer false.
 
 ## 5. The re-taken rows
 
-*(filled from the published run — see §7 for provenance)*
+The gated pair is **hicasso / direct UIx-on-subs, same run, raw `TaskDuration`,
+floor-normalised, plumb-tared**. Before rows are `rf2-6c237`'s.
+
+`uix` run — **the gate**:
+
+| row | before | **after** | band | verdict |
+|---|---|---|---|---|
+| large-template (acceptance) | 1.4759× [1.3281 – 1.6302], band 6.1% | **1.1884× [1.1223 – 1.2660]** | 7.0% | **FAILS THE LINE** — whole range above 1.10, margin 8.0% clears the band |
+| feed | 1.3311× [1.2357 – 1.4195], band 3.9% | **1.0737× [0.9669 – 1.1859]** | 6.7% | **INSTRUMENT-LIMITED** — the range straddles 1.10, which is NOT a pass |
+| ordinary | 1.2097× [1.0751 – 1.3274], band 10.0% | 1.1698× [0.9671 – 1.5014] | 15.8% | INSTRUMENT-LIMITED (straddles 1.10) **and the control FAILED** |
+
+`reagent` run — co-instrumented, **never a second gate**:
+
+| row | hicasso / uix | hicasso / reagent | uix / reagent |
+|---|---|---|---|
+| large-template | 1.1566× [0.9258 – 1.3686] | 1.0436× [STRADDLES 1.0] | 0.9064× [STRADDLES 1.0] |
+| feed | 1.1814× [1.1121 – 1.3159] | 1.1438× [STRADDLES 1.0] | 0.9685× [STRADDLES 1.0] |
+| ordinary | 1.1334× [STRADDLES 1.0] | — | — |
+
+**Absolutes, `uix` run** (p50 raw `TaskDuration`, tared; `= taskNet + in-page`):
+
+| row | floor | hicasso | uix | ctl-2× |
+|---|---|---|---|---|
+| large-template (1,202 el) | 12.010 ms (tared 10.825) | 16.015 = 8.254 + 6.100 | 13.742 = 8.246 + 3.900 | 21.022 |
+| feed (5,129 el) | 43.671 ms (tared 40.452) | 64.110 = 34.029 + 26.150 | 60.068 = 34.054 + 21.300 | 84.289 |
+
+**B / E / Q, per row:** large-template **B=1** (hicasso 141 per-instance reads,
+uix 5 coarse — the read-shape asymmetry the roster states on every stamp),
+E=1,202, Q — grain 0.905 ms; feed **B=301**, 603 per-instance reads on BOTH
+arms (the cleanest gated pair in the file), E=5,129, grain 1.836 ms; ordinary
+B=7, E=51, and it sits near this door's own floor, which is why its control
+could not hold.
+
+**Positive controls:** large-template **PASS** 1.8392× [1.6188 – 2.0111]
+against the arithmetic prediction 1.9759× (strict — every block inside the
+band); feed **PASS** 1.9924× [1.8057 – 2.1729] against 1.9943×; ordinary
+**FAIL** 1.2056× [0.9188 – 1.6452] against 1.7255× — the 51-element page is
+below what this door can resolve, and the row is published carrying that
+failure rather than quoting a magnitude the instrument did not earn.
+
+**Read-backs:** 0 unverified of 1,260 per `uix`-run row, 0 of 1,512 per
+`reagent`-run row.
+
+**Reading it honestly.**
+
+- **Both terms the bead named came off the rows, and the acceptance row moved
+  further than the whole `route-link` term is worth.** 1.4759 → 1.1884 is a
+  0.288 move against a term the migration had cost 0.235; the remaining
+  difference is the routing remedy also making the *candidate's* own links
+  cheaper on top of the arms being levelled. Feed 1.3311 → **1.0737** is a
+  0.257 move, and its mean is now **below the 1.10 line and below its own
+  pre-migration 1.0875×**.
+- **Neither is a pass, and the page says so.** The acceptance row FAILS the
+  line — its whole range is above 1.10 and its 8.0% margin clears its 7.0%
+  band, so the instrument resolved the boundary and the answer is no. The feed
+  row's range straddles 1.10: the mean is below the line but the run cannot
+  resolve the boundary, and a straddling range is INSTRUMENT-LIMITED, never a
+  pass. The ordinary row additionally carries a failed control.
+- **`taskNet` says the same thing it said before.** 1.0140× on acceptance,
+  0.9752× on feed — the frame half of the work is indistinguishable between the
+  arms, and the whole difference remains in-page script. That was the finding
+  the cold-read page made and this run does not disturb it.
+- **The rows are now a comparison of substrates again.** Every arm resolves the
+  same destinations through the same route table (§4), so what is left in the
+  acceptance row's 1.1884× is the interpreter and the collector, which is what
+  the bar is for.
 
 ## 6. The hook budget, and the fences walked
 
@@ -250,4 +315,33 @@ answer false.
 
 ## 7. Provenance
 
-*(filled from the published run)*
+| | |
+|---|---|
+| **Producing commit** | `08344cb500` on `worker/linkterm-cno31`. The working tree carried no uncommitted change to any measured file — the only untracked paths were a pinned clj-kondo binary, a PR draft and this run's own dataset, none on the measured path |
+| **Reproduction** | `C56CLOCK_DATA_DIR=…/data/censusclock-cno31 node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` — both adapter runs, all three rows, nothing overridden |
+| **Build** | `:hicasso-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, lane cache cleared per `rf2-2rtt6.20`. **0 warnings**, 201 files |
+| **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
+| **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — 18 blocks, the published shape |
+| **Clock / door / tare** | PUBLISHED: `Performance.getMetrics` raw `TaskDuration`, frame-settled. DIAGNOSTIC: `taskNet` + the in-page window on the same samples. One door for every arm including the plumb tare (`page.evaluate → C56CLOCK.sample`), tare subtracted from every figure |
+| **Guard / band** | arm-order guard tolerance 0.35 — **reportable on all six row-runs**; band ceiling 35%, and every row's band was well inside it (6.7–15.8%) |
+| **Read-backs** | 0 unverified of 1,260 (`uix` rows) and 1,512 (`reagent` rows) |
+| **Windows** | announced on the bead before opening and closed after. `uix` `2026-08-02T18:14:02Z – 18:17:26Z`; `reagent` `18:17:26Z – 18:21:10Z`. Quiet gate (8 × 1 s < 30% CPU) **QUIET on attempt 1 for all six rows** |
+| **Exit codes** | published run `0`. **The first attempt was REFUSED and published nothing**: the box would not go quiet before `uix/feed` across five attempts (CPU runs in the 22–46% range against the 30% gate) while sibling workers held the machine, and the runner discards a partial run rather than reporting it. The `uix/large-template` row of that attempt did take, and it is not quoted here |
+
+Blob hashes, read at the producing commit — the three marked are this bead's
+changes, and the census pages themselves are byte-identical to `rf2-6c237`'s:
+
+| file | blob |
+|---|---|
+| `…/shapes/census_clock_arms.cljs` | `de6bacfad4` **(the twin fairness fix — §4)** |
+| `implementation/routing/src/re_frame/routing/registry.cljc` | `96de354972` **(the emission + guard specialisations — §2)** |
+| `implementation/routing/src/re_frame/routing/strategy.cljc` | `e16b469cd5` **(the strategy consult — §2)** |
+| `implementation/core/src/re_frame/frame.cljc` | `6c950ea566` (`frame-config`) |
+| `…/shapes/census_clock_{app,run}` | `b077ad6a11` / `1f2a7e1c8b` |
+| `…/shapes/model.cljs` | `7f4043dc09` |
+| `…/shapes/{card,large_template,feed,ordinary}.cljs` | `07458921f7` / `f575b78429` / `589291891f` / `a1d7005d74` |
+| `…/front/route_link.cljs` · `…/front/codec.cljs` | `e093d72932` · `5a0b04733a` |
+| `…/arm1/runtime.cljs` · `…/lane.cljs` | `d6067d5a41` · `0642815dc2` |
+
+Compact datasets:
+`implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-cno31/`.
