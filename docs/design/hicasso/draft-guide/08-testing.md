@@ -1,7 +1,7 @@
 # Testing
 
 > **Draft ahead of the product artefact.** This page teaches the landed surface —
-> ruled in [decisions.md](../decisions.md) (HD-001…HD-027), witnessed by the bench
+> ruled in [decisions.md](../decisions.md) (HD-001…HD-028), witnessed by the bench
 > arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
 > `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
 > stay provisional until the API freeze.

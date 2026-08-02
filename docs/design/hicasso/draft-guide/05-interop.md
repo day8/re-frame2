@@ -1,7 +1,7 @@
 # Interop
 
 > **Draft ahead of the product artefact.** This page teaches the ruled surface —
-> [decisions.md](../decisions.md) (HD-001…HD-027) — and spellings marked
+> [decisions.md](../decisions.md) (HD-001…HD-028) — and spellings marked
 > **[unfrozen]** stay provisional until the API freeze. One honesty note specific
 > to this page: `defhost` is ruled (HD-011) but is the one tier-1 door the bench
 > arm has not yet exercised, so unlike its siblings this page still describes
