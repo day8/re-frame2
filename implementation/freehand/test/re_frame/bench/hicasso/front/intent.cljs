@@ -141,14 +141,53 @@
     of key-string → handler, so an event is one `.-key` lookup and no
     allocation.
 
-  This namespace deliberately does not implement `route-link` (routing-
-  coupled, and outside this bead's three deliverables), `defhost`/`[:>]`
+  ## The navigate head (rf2-2rtt6.54)
+
+  The SECOND reserved head, and the router-owned counterpart of
+  `::h/prevent`: `[::h/navigate {…}]` at an event position is the click
+  half of [[re-frame.bench.hicasso.front.route-link/route-link]]. The
+  route-link view puts it on the anchor it builds, carrying the whole
+  click decision AS DATA — the render-captured frame, the routing-owned
+  dispatch payload, the native-attrs verdict, and the caller's veto:
+
+      [:a {:href \"/profile/jane\"
+           :on-click [::h/navigate {:frame    :app/frame
+                                    :payload  [:rf.route/url-requested {…}]
+                                    :native?  false
+                                    :veto     nil}]}]
+
+  Same school as the prevent head (HD-026): behaviour in the vector where
+  `=` can see it, a closed grammar ([[unwrap-navigate]] is the whole of
+  it), classified once at lowering, loud on every malformed form. The
+  click LAW is not restated here: the lowered closure hands the event to
+  routing's own `:routing/activate-link!` late-bound seam — the same one
+  decision `rf/route-link`, `ui/route-link` and Freehand's `v/route-link`
+  all run — so caller-veto-first, modifier-click deferral, native-anchor
+  deferral and `preventDefault`-then-dispatch stay routing's law, stated
+  once. A hook that vanished between render and click (dev hot-reload of
+  the routing artefact) degrades to native navigation — the browser
+  follows the real `href` — after running the veto, exactly as Freehand's
+  seam degrades.
+
+  The `:veto` slot is where the two heads compose, and the composition is
+  the existing grammar: `[::h/prevent [:app/event]]` there lowers to the
+  ordinary prevent closure, `activate-link!` runs it FIRST, sees
+  `defaultPrevented`, and stands down — the navigation is cancelled and
+  the app intent dispatched instead. That is the cancelable-navigation
+  case the prevent head was built for, reached with no new machinery. A
+  BARE intent vector at the veto slot is refused loudly: a route click
+  already produces the one routing intent, and a second un-prevented
+  intent site on the same click would be one user action yielding two
+  semantic events (Freehand's route-link law, kept).
+
+  This namespace deliberately does not implement `defhost`/`[:>]`
   interop (HD-011, its own surface), or any controlled-value restore.
   HD-019's door belongs to whatever owns the DOM element, which is the
   emitter rather than the lowering:
   [[re-frame.bench.hicasso.front.controlled]] wraps the handler this
   namespace produced, after it has produced it, and nothing about the
-  lowering changes because of it (rf2-fki5d).")
+  lowering changes because of it (rf2-fki5d)."
+  (:require [re-frame.late-bind :as late-bind]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ambient frame (HD-020(a))
@@ -160,12 +199,26 @@
   what makes an intent lowered outside a boundary a loud error."
   nil)
 
+(def ^:dynamic *frame*
+  "The frame KEYWORD for the boundary currently rendering, bound for the
+  render's dynamic extent alongside [[*dispatch*]]. `nil` outside a
+  render. [[re-frame.bench.hicasso.front.route-link/route-link]] reads it
+  to capture the render frame into its navigate vector — a browser click
+  fires long after the render's dynamic extent has unwound, so the frame
+  must travel as data (the same render-time capture Freehand's
+  `v/route-link` performs with `require-current-frame!`)."
+  nil)
+
 (defn with-frame
-  "Run `body-fn` with `dispatch` — the frame-locked dispatch resolved once
-  for this boundary — bound ambiently. An arm's boundary shell calls this
-  around the body."
-  [dispatch body-fn]
-  (binding [*dispatch* dispatch] (body-fn)))
+  "Run `body-fn` with the boundary's render context bound ambiently. Two
+  doors: an ARM binds both the frame keyword and its frame-locked
+  `dispatch` (the 3-arity — the one [[route-link]] and the navigate head
+  need); a lowering test that only drives closures may bind the dispatch
+  alone (the 2-arity), and anything frame-keyword-dependent it lowers
+  stays a loud error rather than a silent guess."
+  ([dispatch body-fn] (with-frame nil dispatch body-fn))
+  ([frame-kw dispatch body-fn]
+   (binding [*frame* frame-kw *dispatch* dispatch] (body-fn))))
 
 (defn- fail! [id where reason recovery extra]
   (throw (ex-info (str reason " [" id "]")
@@ -321,11 +374,18 @@
   :re-frame.hicasso/checked)
 
 (def prevent-head
-  "`::h/prevent` — the one reserved intent HEAD. `[::h/prevent [:app/go]]`
+  "`::h/prevent` — the FIRST reserved intent HEAD. `[::h/prevent [:app/go]]`
   at an event position dispatches `[:app/go]` and calls `.preventDefault`
   first. See [[unwrap-prevent]] for the closed grammar, and the policy
   defaults above for why it is a head rather than metadata."
   :re-frame.hicasso/prevent)
+
+(def navigate-head
+  "`::h/navigate` — the SECOND reserved intent HEAD, minted by
+  [[re-frame.bench.hicasso.front.route-link/route-link]] and carrying a
+  route-link's whole click decision as data. See the namespace docstring
+  §The navigate head, and [[unwrap-navigate]] for the closed grammar."
+  :re-frame.hicasso/navigate)
 
 (def ^:private marker-readers
   "The roster, as marker → the reader that pulls its value off the event
@@ -406,6 +466,18 @@
   [v]
   (and (vector? v) (= prevent-head (nth v 0 nil))))
 
+(defn navigate-head?
+  "Is `v` the `::h/navigate` decorator? Same one-compare shape as
+  [[prevent-head?]]."
+  [v]
+  (and (vector? v) (= navigate-head (nth v 0 nil))))
+
+(defn- reserved-head?
+  "Is `v` a vector carrying either reserved head? The roster is a LIST —
+  two entries — which is what keeps the grammar closed."
+  [v]
+  (or (prevent-head? v) (navigate-head? v)))
+
 (defn- unwrap-prevent
   "CLASSIFY AND UNWRAP. `v` is the decorator; answer the intent inside it,
   refusing anything that is not exactly one inner intent vector.
@@ -429,22 +501,115 @@
     (when-not (and (= 2 (count v))
                    (vector? inner)
                    (seq inner)
-                   (not (prevent-head? inner)))
+                   (not (reserved-head? inner)))
       (fail! :rf.error/hicasso-malformed-prevent
              'front.intent/lower-prop
              (str "The " (pr-str prevent-head) " decorator at " (pr-str k)
                   " wraps EXACTLY ONE intent vector; this one "
                   (cond
-                    (not= 2 (count v))    (str "carries " (dec (count v))
-                                               " forms after the head")
-                    (prevent-head? inner) "wraps another decorator, and it does not nest"
-                    (not (vector? inner)) (str "wraps " (pr-str inner)
-                                               ", which is not an intent vector")
-                    :else                 "wraps the empty vector, which names no event")
+                    (not= 2 (count v))     (str "carries " (dec (count v))
+                                                " forms after the head")
+                    (reserved-head? inner) "wraps another decorator, and decorators do not nest"
+                    (not (vector? inner))  (str "wraps " (pr-str inner)
+                                                ", which is not an intent vector")
+                    :else                  "wraps the empty vector, which names no event")
                   ". Write [" (pr-str prevent-head) " [:my-event …]].")
              :wrap-exactly-one-intent-vector
              {:position k :form v}))
     inner))
+
+(declare intent-handler)
+
+(defn- lower-veto
+  "Lower the `:veto` slot of a navigate vector into the pre-navigation
+  callback routing runs first — a plain one-argument fn, or nil — or
+  refuse it loudly. The roster is CLOSED, and it is the route-click law
+  that closes it: nil, the `::h/prevent` decorator (the DECLARATIVE veto —
+  its lowered closure calls `.preventDefault` and dispatches the wrapped
+  intent, and `activate-link!` stands down on `defaultPrevented`, so the
+  navigation is cancelled and the app intent takes its place), the one
+  callback form, or a plain fn (both the IMPERATIVE veto — whoever holds
+  the event owns it, HD-024). A BARE intent vector is refused: the click
+  already produces the one routing intent, and an un-prevented second
+  intent on the same click is one user action yielding two semantic
+  events. [[re-frame.bench.hicasso.front.route-link/route-link]] refuses
+  the same forms at RENDER, where the author's stack is live; this refusal
+  is the lowering's own, because a navigate vector is in-band data anyone
+  can write."
+  [k veto]
+  (cond
+    (nil? veto)            nil
+    (prevent-head? veto)   (intent-handler k veto)
+    (callback? veto)       veto
+    (fn? veto)             veto
+    :else
+    (fail! :rf.error/hicasso-malformed-navigate
+           'front.intent/lower-prop
+           (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
+                " carries the veto " (pr-str veto) ", which is outside the "
+                "closed roster: nil, [" (pr-str prevent-head) " [:my-event …]] "
+                "(cancel the navigation and dispatch this instead), h/fn, or a "
+                "plain function. A bare intent vector is refused — the click "
+                "already produces the one routing intent; wrap the vector in "
+                (pr-str prevent-head) " to veto the navigation, or move the "
+                "reaction behind the routing event.")
+           :veto-with-prevent-a-callback-or-nothing
+           {:position k :veto veto})))
+
+(defn- unwrap-navigate
+  "CLASSIFY AND UNWRAP the navigate decorator. `[::h/navigate {…}]` —
+  exactly two forms, the second a map carrying `:frame` (a keyword),
+  `:payload` (a non-empty vector), `:native?` (a boolean) and `:veto`
+  (the [[lower-veto]] roster). Everything else is
+  `:rf.error/hicasso-malformed-navigate`, named at the position. Answers
+  the validated map; like [[unwrap-prevent]] it is not a walker — the
+  payload stays ordinary data all the way to routing."
+  [k v]
+  (let [{:keys [frame payload native?] :as m} (nth v 1 nil)]
+    (when-not (and (= 2 (count v))
+                   (map? m)
+                   (keyword? frame)
+                   (vector? payload)
+                   (seq payload)
+                   (boolean? native?))
+      (fail! :rf.error/hicasso-malformed-navigate
+             'front.intent/lower-prop
+             (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
+                  " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
+                  "(a non-empty event vector), :native? (a boolean) and :veto; this one "
+                  (cond
+                    (not= 2 (count v))  (str "carries " (dec (count v)) " forms after the head")
+                    (not (map? m))      (str "wraps " (pr-str m) ", which is not a map")
+                    (not (keyword? frame))  "names no :frame keyword"
+                    (not (and (vector? payload) (seq payload))) "carries no :payload event vector"
+                    :else               "answers no boolean at :native?")
+                  ". route-link mints this form; hand-written ones must carry all four slots.")
+             :carry-frame-payload-native-and-veto
+             {:position k :form v}))
+    m))
+
+(defn- navigate-handler
+  "Lower one navigate vector into the closure the browser will call. The
+  veto is lowered HERE, at lowering time — a prevent veto needs the
+  ambient dispatch, which is gone by click time — and the click decision
+  itself stays routing's: the closure hands the event to the
+  `:routing/activate-link!` late-bound seam (caller veto first, modifier
+  and native deferral, `preventDefault` + dispatch to the captured frame).
+  When the hook is unbound at click time — the routing artefact
+  hot-reloaded away between render and click — the closure runs the veto
+  and otherwise stands aside, so the browser follows the anchor's real
+  `href`: native navigation, never a throw at a detached click.
+  ([[re-frame.bench.hicasso.front.route-link/route-link]] already proved
+  routing present at RENDER, so absence here is transient by
+  construction.)"
+  [k v]
+  (let [{:keys [frame payload native? veto]} (unwrap-navigate k v)
+        veto-fn (lower-veto k veto)]
+    (fn hicasso-navigate [e]
+      (if-some [activate (late-bind/get-fn :routing/activate-link!)]
+        (activate e veto-fn frame payload native?)
+        (when veto-fn (veto-fn e)))
+      nil)))
 
 (defn- intent-handler
   "Lower one intent vector into the closure the browser will call. The
@@ -454,18 +619,22 @@
   Classification comes FIRST, so the markers compose inside a prevented
   intent: `[::h/prevent [:filter/set ::h/value]]` is unwrapped before
   [[markers?]] is ever asked, and the materializer then sees the ordinary
-  intent it has always seen."
+  intent it has always seen. The navigate head is classified here too —
+  the same one-compare, once per render — and its whole lowering lives in
+  [[navigate-handler]]."
   [k v]
-  (let [decorated (prevent-head? v)
-        intent    (if decorated (unwrap-prevent k v) v)
-        dispatch  (require-dispatch intent)
-        prevent   (or decorated (prevent-by-default? k))
-        dynamic   (markers? intent)]
-    (cond
-      (and prevent dynamic)       (fn [e] (.preventDefault e) (dispatch (materialize intent e)))
-      prevent                     (fn [e] (.preventDefault e) (dispatch intent))
-      dynamic                     (fn [e] (dispatch (materialize intent e)))
-      :else                       (fn [_e] (dispatch intent)))))
+  (if (navigate-head? v)
+    (navigate-handler k v)
+    (let [decorated (prevent-head? v)
+          intent    (if decorated (unwrap-prevent k v) v)
+          dispatch  (require-dispatch intent)
+          prevent   (or decorated (prevent-by-default? k))
+          dynamic   (markers? intent)]
+      (cond
+        (and prevent dynamic)       (fn [e] (.preventDefault e) (dispatch (materialize intent e)))
+        prevent                     (fn [e] (.preventDefault e) (dispatch intent))
+        dynamic                     (fn [e] (dispatch (materialize intent e)))
+        :else                       (fn [_e] (dispatch intent))))))
 
 (defn- key-map-handler
   "Lower a data key-map into one closure over a plain map of key-string →

@@ -37,16 +37,21 @@
   port that renamed them would be a screen this repo wrote rather than
   one it found.
 
-  **What the port leaves behind, and why.** The census screens read
-  `[:rf/resource …]` and `[:rf/mutation …]` — framework subs, which the
-  charter counts at **27% of read traffic**. Those are re-frame2
-  capabilities, not view-layer surface, and standing them up here would
-  put an HTTP-shaped resource cache behind a view-layer witness. The
-  shapes read plain `reg-sub`s with the same *shapes* — a per-instance
+  **What the port keeps out of the measured pages, and where it is
+  exercised instead.** The census screens read `[:rf/resource …]` and
+  `[:rf/mutation …]` — framework subs, which the charter counts at **27%
+  of read traffic**. Those are re-frame2 capabilities, not view-layer
+  surface, and standing them up behind the MEASURED pages would put an
+  HTTP-shaped resource cache in the clock rows' way. The shapes read
+  plain `reg-sub`s with the same *shapes* — a per-instance
   `:conduit/favorite-pending?` where the census reads
-  `[:rf/mutation {:instance [:favorite slug]}]` — and the omission is
-  filed rather than papered over: **framework subs are not exercised by
-  this roster** (see the bead's Findings).
+  `[:rf/mutation {:instance [:favorite slug]}]` — and the real framework
+  subs are exercised through the arm by their own witness on this same
+  state layer: `shapes/framework_subs_dom_cljs_test` mounts the census
+  pair (`[:rf/mutation {:instance …}]` beside the app sub, the
+  `[:rf/resource …]` list read above them) against the genuine resources
+  machinery with only the transport stubbed, and holds it to the same
+  one-commit→one-body law (rf2-2rtt6.53).
 
   ## The two writes the roster turns on
 
@@ -67,8 +72,20 @@
   Every string is a pure function of an index — no `rand`, no clock. Two
   mounts of the same seed build byte-identical DOM, which is what lets a
   witness compare a page against itself across a commit and read the
-  difference as the commit's."
-  (:require [re-frame.core :as rf]))
+  difference as the commit's.
+
+  ## The routes
+
+  The census's screens link with `ui/route-link`, so the ported cards do
+  too (rf2-2rtt6.54) — which makes the ROUTE TABLE part of the state
+  layer: a route-link's href is synthesised from a registered route, and
+  rendering one against an empty table is a loud error. [[make-frame!]]
+  registers the three routes the ported anchors name, per test, because
+  the shared reset fixture clears the registrar between tests. The
+  registration is `re-frame.routing`'s own `reg-route` — the roster adds
+  no routing machinery, it consumes the artefact's."
+  (:require [re-frame.core :as rf]
+            [re-frame.routing :as routing]))
 
 ;; ---------------------------------------------------------------------------
 ;; The seed data — Conduit's own field names, from a deterministic index
@@ -272,9 +289,22 @@
 ;; The frame lifecycle
 ;; ---------------------------------------------------------------------------
 
+(defn register-routes!
+  "Register the routes the ported anchors link to — the census's own
+  three, under the roster's `:conduit` prefix. Idempotent (a `reg-route`
+  re-registration replaces), and called from [[make-frame!]] so every
+  witness that mounts a page has the table its links resolve against."
+  []
+  (routing/reg-route :conduit/home {} "/")
+  (routing/reg-route :conduit.profile/show {} "/profile/:username")
+  (routing/reg-route :conduit.article/show {} "/article/:slug")
+  nil)
+
 (defn make-frame!
-  "Create (or idempotently replace) `frame-id`'s frame, seeded per `opts`."
+  "Create (or idempotently replace) `frame-id`'s frame, seeded per `opts`,
+  with the [[register-routes!]] table its pages' links resolve against."
   [frame-id opts]
+  (register-routes!)
   (rf/make-frame {:id frame-id :initial-events [[:conduit/seed opts]]})
   frame-id)
 

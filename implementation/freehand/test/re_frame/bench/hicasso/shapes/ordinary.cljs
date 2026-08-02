@@ -44,13 +44,16 @@
   disabled-while-pending discipline, and its `favoritesCount`-era
   camelCase field names.
 
-  ## What the port could not keep
+  ## The byline is a route-link (rf2-2rtt6.54)
 
-  `ui/route-link` — the census's author byline is a route-link, and the
-  census counts **106 of them** and calls the form tier-1. This arm has
-  no `route-link` (`front.intent`'s docstring says so in as many words),
-  so the byline is spelled `[:a {:href …}]`. That is a v0 gap, filed, not
-  a design position.
+  The census's author byline is a `ui/route-link` — the census counts
+  **106 of them** and calls the form tier-1 — and this port spelled it
+  `[:a {:href …}]` while the arm had no route-link. It now has one
+  ([[re-frame.bench.hicasso.front.route-link/route-link]]), so the
+  byline names a route and params and never sees a URL, exactly as the
+  census author writes it. A route-link is a plain function: it inlines,
+  mints no boundary, reads no subscription, and emits the same single
+  `<a>` — the element arithmetic below is untouched.
 
   ## Reading the body
 
@@ -64,6 +67,7 @@
   interop, no JS literal, no React import. SSR is out of v0; the
   constraint that keeps it reachable is not."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
+            [re-frame.bench.hicasso.front.route-link :refer [route-link]]
             [re-frame.bench.hicasso.shapes.model :as m])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
@@ -120,12 +124,6 @@
 ;; The list — one keyed card per comment
 ;; ---------------------------------------------------------------------------
 
-(defn- profile-href
-  "A plain function called from a body: it inlines, mints no boundary, and
-  is where a `route-link` would go if this arm had one."
-  [username]
-  (str "#/profile/" username))
-
 (defview comment-card
   "One comment — a keyed row. The delete control shows only for the
   reader's own comments, and the in-flight read that greys it out is read
@@ -139,10 +137,11 @@
      [:div.card-block
       [:p.card-text {:data-testid "comment-body"} body]]
      [:div.card-footer
-      [:a.comment-author {:href (profile-href (:username author))}
-       [:img.comment-author-img {:src (m/avatar-src (:image author)) :alt ""}]
-       " "
-       (:username author)]
+      (route-link {:to :conduit.profile/show :params {:username (:username author)}
+                   :class "comment-author"}
+        [:img.comment-author-img {:src (m/avatar-src (:image author)) :alt ""}]
+        " "
+        (:username author))
       [:span.date-posted createdAt]
       (when mine?
         [:button.mod-options {:type        "button"

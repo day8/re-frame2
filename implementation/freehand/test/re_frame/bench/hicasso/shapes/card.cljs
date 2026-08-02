@@ -38,8 +38,24 @@
   a port that dropped the status read to make a page cheaper would be
   quoting a row the census does not have.
 
+  ## The three links are route-links (rf2-2rtt6.54)
+
+  The census card carries three `ui/route-link`s — both author bylines
+  and the preview link — and until rf2-2rtt6.54 this port spelled them
+  `[:a {:href (str \"#/profile/\" …)}]`: a faithful port of the MARKUP
+  and an unfaithful one of the AUTHORING, hand-building the URL the
+  router owns. They are now
+  [[re-frame.bench.hicasso.front.route-link/route-link]] calls — the
+  author names a route and params and never sees a URL. A route-link is a
+  plain function producing ONE `<a>`, reading NO subscription, so
+  [[elements-per-card]] and the card's two-read count are exactly what
+  they were; what changed per card is three `route-url` synthesis calls
+  per render, priced on the routing artefact's own render path.
+  (`shapes/route_link_dom_cljs_test` owns the click witnesses.)
+
   `.cljc`-compatible by construction: no interop, no JS literal."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
+            [re-frame.bench.hicasso.front.route-link :refer [route-link]]
             [re-frame.bench.hicasso.shapes.model :as m]))
 
 (def elements-per-card
@@ -71,10 +87,13 @@
     [:div.article-preview {:key         slug
                            :data-testid (str "article-preview-" slug)}
      [:div.article-meta
-      [:a.author-link {:href (str "#/profile/" (:username author))}
-       [:img.user-pic {:src (m/avatar-src (:image author)) :alt ""}]]
+      (route-link {:to :conduit.profile/show :params {:username (:username author)}
+                   :class "author-link"}
+        [:img.user-pic {:src (m/avatar-src (:image author)) :alt ""}])
       [:div.info
-       [:a.author {:href (str "#/profile/" (:username author))} (:username author)]
+       (route-link {:to :conduit.profile/show :params {:username (:username author)}
+                    :class "author"}
+         (:username author))
        [:span.date createdAt]]
       [:button.btn.btn-outline-primary.btn-sm.pull-xs-right
        {:type        "button"
@@ -85,11 +104,11 @@
         :on-click    [:conduit/favorite slug]}
        [:i.ion-heart] " "
        [:span {:data-testid (str "favorites-count-" slug)} favoritesCount]]]
-     [:a.preview-link {:href        (str "#/article/" slug)
-                       :data-testid (str "article-link-" slug)}
-      [:h1 title]
-      [:p description]
-      [:span "Read more..."]
-      [:ul.tag-list
-       (for [tag tagList]
-         [:li.tag-default.tag-pill.tag-outline {:key tag} tag])]]]))
+     (route-link {:to :conduit.article/show :params {:slug slug}
+                  :class "preview-link" :data-testid (str "article-link-" slug)}
+       [:h1 title]
+       [:p description]
+       [:span "Read more..."]
+       [:ul.tag-list
+        (for [tag tagList]
+          [:li.tag-default.tag-pill.tag-outline {:key tag} tag])])]))
