@@ -192,20 +192,33 @@
   A render-phase read is a **pure deref** when the key already has a
   committed cell — the overwhelming case, and the one validation.md's
   \"an unchanged hot read performs no new attach/release\" describes. A
-  read of a key nothing holds yet computes through `subscribe-once`,
-  which subscribes, derefs and unsubscribes inside the calling tick and
-  retains nothing, so an abandoned render leaves the world exactly as it
-  found it. Acquisition happens at commit, without a deref.
+  read of a key nothing holds yet is a **cold probe** ([[cold-read!]],
+  rf2-6c237): reuse a live sub-cache reaction by deref alone when one
+  exists, else compute PURE against one coherent frame-state snapshot
+  through one render-scoped memo — the observation port's own cold-probe
+  discipline (`re-frame.substrate.observation/probe`, Spec 006 §The
+  slice-scoped probe memo), consumed rather than reinvented. The probe
+  creates no cache entry, takes no reference, installs no watch and
+  leaves no disposal obligation, so an abandoned render leaves the world
+  exactly as it found it — and unlike the `subscribe-once` crossing it
+  replaces (profiled on the acceptance shape's 141-read mount,
+  `read_profile_app.cljs`), it does not pay a reaction build, a cache
+  insert, an in-tick evict and a dispose cascade per read to arrive at a
+  value it retains nothing of. Acquisition happens at commit, without a
+  render-phase deref.
 
-  That costs a cold key its computation twice — once discarded at render,
-  once when the commit acquires. The shipping React spine avoids the same
-  double build with a render-phase escrow (rf2-2rtt6.25), and this arm
-  deliberately does **not** copy it: an escrow is a render-phase
-  ref-count mutation, which is the one thing the state machine above
-  forbids. It is also not a collector charge — `useSyncExternalStore` has
-  the identical render/commit shape, so grouped and the scalar comparator
-  inherit it — and it belongs to the shared front half rather than to
-  this arm.
+  A cold key still computes twice — once at render (the probe), once
+  when the commit acquires and takes its baseline. What rf2-6c237
+  removed is the second *construction*, not the second compute. The
+  shipping React spine attacks the same double build with a render-phase
+  escrow (rf2-2rtt6.25), and this arm deliberately does **not** copy it:
+  an escrow is a render-phase ref-count mutation, which is the one thing
+  the state machine above forbids — the probe moves the read the other
+  way, to a path that mutates nothing at all, transiently or otherwise.
+  It is also not a collector charge — `useSyncExternalStore` has the
+  identical render/commit shape, so grouped and the scalar comparator
+  inherit it — and the escrow belongs to the shared front half rather
+  than to this arm.
 
   ## The re-render path
 
@@ -329,6 +342,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.live-frame :as live-frame]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
             ["react" :as react]))
@@ -358,9 +372,12 @@
   "The render slots: the frame the running body resolved (nil outside a
   render, which is what makes `(sub …)` outside a boundary a loud error
   rather than a silent read of whichever frame happened to be ambient),
-  the two read-surface provenance flags, and the entry the last body
-  resolved. One JS object for the whole runtime — not one per render."
-  #js {"frame" nil "collector" false "grouped" false "entry" nil})
+  the two read-surface provenance flags, the entry the last body
+  resolved, and the cold-probe box the running body's cold reads share
+  ([[cold-read!]] — nil until a cold read mints it, reset by every
+  [[run-once]] exactly as the scratch is). One JS object for the whole
+  runtime — not one per render."
+  #js {"frame" nil "collector" false "grouped" false "entry" nil "probe" nil})
 
 (def ^:private ^js scratch
   "**The one scratch buffer**, reused by every body and reset by
@@ -565,8 +582,8 @@
   windows. **Synchronously** the reaction reference is dropped, which is
   all a correct read needs: [[read-key!]] treats a cell with no reaction
   exactly as it treats a key with no cell and goes through
-  `subscribe-once`, so every render from this instant on computes against
-  the new registration and the live frame. **On a macrotask** the durable
+  [[cold-read!]]'s probe, so every render from this instant on computes
+  against the new registration and the live frame. **On a macrotask** the durable
   attachment is rebuilt, so later writes notify again — deferred because
   this callback runs inside the registrar's replacement hook, inside its
   registration hook and inside frame teardown, and none of them is a
@@ -694,8 +711,8 @@
                    ;; substrate that is not implementable, and the failure
                    ;; is silent: a derived value starts at an `unset`
                    ;; baseline that is never `rf=` a real value, and the
-                   ;; render's own read went through `subscribe-once`,
-                   ;; which built a DIFFERENT reaction and disposed it. So
+                   ;; render's own read went through the cold probe,
+                   ;; which built no reaction at all (rf2-6c237). So
                    ;; a freshly acquired reaction whose baseline is still
                    ;; `unset` reports movement on the FIRST later commit
                    ;; whatever the commit did — every newly mounted
@@ -796,18 +813,113 @@
 ;; The two read tiers (HD-002) — the render phase mutates nothing global
 ;; ---------------------------------------------------------------------------
 
+(defn- cold-read!
+  "One cold read — a key no committed cell answers for — on the
+  observation port's cold-probe discipline (rf2-6c237).
+
+  Three rungs, cheapest first, all of them mutation-free:
+
+  1. **A live sub-cache reaction is reused by deref alone.** Some other
+     holder (a cell on another boundary mid-anything, a tool, a test)
+     keeps the reaction warm; the acquire/release round trip
+     `subscribe-once` performed to reach the same deref bumped a
+     ref-count both ways for nothing. The peek is exactly the port's
+     (`observation/probe`), and single-threaded CLJS is what makes the
+     unguarded deref safe: nothing can evict between the `get` and the
+     `@`.
+  2. **A truly cold key computes PURE** — `subs/compute-sub-with-memo`
+     against ONE coherent frame-state snapshot, minted lazily on the
+     run's first cold read ([[run-once]] resets the box, so a fence
+     re-run or a StrictMode double-invoke computes against the state
+     that is current THEN). No cache entry, no ref-count, no watch, no
+     disposal obligation — where `subscribe-once` paid a reaction build,
+     a cache insert, an in-tick evict and a dispose cascade per read,
+     this path pays a registrar lookup and the sub's own body. Each
+     compute threads a FRESH per-read memo seeded with
+     `subs/observation-opts-key`, so an unregistered query emits the
+     always-on `:rf.error/no-such-sub` exactly as the reactive build
+     does and recovers to the same nil; the run-level dedup lives in
+     the box's own value map, where a key already computed this run is
+     a `find`, not a second compute. The read profile
+     (`read_profile_app.cljs`, phase A) is why the memo is per read
+     rather than one threaded across the run: on the acceptance shape's
+     141 distinct layer-1 reads a run-shared memo's own bookkeeping —
+     three `swap!`s per sub against a map grown to 141 entries — cost
+     more than it deduplicated (`probe` 2.75 vs `probe-fresh` 1.42
+     µs/read), and mid-graph parent sharing, the thing only a threaded
+     memo can buy, prices at zero on a page whose subs are all
+     single-source. A layered consumer pays one extra parent compute
+     per cold read of the same run — bounded by the fence to one
+     commit's worth — and the trade is re-openable the day a shape
+     with deep shared chains prices it the other way.
+  3. **A missing or destroyed frame falls back to `subscribe-once`**,
+     which emits `:rf.error/frame-destroyed` and recovers to nil — the
+     predecessor's whole behaviour on that edge, kept rather than
+     re-spelled.
+
+  The compute sits inside `live-frame/call-with-frame-resolution` for
+  the same two reasons `subscribe` itself does: an image-loaded frame's
+  registrar lookups must resolve through that frame's own image, and the
+  wrapper's read-time coalesced flush is what makes a `reg-sub` issued
+  earlier in this same tick visible to this very read — without it, a
+  register-then-render-sync sequence computes against a stale
+  projection and misses the handler (witnessed, and mutation-proven, in
+  `arm1/cold_read_cljs_test`).
+
+  Within one body run all cold reads observe one snapshot, which is the
+  fence's own invariant stated smaller; a commit landing mid-body moves
+  the [[commit-basis]] and [[render-body]] re-runs the body against the
+  newer one, fresh box included. The values a probe computes are what
+  the sub-cache reaction would have answered against the same committed
+  state — `compute-sub` and the reactive path share the input grammar,
+  the recover-to-nil contracts and the schema validation, which is why
+  the port could stake commit-free Tier-1 reads on the equivalence
+  first."
+  [frame-kw query-v]
+  (let [frame-record (frame/frame frame-kw)]
+    (if (nil? frame-record)
+      (subs/subscribe-once query-v {:frame frame-kw})
+      (live-frame/call-with-frame-resolution
+        frame-kw
+        (fn []
+          (if-some [r (:reaction (get @(:sub-cache frame-record) query-v))]
+            @r
+            (let [^js pr (or (.-probe rstate)
+                             (when-some [fs (frame/frame-state-value frame-kw)]
+                               (let [^js fresh #js {"fs" fs "vals" {}}]
+                                 (set! (.-probe rstate) fresh)
+                                 fresh)))]
+              (if (nil? pr)
+                ;; The frame died between the record resolve and the
+                ;; state read — recover exactly as rung 3 does.
+                (subs/subscribe-once query-v {:frame frame-kw})
+                ;; `find`, not `get`: a memoised nil (an unregistered
+                ;; query's recovery) is a HIT, and the one emission per
+                ;; distinct unknown key per run rides on that.
+                (if-some [kv (find (unchecked-get pr "vals") query-v)]
+                  (val kv)
+                  (let [v (subs/compute-sub-with-memo
+                            query-v
+                            (unchecked-get pr "fs")
+                            (atom {subs/observation-opts-key
+                                   {:frame frame-kw}}))]
+                    (unchecked-set pr "vals"
+                                   (assoc (unchecked-get pr "vals") query-v v))
+                    v))))))))))
+
 (defn- read-key!
   "One read: append the sub-key to the scratch, and return the value.
 
   Warm — a committed cell holds the key — is a pure deref: no acquire,
-  no release, nothing global touched. Cold is `subscribe-once`, which
-  subscribes, derefs and unsubscribes inside this tick and retains
-  nothing, so an abandoned render leaves the world as it found it.
+  no release, nothing global touched. Cold is [[cold-read!]]'s probe,
+  which reuses a live sub-cache reaction by deref alone or computes pure
+  against the run's one frame-state snapshot, retains nothing, and so
+  leaves an abandoned render's world as it found it.
 
   A cell [[invalidate-cell!]] has dropped the reaction of takes the cold
   path too, and that is the whole of what an invalidated read needs to be
-  correct: `subscribe-once` computes against the registration and the
-  frame incarnation that are live NOW, so a render in the window between
+  correct: the probe computes against the registration and the frame
+  incarnation that are live NOW, so a render in the window between
   the invalidation and its rebuild reads the new computation rather than
   the retired one — or, for a key registered for the FIRST time while the
   boundary was mounted, the real handler rather than the nil-recovery.
@@ -827,7 +939,7 @@
     (.push scratch sub-key)
     (if-some [^js r (some-> ^js (get @!cells sub-key) (.-reaction))]
       @r
-      (subs/subscribe-once query-v {:frame frame-kw}))))
+      (cold-read! frame-kw query-v))))
 
 (defn sub
   "**The ambient collector** — the surface the operator ruled the only
@@ -1086,6 +1198,7 @@
   (set! (.-length scratch) 0)
   (set! (.-collector rstate) false)
   (set! (.-grouped rstate) false)
+  (set! (.-probe rstate) nil)
   (set! (.-frame rstate) frame-kw)
   (try
     (intent/with-frame frame-kw (frame-dispatch frame-kw)
@@ -1311,6 +1424,7 @@
   (vreset! !generation 0)
   (set! (.-entry rstate) nil)
   (set! (.-frame rstate) nil)
+  (set! (.-probe rstate) nil)
   (set! (.-length scratch) 0)
   (index/reset-index!)
   (forget-frame-ops!)
