@@ -68,7 +68,38 @@
     (is (= 0 (:tags (codec/cache-sizes)))))
   (testing "a prop named __proto__ is neither cached nor set"
     (let [e (codec/as-element [:div {:__proto__ "nope"}])]
-      (is (= [] (prop-names e))))))
+      (is (= [] (prop-names e))))
+    (is (= 3 (:props (codec/cache-sizes)))
+        "the three seeded entries and nothing else — the refusal is on the write")))
+
+(deftest a-literal-named-after-an-inherited-property-cannot-be-served-one
+  ;; rf2-2rtt6.63. Both caches are `Object.create(null)`, so a lookup can
+  ;; only ever answer an own property. Keyed against `#js {}` these
+  ;; literals would read `Object.prototype`'s OWN members — a function
+  ;; where a ParsedTag or a PropSlot belongs — and the codec would emit
+  ;; whatever that function's `.tag` / `.js-name` happened to be, which
+  ;; is `undefined`. The lookup guard the shipping code used to carry
+  ;; (`hasOwnProperty.call`) answered this; nothing but the cache's own
+  ;; construction answers it now, so it is witnessed rather than assumed.
+  (testing "a TAG named after an Object.prototype member parses as itself"
+    (doseq [n ["toString" "valueOf" "hasOwnProperty" "isPrototypeOf" "constructor"]]
+      (is (= n (el-type (codec/as-element [(keyword n)])))
+          (str "tag " n " must render as itself"))))
+  (testing "and the second render of one reads its own cached entry"
+    (codec/reset-caches!)
+    (codec/as-element [:toString])
+    (is (= 1 (:tags (codec/cache-sizes))))
+    (is (= "toString" (el-type (codec/as-element [:toString]))))
+    (is (= 1 (:tags (codec/cache-sizes)))))
+  (testing "a PROP named after an Object.prototype member converts as itself"
+    (codec/reset-caches!)
+    (let [e (codec/as-element [:div {:toString "a" :valueOf "b" :hasOwnProperty "c"}])]
+      (is (= ["hasOwnProperty" "toString" "valueOf"] (prop-names e)))
+      (is (= "a" (prop e "toString")))
+      (is (= "b" (prop e "valueOf")))
+      (is (= "c" (prop e "hasOwnProperty"))))
+    (testing "and the second element reads the cached slots"
+      (is (= "d" (prop (codec/as-element [:div {:toString "d"}]) "toString"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Prop names

@@ -170,9 +170,10 @@
   pairs the prop pipeline is asked for. JS arrays, so the micro loops
   index primitively."
   [h]
-  (let [tags #js [] ks #js [] vs #js [] strs #js []
+  (let [tags #js [] ks #js [] vs #js [] strs #js [] kids #js []
         el-tags #js [] el-props #js []]
     (letfn [(visit-child [c]
+              (.push kids c)
               (cond (vector? c) (visit c)
                     (string? c) (.push strs c)
                     (seq? c)    (run! visit-child c)
@@ -193,7 +194,7 @@
                 (doseq [c (subvec argv (if has-props? 2 1))]
                   (visit-child c))))]
       (visit h))
-    {:tags tags :prop-keys ks :prop-vals vs :strings strs
+    {:tags tags :prop-keys ks :prop-vals vs :strings strs :children kids
      :el-tags el-tags :el-props el-props}))
 
 ;; ---------------------------------------------------------------------------
@@ -263,7 +264,8 @@
 (defn- stage-table
   "The same primitive, ours and each donor's, over the page's own roster.
   Every figure ns/op; the element-level rows are ns/ELEMENT."
-  [{:keys [^js tags ^js prop-keys ^js prop-vals ^js strings ^js el-tags ^js el-props]}]
+  [{:keys [^js tags ^js prop-keys ^js prop-vals ^js strings ^js children
+           ^js el-tags ^js el-props]}]
   (let [;; Both prop pipelines want a parsed tag. Precomputed here so the
         ;; rows price the PIPELINE and not two different tag lookups.
         h-parsed (let [a #js []]
@@ -311,7 +313,10 @@
         (ns-per-op (quot micro-reps 4) tag-strs (fn [t] (react/createElement t p))))]
      ;; --- the per-element `:key` read the walk pays outside the loop ---
      [:key-read-hicasso (ns-per-op micro-reps el-props (fn [p] (:key p)))]
-     [:roster-elements (.-length el-tags)]]))
+     [:roster-elements (.-length el-tags)]
+     [:roster-props    (.-length prop-keys)]
+     [:roster-children (.-length children)]
+     [:roster-strings  (.-length strings)]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Candidates — costed here, landed only if this table convicts
@@ -425,6 +430,24 @@
         (when-not (reserved-name? k) (unchecked-set instcheck-tag-cache k v'))
         v'))))
 
+;; The second candidate the stage table convicts: `as-element`'s child
+;; dispatch. Ours asks `nil? → false? → vector? → string? → …`; stock
+;; Reagent asks ONE `js-val?` (`goog/typeOf x !== "object"`) and returns
+;; a string on the first branch. The seven predicates are mutually
+;; exclusive, so their ORDER is free to change and cannot change an
+;; answer — the question is only what each population pays. Both arms
+;; below run the real cond over the page's real child roster and return
+;; a tag rather than an element, so the figure is the DISPATCH and not
+;; the walk beneath it.
+
+(defn- dispatch-ship [x]
+  (cond (nil? x) 0 (false? x) 0 (vector? x) 1 (string? x) 2 (number? x) 3
+        (seq? x) 4 (true? x) 5 :else 6))
+
+(defn- dispatch-string-first [x]
+  (cond (nil? x) 0 (false? x) 0 (string? x) 2 (vector? x) 1 (number? x) 3
+        (seq? x) 4 (true? x) 5 :else 6))
+
 (defn- warm-candidates! [^js tags ^js prop-keys]
   (dotimes [i (.-length prop-keys)]
     (let [k (aget prop-keys i)]
@@ -434,14 +457,20 @@
       (guarded-tag-lookup t) (nullproto-tag-lookup t) (instcheck-tag-lookup t))))
 
 (defn- candidate-table
-  [{:keys [^js tags ^js prop-keys]}]
+  [{:keys [^js tags ^js prop-keys ^js children ^js strings]}]
   (warm-candidates! tags prop-keys)
   [[:prop-lookup-guarded   (ns-per-op micro-reps prop-keys guarded-lookup)]
    [:prop-lookup-nullproto (ns-per-op micro-reps prop-keys nullproto-lookup)]
    [:prop-lookup-instcheck (ns-per-op micro-reps prop-keys instcheck-lookup)]
    [:tag-lookup-guarded    (ns-per-op micro-reps tags guarded-tag-lookup)]
    [:tag-lookup-nullproto  (ns-per-op micro-reps tags nullproto-tag-lookup)]
-   [:tag-lookup-instcheck  (ns-per-op micro-reps tags instcheck-tag-lookup)]])
+   [:tag-lookup-instcheck  (ns-per-op micro-reps tags instcheck-tag-lookup)]
+   ;; the whole child population, in the proportions the page has it
+   [:dispatch-all-ship        (ns-per-op micro-reps children dispatch-ship)]
+   [:dispatch-all-stringfirst (ns-per-op micro-reps children dispatch-string-first)]
+   ;; and the string half alone, which is where the stage table put the gap
+   [:dispatch-str-ship        (ns-per-op micro-reps strings dispatch-ship)]
+   [:dispatch-str-stringfirst (ns-per-op micro-reps strings dispatch-string-first)]])
 
 ;; No `^js` hint: these read DEFTYPE fields, whose names the compiler
 ;; munges (`js-name` -> `js_name`, `reserved?` -> `reserved_QMARK_`). The
@@ -459,9 +488,13 @@
   "Each candidate answers what the shipping shape answers, for every
   literal on the page AND for the five hostile names the page does not
   carry — checked, not asserted, before any figure is read."
-  [{:keys [^js tags ^js prop-keys]}]
+  [{:keys [^js tags ^js prop-keys ^js children]}]
   (warm-candidates! tags prop-keys)
   (let [bad (atom [])]
+    (dotimes [i (.-length children)]
+      (let [c (aget children i)]
+        (when-not (= (dispatch-ship c) (dispatch-string-first c))
+          (swap! bad conj [:dispatch i]))))
     (dotimes [i (.-length prop-keys)]
       (let [k (aget prop-keys i)
             g (guarded-lookup k)]
