@@ -36,7 +36,13 @@
   named `__proto__` cannot poison them:
 
     tag-cache    \"div#main.wide\" -> ParsedTag
-    prop-cache   \"on-click\"      -> \"onClick\"
+    prop-cache   \"on-click\"      -> PropSlot
+
+  A [[PropSlot]] is the React name the cache always held plus the three
+  classifications that are pure functions of the same literal — reserved
+  slot, event position, ref slot (rf2-y1jkm). Same keys, same lifetime,
+  same guard; one lookup now answers everything the per-prop walk used
+  to re-derive per element per render.
 
   That is the whole of the accelerant HD-004 permits in the lean arm.
   There is **no template extraction, no hole plan, no node reference, and
@@ -139,10 +145,22 @@
 ;; Cache hygiene — the own-property guard both caches share
 ;; ---------------------------------------------------------------------------
 
-(def ^:private reserved-cache-keys
-  "Never read from or written to a JS-object cache: a hiccup literal with
-  one of these names would otherwise reach the object's prototype."
-  #{"__proto__" "prototype" "constructor"})
+(defn- reserved-name?
+  "Is `n` — a tag or prop name, or an emitted prop slot — one of the
+  three names that must never be read from, written to, or emitted
+  through a JS-object cache? A hiccup literal named `__proto__`,
+  `prototype` or `constructor` would otherwise reach an object's
+  prototype. That roster is the whole predicate.
+
+  Three `===` string compares rather than the set lookup this began as
+  (rf2-y1jkm): the question is asked once per tag and once per prop on
+  every element of every mount, and a set lookup pays a string hash each
+  time for a roster of three — 36.9 ns against 9.6 on the census page's
+  own literals, measured by `walk_profile_app`'s micro table."
+  [n]
+  (or (identical? "__proto__" n)
+      (identical? "prototype" n)
+      (identical? "constructor" n)))
 
 (def ^:private has-own (.-hasOwnProperty (.-prototype js/Object)))
 
@@ -179,7 +197,7 @@
   distinct tag literal the build ever renders."
   [hiccup-tag]
   (let [k (cache-key hiccup-tag)]
-    (if (reserved-cache-keys k)
+    (if (reserved-name? k)
       (parse-tag hiccup-tag)
       (if (own-key? tag-cache k)
         (unchecked-get tag-cache k)
@@ -227,11 +245,59 @@
               n
               (apply str start (map capitalize parts))))))))
 
+(deftype PropSlot [js-name reserved? event? ref?]
+  ;; What the prop cache holds for one prop literal (rf2-y1jkm): the React
+  ;; name the codec always cached, PLUS the three classifications the
+  ;; per-prop walk used to re-derive per element per render — is the
+  ;; emitted slot reserved, is the position an event position, is it the
+  ;; ref slot. Each is a pure function of the literal's NAME, so caching
+  ;; them beside the name changes what a lookup ANSWERS and nothing about
+  ;; when it is valid: there is still exactly one entry per distinct
+  ;; literal, minted on first sight, correct for the life of the build.
+  ;;
+  ;; `event?` is the name-string's answer (`intent/event-prop?` on the
+  ;; NAME), and the consumer must gate it on `keyword?` — a symbol
+  ;; spelled `on-click` shares the entry but is NOT an event position
+  ;; (event-prop? answers false for symbols), which is why the flag is
+  ;; stored spelling-neutral and applied spelling-aware. That is the same
+  ;; discipline as the string/keyword split in [[cached-prop-name]]: the
+  ;; cache is keyed by name, so anything the name does not determine must
+  ;; be decided at the call site.
+  )
+
+(defn- mint-slot
+  "The [[PropSlot]] for a keyword or symbol prop literal whose name is
+  `n`. Every field a pure function of the literal, per the deftype note."
+  [k n]
+  (let [js-name (prop-name k)]
+    (->PropSlot js-name
+                (reserved-name? js-name)
+                ;; asked of the NAME, not of `k` — a symbol shares the
+                ;; entry, and `event-prop?` already answers a boolean
+                (intent/event-prop? n)
+                ;; "ref" — [[ref-slot]], spelled literally because the def
+                ;; sits below; `identical?` on primitive strings is value
+                ;; comparison.
+                (identical? "ref" js-name))))
+
 (def ^:private prop-cache
+  ;; The three seeded entries are the RULE, not memos of one — see
+  ;; [[react-renames]]. None is reserved, an event position, or the ref
+  ;; slot.
   (doto #js {}
-    (unchecked-set "class" "className")
-    (unchecked-set "for" "htmlFor")
-    (unchecked-set "charset" "charSet")))
+    (unchecked-set "class" (->PropSlot "className" false false false))
+    (unchecked-set "for" (->PropSlot "htmlFor" false false false))
+    (unchecked-set "charset" (->PropSlot "charSet" false false false))))
+
+(defn- prop-slot
+  "The [[PropSlot]] for keyword/symbol `k` with name `n` — the caller has
+  already checked the spelling and that `n` is not a reserved name."
+  ^PropSlot [k n]
+  (if (own-key? prop-cache n)
+    (unchecked-get prop-cache n)
+    (let [s (mint-slot k n)]
+      (unchecked-set prop-cache n s)
+      s)))
 
 (defn cached-prop-name
   "[[prop-name]] behind the codec-work cache (HD-004).
@@ -252,13 +318,9 @@
   (if-not (or (keyword? k) (symbol? k))
     (if (string? k) (prop-name k) k)
     (let [n (name k)]
-      (if (reserved-cache-keys n)
+      (if (reserved-name? n)
         (prop-name k)
-        (if (own-key? prop-cache n)
-          (unchecked-get prop-cache n)
-          (let [converted (prop-name k)]
-            (unchecked-set prop-cache n converted)
-            converted))))))
+        (.-js-name (prop-slot k n))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical structural-slot filter (rf2-2rtt6.36)
@@ -368,9 +430,18 @@
 (defn convert-prop-value
   "A prop value in the shape React wants. Functions pass through **by
   identity**, deliberately: rewrapping them would defeat `React.memo` and
-  every downstream bail-out that compares handler identity."
+  every downstream bail-out that compares handler identity.
+
+  `string?` is asked first (rf2-y1jkm): a string is the overwhelming prop
+  value on a census page — `href`, `class`, `data-testid`, `src`, `type`
+  — and it previously proved itself *not* a fn, map, keyword, symbol or
+  collection on its way to `:else`, two of those being the dear
+  native-satisfies? protocol checks. One `typeof` answers it; every other
+  branch pays that one `typeof` and keeps its old order, so the answer is
+  unchanged for every input."
   [v]
   (cond
+    (string? v)              v
     (fn? v)                  v
     (map? v)                 (nested-map->js v)
     (or (keyword? v) (symbol? v)) (name v)
@@ -473,6 +544,57 @@
            {:ref v :position k}))
   v)
 
+(defn- convert-entry
+  "ONE prop into the emitted object — [[convert-props]]'s reducing
+  function, hoisted as a named var so the walk allocates no closure (the
+  same accounting as [[realize-entry]]).
+
+  The literal `:key` is skipped here — the in-loop form of the `dissoc`
+  the walk used to pay a map copy for; every other spelling flows
+  through, exactly as it survived the `dissoc`. A keyword or symbol key
+  is answered by its [[prop-slot]] — name and classification in one
+  lookup, `event?` gated on `keyword?` because a symbol is never an
+  event position — and a value that nothing claims (not a ref, not a
+  lowerable value at an event position, not a marked callback) goes
+  straight to [[convert-prop-value]] without entering the lowering at
+  all, which is the branch nearly every attribute on a census page
+  takes. The paths [[intent/lower-prop]] IS entered on reproduce its
+  answers by construction: it re-asks `event-prop?` and re-takes the
+  same branch this slot was minted from. A string key keeps the donor's
+  uncached path, byte for byte."
+  [o k v]
+  (if (keyword-identical? :key k)
+    o
+    (if (or (keyword? k) (symbol? k))
+      (let [n (name k)]
+        (if (reserved-name? n)
+          o
+          (let [^PropSlot s (prop-slot k n)]
+            (when-not (.-reserved? s)
+              (unchecked-set o (.-js-name s)
+                             (convert-prop-value
+                               (cond
+                                 (.-ref? s)
+                                 (check-ref! k v)
+
+                                 (and (.-event? s) (keyword? k))
+                                 (if (or (vector? v) (map? v) (fn? v))
+                                   (intent/lower-prop k v)
+                                   v)
+
+                                 :else
+                                 (if (intent/callback? v)
+                                   (intent/lower-prop k v)
+                                   v)))))
+            o)))
+      (let [n (cached-prop-name k)]
+        (when-not (reserved-name? n)
+          (unchecked-set o n (convert-prop-value
+                              (if (= ref-slot n)
+                                (check-ref! k v)
+                                (intent/lower-prop k v)))))
+        o))))
+
 (defn convert-props
   "One pass over the attribute map: fold a `:&` remainder under the
   owned-literal law, refuse a reserved `:ref` value, fold the tag
@@ -496,19 +618,71 @@
   lowering are both taken on the CANONICAL SLOT the walk has just
   computed, rather than on the key — which is what makes them hold for
   `\"ref\"` and `:x/ref` as well as for `:ref`, and costs the walk one
-  comparison it already had the value for."
+  comparison it already had the value for.
+
+  ## The three lanes (rf2-y1jkm)
+
+  The walk-cost profile (`walk_profile_app`, census page: 1,202
+  elements, 567 of them with no attribute map, 924 with a `.class`
+  shorthand, 71 with a declared `:class`) priced this function at 67.5%
+  of the whole interpreter walk, most of it the map surgery
+  [[merge-shorthand]] performs on elements whose only class IS the
+  shorthand. So the general path keeps its exact shape and two lanes
+  peel off the shapes that dominate a page, each producing the same
+  emitted object the general path produces, property for property and in
+  the same order:
+
+  1. **No attribute map at all** (`props` nil): the emitted object is
+     exactly the shorthand's `id`/`className`, so it is built directly.
+     What the general path would do — an empty merge, the shorthand
+     folded into a fresh map, one map iteration converting it back out —
+     is the identity of that, at the cost of the map machinery.
+  2. **Shorthand class, nothing merged against it** — no literal
+     `:class`/`:className` (the two keys [[merge-shorthand]] itself
+     consults), no `:&`, no `#id` shorthand: the merged class is the
+     shorthand string verbatim (`class-names` of a string against nil),
+     and the general path's re-`assoc` puts `:class` LAST in the map, so
+     emitting the loop first and the shorthand's `className` after it
+     writes the same slots in the same order — including the overwrite
+     order for an exotic spelling (`:x/class`) that canonicalises onto
+     the same slot.
+  3. **Everything else** — a declared class, a `:&` remainder, an `#id`
+     — takes the donor's path unchanged.
+
+  React's own `key` contract: the LITERAL `:key` is dropped in-loop (one
+  keyword-identity test) rather than by a `dissoc` that copies the map;
+  any other spelling lands in the emitted props exactly as it always
+  did, and [[native-element]] still reads the literal `:key` off the
+  original map.
+
+  Per prop, one [[prop-slot]] lookup answers the React name AND the
+  classifications the walk used to re-derive per element — reserved slot,
+  event position, ref slot — so a non-event prop no longer pays
+  [[re-frame.bench.hicasso.front.intent/event-prop?]]'s regex, and only
+  a lowerable value at an event position (a vector, a map, a function)
+  enters [[re-frame.bench.hicasso.front.intent/lower-prop]] at all. The
+  slot's `event?` flag is gated on `keyword?` at the call site — a
+  symbol shares the cache entry but is not an event position — and a
+  string-keyed prop takes the donor's uncached path unchanged."
   [props ^ParsedTag parsed]
-  (let [props (-> props merge-caller (merge-shorthand parsed) (dissoc :key))]
-    (reduce-kv (fn [o k v]
-                 (let [n (cached-prop-name k)]
-                   (when-not (reserved-cache-keys n)
-                     (unchecked-set o n (convert-prop-value
-                                          (if (= ref-slot n)
-                                            (check-ref! k v)
-                                            (intent/lower-prop k v)))))
-                   o))
-               #js {}
-               props)))
+  (cond
+    (nil? props)
+    (let [o #js {}]
+      (when-some [id (.-id parsed)] (unchecked-set o "id" id))
+      (when-some [c (.-className parsed)] (unchecked-set o "className" c))
+      o)
+
+    (and (some? (.-className parsed))
+         (nil? (.-id parsed))
+         (not (contains? props :class))
+         (not (contains? props :className))
+         (not (contains? props merge-key)))
+    (let [o (reduce-kv convert-entry #js {} props)]
+      (unchecked-set o "className" (.-className parsed))
+      o)
+
+    :else
+    (reduce-kv convert-entry #js {} (-> props merge-caller (merge-shorthand parsed)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boundary heads (HD-016 / HD-004)
@@ -798,7 +972,10 @@
   (let [parsed      (cached-parse (nth argv 0))
         has-props?  (props-map? argv 1)
         props       (if has-props? (nth argv 1) nil)
-        js-props    (convert-props (or props {}) parsed)]
+        ;; nil, not `(or props {})` — the absent attribute map is
+        ;; [[convert-props]]'s first lane, and wrapping it in an empty
+        ;; map was the whole cost of telling it so (rf2-y1jkm).
+        js-props    (convert-props props parsed)]
     (controlled/install! (.-tag parsed) js-props)
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (.-tag parsed) js-props argv (if has-props? 2 1))))
@@ -924,7 +1101,7 @@
   []
   (doseq [k (js/Object.keys tag-cache)] (js-delete tag-cache k))
   (doseq [k (js/Object.keys prop-cache)] (js-delete prop-cache k))
-  (unchecked-set prop-cache "class" "className")
-  (unchecked-set prop-cache "for" "htmlFor")
-  (unchecked-set prop-cache "charset" "charSet")
+  (unchecked-set prop-cache "class" (->PropSlot "className" false false false))
+  (unchecked-set prop-cache "for" (->PropSlot "htmlFor" false false false))
+  (unchecked-set prop-cache "charset" (->PropSlot "charSet" false false false))
   nil)
