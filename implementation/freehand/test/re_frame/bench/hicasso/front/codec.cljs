@@ -1304,6 +1304,53 @@
           :value    v
           :declared (into #{} (keys (unchecked-get head "callbacks")))}))
 
+(defn- host-entry
+  "ONE host prop into the emitted object — [[host-element]]'s reducing
+  function, and the position table's second row where
+  [[convert-entry]] is its first.
+
+  Same discipline as its native sibling, and deliberately the same
+  lookups: the literal `:key` is skipped in-loop (React's contract, not
+  an attribute), a keyword or symbol key is answered by its cached
+  [[prop-slot]] — React name plus `reserved?`/`event?`/`ref?` in one
+  read — and a reserved emitted slot is never written, because the props
+  object handed to React does have a prototype even though the caches no
+  longer do.
+
+  The one difference from [[convert-entry]] is the whole of HD-011: what
+  a position MEANS here comes from the DECLARATION rather than from the
+  key's spelling. A declared slot takes its declared contract; an
+  event-spelled slot the declaration does not name is refused rather
+  than inferred; everything else crosses shallowly. `event?` is gated on
+  `keyword?` for the same reason the native walk gates it — a symbol
+  spelled `on-click` shares the cache entry and is not an event
+  position."
+  [^js head declared o k v]
+  (if (keyword-identical? :key k)
+    o
+    (let [keyword-ish? (or (keyword? k) (symbol? k))
+          ^PropSlot s  (when keyword-ish? (prop-slot k (name k)))
+          slot         (if keyword-ish? (.-js-name s) (cached-prop-name k))
+          reserved?    (if keyword-ish? (.-reserved? s) (reserved-name? slot))
+          ref?         (if keyword-ish? (.-ref? s) (= ref-slot slot))
+          event?       (if keyword-ish?
+                         (and (.-event? s) (keyword? k))
+                         (intent/event-prop? k))]
+      (when-not reserved?
+        (unchecked-set o slot
+          (cond
+            ref?
+            (check-ref! k v)
+
+            (contains? declared slot)
+            (intent/lower-declared-prop k v (get declared slot))
+
+            :else
+            (do (when (and event? (or (vector? v) (map? v)))
+                  (refuse-undeclared-host-event! head k v))
+                (host-prop-value v)))))
+      o)))
+
 (defn- host-element
   "One declared foreign component as a React element — THE CROSSING
   (HD-011). Runs inside the render window of the boundary that wrote it,
@@ -1337,26 +1384,7 @@
         declared   (unchecked-get head "callbacks")
         has-props? (props-map? argv 1)
         props      (merge-caller (if has-props? (nth argv 1) {}))
-        js-props   (reduce-kv
-                     (fn [o k v]
-                       (let [slot (cached-prop-name k)]
-                         (when-not (reserved-cache-keys slot)
-                           (unchecked-set o slot
-                             (cond
-                               (= ref-slot slot)
-                               (check-ref! k v)
-
-                               (contains? declared slot)
-                               (intent/lower-declared-prop k v (get declared slot))
-
-                               :else
-                               (do (when (and (intent/event-prop? k)
-                                              (or (vector? v) (map? v)))
-                                     (refuse-undeclared-host-event! head k v))
-                                   (host-prop-value v)))))
-                         o))
-                     #js {}
-                     (dissoc props :key))]
+        js-props   (reduce-kv (partial host-entry head declared) #js {} props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (unchecked-get head "component") js-props argv (if has-props? 2 1))))
 
