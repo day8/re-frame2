@@ -1,10 +1,10 @@
 # Getting started
 
-> **Pre-implementation draft — Hicasso does not exist yet.** This page describes the
-> *designed* surface so it can be read before it is built. Spellings marked
-> **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
-> is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-025).
+> **Draft ahead of the product artefact.** This page teaches the landed surface —
+> ruled in [decisions.md](../decisions.md) (HD-001…HD-027), witnessed by the bench
+> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
+> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
+> stay provisional until the API freeze.
 
 Booting a re-frame2 app today takes about thirty lines: create a React root, install
 an adapter, render a `frame-root` inside it, remember the root across hot reloads so
@@ -56,9 +56,9 @@ Three namespaces, in the shape any re-frame2 app already uses.
        title]])])
 ```
 
-That view reads with `sub`, which is the *collector* surface — one of two candidates
-still under adjudication. [Views and reads](02-views-and-reads.md) covers both and
-explains why this draft doesn't choose. Nothing on this page turns on it.
+That view reads with `sub` — an ordinary function call, and the ruled read surface
+(the fork the earlier draft hedged on was decided on 2026-07-31).
+[Views and reads](02-views-and-reads.md) covers it.
 
 And the boot namespace, which is the actual subject of this page:
 
