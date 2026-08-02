@@ -124,6 +124,16 @@
   ;; the same terms as `defview` above.
   re-frame.bench.hicasso.arm1.lang/hfn     clojure.core/fn
 
+  ;; Hicasso's interop door (rf2-2rtt6.65, HD-011). `(defhost sym [doc]
+  ;; component [opts])` introduces a Var holding the head `mint-host!`
+  ;; minted, so `clojure.core\def` is its shape — the name resolves as a
+  ;; Var, the optional docstring is accepted, and the component and opts
+  ;; expressions are analysed as ordinary body forms. Not `defn`: a host
+  ;; declares no parameter vector, since the props it accepts are the
+  ;; foreign component's business rather than the declaration's. Retires
+  ;; with the arm on the same terms as `defview` above.
+  re-frame.bench.hicasso.arm1.lang/defhost clojure.core/def
+
   ;; `reg-view` is `(reg-view sym [args] body)` — defn-shape, but the
   ;; macro auto-injects `dispatch` / `subscribe` into the body. Handled
   ;; by the dedicated hook in `.clj-kondo/hooks/re_frame/core.clj` —
