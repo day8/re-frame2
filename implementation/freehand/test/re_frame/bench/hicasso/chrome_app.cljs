@@ -2,7 +2,7 @@
   "THE PAGE-CHROME ROW, AND WHAT THE BAIL-OUT COSTS — the page half
   (rf2-2rtt6.52's landing bar).
 
-  HD-026 makes a value-equality bail-out the boundary default. The ruling
+  HD-028 makes a value-equality bail-out the boundary default. The ruling
   made it conditional on a measurement rather than on the repair being
   obviously right: the default lands only if it removes the 300-row
   cascade **without a material mount/bulk regression and without pushing
@@ -19,7 +19,7 @@
   the same bodies. The only difference is how the head was minted:
 
       :memo    `runtime/mint-view!`  — marked AND given the codec's
-                                       stable memo wrapper (HD-026)
+                                       stable memo wrapper (HD-028)
       :plain   [[plain-view]]        — marked only, which is `mint-view!`
                                        exactly as it stood before the
                                        repair
@@ -148,7 +148,7 @@
 
 (def ^:private arms
   {:memo  {:id :memo  :page memo-page  :frame ::memo
-           :why "mint-view! — marked and given the codec's stable memo wrapper (HD-026)"}
+           :why "mint-view! — marked and given the codec's stable memo wrapper (HD-028)"}
    :plain {:id :plain :page plain-page :frame ::plain
            :why "marked only — mint-view! exactly as it stood before the repair"}})
 
