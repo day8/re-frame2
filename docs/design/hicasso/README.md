@@ -8,7 +8,7 @@ by [EP-0038](../../EP/EP-0038-the-hicasso-view-layer-programme.md).
 | Document | Contents |
 |---|---|
 | [charter.md](charter.md) | Product identity, evidence base, goals, constraints, use-case roster, known losses |
-| [decisions.md](decisions.md) | HD-001…HD-025 — every design decision, resolved, with rationale and reopen conditions |
+| [decisions.md](decisions.md) | HD-001…HD-026 — every design decision, resolved, with rationale and reopen conditions |
 | [hd-002-adjudication.md](hd-002-adjudication.md) | HD-002 adjudicated — the tripwire, the boundary, ownership, and the hypotheses under test |
 | [architecture.md](architecture.md) | The architecture space, the one live arm (and the withdrawn second), the shared front half, inside-React feasibility, the sub-read mechanism ladder |
 | [validation.md](validation.md) | The bar, the budgets, the P0→P1→P2 plan, witnesses, tournament and measurement discipline, kill criteria |
