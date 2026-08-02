@@ -40,6 +40,22 @@
 //
 // A Chromium `pageerror` is FATAL: a benchmark that threw and kept going
 // publishes a precise number for a page that is not the page under test.
+//
+// ## WHICH SCHEDULE THESE ROWS SPEAK FOR (rf2-2rtt6.25, audit of #7326)
+//
+// Every mount this driver provokes runs inside `react-dom/flushSync`, which
+// forces React's passive `useSyncExternalStore` subscribe before control
+// returns — the ordering the rf2-2rtt6.25 provisional hand-off needs to win
+// its race with its own reaper. The public client mount path
+// (`re-frame.substrate.adapter/render`, a bare `createRoot().render()`) does
+// NOT force it, and there the reaper fires first and the cold mount rebuilds.
+//
+// So the `shipped` arm below is the forced-synchronous MECHANISM arm: it says
+// what the hand-off costs and saves when it runs to completion, and it is NOT
+// an acceptance witness for shipped mount performance. Every record this run
+// emits carries that as a `:schedule` key. Nothing is unsound — the lost race
+// costs a construction, never correctness (Spec 006 §Render-phase provisional
+// acquisition and commit adoption). The reap horizon is an operator decision.
 
 'use strict';
 

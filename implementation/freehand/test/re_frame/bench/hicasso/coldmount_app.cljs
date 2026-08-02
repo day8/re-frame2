@@ -76,15 +76,47 @@
       the census back to zero, and a leak here would silently convert
       later samples into warm-cache mounts. Equality, no tolerance.
 
+  ## WHICH SCHEDULE THESE ROWS SPEAK FOR — read this before quoting one
+
+  Every mount in this instrument — timed and counted alike — runs inside
+  `react-dom/flushSync` (`coldmount_views.cljs`). That forces React's
+  passive `useSyncExternalStore` subscribe to run before control returns,
+  and that IS the ordering the rf2-2rtt6.25 hand-off needs in order to
+  win its race with its own reaper. **The shipping client mount path does
+  not force it**: `re-frame.substrate.adapter/render` is a bare
+  `createRoot(…).render(…)`, and there the `setTimeout 0` reaper fires
+  first, so the escrowed reference is released, the commit misses, and
+  the mount rebuilds — `bodyRuns` 2.00N, measured at N = 1 and N = 300
+  (rf2-2rtt6.25, merged-PR audit of #7305; the browser assertion is
+  `use-subscribe-public-mount-schedule-rebuilds`).
+
+  So the `shipped` arm here is **the forced-synchronous MECHANISM arm**,
+  not an acceptance witness for shipped performance. Its rows say what
+  the hand-off costs and saves WHEN IT RUNS TO COMPLETION. They are not a
+  statement about any mount a consumer performs today, and the
+  `:schedule` key on every record emitted below says so in the data as
+  well as in this docstring. The instruments themselves — the counting
+  witness, the fidelity control, the residue gate, the segment-order
+  control — are unaffected; what changed is which schedule they speak
+  for. Nothing here is unsound: Spec 006 §Render-phase provisional
+  acquisition and commit adoption requires that correctness never depend
+  on the reaper losing the race, and the lost race costs a construction
+  and nothing else.
+
+  The reap horizon that would recover the saving on the public schedule
+  is an OPERATOR DECISION (rf2-2rtt6.14 ruled the primitive), so no
+  measurement window in this file is touched to repair the wording.
+
   ## What fails the run
 
   The counting witness adjudicated per page BEFORE any clock (predicted
   commits / rebuilt / per-layer bodyRuns, exact — including the SHIPPED
-  arm, which since rf2-2rtt6.25 must read the `handoff` row); the clock
-  fidelity control (`uix-subs` vs `handoff` — ranges overlap or medians
-  within the pre-declared 3% band, else every delta is void; re-pointed
-  from `xcript` by rf2-2rtt6.25, because the shipped hook IS the hand-off
-  now and `xcript` is the retired double build); the positive controls;
+  arm, which under THIS harness's forced-synchronous schedule reads the
+  `handoff` row); the clock fidelity control (`uix-subs` vs `handoff` —
+  ranges overlap or medians within the pre-declared 3% band, else every
+  delta is void; re-pointed from `xcript` by rf2-2rtt6.25, because on
+  this schedule the shipped hook runs the hand-off to completion and
+  `xcript` is the double build it transcribes); the positive controls;
   the DOM read-backs; the residue gate; the arm-order guard (exit 2); the
   segment-order direction refusal. The records are written to the console
   before any refusal, so the evidence survives it.
@@ -128,6 +160,31 @@
   "Boundaries per counting-witness mount; 3 reads each, so N = 300 reads
   per call — the same N as a timed M1 mount."
   100)
+
+(def ^:private schedule-provenance
+  "STAMPED ON EVERY EMITTED RECORD (rf2-2rtt6.25, merged-PR audit of
+  #7326). A row that travels without its schedule is a row that will be
+  quoted as a shipped-performance claim, which is exactly what happened
+  to this instrument's first `shipped` table. So the schedule rides in
+  the data, not only in the docstring.
+
+  See the namespace docstring's \"Which schedule these rows speak for\"."
+  {:mount-schedule :forced-synchronous
+   :how            "react-dom/flushSync around every mount — the timed ones in lane/mount-arm! and lane/mount-batch!, the counted ones in coldmount-views/witness!"
+   :arm            "the shipped hook's hand-off MECHANISM, measured where it is allowed to run to completion"
+   :not            (str "NOT a shipped-mount-performance claim. The public client mount path is "
+                        "re-frame.substrate.adapter/render — a bare createRoot().render() — and there "
+                        "the setTimeout-0 reaper releases the escrowed reference before React's passive "
+                        "useSyncExternalStore subscribe, so the commit misses and rebuilds: bodyRuns "
+                        "2.00N at N = 1 and N = 300 (rf2-2rtt6.25, merged-PR audit of #7305).")
+   :correctness    (str "unaffected either way — Spec 006 §Render-phase provisional acquisition and "
+                        "commit adoption requires that correctness never depend on the reaper losing "
+                        "the race; the lost race costs a construction and the steady state is one "
+                        "durable reference.")
+   :horizon        "the reap horizon that would recover the saving on the public schedule is an OPERATOR DECISION (rf2-2rtt6.14 ruled the primitive); no measurement window here was altered to repair provenance"
+   :assertions     ["use-subscribe-public-mount-schedule-rebuilds"
+                    "use-subscribe-escrow-leg-answers-on-the-public-mount-schedule"
+                    "use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount"]})
 
 ;; ---------------------------------------------------------------------------
 ;; Segments
@@ -356,9 +413,13 @@
                       (cmv/witness! :xcript  layer witness-boundaries 900)
                       (cmv/witness! :handoff layer witness-boundaries 1800)
                       (cmv/witness! :handoff layer witness-boundaries 2700)
-                      ;; rf2-2rtt6.25 — the ACCEPTANCE WITNESS. The shipped
-                      ;; hook must read the `handoff` row, on its own disjoint
-                      ;; cell ranges.
+                      ;; rf2-2rtt6.25 — the FORCED-SYNCHRONOUS MECHANISM arm.
+                      ;; `witness!` mounts inside `flushSync`, and on THAT
+                      ;; schedule the shipped hook runs the hand-off to
+                      ;; completion and reads the `handoff` row. On the public
+                      ;; `createRoot().render()` path it reads the `xcript` row
+                      ;; instead — ns docstring, "Which schedule these rows
+                      ;; speak for". Own disjoint cell ranges.
                       (cmv/witness! :shipped layer witness-boundaries 3600)
                       (cmv/witness! :shipped layer witness-boundaries 4500)])))
           {}
@@ -376,11 +437,19 @@
   Layers above L must read 0 — a non-zero there means the chain is not
   the chain this page claims to price.
 
-  `shipped` reading the `handoff` row is what rf2-2rtt6.25 has to prove:
-  the shipped hook adopting the render-phase materialisation rather than
-  rebuilding it. Its counters come from the sub-cache rather than from an
-  instrumented `subscribe-fn` (`coldmount-views` namespace docstring), so
-  the two arms are independent measurements of the same claim."
+  THE `shipped` ROW IS SCHEDULE-CONDITIONAL, and this is the harness's
+  schedule, not the consumer's. `witness!` mounts inside `flushSync`, so
+  React's passive subscribe runs before control returns and the hand-off
+  reaches its adoption; that is what makes `rebuilt 0` predictable here.
+  On the public `createRoot().render()` path the reaper wins first and
+  the same hook reads the `xcript` row — `rebuilt N`, `bodyRuns 2N`
+  (rf2-2rtt6.25, audit of #7305). So this prediction adjudicates that the
+  MECHANISM runs to completion when it is allowed to; it is not an
+  acceptance witness for shipped mount performance, and a failure here is
+  a broken mechanism rather than a lost race. Its counters come from the
+  sub-cache rather than from an instrumented `subscribe-fn`
+  (`coldmount-views` namespace docstring), so `shipped` and `handoff`
+  remain independent measurements of the same mechanism."
   [by-seg layer]
   (vec
     (for [[seg ws] by-seg
@@ -524,15 +593,19 @@
   shipped hook. Both readers here are the same clock, so the legs are the
   per-round p50 ranges and the medians.
 
-  RE-POINTED BY rf2-2rtt6.25. Before the hand-off landed, the shipped hook
-  was the double build and `xcript` was its transcription, so `xcript` was
-  the fidelity partner. The shipped hook IS the hand-off now, so the
-  transcription that has to reproduce it is `handoff` — and this control
-  is simultaneously the clock half of the acceptance witness: the shipped
-  arm must sit inside the single-build band, not the double-build one.
-  `xcript` stays in the run as the double-build reference; it is what the
-  published delta is measured against, and it is deliberately NOT expected
-  to match the shipped clock any more."
+  RE-POINTED BY rf2-2rtt6.25, ON THIS HARNESS'S SCHEDULE. Before the
+  hand-off landed, the shipped hook was the double build and `xcript` was
+  its transcription, so `xcript` was the fidelity partner. Inside
+  `flushSync` the shipped hook now runs the hand-off to completion, so
+  the transcription that has to reproduce it is `handoff`, and this
+  control is the clock half of the MECHANISM arm: the shipped arm must
+  sit inside the single-build band on the schedule the harness forces.
+  It says nothing about the public `createRoot().render()` path, where
+  the reaper wins and the shipped clock is the double build's — see the
+  ns docstring's schedule section. `xcript` stays in the run as the
+  double-build reference; it is what the published delta is measured
+  against, and on THIS schedule it is deliberately NOT expected to match
+  the shipped clock."
   [uix-vec handoff-vec]
   (let [a   (range-of uix-vec)
         b   (range-of handoff-vec)
@@ -590,17 +663,21 @@
         verdict   (rule-verdict fractions fractions-seam)]
     (lane/record! (name row-key)
                   {:benchmark   (keyword "hicasso.coldmount" (name row-key))
-                   :bead        "rf2-2rtt6.15 (instrument); re-run as the acceptance witness for rf2-2rtt6.25"
+                   :bead        "rf2-2rtt6.15 (instrument); re-run for rf2-2rtt6.25 as the forced-synchronous MECHANISM arm"
                    :doc         doc
                    :grade       grade
                    :layer       layer
                    :witness-set "rf2-2rtt6.2 (converged; p0-converged-witness-set.md)"
+                   :schedule    schedule-provenance
                    :spine       (str "the SHIPPED re-frame.substrate.spine/use-subscribe — "
                                      "rf2-2rtt6.13 (no retained dead handle) AND rf2-2rtt6.25 "
-                                     "(the hook-scoped provisional hand-off) both landed, so "
-                                     "the shipped cold read builds ONCE and the commit adopts "
-                                     "it; `xcript` is the retired double build, kept as the "
-                                     "reference the delta is measured against")
+                                     "(the hook-scoped provisional hand-off) both landed. Under "
+                                     "THIS harness's forced-synchronous schedule the cold read "
+                                     "builds ONCE and the commit adopts it; on the public "
+                                     "createRoot().render() path the reaper wins first and the "
+                                     "same hook builds TWICE (rf2-2rtt6.25, audit of #7305). "
+                                     "`xcript` is the double build, kept as the reference the "
+                                     "delta is measured against")
                    :rounds      rounds
                    :balanced-design? (even? rounds)
                    :per-round   {:floor-reagent (mapv lane/round4 (pick :floor-reagent))
@@ -627,6 +704,7 @@
                   {:row row-key
                    :layer layer
                    :grade grade
+                   :schedule schedule-provenance
                    :fraction-of-red-zone
                    {:raw           (when (resolved? fractions) (range-of fractions))
                     :seam-adjusted (when (resolved? fractions-seam) (range-of fractions-seam))
@@ -639,12 +717,13 @@
                               ">= 20% on representative layer-1 AND layer-2/3 mounts -> "
                               "reopen for a hook-scoped provisional hand-off design pass only")
                    :row-verdict verdict})
-    (lane/record! "fidelity" (assoc fid :row row-key))
+    (lane/record! "fidelity" (assoc fid :row row-key :schedule schedule-provenance))
     (lane/record! "witness-counts"
                   {:row row-key :layer layer
+                   :schedule schedule-provenance
                    :predictions {:xcript  "commits N, rebuilt N, bodyRuns 2N at every layer <= L"
                                  :handoff "commits N, rebuilt 0, bodyRuns N at every layer <= L"
-                                 :shipped "commits N, rebuilt 0, bodyRuns N at every layer <= L — rf2-2rtt6.25's ACCEPTANCE WITNESS: the shipped hook reads the handoff row"
+                                 :shipped "commits N, rebuilt 0, bodyRuns N at every layer <= L — SCHEDULE-CONDITIONAL: the shipped hook reads the handoff row only because this harness mounts inside flushSync. On the public createRoot().render() path it reads the xcript row (rf2-2rtt6.25, audit of #7305). Not an acceptance witness for shipped mount performance."
                                  :reagent "commits 0, rebuilt 0, bodyRuns N at every layer <= L"}
                    :results witness-results
                    :failures wfails})
