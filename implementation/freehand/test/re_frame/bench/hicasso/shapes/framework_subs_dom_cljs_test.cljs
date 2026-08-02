@@ -22,7 +22,12 @@
      `reg-frame-state-sub`: an app-db commit re-runs its body and the
      output `=` cutoff keeps its readers quiet. Both clocks are driven
      here and judged against the same narrow law the roster's own
-     witnesses state — **one commit → one body** (per reader).
+     witnesses state — **one commit → one body** (per reader) — with the
+     roster's one documented rider: a commit the PAGE reads re-runs the
+     page once, and React's no-bail-out cascade then re-runs the child
+     boundaries beneath it (the finding
+     `narrow_dom_cljs_test/a-page-chrome-write-re-renders-every-row`
+     pins; restated here on the resource clock, not contradicted).
 
   The page is deliberately NOT one of the measured roster pages
   (`shapes/ordinary` / `shapes/feed` / `shapes/large_template` carry the
@@ -88,15 +93,19 @@
   and a mutation write in one page's life."
   (atom []))
 
-(defn- capturing-transport-fixture [f]
-  (reset! !managed [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! !managed conj args) nil))
-  (f))
+(def ^:private capturing-transport-fixture
+  "Map-form (this suite has an async test, and cljs.test requires every
+  fixture on an async suite to be a map)."
+  {:before (fn []
+             (reset! !managed [])
+             (fx/reg-fx :rf.http/managed
+                        (fn [_ctx args] (swap! !managed conj args) nil)))})
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
      :ambient-frame nil
+     :async?        true
      :init-fn       (fn [] (rt/reset-runtime!))})
   capturing-transport-fixture)
 
@@ -358,18 +367,26 @@
           (is (= "idle" (text handle "fw-feed-status")) "no entry yet — the documented empty projection")
           (reset-runs!)
           (ensure-feed!)
-          (testing "ensure's :loading install is one commit → one body"
+          (testing "ensure's :loading install is one commit → one PAGE body —
+                   plus the documented cascade: a Hicasso boundary is a plain
+                   function component with no props-equality bail-out, so a
+                   write the PAGE reads re-renders the page and React
+                   re-renders every child boundary beneath it (the finding
+                   `narrow_dom_cljs_test/a-page-chrome-write-re-renders-every-row`
+                   pins on the roster; the same number, restated here on the
+                   resource clock rather than contradicted)"
             (is (= "loading" (text handle "fw-feed-status")))
-            (is (= 1 (runs :page)))
-            (is (= 0 (+ (runs slug-0) (runs (:slug (m/article 1))) (runs (:slug (m/article 2)))))
-                "no card reads the feed, so no card ran"))
+            (is (= 1 (runs :page)) "the index answered for exactly one boundary")
+            (is (= 1 (runs slug-0)) "…and React's cascade re-ran the children")
+            (is (= 1 (runs :detail))))
           (reset-runs!)
           (settle-feed! 42)
-          (testing "the decoded reply is one more commit → one more body"
+          (testing "the decoded reply is one more commit → one more page body
+                   (and the same cascade beneath it)"
             (is (= "loaded" (text handle "fw-feed-status")))
             (is (= "42" (text handle "fw-feed-total")))
             (is (= 1 (runs :page)))
-            (is (= 0 (runs :detail))))
+            (is (= 1 (runs :detail)) "cascade, not index: its read did not move"))
           (finally (mount/release! handle)))))))
 
 ;; ===========================================================================
