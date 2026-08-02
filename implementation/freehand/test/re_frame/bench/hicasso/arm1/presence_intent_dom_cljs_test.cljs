@@ -33,8 +33,14 @@
      absence;
   5. a tray with no frame above it is still legal until a child writes an
      intent, and that intent is still the loud error, **named**;
-  6. presence costs three hooks and `runtime/shell` still costs two —
-     counted at React's own dispatcher, so the budget claim is a reading.
+  6. presence's roster is three hooks and `runtime/shell`'s is still two —
+     counted at React's own dispatcher, so the budget claim is a reading
+     rather than a docstring. It also reads two things off the same log
+     that nothing measured before: presence's body runs exactly **twice**
+     on a mount, which is `step`'s adjust-during-render convergence seen
+     from outside; and a `useEffect` call surfaces more than one
+     dispatcher read on React 19.2's dev build, which is why a hook
+     ROSTER is `distinct` rather than a count.
 
   ## The host child, and why it is not witnessed here
 
@@ -344,18 +350,42 @@
                        (fn []
                          (vreset! handle
                                   (mount/root! (mount/fresh-container!)
-                                               frame-id [toast-tray {}]))))]
+                                               frame-id [toast-tray {}]))))
+              tail   (vec (drop 2 names))
+              freq   (frequencies tail)]
           (try
-            (is (= ["useContext" "useSyncExternalStore"
-                    "useContext" "useState" "useEffect"]
-                   names)
-                (str "the SHELL's two first, in the order rt/shell-hook-ledger "
-                     "declares, then presence's own three: " (pr-str names)))
+            (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
+                (str "the SHELL's two come first, in the order "
+                     "rt/shell-hook-ledger declares, and they are still the "
+                     "whole of it — this repair added a hook to presence and "
+                     "to nothing that HD-020(b)'s ≤2 budget governs. Raw: "
+                     (pr-str names)))
             (is (= (count rt/shell-hook-ledger) (count (take 2 names)))
-                "the boundary shell gained nothing — HD-020(b)'s ≤2 budget is
-                 the shell's, and presence is not a shell: it reads no
-                 subscription, mounts no registration and takes no cell")
-            (is (= 3 (count (drop 2 names)))
-                "presence's cost is three: the frame hook this repair added,
-                 plus the retention state and the clock")
+                "and the declared shell ledger is the measured one")
+            (is (= ["useContext" "useState" "useEffect"] (vec (distinct tail)))
+                (str "presence's own roster is three, in call order: the frame "
+                     "hook this repair added, the retention state, and the "
+                     "clock. `distinct`, because the RAW list is a log of "
+                     "dispatcher reads rather than of calls — see the two "
+                     "claims below for why. Raw tail: " (pr-str tail)))
+            (is (empty? (filter #{"useRef" "useMemo" "useCallback"
+                                  "useSyncExternalStore"}
+                                tail))
+                "and nothing else — no useRef, and no second subscription")
+            (testing "the raw log's two multiplicities, both measured rather
+                      than assumed"
+              (is (= 2 (get freq "useContext") (get freq "useState"))
+                  "presence's body ran TWICE on this mount, which is the
+                   docstring's convergence claim read off React's own
+                   dispatcher: `step` is adjusted during render, so React
+                   re-runs the body, and `step`'s idempotence is what makes
+                   that ONE extra pass rather than a loop")
+              (is (= 4 (get freq "useEffect"))
+                  "twice per pass, against one call in the body: React 19.2's
+                   DEV dispatcher is read more than once per `useEffect` call,
+                   which is a property of the instrument rather than a second
+                   effect. It is exactly why the roster above is taken with
+                   `distinct` and not by counting, and it is pinned here so a
+                   React bump that changes it reds a test with an explanation
+                   attached rather than a bare number"))
             (finally (mount/release! @handle))))))))
