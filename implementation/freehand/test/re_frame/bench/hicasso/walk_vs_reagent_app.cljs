@@ -171,7 +171,7 @@
   index primitively."
   [h]
   (let [tags #js [] ks #js [] vs #js [] strs #js [] kids #js []
-        el-tags #js [] el-props #js []]
+        el-tags #js [] el-props #js [] el-vecs #js []]
     (letfn [(visit-child [c]
               (.push kids c)
               (cond (vector? c) (visit c)
@@ -186,7 +186,11 @@
                            (not= :<> head))
                   (.push tags head)
                   (.push el-tags head)
-                  (.push el-props (if has-props? props nil)))
+                  (.push el-props (if has-props? props nil))
+                  ;; The WHOLE argv, meta included — the `:key` read prices a
+                  ;; `(meta v)` probe, so a reconstructed childless vector
+                  ;; (which would carry nil meta) is not the same question.
+                  (.push el-vecs argv))
                 (when props
                   (doseq [[k v] props]
                     (.push ks k)
@@ -195,7 +199,7 @@
                   (visit-child c))))]
       (visit h))
     {:tags tags :prop-keys ks :prop-vals vs :strings strs :children kids
-     :el-tags el-tags :el-props el-props}))
+     :el-tags el-tags :el-props el-props :el-vecs el-vecs}))
 
 ;; ---------------------------------------------------------------------------
 ;; The timed arms
@@ -519,6 +523,324 @@
     @bad))
 
 ;; ---------------------------------------------------------------------------
+;; SLIM, DECOMPOSED (rf2-lhdp0)
+;; ---------------------------------------------------------------------------
+;;
+;; The arm rows put `reagent2.impl.template` at 1.73-1.90x stock Reagent, and
+;; the stage table names ONE term (`cached-prop-name`, ~2x stock). That term
+;; weighs 1,489 prop occurrences over 1,202 elements — nowhere near the whole
+;; gap, and rf2-lhdp0 says so in as many words. These rows name the rest.
+;;
+;; Slim's per-element shapes are `defn-` private, so they are replicated here
+;; the way the cache candidates above already are ("written here so every arm
+;; is local"). The replicas are held honest two ways:
+;;
+;;   1. FIDELITY. `slim-prop-lookup-ship` replicates `slim/cached-prop-name`
+;;      exactly; its row must read the same as `prop-name-slim`, which calls
+;;      the REAL function. A replica that drifted would show up as a split
+;;      between those two rows.
+;;   2. AGREEMENT. Every cheapened variant answers what the shipping shape
+;;      answers, over the page's own literals AND the hostile names it does
+;;      not carry — checked before any figure is read.
+;;
+;; Everything the replicas cannot reach privately is called for real:
+;; `slim/parse-tag`, `slim/class-names`, `slim/cached-prop-name`,
+;; `slim/convert-prop-value` and `slim/void-tags` are all public.
+
+(def ^:private slim-reserved #{"__proto__" "prototype" "constructor"})
+
+;; Shipping: a PersistentHashSet `contains?` — a string hash plus a hash-map
+;; probe for a roster of three. Candidate: the `identical?` chain the codec
+;; already ships (prior art: front/codec.cljs `reserved-name?`).
+(defn- ^boolean slim-reserved-set? [n] (contains? slim-reserved n))
+(defn- ^boolean slim-reserved-chain? [n]
+  (or (identical? "__proto__" n)
+      (identical? "prototype" n)
+      (identical? "constructor" n)))
+
+;; A null-prototype index DERIVED from the same set. Drift-proof by
+;; construction — there is no second roster to keep in step — and it is the
+;; shape that scales to the 14-entry void-tag roster, where an `identical?`
+;; chain would be 14 compares. `__proto__` is an ordinary own key on a
+;; null-prototype object, so the roster indexes itself without special-casing.
+(defn- ^js index-of-strings [ss]
+  (reduce (fn [o s] (unchecked-set o s true) o) (js/Object.create nil) ss))
+
+(def ^:private slim-reserved-index (index-of-strings slim-reserved))
+(defn- ^boolean slim-reserved-idx? [n]
+  (true? (unchecked-get slim-reserved-index n)))
+
+;; Shipping resolves `Object.prototype.hasOwnProperty` on EVERY call (two
+;; property loads) and then `.call`s it. Hoisted here the way the codec's
+;; `has-own` is, so the row prices the guard and not the resolution.
+(defn- ^boolean slim-own-key? [obj k]
+  (.call (.. js/Object -prototype -hasOwnProperty) obj k))
+
+(defn- slim-cache-key [k]
+  (let [n (name k)]
+    (if-let [ns* (and (keyword? k) (namespace k))]
+      (str ns* "/" n)
+      n)))
+
+;; --- the tag cache ---------------------------------------------------------
+
+(def ^:private slim-tag-ship-cache #js {})
+(def ^:private slim-tag-np-cache (js/Object.create nil))
+
+(defn- slim-tag-ship [t]
+  (let [n (slim-cache-key t)]
+    (if (and (not (slim-reserved-set? n))
+             (slim-own-key? slim-tag-ship-cache n))
+      (aget slim-tag-ship-cache n)
+      (let [v (slim/parse-tag t [t])]
+        (when-not (slim-reserved-set? n) (aset slim-tag-ship-cache n v))
+        v))))
+
+(defn- slim-tag-np [t]
+  (let [n (slim-cache-key t)
+        v (unchecked-get slim-tag-np-cache n)]
+    (if (undefined? v)
+      (let [v' (slim/parse-tag t [t])]
+        (when-not (slim-reserved-chain? n) (unchecked-set slim-tag-np-cache n v'))
+        v')
+      v)))
+
+;; --- the prop-name cache ---------------------------------------------------
+
+(def ^:private slim-prop-ship-cache
+  (doto #js {} (aset "class" "className") (aset "for" "htmlFor")
+               (aset "charset" "charSet")))
+
+(def ^:private slim-prop-np-cache
+  (doto (js/Object.create nil)
+    (unchecked-set "class" "className")
+    (unchecked-set "for" "htmlFor")
+    (unchecked-set "charset" "charSet")))
+
+(defn- slim-prop-ship [k]
+  (if (or (keyword? k) (symbol? k))
+    (let [n (name k)]
+      (if (slim-reserved-set? n)
+        n
+        (if-some [cached (when (slim-own-key? slim-prop-ship-cache n)
+                           (aget slim-prop-ship-cache n))]
+          cached
+          (let [v (slim/cached-prop-name k)]
+            (aset slim-prop-ship-cache n v)
+            v))))
+    k))
+
+(defn- slim-prop-np [k]
+  (if (or (keyword? k) (symbol? k))
+    (let [n (name k)
+          v (unchecked-get slim-prop-np-cache n)]
+      (if (undefined? v)
+        (let [v' (slim/cached-prop-name k)]
+          (when-not (slim-reserved-chain? n) (unchecked-set slim-prop-np-cache n v'))
+          v')
+        v))
+    k))
+
+;; --- the per-element prop-map preamble -------------------------------------
+;;
+;; Before a single prop is converted, `convert-props` shuffles the persistent
+;; map three times: `collapse-class-keys` (up to THREE `contains?` probes),
+;; a `:class` normalisation `assoc`, and `set-id-class`'s shorthand merge.
+;; The cheapened collapse probes `:className` FIRST — the discriminator that
+;; is false on essentially every real element — and so pays ONE probe on the
+;; common path instead of two or three. Same answers, fewer questions.
+
+(defn- slim-collapse-ship [props]
+  (cond
+    (and (contains? props :class) (contains? props :className))
+    (-> props
+        (assoc :class (slim/class-names (:class props) (:className props)))
+        (dissoc :className))
+
+    (contains? props :className)
+    (-> props
+        (assoc :class (:className props))
+        (dissoc :className))
+
+    :else props))
+
+(defn- slim-collapse-cheap [props]
+  (if (contains? props :className)
+    (if (contains? props :class)
+      (-> props
+          (assoc :class (slim/class-names (:class props) (:className props)))
+          (dissoc :className))
+      (-> props
+          (assoc :class (:className props))
+          (dissoc :className)))
+    props))
+
+(defn- slim-set-id-class [props parsed]
+  (let [id    (.-id parsed)
+        class (.-className parsed)]
+    (cond-> props
+      (and (some? id) (nil? (:id props)))
+      (assoc :id id)
+
+      class
+      (assoc :class (slim/class-names class (or (:class props) (:className props)))))))
+
+(defn- slim-preamble [collapse props parsed]
+  (let [collapsed  (collapse props)
+        class      (:class collapsed)
+        normalised (cond-> collapsed class (assoc :class (slim/class-names class)))]
+    (slim-set-id-class normalised parsed)))
+
+(defn- slim-preamble-ship  [props parsed] (slim-preamble slim-collapse-ship props parsed))
+(defn- slim-preamble-cheap [props parsed] (slim-preamble slim-collapse-cheap props parsed))
+
+;; --- the whole per-element prop pipeline -----------------------------------
+
+(defn- slim-top-prop-conv [reserved? native? o k v]
+  (let [k' (slim/cached-prop-name k)]
+    (if (and (string? k') (reserved? k'))
+      o
+      (do (aset o k' (slim/convert-prop-value k v native?)) o))))
+
+(defn- slim-convert-props [preamble reserved? props parsed]
+  (let [native?        (string? (.-tag parsed))
+        with-shorthand (preamble props parsed)]
+    (when (seq with-shorthand)
+      (reduce-kv (fn [o k v] (slim-top-prop-conv reserved? native? o k v))
+                 #js {} with-shorthand))))
+
+;; --- the per-element `:key` read -------------------------------------------
+;;
+;; Shipping asks `vector?` twice, reads `meta`, then `nth 0`, a `case`, `nth 1`
+;; and a `map?` before the `:key` lookup it wanted. Every call site already
+;; knows the props slot, so the specialised form is the read alone.
+
+(defn- slim-key-ship [v]
+  (let [k (when (vector? v) (some-> (meta v) :key))]
+    (or k
+        (case (when (vector? v) (nth v 0 nil))
+          (:> :f>) (when (map? (nth v 2 nil)) (:key (nth v 2 nil)))
+          :r>      (some-> (nth v 2 nil) (.-key))
+          (when (map? (nth v 1 nil)) (:key (nth v 1 nil)))))))
+
+(defn- slim-key-spec [v props]
+  (or (some-> (meta v) :key)
+      (:key props)))
+
+;; --- the per-element void-tag probe ----------------------------------------
+
+(defn- ^boolean slim-void-set? [t] (contains? slim/void-tags t))
+(defn- ^boolean slim-void-case? [t]
+  (case t
+    ("area" "base" "br" "col" "embed" "hr" "img" "input" "link"
+     "meta" "param" "source" "track" "wbr") true
+    false))
+
+(def ^:private slim-void-index (index-of-strings slim/void-tags))
+(defn- ^boolean slim-void-idx? [t]
+  (true? (unchecked-get slim-void-index t)))
+
+(defn- warm-slim! [^js tags ^js prop-keys]
+  (dotimes [i (.-length prop-keys)]
+    (let [k (aget prop-keys i)] (slim-prop-ship k) (slim-prop-np k)))
+  (dotimes [i (.-length tags)]
+    (let [t (aget tags i)] (slim-tag-ship t) (slim-tag-np t))))
+
+(defn- slim-table
+  [{:keys [^js tags ^js prop-keys ^js el-props ^js el-vecs ^js el-tags]}]
+  (warm-slim! tags prop-keys)
+  (let [parsed   (let [a #js []]
+                   (dotimes [i (.-length el-tags)] (.push a (slim-tag-ship (aget el-tags i))))
+                   a)
+        tag-strs (let [a #js []]
+                   (dotimes [i (.-length el-tags)] (.push a (.-tag (aget parsed i))))
+                   a)]
+    [;; the two caches, shipping vs null-prototype
+     [:slim-prop-lookup-ship (ns-per-op micro-reps prop-keys slim-prop-ship)]
+     [:slim-prop-lookup-np   (ns-per-op micro-reps prop-keys slim-prop-np)]
+     [:slim-tag-lookup-ship  (ns-per-op micro-reps tags slim-tag-ship)]
+     [:slim-tag-lookup-np    (ns-per-op micro-reps tags slim-tag-np)]
+     ;; the reserved-key probe, per prop, on the write chokepoint
+     [:slim-reserved-set   (ns-per-op micro-reps prop-keys (fn [k] (slim-reserved-set? (name k))))]
+     [:slim-reserved-chain (ns-per-op micro-reps prop-keys (fn [k] (slim-reserved-chain? (name k))))]
+     [:slim-reserved-idx   (ns-per-op micro-reps prop-keys (fn [k] (slim-reserved-idx? (name k))))]
+     ;; the per-element prop-map preamble
+     [:slim-preamble-ship  (ns-per-op2 micro-reps el-props parsed slim-preamble-ship)]
+     [:slim-preamble-cheap (ns-per-op2 micro-reps el-props parsed slim-preamble-cheap)]
+     ;; the WHOLE per-element prop pipeline — the row the hicasso/reagent
+     ;; table has and slim did not
+     [:slim-convert-props-ship
+      (ns-per-op2 micro-reps el-props parsed
+                  (fn [p t] (slim-convert-props slim-preamble-ship slim-reserved-set? p t)))]
+     [:slim-convert-props-cheap
+      (ns-per-op2 micro-reps el-props parsed
+                  (fn [p t] (slim-convert-props slim-preamble-cheap slim-reserved-idx? p t)))]
+     ;; the per-element key read
+     [:slim-key-ship (ns-per-op micro-reps el-vecs slim-key-ship)]
+     [:slim-key-spec (ns-per-op2 micro-reps el-vecs el-props slim-key-spec)]
+     ;; the per-element void probe
+     [:slim-void-set  (ns-per-op micro-reps tag-strs slim-void-set?)]
+     [:slim-void-case (ns-per-op micro-reps tag-strs slim-void-case?)]
+     [:slim-void-idx  (ns-per-op micro-reps tag-strs slim-void-idx?)]]))
+
+(defn- slim-agreement
+  "Every cheapened slim variant answers what the shipping shape answers —
+  over the page's own literals and over the hostile names it does not carry."
+  [{:keys [^js tags ^js prop-keys ^js el-props ^js el-vecs ^js el-tags]}]
+  (warm-slim! tags prop-keys)
+  (let [bad (atom [])]
+    (dotimes [i (.-length prop-keys)]
+      (let [k (aget prop-keys i)]
+        (when-not (= (slim-prop-ship k) (slim-prop-np k))
+          (swap! bad conj [:prop k]))
+        (when-not (= (slim-reserved-set? (name k)) (slim-reserved-chain? (name k)))
+          (swap! bad conj [:reserved-chain k]))
+        (when-not (= (slim-reserved-set? (name k)) (slim-reserved-idx? (name k)))
+          (swap! bad conj [:reserved-idx k]))))
+    (dotimes [i (.-length tags)]
+      (let [t (aget tags i)
+            a (slim-tag-ship t) b (slim-tag-np t)]
+        (when-not (and (= (.-tag a) (.-tag b)) (= (.-id a) (.-id b))
+                       (= (.-className a) (.-className b)))
+          (swap! bad conj [:tag t]))))
+    ;; the preamble, the whole pipeline and the key read, per element
+    (dotimes [i (.-length el-tags)]
+      (let [p (aget el-props i)
+            t (slim-tag-ship (aget el-tags i))
+            v (aget el-vecs i)]
+        (when-not (= (slim-preamble-ship p t) (slim-preamble-cheap p t))
+          (swap! bad conj [:preamble i]))
+        (when-not (= (js/JSON.stringify
+                       (slim-convert-props slim-preamble-ship slim-reserved-set? p t))
+                     (js/JSON.stringify
+                       (slim-convert-props slim-preamble-cheap slim-reserved-chain? p t)))
+          (swap! bad conj [:pipeline i]))
+        (when-not (= (slim-key-ship v) (slim-key-spec v p))
+          (swap! bad conj [:key i]))))
+    ;; hostile names the page does not carry
+    (doseq [n ["__proto__" "prototype" "constructor" "toString" "hasOwnProperty"
+               "valueOf" "isPrototypeOf"]]
+      (let [k (keyword n)]
+        (when-not (= (slim-prop-ship k) (slim-prop-np k))
+          (swap! bad conj [:hostile-prop k]))
+        (when-not (= (slim-reserved-set? n) (slim-reserved-chain? n))
+          (swap! bad conj [:hostile-reserved-chain n]))
+        (when-not (= (slim-reserved-set? n) (slim-reserved-idx? n))
+          (swap! bad conj [:hostile-reserved-idx n]))
+        (let [a (slim-tag-ship k) b (slim-tag-np k)]
+          (when-not (and (= (.-tag a) (.-tag b)) (= (.-id a) (.-id b))
+                         (= (.-className a) (.-className b)))
+            (swap! bad conj [:hostile-tag k])))))
+    ;; the void probe, over every void tag and every tag the page carries
+    (doseq [t (concat slim/void-tags ["div" "span" "p" "a" "section" ""
+                                      "__proto__" "constructor" "toString"])]
+      (when-not (= (slim-void-set? t) (slim-void-case? t))
+        (swap! bad conj [:void-case t]))
+      (when-not (= (slim-void-set? t) (slim-void-idx? t))
+        (swap! bad conj [:void-idx t])))
+    @bad))
+
+;; ---------------------------------------------------------------------------
 ;; Reporting
 ;; ---------------------------------------------------------------------------
 
@@ -582,6 +904,8 @@
                   stages  (stage-table roster)
                   cand-bad (candidate-agreement roster)
                   cands   (candidate-table roster)
+                  slim-bad (slim-agreement roster)
+                  slims    (slim-table roster)
                   hic     (:p50 (get rows :hicasso))
                   rgt     (:p50 (get rows :reagent))
                   slm     (:p50 (get rows :slim))]
@@ -598,6 +922,9 @@
               (lane/record! :walk-vs-reagent-candidates
                             {:disagreements cand-bad
                              :ns-per-op (into {} (map (fn [[k v]] [k (lane/round4 v)])) cands)})
+              (lane/record! :walk-vs-reagent-slim
+                            {:disagreements slim-bad
+                             :ns-per-op (into {} (map (fn [[k v]] [k (lane/round4 v)])) slims)})
 
               (js/console.log ";; ==== WORKLOAD MATCH (every arm's own DOM, canonical) ====")
               (doseq [{:keys [id]} arms]
@@ -630,6 +957,11 @@
               (js/console.log ";; ==== CANDIDATES (costed, not landed) ====")
               (js/console.log (str ";;   agreement failures: " (pr-str cand-bad)))
               (doseq [[k v] cands]
+                (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns/op")))
+
+              (js/console.log ";; ==== SLIM DECOMPOSED (rf2-lhdp0) ====")
+              (js/console.log (str ";;   agreement failures: " (pr-str slim-bad)))
+              (doseq [[k v] slims]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns/op")))
 
               (when (:refuse? gv)

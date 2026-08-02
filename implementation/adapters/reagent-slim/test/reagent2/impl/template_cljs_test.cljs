@@ -953,3 +953,127 @@
           "the subsequent element parses, not a TypeError")
       (is (= "c" (.. el -props -className))
           "and its prop still camelCases through prop-name-cache"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-lhdp0: the caches have NO PROTOTYPE, and that is load-bearing
+;;
+;; `tag-name-cache` and `prop-name-cache` are `Object.create(null)`. Nothing in
+;; them is ever handed to React (the props objects that ARE handed to React
+;; keep their prototype — React's style diffing calls `styles.hasOwnProperty`),
+;; so the caches are free to drop the chain, and dropping it is what lets their
+;; HIT path — once per element and once per prop of every mount — carry no
+;; guard at all.
+;;
+;; With no prototype a lookup can only ever answer an OWN property, so an
+;; inherited name cannot falsely hit. These witnesses pin exactly that: a tag
+;; or prop literally NAMED after an `Object.prototype` member must be parsed
+;; and converted AS ITSELF, and must still answer itself the second time
+;; (proving the entry it then owns is its own and not the inherited one).
+;;
+;; THE MUTATION THEY EXIST FOR: put either cache back to `#js {}` and these go
+;; red — the lookup is served `Object.prototype`'s member for a name nobody
+;; cached. They are not vacuous: each asserts the parsed VALUE, so a stub
+;; answering nil fails them too.
+;; ---------------------------------------------------------------------------
+
+(def ^:private prototype-member-names
+  ["toString" "valueOf" "hasOwnProperty" "isPrototypeOf"
+   "propertyIsEnumerable" "toLocaleString"])
+
+(deftest tag-cache-inherited-name-cannot-falsely-hit-rf2-lhdp0
+  (testing "rf2-lhdp0: a string head named after an Object.prototype member
+            parses as ITSELF, twice — a prototype-less cache cannot serve
+            the inherited member"
+    (doseq [n prototype-member-names]
+      ;; First sight: a MISS that must parse rather than inherit.
+      (let [^js first-el (template/as-element [n "x"])]
+        (is (= n (.-type first-el))
+            (str "head \"" n "\" renders as its own element on first sight")))
+      ;; Second sight: a HIT that must answer the entry we cached, not the
+      ;; prototype member of the same name.
+      (let [^js second-el (template/as-element [n "y"])]
+        (is (= n (.-type second-el))
+            (str "head \"" n "\" still renders as itself on the cached path"))
+        (is (string? (.-type second-el))
+            (str "head \"" n "\" answers a parsed tag, never a host function"))))))
+
+(deftest prop-cache-inherited-name-cannot-falsely-hit-rf2-lhdp0
+  (testing "rf2-lhdp0: a prop key named after an Object.prototype member
+            converts to its own name, twice"
+    (doseq [n prototype-member-names]
+      (let [k (keyword n)]
+        ;; The public cache entry point, direct.
+        (is (= n (template/cached-prop-name k))
+            (str ":" n " converts to its own name on first sight"))
+        (is (= n (template/cached-prop-name k))
+            (str ":" n " converts to its own name on the cached path"))
+        (is (string? (template/cached-prop-name k))
+            (str ":" n " answers a string, never a host function"))
+        ;; And through a whole element, where the name reaches the props object.
+        (let [^js el (template/as-element [:div {k "v"}])]
+          (is (= "v" (gobj/get (.-props el) n))
+              (str ":" n " reaches the props object under its own name")))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-lhdp0: `void-tag?` indexes `void-tags` — one roster, not two
+;;
+;; The probe is a null-prototype index BUILT FROM the `void-tags` set, so the
+;; set stays the single source of truth. This witness walks the WHOLE roster
+;; (the pre-existing cases cover br/input/img — 3 of 14) so the derivation is
+;; pinned end to end rather than sampled, and checks a non-void tag still
+;; keeps its children.
+;; ---------------------------------------------------------------------------
+
+(deftest every-void-tag-drops-children-rf2-lhdp0
+  (testing "rf2-lhdp0: every member of void-tags is recognised by the probe"
+    (is (= 14 (count template/void-tags))
+        "the HTML5 void roster is the fixed 14")
+    (doseq [t template/void-tags]
+      (let [^js el (template/as-element [(keyword t) "dropped"])]
+        (is (= t (.-type el)) (str "<" t "> renders"))
+        (is (nil? (-> el .-props .-children))
+            (str "<" t "> drops the child React would reject"))))))
+
+(deftest non-void-tag-keeps-children-rf2-lhdp0
+  (testing "rf2-lhdp0: the index answers false for ordinary tags, which
+            therefore keep their children (the probe is not stuck true)"
+    (doseq [t ["div" "span" "p" "section" "a"]]
+      (let [^js el (template/as-element [(keyword t) "kept"])]
+        (is (= t (.-type el)) (str "<" t "> renders"))
+        (is (= "kept" (-> el .-props .-children))
+            (str "<" t "> keeps its child"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-lhdp0: the specialised per-element `:key` read
+;;
+;; `native-element` reads the key from the props slot `hiccup-shape` already
+;; bound rather than re-deriving it through `get-react-key`'s `nth`/`case`
+;; ladder. `native-element` is the emit path for BOTH routes — a DOM tag
+;; (props at index 1) and `:>` interop (props at index 2) — so both are
+;; witnessed here, on both key spellings, plus the precedence between them
+;; and the absence case.
+;; ---------------------------------------------------------------------------
+
+(deftest key-read-covers-both-native-element-routes-rf2-lhdp0
+  (testing "rf2-lhdp0: DOM tag — meta key, prop key, neither"
+    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:div "x"])))
+        "meta key on a DOM tag")
+    (is (= "p" (.-key ^js (template/as-element [:div {:key "p"} "x"])))
+        "prop key on a DOM tag")
+    (is (nil? (.-key ^js (template/as-element [:div "x"])))
+        "no key at all on a DOM tag")
+    (is (nil? (.-key ^js (template/as-element [:div {:class "c"} "x"])))
+        "props without :key leave the key unset"))
+
+  (testing "rf2-lhdp0: meta key WINS over the prop key, both routes"
+    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:div {:key "p"} "x"])))
+        "DOM tag: meta beats props"))
+
+  (testing "rf2-lhdp0: :> interop — props live at index 2, not 1"
+    (let [C (fn [_] nil)]
+      (is (= "p" (.-key ^js (template/as-element [:> C {:key "p"} "x"])))
+          "prop key on an interop head")
+      (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:> C {:key "p"} "x"])))
+          "meta key beats the prop key on an interop head")
+      (is (nil? (.-key ^js (template/as-element [:> C "x"])))
+          "interop head with no props slot has no key"))))
