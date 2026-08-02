@@ -104,7 +104,7 @@
 
 (def frame-id ::frame)
 
-(defn- page-hiccup
+(defn page-hiccup
   "The large-template page's body forms, verbatim minus the run counter:
   the same chrome, the same `(card/card slug)` calls, the same tag-pill
   `for`. Must run inside a body context (the reads). The parity gate
@@ -151,7 +151,7 @@
   [_]
   (page-hiccup))
 
-(defn- parity!
+(defn parity!
   "Mount the real page and the twin side by side; throw unless their
   canonical DOM agrees and matches the arithmetic. Fatal, before any
   clock."
@@ -182,7 +182,7 @@
 
 (def ^:private !out (volatile! nil))
 
-(defn- in-body
+(defn in-body
   "Run `f` inside a boundary body context — ambient frame bound, reads
   legal — via the runtime's own public [[rt/render-body]], and answer
   `(f)`. The trailing `[:span]` is the body's element and is outside
