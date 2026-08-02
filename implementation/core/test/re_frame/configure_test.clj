@@ -176,15 +176,28 @@
             an event handler so the emit rides an in-flight dispatch-id +
             frame (push-to-ring! skips frameless/dispatch-id-less emits
             per the B3 ruling) and lands in the frame's retained ring."
+    ;; The handler stamps a SENTINEL rather than returning `{:db db}`.
+    ;; MERGED-PR AUDIT #7245 (rf2-d2841): the witness here used to be
+    ;; `(some? (rf/app-db-value :rf/default))` over a handler that committed
+    ;; `db` unchanged — but `reset-runtime`'s `make-frame` seeds `:rf/default`
+    ;; app-db as `{}`, which is already `some?` BEFORE any dispatch. It could
+    ;; not fail, so it proved nothing about the handler. An actual state
+    ;; TRANSITION can: the key is absent up front and present afterwards, so a
+    ;; handler that never ran, or a `configure!` throw that derailed the
+    ;; dispatch before the commit, reddens this.
     (rf/reg-event :bad-configure-call
                   (fn [{:keys [db]} _]
                     (rf/configure! {:trace-buffer {:depth 200}})
-                    {:db db}))
+                    {:db (assoc db ::bad-configure-committed :yes)}))
+    (is (nil? (::bad-configure-committed (rf/app-db-value :rf/default)))
+        "the sentinel is absent before the dispatch — the witness below is a
+         real transition, not a property app-db already had")
     (rf/dispatch-sync [:bad-configure-call])
     ;; ALWAYS-ON (rf2-d2841): the bad `configure!` call from inside a handler
-    ;; must not derail the dispatch — the handler's `{:db db}` still commits.
-    (is (some? (rf/app-db-value :rf/default))
-        "the enclosing dispatch completed despite the rejected configure! call")
+    ;; must not derail the dispatch — the handler's `:db` effect still commits.
+    (is (= :yes (::bad-configure-committed (rf/app-db-value :rf/default)))
+        "the enclosing dispatch completed despite the rejected configure! call
+         — the handler ran to its end and its commit landed")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; BOTH reads go inside: `trace-buffer` returns [] in production, so the
     ;; `{:severity :error}` sanity NEGATIVE would pass over an empty vector —
@@ -227,13 +240,21 @@
     (rf/configure! {:strict-subs true})
     (rf/configure! {:ssr {:public-error-id :nope}})
     (rf/configure! {:no-such-key {}})
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
+    ;; `:ping` COUNTS. MERGED-PR AUDIT #7245 (rf2-d2841): this used to be a
+    ;; `{:db db}` no-op handler witnessed by `(some? (rf/app-db-value
+    ;; :rf/default))`, which is true of the `{}` `make-frame` seeds before any
+    ;; dispatch at all — so a missing handler, a perturbed registry or a
+    ;; dispatch loop that ran three times instead of thirty all passed. An
+    ;; exact counter cannot: the claim is "thirty landings", so assert thirty.
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db (update db ::pings (fnil inc 0))}))
+    (is (nil? (::pings (rf/app-db-value :rf/default)))
+        "no landings recorded yet")
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
     ;; ALWAYS-ON (rf2-d2841): whatever the posture, thirty dispatches bracketed
     ;; by four unknown-key `configure!` calls still all landed — the
     ;; production-visible half of "an unknown key perturbs nothing".
-    (is (some? (rf/app-db-value :rf/default))
-        "the bracketed dispatches ran to completion")
+    (is (= 30 (::pings (rf/app-db-value :rf/default)))
+        "all thirty bracketed dispatches ran to completion and committed")
     ;; rf2-d2841 — dev-instrumentation arm. `(<= (count []) 11)` is true for
     ;; every N under the gate: the retention cap is unreadable in production.
     (when interop/debug-enabled?

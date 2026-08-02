@@ -151,31 +151,41 @@
 
 (deftest layer-2-memo-hit-emits-sub-skip-with-upstream
   (testing "layer-2 sub on memo-hit names its upstream input(s) in :rf.sub/input-paths-unchanged"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :doubled
-      :<- [:n]
-      (fn [n _] (* 2 n)))
-    (rf/dispatch-sync [:seed])
-    (let [seen   (atom [])
-          events (collect-trace
-                   (fn []
-                     (let [r (rf/subscribe [:doubled])]
-                       (swap! seen conj @r)
-                       (swap! seen conj @r))))
-          skips  (filter #(and (= :rf.sub/skip (:operation %))
-                               (= :doubled (get-in % [:tags :rf.sub/id])))
-                         events)]
-      ;; ALWAYS-ON (rf2-d2841): the layer-2 projection the skip emit reports
-      ;; on is production state — both derefs see the same committed value.
-      (is (= [6 6] @seen)
-          "the layer-2 sub projects 2*3 on both derefs in this posture")
-      (when interop/debug-enabled?
-        (is (seq skips)
-            "expected at least one :rf.sub/skip emit for the layer-2 sub")
-        (let [skip (first skips)]
-          (is (= [[:n]] (get-in skip [:tags :rf.sub/input-paths-unchanged]))
-              "input-paths-unchanged names the upstream sub vector"))))))
+    ;; MERGED-PR AUDIT #7250 (rf2-d2841): the always-on half used to be
+    ;; `(= [6 6] @seen)` alone, which a BROKEN memo passes — recomputing
+    ;; `:doubled` on the second deref returns 6 again. Mirror the layer-1 test
+    ;; above and COUNT the derived body: the memo hit the `:rf.sub/skip` emit
+    ;; reports is one body execution across two derefs, and that is production
+    ;; behaviour whatever the posture.
+    (let [body-runs (atom 0)]
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
+      (rf/reg-sub :n (fn [db _] (:n db)))
+      (rf/reg-sub :doubled
+        :<- [:n]
+        (fn [n _] (swap! body-runs inc) (* 2 n)))
+      (rf/dispatch-sync [:seed])
+      (let [seen   (atom [])
+            events (collect-trace
+                     (fn []
+                       (let [r (rf/subscribe [:doubled])]
+                         (swap! seen conj @r)
+                         (swap! seen conj @r))))
+            skips  (filter #(and (= :rf.sub/skip (:operation %))
+                                 (= :doubled (get-in % [:tags :rf.sub/id])))
+                           events)]
+        ;; ALWAYS-ON (rf2-d2841): the layer-2 projection the skip emit reports
+        ;; on is production state — both derefs see the same committed value.
+        (is (= [6 6] @seen)
+            "the layer-2 sub projects 2*3 on both derefs in this posture")
+        (is (= 1 @body-runs)
+            "the memo the :rf.sub/skip emit reports actually held — two derefs,
+             one derived body run, in BOTH postures")
+        (when interop/debug-enabled?
+          (is (seq skips)
+              "expected at least one :rf.sub/skip emit for the layer-2 sub")
+          (let [skip (first skips)]
+            (is (= [[:n]] (get-in skip [:tags :rf.sub/input-paths-unchanged]))
+                "input-paths-unchanged names the upstream sub vector")))))))
 
 ;; ---- :rf.flow/skip carries :rf.sub/input-paths-unchanged -------------------------
 
@@ -198,6 +208,18 @@
                        (rf/dispatch-sync [:bump-z])
                        (rf/dispatch-sync [:bump-z])))
             skips  (filter #(= :rf.flow/skip (:operation %)) events)]
+        ;; MERGED-PR AUDIT #7250 (rf2-d2841): the two always-on assertions
+        ;; below say what did NOT happen — the flow fn did not re-run, the
+        ;; durable output did not move. Both stay green if the DRIVER never
+        ;; ran: delete the two `:bump-z` dispatches and nothing here notices,
+        ;; because a flow that was never given the chance to skip also does
+        ;; not run and also leaves its output alone. Only the guarded dev
+        ;; trace sees the missing skips. So prove the driver landed first,
+        ;; exactly — two dispatches, `:z` = 2 — and the two negatives below
+        ;; become claims about a cascade that demonstrably happened.
+        (is (= 2 (:z (rf/app-db-value :rf/default)))
+            "both :bump-z dispatches landed — the epochs the flow skipped in
+             are real epochs")
         (is (= runs-after-seed @flow-runs)
             "neither :bump-z touched [:x] or [:y], so the flow fn did not run
              again — the skip is real in BOTH postures")

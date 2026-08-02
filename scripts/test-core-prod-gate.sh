@@ -44,7 +44,7 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 173 namespaces, 1933 tests, 8332
+# What is left IS green, and it is not a rump: 175 namespaces, 1953 tests, 8532
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was
 # 88 / 934 / 4340 tests/assertions before rf2-d2841 split the spine's
@@ -391,8 +391,9 @@ fi
 # ordinary churn; raise it when the roster grows materially.
 #
 # RAISED 800 -> 1360 (rf2-d2841, third pass), 1360 -> 1510 (fourth pass),
-# 1510 -> 1690 (fifth pass), 1690 -> 1880 (sixth pass), then 1880 -> 1900
-# (seventh).  800 was calibrated against the 915-test lane of rf2-f8x2i's
+# 1510 -> 1690 (fifth pass), 1690 -> 1880 (sixth pass), 1880 -> 1900
+# (seventh), then 1900 -> 1920 (see "THE EIGHTH MOVE" below — a budget
+# repair, not a pass).  800 was calibrated against the 915-test lane of rf2-f8x2i's
 # original run and had stopped doing its job.  1360 was calibrated against 1401
 # and stopped doing its job the same way; 1510 did the same in its turn; and so
 # did 1690, against the 1931 tests the sixth pass left.
@@ -417,12 +418,23 @@ fi
 # test file, and nothing else counts what it excluded.
 #
 # So the floor is now doing a second job: it is the budget for tagging.  At
-# 1900 against 1933 there are 33 tests of slack, so tagging more than about
+# 1920 against 1953 there are 33 tests of slack, so tagging more than about
 # thirty tests' worth of deftests reddens this lane and the author has to come
 # here and move the number — which is exactly the review prompt a
 # coverage-reducing change should trigger.  That is deliberate.  Do not raise
 # the floor to make room for a tag without saying, in the same diff, what was
 # tagged and why it has no production residue.
+#
+# THE EIGHTH MOVE, 1900 -> 1920, WAS NOT A PASS.  It tags nothing and adds no
+# namespace; it repairs the budget the seventh pass set.  1900 was calibrated
+# against 1933, and the lane has since grown to 1953 on other beads' test
+# files — which silently widened the tagging budget from the intended ~33
+# tests to 53.  That is the same "a floor left behind by a growing lane is
+# inert" failure as every earlier move, arriving through the back door: nobody
+# raised the budget, the lane just drifted out from under it.  So the rule to
+# apply is not "raise it when you add namespaces" but "keep the SLACK at ~33",
+# and it wants checking whenever this lane's observed count is read, not only
+# when a d2841 pass lands.
 #
 # Note which direction the OTHER failure mode falls.  If `-e :requires-debug`
 # is ever dropped from the `:prod-gate` alias or misspelled, the fifteen tagged
@@ -446,7 +458,7 @@ fi
 # invokes, so the rule covers every lane in the repo rather than this one, and
 # it fires before a single test runs.  `verify_roster` below is unchanged and
 # still cannot see this class on its own — see its guard #1.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1900}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1920}"
 
 args=()
 for ns in $runnable; do
