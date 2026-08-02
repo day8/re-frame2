@@ -124,21 +124,23 @@ The obvious one: one view reads `:theme/current` and puts it on its own element.
 ```
 
 **Its true cost.** The boundary that reads the theme re-renders on every switch —
-that much is certain and it is one boundary. What is *not* certain is whether the
-subtree comes with it. If `theme-scope` takes its content through `(:children props)`,
-those children are elements its parent already created, and the parent did not
-re-render (it does not read the theme), so React's ordinary bailout on referentially
-identical children should skip them. If instead the scope view renders its content
-directly, the whole app re-renders on a theme switch, because
-[there is no default memoization](02-views-and-reads.md).
+that much is certain, and it is one boundary. What happens below it now turns on
+the [default value-equality bail-out](02-views-and-reads.md#boundaries-memoize-by-default)
+(HD-028) rather than on how `theme-scope` gets its content. `app` is a boundary
+either way — handed down as `children` or minted directly inside `theme-scope`'s
+own body — and its props are unaffected by the theme, so they compare `=` at every
+re-render and its own memo wrapper bails regardless of which style you write. The
+way to lose the bail-out is different from either style above: splice `app`'s
+markup in as a plain call instead of `[app {}]`. A plain call has no boundary of
+its own to hold a memo wrapper, so it re-runs with `theme-scope` every time —
+independent of which bridge you chose.
 
-That first "should" is doing real work and this guide will not launder it. Whether an
-*interpreted* hiccup runtime preserves element identity for children a boundary
-merely passes through is a runtime property nobody has measured. The ABI says
-children arrive realized and an existing React element is a legal child anywhere; it
-does not say identity survives a re-render of the receiving boundary. **If it does,
-bridge A costs one boundary. If it does not, bridge A costs the app, and "zero React
-work" is off by the size of your tree.**
+That leaves one open question, not two. Whether an *interpreted* hiccup runtime
+preserves element identity for children a boundary merely passes through is still
+unmeasured, but it now decides only how *cheap* the skip is: a referentially
+identical child never reaches the comparator; a freshly minted one still reaches
+it and still bails, one step later. Neither path costs the app, as long as `app`
+stays a boundary.
 
 ### Bridge B — an effect writes the attribute
 
@@ -178,14 +180,16 @@ bridge.
 **Which bridge is the taught one is not settled**, and this guide is not the place to
 settle it — naming one would be designing the missing half rather than reporting it.
 The shape of the choice is clear enough to state, though: bridge A keeps the DOM
-derived from state at a render cost nobody has measured; bridge B has no render cost
-and gives up the derivation. It is the ordinary trade between rendering a fact and
-imperatively asserting it, and it is a design decision with a witness attached.
+derived from state at the cost of the one reading boundary (HD-028's default
+bail-out covers the rest, per [Bridge A](#bridge-a--a-scope-view-reads-the-choice)
+above); bridge B has no render cost and gives up the derivation. It is the ordinary
+trade between rendering a fact and imperatively asserting it, and it is a design
+decision with a witness attached.
 
-What would settle it: a measurement of bridge A on the multi-frame witness — does a
-theme flip re-render one boundary or the tree — and a ruling on whether the theme
-attribute is per-root or per-document. The first is a P1 instrument. The second is a
-sentence somebody has to write.
+What would settle it: confirmation on the multi-frame witness that bridge A's cost
+holds at one boundary in practice, and a ruling on whether the theme attribute is
+per-root or per-document. The first is a P1 instrument. The second is a sentence
+somebody has to write.
 
 ## The two laws
 
@@ -252,7 +256,7 @@ This table names mechanisms rather than error ids.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | The theme keyword changes in app-db and nothing on screen changes | No bridge is wired — app-db holds the choice, and the cascade keys off a DOM attribute | Wire one of the two bridges above; the event alone does nothing to the document |
-| Theme switch re-renders the whole app | Bridge A, with the themed content rendered directly by the scope view rather than passed through as children — so there is no bailout and no memoization (HD-006) to stop it | Pass the content through as children, or use bridge B |
+| Theme switch re-renders the whole app | Bridge A, with the themed content spliced in as a plain call rather than a `[boundary …]` vector — a plain call has no boundary of its own for HD-028's default bail-out to attach to | Put the content behind a boundary (children or a direct `[app {}]`, either works), or use bridge B |
 | A time-travel rewind shows the old theme | Bridge B — the attribute was asserted by an effect, so it is not derived from the state you rewound | Expected under bridge B; it is the price named above |
 | A controlled input's value gets clobbered by a theme | Should be impossible — law (a) | A runtime bug, not a usage error |
 | A part override doesn't take effect | Merge order: instance props beat app theme beat base | Check which layer you set it in |
@@ -274,7 +278,7 @@ order to remember, in exchange for a flexibility nobody is going to use.
 | Question | Status |
 |---|---|
 | **How the app-db choice reaches the `data-theme` scope** | **Unresolved, and the largest hole on this page.** HD-010 rules the choice into app-db and rules the switch to be one attribute flip, and never joins them. [Layer 3 and the DOM](#layer-3-and-the-dom) names both candidate bridges and prices them; picking one is a design decision, not a writing decision |
-| Whether a boundary that only passes children through re-renders them | **Not addressed**, and bridge A's whole cost turns on it. The ABI says children arrive realized; it does not say element identity survives a re-render of the receiving boundary. A P1 instrument, not a paper question |
+| Whether a boundary that only passes children through preserves their element identity | **Not addressed**, but HD-028's default bail-out now covers bridge A's cost either way — this decides only whether the skip is free (identity-preserved) or a cheap `=` check (identity not preserved), not whether it happens |
 | Whether the theme attribute is per-root or per-document | **Not addressed.** Layer 3 promises frame isolation; a document-level attribute does not have it |
 | How a control declares a part | **Not addressed.** "Controls emit keyword-tagged parts" is the whole of the record; the attribute or macro that does it is unnamed |
 | How an app installs a theme | **Not addressed.** The merge order `base < app-theme < instance-props` is ruled; the mechanism that supplies the app-theme layer is not. Since there is no context, it is presumably passed or registered — the record does not say which |
