@@ -196,6 +196,58 @@ proposal that was accepted and the tournament it describes did run.
 Evidence and full text on `rf2-2rtt6`. Design record updated in
 `docs/design/hicasso/` (`rf2-m6if4`).
 
+### Addendum, 2026-07-31 — Surface B (the ambient collector) is the only ergonomically acceptable read surface; HD-002's outcome 2 is closed
+
+**Operator ruling (Mike), verbatim:** *"Only surface B is acceptable from an
+ergonomics point of view"* (citing
+`docs/design/hicasso/draft-guide/02-views-and-reads.md`), **reinforced,
+verbatim:** *"use-subs (Surface A) is not sufficiently ergonomic for a
+programmer to use."*
+
+Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
+rule 3 — the Resolved Decisions summary line for HD-002 above ("sub-read
+tiers (grouped default / collector challenger / scalar comparator;
+both-fail→null)") is left as written, because it is the proposal that was
+accepted and the adjudication it describes did run.
+
+- **What is ruled.** Of the two real candidates the draft guide sets out,
+  **Surface B — the ambient collector**, where `sub` is an ordinary function
+  call usable inside a `when`, inside a `for`, and inside an inlined helper,
+  with one fixed runtime hook collecting reads and the runtime diffing the
+  edge set after the body returns — is **the only ergonomically acceptable
+  authoring surface**. **Surface A (grouped `use-subs`)** — one hook at the
+  top of the body receiving the complete query collection before the body
+  runs — is **ergonomically rejected**, judged **below the usability bar**
+  for the programmer this library exists to serve, not merely less pleasant
+  than Surface B.
+- **What is *not* ruled, and must not be read into this.** The collector's
+  correctness and cost gates are untouched and still bind: the standing
+  **tripwire that overrides the clock** (the first time correctness requires
+  a candidate ledger or generic post-render dependency reconciliation, the
+  collector dies however good its numbers look); the **four pre-registered
+  adjudication clauses** ((a) the render/commit ownership state machine,
+  (b) the exact allowed edge-diff operation vs. the forbidden ledger class,
+  (c) two pre-registered strategy hypotheses each counted only by a
+  benchmarked commit, (d) the survival metric); and
+  `docs/design/hicasso/hd-002-adjudication.md` stands as written. This
+  ruling was decided on **ergonomics, not on HD-002's own benchmarked-win
+  condition** — no bar row for the survival metric existed at ruling time
+  (H1 implemented, H2 untried), so grouped is superseded without having lost
+  a bench it was never run against; the distinction is carried in
+  `implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs`'s
+  docstring, next to the code that implements the ruled surface.
+- **The consequence.** HD-002's outcome 2 — "collector loses and grouped
+  stays the default" — is **closed**. If the ambient collector trips its
+  ledger tripwire or fails its survival metric, the outcome is **null** (no
+  Hicasso read surface ships), or a mechanism not currently on the table
+  must earn its way in. Shipping grouped `use-subs` as the product read
+  surface is ruled out on ergonomics, independently of any measurement.
+
+Evidence and full text on `rf2-2rtt6.1` ("RULING — HD-002 FORK, ERGONOMICS
+HALF"). Design record: `docs/design/hicasso/decisions.md` HD-002 (superseded
+blockquote),
+`docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md` §2.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
@@ -203,6 +255,11 @@ Evidence and full text on `rf2-2rtt6`. Design record updated in
    by the addendum above: the choice between the two Hicasso arms is settled, so
    what remains is the surviving arm against the null.
 3. The HD-002 read-mechanism adjudication (resolved by P1 instrumentation).
+   **Narrowed 2026-07-31** by the addendum above: the ergonomics half is
+   decided — Surface B (the ambient collector) is the only acceptable read
+   surface, and grouped `use-subs` is not a viable fallback. The cost/
+   correctness half is unaffected and still runs under the unwaived tripwire
+   and the four adjudication clauses.
 4. The residual W1 dominance-attribution bead (does not gate the baseline).
 
 ## Graduation
