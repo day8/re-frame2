@@ -72,6 +72,7 @@
             [re-frame.bench.hicasso.shapes.model :as m]
             [re-frame.bench.hicasso.shapes.ordinary :as ordinary]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [reagent.dom.client :as rdc]
             [uix.core :refer [$ defui]])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -184,6 +185,66 @@
     (if (seq declared) (str favorite-base " " declared) favorite-base)))
 
 (defn- nav-class [active?] (if active? "nav-link active" "nav-link"))
+
+;; ===========================================================================
+;; The routing term — paid by every arm that renders a census anchor
+;; ===========================================================================
+;;
+;; rf2-2rtt6.54 migrated the candidate's census anchors to `route-link`, and
+;; rf2-6c237's clock re-take then measured what that cost: 8.21 µs per link,
+;; 207 links on the acceptance page, 900 on the feed. The twins were not paying
+;; it. They spelled `(str "#/profile/" username)` — a literal href, hand-built
+;; — while the candidate resolved the same destination through routing's route
+;; table. The rows moved (acceptance 1.2409 → 1.4759, feed 1.0875 → 1.3311) and
+;; part of that move was the candidate doing real work its controls did not do.
+;;
+;; A row whose arms do different work is not a row, so the twins do it too.
+;; They take the SAME two published seams the candidate's `route-link` takes —
+;; `:routing/link-model` for the href and the dispatch payload,
+;; `:routing/activate-link!` for the click — because those seams exist for
+;; exactly this consumer class: a view that must reach route-link semantics
+;; without statically requiring routing. It is what a competent UIx or Reagent
+;; author writes on re-frame2 when the destination is a ROUTE rather than a
+;; string, and it is why the census's real uix counterpart would pay this too.
+;;
+;; TWO DELIBERATE ASYMMETRIES, BOTH RUNNING AGAINST THE CANDIDATE — the same
+;; posture the merged class strings take above:
+;;
+;;   - the twins resolve the two late-bound hooks ONCE, at namespace load; the
+;;     candidate's `route-link` resolves `:routing/link-model` per anchor per
+;;     render. That is a resolution per link the candidate pays and the twins
+;;     do not, and it stays that way — hoisting is what an author writes, and
+;;     per-call resolution is a property of the candidate's own spelling.
+;;   - the twins call the seam and inline the `<a>` themselves rather than
+;;     mounting `rf/route-link`, which is a REGISTERED REAGENT VIEW and would
+;;     add a component per anchor, three per card. Inlining is the cheapest
+;;     faithful spelling of the same routing work, and a control should have
+;;     the cheapest one.
+;;
+;; THE FLOOR IS UNTOUCHED, deliberately. It is the calibrator, not a rival —
+;; no frame, no subscription, no handler indirection — and a floor that
+;; resolved routes would be a fourth arm rather than a floor.
+
+(def ^:private link-model
+  (delay (late-bind/require-fn! :routing/link-model 'census-clock-arms {} {})))
+
+(def ^:private activate-link!
+  (delay (late-bind/require-fn! :routing/activate-link! 'census-clock-arms {} {})))
+
+(defn- route-attrs
+  "One census anchor's routing-owned half: the href routing synthesises for
+  `to` / `params` under `frame`'s URL strategy, and the click that dispatches
+  the navigation that same href names.
+
+  Called ONCE PER ANCHOR — including for the two author links on a card, whose
+  addresses are identical. That repetition is not an oversight: the candidate's
+  card calls `route-link` three times and synthesises three hrefs, so a twin
+  that computed the author's href once and spent it twice would be doing two
+  thirds of the arm's routing work and calling the result a comparison."
+  [frame to params]
+  (let [{:keys [href payload native?]} (@link-model {:to to :params params} frame)]
+    {:href     href
+     :on-click (fn [e] (@activate-link! e nil frame payload native?))}))
 
 ;; ===========================================================================
 ;; ARM: the React floor — the calibrator, no substrate at all
@@ -364,14 +425,19 @@
   "One census card from DATA — the only card the one-boundary UIx page
   can render. A plain function (no hooks), so it inlines into the page's
   single component."
-  [slug article pending? d]
-  (let [{:keys [title description createdAt favoritesCount favorited author tagList]} article]
+  [slug article pending? d frame]
+  (let [{:keys [title description createdAt favoritesCount favorited author tagList]} article
+        ;; Three anchors, three syntheses — the candidate's card count.
+        pic-link  (route-attrs frame :conduit.profile/show {:username (:username author)})
+        name-link (route-attrs frame :conduit.profile/show {:username (:username author)})
+        read-link (route-attrs frame :conduit.article/show {:slug slug})]
     ($ :div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
        ($ :div.article-meta
-          ($ :a.author-link {:href (str "#/profile/" (:username author))}
+          ($ :a.author-link {:href (:href pic-link) :on-click (:on-click pic-link)}
              ($ :img.user-pic {:src (m/avatar-src (:image author)) :alt ""}))
           ($ :div.info
-             ($ :a.author {:href (str "#/profile/" (:username author))} (:username author))
+             ($ :a.author {:href (:href name-link) :on-click (:on-click name-link)}
+                (:username author))
              ($ :span.date createdAt))
           ($ :button {:type        "button"
                       :data-testid (str "favorite-" slug)
@@ -379,7 +445,8 @@
                       :on-click    (fn [_] (d [:conduit/favorite slug]))}
              ($ :i.ion-heart) " "
              ($ :span {:data-testid (str "favorites-count-" slug)} favoritesCount)))
-       ($ :a.preview-link {:href        (str "#/article/" slug)
+       ($ :a.preview-link {:href        (:href read-link)
+                           :on-click    (:on-click read-link)
                            :data-testid (str "article-link-" slug)}
           ($ :h1 title)
           ($ :p description)
@@ -447,7 +514,7 @@
     (ux-chrome your-feed? tags d
                (for [slug order]
                  (ux-card-body slug (get articles slug)
-                               (contains? pending [:favorite slug]) d)))))
+                               (contains? pending [:favorite slug]) d frame)))))
 
 (defui ux-article-card
   "SHAPE 3's card in UIx — one component per card, the census's own
@@ -457,7 +524,7 @@
         article  (uixa/use-subscribe frame [:conduit/article slug])
         pending? (uixa/use-subscribe frame [:conduit/favorite-pending? slug])
         d        (dispatch-for frame)]
-    (ux-card-body slug article pending? d)))
+    (ux-card-body slug article pending? d frame)))
 
 (defui ux-feed-page
   "SHAPE 3 in UIx — the same feed, one boundary per card."
@@ -483,12 +550,13 @@
         deleting? (uixa/use-subscribe frame [:conduit/delete-pending? id])
         d        (dispatch-for frame)
         {:keys [body createdAt author]} c
-        mine?    (= (:username user) (:username author))]
+        mine?    (= (:username user) (:username author))
+        byline   (route-attrs frame :conduit.profile/show {:username (:username author)})]
     ($ :div.card {:data-testid (str "comment-card-" id)}
        ($ :div.card-block
           ($ :p.card-text {:data-testid "comment-body"} body))
        ($ :div.card-footer
-          ($ :a.comment-author {:href (str "#/profile/" (:username author))}
+          ($ :a.comment-author {:href (:href byline) :on-click (:on-click byline)}
              ($ :img.comment-author-img {:src (m/avatar-src (:image author)) :alt ""})
              " "
              (:username author))
@@ -560,14 +628,18 @@
   "The census card in Reagent hiccup, from one article's subscriptions.
   A plain function: the one-boundary page calls it and its derefs land on
   the caller; the feed's card boundary wraps it."
-  [slug article pending? dispatch]
-  (let [{:keys [title description createdAt favoritesCount favorited author tagList]} article]
+  [slug article pending? dispatch frame]
+  (let [{:keys [title description createdAt favoritesCount favorited author tagList]} article
+        ;; Three anchors, three syntheses — the candidate's card count.
+        pic-link  (route-attrs frame :conduit.profile/show {:username (:username author)})
+        name-link (route-attrs frame :conduit.profile/show {:username (:username author)})
+        read-link (route-attrs frame :conduit.article/show {:slug slug})]
     [:div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
      [:div.article-meta
-      [:a.author-link {:href (str "#/profile/" (:username author))}
+      [:a.author-link {:href (:href pic-link) :on-click (:on-click pic-link)}
        [:img.user-pic {:src (m/avatar-src (:image author)) :alt ""}]]
       [:div.info
-       [:a.author {:href (str "#/profile/" (:username author))} (:username author)]
+       [:a.author {:href (:href name-link) :on-click (:on-click name-link)} (:username author)]
        [:span.date createdAt]]
       [:button {:type        "button"
                 :data-testid (str "favorite-" slug)
@@ -575,7 +647,8 @@
                 :on-click    (fn [_] (dispatch [:conduit/favorite slug]))}
        [:i.ion-heart] " "
        [:span {:data-testid (str "favorites-count-" slug)} favoritesCount]]]
-     [:a.preview-link {:href        (str "#/article/" slug)
+     [:a.preview-link {:href        (:href read-link)
+                       :on-click    (:on-click read-link)
                        :data-testid (str "article-link-" slug)}
       [:h1 title]
       [:p description]
@@ -633,13 +706,15 @@
                  (rg-card-markup slug
                                  @(subscribe [:conduit/article slug])
                                  @(subscribe [:conduit/favorite-pending? slug])
-                                 dispatch)))))
+                                 dispatch
+                                 (rf/current-frame-id))))))
 
 (reg-view rg-article-card [slug]
   (rg-card-markup slug
                   @(subscribe [:conduit/article slug])
                   @(subscribe [:conduit/favorite-pending? slug])
-                  dispatch))
+                  dispatch
+                  (rf/current-frame-id)))
 
 (reg-view rg-feed-page []
   (rg-chrome @(subscribe [:conduit/your-feed?])
@@ -651,12 +726,14 @@
 
 (reg-view rg-comment-card [id]
   (let [{:keys [body createdAt author]} @(subscribe [:conduit/comment id])
-        mine? (= (:username @(subscribe [:conduit/user])) (:username author))]
+        mine?  (= (:username @(subscribe [:conduit/user])) (:username author))
+        byline (route-attrs (rf/current-frame-id) :conduit.profile/show
+                            {:username (:username author)})]
     [:div.card {:data-testid (str "comment-card-" id)}
      [:div.card-block
       [:p.card-text {:data-testid "comment-body"} body]]
      [:div.card-footer
-      [:a.comment-author {:href (str "#/profile/" (:username author))}
+      [:a.comment-author {:href (:href byline) :on-click (:on-click byline)}
        [:img.comment-author-img {:src (m/avatar-src (:image author)) :alt ""}]
        " "
        (:username author)]
