@@ -46,17 +46,18 @@
   body's run count did not move, because that is the difference between a
   narrow update and a page that merely looks narrow.
 
-  ## The cascade this page also makes visible
+  ## The cascade this page made visible, and then priced
 
   A write the **page** reads — the feed toggle — re-renders the page, and
-  React then re-renders all 300 card boundaries beneath it, because a
-  Hicasso boundary is a plain function component with no props-equality
-  bail-out. Reagent's default `shouldComponentUpdate` compares argv and
-  stops exactly this cascade. `narrow_dom_cljs_test` measures it rather
-  than leaving it to be discovered on a clock: see that file's
-  `a-page-chrome-write-re-renders-every-row`. It is reported as a
-  **finding**, not repaired here — repairing it is a runtime change, and
-  the roster's job is to find out what the shapes cost.
+  used to re-render all 300 card boundaries beneath it, because a Hicasso
+  boundary was a plain function component with no value-equality bail-out.
+  Reagent's default `shouldComponentUpdate` compares argv and stops
+  exactly this cascade. `narrow_dom_cljs_test` measured it rather than
+  leaving it to be discovered on a clock, and that measurement fired the
+  reopen condition HD-006 had pre-registered for itself: the bail-out is
+  now the boundary default (rf2-2rtt6.52), and the same write re-runs the
+  page and no card at all. See that file's
+  `a-page-chrome-write-re-renders-no-unchanged-row`.
 
   `.cljc`-compatible by construction (HD-020(d))."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]

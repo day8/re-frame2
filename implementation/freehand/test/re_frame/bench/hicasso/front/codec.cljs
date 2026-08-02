@@ -16,11 +16,20 @@
   the `.apply` path for long child lists.
 
   **Left behind, by ruling and on purpose**: the component protocol, the
-  ratoms, the argv-equality memoization, and the scheduler. None of them
-  is here, none of them is reachable from here, and the codec requires
-  nothing from a donor. Reagent's equality semantics in particular are
-  not recreated (HD-006): every default comparison is a cost every render
-  pays, and narrow updates in this design come from boundary placement.
+  ratoms, and the scheduler. None of them is here, none of them is
+  reachable from here, and the codec requires nothing from a donor.
+
+  The argv-equality memoization was on that list until rf2-2rtt6.52.
+  HD-006 held that narrow updates come from boundary placement and that
+  every default comparison is a cost every render pays — and it
+  pre-registered its own reopen condition, keyed to broad-witness
+  evidence. The tier-1 roster produced it: a page-chrome write re-ran the
+  page and all 300 card boundaries beneath it with every card's inputs
+  value-equal. So a value-equality bail-out is now the boundary
+  **default**, as one stable internal memo wrapper per head
+  ([[memoize-boundary!]]). It is a comparison of a boundary's props map
+  and nothing else — the element and prop-object caches HD-004 refuses
+  are still refused, and still absent below.
 
   Also absent, and worth naming so their absence reads as a decision
   rather than an omission: the `:r>` raw-props path, the class-component
@@ -515,31 +524,107 @@
 ;; ---------------------------------------------------------------------------
 
 (defn mark-boundary!
-  "Record that `f` — a React element type an arm's `defview` minted — is a
-  legal hiccup head. Returns `f`, so a `defview` can end with it."
+  "Record that `f` — a React function component an arm's `defview` minted
+  — is a legal hiccup head. Returns `f`, so a `defview` can end with it."
   [f]
   (unchecked-set f "hicassoBoundary" true)
   f)
 
 (defn boundary-head?
-  "Is `f` a marked boundary? One own-property read; no registry, no map.
-
-  **The marker decides, and the type does not.** This asked `fn?` first
-  until rf2-2rtt6.52, which is a question about how a boundary happens to
-  be built rather than about whether it is one. `mint-view!` now wraps its
-  component in `React.memo` so a page-chrome write stops at an unchanged
-  row, and a memo record is a legal React element type that is *not* a
-  function — under the old gate every `defview` product would have become
-  an illegal head at once.
-
-  HD-016 is untouched, because HD-016 was never a statement about types
-  either: what makes a head legal is that [[mark-boundary!]] marked it, so
-  an unmarked plain function in head position is the same loud error it
-  always was. `some?` guards the read, which is the only input that can
-  throw — every other head reaching here answers `undefined` and so
-  answers false."
+  "Is `f` a marked boundary? One own-property read; no registry, no map."
   [f]
-  (and (some? f) (true? (unchecked-get f "hicassoBoundary"))))
+  (and (fn? f) (true? (unchecked-get f "hicassoBoundary"))))
+
+(defn- boundary-props=
+  "React's `areEqual` for a memoized boundary — CLJS `=` over the complete
+  `rfProps` value, which is Reagent's argv compare spelled on the one slot
+  a boundary's props ever occupy.
+
+  [[boundary-element]] hands every boundary a fresh `#js {\"rfProps\" …}`,
+  so `Object.is` — what `React.memo` compares with when given no
+  comparator — is false on every re-render and a bare memo would never
+  once bail out. What has to match is the ClojureScript map inside, and
+  `=` on it opens with an `identical?` test: a row whose parent passed the
+  same value re-uses it and the comparison costs one pointer.
+
+  **Every prop, including function-valued ones**, which compare
+  conservatively unequal — correct, because distinct functions must not
+  bail out. So a props map carrying a closure minted in the parent's
+  render re-renders, which is the safe direction and the one Reagent's
+  `shouldComponentUpdate` errs in too.
+
+  **Fails OPEN, and that polarity is a ruling rather than a taste
+  (rf2-5al9d7).** `=` over an app-owned value can throw — a type with a
+  throwing `-equiv`, a foreign object mutated in place — and this runs
+  inside React's comparator, where an escaping throw is a render crash and
+  not a slow render. reagent-slim met the identical hazard on the
+  identical comparison and ruled: stock Reagent fails CLOSED (skips), we
+  fail OPEN (render), because skipping on a failed comparison risks a
+  stale UI and an extra render is always the safe branch. `areEqual`
+  inverts that polarity, so failing open here is answering **false**.
+
+  **This is the incumbent's shape, not an invention.** Reagent 2.0.1's
+  `functional-render-memo-fn` is a `React.memo` `areEqual` doing `=` over
+  the whole argv inside a `try` that answers `false` on a throw — the same
+  comparison, the same guard and the same polarity. UIx 1.4.4's
+  `uix.core/memo` compares `argv` plus `:children`; `rfProps` already
+  carries `:children`, so the compared value matches without a special
+  case. Reagent's `*always-update*` dynamic escape is declined: it exists
+  so `force-update-all` can bypass the comparison for hot reload, and
+  re-evaluating a `defview` here re-mints the head and its wrapper — a new
+  React element *type*, which HMR replaces outright."
+  [^js prev ^js next]
+  (try
+    (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps"))
+    (catch :default _e
+      (when ^boolean js/goog.DEBUG
+        (when (exists? js/console)
+          (.warn js/console
+                 (str "[hicasso] boundary props `=` comparison threw; "
+                      "re-rendering this boundary (fail-open)."))))
+      false)))
+
+(defn memoize-boundary!
+  "Give a marked head **one stable internal memo wrapper**, and return the
+  head — still the function it was.
+
+  ## Why the wrapper is internal (HD-006 as amended, rf2-2rtt6.52)
+
+  A value-equality bail-out is the boundary DEFAULT: without one, a write
+  moving a key the PAGE reads re-rendered the page and then all 300 card
+  boundaries beneath it, every card's props and every card's subscription
+  values equal. React re-renders the children of a re-rendered parent
+  unless the element is referentially identical (a `for` builds fresh
+  ones) or the component bails out itself, and a plain function component
+  cannot bail out itself.
+
+  But `React.memo` returns a memo **object**, not a function, and a minted
+  head is required to BE a function — so the wrapper may not become the
+  public representation. It is attached to the head instead, minted once
+  at definition, and [[boundary-element]] creates elements from it. The
+  head a `defview` hands back is unchanged, `boundary-head?` still asks
+  `fn?`, and no memo object escapes.
+
+  **Stability is the whole contract.** One wrapper per head, minted here
+  and never per element: a fresh wrapper per render would be a fresh React
+  element *type* every time, and React would unmount and remount the
+  entire subtree rather than bail out of it.
+
+  Opt-in at the mint site rather than applied to every marked head, so
+  heads that are not reactive boundaries — `h/boundary`'s error-boundary
+  class, presence — keep the semantics they were written with."
+  [f]
+  (let [memo (react/memo f boundary-props=)]
+    (unchecked-set memo "displayName" (unchecked-get f "displayName"))
+    (unchecked-set f "hicassoMemo" memo)
+    f))
+
+(defn- element-type
+  "The React type a boundary head's elements are created from: its stable
+  memo wrapper when it has one, and otherwise the head itself. One
+  own-property read on a path that already reads one."
+  [head]
+  (or (unchecked-get head "hicassoMemo") head))
 
 ;; ---------------------------------------------------------------------------
 ;; Hiccup shape
@@ -854,7 +939,7 @@
                                    children (assoc :children children)))
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    (react/createElement (nth argv 0) js-props)))
+    (react/createElement (element-type (nth argv 0)) js-props)))
 
 (defn- fragment-element [argv]
   (let [has-props? (props-map? argv 1)

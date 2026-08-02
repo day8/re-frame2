@@ -1187,85 +1187,59 @@
     (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry) (.-snapshot entry))
     element))
 
-(defn- boundary-props=
-  "React's `areEqual` for a boundary — Reagent's argv compare, spelled on
-  the one slot a boundary's props ever occupy.
-
-  `boundary-element` hands every boundary a fresh `#js {\"rfProps\" …}`,
-  so `Object.is` — which is what `React.memo` compares with when given no
-  comparator — is false on every re-render and memo would never once bail
-  out. What actually has to match is the ClojureScript map inside, and `=`
-  on it starts with an `identical?` test: a row whose parent passed the
-  same value re-uses it, and the comparison costs one pointer.
-
-  Conservative by construction. A props map carrying a closure minted in
-  the parent's render answers false and the row re-renders, which is the
-  safe direction and the same one Reagent's `shouldComponentUpdate` errs
-  in.
-
-  **Fails OPEN, and that polarity is a ruling rather than a taste
-  (rf2-5al9d7).** `=` over an app-owned value can throw — a type with a
-  throwing `-equiv`, a foreign object mutated in place — and this one runs
-  inside React's comparator, where an escaping throw is a render crash and
-  not a slow render. reagent-slim met the identical hazard on the
-  identical comparison and ruled: stock Reagent fails CLOSED (skips), we
-  fail OPEN (render), because skipping on a comparison failure risks a
-  stale UI and an extra render is always the safe branch. `areEqual`
-  inverts that polarity, so failing open here is answering **false**."
-  [^js prev ^js next]
-  (try
-    (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps"))
-    (catch :default _e
-      (when ^boolean js/goog.DEBUG
-        (when (exists? js/console)
-          (.warn js/console
-                 (str "[hicasso] boundary props `=` comparison threw; "
-                      "re-rendering this boundary (fail-open)."))))
-      false)))
-
 (defn mint-view!
-  "Turn a body fn into a boundary: a React function component behind a
-  props-equality bail-out, marked as a legal hiccup head. Minted once, at
-  definition — which is why the codec's third HD-004 cache (stable
-  component heads) has nothing to do in this arm, and why HD-016 can make
-  a plain function in head position a loud error instead of auto-wrapping
-  it.
+  "Turn a body fn into a boundary: a React function component, marked as a
+  legal hiccup head and given the codec's stable memo wrapper. Minted
+  once, at definition — which is why the codec's third HD-004 cache
+  (stable component heads) has nothing to do in this arm, and why HD-016
+  can make a plain function in head position a loud error instead of
+  auto-wrapping it.
 
-  ## Why the memo is here at all (rf2-2rtt6.52)
+  **The returned value is still the function**, and that is a constraint
+  rather than an accident: `React.memo` answers an object, the codec and
+  these tests require a minted head to BE a function, and the ruling on
+  rf2-2rtt6.52 is that no memo object escapes as the public
+  representation. `memoize-boundary!` therefore attaches the wrapper to
+  the head and hands the head back; the codec creates elements from the
+  wrapper. See [[re-frame.bench.hicasso.front.codec/memoize-boundary!]].
 
-  Without it a write that moves a key the PAGE reads re-rendered the page
-  and then every boundary beneath it — 300 of 300 cards on the tier-1 feed
-  shape, none of whose props and none of whose subscription values had
-  moved, producing a byte-identical DOM. React re-renders the children of
-  a re-rendered parent unless the element is referentially identical (a
-  `for` builds fresh ones) or the component bails out itself, and a plain
-  function component cannot bail out itself. That contradicted the
-  programme's central claim — that boundaries are independent, and a write
-  wakes only its readers — on precisely the bulk row the bar is set on.
+  ## Why there is a bail-out at all (HD-006 as amended, rf2-2rtt6.52)
+
+  Without one, a write that moves a key the PAGE reads re-rendered the
+  page and then every boundary beneath it — 300 of 300 cards on the
+  tier-1 feed shape, every card's props and every card's subscription
+  values equal. That contradicted the programme's central claim — that
+  boundaries are independent, and a write wakes only its readers — on
+  precisely the bulk row the bar is set on, and it is the axis Reagent's
+  argv compare already wins.
 
   ## Why bailing out on PROPS is safe when bodies read SUBSCRIPTIONS
 
-  This is the question the fix has to answer, because a memo that bails
-  while a subscription moved would freeze a row on screen — the exact
-  failure class this arm has repaired four times. It is safe because props
-  are not the only channel into the shell, and memo blocks only one of
-  them:
+  This is the question the repair has to answer, because a memo that
+  bailed while a subscription moved would freeze a row on screen — the
+  exact failure class this arm has repaired four times. It is safe
+  because props are not the only channel into the shell, and memo blocks
+  only one of them:
 
   - **Subscriptions** arrive through [[shell]]'s `useSyncExternalStore`.
     A commit calls that fiber's own `onStoreChange` ([[flush!]] →
     `notify!`), which schedules an update **on the boundary's fiber**.
     React consults `checkScheduledUpdateOrContext` BEFORE it consults the
-    comparator, so a fiber with pending work is re-rendered and the
+    comparator, so a fiber with pending work re-renders and the
     comparator is never even asked. A row whose reads moved cannot be
-    bailed out by this memo, whatever its props say.
+    bailed out, whatever its props say. Donor precedent: reagent-slim's
+    default update check is argv `=`, and reactive invalidation bypasses
+    it via `forceUpdate` — the same shape, by design.
   - **The frame** arrives through `useContext`, and React propagates a
-    context change to its consumers directly, marking them — again ahead
-    of the comparator, and again through a memo.
+    context change to its consumers directly — again ahead of the
+    comparator, and again through a memo.
   - **Props** are the remaining channel, and the only one memo blocks.
 
   So the bail-out is exactly the case where all three are unchanged, and
-  a body that is a pure function of the three cannot observe it. The
-  residue is a body reading something that is none of them — a bare atom,
+  a body that is a pure function of the three cannot observe it — which
+  is the contract: bodies stay pure and re-runnable, and memoization is a
+  scheduling optimization and never observable semantics. The residue is
+  a body reading something that is none of the three — a bare atom,
   `Date.now()` — which was never tracked and never woke a boundary on its
   own before either; the cascade merely re-ran it by accident. Reagent's
   argv compare has the identical residue.
@@ -1279,13 +1253,12 @@
   collapsing to React's `SimpleMemoComponent`, so React keeps a wrapper
   fiber above the component's own. That is React's retention rather than
   this arm's, and it is recorded in [[retained-inventory]] under
-  `:react/memo-fiber` instead of being left for a heap ladder to discover."
+  `:react/memo-fiber` instead of being left for a heap ladder to
+  discover."
   [view-name body-fn]
-  (let [component (fn hicasso-boundary [js-props] (shell body-fn js-props))
-        _         (unchecked-set component "displayName" view-name)
-        memoized  (react/memo component boundary-props=)]
-    (unchecked-set memoized "displayName" view-name)
-    (codec/mark-boundary! memoized)))
+  (let [component (fn hicasso-boundary [js-props] (shell body-fn js-props))]
+    (unchecked-set component "displayName" view-name)
+    (codec/memoize-boundary! (codec/mark-boundary! component))))
 
 ;; ---------------------------------------------------------------------------
 ;; Retained inventory — honest accounting, not a claimed absence
