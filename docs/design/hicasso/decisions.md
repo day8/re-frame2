@@ -821,7 +821,27 @@ HD-020(b)'s ≤2-hook shell budget is untouched. It does spend **one extra Fiber
 boundary**: a memo carrying a custom comparator takes the full `MemoComponent`
 path rather than collapsing into React's `SimpleMemoComponent`. That is recorded
 in `runtime/retained-inventory` under `:react/memo-fiber` rather than left for a
-heap ladder to find.
+heap ladder to find, and it was **measured before this ruling landed** —
+[the page-chrome row](studio/the-page-chrome-row-and-what-the-bail-out-costs.md),
+`:advanced`, `goog.DEBUG=false`, two runs:
+
+| | plain | memo | |
+|---|---:|---:|---|
+| page-chrome write, 300 mounted rows | **300 card bodies** | **0 card bodies** | the repair |
+| per-boundary retained heap | 11,018 / 11,004 B | 11,213 / 11,224 B | **+195 B, +220 B** |
+| mount, 301 boundaries | — | — | 1.0089× / 1.0756×, ranges overlap |
+| bulk / narrow / props | — | — | the two runs disagree on sign — indistinguishable |
+
+The heap delta reproduces at **~200 B per boundary**, which is a Fiber. The clock
+rows do not separate from run-to-run noise at this round count, so the mount and
+bulk cost is stated as a **bound (≲10%)** rather than a figure. Two things the
+measurement deliberately does **not** settle are recorded on the page rather than
+smoothed over: whether the mount row carries a real few-per-cent regression, which
+needs `clock_run.cjs`'s adjudicated M1 row; and what +200 B does to the **R=0
+shell** figure, which the reads ladder puts at 1,143 B — already over the 1 KB
+paper line, and ≈ +17% with the wrapper. On the card-shaped boundary actually
+measured the same 200 B is +1.8%. Both readings are true, they are not
+interchangeable, and the shell one is the one to re-take on the ladder.
 
 **Rejected.** *Keep HD-006 and teach `React.memo` + `areEqual` as an opt-in
 pattern* — inverts the posture and ships a known 300× re-render cascade on the
