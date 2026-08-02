@@ -566,7 +566,7 @@ Consumers route on `:where` — the existing Issues triage, Xray projections, sc
 
 **Production builds.** Per [010 §Production builds](010-Schemas.md#production-builds), the validation site is gated by `re-frame.interop/debug-enabled?` and DCEs to a no-op under `:advanced` + `goog.DEBUG=false`. The boundary is dev-only by default; apps needing production validation at system boundaries reach for the `:rf.schema/at-boundary` interceptor on the specific events that ingest untrusted machine `:data` (e.g. an SSR-hydrate that restores machine snapshots from the wire).
 
-**Cross-reference.** Per [010 §Per-step recovery row 7](010-Schemas.md#per-step-recovery), this boundary is row 7 of the per-step recovery table; the `:where :machine-data` value is the closed-set extension to [Spec-Schemas §`SchemaValidationTags`](Spec-Schemas.md#per-category-tags-schemas). The two paragraphs at [§Where snapshots live](#where-snapshots-live) (schema composition) and in §What the Single Store gives us for free (the Schema-validation bullet) describe this surface as fact.
+**Cross-reference.** Per [010 §Per-step recovery row 7](010-Schemas.md#per-step-recovery), this boundary is row 7 of the per-step recovery table; the `:where :machine-data` value is the closed-set extension to [Spec-Schemas §`SchemaValidationFailureTags`](Spec-Schemas.md#per-category-tags-schemas). The two paragraphs at [§Where snapshots live](#where-snapshots-live) (schema composition) and in §What the Single Store gives us for free (the Schema-validation bullet) describe this surface as fact.
 
 <a id="completion-output-validation"></a>
 

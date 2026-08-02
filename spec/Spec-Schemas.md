@@ -1141,7 +1141,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 ;; --- runtime: validation / drain / dispatch lifecycle ---
 
-(def SchemaValidationTags
+(def SchemaValidationFailureTags
   [:map
    [:category        [:= :rf.error/schema-validation-failure]]
    [:failing-id      :keyword]

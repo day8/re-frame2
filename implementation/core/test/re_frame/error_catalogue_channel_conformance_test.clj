@@ -1128,8 +1128,22 @@
   `tags-column-baseline-stays-honest`, because a floor left below the coverage
   the corpus already achieves has rotted: it would sit there absorbing the next
   deletion in silence, which is the drift this ledger exists to make impossible.
-  Either way the edit is deliberate, reviewable, and one line."
-  93)
+  Either way the edit is deliberate, reviewable, and one line.
+
+  Raised 93 → 94 by rf2-6tags's `SchemaValidationTags` → `SchemaValidationFailureTags`
+  rename (spec/Spec-Schemas.md): the PR #7207 audit found the always-on
+  `:rf.error/schema-validation-failure` row was unpaired from the start — its
+  derived name `SchemaValidationFailureTags` never matched the schema's
+  as-shipped name `SchemaValidationTags`, so invariant 6 held a schema
+  (claimed) it never diffed (paired), the same class `tags-column-pairing-is-
+  unambiguous` catches for a collision, just silent instead of reported
+  because there was no second claimant to trip `tags-column-ambiguities`.
+  Renaming the schema to the name-half derivation — the `StaleSuppressedTags`
+  worked example, applied here — pairs it with no alias table and no code
+  change; the row's Tags cell was completed alongside it (see
+  `tags-column-schema-validation-failure-row-is-paired-and-mutation-proven`
+  below) so the newly-live pairing does not immediately red."
+  94)
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
@@ -1482,6 +1496,75 @@
           "MUTATION 2: an equal-count rename drops the count under the floor too")
       (is (= (claimed-count rows renamed) (paired-count rows renamed))
           "…and here too the identity holds, in the mutated world"))))
+
+(deftest tags-column-schema-validation-failure-row-is-paired-and-mutation-proven
+  (testing "Per the rf2-6tags PR #7207 audit: `:rf.error/schema-validation-
+            failure` — the newly always-on structural-only production egress
+            record — was unpaired FROM THE START. Its derived name
+            `SchemaValidationFailureTags` never matched the schema's as-
+            shipped name `SchemaValidationTags`, so invariant 6 held the
+            schema (CLAIMED) without ever diffing it (PAIRED) — the same loss
+            `tags-column-pairing-is-unambiguous` catches for a collision, only
+            silent here because there was no second claimant to trip
+            `tags-column-ambiguities`. `spec/Spec-Schemas.md` renamed the
+            schema to the name-half derivation — the `StaleSuppressedTags`
+            worked example applied here — so this proves the pairing live,
+            end to end, rather than trusting the rename alone."
+    (let [rows    (parse-catalogue-tag-rows)
+          schemas (parse-tags-schemas)
+          claims  (schema-claims rows schemas)]
+      (is (contains? schemas "SchemaValidationFailureTags")
+          "Spec-Schemas.md defines the renamed schema")
+      (is (= [:rf.error/schema-validation-failure]
+             (mapv :category (get claims "SchemaValidationFailureTags")))
+          "the schema is claimed by exactly the one row it names, and by no
+           other — a real pairing, not a collision")
+      (is (empty? (filter #(= :rf.error/schema-validation-failure (:category %))
+                           (tags-column-findings rows schemas)))
+          "the live row's `:tags` cell documents every key the schema declares
+           (minus the two envelope slots) — the newly-live pairing does not
+           immediately red")))
+  (testing "MUTATION, catalogue side. Driven against the schema's REAL parsed
+            key set (not a hand-copied literal) so the proof tracks the corpus
+            rather than a snapshot of it: dropping one of the per-arm keys the
+            row's cell documents reds the diff naming exactly it; restoring it
+            clears the finding."
+    (let [schema  (get (parse-tags-schemas) "SchemaValidationFailureTags")
+          without (str "`:where`, `:failing-id`, `:reason`, `:path`, `:value`, "
+                       "`:explain`, `:received`, `:rf.sub/query-v`, "
+                       "`:rollback?`, `:registered-path`, `:machine-id`, "
+                       "`:phase`")
+          with    (str without ", `:schema`")
+          row-of  (fn [tags]
+                    (parse-catalogue-tag-rows
+                      (catalogue-fixture
+                        (str "| `:rf.error/schema-validation-failure` | `:error` "
+                             "| always-on | … | Per-`:where` | " tags " |"))))
+          schemas {"SchemaValidationFailureTags" schema}]
+      (is (= [{:category :rf.error/schema-validation-failure
+               :schema   "SchemaValidationFailureTags"
+               :missing  #{:schema}}]
+             (tags-column-findings (row-of without) schemas))
+          "dropping `:schema` from the cell reds, naming exactly it")
+      (is (empty? (tags-column-findings (row-of with) schemas))
+          "restoring it clears the finding")))
+  (testing "MUTATION, schema side. Adding a key to the parsed schema that the
+            live row's cell does not document reds the diff naming it;
+            removing the mutation is clean again — the live row itself,
+            unmutated, stays clean throughout."
+    (let [rows    (parse-catalogue-tag-rows)
+          schemas (parse-tags-schemas)
+          mutated (update schemas "SchemaValidationFailureTags"
+                           conj :rf2-6tags/probe-key)]
+      (is (= [{:category :rf.error/schema-validation-failure
+               :schema   "SchemaValidationFailureTags"
+               :missing  #{:rf2-6tags/probe-key}}]
+             (tags-column-findings rows mutated))
+          "an undocumented added schema key reds, naming exactly it")
+      (is (empty? (filter #(= :rf.error/schema-validation-failure (:category %))
+                           (tags-column-findings rows schemas)))
+          "…while the unmutated schema stays clean, so the red above is the
+           mutation and not the arm"))))
 
 (deftest tags-column-arm-ignores-retired-rows
   (testing "A struck-through row documents a category the runtime no longer
