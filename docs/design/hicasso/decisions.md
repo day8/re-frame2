@@ -472,6 +472,24 @@ render path ships in v0; `defhost`'s SSR-placeholder default is declared policy
 for later phases, inert in v0.
 **Rationale.** Each is a decision a v0 implementer would otherwise have to make
 ad hoc mid-spike; none is reversible for free once witnesses pin behaviour.
+**(a) reaches further than a boundary shell, and (c) is what proved it**
+(rf2-uo9di). A `h/boundary`'s `:fallback` and its children are hiccup written in
+the *parent's* body and walked by the codec inside the **class's own render**,
+one render later — so `intent/*dispatch*` was unbound when the codec reached
+them, and an intent at an event position on either raised
+`:rf.error/hicasso-intent-outside-boundary`. The fallback half made (c)'s own
+worked example unwritable: `:fallback` ships beside `:reset-key` precisely so
+that "the retry is the caller's to schedule", and the control that schedules it
+is a button whose `:on-click` is an intent. Worse, a fallback that throws while
+rendering takes the *next* boundary up, so an application's error path became an
+application-wide failure. The class therefore re-binds its frame (a) around that
+one crossing. **It costs no hook** — the frame was already reaching it through
+`contextType`, which is a property of the component rather than a dispatcher
+read, so unlike `arm1/presence`'s identical repair (HD-025) this one is
+invisible to (b)'s ledger. No frame in scope stays legal — the class reads
+nothing — and an intent written under a frameless boundary remains the same loud
+error, naming the intent. Witnessed, retry button and all, in
+`arm1/boundary_intent_dom_cljs_test`.
 **Reopens** at product phase (SSR, richer boundary API) by ordinary ruling.
 
 ## HD-021 — The v0 execution contract: root, HMR, headless
