@@ -24,7 +24,7 @@ Bead **`rf2-2rtt6.56`**. The standard is **`rf2-2rtt6.1`**.
 
 | | |
 |---|---|
-| **Producing commit** | `7885a7c14896ae3b37e69a9257508afc7770c718` on `worker/census-2rtt6-56`, based on `origin/main` `f57808fb60`. The run executed at exactly this commit — working tree clean, so the blob table below is also `HEAD`'s |
+| **Producing commit (authored)** | `7885a7c14896ae3b37e69a9257508afc7770c718` on `worker/census-2rtt6-56`, based on `origin/main` `f57808fb60`. The run executed at exactly this commit — working tree clean, so its stamped blobs are the commit's. The branch was then rebased onto `origin/main` `3bcbaf4323` (post-PR #7378), rewriting it to `5b51627520`; the mapping is checkable because **all thirteen blobs below are byte-identical at both commits** — the rebase brought in only `hd8_*` files and docs, none of them measured here |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` — both adapter runs, the published shape |
 | **Build** | `:hicasso-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`. Build exit `0`, 0 warnings |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
