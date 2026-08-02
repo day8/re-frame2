@@ -2,10 +2,36 @@
   "THE COLD-MOUNT DOUBLE BUILD, PRICED ON THE CLOCK — the views, the sub
   layers, the hook transcriptions and the counting witnesses
   (rf2-2rtt6.15, epic rf2-2rtt6 / EP-0038; decision input for the
-  rf2-2rtt6.14 ruling, and since rf2-2rtt6.25 the ACCEPTANCE WITNESS for
-  the hand-off that ruling adopted).
+  rf2-2rtt6.14 ruling, and since rf2-2rtt6.25 the FORCED-SYNCHRONOUS
+  MECHANISM ARM for the hand-off that ruling adopted).
 
-  ## The term that was priced, and then deleted
+  ## THE SCHEDULE THIS PAGE MEASURES — read this before quoting a row
+
+  Every mount this page provokes runs inside `react-dom/flushSync` — the
+  timed ones through `lane/mount-arm!` and `lane/mount-batch!`, the
+  counted ones in `witness!` below. That forces React's passive
+  `useSyncExternalStore` subscribe to run before control returns, which
+  is precisely the ordering the rf2-2rtt6.25 hand-off needs in order to
+  reach its adoption before its own `setTimeout 0` reaper fires. On the
+  public client mount path — `re-frame.substrate.adapter/render`, a bare
+  `createRoot(…).render(…)` with nothing forcing the schedule — THE
+  REAPER WINS: the escrowed reference is released, the commit misses, and
+  the cold read builds twice, `bodyRuns` 2.00N measured at N = 1 and
+  N = 300 (rf2-2rtt6.25, merged-PR audit of #7305; browser assertion
+  `use-subscribe-public-mount-schedule-rebuilds`).
+
+  So the `shipped` rows below are the MECHANISM measured where it is
+  allowed to run to completion. They are not an acceptance witness for
+  shipped mount performance and must not be quoted as one. Nothing here
+  is unsound: Spec 006 §Render-phase provisional acquisition and commit
+  adoption requires that correctness never depend on the reaper losing
+  the race, and it does not — the lost race costs a construction and the
+  steady state is one durable reference either way. The reap horizon that
+  would recover the saving on the public schedule is an OPERATOR DECISION
+  (rf2-2rtt6.14 ruled the primitive), and no measurement window in this
+  file was altered to repair this wording.
+
+  ## The term that was priced, and the schedule on which it is recovered
 
   `re-frame.substrate.spine/use-subscribe` USED TO take a BALANCED
   render-phase round trip — `subs/subscribe` immediately followed by
@@ -23,12 +49,11 @@
   red-zone in every round at layers 1, 2 and 3.
 
   rf2-2rtt6.14 ruled ADOPT on that evidence, and rf2-2rtt6.25 landed the
-  hook-scoped provisional hand-off. So the `handoff` arm below stopped
-  being a hypothesis and became a PREDICTION about shipped code, and this
-  page's job changed with it: the shipped arm must now reproduce the
-  handoff arm's counts and sit inside its clock band. `xcript` stays as
-  the double-build reference — the thing that was removed, kept so the
-  delta it defines can still be read.
+  hook-scoped provisional hand-off. So the `handoff` arm below became a
+  prediction about shipped code ON THE SCHEDULE THIS PAGE FORCES, and the
+  `shipped` arm exists to check it there: same counts, same clock band.
+  `xcript` stays as the double-build reference — still what a consumer
+  mount pays today, and what the delta is measured against.
 
   ## The single-variable ablation
 
@@ -44,7 +69,8 @@
   per mounted read (render, commit, unmount); both install the same
   watch, the same refs, the same six hooks. `xcript - handoff` is
   therefore the build/dispose/rebuild churn ALONE — the clock the shipped
-  hand-off recovers.
+  hand-off recovers WHEN IT RUNS TO COMPLETION, i.e. on the schedule this
+  page forces and not on the public one (schedule section above).
 
   `handoff` remains a MEASUREMENT ARM and not a copy of the shipped code:
   it holds its provisional +1 with no reaper, so a render abandoned
@@ -83,10 +109,14 @@
 
   `rebuilt = 0` is what makes the ablation single-variable: the
   commit-phase acquire hands back the IDENTICAL reaction the render
-  built. `shipped` reading the same row as `handoff` is the ACCEPTANCE
-  WITNESS for rf2-2rtt6.25 — the shipped hook converging onto what the
-  transcription measured. The witness components never appear in a timed
-  window and the timed arms never touch a counter.
+  built. `shipped` reading the same row as `handoff` adjudicates that the
+  MECHANISM completes — the shipped hook converging onto what the
+  transcription measured, on the flushSync schedule `witness!` forces. It
+  is SCHEDULE-CONDITIONAL and not an acceptance witness for shipped mount
+  performance: on the public `createRoot().render()` path the same hook
+  reads the `xcript` row instead. A failure here is therefore a broken
+  mechanism, not a lost race. The witness components never appear in a
+  timed window and the timed arms never touch a counter.
 
   ## How the SHIPPED arm is counted without a counter
 
@@ -790,7 +820,18 @@
 
   `:shipped` mounts the real hook and derives `commits` / `rebuilt` from
   the sub-cache rather than from a counter — same meanings, no seam cut
-  into production code (namespace docstring)."
+  into production code (namespace docstring).
+
+  SCHEDULE, STAMPED HERE BECAUSE THIS IS WHERE THE NUMBERS ARE MADE
+  (rf2-2rtt6.25, audit of #7326): the mount and the unmount below are
+  bracketed by `react-dom/flushSync`, which forces React's passive
+  `useSyncExternalStore` subscribe before control returns. The `:shipped`
+  arm therefore reports the hand-off RUNNING TO COMPLETION. On the public
+  `createRoot().render()` path the `setTimeout 0` reaper fires first and
+  the same hook reports the `:xcript` row. The `flushSync` is NOT here to
+  flatter the hand-off — it is what makes a counted mount a single
+  bounded window at all, and it predates the hand-off — so it stays; what
+  it costs is the right to read these rows as consumer-mount performance."
   [variant layer n offset]
   (reset-witness-counters!)
   (reset! shipped-render-observed {})

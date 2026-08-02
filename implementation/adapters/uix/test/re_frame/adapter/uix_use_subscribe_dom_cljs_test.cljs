@@ -374,6 +374,10 @@
    :gap-public-set-phase  gap-public-set-phase
    :pm-gap-frame          :rf.uix-handoff/public-gap-frame
    :pm-gap-control-frame  :rf.uix-handoff/public-gap-control-frame
+   ;; rf2-2rtt6.25 (audit of #7326) — the reaped provisional's own frame. The
+   ;; abandonment and the later mount must race on the SAME (frame, query), and
+   ;; the frame must be cold before the abandoned render, so it is its own.
+   :rv-frame              :rf.uix-handoff/reaped-provisional-frame
    ;; rf2-es09qq — Suspense abort-before-commit probe (reuses :rc-frame /
    ;; :rc-query so the abandoned render and the committed control mount race
    ;; on the SAME (frame, query)).
@@ -518,6 +522,15 @@
 
 (deftest use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
   (suite/assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon cfg))
+
+;; rf2-2rtt6.25 (merged-PR audit of #7326) — the adversarial row. On the public
+;; schedule the reaper usually WINS, so "reaped, then rebuilt fresh" is the
+;; ordinary consumer path: a provisional the reaper released must be
+;; unreachable, and a later mount must paint an app-db movement the abandoned
+;; render never saw. That is what makes the retracted benefit a performance
+;; retraction rather than a correctness one.
+(deftest use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount
+  (suite/assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount cfg))
 
 (deftest use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
   (suite/assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon cfg))

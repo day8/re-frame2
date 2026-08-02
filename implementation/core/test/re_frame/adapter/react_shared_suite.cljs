@@ -5631,6 +5631,153 @@
                     (done))))
               0))))))))
 
+(defn assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount
+  "rf2-2rtt6.25 (merged-PR audit of #7326): THE ADVERSARIAL ROW. A provisional
+  reference the reaper released must be UNREACHABLE — a later mount of the same
+  query builds its own reaction and paints the CURRENT value, never the one the
+  abandoned render's disposed reaction was holding.
+
+  This is the property that makes the lost race harmless, and it is the reason
+  `use-subscribe-public-mount-schedule-rebuilds` can assert a defect without
+  asserting a bug: on the public schedule the reaper usually DOES win, so
+  `reaped → rebuilt fresh` is the ordinary consumer path, not an edge case. If
+  a reaped reaction could be handed to a later subscriber the retraction would
+  be a correctness retraction rather than a performance one.
+
+  THE TEETH ARE THE WRITE. Between the horizon and the second mount the app-db
+  moves with NOBODY subscribed, so the abandoned render's reaction — had it
+  survived and been adopted — would paint the pre-write value. The DOM read is
+  therefore a discriminator and not a smoke test: `m=42` can only come from a
+  reaction built after the write.
+
+  SCHEDULE. The abandonment leg runs under `act` because what it needs is
+  React's abort, which `act` does not distort; the CLAIM leg is mounted through
+  `re-frame.substrate.adapter/render` with NO act and NO flushSync, so the
+  freshness property is pinned on the schedule consumers actually mount on.
+  It holds either way — whether the second mount's own commit adopts its render
+  build or rebuilds after its own reaper, the tenant is a reaction younger than
+  the write — which is exactly the schedule-independence Spec 006 requires.
+
+  The final leg crosses the horizon a second time: the abandoned render's token
+  is spent and the second mount's token is spent, and neither may decrement the
+  successor entry. This is the browser-level counterpart of the JVM
+  `unsubscribe-if-reaction-no-ops-against-a-successor-entry`, through the hook
+  rather than against the helper.
+
+  cfg keys: `:probe-suspense-abort-element` (the abandonment), the
+  public-schedule surface `:probe-public-mount-element` / `:pm-on-commit` (the
+  claim leg — its mount effect is declared after the read, so React runs it
+  immediately after the same fiber's `useSyncExternalStore` subscribe and the
+  snapshot is placed causally rather than by timing), `:refcount-target`,
+  `:rc-query`, and `:rv-frame` (this assertion's own frame, hence its own
+  sub-cache — the property is only load-bearing on a COLD read)."
+  [{:keys [name probe-suspense-abort-element probe-public-mount-element
+           pm-on-commit refcount-target rc-query rv-frame]}]
+  (testing (str name " — a reaped provisional is never adopted by a later mount (rf2-2rtt6.25)")
+    (if (nil? probe-suspense-abort-element)
+      (is true (str name ": no Suspense-abort probe wired; substrate skips this case"))
+      (with-browser-act
+       (fn [act-fn]
+        (reset! refcount-target rv-frame)
+        (rf/make-frame {:id rv-frame :doc "rf2-2rtt6.25 reaped-provisional revival frame"})
+        (rf/reg-event ::rv-seed (fn [_ _] {:db {:m 0}}))
+        (rf/reg-event ::rv-move (fn [_ _] {:db {:m 42}}))
+        (rf/dispatch-sync [::rv-seed] {:frame rv-frame})
+        (let [builds      (atom 0)
+              _           (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
+              cache-key-v [rc-query]
+              cache       (:sub-cache (frame/frame rv-frame))
+              root        (react-dom-client/createRoot (make-mount-node!))
+              mount-node  (make-mount-node!)
+              at-commit   (atom nil)
+              unmount     (atom nil)]
+          (is (nil? (get @cache cache-key-v))
+              "precondition: no live cache entry, so the abandoned render is genuinely COLD")
+          ;; The abandoned render: `use-subscribe`'s render phase escrows a
+          ;; provisional reference, the child suspends, the fallback commits,
+          ;; and no fiber will ever adopt it.
+          (act-fn (fn [] (.render root (probe-suspense-abort-element))))
+          (let [abandoned (get-in @cache [cache-key-v :reaction])]
+            (is (some? abandoned)
+                "the abandoned render materialised a reaction and the escrow is holding it")
+            (is (pos? (ref-count-of cache cache-key-v))
+                (str "still held before the horizon — observed "
+                     (ref-count-of cache cache-key-v)))
+            (async done
+              (js/setTimeout
+                (fn []
+                  ;; The horizon: the escrow is released, 1 → 0 disposes, the
+                  ;; slot is evicted. `abandoned` is now a DISPOSED reaction.
+                  (is (nil? (get @cache cache-key-v))
+                      (str "one settle later the abandoned render's provisional is "
+                           "reaped, disposed and evicted — observed ref-count "
+                           (ref-count-of cache cache-key-v)))
+                  (act-fn (fn [] (try (.unmount root) (catch :default _ nil))))
+                  ;; THE WRITE, with nobody subscribed. Whatever the disposed
+                  ;; reaction is holding is now provably stale.
+                  (rf/dispatch-sync [::rv-move] {:frame rv-frame})
+                  (let [builds-before @builds]
+                    ;; THE CLAIM LEG — public schedule, no act, no flushSync.
+                    ;; The snapshot is taken from inside the probe's own mount
+                    ;; effect, which React runs immediately after that fiber's
+                    ;; commit-owned subscribe.
+                    (reset! pm-on-commit
+                            (fn []
+                              (when (nil? @at-commit)
+                                (reset! at-commit
+                                        {:builds    @builds
+                                         :tenant    (get-in @cache [cache-key-v :reaction])
+                                         :ref-count (ref-count-of cache cache-key-v)
+                                         :dom       (.-textContent mount-node)}))))
+                    (try
+                      (reset! unmount (substrate-adapter/render (probe-public-mount-element) mount-node {}))
+                      (catch :default e
+                        (is false (str "the public adapter render slot threw: " e))))
+                    (await-settlement!
+                      (fn [] (some? @at-commit))
+                      (fn []
+                        (let [snap @at-commit]
+                          (is (some? snap)
+                              (str "the later mount committed and its mount effect fired, "
+                                   "so there IS a post-subscribe moment to read. DOM was "
+                                   (pr-str (some-> mount-node .-textContent))))
+                          (when snap
+                            (is (not (identical? abandoned (:tenant snap)))
+                                (str "the reaped provisional was NOT handed to the later "
+                                     "mount — the tenant is a reaction built after it. "
+                                     "Snapshot " snap))
+                            (is (= "m=42" (:dom snap))
+                                (str "and the later mount paints the value the app-db holds "
+                                     "NOW, not the one the abandoned render's disposed "
+                                     "reaction was built on — the discriminator, because "
+                                     "the write landed with nobody subscribed. Observed "
+                                     (pr-str (:dom snap))))
+                            (is (pos? (- (:builds snap) builds-before))
+                                (str "which required a fresh construction — builds moved "
+                                     "from " builds-before " to " (:builds snap)))
+                            (is (= 1 (:ref-count snap))
+                                (str "exactly one durable reference — observed "
+                                     (:ref-count snap)))))
+                        ;; And neither spent token may decrement the successor.
+                        (js/setTimeout
+                          (fn []
+                            (try
+                              (is (= 1 (ref-count-of cache cache-key-v))
+                                  (str "across the horizon the successor entry still holds "
+                                       "exactly one reference: the abandoned render's token "
+                                       "and the later mount's are both spent, and a spent "
+                                       "token cannot reach an entry it never escrowed. "
+                                       "Observed " (ref-count-of cache cache-key-v)))
+                              (is (= "m=42" (.-textContent mount-node))
+                                  "and the mounted probe still renders its value")
+                              (finally
+                                (reset! pm-on-commit nil)
+                                (when-let [u @unmount] (try (u) (catch :default _ nil)))
+                                (done))))
+                          0))
+                      240)))
+                0)))))))))
+
 (defn assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
   "rf2-2rtt6.25 (SSR): `renderToString` runs the hook's render phase and never
   commits — there is no React commit on the server at all. The provisional
