@@ -159,8 +159,10 @@ hook + frame-context hook); shells use callback refs, never `useRef`.
 **The synchronous controlled-input door (HD-019)**: controlled-element intent
 lowering dispatches synchronously inside the discrete browser event; the store
 notification runs synchronously so React commits the echo in the same turn;
-`flushSync` is the evidence-gated last resort. Rejected/unchanged-model paths
-lean on React's own end-of-event restore; resets are by explicit caller
+`flushSync` is never the general default, and its single evidence-gated
+exception is the controlled-text converge in the element path (amended by
+`rf2-ncn5p`). Rejected/unchanged-model paths lean on React's own end-of-event
+restore for the value but not the caret; resets are by explicit caller
 revision, never value equality. The 100-cell grid witnesses prove the door.
 
 **Measured 2026-08-01 (rf2-n3dxw), and the lean holds for the value only.**

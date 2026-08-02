@@ -268,14 +268,18 @@ asserts the invariant against a live React tree, including that it *moves*
 when the rendered value moves. If React ever stops mirroring, that row goes
 red by name instead of five caret rows going quietly wrong.
 
-#### One thing for the decisions record
+#### What went to the decisions record
 
-HD-019 says `flushSync` is "the evidence-gated last resort, never the
-default". This makes it the default for every controlled element, and the
+HD-019 used to say `flushSync` was "the evidence-gated last resort, never the
+default", and this makes it the default for every controlled text element. The
 evidence gate is met — the mutation probe above shows the ordinary accepted
-keystroke regressing without it — but the ruling's text and the code now
-disagree in letter. Raised rather than resolved here; the amendment is
-Mike's.
+keystroke regressing without it, not merely the refusal — so the tension raised
+here was resolved by amending the record rather than the code (`rf2-ncn5p`).
+HD-019 now reads that `flushSync` is never the *general* default and that this
+converge is its single evidence-gated exception, scoped to the one audited call
+site in the element path and to controlled text entry. Anywhere else the old
+blanket binds unchanged: a second call site needs fresh evidence and its own
+ruling.
 
 ### C — pin the selector
 
@@ -311,8 +315,9 @@ element path — a UIx consumer is not on that path and does not get it.
 - HD-019's "rejected/unchanged-model paths lean on React's own end-of-event
   restore" is **confirmed for the value and refuted for the caret** — and the
   caret is now the *arm's*, taken in the element path rather than leaned on
-  (`rf2-fki5d`, Option B above). HD-019's `flushSync` clause needs the
-  amendment noted under B.
+  (`rf2-fki5d`, Option B above). HD-019's `flushSync` clause **has** the
+  amendment noted under B (`rf2-ncn5p`), and HD-019's own text now carries the
+  caret half of this correction rather than leaving it to this page.
 - `rf2-n3dxw`'s headline residue is **answered for Arm 1**: a refused
   keystroke converges in the same turn with the caret at the position before
   it. Two things it recorded are not answered and are not rounded up — the

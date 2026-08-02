@@ -392,10 +392,22 @@ is the failure mode.
 **Ruling.** On the lean-React arm: a controlled element's event-vector lowering
 dispatches **synchronously inside the discrete browser event** (the
 dispatch-sync-class drain), and the spine's store notification runs synchronously
-so React commits the echo in the same turn; `flushSync` is the evidence-gated
-last resort, never the default. The rejected/unchanged-model path leans on
-React's own controlled restore (the value reasserts at end of the discrete
-event). Resets are by **explicit caller revision, never value equality** (the
+so React commits the echo in the same turn. `flushSync` is **never the general
+default**. The lean-React controlled-**text** converge is the single
+evidence-gated exception: it may flush the synchronous door's pending commit
+before React's controlled restore so value and caret are correct when the
+discrete event returns. That exception is exactly one audited call site —
+`front.controlled/converge!`, reached from the element path
+(`front.codec/native-element`), once per keystroke, on controlled text entry
+only (an `input` of a caret-bearing type or a `textarea`; non-nil `:value`; no
+authored `defaultValue`) and inert otherwise. A second call site, or any reach
+into another element or event path, needs fresh evidence and its own ruling;
+everywhere else "never the default" binds unchanged. The
+rejected/unchanged-model path leans on React's own controlled restore for the
+**value** (it reasserts at end of the discrete event) but **not** for the
+**caret**, which the arm takes itself in the element path — `rf2-n3dxw`
+measured the gap, `rf2-fki5d` closed it. Resets are by **explicit caller
+revision, never value equality** (the
 predecessor's ruled reset law, kept — `docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`). The browser witnesses that prove the door
 are the 100-cell grid rows: same-turn echo, mid-string caret, selection, IME
 composition (`composing?`/keyCode-229), unchanged-model rejection, async
@@ -404,8 +416,26 @@ renderer (architecture.md, hard gate).
 **Rationale.** The harness's trap table is explicit: any design where the input
 value round-trips through an external store must *name* its synchronous door.
 This names it, and the first controlled-input commit cannot stall on an
-undecided mechanism.
-**Reopens** only if the witnesses fail on both mechanisms — which is K4.
+undecided mechanism. The `flushSync` exception is named for the same reason —
+an unnamed one is taste — and it is granted on measurement, not convenience.
+The flush is not what makes the echo land: dispatch and the store notification
+are already synchronous, so the value arrives without it. The flush exists to
+make the per-instance last-rendered record current *before* React's
+end-of-discrete-event controlled restore runs, because React's outer wrapper
+flushes pending sync work only in the `finally` immediately preceding that
+restore (verified against pinned React DOM 19.2.0), so a converge running
+inside the handler would otherwise read the previous commit's record. Removing
+only the `flushSync` reds four assertions with every caret reading `[5 5]`,
+**including the ordinary accepted keystroke**: the record goes one render
+stale, the converge writes the wrong value, and React's own restore repairs the
+value while throwing the caret away. That an *ordinary* keystroke breaks is
+what makes this an exception rather than an erosion (`rf2-ncn5p`, on the
+evidence recorded by `rf2-fki5d`).
+**Reopens** only if the witnesses fail on both mechanisms — which is K4. The
+`flushSync` exception additionally reopens if its named live-tree invariant row
+goes red — React mirroring controlled text into `defaultValue` is what makes
+the node-held record valid, and it is not a public React guarantee — or if any
+candidate second call site appears.
 
 ## HD-020 — v0 host mechanics: frame plumbing, hook ledger, error boundary, SSR posture
 
