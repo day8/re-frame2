@@ -514,12 +514,19 @@
 ;; the IME and a per-key exception list is a second place for the law to
 ;; rot.
 ;;
-;; What is NOT asserted, and why, so the absence reads as a decision: the
-;; **value** path during composition. Synthetic `compositionstart` /
-;; `compositionend` events do not exercise React's composition plugin, and
-;; a fence asserted without being demonstrated is worse than no assertion.
-;; `bench/hicasso/controlled_restore_dom_cljs_test` carries the same
-;; carve-out and rf2-n3dxw carries the bead.
+;; What is NOT asserted HERE, and where it is: the **value** path during
+;; composition. Synthetic `compositionstart` / `compositionend` events do
+;; not exercise React's composition plugin — or the browser's composition
+;; range — so the real-composition harness owns it instead (rf2-o27h3):
+;; `bench/hicasso/ime_run.cjs` drives trusted CDP composition against this
+;; arm's element path (converge included), plain React and the port, and
+;; asserts the fence there. Its one open residue — every implementation
+;; rewrites a refused/normalised value mid-composition, destroying the
+;; exchange — is rf2-digtt. The two rows below stay: they witness the
+;; gate's two signals through React's keydown plumbing cheaply, on every
+;; PR, in-page — while the events they build are exactly the synthetic
+;; kind the harness exists to go beyond, which is why the harness, not
+;; these rows, is what establishes the fence.
 
 (def ^:private !probe (atom []))
 
