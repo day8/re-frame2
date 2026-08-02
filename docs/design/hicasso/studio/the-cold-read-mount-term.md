@@ -344,7 +344,12 @@ below are read with that stated rather than smoothed over.
   real Conduit app links through `ui/route-link` on those platforms too,
   so the twins dodge a cost the census's uix counterpart would pay. That
   fairness gap is rf2-2rtt6.54's to close, filed with the mayor rather
-  than patched here.
+  than patched here. **Both were closed by `rf2-cno31` —
+  [the route-link term page](the-route-link-render-term-priced.md)**: the
+  8.21 µs is decomposed there (77% of it routing's, not Hicasso's), the
+  seam call halved, and the twins now pay the routing term through the
+  same two published seams the candidate's `route-link` takes. The rows
+  below are superseded by that page's.
 
 **Window discipline.** Windows announced on the bead before opening and
 closed after; quiet-box gate per row: QUIET on attempt 1 everywhere except
