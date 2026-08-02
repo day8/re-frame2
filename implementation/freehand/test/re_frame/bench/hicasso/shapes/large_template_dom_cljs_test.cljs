@@ -184,6 +184,53 @@
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
+;; The one authoring spelling this roster uses that nothing else witnesses
+;; ---------------------------------------------------------------------------
+;;
+;; The census's feed tabs are anchors, so a port that keeps them has to opt
+;; `preventDefault` IN — `^{::h/prevent? true}` on the intent — where the
+;; comment form's `:on-submit` gets it from the position's own default.
+;; Every other assertion in the roster reaches its intents through
+;; `rt/dispatch!`, which would never have exercised the metadata at all.
+;; Fired here as a real cancelable click, with the un-annotated control on
+;; the same page as the control: if the pair both prevented, or neither
+;; did, the metadata would not be the thing doing it.
+
+(defn- click!
+  "A real, cancelable click, dispatched at the node. Answers the event, so
+  the caller can read `defaultPrevented` off it."
+  [node]
+  (let [ev (js/MouseEvent. "click" #js {:bubbles true :cancelable true})]
+    (.dispatchEvent node ev)
+    (mount/settle!)
+    ev))
+
+(deftest the-prevent-metadata-is-what-prevents
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (let [handle (mount!)]
+        (try
+          (testing "an anchor carrying ^{::h/prevent? true} dispatches AND
+                   prevents, so the href=\"#\" does not navigate"
+            (let [ev (click! (q handle "[data-testid=\"your-feed-tab\"]"))]
+              (is (true? (.-defaultPrevented ev)))
+              (is (some? (q handle "[data-testid=\"your-feed-tab\"].active"))
+                  "and the intent reached the model")))
+          (testing "the control: an ordinary intent on the same page dispatches
+                   and does NOT prevent"
+            (let [slug (:slug (m/article 4))
+                  ev   (click! (q handle (str "[data-testid=\"favorite-" slug "\"]")))]
+              (is (false? (.-defaultPrevented ev)))
+              (is (= (str (inc (:favoritesCount (m/article 4))))
+                     (.-textContent (q handle (str "[data-testid=\"favorites-count-"
+                                                   slug "\"]"))))
+                  "and it reached the model too — so the difference between the
+                   two is the metadata and nothing else")))
+          (finally (mount/release! handle)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Teardown
 ;; ---------------------------------------------------------------------------
 
