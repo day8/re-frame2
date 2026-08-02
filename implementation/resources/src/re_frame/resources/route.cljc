@@ -1056,11 +1056,42 @@
         ;; routing threads into the hook; without it (a direct planner call in a
         ;; unit) nothing reads as adoptable and everything ensures — the
         ;; fail-safe direction, matching the blocking read below.
-        prev-ids  (set prev-identities)
-        next-ids  (into #{} (map :scoped-key) ordered)
+        ;; rf2-dlkou (merged-PR audit of #7228) — the identity carriers are keyed
+        ;; by the CEDN-1 BYTE key-id, NOT by Clojure `=`.
+        ;;
+        ;; Resource identity is `state/key-id`, which is collection-KIND
+        ;; sensitive (rf2-wgutc2): `{:p [1 2]}` and `{:p '(1 2)}` are two
+        ;; entries under two `state/entry-path`s, and yet the two scoped keys
+        ;; are `=` to Clojure and hash alike. A raw `set` of scoped keys
+        ;; therefore COLLAPSES a supported pair before anything downstream can
+        ;; canonicalize it — the row's `sort-by state/key-id` runs after the
+        ;; loss, not before it. What that cost: a navigation whose prior plan
+        ;; held `{:p '(1 2)}` and whose next plan holds `{:p [1 2]}` reported
+        ;; `:removed 0` and an EMPTY `:removed-identities`, because the prior
+        ;; identity tested as still-present against a set that only knows `=`.
+        ;; The dropped identity was real — its entry lives at its own byte path
+        ;; and the prior owner's release did let it go — so the row contradicted
+        ;; the runtime. `adopted?` read the same way, and only avoided adopting
+        ;; across the pair because `adoptable?` looks the ENTRY up by byte path
+        ;; and found none: a fail-safe accident rather than a decision.
+        ;;
+        ;; Both carriers are consequently maps from `key-id` to the scoped key.
+        ;; Membership is byte-exact; the EMITTED value is still the scoped key,
+        ;; because that is what a consumer joins on.
+        prev-by-id (into {} (map (juxt state/key-id identity)) prev-identities)
+        next-by-id (into {}
+                         (map (fn [{:keys [scoped-key]}] [(state/key-id scoped-key) scoped-key]))
+                         ordered)
+        ;; the RETURN map's `:identities` keeps its documented set shape
+        ;; (`{<nav-token> #{<scoped-key> …}}` — Spec-Schemas §`:rf/runtime-db`),
+        ;; derived from the byte-keyed carrier so there is ONE source. Note that
+        ;; a set cannot itself hold a byte-distinct `=` pair, so the HANDOFF
+        ;; still has the collapse this repair removed from the planner's own
+        ;; arithmetic — see the note on `removed-identities` below.
+        next-ids  (set (vals next-by-id))
         entry-of  (fn [scoped-key] (get-in runtime-db (state/entry-path scoped-key)))
         adopted?  (fn [{:keys [scoped-key]}]
-                    (and (contains? prev-ids scoped-key)
+                    (and (contains? prev-by-id (state/key-id scoped-key))
                          (adoptable? runtime-db (entry-of scoped-key))))
         req-fx    (mapv
                     (fn [{:keys [resource scope cparams keep-previous?] :as req}]
@@ -1120,21 +1151,39 @@
         ;; in place would only republish set-iteration order while CLAIMING the
         ;; prior plan's.
         ;;
-        ;; Dropping to `prev-ids` is necessary but NOT sufficient, and the CLJS
-        ;; lane proved it: a small CLJS set is backed by an ARRAY map, so it
-        ;; iterates in INSERTION order and the caller's sequence walks straight
-        ;; back out — `[v a b c]` and its exact reverse produced reversed rows —
-        ;; while a JVM hash set happens to iterate in a content-derived order
-        ;; that hid the leak. The vector is therefore SORTED by `key-id`, the
-        ;; CEDN-1 byte identity `:entries` is already keyed on: total over
-        ;; canonical scoped keys and identical on both hosts. That is what
-        ;; actually makes the row a pure function of the removal MEMBERSHIP —
-        ;; the same removal set yields the same vector for every caller shape on
-        ;; every host — and `:removed` is its size BY CONSTRUCTION rather than a
-        ;; second, separately-derived count that a duplicate-bearing
-        ;; `prev-identities` could put out of step. The order is CANONICAL, not
-        ;; meaningful: consumers read membership from it, exactly as they do
-        ;; from `:blocking`. Spec 009 §Where trace emission lives states it.
+        ;; Dropping to a de-duplicated prior collection is necessary but NOT
+        ;; sufficient, and the CLJS lane proved it: a small CLJS set is backed by
+        ;; an ARRAY map, so it iterates in INSERTION order and the caller's
+        ;; sequence walks straight back out — `[v a b c]` and its exact reverse
+        ;; produced reversed rows — while a JVM hash set happens to iterate in a
+        ;; content-derived order that hid the leak. The vector is therefore
+        ;; ordered by `key-id`, the CEDN-1 byte identity `:entries` is already
+        ;; keyed on: total over canonical scoped keys and identical on both
+        ;; hosts. That is what actually makes the row a pure function of the
+        ;; removal MEMBERSHIP — the same removal set yields the same vector for
+        ;; every caller shape on every host — and `:removed` is its size BY
+        ;; CONSTRUCTION rather than a second, separately-derived count that a
+        ;; duplicate-bearing `prev-identities` could put out of step. The order
+        ;; is CANONICAL, not meaningful: consumers read membership from it,
+        ;; exactly as they do from `:blocking`. Spec 009 §Where trace emission
+        ;; lives states it.
+        ;;
+        ;; The membership itself is byte-exact now (`prev-by-id` / `next-by-id`
+        ;; above), so the `key-id` ordering is read off the carrier's own keys
+        ;; rather than recomputed — one derivation of the identity, used for both
+        ;; the difference and the order.
+        ;;
+        ;; WHAT REMAINS, stated rather than implied: the byte-distinct `=` pair
+        ;; can still be collapsed BEFORE this function sees it. `ordered` comes
+        ;; from `collapse-and-order`, which groups occurrences by scoped key
+        ;; under Clojure `=`, and the routing handoff records a plan's identities
+        ;; as a `set` of scoped keys. So a caller that supplies both members of
+        ;; such a pair as `prev-identities` now gets both reported — a direct
+        ;; planner call, and the shape a byte-exact handoff would deliver — while
+        ;; the LIVE handoff cannot yet supply both. Closing that needs the
+        ;; planner's dedupe grain and two documented cross-feature runtime-db
+        ;; slot shapes to move together, which is a larger change than a trace
+        ;; row's contract: rf2-btdl1 carries it.
         ;;
         ;; Nothing else from the EP's §Tooling list is projected — no
         ;; occurrence/dependency groups, no per-contributor requirement mapping,
@@ -1143,7 +1192,10 @@
         ;; `:redundant-children` are the authorities).
         ensured-identities (into [] (comp (remove adopted?) (map :scoped-key)) ordered)
         kept-identities    (into [] (comp (filter adopted?) (map :scoped-key)) ordered)
-        removed-identities (vec (sort-by state/key-id (remove next-ids prev-ids)))
+        removed-identities (into []
+                                 (comp (remove (fn [[k-id _]] (contains? next-by-id k-id)))
+                                       (map val))
+                                 (sort-by key prev-by-id))
         added-count        (count ensured-identities)
         removed-count      (count removed-identities)]
     (trace/emit! :rf.event :rf.resource/route-plan
