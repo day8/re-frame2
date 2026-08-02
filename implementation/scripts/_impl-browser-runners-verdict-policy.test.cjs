@@ -249,10 +249,23 @@ test('run-browser-tests: an `:advanced` lane may only skip the drift check by DE
   // and must not be silent. It is a per-lane declaration, made on the lane's
   // own command line, and announced when used.
   const src = read('run-browser-tests.cjs');
+  // The literal itself lives in the shared lib module (rf2-u0cy4: both
+  // run-browser-tests.cjs, which reads the var, and
+  // serve-and-run-browser-tests.cjs, which sets it, import the SAME
+  // constant from lib/browser-runner-drift-env.cjs — one name, so the two
+  // sides cannot drift into different literals). Pin the literal there, and
+  // pin that this runner actually imports it (an explicit, named channel,
+  // not a re-typed copy).
+  const libSrc = read('lib/browser-runner-drift-env.cjs');
+  assert.match(
+    libSrc,
+    /DRIFT_UNVERIFIABLE_ENV_VAR\s*=\s*'RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE'/,
+    'the env-var literal must be declared in the shared lib module',
+  );
   assert.match(
     src,
-    /RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE/,
-    'the declaration must arrive through an explicit, named channel',
+    /DRIFT_UNVERIFIABLE_ENV_VAR[\s\S]{0,80}\brequire\(\s*['"]\.\/lib\/browser-runner-drift-env\.cjs['"]\s*\)/,
+    'run-browser-tests.cjs must import the constant from the shared lib module, not re-declare it',
   );
   // Only the unreachable branch may honour it. If introspection SUCCEEDS the
   // check runs regardless, so a stale declaration cannot disable a working
