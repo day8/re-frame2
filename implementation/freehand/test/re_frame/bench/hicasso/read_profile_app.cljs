@@ -47,8 +47,8 @@
   | `ship`        | 141 x `(sub q)` — the shipping collector read          | the whole render-side read term |
   | `local`       | faithful copy of the read shell + `subscribe-once`     | the FROZEN pre-rf2-6c237 path — the ablation baseline, validated against `ship` |
   | `no-shell`    | 141 x bare `subs/subscribe-once`                       | `local - no-shell` = the Hicasso shell (key alloc, scratch push, cells probe, entry-hit compare) |
-  | `probe`       | 141 x the candidate: cache peek, else slice-memo'd `compute-sub-with-memo` against one frame-state snapshot | the no-churn cold read (the observation port's own cold-probe discipline) |
-  | `probe-fresh` | 141 x `compute-sub` (fresh memo per read)              | `probe-fresh - probe` = the shared-memo economy (expected ~0 here: the roster is 141 DISTINCT layer-1 subs, no shared parents) |
+  | `probe`       | 141 x the candidate: cache peek, else pass-scoped value map, else fresh-memo `compute-sub-with-memo` against one frame-state snapshot | the no-churn cold read (the observation port's cold-probe discipline, value-mapped per pass) |
+  | `probe-fresh` | 141 x `compute-sub` (fresh memo per read, no wrap/peek/map) | the bare-compute lower bound the candidate is priced against |
   | `floor`       | 141 x registrar lookup + raw handler call on app-db    | the irreducible compute floor |
   | `warm`        | 141 x `(sub q)` with cells COMMITTED (a second frame)  | the steady-state pure-deref read, for scale |
   | `ctl2`        | 282 x bare `subscribe-once` (the roster twice)         | positive control, predicted 2.0 x `no-shell` |
@@ -247,18 +247,24 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- probe-pass!
-  "One candidate pass: per read, peek the frame's sub-cache and deref a
-  live reaction without acquire/release churn; else compute PURE against
-  ONE coherent frame-state snapshot through ONE slice memo (seeded with
-  `subs/observation-opts-key` so an unregistered read emits the always-on
-  `:rf.error/no-such-sub` exactly as the reactive build does). The
-  snapshot and the memo are per PASS — the render-scoped lifetime the
-  rf2-6c237 candidate resets at the top of every body run — and each read
-  sits inside `call-with-frame-resolution`, the resolution seam
-  `subscribe` itself reads through (and the read-time coalesced
-  reprojection flush, without which a same-tick `reg-sub` is invisible)."
+  "One candidate pass — the shape [[re-frame.bench.hicasso.arm1.runtime]]
+  lands as `cold-read!`: per read, resolve the frame record, enter
+  `call-with-frame-resolution` (the resolution seam `subscribe` itself
+  reads through, and the read-time coalesced reprojection flush without
+  which a same-tick `reg-sub` is invisible), peek the frame's sub-cache
+  and deref a live reaction without acquire/release churn; else consult
+  the pass-scoped VALUE map, and on a genuine first read compute PURE
+  against the pass's one frame-state snapshot with a FRESH per-read memo
+  seeded with `subs/observation-opts-key` (so an unregistered read emits
+  the always-on `:rf.error/no-such-sub` exactly as the reactive build
+  does). The snapshot and the value map are per PASS — the render-scoped
+  lifetime the candidate resets at the top of every body run. The
+  BEFORE run also measured the run-SHARED threaded memo here and it lost
+  to this shape by ~1 us/read (its own bookkeeping against a grown map);
+  that reading is preserved in the studio page, and this arm is the
+  refined candidate it selected."
   [frame-id ^js roster]
-  (let [pstate #js {"fs" nil "memo" nil}
+  (let [pstate #js {"fs" nil "vals" {}}
         n      (alength roster)]
     (dotimes [i n]
       (let [q            (aget roster i)
@@ -268,16 +274,18 @@
           (fn []
             (if-some [r (:reaction (get @(:sub-cache frame-record) q))]
               @r
-              (let [fs   (or (unchecked-get pstate "fs")
+              (if-some [kv (find (unchecked-get pstate "vals") q)]
+                (val kv)
+                (let [fs (or (unchecked-get pstate "fs")
                              (let [v (frame/frame-state-value frame-id)]
                                (unchecked-set pstate "fs" v)
                                v))
-                    memo (or (unchecked-get pstate "memo")
-                             (let [m (atom {subs/observation-opts-key
-                                            {:frame frame-id}})]
-                               (unchecked-set pstate "memo" m)
-                               m))]
-                (subs/compute-sub-with-memo q fs memo)))))))))
+                      v  (subs/compute-sub-with-memo
+                           q fs (atom {subs/observation-opts-key
+                                       {:frame frame-id}}))]
+                  (unchecked-set pstate "vals"
+                                 (assoc (unchecked-get pstate "vals") q v))
+                  v)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The other render arms
