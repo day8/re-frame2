@@ -1081,6 +1081,28 @@
            (:lifecycle f)
            {:id (:id f)})))
 
+(defn frame-config
+  "The frame's stored CONFIG map for `id` — the post-preset-expansion
+  user-supplied metadata alone — or nil when no frame is registered under `id`.
+
+  The narrow sibling of [[frame-meta]], for the consult points that need ONE
+  config key and run on the render path. `frame-meta` answers the canonical
+  `:rf/frame-meta` SHAPE, and building that shape costs a three-way `merge`
+  per call; a consult that reads `:url-strategy` and nothing else was paying
+  for the whole flattening to reach one key. Routing's
+  `url-strategy-for-frame-id` runs once per rendered `route-link` — measured at
+  0.72 µs per link on the rf2-cno31 census probe, against a `route-url`
+  synthesis of 4.71 — and it is that caller this exists for.
+
+  This is NOT a widening of what callers may depend on. The lifecycle fields
+  `frame-meta` merges (`:created-at`, `:destroyed?`, `:listeners`) and the `:id`
+  it stamps are disjoint from the config keys, so for any config key the two
+  answer identically; a caller wanting the canonical reflection shape — every
+  tool — still calls `frame-meta`, which remains the only shape tools may
+  depend on."
+  [id]
+  (:config (frame id)))
+
 (def ^:private live-frame-id-xf
   "Transducer over `@frames` `[id record]` pairs → the `:id` of each
   registered frame visible to the current actor. The shared front of both
