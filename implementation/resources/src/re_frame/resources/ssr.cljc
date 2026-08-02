@@ -688,11 +688,21 @@
                              (classification/project-entry-data
                                (:data entry) key-id frame-id
                                :rf.egress/ssr-hydration))
-                      ;; sensitive: replace data with the redaction sentinel
-                      ;; (the entry still announces it exists; metadata only).
+                      ;; sensitive: replace data with the redaction sentinel.
                       ;; The coarse `:sensitive?` claim is the authority — the
                       ;; sentinel is explicit, not dependent on a frame-resolved
                       ;; schema mark. refresh-error is the same privacy class.
+                      ;;
+                      ;; rf2-4bjep — this arm and the `:omit` one below are now
+                      ;; DEFENCE IN DEPTH rather than the wire shape: a coarse
+                      ;; entry is re-keyed on both components, so
+                      ;; `project-resources-runtime-db` withholds its row and
+                      ;; this wire entry is discarded. They are kept for the same
+                      ;; reason the `key-projected?` branch above is kept — they
+                      ;; are what make a withheld row's metadata safe to compute
+                      ;; and report, and they fail CLOSED if any future caller
+                      ;; ships this entry. Nothing here decides what rides;
+                      ;; `:withheld?` does, from an exact key-id comparison.
                       :redact
                       (-> entry
                           (assoc :data privacy/redacted-sentinel)

@@ -106,6 +106,18 @@
   (let [we (val (first (get-in proj [state/resources-key :entries])))]
     [(:resource/key we) we]))
 
+(defn- only-projection-metadata
+  "The single per-entry projection metadata map for a one-entry `runtime-db`.
+
+  rf2-4bjep — the observation point for an entry whose ROW is withheld. A coarse
+  `:redact` / `:omit` key is re-keyed on both components, so like a
+  per-slot-declared `:serialize` key it is not addressable by anything the live
+  client derives, and its row does not ride. What the projection DECIDED is
+  unchanged and fully reported: `:disposition`, `:projected-key`, `:withheld?`."
+  [runtime-db]
+  (first (ssr/projection-metadata
+           nil 5000 (get-in runtime-db [state/resources-key :entries]))))
+
 (defn- ssr-projected-key
   "The key the SSR projection PRODUCED for the single entry in `runtime-db`.
 
@@ -271,25 +283,44 @@
 ;; 3. SSR projection — the reconciliation end-to-end (registry-driven)
 ;; ===========================================================================
 
-(deftest ssr-coarse-sensitive-redacts-whole-entry
+(deftest ssr-coarse-sensitive-classifies-redact-and-withholds-the-row
   (reg! :secret/thing {:sensitive? true})
-  (testing "a coarse :sensitive? resource still rides METADATA ONLY (the
-            degenerate root-prop case preserved — redact)"
-    (let [k   (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
-          e   (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}})
-          [_ we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
-      (is (= privacy/redacted-sentinel (:data we))
-          "the sensitive data is replaced by the redaction sentinel")
-      (is (= :loaded (:status we)) "metadata (status) still rides"))))
+  (testing "the coarse :sensitive? root-prop claim still classifies :redact, and
+            rf2-4bjep settles what that costs the ROW: the projection re-keys
+            both components, so no live client can address the entry and it does
+            not ride. The claim is absence of the ROW, not of its data"
+    (let [k    (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
+          e    (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}})
+          rdb  (runtime-db-with {k e})
+          proj (ssr/project-resources-runtime-db rdb)
+          m    (only-projection-metadata rdb)]
+      (is (= :redact (classification/whole-entry-disposition
+                       (rf/resource-meta :secret/thing)))
+          "premise: the coarse claim still classifies :redact")
+      (is (empty? (get-in proj [state/resources-key :entries]))
+          (str "the row does not ride: " (pr-str proj)))
+      (is (not (str/includes? (pr-str proj) "123-45-6789"))
+          "so the sensitive data cannot ride")
+      (is (= :redacted (:disposition m)) "and the metadata still says why")
+      (is (true? (:withheld? m)))
+      (is (= :loaded (:status m)) "metadata (status) is still reported"))))
 
-(deftest ssr-coarse-large-omits-whole-entry
+(deftest ssr-coarse-large-classifies-omit-and-withholds-the-row
   (reg! :big/thing {:large? true})
-  (testing "a coarse :large? resource omits the :data key entirely (degenerate
-            root-prop case preserved — omit)"
-    (let [k   (state/scoped-resource-key :rf.scope/global :big/thing {:slug "b"})
-          e   (entry {:resource-id :big/thing :data (vec (range 10000))})
-          [_ we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
-      (is (not (contains? we :data)) "the large data key is omitted"))))
+  (testing "the same for the coarse :large? root-prop claim: it still classifies
+            :omit, and its row is withheld for the same identity reason"
+    (let [k    (state/scoped-resource-key :rf.scope/global :big/thing {:slug "b"})
+          e    (entry {:resource-id :big/thing :data (vec (range 10000))})
+          rdb  (runtime-db-with {k e})
+          proj (ssr/project-resources-runtime-db rdb)
+          m    (only-projection-metadata rdb)]
+      (is (= :omit (classification/whole-entry-disposition
+                     (rf/resource-meta :big/thing)))
+          "premise: the coarse claim still classifies :omit")
+      (is (empty? (get-in proj [state/resources-key :entries]))
+          "the row does not ride, so the large payload cannot")
+      (is (= :omitted (:disposition m)))
+      (is (true? (:withheld? m))))))
 
 (deftest ssr-serialize-entry-projects-through-frame-classification
   (reg! :article/by-slug)   ;; a plain (no coarse claim) resource → :serialize
@@ -466,37 +497,52 @@
       (is (= #{:entries} (set (keys (get proj state/resources-key))))
           "only :entries rides — indexes are recomputable-from-entries"))))
 
-(deftest ssr-redacted-entry-hydrates-metadata-only-and-refetches
+(deftest ssr-redacted-entry-installs-no-row-so-nothing-can-mistake-it-for-data
   (reg! :secret/thing {:sensitive? true})
-  (testing "Spec 016 §SSR: a sensitive (redacted) entry hydrates as metadata
-            only — the sentinel is NOT usable data, so it refetches on the
-            client (not mistaken for fresh-with-data)"
+  (testing "Spec 016 §SSR — the hazard was a redacted entry being read as
+            fresh-with-data and never refetched. rf2-4bjep removes the hazard's
+            subject rather than reclassifying it: the row does not ride, so the
+            client's cache holds nothing to misclassify and the plan names
+            nothing it cannot address. `entry-needs-refetch?`'s sentinel
+            handling is unchanged and pinned by
+            `refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh`"
     (let [k    (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
           e    (entry {:resource-id :secret/thing :data {:ssn "x"}})
-          proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
-          [wk we] (only-wire-entry proj)
-          ;; rf2-9e0tyq — install the real byte-keyed projection; the plan
-          ;; names entries by their `:resource/key` (the projected wk).
-          installed proj
-          plan (->> (ssr/hydrate-refetch-plan installed 5000)
-                    (into {} (map (juxt :resource/key identity))))]
-      (is (= privacy/redacted-sentinel (:data we)) "redacted (metadata only) on the wire")
-      (is (contains? plan wk) "the redacted entry IS in the refetch plan")
-      (is (= :metadata-only (:reason (plan wk)))
-          "classified metadata-only (not fresh-with-data)"))))
+          rdb  (runtime-db-with {k e})
+          proj (ssr/project-resources-runtime-db rdb)
+          m    (only-projection-metadata rdb)]
+      (is (empty? (get-in proj [state/resources-key :entries]))
+          "nothing rides")
+      (is (empty? (get-in (ssr/hydrate-runtime-db proj nil)
+                          [state/resources-key :entries]))
+          "so the client installs no row for it")
+      (is (empty? (ssr/hydrate-refetch-plan proj 5000))
+          "and the plan names nothing")
+      (is (true? (:refetch-on-client? m))
+          "while the server's own metadata still says the client must fetch it
+           — the fact is reported, not lost"))))
 
 (deftest ssr-scoped-key-privacy-preserved-for-sensitive
   (reg! :secret/thing {:sensitive? true})
   (testing "Spec 016 clause 4: a sensitive resource's scope + params do NOT
-            ride raw in the projected wire KEY (scoped-key privacy preserved
-            under the reconciliation)"
+            ride raw in the projected KEY (scoped-key privacy preserved under
+            the reconciliation). rf2-4bjep — read off `projection-metadata`,
+            since the row itself no longer rides at all"
     (let [scope [:rf.scope/session {:user "alice@example.com"}]
           k    (state/scoped-resource-key scope :secret/thing {:account-id "secret-42"})
           e    (entry {:resource-id :secret/thing :data {:ssn "x"}})
-          [wk _] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+          rdb  (runtime-db-with {k e})
+          wk   (:projected-key (only-projection-metadata rdb))]
       (is (= :secret/thing (nth wk 1)) "resource-id preserved (position 1)")
       (is (contains? (nth wk 0) :rf/redacted) "scope redacted in the key")
       (is (contains? (nth wk 2) :rf/redacted) "params redacted in the key")
       (let [s (pr-str wk)]
         (is (not (str/includes? s "alice@example.com")) "no raw user in the key")
-        (is (not (str/includes? s "secret-42")) "no raw param in the key")))))
+        (is (not (str/includes? s "secret-42")) "no raw param in the key"))
+      (let [s (pr-str (ssr/project-resources-runtime-db rdb))]
+        (is (not (str/includes? s "alice@example.com")))
+        (is (not (str/includes? s "secret-42")))
+        (is (not (str/includes? s "rf/redacted"))
+            (str "and no digest rides either — a 32-bit digest of a low-entropy "
+                 "identity is enumerable, so withholding the row removes the "
+                 "token's last carrier: " s))))))

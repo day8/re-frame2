@@ -28,9 +28,12 @@
     - a feed entry NOT declared `:sensitive?` under a scope derived from a
       sensitive `:db` input SERIALIZES verbatim (data + scope/params ride) —
       the fail-OPEN the EP names (classify the path you care about);
-    - a resource declared `:sensitive?` ships METADATA ONLY (data redacted +
-      scope/params in the wire KEY redacted) via its OWN coarse claim —
-      confirm-by-revert that the owner boundary, not propagation, drives it.
+    - a resource declared `:sensitive?` contributes NO ROW to the payload via
+      its OWN coarse claim — confirm-by-revert that the owner boundary, not
+      propagation, drives it. rf2-4bjep: the coarse projection substitutes both
+      key components, so the entry is not addressable by anything the live
+      client derives and the row is WITHHELD rather than shipped metadata-only,
+      the same settlement rf2-rjq9d reached for a per-slot-declared key.
 
   The streaming-path frame-scope coverage (the daemon-writer `rf/with-frame`
   rebinding, rf2-tbr67x) lives in `re-frame.ssr.ring-streaming-test`."
@@ -39,7 +42,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.resources.state :as state]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
@@ -195,20 +197,22 @@
           (lifecycle/destroy-frame-quietly! fid))))))
 
 ;; ===========================================================================
-;; Confirm-by-revert: a resource declared :sensitive? STILL ships METADATA ONLY
-;; through the real Ring path — data redacted + scope/params in the wire KEY
-;; redacted — via its OWN coarse owner claim (the surviving boundary, not
-;; propagation). This is the load-bearing leak check: raw "jake" + article data
-;; must never ride.
+;; Confirm-by-revert: a resource declared :sensitive? is still governed by its
+;; OWN coarse owner claim through the real Ring path (the surviving boundary,
+;; not propagation). rf2-4bjep settles what that costs the ROW: the coarse
+;; projection substitutes BOTH key components, so no live client can derive the
+;; entry's identity and the row is WITHHELD rather than shipped metadata-only —
+;; an installed row would be an ownerless duplicate nothing addresses and
+;; nothing collects. This is the load-bearing leak check: raw "jake" + article
+;; data must never ride, and now neither does the digest that stood for "jake".
 ;; ===========================================================================
 
-(deftest non-streaming-payload-redacts-owner-declared-sensitive-resource
-  (testing "rf2-p026f5 / EP-0025: a `{:from-db}` feed entry declared
-            :sensitive? ships METADATA ONLY in the non-streaming `__rf_payload`
-            — data redacted + scope/params in the wire key redacted to opaque
-            digests — via the resource's OWN coarse claim (confirm-by-revert:
-            the owner boundary, frame-blind, not propagation). The raw viewer
-            identity (\"jake\") + data ({:articles …}) must NOT ride."
+(deftest non-streaming-payload-withholds-owner-declared-sensitive-resource
+  (testing "rf2-p026f5 / EP-0025 / rf2-4bjep: a `{:from-db}` feed entry declared
+            :sensitive? contributes NO row to the non-streaming `__rf_payload`
+            — via the resource's OWN coarse claim (confirm-by-revert: the owner
+            boundary, frame-blind, not propagation). The raw viewer identity
+            (\"jake\") + data ({:articles …}) must NOT ride."
     (register-feed-app! true)
     (let [fid :p026f5/req-frame-sensitive]
       (rf/reg-event :p026f5/classify
@@ -230,25 +234,27 @@
                                         :rf.runtime/resources :entries])]
           (is (= 200 (:status resp)) "happy-path render emitted a 200")
           (is (some? payload) "the __rf_payload parsed")
-          (is (= 1 (count entries))
-              "the single feed entry rides in the runtime-db slice")
-          (let [we (val (first entries))
-                wk (:resource/key we)]
-            ;; OWNER :sensitive? claim — data + scope/params REDACTED.
-            (is (= privacy/redacted-sentinel (:data we))
-                "EP-0025: the owner-:sensitive? entry's DATA is redacted (own claim)")
-            (is (= :loaded (:status we)) "metadata (status) still rides")
-            (is (= :p026f5/feed (nth wk 1))
-                "the resource-id rides at position 1 (never sensitive)")
-            (is (contains? (nth wk 0) :rf/redacted)
-                "the SCOPE is redacted in the wire key")
-            (is (contains? (nth wk 2) :rf/redacted)
-                "the PARAMS are redacted in the wire key"))
-          ;; The raw viewer identity + article data must not ride ANYWHERE.
+          (is (empty? entries)
+              (str "rf2-4bjep: the coarse feed entry contributes no row to the "
+                   "runtime-db slice — stated as absence of the ROW, which is "
+                   "what the sibling bead was reopened for: " (pr-str entries)))
+          ;; the confirm-by-revert control: the projection is not silently
+          ;; empty for everyone. The NON-sensitive counterpart of this exact
+          ;; render still ships its row, asserted by
+          ;; `non-streaming-payload-serializes-non-sensitive-resource` below.
+          ;;
+          ;; The raw viewer identity + article data must not ride ANYWHERE…
           (is (not (str/includes? (pr-str payload) "jake"))
               "EP-0025: the raw sensitive viewer identity does NOT ride")
           (is (not (str/includes? (pr-str payload) ":articles"))
-              "EP-0025: the redacted resource DATA does NOT ride"))
+              "EP-0025: the redacted resource DATA does NOT ride")
+          ;; …and neither does the digest that stood for it. A 32-bit
+          ;; non-cryptographic digest of a low-entropy identity is enumerable,
+          ;; so the token was itself a small egress of what the coarse claim
+          ;; asked to hide; withholding the row removes its last carrier.
+          (is (not (str/includes? (pr-str (get payload :rf/runtime-db))
+                                  "rf/redacted"))
+              "rf2-4bjep: no redaction token rides the runtime-db slice either"))
         (finally
           (lifecycle/destroy-frame-quietly! fid))))))
 

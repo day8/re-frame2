@@ -144,6 +144,20 @@
   ([resource-id params]
    (state/scoped-resource-key (session-scope) resource-id params)))
 
+(defn- global-key-for
+  "The same undeclared owner under `:rf.scope/global` — an ADDRESSABLE key that
+  carries no secret in any component.
+
+  rf2-4bjep — the suite needs one such row as filler for the two claims stated
+  over a non-empty wire slice. `:sealed/report` used to serve, because its coarse
+  digests made it secret-free while still riding; its row is now withheld like
+  every other re-keyed one, so the filler has to be an owner the projection
+  leaves alone. `(key-for :plain/report)` cannot serve either — its scope rides
+  verbatim, tenant id and all, which is exactly what
+  `an-undeclared-owners-key-rides-byte-identical` asserts about it."
+  [resource-id]
+  (state/scoped-resource-key :rf.scope/global resource-id {:page 3}))
+
 (defn- install-entry!
   "Write a durable `:loaded` entry for `scoped-key` into the frame's runtime-db
   AND reconcile the per-frame elision registry, so the SSR durable projection
@@ -234,19 +248,18 @@
             key-id is a REVERSIBLE plaintext CEDN-1 encoding, so a stale raw
             key-id in the wire MAP key would leak just as loudly)"
     (install-entry! :rf/default (key-for :tenant/report))
-    ;; the COARSE owner is the filler: it shares this suite's session scope but
-    ;; digests it, so the slice is non-empty WITHOUT the secret riding by
-    ;; design. `:plain/report` cannot serve here — it declares nothing, so its
-    ;; scope rides verbatim, which is exactly what
-    ;; `an-undeclared-owners-key-rides-byte-identical` asserts.
-    (install-entry! :rf/default (key-for :sealed/report))
+    ;; the GLOBAL-scoped undeclared owner is the filler: it is addressable, so
+    ;; its row rides, and no component of its key carries the secret. See
+    ;; `global-key-for` for why neither `:sealed/report` nor the session-scoped
+    ;; `:plain/report` can serve.
+    (install-entry! :rf/default (global-key-for :plain/report))
     (let [slice (ssr/project-resources-runtime-db
                   (frame/frame-runtime-db-value :rf/default) :rf/default)
           w     (wire-key :rf/default :tenant/report)]
       (is (seq (get-in slice [state/resources-key :entries]))
-          "premise: the slice is not empty — rf2-rjq9d withholds the declaring
-           owner's row, so this claim would otherwise be satisfied by a slice
-           with nothing in it at all")
+          "premise: the slice is not empty — every re-keyed row is withheld
+           (rf2-rjq9d, rf2-4bjep), so this claim would otherwise be satisfied
+           by a slice with nothing in it at all")
       (is (not (leaks? tenant-secret slice))
           (str "the tenant id survived somewhere in the wire slice: "
                (pr-str slice)))
@@ -288,11 +301,12 @@
     (install-entry! :rf/default (key-for :both/report
                                          {:account-id account-secret :page 3}))
     (install-entry! :rf/default (key-for :plain/report))
+    (install-entry! :rf/default (global-key-for :plain/report))
     (install-entry! :rf/default (key-for :sealed/report))
     (is (= 2 (count (wire-entries :rf/default)))
-        "premise: two of the four rows ride — the two re-keyed by a per-slot
-         declaration are withheld (rf2-rjq9d), so a `doseq` over the wire is
-         not a `doseq` over nothing")
+        "premise: two of the five rows ride — the two re-keyed by a per-slot
+         declaration and the coarse one are withheld (rf2-rjq9d, rf2-4bjep), so
+         a `doseq` over the wire is not a `doseq` over nothing")
     (doseq [[k-id e] (wire-entries :rf/default)]
       (is (= k-id (state/key-id (:resource/key e)))
           (str "wire map key must equal key-id of the entry's own projected "
@@ -420,16 +434,22 @@
             resolve back to an entry"
     (install-entry! :rf/default (key-for :tenant/report))
     (install-entry! :rf/default (key-for :plain/report))
-    ;; the COARSE owner is what keeps a re-keyed row in this round-trip:
-    ;; `:tenant/report`'s row is withheld (rf2-rjq9d), and a round-trip over
-    ;; nothing but byte-identical keys would not exercise the projected map key
-    ;; at all.
+    (install-entry! :rf/default (global-key-for :plain/report))
+    ;; rf2-4bjep — no re-keyed row survives into this round-trip any more, and
+    ;; that is the point rather than a gap: EVERY key the client installs is one
+    ;; it can derive, so "the index members are the projected map keys" and "the
+    ;; index members are keys the client has" are now the same claim. The coarse
+    ;; owner is installed to prove it contributes NOTHING here.
     (install-entry! :rf/default (key-for :sealed/report))
     (let [wired    (wire-entries :rf/default)
           subtree  (state/recompute-indexes {:entries wired})
           members  (into #{} cat (vals (:owner-index subtree)))]
       (is (not (contains? wired (state/key-id (key-for :sealed/report))))
           "premise: the coarse row IS re-keyed — its raw key-id is not a map key")
+      (is (= 2 (count wired))
+          (str "premise: exactly the two undeclared rows ride — the coarse row "
+               "and the declared one are both withheld: "
+               (pr-str (mapv (comp :resource/key val) wired))))
       (is (= (set (keys wired))
              (set (keys (:entries subtree))))
           "install is lossless — one entry in, one entry out")
@@ -474,11 +494,17 @@
           (str "wire " (pr-str wire) " vs trace " (pr-str trace))))))
 
 ;; ===========================================================================
-;; 6. THE COARSE ARM IS UNCHANGED — the two arms compose by grain.
+;; 6. THE COARSE ARM'S PROJECTION IS UNCHANGED — the two arms compose by grain.
+;;
+;;    What DID change (rf2-4bjep) is the carrier, not the projection: a coarse
+;;    key is re-keyed on both components, so its row is withheld exactly as a
+;;    per-slot-declared one is, and the projected key is read off
+;;    `projection-metadata` (`wire-key`) rather than off a wire row. Every claim
+;;    below is about what `project-scoped-key` produces, which is untouched.
 ;; ===========================================================================
 
 (deftest a-coarse-sensitive-owner-still-tokenizes-both-components
-  (testing "a COARSE :sensitive? owner's key still redacts to the opaque
+  (testing "a COARSE :sensitive? owner's key still redacts to the
             content-addressed tokens, subsuming the per-slot surface. The
             per-slot scope arm must not change what the coarse arm produces"
     (let [k (install-entry! :rf/default (key-for :sealed/report))
@@ -489,6 +515,23 @@
       (is (not (leaks? tenant-secret w)))
       (is (= w (ssr/project-scoped-key k :redact nil))
           "byte-for-byte what `project-scoped-key` alone produces"))))
+
+(deftest a-coarse-owners-row-is-withheld-like-any-other-re-keyed-one
+  (testing "rf2-4bjep — the projection above is what the coarse arm still DOES;
+            this is what now becomes of the row it produced. Both components are
+            substituted, so no live client can derive the key, and an installed
+            row would be an ownerless duplicate nothing collects"
+    (install-entry! :rf/default (key-for :sealed/report))
+    (install-entry! :rf/default (global-key-for :plain/report))
+    (let [wired (wire-entries :rf/default)
+          w     (wire-key :rf/default :sealed/report)]
+      (is (not (contains? wired (state/key-id w)))
+          (str "no row rides under the coarse PROJECTED key either — the claim "
+               "is absence of the ROW, not of its data: " (pr-str wired)))
+      (is (nil? (wire-entry-for :rf/default :sealed/report)))
+      (is (some? (wire-entry-for :rf/default :plain/report))
+          "…while the addressable control still rides: the withholding is
+           targeted, not a silenced projection"))))
 
 ;; ===========================================================================
 ;; 7. THE rf2-dl7bz DEFERRAL IS STILL INTACT. `project-scoped-key` was NOT
