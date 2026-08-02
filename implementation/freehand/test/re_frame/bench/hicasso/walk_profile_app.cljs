@@ -295,12 +295,37 @@
 
 (def ^:private reserved-names #{"__proto__" "prototype" "constructor"})
 
+;; The local walk carries its OWN copy of the donor's prop-name cache —
+;; the string-valued cache the codec shipped when this bead opened — so
+;; the `local` arm stays the pre-optimisation walk even after the codec's
+;; own cache changes shape. Without this the ablation baseline silently
+;; absorbs half the candidate and the in-process A/B undersells it.
+(def ^:private local-prop-cache
+  (doto #js {}
+    (unchecked-set "class" "className")
+    (unchecked-set "for" "htmlFor")
+    (unchecked-set "charset" "charSet")))
+
+(def ^:private local-has-own (.-hasOwnProperty (.-prototype js/Object)))
+
+(defn- local-prop-name [k]
+  (if-not (or (keyword? k) (symbol? k))
+    (if (string? k) (codec/prop-name k) k)
+    (let [n (name k)]
+      (if (reserved-names n)
+        (codec/prop-name k)
+        (if (.call local-has-own local-prop-cache n)
+          (unchecked-get local-prop-cache n)
+          (let [converted (codec/prop-name k)]
+            (unchecked-set local-prop-cache n converted)
+            converted))))))
+
 (defn- walk-convert-props [mode props parsed]
   (if (identical? mode M-NO-PROPS)
     #js {}
-    (let [props (-> props codec/merge-caller (walk-shorthand mode parsed) (dissoc :key))]
+    (let [props (dissoc (walk-shorthand mode (codec/merge-caller props) parsed) :key)]
       (reduce-kv (fn [o k v]
-                   (let [n (codec/cached-prop-name k)]
+                   (let [n (local-prop-name k)]
                      (when-not (reserved-names n)
                        (unchecked-set o n (walk-value mode
                                             (if (identical? "ref" n)

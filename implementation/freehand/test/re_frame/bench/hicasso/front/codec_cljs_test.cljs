@@ -113,6 +113,49 @@
     (doseq [k [:class :className "class" :x/class 'class]]
       (is (= "className" (codec/canonical-slot k)) (str "spelled " (pr-str k))))))
 
+(deftest the-cached-classification-is-spelling-aware-and-no-spelling-poisons-another
+  ;; rf2-y1jkm: the prop cache's entries carry the POSITION CLASSIFICATION
+  ;; beside the React name, and the entry is keyed by name — so a symbol
+  ;; spelled `on-click` shares the keyword's entry while `event-prop?`
+  ;; answers false for it. The flag must therefore be minted from the NAME
+  ;; and applied spelling-aware at the call site; either shortcut turns
+  ;; whichever spelling renders first into the answer for both, which is
+  ;; exactly the order dependence the string/keyword law above exists to
+  ;; remove. Both directions, both from a cold cache.
+  (testing "a symbol minted FIRST does not cost the keyword its event lowering"
+    (codec/reset-caches!)
+    (codec/cached-prop-name 'on-click)
+    (let [!seen (atom [])
+          e     (intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                   (fn [] (codec/as-element [:button {:on-click [:go]}])))]
+      (is (fn? (prop e "onClick")) "the keyword position still lowers to a handler")
+      ((prop e "onClick") #js {:target #js {}})
+      (is (= [[:go]] @!seen))))
+  (testing "a keyword minted FIRST does not make the symbol an event position"
+    (codec/reset-caches!)
+    (codec/cached-prop-name :on-click)
+    (let [e (codec/as-element [:div {'on-click [:go]}])]
+      (is (array? (prop e "onClick"))
+          "a symbol key is never an event position (event-prop? says so), so
+           the vector is a plain prop value and converts through clj->js —
+           lowering it here would also have thrown, there being no ambient
+           frame in this test"))))
+
+(deftest the-shorthand-fast-lane-emits-what-the-donor-map-produced
+  ;; rf2-y1jkm lane 2: an element whose only class is the tag shorthand no
+  ;; longer routes through merge-shorthand's dissoc/assoc — the loop runs
+  ;; over the author's map and the shorthand's className is written AFTER
+  ;; it, because the donor path re-assoc'd `:class` LAST. The observable
+  ;; pin is the overwrite order for an exotic spelling that canonicalises
+  ;; onto the same slot: the shorthand won under the donor's map order and
+  ;; must keep winning under the lane.
+  (testing "a namespaced class spelling does not defeat the shorthand"
+    (is (= "a" (prop (codec/as-element [:div.a {:x/class "b"}]) "className"))))
+  (testing "a literal :class still takes the general lane and composes"
+    (is (= "a b" (prop (codec/as-element [:div.a {:class "b"}]) "className"))))
+  (testing "a caller remainder still takes the general lane and composes"
+    (is (= "a b" (prop (codec/as-element [:div.a {:& {:class "b"}}]) "className")))))
+
 (deftest prop-values-are-converted-in-the-shapes-react-wants
   (testing "a style map becomes a JS object with camelCased keys"
     (let [style (prop (codec/as-element [:div {:style {:font-size "12px" :color :red}}]) "style")]
