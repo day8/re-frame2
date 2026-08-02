@@ -672,6 +672,40 @@
   {:target    :node-test
    :output-to "out/node-test.js"
    :ns-regexp "cljs-test$"
+   ;; rf2-6t03c — DO NOT `shadow-cljs compile node-test --config-merge ...`
+   ;; (narrowing `:ns-regexp`, or any other override) against THIS build id
+   ;; for a focused/one-off compile. shadow-cljs derives the on-disk build
+   ;; cache directory from the build id alone, fixed BEFORE any
+   ;; `--config-merge` data is applied, so a focused compile and the always-on
+   ;; full compile below share ONE cache entry — the identical rule
+   ;; `implementation/freehand/test/re_frame/freehand/bench/lane_cache.cjs`
+   ;; already enforces for the hicasso bench lane. Mixing configs against a
+   ;; shared id risks leaving the next, unrelated compile mid-state; under
+   ;; box load a plain full compile can independently die with `aborted
+   ;; par-compile ... still waiting for ...` (`:par-timeout`, default 60s, in
+   ;; `shadow.build.compiler/par-compile-one`) with no root cause printed,
+   ;; which reads like a compiler bug rather than what it is.
+   ;;
+   ;; THE SAFE ALTERNATIVE, for both cases: select namespaces at RUNTIME
+   ;; instead of at compile time —
+   ;;
+   ;;     node out/node-test.js --test=<ns>[,<ns>...]
+   ;;
+   ;; — which needs no recompile at all and therefore cannot poison anything.
+   ;; This is the route rf2-hofhx's measurement work settled on after hitting
+   ;; this exact bead.
+   ;;
+   ;; If a focused COMPILE (not just a focused RUN) is genuinely required,
+   ;; go through `node scripts/compile-node-test.cjs node-test out/node-test.js
+   ;; --config-merge ...` rather than invoking shadow-cljs directly — it
+   ;; isolates the shared cache around a `--config-merge` compile (clears it
+   ;; before AND after) and, unconditionally for every invocation, deletes
+   ;; `:output-to` before compiling so an aborted compile can never leave the
+   ;; PREVIOUS successful bundle sitting in its place — the concrete failure
+   ;; that discarded an rf2-hofhx measurement run: a caller that didn't chain
+   ;; the compile's exit code silently re-ran a stale bundle and reported a
+   ;; green that meant nothing.
+   ;;
    ;; The compiler pass-boundary hook is inherited once
    ;; from :build-defaults (rf2-n7ff9f); do not duplicate it per build.
    ;; rf2-try1x — silent-on-success reporter. Custom runner installs
