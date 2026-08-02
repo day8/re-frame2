@@ -480,17 +480,27 @@
 
 (defn url-strategy-for-frame-id
   "Resolve the `:url-strategy` for `frame-id` by reading its stored frame
-  config off the frames store (`frame/frame-meta` — rf2-h1vqa4: frames have
+  config off the frames store (`frame/frame-config` — rf2-h1vqa4: frames have
   no registrar rows), defaulting to `history-url-strategy`. `nil` frame-id
-  (or an unregistered / destroyed frame — `frame-meta` returns nil) resolves
+  (or an unregistered / destroyed frame — `frame-config` returns nil) resolves
   to the history default. Used by the `route-link` href render (per render),
   the `:rf.nav/push-url` / `:rf.nav/replace-url` fxs, and the URL-change
   listener install — the strategy CONSULT points.
 
   A TRUSTED READ (rf2-ecb4sx): the store only ever holds a strategy that
   passed the registration-time preflight, so this returns it verbatim with no
-  per-consult validation. See `url-strategy-from-config`."
+  per-consult validation. See `url-strategy-from-config`.
+
+  rf2-ecb4sx removed the per-consult VALIDATION and left the per-consult
+  ALLOCATION: the read went through `frame/frame-meta`, which builds the
+  canonical `:rf/frame-meta` shape by merging the config, the lifecycle and
+  the id into a fresh map — a whole map, per rendered link, to reach one key.
+  rf2-cno31's census probe measured this consult at 0.72 µs per link against a
+  `route-url` synthesis of 4.71. It now reads the config map directly
+  (`frame/frame-config`). The answer is unchanged for every input: the
+  lifecycle fields and the stamped `:id` that `frame-meta` merges on top are
+  disjoint from `:url-strategy`, and a missing frame yields nil from either."
   [frame-id]
   (if (nil? frame-id)
     history-url-strategy
-    (url-strategy-from-config (frame/frame-meta frame-id))))
+    (url-strategy-from-config (frame/frame-config frame-id))))

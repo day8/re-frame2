@@ -1449,6 +1449,26 @@
         end   (match/segment-end pattern n start)]
     [end (keyword (subs pattern start end))]))
 
+(defn- literal-run-end
+  "Given `pattern` (length `n`) with the cursor `i` sitting on a LITERAL
+  character, return the index just past the whole run of literal characters —
+  the next sigil (`:` / `*` / `{` / `}`) or `n`.
+
+  rf2-cno31: `route-url`'s emission walk used to consume literal pattern text
+  ONE CHARACTER AT A TIME, allocating a one-character string and a vector
+  `conj` per character; `/profile/:username` cost nine of each before it
+  reached its single param. Reading the run in one `subs` is the same text by
+  construction — the run is a contiguous slice of the pattern, and the sigils
+  that bound it are exactly the characters the per-char loop branched on."
+  [^String pattern n i]
+  (loop [idx i]
+    (if (>= idx n)
+      idx
+      (let [c (.charAt pattern idx)]
+        (if (or (= c \:) (= c \*) (= c \{) (= c \}))
+          idx
+          (recur (inc idx)))))))
+
 (defn- encode-param
   "Percent-encode a path-param `v` for emission: splat values
   (`splat?`) preserve literal '/' between captured segments
@@ -1530,39 +1550,52 @@
   `:rf.error/non-edn-identity` rides `:rf.error/cause`); returns `v` unchanged
   when it is admitted."
   [route-id slot k v]
-  (when (host-instant? v)
-    (throw (route-error
-             :rf.error/route-url-non-edn-value
-             'rf.routing/route-url
-             (str "route " route-id " " (name slot) " value for " k
-                  " is an instant / host Date — re-frame2 will not "
-                  "host-stringify it into a URL (its host string is "
-                  "host-divergent and has no round-trippable URL segment; "
-                  "EP-0012 §Canonical EDN identity). Encode it as a portable "
-                  "string (e.g. an ISO-8601 token) at the boundary first")
-             {:route-id route-id
-              :slot     slot
-              :param    k
-              :value    v})))
-  (try
-    (identity/canonical-bytes v)
+  ;; rf2-cno31 — THE ADMITTED-SCALAR FAST ANSWER. This guard asks a DOMAIN
+  ;; question ("is `v` an admitted URL scalar?") and used to answer it by
+  ;; building the value's whole CEDN-1 token string and throwing it away, once
+  ;; per path param per href, on the render path. For the four kinds below the
+  ;; answer is unconditionally YES and is decidable by TYPE: none is a host
+  ;; instant, and `identity/encode` cannot reject any of them (string / keyword
+  ;; / symbol route through `pr-str`, boolean through a literal). Every other
+  ;; value — integers, whose safe-range check is the whole point; UUIDs;
+  ;; instants; host objects — takes the identical encode-and-catch path it
+  ;; always did, so the fail-closed class is exactly what it was.
+  (if (or (string? v) (keyword? v) (boolean? v) (symbol? v))
     v
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) ex
-      (if (= :rf.error/non-edn-identity (:rf.error/id (ex-data ex)))
+    (do
+      (when (host-instant? v)
         (throw (route-error
                  :rf.error/route-url-non-edn-value
                  'rf.routing/route-url
                  (str "route " route-id " " (name slot) " value for " k
-                      " is not a portable EDN identity (" (:bad-type (ex-data ex))
-                      ") — re-frame2 will not host-stringify it into a URL "
-                      "(EP-0012 §Canonical EDN identity); encode it as portable "
-                      "EDN at the boundary first")
-                 {:route-id        route-id
-                  :slot            slot
-                  :param           k
-                  :value           v
-                  :rf.error/cause  (ex-data ex)}))
-        (throw ex)))))
+                      " is an instant / host Date — re-frame2 will not "
+                      "host-stringify it into a URL (its host string is "
+                      "host-divergent and has no round-trippable URL segment; "
+                      "EP-0012 §Canonical EDN identity). Encode it as a portable "
+                      "string (e.g. an ISO-8601 token) at the boundary first")
+                 {:route-id route-id
+                  :slot     slot
+                  :param    k
+                  :value    v})))
+      (try
+        (identity/canonical-bytes v)
+        v
+        (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) ex
+          (if (= :rf.error/non-edn-identity (:rf.error/id (ex-data ex)))
+            (throw (route-error
+                     :rf.error/route-url-non-edn-value
+                     'rf.routing/route-url
+                     (str "route " route-id " " (name slot) " value for " k
+                          " is not a portable EDN identity (" (:bad-type (ex-data ex))
+                          ") — re-frame2 will not host-stringify it into a URL "
+                          "(EP-0012 §Canonical EDN identity); encode it as portable "
+                          "EDN at the boundary first")
+                     {:route-id        route-id
+                      :slot            slot
+                      :param           k
+                      :value           v
+                      :rf.error/cause  (ex-data ex)}))
+            (throw ex)))))))
 
 (defn- assert-fragment!
   "Fail closed when `fragment` is not an admitted `route-url` fragment value
@@ -1635,8 +1668,27 @@
              (not= :rf.route/not-found route-id))
     (let [names      (or (:names (:rf.route/compiled route-meta))
                          (:names (match/parse-pattern pattern)))
-          captured   (into #{} (map keyword) names)
-          uncaptured (remove captured (keys path-params))]
+          ;; rf2-cno31: membership WITHOUT building a keyword set per call.
+          ;; This runs once per href synthesis and the capture vocabulary is a
+          ;; short vector of NAME STRINGS, so the test reads a keyword's stored
+          ;; name field and compares it against them — where
+          ;; `(into #{} (map keyword) names)` interned a keyword per name and
+          ;; allocated a hash-set per link. The two extra conditions keep the
+          ;; answer identical to the set's: a NON-keyword key was never a
+          ;; member (the set holds keywords only), and a NAMESPACED key is not
+          ;; the bare capture of the same name — the set held `(keyword "id")`
+          ;; = `:id`, which `:user/id` is not.
+          captured?  (fn [k]
+                       (and (keyword? k)
+                            (nil? (namespace k))
+                            (let [nm (name k)
+                                  c  (count names)]
+                              (loop [i 0]
+                                (cond
+                                  (>= i c)             false
+                                  (= nm (nth names i)) true
+                                  :else                (recur (inc i)))))))
+          uncaptured (remove captured? (keys path-params))]
       (when (seq uncaptured)
         (vec (sort-by identity/canonical-bytes uncaptured))))))
 
@@ -1748,7 +1800,16 @@
    ;; (Spec 012 §The extraction law). route-url takes an already-extracted
    ;; address, so a non-address key here (`:url` / `:query-merge` / policy /
    ;; unknown) is a direct-misuse caller bug and rejects LOUD.
-   (when-let [bad (seq (remove address/address-keys (keys address)))]
+   ;; rf2-cno31: the reject scan runs on the render path — every `route-link`
+   ;; href synthesis pays it — so it walks the address's entries directly
+   ;; instead of allocating a `keys` sequence and a lazy `remove` over it. The
+   ;; canonical-order sort still runs, but only on the failure leg, where a
+   ;; throw is already the outcome. `reduce-kv` is safe here: the `map?` guard
+   ;; above has already run.
+   (when-let [bad (seq (reduce-kv (fn [acc k _]
+                                    (if (address/address-keys k) acc (conj acc k)))
+                                  nil
+                                  address))]
      (let [bad (vec (sort-by identity/canonical-bytes bad))]
        (throw (route-error
                 :rf.error/route-url-validation
@@ -1791,10 +1852,19 @@
          ;; CEDN-1 map encoding uses), so it is total over the mixed-kind
          ;; query keys a route may carry. An array-map preserves this sorted
          ;; order downstream through validation and emission.
-         emitted-query (into (array-map)
-                             (sort-by (comp identity/canonical-bytes key)
-                                      (remove (fn [[_ v]] (nil? v))
-                                              query-params)))
+         ;;
+         ;; rf2-cno31: an address with NO query — every link the census renders,
+         ;; and the ordinary case generally — has nothing to elide and nothing
+         ;; to order, yet still built a lazy `remove`, a sort array and an
+         ;; array-map per href. The empty case short-circuits to the empty map
+         ;; it would have produced; every query-bearing address takes the
+         ;; identical sorted path it always did.
+         emitted-query (if (empty? query-params)
+                         query-params
+                         (into (array-map)
+                               (sort-by (comp identity/canonical-bytes key)
+                                        (remove (fn [[_ v]] (nil? v))
+                                                query-params))))
          route-meta   (registrar/lookup :route route-id)
          pattern      (:path route-meta)
          ;; The same precompiled coercion tables `match-url` uses let the
@@ -1922,6 +1992,44 @@
                         'rf.routing/route-url
                         (str "route " route-id " requires " kind " param " k " but it was absent (or nil)")
                         {:param k :route-id route-id}))))
+           ;; rf2-cno31 — THE NO-OPTIONAL-GROUP EMISSION, and why it is a
+           ;; specialisation rather than a second implementation.
+           ;;
+           ;; The general loop below threads three pieces of state that exist
+           ;; ONLY for optional groups: `elided?` (the prefix chain), the
+           ;; `parts` VECTOR (so an elision can `peek` / `pop` the separator
+           ;; that preceded the group), and the `root-only?` test over that
+           ;; vector. A pattern with no `{` can reach none of them — its `{`
+           ;; branch is unreachable, `elided?` never leaves `false`, and nothing
+           ;; ever pops — so for that pattern class the loop degenerates to
+           ;; "append the literals, append the encoded params, left to right",
+           ;; which is what this is. Same param resolution behind the same
+           ;; guards in the same order (`require-param` → `assert-url-value!` →
+           ;; `enum-keyword-token` → `encode-param`), same empty-path
+           ;; normalisation. What it does NOT do is spend a one-character string
+           ;; and a vector `conj` per literal character and an `apply str` over
+           ;; the result: it takes each literal run in one `subs`. Measured on
+           ;; the census's `/profile/:username`, the per-char walk was 1.69 µs
+           ;; of `route-url`'s 4.71 (rf2-cno31's `link_inner_probe_app`).
+           ;;
+           ;; The general loop below is UNTOUCHED and still runs for every
+           ;; pattern that carries an optional group.
+           simple-out
+           (when (empty? groups)
+             (loop [i   0
+                    out ""]
+               (if-not (< i n)
+                 (if (= "" out) "/" out)
+                 (let [ch (.charAt ^String pattern i)]
+                   (if (or (= ch \:) (= ch \*))
+                     (let [splat?  (= ch \*)
+                           [end k] (param-seg-bounds pattern n i)
+                           v       (->> (require-param k (if splat? "splat" "path"))
+                                        (assert-url-value! route-id :params k)
+                                        (enum-keyword-token (get params-coerce k)))]
+                       (recur end (str out (encode-param splat? v))))
+                     (let [end (literal-run-end pattern n i)]
+                       (recur end (str out (subs pattern i end)))))))))
            ;; Inner loop emits the body of an optional group whose params
            ;; are all present. State threads as (loop [i parts]); returns
            ;; [next-i parts'] when the group's '}' (and optional '?') is
@@ -1969,6 +2077,10 @@
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
            parts
+           ;; Skipped entirely when `simple-out` already emitted the path — the
+           ;; pattern carries no optional group, so this loop has nothing that
+           ;; one does not.
+           ;;
            ;; `elided?` threads the PREFIX RULE for sequential optional groups
            ;; (rf2-rpjb5i). The match-time regex reads adjacent optional groups
            ;; POSITIONALLY (`/docs{/:section}?{/:page}?` →
@@ -1982,88 +2094,90 @@
            ;; same fail-closed rationale as the empty-string-segment reject
            ;; above. Sequential optional groups therefore form a PREFIX chain: a
            ;; later group is reachable only when every earlier group is present.
-           (loop [i       0
-                  parts   []
-                  elided? false]
-             (if-not (< i n)
-               parts
-               (let [ch (.charAt ^String pattern i)]
-                 (cond
-                   (= ch \{)
-                   (let [{:keys [inner-names close-end]} (get groups i)
-                         all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
-                     (if all-present?
-                       (do
-                         ;; Prefix-rule violation: this group would emit into a
-                         ;; slot the regex reads AFTER an already-elided earlier
-                         ;; group's slot, so `match-url` cannot recover the
-                         ;; supplied params. Reject on emission rather than build
-                         ;; a silently un-round-trippable URL.
-                         (when elided?
-                           (throw (route-error
-                                    :rf.error/route-url-validation
-                                    'rf.routing/route-url
-                                    (str "route " route-id
-                                         " supplies a later optional group ("
-                                         (str/join ", " (map keyword inner-names))
-                                         ") while an earlier optional group was elided — "
-                                         "sequential optional groups form a prefix chain, so a "
-                                         "later group's params cannot round-trip through match-url "
-                                         "unless every earlier group is also present")
-                                    {:route-id route-id
-                                     :slot     :params
-                                     :value    path-params
-                                     :group    (mapv keyword inner-names)})))
-                         (let [[i' parts'] (emit-group (inc i) parts)]
-                           (recur i' parts' elided?)))
-                       ;; Elide the group. Valid route patterns put the leading
-                       ;; slash inside the group, so removing the group also
-                       ;; removes its separator.
-                       ;;
-                       ;; The separator guard is defensive for metadata installed
-                       ;; outside `reg-route`; never collapse `//` globally because
-                       ;; a splat may legitimately contain empty segments.
-                       (let [prev-slash? (= "/" (peek parts))
-                             next-slash? (and (< close-end n)
-                                              (= \/ (.charAt ^String pattern close-end)))
-                             at-end?     (>= close-end n)
-                             ;; the lone root slash has no non-slash part before
-                             ;; it; popping it would emit `""` instead of `/`.
-                             root-only?  (every? #(= "/" %) parts)
-                             parts'      (if (and prev-slash?
-                                                  (or next-slash?
-                                                      (and at-end? (not root-only?))))
-                                           (pop parts)
-                                           parts)]
-                         (recur close-end parts' true))))
+           (when (nil? simple-out)
+             (loop [i       0
+                    parts   []
+                    elided? false]
+               (if-not (< i n)
+                 parts
+                 (let [ch (.charAt ^String pattern i)]
+                   (cond
+                     (= ch \{)
+                     (let [{:keys [inner-names close-end]} (get groups i)
+                           all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
+                       (if all-present?
+                         (do
+                           ;; Prefix-rule violation: this group would emit into a
+                           ;; slot the regex reads AFTER an already-elided earlier
+                           ;; group's slot, so `match-url` cannot recover the
+                           ;; supplied params. Reject on emission rather than build
+                           ;; a silently un-round-trippable URL.
+                           (when elided?
+                             (throw (route-error
+                                      :rf.error/route-url-validation
+                                      'rf.routing/route-url
+                                      (str "route " route-id
+                                           " supplies a later optional group ("
+                                           (str/join ", " (map keyword inner-names))
+                                           ") while an earlier optional group was elided — "
+                                           "sequential optional groups form a prefix chain, so a "
+                                           "later group's params cannot round-trip through match-url "
+                                           "unless every earlier group is also present")
+                                      {:route-id route-id
+                                       :slot     :params
+                                       :value    path-params
+                                       :group    (mapv keyword inner-names)})))
+                           (let [[i' parts'] (emit-group (inc i) parts)]
+                             (recur i' parts' elided?)))
+                         ;; Elide the group. Valid route patterns put the leading
+                         ;; slash inside the group, so removing the group also
+                         ;; removes its separator.
+                         ;;
+                         ;; The separator guard is defensive for metadata installed
+                         ;; outside `reg-route`; never collapse `//` globally because
+                         ;; a splat may legitimately contain empty segments.
+                         (let [prev-slash? (= "/" (peek parts))
+                               next-slash? (and (< close-end n)
+                                                (= \/ (.charAt ^String pattern close-end)))
+                               at-end?     (>= close-end n)
+                               ;; the lone root slash has no non-slash part before
+                               ;; it; popping it would emit `""` instead of `/`.
+                               root-only?  (every? #(= "/" %) parts)
+                               parts'      (if (and prev-slash?
+                                                    (or next-slash?
+                                                        (and at-end? (not root-only?))))
+                                             (pop parts)
+                                             parts)]
+                           (recur close-end parts' true))))
 
-                   ;; `:name` / `*name` in the top-level pattern — the
-                   ;; value is REQUIRED; `require-param` throws on absent.
-                   ;; A host value fails closed via
-                   ;; `assert-url-value!` BEFORE `encode-param` host-stringifies
-                   ;; it into a fabricated route identity (EP-0012).
-                   (or (= ch \:) (= ch \*))
-                   (let [splat?  (= ch \*)
-                         [end k] (param-seg-bounds pattern n i)
-                         ;; A declared keyword-enum path param
-                         ;; emits its token name (`:desc` -> `desc`), the
-                         ;; inverse of match-url's enum decode, so it
-                         ;; round-trips rather than emitting `%3Adesc`.
-                         v       (->> (require-param k (if splat? "splat" "path"))
-                                      (assert-url-value! route-id :params k)
-                                      (enum-keyword-token (get params-coerce k)))]
-                     (recur end (conj parts (encode-param splat? v)) elided?))
+                     ;; `:name` / `*name` in the top-level pattern — the
+                     ;; value is REQUIRED; `require-param` throws on absent.
+                     ;; A host value fails closed via
+                     ;; `assert-url-value!` BEFORE `encode-param` host-stringifies
+                     ;; it into a fabricated route identity (EP-0012).
+                     (or (= ch \:) (= ch \*))
+                     (let [splat?  (= ch \*)
+                           [end k] (param-seg-bounds pattern n i)
+                           ;; A declared keyword-enum path param
+                           ;; emits its token name (`:desc` -> `desc`), the
+                           ;; inverse of match-url's enum decode, so it
+                           ;; round-trips rather than emitting `%3Adesc`.
+                           v       (->> (require-param k (if splat? "splat" "path"))
+                                        (assert-url-value! route-id :params k)
+                                        (enum-keyword-token (get params-coerce k)))]
+                       (recur end (conj parts (encode-param splat? v)) elided?))
 
-                   :else
-                   (recur (inc i) (conj parts (str ch)) elided?)))))
+                     :else
+                     (recur (inc i) (conj parts (str ch)) elided?))))))
            ;; A pattern whose entire path is a leading optional
            ;; group (`{/:base}?`) elides to the empty string when the param
            ;; is absent — but the empty string is not a URL. Normalise it to
            ;; the root `/` (the group's own leading slash is the only slash
            ;; the pattern carries, so its absence lands at root). This is the
            ;; group; `{/:base}?` absent → `/`, present → `/x`.
-           path-out (let [s (apply str parts)]
-                      (if (= "" s) "/" s))
+           path-out (or simple-out
+                        (let [s (apply str parts)]
+                          (if (= "" s) "/" s)))
            ;; The query the URL actually spells. Two elisions, in this order:
            ;;
            ;;   1. NIL-valued keys, elided at the top of the fn so the SAME
