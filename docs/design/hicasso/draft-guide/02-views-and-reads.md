@@ -105,25 +105,36 @@ React StrictMode runs your body twice in development. That is fine — bodies ar
 by contract. Anything that would break under a second run (mutating a captured atom,
 kicking off a fetch, counting renders) does not belong in a body.
 
-### There is no automatic memoization
+### Boundaries memoize by default
 
-React semantics stand: a child may render because its parent did. Hicasso adds **no
-default `=` or argv comparison** (HD-006).
+A value-equality bail-out is the boundary **default** (HD-028, amending HD-006):
+every minted head carries one stable internal memo wrapper comparing the whole
+props map with CLJS `=`. If a boundary's props compare equal to last render, its
+body does not run — even though its parent's did.
 
-If you are coming from Reagent this is the change most likely to surprise you.
-Reagent compares argv and skips; Hicasso does not, because every default comparison
-is a cost every render pays whether it helps or not. Narrow updates come from
-**where you put your boundaries**, and `React.memo` is available as an explicit
-opt-out when you have measured a reason.
+Two things still outrank the bail-out, and both are the boundary's **own**
+invalidation. A subscription or context read that boundary made itself always
+wins: React checks for a boundary's own pending update *before* it ever asks the
+comparator, so a boundary whose reads moved re-renders regardless of what its
+props say. And a function-valued prop compares unequal by identity, deliberately
+— a freshly allocated closure is never `=` to the last one, so an inline handler
+defeats the bail-out every time it is passed fresh.
+
+If you are coming from Reagent this should feel familiar rather than surprising —
+Reagent has compared argv and skipped for a decade, and this is the same shape.
+There is no public opt-out in v1: a boundary that genuinely wants to re-run every
+time its parent does takes an explicit changing revision prop, not a `:memo
+false` switch.
 
 One corollary is worth stating outright, because the opposite is the thing people
-worry about. Reading a subscription high in the tree and passing the value down as a
-prop does **not** lose an update. The boundary that reads is the boundary that
-invalidates; it re-renders with the new value, passes it down, and — precisely
-because nothing is memoized by default — every descendant re-renders with it. The
-value arrives. What you have bought yourself is invalidation that is **too coarse**,
-never invalidation that is missing. Moving the read down is a granularity fix, not a
-correctness fix, and if you go looking for a lost update you will not find one.
+worry about. Reading a subscription high in the tree and passing the value down as
+a prop does **not** lose an update: the boundary that reads is the boundary that
+invalidates, and every boundary the changed value actually reaches receives unequal
+props at that hop, so the default bail-out never applies to it — the value arrives.
+What the default buys you, beyond that chain, is that a boundary the value does
+**not** reach skips instead of re-rendering for nothing. Moving the read down is
+still a granularity fix, not a correctness fix, and if you go looking for a lost
+update you will not find one.
 
 ## How `sub` works, in the four sentences that matter
 
@@ -171,9 +182,10 @@ it does not.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| A child re-renders whenever its parent does | Expected — there is no default memoization (HD-006) | Move the boundary, or apply `React.memo` where you measured a reason |
+| A boundary doesn't re-render even though something on screen should have changed | Its props still compare `=` to last render and it made no read of its own that moved — the default bail-out (HD-028) is doing exactly what it's for | Read the changing value with `sub` inside the boundary that displays it, or thread it down as a prop so the value actually differs there |
+| A boundary re-renders every time though its props look unchanged | A prop carries reference identity rather than value identity — an inline function literal, a JS object, a freshly re-sorted seq — so `=` correctly says unequal | Hoist the function or stabilize the value; two structurally equal persistent values are `=`, a fresh closure or JS object is not |
 | One cell changes and 300 boundaries re-render | The read lives too high in the tree | Push the read down into the boundary that displays it |
-| One value changes and a whole subtree re-renders with it | The value is read in an ancestor and passed down as a prop. Nothing is *lost* — the reading ancestor re-renders with the new value and, there being no default memoization, so does everything under it. Coarse invalidation, not missed invalidation | Read at the point of use, so the boundary that displays the value is the boundary that invalidates |
+| One value changes and a whole subtree re-renders with it | The value is read in an ancestor and passed down as a prop. Nothing is *lost* — the reading ancestor re-renders with the new value, and every boundary the value actually reaches has unequal props at that hop, so the default bail-out (HD-028) does not catch it there. Coarse invalidation, not missed invalidation | Read at the point of use, so the boundary that displays the value is the boundary that invalidates |
 | A read after the render throws, naming the query | A handler closure, a stashed lazy seq, or a `delay` deferred a `sub` past the render | Read during the render and close over the value; the loud error is the alternative to a silently frozen edge |
 | Index thrash, subscriptions constantly re-created | Query args that are not *value*-stable — a re-sorted seq, a folded-in timestamp, a JS object or a function | Allocation is fine; two equal persistent values are one key. Make the args equal under `=` between renders |
 | A body's side effect fires twice | StrictMode double-invoke | Bodies are pure; move the effect out |

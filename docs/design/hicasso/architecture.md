@@ -185,12 +185,20 @@ node as `defaultValue`, which React maintains there itself. The matrix, the
 two implementations UIx chooses between, and the price are on
 [the studio page](studio/controlled-input-two-implementations.md).
 
-## Memoization (HD-006)
+## Memoization (HD-028, amending HD-006)
 
-No default `=`/argv memoization: React semantics stand (a child may render with
-its parent); narrow updates come from boundary placement; `React.memo` remains an
-opt-in escape. Revisit only if the keyed-row or broad witnesses demand it — do not
-recreate Reagent's equality semantics from taste.
+A value-equality bail-out is the boundary **default**: every minted head carries
+one stable internal `React.memo` wrapper (`codec/memoize-boundary!`) comparing
+the whole `rfProps` value with CLJS `=`, fail-open on a throw. It stops the
+cascade HD-006 assumed boundary placement alone would prevent — a page-chrome
+write re-ran all 300 of 300 card boundaries beneath it with every card's props
+value-equal; it now re-runs 0. `useContext` and `useSyncExternalStore`
+invalidation still outrank it — React tests `checkScheduledUpdateOrContext`
+*before* it consults the comparator, so a boundary whose own reads moved
+re-renders regardless of what its props compare equal to. There is no public
+`:memo false` opt-out in v1; a boundary that wants parent-driven re-runs takes an
+explicit changing revision prop instead. Full ruling, prior-art audit and priced
+cost: [HD-028](decisions.md#hd-028--value-equality-is-the-boundary-default).
 
 ## Code residence (HD-017)
 

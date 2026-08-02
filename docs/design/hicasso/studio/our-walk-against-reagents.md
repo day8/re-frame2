@@ -243,7 +243,8 @@ cheaper.
   rather than revisiting it. A mount is the *first* walk, so a value-keyed
   element cache only pays on subtrees repeated within one page (under 12% of
   this one) — and now there is no gap for it to close: our walk reads below
-  stock Reagent's. HD-006's no-element-memoisation line stands untouched.
+  stock Reagent's. HD-004's anti-fence on element/skeleton caching stands
+  untouched (HD-028 declines the same for boundary-level identity caching too).
 - **Forking `reagent2.impl.template`.** Needs a ruling and is not sought. The
   measurement makes it look backwards anyway: the donor's walk is 1.73–1.90×
   stock Reagent's and 1.8× ours.

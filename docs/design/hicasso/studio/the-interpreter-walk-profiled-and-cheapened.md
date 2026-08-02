@@ -145,8 +145,8 @@ props object per element per render stands.
   not share handlers), and the cache would grow with distinct data for the
   life of the build. The profile prices the whole prop pipeline at 67.5%
   reachable *without* any of that; the skeleton cache buys the remainder's
-  minority at an unbounded-memory cost. HD-006's no-element-memoisation
-  line therefore stands untouched.
+  minority at an unbounded-memory cost. HD-004's anti-fence on element/skeleton
+  caching therefore stands untouched.
 - **Amortisation across commits** (the bead's direction 3): the memo
   wrapper (HD-028, PR #7375) stops child re-walks on re-render; what
   mount prices is the first walk, which no cross-commit amortisation can
