@@ -33,6 +33,16 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 > is what it is, and this note only stops a reader concluding the gate is
 > outstanding. **Read the verdict together with the spine stamp below** — it was
 > issued against these pre-landing donor columns.
+>
+> **The donor rows have since been re-taken on the current tree
+> (`rf2-2rtt6.31`), and the mount rows are adjudicated on the clock of record**
+> — raw `TaskDuration`, per the mount-gate amendment of 2026-08-02 on
+> `rf2-2rtt6.1` — in [the re-take on the current
+> tree](#the-re-take-on-the-current-tree-rf2-2rtt631). The published deficit
+> against stock Reagent does not reproduce there, and the gated donor-vs-UIx
+> pairs sit at the amended 1.10× line, instrument-limited. The rows above stand
+> as measured, under their stamp; the re-taken rows are what a post-landing
+> candidate is judged against.
 
 ---
 
@@ -123,6 +133,10 @@ against these. The clock counterpart of this restatement, on the converged
 witness, is
 [the converged witness set](p0-converged-witness-set.md#red-zone--clock-on-rf2-2rtt62s-witnesses).
 
+**The re-take this stamp obliges has been taken** — `rf2-2rtt6.31`, on the
+current tree, and on the clock the mount gate now adjudicates on; see
+[the re-take on the current tree](#the-re-take-on-the-current-tree-rf2-2rtt631).
+
 Every figure below is a **browser** figure, which is what HD-012 requires of
 anything quotable against the bar.
 
@@ -161,6 +175,219 @@ write window for arms on a **microtask-scheduled** substrate and leaves every
 other arm's window byte-for-byte as it was, so the rows taken at `d46ede4f`
 stand as published — see [the re-take](#the-re-take-rf2-b69lw) for what was
 changed and the reproduction check that says the change was inert for them.
+
+## The re-take on the current tree (rf2-2rtt6.31)
+
+The spine stamp above ends in an obligation — *a post-landing candidate is
+judged against a re-taken donor row rather than against these* — and the gate
+verdict issued against this page's pre-landing columns was, on its own record,
+scored against stale numerators. This section is the ordered re-take. Between
+the ordering and the taking, the ground under the instrument moved: the
+**mount-gate amendment** (recorded on `rf2-2rtt6.1`, 2026-08-02, delegated by
+Mike, operator-overturnable) ratified **raw `TaskDuration` — the arm's script
+AND the frame it caused, frame-settled — as the bar's adjudicating clock**, and
+restated the mount gate as one line: **≤ 1.10× direct UIx-on-subs,
+floor-normalised, same run, on the clock of record.** The in-page
+`performance.now()` window every figure above was taken on is now a
+**diagnostic**, never a verdict-bearer — that is the settlement of the three
+instrument defects (`rf2-8nqsl`, `rf2-yd52q`, `rf2-emvod`), and the amendment
+names this bead's re-take as one of the things it un-suspends.
+
+So the re-take is two measurements, deliberately separate:
+
+1. **the six published arms behind the clock-of-record door** — a new
+   instrument pair (`hd8_clock_app.cljs` / `hd8_clock_run.cjs`) that takes THIS
+   page's own mount arms, mount doors, per-arm frames and witnesses through
+   `clock_run.cjs`'s frame-settlement protocol clock. These are the rows the
+   amended gate adjudicates.
+2. **a full three-run sweep of this page's own instrument at the same commit**
+   — the like-for-like re-run, so the movement the spine landings caused is
+   readable against the tables above without an instrument change confounding
+   it.
+
+### Provenance of the re-take
+
+| | |
+|---|---|
+| **Producing commit** | `16ddf3e30772ceff170f28ffe466247b0a84341b` on `worker/hd8retake-2rtt6-31` — both measurements, one tree. The landed SHA is the merge's to mint |
+| **Spine** | blob `ad7b19d9d8957e7a1872e58f9b18ace8acdc4841` — post-`.13`/`.25`, and **further moved since this page's stamp** (latest spine-touching commit `0c7c5bfb0d`, the `.25` reap-horizon race statement). The pre-landing blob this page's original rows read is `befd8469d932…`, above |
+| **Clock of record** | CDP `Performance.getMetrics` raw `TaskDuration`, settled to the next frame (`requestAnimationFrame` → `setTimeout 0`), tared by a `plumb` arm measured in the same block. `taskNet` and the in-page `flushSync` window are recorded on the **same samples** as diagnostics |
+| **The door** | every arm, tare included: `page.evaluate → HD8CLOCK.sample` — one door, so its cost is common-mode and subtracted. Through this door `taskNet` is FRAME-ONLY (`DevToolsCommandDuration` carries the arm's own script, `rf2-emvod`) and is never a verdict here |
+| **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm — 18 blocks per row, `clock_run.cjs`'s own per-block depth. A first cut at (2 + 4) could not adjudicate — single low-side block outliers failed the control and every gated range straddled the boundary by construction — and is recorded in the driver header, publishing nothing |
+| **Runtime** | HeadlessChrome/147.0.7727.15 (Windows NT 10.0 x64, 24 cores), React 19.2.0, node v24.13.0, `:hicasso-bench` — `:advanced`, `goog.DEBUG false` |
+| **Sweep schedule** | the page's own: 6 rounds, mount `{:warmup 4 :samples 12}`, write `{:warmup 3 :samples 10}`, all three adapter runs, 7-arm mount plans (`donor-fh` rides per `rf2-2rtt6.29`) |
+| **Witness stamp** | B/E/Q = 300/300/300 — 300 boundaries, one subscription edge each, 300 distinct query vectors; `M` 903 elements, `U` 301; `ctl-2x` doubles them |
+| **Quiet box** | 8 consecutive sub-30 % CPU samples verified immediately before **every** clock-of-record row; loud attempts refused and recorded (three were). Measurement windows (2026-08-02): uix 04:59:59–05:02:46 Z · reagent 05:02:46–05:05:02 Z · slim 05:05:02–05:07:41 Z; the sweep followed at ~05:08–05:13 Z on the box the last gate had just verified. The sibling implementation worker (`worker/burst-2rtt6-55`) held its browser gates out of these windows |
+| **Datasets** | `implementation/freehand/test/re_frame/bench/hicasso/data/hd8clock-2rtt6-31/{uix,reagent,slim}.json` — the reduced quantities every clock-of-record figure below recomputes from |
+| **Exit codes** | clock-of-record run `0`; sweep `0` — measured, guard clean, no refusal |
+| **Reproduce** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_clock_run.cjs` · `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` |
+
+Instrument blobs at the producing commit (they survive a rebase; they pin the
+files they name and nothing else):
+
+| file | blob |
+|---|---|
+| `hd8_clock_app.cljs` | `e2469a0e6fe353200392fda3c471fb5c9731282f` |
+| `hd8_clock_run.cjs` | `ba79e38eb25ab05d57932cc2f634816c19b6e64b` |
+| `hd8_rows.cljs` | `b34cf52b9d1cdd9127e7ad9fcaa1e0ed37f40bf0` |
+| `hd8_witnesses.cljs` | `8669cc71d1a2406af8aa3395fe5e9dec5b9ddc64` |
+| `lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
+| `spine.cljs` | `ad7b19d9d8957e7a1872e58f9b18ace8acdc4841` |
+
+### The gated pairs on the clock of record
+
+Every figure is a mean and **range over 18 blocks**, formed within the block —
+the floor cancels, the plumb tare is subtracted, and both arms of every pair
+were measured in the same run of the same process. `0 unverified of 10,080`
+read-backs across the six row-runs; canonical DOM identical on every row (M
+27,491 bytes, U 11,915), held at the stress and the small size, and the
+comparison provably able to answer false; the arm-order guard **reportable on
+all six row-runs** at tolerance 0.35 on the published clock.
+
+| run | row | `donor-r1 / uix` | `donor-r2 / uix` | band | `ctl-2x` (2.00× predicted) |
+|---|---|---|---|---|---|
+| uix | M | 1.1024 [0.9593 – 1.2831] | 1.1004 [0.9736 – 1.2497] | 13.2 % | 1.6503 — fails strict |
+| uix | U | 1.0855 [0.8672 – 1.2691] | 1.1390 [0.8488 – 1.4122] | 27.2 % | 1.5566 — fails strict |
+| reagent | M | 1.1191 [1.0557 – 1.2442] | 1.1322 [1.0267 – 1.2199] | 9.2 % | 1.6868 — fails strict |
+| reagent | U | 1.1301 [1.0387 – 1.2275] | 1.1316 [1.0158 – 1.2121] | **5.4 %** | **1.6837 [1.5858 – 1.8570] — PASSES strict** |
+| slim | M | 1.1002 [0.9329 – 1.2427] | 1.0932 [0.9478 – 1.1889] | 13.4 % | 1.5518 — fails strict |
+| slim | U | 1.1034 [0.9674 – 1.2461] | 1.1358 [1.0362 – 1.3397] | 15.6 % | 1.7100 — fails strict |
+
+**Verdict against the amended line, all twelve cells: INSTRUMENT-LIMITED.**
+Every range straddles 1.10, and every margin to the line (0.03 – 3.5 %) sits
+inside its row's band (5.4 – 27.2 %). Under the amendment's own clause a result
+that cannot resolve the 1.10 boundary is instrument-limited, **not a pass** —
+and not a fail either: the donor mount cost over direct UIx sits **at** the
+line, means 1.086 – 1.139 across six independent row-runs. What *is* resolved:
+on the reagent run — both rows, including the one whose control passed strict
+and whose band is 5.4 % — both gated pairs sit **wholly above parity** with
+margins that clear the band, so the donor cost over UIx is a real ~10 – 13 %,
+not noise; on the uix and slim runs the same pairs straddle 1.0.
+
+**The control, stated per its own record.** Mount rows carry `ctl-2x` and the
+plumb tare, and no changed-set control can reach a mount (`rf2-jcm3p`). The
+control certifies page-proportional signal and prices the additive residual —
+inverting the doubling gives c = 0.48 – 2.96 ms across the six row-runs — and
+cannot certify exactness: the recorded mount undershoot (1.8173× over
+`rf2-emvod`'s seven runs) is exactly where these means sit (1.55 – 1.79). Five
+rows failed the *strict* rule on single blocks below 1.50; the reagent-U row
+passed it whole, and it is also the row with the tightest band.
+
+### Co-instrumented beside the gate — and the published deficit does not reproduce
+
+Reagent stays co-instrumented and is **not a second mount gate** (the
+amendment's Reagent clause). Same blocks, same arithmetic:
+
+| run | row | `donor-r1 / path` | `donor-r2 / path` | `uix / path` |
+|---|---|---|---|---|
+| reagent | M | 1.0006 [0.8621 – 1.1318] | 1.0114 [0.9097 – 1.1938] | 0.8943 [0.7875 – 1.0113] |
+| reagent | U | 0.9880 [0.8915 – 1.0737] | 0.9888 [0.8891 – 1.0349] | 0.8750 [0.7914 – 0.9830] |
+| slim | M | 0.9913 [0.8524 – 1.1580] | 0.9858 [0.8686 – 1.1194] | 0.9027 [0.7835 – 1.0003] |
+| slim | U | 0.9544 [0.8774 – 1.0872] | 0.9850 [0.8394 – 1.1958] | 0.8669 [0.7730 – 0.9653] |
+
+Every donor-vs-Reagent-path range **straddles 1.0**. The 1.333 – 1.473× (M) and
+1.448 – 1.542× (U) deficits against stock Reagent published above **do not
+reproduce on the current tree on the clock of record** — the donor rungs read
+indistinguishable from both Reagent paths. And on the control-passing reagent-U
+row, `uix / reagent` sits wholly below 1.0 with a 12.5 % margin against a 5.4 %
+band: on this witness family, on this clock, **direct UIx is now the faster
+donor**. The shell (`donor-r2 / donor-r1`) straddles 1.0 in all six row-runs
+(0.9957 – 1.0524) — rung 2 stays free, which re-confirms this page's finding.
+
+**Absolutes beside the ratios** (p50 raw `TaskDuration` ms per mount, M row,
+by run): floor 6.49 / 7.06 / 7.39 · uix 9.12 / 9.60 / 9.48 · donor-r1 9.96 /
+10.78 / 10.26 · donor-r2 9.89 / 10.86 / 10.23 · reagent 10.64 · reagent-slim
+10.32; plumb tare 0.69 – 0.74; counter grain measured 0.42 – 0.55 ms. The U
+row's floor sits at 1.6 – 2.0 ms tared — three to four grains — which is why
+its bands run wide and the well-resolved M row leads this table; full per-arm
+absolutes for every row are in the datasets.
+
+**The diagnostics on the same samples say where the gap lives.** `taskNet`
+(frame-only through this door) reads the gated pairs at 0.98 – 1.08 — the
+frame halves of donor and UIx mounts are equal, so **the whole donor-vs-UIx gap
+is script**, the interpreter walk, restated from inside the clock. The in-page
+window reads the same pairs at 1.13 – 1.24 and `uix / reagent` at 0.80 – 0.83
+against the clock of record's 0.87 – 0.89 — the in-page window overstates the
+donor deficit against UIx by ~8 – 12 % and overstates UIx's advantage over
+Reagent, on this page's own arms. That is the recorded defect family, measured
+here rather than assumed.
+
+**What the clock-of-record re-take refuses.** The write rows: `rf2-d2tzk`
+fences the bulk row (its floor sits on the in-page clock clamp), and
+`rf2-7iqb5` puts this box's bulk-class noise (28 – 48 % within-block IQR
+against the ~3.5 % a difference-statistic magnitude needs) an order of
+magnitude past adjudicable. No bulk or narrow magnitude is published on the
+clock of record, with this sentence as the reason; the sweep below carries the
+write rows under the yield-correction contract instead.
+
+### The same instrument, re-run at the same commit
+
+The full three-run sweep, the page's own schedule and gates: positive control
+predicted 1.9934 before any clock, measured 1.9167 – 2.0 / 1.8 – 1.9091 /
+1.5833 – 1.9167 — every round inside ±30 % in all three runs; lowering check
+`:before "0" → :after "T"` with `:db-after "T"`; arm-order guard reportable on
+all twelve rows; exit `0`. The plan is the current 7-arm plan (`donor-fh` rides
+per `rf2-2rtt6.29`), so ranges are compared with the published 4/5/5-arm rows
+as *the same comparison on a fresh take*, not figure-for-figure.
+
+Mount, published above → re-taken at `16ddf3e307`, in-page instrument:
+
+| run | comparison | published *(pre-landing spine)* | **re-taken (current tree)** |
+|---|---|---|---|
+| uix | `donor-r1 / uix` | 1.149 – 1.230 | 1.211 – 1.300 |
+| uix | `donor-r2 / uix` | 1.162 – 1.286 | 1.200 – 1.300 |
+| reagent | `donor-r1 / reagent` | **1.333 – 1.473** | **1.143 – 1.227** |
+| reagent | `donor-r2 / reagent` | **1.353 – 1.460** | **1.137 – 1.242** |
+| reagent | `donor-r1 / uix` | 1.184 – 1.267 | 1.212 – 1.278 |
+| reagent | `donor-r2 / uix` | 1.209 – 1.250 | 1.203 – 1.281 |
+| slim | `donor-r1 / reagent-slim` | 1.000 – 1.120 · *indist.* | **0.914 – 0.954 — donor faster, disjoint** |
+| slim | `donor-r2 / reagent-slim` | 1.034 – 1.133 | **0.919 – 0.989 — donor faster** |
+| slim | `donor-r1 / uix` | 1.086 – 1.184 | 1.181 – 1.266 |
+| slim | `donor-r2 / uix` | 1.123 – 1.200 | 1.212 – 1.292 |
+
+Mount-U moves the same way: `donor-r1 / reagent` 1.448 – 1.542 → 1.130 – 1.200,
+`donor-r1 / reagent-slim` 0.948 – 1.106 → 0.918 – 0.967, `donor / uix`
+1.132 – 1.264 across runs. Against the floor on M: uix 3.889 – 4.111 →
+3.429 – 3.700, donor-r1 4.500 – 4.790 → 4.300 – 4.550, donor-r2 4.667 – 5.000
+→ 4.200 – 4.550, while `reagent` (3.500 – 3.895 → 3.667 – 4.056) and
+`reagent-slim` (4.200 – 4.500 → 4.200 – 4.429) hold — **the numerators moved
+and the denominators did not, which is precisely what the spine stamp
+predicted.** The `donor-fh` columns re-measure consistent with
+[the codec-arm page](hd8-freehand-codec-donor-arm.md) (`donor-fh / donor-r1` M
+1.139 – 1.282 across runs against its published 1.139 – 1.306), and that page
+remains their page of record.
+
+The write rows re-took cleanly, and the correction contract **fired live and
+discharged** on this sweep: the slim run's ten-turn aggregate resolved at
+0.1 ms on the narrow row, the verdict was `:corrected`, and both bands
+published — `reagent-slim / floor` 4.500 – 5.389 `[UNADJUSTED]` /
+5.143 – 6.063 `[CORRECTED]` — the exact case
+[the contract](#the-correction-contract-is-enforced-not-stated) was built for.
+The bulk row's one-turn aggregate read 0.0 in every window
+(`:below-resolution`), so `rf2-d2tzk`'s refusal did not arm on this draw.
+Within-run write pairs reproduce the published shape: narrow `donor / uix` all
+straddle 1.0; bulk `donor-r1 / uix` 1.250 – 1.500 and `donor-r2 / uix`
+1.313 – 1.600 against the published 1.185 – 1.313 / 1.278 – 1.469.
+
+### What the re-take does to the gate verdict
+
+**The stop rule as written is still not met — and the failure it was scored on
+has narrowed to the boundary.** The rule asked the composed arm to *clearly
+beat both Reagent paths and stay acceptably close to direct UIx*. On the
+current tree: it clearly beats neither Reagent path on the clock of record —
+it is indistinguishable from both, and parity is not a clear win — though on
+this page's own instrument it now beats `reagent-slim` outright and trails
+stock Reagent by 1.14 – 1.24× where 1.33 – 1.54× was published. Against direct
+UIx it sits **at** the amendment's 1.10× line — means 1.086 – 1.139, every
+range straddling the boundary, every margin inside its band —
+instrument-limited under the amendment's own clause, not a pass and not a
+clearance. The verdict's **direction** (not met) survives the re-take; the
+published **magnitude** it was scored on does not — it was a property of the
+pre-landing spine and of a clock the programme has since demoted. The ruling
+itself remains HD-013's to issue and the operator's to overturn; this page
+measures, and these are the rows a post-landing candidate is judged against.
+
+---
 
 ## The arms
 

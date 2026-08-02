@@ -237,6 +237,19 @@ missed: the product shell is free (rung 2 indistinguishable from rung 1 on six o
 eight rows), and rung 1 *is* `reagent-slim` — so the residual mount deficit is the
 hiccup interpreter rather than the spine.
 
+**The donor rows that verdict was scored on have since been re-taken on the
+current tree (`rf2-2rtt6.31`)** — the verdict was issued against pre-`.13`/`.25`
+numerators, and the mount rows now adjudicate on the clock of record per the
+mount-gate amendment (2026-08-02, `rf2-2rtt6.1`). On the re-take the published
+1.333 – 1.542× deficit against stock Reagent **does not reproduce** — the donor
+rungs read indistinguishable from both Reagent paths on raw `TaskDuration`, and
+beat `reagent-slim` outright on the page's own instrument — while the gated
+`donor / uix` pairs sit **at** the amended 1.10× line (means 1.086 – 1.139,
+every range straddling the boundary; instrument-limited, not a pass). The
+verdict's direction stands; its published magnitude was a property of the stale
+spine and the demoted clock. Full tables and provenance:
+[the re-take on the current tree](studio/hd8-composed-donor-arm.md#the-re-take-on-the-current-tree-rf2-2rtt631).
+
 Given continuation, the win conditions are (1) mount ≤ 1.0× Reagent-on-subs, same
 run and same instrument, with the codec inside 1.10× of direct UIx `$` on `M1`;
 (2) bulk broad ≤ 1.0× Reagent, red below UIx's measured broad ratio, K2 at 1.5×;
