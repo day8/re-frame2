@@ -793,6 +793,113 @@
                    the field shows"))))))))
 
 ;; ---------------------------------------------------------------------------
+;; 5c — the flush is a render, and the guards are one render old after it
+;; ---------------------------------------------------------------------------
+
+(defview type-flipping-cell
+  "A controlled field whose TYPE is derived from the model, so ONE
+  accepted keystroke re-renders the same `<input>` from `text` to
+  `number` — and does it inside the converge's own `flushSync`, against
+  a wrapper the `text` render minted."
+  [{:keys [i]}]
+  (let [v (rt/sub [:agrid/cell i])]
+    [:input.flip {:type     (if (= "" v) "text" "number")
+                  :value    v
+                  :on-input [:agrid/edit i :re-frame.hicasso/value]}]))
+
+(defn- reported-errors
+  "Run `f` and return the messages the page reported while it ran.
+
+  React does not let a throw from inside a discrete event escape
+  `dispatchEvent`: it hands it to `reportError`, which dispatches an
+  `error` event on `window`. So a `try`/`catch` around the keystroke sees
+  NOTHING, and a row that relied on one would be green over a live
+  exception — the browser runner's uncaught-pageerror gate would fail the
+  build (`rf2-mwx08`) while every assertion here passed. A listener is
+  what makes the throw this row's own to assert."
+  [f]
+  (let [!errs (atom [])
+        on-err (fn [e]
+                 (swap! !errs conj (or (some-> (.-error e) (.-message))
+                                       (.-message e))))]
+    (.addEventListener js/window "error" on-err)
+    (try (f) (finally (.removeEventListener js/window "error" on-err)))
+    @!errs))
+
+(deftest a-type-change-inside-the-flush-leaves-the-converge-inert
+  (testing "THE GUARD THAT HAS TO BE TAKEN TWICE (PR #7371 audit).
+
+           `front.controlled/install!` decides an element is
+           caret-bearing from the props that MINT the wrapper. Step 1 of
+           the converge is a `flushSync`, which is a render — so by the
+           time the caret is restored those props can be one render old.
+           A synchronous handler that re-renders the same `<input>` from
+           `text` to `number` is the case that separates them: React
+           keeps the node and updates the attribute, so the wrapper from
+           the `text` render goes on running against an element that no
+           longer has a caret, and `setSelectionRange` throws
+           `InvalidStateError` on such a type.
+
+           Reading the caret a SECOND time, after the flush, is what makes
+           the element behave exactly as it would have had it been minted
+           a `number` field to begin with.
+
+           Measured with the post-flush reading deleted: `InvalidStateError:
+           Failed to execute 'setSelectionRange' on 'HTMLInputElement': The
+           input element's type ('number') does not support selection.`"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (do
+        (pin! :react)
+        (fresh!)
+        (let [handle (mount/root! (mount/fresh-container!) frame-id
+                                  [type-flipping-cell {:i 31}])]
+          (try
+            (let [before (.querySelector (:container handle) ".flip")]
+              (is (= "text" (.-type before))
+                  "it mounts as a text field — which is what installs the
+                   wrapper in the first place")
+              (is (= "" (.-value before)))
+              (.focus before)
+              (.setSelectionRange before 0 0)
+              (is (= [0 0] (caret before)) "there really is a caret to lose")
+
+              ;; The keystroke. The model takes it (cell 31 is `:plain`),
+              ;; so the boundary re-renders inside the converge's flush and
+              ;; the type changes under the running wrapper.
+              (let [errs (reported-errors #(type-into! before "5"))
+                    after (.querySelector (:container handle) ".flip")]
+                (is (= [] errs)
+                    "NOTHING THREW — the row. Without the post-flush
+                     reading this carries the InvalidStateError quoted
+                     above")
+                (is (identical? before after)
+                    "React kept the NODE and updated the attribute — the
+                     premise the whole row turns on, asserted rather than
+                     assumed")
+                (is (= "5" (model-value 31)) "the model took the keystroke")
+                (is (= "number" (.-type after))
+                    "and the re-render landed inside the converge's own
+                     flush, so the type changed before the caret restore
+                     would have run")
+                (is (nil? (.-selectionStart after))
+                    "the node has no caret any more — which is both why
+                     the restore would throw and why there is nothing it
+                     could legitimately restore")
+                (is (= "5" (.-value after))
+                    "and the field still shows the keystroke that caused
+                     the flip")
+                (is (= "" (controlled/last-rendered after))
+                    "THE RECORD IS STALE HERE, and this is the second
+                     reason to be inert rather than merely careful with
+                     the caret: `setDefaultValue` skips a FOCUSED number
+                     field (`react-dom@19.2.0:1738`), so React's mirror
+                     still holds what the TEXT render wrote. It is no
+                     longer the value this element renders, so there is
+                     nothing here the converge could correctly write")))
+            (finally (mount/release! handle) (unpin!))))))))
+
+;; ---------------------------------------------------------------------------
 ;; 6 — :async-normalisation
 ;; ---------------------------------------------------------------------------
 
