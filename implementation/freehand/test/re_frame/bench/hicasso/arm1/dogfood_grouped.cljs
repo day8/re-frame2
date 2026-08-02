@@ -25,7 +25,15 @@
      this tier.
 
   Nothing else moves. The DOM is asserted identical to the other two
-  renderings by `arm1_dogfood_dom_cljs_test`."
+  renderings by `arm1_dogfood_dom_cljs_test`.
+
+  **Historical for the preference question (rf2-2rtt6.67).** The operator
+  ruled this surface below the usability bar (2026-07-31), so the
+  charter-v0 preference case is collector vs raw UIx and this rendering
+  is not in it. It stays because it is still the measured control the
+  collector's conditional read is priced against
+  (`the-collectors-conditional-read-costs-fewer-edges-than-the-declaration`),
+  and for no other reason."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [use-subs]]
             [re-frame.bench.hicasso.front.dogfood :as d])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))

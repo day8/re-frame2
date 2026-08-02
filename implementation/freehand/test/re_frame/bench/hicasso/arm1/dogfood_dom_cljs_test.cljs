@@ -15,10 +15,18 @@
   renderings build **the same page**, so the comparison is about the
   reading surface and nothing else.
 
-  Three claims:
+  Four claims:
 
   1. **Canonical-DOM parity** across all three, with attribute names
      sorted, and a control that proves the comparison can answer false.
+  1c. **Intent parity on the two live renderings** (rf2-2rtt6.67): one
+     real-DOM interaction script driven at the collector and at raw UIx,
+     the dispatched event vectors captured at the substrate's own
+     `:events` listener stream, and both captures asserted equal to the
+     script's STATED expectation — including two composing keystrokes
+     that must dispatch nothing. DOM parity proves the renderings build
+     the same page; this is the half that proves the page MEANS the same
+     thing when a user touches it.
   2. **The narrow write touches one row.** A toggle re-renders the row it
      names and no other, on both Hicasso renderings — which is the index
      doing its job through React rather than a claim about it.
@@ -219,6 +227,155 @@
                  DOM — the half a first render cannot tell you")
             (is (= "todo 1" (cell 1)) "while its neighbour is untouched"))
           (finally (mount/release! handle)))))))
+
+;; ---------------------------------------------------------------------------
+;; 1c — the same intents on the same interactions (rf2-2rtt6.67)
+;; ---------------------------------------------------------------------------
+;;
+;; The other half of "the same page". DOM parity proves the two live
+;; renderings BUILD the same page; it cannot prove that touching the page
+;; means the same thing — two screens could render identically and
+;; dispatch different intents, and a preference judged between them would
+;; be judging two applications. So the same interaction script is driven
+;; at both renderings through real DOM events (a real click, a
+;; prototype-setter keystroke, a real `keydown`), the frame's processed
+;; events are captured at the substrate's own `:events` listener stream
+;; (Spec 009 — the public observation port, so the witness holds no hook
+;; into either rendering), and both captures are asserted equal to the
+;; script's STATED expectation. Stating the expectation rather than only
+;; comparing the two captures is what lets the gate answer false against
+;; a drift BOTH renderings share.
+;;
+;; Two of the keystrokes are composing — the modern signal (`isComposing`,
+;; which React's synthetic keyboard event DROPS, so a gate that reads the
+;; synthetic event is deaf to it) and the legacy one (`keyCode` 229) —
+;; and the expectation for both is silence. That is authoring.md's
+;; composing-Enter law, asserted on each rendering's own gate: the data
+;; key-map's central one on the collector, the hand-written one on raw
+;; UIx.
+
+(defn- q1 [handle sel] (.querySelector (:container handle) sel))
+
+(defn- set-native-value!
+  "Write `v` through `HTMLInputElement.prototype`'s OWN value setter,
+  bypassing React's per-instance change tracker — the same door
+  `arm1_controlled_grid_dom_cljs_test` documents. Assigning through the
+  instance property updates the tracker too, and React then dedupes the
+  `input` event as a no-change echo."
+  [node v]
+  (let [d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
+    (.call (.-set d) node v)))
+
+(defn- type-into!
+  "Append `text` and fire the `input` event, the way a browser orders the
+  two: field first, event second."
+  [node text]
+  (set-native-value! node (str (.-value node) text))
+  (.dispatchEvent node (js/Event. "input" #js {:bubbles true}))
+  nil)
+
+(defn- keydown!
+  "Fire a real `keydown`. `:composing?` and `:key-code` ride the NATIVE
+  event, which is where both renderings' gates read them."
+  [node {:keys [key composing? key-code]}]
+  (.dispatchEvent node (js/KeyboardEvent. "keydown"
+                                          #js {:key         key
+                                               :bubbles     true
+                                               :isComposing (boolean composing?)
+                                               :keyCode     (or key-code 0)}))
+  nil)
+
+(def ^:private interaction-intents
+  "What the script is EXPECTED to dispatch, written out rather than
+  computed from either rendering. The two composing keystrokes appear
+  nowhere in it — their expectation is silence."
+  [[:dogfood/toggle 1]
+   [:dogfood/set-filter :done]
+   [:dogfood/set-filter :all]
+   [:dogfood/edit-draft dogfood/new-draft-key "milk"]
+   [:dogfood/create]
+   [:dogfood/edit-draft 0 "x"]
+   [:dogfood/cancel 0]
+   [:dogfood/remove 2]
+   [:dogfood/edit-draft dogfood/new-draft-key "bread"]
+   [:dogfood/create]])
+
+(defn- interaction-steps
+  "The one script, as thunks over `handle`'s container. Steps are run one
+  per macrotask ([[run-steps!]]) because the comparator's `dispatch` is
+  the router's asynchronous door — the drain is a next-turn task — while
+  the collector's is HD-019's synchronous one. The script must not care
+  which it is driving, and a step's target can be a node the previous
+  step's drain revealed."
+  [handle]
+  [#(.click (q1 handle "[data-id=\"1\"] .toggle"))       ; the narrow write
+   #(.click (q1 handle ".filter[data-filter=\"done\"]")) ; the broad write…
+   #(.click (q1 handle ".filter[data-filter=\"all\"]"))  ; …and back
+   #(type-into! (q1 handle ".new-input") "milk")
+   ;; The two composing keystrokes: the law is that NEITHER commits.
+   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? true  :key-code 13})
+   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? false :key-code 229})
+   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? false :key-code 13})
+   #(type-into! (q1 handle "[data-id=\"0\"] .draft") "x")
+   #(keydown! (q1 handle "[data-id=\"0\"] .draft") {:key "Escape" :composing? false :key-code 27})
+   #(.click (q1 handle "[data-id=\"2\"] .remove"))
+   #(type-into! (q1 handle ".new-input") "bread")
+   #(.click (q1 handle ".add"))])                        ; a real form submission
+
+(defn- run-steps!
+  "Run each thunk, then yield a macrotask — room for the router's drain —
+  and settle React's sync lane before the next step reads the page."
+  [steps k]
+  (if (empty? steps)
+    (k)
+    (do ((first steps))
+        (js/setTimeout (fn [] (mount/settle!) (run-steps! (rest steps) k)) 8))))
+
+(defn- capture-run!
+  "Mount via `mount-fn`, run the script with the `:events` listener
+  armed, and hand `k` `{:intents [...] :dom canonical}` — the two halves
+  parity is asserted on. The listener is registered after the mount and
+  removed before the release, so neither the seed nor teardown can leak
+  into the capture."
+  [mount-fn release-fn k]
+  (fresh!)
+  (let [handle (mount-fn)
+        log    (atom [])]
+    (rf/register-listener! :events ::intent-parity
+                           (fn [record]
+                             (when (= frame-id (:frame record))
+                               (swap! log conj (:event record)))))
+    (run-steps!
+      (interaction-steps handle)
+      (fn []
+        (let [result {:intents @log :dom (lane/canonical (:container handle))}]
+          (rf/unregister-listener! :events ::intent-parity)
+          (release-fn handle)
+          (k result))))))
+
+(deftest the-two-live-renderings-dispatch-the-same-intents-on-the-same-interactions
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    ;; The control first, on the freshest frame — same reasoning as the
+    ;; DOM-parity gate above.
+    (async done
+      (capture-run!
+        uix-mount! release-uix!
+        (fn [uix-run]
+          (capture-run!
+            (fn [] (hicasso-mount! collector/screen)) mount/release!
+            (fn [collector-run]
+              (is (= interaction-intents (:intents uix-run))
+                  "raw UIx dispatches exactly the stated intents — and
+                   nothing for the two composing keystrokes")
+              (is (= interaction-intents (:intents collector-run))
+                  "and so does the collector, so the two renderings mean
+                   the same page as well as building it")
+              (is (= (:dom uix-run) (:dom collector-run))
+                  "and after the whole script the two pages are still
+                   canonically identical — parity held through the
+                   interactions, not just at mount")
+              (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the narrow write touches one row
