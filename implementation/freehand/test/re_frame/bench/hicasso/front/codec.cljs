@@ -515,16 +515,31 @@
 ;; ---------------------------------------------------------------------------
 
 (defn mark-boundary!
-  "Record that `f` — a React function component an arm's `defview` minted
-  — is a legal hiccup head. Returns `f`, so a `defview` can end with it."
+  "Record that `f` — a React element type an arm's `defview` minted — is a
+  legal hiccup head. Returns `f`, so a `defview` can end with it."
   [f]
   (unchecked-set f "hicassoBoundary" true)
   f)
 
 (defn boundary-head?
-  "Is `f` a marked boundary? One own-property read; no registry, no map."
+  "Is `f` a marked boundary? One own-property read; no registry, no map.
+
+  **The marker decides, and the type does not.** This asked `fn?` first
+  until rf2-2rtt6.52, which is a question about how a boundary happens to
+  be built rather than about whether it is one. `mint-view!` now wraps its
+  component in `React.memo` so a page-chrome write stops at an unchanged
+  row, and a memo record is a legal React element type that is *not* a
+  function — under the old gate every `defview` product would have become
+  an illegal head at once.
+
+  HD-016 is untouched, because HD-016 was never a statement about types
+  either: what makes a head legal is that [[mark-boundary!]] marked it, so
+  an unmarked plain function in head position is the same loud error it
+  always was. `some?` guards the read, which is the only input that can
+  throw — every other head reaching here answers `undefined` and so
+  answers false."
   [f]
-  (and (fn? f) (true? (unchecked-get f "hicassoBoundary"))))
+  (and (some? f) (true? (unchecked-get f "hicassoBoundary"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Hiccup shape
