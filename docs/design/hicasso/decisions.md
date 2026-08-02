@@ -1,4 +1,4 @@
-# Hicasso — decisions (HD-001 … HD-027)
+# Hicasso — decisions (HD-001 … HD-028)
 
 Every design decision for the Hicasso programme, resolved. Each record carries the
 ruling, the decisive rationale, and the condition under which it reopens. These
@@ -139,14 +139,23 @@ cheaply — a tap point on the dependency index — is three lines now.
 **Reopens** at product phase, where the tooling story (explain-render, manifests)
 is a stated goal.
 
-## HD-006 — Memoization defaults
+## HD-006 — Memoization defaults — **AMENDED 2026-08-02**
 
-**Ruling.** No default `=`/argv memoization. React semantics stand (a child may
-render with its parent); narrow updates come from boundary placement; `React.memo`
-is an opt-in escape.
+> **Its reopen condition fired, and the amendment is what that condition was for.**
+> This ruling pre-registered "keyed-row / broad witness evidence demanding it" as
+> the one thing that would overturn it, and the tier-1 shape roster produced
+> exactly that: a page-chrome write re-ran the page body once and **300 of 300
+> card bodies**, with every card's props and every card's subscription values
+> value-equal. A **value-equality bail-out is now the boundary default**; see
+> [HD-028](#hd-028--value-equality-is-the-boundary-default). The rest of this
+> entry stands as the position that was overturned, and by what.
+
+**Ruling (amended).** No default `=`/argv memoization. React semantics stand (a
+child may render with its parent); narrow updates come from boundary placement;
+`React.memo` is an opt-in escape.
 **Rationale.** Do not recreate Reagent's equality semantics from taste; every
 default comparison is a cost every render pays.
-**Reopens** only on keyed-row / broad witness evidence demanding it.
+**Reopens** only on keyed-row / broad witness evidence demanding it. **It did.**
 
 ## HD-007 — Two arms, equal class — **SUPERSEDED 2026-07-31**
 
@@ -1001,3 +1010,102 @@ a modifier click moves nothing, and the prevent veto cancels the navigation whil
 its unvetoed sibling (the mutation control) still navigates. **Reopens** if
 dogfooding surfaces a real site needing `:prefetch`, or if the census's
 zero-prefetch count stops describing the corpus.
+
+## HD-028 — Value equality is the boundary default
+
+**Amends [HD-006](#hd-006--memoization-defaults--amended-2026-08-02). This is the
+evidence-driven overturn HD-006 itself provided for, not a change of taste.**
+
+**Ruling.** A **value-equality bail-out is the DEFAULT at every minted Hicasso
+boundary** — CLJS `=` over the complete `rfProps` value — implemented as a
+**codec-level stable memo wrapper**.
+
+**(a) The wrapper is internal, and the head stays a function.** `React.memo`
+returns a memo *object*, and both the codec and the runtime's tests require a
+minted head to BE a function. So `mint-view!`'s return value does not change:
+`codec/memoize-boundary!` attaches one stable wrapper to the head and hands the
+head back, and `boundary-element` creates elements from the wrapper. **No memo
+object escapes as the public representation.** One wrapper per head, minted at
+definition — a wrapper minted per element would be a fresh React element *type*
+every render, and React would unmount and remount the subtree it was meant to
+bail out of.
+
+**(b) The comparator is `=` over the whole props value**, every prop included.
+Function-valued props therefore compare conservatively unequal, which is correct:
+distinct functions must not bail out. It fails **open** — `=` over an app-owned
+value can throw, and this runs inside React's comparator where an escaping throw
+is a render crash rather than a slow render (reagent-slim ruled the same polarity
+on the same comparison, `rf2-5al9d7`).
+
+**(c) Memoization may not outrank the boundary's own invalidation.** `useContext`
+and `useSyncExternalStore` updates still re-render, per React's documented memo
+contract: a commit hands the boundary's fiber its own `onStoreChange`, and React
+tests `checkScheduledUpdateOrContext` *before* it consults the comparator — so a
+boundary whose reads moved re-renders and the comparator is never asked. **Donor
+precedent:** reagent-slim's default update check is argv `=`, and reactive
+invalidation bypasses it via `forceUpdate`. Same shape here, by design.
+
+**(d) Bodies stay pure and re-runnable.** Memoization is a scheduling
+optimization, **never observable semantics**.
+
+**(e) No public `:memo false` in v1.** A boundary that intentionally wants
+parent-driven re-runs receives an explicit changing revision prop. No element
+caches and no per-call-site switches; an opt-out is added only if a concrete case
+proves the revision prop insufficient.
+
+**Rationale.** HD-006 reasoned that narrow updates come from boundary placement
+and that every default comparison is a cost every render pays. The first half
+turned out to hold only for writes that do not touch a page boundary. The roster's
+own instrument
+(`shapes/narrow_dom_cljs_test/a-page-chrome-write-re-renders-no-unchanged-row`)
+measured the exception and it is not exotic — it is tabs above a list, a filter, a
+sort, a route param, the most ordinary page shape there is. On that shape the page
+re-rendered and React re-rendered all 300 card boundaries beneath it, with every
+card's inputs value-equal, on **precisely the axis HD-012's ≤ 1.0× Reagent bulk row
+is set on** — and Reagent's default `shouldComponentUpdate` stops that cascade. A
+framework that knows the right default and makes every programmer find it has
+inverted its own posture.
+
+**Prior art, mined rather than reinvented** (verified against the jars in the
+dependency cache, 2026-08-02). **Reagent 2.0.1** has run this exact bail-out for a
+decade: `reagent.impl.component/functional-render-memo-fn` is a `React.memo`
+`areEqual` doing `=` over the whole argv, wrapped in a `try` that returns **false**
+on a throw — i.e. re-render — and the memo is minted **once per component and
+cached** (`cached-react-class`; the source comment reads *"the memo wrap is
+required"*). Every structural choice above is therefore the incumbent's: `=` over
+the complete value, a custom comparator because shallow identity cannot work, one
+stable wrapper per head, and fail-open. **UIx 1.4.4**'s `uix.core/memo` defaults to
+`=` over `argv` *plus* `:children` when present — Hicasso's `rfProps` already
+carries `:children` as realized hiccup, so the compared value matches UIx's
+without a special case, and hiccup children compare structurally where React
+elements would only compare by identity.
+
+**Declined, with reasons.** *Reagent's `*always-update*` dynamic escape* — its
+comparator consults a dynamic var so `force-update-all` can bypass the bail-out for
+hot reload. Hicasso does not need it: re-evaluating a `defview` re-mints the head
+*and* its wrapper, which is a new React element **type**, so HMR replaces the
+subtree rather than needing to force through a comparison. *Reagent's class-path
+polarity* — stock `shouldComponentUpdate` catches a comparison throw and returns
+`false`, which on that path means **skip**, i.e. fail closed; we take the
+functional path's polarity instead, which is also the one reagent-slim ruled
+(`rf2-5al9d7`). *UIx's opt-in posture* — `^:memo` on `defui` makes memoization a
+per-component decision by the author; that is the posture this ruling overturns.
+*UIx's unguarded comparator* — it has no `try`, so a throwing `-equiv` escapes
+into React's render.
+
+**Cost, priced rather than assumed.** The comparator spends **no React hook**, so
+HD-020(b)'s ≤2-hook shell budget is untouched. It does spend **one extra Fiber per
+boundary**: a memo carrying a custom comparator takes the full `MemoComponent`
+path rather than collapsing into React's `SimpleMemoComponent`. That is recorded
+in `runtime/retained-inventory` under `:react/memo-fiber` rather than left for a
+heap ladder to find.
+
+**Rejected.** *Keep HD-006 and teach `React.memo` + `areEqual` as an opt-in
+pattern* — inverts the posture and ships a known 300× re-render cascade on the
+most ordinary page shape there is. *Element-identity caching at the call sites* —
+fights React's grain with exactly the caching machinery HD-004's anti-fence exists
+to refuse, and makes every `for` site a performance decision.
+
+**Reopens** if the priced cost moves: if the extra Fiber is later shown to fail the
+retained-heap bar on a shape that matters, the same comparator ships as an explicit
+boundary-level opt-in and HD-006 is restored as the default.

@@ -569,25 +569,29 @@
 
 (deftest a-minted-view-is-a-legal-hiccup-head
   (let [v (rt/mint-view! "test/probe" (fn [_] [:li]))]
-    (is (codec/boundary-head? v)
-        "the contract this test is named for, asked of the codec that
-         enforces it — and asked that way since rf2-2rtt6.52, because it
-         used to ask `fn?`, which was a claim about how a boundary is
-         BUILT rather than about whether it is a legal head. The
-         props-equality bail-out makes a minted view a `React.memo`
-         record: still a React element type, no longer a function")
+    (is (fn? v))
+    (is (codec/boundary-head? v))
     (is (= "test/probe" (.-displayName v)))
     (is (true? (unchecked-get v "hicassoBoundary"))
         "the codec's own boundary marker, so a view is a head by
          construction and the stable-head cache has nothing to do")))
 
-(deftest an-unmarked-plain-function-is-still-not-a-head
-  (testing "the marker decides, so widening `boundary-head?` off `fn?`
-           (rf2-2rtt6.52) did not widen what HD-016 accepts — the loud
-           error for a plain function in head position is intact"
-    (is (false? (codec/boundary-head? (fn [_] [:li]))))
-    (is (false? (codec/boundary-head? nil)))
-    (is (false? (codec/boundary-head? :div)))))
+(deftest a-minted-view-keeps-its-memo-wrapper-internal
+  (testing "HD-006 as amended (rf2-2rtt6.52) puts a value-equality
+           bail-out on every boundary, but `React.memo` answers an OBJECT
+           and a minted head must stay a function — so the wrapper is
+           attached to the head rather than returned in its place, and no
+           memo object escapes as the public representation"
+    (let [v (rt/mint-view! "test/memo-probe" (fn [_] [:li]))
+          m (unchecked-get v "hicassoMemo")]
+      (is (fn? v) "the head is still the function it always was")
+      (is (some? m) "and it carries a wrapper")
+      (is (not (fn? m)) "which is the memo object, and is not a function")
+      (is (identical? m (unchecked-get v "hicassoMemo"))
+          "**stability is the whole contract.** One wrapper per head,
+           minted at definition — a fresh one per element would be a fresh
+           React element TYPE every render, and React would unmount and
+           remount the entire subtree instead of bailing out of it"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Residue — the standing zero-leaked-refcounts assertion

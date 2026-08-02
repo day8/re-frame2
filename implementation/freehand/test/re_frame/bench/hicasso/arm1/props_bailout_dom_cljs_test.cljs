@@ -3,12 +3,14 @@
 
   The defect this file pins was measured on the tier-1 feed shape: a write
   that moved a key the PAGE boundary read re-rendered the page, and React
-  then re-rendered **all 300 card boundaries beneath it** — every one of
-  whose props and subscription values were unchanged, and whose DOM
-  afterwards was byte-identical to the DOM before. A boundary was a plain
-  React function component, and React re-renders the children of a
-  re-rendered parent unless the element is referentially identical (a
-  `for` builds fresh ones) or the component bails out itself.
+  then re-rendered **all 300 card boundaries beneath it** — page body 1,
+  card bodies 300 of 300, with every card's props and every card's
+  subscription values equal. Those 300 unchanged-row renders are
+  themselves the witness; the page's own chrome does move, so this is not
+  a claim that the DOM is unchanged. A boundary was a plain React function
+  component, and React re-renders the children of a re-rendered parent
+  unless the element is referentially identical (a `for` builds fresh
+  ones) or the component bails out itself.
 
   That contradicted the programme's central architectural claim — that
   boundaries are independent, and a write wakes only its readers — on the
@@ -197,8 +199,9 @@
                 "and the write really landed — without this the row above
                  could pass by doing nothing at all")
             (is (= text-before (row-texts handle))
-                "the rows' DOM is unchanged, which is what made this
-                 invisible to a DOM-only witness in the first place")
+                "the ROWS' DOM is unchanged — the chrome above them did
+                 move, which is why the row-body count and not a DOM
+                 comparison is what witnesses this")
             (is (= nodes-before (vec (rows-of handle)))
                 "and they are the IDENTICAL DOM nodes — React neither
                  replaced nor re-patched a subtree")
