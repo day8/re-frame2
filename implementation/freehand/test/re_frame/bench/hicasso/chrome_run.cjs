@@ -7,7 +7,7 @@
 //   CHROME_ROUNDS=8 node .../chrome_run.cjs
 //   CHROME_ONLY=chrome,bulk node .../chrome_run.cjs
 //
-// HD-026 makes a value-equality bail-out the boundary DEFAULT, and the
+// HD-028 makes a value-equality bail-out the boundary DEFAULT, and the
 // ruling made that conditional on this measurement: the default lands if
 // it removes the 300-row cascade *without a material mount/bulk
 // regression and without pushing retained heap meaningfully farther past

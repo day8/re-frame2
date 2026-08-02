@@ -1,10 +1,10 @@
 # The page-chrome row, and what the bail-out costs
 
-**Bead:** `rf2-2rtt6.52` · **Ruling:** [HD-026](../decisions.md#hd-026--value-equality-is-the-boundary-default),
+**Bead:** `rf2-2rtt6.52` · **Ruling:** [HD-028](../decisions.md#hd-028--value-equality-is-the-boundary-default),
 amending [HD-006](../decisions.md#hd-006--memoization-defaults--amended-2026-08-02) ·
 **Taken:** 2026-08-02 12:00 AUSEST
 
-HD-026 makes a value-equality bail-out the boundary default, and the ruling made
+HD-028 makes a value-equality bail-out the boundary default, and the ruling made
 that default **conditional on this measurement**: it lands if it removes the
 300-row cascade *without a material mount/bulk regression and without pushing
 retained heap meaningfully farther past the bar*. The cost being priced is that a
