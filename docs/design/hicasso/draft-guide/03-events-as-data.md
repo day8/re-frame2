@@ -1,10 +1,10 @@
 # Events as data
 
-> **Pre-implementation draft — Hicasso does not exist yet.** This page describes the
-> *designed* surface so it can be read before it is built. Spellings marked
-> **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
-> is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-026).
+> **Draft ahead of the product artefact.** This page teaches the landed surface —
+> ruled in [decisions.md](../decisions.md) (HD-001…HD-027), witnessed by the bench
+> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
+> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
+> stay provisional until the API freeze.
 
 Handler attributes are where a data-oriented view layer usually gives up. You have
 been writing pure data all the way down the tree, and then `:on-click` needs a
@@ -21,10 +21,15 @@ callback.
 That is not sugar for a closure you could have written. The tree still holds data at
 that node, which means a test can assert it with `=` and a tool can read it.
 
-## The value placeholder
+Lowering is by shape, not by roster: any prop whose name reads `on-` plus a letter
+(or camelCase `onClick`, for the migrating author) is an event position, so there is
+no list of blessed event names to keep in step with the DOM.
 
-Most handlers need something out of the event object. `::h/value` **[unfrozen]** is
-the placeholder that gets substituted at dispatch time:
+## The value placeholders
+
+Most handlers need something out of the event object. Two markers exist —
+`::h/value` and `::h/checked` — substituted at dispatch time with the event
+target's `.value` and `.checked`:
 
 ```clojure
 [:input {:value    draft
@@ -33,11 +38,13 @@ the placeholder that gets substituted at dispatch time:
 
 At dispatch, the placeholder is replaced by the input's value, so the handler
 receives `[:todo.ui/edit 7 "milk"]` — an ordinary event vector, indistinguishable
-from one you dispatched by hand.
+from one you dispatched by hand. Substitution happens at the intent vector's top
+level only, which is the shape the corpus writes; a marker buried in nested
+structure is not looked for.
 
-The census says this covers about **97% of the corpus's 183 handler sites**. That
-number is why the placeholder exists: one marker turns nearly every handler
-attribute in a real application into data.
+The census says the markers cover about **97% of the corpus's 183 handler sites**.
+That number is why they exist: two markers turn nearly every handler attribute in a
+real application into data.
 
 ## Functions still work
 
@@ -153,20 +160,62 @@ Keyboard handling arrives as data, not as a `case` over `.-key`:
 ```clojure
 [:input {:value    draft
          :on-input [:todo.ui/edit id ::h/value]
-         :on-keydown {"Enter"  [:todo.ui/commit id]
-                      "Escape" [:todo.ui/cancel id]}}]
+         :on-key-down {"Enter"  [:todo.ui/commit id]
+                       "Escape" [:todo.ui/cancel id]}}]
 ```
 
-A map from key name to intent. Keys you don't list are ignored.
+A map from key name to intent. The names are strings, matched against the DOM
+event's own `.key` value; keys you don't list are ignored, and there is no
+modifier language.
 
 The reason this belongs in the runtime rather than in your view is the composition
 law: **a composing Enter commits nothing.** Mid-IME, Enter selects a candidate — it
 is not a submit, and treating it as one is how a Japanese or Chinese user loses a
 sentence. The runtime centralises that check, including the legacy keyCode-229
-signal that some browsers still use to say "this keystroke belongs to the IME."
+signal that some browsers still use to say "this keystroke belongs to the IME" —
+and it reads both signals off the *native* event, because React's synthetic
+keyboard event drops `isComposing`, which is exactly the trap a hand-written
+handler falls into.
 
 Get this wrong in your own handler and it fails silently for every user who
 composes. Which is a good argument for it not being your handler.
+
+## Links: `route-link` and the navigate head
+
+Most of an application's anchors are navigations — the census counts **106
+route-links across 85 files**, which makes the link the most-repeated tier-1 form
+there is. Its spelling is `route-link`, a plain function over the routing
+artefact's link seam (HD-027):
+
+```clojure
+(route-link {:to :conduit.profile/show :params {:username username}}
+  username)
+```
+
+You name a route and its params and never see a URL. What comes back is one real
+`<a>` whose `:href` is routing's own synthesis and whose `:on-click` carries the
+click decision **as data**, under the second reserved head, `[::h/navigate {…}]` —
+so two renders of one link are equal under `=`, and a structural test reads the
+click decision off the tree. Because it is a plain function, not a boundary, it
+inlines: no hook, no subscription read, no row in any boundary count. An author
+byline is not a unit of re-render.
+
+The click law is routing's, stated once, and it is the one every other link
+surface already runs: a modifier-click or auxiliary click stays the browser's (a
+new tab opens), a `:target` or `:download` anchor stays native, and everything
+else is `preventDefault` plus a dispatch of the routing intent to the frame that
+was captured at render. Rendering a `route-link` with routing absent fails at
+render, naming the `:to` — never a dead anchor.
+
+**The `:on-click` you pass is the pre-navigation veto**, and its roster is closed:
+`nil`, `[::h/prevent [:app/event]]`, `h/fn`, or a plain function. The prevent form
+is the declarative veto — the navigation is cancelled and your intent dispatched
+instead, which is exactly the cancelable-navigation case the prevent head was
+built for. A **bare** intent vector there is refused loudly: the click already
+produces the one routing intent, and one user action must not yield two semantic
+events. Witnessed end-to-end — grammar, equality, refusals, real clicks through a
+real router — in `front/route_link_cljs_test` and
+`shapes/route_link_dom_cljs_test`.
 
 ## Callbacks carry their frame
 
@@ -191,7 +240,8 @@ are named in the sections above.
 |---|---|---|
 | Page navigates and reloads on form submit | Something bypassed the intent path — a hand-written `:on-submit` function | Use an intent vector, or call `.preventDefault` yourself in the function |
 | Handler receives the placeholder keyword instead of a value | The placeholder was used at an event position with no value to substitute | `::h/value` is for value-bearing events; read the event object with a function elsewhere |
-| Enter commits half-typed Japanese text | Composition handling was written by hand | Use the `:on-keydown` key map — the composition law is centralised there |
+| Enter commits half-typed Japanese text | Composition handling was written by hand | Use the `:on-key-down` key map — the composition law is centralised there |
+| A `route-link` refuses your `:on-click` intent vector | The click already produces the one routing intent — a bare second intent is one action, two events | Wrap it: `[::h/prevent [:app/event]]` cancels the navigation and dispatches yours instead |
 | `:rf.error/no-frame-context` from a timeout | A bare `dispatch` in async code | Capture the frame at the call site, or dispatch an event that owns the async work through `:fx` |
 | An intent fires but no handler runs | Unregistered event id | Registration happens on namespace load; check the boot namespace requires it |
 
@@ -208,8 +258,6 @@ dispatch, and a plain `(fn …)` when you want to read it and do something else.
 
 | Question | Status |
 |---|---|
-| The auto-prevent opt-out spelling | **Settled** (HD-026). The submit opt-out is `h/fn`; prevention elsewhere is opted in by the `[::h/prevent …]` head, and the metadata spelling this page once carried is retired |
-| Whether markers other than `::h/value` exist | **Not addressed.** The charter names "the intent-marker roster and its one pure materializer" as a micro-mechanic worth copying from the predecessor, but only `::h/value` is spelled. A checked-state marker for checkboxes is an obvious gap this guide could not fill honestly — the example on [Getting started](01-getting-started.md) sidesteps it by passing the id and letting the handler flip the value |
-| Which attributes get intent lowering | **Not addressed.** `:on-click`, `:on-input`, `:on-submit`, and `:on-keydown` appear in the record; whether lowering is universal across `:on-*` or a named roster is unstated |
-| The key map's key vocabulary | Key names appear as strings (`"Enter"`, `"Escape"`); whether keywords are accepted, and how modifiers are spelled, is unstated |
-| `::h/value` semantics on non-input elements | **Not addressed** |
+| `h/fn`'s spelling | Working name; HD-024 leaves the spelling unfrozen like every declaration spelling |
+| A symmetric allow-default head | **Explicitly not shipped.** Added only if dogfooding produces a real site needing both native submission and equality-based structural testing (HD-026) |
+| `:prefetch` on `route-link` | **Declined for v0** — the census counts no prefetch site; reopens if one appears (HD-027) |
