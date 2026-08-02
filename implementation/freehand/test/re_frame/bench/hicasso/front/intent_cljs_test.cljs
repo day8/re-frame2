@@ -143,7 +143,8 @@
     (is (false? (intent/markers? [:e 1 "two"])))))
 
 ;; ---------------------------------------------------------------------------
-;; Submit auto-prevent, and the one metadata mechanism that overrides it
+;; Submit auto-prevent, and the one reserved head that opts in elsewhere
+;; (HD-026)
 ;; ---------------------------------------------------------------------------
 
 (deftest on-submit-auto-prevents
@@ -159,22 +160,36 @@
     ((lowered (dispatching (recorder)) :on-click [:ping]) (ev {:prevented !prevented}))
     (is (false? @!prevented))))
 
-(deftest prevent-metadata-overrides-the-positions-default-in-both-directions
-  (testing "opting out of the submit default"
-    (let [!seen (recorder)
+(deftest the-prevent-head-opts-in-and-dispatches-the-inner-intent
+  (testing "the anchor-acting-as-a-button, which is the shape this exists for"
+    (let [!seen      (recorder)
+          !prevented (atom false)
+          h (lowered (dispatching !seen) :on-click
+                     [:re-frame.hicasso/prevent [:conduit/show-your-feed]])]
+      (h (ev {:prevented !prevented}))
+      (is (true? @!prevented) "the browser does not follow the href")
+      (is (= [[:conduit/show-your-feed]] @!seen)
+          "and what reaches dispatch is the INNER vector — ordinary data, with no
+           decorator on it")))
+  (testing "the decorator is unwrapped BEFORE marker analysis, so the markers
+            compose inside a prevented intent"
+    (let [!seen      (recorder)
+          !prevented (atom false)
+          h (lowered (dispatching !seen) :on-input
+                     [:re-frame.hicasso/prevent
+                      [:filter/set :re-frame.hicasso/value]])]
+      (h (ev {:value "milk" :prevented !prevented}))
+      (is (true? @!prevented))
+      (is (= [[:filter/set "milk"]] @!seen))))
+  (testing "the submit default still holds under the head, and is not doubled"
+    (let [!seen      (recorder)
           !prevented (atom false)
           h (lowered (dispatching !seen) :on-submit
-                     (with-meta [:todo/create] {:re-frame.hicasso/prevent? false}))]
+                     [:re-frame.hicasso/prevent [:todo/create]])]
       (h (ev {:prevented !prevented}))
-      (is (false? @!prevented))
+      (is (true? @!prevented))
       (is (= [[:todo/create]] @!seen))))
-  (testing "opting in anywhere else"
-    (let [!prevented (atom false)
-          h (lowered (dispatching (recorder)) :on-click
-                     (with-meta [:ping] {:re-frame.hicasso/prevent? true}))]
-      (h (ev {:prevented !prevented}))
-      (is (true? @!prevented))))
-  (testing "auto-prevent composes with the value marker"
+  (testing "auto-prevent composes with the value marker, decorator or not"
     (let [!seen (recorder)
           !prevented (atom false)
           h (lowered (dispatching !seen) :on-submit
@@ -182,6 +197,103 @@
       (h (ev {:value "milk" :prevented !prevented}))
       (is (true? @!prevented))
       (is (= [[:todo/create "milk"]] @!seen)))))
+
+(deftest a-prevented-intent-is-assertable-by-equality
+  ;; THE REASON THE SPELLING CHANGED. HD-021's headless door returns the tree
+  ;; as data and sells itself on "intent vectors assertable by equality" —
+  ;; and metadata does not participate in `=`, so the one axis the retired
+  ;; spelling carried was the one axis a structural test could not see.
+  (testing "the retired spelling, stated as the defect it was"
+    (is (= [:conduit/show-your-feed]
+           (with-meta [:conduit/show-your-feed] {:re-frame.hicasso/prevent? true}))
+        "`=` could not tell a prevented intent from a plain one")
+    (is (= (hash [:conduit/show-your-feed])
+           (hash (with-meta [:conduit/show-your-feed] {:re-frame.hicasso/prevent? true})))
+        "and neither could a hash-keyed lookup")
+    (is (= "[:conduit/show-your-feed]"
+           (pr-str (with-meta [:conduit/show-your-feed] {:re-frame.hicasso/prevent? true})))
+        "nor a log line, nor a snapshot — metadata is omitted from printing"))
+  (testing "the head, which every one of those instruments can see"
+    (is (not= [:conduit/show-your-feed]
+              [:re-frame.hicasso/prevent [:conduit/show-your-feed]]))
+    (is (not= (hash [:conduit/show-your-feed])
+              (hash [:re-frame.hicasso/prevent [:conduit/show-your-feed]])))
+    (is (= "[:re-frame.hicasso/prevent [:conduit/show-your-feed]]"
+           (pr-str [:re-frame.hicasso/prevent [:conduit/show-your-feed]]))))
+  (testing "which is the property a structural test actually takes: two props
+            maps that differ ONLY in whether the click prevents"
+    (let [plain     {:href "#" :on-click [:conduit/show-your-feed]}
+          prevented {:href "#" :on-click [:re-frame.hicasso/prevent
+                                          [:conduit/show-your-feed]]}]
+      (is (not= plain prevented))
+      (is (= plain (update prevented :on-click #(nth % 1)))
+          "and the difference is exactly the decorator, nothing else")))
+  (testing "the predicate the classification uses is public, so a test can ask
+            the same question the lowering asks"
+    (is (true? (intent/prevent-head? [:re-frame.hicasso/prevent [:x]])))
+    (is (false? (intent/prevent-head? [:conduit/show-your-feed])))
+    (is (false? (intent/prevent-head?
+                  (with-meta [:conduit/show-your-feed]
+                             {:re-frame.hicasso/prevent? true})))
+        "the retired metadata is no longer a spelling of anything")))
+
+(deftest the-retired-metadata-spelling-does-nothing
+  ;; Not a formality: an author porting old code must find out at the click,
+  ;; not never. The metadata is inert, so the anchor navigates — which is
+  ;; loud in the browser and is what the DOM witness asserts.
+  (let [!seen      (recorder)
+        !prevented (atom false)
+        h (lowered (dispatching !seen) :on-click
+                   (with-meta [:ping] {:re-frame.hicasso/prevent? true}))]
+    (h (ev {:prevented !prevented}))
+    (is (false? @!prevented))
+    (is (= [[:ping]] @!seen))))
+
+(deftest a-malformed-prevent-head-is-refused-loudly
+  (let [d (dispatching (recorder))]
+    (testing "wrong arity — a bare head"
+      (is (thrown-with-msg? js/Error #"wraps EXACTLY ONE intent vector"
+                            (lowered d :on-click [:re-frame.hicasso/prevent]))))
+    (testing "wrong arity — two payloads, which is how an author would try to
+              write a second decorator"
+      (is (thrown-with-msg? js/Error #"carries 2 forms after the head"
+                            (lowered d :on-click [:re-frame.hicasso/prevent
+                                                  [:a] [:b]]))))
+    (testing "a non-vector payload"
+      (is (thrown-with-msg? js/Error #"not an intent vector"
+                            (lowered d :on-click [:re-frame.hicasso/prevent
+                                                  :conduit/show-your-feed]))))
+    (testing "the empty vector, which names no event"
+      (is (thrown-with-msg? js/Error #"names no event"
+                            (lowered d :on-click [:re-frame.hicasso/prevent []]))))
+    (testing "the decorator does not nest — the grammar is closed, so there is
+              no open decorator language to grow"
+      (is (thrown-with-msg? js/Error #"does not nest"
+                            (lowered d :on-click
+                                     [:re-frame.hicasso/prevent
+                                      [:re-frame.hicasso/prevent [:ping]]]))))
+    (testing "the diagnostic carries its id and NAMES THE POSITION"
+      (try
+        (lowered d :on-key-up [:re-frame.hicasso/prevent])
+        (is false "should have thrown")
+        (catch :default e
+          (let [data (ex-data e)]
+            (is (= :rf.error/hicasso-malformed-prevent (:rf.error/id data)))
+            (is (= :on-key-up (:position data)))
+            (is (= [:re-frame.hicasso/prevent] (:form data)))
+            (is (re-find #":on-key-up" (ex-message e)))
+            (is (re-find #"Write \[:re-frame.hicasso/prevent" (ex-message e))
+                "and it shows the form to write")))))
+    (testing "the refusal is taken at LOWERING time — before any event exists,
+              so a malformed decorator cannot reach a user's click"
+      (is (thrown? js/Error
+                   (intent/with-frame d
+                     (fn [] (intent/lower-props
+                              {:on-click [:re-frame.hicasso/prevent :nope]}))))))
+    (testing "and only at an event position: an intent travelling as data is
+              not lowered, so it is not classified either"
+      (is (= [:re-frame.hicasso/prevent :nope]
+             (lowered d :data-intent [:re-frame.hicasso/prevent :nope]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The composition-gated key-map
@@ -230,16 +342,35 @@
                          {"Enter" [:todo/commit :re-frame.hicasso/value]})]
       (h (ev {:key "Enter" :value "milk"}))
       (is (= [[:todo/commit "milk"]] @!seen))))
-  (testing "prevent metadata works inside a branch, and is off by default"
-    (let [!a (atom false)
+  (testing "the prevent head is accepted inside a branch — through the same
+            classification, because a branch is lowered by the same code — and
+            prevention is off by default in the branch that does not carry it"
+    (let [!seen (recorder)
+          !a (atom false)
           !b (atom false)
-          h  (lowered (dispatching (recorder)) :on-key-down
-                      {"Enter"  (with-meta [:commit] {:re-frame.hicasso/prevent? true})
+          h  (lowered (dispatching !seen) :on-key-down
+                      {"Enter"  [:re-frame.hicasso/prevent [:commit]]
                        "Escape" [:cancel]})]
       (h (ev {:key "Enter" :prevented !a}))
       (h (ev {:key "Escape" :prevented !b}))
       (is (true? @!a))
-      (is (false? @!b))))
+      (is (false? @!b))
+      (is (= [[:commit] [:cancel]] @!seen)
+          "and both branches dispatch ordinary intents")))
+  (testing "a malformed decorator in a branch is refused at lowering, naming
+            the position"
+    (is (thrown-with-msg? js/Error #"wraps EXACTLY ONE intent vector"
+                          (lowered (dispatching (recorder)) :on-key-down
+                                   {"Enter" [:re-frame.hicasso/prevent]}))))
+  (testing "a marker composes inside a prevented branch"
+    (let [!seen (recorder)
+          !p    (atom false)
+          h     (lowered (dispatching !seen) :on-key-down
+                         {"Enter" [:re-frame.hicasso/prevent
+                                   [:todo/commit :re-frame.hicasso/value]]})]
+      (h (ev {:key "Enter" :value "milk" :prevented !p}))
+      (is (true? @!p))
+      (is (= [[:todo/commit "milk"]] @!seen))))
   (testing "an ordinary function is a legal branch"
     (let [!called (atom false)
           h (lowered (dispatching (recorder)) :on-key-down

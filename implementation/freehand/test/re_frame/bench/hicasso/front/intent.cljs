@@ -9,6 +9,7 @@
       [:form   {:on-submit [:todo/create]}]
       [:input  {:on-key-down {\"Enter\"  [:todo/commit id]
                               \"Escape\" [:todo.ui/cancel id]}}]
+      [:a      {:href \"#\" :on-click [::h/prevent [:todo/show-done]]}]
 
   authoring.md's whole event surface, and nothing beyond it. Four
   behaviours, dispatched on the *shape* of the value at an `on-*` prop
@@ -112,11 +113,23 @@
 
   ## The policy defaults
 
-  - **`:on-submit` auto-prevents** (authoring.md, census-weighted). The
-    opt-out is metadata on the intent — `^{::h/prevent? false} [:ev]` —
-    which costs no new prop, no new spelling, and no second calling
-    convention. The same metadata opts *in* at any other event position,
-    so there is one mechanism rather than a default and an override.
+  - **`:on-submit` auto-prevents** (authoring.md, census-weighted), and
+    the opt-out for the rare form that wants a real submission is the
+    existing `h/fn` escape — a callback is handed the event, so the event
+    is the callback's.
+  - **Anywhere else, prevention is opted IN by one reserved head**:
+    `[::h/prevent [:conduit/show-your-feed]]`. It is a head rather than
+    metadata because **metadata does not participate in `=`**, and
+    HD-021's headless door sells itself on intent vectors assertable by
+    equality: `(= [:app/go] ^{::h/prevent? true} [:app/go])` is `true`,
+    so the one axis the annotation carried was the one axis a structural
+    test — or a log, or a snapshot — could not see. `preventDefault`
+    changes the event's `canceled` flag; it is behaviour, and behaviour a
+    spelling hides from the product's own testing story is a defect
+    rather than a taste. A click cannot simply auto-prevent the way
+    submit does: a modifier-click on a real link must still open a tab,
+    so the anchor-acting-as-a-button needs an explicit opt-in and this is
+    its spelling (HD-026).
   - **The key-map is composition-gated, centrally.** A key event arriving
     mid-composition commits nothing: `isComposing`, or the legacy
     keyCode-229 signal that is all some IMEs on some browsers ever send.
@@ -307,10 +320,12 @@
   "`::h/checked` — the event target's current checked state."
   :re-frame.hicasso/checked)
 
-(def prevent-key
-  "`::h/prevent?` — metadata on an intent vector, opting `.preventDefault`
-  in or out against the position's default."
-  :re-frame.hicasso/prevent?)
+(def prevent-head
+  "`::h/prevent` — the one reserved intent HEAD. `[::h/prevent [:app/go]]`
+  at an event position dispatches `[:app/go]` and calls `.preventDefault`
+  first. See [[classify-intent]] for the grammar and why it is a head
+  rather than metadata."
+  :re-frame.hicasso/prevent)
 
 (def ^:private marker-readers
   "The roster, as marker → the reader that pulls its value off the event
@@ -385,23 +400,67 @@
   (let [n (name k)]
     (or (= n "on-submit") (= n "onSubmit"))))
 
-(defn- prevent?
-  "Does the intent at `k` prevent the default action? The position's
-  default, overridden either way by `^{::h/prevent? …}` on the intent."
-  [k intent]
-  (let [m (meta intent)]
-    (if (contains? m prevent-key)
-      (boolean (get m prevent-key))
-      (prevent-by-default? k))))
+(defn prevent-head?
+  "Is `v` the `::h/prevent` decorator? One `=` against the vector's first
+  element. Asked once per lowered position, never per event."
+  [v]
+  (and (vector? v) (= prevent-head (nth v 0 nil))))
+
+(defn- unwrap-prevent
+  "CLASSIFY AND UNWRAP. `v` is the decorator; answer the intent inside it,
+  refusing anything that is not exactly one inner intent vector.
+
+  **The grammar is closed, and this is the whole of it.** `[::h/prevent
+  INTENT]` — two forms, the second a non-empty vector that is not itself a
+  decorator. Everything else is
+  `:rf.error/hicasso-malformed-prevent`, named at the position it was
+  written at. There is no options map, no second decorator, no modifier
+  language: one reserved head in the same tiny roster as `::h/value`, so
+  the thing that keeps it closed is that the roster is a list rather than
+  a convention.
+
+  It is deliberately NOT a walker. The decorator is recognised at ONE
+  known position — a vector at an event position, which lowering already
+  had in its hand — and the answer is a classification taken once per
+  render. Nothing descends into the intent, and the inner vector stays
+  ordinary data all the way to `dispatch`."
+  [k v]
+  (let [inner (nth v 1 nil)]
+    (when-not (and (= 2 (count v))
+                   (vector? inner)
+                   (seq inner)
+                   (not (prevent-head? inner)))
+      (fail! :rf.error/hicasso-malformed-prevent
+             'front.intent/lower-prop
+             (str "The " (pr-str prevent-head) " decorator at " (pr-str k)
+                  " wraps EXACTLY ONE intent vector; this one "
+                  (cond
+                    (not= 2 (count v))    (str "carries " (dec (count v))
+                                               " forms after the head")
+                    (prevent-head? inner) "wraps another decorator, and it does not nest"
+                    (not (vector? inner)) (str "wraps " (pr-str inner)
+                                               ", which is not an intent vector")
+                    :else                 "wraps the empty vector, which names no event")
+                  ". Write [" (pr-str prevent-head) " [:my-event …]].")
+             :wrap-exactly-one-intent-vector
+             {:position k :form v}))
+    inner))
 
 (defn- intent-handler
   "Lower one intent vector into the closure the browser will call. The
   three axes — prevent, markers, dispatch — are all resolved here, so the
-  event path is the shortest one this intent can have."
-  [k intent]
-  (let [dispatch (require-dispatch intent)
-        prevent  (prevent? k intent)
-        dynamic  (markers? intent)]
+  event path is the shortest one this intent can have.
+
+  Classification comes FIRST, so the markers compose inside a prevented
+  intent: `[::h/prevent [:filter/set ::h/value]]` is unwrapped before
+  [[markers?]] is ever asked, and the materializer then sees the ordinary
+  intent it has always seen."
+  [k v]
+  (let [decorated (prevent-head? v)
+        intent    (if decorated (unwrap-prevent k v) v)
+        dispatch  (require-dispatch intent)
+        prevent   (or decorated (prevent-by-default? k))
+        dynamic   (markers? intent)]
     (cond
       (and prevent dynamic)       (fn [e] (.preventDefault e) (dispatch (materialize intent e)))
       prevent                     (fn [e] (.preventDefault e) (dispatch intent))

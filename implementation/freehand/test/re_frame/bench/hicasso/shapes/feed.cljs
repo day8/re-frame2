@@ -120,15 +120,13 @@
            [:a.nav-link {:href        "#"
                          :data-testid "your-feed-tab"
                          :class       (when your-feed? "active")
-                         :on-click    ^{:re-frame.hicasso/prevent? true}
-                                      [:conduit/show-your-feed]}
+                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-your-feed]]}
             "Your Feed"]]
           [:li.nav-item
            [:a.nav-link {:href        "#"
                          :data-testid "global-feed-tab"
                          :class       (when-not your-feed? "active")
-                         :on-click    ^{:re-frame.hicasso/prevent? true}
-                                      [:conduit/show-global-feed]}
+                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-global-feed]]}
             "Global Feed"]]]]
         [:div.article-list {:data-testid "article-list"}
          (for [slug (sub [:conduit/slugs])]
