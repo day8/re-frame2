@@ -46,7 +46,7 @@
   a declared-`:event` `h/fn` refuses loudly at invocation. Loud, never
   silent, but dead. The presence rows below therefore drive the host
   child through model changes and prove state/retention/override
-  crossing; the gap is filed as its own bead rather than smoothed here,
+  crossing; the gap is filed as rf2-2rtt6.66 rather than smoothed here,
   because it is presence's frame plumbing, not the door's.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
@@ -254,6 +254,7 @@
   [_]
   [presence {:timeout-ms timeout-ms}
    (for [w (rt/sub [:hatch/widgets])]
+     ;; no callback props on a presence child — rf2-2rtt6.66
      [picker {:key   (:id w)
               :label (:name w)
               :re-frame.hicasso/unmounting {:class "widget--exit"}}])])
