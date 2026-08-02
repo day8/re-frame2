@@ -31,7 +31,7 @@
 
   ## The ladder, and what each subtraction names
 
-  All twelve arms build the acceptance page (`large-template`, 1,202
+  All fifteen arms build the acceptance page (`large-template`, 1,202
   elements, ONE boundary, 141 per-instance reads, 207 route-links) and
   every non-control arm's canonical DOM is proven byte-identical to the
   candidate's before a clock is read.
@@ -40,15 +40,18 @@
   |---|---|---|
   | `ship` | the real [[re-frame.bench.hicasso.shapes.large-template/page]] through the real shell | the published 6.100 |
   | `local` | the same body, re-spelled in THIS namespace | fidelity gate: `local / ship` |
-  | `nolink` | `local` with the card's three `route-link`s spelled as literal-href anchors (the twins' spelling) | `local − nolink` = **the route-link term** |
-  | `nohiccup` | the 141 reads, then a hiccup tree built ONCE at boot | `nolink − nohiccup` = **hiccup materialisation** |
-  | `nowalk` | the 141 reads, then a React element tree built ONCE at boot | `nohiccup − nowalk` = **the codec walk** |
-  | `noreads` | the frozen element tree, no reads | `nowalk − noreads` = **the 141 cold reads, render half** |
-  | `nomemo` | `noreads` minted WITHOUT `codec/memoize-boundary!` | `noreads − nomemo` = **the HD-028 memo wrapper's fiber** |
-  | `bare` | a plain React function component, no shell, no hooks | `nomemo − bare` = **the shell: 2 hooks, the fence, the entry, the commit** |
-  | `floor` | the census floor arm — hand-written `createElement` | the calibrator |
-  | `uix` | the real UIx twin (5 coarse reads, `$` markup) | the published 3.900 |
-  | `uixbare` | the UIx twin's 5 reads, then the frozen element tree | `uix − uixbare` = **what UIx's own body costs** |
+  | `nolink` | `local` with the card's three `route-link`s spelled as literal-href anchors | `local - nolink` = **the routing term** |
+  | `nohiccup` | the 141 reads, then a hiccup tree built ONCE at boot | `nolink - nohiccup` = **hiccup materialisation** |
+  | `nowalk` | the 141 reads, then a React element tree built ONCE at boot | `nohiccup - nowalk` = **the codec walk** |
+  | `noreads` | the frozen element tree, no reads | `nowalk - noreads` = **the 141 reads AND their commit** |
+  | `nomemo` | `noreads` minted WITHOUT `codec/memoize-boundary!` | `noreads - nomemo` = **the HD-028 memo wrapper's fiber** |
+  | `bare` | a plain React function component, no shell, no hooks | `nomemo - bare` = **the shell: 2 hooks, the fence, the entry** |
+  | `coarse` | `local` at the TWIN's read shape — five coarse reads | `local - coarse` = **the read-shape asymmetry, on our arm** |
+  | `floor` | the census floor arm - hand-written `createElement` | the calibrator |
+  | `uix` | the real UIx twin | the published 3.900 |
+  | `uixlocal` | the twin, re-spelled here | fidelity gate: `uixlocal / uix` |
+  | `uixnolink` | the twin with literal-href anchors | `uixlocal - uixnolink` = **the twin's routing term** |
+  | `uixbare` | the twin's 5 reads, then the frozen element tree | `uixnolink - uixbare` = **the twin's `$` markup** |
   | `ctl-2x` | the floor at twice the cards | the positive control |
 
   `bare` is the shared base: React mounting 1,202 elements it was handed.
@@ -101,20 +104,36 @@
   "The frames this namespace owns. `ship`, `uix`, `floor` and `ctl-2x`
   ride `census_clock_arms`' own frames, so their arms are the published
   ones and not a re-spelling of them."
-  {:local    ::local
-   :nolink   ::nolink
-   :nohiccup ::nohiccup
-   :nowalk   ::nowalk
-   :noreads  ::noreads
-   :nomemo   ::nomemo
-   :bare     ::bare
-   :uixbare  ::uixbare
-   :capture  ::capture})
+  {:local     ::local
+   :nolink    ::nolink
+   :coarse    ::coarse
+   :nohiccup  ::nohiccup
+   :nowalk    ::nowalk
+   :noreads   ::noreads
+   :nomemo    ::nomemo
+   :bare      ::bare
+   :uixlocal  ::uixlocal
+   :uixnolink ::uixnolink
+   :uixbare   ::uixbare
+   :capture   ::capture})
+
+(def commit-frames
+  "Eight identically-seeded frames the commit micro takes its entries
+  from. Cells are global per (frame, query), so a commit measured twice
+  on one frame measures a WARM one the second time."
+  (mapv (fn [i] (keyword "re-frame.bench.hicasso.inpage-ladder-app" (str "commit" i)))
+        (range 8)))
+
+(defonce ^:private !dispatch
+  ;; frame -> its frame-locked dispatch, primed at boot outside every
+  ;; window, so no arm pays to CONSTRUCT a dispatch fn during a render.
+  (atom {}))
 
 (defn- seed-frame! [fid]
   (m/make-frame! fid lt/seed)
   (m/reseed! fid lt/seed)
   (arms/prime-frame! fid)
+  (swap! !dispatch assoc fid (:dispatch (rf/capture-frame fid)))
   fid)
 
 ;; ---------------------------------------------------------------------------
@@ -135,11 +154,12 @@
 (defn- local-card
   "`shapes/card/card`, re-spelled. `link?` false spells the three
   route-links as literal-href anchors — the same three attribute sets,
-  the same DOM, none of routing's work."
-  [slug link?]
-  (let [{:keys [title description createdAt favoritesCount favorited author tagList]}
-        (sub [:conduit/article slug])
-        pending?  (sub [:conduit/favorite-pending? slug])
+  the same DOM, none of routing's work. The article and its pending flag
+  are ARGUMENTS, so the same markup serves the census read shape (the
+  caller reads per card) and the coarse one (the caller read the whole
+  collection once)."
+  [slug article pending? link?]
+  (let [{:keys [title description createdAt favoritesCount favorited author tagList]} article
         username  (:username author)
         profile-a (fn [class child]
                     (if link?
@@ -184,10 +204,20 @@
                     :on-click    inert}]
                kids)))]))
 
-(defn- acceptance-hiccup
-  "`shapes/large_template/page`'s body, re-spelled."
-  [link?]
-  (let [your-feed? (sub [:conduit/your-feed?])]
+(defn- read-card
+  "The census read shape: two reads per card, inside the `for`, donated to
+  the enclosing boundary. This is the pair no hook surface can spell."
+  [slug link?]
+  (local-card slug
+              (sub [:conduit/article slug])
+              (sub [:conduit/favorite-pending? slug])
+              link?))
+
+(defn- page-chrome
+  "The acceptance page around its cards — `shapes/large_template/page`'s
+  body with the card list passed in, so the two read shapes differ in
+  exactly one thing."
+  [your-feed? tags cards]
     [:div.home-page
      [:div.banner
       [:div.container
@@ -210,21 +240,50 @@
                          :class       (when-not your-feed? "active")
                          :on-click    [:re-frame.hicasso/prevent [:conduit/show-global-feed]]}
             "Global Feed"]]]]
-        [:div.article-list {:data-testid "article-list"}
-         (for [slug (sub [:conduit/slugs])]
-           (local-card slug link?))]]
+        [:div.article-list {:data-testid "article-list"} cards]]
        [:div.col-md-3
         [:div.sidebar
          [:p "Popular Tags"]
          [:div.tag-list {:data-testid "tag-list"}
-          (for [tag (sub [:conduit/tags])]
+          (for [tag tags]
             [:a.tag-pill.tag-default {:key         tag
                                       :href        "#"
                                       :data-testid (str "tag-" tag)}
-             tag])]]]]]]))
+             tag])]]]]]])
 
-(defview local-page  "The re-spelled acceptance page."      [_] (acceptance-hiccup true))
-(defview nolink-page "The same page, literal-href anchors." [_] (acceptance-hiccup false))
+(defn- acceptance-hiccup
+  "The census read shape — 141 per-instance reads in one body."
+  [link?]
+  (page-chrome (sub [:conduit/your-feed?])
+               (sub [:conduit/tags])
+               (for [slug (sub [:conduit/slugs])]
+                 (read-card slug link?))))
+
+(defn- coarse-hiccup
+  "**The candidate at the CONTROL's read shape** — the same five coarse
+  reads `ux-lt-page` makes, at five fixed sites, cards rendered from the
+  collections. Byte-identical DOM, five reads instead of 141.
+
+  This arm exists because the acceptance row is the one row on the census
+  roster where the two arms cannot spell the same reads: a hook cannot
+  sit inside a `for`, so the UIx twin reads collections where the census
+  page reads instances, and the roster stamps that asymmetry on every
+  row. `local − coarse` prices the asymmetry on OUR arm, and
+  `coarse − uix` is what the two substrates cost each other once the read
+  shapes match."
+  [link?]
+  (let [order    (sub [:conduit/slugs])
+        articles (sub [:census56/articles])
+        pending  (sub [:census56/pending])]
+    (page-chrome (sub [:conduit/your-feed?])
+                 (sub [:conduit/tags])
+                 (for [slug order]
+                   (local-card slug (get articles slug)
+                               (contains? pending [:favorite slug]) link?)))))
+
+(defview local-page  "The re-spelled acceptance page."       [_] (acceptance-hiccup true))
+(defview nolink-page "The same page, literal-href anchors."  [_] (acceptance-hiccup false))
+(defview coarse-page "The same page, the twin's read shape." [_] (coarse-hiccup true))
 
 ;; ---------------------------------------------------------------------------
 ;; The frozen trees — built once, at boot, inside a real body door
@@ -266,7 +325,7 @@
 
 (defui uixbare-page
   "The UIx twin's five coarse reads, then the frozen element tree. The
-  UIx arm's own body work is `uix − uixbare`."
+  UIx arm's own body work is `uixlocal − uixbare`."
   [_props]
   (let [frame (uixa/use-current-frame)]
     (uixa/use-subscribe frame [:conduit/slugs])
@@ -275,6 +334,119 @@
     (uixa/use-subscribe frame [:conduit/your-feed?])
     (uixa/use-subscribe frame [:census56/pending])
     @!frozen-element))
+
+;; ---------------------------------------------------------------------------
+;; The UIx ladder — the same two rungs on the control arm
+;; ---------------------------------------------------------------------------
+;;
+;; The candidate's ladder without a matching one on the twin answers half
+;; the question. The twin pays a routing term too (`route-attrs`, three
+;; syntheses per card, the same 207), and its `$` markup is element
+;; creation the candidate reaches through an interpreter — so `uix` is
+;; re-spelled here and stepped down the same way: routing off, then the
+;; markup off. `census_clock_arms`' own private helpers are re-spelled
+;; with it, for the rf2-2rtt6.32 reason the hicasso copy is.
+
+(def ^:private favorite-base "btn btn-outline-primary btn-sm pull-xs-right")
+
+(defn- favorite-class [favorited pending?]
+  (let [declared (cond-> "" favorited (str " active") pending? (str " optimistic"))]
+    (if (seq declared) (str favorite-base " " declared) favorite-base)))
+
+(defn- nav-class [active?] (if active? "nav-link active" "nav-link"))
+
+(def ^:private ux-link-model
+  (delay (late-bind/require-fn! :routing/link-model 'inpage-ladder {} {})))
+
+(def ^:private ux-activate-link!
+  (delay (late-bind/require-fn! :routing/activate-link! 'inpage-ladder {} {})))
+
+(defn- ux-route-attrs
+  "`census_clock_arms/route-attrs`, re-spelled — the twins' hoisted-seam
+  spelling of the same two routing calls."
+  [frame to params]
+  (let [{:keys [href payload native?]} (@ux-link-model {:to to :params params} frame)]
+    {:href href :on-click (fn [e] (@ux-activate-link! e nil frame payload native?))}))
+
+(defn- ux-local-card [slug article pending? d frame link?]
+  (let [{:keys [title description createdAt favoritesCount favorited author tagList]} article
+        username (:username author)
+        prof     (fn [] (if link?
+                          (ux-route-attrs frame :conduit.profile/show {:username username})
+                          {:href (str "#/profile/" username) :on-click inert}))
+        pic      (prof)
+        nam      (prof)
+        read     (if link?
+                   (ux-route-attrs frame :conduit.article/show {:slug slug})
+                   {:href (str "#/article/" slug) :on-click inert})]
+    ($ :div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
+       ($ :div.article-meta
+          ($ :a.author-link {:href (:href pic) :on-click (:on-click pic)}
+             ($ :img.user-pic {:src (m/avatar-src (:image author)) :alt ""}))
+          ($ :div.info
+             ($ :a.author {:href (:href nam) :on-click (:on-click nam)} username)
+             ($ :span.date createdAt))
+          ($ :button {:type        "button"
+                      :data-testid (str "favorite-" slug)
+                      :class       (favorite-class favorited pending?)
+                      :on-click    (fn [_] (d [:conduit/favorite slug]))}
+             ($ :i.ion-heart) " "
+             ($ :span {:data-testid (str "favorites-count-" slug)} favoritesCount)))
+       ($ :a.preview-link {:href        (:href read)
+                           :on-click    (:on-click read)
+                           :data-testid (str "article-link-" slug)}
+          ($ :h1 title)
+          ($ :p description)
+          ($ :span "Read more...")
+          ($ :ul.tag-list
+             (for [tag tagList]
+               ($ :li.tag-default.tag-pill.tag-outline {:key tag} tag)))))))
+
+(defn- ux-local-chrome [your-feed? tags d cards]
+  ($ :div.home-page
+     ($ :div.banner
+        ($ :div.container
+           ($ :h1.logo-font "conduit")
+           ($ :p "A place to share your knowledge.")))
+     ($ :div.container.page
+        ($ :div.row
+           ($ :div.col-md-9
+              ($ :div.feed-toggle
+                 ($ :ul.nav.nav-pills.outline-active
+                    ($ :li.nav-item
+                       ($ :a {:href "#" :data-testid "your-feed-tab"
+                              :class (nav-class your-feed?)
+                              :on-click (fn [e] (.preventDefault e) (d [:conduit/show-your-feed]))}
+                          "Your Feed"))
+                    ($ :li.nav-item
+                       ($ :a {:href "#" :data-testid "global-feed-tab"
+                              :class (nav-class (not your-feed?))
+                              :on-click (fn [e] (.preventDefault e) (d [:conduit/show-global-feed]))}
+                          "Global Feed"))))
+              ($ :div.article-list {:data-testid "article-list"} cards))
+           ($ :div.col-md-3
+              ($ :div.sidebar
+                 ($ :p "Popular Tags")
+                 ($ :div.tag-list {:data-testid "tag-list"}
+                    (for [tag tags]
+                      ($ :a.tag-pill.tag-default {:key tag :href "#" :data-testid (str "tag-" tag)}
+                         tag)))))))))
+
+(defn- ux-page-body [link? _props]
+  (let [frame      (uixa/use-current-frame)
+        order      (uixa/use-subscribe frame [:conduit/slugs])
+        articles   (uixa/use-subscribe frame [:census56/articles])
+        tags       (uixa/use-subscribe frame [:conduit/tags])
+        your-feed? (uixa/use-subscribe frame [:conduit/your-feed?])
+        pending    (uixa/use-subscribe frame [:census56/pending])
+        d          (get @!dispatch frame)]
+    (ux-local-chrome your-feed? tags d
+                     (for [slug order]
+                       (ux-local-card slug (get articles slug)
+                                      (contains? pending [:favorite slug]) d frame link?)))))
+
+(defui uixlocal-page  [props] (ux-page-body true props))
+(defui uixnolink-page [props] (ux-page-body false props))
 
 ;; ---------------------------------------------------------------------------
 ;; The arms
@@ -293,9 +465,15 @@
     (react-root-arm id
       (fn [] (arm1-mount/provider fid (codec/as-element [view {}]))))))
 
+(defn- uix-arm [id view]
+  (let [fid (get local-frames id)]
+    (react-root-arm id
+      (fn [] ($ uixa/frame-provider {:frame fid} ($ view {}))))))
+
 (defn- ladder-arms []
   [(arms/arm row-key :hicasso)                              ; :hicasso — `ship`
    (hicasso-arm :local    local-page)
+   (hicasso-arm :coarse   coarse-page)
    (hicasso-arm :nolink   nolink-page)
    (hicasso-arm :nohiccup nohiccup-page)
    (hicasso-arm :nowalk   nowalk-page)
@@ -306,9 +484,9 @@
               (react/createElement bare-component nil))))
    (arms/arm row-key :floor)
    (arms/arm row-key :uix)
-   (react-root-arm :uixbare
-     (fn [] ($ uixa/frame-provider {:frame (:uixbare local-frames)}
-               ($ uixbare-page {}))))
+   (uix-arm :uixlocal  uixlocal-page)
+   (uix-arm :uixnolink uixnolink-page)
+   (uix-arm :uixbare   uixbare-page)
    (assoc (arms/arm row-key :ctl-2x) :control? true)])
 
 (def ^:private control-ids #{:ctl-2x})
@@ -392,12 +570,28 @@
 
 (defn- fmt [x n] (.toFixed ^number x n))
 
+(defn- trimmed-mean
+  "The 10%-trimmed mean. **The deltas are quoted on this, and the reason
+  is the clock and not a preference.** Chrome clamps `performance.now` to
+  100 µs, so every single-mount reading is a grid value and so is a p50
+  of them — a term worth 0.05 ms is invisible to a median and a term
+  worth 0.25 ms is quoted to ±0.05. A mean over 72 quantised samples
+  estimates the underlying mean off-grid, and the clamp's bias (identical
+  for every arm through one door) cancels in a difference. Trimmed, not
+  raw, because this box produces occasional 2× outliers that a raw mean
+  would spend on the wrong arm."
+  [xs]
+  (let [v (vec (sort xs))
+        n (count v)
+        k (js/Math.floor (* 0.1 n))
+        w (subvec v k (- n k))]
+    (when (seq w) (/ (reduce + 0.0 w) (count w)))))
+
 (defn- per-arm [rows ids]
   (into {}
         (map (fn [id]
-               [id (lane/summarise (into [] (comp (filter #(= id (nth % 1)))
-                                                  (map #(nth % 2)))
-                                         rows))]))
+               (let [xs (into [] (comp (filter #(= id (nth % 1))) (map #(nth % 2))) rows)]
+                 [id (assoc (lane/summarise xs) :tmean (trimmed-mean xs))])))
         ids))
 
 (defn- per-round-ratio
@@ -419,8 +613,8 @@
                         :max  (lane/round4 (apply max vs))}])))
           ids)))
 
-(defn- arm-line [id {:keys [p50 min max]}]
-  (str ";;   " (name id) ": p50 " (fmt p50 4)
+(defn- arm-line [id {:keys [p50 tmean min max]}]
+  (str ";;   " (name id) ": tmean " (fmt tmean 4) "  p50 " (fmt p50 4)
        " [" (fmt min 4) " – " (fmt max 4) "] ms/mount"))
 
 (defn- delta-line [label above below]
@@ -436,27 +630,72 @@
     (dotimes [_ reps] (vreset! sink (f)))
     (/ (* 1e6 (- (lane/now-ms) t0)) reps)))
 
-(defn- micro-table
-  "Two independent readings of terms the ladder infers by subtraction, and
-  one the ladder cannot see at all.
+(def ^:private passes-per-window
+  "Body-door passes inside ONE micro window. Chrome clamps
+  `performance.now` to 100 µs; eight ~1,200-element passes hold the
+  window in whole milliseconds, and it is the count `rf2-6c237`'s read
+  profile used — so `reads-ms` below is directly comparable to its
+  0.2875 ms/pass."
+  8)
 
-  Both `ms` rows run through the same [[re-frame.bench.hicasso.arm1.runtime/render-body]]
-  door and discard what they build into a one-element tree, so the door,
-  the fence and the walk subtract out and the difference is the hiccup
-  construction alone. No commit ever happens on the capture frame, so
-  every read in these loops is COLD, exactly as at a mount."
+(defn- window-ms [reps f]
+  (let [t0 (lane/now-ms)]
+    (dotimes [_ reps] (f))
+    (/ (- (lane/now-ms) t0) reps)))
+
+(defn- micro-table
+  "Independent readings of the three terms the mount ladder infers by
+  subtraction, plus the one it cannot see at all.
+
+  **A discarded hiccup tree is not a built one.** The first attempt at
+  this table timed `(do (acceptance-hiccup false) [:span])` and read the
+  page as CHEAPER than its own reads — because the page's cards live
+  inside `for`, and a lazy seq nobody walks is never realized. Every row
+  below therefore RETURNS what it builds, so the codec's walk forces it,
+  and the walk is subtracted off by the frozen row beside it.
+
+  No commit happens on the capture frame, so every read in these loops is
+  cold, exactly as at a mount."
   []
-  (let [fid (:capture local-frames)]
-    [[:build+reads-ms
-      (/ (ns-per-op 40 (fn [] (rt/render-body fid (fn [_] (acceptance-hiccup false) [:span]) {}))) 1e6)]
-     [:reads-only-ms
-      (/ (ns-per-op 40 (fn [] (rt/render-body fid (fn [_] (sub-pass!) [:span]) {}))) 1e6)]
-     [:empty-door-ms
-      (/ (ns-per-op 400 (fn [] (rt/render-body fid (fn [_] [:span]) {}))) 1e6)]
+  (let [fid (:capture local-frames)
+        pass (fn [f] (/ (window-ms 30 (fn [] (dotimes [_ passes-per-window]
+                                               (rt/render-body fid f {}))))
+                        passes-per-window))]
+    [[:build+walk+reads-ms (pass (fn [_] (acceptance-hiccup false)))]
+     [:walk+reads-ms       (pass (fn [_] (sub-pass!) @!frozen-hiccup))]
+     [:reads-ms            (pass (fn [_] (sub-pass!) [:span]))]
+     [:empty-door-ms       (pass (fn [_] [:span]))]
      ;; One `route-link`'s late-bind resolution — the per-anchor asymmetry
      ;; the twins hoist and the candidate does not (207 of these a mount).
      [:late-bind-resolve-ns
       (ns-per-op 20000 (fn [] (late-bind/require-fn! :routing/link-model 'inpage-ladder {} {})))]]))
+
+(defn- commit-half-ms
+  "The commit half, through the runtime's own `commit-boundary!` seam, on
+  eight identically-seeded frames per window — `rf2-6c237` read 0.7625 ms
+  per 141-key commit and this is the same measurement at this commit.
+
+  Entries are re-rendered before every window and every release is called
+  after it, so each window's eight commits are COLD."
+  []
+  (let [reps 12
+        one  (fn []
+               (let [entries (mapv (fn [f]
+                                     (rt/render-body f (fn [_] (sub-pass!) [:span]) {})
+                                     (rt/last-reads))
+                                   commit-frames)
+                     t0       (lane/now-ms)
+                     releases (mapv (fn [e] (rt/commit-boundary! e (fn [] nil))) entries)
+                     ms       (- (lane/now-ms) t0)]
+                 (doseq [r releases] (r))
+                 ;; Synchronously, because the cell reaper's grace is a
+                 ;; macrotask and this loop never yields — an un-reset
+                 ;; runtime would make the next rep's 141 reads WARM and
+                 ;; its commit a no-op.
+                 (rt/reset-runtime!)
+                 (/ ms (count commit-frames))))
+        xs   (vec (repeatedly reps one))]
+    (:p50 (lane/summarise xs))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
@@ -513,6 +752,7 @@
           ;; and `ctl-2x` arms, so its frames are made its way.
           (arms/ensure-frames! [:floor :hicasso :uix])
           (doseq [[_ fid] local-frames] (seed-frame! fid))
+          (doseq [fid commit-frames] (seed-frame! fid))
           (let [{:keys [roster elements]} (harvest-roster! (:capture local-frames))]
             (reset! !roster roster)
             (js/console.log (str ";; harvest OK — " elements " elements, "
@@ -536,44 +776,91 @@
                                    (arms/ctl-predicted row-key)
                                    (get (per-round-ratio rows [:ctl-2x] :floor rounds) :ctl-2x)
                                    0.25)
-                            g    (fn [id] (:p50 (get p50 id)))]
+                            g    (fn [id] (:tmean (get p50 id)))]
                         (lane/record! :inpage-ladder-arms
                                       (into {} (map (fn [[k v]]
                                                       [k (-> v (update :min lane/round4)
                                                              (update :max lane/round4)
-                                                             (update :p50 lane/round4))]))
+                                                             (update :p50 lane/round4)
+                                                             (update :tmean lane/round4))]))
                                             p50))
                         (lane/record! :inpage-ladder-rounds
                                       (mapv (fn [[r id ms]] [r id (lane/round4 ms)]) rows))
                         (lane/record! :inpage-ladder-ratio-to-floor
                                       (per-round-ratio rows ids :floor rounds))
                         (lane/record! :inpage-ladder-cells-after-window @!cells-after-window)
+                        (lane/record! :inpage-ladder-decomposition
+                                      (into {} (map (fn [[k v]] [k (lane/round4 v)]))
+                                            {:ship                (g :hicasso)
+                                             :uix                 (g :uix)
+                                             :bare                (g :bare)
+                                             :floor               (g :floor)
+                                             :deficit             (- (g :hicasso) (g :uix))
+                                             :h-routing           (- (g :local) (g :nolink))
+                                             :h-hiccup-build      (- (g :nolink) (g :nohiccup))
+                                             :h-codec-walk        (- (g :nohiccup) (g :nowalk))
+                                             :h-reads+commit      (- (g :nowalk) (g :noreads))
+                                             :h-memo-fiber        (- (g :noreads) (g :nomemo))
+                                             :h-shell             (- (g :nomemo) (g :bare))
+                                             :h-total             (- (g :hicasso) (g :bare))
+                                             :u-routing           (- (g :uixlocal) (g :uixnolink))
+                                             :u-markup            (- (g :uixnolink) (g :uixbare))
+                                             :u-reads+hooks       (- (g :uixbare) (g :bare))
+                                             :u-total             (- (g :uix) (g :bare))
+                                             :h-read-shape        (- (g :local) (g :coarse))
+                                             :matched-shape-gap   (- (g :coarse) (g :uix))
+                                             :coarse              (g :coarse)
+                                             :fidelity-local-ship (/ (g :local) (g :hicasso))
+                                             :fidelity-uixlocal-uix (/ (g :uixlocal) (g :uix))}))
                         (js/console.log ";; ==== IN-PAGE LADDER (ms per mount, in-page flushSync window; DIAGNOSTIC) ====")
                         (js/console.log (str ";;   design " rounds "x(" (:warmup sampling) "+"
                                              (:samples sampling) ")  page 1,202 el / 1 boundary / 141 reads / 207 links"))
                         (doseq [id ids] (js/console.log (arm-line id (get p50 id))))
-                        (js/console.log ";; ==== THE DECOMPOSITION (each line is one term) ====")
-                        (js/console.log (str ";;   copy fidelity: local/ship = " (fmt (/ (g :local) (g :hicasso)) 4)))
-                        (js/console.log (delta-line "route-link term      (local - nolink)" (g :local) (g :nolink)))
-                        (js/console.log (delta-line "hiccup build         (nolink - nohiccup)" (g :nolink) (g :nohiccup)))
-                        (js/console.log (delta-line "codec walk           (nohiccup - nowalk)" (g :nohiccup) (g :nowalk)))
-                        (js/console.log (delta-line "141 cold reads       (nowalk - noreads)" (g :nowalk) (g :noreads)))
-                        (js/console.log (delta-line "memo wrapper fiber   (noreads - nomemo)" (g :noreads) (g :nomemo)))
-                        (js/console.log (delta-line "the shell            (nomemo - bare)" (g :nomemo) (g :bare)))
-                        (js/console.log (delta-line "React base           (bare)" (g :bare) 0.0))
-                        (js/console.log (delta-line "UIx body work        (uix - uixbare)" (g :uix) (g :uixbare)))
-                        (js/console.log (delta-line "UIx shell+5 reads    (uixbare - bare)" (g :uixbare) (g :bare)))
-                        (js/console.log (delta-line "THE DEFICIT          (ship - uix)" (g :hicasso) (g :uix)))
+                        (js/console.log ";; ==== THE DECOMPOSITION — deltas on the 10% trimmed mean ====")
+                        (js/console.log (str ";;   copy fidelity: local/ship = " (fmt (/ (g :local) (g :hicasso)) 4)
+                                             "   uixlocal/uix = " (fmt (/ (g :uixlocal) (g :uix)) 4)))
+                        (js/console.log ";;   -- the candidate --")
+                        (js/console.log (delta-line "routing term        (local - nolink)" (g :local) (g :nolink)))
+                        (js/console.log (delta-line "hiccup build        (nolink - nohiccup)" (g :nolink) (g :nohiccup)))
+                        (js/console.log (delta-line "codec walk          (nohiccup - nowalk)" (g :nohiccup) (g :nowalk)))
+                        (js/console.log (delta-line "141 reads + commit  (nowalk - noreads)" (g :nowalk) (g :noreads)))
+                        (js/console.log (delta-line "memo wrapper fiber  (noreads - nomemo)" (g :noreads) (g :nomemo)))
+                        (js/console.log (delta-line "the 2-hook shell    (nomemo - bare)" (g :nomemo) (g :bare)))
+                        (js/console.log (delta-line "  candidate total   (ship - bare)" (g :hicasso) (g :bare)))
+                        (js/console.log ";;   -- the control --")
+                        (js/console.log (delta-line "routing term        (uixlocal - uixnolink)" (g :uixlocal) (g :uixnolink)))
+                        (js/console.log (delta-line "$ markup + card fns (uixnolink - uixbare)" (g :uixnolink) (g :uixbare)))
+                        (js/console.log (delta-line "5 reads + hooks     (uixbare - bare)" (g :uixbare) (g :bare)))
+                        (js/console.log (delta-line "  control total     (uix - bare)" (g :uix) (g :bare)))
+                        (js/console.log ";;   -- the read shape, priced on OUR arm --")
+                        (js/console.log (delta-line "141 per-instance vs 5 coarse (local - coarse)" (g :local) (g :coarse)))
+                        (js/console.log (delta-line "matched read shape, ours - theirs (coarse - uix)" (g :coarse) (g :uix)))
+                        (js/console.log ";;   -- the base and the deficit --")
+                        (js/console.log (delta-line "React mounts 1,202 elements it was handed (bare)" (g :bare) 0.0))
+                        (js/console.log (delta-line "floor (createElement inside the window)" (g :floor) 0.0))
+                        (js/console.log (delta-line "THE DEFICIT         (ship - uix)" (g :hicasso) (g :uix)))
                         (js/console.log (str ";;   control: " (:why ctl)))
                         (js/console.log (str ";;   cells live immediately after the timed window, by count: "
                                              (pr-str @!cells-after-window)
                                              "  (141 = the boundary's commit ran INSIDE the window)"))
-                        (let [micro (micro-table)]
+                        (let [micro  (micro-table)
+                              mm     (into {} micro)
+                              commit (commit-half-ms)]
                           (lane/record! :inpage-ladder-micro
-                                        (into {} (map (fn [[k v]] [k (lane/round4 v)])) micro))
-                          (js/console.log ";; ==== MICRO ====")
+                                        (assoc (into {} (map (fn [[k v]] [k (lane/round4 v)])) micro)
+                                               :commit-half-ms (lane/round4 commit)))
+                          (js/console.log ";; ==== MICRO (ms per body-door pass unless named otherwise) ====")
                           (doseq [[k v] micro]
-                            (js/console.log (str ";;   " (name k) ": " (fmt v 4)))))
+                            (js/console.log (str ";;   " (name k) ": " (fmt v 4))))
+                          (js/console.log (str ";;   commit-half-ms (per 141-key commit-boundary!): " (fmt commit 4)))
+                          (js/console.log (str ";;   => hiccup build alone: "
+                                               (fmt (- (:build+walk+reads-ms mm) (:walk+reads-ms mm)) 4) " ms/pass"))
+                          (js/console.log (str ";;   => codec walk alone:   "
+                                               (fmt (- (:walk+reads-ms mm) (:reads-ms mm)) 4) " ms/pass"))
+                          (js/console.log (str ";;   => 141 cold reads:     "
+                                               (fmt (- (:reads-ms mm) (:empty-door-ms mm)) 4) " ms/pass ("
+                                               (fmt (* 1e3 (/ (- (:reads-ms mm) (:empty-door-ms mm)) 141)) 2)
+                                               " µs/read; rf2-6c237 read 2.04)")))
                         (lane/record! :inpage-ladder-runtime (lane/runtime-label))
                         (when (:refuse? gv)
                           (set! (.-HICASSO_GUARD_REFUSED js/window) true))
