@@ -4,7 +4,7 @@
 > *designed* surface so it can be read before it is built. Spellings marked
 > **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
 > is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-025).
+> source: [decisions.md](../decisions.md) (HD-001…HD-026).
 
 Handler attributes are where a data-oriented view layer usually gives up. You have
 been writing pure data all the way down the tree, and then `:on-click` needs a
@@ -118,8 +118,33 @@ An intent vector at `:on-submit` prevents the browser's default navigation:
 ```
 
 No `(.preventDefault e)`. It is census-weighted policy — forms in the corpus wanted
-it every time — so the runtime does it and offers an opt-out for the rare case that
-doesn't. The opt-out's spelling is not in the record; see **Not settled yet**.
+it every time — so the runtime does it. For the rare form that wants a real
+submission, write the handler as `h/fn`: a callback is handed the event, so the
+runtime leaves it alone and the event is yours (HD-026).
+
+### Everywhere else, prevention is one head
+
+A click does **not** auto-prevent, and must not: a modifier-click on a real link
+has to open a tab. So the anchor-acting-as-a-button — the feed tab, the tag pill,
+the pagination link — opts in, and the opt-in is part of the intent:
+
+```clojure
+[:a.nav-link {:href "#" :on-click [::h/prevent [:conduit/show-your-feed]]}]
+```
+
+`[::h/prevent INTENT]` and nothing else: exactly one inner intent vector, which is
+what gets dispatched. Write it wrong — two payloads, a keyword instead of a vector,
+a decorator inside a decorator — and you get `:rf.error/hicasso-malformed-prevent`
+naming the attribute you wrote it at, at render time rather than at the click.
+
+It is a head rather than metadata on the vector for a reason worth knowing, because
+it is the reason you can test it: **metadata does not participate in `=`**.
+`(= [:app/go] ^{::h/prevent? true} [:app/go])` is `true`, so an annotation is
+invisible to a structural test that compares the tree — and to `pr-str`, and to
+anything hashing the intent. A head is visible to all three.
+
+Markers still work inside it: `[::h/prevent [:filter/set ::h/value]]` prevents and
+materializes, because the decorator is unwrapped before the markers are looked for.
 
 ### The key map
 
@@ -182,7 +207,7 @@ dispatch, and a plain `(fn …)` when you want to read it and do something else.
 
 | Question | Status |
 |---|---|
-| The auto-prevent opt-out spelling | **Not addressed.** HD-002-era record says "opt-out available" and stops there |
+| The auto-prevent opt-out spelling | **Settled** (HD-026). The submit opt-out is `h/fn`; prevention elsewhere is opted in by the `[::h/prevent …]` head, and the metadata spelling this page once carried is retired |
 | Whether markers other than `::h/value` exist | **Not addressed.** The charter names "the intent-marker roster and its one pure materializer" as a micro-mechanic worth copying from the predecessor, but only `::h/value` is spelled. A checked-state marker for checkboxes is an obvious gap this guide could not fill honestly — the example on [Getting started](01-getting-started.md) sidesteps it by passing the id and letting the handler flip the value |
 | Which attributes get intent lowering | **Not addressed.** `:on-click`, `:on-input`, `:on-submit`, and `:on-keydown` appear in the record; whether lowering is universal across `:on-*` or a named roster is unstated |
 | The key map's key vocabulary | Key names appear as strings (`"Enter"`, `"Escape"`); whether keywords are accepted, and how modifiers are spelled, is unstated |

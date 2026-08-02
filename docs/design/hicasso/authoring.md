@@ -94,10 +94,19 @@ steady-state change belongs on an effect, not on the ref.
 - A literal vector at an event position is the intent; `::h/value` is the value
   placeholder (~97% of corpus handler sites become pure data). Ordinary functions
   remain legal at event positions.
-- Census-weighted policy defaults: `:on-submit` intents auto-prevent (opt-out
-  available); a data key-map `{:on-keydown {"Enter" [...] "Escape" [...]}}` with
-  the composition law centralised — a composing Enter (IME, including the
+- Census-weighted policy defaults: `:on-submit` intents auto-prevent (the rare
+  opt-out is the `h/fn` escape — a callback holds the event, so it owns it); a
+  data key-map `{:on-keydown {"Enter" [...] "Escape" [...]}}` with the
+  composition law centralised — a composing Enter (IME, including the
   keyCode-229 legacy signal) commits nothing.
+- Everywhere else, prevention is opted **in** by one reserved head,
+  `[::h/prevent [:conduit/show-your-feed]]` (HD-026) — the shape is the
+  anchor-acting-as-a-button, which a click default cannot absorb because a
+  modifier-click on a real link must still open a tab. It is a head rather than metadata on the intent
+  because metadata does not participate in `=`, and HD-021's headless door reads
+  intent vectors by equality. The grammar is closed: exactly one inner intent
+  vector, unwrapped before `::h/value` is looked for, and anything else is
+  `:rf.error/hicasso-malformed-prevent` naming the position.
 - Callbacks generated from intents close over the boundary's frame (resolved once
   per boundary from the substrate's single internal context) so they remain valid
   when the browser invokes them after render scope unwinds.
