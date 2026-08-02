@@ -166,9 +166,14 @@
       (let [handle (mount!)]
         (try
           (let [author (:username (:author (m/article 0)))]
-            (doseq [[sel href] [[".author-link" (str "/profile/" author)]
-                                [".author"      (str "/profile/" author)]
-                                [".preview-link" (str "/article/" (:slug (m/article 0)))]]]
+            ;; `#`-prefixed: `m/make-frame!` declares the census's own
+            ;; hash `:url-strategy` (Conduit is a hash-URL app), so the
+            ;; router's synthesis IS the census's `#/…` form — rf2-6c237,
+            ;; repairing the rf2-2rtt6.54 parity gap against the
+            ;; hand-ported twins in `census_clock_arms`.
+            (doseq [[sel href] [[".author-link" (str "#/profile/" author)]
+                                [".author"      (str "#/profile/" author)]
+                                [".preview-link" (str "#/article/" (:slug (m/article 0)))]]]
               (let [a (q handle sel)]
                 (is (instance? js/HTMLAnchorElement a)
                     (str sel " is a real anchor"))
@@ -186,8 +191,9 @@
         (try
           (let [a (q handle ".comment-author")]
             (is (instance? js/HTMLAnchorElement a))
-            (is (re-matches #"/profile/.+" (.getAttribute a "href"))
-                "ordinary.cljs's byline names a route, not a URL"))
+            (is (re-matches #"#/profile/.+" (.getAttribute a "href"))
+                "ordinary.cljs's byline names a route, not a URL — encoded
+                 through the frame's declared census hash strategy"))
           (finally (mount/release! handle)))))))
 
 ;; ===========================================================================
