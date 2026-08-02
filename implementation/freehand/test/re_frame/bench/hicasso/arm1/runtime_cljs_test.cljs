@@ -19,6 +19,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.front.sub-index :as idx]
             [re-frame.core :as rf]
@@ -568,11 +569,25 @@
 
 (deftest a-minted-view-is-a-legal-hiccup-head
   (let [v (rt/mint-view! "test/probe" (fn [_] [:li]))]
-    (is (fn? v))
+    (is (codec/boundary-head? v)
+        "the contract this test is named for, asked of the codec that
+         enforces it — and asked that way since rf2-2rtt6.52, because it
+         used to ask `fn?`, which was a claim about how a boundary is
+         BUILT rather than about whether it is a legal head. The
+         props-equality bail-out makes a minted view a `React.memo`
+         record: still a React element type, no longer a function")
     (is (= "test/probe" (.-displayName v)))
     (is (true? (unchecked-get v "hicassoBoundary"))
         "the codec's own boundary marker, so a view is a head by
          construction and the stable-head cache has nothing to do")))
+
+(deftest an-unmarked-plain-function-is-still-not-a-head
+  (testing "the marker decides, so widening `boundary-head?` off `fn?`
+           (rf2-2rtt6.52) did not widen what HD-016 accepts — the loud
+           error for a plain function in head position is intact"
+    (is (false? (codec/boundary-head? (fn [_] [:li]))))
+    (is (false? (codec/boundary-head? nil)))
+    (is (false? (codec/boundary-head? :div)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Residue — the standing zero-leaked-refcounts assertion
