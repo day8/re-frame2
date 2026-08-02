@@ -31,9 +31,11 @@
 
   ## Codec-work caching only (HD-004)
 
-  Two caches, both keyed by the author's literal and both plain JS
-  objects with an own-property guard so a hiccup tag or prop literally
-  named `__proto__` cannot poison them:
+  Two caches, both keyed by the author's literal and both JS objects
+  with **no prototype** ([[empty-cache]]), so a hiccup tag or prop
+  literally named `toString` cannot be served an inherited value and one
+  named `__proto__` cannot poison a write — the first structurally, the
+  second by a refusal on the miss branch:
 
     tag-cache    \"div#main.wide\" -> ParsedTag
     prop-cache   \"on-click\"      -> PropSlot
@@ -147,28 +149,53 @@
 
 (defn- reserved-name?
   "Is `n` — a tag or prop name, or an emitted prop slot — one of the
-  three names that must never be read from, written to, or emitted
-  through a JS-object cache? A hiccup literal named `__proto__`,
-  `prototype` or `constructor` would otherwise reach an object's
-  prototype. That roster is the whole predicate.
+  three names that must never be written to a JS object, or emitted
+  through one? A hiccup literal named `__proto__`, `prototype` or
+  `constructor` would otherwise reach an object's prototype. That roster
+  is the whole predicate.
 
   Three `===` string compares rather than the set lookup this began as
-  (rf2-y1jkm): the question is asked once per tag and once per prop on
-  every element of every mount, and a set lookup pays a string hash each
-  time for a roster of three — 36.9 ns against 9.6 on the census page's
-  own literals, measured by `walk_profile_app`'s micro table."
+  (rf2-y1jkm): a set lookup pays a string hash for a roster of three —
+  36.9 ns against 9.6 on the census page's own literals, measured by
+  `walk_profile_app`'s micro table.
+
+  **It is asked on the cache MISS path only** (rf2-2rtt6.63). The caches
+  below carry no prototype, so a hostile literal cannot make a lookup
+  answer wrongly and the guard has only one job left: keep the three
+  names out of the caches, and out of the emitted props object — which
+  DOES carry `Object.prototype`, and is where [[PropSlot]]'s `reserved?`
+  field answers instead. A miss happens once per distinct literal for
+  the life of the build; a hit happens once per element per mount."
   [n]
   (or (identical? "__proto__" n)
       (identical? "prototype" n)
       (identical? "constructor" n)))
 
-(def ^:private has-own (.-hasOwnProperty (.-prototype js/Object)))
+(defn- empty-cache
+  "A codec cache: a JS object with **no prototype at all**
+  (rf2-2rtt6.63).
 
-(defn- own-key?
-  "`hasOwnProperty`, called off the prototype, so an object carrying its
-  own `hasOwnProperty` property cannot shadow the check."
-  [o k]
-  (.call has-own o k))
+  Both caches are keyed by the author's literal, so both had to answer
+  two hostile questions on every lookup: could a literal named
+  `__proto__` poison a write, and could a literal named `toString` or
+  `constructor` hit an INHERITED property and be served a value nobody
+  cached. `Object.create(null)` answers the second one structurally —
+  there is no prototype chain, so a lookup can only ever return an own
+  property or `undefined` — and demotes the first to the miss path,
+  where [[reserved-name?]] still refuses the write.
+
+  What that buys, measured on the census page's own literal roster
+  (`walk_vs_reagent_app`, 1,489 prop occurrences and 1,202 tag
+  occurrences, quiet-ish box, in-page clock): the prop lookup 18.1 ->
+  11.1 ns/op and the tag lookup 16.6 -> 11.2, against the
+  `hasOwnProperty.call` + three-compare shape they replace. The costed
+  alternative — keep `#js {}` in V8's fast mode and validate the hit by
+  TYPE (`instance? PropSlot`), since nothing on `Object.prototype` is
+  one — read 13.8 and 12.1 and is DECLINED on both margin and
+  construction: a cache with no prototype cannot serve an inherited
+  value at all, where a type check is a promise that it will be noticed."
+  []
+  (js/Object.create nil))
 
 ;; ---------------------------------------------------------------------------
 ;; Tag parsing and its cache
@@ -187,23 +214,28 @@
   (let [[_ tag id classes] (re-matches re-tag (name hiccup-tag))]
     (->ParsedTag tag id (when classes (str/replace classes #"\." " ")))))
 
-(def ^:private tag-cache #js {})
+(def ^:private tag-cache (empty-cache))
 
 (defn- cache-key [k]
   (if-let [ns' (namespace k)] (str ns' "/" (name k)) (name k)))
 
 (defn cached-parse
   "[[parse-tag]] behind the codec-work cache (HD-004). One entry per
-  distinct tag literal the build ever renders."
+  distinct tag literal the build ever renders.
+
+  One property read answers the hit, because [[empty-cache]] has no
+  prototype to serve a wrong one. The three poisoning names still never
+  reach the cache — the refusal moved to the miss branch, which is the
+  only branch that writes."
   [hiccup-tag]
-  (let [k (cache-key hiccup-tag)]
-    (if (reserved-name? k)
-      (parse-tag hiccup-tag)
-      (if (own-key? tag-cache k)
-        (unchecked-get tag-cache k)
-        (let [parsed (parse-tag hiccup-tag)]
-          (unchecked-set tag-cache k parsed)
-          parsed)))))
+  (let [k   (cache-key hiccup-tag)
+        hit (unchecked-get tag-cache k)]
+    (if (undefined? hit)
+      (let [parsed (parse-tag hiccup-tag)]
+        (when-not (reserved-name? k)
+          (unchecked-set tag-cache k parsed))
+        parsed)
+      hit)))
 
 ;; ---------------------------------------------------------------------------
 ;; Prop names and their cache
@@ -284,20 +316,28 @@
   ;; The three seeded entries are the RULE, not memos of one — see
   ;; [[react-renames]]. None is reserved, an event position, or the ref
   ;; slot.
-  (doto #js {}
+  (doto (empty-cache)
     (unchecked-set "class" (->PropSlot "className" false false false))
     (unchecked-set "for" (->PropSlot "htmlFor" false false false))
     (unchecked-set "charset" (->PropSlot "charSet" false false false))))
 
 (defn- prop-slot
   "The [[PropSlot]] for keyword/symbol `k` with name `n` — the caller has
-  already checked the spelling and that `n` is not a reserved name."
+  already checked the spelling.
+
+  One property read answers the hit ([[empty-cache]]). A reserved name
+  is minted on every sight rather than cached, exactly as before: the
+  refusal sits on the miss branch, which is the only branch that writes,
+  and the slot it mints carries `reserved?` so the emitted props object
+  — which DOES have a prototype — never receives the name either."
   ^PropSlot [k n]
-  (if (own-key? prop-cache n)
-    (unchecked-get prop-cache n)
-    (let [s (mint-slot k n)]
-      (unchecked-set prop-cache n s)
-      s)))
+  (let [hit (unchecked-get prop-cache n)]
+    (if (undefined? hit)
+      (let [s (mint-slot k n)]
+        (when-not (reserved-name? n)
+          (unchecked-set prop-cache n s))
+        s)
+      hit)))
 
 (defn cached-prop-name
   "[[prop-name]] behind the codec-work cache (HD-004).
@@ -317,11 +357,8 @@
   [k]
   (if-not (or (keyword? k) (symbol? k))
     (if (string? k) (prop-name k) k)
-    (let [n (name k)]
-      (if (reserved-name? n)
-        (prop-name k)
-        (let [^PropSlot s (prop-slot k n)]
-          (.-js-name s))))))
+    (let [^PropSlot s (prop-slot k (name k))]
+      (.-js-name s))))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical structural-slot filter (rf2-2rtt6.36)
@@ -567,27 +604,24 @@
   (if (keyword-identical? :key k)
     o
     (if (or (keyword? k) (symbol? k))
-      (let [n (name k)]
-        (if (reserved-name? n)
-          o
-          (let [^PropSlot s (prop-slot k n)]
-            (when-not (.-reserved? s)
-              (unchecked-set o (.-js-name s)
-                             (convert-prop-value
-                               (cond
-                                 (.-ref? s)
-                                 (check-ref! k v)
+      (let [^PropSlot s (prop-slot k (name k))]
+        (when-not (.-reserved? s)
+          (unchecked-set o (.-js-name s)
+                         (convert-prop-value
+                           (cond
+                             (.-ref? s)
+                             (check-ref! k v)
 
-                                 (and (.-event? s) (keyword? k))
-                                 (if (or (vector? v) (map? v) (fn? v))
-                                   (intent/lower-prop k v)
-                                   v)
+                             (and (.-event? s) (keyword? k))
+                             (if (or (vector? v) (map? v) (fn? v))
+                               (intent/lower-prop k v)
+                               v)
 
-                                 :else
-                                 (if (intent/callback? v)
-                                   (intent/lower-prop k v)
-                                   v)))))
-            o)))
+                             :else
+                             (if (intent/callback? v)
+                               (intent/lower-prop k v)
+                               v)))))
+        o)
       (let [n (cached-prop-name k)]
         (when-not (reserved-name? n)
           (unchecked-set o n (convert-prop-value
@@ -1068,13 +1102,34 @@
 
 (defn as-element
   "Interpret any hiccup form. `nil` and `false` render nothing; `true` is
-  an error (HD-016); an existing React element passes through."
+  an error (HD-016); an existing React element passes through.
+
+  ## Why `string?` is asked before `vector?` (rf2-2rtt6.63)
+
+  The branches are MUTUALLY EXCLUSIVE — a value satisfies at most one of
+  `nil?`, `false?`, `string?`, `vector?`, `number?`, `seq?`, `true?` —
+  so their order cannot change an answer, only what each population
+  pays. And `vector?` is the dear one: it is `IVector` satisfaction,
+  which for anything without the marker falls through to
+  `native-satisfies?`, so every string, number and lazy seq on a page
+  used to prove itself not-a-vector the expensive way before reaching
+  its own branch.
+
+  Costed over the census page's whole child roster before it was changed
+  (`walk_vs_reagent_app` candidate table: 1,908 children, of which 567
+  strings, 1,201 vectors, 69 numbers, 71 seqs): the shipping order 22.5
+  ns/child, this order **8.9** — and on the strings alone 31.7 -> 5.3.
+  The vectors pay one extra `typeof` and the whole population still
+  reads 2.5x cheaper. This is the stage on which stock Reagent was
+  furthest ahead of us: its `as-element` asks one `js-val?`
+  (`goog/typeOf x !== \"object\"`) and returns a string on the first
+  branch, and it read 8.8 ns/string against our 33.5."
   [x]
   (cond
     (nil? x)         nil
     (false? x)       nil
-    (vector? x)      (vec->element x)
     (string? x)      x
+    (vector? x)      (vec->element x)
     (number? x)      x
     (seq? x)         (expand-seq x)
     (true? x)        (throw (ex-info (str "`true` is not a renderable child. "
