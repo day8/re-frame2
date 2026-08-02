@@ -216,21 +216,27 @@
 ;; Strategy: BLOCK the reserved key trio (`__proto__`, `prototype`,
 ;; `constructor`) before any `aset`. Two enforcement points:
 ;;
-;;   - `cached-prop-name` — never caches a reserved name; returns it
-;;     verbatim. (Belt: keeps the shared cache map clean.)
-;;   - `kv-conv` — drops reserved camelCased names before writing to
-;;     the per-render JS props object. (Braces: the actual prototype-
-;;     pollution chokepoint, because the props object is what flows
-;;     into `React.createElement`.)
+;;   - `cached-prop-name` — never caches a reserved name. (Belt: keeps the
+;;     shared cache clean.)
+;;   - `kv-conv` / `top-prop-conv` — drop reserved camelCased names before
+;;     writing to the per-render JS props object. (Braces: the actual
+;;     prototype-pollution chokepoint, because the props object is what
+;;     flows into `React.createElement`.)
 ;;
-;; Why NOT null-prototype objects? React's renderer calls
-;; `styles.hasOwnProperty(...)` on nested objects like `:style` when
-;; diffing inline styles (`react-dom` ReactDOMHostConfig). A
-;; null-proto object throws `TypeError: styles.hasOwnProperty is not
-;; a function`. So props objects stay on the default prototype, and
-;; the reserved-key filter is the sole defence — sufficient on its
-;; own because every prototype-pollution path runs through the filtered
-;; `aset` chokepoints.
+;; PROPS OBJECTS STAY ON THE DEFAULT PROTOTYPE, and that is not negotiable:
+;; React's renderer calls `styles.hasOwnProperty(...)` on nested objects like
+;; `:style` when diffing inline styles (`react-dom` ReactDOMHostConfig), and a
+;; null-prototype object throws `TypeError: styles.hasOwnProperty is not a
+;; function`. So for anything reaching React the reserved-key filter is the
+;; sole defence — sufficient on its own because every pollution path runs
+;; through the filtered `aset` chokepoints.
+;;
+;; THE CACHES ARE NOT PROPS OBJECTS (rf2-lhdp0). `tag-name-cache` and
+;; `prop-name-cache` are module-private lookup tables; nothing in them is ever
+;; handed to React, so the constraint above does not reach them and they take
+;; `Object.create(null)` instead. That is what lets their HIT path — the path
+;; a mount takes once per element and once per prop — drop BOTH guards it used
+;; to carry. See `own-key?`'s epitaph below.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private reserved-prop-keys
@@ -240,30 +246,50 @@
   every subsequent prop-map conversion. Per rf2-dwds9 MEDIUM."
   #{"__proto__" "prototype" "constructor"})
 
-(defn- ^boolean reserved-prop-key? [n]
-  (contains? reserved-prop-keys n))
+;; A null-prototype index DERIVED from the roster above, so there is exactly
+;; ONE list of reserved names in this file and nothing to keep in step
+;; (rf2-lhdp0). `contains?` on a PersistentHashSet costs a string hash plus a
+;; hash-map probe; this costs one property load. It is asked once per prop
+;; occurrence on every element of every mount, at the `aset` chokepoint, so
+;; the difference is a per-mount term rather than a micro-optimisation.
+;;
+;; `__proto__` is an ORDINARY own key on a null-prototype object — the
+;; magic accessor lives on `Object.prototype`, which this object does not
+;; have — so the roster indexes itself with no special case.
+(def ^:private reserved-prop-key-index
+  (reduce (fn [o k] (unchecked-set o k true) o)
+          (js/Object.create nil)
+          reserved-prop-keys))
 
-;; Unspoofable own-property test for the shared `#js {}` caches (rf2-tsuk6).
+(defn- ^boolean reserved-prop-key? [n]
+  (true? (unchecked-get reserved-prop-key-index n)))
+
+;; WHY THERE IS NO `own-key?` ANY MORE (rf2-tsuk6, closed structurally by
+;; rf2-lhdp0).
 ;;
 ;; The caches key entries by user-controlled names: `tag-name-cache` on tag
 ;; heads (a string head like "hasOwnProperty" is accepted) and
 ;; `prop-name-cache` on prop-key names (`{:hasOwnProperty x}` is accepted).
-;; Testing a hit with `(.hasOwnProperty cache n)` reads the method OFF the
-;; cache object — so caching a tag or prop literally named "hasOwnProperty"
-;; `aset`s a value under that exact own-property name and SHADOWS the method.
-;; The lookup itself was fine (`.hasOwnProperty` checks own props, so
-;; inherited prototype keys never falsely hit), but the very next lookup then
-;; invokes the shadowing value as a function and throws a raw host TypeError,
-;; disabling every later parse until reload. `Object.prototype.hasOwnProperty`
-;; called with an explicit receiver can never be shadowed by cache contents.
-(defn- ^boolean own-key?
-  "True when `obj` carries `k` as an OWN property, tested via
-  `Object.prototype.hasOwnProperty.call(obj, k)` so a cache entry named
-  `hasOwnProperty` cannot shadow the check (rf2-tsuk6)."
-  [obj k]
-  (.call (.. js/Object -prototype -hasOwnProperty) obj k))
+;; When the caches were `#js {}` this raised two hostile questions on EVERY
+;; lookup. Testing a hit with `(.hasOwnProperty cache n)` read the method OFF
+;; the cache object, so caching an entry literally named "hasOwnProperty"
+;; shadowed the method and the next lookup invoked a string as a function
+;; (rf2-tsuk6); and an inherited name like `toString` could falsely hit a
+;; value nobody cached. The answer was `Object.prototype.hasOwnProperty.call`
+;; plus a reserved-name check, both on the HIT path.
+;;
+;; `Object.create(null)` answers both questions in the cache's CONSTRUCTION.
+;; There is no prototype chain, so a lookup can only ever return an own
+;; property: no inherited name can hit, and no entry can shadow a method the
+;; lookup does not use. The hit path is now one `unchecked-get` and an
+;; `undefined?` test. The write guard survives on the MISS branch — the only
+;; branch that writes — where it runs once per distinct literal for the life
+;; of the build instead of once per element per mount.
+;;
+;; This is strictly safer than the guard it replaces, not a trade: a cache
+;; that CANNOT serve an inherited value beats one that promises to notice.
 
-(def ^:private tag-name-cache #js {})
+(def ^:private tag-name-cache (js/Object.create nil))
 
 ;; The cache key is the head's FULLY-QUALIFIED name, not its bare `name`
 ;; (rf2-01zvu). Keyed on `name` alone, `:button` and `:rf/button` collide on
@@ -305,14 +331,16 @@
   ;; unnamespaced head and for any string head), so a legitimate head pays
   ;; a single cheap predicate and still resolves through the cache.
   (reject-reserved-rf-head! k element)
-  (let [n (cache-key k)]
-    (if (and (not (reserved-prop-key? n))
-             (own-key? tag-name-cache n))
-      (aget tag-name-cache n)
-      (let [v (parse-tag k element)]
+  (let [n (cache-key k)
+        v (unchecked-get tag-name-cache n)]
+    ;; The cache has no prototype, so a non-undefined answer is necessarily
+    ;; an own entry somebody cached — the hit test IS the lookup (rf2-lhdp0).
+    (if (undefined? v)
+      (let [v' (parse-tag k element)]
         (when-not (reserved-prop-key? n)
-          (aset tag-name-cache n v))
-        v))))
+          (unchecked-set tag-name-cache n v'))
+        v')
+      v)))
 
 ;; ---------------------------------------------------------------------------
 ;; Prop-name cache (kebab → camel)
@@ -353,10 +381,10 @@
             (apply str start (map capitalize parts))))))))
 
 (def ^:private prop-name-cache
-  (doto #js {}
-    (aset "class" "className")
-    (aset "for" "htmlFor")
-    (aset "charset" "charSet")))
+  (doto (js/Object.create nil)
+    (unchecked-set "class" "className")
+    (unchecked-set "for" "htmlFor")
+    (unchecked-set "charset" "charSet")))
 
 (defn cached-prop-name
   "Look up the React prop-name string for hiccup-keyword `k`.
@@ -371,24 +399,27 @@
     :aria-label → \"aria-label\" (aria-* not camelCased)
 
   Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
-  `constructor`) are never cached and are returned verbatim. The
-  downstream `convert-props` writes drop these too (see `kv-conv`),
-  so a malicious key cannot reach the React props object."
+  `constructor`) are never cached. The downstream `convert-props` writes
+  drop these too (see `kv-conv`), so a malicious key cannot reach the
+  React props object.
+
+  The cache has no prototype (rf2-lhdp0), so the HIT path is one property
+  load and an `undefined?` test — no own-property guard, no reserved-name
+  probe. A reserved name simply never occupies an entry, so it misses every
+  time and takes the conversion path, which answers it verbatim:
+  `dash-to-prop-name` of each of the three returns the name unchanged (no
+  `-`, no `--` prefix, no `data`/`aria` start), exactly what the previous
+  early-return produced."
   [k]
   (if (or (keyword? k) (symbol? k))
-    (let [n (name k)]
-      (cond
-        ;; Reserved keys: skip the cache entirely, return the raw name.
-        ;; (Downstream kv-conv drops the aset; the name is harmless here.)
-        (reserved-prop-key? n) n
-
-        :else
-        (if-some [cached (when (own-key? prop-name-cache n)
-                           (aget prop-name-cache n))]
-          cached
-          (let [v (dash-to-prop-name k)]
-            (aset prop-name-cache n v)
-            v))))
+    (let [n (name k)
+          cached (unchecked-get prop-name-cache n)]
+      (if (undefined? cached)
+        (let [v (dash-to-prop-name k)]
+          (when-not (reserved-prop-key? n)
+            (unchecked-set prop-name-cache n v))
+          v)
+        cached))
     k))
 
 ;; ---------------------------------------------------------------------------
@@ -659,20 +690,24 @@
   `:className` is treated as an additional class and merged with a
   space. When only `:className` is present it is renamed to `:class`
   so `set-id-class`'s shorthand merge has a single key to read. A no-op
-  when neither `:className` nor `:class` is present."
+  when neither `:className` nor `:class` is present.
+
+  `:className` IS THE DISCRIMINATOR, so it is probed first (rf2-lhdp0).
+  Every branch that does anything requires it; when it is absent — which is
+  every element of idiomatic hiccup, where the spelling is `:class` — the
+  answer is `props` unchanged and one probe has settled it. Asking
+  `:class` first cost two probes on that path and three when `:class` was
+  present, the extra one re-asking a question already answered."
   [props]
-  (cond
-    (and (contains? props :class) (contains? props :className))
-    (-> props
-        (assoc :class (class-names (:class props) (:className props)))
-        (dissoc :className))
-
-    (contains? props :className)
-    (-> props
-        (assoc :class (:className props))
-        (dissoc :className))
-
-    :else props))
+  (if (contains? props :className)
+    (if (contains? props :class)
+      (-> props
+          (assoc :class (class-names (:class props) (:className props)))
+          (dissoc :className))
+      (-> props
+          (assoc :class (:className props))
+          (dissoc :className)))
+    props))
 
 (defn- convert-props
   "Convert a hiccup prop map `props` to a React-shape JS props object.
@@ -728,6 +763,31 @@
           ;; (see the header note); read the js-props `.key` React honours.
           :r>      (some-> (nth v 2 nil) (.-key))
           (when (map? (nth v 1 nil)) (:key (nth v 1 nil)))))))
+
+(defn- react-key-from-props
+  "`get-react-key` for a caller that ALREADY knows the props slot.
+
+  `native-element` — the emit path for every DOM element and every `:>`
+  interop element, so the overwhelming majority of a mount's elements —
+  has just computed `hiccup-shape`'s `head`, which IS the slot
+  `get-react-key` goes looking for. Given that, the general function's
+  work is a `vector?` pair, an `nth 0`, a `case` dispatch, a second `nth`
+  and a `map?` — all of it to re-derive a value already in hand — before
+  the one `:key` lookup it wanted (rf2-lhdp0).
+
+  EQUIVALENT BY CONSTRUCTION, both routes into `native-element`:
+
+    - a DOM tag enters at `first-pos` 1, so `head` is `(nth argv 1 nil)`,
+      which is what `get-react-key`'s DEFAULT branch reads;
+    - `:>` enters at `first-pos` 2 (`interop-element`), so `head` is
+      `(nth argv 2 nil)`, which is what its `(:> :f>)` branch reads.
+
+  `props` is `hiccup-shape`'s `head` — nil or a map, because that is what
+  made `has-props?` true. `(:key nil)` is nil, matching the general
+  function's `map?` guard for the nil case."
+  [argv props]
+  (or (some-> (meta argv) :key)
+      (:key props)))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-coord stamping (per IMPL-SPEC §5.4 + §9.4)
@@ -791,8 +851,18 @@
   #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link"
     "meta" "param" "source" "track" "wbr"})
 
+;; A null-prototype index DERIVED from `void-tags`, so the roster above stays
+;; the single source of truth and there is no second list to drift
+;; (rf2-lhdp0). The probe is asked once per DOM element of every mount, and a
+;; `contains?` on a 14-entry PersistentHashSet costs a string hash plus a
+;; hash-map probe where a property load costs one lookup.
+(def ^:private void-tag-index
+  (reduce (fn [o t] (unchecked-set o t true) o)
+          (js/Object.create nil)
+          void-tags))
+
 (defn- ^boolean void-tag? [tag-str]
-  (contains? void-tags tag-str))
+  (true? (unchecked-get void-tag-index tag-str)))
 
 (defn- make-element
   "Construct a React element via React.createElement.
@@ -938,7 +1008,10 @@
         props     (cond-> (when has-props head)
                     (and *source-coord* (string? component)) merge-source-coord-attr)
         js-props  (or (convert-props props parsed) #js {})]
-    (when-some [key (get-react-key argv)]
+    ;; `props` is `hiccup-shape`'s own props slot (the source-coord merge only
+    ;; ever adds `:data-rf2-source-coord`, never `:key`), so the slot the
+    ;; general `get-react-key` would go and re-derive is already bound here.
+    (when-some [key (react-key-from-props argv props)]
       (set! (.-key js-props) key))
     (make-element argv component js-props first-child)))
 
