@@ -42,6 +42,12 @@
      dispatcher read on React 19.2's dev build, which is why a hook
      ROSTER is `distinct` rather than a count.
 
+  One row exists only to make a mutation legible.
+  `an-intent-under-a-framed-tray-raises-nothing` puts an error boundary
+  over an ordinary framed tray and asserts it caught nothing: every other
+  row above reds on an *absence* — no tray, so every query is nil — and
+  React does not print the `ex-info` it swallowed. That row prints it.
+
   ## The host child, and why it is not witnessed here
 
   The bead names native and host children alike. The `defhost` door is
@@ -143,6 +149,27 @@
                      :data-role "note"}
        "note"]])])
 
+(defview note-only-tray
+  "The same tray carrying **only** the callback form, and it exists for
+  what it proves when the frame binding is taken away. The two intent
+  shapes fail at different MOMENTS: a bare vector is refused at LOWERING,
+  during presence's render, so a tray holding one never reaches the
+  screen — and a red on the tray above could always be blamed on that
+  sibling. `h/fn` is lowered happily with no frame (the dispatch is
+  captured, not required); it renders, it clicks, and it raises at
+  INVOCATION. So this tray is the one whose red is the callback path's
+  own."
+  [_]
+  [presence {:timeout-ms timeout-ms}
+   (for [t (rt/sub [:presence-intent/visible])]
+     [:div.toast {:key (:id t) :data-id (:id t)}
+      [:button.note {:data-id   (:id t)
+                     :on-click  (hfn [e]
+                                  (when (= "note" (.. e -target -dataset -role))
+                                    [:presence-intent/noted (:id t)]))
+                     :data-role "note"}
+       "note"]])])
+
 (defview toast-card
   "A BOUNDARY child of presence. It resolves its own frame in its own
   shell and receives `:rf/phase` as an ordinary prop, so it is the
@@ -204,13 +231,21 @@
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id two)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])]
+      ;; The callback-ONLY tray, deliberately: see its docstring. A bare
+      ;; vector on the same child would fail earlier and louder with the
+      ;; binding removed, and would take the credit for this row's red.
+      (let [handle (mount/root! (mount/fresh-container!) frame-id
+                                [note-only-tray {}])]
         (try
+          (is (some? (button handle ".note" 1))
+              "the tray rendered — an h/fn is LOWERED with no frame in scope,
+               because the dispatch is captured rather than required, so this
+               path fails at invocation and not here")
           (click! (button handle ".note" 1))
           (is (= [1] (:noted (db frame-id)))
-              "the h/fn read the real event and the vector it RETURNED drained
-               through the arm's synchronous door — the second row of the
-               position table, at a position presence lowered")
+              "and at invocation the h/fn read the real event and the vector it
+               RETURNED drained through the arm's synchronous door — the second
+               row of the position table, at a position presence lowered")
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -326,6 +361,40 @@
                 (str "and it named the intent: " (pr-str (ex-data @!caught))))
             (is (= [:presence-intent/dismissed 1] (:intent (ex-data @!caught))))
             (finally (mount/release! handle))))))))
+
+;; ---------------------------------------------------------------------------
+;; 5b — the mutation sentinel: a framed tray raises NOTHING, by name
+;; ---------------------------------------------------------------------------
+;;
+;; Every other row above reds usefully when the binding is removed, but it
+;; reds on an ABSENCE — the tray never renders, so the queries come back nil
+;; and the diagnostic React swallowed is nowhere in the failure text. This row
+;; puts an error boundary over the tray for no reason except to catch what
+;; presence threw and print it, so a mutation names `:rf.error/hicasso-intent-
+;; outside-boundary` in the test output rather than in a browser console
+;; somebody has to go and read.
+
+(deftest an-intent-under-a-framed-tray-raises-nothing
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh! frame-id two)
+      (reset! !caught nil)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id
+                                [boundary {:fallback [:p.oops "the tray refused"]
+                                           :on-error (fn [e] (reset! !caught e))}
+                                 [toast-tray {}]])]
+        (try
+          (is (nil? @!caught)
+              (str "presence raised while lowering its own children, and the "
+                   "error boundary above the tray caught: "
+                   (pr-str (select-keys (ex-data @!caught)
+                                        [:rf.error/id :intent :position]))))
+          (is (nil? (query handle ".oops"))
+              "so the fallback did not take over")
+          (is (= 2 (.-length (.querySelectorAll (:container handle) ".toast")))
+              "and both toasts, controls and all, are on screen")
+          (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — the hook budget, counted at React's own dispatcher
