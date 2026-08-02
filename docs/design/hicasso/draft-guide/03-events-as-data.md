@@ -184,7 +184,8 @@ explicitly.**
 
 ## Troubleshooting
 
-No Hicasso error ids exist yet; this table names mechanisms.
+This table names mechanisms rather than error ids; the ids the record does mint
+are named in the sections above.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|

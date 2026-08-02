@@ -182,8 +182,8 @@
 
 (defn new-item-intents
   "The same, for the one controlled field at the head of the screen. The
-  submit intent carries no explicit prevent metadata, so it takes the
-  position's census-weighted default."
+  submit intent carries no `::h/prevent` head, so it takes the position's
+  census-weighted default."
   []
   {:on-input    [:dogfood/edit-draft new-draft-key :re-frame.hicasso/value]
    :on-submit   [:dogfood/create]
