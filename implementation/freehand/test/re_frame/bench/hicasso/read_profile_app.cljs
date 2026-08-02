@@ -258,16 +258,15 @@
   `subscribe` itself reads through (and the read-time coalesced
   reprojection flush, without which a same-tick `reg-sub` is invisible)."
   [frame-id ^js roster]
-  (let [frame-record (frame/frame frame-id)
-        cache        (:sub-cache frame-record)
-        pstate       #js {"fs" nil "memo" nil}
-        n            (alength roster)]
+  (let [pstate #js {"fs" nil "memo" nil}
+        n      (alength roster)]
     (dotimes [i n]
-      (let [q (aget roster i)]
+      (let [q            (aget roster i)
+            frame-record (frame/frame frame-id)]
         (live-frame/call-with-frame-resolution
           frame-id
           (fn []
-            (if-some [r (:reaction (get @cache q))]
+            (if-some [r (:reaction (get @(:sub-cache frame-record) q))]
               @r
               (let [fs   (or (unchecked-get pstate "fs")
                              (let [v (frame/frame-state-value frame-id)]
@@ -662,7 +661,8 @@
                                   (let [res (rt/residue)]
                                     (when-not (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} res)
                                       (throw (ex-info (str "final residue not clean: " (pr-str res)) {}))))
-                                  (lane/done!))))))))))))))
+                                  (lane/done!)))))))))))))
       (.catch (fn [e]
                 (lane/fail! (or (some-> e .-message) (str e)))
                 (lane/done!)))))
+
