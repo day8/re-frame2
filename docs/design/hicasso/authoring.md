@@ -32,16 +32,17 @@ cited as HD-nnn are normative in [decisions.md](decisions.md).
   `[view-var props-map]` is a boundary child (a React element; `:key` lives in
   the props map — no metadata keys; native-element keys are likewise `:key` in
   the props position). A **plain function call** `(helper …)` inlines into the
-  enclosing boundary — no boundary of its own (helper-donated `sub` reads are
-  collector-contingent, HD-002). A bare seq of boundary children requires keys
-  (dev warning); a plain function in head position is a loud error, never a
-  silent embedding; the `for`-lowering sugar is not v0 (HD-016).
-- **`sub` returns a value.** Whether it is legal *anywhere* inside a render —
-  conditionals, loops, helpers, as sketched above — is **collector-contingent
-  (HD-002)**: the sketch shows the challenger's authoring model, which ships only
-  if the collector wins its per-read budget in P1. Under the hook-fixed working
-  default, reads sit at fixed sites and conditional needs are met by conditional
-  child boundaries or conditionally-constructed query values. Either way: `sub`
+  enclosing boundary — no boundary of its own; a helper's `sub` reads are
+  ordinary ambient reads (HD-002 — `sub` is the one product surface). A bare
+  seq of boundary children requires keys (dev warning); a plain function in
+  head position is a loud error, never a silent embedding; the `for`-lowering
+  sugar is not v0 (HD-016).
+- **`sub` returns a value, legal *anywhere* inside a render** —
+  conditionals, loops, helpers, as sketched above. The operator ruled this the
+  only ergonomically acceptable surface (HD-002, superseded 2026-07-31); the
+  correctness and cost gates a per-read collector must still clear — the
+  tripwire, the ownership state machine, the survival metric — are unwaived
+  and adjudicated in [hd-002-adjudication.md](hd-002-adjudication.md). `sub`
   outside a render is an error; `subscribe-once` is the sanctioned snapshot for
   handler/utility code; framework subs (machine tags, resource/mutation state,
   route identity) read identically to app subs.
@@ -51,8 +52,9 @@ cited as HD-nnn are normative in [decisions.md](decisions.md).
   hook simply takes on React's hook rules themselves (HD-003: taught fence, not
   runtime police).
 
-**The grouped (default) spelling of the same view** — pre-declared per HD-002 so
-the default surface is scored from day one, not discovered mid-clock:
+**The grouped spelling of the same view, kept as the collector's comparator**
+(HD-002 — ergonomically rejected as a product surface, not a fallback) — pre-
+declared so it is scored from day one, not discovered mid-clock:
 
 ```clojure
 (:require [re-frame.hicasso :as h :refer [defview use-subs]])
