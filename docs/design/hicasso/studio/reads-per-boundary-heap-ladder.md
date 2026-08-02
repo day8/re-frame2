@@ -688,7 +688,10 @@ fails its own paper line.**
   rung is **1,143 B** [1,132–1,156] against Reagent's 508 B and UIx's
   220 B. The one subscription hook is per *boundary*, so a boundary that
   reads nothing still pays it — which is the same structural choice that
-  wins the slope, seen from the other end.
+  wins the slope, seen from the other end. **HD-028's memo wrapper has
+  since been priced on this same rung and adds ≈ 100 B to it** — half the
+  projected figure, and it is the shell row rather than the slope that
+  moves: [below](#the-memo-wrapper-priced-on-this-rung-rf2-2rtt658).
 - **Nothing is retained after teardown**, in bytes *or* in objects, on
   every arm of every round. [Below](#the-survival-metric-in-objects-and-not-only-in-bytes).
 
@@ -1038,6 +1041,210 @@ those rows unpublished under the restated-bar posture (`rf2-b0tz5`), and
 the measurement being available is not the same act as the bar being
 restated. The numbers are here, on the studio page, for the operator to
 rule on.
+
+### The memo wrapper, priced on this rung (rf2-2rtt6.58)
+
+**Measured 2026-08-02** for `rf2-2rtt6.58`, to answer the one question
+[HD-028](../decisions.md#hd-028--value-equality-is-the-boundary-default) left
+open when it made a value-equality bail-out the boundary default: what its
+extra Fiber does to **this** rung — the R=0 shell, which is the figure
+[validation.md](../validation.md)'s paper line is stated against, and which
+was already over that line at 1,143 B before any wrapper existed.
+
+**The answer is ≈ +100 B, not the ≈ +200 B the card-shaped reading implied,
+and ≈ +9%, not ≈ +17%.** The projection was carried in three places — this
+bead, HD-028's cost paragraph, and
+[the page-chrome row](the-page-chrome-row-and-what-the-bail-out-costs.md#3-per-boundary-retained-heap--the-fiber-priced)
+— and all three are corrected against the measurement rather than left to
+stand beside it.
+
+#### Which instrument this had to be taken on, and the mis-citation it corrects
+
+`rf2-2rtt6.58` and the page-chrome row both name
+`implementation/freehand/test/re_frame/freehand/bench/reads_ladder_run.cjs` as
+"the instrument that produced 1,143 B". **It is not, and it could not have
+been.** 1,143 B is published in [§6](#6-the-hicasso-candidate-rung--one-hook-plus-a-shared-index)
+above, whose own opening sentence names the **P0 bench** — `p0_run.cjs --only
+ladder` — "and not on the instrument §§1–4 were taken on". The freehand ladder
+carries `reagent,uix` and nothing else: it has no Hicasso arm, never reaches
+`re-frame.bench.hicasso.*`, and so cannot mount the wrapper at all. A run there
+would have produced no candidate row to compare. This re-take is therefore on
+`p0_run.cjs --only ladder`, and the six P0 instrument blobs below are
+**byte-identical to §6's published run 3** — same instrument, not merely the
+same kind of instrument.
+
+The mis-citation is traceable and is fixed at its source: the page-chrome row's
+§3 said "re-taken on the ladder rig itself (`reads_ladder_run.cjs`)", and the
+bead was filed from that sentence.
+
+#### Design: both arms in one session, and a third run to catch drift
+
+The two arms differ by **one line** at
+`arm1/runtime.cljs:1261` — `mint-view!` returning
+`(codec/memoize-boundary! (codec/mark-boundary! component))` against
+`(codec/mark-boundary! component)`. That is the wrapper's only call site in the
+repository, so removing it removes the wrapper and nothing else; the rest of the
+`rf2-2rtt6.52` branch, `codec.cljs` included, is identical across both arms.
+
+Runs are **A → B → A**, all three in one session on a box verified quiet before
+each. A1 and A2 bracket B in time, so if the box moved under the pair the two
+wrapper readings separate and say so. **They do not: A1 and A2 agree to 0 B on
+the Reagent segment and 5 B on the UIx segment.**
+
+**A first A/B pair was taken and is discarded, not reported.** An API outage
+killed the worker while its B arm was running; under `rf2-6t03c` a run that dies
+mid-way is discarded, and because the arms are paired *within* a session the
+surviving A arm is discarded with it rather than matched against a later B. Both
+arms below were re-taken afterwards.
+
+#### The rows
+
+1,200 boundaries; `y` is exclusive retained bytes per boundary above the
+same-round, same-segment floor. Witness stamp: **B = 1,200 · E = 0 · Q = 0**
+(R = 0 reads nothing, so the distinct-query regime is vacuous on this rung and
+the fan-out E/Q is undefined rather than 1). Six rounds per run; ranges are
+min–max across them. **0 unverified of 154 mounts** in each of the three runs.
+
+| R=0 shell | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* | delta |
+|---|---:|---:|---:|---:|
+| Hicasso, Reagent segment | **1,247** [1,240–1,257] | **1,141** [1,125–1,154] | **1,247** [1,239–1,267] | **+106 B, +9.3%** |
+| Hicasso, UIx segment | **1,236** [1,227–1,250] | **1,138** [1,119–1,159] | **1,241** [1,227–1,261] | **+100 B, +8.8%** |
+
+**The A and B ranges are disjoint on both segments** — an 85 B gap on the
+Reagent segment and 68 B on the UIx segment — so by this studio's own house rule
+the two arms are distinguishable, which is the thing a 100 B delta on a 1,140 B
+figure has to establish before it may be quoted.
+
+**B reproduces the published anchor.** 1,141 and 1,138 B against §6's 1,143 and
+1,134 B, every range overlapping. That is a second result riding along: the
+`rf2-2rtt6.52` branch's other changes — 112 lines of `codec.cljs` — are
+**shell-neutral**, and the whole of the shell movement is the wrapper.
+
+#### The wrapper is exactly R-independent, which is what the ruling predicted
+
+HD-028 priced the wrapper as a per-boundary constant, so it must land in the
+shell and leave the per-read slope alone. It does, to the byte:
+
+| marginal slope | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* |
+|---|---:|---:|---:|
+| Hicasso, Reagent segment | 1,447 [1,444–1,448] | 1,447 [1,444–1,448] | 1,447 [1,443–1,448] |
+| Hicasso, UIx segment | 2,289 [2,284–2,291] | 2,289 [2,284–2,291] | 2,289 [2,283–2,291] |
+
+**Identical medians across all three runs on both segments.** A wrapper that had
+leaked into the per-read term would have shown here, and it does not.
+
+#### The controls
+
+**Negative controls — the donors, which cannot see the toggle.** Neither Reagent
+nor UIx goes through `mint-view!`, so they must not move between arms. They do
+not, which is what licenses reading the Hicasso difference as the wrapper rather
+than as the box:
+
+| donor | A1 | B | A2 |
+|---|---:|---:|---:|
+| Reagent shell (R=0) | 506 [499–517] | 506 [501–513] | 507 [498–516] |
+| UIx shell (R=0) | 221 [217–226] | 223 [213–230] | 225 [217–232] |
+| Reagent per read | 947 [947–948] | 948 [947–948] | 948 [947–948] |
+| UIx per read | 2,981 [2,979–2,986] | 2,980 [2,978–2,985] | 2,981 [2,979–2,985] |
+
+**Positive control, predicted before any run.** The same dense array of 587,500
+unboxed doubles — **4,700,000 B, known in advance**. Read **4,697,434 B**
+(−0.055%), **4,697,603 B** (−0.051%) and **4,697,603 B** (−0.051%). The
+pre-registered prediction was ±0.05% and all three land marginally **outside**
+it, at 0.05–0.06% low; that is recorded rather than rounded into compliance. It
+is common-mode across the arms — the same offset on the wrapper run and the
+no-wrapper run — so it cannot manufacture a difference between them, and it sits
+three orders of magnitude inside the driver's own ±25% verdict slack.
+
+Arm-order guard **reportable**, structural read-back **every field answered**,
+and exit **0** on all three runs.
+
+#### Why this instrument reads half of what the card-shaped one did
+
+The page-chrome row measured **+195 and +220 B** per boundary for the same
+wrapper; this rung reads **+100 to +106 B**. Both reproduce on their own
+instrument, so the disagreement is real and belongs to the shapes, not to a bad
+run. **The leading candidate explanation is React's double buffering, and it is
+offered as a hypothesis because this run did not count fibers:** the ladder
+mounts an arm and *holds* it with no writes, so only the current tree exists and
+the wrapper costs one extra fiber; the page-chrome instrument performs its four
+write ops before reading, and an updated component retains an `alternate` fiber
+beside its current one, so a wrapper position there can be holding two. Roughly
+2× is what that predicts, and roughly 2× is what the two instruments differ by.
+**Testing it needs a fiber count, which is filed rather than claimed.**
+
+The practical reading is the one the ruling asked for: **a Fiber is not a fixed
+tax, and the shape it sits on decides what it costs.** Quoting either
+instrument's figure onto the other's shape is the error this rung exists to
+prevent.
+
+#### What this settles, and what it hands the operator
+
+**Settles.** The wrapper costs **≈ +100 B** on the R=0 shell — **+9%**, moving it
+from **1,141 B to 1,247 B**. The ≈ +17% / ≈ 1,343 B projection carried by the
+bead and by HD-028 was an over-estimate by about a factor of two. The delta is
+above the **~75 B** shape sensitivity [validation.md](../validation.md) names for
+this line, so it is not shape noise — though not by a wide margin, and that is
+worth saying plainly.
+
+**Does not settle, deliberately.** Whether ≈ +9% on a figure **already 1.14×
+over** the 1 KB paper line is "pushing retained heap meaningfully farther past
+the bar" in HD-028's sense. **That clause is not quantified anywhere** — not in
+HD-028, not in validation.md, not in the heap-regime ruling — and HD-028's
+reopen clause is worded as *failing* the bar, which this shell already did at
+1,141 B without any wrapper. The wrapper cannot cause a failure that pre-dates
+it; what it does is widen one. Whether that widening is acceptable for a
+**default** is the operator's call under the restated-bar posture (`rf2-b0tz5`),
+exactly as §6's own shell row was left to be — and this section, like §6, writes
+**no candidate-bar row into validation.md**.
+
+#### Provenance
+
+Whole-tree anchor **`4a33c61e1c`** on `worker/cascade-2rtt6-52`. That branch was
+**conflicting with `main` and deliberately not rebased while these rows were
+taken**, so the blobs are what to trust — and they are what will prove the
+measured tree and the merged tree agree once it is rebased.
+
+The one line under test, and the only thing that differs between the arms:
+
+| arm | `arm1/runtime.cljs` blob |
+|---|---|
+| **A1, A2** — wrapper present | `a6d6c55a5885689cb62dcf444da2e58562d53d23` |
+| **B** — wrapper absent | `5b4f4e065f689f955a8750c9533c75650a3077a3` |
+
+`front/codec.cljs` is `12284ef8f47d99e909e4ca40326310262d6f7c6a` in **all three**
+runs — the wrapper's definition is present throughout and merely goes uncalled
+in B. The remaining Arm 1 blobs are unmoved from §6: `arm1/mount.cljs`
+`4653e168d08dcd91386df4e78b3cd5b0b5cf9267`, `arm1/lang.clj`
+`0151ddafb4aefe6a6a2403a349187ae5b28cc537`, `front/sub_index.cljs`
+`394927d6f6493ea651daac84b9f140cd54f8f6c1`.
+
+The instrument, **byte-identical to §6's run 3**, all under
+`implementation/core/test/re_frame/bench/`:
+
+| file | blob |
+|---|---|
+| `p0_run.cjs` | `4718aaead7035ae9a6cf74a89ef13141803742cc` |
+| `p0_heap.cljs` | `34c9210dfe39d3c7ee153c724fa63cf8e65dd1e1` |
+| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
+| `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` |
+| `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` |
+| `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` |
+
+Reproduce — the wrapper arm as it stands, the no-wrapper arm by reverting the one
+line above:
+
+```
+node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+```
+
+**Conditions.** Three runs, ~3.5 minutes each, 2026-08-02 13:23–13:35 AUSEST, on
+a box checked before **each** run for live bench, browser and shadow-cljs
+processes — no process consumed more than 0.5 CPU-seconds over a 5-second sample
+apart from the checking shell itself and an idle browser tab. React **19.2.0**,
+Reagent **2.0.1**, UIx **1.4.4**, `:advanced` with `goog.DEBUG false`, headless
+Chromium via Playwright, Windows 11. One machine; no claim here is evidence about
+a second box.
 
 ### The slope went stale before this section merged, and the landing that moved it (rf2-2rtt6.60)
 
