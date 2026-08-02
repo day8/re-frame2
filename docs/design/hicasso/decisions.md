@@ -20,9 +20,27 @@ Alias `h` avoids inheriting Freehand's `v` (whose surfaces are deleted on a win,
 HD-018) and `ui`.
 **Reopens** never — names are permanent after first publish.
 
-## HD-002 — The sub-read mechanism: grouped default, collector challenger, scalar comparator
+## HD-002 — The sub-read mechanism: grouped default, collector challenger, scalar comparator — **SUPERSEDED 2026-07-31**
 
-**Ruling.** Three tiers, one product:
+> **Superseded by operator ruling, 2026-07-31.** The operator ruled that the
+> ambient collector — `sub` as a plain call, legal anywhere in the body — is
+> **the only read surface acceptable on ergonomics**, and that grouped
+> `use-subs` sits **below the usability bar**. The ruling decided on
+> **ergonomics, not on the benchmarked-win condition this record set up**: no
+> bar row for the survival metric exists yet (H1 is implemented, H2 untried),
+> so grouped is superseded without having lost a bench it was never run
+> against. **There is one product read surface: `sub`.** Grouped is kept —
+> and kept working — only as the comparator rendering the collector is
+> measured against; it is not a fallback, and had the collector failed
+> correctness the outcome would have been null, never a promotion of
+> grouped. The correctness gates ((a)–(d) below) were not waived by this
+> ruling; [the dogfood judgement](studio/arm1-lean-react-dogfood-judgement.md)
+> §2 is their clause-by-clause discharge, and
+> `implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs`
+> carries the same ruling in the code that implements it. Recorded on
+> `rf2-2rtt6`.
+
+**Ruling (superseded).** Three tiers, one product:
 
 1. **Scalar per-read hooks** (the raw UIx spine) are a **comparator arm only** —
    the measured floor, exempt from the product hook budget because they are the
@@ -74,8 +92,9 @@ per-read ledger, the single largest measured killer — must win its place under
 pre-registered, correctness-first adjudication. The collector is still ridden
 hardest because conditional-reads-legal is the census's tier-1 shape and most of
 the authoring differentiation vs raw UIx.
-**Reopens** via its own adjudication — the P1 instrumentation is the decision
-procedure.
+**Reopens** n/a — the ruling above is this decision's resolution, not a bypass
+of it; a future change needs a new operator ruling, not a rerun of the P1
+instrumentation.
 
 ## HD-003 — Hooks in view bodies
 
