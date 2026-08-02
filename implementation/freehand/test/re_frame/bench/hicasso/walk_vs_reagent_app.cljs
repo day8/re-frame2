@@ -100,7 +100,7 @@
   most of the page, so the plain witness shares structure with the
   native one everywhere it can."
   [m]
-  (reduce-kv (fn [acc k v]
+  (reduce-kv (fn [acc k _v]
                (if (and (keyword? k) (intent/event-prop? k))
                  (assoc acc k noop)
                  acc))
