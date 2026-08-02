@@ -646,6 +646,21 @@ in the same six rounds, under the same collector, the same positive
 control and the same arm-order guard** — the two donors re-taken, and the
 candidate beside them. Nothing here is scaled onto anything.
 
+**Slope stamp — every candidate slope in this section went stale before it
+merged, and no tree on `main` has ever answered it.** Run 3 below was taken
+against `arm1/runtime.cljs` blob `69bfc6fc`; thirty-five minutes before this
+section's own PR merged, `8e973eeace` (rf2-2rtt6.44's disposal hook) replaced
+that blob on `main`, and the rebase-merge landed this section on top of it.
+On every `main` tree since, the candidate's marginal slope reads **1,447
+B/read** on the Reagent segment and **2,289 B/read** on the UIx segment —
++84 B (+6.2%) and +17 B (+0.7%) — while every donor figure and every shell
+stands. The measured rows below are left exactly as measured, because a
+record edited to match a later tree stops being a record; the attribution,
+the mechanism and the restated live numbers — **the bill is +499 B/read, not
++415** — are in
+[the slope subsection](#the-slope-went-stale-before-this-section-merged-and-the-landing-that-moved-it-rf2-2rtt660)
+at the end of this section.
+
 ### The answer, first, including the part that does not flatter the design
 
 **The structural claim is true and the axis is won against UIx. The
@@ -1023,6 +1038,151 @@ those rows unpublished under the restated-bar posture (`rf2-b0tz5`), and
 the measurement being available is not the same act as the bar being
 restated. The numbers are here, on the studio page, for the operator to
 rule on.
+
+### The slope went stale before this section merged, and the landing that moved it (rf2-2rtt6.60)
+
+**Measured 2026-08-02 for `rf2-2rtt6.60`.** The rf2-2rtt6.58 session (the
+memo-wrapper pricing, taken on `worker/cascade-2rtt6-52`) observed the
+candidate's marginal slope at **1,447 B/read** on the Reagent segment and
+**2,289 B/read** on the UIx segment — +84 B (+6.2%) and +17 B (+0.7%) over
+the rows above — while both donors, all four shells and all six instrument
+blobs reproduced this section's run 3 exactly. Not the wrapper (toggled off
+to no effect in that same session), not the box, not the instrument:
+something in the trees had moved the candidate, and nothing had attributed
+it. This subsection is the attribution by bisection, the mechanism, and the
+restatement of every live number this section hands the programme. At 1,447
+the bill below becomes **+499 B/read — a 20% increase in a figure the
+programme quotes** — which is why the attribution could not wait for the
+branch that surfaced it to merge.
+
+#### The bisection: four runs, two of which decide everything
+
+All four on this instrument — `p0_run.cjs --only ladder`, six rounds, same
+collector, same guard, same discipline as run 3 above — on 2026-08-02, box
+verified quiet before each (no live bench, browser or shadow-cljs process).
+The donors ride every run as the negative control and answer the published
+948 / 2,981 in all four; the positive control was predicted at **4,700,000 B**
+before any run and read within 0.06% low in all four; **0 unverified of 154
+mounts, structural witness fully answered, arm-order guard reportable, exit
+0 — every run.**
+
+| run | tree | Hicasso, Reagent seg. | Hicasso, UIx seg. | donors (Rg / UIx) |
+|---|---|---:|---:|---:|
+| *§6 run 3 (2026-08-01, above)* | *runtime blob `69bfc6fc`* | *1,363 [1,360–1,364]* | *2,272 [2,268–2,275]* | *948 / 2,981* |
+| 1 | the `main` ↔ `worker/cascade-2rtt6-52` merge-base, `8d0e06f6d3` | **1,446** [1,443–1,447] | **2,289** [2,284–2,291] | 948 / 2,980 |
+| 2 | PR #7337's own merge commit, `4d3331fad5` | **1,447** [1,444–1,448] | **2,289** [2,284–2,291] | 947 / 2,981 |
+| 3 | `4d3331fad5` minus the one `interop/add-on-dispose!` line | **1,343** [1,340–1,344] | **2,253** [2,248–2,255] | 947 / 2,981 |
+| 4 | `main` tip `316d34ef81`, the tree that ships today | **1,447** [1,444–1,448] | **2,289** [2,284–2,291] | 947 / 2,981 |
+
+**Run 1 answers the filed question first: the merge-base already reads the
+shifted slope, so a `main` landing owns the move and
+`worker/cascade-2rtt6-52` is exonerated.** Its 112 codec lines and its memo
+wrapper move neither segment's slope — the .58 session had already shown the
+wrapper exactly R-independent, and run 1 shows the branch's base was
+carrying the whole shift before the branch added a line.
+
+**Run 2 pins it to one landing.** Between run 3's tree and `4d3331fad5` the
+only file in the measured bundle that moves at all is `arm1/runtime.cljs` —
+`69bfc6fc` → `e1fd44ca`, which is **`8e973eeace`** (rf2-2rtt6.44, "close the
+registry-epoch and node-key axes off disposal") exactly, merged 2026-08-01
+09:34 +1000 — thirty-five minutes before this section's own PR. The full
+shift is present there: the published slope was stale at the moment it
+landed.
+
+**Run 3 names the line inside the commit, and splits its price.** The
+commit does two separable things to the read path. Removing
+`(interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell)))` from
+`wire-cell!` — the disposal hook's only arming site — returns the slope not
+to 1,363 but to **1,343 / 2,253**, twenty B *below* the published rows on
+both segments. So, per read at Q = E:
+
+```
+published run 3               1,363    2,272     (Reagent seg. / UIx seg.)
+the wiring restructure          −20      −19     wire-cell!'s re-plumbing, hook removed (run 3)
+the disposal hook              +104      +36     the one interop/add-on-dispose! line (run 2 − run 3)
+every main tree since         1,447    2,289     (runs 1, 2, 4, and the .58 readings)
+```
+
+Runs 2 → 3 → 4 are an A–B–A bracket in time: the two hook-armed readings
+agree to the byte around the hook-less one, so the 104 B is the line and
+not the box.
+
+#### The mechanism: a second on-dispose callback per unique key, priced by each substrate's storage
+
+`8e973eeace` closes a real deafness: a `:sub` re-registration or a same-id
+frame reincarnation disposes the reaction a cell holds, and before the
+landing the boundary answered the retired computation forever after. The
+repair arms the substrate's own disposal event — **once per unique
+`(frame, query)` cell**, at `wire-cell!` time. On this ladder's mandatory
+distinct-query witness, cells are B·R, so the whole price lands in the
+marginal slope and none of it in the shell — which is why work pointed at
+the shell never saw it, and a slope re-take did.
+
+What is retained per cell, for the life of the arm: the invalidation
+closure, and the substrate's storage for a **second** on-dispose callback —
+second, because the sub-cache already wires its ref-release closure onto
+every cached reaction (`re-frame.subs/compute-and-cache!`), and that first
+callback is priced into every row above. The two substrates store the
+second one very differently, and that is the Reagent-side asymmetry:
+
+- **Reagent's `Reaction` declares no on-dispose field.** Its
+  `add-on-dispose!` keeps callbacks on an `on-dispose-arr` JS array, and
+  the second push grows a capacity-1 array under V8's growth policy — a
+  fresh, larger elements store per reaction. Measured: **+104 B/read**
+  (runs 2 − 3).
+- **The spine's derived-value container** (the UIx segment's reactions)
+  pre-allocates `on-dispose-fns (atom [])` at construction — already in
+  the baseline price — and the second callback is a persistent-vector
+  `conj` that replaces a one-element vector with a two-element one.
+  Measured: **+36 B/read**.
+
+That account is offered at the allocation level; the byte-exact split is
+V8 representation detail (growth slack, pointer compression, context
+sharing) and was not decomposed object-by-object. The **−20 / −19 B** the
+same commit's restructure recovered (subscribe/watch wiring moved from
+`acquire-cell!` into `wire-cell!`) is likewise measured, consistent across
+both segments, and not decomposed further.
+
+**This is a price worth recording, not a defect to revert.** The hook is
+the correctness repair for a measured wrong-answer class, and rf2-2rtt6.44
+records the costing that rejected the alternative (an epoch term read by
+every key on every snapshot). What was missing was its price on this axis,
+and it is now on the record.
+
+#### What this section hands the programme, restated on the tree that ships
+
+Donor gates, all four shells and the structural witness stand exactly as
+published — nothing here touches them. The candidate's live numbers move:
+
+| live number | as published above | on `main` today (run 4) |
+|---|---:|---:|
+| the design's win (UIx seg., donor − candidate) | −708 B/read (0.7624×) | **−692 B/read** (0.7679×, a 23.2% margin) |
+| the design's bill (Reagent seg., candidate − donor) | +415 B/read (1.4379×) | **+499 B/read** (1.5264×) |
+| the bracket a shipped Hicasso sits in | 1,363 – 2,272 B/read | **1,447 – 2,289 B/read** |
+| crossover against the UIx spine | R = 1.29 reads | **R = 1.32 reads** |
+| the grouped tier's ~2,000 B line | cleared on the Reagent substrate only | unchanged in kind: 1,447 < 2,000 < 2,289 |
+| seven-read archetype vs UIx, B = 1,200 | 4,341 B/boundary saved | **4,230 B/boundary** saved (16,572 vs 20,802, measured R = 7; ≈5.1 MB across 1,200) |
+
+The verdict's shape survives — the axis is still won against UIx by nearly
+five times the instrument-limited floor, and 943/948 B is still not beaten
+— but the margin to the donor it loses to widened by a fifth, and the
+number the programme quotes as the bill is **499, not 415**.
+
+#### Provenance
+
+Whole-tree anchors, in run order: `8d0e06f6d3` (run 1), `4d3331fad5`
+(runs 2 and 3 — run 3's working tree carries exactly one removed line, its
+modified `arm1/runtime.cljs` hashing `165e7fdea6`), `316d34ef81` (run 4).
+The six instrument blobs are byte-identical to run 3's provenance table
+above at every measured tree, so this is the same instrument, not merely
+the same kind. The convicted landing is `8e973eeace`
+(`arm1/runtime.cljs` `69bfc6fc` → `e1fd44ca`); the later per-read-path
+landings in the range — the rest of rf2-2rtt6.44, rf2-2rtt6.32's codec
+key-walk, rf2-fki5d's converge, rf2-2rtt6.57's prevent head — have a joint
+slope effect that runs 1 = 2 = 4 measure at zero. Conditions: 2026-08-02
+13:54–14:20 +1000, React 19.2.0, Reagent 2.0.1, UIx 1.4.4, `:advanced`
+with `goog.DEBUG false`, headless Chromium via Playwright, Windows 11;
+runs ~3.5 minutes each, all exit 0.
 
 ---
 
