@@ -86,7 +86,7 @@
 ;;
 ;; A schema failure is a trace event with `:operation`
 ;; `:rf.error/schema-validation-failure` (Spec 009 §Error contract;
-;; Spec-Schemas §SchemaValidationTags). It rides inside an epoch's
+;; Spec-Schemas §SchemaValidationFailureTags). It rides inside an epoch's
 ;; `:trace-events`. The §Schema-rule selector keys each violation by its
 ;; surface so the multiset-consumption matcher (one declared
 ;; `[:rf.assert/schema-error …]` consumes exactly one matching violation)
@@ -94,7 +94,7 @@
 
 (def schema-violation-operation
   "The trace `:operation` that marks a schema validation failure. Spec 009
-  §Error contract / Spec-Schemas §SchemaValidationTags."
+  §Error contract / Spec-Schemas §SchemaValidationFailureTags."
   :rf.error/schema-validation-failure)
 
 (defn schema-violation-trace?
@@ -139,8 +139,8 @@
   `:tags`, the originating `:epoch-id`, the trace `:id` for back-reference,
   and the pre-computed `:selector` the multiset matcher pairs on. The
   `:where`-specific tags are threaded `cond->` so the record stays minimal
-  for surfaces that don't carry them (matching the open SchemaValidationTags
-  map)."
+  for surfaces that don't carry them (matching the open
+  SchemaValidationFailureTags map)."
   [trace-event epoch-id]
   (let [tags (:tags trace-event)
         base (cond-> {:where      (:where tags)
