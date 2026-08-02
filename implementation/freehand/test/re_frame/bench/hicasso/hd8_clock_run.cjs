@@ -95,15 +95,21 @@ const INIT_FN = 're-frame.bench.hicasso.hd8-clock-app/-main';
 const OUT = path.join(IMPL, OUT_DIR);
 const PORT = Number(process.env.HD8CLOCK_PORT || 8141);
 
-// The published design: 6 rounds x 3 blocks x (2 warmup + 4 samples) per
+// The published design: 6 rounds x 3 blocks x (4 warmup + 10 samples) per
 // arm — 18 blocks for the band (the shape rf2-ymi6j's ceiling was
-// calibrated on), 72 warm samples per arm per row. A run with any of
-// these overridden prints the override in its provenance and is NOT the
-// published shape.
+// calibrated on), and TEN warm samples per block cell, which is
+// `clock_run.cjs`'s own per-block depth. The first cut of this driver ran
+// 2 + 4 and its block p50s were too fragile to adjudicate anything: the
+// control failed strict on single low-side block outliers (1.19x against
+// 2.00x) and every gated range straddled the 1.10 boundary — an
+// INSTRUMENT-LIMITED verdict manufactured by the design, not by the
+// arms. That cut is recorded, not hidden; this is the repair. A run with
+// any of these overridden prints the override in its provenance and is
+// NOT the published shape.
 const ROUNDS = Number(process.env.HD8CLOCK_ROUNDS || 6);
 const BLOCKS = Number(process.env.HD8CLOCK_BLOCKS || 3);
-const WARMUP = Number(process.env.HD8CLOCK_WARMUP || 2);
-const SAMPLES = Number(process.env.HD8CLOCK_SAMPLES || 4);
+const WARMUP = Number(process.env.HD8CLOCK_WARMUP || 4);
+const SAMPLES = Number(process.env.HD8CLOCK_SAMPLES || 10);
 const TOLERANCE = Number(process.env.HD8CLOCK_TOLERANCE || 0.35);
 const CONTROL_SLACK = 0.25;
 const GATE_LINE = 1.1; // the amendment's one line: donor <= 1.10x direct UIx
@@ -706,7 +712,7 @@ function report(out) {
   console.log(`;;   node        ${process.version}`);
   console.log(
     `;;   design      ${ROUNDS} rounds x ${BLOCKS} blocks x (${WARMUP} warmup + ${SAMPLES} samples) per arm` +
-      `${ROUNDS === 6 && BLOCKS === 3 && WARMUP === 2 && SAMPLES === 4 ? '' : '  *** OVERRIDDEN — NOT THE PUBLISHED SHAPE ***'}`
+      `${ROUNDS === 6 && BLOCKS === 3 && WARMUP === 4 && SAMPLES === 10 ? '' : '  *** OVERRIDDEN — NOT THE PUBLISHED SHAPE ***'}`
   );
   console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8CLOCK_ONLY=${ONLY} — PARTIAL, not the published shape)` : ''}`);
   console.log(`;;   guard tol   ${TOLERANCE} on raw TaskDuration (HD-008's stated mount choice)`);
