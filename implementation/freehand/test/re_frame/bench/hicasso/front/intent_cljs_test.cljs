@@ -238,9 +238,10 @@
         "the retired metadata is no longer a spelling of anything")))
 
 (deftest the-retired-metadata-spelling-does-nothing
-  ;; Not a formality: an author porting old code must find out at the click,
-  ;; not never. The metadata is inert, so the anchor navigates — which is
-  ;; loud in the browser and is what the DOM witness asserts.
+  ;; Not a formality. The retirement is real: the annotation is inert, so a
+  ;; port that missed an anchor navigates on the first click rather than
+  ;; quietly keeping the old behaviour. Pinned here so "retired" is a
+  ;; measured fact and not a claim in a docstring.
   (let [!seen      (recorder)
         !prevented (atom false)
         h (lowered (dispatching !seen) :on-click
