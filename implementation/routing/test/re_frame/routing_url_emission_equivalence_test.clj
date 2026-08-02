@@ -25,21 +25,33 @@
   answers by a cheaper route. This namespace is what makes that claim
   falsifiable. Every assertion below is one a divergence would break.
 
-  ## The mutation this file is proved against
+  ## The mutations this file is proved against
 
-  `literal-run-end` is the new fast walk's boundary scanner, and the sharpest
-  way for the change to be wrong is for it to run PAST a sigil — swallowing a
-  `:` into a literal run emits the pattern text instead of the param value, and
-  swallowing a `{` would silently disarm the optional-group machinery.
-  Deleting `\\{` from its boundary set was run as a mutation and turns
-  `literal-run-end-stops-at-every-sigil` red. Deleting `\\:` reds that test and
-  `emitted-paths-are-exactly-what-the-pattern-says` together.
+  Three were run against the shipped code, each reverted after:
 
-  A second mutation was run against the fast path's GATE: forcing
-  `simple-out` to be computed for every pattern (dropping the
-  `(empty? groups)` condition) reds the optional-group rows of
-  `emitted-paths-are-exactly-what-the-pattern-says` — the fast walk has no
-  elision, so `/docs{/:section}?` emits its pattern text verbatim.
+  1. **`\\{` deleted from `literal-run-end`'s boundary set.** A literal run then
+     swallows the opening brace. RED: `literal-run-end-stops-at-every-sigil`,
+     1 failure.
+  2. **`\\:` deleted from the same set.** A run swallows the param sigil, so
+     every pattern emits its own text where the value belongs
+     (`/profile/:username` for `{:username \"jane\"}`). RED: 27 failures across
+     `emitted-paths-are-exactly-what-the-pattern-says` and
+     `every-emitted-url-matches-back-to-the-address-it-came-from`.
+  3. **The fast walk's optional-group bail turned into a skip** — `\\{` / `\\}`
+     consumed instead of returning nil, so a group pattern never reaches the
+     general loop. RED: 10 failures — `/docs{/:section}?` emits `/docs/api?`,
+     an elided group raises `:rf.error/missing-route-param`, and
+     `/docs{/:section}?{/:page}?` round-trips to the wrong route.
+
+  Mutation 3 is also why the walk decides for itself, in a branch of its own
+  loop, rather than being switched on by an `(empty? groups)` gate computed
+  outside it. Written as a gate, the SAME mutation (dropping the gate) does not
+  fail — it HANGS: `literal-run-end` stops at `{` and returns the cursor
+  unmoved, so the loop spins and the suite never completes. It was run that way
+  first and had to be killed by hand at 722 s of CPU. A walk whose every branch
+  either advances the cursor or returns cannot do that, and it does not depend
+  on a `:groups` map that a route-meta installed outside `reg-route` could
+  disagree with.
 
   Nothing here is a benchmark. The figures above name what the tests are
   guarding; the studio page carries the measurement."

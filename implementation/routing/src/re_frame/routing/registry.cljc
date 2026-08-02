@@ -2014,22 +2014,36 @@
            ;;
            ;; The general loop below is UNTOUCHED and still runs for every
            ;; pattern that carries an optional group.
+           ;; It decides for ITSELF whether the pattern is one it may emit —
+           ;; a `{` or `}` returns nil and hands the whole emission to the
+           ;; general loop — rather than trusting a `groups` map computed
+           ;; elsewhere. That is what makes it TOTAL: every branch advances the
+           ;; cursor or returns, so no pattern can spin it. (It matters: a
+           ;; route-meta installed outside `reg-route` can carry a `:groups`
+           ;; that its `:path` does not agree with, and the loop nearby already
+           ;; defends against exactly that. A gate would have inherited the
+           ;; disagreement; a self-deciding walk cannot.)
            simple-out
-           (when (empty? groups)
-             (loop [i   0
-                    out ""]
-               (if-not (< i n)
-                 (if (= "" out) "/" out)
-                 (let [ch (.charAt ^String pattern i)]
-                   (if (or (= ch \:) (= ch \*))
-                     (let [splat?  (= ch \*)
-                           [end k] (param-seg-bounds pattern n i)
-                           v       (->> (require-param k (if splat? "splat" "path"))
-                                        (assert-url-value! route-id :params k)
-                                        (enum-keyword-token (get params-coerce k)))]
-                       (recur end (str out (encode-param splat? v))))
-                     (let [end (literal-run-end pattern n i)]
-                       (recur end (str out (subs pattern i end)))))))))
+           (loop [i   0
+                  out ""]
+             (if-not (< i n)
+               (if (= "" out) "/" out)
+               (let [ch (.charAt ^String pattern i)]
+                 (cond
+                   (or (= ch \{) (= ch \}))
+                   nil
+
+                   (or (= ch \:) (= ch \*))
+                   (let [splat?  (= ch \*)
+                         [end k] (param-seg-bounds pattern n i)
+                         v       (->> (require-param k (if splat? "splat" "path"))
+                                      (assert-url-value! route-id :params k)
+                                      (enum-keyword-token (get params-coerce k)))]
+                     (recur end (str out (encode-param splat? v))))
+
+                   :else
+                   (let [end (literal-run-end pattern n i)]
+                     (recur end (str out (subs pattern i end))))))))
            ;; Inner loop emits the body of an optional group whose params
            ;; are all present. State threads as (loop [i parts]); returns
            ;; [next-i parts'] when the group's '}' (and optional '?') is
