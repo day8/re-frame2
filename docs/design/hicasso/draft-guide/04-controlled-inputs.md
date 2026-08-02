@@ -52,8 +52,12 @@ inside the discrete browser event**, and the subscription layer's store notifica
 runs synchronously too, so React commits the echo in the same turn. The value is
 back in the DOM before the browser's event handling finishes.
 
-`flushSync` is the evidence-gated last resort, never the default. If Hicasso ends up
-needing it routinely, that is a finding, not an implementation detail.
+`flushSync` is never the general default, and the one exception is named rather than
+left to taste: the controlled-text converge flushes the door's pending commit before
+React's end-of-event restore, so the caret survives a rejected or normalised
+keystroke. That exception is evidence-gated and scoped to controlled text entry in
+the element path. Needing `flushSync` anywhere else would still be a finding, not an
+implementation detail.
 
 ## What the door guarantees
 
