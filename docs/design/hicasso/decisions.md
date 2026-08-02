@@ -834,14 +834,40 @@ heap ladder to find, and it was **measured before this ruling landed** —
 
 The heap delta reproduces at **~200 B per boundary**, which is a Fiber. The clock
 rows do not separate from run-to-run noise at this round count, so the mount and
-bulk cost is stated as a **bound (≲10%)** rather than a figure. Two things the
-measurement deliberately does **not** settle are recorded on the page rather than
-smoothed over: whether the mount row carries a real few-per-cent regression, which
-needs `clock_run.cjs`'s adjudicated M1 row; and what +200 B does to the **R=0
-shell** figure, which the reads ladder puts at 1,143 B — already over the 1 KB
-paper line, and ≈ +17% with the wrapper. On the card-shaped boundary actually
-measured the same 200 B is +1.8%. Both readings are true, they are not
-interchangeable, and the shell one is the one to re-take on the ladder.
+bulk cost is stated as a **bound (≲10%)** rather than a figure. On the card-shaped
+boundary actually measured, 200 B is **+1.8%**. Against the **R=0 shell** — the
+figure validation.md's paper line is stated against, which the ladder puts at
+1,143 B, already over the 1 KB line — the same 200 B would be ≈ +17%. Both
+readings are true, they are not interchangeable, and the shell one had to be
+re-taken on the ladder's own instrument.
+
+**The shell re-take has since been done** (`rf2-2rtt6.58`, 2026-08-02, P0 bench,
+both arms in one session with a third run bracketing them —
+[the rows](studio/reads-per-boundary-heap-ladder.md#the-memo-wrapper-priced-on-this-rung-rf2-2rtt658)):
+
+| R=0 shell | no wrapper | wrapper | delta |
+|---|---:|---:|---:|
+| Hicasso, Reagent segment | 1,141 B [1,125–1,154] | **1,247 B** [1,240–1,257] | **+106 B, +9.3%** |
+| Hicasso, UIx segment | 1,138 B [1,119–1,159] | **1,236 B** [1,227–1,250] | **+100 B, +8.8%** |
+
+**≈ +100 B, not ≈ +200 B — the ≈ +17% projection above over-estimated it by
+about a factor of two.** The A/B ranges are disjoint, the donors do not move, and
+the per-read slope is **identical to the byte** with and without the wrapper
+(1,447 and 2,289 B/read), confirming this ruling's claim that the cost is
+constant in R and lands in the shell. The two instruments differ because the
+ladder mounts and *holds* while the page-chrome rig writes first, and an updated
+component retains an `alternate` fiber a held one does not — offered as the
+leading explanation, not as a counted result.
+
+**What remains open is the disposition, and it is the operator's.** Whether +9%
+on a shell **already 1.14× over** the paper line is "pushing retained heap
+meaningfully farther past the bar" is not answered by any text: the clause is
+unquantified here, in validation.md and in the heap-regime ruling, and the
+*Reopens* clause below is worded as **failing** the bar — which this shell did at
+1,141 B before any wrapper existed. The wrapper widens a pre-existing failure
+rather than causing one. Still one thing the measurement does **not** settle:
+whether the mount row carries a real few-per-cent regression, which needs
+`clock_run.cjs`'s adjudicated M1 row.
 
 **Rejected.** *Keep HD-006 and teach `React.memo` + `areEqual` as an opt-in
 pattern* — inverts the posture and ships a known 300× re-render cascade on the

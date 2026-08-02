@@ -116,15 +116,32 @@ be compared to the 1 KB paper-fail line.
 - Against **this** boundary — a real card — the wrapper is **+1.8%**.
 - Against the **R=0 shell anchor** the
   [reads ladder](reads-per-boundary-heap-ladder.md) measured at **1,143 B**,
-  +200 B is **≈ +17%**, moving it to ≈ 1,343 B on a figure that was **already over**
-  the 1 KB paper line.
+  the same +200 B would be ≈ +17%, on a figure that was **already over** the
+  1 KB paper line.
 
 The second reading is the one an operator might call "meaningfully farther past
-the bar", and it is stated here rather than left for a ladder to find. **The
-decisive number is the R=0 shell delta re-taken on the ladder rig itself**
-(`reads_ladder_run.cjs`), which is a heavier, separately-sequenced instrument;
-this page does not have it, and does not pretend the card-shaped +1.8% substitutes
+the bar", and it is stated here rather than left for a ladder to find. **This
+page does not have it** and does not pretend the card-shaped +1.8% substitutes
 for it.
+
+> **Re-taken 2026-08-02 (`rf2-2rtt6.58`) — and the ≈ +17% projection above was
+> an over-estimate by about a factor of two.** On the R=0 rung the wrapper costs
+> **≈ +100 B, not ≈ +200 B**: **+9%**, moving the shell from 1,141 B to
+> **1,247 B** rather than to ≈ 1,343 B. The A/B ranges are disjoint and the
+> per-read slope is unmoved to the byte. The rows are on
+> [the ladder's own page](reads-per-boundary-heap-ladder.md#the-memo-wrapper-priced-on-this-rung-rf2-2rtt658).
+>
+> **Two corrections to this section, recorded rather than silently edited.**
+> First, the ≈ +17% figure: it assumed the card-shaped +200 B transferred
+> unchanged to a boundary that reads nothing, and it does not — this instrument
+> mounts and writes, the ladder mounts and holds, and an updated component
+> retains an `alternate` fiber that a held one does not. Second, this paragraph
+> originally named **`reads_ladder_run.cjs`** as the rig to re-take it on. That
+> is the wrong instrument: the freehand ladder carries only `reagent,uix`, has
+> no Hicasso arm, and could not have produced the 1,143 B figure. That number
+> comes from the **P0 bench** — `p0_run.cjs --only ladder` — which is where the
+> re-take was taken, on instrument blobs byte-identical to the published run.
+> The bead `rf2-2rtt6.58` was filed from this sentence and inherited its error.
 
 ## 4. What this page does and does not settle
 
@@ -133,6 +150,10 @@ a production build, with the three other write shapes unchanged. The wrapper's
 retained cost is a reproducible ~200 B per boundary.
 
 **Does not settle.** Whether the mount row carries a real few-per-cent regression
-(needs `clock_run.cjs`'s M1 row and its adjudicators), and what +200 B does to the
-**R=0 shell** figure against the paper line (needs the reads ladder). Both are
-filed rather than asserted.
+(needs `clock_run.cjs`'s M1 row and its adjudicators). ~~And what +200 B does to
+the **R=0 shell** figure against the paper line.~~ **That second one is now
+settled** — `rf2-2rtt6.58` re-took the shell on the P0 bench and reads
+**+100 B / +9%**, moving it from 1,141 B to 1,247 B; see the note in
+[§3](#what-200-b-means-depends-on-the-boundary-shape-and-both-readings-are-true).
+Whether that is acceptable for a **default** on a line the shell was already over
+remains the operator's call.
