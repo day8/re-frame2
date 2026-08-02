@@ -74,8 +74,9 @@
 (def ^:private routing-artefact
   "The optional-artefact identity the fail-loud missing-hook error
   reports, carried here so the diagnostic names the missing artefact AT
-  THE LINK SITE (the same private copy Freehand and re-frame.ui each
-  keep, for the same reason)."
+  THE LINK SITE. Every link surface that consumes the seam keeps its own
+  private copy of this map, for the same reason — see HD-027's prior-art
+  ledger in docs/design/hicasso/decisions.md for the roster."
   {:error-keyword :rf.error/routing-artefact-missing
    :maven         "day8/re-frame2-routing"
    :require-ns    "re-frame.routing"})
