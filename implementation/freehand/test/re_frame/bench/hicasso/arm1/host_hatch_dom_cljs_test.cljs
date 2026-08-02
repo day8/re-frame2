@@ -62,8 +62,7 @@
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
-            ["react" :as react]
-            ["react-dom" :as react-dom])
+            ["react" :as react])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview defhost hfn]]))
 
 (def ^:private frame-id ::host-hatch)
@@ -308,11 +307,14 @@
     (mount/settle!)))
 
 (defn- teardown-census!
-  "Unmount, read the live-reference census, THEN release — the
-  lifecycle suite's ordering, and for the same reason: a census taken
-  after `release!` reads an emptied table whatever teardown did."
+  "Unmount through the arm's own residue door, read the live-reference
+  census, THEN release — the lifecycle suite's ordering, and for the
+  same reason: a census taken after `release!` reads an emptied table
+  whatever teardown did. `mount/unmount!` rather than a raw flushSync,
+  because it is the door a residue gate is designed to read through —
+  and the seam the teardown mutation breaks."
   [handle]
-  (react-dom/flushSync (fn [] (.unmount (:root handle))))
+  (mount/unmount! handle)
   (let [census (select-keys (rt/residue) [:cell-refs :boundaries :edges])]
     (mount/release! (assoc handle :root nil))
     census))
