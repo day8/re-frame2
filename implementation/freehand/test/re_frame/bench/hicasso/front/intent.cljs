@@ -323,8 +323,8 @@
 (def prevent-head
   "`::h/prevent` — the one reserved intent HEAD. `[::h/prevent [:app/go]]`
   at an event position dispatches `[:app/go]` and calls `.preventDefault`
-  first. See [[classify-intent]] for the grammar and why it is a head
-  rather than metadata."
+  first. See [[unwrap-prevent]] for the closed grammar, and the policy
+  defaults above for why it is a head rather than metadata."
   :re-frame.hicasso/prevent)
 
 (def ^:private marker-readers
