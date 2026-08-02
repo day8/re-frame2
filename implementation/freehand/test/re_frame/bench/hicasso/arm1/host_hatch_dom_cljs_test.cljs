@@ -33,8 +33,9 @@
   NO wrapper component, no fiber and no hook: the foreign component is
   the element's own type, lowered at the crossing inside the parent
   boundary's render window. The dispatcher-level probe below reads the
-  shell's two hooks and then the widget's own four, with nothing
-  between.
+  shell's two hooks first, exactly one subscription hook on the whole
+  page, and nothing after the shell that is not the widget's own
+  roster.
 
   ## One honest limit, found rather than smoothed
 
@@ -281,6 +282,17 @@
   (.click (q handle sel))
   (mount/settle!))
 
+(defn- settled!
+  "Let the widget's own effect-driven state land. Its `set-phase` runs in
+  a passive effect, so the update it schedules is DEFAULT-lane work that
+  commits on the scheduler's macrotask — an empty `flushSync` cannot pull
+  it forward. One macrotask, then the flush: the presence suite's idiom,
+  needed here for the same reason (a foreign enter transition is exactly
+  presence's weak half, owned by the library instead)."
+  []
+  (js/Promise. (fn [resolve]
+                 (js/setTimeout (fn [] (mount/settle!) (resolve true)) 0))))
+
 (defn- set-native-value!
   "Write `v` through `HTMLInputElement.prototype`'s OWN value setter,
   bypassing React's per-instance change tracker (the sibling controlled
@@ -312,37 +324,47 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-door-mounts-a-foreign-component-inside-a-hicasso-tree
-  (if-not (mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (instr!)
-      (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [screen {}])
-            census (volatile! nil)]
-        (try
-          (mount/settle!)
-          (is (some? (q handle ".widget")) "the foreign component is on the page")
-          (testing "value in: a subscription value crossed as an ordinary prop"
-            (is (= "due date" (.-textContent (q handle ".widget-label")))))
-          (testing "context in: the PROVIDER is hosted, and the consumer reads
-                    it below the crossing — React context flows through the
-                    Hicasso tree because the tree is real React elements"
-            (is (= "noir" (attr handle ".widget" "data-theme"))))
-          (testing "React-owned lifecycle: the component advanced its own state
-                    from its own effect, with no Hicasso involvement — the
-                    enter-transition shape standing in for React-owned
-                    animation"
-            (is (= "settled" (attr handle ".widget" "data-phase")))
-            (is (= 1 (:mounts @!instr))))
-          (testing "children: hiccup children crossed as React children"
-            (is (= "from hiccup" (.-textContent (q handle ".widget-slot")))))
-          (testing "ref delivery: the consumer's callback ref was attached to
-                    the node the FOREIGN component chose"
-            (let [n (:ref-node @!instr)]
-              (is (some? n))
-              (is (.contains (.-classList n) "widget"))))
-          (finally (vreset! census (teardown-census! handle))))
-        (is (= released @census))))))
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (instr!)
+        (fresh!)
+        (let [handle (mount/root! (mount/fresh-container!) frame-id [screen {}])]
+          (-> (settled!)
+              (.then
+                (fn [_]
+                  (let [census (volatile! nil)]
+                    (try
+                      (is (some? (q handle ".widget"))
+                          "the foreign component is on the page")
+                      (testing "value in: a subscription value crossed as an
+                                ordinary prop"
+                        (is (= "due date" (.-textContent (q handle ".widget-label")))))
+                      (testing "context in: the PROVIDER is hosted, and the
+                                consumer reads it below the crossing — React
+                                context flows through the Hicasso tree because
+                                the tree is real React elements"
+                        (is (= "noir" (attr handle ".widget" "data-theme"))))
+                      (testing "React-owned lifecycle: the component advanced
+                                its own state from its own effect, with no
+                                Hicasso involvement — the enter-transition
+                                shape standing in for React-owned animation"
+                        (is (= "settled" (attr handle ".widget" "data-phase")))
+                        (is (= 1 (:mounts @!instr))))
+                      (testing "children: hiccup children crossed as React
+                                children"
+                        (is (= "from hiccup" (.-textContent (q handle ".widget-slot")))))
+                      (testing "ref delivery: the consumer's callback ref was
+                                attached to the node the FOREIGN component
+                                chose"
+                        (let [n (:ref-node @!instr)]
+                          (is (some? n))
+                          (is (.contains (.-classList n) "widget"))))
+                      (finally (vreset! census (teardown-census! handle))))
+                    (is (= released @census))
+                    (done))))
+              (.catch (fn [e] (is false (str e)) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — callbacks out, and React-owned state surviving Hicasso re-renders
@@ -564,19 +586,22 @@
                                        (mount/root! (mount/fresh-container!)
                                                     frame-id [host-page {}]))))]
           (try
-            (is (= ["useContext" "useSyncExternalStore"
-                    "useContext" "useState" "useState" "useEffect"]
-                   (vec (take 6 names)))
-                (str "the shell's two hooks, then the FOREIGN component's own "
-                     "four, with NOTHING between: the door minted no wrapper, "
-                     "no fiber, no hook. HD-020's ≤2 budget is a statement "
-                     "about Hicasso's boundaries; the hosted component's hooks "
-                     "are its own affair — that distinction is the door's "
-                     "whole point: " (pr-str names)))
-            (is (every? #{"useContext" "useState" "useEffect"} (drop 6 names))
-                (str "anything after is the widget's own settle re-render — "
-                     "the same foreign hooks again, none of them Hicasso's: "
+            (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
+                (str "the shell's two hooks come FIRST, with nothing before "
+                     "them — the door minted no wrapper and spent no hook on "
+                     "the way to the foreign component: " (pr-str names)))
+            (is (every? #{"useContext" "useState" "useEffect"} (drop 2 names))
+                (str "and EVERYTHING after them is the widget's own roster — "
+                     "useContext/useState/useEffect, however React's dev "
+                     "dispatcher counts its reads of them. No useRef, no "
+                     "useCallback, no useMemo, and no hook of Hicasso's: "
                      (pr-str names)))
+            (is (= 1 (count (filter #{"useSyncExternalStore"} names)))
+                (str "exactly ONE subscription hook on the whole page — the "
+                     "one boundary's. HD-020's ≤2 budget is a statement about "
+                     "Hicasso's boundaries; the hosted component's hooks are "
+                     "its own affair, and that distinction is the door's "
+                     "whole point: " (pr-str names)))
             (finally (mount/release! @handle))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -658,39 +683,52 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-memoised-hosted-component-and-the-doors-honest-cost
-  (if-not (mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (testing "the bail-out HOLDS when the door hands shallow-equal props:
-                scalars cross as values and a :handler crosses by identity"
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
         (instr!)
         (fresh!)
-        (let [handle (mount/root! (mount/fresh-container!) frame-id [memo-page {}])]
-          (mount/settle!)
-          (let [before (:renders @!instr)]
-            (mount/dispatch! handle [:hatch/set :label "moved"])
-            (is (= "moved" (.-textContent (q handle ".mlabel")))
-                "the parent boundary really re-rendered")
-            (is (= before (:renders @!instr))
-                "and React.memo held across it — the door mints a fresh props
-                 OBJECT per render, but every value in it was shallow-equal"))
-          (mount/release! handle)))
-      (testing "and the honest cost, stated: an intent VECTOR at a declared
-                :event position lowers to a fresh closure per parent render,
-                so it defeats a memoised host — the same price every native
-                event position pays. (The boundary-level value-equality
-                bail-out in flight on rf2-2rtt6.52 sits ABOVE this seam and
-                stops the equal-props parent re-render before the door is
-                reached at all.)"
-        (instr!)
-        ;; same frame, re-seeded — a second make-frame mid-test would be a
-        ;; reincarnation, which is its own suite's subject
-        (rf/with-frame frame-id (rf/dispatch-sync [:hatch/seed]))
-        (let [handle (mount/root! (mount/fresh-container!) frame-id
-                                  [memo-defeated-page {}])]
-          (mount/settle!)
-          (let [before (:renders @!instr)]
-            (mount/dispatch! handle [:hatch/set :label "moved-again"])
-            (is (= "moved-again" (.-textContent (q handle ".mlabel"))))
-            (is (= (inc before) (:renders @!instr))))
-          (mount/release! handle))))))
+        (let [handle (volatile! (mount/root! (mount/fresh-container!)
+                                             frame-id [memo-page {}]))]
+          (-> (settled!)
+              (.then
+                (fn [_]
+                  (testing "the bail-out HOLDS when the door hands
+                            shallow-equal props: scalars cross as values and
+                            a :handler crosses by identity"
+                    (let [before (:renders @!instr)]
+                      (mount/dispatch! @handle [:hatch/set :label "moved"])
+                      (is (= "moved" (.-textContent (q @handle ".mlabel")))
+                          "the parent boundary really re-rendered")
+                      (is (= before (:renders @!instr))
+                          "and React.memo held across it — the door mints a
+                           fresh props OBJECT per render, but every value in
+                           it was shallow-equal")))
+                  (mount/release! @handle)
+                  (instr!)
+                  ;; same frame, re-seeded — a second make-frame mid-test
+                  ;; would be a reincarnation, which is its own suite's
+                  ;; subject
+                  (rf/with-frame frame-id (rf/dispatch-sync [:hatch/seed]))
+                  (vreset! handle (mount/root! (mount/fresh-container!)
+                                               frame-id [memo-defeated-page {}]))
+                  (settled!)))
+              (.then
+                (fn [_]
+                  (try
+                    (testing "and the honest cost, stated: an intent VECTOR at
+                              a declared :event position lowers to a fresh
+                              closure per parent render, so it defeats a
+                              memoised host — the same price every native
+                              event position pays. (The boundary-level
+                              value-equality bail-out in flight on
+                              rf2-2rtt6.52 sits ABOVE this seam and stops the
+                              equal-props parent re-render before the door is
+                              reached at all.)"
+                      (let [before (:renders @!instr)]
+                        (mount/dispatch! @handle [:hatch/set :label "moved-again"])
+                        (is (= "moved-again" (.-textContent (q @handle ".mlabel"))))
+                        (is (= (inc before) (:renders @!instr)))))
+                    (finally (mount/release! @handle) (done)))))
+              (.catch (fn [e] (is false (str e)) (done)))))))))
