@@ -15,7 +15,23 @@
   `row-intents` / `new-item-intents`, so the three renderings cannot
   drift on events while claiming to differ only on the view. What differs
   between the three files is the reading surface and nothing else; the
-  DOM is asserted identical by `arm1_dogfood_dom_cljs_test`.
+  DOM AND the dispatched intents are asserted identical by
+  `arm1_dogfood_dom_cljs_test`.
+
+  ## The landed-surface audit (rf2-2rtt6.67)
+
+  Checked against every authoring spelling that has landed since this
+  file was written: `h/fn` (HD-024), `:&` (HD-023), the `::h/prevent`
+  head (HD-026), the `::h/navigate` head (rf2-2rtt6.54), and presence as
+  data (HD-025). **None is needed on this screen** — every event position
+  takes a literal intent vector, nothing forwards a props remainder, no
+  anchor acts as a button (the one submit position takes the
+  census-weighted auto-prevent), nothing routes, and nothing animates an
+  exit. That matches the tier-1 roster's finding on the spine shapes
+  (rf2-2rtt6.57) and is stated as an absence rather than a pass; the
+  preference case
+  (`docs/design/hicasso/studio/the-dogfood-preference-case.md`) carries
+  it as evidence.
 
   Mounted by `arm1_dogfood_dom_cljs_test` — and mounting it is what
   started the six-week K7 clock (HD-014)."
