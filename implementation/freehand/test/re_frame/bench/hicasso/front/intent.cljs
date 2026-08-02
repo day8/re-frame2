@@ -509,7 +509,7 @@
                   (cond
                     (not= 2 (count v))     (str "carries " (dec (count v))
                                                 " forms after the head")
-                    (reserved-head? inner) "wraps another decorator, and decorators do not nest"
+                    (reserved-head? inner) "wraps another decorator, and it does not nest"
                     (not (vector? inner))  (str "wraps " (pr-str inner)
                                                 ", which is not an intent vector")
                     :else                  "wraps the empty vector, which names no event")
