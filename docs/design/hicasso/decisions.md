@@ -381,6 +381,18 @@ this model are collector-contingent (HD-002's stated consequence).
 
 ## HD-017 — Code residence and graduation
 
+> **Note, 2026-07-31.** This entry's graduation clause was written as "the P2
+> ruling graduates exactly one arm into a tracked `implementation/hicasso/`
+> artefact" — phrasing that assumed P2 would pick a winner between two live
+> arms. The 2026-07-31 product ruling (HD-007, superseded) settled *which* arm
+> ahead of P2: Arm 2 (PATCH) was dropped on product direction, not on
+> measurement, so P2 is now the surviving arm (lean-React) versus null, not a
+> choice among arms. The residence-and-graduation mechanism below is otherwise
+> unchanged: runtime skeletons stay disposable until the surviving arm
+> graduates into a tracked `implementation/hicasso/` artefact on a P2 "go"
+> (HD-018); on a stop, nothing graduates and Hicasso's spike code is archived.
+> See also [architecture.md's Code residence section](architecture.md#code-residence-hd-017).
+
 **Ruling.** Instrument arms live in the existing tracked bench/test trees —
 **the bench/test measurement lane is explicitly carved out of the donor-tree
 freeze** (those trees, e.g. `implementation/freehand/test/re_frame/freehand/bench/`,
