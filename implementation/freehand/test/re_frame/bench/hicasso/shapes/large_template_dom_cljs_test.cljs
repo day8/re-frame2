@@ -188,13 +188,19 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The census's feed tabs are anchors, so a port that keeps them has to opt
-;; `preventDefault` IN — `^{::h/prevent? true}` on the intent — where the
-;; comment form's `:on-submit` gets it from the position's own default.
-;; Every other assertion in the roster reaches its intents through
-;; `rt/dispatch!`, which would never have exercised the metadata at all.
-;; Fired here as a real cancelable click, with the un-annotated control on
-;; the same page as the control: if the pair both prevented, or neither
-;; did, the metadata would not be the thing doing it.
+;; `preventDefault` IN — `[::h/prevent [:conduit/show-your-feed]]` at the
+;; event position — where the comment form's `:on-submit` gets it from the
+;; position's own default. Every other assertion in the roster reaches its
+;; intents through `rt/dispatch!`, which would never have exercised the
+;; spelling at all. Fired here as a real cancelable click, with the
+;; un-decorated intent on the same page as the control: if the pair both
+;; prevented, or neither did, the decorator would not be the thing doing it.
+;;
+;; The head replaced `^{::h/prevent? true}` metadata (HD-026) because
+;; metadata does not participate in `=`. That is a claim about data, and
+;; `front/intent_cljs_test/a-prevented-intent-is-assertable-by-equality`
+;; is where it is asserted; this file answers the other half — that the
+;; browser's `canceled` flag actually moves, which no equality can show.
 
 (defn- click!
   "A real, cancelable click, dispatched at the node. Answers the event, so
@@ -205,15 +211,15 @@
     (mount/settle!)
     ev))
 
-(deftest the-prevent-metadata-is-what-prevents
+(deftest the-prevent-head-is-what-prevents
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
-          (testing "an anchor carrying ^{::h/prevent? true} dispatches AND
-                   prevents, so the href=\"#\" does not navigate"
+          (testing "an anchor carrying [::h/prevent [:conduit/show-your-feed]]
+                   dispatches AND prevents, so the href=\"#\" does not navigate"
             (let [ev (click! (q handle "[data-testid=\"your-feed-tab\"]"))]
               (is (true? (.-defaultPrevented ev)))
               (is (some? (q handle "[data-testid=\"your-feed-tab\"].active"))
@@ -227,7 +233,7 @@
                      (.-textContent (q handle (str "[data-testid=\"favorites-count-"
                                                    slug "\"]"))))
                   "and it reached the model too — so the difference between the
-                   two is the metadata and nothing else")))
+                   two is the decorator and nothing else")))
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
