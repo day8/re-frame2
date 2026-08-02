@@ -416,9 +416,22 @@
         (swap! !frame-ops assoc frame-kw ops)
         ops)))
 
-(defn- frame-dispatch
+(defn frame-dispatch
   "The ambient dispatch a boundary binds for its render's dynamic extent
-  (HD-020(a)), memoised per frame so binding it allocates nothing."
+  (HD-020(a)), memoised per frame so binding it allocates nothing.
+
+  **Public because a boundary shell is not the only thing that lowers
+  hiccup** (rf2-2rtt6.66). `arm1.presence` renders retained children
+  inside its OWN React render, after the parent body's dynamic extent has
+  unwound, so it must re-bind the ambient frame before it hands them to
+  the codec — and the dispatch it binds has to be *this* one. Handing it
+  a private route of its own (a fresh `(fn [e] (dispatch! frame-kw e))`
+  per render) would allocate a closure per presence render and would make
+  \"a presence child lowers exactly as it would in the parent's body\" an
+  approximation rather than an identity. Nothing new is exported: the
+  memo, the `capture-frame` pin and the [[with-commit]] batching are the
+  ones `run-once` already binds, and [[frame-ops]] beside it has been
+  public for the same reason."
   [frame-kw]
   (or (get @!frame-dispatch frame-kw)
       (let [f (fn dispatch-for-frame [event] (dispatch! frame-kw event))]
