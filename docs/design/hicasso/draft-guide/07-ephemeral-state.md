@@ -1,10 +1,10 @@
 # Ephemeral state
 
-> **Pre-implementation draft — Hicasso does not exist yet.** This page describes the
-> *designed* surface so it can be read before it is built. Spellings marked
-> **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
-> is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-025).
+> **Draft ahead of the product artefact.** This page teaches the landed surface —
+> ruled in [decisions.md](../decisions.md) (HD-001…HD-027), witnessed by the bench
+> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
+> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
+> stay provisional until the API freeze.
 
 Is this dropdown open? Is this row hovered? Is this panel expanded?
 
@@ -69,13 +69,10 @@ forever:
 ```
 
 ```clojure
-;; Read shown in the grouped surface; the collector spelling is
-;; (sub [:panel/expanded? id]) inline. See 02-views-and-reads.md.
 (defview panel [{:keys [id title]}]
-  (let [{:keys [expanded?]} (use-subs {:expanded? [:panel/expanded? id]})]
-    [:section
-     [:h3 {:on-click [:panel/toggle id]} title]
-     (when expanded? [panel-body {:id id}])]))
+  [:section
+   [:h3 {:on-click [:panel/toggle id]} title]
+   (when (sub [:panel/expanded? id]) [panel-body {:id id}])])
 ```
 
 Ten lines, once. A hundred panels, no further cost. And you get the things a local
@@ -200,14 +197,15 @@ Exit is the phase that transitions happily, because the node is already painted.
 
 ## Troubleshooting
 
-No Hicasso error ids exist yet; this table names mechanisms.
+This table names mechanisms; the one minted id on this surface is named in its
+row.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Reaching for `useState` to hold "is this open?" | That's semantic state | app-db, or CSS if the platform tracks it |
 | A dismissed item disappears instantly with no exit animation | The node left with the data | `h/presence` with a `:timeout-ms` at least as long as the exit transition |
 | A retained node still takes focus or clicks while fading | The exit override does not carry `:inert` / `:aria-hidden` | Put all three in the `::h/unmounting` map |
-| An exit override on a child view does nothing | Presence merges overrides into nodes it can see; a view is opaque to it | The view receives `:rf/phase` — branch or style on that |
+| An exit override on a view head raises `:rf.error/hicasso-presence-override-on-a-view` | Presence merges overrides into nodes it can see; a view is opaque to it, and a silently dropped override is the failure class the loud error exists to delete | The view receives `:rf/phase` — branch or style on that |
 | Every panel in a list opens at once | The state isn't parameterised by instance | Key the app-db path by the widget's id |
 | A hook body can't be tested headlessly | Hooks put a body outside headless scope, by design | Move the semantic half to app-db; mount-test the mechanics |
 | Hook-order error after a conditional early-return | React's rules, now yours | Hooks at the top of the body, unconditionally |

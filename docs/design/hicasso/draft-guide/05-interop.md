@@ -1,10 +1,11 @@
 # Interop
 
-> **Pre-implementation draft — Hicasso does not exist yet.** This page describes the
-> *designed* surface so it can be read before it is built. Spellings marked
-> **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
-> is rewritten after the P2 fork ruling, against a real implementation. Normative
-> source: [decisions.md](../decisions.md) (HD-001…HD-025).
+> **Draft ahead of the product artefact.** This page teaches the ruled surface —
+> [decisions.md](../decisions.md) (HD-001…HD-027) — and spellings marked
+> **[unfrozen]** stay provisional until the API freeze. One honesty note specific
+> to this page: `defhost` is ruled (HD-011) but is the one tier-1 door the bench
+> arm has not yet exercised, so unlike its siblings this page still describes
+> design rather than witnessed behaviour.
 
 You want a date picker from npm. In Reagent you write `[:> DatePicker {...}]` and
 move on. Hicasso asks you to write one line first:
@@ -246,7 +247,8 @@ will rescue it later.
 
 ## Troubleshooting
 
-No Hicasso error ids exist yet; this table names mechanisms.
+This table names mechanisms; the one minted id on this surface —
+`:rf.error/hicasso-ref-vector-reserved` — is covered above.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
