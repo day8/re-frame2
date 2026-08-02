@@ -1327,9 +1327,27 @@
   Conservative by construction. A props map carrying a closure minted in
   the parent's render answers false and the row re-renders, which is the
   safe direction and the same one Reagent's `shouldComponentUpdate` errs
-  in."
+  in.
+
+  **Fails OPEN, and that polarity is a ruling rather than a taste
+  (rf2-5al9d7).** `=` over an app-owned value can throw — a type with a
+  throwing `-equiv`, a foreign object mutated in place — and this one runs
+  inside React's comparator, where an escaping throw is a render crash and
+  not a slow render. reagent-slim met the identical hazard on the
+  identical comparison and ruled: stock Reagent fails CLOSED (skips), we
+  fail OPEN (render), because skipping on a comparison failure risks a
+  stale UI and an extra render is always the safe branch. `areEqual`
+  inverts that polarity, so failing open here is answering **false**."
   [^js prev ^js next]
-  (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps")))
+  (try
+    (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps"))
+    (catch :default _e
+      (when ^boolean js/goog.DEBUG
+        (when (exists? js/console)
+          (.warn js/console
+                 (str "[hicasso] boundary props `=` comparison threw; "
+                      "re-rendering this boundary (fail-open)."))))
+      false)))
 
 (defn mint-view!
   "Turn a body fn into a boundary: a React function component behind a

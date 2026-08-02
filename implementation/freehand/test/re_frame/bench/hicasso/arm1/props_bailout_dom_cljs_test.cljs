@@ -284,6 +284,58 @@
             (finally (mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
+;; A comparison that throws renders, rather than crashing the tree
+;; ---------------------------------------------------------------------------
+
+(deftype Explosive [id]
+  IEquiv
+  (-equiv [_ _] (throw (js/Error. "boundary props comparison exploded"))))
+
+(defview explosive-row
+  "Takes a value whose `-equiv` throws. Two renders hand it two distinct
+  instances, so `identical?` cannot short-circuit the comparison and the
+  throw really reaches React's comparator."
+  [{:keys [id]}]
+  (swap! !row-runs inc)
+  [:li.row {:data-id id} [:span.title "boom"]])
+
+(defview explosive-page
+  [_]
+  (swap! !page-runs inc)
+  [:div.page
+   [:h1.chrome (str (rt/sub [:dogfood/draft chrome-key]))]
+   [:ul.rows
+    (for [id (take 5 (rt/sub [:dogfood/visible-ids]))]
+      [explosive-row {:key id :id id :boom (Explosive. id)}])]])
+
+(deftest a-props-comparison-that-throws-fails-open
+  (testing "`=` over an app-owned value can throw, and this comparator runs
+           inside React's `areEqual`, where an escaping throw is a render
+           CRASH rather than a slow render. reagent-slim met the identical
+           hazard on the identical comparison and ruled fail-OPEN
+           (rf2-5al9d7): an extra render is always the safe branch, and
+           skipping on a failed comparison risks a stale UI. `areEqual`
+           inverts the polarity, so failing open is answering false"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (do
+        (fresh!)
+        (let [handle (mount-page! explosive-page)]
+          (try
+            (is (= 5 (count (rows-of handle)))
+                "it mounted at all — the comparator is not consulted on a
+                 first render, so this only proves the setup")
+            (reset-runs!)
+            (write-chrome! handle "boom")
+            (is (= 1 (:page (runs))))
+            (is (= 5 (:rows (runs)))
+                "every row re-rendered rather than the tree unmounting into
+                 an error: the throw was caught and answered false")
+            (is (= "boom" (chrome-text handle))
+                "and the page is still live and still painting")
+            (finally (mount/release! handle))))))))
+
+;; ---------------------------------------------------------------------------
 ;; 4 — it is a law, not a number that holds at one B
 ;; ---------------------------------------------------------------------------
 
