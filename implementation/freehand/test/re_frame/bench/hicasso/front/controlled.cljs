@@ -131,7 +131,26 @@
   own restore is still what converges it. That is why a *range* selection
   still collapses across such a write: this converge is not on that path,
   and restoring two offsets is a different algorithm from the one it
-  runs (rf2-n3dxw)."
+  runs (rf2-n3dxw).
+
+  ## Composition, measured (rf2-o27h3)
+
+  A composing IME produces exactly the `input` events this wrapper runs
+  on, so its conduct mid-composition is a measured property, not an
+  intention — `bench/hicasso/ime_run.cjs` drives real CDP composition
+  at it beside plain React and the UIx port. Measured: on a
+  model-agreeing field the exchange **survives** — the value write never
+  fires (and an equal write is short-circuited by the browser's own
+  setter anyway), and the unconditional `setSelectionRange` did not
+  disturb the composition range. On a field whose model refuses or
+  normalises, the write lands **mid-composition and silently destroys
+  the exchange** — precisely as React's own end-of-event restore does on
+  the same field in the same turn, and as the UIx port does one frame
+  later. Nowhere worse than the baseline, asserted comparatively; not
+  composition-fenced either, same as the baseline. Whether this path
+  should carve composition out — suppress the converge while
+  `isComposing`, converge once at `compositionend` — is a behavioural
+  choice inside HD-019's exception scope awaiting a ruling: rf2-digtt."
   (:require ["react-dom" :as react-dom]))
 
 (defn- noop [])

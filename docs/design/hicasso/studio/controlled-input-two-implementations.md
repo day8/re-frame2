@@ -180,13 +180,45 @@ implementations run.
 
 ### IME composition
 
-Still not established, and still not asserted. Synthetic `Event`s named
-`compositionstart`/`compositionend` do not exercise React's composition path,
-and there are now **two** implementations to establish a fence against rather
-than one — React's `SyntheticCompositionEvent` plumbing on the controlled
-path, and the port's write-owning path, which never consults composition
-state at all. A fence asserted without being demonstrated is worse than no
-fence. It needs a real `CompositionEvent` harness against both.
+**Established** (`rf2-o27h3`), by a harness that drives the browser's own
+composition machinery rather than dispatching Events shaped like it:
+`ime_run.cjs` (beside the bench drivers, in
+`implementation/freehand/test/re_frame/bench/hicasso/`) uses CDP
+`Input.imeSetComposition` / `Input.insertText` / `Input.dispatchKeyEvent`,
+which mint **trusted** `compositionstart`/`compositionupdate` events, trusted
+`input` events carrying `insertCompositionText` and `isComposing true`, real
+mid-composition keydowns, and a real composition range — against **three**
+pages, one implementation each: plain React, the port, and Arm 1's element
+path with the converge installed. What it holds and what it measured:
+
+- **The commit fence holds, on each signal independently, on all three.** A
+  mid-composition Enter (native `isComposing true`) commits nothing; a bare
+  keyCode-229 Enter commits nothing; an ordinary Enter commits. The gate
+  reads the **native** event — React's synthetic keyboard event drops
+  `isComposing` (measured at the handler, again), and the harness's
+  mutation run (the guard re-pointed at the synthetic event) reds exactly
+  the modern-signal row on all three pages while the 229 row stays green.
+- **A model-agreeing exchange survives to `compositionend`** on all three —
+  one `compositionstart`, the composition string forming through the
+  updates, commit data delivered. The converge's `flushSync` and its
+  unconditional `setSelectionRange` did not disturb the composition range.
+- **The model observes every intermediate composition state** on all three:
+  the change handler fires per composing `input`, so `s`/`sh`/`し` each
+  reach app-db. The fence is the commit door, not the value path.
+- **A refused or normalised value is written back mid-composition on all
+  three, and the write silently destroys the exchange** — no
+  `compositionend`, fresh `compositionstart` on the IME's next update.
+  React in-turn, the converge in-turn, the port one frame late. The
+  converge is nowhere worse than the React baseline (asserted
+  comparatively, same run), but the PR #7371 audit's pin — that it
+  neither writes nor moves selection mid-composition — is false for every
+  implementation the moment the model disagrees. A composition carve-out
+  is a behavioural choice inside HD-019's exception scope and needs a
+  ruling: **`rf2-digtt`**, where the measured matrix lives.
+- A cancelled exchange (`compositionend` with empty data) leaves field and
+  model exactly as before, on all three — with the measured wrinkle that on
+  a refusing field there is no `compositionend` at all, because the abort
+  already happened.
 
 ## The options, and what they cost
 
@@ -320,7 +352,10 @@ element path — a UIx consumer is not on that path and does not get it.
   caret half of this correction rather than leaving it to this page.
 - `rf2-n3dxw`'s headline residue is **answered for Arm 1**: a refused
   keystroke converges in the same turn with the caret at the position before
-  it. Two things it recorded are not answered and are not rounded up — the
-  **range** row (a second algorithm, and off the change path entirely) and
-  the **IME** fence (`rf2-o27h3`, still needing a real `CompositionEvent`
-  harness). And nothing here reaches a UIx consumer's `:input`.
+  it. One thing it recorded is not answered and is not rounded up — the
+  **range** row (a second algorithm, and off the change path entirely). The
+  **IME** fence is now established by the real-composition harness
+  (`rf2-o27h3`, the *IME composition* section above), whose one open
+  residue — the mid-composition rewrite every implementation performs when
+  the model disagrees — is `rf2-digtt`. And nothing here reaches a UIx
+  consumer's `:input`.

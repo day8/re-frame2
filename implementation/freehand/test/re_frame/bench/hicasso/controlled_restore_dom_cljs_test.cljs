@@ -115,15 +115,25 @@
   scaffolding but the mechanism being measured, and it is used by that
   row alone.
 
-  ## What is still not asserted, and why
+  ## What is asserted elsewhere, and what is still not
 
-  - `:ime-composition-commits-nothing` — **not established, not
-    asserted.** Arm 2 owned a composition fence because it owned the
-    writes. Synthetic `Event`s named `compositionstart`/`compositionend`
-    do not exercise React's composition path, and there are now two
-    implementations to establish it against rather than one. A fence
-    asserted without being demonstrated is worse than no assertion.
-    Still open on rf2-n3dxw.
+  - `:ime-composition-commits-nothing` — **established, and asserted by
+    the real-composition harness rather than here** (rf2-o27h3):
+    `bench/hicasso/ime_run.cjs` drives CDP `Input.imeSetComposition` /
+    `insertText` / `dispatchKeyEvent` — trusted composition events, a
+    real composition range, real mid-composition keydowns — against
+    three pages, one implementation each: plain React, the port, and
+    Arm 1's element path with its converge. The commit fence holds on
+    `isComposing` and on keyCode-229 independently; a model-agreeing
+    exchange survives to `compositionend`; a cancelled exchange leaves
+    field and model exactly as before. It stays out of THIS file
+    because an `Event` dispatched from page script exercises neither
+    React's composition plumbing nor the browser's composition state —
+    the very reason the row sat unasserted so long — and `:browser-test`
+    runs in-page. What the harness also measured: every implementation
+    (React's own restore included) rewrites a refused/normalised value
+    mid-composition and silently destroys the exchange — rf2-digtt,
+    which is where the carve-out ruling lives.
   - `teardown-leaves-no-boundary-and-no-edge` — dropped as a duplicate.
     Arm 1's dogfood suite already asserts zero residue after unmount
     (`:cells :cell-refs :boundaries :edges :entries` all 0), and one
