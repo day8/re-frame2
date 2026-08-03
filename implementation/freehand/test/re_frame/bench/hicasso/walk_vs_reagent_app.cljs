@@ -719,8 +719,15 @@
 ;; Shipping threads `native?` into the reduce through a CLOSURE minted per
 ;; element — `(fn [o k v] (top-prop-conv native? o k v))`. Decide the rule
 ;; once per element instead and the reduce takes a static fn, so the mount
-;; allocates nothing to carry a boolean it already knows. Costed rather than
-;; assumed: V8 allocates closures cheaply and this may be free.
+;; allocates nothing to carry a boolean it already knows.
+;;
+;; COSTED AND DECLINED (rf2-lhdp0). It is free: `slim-convert-props-cheap`
+;; and `slim-convert-props-static` read 151.8303 ns/op EACH — the same
+;; figure to four places, because both windows landed in the same 100 µs
+;; `performance.now` bucket, which bounds the term at under ~0.3 ns per
+;; element. V8 does not charge for the closure, so shipping keeps the
+;; version that reads as one function instead of three. The row stays so
+;; the next reader does not re-derive the guess.
 (defn- slim-native-prop-conv  [o k v] (slim-top-prop-conv slim-reserved-chain? true o k v))
 (defn- slim-interop-prop-conv [o k v] (slim-top-prop-conv slim-reserved-chain? false o k v))
 

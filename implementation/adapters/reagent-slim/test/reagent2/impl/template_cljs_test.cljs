@@ -1044,14 +1044,19 @@
             (str "<" t "> keeps its child"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-lhdp0: the specialised per-element `:key` read
+;; rf2-lhdp0: the per-element `:key` read, straight off the props slot
 ;;
-;; `native-element` reads the key from the props slot `hiccup-shape` already
-;; bound rather than re-deriving it through `get-react-key`'s `nth`/`case`
-;; ladder. `native-element` is the emit path for BOTH routes — a DOM tag
-;; (props at index 1) and `:>` interop (props at index 2) — so both are
-;; witnessed here, on both key spellings, plus the precedence between them
-;; and the absence case.
+;; `react-key` is the RULE (meta wins, then the props map's `:key`) and the
+;; constructors that have already shaped their argv call it with the slot in
+;; hand; `get-react-key` is that same rule plus the `nth`/`case` search for
+;; the slot, for callers holding a bare vector.
+;;
+;; So every constructor that took the short road is witnessed here, on both
+;; key spellings, with the precedence between them and the absence case:
+;; a DOM tag (props at index 1), `:>` interop (index 2 — both are
+;; `native-element`), and `:<>` fragments. The heads still on the finder
+;; (`:f>`, `:r>`, component heads) are witnessed by the sibling suites above,
+;; and `expand-seq`'s missing-key warning is the finder's other caller.
 ;; ---------------------------------------------------------------------------
 
 (deftest key-read-covers-both-native-element-routes-rf2-lhdp0
@@ -1076,4 +1081,14 @@
       (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:> C {:key "p"} "x"])))
           "meta key beats the prop key on an interop head")
       (is (nil? (.-key ^js (template/as-element [:> C "x"])))
-          "interop head with no props slot has no key"))))
+          "interop head with no props slot has no key")))
+
+  (testing "rf2-lhdp0: :<> fragments read the same rule off the same slot"
+    (is (= "p" (.-key ^js (template/as-element [:<> {:key "p"} "x"])))
+        "prop key on a fragment")
+    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:<> "x"])))
+        "meta key on a fragment")
+    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:<> {:key "p"} "x"])))
+        "fragment: meta beats props")
+    (is (nil? (.-key ^js (template/as-element [:<> "x"])))
+        "fragment with no props slot has no key")))
