@@ -1004,7 +1004,11 @@ reserved head:
 
 The grammar is **closed, and this is all of it**: `[::h/navigate MAP]` — exactly
 two forms, the map carrying `:frame` (keyword), `:payload` (non-empty vector),
-`:native?` (boolean) and `:veto`. Everything else is
+`:native?` (boolean) and `:veto` — **those four keys and no others**, asserted as
+the exact key SET rather than as four presence tests, because a check that
+validates only the keys it knows admits both a map missing `:veto` (an
+uncancelable navigation where a cancelable one was promised) and a map carrying a
+fifth key the lowering then silently drops. Everything else is
 `:rf.error/hicasso-malformed-navigate`, naming the position; decorators do not
 nest in either order. Classified and lowered once per render, beside the prevent
 head, in `front/intent.cljs`.
@@ -1058,7 +1062,13 @@ click interceptor for routing — ambient behaviour no vector carries is what th
 in-band school exists to avoid.**)** **Also declined for v0:** the
 `:prefetch :intent` trio routing publishes and Freehand consumes — the census
 counts no prefetch site, and the opt-in is sugar over an event a Hicasso author
-can already spell at an ordinary intent position.
+can already spell at an ordinary intent position. **Declined means REFUSED, not
+ignored**: any present `:prefetch` fails at render with
+`:rf.error/hicasso-route-link-prefetch-declined`, `:intent` included. Routing's
+`link-model` validates and ACCEPTS `:intent` while Hicasso installs none of the
+three handlers behind the opt-in, so a key that merely fell through would leave a
+link that prefetches nothing, says so nowhere, and carries a stray `prefetch`
+attribute on the anchor.
 
 **Rejected.** (b) A boundary (`defview`) route-link — costs two hooks per link
 and pollutes every boundary count for a form that appears 106 times per census

@@ -56,7 +56,12 @@
     it and Freehand consumes it; the census counts no prefetch site, and
     the opt-in is sugar over an event a Hicasso author can already spell
     (`:on-mouse-enter [:rf.route/prefetch {…}]`). A tier-1 roster takes
-    the tier-1 surface.
+    the tier-1 surface. **Declined means REFUSED, not ignored** — see
+    [[prefetch-declined!]]. Routing's link model validates and ACCEPTS
+    `:intent`, so a declined key that merely fell through would leave a
+    link that prefetches nothing (Hicasso installs none of the three
+    handlers behind the opt-in) and says so nowhere, plus a stray
+    `prefetch` attribute on the anchor.
 
   ## Composition with `::h/prevent`
 
@@ -92,8 +97,52 @@
   passthrough HTML attribute and reaches the `<a>` untouched — `:class`,
   `:title`, `:data-testid`, `:aria-label`, and the native-handling
   `:target` / `:download` pair the link model reads for its `:native?`
-  verdict."
+  verdict.
+
+  `:prefetch` is the one key that is neither: v0 declines it, and a
+  declined key is REFUSED rather than dissoc'd
+  ([[prefetch-declined!]]) — a link carrying one never renders, so it can
+  reach no anchor and needs no row here. Were it listed instead, the
+  decline would be spelled as silent removal, which is the reading this
+  file exists to refuse."
   [:to :params :query :fragment :on-click])
+
+(defn prefetch-declined!
+  "Refuse, AT RENDER, any present `:prefetch`. The namespace docstring
+  declines routing's `:prefetch :intent` trio for v0, and a declined key
+  has to FAIL rather than cross: routing's `link-model` validates and
+  ACCEPTS `:intent` (its own spelling), while Hicasso installs none of
+  the three handlers the opt-in needs. So the only thing a passthrough
+  could produce is a link that prefetches nothing and a stray attribute
+  on the anchor — a silent no-op, which is what every loud refusal in
+  this file exists to delete.
+
+  `contains?` rather than a truthiness test: `{:prefetch nil}` and
+  `{:prefetch false}` are just as much a site that believes it opted in
+  as `{:prefetch :intent}` is, and a decline that let the falsey ones
+  through would be the same fail-open shape one level down.
+
+  If HD-027 is deliberately reopened to admit prefetch, what replaces
+  this is routing's full three-handler behaviour
+  (`:routing/prefetch-on-intent!` at `:on-mouse-enter` / `:on-focus` /
+  `:on-touch-start`). A passthrough is not the middle ground between the
+  two."
+  [{:keys [to] :as props}]
+  (when (contains? props :prefetch)
+    (fail! :rf.error/hicasso-route-link-prefetch-declined
+           'front.route-link/route-link
+           (str "route-link {:to " (pr-str to) "} carries :prefetch "
+                (pr-str (:prefetch props)) ", and v0 declines the prefetch trio "
+                "outright — :intent included, even though routing's own link "
+                "model accepts it. Hicasso installs none of routing's prefetch "
+                "handlers, so the key could only prefetch nothing and leave a "
+                "stray attribute on the anchor. Spell the warm-up at an "
+                "ordinary intent position instead — :on-mouse-enter "
+                "[:rf.route/prefetch {…}] — which needs nothing this link does "
+                "not already give you.")
+           :spell-prefetch-as-an-on-mouse-enter-intent
+           {:to to :prefetch (:prefetch props)}))
+  props)
 
 (defn on-click-roster!
   "Refuse, AT RENDER, an `:on-click` outside the route-click roster: nil,
@@ -141,10 +190,16 @@
 
   Fails loud at render when routing is absent
   (`:rf.error/routing-artefact-missing`, naming the `:to`), when rendered
-  outside a boundary, or when `:on-click` is outside the roster
-  ([[on-click-roster!]])."
+  outside a boundary, when `:on-click` is outside the roster
+  ([[on-click-roster!]]), or when the props carry the declined
+  `:prefetch` ([[prefetch-declined!]]).
+
+  Both props refusals run BEFORE the link model is consulted, so the
+  author's own mistake is what the stack names — not routing's reading of
+  a key Hicasso had already declined."
   [{:keys [to on-click] :as props} & children]
   (let [frame-kw (require-frame! to)
+        _        (prefetch-declined! props)
         _        (on-click-roster! on-click)
         {:keys [href payload native?]}
         ((late-bind/require-fn! :routing/link-model

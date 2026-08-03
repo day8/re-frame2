@@ -85,6 +85,19 @@
       (is (false? native?))
       (is (nil? veto)))))
 
+(deftest no-control-key-reaches-the-anchor
+  (let [[_ attrs] (rendered {:to       :conduit.profile/show
+                             :params   {:username "jane"}
+                             :query    {:tab "posts"}
+                             :fragment "bio"
+                             :class    "author"}
+                            "jane")]
+    (is (= #{:href :on-click :class} (set (keys attrs)))
+        "the address keys are route-link's OWN: they are consumed by the link
+         model and never emitted. What reaches the anchor is the routing-owned
+         href, the click decision, and the author's passthrough attrs — nothing
+         else")))
+
 (deftest a-native-anchor-is-classified-at-render
   (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
                              :target "_blank"} "jane")]
@@ -126,19 +139,62 @@
         js/Error #"hicasso-route-link-outside-boundary"
         (link/route-link {:to :conduit.profile/show :params {:username "jane"}} "jane"))))
 
+(deftest a-prefetch-is-refused-at-render
+  (testing "v0 declines routing's prefetch trio, and a DECLINED key fails
+           rather than crossing — :intent included, which is the one routing's
+           own link model validates and accepts, and which would otherwise
+           reach the anchor as a stray attribute over a link that prefetches
+           nothing"
+    (doseq [v [:intent true false nil]]
+      (is (thrown-with-msg?
+            js/Error #"hicasso-route-link-prefetch-declined"
+            (rendered {:to :conduit.profile/show :params {:username "jane"}
+                       :prefetch v}
+                      "jane"))
+          (str ":prefetch " (pr-str v) " — presence is what is declined, not
+               truthiness: a falsey value is just as much a site that believes
+               it opted in")))))
+
 (deftest a-malformed-navigate-vector-is-loud-at-lowering
   (testing "the navigate head is in-band data anyone can write, so the
            lowering is total over it — each violation names the position"
     (doseq [bad [[intent/navigate-head]
                  [intent/navigate-head {:frame frame-id}]
                  [intent/navigate-head "not-a-map"]
-                 [intent/navigate-head {:frame frame-id :payload [] :native? false}]
-                 [intent/navigate-head {:frame frame-id :payload [:x] :native? "yes"}]]]
+                 [intent/navigate-head {:frame frame-id :payload [] :native? false :veto nil}]
+                 [intent/navigate-head {:frame frame-id :payload [:x] :native? "yes" :veto nil}]]]
       (is (thrown-with-msg?
             js/Error #"hicasso-malformed-navigate"
             (intent/with-frame frame-id (fn [_] nil)
               (fn [] (intent/lower-prop :on-click bad))))
           (pr-str bad)))))
+
+(defn- lower-navigate
+  "Lower `[::h/navigate m]` at an event position and answer the closure."
+  [m]
+  (intent/with-frame frame-id (fn [_] nil)
+    (fn [] (intent/lower-prop :on-click [intent/navigate-head m]))))
+
+(deftest the-navigate-map-is-a-closed-key-set
+  (testing "HD-027 promises EXACTLY :frame, :payload, :native? and :veto, so
+           the check is the exact key SET rather than four presence tests — a
+           grammar that validates only the keys it knows is fail-open by
+           construction, and admits both the map missing the veto slot (an
+           uncancelable navigation where a cancelable one was promised) and
+           the map carrying a fifth key the lowering then silently drops"
+    (doseq [bad [{:frame frame-id :payload [:x] :native? false}
+                 {:payload [:x] :native? false :veto nil}
+                 {:frame frame-id :native? false :veto nil}
+                 {:frame frame-id :payload [:x] :veto nil}
+                 {:frame frame-id :payload [:x] :native? false :veto nil :replace? true}]]
+      (is (thrown-with-msg? js/Error #"hicasso-malformed-navigate" (lower-navigate bad))
+          (pr-str bad))))
+  (testing "and the exact four keys still lower — :veto nil is PRESENT, which
+           is why the slot is asked of the key set and never of its value"
+    (is (fn? (lower-navigate {:frame    frame-id
+                              :payload  [:rf.route/url-requested {:to :conduit.profile/show}]
+                              :native?  false
+                              :veto     nil})))))
 
 (deftest a-bare-vector-at-the-veto-slot-is-loud-at-lowering
   (is (thrown-with-msg?

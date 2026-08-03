@@ -203,8 +203,10 @@
                                     :veto     nil}]}]
 
   Same school as the prevent head (HD-026): behaviour in the vector where
-  `=` can see it, a closed grammar ([[unwrap-navigate]] is the whole of
-  it), classified once at lowering, loud on every malformed form. The
+  `=` can see it, a closed grammar — [[unwrap-navigate]] is the whole of
+  it, and it asserts the map's EXACT key set ([[navigate-keys]]) rather
+  than the presence of the keys it happens to know — classified once at
+  lowering, loud on every malformed form. The
   click LAW is not restated here: the lowered closure hands the event to
   routing's own `:routing/activate-link!` late-bound seam — the same one
   decision `rf/route-link`, `ui/route-link` and Freehand's `v/route-link`
@@ -618,18 +620,37 @@
            :veto-with-prevent-a-callback-or-nothing
            {:position k :veto veto})))
 
+(def ^:private navigate-keys
+  "The navigate map's key set, and it is CLOSED: `:frame`, `:payload`,
+  `:native?`, `:veto` — those four, no fewer and no more (HD-027).
+
+  Held as a SET the map's own keys must EQUAL, rather than as four
+  presence tests, because a grammar that checks only the keys it knows is
+  fail-open by construction. Under presence tests a map missing `:veto`
+  passes — and `:veto` is the slot that decides whether the click can be
+  cancelled, so its absence is the difference between an uncancelable
+  navigation and a promised one. So does a map carrying a fifth key,
+  which the lowering then silently drops: the author wrote something and
+  nothing happened, which is the failure class every loud error in this
+  namespace exists to delete."
+  #{:frame :payload :native? :veto})
+
 (defn- unwrap-navigate
   "CLASSIFY AND UNWRAP the navigate decorator. `[::h/navigate {…}]` —
-  exactly two forms, the second a map carrying `:frame` (a keyword),
-  `:payload` (a non-empty vector), `:native?` (a boolean) and `:veto`
-  (the [[lower-veto]] roster). Everything else is
+  exactly two forms, the second a map whose keys are EXACTLY
+  [[navigate-keys]]: `:frame` (a keyword), `:payload` (a non-empty
+  vector), `:native?` (a boolean), and `:veto` (the [[lower-veto]]
+  roster, `nil` included — which is why its presence is asked of the key
+  set and never of its value). Everything else is
   `:rf.error/hicasso-malformed-navigate`, named at the position. Answers
   the validated map; like [[unwrap-prevent]] it is not a walker — the
   payload stays ordinary data all the way to routing."
   [k v]
-  (let [{:keys [frame payload native?] :as m} (nth v 1 nil)]
+  (let [m  (nth v 1 nil)
+        {:keys [frame payload native?]} m
+        ks (when (map? m) (set (keys m)))]
     (when-not (and (= 2 (count v))
-                   (map? m)
+                   (= navigate-keys ks)
                    (keyword? frame)
                    (vector? payload)
                    (seq payload)
@@ -638,14 +659,22 @@
              'front.intent/lower-prop
              (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
                   " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
-                  "(a non-empty event vector), :native? (a boolean) and :veto; this one "
+                  "(a non-empty event vector), :native? (a boolean) and :veto — "
+                  "those four keys and no others; this one "
                   (cond
                     (not= 2 (count v))  (str "carries " (dec (count v)) " forms after the head")
                     (not (map? m))      (str "wraps " (pr-str m) ", which is not a map")
+                    (not= navigate-keys ks)
+                    (str "carries " (pr-str (vec (sort ks)))
+                         (when-some [missing (seq (sort (remove ks navigate-keys)))]
+                           (str ", so it is missing " (pr-str (vec missing))))
+                         (when-some [extra (seq (sort (remove navigate-keys ks)))]
+                           (str ", and nothing reads " (pr-str (vec extra)))))
                     (not (keyword? frame))  "names no :frame keyword"
                     (not (and (vector? payload) (seq payload))) "carries no :payload event vector"
                     :else               "answers no boolean at :native?")
-                  ". route-link mints this form; hand-written ones must carry all four slots.")
+                  ". route-link mints this form; hand-written ones must carry all "
+                  "four slots and nothing else.")
              :carry-frame-payload-native-and-veto
              {:position k :form v}))
     m))
