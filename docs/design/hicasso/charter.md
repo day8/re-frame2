@@ -106,6 +106,12 @@ canonical.
    perf gate**: the dogfood screen and five-shape ports judged on their diff;
    public-door-only witness tests; more than ~8 public concepts or ~8 guide pages
    to ship CRUD is a kill signal.
+   **Amended 2026-08-04 (operator ruling):** that last clause is the criterion
+   [validation.md](validation.md) carried as **K5**, and K5 was removed. The
+   sentence above stands as the record of what this charter pre-registered.
+   Consumer code from day one, the diff judgement and the public-door-only
+   witness tests are unchanged — only the ergonomics *kill* is gone, and nothing
+   replaces it.
 5. **Keep what's differentiating**: intent-as-data; the controlled door;
    browserless testing; demand-driven reads; zero-cost-when-absent tooling; the
    queryable registry; AI ergonomics throughout.

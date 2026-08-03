@@ -640,6 +640,12 @@ replacement**, because the unsolved problem the review found is
 a census-real screen rather than argued; where the diff did not come out better,
 the record says so.
 
+**K5 was removed as a kill criterion by operator ruling on 2026-08-04**
+([validation.md](validation.md)). The rationales that cite it — this paragraph,
+HD-023, HD-024, HD-025 and HD-026 — were written while it stood and are left
+exactly as argued: they record why each shape was chosen at the time, and the
+deletions they justify are shipped. Read every "against K5" below as historical.
+
 ## HD-022 — `:ref`'s vector value-space is reserved now, and refused loudly in v0
 
 **Ruling.** `:ref` accepts **a function** — HD-003's escape hatch and HD-016's
@@ -1094,8 +1100,9 @@ intent it decorates, and cannot travel with it); and requiring `h/fn` for the
 recurring click case (discards the data benefit exactly where a one-head wrapper
 preserves it).
 
-**Cost, stated.** One reserved head and one extra pair of brackets. Against K5 it
-is a swap rather than a growth: the metadata *mechanism* is deleted — one fewer
+**Cost, stated.** One reserved head and one extra pair of brackets. Against K5 —
+since removed ([validation.md](validation.md), 2026-08-04) — it is a swap rather
+than a growth: the metadata *mechanism* is deleted — one fewer
 kind of place for behaviour to hide — and one member joins a roster that is a
 list rather than a convention. The event-time path acquires nothing: the
 classification is one `=` against the head, taken once per lowered position per
