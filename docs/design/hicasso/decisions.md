@@ -1229,10 +1229,22 @@ both arms in one session with a third run bracketing them —
 about a factor of two.** The A/B ranges are disjoint, the donors do not move, and
 the per-read slope is **identical to the byte** with and without the wrapper
 (1,447 and 2,289 B/read), confirming this ruling's claim that the cost is
-constant in R and lands in the shell. The two instruments differ because the
+constant in R and lands in the shell. ~~The two instruments differ because the
 ladder mounts and *holds* while the page-chrome rig writes first, and an updated
 component retains an `alternate` fiber a held one does not — offered as the
-leading explanation, not as a counted result.
+leading explanation, not as a counted result.~~
+
+**Amended 2026-08-03 (`rf2-2rtt6.61`): that explanation is withdrawn, and it was
+never a counted result.** Its premise was that the page-chrome rig writes before
+it reads heap, and it does not — `chrome_run.cjs` runs its whole heap half first
+on a quiet page (line 243) and does not touch the four write ops until the clock
+half at line 264, with the same ordering at `cb179b6b3c`, the commit that
+published the +195/+220 rows. **Both instruments mount and hold**, so no
+`alternate` fiber exists on either, and the rule it implied — one fiber held, two
+updated — is not adopted. Both deltas stand as measured against the shape each was
+taken on; what separates them is open as `rf2-2rtt6.79`. The ruling itself is
+untouched: the wrapper is a per-boundary constant in R, and **a Fiber is not a
+fixed byte count — the shape it sits on decides what it costs.**
 
 **What remains open is the disposition, and it is the operator's.** Whether +9%
 on a shell **already 1.14× over** the paper line is "pushing retained heap

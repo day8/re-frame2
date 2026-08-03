@@ -133,9 +133,19 @@ for it.
 >
 > **Two corrections to this section, recorded rather than silently edited.**
 > First, the ≈ +17% figure: it assumed the card-shaped +200 B transferred
-> unchanged to a boundary that reads nothing, and it does not — this instrument
+> unchanged to a boundary that reads nothing, and it does not. ~~This instrument
 > mounts and writes, the ladder mounts and holds, and an updated component
-> retains an `alternate` fiber that a held one does not. Second, this paragraph
+> retains an `alternate` fiber that a held one does not.~~ **That reason is
+> withdrawn (`rf2-2rtt6.61`, 2026-08-03): this instrument does NOT write before
+> it reads.** `chrome_run.cjs` runs `heapForArms` to completion first, on a quiet
+> page (line 243, *"the heap half, first, on a quiet page"*), and the four write
+> ops do not begin until the clock half at line 264; `heapOnce` is `resetRuntime`
+> → baseline → `mountArm` → held, with nothing between the mount and the read.
+> The ordering is the same at `cb179b6b3c`, which published the +195/+220 rows.
+> **Both instruments mount and hold**, so the `alternate` fiber cannot be the
+> difference; the ~2× is real and unexplained, and is `rf2-2rtt6.79`. The +100 B
+> re-take stands — only the account of *why* the two disagree was wrong. Second,
+> this paragraph
 > originally named **`reads_ladder_run.cjs`** as the rig to re-take it on. That
 > is the wrong instrument: the freehand ladder carries only `reagent,uix`, has
 > no Hicasso arm, and could not have produced the 1,143 B figure. That number
