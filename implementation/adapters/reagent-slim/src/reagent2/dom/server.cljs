@@ -744,15 +744,15 @@
 (defn- emit-dom-vector
   "Emit a hiccup vector whose head is a DOM-tag keyword/symbol/string."
   [^StringBuffer sb argv]
-  (let [head      (nth argv 0 nil)
-        parsed    (template/parse-tag head argv)
-        tag-str   (.-tag parsed)
-        first-arg  (nth argv 1 nil)
-        has-props  (template/props-slot? first-arg)
+  (let [head         (nth argv 0 nil)
+        parsed       (template/parse-tag head argv)
+        tag-str      (.-tag parsed)
+        first-arg    (nth argv 1 nil)
+        has-props    (template/props-slot? first-arg)
         children-pos (if has-props 2 1)
-        user-attrs (when (and has-props (some? first-arg)) first-arg)
-        attrs      (merge-shorthand parsed user-attrs)
-        n          (count argv)
+        user-attrs   (when (and has-props (some? first-arg)) first-arg)
+        attrs        (merge-shorthand parsed user-attrs)
+        n            (count argv)
         children     (when (< children-pos n)
                        (subvec argv children-pos))
         void?        (contains? template/void-tags tag-str)
