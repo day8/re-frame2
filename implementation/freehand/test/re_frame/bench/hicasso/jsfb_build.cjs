@@ -36,10 +36,13 @@
 // silently measured is this session's rf2-6t03c and the cheapest guard
 // against it is a digest the run log carries.
 
-const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+
+// shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
+// lane's one build door refuses a warned build (rf2-2rtt6.73).
+const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -193,14 +196,18 @@ for (const arm of ARMS) {
     `:modules {:main {:init-fn ${arm.initFn}}}}`;
 
   console.error(`[jsfb-build] ${arm.dir}: :advanced release -> ${outDir}`);
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const r = spawnSync(
-    process.execPath,
-    [runner, 'release', BUILD_ID, '--config-merge', configMerge],
-    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
-  );
-  console.error(`[jsfb-build] ${arm.dir}: shadow-cljs exit ${r.status}`);
-  if (r.status !== 0) {
+  // The verdict form, not the exiting one: this loop reports every arm before
+  // it gives up. A WARNED build fails here too — shadow-cljs exits 0 on
+  // warnings, so the old `r.status !== 0` let a renamed def through with the
+  // arm still publishing a number (rf2-2rtt6.73).
+  const verdict = shadowBuildVerdict({
+    impl: IMPL,
+    mode: 'release',
+    buildId: BUILD_ID,
+    configMerge,
+  });
+  if (!verdict.ok) {
+    reportRefusal(`jsfb-build ${arm.dir}`, verdict);
     failed = true;
     continue;
   }

@@ -22,8 +22,9 @@
 // move:
 //
 //   0  measured, guard clean, control passed
-//   1  the run failed (build, page error, a fatal the page recorded, a
-//      positive control that did not see what it predicted)
+//   1  the run failed (build — INCLUDING a build that merely WARNED, see
+//      `lane_build.cjs` — page error, a fatal the page recorded, a positive
+//      control that did not see what it predicted)
 //   2  THE ARM-ORDER GUARD REFUSED. A figure whose value depends on where
 //      in the plan it was measured is not a figure. The repair is the
 //      ARM — more warm-up, fewer arms per round, a longer window — never
@@ -36,7 +37,6 @@
 
 'use strict';
 
-const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
@@ -48,6 +48,9 @@ const path = require('node:path');
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
 const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
+// The lane's ONE build door. shadow-cljs exits 0 on warnings, so a status
+// check is not a gate (rf2-2rtt6.73).
+const { shadowBuild } = require('./lane_build.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -75,20 +78,20 @@ function build() {
     console.error(`[hicasso] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[hicasso] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
-  // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
-  // Windows needs `shell: true`, a shell concatenates argv, and a
-  // concatenated argv is the other way the config-merge EDN gets torn in
-  // half. It is also the command-hijack posture every launcher here uses.
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const r = spawnSync(
-    process.execPath,
-    [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE],
-    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
-  );
-  if (r.status !== 0) {
-    console.error(`[hicasso] build failed with status ${r.status}`);
-    process.exit(1);
-  }
+  // `lane_build.cjs` owns the spawn form (shadow's own `cli/runner.js` under
+  // THIS node binary, never the `.cmd` shim — a shim needs `shell: true`, a
+  // shell concatenates argv, and a concatenated argv is the other way the
+  // config-merge EDN gets torn in half) AND the verdict. It exits 1 on a
+  // build that merely warned, which the old `r.status !== 0` could not: a
+  // renamed def left two `:undeclared-var` uses, and this driver printed a
+  // full table and exited 0 (rf2-2rtt6.73).
+  shadowBuild({
+    impl: IMPL,
+    mode: 'release',
+    buildId: BUILD_ID,
+    configMerge: CONFIG_MERGE,
+    tag: 'hicasso',
+  });
 }
 
 const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };

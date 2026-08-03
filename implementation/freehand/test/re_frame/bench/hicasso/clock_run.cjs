@@ -112,13 +112,15 @@
 
 'use strict';
 
-const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
+// shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
+// lane's one build door refuses a warned build (rf2-2rtt6.73).
+const { shadowBuild } = require('./lane_build.cjs');
 const guard = require('../../freehand/bench/order_guard.cjs');
 const seamlib = require('./seam.cjs');
 
@@ -218,15 +220,13 @@ function build() {
     console.error(`[clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[clock] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const r = spawnSync(process.execPath, [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE], {
-    cwd: IMPL,
-    stdio: ['ignore', 'inherit', 'inherit'],
+  shadowBuild({
+    impl: IMPL,
+    mode: 'release',
+    buildId: BUILD_ID,
+    configMerge: CONFIG_MERGE,
+    tag: 'clock',
   });
-  if (r.status !== 0) {
-    console.error(`[clock] build failed with status ${r.status}`);
-    process.exit(1);
-  }
 }
 
 const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };

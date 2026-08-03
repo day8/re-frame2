@@ -2537,6 +2537,32 @@ jobs:
       - name: Per-namespace test-isolation gate
         run: node scripts/check-per-ns-isolation.cjs
 
+      # Hicasso bench-lane compile coverage (rf2-2rtt6.73). NO PR gate compiled
+      # this lane. The `:node-test` build above selects `:ns-regexp
+      # "cljs-test$"` plus transitive requires and `:browser-test` selects
+      # `-dom-cljs-test$` likewise, and nothing test-shaped requires the bench
+      # ARMS — measured on the built bundles, `out/node-test.js` contained zero
+      # occurrences of `walk_profile_app` and `out/browser-test/` had no such
+      # module. The only compiler that ever saw an arm was `:hicasso-bench`,
+      # driven BY HAND through a driver that ALSO passed on warnings, so a
+      # broken arm could not go red and a worker mutation-proving a change
+      # through the lane proved nothing.
+      #
+      # The arms are deliberately LOCAL COPIES of shipping code (the
+      # rf2-2rtt6.32 call-convention discipline, and it is correct), so they
+      # drift by construction and a compile is the cheapest thing that
+      # notices. One dev-mode `shadow-cljs compile` of all 100 lane
+      # namespaces, ~45s, warnings treated as failures. It rides the lane's
+      # existing `:hicasso-bench` id via `--config-merge` — no new build id,
+      # so no hot-zone edit to shadow-cljs.edn (HD-017).
+      #
+      # Hosted HERE rather than in cljs-examples-compile because this job's
+      # `cljs_node_test` surface includes implementation/core/*, which
+      # `examples_compile` deliberately excludes — and a core change is
+      # exactly what breaks a local copy of core's calling convention.
+      - name: Hicasso bench-lane compile coverage gate
+        run: npm run test:hicasso-compile
+
   js-harness-self-tests:
     name: JS harness self-tests (quiet reporters + path policy)
     runs-on: ubuntu-latest

@@ -57,6 +57,7 @@
     "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
     "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/login examples/login-uix examples/realworld-resources bundle-isolation-positive-control && node scripts/check-bundle-isolation.test.cjs && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",
     "test:examples-compile": "node scripts/check-examples-compile.cjs",
+    "test:hicasso-compile": "node freehand/test/re_frame/bench/hicasso/compile_gate.cjs",
     "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",
     "test:reagent-slim:smoke": "node scripts/serve-and-run-reagent-slim-smoke.cjs",
     "test:adapter-smokes": "node adapters/scripts/serve-and-run-adapter-smokes.cjs",
