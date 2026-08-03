@@ -589,9 +589,11 @@
 (defn- ^boolean slim-reserved-idx? [n]
   (true? (unchecked-get slim-reserved-index n)))
 
-;; Shipping resolves `Object.prototype.hasOwnProperty` on EVERY call (two
-;; property loads) and then `.call`s it. Hoisted here the way the codec's
-;; `has-own` is, so the row prices the guard and not the resolution.
+;; The pre-rf2-lhdp0 `own-key?`, replicated FAITHFULLY — including that it
+;; re-resolved `Object.prototype.hasOwnProperty` on every call (two property
+;; loads) rather than hoisting it the way the codec's `has-own` does. The
+;; resolution is part of what the `-ship` cache rows are pricing, so hoisting
+;; it here would have flattered the shape this bead cut.
 (defn- ^boolean slim-own-key? [obj k]
   (.call (.. js/Object -prototype -hasOwnProperty) obj k))
 
@@ -755,9 +757,14 @@
 
 ;; --- the per-element `:key` read -------------------------------------------
 ;;
-;; Shipping asks `vector?` twice, reads `meta`, then `nth 0`, a `case`, `nth 1`
-;; and a `map?` before the `:key` lookup it wanted. Every call site already
-;; knows the props slot, so the specialised form is the read alone.
+;; The `-ship` form asks `vector?` twice, reads `meta`, then `nth 0`, a `case`,
+;; `nth 1` and a `map?` before the `:key` lookup it wanted — all of it to find
+;; a props slot the caller is holding. The `-spec` form is the read alone. It
+;; won and shipped for the constructors that HAVE the slot (`native-element`,
+;; which is every DOM element and every `:>`, and `fragment-element`); the
+;; `-ship` form survives as `get-react-key`, which is what the callers holding
+;; only a bare vector still need — `expand-seq`'s missing-key DEBUG warning
+;; and the cold component heads.
 
 (defn- slim-key-ship [v]
   (let [k (when (vector? v) (some-> (meta v) :key))]
