@@ -358,15 +358,32 @@
 (def ^:const C-NOINDEX 3)
 (def ^:const C-NOMAP 4)
 
-(def ^:private !local-watch-counter (volatile! 0))
+(def ^:private cell-watch-key
+  "**One constant keyword for every local cell's value-change watch**,
+  because that is what the runtime this file copies now installs
+  (`arm1/runtime.cljs`'s own `cell-watch-key`, rf2-aqgr2). It used to mint
+  `(keyword \"rf-readprof\" (str \"w\" (vswap! counter inc)))` per cell, which
+  was faithful to the runtime of the day and stopped being so the moment
+  the runtime dropped its counter — a copy that prices a cell shape the
+  original no longer builds is an instrument measuring itself (rf2-6wh9o).
+
+  Uniqueness is structural here for the same reason it is there: a mode's
+  cells are built one per key of a read SET, `subs/subscribe` hands back
+  the cached reaction for that `(frame, query)`, and [[rounds-async!]]
+  runs every teardown and clears every sub-cache between arms behind the
+  residue gate — so no two live cells ever hold the same reaction. The
+  namespace is this file's own, so it cannot collide with the runtime's
+  watches when the `commit` arm and a `c-*` arm touch the same cached
+  reactions."
+  ::rp-cell-watch)
 
 (defn- commit-local!
   "Faithful copy of the commit half `make-subscribe` performs for one
   boundary at `mode`: the registration object, one cell per key of the
-  read SET (mint + `subs/subscribe` + the baseline deref + the
-  value-change watch + the disposal hook + the map insert), then the
-  index mount and the whole-set `record-reads!`. Answers a teardown fn
-  that mirrors the returned unsubscribe closure — run OUTSIDE the window.
+  read SET (`subs/subscribe` + the baseline deref + the value-change
+  watch + the disposal hook + the map insert), then the index mount and
+  the whole-set `record-reads!`. Answers a teardown fn that mirrors the
+  returned unsubscribe closure — run OUTSIDE the window.
 
   The stubs, stated: `c-nosub` keeps the computation (a `compute-sub`
   against the frame-state snapshot) so its delta prices the reaction
@@ -383,12 +400,10 @@
             r  (if (identical? mode C-NOSUB)
                  nil
                  (subs/subscribe q {:frame frame-id}))
-            wk (keyword "rf-readprof" (str "w" (vswap! !local-watch-counter inc)))
             ^js cell #js {"subKey"   sub-key
                           "frameKw"  frame-id
                           "queryV"   q
                           "reaction" r
-                          "watchKey" wk
                           "epoch"    (rt/commit-basis frame-id)
                           "refs"     1
                           "disposed" false}]
@@ -396,7 +411,7 @@
           (subs/compute-sub q fs)
           (do @r
               (when-not (identical? mode C-NOWATCH)
-                (add-watch r wk (fn [_ _ _ _] nil))
+                (add-watch r cell-watch-key (fn [_ _ _ _] nil))
                 (interop/add-on-dispose! r (fn [] nil)))))
         (.push cells cell)
         (when-not (identical? mode C-NOMAP)
@@ -411,7 +426,7 @@
       (dotimes [i (alength cells)]
         (let [^js cell (aget cells i)]
           (when-some [r (.-reaction cell)]
-            (remove-watch r (.-watchKey cell))
+            (remove-watch r cell-watch-key)
             (subs/unsubscribe frame-id (.-queryV cell))))))))
 
 (defn- build-only!
