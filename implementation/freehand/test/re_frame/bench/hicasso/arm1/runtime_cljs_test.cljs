@@ -97,12 +97,19 @@
 
 (defn- mounted!
   "A boundary at the seam React occupies: render its body, commit the
-  reads, and hand back `{:hits :release!}`."
+  reads, and hand back `{:entry :reg :hits :release!}`.
+
+  `:reg` is the registration the commit installed, read back off an EDGE
+  — the last reader pushed onto the first key's cell — because the fused
+  table keeps no registry of live boundaries (see [[boundary-reading]])."
   [body-fn]
   (let [entry   (render body-fn)
         hits    (volatile! 0)
         release (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
-    {:entry entry :hits hits :release! release}))
+    {:entry entry
+     :reg (last (rt/cell-readers (first (rt/reads-of entry))))
+     :hits hits
+     :release! release}))
 
 (deftest a-read-outside-a-render-is-a-loud-error
   (seeded!)
@@ -490,8 +497,8 @@
         b (mounted! (fn [_] [:li (str (rt/sub [:dogfood/todo 1]))]))]
     (is (= #{(key-of [:dogfood/todo 0])} (reads-of (:entry a))))
     (is (= #{(key-of [:dogfood/todo 1])} (reads-of (:entry b))))
-    (is (= 1 (count (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 0])))))
-    (is (= 1 (count (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))))
+    (is (= [(:reg a)] (rt/cell-readers (key-of [:dogfood/todo 0]))))
+    (is (= [(:reg b)] (rt/cell-readers (key-of [:dogfood/todo 1]))))
     (rt/dispatch! frame-id [:dogfood/toggle 0])
     (is (= 1 @(:hits a)) "the reader of the moved subscription re-runs")
     (is (= 0 @(:hits b)) "and nothing else does")

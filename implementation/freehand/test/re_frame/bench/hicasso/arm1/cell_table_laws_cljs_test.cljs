@@ -310,6 +310,19 @@
         (let [before (:cells (rt/stats))]
           (is (= [] (rt/cell-readers (key-of [:no-such/query]))))
           (is (= before (:cells (rt/stats))))))
+      (testing "**the fused table's own version of an unknown key, and the
+               one the retired index could not have.** A cell outlives its
+               last reader by a reaper's grace, so between a cleanup and
+               the next macrotask there is a live cell with an EMPTY
+               reader list. A write that dirties it must contribute
+               nothing — the same claim law 6 makes about a key nobody
+               ever read, now about a key nobody reads any more"
+        (let [tmp (mount! (fn [_] [:li (str (rt/sub [:dogfood/draft 1]))]))]
+          ((:stop! tmp))
+          (rt/dispatch! frame-id [:dogfood/edit-draft 1 "into the void"])
+          (is (= 0 @(:hits tmp)))
+          (is (= 1 @(:hits row-1))
+              "and the live boundary is not swept up by the readerless cell")))
       (finally (stop-all! row-1)))))
 
 ;; ===========================================================================
