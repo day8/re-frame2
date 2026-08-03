@@ -173,21 +173,25 @@ it does not.
   buys you: a *freshly allocated* map or vector is not a problem. Two structurally
   equal persistent values are one cache key, so rebuilding `{:scope :all}` inside the
   query on every render hits the same entry every time, and you do not have to hoist
-  it into a `def` or memoize it to be safe. What thrashes the index is an argument
-  whose **value** changes when nothing meaningful did — a re-sorted seq, a timestamp
-  folded into the query, a JS object or a function, which carry reference identity
-  rather than value identity. Documented, programmer-trusted, not policed.
+  it into a `def` or memoize it to be safe. Sorting the same items into the same order
+  is the same story — `=` compares sequential values by their contents, so a freshly
+  sorted seq is the key the last one was, at the cost of walking it. Two things do
+  thrash the index. An argument whose **value** genuinely moved is a different key, and
+  correctly so: a timestamp folded into the query, or a sort order that really changed.
+  And an argument carrying **reference** identity rather than value identity — a
+  function, a JS object or array, a host object — is unequal to itself between renders,
+  because for those `=` is identity. Documented, programmer-trusted, not policed.
 
 ## Troubleshooting
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | A boundary doesn't re-render even though something on screen should have changed | Its props still compare `=` to last render and it made no read of its own that moved — the default bail-out (HD-028) is doing exactly what it's for | Read the changing value with `sub` inside the boundary that displays it, or thread it down as a prop so the value actually differs there |
-| A boundary re-renders every time though its props look unchanged | A prop carries reference identity rather than value identity — an inline function literal, a JS object, a freshly re-sorted seq — so `=` correctly says unequal | Hoist the function or stabilize the value; two structurally equal persistent values are `=`, a fresh closure or JS object is not |
+| A boundary re-renders every time though its props look unchanged | A prop carries reference identity rather than value identity — an inline function literal, a JS object or array, a host object — so `=` correctly says unequal | Hoist the function, or convert the value to a persistent one. Freshness is not the problem: two structurally equal persistent values are `=` however recently they were built |
 | One cell changes and 300 boundaries re-render | The read lives too high in the tree | Push the read down into the boundary that displays it |
 | One value changes and a whole subtree re-renders with it | The value is read in an ancestor and passed down as a prop. Nothing is *lost* — the reading ancestor re-renders with the new value, and every boundary the value actually reaches has unequal props at that hop, so the default bail-out (HD-028) does not catch it there. Coarse invalidation, not missed invalidation | Read at the point of use, so the boundary that displays the value is the boundary that invalidates |
 | A read after the render throws, naming the query | A handler closure, a stashed lazy seq, or a `delay` deferred a `sub` past the render | Read during the render and close over the value; the loud error is the alternative to a silently frozen edge |
-| Index thrash, subscriptions constantly re-created | Query args that are not *value*-stable — a re-sorted seq, a folded-in timestamp, a JS object or a function | Allocation is fine; two equal persistent values are one key. Make the args equal under `=` between renders |
+| Index thrash, subscriptions constantly re-created | Query args that are not *value*-stable — a folded-in timestamp, a sort order that really changed, or a JS object or function carrying reference identity | Allocation is fine; two equal persistent values are one key however freshly built. Make the args equal under `=` between renders |
 | A body's side effect fires twice | StrictMode double-invoke | Bodies are pure; move the effect out |
 
 ## When not to use a boundary
