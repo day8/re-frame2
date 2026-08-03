@@ -433,9 +433,12 @@ assert "AB1 an ordinary scripts/ change does NOT arm the spine self-test" \
 #
 # These cases ask the host nothing.  They CONSTRUCT the module-only state — a
 # PATH with every directory that provides a bare `mkdocs` removed, plus a stub
-# directory whose `python` answers `-m mkdocs --version` and nothing else — and
-# assert the EXACT command the real spine selected.  resolve_mkdocs is not
-# copied here: `--plan` runs the real one.
+# directory that shadows all three launchers and lets exactly one of them answer
+# `-m mkdocs --version` — and assert the EXACT command the real spine selected.
+# One case per supported launcher (AC/AC1/AC2), because `resolve_mkdocs` tries
+# `python python3 py` in order and a witness for `python` alone cannot tell a
+# working three-entry loop from a one-entry one.  resolve_mkdocs is not copied
+# here: `--plan` runs the real one.
 # ---------------------------------------------------------------------------
 
 # The docs-armed disposable repo cases W-Y already built: the mkdocs resolution
@@ -466,10 +469,23 @@ mkdocs_free_path() {
 
 mkdocs_free="$(mkdocs_free_path)"
 
-# The stub launcher: a `python` that resolves ONLY `-m mkdocs --version`, so a
-# green case proves the spine took the module branch and not something else.
-module_bin="$tmp_root/module-only-bin"; mkdir -p "$module_bin"
-cat > "$module_bin/python" <<'STUB'
+# A stub launcher directory.  It SHADOWS all three launchers `resolve_mkdocs`
+# tries and lets exactly one of them — `$2`, or none at all for `none` — answer
+# `-m mkdocs --version`; every other invocation of every stub fails.  So a green
+# case proves the spine took the module branch, via that launcher and no other.
+#
+# Shadowing the other two is what makes the per-launcher cases hermetic
+# (rf2-03298).  The sanitised PATH only has bare `mkdocs` removed; the host's
+# REAL interpreters are still on it, and `resolve_mkdocs` tries `python` first.
+# A `python3`-only witness with no `python` stub in front of it would therefore
+# be satisfied on this runner by the host's own `python`, and would stay green
+# through exactly the regression it exists to catch.
+make_launcher_bin() {
+  local dir="$1" working="$2" l
+  mkdir -p "$dir"
+  for l in python python3 py; do
+    if [ "$l" = "$working" ]; then
+      cat > "$dir/$l" <<'STUB'
 #!/bin/sh
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "mkdocs" ] && [ "${3:-}" = "--version" ]; then
   printf 'mkdocs, version 1.6.1 (hermetic self-test stub)\n'
@@ -477,7 +493,24 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "mkdocs" ] && [ "${3:-}" = "--version" ];
 fi
 exit 1
 STUB
-chmod +x "$module_bin/python"
+    else
+      printf '#!/bin/sh\nexit 1\n' > "$dir/$l"
+    fi
+    chmod +x "$dir/$l"
+  done
+}
+
+# One sandbox per supported launcher.  `resolve_mkdocs` iterates
+# `python python3 py`; narrowing that list back to `python` alone leaves every
+# required check green today, and breaks precisely the python3-only and py-only
+# checkouts this Bead was filed for.  Three witnesses, one per iteration.
+module_bin="$tmp_root/module-only-bin";       make_launcher_bin "$module_bin" python
+module_bin_py3="$tmp_root/module-only-py3";   make_launcher_bin "$module_bin_py3" python3
+module_bin_py="$tmp_root/module-only-py";     make_launcher_bin "$module_bin_py" py
+
+# Every launcher present and none of them able to run mkdocs — the honest-skip
+# path, which must report `unresolved` rather than anything that reads as a pass.
+none_bin="$tmp_root/no-mkdocs-bin";           make_launcher_bin "$none_bin" none
 
 # A console-script stub for the preference case, alongside a working module
 # launcher — so "console script wins" is asserted against a live alternative.
@@ -485,14 +518,6 @@ both_bin="$tmp_root/console-wins-bin"; mkdir -p "$both_bin"
 cp "$module_bin/python" "$both_bin/python"
 printf '#!/bin/sh\nexit 0\n' > "$both_bin/mkdocs"
 chmod +x "$both_bin/mkdocs"
-
-# Every launcher present and none of them able to run mkdocs — the honest-skip
-# path, which must report `unresolved` rather than anything that reads as a pass.
-none_bin="$tmp_root/no-mkdocs-bin"; mkdir -p "$none_bin"
-for _launcher in python python3 py; do
-  printf '#!/bin/sh\nexit 1\n' > "$none_bin/$_launcher"
-  chmod +x "$none_bin/$_launcher"
-done
 
 # The sandbox must still carry the tools the spine itself shells out to.  If
 # stripping the mkdocs directories took one of them, the assertions below would
@@ -518,6 +543,14 @@ if [ "$hermetic_ready" = yes ]; then
     "PLAN-MKDOCS python -m mkdocs" \
     "$(PATH="$module_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
 
+  assert "AC1 only python3 can run mkdocs → 'python3 -m mkdocs' selected" \
+    "PLAN-MKDOCS python3 -m mkdocs" \
+    "$(PATH="$module_bin_py3:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+
+  assert "AC2 only py can run mkdocs → 'py -m mkdocs' selected" \
+    "PLAN-MKDOCS py -m mkdocs" \
+    "$(PATH="$module_bin_py:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+
   assert "AD console script wins over a WORKING module launcher" \
     "PLAN-MKDOCS mkdocs" \
     "$(PATH="$both_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
@@ -528,7 +561,7 @@ if [ "$hermetic_ready" = yes ]; then
 else
   printf '  FAIL AC-AE: cannot construct a module-only PATH on this host — %s\n' "$missing_tool"
   printf '        The module-only fallback in resolve_mkdocs was NOT exercised.\n'
-  fail_count=$((fail_count + 3))
+  fail_count=$((fail_count + 5))
 fi
 
 # ---- Summary ----
