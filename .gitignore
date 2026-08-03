@@ -28,6 +28,15 @@ Thumbs.db
 .env.local
 .envrc
 
+# Gate artefacts from a worker run (rf2-lci2z). `*.log` above already covers the
+# gate log, but the exit-code file written beside it is not a `.log`, so it
+# survived as untracked residue — and one untracked path is enough to make
+# `git worktree remove` refuse the tree (rf2-p0m6m: nine worktrees would not
+# reap, every one dirty with exactly one leftover). Both spellings the dispatch
+# template names are ignored here.
+*.exit
+*-exit.txt
+
 # Throwaway test fixtures created under the repo so a repo-relative path can
 # reach them across all Bash flavours (rf2-6m7pn4 — Windows path portability).
 /.scratch/

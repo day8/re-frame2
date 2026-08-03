@@ -50,6 +50,22 @@ sh scripts/remove-worker-worktree.sh <worktree-path>   # POSIX (primary)
 # Windows: powershell -ExecutionPolicy Bypass -File scripts/remove-worker-worktree.ps1 <worktree-path>
 ```
 
+## Gate Artefacts Go Where Git Ignores Them
+
+Never pipe a gate through `tail`, `head` or `grep` — a pipeline's exit status is
+its *last* command's, so a red runner reads green. Redirect to a file, capture
+the runner's own exit code, and quote that number in the PR body. **Every**
+artefact that produces — the log *and* the exit-code file — must land on an
+ignored path; `*.log`, `*.exit` and `*-exit.txt` all are:
+
+```bash
+sh scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
+```
+
+A single untracked leftover makes `git worktree remove` refuse the tree from
+then on, and nine worktrees accumulated exactly that way before anyone worked
+out why they would not reap.
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
