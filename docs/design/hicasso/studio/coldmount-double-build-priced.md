@@ -32,6 +32,16 @@ HeadlessChrome 147.0.7727.15 (Chromium via Playwright), `:advanced`,
 > | `coldmount_views.cljs` | `ad3556a641ce174e3575c9f91668330db2861f93` |
 > | `coldmount_app.cljs`   | `46fcb53f43b2f87ef7d91a221456924c53bf9f3b` |
 > | `coldmount_run.cjs`    | `d37fd07688f6e9a47f18938117ba776cb8d098e9` (unchanged) |
+>
+> Those three blobs pin **what produced the figures**, so they stay as they
+> are. The instrument's working copy has since moved past them: the merged-PR
+> audit of #7326 found that the retraction above had not reached the source,
+> where the `shipped` arm still called itself this bead's acceptance witness
+> and the emitted records still said the shipped cold read builds once. The
+> arm is now named in the source and stamped in every emitted record as the
+> **forced-synchronous mechanism arm**, with a `:schedule` key carrying the
+> qualifier the prose here carries. Wording only — no measurement window was
+> altered to repair provenance, so the rows below still say what they said.
 
 Reproduce (each row is one page and one driver invocation; the plain command
 runs all five over the same gates):
