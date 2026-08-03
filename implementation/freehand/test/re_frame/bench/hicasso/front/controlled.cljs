@@ -28,6 +28,15 @@
   (`uix/compiler/input.cljs:132-143`); this one is not that wrapper, and
   the caret half of the mechanism is still the element path's.
 
+  **That hook is priced rather than asserted away.**
+  `shapes/hook_budget_dom_cljs_test` counts every hook React is asked for
+  across each tier-1 shape and separates the two questions: the shell
+  budget is still `2 × boundaries` in the declared order, and the
+  shadow's `useState` is counted per controlled TEXT FIELD from a number
+  the file declares. It also asserts that no hook is ever interleaved
+  into a shell's pair, which is what makes \"not in the shell\" a
+  measurement. A page with no controlled input pays nothing.
+
   ## What runs, and when
 
   At the end of the change handler — still inside the discrete event,
