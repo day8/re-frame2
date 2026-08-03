@@ -138,34 +138,77 @@ after the arms, so they sample a different moment of a shared box; stock
 Reagent's own `string-child` reads 8.8 in one run and 20.3 in the other with
 identical code. The within-run column differences are the finding.
 
+**`↳` marks a stage measured INSIDE the row above it**, and the rows are ordered
+so the nesting is visible.
+
 **BEFORE** (ns/op):
 
 | stage | hicasso | slim | reagent | ours − Reagent's |
 |---|---|---|---|---|
 | tag lookup (cached) | 21.2 | — | 29.5 | **−8.3** |
-| prop-name lookup (cached) | 21.5 | 49.4 | 24.5 | **−3.0** |
-| prop-value conversion | 6.7 | 8.1 | 7.1 | −0.4 |
 | **whole prop pipeline / element** | **209.2** | — | **182.2** | **+27.0** |
+| ↳ prop-name lookup (cached) | 21.5 | 49.4 | 24.5 | **−3.0** |
+| ↳ prop-value conversion | 6.7 | 8.1 | 7.1 | −0.4 |
 | per-element tag hook | 9.2 | — | 6.7 | +2.5 |
 | **`as-element` on a string child** | **33.5** | 7.9 | **8.8** | **+24.7** |
 | `createElement` (shared floor) | 54.9 | 54.9 | 54.9 | — |
 
-**The decomposition closes.** Weighted by the roster — prop pipeline
-+27.0 × 1,202, strings +24.7 × 567, tag hook +2.5 × 1,202, tag lookup
-−8.3 × 1,202, prop names −3.0 × 1,489, values −0.4 × 1,489 — the named stages
-sum to **+34.4 µs/walk** against a measured whole-walk delta of **+37.5 µs**.
-**92% of the difference between the two interpreters is accounted for by named
-stages**, which is what makes the two convictions below convictions rather than
-guesses.
+**Two rows are NESTED, and the sum must not count them twice.**
+`convert-props-hicasso` and `convert-props-reagent` invoke each interpreter's
+**whole** `convert-props` over every element, and that pipeline already performs
+the cached prop-name lookup and the value conversion for every prop it emits.
+The two are priced separately so the pipeline has named parts — the same
+relation `:cedn` and `:lookup` have to `route-url` on the
+[route-link page](the-route-link-render-term-priced.md) — and, like those, they
+are **shares of the row above rather than stages beside it**. The tag lookup is
+not nested: the instrument precomputes the parsed tag outside the pipeline's
+window precisely so that row prices one thing.
+
+The non-overlapping sum, weighted by the roster:
+
+| stage | ours − Reagent's | × roster | µs/walk |
+|---|---|---|---|
+| **whole prop pipeline** | +27.0 ns | 1,202 elements | **+32.5** |
+| **`as-element` on a string child** | +24.7 ns | 567 strings | **+14.0** |
+| per-element tag hook | +2.5 ns | 1,202 elements | +3.0 |
+| tag lookup | −8.3 ns | 1,202 elements | −10.0 |
+| *prop-name lookup* | *−3.0 ns* | *1,489 props* | *nested — not added* |
+| *prop-value conversion* | *−0.4 ns* | *1,489 props* | *nested — not added* |
+| **named stages** | | | **+39.5** |
+| **observed whole-walk delta** | | | **+37.5** |
+
+**The named stages sum to 105% of the observed delta, and this page previously
+said 92%.** That figure came from adding the two nested rows to the pipeline
+that contains them; because both are negative, the double-count pulled the total
+*down*, from +39.5 µs to +34.4 µs, and made an overshoot look like a shortfall.
+There was never a measured 8% residual to report.
+
+**The overshoot is the instrument's, not a missing stage — and it is why no
+closure percentage belongs here at all.** Read against the limits this section
+already declared, 5% is nothing: these absolutes are ceilings taken on a box §7
+declares was not quiet. Run the same arithmetic over the AFTER table and the
+named stages come to **+5.6 µs** against an observed delta of **−25.0 µs** —
+they do not even agree in sign. A table with that much room in it can say which
+stages are large and roughly how large; it cannot be totalled to the percentage
+point in either direction.
+
+**So the table is read as an attribution and not as an accounting.** What it
+supports is that the prop pipeline and the string branch are the two terms that
+matter, each worth tens of µs per walk where the rest are worth single digits —
+and that is what the two convictions below rest on, together with their own
+before/after tables in §4a and §4b. Neither conviction, and neither landed
+optimization, depends on this sum. The independent evidence for the page's
+conclusions is §2's arm ratios, which are same-run interleaved and untouched by
+any of this.
 
 **AFTER** (ns/op, same instrument):
 
 | stage | hicasso | slim | reagent | ours − Reagent's |
 |---|---|---|---|---|
 | tag lookup (cached) | 20.4 | — | 34.9 | −14.5 |
-| prop-name lookup (cached) | 16.8 | 53.4 | 26.2 | −9.4 |
-| prop-value conversion | 8.1 | 23.5 | 10.7 | −2.6 |
 | **whole prop pipeline / element** | **207.6** | — | **186.8** | **+20.8** |
+| ↳ prop-name lookup (cached) | 16.8 | 53.4 | 26.2 | −9.4 |
+| ↳ prop-value conversion | 8.1 | 23.5 | 10.7 | −2.6 |
 | per-element tag hook | 12.1 | — | 9.6 | +2.5 |
 | **`as-element` on a string child** | **11.5** | 12.3 | **20.3** | **−8.8** |
 
