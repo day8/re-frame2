@@ -613,12 +613,15 @@
 ;; `bench/hicasso/ime_run.cjs` drives trusted CDP composition against this
 ;; arm's element path (converge included), plain React and the port, and
 ;; asserts the fence there. Its one open residue — every implementation
-;; rewrites a refused/normalised value mid-composition, destroying the
-;; exchange — is rf2-digtt. The two rows below stay: they witness the
-;; gate's two signals through React's keydown plumbing cheaply, on every
-;; PR, in-page — while the events they build are exactly the synthetic
-;; kind the harness exists to go beyond, which is why the harness, not
-;; these rows, is what establishes the fence.
+;; rewrote a refused/normalised value mid-composition, destroying the
+;; exchange — was rf2-digtt, and the operator ruled the carve-out IN on
+;; 2026-08-03: this arm no longer writes during a composition, and §7
+;; below witnesses the half of that a dispatched event CAN reach. The two
+;; rows below stay: they witness the gate's two signals through React's
+;; keydown plumbing cheaply, on every PR, in-page — while the events they
+;; build are exactly the synthetic kind the harness exists to go beyond,
+;; which is why the harness, not these rows, is what establishes the
+;; fence.
 
 (def ^:private !probe (atom []))
 

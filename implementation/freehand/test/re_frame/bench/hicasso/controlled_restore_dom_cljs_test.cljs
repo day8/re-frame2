@@ -131,9 +131,12 @@
     React's composition plumbing nor the browser's composition state —
     the very reason the row sat unasserted so long — and `:browser-test`
     runs in-page. What the harness also measured: every implementation
-    (React's own restore included) rewrites a refused/normalised value
-    mid-composition and silently destroys the exchange — rf2-digtt,
-    which is where the carve-out ruling lives.
+    (React's own restore included) rewrote a refused/normalised value
+    mid-composition and silently destroyed the exchange — rf2-digtt.
+    The operator ruled the carve-out IN on 2026-08-03, and it landed in
+    **Arm 1's element path only**: the two implementations THIS file
+    measures are the ones that still abort, which is what makes the
+    divergence a divergence. Nothing here changes.
   - `teardown-leaves-no-boundary-and-no-edge` — dropped as a duplicate.
     Arm 1's dogfood suite already asserts zero residue after unmount
     (`:cells :cell-refs :boundaries :edges :entries` all 0), and one

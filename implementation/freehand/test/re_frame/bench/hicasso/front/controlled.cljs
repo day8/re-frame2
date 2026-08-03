@@ -244,7 +244,12 @@
 
   A release is `set-shadow(nil)`, and a release when nothing is held is
   free — React bails out of an update to an identical state. So the
-  degenerate outcome is a converge, which is exactly today's conduct."
+  degenerate outcome is a converge, which is exactly today's conduct.
+
+  The release also runs **before** the author's handler at every slot
+  that has one, so a handler that throws cannot strand a shadow either.
+  `arm1_controlled_grid_dom_cljs_test` §7 witnesses the blur, the
+  non-composing keystroke and the unmount paths in a real React tree."
   (:require ["react" :as react]
             ["react-dom" :as react-dom]))
 
@@ -474,18 +479,24 @@
   differs from the controlled value, so agreeing with the draft is what
   makes the restore a no-op. See the namespace docstring.
 
-  Three slots, and each is a release or a hold:
+  Three slots, and each is a release or a hold. **The hold or release
+  happens FIRST at every one of them**, before the handler the author
+  wrote — not for ordering's sake but because that is what makes the
+  release unconditional: a handler of the author's that throws must not
+  be able to strand a shadow, and the worst it can then leave behind is
+  a converge.
 
-  - the **change slot** — [[install!]]'s converging handler, called
-    first so the author's handler and the model move exactly as they
-    always did. Composing, the draft is held and the converge inside it
-    has already declined to run; not composing, the shadow is released
-    *before* the inner handler, so the release renders inside the
-    converge's own `flushSync` and one flush does both jobs.
+  - the **change slot** — [[install!]]'s converging handler, wrapped.
+    Composing, the live draft is held and the converge inside has
+    already declined to run; not composing, the shadow is released, and
+    releasing *before* the inner handler means the release renders
+    inside the converge's own `flushSync` — one flush, both jobs.
   - **`onCompositionEnd`** — release, then converge once against the
-    then-current model. This is where a refusal lands, whole and
-    visible, on a field whose model would have destroyed the exchange
-    to say so.
+    then-current model, which is why the converge is the one thing here
+    that runs after the author (their handler may move the model, and
+    the model this converges against is the one it leaves behind). This
+    is where a refusal lands, whole and visible, on a field whose model
+    would have destroyed the exchange to say so.
   - **`onBlur`** — release, and nothing else. A blurred field has no
     caret worth restoring; the release alone re-renders the model's
     value and React's own commit writes it.
@@ -504,22 +515,21 @@
     (unchecked-set out slot
                    (fn hicasso-composition-shadow [e]
                      (if (composing-input? e)
-                       (do (inner e)
-                           (set-shadow (some-> (.-target e) (.-value))))
-                       (do (release!)
-                           (inner e)))
+                       (set-shadow (some-> (.-target e) (.-value)))
+                       (release!))
+                     (inner e)
                      nil))
     (unchecked-set out "onCompositionEnd"
                    (fn hicasso-composition-end [e]
-                     (when (fn? ended) (ended e))
                      (release!)
+                     (when (fn? ended) (ended e))
                      (when-some [node (.-target e)]
                        (converge! node))
                      nil))
     (unchecked-set out "onBlur"
                    (fn hicasso-composition-release [e]
-                     (when (fn? blurred) (blurred e))
                      (release!)
+                     (when (fn? blurred) (blurred e))
                      nil))
     out))
 
