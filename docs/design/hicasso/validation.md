@@ -545,11 +545,24 @@ comparison this section schedules was originally written as
 | K2 | Bulk (≥ ~100 boundaries, one commit) > 1.5× Reagent view work after those iterations |
 | K3 | Per-boundary heap worse than Reagent with no paper path to the floor |
 | K4 | Controlled text fails same-tick echo / IME on Chromium and WebKit for a simple form |
-| K5 | > ~8 public concepts or > ~8 guide pages to ship CRUD |
 | K6 | A compiler/analyzer/dual mode is required to meet K1–K3 |
 | K7 | Six weeks (HD-014) with no path that is both preferable and ≤ Reagent on K1–K2 |
 
 Red gates shrink scope; they never expand features.
+
+**K5 was removed as an operative kill criterion — operator ruling, 2026-08-04.**
+Its row read, verbatim: `> ~8 public concepts or > ~8 guide pages to ship CRUD`.
+It was the ergonomics kill — the one criterion that could stop the programme for
+costing too many concepts or too much guide — and it no longer bites. **No
+criterion replaces it.** **K6 and K7 keep their identifiers**: the row is gone
+and nothing is renumbered, so every citation of K6 or K7 elsewhere in the tree
+still resolves.
+
+K5 is still argued *from* in several places — the HD-022 … HD-026 rationales in
+[decisions.md](decisions.md), item 4 of [charter.md](charter.md), and two
+comments in the Wave-1 bench sources. Those are historical: they record why a
+shape was chosen while the criterion stood. They are left intact, and they are
+read against this note.
 
 ## Timing (HD-015)
 

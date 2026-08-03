@@ -43,7 +43,9 @@
   headless test can supply it with no clock.
 
   The consequence worth recording: `presence-phase` has no Hicasso
-  equivalent. One fewer public concept against K5.
+  equivalent. One fewer public concept against K5. (K5 — the ergonomics
+  kill criterion — was removed by operator ruling on 2026-08-04; this
+  records the reason the shape was chosen, not a live gate.)
 
   ## Why the predecessor's rejection does not apply
 

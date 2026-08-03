@@ -125,7 +125,9 @@
 
   Both are attribute *keys*, not forms — so the merge survives into a
   structural test and into tooling, and neither adds a public concept in
-  the K5 sense.
+  the K5 sense. (K5 — the ergonomics kill criterion — was removed by
+  operator ruling on 2026-08-04; this records the reason the shape was
+  chosen, not a live gate.)
 
   ## One canonical slot, and every rule asks it
 
