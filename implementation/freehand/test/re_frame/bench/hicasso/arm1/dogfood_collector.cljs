@@ -11,12 +11,14 @@
   tournament can write that.
 
   The state layer is the shared front half's
-  (`re-frame.bench.hicasso.front.dogfood`) and the intents are its
-  `row-intents` / `new-item-intents`, so the three renderings cannot
-  drift on events while claiming to differ only on the view. What differs
-  between the three files is the reading surface and nothing else; the
-  DOM AND the dispatched intents are asserted identical by
-  `arm1_dogfood_dom_cljs_test`.
+  (`re-frame.bench.hicasso.front.dogfood`) — one app-db shape, one event
+  set, one subscription set under every rendering. **The intents are
+  not shared**: each rendering writes its own event positions in its own
+  spelling, because that is precisely what the preference case asks the
+  authors to compare, and a hoisted helper both hid this file's authoring
+  from the count and could not catch a correct vector wired to the wrong
+  position. Agreement on the events is proved instead — DOM parity AND
+  dispatched-intent parity, by `arm1_dogfood_dom_cljs_test`.
 
   ## The landed-surface audit (rf2-2rtt6.67)
 
@@ -45,14 +47,17 @@
      [:h1.title "todos"]
      [:span.remaining {:data-remaining remaining} (str remaining " left")]]))
 
-(defview new-item [_]
-  (let [{:keys [on-input on-submit on-key-down]} (d/new-item-intents)]
-    [:form.new {:on-submit on-submit}
-     [:input.new-input {:type      "text"
-                        :value     (sub [:dogfood/draft d/new-draft-key])
-                        :on-input  on-input
-                        :on-key-down on-key-down}]
-     [:button.add {:type "submit"} "Add"]]))
+(defview new-item
+  "The submit intent carries no `::h/prevent` head, so it takes the
+  position's census-weighted default."
+  [_]
+  [:form.new {:on-submit [:dogfood/create]}
+   [:input.new-input {:type        "text"
+                      :value       (sub [:dogfood/draft d/new-draft-key])
+                      :on-input    [:dogfood/edit-draft d/new-draft-key :re-frame.hicasso/value]
+                      :on-key-down {"Enter"  [:dogfood/create]
+                                    "Escape" [:dogfood/cancel d/new-draft-key]}}]
+   [:button.add {:type "submit"} "Add"]])
 
 (defn- filter-button
   "A plain function call — it inlines into the enclosing boundary and
@@ -73,18 +78,17 @@
    (filter-button :done "Done")])
 
 (defview row [{:keys [id]}]
-  (let [todo (sub [:dogfood/todo id])
-        {:keys [on-click-toggle on-click-remove on-input-title on-key-down]}
-        (d/row-intents id)]
+  (let [todo (sub [:dogfood/todo id])]
     [:li.row {:data-id id :data-done (str (boolean (:done? todo)))}
-     [:button.toggle {:type "button" :on-click on-click-toggle} "✓"]
+     [:button.toggle {:type "button" :on-click [:dogfood/toggle id]} "✓"]
      [:span.label (:title todo)]
      (when-not (:done? todo)
        [:input.draft {:type        "text"
                       :value       (sub [:dogfood/draft id])
-                      :on-input    on-input-title
-                      :on-key-down on-key-down}])
-     [:button.remove {:type "button" :on-click on-click-remove} "x"]]))
+                      :on-input    [:dogfood/edit-draft id :re-frame.hicasso/value]
+                      :on-key-down {"Enter"  [:dogfood/commit id]
+                                    "Escape" [:dogfood/cancel id]}}])
+     [:button.remove {:type "button" :on-click [:dogfood/remove id]} "x"]]))
 
 (defview todo-list [_]
   [:ul.list {:role "list"}

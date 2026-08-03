@@ -570,11 +570,20 @@ consumes a value it was handed. On this screen that is a one-line difference; on
 a screen where the loop's body decides *which* query it needs, it is a
 restructuring.
 
-**The event position.** Both Hicasso renderings hand the shared
-`front.dogfood/row-intents` vectors straight to the props map. The raw UIx
-rendering writes seven closures, each reaching into the event for `.-value` and
-each re-implementing the IME composition gate. Every one of them is a place the
-wrong event id can be written with nothing to notice.
+**The event position.** Both Hicasso renderings write intent vectors straight
+into the props map. The raw UIx rendering writes seven closures, each reaching
+into the event for `.-value` and each re-implementing the IME composition gate.
+Every one of them is a place the wrong event id can be written with nothing to
+notice.
+
+> Amended 2026-08-03 (`rf2-2rtt6.67`): when this page was written the two
+> Hicasso renderings took those vectors from a shared `front.dogfood/row-intents`
+> helper. That helper is gone — it was Hicasso authoring hoisted into a file
+> named shared, which kept thirteen lines of one surface out of the preference
+> case's line count. Each rendering now writes its own event positions, and the
+> agreement the helper used to guarantee by construction is proved by
+> observation instead. The comparison above is unchanged; only where the vectors
+> are written has moved.
 
 ### The preference
 
