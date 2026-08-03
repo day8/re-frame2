@@ -27,12 +27,36 @@ did not have: an intent-parity witness and the authoring counted.
 | | |
 |---|---|
 | **Bead** | `rf2-2rtt6.67` (parent `rf2-2rtt6`) |
-| **Branch** | `worker/dogfood-pref` |
+| **Branch** | `worker/dogfood-2rtt6-67` (first cut: `worker/dogfood-pref`, PR #7395) |
 | **The two renderings** | `implementation/freehand/test/re_frame/bench/hicasso/arm1/dogfood_collector.cljs` (Hicasso, the ruled Surface B) · `implementation/freehand/test/re_frame/bench/hicasso/arm1/dogfood_uix.cljs` (raw UIx, the control) |
-| **The shared state layer** | `implementation/freehand/test/re_frame/bench/hicasso/front/dogfood.cljs` — one app-db shape, one event set, one subscription set under both renderings, so the comparison is about the view layer and nothing else |
-| **The witness** | `implementation/freehand/test/re_frame/bench/hicasso/arm1/dogfood_dom_cljs_test.cljs` — canonical-DOM parity at mount, intent parity through a 12-step interaction script, DOM parity again after the script |
+| **The shared state layer** | `implementation/freehand/test/re_frame/bench/hicasso/front/dogfood.cljs` — one app-db shape, one event set, one subscription set under both renderings. **Nothing else is shared**: each rendering writes its own event positions, so no part of either view layer sits outside the counts below |
+| **The witness** | `implementation/freehand/test/re_frame/bench/hicasso/arm1/dogfood_dom_cljs_test.cljs` — canonical-DOM parity at mount, intent parity through a 17-step interaction script covering every handler site on the screen, DOM parity again after the script |
 | **Reproduction** | `cd implementation && npm run test:cljs` (node half; DOM claims degrade to stated skips) and `npm run test:browser` (the real-DOM half) |
 | **Line counts** | taken on this branch's files by counting non-blank, non-comment, non-docstring lines per top-level form; the arithmetic is restated in §3 so a reader can re-take it |
+
+### What the audit of the first cut changed
+
+PR #7395 landed the first cut of this page and the reopening audit found three
+defects in it. All three are corrected here, and they are recorded rather than
+quietly fixed because **this page's only value is that its numbers and claims
+can be trusted**:
+
+1. **The script was smaller than the claim.** It drove five of the screen's
+   eight handler sites while §2 published equivalence over all of them. It now
+   drives all eight and both branches of both key-maps, with a site-by-step
+   coverage map in the witness (§2).
+2. **"Cannot express" was too strong.** Raw UIx *can* have a conditional read
+   and a helper-donated read; each costs a stated structural price rather than
+   being impossible. §3.4 and §4 now price them instead of forbidding them.
+3. **The line counts were asymmetric.** Thirteen lines of Hicasso authoring —
+   the `row-intents` / `new-item-intents` helpers — sat in the *shared* state
+   file and so were excluded from the collector's total, while raw UIx's
+   equivalent authoring was counted in full. The helpers are gone; each
+   rendering now writes its own event positions and every line of both view
+   layers is counted (§3.1).
+
+The third correction moved the headline number **in Hicasso's favour, which is
+exactly why it deserves suspicion and gets its arithmetic shown twice** (§3.1).
 
 ## 1. The two renderings, brought current first
 
@@ -54,6 +78,13 @@ absence rather than a pass**: the dogfood screen exercises the tier-1 core
 (reads, intents, a controlled field, a keyed list) and does not touch the
 escape hatches, which is what the census predicted a spine screen would look
 like.
+
+That statement is about the landed *spellings*, and it still holds. The
+collector file did change after the audit, for an unrelated reason: its intent
+vectors moved out of the shared state file and into the event positions where
+they are written (§3.1). No spelling changed — the same vectors are at the same
+positions — and the DOM and intent witnesses both hold across the move, which
+is the point of having them.
 
 **The raw-UIx rendering needed two changes to be the control it claims to
 be**, and one of them is itself a finding:
@@ -93,30 +124,54 @@ equivalence is asserted on both halves of "behave":
 - **Elements.** All renderings build the identical canonical DOM (attribute
   names sorted) at mount, with a control proving the comparison can answer
   false (`the-three-renderings-build-the-same-page`).
-- **Intents.** One 12-step interaction script — a toggle click, the filter
-  there and back, typing into the new-item field, two composing Enters, a
-  real Enter, typing into a row draft, an Escape, a remove click, typing
-  again, and a real form submission through the submit button — is driven at
-  each rendering through real DOM events (a real `click`, a
-  prototype-setter keystroke plus `input`, a real `keydown` with the
-  composition signals on the native event). The frame's processed events are
-  captured at the substrate's own `:events` listener stream (Spec 009 — the
-  public observation port, so the witness holds no hook into either
-  rendering), and **both captures are asserted equal to the script's stated
-  expectation** — ten named intent vectors, in order, with the two composing
-  keystrokes expected to dispatch nothing. Stating the expectation rather
-  than only comparing the two captures is what lets the gate answer false
-  against a drift both renderings share. After the script, the two pages are
-  asserted canonically identical **again**, so parity is known to hold
-  through the interactions and not only at mount.
+- **Intents.** One 17-step interaction script is driven at each rendering
+  through real DOM events (a real `click`, a prototype-setter keystroke plus
+  `input`, a real `keydown` with the composition signals on the native
+  event). The frame's processed events are captured at the substrate's own
+  `:events` listener stream (Spec 009 — the public observation port, so the
+  witness holds no hook into either rendering), and **both captures are
+  asserted equal to the script's stated expectation** — fifteen named intent
+  vectors, in order, with two composing keystrokes expected to dispatch
+  nothing. Stating the expectation rather than only comparing the two
+  captures is what lets the gate answer false against a drift both
+  renderings share. After the script, the two pages are asserted canonically
+  identical **again**, so parity is known to hold through the interactions
+  and not only at mount.
   (`the-two-live-renderings-dispatch-the-same-intents-on-the-same-interactions`.)
 
-The mutation rows for the intent witness are in the PR's quality-gates
-section: making the raw-UIx rendering's Escape dispatch a commit instead of a
-cancel reds the witness naming the drifted rendering, and restoring the
-synthetic-event `isComposing` read reds it on the composing probe — then both
-green on restore. A witness that has never been watched failing is a claim,
-not a gate.
+**The script is the same size as the claim.** The first cut drove five of the
+eight handler sites, which made an equivalence published over all eight larger
+than its evidence. Every site, and both branches of both key-maps, is now
+driven:
+
+| Handler site | Driven by | Intent |
+|---|---|---|
+| toggle click | step 1 | `[:dogfood/toggle 1]` |
+| filter click | steps 2, 3, 4 | all three filters, so no branch of `visible-ids` is left untaken |
+| new-item `:on-input` | steps 5, 9, 16 | `[:dogfood/edit-draft ::new …]` |
+| new-item keys — composing | steps 6, 7 | *silence* (modern `isComposing` and legacy keyCode 229) |
+| new-item keys — Escape | step 8 | `[:dogfood/cancel ::new]` |
+| new-item keys — Enter | step 10 | `[:dogfood/create]` |
+| row `:on-input` | steps 11, 13 | `[:dogfood/edit-draft id …]` |
+| row keys — Escape | step 12 | `[:dogfood/cancel 0]` |
+| row keys — Enter | step 14 | `[:dogfood/commit 3]` |
+| remove click | step 15 | `[:dogfood/remove 2]` |
+| form submit | step 17 | `[:dogfood/create]` |
+
+`:dogfood/move` is the one event with no affordance in the markup, so it is
+correctly absent rather than missing. Two of the additions are load-bearing
+beyond their own coverage: the new-item Escape at step 8 clears the draft, so
+step 9's retype starts from empty — if the Escape silently did nothing the
+capture would read `"milkmilk"` and the gate would say so.
+
+The mutation rows are in the PR's quality-gates section, and both perturb
+branches the first cut never drove. The sharper of the two changes the raw-UIx
+active-filter click to dispatch `:done`, chosen because step 4 immediately sets
+`:all` and **the final DOM is therefore identical**: the run exits 1 with
+exactly one failure, the raw-UIx intent row, while DOM parity passes. That is
+the intent half earning its place — it catches a divergence the elements half
+structurally cannot see. A witness that has never been watched failing is a
+claim, not a gate.
 
 ## 3. The authoring, measured
 
@@ -133,32 +188,53 @@ total because the collector's equivalent lives in the shared mount door
 (`arm1/mount.cljs`) — including it would charge UIx for plumbing both sides
 need; stated, so a reader can put it back.
 
+**The scope rule, which the first cut got wrong.** Every line of view-layer
+authoring counts against the rendering that needs it, wherever the file
+happens to sit. The first cut kept the collector's intent vectors in
+`row-intents` / `new-item-intents` inside the *shared* state file and counted
+neither — thirteen lines of one surface's authoring outside the comparison,
+against a control whose equivalent authoring was counted in full. The helpers
+are deleted and both renderings now write their own event positions, so the
+rule and the arithmetic agree.
+
 | Form | Collector | Raw UIx |
 |---|---:|---:|
 | `head` | 5 | 5 |
 | `new-item` | 8 | 15 |
 | `filter-button` | 7 | 6 |
 | `filters` | 5 | 7 |
-| `row` | 13 | 20 |
+| `row` | 12 | 20 |
 | `todo-list` | 4 | 5 |
 | `screen` | 6 | 6 |
 | `ime-gated` (UIx only) | — | 8 |
-| **Total** | **48** | **72** |
+| **Total** | **47** | **72** |
 
-48 against 72 is exactly a 1.5× ratio, and it is worth saying immediately
-that **line count on its own would not decide anything** — the
-three-rendering judgement said the same when collector and grouped came
-within a handful of lines of each other. What the per-form column shows is
-*where* the difference lives: the two forms with a controlled input plus a
-key law (`new-item`, `row`) carry almost all of it, and `ime-gated` is pure
-apparatus with no collector counterpart. The chrome forms (`head`,
-`screen`, `todo-list`, `filters`) are within a line or two either way —
-markup is markup on both sides.
+**Why the collector's total went down when thirteen hidden lines were brought
+back in.** This is the one number on the page a sceptical reader should push
+on, so the arithmetic is shown rather than asserted. The first cut's 48 was
+the collector's forms *plus* a `let` in each of `new-item` and `row` that
+destructured four or three keys out of a helper call. Inlining the vectors
+deleted that ceremony: `new-item` absorbed six lines of helper and lost the
+two-line destructuring `let`, landing back at 8; `row` absorbed seven and lost
+a three-line destructure, going 13 → 12. The thirteen helper lines were, in
+other words, *more* than the authoring they were hiding — the indirection cost
+lines to save lines. 48 → 47, with nothing outside the count.
+
+47 against 72 is a 1.53× ratio, and it is worth saying immediately that
+**line count on its own would not decide anything** — the three-rendering
+judgement said the same when collector and grouped came within a handful of
+lines of each other. What the per-form column shows is *where* the difference
+lives: the two forms with a controlled input plus a key law (`new-item`,
+`row`) carry almost all of it, and `ime-gated` is pure apparatus with no
+collector counterpart. The chrome forms (`head`, `screen`, `todo-list`,
+`filters`) are within a line or two either way — markup is markup on both
+sides.
 
 ### 3.2 Event positions: eight sites of data against eight closures
 
 The screen has eight distinct handler sites (submit, new-item change,
-new-item keys, filter click, toggle, draft change, draft keys, remove).
+new-item keys, filter click, toggle, draft change, draft keys, remove) — the
+same eight the intent witness drives end to end (§2).
 
 - **Collector:** all eight carry **data** — six intent vectors and two
   key-maps. Zero hand-written closures, zero `preventDefault` calls, zero
@@ -181,8 +257,16 @@ affords, with no further concept — see §4.
 
 - **Raw UIx** threads `current` and `dispatch` into `filter-button` (two
   extra parameters, three call sites), and destructures `dispatch` from
-  `use-frame` in three components — a hook may not run inside a plain
-  helper, so a helper consumes what its caller reads. This is the same
+  `use-frame` in three components — a hook may not run inside a *plain*
+  helper, so a helper consumes what its caller reads. It *may* run inside
+  another hook: `use-filter-button-props` would be legal here, since
+  `filters` calls it three times unconditionally, and that route removes the
+  threading. Its price is that the helper stops being a plain function — it
+  joins the caller's hook set and inherits the call-site discipline
+  (unconditional, fixed count, never in a variable-length loop), so the
+  author trades a threaded argument for a contract on every future call
+  site. The comparison is threading-or-a-hook-contract against neither, not
+  threading against nothing. This is the same
   shape, at screen scale, as the roster port's finding at real-app scale:
   the census threads `current-user` into every comment card because a
   hook-shaped read must sit at a fixed site, and the collector port deleted
@@ -193,7 +277,7 @@ affords, with no further concept — see §4.
   (HD-016). `dispatch` appears nowhere in the file — intents are data, and
   the runtime owns delivery.
 
-### 3.4 Reads: conditional against unconditional
+### 3.4 Reads: where they may be written
 
 The collector's `row` reads the draft **only when the row is editable** — a
 completed row holds one edge, an editable row two, and the page-level
@@ -204,6 +288,27 @@ because a hook may not sit inside a `when`; its cost scales in hooks — the
 dispatcher-level ledger (`arm1_hook_ledger_dom_cljs_test`) counts the whole
 Hicasso shell at two hooks whatever the read count, against a per-read hook
 count on the UIx spine that rises with every `use-subscribe`.
+
+**This is a placement cost, not an inexpressible one, and the first cut of
+this page overstated it.** A UIx author who wants the conditional read has
+it: lift the editable input into its own `defui` and render *that*
+conditionally, and the hook is unconditional inside it. What the rules of
+hooks actually forbid is the read *at that spot* — the value is always
+obtainable at the price of a component boundary, with its own element, fiber
+and reconciliation. Two things keep this from dissolving the finding:
+
+- **The price is charged per branch, not once.** Every conditional read is a
+  component, and the boundary is a design decision the author must now make
+  and name, where the collector's `when` is a `when`.
+- **One case has no route at all.** A hook may not run inside a
+  variable-length `for`, so `todo-list`'s per-row read cannot be a hook in the
+  loop under any spelling — it must be the row component, which is why both
+  renderings have one. That constraint is real and is the shape the charter's
+  Surface B ruling was about.
+
+Hicasso is charged symmetrically for the same trade: the grouped rendering's
+own file prices "a conditional *child boundary* owning the draft — buys the
+edge back and costs a second `defview`".
 
 The honest converse is in §4: a static hook set never changes identity, so
 raw UIx never pays a re-subscribe on a branch flip, where a collector
@@ -221,7 +326,7 @@ props; the shared state layer is identical on both sides and excluded):
 |---|---|---|
 | **Forms used** | `defview`, `sub`, intent vectors at event positions, the `::h/value` marker, the data key-map | `defui`, `$`, `use-subscribe`, `use-frame`, `frame-provider` |
 | **Count** | 5 | 5 |
-| **Hand-carried responsibilities** | none on this screen | `preventDefault` on submit; event-object interop; the IME composition law *including* the native-event trap; the hooks discipline (no read in a `when`, a `for`, or a helper — so threading instead) |
+| **Hand-carried responsibilities** | none on this screen | `preventDefault` on submit; event-object interop; the IME composition law *including* the native-event trap; the hooks discipline — a read in a `when`, a `for` or a plain helper must become a component boundary or a custom hook (§3.3, §3.4), or the value gets threaded instead |
 | **Escape hatches needed** | none — `h/fn`, `:&`, `::h/prevent`, `::h/navigate`, presence all unused (§1) | none — the event object is already in hand |
 
 The form counts tie at five, and that is an honest tie — Hicasso does not
@@ -322,9 +427,10 @@ controlled field, a filter — which of these two files do you want to write,
 read and maintain?** The evidence on the table:
 
 - Both files are proved to be the same screen — same canonical DOM at mount
-  and after a 12-step script, same ten intents on the same interactions,
-  same silences on the composing keystrokes (§2).
-- The collector writes the screen in 48 lines to idiomatic UIx's 72, with
+  and after a 17-step script that touches every handler site on the screen,
+  same fifteen intents on the same interactions, same silences on the
+  composing keystrokes (§2).
+- The collector writes the screen in 47 lines to idiomatic UIx's 72, with
   the whole difference concentrated where events and reads live, not in the
   markup (§3.1); eight event positions carry data instead of eight
   hand-written closures (§3.2); nothing is threaded (§3.3); a completed
@@ -337,6 +443,13 @@ read and maintain?** The evidence on the table:
   concept count (§3.5) and imports (§3.6). Since HD-028 it no longer ties
   on the bail-out: Hicasso's is the default, UIx's is a per-component
   opt-in the author must know to reach for (§3.7).
+- **What the collector's advantage is not.** It is not that UIx cannot
+  express these reads. It can — a conditional read via a component
+  boundary, a helper-donated read via a custom hook (§3.3, §3.4). The claim
+  that survives is narrower and should be judged as such: on this screen
+  those routes cost a boundary or a call-site contract that the collector
+  does not charge, and one case — a read inside a variable-length `for` —
+  has no hook-shaped route at all.
 - Neither side needed an escape hatch: the four collapsed spellings stayed
   unused here exactly as they did on the spine shapes (§1), so the
   comparison is between each surface's *core*, which is the comparison the

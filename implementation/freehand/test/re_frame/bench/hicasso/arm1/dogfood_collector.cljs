@@ -47,10 +47,7 @@
      [:h1.title "todos"]
      [:span.remaining {:data-remaining remaining} (str remaining " left")]]))
 
-(defview new-item
-  "The submit intent carries no `::h/prevent` head, so it takes the
-  position's census-weighted default."
-  [_]
+(defview new-item [_]
   [:form.new {:on-submit [:dogfood/create]}
    [:input.new-input {:type        "text"
                       :value       (sub [:dogfood/draft d/new-draft-key])
