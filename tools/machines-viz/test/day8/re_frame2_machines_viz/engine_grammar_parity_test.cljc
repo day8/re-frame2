@@ -420,13 +420,32 @@
 ;; SEPARATELY in `definition-validation-documented-divergences` so a change
 ;; that accidentally aligns / diverges them is also caught.
 
-(defn- engine-accepts?
-  "True iff the runtime `validate-machine!` accepts `m` (no thrown error)."
-  [m]
-  (try (validation/validate-machine! m) true
-       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _e false)))
+(defn- engine-answer
+  "The runtime `validate-machine!`'s answer for `m`, on a THREE-valued scale:
 
-(defn- viz-accepts? [m] (nil? (g/definition-defect m)))
+    :accept      — no error;
+    :reject      — the documented structured rejection (an `ex-info` carrying
+                   an `:rf.error/id`);
+    :host-throw  — anything else. A cast that failed, a protocol miss, a
+                   `toString` that refused. Neither answer, and not a thing
+                   either side is permitted to do.
+
+  The two-valued probe this replaced could not express that third outcome, and
+  on CLJS actively HID it: its `(catch :default … false)` recorded a host crash
+  as a clean `:reject`, so a definition that made the engine explode looked
+  exactly like one it had validated and rejected (rf2-dhl4d)."
+  [m]
+  (try (validation/validate-machine! m) :accept
+       (catch #?(:clj Throwable :cljs :default) t
+         (if (:rf.error/id (ex-data t)) :reject :host-throw))))
+
+(defn- viz-answer
+  "`grammar/definition-defect`'s answer for `m`, on the same three-valued
+  scale. The viz reports a defect by RETURNING one rather than throwing, so any
+  throw at all is a `:host-throw`."
+  [m]
+  (try (if (nil? (g/definition-defect m)) :accept :reject)
+       (catch #?(:clj Throwable :cljs :default) _t :host-throw)))
 
 (def ^:private validation-parity-corpus
   "Representative definitions spanning the SHARED structural grammar — both the
@@ -471,36 +490,66 @@
    :par-nested       {:type :parallel :regions {:r {:initial :a :states {:a {:type :parallel :regions {:x {:initial :y :states {:y {}}}}}}}}}
    :par-no-init      {:type :parallel :regions {:r {:states {:a {}}}}}
    :par-mutex        {:type :parallel :initial :a :regions {:r {:initial :a :states {:a {}}}}}
-   :par-empty        {:type :parallel :regions {}}})
+   :par-empty        {:type :parallel :regions {}}
+   ;; ---- non-Named KEYS (rf2-dhl4d / rf2-oztox) ----
+   ;;
+   ;; Every entry above spells its keys as keywords, so until now the corpus
+   ;; could not see either side's treatment of a key that is not `Named` —
+   ;; and both sides had the same defect there, a bare `(namespace k)` that
+   ;; THREW rather than rejecting. The ratchet exists to stop the two drifting
+   ;; and it could not fail on the one axis they were both wrong about. A
+   ;; definition merged from config, decoded from transit, or read off a share
+   ;; URL carries a string key as readily as a hand-written map carries a
+   ;; keyword, so this is corpus, not exotica. Both sides must REJECT.
+   :root-string-key  {:initial :a :states {:a {}} "x" 1}
+   :root-number-key  {:initial :a :states {:a {}} 7 1}
+   :node-string-key  {:initial :a :states {:a {"x" 1}}}
+   :node-vector-key  {:initial :a :states {:a {[1 2] 1}}}
+   :nested-string-key {:initial :o :states {:o {:initial :i :states {:i {"x" 1}}}}}})
 
 (deftest definition-validation-parity
   (testing "the viz recursive validator accepts/rejects EXACTLY what the engine
             validate-machine! does across the shared structural grammar"
     (doseq [[label m] validation-parity-corpus]
-      (is (= (engine-accepts? m) (viz-accepts? m))
+      (is (= (engine-answer m) (viz-answer m))
           (str label ": viz validator drifted from the engine "
-               "(engine-accepts? " (engine-accepts? m)
-               ", viz-accepts? " (viz-accepts? m) ")")))))
+               "(engine " (engine-answer m) ", viz " (viz-answer m) ")")))))
+
+;; Agreement alone is not the contract — two validators that BOTH explode on
+;; the same input agree, and `definition-validation-parity` passes them. That
+;; is not a hypothetical: a bare `(namespace k)` on a non-`Named` key threw on
+;; both sides at once, which is precisely why the divergence hid (rf2-dhl4d).
+;; Neither side may answer `:host-throw` for anything in the corpus.
+
+(deftest definition-validation-is-total
+  (testing "neither validator answers a corpus definition with a host throw"
+    (doseq [[label m] validation-parity-corpus]
+      (is (not= :host-throw (engine-answer m))
+          (str label ": the ENGINE threw a host exception where a structured "
+               ":rf.error/machine-* rejection was the contract"))
+      (is (not= :host-throw (viz-answer m))
+          (str label ": the VIZ threw a host exception where a returned defect "
+               "was the contract")))))
 
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
             rejects a dangling guard ref (runtime wiring); the viz accepts it
             (projectable topology, no registry to resolve against)"
     (let [m {:initial :a :states {:a {:on {:go {:target :b :guard :missing?}}} :b {}}}]
-      (is (false? (engine-accepts? m)) "engine rejects the dangling guard ref")
-      (is (true?  (viz-accepts? m))    "the viz projects it — refs are runtime wiring, not topology")))
+      (is (= :reject (engine-answer m)) "engine rejects the dangling guard ref")
+      (is (= :accept (viz-answer m))    "the viz projects it — refs are runtime wiring, not topology")))
 
   (testing "a NON-parallel root :after is a DIVERGENCE — the engine rejects it
             (unschedulable at registration); the viz projects it as a
             machine-root anchor"
     (let [m {:initial :a :after {1000 :b} :states {:a {} :b {}}}]
-      (is (false? (engine-accepts? m)) "engine rejects a flat-root :after")
-      (is (true?  (viz-accepts? m))    "the viz projects it as a root anchor")))
+      (is (= :reject (engine-answer m)) "engine rejects a flat-root :after")
+      (is (= :accept (viz-answer m))    "the viz projects it as a root anchor")))
 
   (testing "viz-STRICTER root shape is a DIVERGENCE — the engine resolves a
             missing / late root :initial lazily at runtime; the viz REQUIRES a
             keyword root :initial + non-empty :states to have an initial-marker
             to project"
     (let [m {:states {:idle {}}}]
-      (is (true?  (engine-accepts? m)) "engine accepts a flat machine with no root :initial")
-      (is (false? (viz-accepts? m))    "the viz rejects it (no initial to project)"))))
+      (is (= :accept (engine-answer m)) "engine accepts a flat machine with no root :initial")
+      (is (= :reject (viz-answer m))    "the viz rejects it (no initial to project)"))))
