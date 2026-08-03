@@ -2276,7 +2276,7 @@
 ;; that no caller may rely on.
 ;;
 ;; AND THE BROWSER SUITE IS NOT THE WITNESS FOR IT (rf2-2rtt6.71 implementation
-;; sweep). `assert-use-subscribe-public-mount-schedule-rebuilds` mounts through
+;; sweep). `assert-use-subscribe-browser-runner-schedule-rebuilds` mounts through
 ;; the adapter `:render` slot with no `act` and no `flushSync`, and it still
 ;; reads TWO builds at this horizon — because the gap that page puts between
 ;; the render and React's passive flush measures > 128 ms and <= 256 ms, two to
@@ -2284,8 +2284,10 @@
 ;; raising it to 256 ms, flips it; 0/8/16/32/64 do not, per-token arming does
 ;; not. So that row pins the DEFECT the `setTimeout 0` era had in every
 ;; environment, and it is NOT evidence about a consumer mount at this horizon
-;; in either direction. A witness on a representative page is owed; until it
-;; exists the ruling's own probe is the only measurement of the win.
+;; in either direction. The witness on a representative page now EXISTS —
+;; committed, one command, and gating nothing (rf2-2rtt6.80):
+;; `freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`, which
+;; measures its own page's gap before it will read an adoption integer.
 ;;
 ;; WHY NO MORE MACHINERY THAN A NUMBER. No new hook and no new public
 ;; mechanism hardens the margin, because Spec 006's "correctness MUST NOT
@@ -2412,11 +2414,28 @@
   interval, so no delay can be sized against a guarantee: 4 ms is the measured
   distance on React 19 today, and a future scheduling change can silently
   reintroduce the double build. The claim therefore stays narrow — one build on
-  the tested shipping schedule, with the two-build rebuild as the safe fallback
-  — and the standing tripwire is an ASSERTION rather than this paragraph:
-  `assert-use-subscribe-public-mount-schedule-rebuilds` pins `identical?` and
-  ONE construction on the public schedule, so React drifting reds the suite and
-  reopens the question with evidence.
+  the tested shipping schedule, with the two-build rebuild as the safe fallback.
+
+  AND THERE IS NO STANDING TRIPWIRE, deliberately (rf2-2rtt6.80). This
+  paragraph used to promise one and was wrong twice over.
+  `assert-use-subscribe-browser-runner-schedule-rebuilds` does not pin
+  `identical?` and ONE construction; it pins the opposite integers, because
+  that runner's render-to-passive-flush gap measures > 128 ms and no shippable
+  horizon reaches it. What that row holds is the RUNNER's schedule — enough for
+  the `setTimeout 0`-era defect, which was real in every environment, and not
+  enough to say anything about the adoption.
+
+  THE ADOPTION WITNESS IS A COMMITTED DIAGNOSTIC that nothing invokes on a
+  schedule:
+
+      node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs
+
+  It measures a quiet single-mount page's gap FIRST and refuses to read the
+  adoption integers at all unless that gap sits comfortably inside this
+  horizon. Run it whenever the `react` / `react-dom` / `playwright` pins or the
+  browser posture change — those pins are exact, so they are the only events
+  that can move this race. Why it does not gate, and why a self-gating timing
+  detector cannot be a stable one, is in that page's own docstring.
 
   This is a PERFORMANCE ordering, never a correctness one: an early drain
   costs a rebuild, nothing more (see the section comment).

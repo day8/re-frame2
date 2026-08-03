@@ -516,8 +516,8 @@
 ;; that `get-snap`'s escrow leg is nevertheless still reachable, because the
 ;; pre-commit consistency check runs in the render's own task, before any
 ;; macrotask can reap.
-(deftest use-subscribe-public-mount-schedule-rebuilds
-  (suite/assert-use-subscribe-public-mount-schedule-rebuilds cfg))
+(deftest use-subscribe-browser-runner-schedule-rebuilds
+  (suite/assert-use-subscribe-browser-runner-schedule-rebuilds cfg))
 
 (deftest use-subscribe-escrow-leg-answers-on-the-public-mount-schedule
   (suite/assert-use-subscribe-escrow-leg-answers-on-the-public-mount-schedule cfg))

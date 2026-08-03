@@ -5094,7 +5094,7 @@
 ;; hit, adopt, 2 → 1 — under a schedule that lets it run to completion, and by
 ;; itself it establishes nothing about the schedule a consumer mounts on.
 ;;
-;; THAT is what `assert-use-subscribe-public-mount-schedule-rebuilds` below is
+;; THAT is what `assert-use-subscribe-browser-runner-schedule-rebuilds` below is
 ;; for: the adapter render slot, bare `createRoot(…).render(…)`, no `act`. It
 ;; reads TWO builds, and it still does after rf2-2rtt6.71 moved the horizon to
 ;; `setTimeout 4` — not because the ruling failed, but because this test page's
@@ -5268,7 +5268,7 @@
 ;; guarantee, and nothing here should be read as a claim about a consumer
 ;; mount in either direction.
 
-(defn assert-use-subscribe-public-mount-schedule-rebuilds
+(defn assert-use-subscribe-browser-runner-schedule-rebuilds
   "rf2-2rtt6.25 (merged-PR audit of #7305): on THIS PAGE's mount schedule —
   `re-frame.substrate.adapter/render`, no `act`, no `flushSync` — the reaper
   releases the escrowed reference before React's passive
@@ -5289,8 +5289,10 @@
   milliseconds, which is exactly the trade rf2-2rtt6.71 declined.
 
   So: a red here means the runner's schedule changed, NOT that a consumer's
-  did. The consumer-schedule question needs a witness whose page is
-  representative — filed, not faked.
+  did. The consumer-schedule question is answered elsewhere, by a page whose
+  gap is representative and which measures that gap before it reads anything:
+  `freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`, an on-demand
+  diagnostic that gates nothing (rf2-2rtt6.80).
 
   Correctness is not at stake in either direction. Spec 006 §Render-phase
   provisional acquisition and commit adoption is explicit that correctness MUST
@@ -5694,7 +5696,7 @@
   abandoned render's disposed reaction was holding.
 
   This is the property that makes the lost race harmless, and it is the reason
-  `use-subscribe-public-mount-schedule-rebuilds` can assert a defect without
+  `use-subscribe-browser-runner-schedule-rebuilds` can assert a defect without
   asserting a bug: on the public schedule the reaper usually DOES win, so
   `reaped → rebuilt fresh` is the ordinary consumer path, not an edge case. If
   a reaped reaction could be handed to a later subscriber the retraction would
