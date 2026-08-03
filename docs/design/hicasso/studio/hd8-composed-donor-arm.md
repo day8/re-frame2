@@ -40,7 +40,10 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 > `rf2-2rtt6.1` — in [the re-take on the current
 > tree](#the-re-take-on-the-current-tree-rf2-2rtt631). The published deficit
 > against stock Reagent does not reproduce there, and the gated donor-vs-UIx
-> pairs sit at the amended 1.10× line, instrument-limited. The rows above stand
+> pairs sit at the amended 1.10× line, instrument-limited. **Five of the
+> re-take's six clock rows failed their positive control**, so every comparative
+> claim in that section names the rows it stands on, and only the
+> control-passing `reagent-U` row carries one on its own. The rows above stand
 > as measured, under their stamp; the re-taken rows are what a post-landing
 > candidate is judged against.
 
@@ -222,8 +225,8 @@ So the re-take is two measurements, deliberately separate:
 | **Witness stamp** | B/E/Q = 300/300/300 — 300 boundaries, one subscription edge each, 300 distinct query vectors; `M` 903 elements, `U` 301; `ctl-2x` doubles them |
 | **Quiet box** | 8 consecutive sub-30 % CPU samples verified immediately before **every** clock-of-record row; loud attempts refused and recorded (three were). Measurement windows (2026-08-02): uix 04:59:59–05:02:46 Z · reagent 05:02:46–05:05:02 Z · slim 05:05:02–05:07:41 Z; the sweep followed at ~05:08–05:13 Z on the box the last gate had just verified. The sibling implementation worker (`worker/burst-2rtt6-55`) held its browser gates out of these windows |
 | **Datasets** | `implementation/freehand/test/re_frame/bench/hicasso/data/hd8clock-2rtt6-31/{uix,reagent,slim}.json` — the reduced quantities every clock-of-record figure below recomputes from |
-| **Exit codes** | clock-of-record run `0`; sweep `0` — measured, guard clean, no refusal |
-| **Reproduce** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_clock_run.cjs` · `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` |
+| **Exit codes** | clock-of-record run ~~`0`~~; sweep `0` — as taken: measured, guard clean, no refusal. **The clock-of-record `0` is superseded — see the addendum below** |
+| **Reproduce** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_clock_run.cjs` · `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — **at the producing commit above**, whose drivers are the blobs in the table below. The first command's exit rule at `main`'s tip is not the one that produced the code beside it |
 
 Instrument blobs at the producing commit (they survive a rebase; they pin the
 files they name and nothing else):
@@ -236,6 +239,27 @@ files they name and nothing else):
 | `hd8_witnesses.cljs` | `8669cc71d1a2406af8aa3395fe5e9dec5b9ddc64` |
 | `lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
 | `spine.cljs` | `ad7b19d9d8957e7a1872e58f9b18ace8acdc4841` |
+
+> **Addendum, 2026-08-04 — the clock-of-record run's `0` no longer reproduces
+> (`rf2-2rtt6.31`).** The exit code above was true of the run that took these
+> rows, and it is kept rather than rewritten because it is what that instrument
+> reported. The instrument has since tightened. `rf2-rr6do` (PR #7450,
+> `2926049d5e`) moved this driver's exit decision into one pure exported
+> `verdict(summary)` and made three refusals it had only ever *printed* fail
+> closed — `3` unverified operations, `4` a breached band ceiling, **`5` a
+> positive control that missed its own prediction**. The old exit came off the
+> arm-order guard alone, which is why a run whose controls read the way these did
+> could exit `0`.
+>
+> Replaying that `verdict()` over the committed datasets — a re-derivation from
+> the published data, not a second draw, and no figure on this page moves —
+> returns **`5`**, naming `uix/M 1.6503`, `uix/U 1.5566`, `reagent/M 1.6868`,
+> `slim/M 1.5518` and `slim/U 1.7100`. Only `reagent/U` passes strict.
+> `unverified` is `0` and the band ceiling clean on all six rows, so the control
+> is the whole of the refusal. **A reader running the first reproduce command
+> today, on rows that behave as these did, gets `5` and not `0`** — and with it
+> the driver's own rule: *no magnitude from a failed-control row is reportable*.
+> Every comparative claim below therefore names the rows it stands on.
 
 ### The gated pairs on the clock of record
 
@@ -262,10 +286,20 @@ inside its row's band (5.4 – 27.2 %). Under the amendment's own clause a resul
 that cannot resolve the 1.10 boundary is instrument-limited, **not a pass** —
 and not a fail either: the donor mount cost over direct UIx sits **at** the
 line, means 1.086 – 1.139 across six independent row-runs. What *is* resolved:
-on the reagent run — both rows, including the one whose control passed strict
-and whose band is 5.4 % — both gated pairs sit **wholly above parity** with
-margins that clear the band, so the donor cost over UIx is a real ~10 – 13 %,
-not noise; on the uix and slim runs the same pairs straddle 1.0.
+on the reagent run both gated pairs sit **wholly above parity** with margins
+that clear the band, so the donor cost over UIx is a real ~10 – 13 %, not noise;
+on the uix and slim runs the same pairs straddle 1.0.
+
+**That reads off two rows of unequal standing, and the difference matters.**
+`reagent-U` is the row whose control passed strict, and its band is the tightest
+on the page at 5.4 %; its pairs read 1.1301 [1.0387 – 1.2275] and
+1.1316 [1.0158 – 1.2121], both ranges clear of 1.0. **It carries the finding on
+its own** — one row, one passing control, one band that resolves it, and it is
+the strongest thing on this page rather than one of six. `reagent-M` agrees in
+direction and in shape, but its control failed (1.6868× against a predicted
+2.00×), so under the driver's rule it corroborates and contributes no magnitude
+of its own. The four uix and slim rows, whose pairs straddle 1.0, failed the
+control too — a straddle is what they report, and it is not a magnitude.
 
 **The control, stated per its own record.** Mount rows carry `ctl-2x` and the
 plumb tare, and no changed-set control can reach a mount (`rf2-jcm3p`). The
@@ -274,7 +308,10 @@ inverting the doubling gives c = 0.48 – 2.96 ms across the six row-runs — an
 cannot certify exactness: the recorded mount undershoot (1.8173× over
 `rf2-emvod`'s seven runs) is exactly where these means sit (1.55 – 1.79). Five
 rows failed the *strict* rule on single blocks below 1.50; the reagent-U row
-passed it whole, and it is also the row with the tightest band.
+passed it whole, and it is also the row with the tightest band. **Under the
+instrument of record those five failures are a refusal rather than a footnote**
+— `verdict()` exits `5` on them and states the rule this section reads its rows
+by: *no magnitude from a failed-control row is reportable*.
 
 ### Co-instrumented beside the gate — and the published deficit does not reproduce
 
@@ -291,11 +328,21 @@ amendment's Reagent clause). Same blocks, same arithmetic:
 Every donor-vs-Reagent-path range **straddles 1.0**. The 1.333 – 1.473× (M) and
 1.448 – 1.542× (U) deficits against stock Reagent published above **do not
 reproduce on the current tree on the clock of record** — the donor rungs read
-indistinguishable from both Reagent paths. And on the control-passing reagent-U
-row, `uix / reagent` sits wholly below 1.0 with a 12.5 % margin against a 5.4 %
-band: on this witness family, on this clock, **direct UIx is now the faster
-donor**. The shell (`donor-r2 / donor-r1`) straddles 1.0 in all six row-runs
-(0.9957 – 1.0524) — rung 2 stays free, which re-confirms this page's finding.
+indistinguishable from both Reagent paths.
+
+**What that claim stands on: four rows, one of which passed its control.**
+`reagent-U` is that one, and on it `donor-r1 / reagent` reads 0.9880
+[0.8915 – 1.0737] and `donor-r2 / reagent` 0.9888 [0.8891 – 1.0349] — the
+non-reproduction stated on a row entitled to state it, since a straddle is a
+failure to resolve and not a magnitude. `reagent-M`, `slim-M` and `slim-U`
+straddle the same way and their controls failed, so they are agreement rather
+than evidence. And on the control-passing reagent-U row, `uix / reagent` sits
+wholly below 1.0 with a 12.5 % margin against a 5.4 % band: on this witness
+family, on this clock, **direct UIx is now the faster donor**. The shell
+(`donor-r2 / donor-r1`) straddles 1.0 in all six row-runs (0.9957 – 1.0524) —
+rung 2 stays free, which re-confirms this page's finding; five of those six
+carry a failed control, so what the six share is the straddle and reagent-U is
+the one that reaches it unaided.
 
 **Absolutes beside the ratios** (p50 raw `TaskDuration` ms per mount, M row,
 by run): floor 6.49 / 7.06 / 7.39 · uix 9.12 / 9.60 / 9.48 · donor-r1 9.96 /
