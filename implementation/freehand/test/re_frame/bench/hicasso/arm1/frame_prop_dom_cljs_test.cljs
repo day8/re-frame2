@@ -12,7 +12,7 @@
 
   **This file is the CORRECTNESS half only.** The bead's heap ladder, its
   mount/bulk clock and its studio row are measurement work on a quiet box
-  and are not taken here (rf2-2rtt6.71). What is settled here is what a
+  and are not taken here (rf2-2rtt6.72). What is settled here is what a
   measurement is not allowed to be taken without:
 
   1. **The hook count, at React's own dispatcher.** Never self-reported —
