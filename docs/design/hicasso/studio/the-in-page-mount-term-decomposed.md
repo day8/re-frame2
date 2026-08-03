@@ -270,6 +270,12 @@ within box drift (this box is demonstrably noisier — §8), and their sum,
 regressed since `rf2-6c237` landed its 0.49×, and nothing has improved
 either.
 
+*Both commit-half figures in that table predate `rf2-aqgr2` (`f7fd0c6a52`,
+2026-08-03 12:58), which stopped the runtime minting a `Keyword` per key
+cell — this run closed at 05:28 and `rf2-6c237`'s at 21:43 the night before.
+The comparison is therefore still like for like, but 0.827 and 0.7625 are
+both upper bounds on today's seam (rf2-gttif).*
+
 **(c) By counterfactual, on our own arm.** The decisive arm. `coarse` is the
 candidate's page reading **the twin's five coarse subscriptions** at five
 fixed sites, cards rendered from the collections — byte-identical DOM, five
