@@ -155,9 +155,9 @@ The attribute map is ordinary hiccup, with the conversions React wants done for
 you.
 
 ```clojure
-(defview title-field [_]
+(defview title-input [_]
   (let [invalid? (sub [:editor/title-invalid?])]
-    [:input.form-control#title
+    [:input#title.form-control
      {:type        :text
       :value       (sub [:editor/title])
       :placeholder "Article Title"
@@ -187,9 +187,11 @@ those, with `nil`s dropped and the rest joined by spaces — so the `(when …)`
 contributes nothing at all when it is false, and you never build a class string by
 hand.
 
-**The tag's `#id` and `.class` shorthand composes.** An explicit `:id` in the map
-wins over `#title`, and `.form-control` on the tag is joined with whatever `:class`
-brings rather than one of them silently replacing the other.
+**The tag's `#id` and `.class` shorthand composes** — and the id comes first, as it
+does in every hiccup dialect: `:input#title.form-control`, never
+`:input.form-control#title`. An explicit `:id` in the map wins over `#title`, and
+`.form-control` on the tag is joined with whatever `:class` brings rather than one
+of them silently replacing the other.
 
 **`:key` is not an attribute.** It is React's identity contract: it is read off the
 map, it never reaches your body, and it is not emitted as a prop.

@@ -1,10 +1,14 @@
 # Testing
 
-> **Draft ahead of the product artefact.** This page teaches the landed surface —
-> ruled in [decisions.md](../decisions.md) (HD-001…HD-028), witnessed by the bench
-> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
-> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
-> stay provisional until the API freeze.
+> **Draft ahead of the product artefact.** This page teaches the ruled surface —
+> [decisions.md](../decisions.md) (HD-001…HD-028) — and spellings marked
+> **[unfrozen]** stay provisional until the API freeze. **Read this page with one
+> extra caution.** The mounted door exists: the bench arm's suites under
+> `implementation/freehand/test/re_frame/bench/hicasso/` are it. **The headless
+> door is ruled and not built** — no structural render function exists anywhere in
+> the tree, and the one below is this guide's illustration of HD-021's semantics
+> rather than a call you can make today. What is real now is the property the door
+> rests on, and this page says which is which.
 
 There are two doors into a Hicasso view under test, and knowing which one you are
 allowed through is most of the skill.
@@ -19,11 +23,15 @@ says it in four words: **no fake hook dispatcher, ever.**
 ## The headless door
 
 A structural render returns the view's hiccup tree as data. No DOM, no React, no
-browser.
+browser. **Nothing implements this yet** — HD-021 rules the semantics and no
+function anywhere in the tree performs one, so read the block below as the shape
+that is ruled rather than a test you can write this afternoon:
 
 ```clojure
+;; SKETCH — h/render does not exist. HD-021's ruled semantics, spelled by
+;; this guide so the shape is visible.
 (deftest todo-row-renders-title
-  (let [tree (h/render [todo-row {:id 7}]                 ;; h/render is [unfrozen]
+  (let [tree (h/render [todo-row {:id 7}]
                        {:subs {[:todo/by-id 7]      {:title "Buy milk"}
                                [:todo.ui/editing? 7] false}})]
     (is (= [:li
@@ -33,13 +41,15 @@ browser.
            tree))))
 ```
 
-Two things are doing the work here.
+Two things would be doing the work there, and only one of them is waiting on the
+door.
 
 **Sub reads are overridable through a pure read resolver.** You hand the render a
 map of query vector to value, and the body reads from it. No frame, no app-db, no
 registration — just the values the view is a function of. `sub` is an ordinary
 call ([Views and reads](02-views-and-reads.md)), and the resolver answers it
-wherever the body makes it.
+wherever the body makes it. This half is entirely the door's, and it is the half
+that does not exist yet.
 
 **Intent vectors are assertable by equality.** `{:on-click [:todo/toggle 7]}` is
 data. You can `=` it. Compare that with the alternative — asserting that a node
@@ -135,7 +145,7 @@ these reads — and they are excellent at it precisely because that is all they 
 
 | Question | Status |
 |---|---|
-| The headless render function's name and signature | **Not addressed.** HD-021 pins the semantics — structural render as data, sub reads overridable — and names nothing. `h/render` and the `{:subs …}` option above are this guide's invention |
+| The headless render function's name and signature | **Not addressed, and not built.** HD-021 pins the semantics — structural render as data, sub reads overridable — and names nothing; nothing in the tree implements one. `h/render` and the `{:subs …}` option above are this guide's invention |
 | The read resolver's shape | **Not addressed.** "A pure read resolver" is the whole of the record; a map is the obvious form, and it is a guess |
 | The mounted facade's name and API | **Not addressed.** The bench arm's fixture is the only one that exists, it is not a product surface, and it already diverges from the description the record sketched it with — it flushes rather than using `act` |
 | Whether headless renders one boundary or a subtree | **Not addressed.** The example above renders one; whether child boundaries are rendered through or returned as unexpanded nodes is unstated, and it changes how every test is written |
