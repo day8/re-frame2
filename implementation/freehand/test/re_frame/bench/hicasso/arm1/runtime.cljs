@@ -1408,6 +1408,61 @@
     (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry) (.-snapshot entry))
     element))
 
+;; ---------------------------------------------------------------------------
+;; The frame-as-a-prop variant (rf2-2rtt6.39) — ONE hook
+;; ---------------------------------------------------------------------------
+;;
+;; A HYPOTHESIS UNDER MEASUREMENT, not the default. HD-020(b) spends the
+;; whole ≤2 budget on the subscription hook and the frame hook, so the
+;; shell has no slot left for anything v0 later needs. The frame does not
+;; obviously need a hook: it is ordinary data flowing down the tree, and
+;; the codec knows it at the moment it mints each boundary element
+;; ([[re-frame.bench.hicasso.front.codec/mark-frame-prop!]]). Threading it
+;; frees the slot; it costs one more entry in every boundary element's
+;; props map, on every render, which is an allocation on the other side of
+;; the ledger and is why this is priced rather than ruled.
+;;
+;; Both variants ship side by side deliberately: the heap and clock rows
+;; are only worth anything taken against the SAME witnesses in one run,
+;; and an incumbent that has been edited to make room for its challenger
+;; is not the incumbent.
+
+(def frame-prop-shell-hook-ledger
+  "The frame-fed shell's declared hook calls, in call order — ONE, where
+  [[shell-hook-ledger]] declares two. The dispatcher-level witness counts
+  against this the same way."
+  [:use-sync-external-store/subscription-epoch])
+
+(defn- resolve-frame-prop! [frame-kw]
+  (if (nil? frame-kw)
+    (fail! :rf.error/no-frame-prop
+           're-frame.bench.hicasso.arm1.runtime/frame-prop-shell
+           (str "A frame-fed Hicasso boundary rendered with no frame in its "
+                "props. Every boundary element below the root is minted by an "
+                "ancestor body, which carries the frame; the root and any "
+                "outward React bridge mint theirs outside a body and must name "
+                "it (`front.codec/root-element`, which `arm1.mount/render!` "
+                "calls).")
+           :mint-the-root-element-with-a-frame
+           {})
+    frame-kw))
+
+(defn frame-prop-shell
+  "The boundary shell with the frame taken from the element's props.
+  **One hook**, and it is the subscription hook — the frame arrives as
+  data, so there is nothing to consume a second slot.
+
+  Otherwise byte-for-byte [[shell]]'s shape: the body runs between the
+  read of the frame and the subscription hook, which is what lets the
+  hook close over the reads the body just made."
+  [body-fn js-props]
+  (let [frame-kw (resolve-frame-prop! (unchecked-get js-props "rfFrame"))
+        props    (or (unchecked-get js-props "rfProps") {})
+        element  (render-body frame-kw body-fn props)
+        ^js entry (.-entry rstate)]
+    (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry) (.-snapshot entry))
+    element))
+
 (defn mint-view!
   "Turn a body fn into a boundary: a React function component, marked as a
   legal hiccup head and given the codec's stable memo wrapper. Minted
@@ -1480,6 +1535,24 @@
   (let [component (fn hicasso-boundary [js-props] (shell body-fn js-props))]
     (unchecked-set component "displayName" view-name)
     (codec/memoize-boundary! (codec/mark-boundary! component))))
+
+(defn mint-frame-prop-view!
+  "[[mint-view!]]'s frame-fed twin (rf2-2rtt6.39): the same boundary, the
+  same memo wrapper, the same marking — plus the codec marker that makes
+  every element of this head carry `rfFrame`, and [[frame-prop-shell]] in
+  place of [[shell]].
+
+  Everything [[mint-view!]]'s docstring says about the bail-out holds
+  unchanged, with one addition it names there: the frame reaches this
+  boundary through PROPS rather than through context, so the comparator
+  compares it — see
+  [[re-frame.bench.hicasso.front.codec/boundary-props=]]."
+  [view-name body-fn]
+  (let [component (fn hicasso-frame-prop-boundary [js-props]
+                    (frame-prop-shell body-fn js-props))]
+    (unchecked-set component "displayName" view-name)
+    (codec/memoize-boundary!
+      (codec/mark-frame-prop! (codec/mark-boundary! component)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Retained inventory — honest accounting, not a claimed absence
