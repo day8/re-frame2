@@ -1,0 +1,13 @@
+{
+  "name": "re-frame2-lint",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Repo-root manifest for the JS lint gate ONLY (rf2-2rtt6.78). The CLJS build and test toolchain lives in implementation/package.json; nothing else belongs here. ESLint lints .cjs/.mjs/.js across implementation/, tools/, examples/, testbeds/, docs/ and scripts/, so its manifest sits at the root that owns all of them — the same place .clj-kondo/config.edn and .splint.edn sit for the Clojure trees.",
+  "devDependencies": {
+    "eslint": "10.8.0",
+    "globals": "17.9.0"
+  },
+  "scripts": {
+    "lint:js": "eslint ."
+  }
+}
