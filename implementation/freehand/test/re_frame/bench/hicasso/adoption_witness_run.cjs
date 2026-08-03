@@ -289,7 +289,6 @@ async function runPage(browser, horizonMs, ceilingMs) {
           `A measured margin on this Chromium today, never a React guarantee.`,
       );
       process.exit(0);
-    // eslint-disable-next-line no-fallthrough
     case 'REFUSED':
       console.error(
         `[${TAG}] REFUSED (exit 2) — this page could not bound its render-to-passive-flush ` +
@@ -299,7 +298,6 @@ async function runPage(browser, horizonMs, ceilingMs) {
           `flush — re-run on a quiet machine to tell them apart.`,
       );
       process.exit(2);
-    // eslint-disable-next-line no-fallthrough
     case 'NOT-ADOPTED':
       console.error(
         `[${TAG}] NOT-ADOPTED (exit 4) — every gap qualified, so this page CAN see the race, ` +
@@ -308,7 +306,6 @@ async function runPage(browser, horizonMs, ceilingMs) {
           `not a scheduling one. See the per-trial faults above.`,
       );
       process.exit(4);
-    // eslint-disable-next-line no-fallthrough
     default:
       console.error(
         `[${TAG}] FAILED: the page finished without recording a verdict ` +
