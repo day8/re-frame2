@@ -715,7 +715,7 @@ the runtime already knows every position it walks:
 | Position | Contract |
 |---|---|
 | a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
-| a `defhost` `:callbacks` entry | as **declared** (`:event` or `:handler`), never inferred from an `on*` name |
+| a `defhost` `:callbacks` entry | as **declared** (`:event`, `:handler` or `:render`), never inferred from an `on*` name |
 | any other walked prop position (a slot, a foreign render prop) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/hicasso-dispatch-in-render-position`, **naming the position** |
 | `:ref` | React's own: commit phase, node in, cleanup out. Excluded from lowering |
 | anywhere Hicasso does not walk (a raw `#js` prop) | it is a plain function; it runs, and its return is ignored |
@@ -734,6 +734,32 @@ author wrote, against a form whose parameter vector is arbitrary by construction
 functions to React by identity, deliberately, so that `React.memo` and every
 downstream bail-out comparing handler identity keep working. The behaviour the
 predecessor spells as a fourth roster form is the default here.
+**The declaration governs EVERY carrier at its position, not only the one form.**
+A declared position accepts four carriers — the one form, an intent vector, a
+key-map, and an ordinary value — and the row above is a law about the POSITION,
+so the contract is the outer question and the carrier the inner one. `:event`
+keeps the vector and key-map conveniences, because dispatching is exactly what
+that contract means; at `:handler` and at `:render` both are **refused**
+(`:rf.error/hicasso-intent-at-a-non-event-contract`, naming the position), because
+each of those carriers is a dispatch and nothing else while neither contract
+dispatches. Reading the value first is how a declaration that says `:handler`
+comes to dispatch a bare intent silently, and how a `:render` position comes to
+dispatch during the foreign component's own render — the VALUE selecting the
+contract, which is the defect this ruling exists to delete. An ordinary unmarked
+function crosses untouched at every contract.
+**The vector spelling is EVENT-FIRST.** `::h/prevent`, `::h/value`,
+`::h/checked`, `:on-submit`'s auto-prevent and a key-map's key lookup all read
+the DOM event, and all read it from argument **one** — what every native position
+hands them, and what an event-first foreign contract (`(on-draft event)`) hands
+them too. A value-first invoker (`(on-pick value event)`) has no event there, and
+nothing guesses which of a library's arguments is one: inference at that seam is
+what HD-011 forbids in the first place. The refusal is
+`:rf.error/hicasso-intent-needs-the-event`, naming the position and pointing at
+`h/fn` — the one form, which receives every argument in order — rather than
+leaving the author `value.preventDefault is not a function`, the engine's own
+`TypeError` naming nothing they wrote. An intent carrying neither a marker nor a
+decorator never reads its argument at all, so it is correct under any invoker
+contract and pays no law.
 
 **Rationale.** The predecessor requires an author who cannot use a bare event
 vector to pick from a roster of **four** forms with four different contracts —
