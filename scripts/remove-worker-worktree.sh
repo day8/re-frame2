@@ -30,7 +30,7 @@
 #      deletes through.
 #   3. Verify each link is actually gone before continuing.
 #   4. THEN `git worktree remove`.
-#   5. Re-snapshot the canary and FAIL LOUDLY if any count dropped.
+#   5. Re-snapshot the canary and FAIL LOUDLY if the signature moved.
 #   Steps 2 and 4 are never chained into one command: the point is that the
 #   removal runs against a tree with no live reparse point left in it.
 #
@@ -39,21 +39,41 @@
 #   sh scripts/remove-worker-worktree.sh --dry-run <worktree-path>
 #   sh scripts/remove-worker-worktree.sh --self-test
 #
-#   --force      pass --force to `git worktree remove` (dirty worktree)
+#   --force              force-remove a dirty worktree, DELETING whatever it
+#                        holds. You have looked; you are sure.
+#   --force-disposable   force-remove ONLY when every untracked path is build
+#                        or gate output; refuse the tree otherwise. This is the
+#                        flag a bulk hygiene sweep wants.
 #   --dry-run    report what would be disarmed/removed; change nothing
 #   --self-test  prove the disarm against a throwaway link in a temp dir
 #   --mayor-root <path> / RF2_MAYOR_ROOT   override mayor-root derivation
 #
 # CONTRACT (preserved exactly across both implementations) — stdout lines:
 #   MAYOR_ROOT=<absolute path>
-#   CANARY_BEFORE=<path> <entry-count>      (one per real mayor node_modules)
+#   CANARY_BEFORE=<path> <signature>        (one per real mayor node_modules)
 #   DISARMED=<link path> -> <target>        (one per link unlinked)
 #   NO_LINKS=<worktree path>                (when the worktree carried none)
 #   REMOVED=<worktree path>
-#   CANARY_AFTER=<path> <entry-count>
+#   CANARY_AFTER=<path> <signature>
 #   OK: worktree removal complete.
-#   Exit 0 on success, 1 on failure, 2 on usage error. A dropped canary count
-#   prints CANARY_FAILED to stderr with the npm ci recovery command.
+#   Exit 0 on success, 1 on failure, 2 on usage error. A moved canary prints
+#   CANARY_FAILED to stderr with the npm ci recovery command.
+#
+#   A <signature> is `<immediate-entries>/<recursive-files>/<sentinels-present>`,
+#   e.g. `103/2933/2`. The recursive count and the sentinels are load-bearing:
+#   the immediate-entry count alone cannot see files vanishing from under
+#   packages whose directories survive.
+#
+#   A FAILED removal is classified rather than guessed at (rf2-p0m6m). Nine
+#   worktrees were read as file-locked and waited out for two days; every one
+#   was simply dirty, and no amount of waiting adds a flag. So:
+#     REMOVE_REFUSED_DIRTY=  git refused; the paths are listed and tagged
+#                            [build output] or [KEEP].
+#     REMOVE_REFUSED_KEEP=   --force-disposable stopped at unreviewed work.
+#     REMOVE_FAILED=         the tree is CLEAN, so this really is a file lock
+#                            and really is worth retrying.
+#   --dry-run reports the same partition up front as WOULD_NEED_FORCE= (all
+#   build output, sweepable) or WOULD_REFUSE_KEEP= (needs a human first).
 #
 # Cross-platform: POSIX sh; runs under Git Bash on Windows, macOS, Linux.
 # No bashisms (`[[`, arrays, `<<<`).
@@ -70,6 +90,7 @@ set -eu
 # Args.
 # ---------------------------------------------------------------------------
 FORCE=0
+FORCE_DISPOSABLE=0
 DRY_RUN=0
 SELF_TEST=0
 MAYOR_ROOT="${RF2_MAYOR_ROOT:-}"
@@ -85,13 +106,17 @@ TARGETS_FILE="$WORK_DIR/targets"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --force)     FORCE=1; shift ;;
+    --force)             FORCE=1; shift ;;
+    --force-disposable)  FORCE_DISPOSABLE=1; shift ;;
     --dry-run)   DRY_RUN=1; shift ;;
     --self-test) SELF_TEST=1; shift ;;
     --mayor-root)   MAYOR_ROOT="${2:-}"; shift 2 ;;
     --mayor-root=*) MAYOR_ROOT="${1#*=}"; shift ;;
     -h|--help)
-      sed -n '2,60p' "$0"
+      # The whole leading comment block, however long it grows — a hardcoded
+      # line range silently truncates the contract the first time an edit
+      # pushes it past the end.
+      awk 'NR==1 {next} /^#/ {print; next} {exit}' "$0"
       exit 0
       ;;
     -*)
@@ -133,15 +158,95 @@ to_lower() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
-# Entry count of a directory (dotfiles included). Prints a bare integer, or
-# the word MISSING when the directory is not there at all — MISSING against a
-# numeric "before" is itself a canary failure.
-entry_count() {
-  if [ -d "$1" ]; then
-    find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' '
-  else
+# Paths inside a node_modules whose disappearance is damage on its own, whatever
+# the counts say. Kept to two: one directory every install has, one package this
+# repo cannot build without.
+NM_SENTINELS='.bin shadow-cljs/package.json'
+
+# A node_modules HEALTH SIGNATURE: <immediate-entries>/<recursive-files>/<sentinels>.
+# Prints the word MISSING when the directory is not there at all — MISSING
+# against a real "before" is itself a canary failure.
+#
+# The immediate-entry count alone was the original canary and it is half-blind:
+# a partial recursive delete can empty the files *under* every package while
+# leaving all the top-level package directories standing, so before == after
+# reports healthy over material damage. The recursive file count sees exactly
+# that shape, and the sentinels see a targeted loss two counts could coincide
+# on. All three are cheap — 2933 files in 0.08s over this repo's mayor
+# node_modules — so there is no reason to settle for the blind one.
+signature() {
+  if [ ! -d "$1" ]; then
     printf 'MISSING'
+    return
   fi
+  _sig_entries=$(find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+  _sig_files=$(find "$1" -type f 2>/dev/null | wc -l | tr -d ' ')
+  _sig_sentinels=0
+  for _sig_s in $NM_SENTINELS; do
+    if [ -e "$1/$_sig_s" ]; then
+      _sig_sentinels=$((_sig_sentinels + 1))
+    fi
+  done
+  printf '%s/%s/%s' "$_sig_entries" "$_sig_files" "$_sig_sentinels"
+}
+
+# What `git worktree remove` will refuse over: modified or untracked files.
+# Empty output means clean. This is the discriminator behind a failed removal
+# (rf2-p0m6m) — see report_remove_failure.
+worktree_dirt() {
+  git -C "$1" status --porcelain 2>/dev/null || true
+}
+
+# Is one `git status --porcelain` line safe to delete unreviewed?
+#
+# Only UNTRACKED (`??`) build and gate output qualifies. A modified tracked
+# file never does, whatever its path: three worktrees were carrying uncommitted
+# source and doc edits when this was written, and a blanket force would have
+# taken them silently. Neither does a hand-written note — band-ymi6j held four
+# `ladder-*.md` analysis files for an OPEN bead. A worktree that will not reap
+# is clutter; deleting somebody's unreviewed work is not.
+#
+# The patterns are shape-based rather than a roster of names on purpose: four
+# different log directories (`logs/`, `bench-logs/`, `.gate-logs/`, `.wtlogs/`)
+# turned up across nine worktrees, because every worker invents its own, and a
+# roster would have missed two of them. Anything unmatched is NOT disposable —
+# the rule fails closed, so the cost of a gap is a tree that needs a human
+# glance, never a deletion.
+is_disposable_line() {
+  case "$1" in
+    '?? '*) _idl_path=${1#?? } ;;
+    *)      return 1 ;;
+  esac
+  case "$_idl_path" in
+    *logs/|out/|*/out/|.shadow-cljs/|*/.shadow-cljs/|*.log) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The dirt lines that are NOT disposable. Empty output means everything present
+# is build or gate output and the tree can be swept without a human reading it.
+undisposable_lines() {
+  printf '%s\n' "$1" | while IFS= read -r _ul_line; do
+    [ -n "$_ul_line" ] || continue
+    is_disposable_line "$_ul_line" || printf '%s\n' "$_ul_line"
+  done
+}
+
+# Each dirt line tagged with the decision, so a reader sees WHY a tree was
+# swept or refused instead of re-applying the rule by eye.
+annotate_dirt() {
+  printf '%s\n' "$1" | while IFS= read -r _ad_line; do
+    [ -n "$_ad_line" ] || continue
+    if is_disposable_line "$_ad_line"; then
+      printf '  [build output] %s\n' "$_ad_line"
+    else
+      printf '  [KEEP]         %s\n' "$_ad_line"
+    fi
+  done
+}
+
+count_lines() {
+  printf '%s\n' "$1" | wc -l | tr -d ' '
 }
 
 # Every node_modules under $1, WITHOUT descending into any of them (-prune):
@@ -177,12 +282,53 @@ disarm_link() {
   return 0
 }
 
-# ---------------------------------------------------------------------------
-# --self-test — prove the disarm rather than asserting it.
+# Say WHY the removal failed instead of guessing (rf2-p0m6m).
 #
-# Builds a throwaway target directory with a known entry count, links a
-# node_modules at it, disarms, and requires BOTH: the link is gone AND the
-# target still has every entry. Never touches a real node_modules.
+# `git worktree remove` has two failure modes with OPPOSITE remedies:
+#
+#   dirty  fatal: '<wt>' contains modified or untracked files, use --force
+#          to delete it — a refusal, non-destructive, and NO amount of waiting
+#          clears it, because nothing is going to delete the worker's leftover
+#          gate log for you.
+#   lock   the tree is clean but a live process still holds a handle under it
+#          (Windows shadow-cljs/Node) — genuinely transient; retry later.
+#
+# This script used to report both as "safe to retry once the lock clears".
+# Nine worktrees were then read as locked and waited out across two days and
+# a full session of other workers; every one of them was simply dirty, holding
+# a single untracked `logs/`, `bench-logs/`, `PRBODY.md` or `*-exit.txt` the
+# worker left behind. Telling the two apart is the whole fix.
+report_remove_failure() {
+  _rf_wt="$1"
+  _rf_dirt=$(worktree_dirt "$_rf_wt")
+  if [ -z "$_rf_dirt" ]; then
+    printf 'REMOVE_FAILED=%s (tree is CLEAN, so this is a file lock: links are already disarmed; safe to retry once it clears)\n' "$_rf_wt" >&2
+    return
+  fi
+  printf 'REMOVE_REFUSED_DIRTY=%s\n' "$_rf_wt" >&2
+  annotate_dirt "$_rf_dirt" >&2
+  printf 'git refuses a worktree holding modified or untracked files. RETRYING WILL NEVER\n' >&2
+  printf 'CLEAR THIS — nothing is locked and waiting does not add a flag.\n' >&2
+  if [ -z "$(undisposable_lines "$_rf_dirt")" ]; then
+    printf 'All of it is build/gate output: --force-disposable will sweep the tree.\n' >&2
+  else
+    printf 'The [KEEP] paths are NOT build output — an uncommitted edit, a note, a draft.\n' >&2
+    printf '%s\n' '--force-disposable will refuse them. Save or commit what matters first; only' >&2
+    printf 'then is --force (which DELETES them) the right tool.\n' >&2
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# --self-test — prove the disarm and the detector, rather than asserting them.
+#
+#   1. Builds a throwaway target with a known signature, links a node_modules
+#      at it, disarms, and requires BOTH: the link is gone AND the target is
+#      untouched.
+#   2. Proves the canary SEES the damage the old immediate-entry count was
+#      blind to: files vanish from under every package while each package
+#      directory stays standing.
+#
+# Never touches a real node_modules.
 # ---------------------------------------------------------------------------
 if [ "$SELF_TEST" -eq 1 ]; then
   ST_TARGET="$WORK_DIR/dummy-target"
@@ -191,7 +337,7 @@ if [ "$SELF_TEST" -eq 1 ]; then
   for _i in 1 2 3 4 5; do
     printf 'canary\n' > "$ST_TARGET/f$_i.txt"
   done
-  ST_BEFORE=$(entry_count "$ST_TARGET")
+  ST_BEFORE=$(signature "$ST_TARGET")
 
   # Make a link. `ln -s` is the POSIX answer; under Git Bash it silently
   # COPIES instead of linking unless MSYS=winsymlinks is set, so fall back to
@@ -213,20 +359,39 @@ if [ "$SELF_TEST" -eq 1 ]; then
     exit 0
   fi
 
-  printf 'SELF_TEST target=%s entries_before=%s\n' "$ST_TARGET" "$ST_BEFORE"
+  printf 'SELF_TEST target=%s signature_before=%s\n' "$ST_TARGET" "$ST_BEFORE"
   disarm_link "$ST_LINK" \
     || die "SELF_TEST=FAILED the link survived the disarm: $ST_LINK"
-  ST_AFTER=$(entry_count "$ST_TARGET")
-  printf 'SELF_TEST link_removed=yes entries_after=%s\n' "$ST_AFTER"
+  ST_AFTER=$(signature "$ST_TARGET")
+  printf 'SELF_TEST link_removed=yes signature_after=%s\n' "$ST_AFTER"
   if [ "$ST_AFTER" != "$ST_BEFORE" ]; then
-    die "SELF_TEST=FAILED the disarm deleted THROUGH the link: $ST_BEFORE -> $ST_AFTER entries."
+    die "SELF_TEST=FAILED the disarm deleted THROUGH the link: $ST_BEFORE -> $ST_AFTER."
   fi
-  printf 'SELF_TEST=PASSED link unlinked, target intact (%s entries).\n' "$ST_AFTER"
+
+  # The nested-loss case. This is the shape a partial recursive delete leaves
+  # behind, and the shape the old immediate-entry canary called healthy.
+  ST_NESTED="$WORK_DIR/nested"
+  mkdir -p "$ST_NESTED/pkg-a/lib" "$ST_NESTED/pkg-b/lib"
+  printf 'x\n' > "$ST_NESTED/pkg-a/lib/index.js"
+  printf 'x\n' > "$ST_NESTED/pkg-b/lib/index.js"
+  ST_N_BEFORE=$(signature "$ST_NESTED")
+  rm -f "$ST_NESTED/pkg-a/lib/index.js" "$ST_NESTED/pkg-b/lib/index.js"
+  ST_N_AFTER=$(signature "$ST_NESTED")
+  if [ "${ST_N_BEFORE%%/*}" != "${ST_N_AFTER%%/*}" ]; then
+    die "SELF_TEST=FAILED the fixture's own top-level entry count moved (${ST_N_BEFORE%%/*} -> ${ST_N_AFTER%%/*}); it no longer tests what it claims."
+  fi
+  if [ "$ST_N_BEFORE" = "$ST_N_AFTER" ]; then
+    die "SELF_TEST=FAILED the canary is blind to nested file loss: signature stayed $ST_N_BEFORE."
+  fi
+  printf 'SELF_TEST nested_loss top_level_entries_unchanged=%s signature %s -> %s\n' \
+    "${ST_N_BEFORE%%/*}" "$ST_N_BEFORE" "$ST_N_AFTER"
+
+  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), and the canary caught nested-only loss.\n' "$ST_AFTER"
   exit 0
 fi
 
 if [ ! -s "$TARGETS_FILE" ]; then
-  printf 'usage: remove-worker-worktree.sh <worktree-path>... [--force] [--dry-run]\n' >&2
+  printf 'usage: remove-worker-worktree.sh <worktree-path>... [--force|--force-disposable] [--dry-run]\n' >&2
   printf '       remove-worker-worktree.sh --self-test\n' >&2
   exit 2
 fi
@@ -248,8 +413,8 @@ printf 'MAYOR_ROOT=%s\n' "$MAYOR_ROOT"
 
 # ---------------------------------------------------------------------------
 # CANARY, captured at runtime — never a committed number, which would rot.
-# Every REAL (non-link) node_modules in the mayor checkout, with its entry
-# count. A junction we failed to detect still shows up here as a drop.
+# Every REAL (non-link) node_modules in the mayor checkout, with its health
+# signature. A junction we failed to detect still shows up here as a drop.
 # ---------------------------------------------------------------------------
 CANARY_FILE="$WORK_DIR/canary"
 : > "$CANARY_FILE"
@@ -260,7 +425,7 @@ while IFS= read -r nm; do
   if [ -L "$nm" ]; then
     continue   # a link in the MAYOR tree is not a canary
   fi
-  printf '%s\t%s\n' "$(normalize_path "$nm")" "$(entry_count "$nm")" >> "$CANARY_FILE"
+  printf '%s\t%s\n' "$(normalize_path "$nm")" "$(signature "$nm")" >> "$CANARY_FILE"
 done < "$WORK_DIR/mayor-nm"
 
 while IFS= read -r line; do
@@ -326,23 +491,43 @@ while IFS= read -r raw_target; do
   fi
 
   # 2. Only now remove the worktree. Never chained with the disarm.
+  wt_dirt=$(worktree_dirt "$WT")
+  wt_keep=$(undisposable_lines "$wt_dirt")
+
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf 'WOULD_REMOVE=%s\n' "$WT"
-  elif [ "$FORCE" -eq 1 ]; then
+    # The survey a hygiene pass actually needs: which trees it can sweep, which
+    # need a human, and why — decided BEFORE anything touches them.
+    if [ -z "$wt_dirt" ]; then
+      printf 'WOULD_REMOVE=%s\n' "$WT"
+    elif [ -n "$wt_keep" ]; then
+      printf 'WOULD_REFUSE_KEEP=%s (%s path(s) that are not build output)\n' "$WT" "$(count_lines "$wt_keep")"
+      annotate_dirt "$wt_dirt"
+    else
+      printf 'WOULD_NEED_FORCE=%s (%s path(s), all build/gate output)\n' "$WT" "$(count_lines "$wt_dirt")"
+      annotate_dirt "$wt_dirt"
+      printf 'WOULD_REMOVE=%s\n' "$WT"
+    fi
+  elif [ "$FORCE_DISPOSABLE" -eq 1 ] && [ "$FORCE" -eq 0 ] && [ -n "$wt_keep" ]; then
+    # The whole point of the flag: a bulk sweep stops at unreviewed work
+    # instead of taking it. This is a refusal, so nothing has been deleted.
+    printf 'REMOVE_REFUSED_KEEP=%s\n' "$WT" >&2
+    annotate_dirt "$wt_dirt" >&2
+    printf 'The [KEEP] paths are not build or gate output. --force-disposable will not\n' >&2
+    printf 'delete them. Save or commit what matters, then use --force if you are certain\n' >&2
+    printf 'the rest can go.\n' >&2
+    FAILED=1
+  elif [ "$FORCE" -eq 1 ] || [ "$FORCE_DISPOSABLE" -eq 1 ]; then
     if git -C "$MAYOR_ROOT" worktree remove --force "$WT"; then
       printf 'REMOVED=%s\n' "$WT"
     else
-      # A Windows file lock (a shadow-cljs / Node process still holding the
-      # tree) is the common cause and is harmless: the links are already
-      # unlinked, so retrying later cannot delete through anything.
-      printf 'REMOVE_FAILED=%s (links are already disarmed; safe to retry once the lock clears)\n' "$WT" >&2
+      report_remove_failure "$WT"
       FAILED=1
     fi
   else
     if git -C "$MAYOR_ROOT" worktree remove "$WT"; then
       printf 'REMOVED=%s\n' "$WT"
     else
-      printf 'REMOVE_FAILED=%s (links are already disarmed; safe to retry once the lock clears)\n' "$WT" >&2
+      report_remove_failure "$WT"
       FAILED=1
     fi
   fi
@@ -356,11 +541,11 @@ while IFS= read -r line; do
   [ -n "$line" ] || continue
   nm="${line%%	*}"
   before="${line##*	}"
-  after=$(entry_count "$nm")
+  after=$(signature "$nm")
   printf 'CANARY_AFTER=%s %s\n' "$nm" "$after"
   if [ "$after" != "$before" ]; then
     CANARY_BAD=1
-    printf 'CANARY_FAILED: %s went from %s to %s entries.\n' "$nm" "$before" "$after" >&2
+    printf 'CANARY_FAILED: %s went from %s to %s (entries/files/sentinels).\n' "$nm" "$before" "$after" >&2
   fi
 done < "$CANARY_FILE"
 

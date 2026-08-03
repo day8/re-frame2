@@ -30,16 +30,20 @@ A worker worktree cannot compile without a `node_modules`, so the convention
 here is to point `<worktree>/implementation/node_modules` at the mayor
 checkout's **real** one — a directory junction on Windows, a symlink
 elsewhere. Anything that deletes *through* that link destroys shared state: a
-bare `git worktree remove`, or an `rm -rf` of the link itself, follows the
-reparse point and empties the mayor's real `node_modules` — exit 0, silently,
-breaking every local build in the repo until `npm ci --prefix implementation`
-restores it. That has happened twice.
+bare `git worktree remove` walks the tree it is deleting, follows the reparse
+point, and empties the mayor's real `node_modules` — exit 0, silently, breaking
+every local build in the repo until `npm ci --prefix implementation` restores
+it. That has happened twice. The measured hazard is the **Windows directory
+junction**, including under Git Bash, where `rm -rf` on the junction deletes
+through it as well; a plain POSIX symlink given as an `rm -rf` argument is
+unlinked rather than traversed.
 
 So if you create the link, unlink it as your last act before reporting done —
-`cmd /c rmdir <path>` on Windows, or `rm` **without** `-r` elsewhere; both
-unlink, `rm -rf` deletes through. And never remove a worktree by hand: the
+`cmd /c rmdir <path>` on Windows, `rm` **without** `-r` elsewhere. Both unlink
+on every platform, which is why they are the instruction everywhere rather than
+only where the difference bites. And never remove a worktree by hand: the
 removal scripts disarm every link first, remove second, and fail loudly if the
-mayor's `node_modules` shrank.
+mayor's `node_modules` lost anything.
 
 ```bash
 sh scripts/remove-worker-worktree.sh <worktree-path>   # POSIX (primary)
