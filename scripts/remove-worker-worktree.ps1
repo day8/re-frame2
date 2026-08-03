@@ -30,16 +30,39 @@
 #      the LINK ONLY - a NON-RECURSIVE delete, never Remove-Item -Recurse.
 #   3. Verify each link is actually gone before continuing.
 #   4. THEN `git worktree remove`.
-#   5. Re-snapshot the canary and FAIL LOUDLY if any count dropped.
+#   5. Re-snapshot the canary and FAIL LOUDLY if the signature moved.
 #   Steps 2 and 4 are never chained into one command: the point is that the
 #   removal runs against a tree with no live reparse point left in it.
 #
 # USAGE
 #   powershell -ExecutionPolicy Bypass -File scripts/remove-worker-worktree.ps1 <path> [<path>...]
 #   ... -DryRun     report what would be disarmed/removed; change nothing
-#   ... -Force      pass --force to `git worktree remove` (dirty worktree)
+#   ... -Force      force-remove a dirty worktree, DELETING whatever it holds.
+#                   You have looked; you are sure.
+#   ... -ForceDisposable
+#                   force-remove ONLY when every untracked path is build or
+#                   gate output; refuse the tree otherwise. This is the flag a
+#                   bulk hygiene sweep wants.
 #   ... -SelfTest   prove the disarm against a throwaway junction in a temp dir
 #   -MayorRoot <path> / RF2_MAYOR_ROOT   override mayor-root derivation
+#
+# CONTRACT (identical to the POSIX primary; see its header for the full list).
+#   CANARY_BEFORE=/CANARY_AFTER= carry a <signature>, which is
+#   `<immediate-entries>/<recursive-files>/<sentinels-present>` e.g. `103/2933/2`.
+#   The recursive count and the sentinels are load-bearing: the immediate-entry
+#   count alone cannot see files vanishing from under packages whose
+#   directories survive.
+#
+#   A FAILED removal is classified rather than guessed at (rf2-p0m6m). Nine
+#   worktrees were read as file-locked and waited out for two days; every one
+#   was simply dirty, and no amount of waiting adds a flag. So:
+#     REMOVE_REFUSED_DIRTY=  git refused; the paths are listed and tagged
+#                            [build output] or [KEEP].
+#     REMOVE_REFUSED_KEEP=   -ForceDisposable stopped at unreviewed work.
+#     REMOVE_FAILED=         the tree is CLEAN, so this really is a file lock
+#                            and really is worth retrying.
+#   -DryRun reports the same partition up front as WOULD_NEED_FORCE= (all
+#   build output, sweepable) or WOULD_REFUSE_KEEP= (needs a human first).
 param(
   # Position = 0 is load-bearing: ValueFromRemainingArguments alone does NOT
   # make a parameter positional, so an unnamed path would otherwise bind to
@@ -48,6 +71,7 @@ param(
   [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
   [string[]]$Worktree = @(),
   [switch]$Force,
+  [switch]$ForceDisposable,
   [switch]$DryRun,
   [switch]$SelfTest,
   [string]$MayorRoot = $env:RF2_MAYOR_ROOT
@@ -60,12 +84,92 @@ function Normalize-Path([string]$Path) {
   return [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
 }
 
-# Entry count of a directory (hidden entries included). Returns the string
-# MISSING when the directory is not there at all - MISSING against a numeric
-# "before" is itself a canary failure.
-function Get-EntryCount([string]$Path) {
+# Paths inside a node_modules whose disappearance is damage on its own, whatever
+# the counts say. Kept to two: one directory every install has, one package this
+# repo cannot build without.
+$script:NmSentinels = @('.bin', 'shadow-cljs\package.json')
+
+# A node_modules HEALTH SIGNATURE: <immediate-entries>/<recursive-files>/<sentinels>.
+# Returns the string MISSING when the directory is not there at all - MISSING
+# against a real "before" is itself a canary failure.
+#
+# The immediate-entry count alone was the original canary and it is half-blind:
+# a partial recursive delete can empty the files *under* every package while
+# leaving all the top-level package directories standing, so before -eq after
+# reports healthy over material damage. The recursive file count sees exactly
+# that shape, and the sentinels see a targeted loss two counts could coincide
+# on. All three are cheap - 2933 files in 165ms over this repo's mayor
+# node_modules - so there is no reason to settle for the blind one.
+#
+# -Recurse does not descend through reparse points without -FollowSymlink, so
+# the count cannot wander out of the directory it is measuring.
+function Get-NodeModulesSignature([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return 'MISSING' }
-  return ([string](@(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)).Count)
+  $entries = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue).Count
+  $files = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue).Count
+  $sentinels = 0
+  foreach ($s in $script:NmSentinels) {
+    if (Test-Path -LiteralPath (Join-Path $Path $s)) { $sentinels += 1 }
+  }
+  return "$entries/$files/$sentinels"
+}
+
+# What `git worktree remove` will refuse over: modified or untracked files.
+# Empty means clean. This is the discriminator behind a failed removal
+# (rf2-p0m6m) - see Write-RemoveFailure.
+# CALLERS MUST WRAP THIS IN @(). PowerShell unrolls an array on the way out of
+# a function, so a single dirty path arrives at the call site as a bare string
+# and `.Count` on it throws under Set-StrictMode - which is exactly the
+# one-leftover-log case this function exists to report. An @() inside the
+# function cannot prevent that; one at the call site can.
+function Get-WorktreeDirt([string]$Path) {
+  return @(& git -C $Path status --porcelain 2>$null) |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+}
+
+# Is one `git status --porcelain` line safe to delete unreviewed?
+#
+# Only UNTRACKED (`??`) build and gate output qualifies. A modified tracked
+# file never does, whatever its path: three worktrees were carrying uncommitted
+# source and doc edits when this was written, and a blanket force would have
+# taken them silently. Neither does a hand-written note - band-ymi6j held four
+# `ladder-*.md` analysis files for an OPEN bead. A worktree that will not reap
+# is clutter; deleting somebody's unreviewed work is not.
+#
+# The patterns are shape-based rather than a roster of names on purpose: four
+# different log directories (`logs/`, `bench-logs/`, `.gate-logs/`, `.wtlogs/`)
+# turned up across nine worktrees, because every worker invents its own, and a
+# roster would have missed two of them. Anything unmatched is NOT disposable -
+# the rule fails closed.
+#
+# StartsWith, not -like: in a PowerShell wildcard `?` matches ANY character, so
+# '?? *' would also match the three-character ' M ' prefix of a modified file -
+# precisely the line this must never call disposable.
+$script:DisposablePatterns = @('*logs/', 'out/', '*/out/', '.shadow-cljs/', '*/.shadow-cljs/', '*.log')
+
+function Test-IsDisposableLine([string]$Line) {
+  if (-not $Line.StartsWith('?? ')) { return $false }
+  $p = $Line.Substring(3)
+  foreach ($pat in $script:DisposablePatterns) {
+    if ($p -like $pat) { return $true }
+  }
+  return $false
+}
+
+# The dirt lines that are NOT disposable. Empty means everything present is
+# build or gate output and the tree can be swept without a human reading it.
+# Callers wrap in @() - see Get-WorktreeDirt.
+function Get-UndisposableLines([string[]]$Dirt) {
+  return @($Dirt | Where-Object { -not (Test-IsDisposableLine $_) })
+}
+
+# Each dirt line tagged with the decision, so a reader sees WHY a tree was
+# swept or refused instead of re-applying the rule by eye.
+function Write-AnnotatedDirt([string[]]$Dirt, [switch]$AsWarning) {
+  foreach ($line in $Dirt) {
+    $tag = if (Test-IsDisposableLine $line) { '[build output]' } else { '[KEEP]        ' }
+    if ($AsWarning) { Write-Warning "  $tag $line" } else { Write-Output "  $tag $line" }
+  }
 }
 
 # Is this path a reparse point (junction or symlink) rather than a real
@@ -130,12 +234,57 @@ function Disarm-Link([string]$Path) {
   return (-not (Test-Path -LiteralPath $Path))
 }
 
-# ---------------------------------------------------------------------------
-# -SelfTest - prove the disarm rather than asserting it.
+# Say WHY the removal failed instead of guessing (rf2-p0m6m).
 #
-# Builds a throwaway target directory with a known entry count, junctions a
-# node_modules at it, disarms, and requires BOTH: the link is gone AND the
-# target still has every entry. Never touches a real node_modules.
+# `git worktree remove` has two failure modes with OPPOSITE remedies:
+#
+#   dirty  fatal: '<wt>' contains modified or untracked files, use --force
+#          to delete it - a refusal, non-destructive, and NO amount of waiting
+#          clears it, because nothing is going to delete the worker's leftover
+#          gate log for you.
+#   lock   the tree is clean but a live process still holds a handle under it
+#          (Windows shadow-cljs/Node) - genuinely transient; retry later.
+#
+# This script used to report both as "safe to retry once the lock clears".
+# Nine worktrees were then read as locked and waited out across two days and
+# a full session of other workers; every one of them was simply dirty, holding
+# a single untracked `logs/`, `bench-logs/`, `PRBODY.md` or `*-exit.txt` the
+# worker left behind. Telling the two apart is the whole fix.
+function Write-RemoveFailure([string]$Path) {
+  $dirt = @(Get-WorktreeDirt $Path)
+  if ($dirt.Count -eq 0) {
+    Write-Warning "REMOVE_FAILED=$Path (tree is CLEAN, so this is a file lock: links are already disarmed; safe to retry once it clears)"
+    return
+  }
+  Write-Warning "REMOVE_REFUSED_DIRTY=$Path"
+  Write-AnnotatedDirt $dirt -AsWarning
+  # One Write-Warning per line: a multi-line string gets the WARNING prefix
+  # only on its first line and a blank line between every other.
+  $tail = if ((Get-UndisposableLines $dirt).Count -eq 0) {
+    @('All of it is build/gate output: -ForceDisposable will sweep the tree.')
+  } else {
+    @('The [KEEP] paths are NOT build output - an uncommitted edit, a note, a draft.',
+      '-ForceDisposable will refuse them. Save or commit what matters first; only',
+      'then is -Force (which DELETES them) the right tool.')
+  }
+  foreach ($line in @(
+      'git refuses a worktree holding modified or untracked files. RETRYING WILL NEVER',
+      'CLEAR THIS - nothing is locked and waiting does not add a flag.') + $tail) {
+    Write-Warning $line
+  }
+}
+
+# ---------------------------------------------------------------------------
+# -SelfTest - prove the disarm and the detector, rather than asserting them.
+#
+#   1. Builds a throwaway target with a known signature, junctions a
+#      node_modules at it, disarms, and requires BOTH: the link is gone AND
+#      the target is untouched.
+#   2. Proves the canary SEES the damage the old immediate-entry count was
+#      blind to: files vanish from under every package while each package
+#      directory stays standing.
+#
+# Never touches a real node_modules.
 # ---------------------------------------------------------------------------
 if ($SelfTest) {
   $stRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("rf2-disarm-" + [System.Guid]::NewGuid().ToString('N'))
@@ -145,25 +294,49 @@ if ($SelfTest) {
     New-Item -ItemType Directory -Force -Path $stTarget | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $stRoot 'wt\implementation') | Out-Null
     1..5 | ForEach-Object { Set-Content -LiteralPath (Join-Path $stTarget "f$_.txt") -Value 'canary' }
-    $before = Get-EntryCount $stTarget
+    $before = Get-NodeModulesSignature $stTarget
     New-Item -ItemType Junction -Path $stLink -Target $stTarget | Out-Null
 
     if (-not (Test-IsLink $stLink)) {
       Write-Error "SELF_TEST=FAILED could not create a junction to test against: $stLink"
       exit 1
     }
-    Write-Output "SELF_TEST target=$stTarget entries_before=$before"
+    Write-Output "SELF_TEST target=$stTarget signature_before=$before"
     if (-not (Disarm-Link $stLink)) {
       Write-Error "SELF_TEST=FAILED the link survived the disarm: $stLink"
       exit 1
     }
-    $after = Get-EntryCount $stTarget
-    Write-Output "SELF_TEST link_removed=yes entries_after=$after"
+    $after = Get-NodeModulesSignature $stTarget
+    Write-Output "SELF_TEST link_removed=yes signature_after=$after"
     if ($after -ne $before) {
-      Write-Error "SELF_TEST=FAILED the disarm deleted THROUGH the link: $before -> $after entries."
+      Write-Error "SELF_TEST=FAILED the disarm deleted THROUGH the link: $before -> $after."
       exit 1
     }
-    Write-Output "SELF_TEST=PASSED link unlinked, target intact ($after entries)."
+
+    # The nested-loss case. This is the shape a partial recursive delete leaves
+    # behind, and the shape the old immediate-entry canary called healthy.
+    $stNested = Join-Path $stRoot 'nested'
+    New-Item -ItemType Directory -Force -Path (Join-Path $stNested 'pkg-a\lib') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $stNested 'pkg-b\lib') | Out-Null
+    Set-Content -LiteralPath (Join-Path $stNested 'pkg-a\lib\index.js') -Value 'x'
+    Set-Content -LiteralPath (Join-Path $stNested 'pkg-b\lib\index.js') -Value 'x'
+    $nBefore = Get-NodeModulesSignature $stNested
+    Remove-Item -LiteralPath (Join-Path $stNested 'pkg-a\lib\index.js') -Force
+    Remove-Item -LiteralPath (Join-Path $stNested 'pkg-b\lib\index.js') -Force
+    $nAfter = Get-NodeModulesSignature $stNested
+    $shallowBefore = $nBefore.Split('/')[0]
+    $shallowAfter = $nAfter.Split('/')[0]
+    if ($shallowBefore -ne $shallowAfter) {
+      Write-Error "SELF_TEST=FAILED the fixture's own top-level entry count moved ($shallowBefore -> $shallowAfter); it no longer tests what it claims."
+      exit 1
+    }
+    if ($nBefore -eq $nAfter) {
+      Write-Error "SELF_TEST=FAILED the canary is blind to nested file loss: signature stayed $nBefore."
+      exit 1
+    }
+    Write-Output "SELF_TEST nested_loss top_level_entries_unchanged=$shallowBefore signature $nBefore -> $nAfter"
+
+    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), and the canary caught nested-only loss."
     exit 0
   }
   finally {
@@ -173,7 +346,7 @@ if ($SelfTest) {
 }
 
 if ($Worktree.Count -eq 0) {
-  Write-Error "usage: remove-worker-worktree.ps1 <worktree-path>... [-Force] [-DryRun]`n       remove-worker-worktree.ps1 -SelfTest"
+  Write-Error "usage: remove-worker-worktree.ps1 <worktree-path>... [-Force|-ForceDisposable] [-DryRun]`n       remove-worker-worktree.ps1 -SelfTest"
   exit 2
 }
 
@@ -201,14 +374,14 @@ Write-Output "MAYOR_ROOT=$mayorRootPath"
 
 # ---------------------------------------------------------------------------
 # CANARY, captured at runtime - never a committed number, which would rot.
-# Every REAL (non-link) node_modules in the mayor checkout, with its entry
-# count. A junction we failed to detect still shows up here as a drop.
+# Every REAL (non-link) node_modules in the mayor checkout, with its health
+# signature. A junction we failed to detect still shows up here as a drop.
 # ---------------------------------------------------------------------------
 $canary = [ordered]@{}
 foreach ($nm in (Find-NodeModules $mayorRootPath)) {
   if (Test-IsLink $nm) { continue }   # a link in the MAYOR tree is not a canary
   $key = Normalize-Path $nm
-  $canary[$key] = Get-EntryCount $nm
+  $canary[$key] = Get-NodeModulesSignature $nm
   Write-Output "CANARY_BEFORE=$key $($canary[$key])"
 }
 
@@ -263,20 +436,46 @@ foreach ($rawTarget in $Worktree) {
   if (-not $foundAny) { Write-Output "NO_LINKS=$wt" }
 
   # 2. Only now remove the worktree. Never chained with the disarm.
+  $dirt = @(Get-WorktreeDirt $wt)
+  $keep = @(Get-UndisposableLines $dirt)
+
   if ($DryRun) {
-    Write-Output "WOULD_REMOVE=$wt"
+    # The survey a hygiene pass actually needs: which trees it can sweep, which
+    # need a human, and why - decided BEFORE anything touches them.
+    if ($dirt.Count -eq 0) {
+      Write-Output "WOULD_REMOVE=$wt"
+    }
+    elseif ($keep.Count -gt 0) {
+      Write-Output "WOULD_REFUSE_KEEP=$wt ($($keep.Count) path(s) that are not build output)"
+      Write-AnnotatedDirt $dirt
+    }
+    else {
+      Write-Output "WOULD_NEED_FORCE=$wt ($($dirt.Count) path(s), all build/gate output)"
+      Write-AnnotatedDirt $dirt
+      Write-Output "WOULD_REMOVE=$wt"
+    }
+  }
+  elseif ($ForceDisposable -and (-not $Force) -and $keep.Count -gt 0) {
+    # The whole point of the flag: a bulk sweep stops at unreviewed work
+    # instead of taking it. This is a refusal, so nothing has been deleted.
+    Write-Warning "REMOVE_REFUSED_KEEP=$wt"
+    Write-AnnotatedDirt $dirt -AsWarning
+    foreach ($line in @(
+        'The [KEEP] paths are not build or gate output. -ForceDisposable will not',
+        'delete them. Save or commit what matters, then use -Force if you are certain',
+        'the rest can go.')) {
+      Write-Warning $line
+    }
+    $failed = $true
   }
   else {
-    if ($Force) { & git -C $mayorRootPath worktree remove --force $wt }
+    if ($Force -or $ForceDisposable) { & git -C $mayorRootPath worktree remove --force $wt }
     else { & git -C $mayorRootPath worktree remove $wt }
     if ($LASTEXITCODE -eq 0) {
       Write-Output "REMOVED=$wt"
     }
     else {
-      # A Windows file lock (a shadow-cljs / Node process still holding the
-      # tree) is the common cause and is harmless: the links are already
-      # removed, so retrying later cannot delete through anything.
-      Write-Warning "REMOVE_FAILED=$wt (links are already disarmed; safe to retry once the lock clears)"
+      Write-RemoveFailure $wt
       $failed = $true
     }
   }
@@ -287,11 +486,11 @@ foreach ($rawTarget in $Worktree) {
 # ---------------------------------------------------------------------------
 $canaryBad = $false
 foreach ($key in $canary.Keys) {
-  $after = Get-EntryCount $key
+  $after = Get-NodeModulesSignature $key
   Write-Output "CANARY_AFTER=$key $after"
   if ($after -ne $canary[$key]) {
     $canaryBad = $true
-    Write-Warning "CANARY_FAILED: $key went from $($canary[$key]) to $after entries."
+    Write-Warning "CANARY_FAILED: $key went from $($canary[$key]) to $after (entries/files/sentinels)."
   }
 }
 
