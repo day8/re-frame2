@@ -44,17 +44,38 @@
   on a mount the `for` seqs realize INSIDE `as-element`, so the
   mount-billed walk includes the card calls and their sub reads.
 
-  | arm          | input    | what it prices |
-  |--------------|----------|----------------|
-  | `ship-lazy`  | lazy     | the mount-billed walk: interpretation PLUS the body's lazy card/sub work |
-  | `ship`       | realized | the shipping walk alone |
-  | `local`      | realized | the faithful in-namespace copy — the ablation baseline, validated against `ship` |
-  | `no-create`  | realized | `local` with `react/createElement` swapped for a two-field object mint |
-  | `no-props`   | realized | `local` emitting `#js {}` per element — the whole prop pipeline removed |
-  | `no-lower`   | realized | `local` with intent lowering stubbed (vectors/maps at any position -> nil, cheaply) |
-  | `no-value`   | realized | `local` with `convert-prop-value` -> identity |
-  | `no-short`   | realized | `local` with the tag-shorthand merge -> identity |
-  | `parse-raw`  | realized | `local` parsing every tag fresh — what the tag cache is worth |
+  | arm           | input    | what it prices |
+  |---------------|----------|----------------|
+  | `ship-lazy`   | lazy     | the mount-billed walk: interpretation PLUS the body's lazy card/sub work |
+  | `ship`        | realized | the shipping walk alone |
+  | `local`       | realized | the faithful in-namespace copy — the ablation baseline, validated against `ship` |
+  | `no-create`   | realized | `local` with `react/createElement` swapped for a two-field object mint |
+  | `no-props`    | realized | `local` emitting `#js {}` per element — the whole prop pipeline removed |
+  | `no-lower`    | realized | `local` with intent lowering stubbed (vectors/maps at any position -> nil, cheaply) |
+  | `no-value`    | realized | `local` with `convert-prop-value` -> identity |
+  | `no-fold`     | realized | `local` with the shorthand fold onto the emitted object -> identity |
+  | `parse-raw`   | realized | `local` parsing every tag fresh — what the tag cache is worth |
+  | `no-propless` | realized | `local` with the propless short-circuit removed — every element pays the map path |
+
+  The last two do MORE work than `local`, not less, so they are read as
+  benefits rather than as phase costs and are reported on their own lines.
+
+  ## What replaced the `:shorthand-merge` / `:no-short` pair (rf2-2rtt6.70)
+
+  Those two rows priced `merge-shorthand` — a `dissoc`/`assoc` pair that
+  rebuilt the attribute map of every element carrying a `#id`/`.class`
+  shorthand — against a `local` copy that performed it. rf2-2rtt6.36
+  **deleted** that surgery: the shorthand is folded onto the object the
+  walk EMITS (`codec/fold-shorthand!`), where the slot is already
+  resolved, and the fast lane that existed only to dodge the map copy
+  went with it. `convert-props`' three lanes became two.
+
+  Nothing went red, because both arms were local copies. That is exactly
+  what made it worth repairing: an instrument whose arms outlive the code
+  they ablate keeps printing plausible numbers for a path nobody runs.
+  So `local`'s prop pipeline was re-pointed at the shipping shape — the
+  propless short-circuit, then convert-then-fold — and the two ablations
+  now name the two lanes that actually ship.
 
   The ablation baseline is written IN THIS NAMESPACE and validated
   against the shipping walk in the same process, for the reason the
@@ -84,8 +105,7 @@
 
   Owner bead: rf2-y1jkm. Driver: `run.cjs` with
   HICASSO_INIT_FN=re-frame.bench.hicasso.walk-profile-app/-main."
-  (:require [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.mount :as arm1-mount]
             [re-frame.bench.hicasso.arm1.runtime :as rt :refer [sub]]
             [re-frame.bench.hicasso.front.codec :as codec]
@@ -207,8 +227,9 @@
 (def ^:const M-NO-PROPS 2)
 (def ^:const M-NO-LOWER 3)
 (def ^:const M-NO-VALUE 4)
-(def ^:const M-NO-SHORT 5)
+(def ^:const M-NO-FOLD 5)
 (def ^:const M-PARSE-RAW 6)
+(def ^:const M-NO-PROPLESS 7)
 
 (declare walk-el)
 
@@ -269,29 +290,34 @@
 (defn- walk-value [mode v]
   (if (identical? mode M-NO-VALUE) v (codec/convert-prop-value v)))
 
-(defn- walk-class-names
-  ([class]
-   (cond
-     (nil? class)     nil
-     (string? class)  (when (seq class) class)
-     (or (keyword? class) (symbol? class)) (name class)
-     (coll? class)    (let [joined (->> class (keep walk-class-names) (str/join " "))]
-                        (when (seq joined) joined))
-     :else            (str class)))
-  ([a b]
-   (let [a (walk-class-names a) b (walk-class-names b)]
-     (cond (nil? a) b (nil? b) a :else (str a " " b)))))
+(def ^:private id-slot "id")
+(def ^:private class-slot "className")
 
-(defn- walk-shorthand [mode props parsed]
-  (if (identical? mode M-NO-SHORT)
-    props
-    (let [id        (.-id ^js parsed)
-          shorthand (.-className ^js parsed)
-          props     (if (and id (not (contains? props :id))) (assoc props :id id) props)
-          declared  (or (:class props) (:className props))
-          merged    (walk-class-names shorthand declared)]
-      (cond-> (dissoc props :className :class)
-        merged (assoc :class merged)))))
+(defn- walk-fold-shorthand!
+  "Fold the tag's `#id`/`.class` shorthand onto the object the walk just
+  emitted — `codec/fold-shorthand!`'s shape, which is private there — or
+  the no-fold stub, which answers the object untouched.
+
+  Asked of the EMITTED object, so there is no spelling left to resolve:
+  every key has already been through the canonical slot on its way in.
+  Two `undefined?` tests and, on the 924 elements of the census page that
+  carry a `.class`, one `class-names` call when a class was also
+  declared. The delta therefore prices the fold that ships, not the map
+  surgery it replaced."
+  [mode ^js o parsed]
+  (if (identical? mode M-NO-FOLD)
+    o
+    (do
+      (when-some [id (.-id ^js parsed)]
+        (when (undefined? (unchecked-get o id-slot))
+          (unchecked-set o id-slot id)))
+      (when-some [shorthand (.-className ^js parsed)]
+        (let [declared (unchecked-get o class-slot)]
+          (unchecked-set o class-slot
+                         (if (undefined? declared)
+                           shorthand
+                           (codec/class-names shorthand declared)))))
+      o)))
 
 (def ^:private reserved-names #{"__proto__" "prototype" "constructor"})
 
@@ -320,20 +346,45 @@
             (unchecked-set local-prop-cache n converted)
             converted))))))
 
-(defn- walk-convert-props [mode props parsed]
-  (if (identical? mode M-NO-PROPS)
+(defn- walk-convert-props
+  "The shipping `convert-props`' two lanes, with the phase switches.
+
+  Lane 1, the propless short-circuit: an element with no attribute map
+  emits exactly the shorthand's `id`/`className`, so it is built directly
+  — no merge, no map iteration, no fold. 567 of the census page's 1,202
+  elements take it. `no-propless` removes it, sending them through the
+  map path on an empty map, which is what the lane is worth.
+
+  Lane 2: merge a `:&` remainder (by identity when there is none),
+  convert the map in one pass with the literal `:key` skipped in-loop
+  rather than `dissoc`ed, then fold the shorthand onto the result."
+  [mode props parsed]
+  (cond
+    (identical? mode M-NO-PROPS)
     #js {}
-    (let [props (dissoc (walk-shorthand mode (codec/merge-caller props) parsed) :key)]
+
+    (and (nil? props) (not (identical? mode M-NO-PROPLESS)))
+    (let [o #js {}]
+      (when-some [id (.-id ^js parsed)] (unchecked-set o id-slot id))
+      (when-some [c (.-className ^js parsed)] (unchecked-set o class-slot c))
+      o)
+
+    :else
+    (walk-fold-shorthand!
+      mode
       (reduce-kv (fn [o k v]
-                   (let [n (local-prop-name k)]
-                     (when-not (reserved-names n)
-                       (unchecked-set o n (walk-value mode
-                                            (if (identical? "ref" n)
-                                              v
-                                              (walk-lower mode k v)))))
-                     o))
+                   (if (keyword-identical? :key k)
+                     o
+                     (let [n (local-prop-name k)]
+                       (when-not (reserved-names n)
+                         (unchecked-set o n (walk-value mode
+                                              (if (identical? "ref" n)
+                                                v
+                                                (walk-lower mode k v)))))
+                       o)))
                  #js {}
-                 props))))
+                 (codec/merge-caller (or props {})))
+      parsed)))
 
 (defn- walk-parse [mode tag]
   (if (identical? mode M-PARSE-RAW)
@@ -344,7 +395,10 @@
   (let [parsed     (walk-parse mode (nth argv 0))
         has-props? (map? (nth argv 1 nil))
         props      (if has-props? (nth argv 1) nil)
-        js-props   (walk-convert-props mode (or props {}) parsed)]
+        ;; nil, not `(or props {})` — the absent attribute map IS the
+        ;; first lane, and wrapping it in an empty map is exactly what
+        ;; hides the lane from the clock.
+        js-props   (walk-convert-props mode props parsed)]
     (controlled/install! (.-tag ^js parsed) js-props)
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (walk-make-element mode (.-tag ^js parsed) js-props argv (if has-props? 2 1))))
@@ -479,15 +533,16 @@
         (- (lane/now-ms) t0)))))
 
 (def ^:private arms
-  [{:id :ship-lazy :realize? false :walk (fn [h] (codec/as-element h))}
-   {:id :ship      :realize? true  :walk (fn [h] (codec/as-element h))}
-   {:id :local     :realize? true  :walk (fn [h] (walk-el M-FULL h))}
-   {:id :no-create :realize? true  :walk (fn [h] (walk-el M-NO-CREATE h))}
-   {:id :no-props  :realize? true  :walk (fn [h] (walk-el M-NO-PROPS h))}
-   {:id :no-lower  :realize? true  :walk (fn [h] (walk-el M-NO-LOWER h))}
-   {:id :no-value  :realize? true  :walk (fn [h] (walk-el M-NO-VALUE h))}
-   {:id :no-short  :realize? true  :walk (fn [h] (walk-el M-NO-SHORT h))}
-   {:id :parse-raw :realize? true  :walk (fn [h] (walk-el M-PARSE-RAW h))}])
+  [{:id :ship-lazy   :realize? false :walk (fn [h] (codec/as-element h))}
+   {:id :ship        :realize? true  :walk (fn [h] (codec/as-element h))}
+   {:id :local       :realize? true  :walk (fn [h] (walk-el M-FULL h))}
+   {:id :no-create   :realize? true  :walk (fn [h] (walk-el M-NO-CREATE h))}
+   {:id :no-props    :realize? true  :walk (fn [h] (walk-el M-NO-PROPS h))}
+   {:id :no-lower    :realize? true  :walk (fn [h] (walk-el M-NO-LOWER h))}
+   {:id :no-value    :realize? true  :walk (fn [h] (walk-el M-NO-VALUE h))}
+   {:id :no-fold     :realize? true  :walk (fn [h] (walk-el M-NO-FOLD h))}
+   {:id :parse-raw   :realize? true  :walk (fn [h] (walk-el M-PARSE-RAW h))}
+   {:id :no-propless :realize? true  :walk (fn [h] (walk-el M-NO-PROPLESS h))}])
 
 (def ^:private sampling {:warmup 4 :samples 10})
 (def ^:private rounds 6)
@@ -628,12 +683,17 @@
                                       [:whole-prop-pipeline :no-props]
                                       [:intent-lowering :no-lower]
                                       [:value-conversion :no-value]
-                                      [:shorthand-merge :no-short]]]
+                                      [:shorthand-fold :no-fold]]]
                 (js/console.log (phase-line label ship local (:p50 (get rows arm-id)) elements)))
+              (js/console.log ";; ==== BENEFITS (arms that do MORE work than local; delta minus local) ====")
               (let [pr' (:p50 (get rows :parse-raw))]
                 (js/console.log (str ";;   tag-cache-benefit: parse-raw " (fmt pr' 4)
                                      " ms/walk vs local " (fmt local 4)
                                      " — the cache is worth " (fmt (- pr' local) 4) " ms/walk")))
+              (let [np (:p50 (get rows :no-propless))]
+                (js/console.log (str ";;   propless-lane-benefit: no-propless " (fmt np 4)
+                                     " ms/walk vs local " (fmt local 4)
+                                     " — the short-circuit is worth " (fmt (- np local) 4) " ms/walk")))
               (js/console.log ";; ==== MICRO (ns/op over the page's own literal roster) ====")
               (doseq [[k v] micro]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns")))
