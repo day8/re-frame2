@@ -852,13 +852,26 @@ async function ladderRow(chromium) {
 // counted, and "one subscription/epoch hook per boundary plus N edges
 // in a shared index" stops being a sentence in a docstring:
 //
-//   boundaries === B     one registration per boundary, R-independent
+//   boundaries === B     one registration per boundary THAT READS —
+//                        0 at R=0 (see below)
 //   edges      === B·R   the reads live as index edges, not as hooks
 //   cells      === Q     one cell per unique (frame, query) — Q = E here
 //   entries    === B     one read-set entry per boundary AT Q = E, because
 //                        no two boundaries read the same SET; the entry
 //                        cache's sharing buys nothing on this witness and
 //                        the row says so rather than claiming it does
+//
+// `boundaries` IS 0 AT R=0, AND THE ROW ASSERTS IT RATHER THAN EXCUSING
+// IT. Since rf2-dabt3 fused the sub-index into the cell table there is no
+// per-boundary registry to count: the runtime knows a boundary only
+// through the reader lists of the cells it reads, so an edgeless boundary
+// retains no membership anywhere and is correctly absent. That is the
+// property the fusion was taken FOR — one reader list on the cell that
+// already existed, in place of a map entry per mounted boundary whether
+// or not it read — so the ladder pins it as a positive claim: at R=0 the
+// count must be 0, and any non-zero reading means a mounted boundary is
+// being retained by something. (`entries` says the same thing from the
+// other side: 1 at R=0, the empty read-set, not B.)
 //
 // and on a DONOR arm every one of them must be 0 — the check that the
 // candidate's runtime is not standing behind the rows it is compared to.
@@ -872,7 +885,12 @@ function ladderStructuralFailures(row) {
       const hicasso = a.arm === 'lad/hicasso';
       const R = a.reads || 0;
       const want = hicasso
-        ? { boundaries: B, edges: B * R, cells: B * R, entries: R === 0 ? 1 : B }
+        ? {
+            boundaries: R === 0 ? 0 : B,
+            edges: B * R,
+            cells: B * R,
+            entries: R === 0 ? 1 : B,
+          }
         : { boundaries: 0, edges: 0, cells: 0, entries: 0 };
       for (const f of Object.keys(want)) {
         if (h[f] !== want[f]) {
@@ -1026,9 +1044,12 @@ function summariseLadder(row, structuralFailures) {
 
   console.log(';;');
   console.log(';; ==== THE STRUCTURAL WITNESS (counted, and exited on) ====');
-  console.log(';;   boundaries = B · edges = B·R · cells = Q · entries = B (1 at R=0) on the');
-  console.log(';;   candidate; all four ZERO on every donor arm; and every field zero again');
-  console.log(';;   after teardown — HD-002 clause (d) in objects rather than in bytes.');
+  console.log(';;   boundaries = B (0 at R=0) · edges = B·R · cells = Q · entries = B (1 at R=0)');
+  console.log(';;   on the candidate; all four ZERO on every donor arm; and every field zero');
+  console.log(';;   again after teardown — HD-002 clause (d) in objects rather than in bytes.');
+  console.log(';;   The R=0 zero is the fused design\'s own claim (rf2-dabt3): with the');
+  console.log(';;   sub-index living on the cell table, an edgeless boundary retains no');
+  console.log(';;   membership, so a NON-zero reading there is a retention bug.');
   if (structuralFailures.length === 0) {
     console.log(';;   VERDICT: every arm of every round answered its expected counts.');
   } else {
@@ -1259,7 +1280,16 @@ function summariseFanout(row) {
 
 // ---------------------------------------------------------------------------
 
-(async () => {
+// The structural witness is the one gate here that needs neither a release
+// build nor a Chromium to adjudicate — it is a pure function of the row —
+// so it is exported and pinned directly by `p0_ladder_structural.test.cjs`
+// (`test:script-helpers`). `--only ladder` is opt-in and in no gate, which
+// is how the R=0 expectation sat stale from rf2-dabt3 until rf2-zei9w ran
+// the driver; the unit pin is what stops the next such drift being found
+// by the next measurement instead of by CI.
+module.exports = { ladderStructuralFailures };
+
+if (require.main === module) (async () => {
   build();
   const server = serve();
   const { chromium } = require('playwright');
