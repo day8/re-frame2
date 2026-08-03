@@ -426,16 +426,36 @@ Use `:after` on `:connected` to schedule a periodic ping: `:after {30000 {:targe
 
 ### Server-pushed events
 
-Server pushes (`:ws/received` events with no `:request-id`) are translated into named dispatched events the running-app handlers consume. The connection machine's role is mechanical — receive, validate the socket-id, translate, dispatch. The semantic interpretation lives in the per-feature event handlers:
+Server pushes (`:ws/received` events with no `:request-id`) are translated into named dispatched events the running-app handlers consume. The connection machine's role is mechanical — receive, validate the socket-id, translate, dispatch. The socket-id check is the machine's own routing concern; the *payload* it hands on is unexamined. Semantic interpretation, and the payload check that goes with it, live in the receiving event handler:
 
 ```clojure
+;; The wire shape the server is allowed to push. A closed `:multi` with no
+;; default arm is what makes an unrecognised `:type` a rejection rather than a
+;; `case` fall-through inside the handler body.
+(def InboundMessage
+  [:multi {:dispatch :type}
+   [:note/created [:map [:type [:= :note/created]] [:note-id :uuid] [:body [:string {:max 4096}]]]]
+   [:user/typing  [:map [:type [:= :user/typing]]  [:user-id :uuid]]]])
+
 (rf/reg-event :ws/handle-message
+  {:doc          "Interpret one inbound frame. UNTRUSTED INGRESS — see below."
+   :schema       [:cat [:= :ws/handle-message] InboundMessage]
+   :interceptors [:rf.schema/at-boundary]}     ;; forces the check into the release build
   (fn [_ [_ {:keys [type] :as msg}]]
     (case type
       :note/created {:fx [[:dispatch [:notes/append msg]]]}
-      :user/typing  {:fx [[:dispatch [:chat/typing  msg]]]}
-      ...)))
+      :user/typing  {:fx [[:dispatch [:chat/typing  msg]]]})))
 ```
+
+### Inbound frames are untrusted, and `:schema` alone will not check them
+
+A frame arrives from the network, and on a compromised or hostile server it carries whatever the sender chose. That makes `:ws/handle-message` a system boundary in the same sense an HTTP response is, and the boundary needs a check that is still in the release bundle.
+
+A bare `:schema` is not that check. It is an ordinary registration diagnostic — it asserts that the code *you* wrote produced what you meant — so it elides under `:advanced` + `goog.DEBUG=false` ([010 §Production builds](010-Schemas.md#production-builds)), and a malformed frame flows straight into the handler body on the one build where it matters. `:rf.schema/at-boundary` reads that same declaration at a checkpoint the framework keeps in every build, because refusing a malformed payload at an untrusted ingress is a promise the framework made, and what may be elided is settled by what the check is *for* rather than by who declared the schema it reads ([C-000.35](000-Vision.md#contract--pattern-obligations)). One interceptor reference on one handler is the whole change; there is no second schema to write and nothing to maintain in parallel.
+
+**The interceptor is a better fit here than it is on a form POST.** [Pattern-FormAction §Validation is the handler's job](Pattern-FormAction.md#validation-is-the-handlers-job) reaches the opposite conclusion for an HTML form action, and the difference is what each surface owes the sender. A form owes the user their page back — populated fields, errors beside them — and a skipped handler composes nothing, so there the branch has to be handler code. A frame owes nobody a page. Dropping it *is* the complete answer: the handler never runs so nothing reaches `app-db`, one always-on structural `:rf.error/schema-validation-failure` record is fanned (`:source :boundary`, identifiers only — no offending value, because the payload is attacker-controlled by definition), and the event-emit record settles `:outcome :rejected`, which is the counter to alert on for hostile input ([009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)).
+
+**Put it at the ingress, not on everything downstream.** `:ws/handle-message` is where the wire crosses into the app; `[:notes/append msg]` and `[:chat/typing msg]` carry a value the app has already accepted, so their own `:schema` is an ordinary dev tripwire like any other and should stay one. The correlated request-reply path is the second ingress: a reply body arriving under a known `:request-id` is still the server's bytes, so a `:reply` event that writes it into `app-db` wants the same treatment as the push path.
 
 ### Re-authentication on reconnect
 
@@ -459,6 +479,7 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:auth-token` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a token expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/refresh-token` slot at the parent level.
 - **Skipping the connection-epoch check on socket-sourced events.** Without `:current-socket?` (or equivalent) on `:ws/received` **and** on the lifecycle transitions `:ws/opened`, `:ws/auth-ok`, `:ws/auth-failed`, `:ws/closed`, a slow event from a torn-down socket can land after a reconnect and act on the fresh connection: a stale `:message` processed against the new `:in-flight` map (wrong-reply dispatch, or a slot cleared by a stale correlation id), or a stale `:ws/closed` tearing the live connection back to `:reconnecting`. The guard is one key; skipping it is the websocket equivalent of [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)'s nav-token bug.
 - **Hardcoding the wire format in the pattern.** EDN, JSON, MessagePack, Protobuf — the connection machine doesn't care. The `:websocket/socket` actor serialises on send and deserialises on receive; the machine sees plain Clojure values.
+- **Declaring a `:schema` on the receiving handler and calling the ingress guarded.** That schema is a development diagnostic and elides, so on the build facing the real network there is no check at all. The connection machine validates the socket-id, never the payload, so nothing else covers it either. Add `:rf.schema/at-boundary` to the handler's `:interceptors` — see [§Inbound frames are untrusted](#inbound-frames-are-untrusted-and-schema-alone-will-not-check-them).
 
 ## Composition with related patterns
 
@@ -475,3 +496,5 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - [Pattern-StaleDetection.md](Pattern-StaleDetection.md) — epoch idiom; this pattern reuses it twice (backoff timer + connection epoch).
 - [Pattern-Boot.md](Pattern-Boot.md) — boot may include connection establishment as a phase.
 - [011-SSR §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr) — the server-side rule for the connection machine's timers.
+- [010-Schemas §Production builds](010-Schemas.md#production-builds) — why the receiving handler's `:schema` needs `:rf.schema/at-boundary` beside it.
+- [Pattern-FormAction §Validation is the handler's job](Pattern-FormAction.md#validation-is-the-handlers-job) — the other untrusted-ingress pattern, which reaches the opposite conclusion for the opposite reason.
