@@ -153,6 +153,29 @@ for it.
 > re-take was taken, on instrument blobs byte-identical to the published run.
 > The bead `rf2-2rtt6.58` was filed from this sentence and inherited its error.
 
+> **Re-taken again 2026-08-04, on the tree that ships — and the ≈ +100 B held
+> while the sentence built on top of it did not.** The 2026-08-02 rows above
+> were measured on `worker/cascade-2rtt6-52` at tree `4a33c61e1c`, and the audit
+> on `rf2-2rtt6.58` (PR #7392) established that their blobs do **not** match the
+> post-#7390 landed implementation, so they could not stand as the current
+> price. The `A → B → A` pair was re-taken on `81321da3fe`:
+>
+> | R=0 shell | no wrapper | wrapper | delta | vs the 1 KB line |
+> |---|---:|---:|---:|---|
+> | Hicasso, Reagent segment | **994 B** [985–1,003] | **1,099.5 B** | **+105.5 B, +10.6%** | 0.99× → **1.10×** |
+> | Hicasso, UIx segment | **992 B** [985–998] | **1,097 B** | **+105.0 B, +10.6%** | 0.99× → **1.10×** |
+>
+> **The wrapper's price is confirmed to within 1 B on both segments.** What
+> changed is underneath it: `rf2-aqgr2` and `rf2-dabt3` took ~140 B out of the
+> shell, so the no-wrapper arm now sits **at** the 1 KB line rather than 1.14×
+> over it. **The claim in this section that the wrapper "widens a pre-existing
+> failure rather than causing one" is therefore withdrawn** — on the tree that
+> ships, the wrapper is what carries the shell across the line. Read the
+> no-wrapper figure as *at* the line and not as passing: 994 B is 6 B under
+> 1,000, inside validation.md's own ~75 B shape sensitivity. The rows, the
+> controls and the box state are on
+> [the ladder's own page](reads-per-boundary-heap-ladder.md#the-memo-wrapper-re-taken-on-the-tree-that-ships-rf2-2rtt658-re-take).
+
 ## 4. What this page does and does not settle
 
 **Settles.** The cascade is gone — 300 → 0 card bodies on a page-chrome write, on
@@ -162,8 +185,11 @@ retained cost is a reproducible ~200 B per boundary.
 **Does not settle.** Whether the mount row carries a real few-per-cent regression
 (needs `clock_run.cjs`'s M1 row and its adjudicators). ~~And what +200 B does to
 the **R=0 shell** figure against the paper line.~~ **That second one is now
-settled** — `rf2-2rtt6.58` re-took the shell on the P0 bench and reads
-**+100 B / +9%**, moving it from 1,141 B to 1,247 B; see the note in
+settled** — `rf2-2rtt6.58` re-took the shell on the P0 bench, and re-took it
+again on 2026-08-04 against the landed implementation after the first pair's
+provenance was audited: **+105 B / +10.6%**, moving it from **994 B to
+1,099.5 B**. See the notes in
 [§3](#what-200-b-means-depends-on-the-boundary-shape-and-both-readings-are-true).
-Whether that is acceptable for a **default** on a line the shell was already over
-remains the operator's call.
+Whether that is acceptable for a **default** remains the operator's call — and
+it is now a sharper question than this page framed it as, because the shell is
+**no longer over the line before the wrapper is applied**.

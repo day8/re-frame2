@@ -1050,6 +1050,29 @@ rule on.
 
 ### The memo wrapper, priced on this rung (rf2-2rtt6.58)
 
+> **HISTORICAL, and not comparable to the tree that ships (2026-08-04).** These
+> rows were taken on `worker/cascade-2rtt6-52` at tree `4a33c61e1c`. The
+> provenance paragraph below says the recorded blobs "will prove the measured
+> tree and the merged tree agree once it is rebased" — **they do not agree**:
+> the measured runtime and codec blobs were `a6d6c55a58` and `12284ef8f4`, and
+> after PR #7390 and the landings that followed, the shipped blobs are
+> `9f3d42be7b` and `cf9ef32dc8`. The audit on `rf2-2rtt6.58` (PR #7392) reopened
+> the bead for exactly that.
+>
+> **The wrapper delta below survived the re-take almost exactly** — +105.5 and
+> +105.0 B against the +106 and +98 B here — but the **base did not**, and one
+> conclusion drawn from the base is now false. On the tree that ships the
+> no-wrapper shell reads **994 / 992 B**, not 1,141 / 1,138 B, so the claim
+> repeated throughout this subsection that the shell *was already over the 1 KB
+> line before any wrapper existed* **no longer holds**.
+> [The re-take](#the-memo-wrapper-re-taken-on-the-tree-that-ships-rf2-2rtt658-re-take)
+> is the current price. Nothing below is edited; it is kept as the record of
+> what was measured on that branch.
+>
+> One arithmetic correction the audit also named, recorded here rather than
+> silently fixed in the table: the UIx row's `1,138 → 1,236` is **+98 B,
+> +8.6%** — not the +100 B / +8.8% printed below.
+
 **Measured 2026-08-02** for `rf2-2rtt6.58`, to answer the one question
 [HD-028](../decisions.md#hd-028--value-equality-is-the-boundary-default) left
 open when it made a value-equality bail-out the boundary default: what its
@@ -1745,6 +1768,245 @@ the fused arm at R=0. The first attempt at this measurement declined to widen
 that gate to admit its own run, and published nothing; the fix landed as
 PR #7451 and the expectation is now `R === 0 ? 0 : B`, which is strictly
 stronger — the old form could not have detected a boundary retained at R=0.
+
+### The memo wrapper, re-taken on the tree that ships (rf2-2rtt6.58, re-take)
+
+**Measured 2026-08-04** on `81321da3fe`, `origin/main`. This replaces the
+2026-08-02 rows in [the subsection above](#the-memo-wrapper-priced-on-this-rung-rf2-2rtt658)
+as the wrapper's current price. Those rows were taken on
+`worker/cascade-2rtt6-52` at tree `4a33c61e1c`, and their own provenance
+paragraph promised that the recorded blobs *"will prove the measured tree and
+the merged tree agree once it is rebased"*. **They do not agree.** The runtime
+blob measured was `a6d6c55a58` and the codec blob `12284ef8f4`; after PR #7390
+and the four landings that followed it the shipped blobs are `9f3d42be7b` and
+`cf9ef32dc8`. The audit on `rf2-2rtt6.58` (PR #7392) called that out and asked
+for the pair to be re-taken on the landed implementation before the number is
+used as the current price. This is that re-take.
+
+**The delta survives almost exactly. The base does not, and the conclusion
+drawn from the base is now false.**
+
+#### The prior, quoted, and how it fared
+
+From the bead's own verdict line, written 2026-08-02:
+
+> the wrapper costs ~+100 B on the R=0 shell, NOT the ~+200 B projected —
+> +9%, not +17%.
+>
+> | R=0 shell | no wrapper | wrapper | delta |
+> |---|---:|---:|---:|
+> | Reagent segment | 1,141 B | 1,247 B | +106 B, +9.3% |
+> | UIx segment | 1,138 B | 1,236 B | +100 B, +8.8% |
+
+| the claim | verdict | what was measured |
+|---|---|---|
+| the wrapper costs ≈ +100 B, not ≈ +200 B | **MET**, and closely | +105.5 B and +105.0 B |
+| the cost is constant in R and lands wholly in the shell | **MET** | slope identical to the byte across all three runs, both segments |
+| the percentage is ≈ +9% | **MISSED**, low | **+10.6%** on both segments — the delta held, the base fell |
+| the shell was *already over* the 1 KB line without the wrapper | **NO LONGER TRUE** | without the wrapper the shell reads **994 / 992 B** |
+| ⇒ "the wrapper widens a pre-existing failure rather than causing one" | **WITHDRAWN** | on the tree that ships, the wrapper is what carries the shell across the line |
+
+The last row is the reason this re-take was worth its box time. HD-028's
+disposition paragraph, this page's own 2026-08-02 subsection and
+[the page-chrome row](the-page-chrome-row-and-what-the-bail-out-costs.md) all
+rest their argument on the shell having failed the paper line *before any
+wrapper existed*. That was true at 1,141 B. It is not true at 994 B.
+
+#### The rows
+
+Three runs, `A1 → B → A2`, one session, box probed before each. B = 1,200
+boundaries, six rounds, rungs 0/1/3/7/20, Q = E. `shell` is the driver's own
+**directly measured R=0 rung**, never the fitted intercept; bands are min–max
+across the six rounds.
+
+| R=0 shell | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* | delta |
+|---|---:|---:|---:|---:|
+| Hicasso, Reagent segment | **1,101** [1,088–1,112] | **994** [985–1,003] | **1,098** [1,090–1,103] | **+105.5 B, +10.6%** |
+| Hicasso, UIx segment | **1,097** [1,095–1,098] | **992** [985–998] | **1,097** [1,092–1,105] | **+105.0 B, +10.6%** |
+
+**The estimator is named rather than left to be inferred.** The delta is the
+paired one — `mean(A1, A2) − B` — and the percentage is that delta over **B**,
+the no-wrapper arm, because the question is what the wrapper *adds* to a shell
+without it. The unpaired deltas are `A1 − B` = +107 / +105 B and `A2 − B` =
++104 / +105 B, so the pairing changes the Reagent figure by 1.5 B and the UIx
+figure by nothing.
+
+**The A/B bands are disjoint on both segments** — 85 B and 87 B of clear air on
+the Reagent segment, 97 B and 94 B on the UIx segment — so the arms are
+distinguishable by this studio's house rule before the delta is quoted.
+
+**A1 and A2 bracket B in time and do not separate**: 1,101 against 1,098 (bands
+overlap over [1,090–1,103]) and 1,097 against 1,097. The box did not move under
+the pair.
+
+#### Against the 1 KB line, which is what changed
+
+| | Reagent segment | UIx segment | against the 1 KB paper-fail line |
+|---|---:|---:|---|
+| no wrapper (B) | 994 B | 992 B | **0.99× — at the line** |
+| wrapper (A, paired) | 1,099.5 B | 1,097 B | **1.10× — over it** |
+
+**Read the no-wrapper row as "at the line", not as "passing".** 994 B and 992 B
+are 6 B and 8 B under 1,000, the Reagent arm's own per-round band
+[985–1,003] straddles it, and [validation.md](../validation.md) puts this line's
+component-shape sensitivity at **~75 B**. The honest statement is that the
+no-wrapper shell is **not distinguishable from the line in either direction**.
+
+The wrapper arm is a different matter. Its per-round bands are
+[1,088–1,112] and [1,092–1,105]: **every one of the twelve readings is above
+1,075 B**, so it clears the line by more than the shape sensitivity in every
+round rather than on the mean. The flip is also robust to which "1 KB" is
+meant — at 1,024 B the no-wrapper arm reads 0.97× and the wrapper arm 1.07×.
+
+So the shape of the finding is: **the design's own shell now arrives at the
+paper line, and the wrapper is what puts it past.** That is a materially
+different question for the operator than the one the 2026-08-02 rows posed.
+
+#### The wrapper is exactly R-independent, again
+
+The 2026-08-02 session's strongest result reproduces on a tree 145 / 139 B
+lighter in the shell and 169 / 174 B lighter per read:
+
+| marginal slope | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* |
+|---|---:|---:|---:|
+| Hicasso, Reagent segment | 1,278 [1,275–1,280] | 1,278 [1,276–1,279] | 1,279 [1,276–1,280] |
+| Hicasso, UIx segment | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] |
+
+A per-boundary constant is what HD-028 priced the wrapper as, and three runs on
+two segments put the slope inside a 1 B spread. Nothing leaked into the
+per-read term.
+
+#### The controls
+
+**Negative controls — the donors, taken in the same runs.** Neither donor goes
+through `mint-view!`, so neither can see the toggle:
+
+| donor | A1 | B | A2 |
+|---|---:|---:|---:|
+| Reagent shell (R=0) | 510 [499–518] | 510 [503–516] | 506 [499–516] |
+| UIx shell (R=0) | 223 [220–230] | 222 [217–226] | 224 [221–231] |
+| Reagent per read | 947 [947–948] | 947 [947–948] | 947 [947–948] |
+| UIx per read | 2,979 [2,978–2,980] | 2,979 [2,978–2,981] | 2,979 [2,978–2,980] |
+
+**The donors also reproduce their published anchor**, which is what licenses the
+cross-session sentences above: 947 and 2,979 B/read against the 947–948 and
+2,978–2,981 the two most recent sections state. And the **A arm reproduces this
+page's own most recent published `main` rows** — slope 1,278 / 2,115 exactly, and
+shell 1,101 / 1,097 against the 1,103 / 1,097 the fusion section published two
+hours earlier. That reproduction, rather than a table of blob hashes, is what
+says the measured tree and the shipped tree are the same tree; it is the check
+the 2026-08-02 provenance promised and could not deliver.
+
+**Positive control.** The same dense array of 587,500 unboxed doubles —
+**4,700,000 B, fixed before any run.** Measured 4,698,736 B, 4,697,603 B and
+4,698,736 B: ratios 0.9997, 0.9995 and 0.9997, **`ok` under
+`lane/control-verdict`** at the driver's ±25% slack in all three.
+
+> **The control protocol, stated unambiguously (the audit's third item).** The
+> binding gate is `lane/control-verdict` at ±25%, which the driver *exits on*.
+> It is the only band this session registered. The deviations from the
+> prediction — −0.027%, −0.051%, −0.027% — are reported as a **non-gating
+> observation** with no acceptance band attached. The 2026-08-02 session
+> pre-registered a separate ±0.05% expectation, missed it on all three runs and
+> accepted the miss afterwards; registering no second band is the way not to
+> repeat that, and is a deliberate choice made before the first run rather than
+> a band dropped after seeing one.
+
+**0 unverified of 154 mounts**, structural read-back **every field answered**,
+arm-order guard **reportable**, **exit 0** — all three runs, no gate waived and
+none widened.
+
+#### The 145 / 139 B the shell lost since 2026-08-02 is not attributed here
+
+The wrapper arm read 1,247 / 1,236 B on 2026-08-02 and reads 1,099.5 / 1,097 B
+now; `rf2-aqgr2`'s A″/B″ pair puts the shell at 1,244–1,246 / 1,236–1,237 as
+late as that section, so the drop is later than it and no section on this page
+attributes it. The obvious suspect is `rf2-dabt3`'s sub-index fusion, but the
+fusion section's own ablation reports the shell **unmoved** by the part of the
+fusion it ablates, which is about the reader array and not about the whole
+landing. **It is left unattributed rather than guessed at**, and filed as
+`rf2-2rtt6.82`. Nothing in this subsection depends on the answer: A and B were
+taken hours apart from nothing, in one session, on one tree.
+
+#### What this settles, and what it hands the operator
+
+**Settles.** On the tree that ships, the wrapper costs **+105 B — +10.6%** — on
+the R=0 shell, moving it from **994 / 992 B to 1,099.5 / 1,097 B**. The delta is
+within 1 B of the 2026-08-02 re-take on both segments, so that session's
+measurement of the *wrapper* stands and only its base was overtaken. The delta
+is above validation.md's ~75 B shape sensitivity, though not by a wide margin.
+
+**Changes.** The argument every carrier of the old figure rests on —
+*the wrapper widens a failure that pre-dates it* — **no longer holds.** Without
+the wrapper the shell is at the line; with it the shell is 1.10× over. HD-028's
+*Reopens* clause is worded as **failing** the bar, and on this tree the wrapper
+is the thing that reaches it.
+
+**Does not settle, deliberately.** Whether that is "pushing retained heap
+meaningfully farther past the bar" in HD-028's sense. The clause remains
+unquantified in HD-028, in validation.md and in the heap-regime ruling, and it
+is not this page's to quantify. **No candidate-bar row is written into
+validation.md**, matching §6's posture under `rf2-b0tz5`.
+
+**The pre-registered fallback, named and not executed.** HD-028 already records
+what happens if the Fiber fails its gate: *retain HD-006 and ship the same
+comparator as an explicit boundary-level opt-in.* That is the operator's call to
+make, not this section's, and it is written here so the disposition does not
+have to be invented when it is taken.
+
+#### Provenance
+
+Whole-tree anchor **`81321da3fe`**, which is `origin/main`; the working tree was
+clean at the start of A1, carried exactly the one-line B edit for B, and was
+restored **byte-identically** for A2 (`git status --porcelain` empty, runtime
+blob back to `9f3d42be7b`).
+
+The one line under test, `mint-view!` in `arm1/runtime.cljs`:
+
+| arm | line | `arm1/runtime.cljs` blob |
+|---|---|---|
+| **A1, A2** | `(codec/memoize-boundary! (codec/mark-boundary! component))` | `9f3d42be7b3aa529e8fc6ef8531262ceb4d65f1a` |
+| **B** | `(codec/mark-boundary! component)` | `a832fafb1ef164e7a8aaddb329a43875dc38b5c1` |
+
+`front/codec.cljs` is `cf9ef32dc8f751e344016cfa01b1db722ba2440b` in all three —
+the wrapper's definition is present throughout and merely goes uncalled in B.
+`mint-frame-prop-view!` acquired a second `memoize-boundary!` call site since
+2026-08-02 and is **deliberately untouched**: `defview` expands to `mint-view!`
+only, so the frame-prop twin is unreachable from this rig and editing it would
+have made the arms differ by two lines instead of one.
+
+The instrument, all under `implementation/core/test/re_frame/bench/`:
+
+| file | blob | vs §6 run 3 |
+|---|---|---|
+| `p0_run.cjs` | `586474b5cfad0f09df5e3e968ca0282e2c1cd95c` | moved — PRs #7448/#7450/#7451 |
+| `p0_heap.cljs` | `0a568a63cd24b66865e433c49a62eadff8993e8a` | moved |
+| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` | identical |
+| `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` | identical |
+| `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` | identical |
+| `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` | identical |
+
+The two that moved moved **towards refusing more**, not less: nine conditions
+that previously printed a fault and exited 0 now exit non-zero. The four arm
+files are byte-identical to §6's published run 3.
+
+Reproduce — the wrapper arm as `main` stands, the no-wrapper arm by deleting the
+one call above:
+
+```
+node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+```
+
+**Conditions.** 2026-08-04 02:45–02:57 +1000, three runs of ~3.5 minutes,
+React 19.2.0, Reagent 2.0.1, UIx 1.4.4, `:advanced` with `goog.DEBUG false`,
+headless Chromium via Playwright, Windows 11, 24 logical cores, 32 GB.
+**Box verified quiet before each run and at close** — real CPU occupancy
+**1.38% / 1.60% / 1.89% / 2.07%**, measured as summed per-process CPU-time
+deltas over a 5-second window divided by the core count. `LoadPercentage` is
+deliberately not used: it reads 15–20% on this box when the true occupancy is
+under 2%. Throughout: 15 node processes (idle MCP servers), 56 chrome, **zero
+java**, ~500 processes, ~30.7 GB free, no other worker and no open PR. The box
+did not change across the window, so the three runs are same-load.
 
 ---
 
