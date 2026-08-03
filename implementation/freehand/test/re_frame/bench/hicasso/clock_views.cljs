@@ -203,8 +203,7 @@
         drafts (or (:draft (rf/app-db-value v/subs-frame))
                    (vec (repeat kb-fields-n "")))]
     (frame/replace-app-db! v/subs-frame
-                           (assoc (v/seed-cells kb-cells-n 0)
-                                  :draft (assoc drafts i s))))
+                           (assoc (seed kb-cells-n) :draft (assoc drafts i s))))
   nil)
 
 ;; ---------------------------------------------------------------------------

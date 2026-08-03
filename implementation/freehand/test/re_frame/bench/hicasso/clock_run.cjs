@@ -990,7 +990,9 @@ async function runRow(browser, rowId) {
             // A second settle before draining: Event Timing entries reach
             // the observer in a task AFTER the frame that painted them.
             await page.evaluate(() => window.HCLOCK.settle());
-            if (s === censusAt) {
+            // Not the tare: it presses no key, so it armed no census and an
+            // empty one recorded against it would read as a measured zero.
+            if (s === censusAt && armId !== PLUMB) {
               census[`${seg}/${armId}`] = await page.evaluate(() => window.HCLOCK.censusTake());
             }
             const drained = await page.evaluate(() => {
