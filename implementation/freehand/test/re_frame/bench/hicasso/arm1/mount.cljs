@@ -47,10 +47,20 @@
   nil)
 
 (defn render!
-  "Render `hiccup` into an existing root, synchronously."
+  "Render `hiccup` into an existing root, synchronously.
+
+  The root hiccup is interpreted through
+  [[re-frame.bench.hicasso.front.codec/root-element]] rather than
+  `as-element`, because the root is the one creator with no ancestor body
+  to inherit the frame from — the case rf2-2rtt6.39's frame-as-a-prop
+  variant needs named. The context provider is installed regardless: it
+  is what the substrate's other React-shaped adapters read, and what the
+  error boundary and the presence tray resolve their frame from."
   [handle hiccup]
   (react-dom/flushSync
-    (fn [] (.render (:root handle) (provider (:frame handle) (codec/as-element hiccup)))))
+    (fn [] (.render (:root handle)
+                    (provider (:frame handle)
+                              (codec/root-element (:frame handle) hiccup)))))
   handle)
 
 (defn root!

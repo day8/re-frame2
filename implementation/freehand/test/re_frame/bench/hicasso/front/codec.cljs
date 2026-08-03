@@ -799,6 +799,44 @@
   [f]
   (and (fn? f) (true? (unchecked-get f "hicassoBoundary"))))
 
+(def ^:private frame-prop-marker "hicassoFrameProp")
+
+(defn mark-frame-prop!
+  "Record that `f` — an already-marked boundary head — takes its frame as
+  an ordinary ELEMENT PROP rather than from React context, and return it
+  (rf2-2rtt6.39).
+
+  ## Why the codec can supply it at all
+
+  The frame is ordinary data that flows down the tree, and every boundary
+  element below the root is created by an ancestor BODY — which runs
+  inside [[re-frame.bench.hicasso.front.intent/with-frame]], so the frame
+  is already bound at the exact moment [[boundary-element]] mints the
+  element. Baking it in costs one dynamic-var read and one property
+  write per element, and buys the shell its `useContext` back.
+
+  A foreign component sitting between two Hicasso boundaries is harmless:
+  its children were created by the Hicasso body ABOVE it, with the prop
+  already in them, so passing `props.children` through preserves it. The
+  one creator with no ancestor body is an outward bridge — the root, or a
+  React component that mounts Hicasso itself — and that creator names the
+  frame explicitly ([[root-element]]).
+
+  **This is a MEASUREMENT variant, not the default** (rf2-2rtt6.39 is a
+  hypothesis to price, not a ruling). Both variants live here so the
+  comparison is like-for-like: an unmarked head pays exactly what it
+  always paid, because the marker is read where the head's memo wrapper
+  is already read and the prop is written only when it is set."
+  [f]
+  (unchecked-set f frame-prop-marker true)
+  f)
+
+(defn frame-prop-head?
+  "Does this head take the frame as a prop? One own-property read, on a
+  path that already reads one ([[element-type]])."
+  [f]
+  (true? (unchecked-get f frame-prop-marker)))
+
 (defn- boundary-props=
   "React's `areEqual` for a memoized boundary — CLJS `=` over the complete
   `rfProps` value, which is Reagent's argv compare spelled on the one slot
@@ -836,10 +874,26 @@
   case. Reagent's `*always-update*` dynamic escape is declined: it exists
   so `force-update-all` can bypass the comparison for hot reload, and
   re-evaluating a `defview` here re-mints the head and its wrapper — a new
-  React element *type*, which HMR replaces outright."
+  React element *type*, which HMR replaces outright.
+
+  ## `rfFrame` is compared too, and it has to be (rf2-2rtt6.39)
+
+  A context-fed boundary is safe from this comparator by construction:
+  React propagates a context change to its consumers directly, ahead of
+  the comparator and through a memo, so a subtree that changed frames
+  re-renders whatever its props say. A frame-fed boundary
+  ([[mark-frame-prop!]]) has no such channel — the frame IS a prop, and a
+  comparator that ignored it would bail a re-parented subtree out and
+  leave every body below reading the frame it left. One `identical?` on a
+  keyword closes it, ahead of the `=` that can throw.
+
+  The incumbent pays that one comparison on two `undefined`s, which is
+  the honest price of keeping ONE comparator rather than two: a second
+  memo path would be a second place for the fail-open ruling to rot."
   [^js prev ^js next]
   (try
-    (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps"))
+    (and (identical? (unchecked-get prev "rfFrame") (unchecked-get next "rfFrame"))
+         (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps")))
     (catch :default _e
       (when ^boolean js/goog.DEBUG
         (when (exists? js/console)
@@ -1304,9 +1358,17 @@
         ;; rf2-2rtt6.32.
         body-props (realize-deep (cond-> (dissoc props :key)
                                    children (assoc :children children)))
+        head       (nth argv 0)
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    (react/createElement (element-type (nth argv 0)) js-props)))
+    ;; THE FRAME AS DATA (rf2-2rtt6.39). Only for a head that asked for
+    ;; it, so the context-fed incumbent's element carries exactly what it
+    ;; always carried and the two variants are comparable. `intent/*frame*`
+    ;; is bound by the ancestor body this element is being created inside;
+    ;; at the root there is no ancestor body and [[root-element]] binds it.
+    (when (frame-prop-head? head)
+      (unchecked-set js-props "rfFrame" intent/*frame*))
+    (react/createElement (element-type head) js-props)))
 
 (defn host-prop-value
   "A host prop value, converted SHALLOWLY — HD-011's default. The
@@ -1530,6 +1592,27 @@
     (keyword? x)     (name x)
     (symbol? x)      (name x)
     :else            x))
+
+(defn root-element
+  "[[as-element]] for a hiccup form written OUTSIDE any boundary body —
+  the root, or an outward React bridge that mounts Hicasso from foreign
+  code (rf2-2rtt6.39).
+
+  Every other element in the tree is created by an ancestor body, which
+  is already running inside
+  [[re-frame.bench.hicasso.front.intent/with-frame]]. This is the one
+  creator that is not, so it is the one creator that has to NAME the
+  frame — which an outward bridge takes explicitly anyway. Binding it
+  here rather than in the arm's mount keeps the reason next to the
+  mechanism.
+
+  `*dispatch*` is deliberately NOT bound: the frame is an identity the
+  root genuinely has, while a frame-locked dispatch is what makes an
+  intent vector legal, and an intent written outside a boundary stays the
+  loud `:rf.error/hicasso-intent-outside-boundary` it was."
+  [frame-kw hiccup]
+  (binding [intent/*frame* frame-kw]
+    (as-element hiccup)))
 
 ;; ---------------------------------------------------------------------------
 ;; Cache observation — for the tests and the bench, never for the runtime
