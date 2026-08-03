@@ -73,11 +73,12 @@ metadata folklore is deleted along with it. Keys go in the props map:
      [todo-row {:key id :id id}])])
 ```
 
-A bare seq of boundary children needs keys, and you get a dev warning if you forget.
+A bare seq of boundary children needs keys, and today you get React's own key
+warning in development if you forget — a Hicasso-minted one is ruled but not built.
 The `for`-lowering sugar that would derive the key from the binding is **not v0** —
 you write `:key` yourself. Putting a plain `defn` in head position — `[badge {...}]`
-where `badge` was never minted by `defview` — is a loud error rather than a silent
-embedding.
+where `badge` was never minted by `defview` — is `:rf.error/hicasso-bad-head`,
+a loud error rather than a silent embedding.
 
 ### The component ABI
 
@@ -135,6 +136,65 @@ What the default buys you, beyond that chain, is that a boundary the value does
 **not** reach skips instead of re-rendering for nothing. Moving the read down is
 still a granularity fix, not a correctness fix, and if you go looking for a lost
 update you will not find one.
+
+Whether the bail-out stays the *default* is the one thing on this page still in
+front of the operator. It costs about 100 bytes of retained heap per boundary, and
+on the smallest measurable shell that is what carries the shell across the 1 KB
+line — so HD-028's own pre-registered fallback, shipping the same comparator as an
+explicit opt-in instead, is live. Nothing you write changes either way; what
+changes is whether you have to ask for it.
+
+## Attributes
+
+The attribute map is ordinary hiccup, with the conversions React wants done for
+you.
+
+```clojure
+(defview title-field [_]
+  (let [invalid? (sub [:editor/title-invalid?])]
+    [:input.form-control#title
+     {:type        :text
+      :value       (sub [:editor/title])
+      :placeholder "Article Title"
+      :aria-label  "Title"
+      :data-testid "title"
+      :style       {:margin-top 8}
+      :class       ["is-wide" (when invalid? "is-invalid")]
+      :on-input    [:editor/set-title ::h/value]}]))
+```
+
+Five rules cover the whole of it.
+
+**Names go kebab to camel.** `:on-click` emits `onClick` and `:default-value`
+emits `defaultValue`. `:aria-*` and `:data-*` pass through exactly as written,
+because that is what the DOM wants, and a `--custom-property` is preserved
+verbatim. Three attributes React spells differently from HTML are renamed for you:
+`:class` → `className`, `:for` → `htmlFor`, `:charset` → `charSet`.
+
+**Values convert one level deep.** A nested map — `:style` and its kin — has its
+own keys camelCased, so `{:margin-top 8}` arrives as `marginTop`. Keywords and
+symbols become their names, which is why `:type :text` is `type="text"`. Functions
+cross by identity, deliberately: rewrapping them would defeat the default
+value-equality bail-out and every other comparison that looks at handler identity.
+
+**`:class` takes more than a string.** A keyword, a symbol, or a collection of
+those, with `nil`s dropped and the rest joined by spaces — so the `(when …)` above
+contributes nothing at all when it is false, and you never build a class string by
+hand.
+
+**The tag's `#id` and `.class` shorthand composes.** An explicit `:id` in the map
+wins over `#title`, and `.form-control` on the tag is joined with whatever `:class`
+brings rather than one of them silently replacing the other.
+
+**`:key` is not an attribute.** It is React's identity contract: it is read off the
+map, it never reaches your body, and it is not emitted as a prop.
+
+One further key is reserved, and it is the only attribute merge Hicasso has. `:&`
+carries a map of attributes from somewhere else — a caller's forwarded remainder, a
+theme's part attributes — and **the literal keys you write always win over it**.
+The case that makes the law worth having is a controlled input, so
+[Controlled inputs](04-controlled-inputs.md#forwarding-attributes-onto-a-controlled-input)
+teaches it in full.
 
 ## How `sub` works, in the four sentences that matter
 
@@ -208,4 +268,5 @@ independently, not because the markup got long.
 |---|---|
 | `sub` and `defview` spellings | Working names; [authoring.md](../authoring.md) holds all declaration spellings unfrozen until the freeze |
 | The bar | The read surface is ruled, but the ship-bar rows (mount and bulk ≤ 1.0× Reagent, HD-012) are not yet taken; the programme can still end null on them |
-| The dev warning for an unkeyed seq — its id and whether it is dev-only | **Not addressed** beyond "dev warning" |
+| Whether the value-equality bail-out stays the **default** | **An open operator ruling.** HD-028 rules it the default and the runtime implements it, but the wrapper is what carries the R=0 shell across the 1 KB retained-heap line (994/992 B without it, 1,099.5/1,097 B with it), so HD-028's own fallback — the same comparator as an explicit boundary-level opt-in, with HD-006 restored as the default — is on the table. This page teaches the default because that is what is landed |
+| The dev warning for an unkeyed seq — its id and whether it is dev-only | **Not addressed** beyond HD-016's "dev warning", and nothing mints one: what a reader sees today is React's own key warning |

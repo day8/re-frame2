@@ -80,6 +80,10 @@ And the boot namespace, which is the actual subject of this page:
 That is the whole boot. `h/root!` **[unfrozen]** takes the DOM node, a config map,
 and one view, and hands back a teardown function.
 
+The `{}` on `[views/todo-app {}]` is optional — `[views/todo-app]` renders the same
+thing, and the body receives an empty props map either way. Write whichever reads
+better at the call site.
+
 `:initial-events` behaves exactly as it does under
 [`frame-root`](../../../core/how-to/boot-and-mount-an-app.md): ordinary events, run
 once in order, seeding app-db before first paint. Even initial values arrive by
@@ -117,9 +121,12 @@ it.
 Note what the floor implies for the code above. `defonce` keeps the root alive
 across reloads, and the guarantee says the *changed body* is used — so on the
 designed behaviour a `^:dev/after-load` remount hook is not part of the story.
-Whether a swap needs an explicit re-render call, or `defview` re-reads its var and
-the next commit picks the change up for free, is a mechanism question the record
-leaves open. See **Not settled yet**.
+
+Half the mechanism is visible in how `defview` expands. It is a `def` of a freshly
+minted head, so re-evaluating the namespace produces a *new* head — which is a new
+React element type, and React replaces that subtree rather than trying to reconcile
+it. Nothing has to force its way past the default bail-out. What the record does not
+say is what makes the next render happen at all; see **Not settled yet**.
 
 If you edit `:todo/initialise` itself and want the new seed to run, reset the frame
 or reload the page. Hot reload preserves state by design, and it will happily
@@ -164,6 +171,5 @@ be the answer is a *successful* outcome for Hicasso, not a failure mode.
 |---|---|
 | The root operation's name, its config keys, and the teardown's name | Semantics pinned by HD-021; names explicitly unfrozen until the API freeze |
 | Does `rf/init!` and adapter installation still apply? | **Not addressed.** Hicasso is a native view layer rather than an adapter, but the record never says whether the root operation subsumes process setup or whether an `init!`-equivalent survives |
-| May a boundary child omit its props map — `[views/todo-app]` rather than `[views/todo-app {}]`? | **Not addressed.** HD-016 says bodies take a single props map; whether the map is optional at the call site is unstated. This page writes `{}` to stay inside what is ruled |
-| Does a hot-reload body swap need an explicit re-render call? | **Not addressed.** HD-021 pins the guarantees, not the mechanism |
+| What triggers the re-render after a hot-reload body swap | **Not addressed.** HD-021 pins the guarantees and `defview`'s expansion settles how the new body is picked up; nothing says who asks for the render |
 | Where the frame config other than `:initial-events` goes | **Not addressed.** `frame-root` takes a config map today; whether the root operation passes one through is unstated |

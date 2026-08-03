@@ -17,18 +17,22 @@ narrower question — **what does a programmer actually type?**
 | Page | Its one job |
 |---|---|
 | [Getting started](01-getting-started.md) | Put one Hicasso view on screen inside a frame, and take it down again |
-| [Views and reads](02-views-and-reads.md) | Write a view; read subscriptions where you use them |
+| [Views and reads](02-views-and-reads.md) | Write a view; read subscriptions where you use them; write its attributes |
 | [Events as data](03-events-as-data.md) | Put an event vector in an attribute and let the runtime build the callback — clicks, keys, prevention, and links |
 | [Controlled inputs](04-controlled-inputs.md) | Type into a text field whose value round-trips through app-db, and keep your caret |
 | [Interop](05-interop.md) | Use a React component from npm |
 | [Theming](06-theming.md) | Style a component library without a context API |
 | [Ephemeral state](07-ephemeral-state.md) | Decide where "is this dropdown open?" lives, given there is no `local` — and where "it left but is still fading out" lives, given app-db cannot hold it |
 | [Testing](08-testing.md) | Assert a view's output without a browser, and know when you still need one |
+| [When a view throws](09-when-a-view-throws.md) | Keep one broken view from taking the page down with it |
 
-Eight pages is not an accident. K5 in [validation.md](../validation.md) kills the
-programme at "more than ~8 public concepts or ~8 guide pages to ship CRUD", so the
-guide deliberately spends its whole budget and no more. If it ever needs a ninth
-page, that is a signal about the design, not about the writing.
+The page count is editorial judgement now. It used to be a budget: K5 in
+[validation.md](../validation.md) killed the programme at "more than ~8 public
+concepts or ~8 guide pages to ship CRUD", and this guide was written to spend
+exactly that and no more. **The operator removed K5 as a kill criterion on
+2026-08-04**, so a page is added when a reader genuinely needs one and not
+otherwise. The pressure to stay short did not go away with the number — it just
+stopped being a rule.
 
 ## How to read the markers
 
