@@ -2010,6 +2010,248 @@ did not change across the window, so the three runs are same-load.
 
 ---
 
+### The frame-as-a-prop variant, priced on this rung (rf2-2rtt6.72)
+
+**Measured 2026-08-04** on `2303ef6781`, one commit off `origin/main`
+`1ce64c06a2`. It is the same instrument, the same B = 1,200 page and the same
+`A1 → B → A2` design as [the wrapper re-take above](#the-memo-wrapper-re-taken-on-the-tree-that-ships-rf2-2rtt658-re-take),
+deliberately, so the two rows compose.
+
+`rf2-2rtt6.39` landed a second boundary shell beside the incumbent: the frame
+arrives as an ordinary element prop (`rfFrame`) rather than through
+`useContext`, so the shell spends **one** React hook where the incumbent
+spends two. That bead measured the hook count at React's own dispatcher and
+proved multi-frame isolation through both variants; it did not price them.
+This is the price.
+
+**The variant is cheaper, and by less than the wrapper costs.**
+
+#### The prediction, quoted, and how it fared
+
+Registered before the first build, in the run's own pre-registration:
+
+> The variant deletes React's `useContext` hook cell and the fiber's context
+> dependency record, and adds one property slot (`rfFrame`) on every boundary
+> element's props object. A keyword is interned, so the added retention is a
+> slot and not an object. `useContext` is a much lighter hook than
+> `useSyncExternalStore` — no store cell, no subscribe closure, no snapshot
+> pair — so the ~516 B the P0 record prices an isolated
+> `useSyncExternalStore` rung at is an **upper bound the saving will not
+> approach**. Registered prediction: **`|B − A| < 100 B`** on both segments,
+> direction not predicted. Slope: predicted **unchanged**.
+
+| the claim | verdict | what was measured |
+|---|---|---|
+| the saving is real, i.e. the arms are distinguishable | **MET** | bands disjoint on both segments |
+| the delta is under 100 B in magnitude | **MET** | **45.0 B** and **46.5 B** |
+| the ~516 B hook rung is an upper bound this will not approach | **MET** | 45 B is **8.7%** of it |
+| the cost is constant in R — nothing leaks into the per-read term | **MET** | slope identical to the byte, all three runs, both segments |
+
+The direction was deliberately not predicted, and it is **down**: removing the
+hook wins more than carrying the prop costs. The two effects are not separable
+by this instrument — 45 B is the *net* of a hook cell removed and a props slot
+added, and nothing here decomposes it.
+
+#### The rows
+
+Three runs, `A1 → B → A2`, one session. B = 1,200 boundaries, six rounds,
+rungs 0/1/3/7/20, Q = E. `shell` is the driver's own **directly measured R=0
+rung**, never the fitted intercept; bands are min–max across the six rounds.
+
+| R=0 shell | A1 *(context, 2 hooks)* | B *(frame-prop, 1 hook)* | A2 *(context)* | delta |
+|---|---:|---:|---:|---:|
+| Hicasso, Reagent segment | **1,098** [1,087–1,111] | **1,054** [1,049–1,066] | **1,100** [1,091–1,105] | **−45.0 B, −4.1%** |
+| Hicasso, UIx segment | **1,096** [1,092–1,101] | **1,051** [1,047–1,056] | **1,099** [1,095–1,102] | **−46.5 B, −4.2%** |
+
+**The estimator is the paired one** — `B − mean(A1, A2)`, with the percentage
+over the **A** arm, because the question is what the variant *takes off* the
+shell that has the hook. The unpaired deltas are `B − A1` = −44 / −45 B and
+`B − A2` = −46 / −48 B, so the pairing moves the Reagent figure by 1 B and the
+UIx figure by 1.5 B.
+
+**The A/B bands are disjoint on both segments** — 21 B and 25 B of clear air on
+the Reagent segment, 36 B and 39 B on the UIx segment — so the arms are
+distinguishable by this studio's house rule before the delta is quoted.
+
+**A1 and A2 bracket B in time and do not separate**: 1,098 against 1,100 and
+1,096 against 1,099, both pairs' bands overlapping heavily. The box did not
+move under the pair.
+
+#### The saving is exactly R-independent, which is the same shape the wrapper showed
+
+| marginal slope | A1 *(context)* | B *(frame-prop)* | A2 *(context)* |
+|---|---:|---:|---:|
+| Hicasso, Reagent segment | 1,278 [1,276–1,280] | 1,278 [1,275–1,280] | 1,279 [1,278–1,280] |
+| Hicasso, UIx segment | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] |
+
+A hook is per boundary, not per read, so a saving that appeared in the slope
+would have meant the arms differed in something other than the hook. Three runs
+on two segments put the slope inside a 1 B spread and the UIx segment does not
+move at all.
+
+#### Against the 1 KB line, which is the question this row was taken for
+
+The wrapper re-take above withdrew the claim that the shell failed the paper
+line before the wrapper existed. That makes the standing question *what, if
+anything, brings it back*, and this variant is the one lever already built.
+
+| R=0 shell | Reagent segment | UIx segment | against the 1 KB paper-fail line |
+|---|---:|---:|---|
+| context shell, no wrapper (rf2-2rtt6.58) | 994 B | 992 B | **0.99× — at the line** |
+| context shell, wrapper — what ships | 1,099.5 B | 1,097 B | **1.10× — over it** |
+| **frame-prop shell, wrapper** *(this row)* | **1,054 B** | **1,051 B** | **1.05× — still over it** |
+
+**It does not clear the line.** The variant gives back **45 of the wrapper's
+105 B — 43%** — and the shell stays above 1 KB by more than the per-round
+scatter: every one of the twelve B readings is at or above 1,047 B, so it
+clears 1,000 B in every round, and clears 1,024 B in every round too
+(1.029× and 1.026× against that reading).
+
+Two things this row therefore does **not** license. It does not make the
+frame-prop variant an alternative to HD-028's pre-registered fallback: the
+fallback is about the wrapper, and 45 B does not reach 105 B. And it does not
+put the shell inside the ~75 B component-shape sensitivity
+[validation.md](../validation.md) states for this line — **the saving is
+smaller than that sensitivity**, so while the A-vs-B comparison is sound (one
+page, one shape, paired, disjoint bands), the *absolute* position of either arm
+against 1 KB is not resolved to 45 B by this instrument.
+
+#### The controls
+
+**Negative controls — the donors, taken in the same runs.** Neither donor is
+minted by `defview`, so neither can see the toggle:
+
+| donor | A1 | B | A2 |
+|---|---:|---:|---:|
+| Reagent shell (R=0) | 504 [488–516] | 509 [502–520] | 509 [500–521] |
+| UIx shell (R=0) | 223 [220–225] | 225 [220–233] | 226 [223–233] |
+| Reagent per read | 947 [946–948] | 947 [946–948] | 947 [947–949] |
+| UIx per read | 2,979 [2,978–2,981] | 2,980 [2,979–2,981] | 2,979 [2,978–2,980] |
+
+**The donors reproduce their published anchor** — 947 and 2,979–2,980 B/read
+against the standing 947–948 and 2,978–2,981 — which is what licenses quoting
+this row's B against the previous section's A. (A2's Reagent band reaches 949,
+one byte above the anchor's top; the mean, which is the anchored quantity,
+is 947 in all three runs.) The **floor** arm is flat across all three:
+258 / 257 / 257 B on the Reagent segment and 254 / 253 / 252 B on the UIx one.
+
+**And the A arm reproduces the previous section's published `main` rows to half
+a byte.** Paired A here is **1,099.0 / 1,097.5 B**; the wrapper re-take
+published **1,099.5 / 1,097 B**, and the slope agrees exactly at 1,278 / 2,115.
+That reproduction across two sessions is what says the two sections' figures
+sit on one tree and may be put in one table.
+
+**Positive control.** The same dense array of 587,500 unboxed doubles —
+**4,700,000 B, fixed before any run.** Measured 4,698,415 B, 4,697,569 B and
+4,697,603 B: ratios 0.9997, 0.9995 and 0.9995, **`ok` under
+`lane/control-verdict`** at the driver's ±25% slack in all three. Following the
+previous section's protocol, `lane/control-verdict` at ±25% is **the only band
+this session registered**; the deviations from the prediction are reported as a
+non-gating observation with no acceptance band attached.
+
+**0 unverified of 154 mounts**, structural read-back **every field answered**
+(boundaries = B, edges = B·R, cells = Q, entries = B, all zero after teardown),
+arm-order guard **reportable**, **exit 0** — all three runs, no gate waived and
+none widened.
+
+#### The ablation cannot fail silently, which is why one line is enough
+
+The toggle is **one symbol** in `arm1/lang.clj`'s `defview` macro —
+`mint-view!` against `mint-frame-prop-view!`. Neither shell is edited: both
+already ship on `main` from one body, so the arms differ by which of the two
+already-shipped mints the macro names.
+
+A one-line ablation invites the question of whether it took effect at all, and
+here it cannot have failed to. `frame-prop-shell` resolves its frame through
+`resolve-frame-prop!`, which **raises `:rf.error/no-frame-prop` on a nil
+frame** rather than falling back to context. A B run in which the codec had not
+marked the heads, or in which the root had not named the frame, would have
+thrown on the first boundary of the first mount instead of quietly measuring
+the incumbent twice. It instead mounted 1,200 boundaries in every round of six
+and answered every structural field — and moved the shell by 45 B on one
+segment and 46 B on the other, consistently, in the one run that carried the
+edit.
+
+#### The clock half of rf2-2rtt6.72 is BLOCKED, and no clock figure is published
+
+The bead asks for the mount and bulk clock beside this ladder. **It could not
+be taken, and nothing is quoted in its place.** `clock_run.cjs` refuses on
+`main`, on both rows tried, before it takes a single sample:
+
+    [clock] FAILED: M1: page.evaluate: vj          exit 1
+    [clock] FAILED: bulk300: page.evaluate: vj     exit 1
+
+That is the **incumbent** arm on a pristine tree, so it is not this variant's.
+It reproduces with `arm1/runtime.cljs` at the shipped blob
+`9f3d42be7b`, and it reproduces with `arm1/mount.cljs` reverted to the
+`as-element` `render!` that predates `rf2-2rtt6.39`, so it is not PR #7416's
+either. `vj` is `cljs.core/ExceptionInfo` in the `:advanced` bundle: the page
+threw an `ex-info` and the driver surfaced its minified type name, discarding
+the `:rf.error/*` id, the `:where` and the ex-data that would identify it. The
+driver's own offline adjudicators are all healthy (`--selftest`, exit 0, 49
+checks). Filed as **`rf2-029ed`**; `rf2-2rtt6.72` stays **open** for the clock
+rows.
+
+#### Provenance
+
+Whole-tree anchor **`2303ef6781`** on `worker/frameprop-2rtt6-72`, whose only
+difference from `origin/main` `1ce64c06a2` is a `:what` string in
+`runtime/retained-inventory` recording that the frame-fed variant holds no
+`:react/use-context`. It was committed **before** the first run rather than
+after, so the measured tree and the published tree are the same tree — the
+invariant the audit on PR #7392 established. That it moved nothing is not
+asserted: the A arm reproduces the previous section's rows to half a byte.
+
+The one line under test, `defview` in `arm1/lang.clj`:
+
+| arm | line | `arm1/lang.clj` blob |
+|---|---|---|
+| **A1, A2** | `(re-frame.bench.hicasso.arm1.runtime/mint-view!` | `74cfbfab7e77db64c3098b63a5e58b5ab4c0e1d3` |
+| **B** | `(re-frame.bench.hicasso.arm1.runtime/mint-frame-prop-view!` | `eca40a01c9feacc8fe97eede3db59bf21e09f2d9` |
+
+`arm1/runtime.cljs` is `8b37dd2cbf67f19cc3f07933285c04593d8b7e3f` and
+`front/codec.cljs` is `cf9ef32dc8f751e344016cfa01b1db722ba2440b` in all three
+— **neither shell is touched by the toggle**, and both variants are present
+throughout with one of them merely unreached. The working tree was restored
+byte-identically for A2 (`git status --porcelain` empty, `lang.clj` back to
+`74cfbfab7e`).
+
+The instrument, all under `implementation/core/test/re_frame/bench/` — **all
+six byte-identical to the wrapper re-take above**, so the two sections share an
+instrument as well as a tree:
+
+| file | blob |
+|---|---|
+| `p0_run.cjs` | `586474b5cfad0f09df5e3e968ca0282e2c1cd95c` |
+| `p0_heap.cljs` | `0a568a63cd24b66865e433c49a62eadff8993e8a` |
+| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
+| `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` |
+| `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` |
+| `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` |
+
+Reproduce — the context arm as the tree stands, the frame-prop arm by changing
+the one symbol above:
+
+```
+node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+```
+
+**Conditions.** 2026-08-04 03:43–04:02 +1000, three runs of ~3.5 minutes,
+React 19.2.0, Reagent 2.0.1, UIx 1.4.4, `:advanced` with `goog.DEBUG false`,
+headless Chromium via Playwright, Windows 11, 24 logical cores, 32 GB.
+**Box verified quiet at open, after the ladder trio and at close** — real CPU
+occupancy **2.27% / 3.04% / 1.80%**, measured as summed per-process CPU-time
+deltas over a 5-second window divided by the core count. `LoadPercentage` is
+deliberately not used: it reads 15–20% on this box when the true occupancy is
+under 2%. Throughout: 15–18 node processes (idle MCP servers), 56 chrome,
+**zero java**, ~505 processes, ~30.1 GB free, no other worker and no open PR.
+**The probes are at open and at close, not before each of the three runs** —
+the previous section's protocol — and what carries the same weight here is the
+A1/A2 bracket: 2 B and 3 B apart across the pair, which is the box saying it
+did not move.
+
+---
+
 ## 7. Anchors, and one that does not fully reproduce
 
 The R=0 rung is here to tie this instrument to the published sub-free rows
