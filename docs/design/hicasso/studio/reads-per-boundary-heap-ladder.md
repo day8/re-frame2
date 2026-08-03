@@ -659,7 +659,13 @@ record edited to match a later tree stops being a record; the attribution,
 the mechanism and the restated live numbers — **the bill is +499 B/read, not
 +415** — are in
 [the slope subsection](#the-slope-went-stale-before-this-section-merged-and-the-landing-that-moved-it-rf2-2rtt660)
-at the end of this section.
+at the end of this section. **That bill has since been attacked and it is
+now +390 B/read**, the candidate reading 1,338 / 2,175 — one of the three
+things the section names as buying the gap turned out to be a per-key
+identity the runtime did not need, one turned out not to exist at all, and
+the third is filed:
+[the attack](#attacking-the-gap-one-of-the-three-suspects-was-real-rf2-aqgr2),
+also at the end of this section.
 
 ### The answer, first, including the part that does not flatter the design
 
@@ -1390,6 +1396,157 @@ slope effect that runs 1 = 2 = 4 measure at zero. Conditions: 2026-08-02
 13:54–14:20 +1000, React 19.2.0, Reagent 2.0.1, UIx 1.4.4, `:advanced`
 with `goog.DEBUG false`, headless Chromium via Playwright, Windows 11;
 runs ~3.5 minutes each, all exit 0.
+
+### Attacking the gap: one of the three suspects was real (rf2-aqgr2)
+
+**Measured 2026-08-03.** The subsection above leaves the programme with a
+bill of **+499 B/read** against Reagent and three named things buying it —
+the index edge, the key cell and the read-set entry. `rf2-aqgr2` asked
+whether any of the three could be made cheaper or eliminated. One could,
+by 108 B/read; one turned out not to exist; the third is filed rather than
+taken.
+
+**Read these as DELTAS, not as replacement gate rows.** Every run below
+was taken on a box carrying five other workers, which is not the quiet box
+`validation.md` requires of a published absolute. What makes them
+quotable is that both donors ride every run as the negative control and
+answer 947–948 / 2,978–2,980 in all nine, the positive control is `ok`
+in all nine, the arm-order guard is reportable in all nine, the
+candidate reproduces byte-identically across every run that shares a
+tree, and the unchanged `main` arm reproduces the published 1,447. The
+*differences* are therefore instrument-clean even though the box was not
+certified for a new absolute.
+
+#### The key cell was minting an identity it did not need
+
+Every cell carried its own watch key — `(keyword "rf-hicasso-arm1" (str
+"w" (vswap! counter inc)))` — so that `add-watch`/`remove-watch` could
+name it. That bought a uniqueness the runtime already had: there is at
+most one cell per `(frame, query)`, `subs/subscribe` hands back that
+pair's own cached reaction, and no two cells ever hold the same reaction.
+The mint therefore retained a `Keyword`, its name string and its
+fully-qualified string **per unique key** — which is per *read* on this
+rung — plus a field on the cell to hold them. One namespaced constant does
+the same job, and the global counter goes with it.
+
+#### The nine runs
+
+`p0_run.cjs --only ladder`, six rounds, 0/1/3/7/20, Q = E, B = 1,200 —
+the same instrument, plan and guard as the runs above. **A″ and B″ are
+the pair that decides it**: back to back on `1ef3fdb73e`, the `main` this
+landing rebases onto, with `arm1/runtime.cljs` the only file differing
+between them. `main` moved twice under this session — `rf2-2rtt6.32`'s
+codec rewrite, then `rf2-2rtt6.50`'s registry-epoch term — so the pair
+was re-taken each time rather than carried forward. The earlier runs are
+kept because they corroborate, and because three unchanged arms agreeing
+to within 1 B is itself the evidence that neither landing touches this
+axis.
+
+| run | tree | Rg donor | UIx donor | Hicasso, Rg seg. | Hicasso, UIx seg. |
+|---|---|---:|---:|---:|---:|
+| **A″** | **`main` `1ef3fdb73e`, unchanged** | 948 | 2,979 | **1,446** [1,444–1,447] | **2,283** [2,277–2,287] |
+| **B″** | **that tree + this landing** | 947 | 2,980 | **1,338** [1,336–1,340] | **2,175** [2,170–2,179] |
+| A′ | `cda407be49`, unchanged | 948 | 2,980 | 1,447 [1,446–1,448] | 2,283 [2,278–2,287] |
+| B′ | that tree + this landing | 948 | 2,980 | 1,338 [1,337–1,340] | 2,175 [2,170–2,179] |
+| A | `18e92b671a`, unchanged | 948 | 2,980 | 1,446 [1,444–1,448] | 2,283 [2,277–2,287] |
+| B1 | that tree + this landing | 948 | 2,980 | 1,339 [1,338–1,339] | 2,175 [2,170–2,179] |
+| B2 | B1's tree, re-taken | 947 | 2,978 | 1,339 [1,338–1,339] | 2,175 [2,169–2,179] |
+| C | ablation: the watch key only | 947 | 2,979 | 1,339 [1,338–1,339] | 2,175 [2,169–2,179] |
+| D | probe: one forced set copy | 947 | 2,979 | 1,385 [1,384–1,385] | 2,222 [2,216–2,225] |
+
+**The unchanged arm reproduces the published `main` figure** — 1,446–1,447
+B/read against the 1,447 the slope subsection above restates — which is
+the strongest evidence available that this box, contended or not, is
+measuring the same quantity that session did. Its UIx segment reads 2,283
+against that session's 2,289, 0.26% apart and inside the between-session
+offset; the delta below is taken against A″ rather than against the
+published figure for exactly that reason.
+
+**Two `main` landings in this window move this axis by nothing**, which
+is worth recording because the subsection above exists precisely because
+one once did: `rf2-2rtt6.32`'s codec rewrite (A → A′) and
+`rf2-2rtt6.50`'s third `commit-basis` term (A′ → A″) leave the unchanged
+candidate at 1,446 / 1,447 / 1,446 and 2,283 / 2,283 / 2,283. A term
+added to a sum of numbers retains no object per read, and that is a
+prediction checked rather than assumed.
+
+**The shell does not move.** Across A″ → B″ the measured R = 0 rung reads
+`1,244 → 1,246` on the Reagent segment and `1,237 → 1,236` on the UIx
+segment, each inside its own round-to-round band, while the FIRST read
+falls with the slope — `1,893 → 1,779` and `2,740 → 2,624`. That is
+exactly what a per-*key* saving predicts and a per-boundary one does not,
+so the shape of the saving is checked rather than assumed.
+
+#### The index edge's duplicate read set does not exist, and run D prices the sharing that prevents it
+
+The second suspect looked certain on the page: `front.sub-index/record-reads`
+calls `(set read-sub-keys)` on a value the caller is already holding as a
+set, and stores the result as the forward edge for the life of the mount.
+**Run C is the honest negative.** With that call replaced by an explicit
+share-if-already-a-set the slope did not move by one byte, because
+`cljs.core/set` returns a meta-less set unchanged — the sharing was
+already there, and the code change was a no-op. The guard was reverted.
+
+**Run D prices what that sharing is worth**, by forcing the copy the
+suspect assumed (`(into #{} …)`): **+46 B/read** on the Reagent segment and
+**+47** on the UIx segment, donors unmoved. So one retained hash-set
+membership costs ~46 B/read on this rung — a term price the page did not
+have — and the property is now asserted with `identical?` in the index's
+law suite so a tidy-up cannot cost it silently.
+
+#### The read-set entry, and the term that is left
+
+The entry's key array and key set are not redundant with each other: the
+array is what `entry-matches?` compares and what `getSnapshot` sums over,
+the set is what the index and `acquire-cell!` consume, and eliminating
+either only moves its work. It is not attacked here.
+
+What run D's 46 B does make sayable is where the remaining bill most
+likely sits. At Q = E and fan-out 1 the reverse edge `:sub->bs` holds one
+persistent-map entry **and a singleton set** per key, keyed by exactly the
+sub-keys `!cells` is already keyed by — two global maps over one key
+space. That is filed as `rf2-dabt3`: it is an elimination rather than an
+encoding, and it is a redesign of where the dependency index lives rather
+than a byte shave, so it wants a ruling and not a perf worker.
+
+#### What this section hands the programme, restated again
+
+Both columns are A″ and B″, taken back to back on the same box, and both
+are stated against a donor of 948 / 2,980 so a 1 B round-to-round donor
+wobble does not read as a change in the bill.
+
+| live number | `main` before this landing (A″) | on this landing (B″) |
+|---|---:|---:|
+| the design's bill (Reagent seg., candidate − donor) | +498 B/read (1.5253×) | **+390 B/read** (1.4114×) |
+| the design's win (UIx seg., donor − candidate) | −697 B/read (0.7661×) | **−805 B/read** (0.7299×, a 27.0% margin) |
+| the bracket a shipped Hicasso sits in | 1,446 – 2,283 B/read | **1,338 – 2,175 B/read** |
+| the grouped tier's ~2,000 B line | cleared on the Reagent substrate only | unchanged in kind: 1,338 < 2,000 < 2,175 |
+
+**943/948 B/read is still not beaten**, and the verdict's shape is
+unchanged: the axis is won against UIx — now by more than five times the
+instrument-limited floor — and lost to Reagent's `deref`-capture. What
+moved is the size of the loss, by 22%. The crossover against the UIx
+spine is deliberately **not** restated: rf2-2rtt6.34 is reopened on which
+model this page states it in, and a fifth number computed a sixth way is
+the opposite of what that bead asks for.
+
+#### Provenance
+
+Whole-tree anchors: A″ on `1ef3fdb73e`; B″ on that tree plus this
+landing, which moves `arm1/runtime.cljs` alone. A′ and B′ were taken the
+same session on `cda407be49`, and A, B1, B2, C and D on `18e92b671a` —
+before `rf2-2rtt6.32`'s codec rewrite and `rf2-2rtt6.50`'s registry term
+landed on `main`. The unchanged arm measures both landings' effect on
+this axis at one byte, which is why the earlier seven still
+corroborate. C reverts
+`front/sub_index.cljs`'s share guard to `(set read-sub-keys)`; D forces
+that call to `(into #{} read-sub-keys)`; both are working-tree probes and
+ship nowhere. The six instrument blobs are unmoved from the provenance
+table above. Conditions: 2026-08-03 11:06–12:54 +1000, React 19.2.0,
+Reagent 2.0.1, UIx 1.4.4, `:advanced` with `goog.DEBUG false`, headless
+Chromium via Playwright, Windows 11, **box NOT verified quiet** (five
+concurrent workers); runs ~3.9 minutes each, all exit 0, `0 unverified of
+154 mounts` and the structural witness fully answered on every one.
 
 ---
 
