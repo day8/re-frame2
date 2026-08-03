@@ -39,8 +39,9 @@
 ;; assertions below are `(async done …)` tests, and cljs.test refuses to run an
 ;; async test under a plain-fn `:each` fixture ("Async tests require fixtures to
 ;; be specified as maps") — the `:after` half has to land after the async
-;; `done`, which a plain fn cannot express. The horizon is one host macrotask,
-;; and nothing synchronous crosses it.
+;; `done`, which a plain fn cannot express. The horizon is one host macrotask —
+;; `setTimeout 4` since rf2-2rtt6.71 — and nothing synchronous crosses it; the
+;; suite's own settles wait PAST it (`settle-past-the-horizon!`).
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter :async? true}))
@@ -503,14 +504,17 @@
 (deftest use-subscribe-commit-adopts-the-render-phase-reaction
   (suite/assert-use-subscribe-commit-adopts-the-render-phase-reaction cfg))
 
-;; rf2-2rtt6.25 (merged-PR audit of #7305) — the same two integers, on the
-;; PUBLIC mount schedule: `re-frame.substrate.adapter/render`, no act, no
-;; flushSync. The row above forces React's passive subscribe forward, which is
-;; the ordering the hand-off needs; this one forces nothing, and there the
-;; reaper wins and the commit rebuilds — so it pins TWO builds and names the
-;; retracted claim. Its companion pins that `get-snap`'s escrow leg is
-;; nevertheless still reachable, because the pre-commit consistency check runs
-;; in the render's own task, before any macrotask can reap.
+;; rf2-2rtt6.25 (merged-PR audit of #7305), flipped by rf2-2rtt6.71 — the same
+;; two integers, on the PUBLIC mount schedule: `re-frame.substrate.adapter/
+;; render`, no act, no flushSync. The row above forces React's passive subscribe
+;; forward, which is the ordering the hand-off needs; this one forces nothing.
+;; With the reaper at `setTimeout 0` the reaper won there and the commit
+;; rebuilt, so the row pinned TWO builds and named the retracted claim; the
+;; ruled `setTimeout 4` horizon wins instead, so it now pins ONE — by a measured
+;; margin and never a React guarantee, which is exactly what makes it the
+;; standing drift tripwire. Its companion pins that `get-snap`'s escrow leg is
+;; reachable on that schedule either way, because the pre-commit consistency
+;; check runs in the render's own task, before any macrotask can reap.
 (deftest use-subscribe-public-mount-schedule-rebuilds
   (suite/assert-use-subscribe-public-mount-schedule-rebuilds cfg))
 
@@ -523,12 +527,13 @@
 (deftest use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
   (suite/assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon cfg))
 
-;; rf2-2rtt6.25 (merged-PR audit of #7326) — the adversarial row. On the public
-;; schedule the reaper usually WINS, so "reaped, then rebuilt fresh" is the
-;; ordinary consumer path: a provisional the reaper released must be
-;; unreachable, and a later mount must paint an app-db movement the abandoned
-;; render never saw. That is what makes the retracted benefit a performance
-;; retraction rather than a correctness one.
+;; rf2-2rtt6.25 (merged-PR audit of #7326) — the adversarial row, and the reason
+;; the ruled margin is a performance bet and never a correctness one. A
+;; provisional the reaper released must be unreachable, and a later mount must
+;; paint an app-db movement the abandoned render never saw. That holds whether
+;; the later mount adopts its own render build or rebuilds after its own reaper
+;; — so if the 4 ms margin is ever lost, what comes back is a second
+;; construction, never a stale paint.
 (deftest use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount
   (suite/assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount cfg))
 
