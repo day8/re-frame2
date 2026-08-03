@@ -119,21 +119,19 @@
 //     only when the floor is inside the calibrated range" would refuse the
 //     most reproducible runs this instrument can take.
 //   * A RUN whose band exceeds [[BAND_CEILING]] has no reportable magnitude
-//     at all, whatever its margin. The ceiling is **35%**, and unlike its
-//     predecessor it is set from the statistic's own SAMPLING DISTRIBUTION
-//     rather than from the largest of nineteen draws: bootstrapping eighteen
-//     blocks from the ladder's 342 puts the run-level q99 at 29.1% and
-//     `P(band > 35%)` at **0.2%** per run. The 25% it replaces sits inside
-//     the bulk of that distribution — `P(band > 25%)` = **2.6%** pooled and
-//     **9.0%** resampling each run's own blocks, and **2 of the nineteen**
-//     re-take runs breach it, both at ZERO load.
+//     at all, whatever its margin. The ceiling is **35%**, and it is a
+//     JUDGEMENT rather than a quantile — see [[BAND_CEILING]], which carries
+//     the arithmetic. Its measured per-run false-fire rate is **2.7%**
+//     against the 25% predecessor's **9.1%**, and **2 of the nineteen**
+//     re-take runs breach 25% where **0 of 19** breach 35%, both breaches at
+//     ZERO load.
 //
-//     THAT IS WHY IT FIRED THREE TIMES IN TWO DAYS after being calibrated
+//     THAT IS WHY 25% FIRED THREE TIMES IN TWO DAYS after being calibrated
 //     never to fire — 26.2% on an earlier `bulk300` ensemble (rf2-yd52q),
 //     then 26.2% on `bulk300` and 28.4% on `narrow` in one run of
 //     rf2-emvod's. Not a regime departure and not, mainly, the clock: a
 //     threshold that was above nineteen draws of a tail was never above the
-//     tail, and roughly one run in eleven to one in forty crosses it.
+//     tail, and roughly one run in eleven crosses it.
 //   * THE GATE ADJUDICATES THE CLOCK THE ROWS ARE STATED ON. `clock_run.cjs`
 //     refuses a run whose band on raw `TaskDuration` breaches; the frame-only
 //     band is computed, printed and stored on every run and is never the
@@ -151,10 +149,35 @@ const SEGMENT_PERMUTATIONS = [
 /**
  * A run whose band exceeds this has no reportable magnitude. See the header.
  *
- * 35%, calibrated by `rf2-ymi6j` from the band's own bootstrap sampling
- * distribution on raw `TaskDuration` — `P(fire) = 0.2%` per run — and not from
- * the largest of nineteen observed draws, which is how its 25% predecessor came
- * to fire three times in two days after being calibrated never to.
+ * **35%, AND IT IS NOT A QUANTILE OF ANYTHING.** `rf2-ymi6j` published it as
+ * "the statistic's own bootstrap q99, at a measured `P(fire)` of 0.2%" and
+ * `rf2-nk1hq` withdrew that derivation: the bootstrap it was read off pooled
+ * all 342 of the ladder's blocks and drew each synthetic run's eighteen from
+ * across unrelated runs and load rungs, which estimates a mixed-regime block
+ * sample rather than a future run. Resampling run-preservingly — draw one of
+ * the nineteen runs, then resample THAT run's own eighteen blocks — the band's
+ * run-level distribution on raw `TaskDuration` reads q90 23.4%, q95 31.0%,
+ * q99 **41.4%**, and 35% false-fires at **2.7%** per run, thirteen times the
+ * advertised 0.2%. (`ladder_band.cjs --from data/ladder-ymi6j.json` prints
+ * both models; its `--selftest` fails if the pooled one is reinstated.)
+ *
+ * IT STAYS AT 35% ANYWAY, deliberately, and as a judgement now stated as one:
+ *
+ *   * The comparison the change was made for survives untouched. 25%
+ *     false-fires at **9.1%** per run, so 35% is a 3.4x improvement — and it
+ *     is the ceiling in force, breached by 0 of the nineteen calibration runs
+ *     where 25% is breached by 2.
+ *   * Moving to 41% would RELAX the gate, which is the direction that needs
+ *     the stronger evidence, on the strength of the noisiest number in the
+ *     table: a 1% quantile whose whole tail above 35% is carried by one or
+ *     two of nineteen run-regimes. It reads 41.4% at 200,000 draws and 42.4%
+ *     at 20,000.
+ *   * Nothing published moves at either value. No magnitude on any page is
+ *     adjudicated differently at 35% than at 41%.
+ *
+ * So the honest statement is that a 2.7% per-run false-fire rate is the price
+ * of this threshold, not that the threshold is a q99. A ceiling set at a
+ * genuine q99 would be ~41%; that is an operator's call, not this constant's.
  */
 const BAND_CEILING = 0.35;
 
