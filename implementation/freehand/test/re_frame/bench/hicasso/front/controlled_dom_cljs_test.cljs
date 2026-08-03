@@ -256,6 +256,94 @@
           (finally (drop! node)))))))
 
 ;; ---------------------------------------------------------------------------
+;; The composition carve-out, at the mechanism (rf2-digtt)
+;; ---------------------------------------------------------------------------
+;;
+;; Two halves, and these rows read the half that lives in the element
+;; path: the converge declines to run when the change event arrived
+;; mid-composition. The other half — the shadow that makes React's own
+;; restore a no-op — needs React, and is read in
+;; `arm1_controlled_grid_dom_cljs_test` §7; the exchange itself needs a
+;; browser composition and is read by `bench/hicasso/ime_run.cjs`.
+
+(deftest a-composing-change-event-is-the-one-argument-that-suppresses-the-converge
+  (testing "the same element, the same refused keystroke, one property
+           different on the event. Not composing, the refused character
+           comes off the screen in-turn as it always did; composing, the
+           field is left exactly as the IME left it and the model has
+           still refused — which is the whole of the carve-out's first
+           half"
+    (if-not (browser?)
+      (skip! ":node-test has no DOM")
+      (let [!ran (atom 0)
+            hiccup [:input {:value "12345" :on-input (fn [_e] (swap! !ran inc))}]
+            handler (fn [] (slot (codec/as-element hiccup) "onInput"))]
+        (testing "not composing — the converge runs"
+          (let [node (field! "12345")]
+            (try
+              (typed! node "z" 2)
+              ((handler) #js {:target node})
+              (is (= {:value "12345" :caret [2 2]} (reading node)))
+              (finally (drop! node)))))
+        (testing "composing — it does not"
+          (let [node (field! "12345")]
+            (try
+              (typed! node "z" 2)
+              ((handler) #js {:target node :nativeEvent #js {:isComposing true}})
+              (is (= {:value "12z345" :caret [3 3]} (reading node))
+                  "the draft and the caret are untouched")
+              (finally (drop! node)))))
+        (is (= 2 @!ran)
+            "and the author's handler ran BOTH times — the carve-out
+             suppresses the converge, never the model")))))
+
+(deftest the-composition-reading-is-taken-off-the-native-event
+  (testing "React hands a handler a synthetic event, so a gate reading
+           `isComposing` off it would be dead. A synthetic target from a
+           node-side row carries no native event at all, which is why
+           every row written before the carve-out reads as it did"
+    (is (false? (controlled/composing-input? #js {:target #js {}})))
+    (is (false? (controlled/composing-input? #js {})))
+    (is (false? (controlled/composing-input? #js {:nativeEvent #js {}})))
+    (is (false? (controlled/composing-input? #js {:nativeEvent #js {:isComposing false}})))
+    (is (true? (controlled/composing-input? #js {:nativeEvent #js {:isComposing true}})))))
+
+(deftest the-element-type-does-not-move-when-the-input-type-does
+  (testing "why the shadow's component is chosen without reading `:type`.
+           A React element type that changed would REMOUNT the field —
+           taking focus, selection and any composition with it — and a
+           synchronous handler re-rendering the same `<input>` from `text`
+           to `number` is a measured case, not a hypothetical
+           (`arm1_controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`
+           asserts React kept the node). The converge's own guard still
+           reads the type — one render later, where a wrong answer costs
+           nothing"
+    (let [f   (fn [_e])
+          typ (fn [props] (.-type (codec/as-element [:input props])))
+          controlled-as (fn [t] (typ (cond-> {:value "1" :on-input f}
+                                       (some? t) (assoc :type t))))]
+      (is (identical? (controlled-as "text") (controlled-as "number"))
+          "one element type across the flip the row above measures")
+      (is (identical? (controlled-as nil) (controlled-as "password")))
+      (is (identical? (controlled-as "text") (controlled-as "checkbox")))
+      (is (= "input" (typ {:on-input f}))
+          "while an uncontrolled input is still emitted as the bare tag —
+           the shadow has no controlled value to hold"))))
+
+(deftest the-tag-an-emitted-element-renders-is-readable-without-knowing-this-namespace
+  (testing "a controlled field's element type is the shadow's component,
+           so an element-tree reader asks for the TAG rather than the
+           type. Everything else answers itself"
+    (let [f (fn [_e])
+          tag-of (fn [hiccup] (controlled/element-tag (codec/as-element hiccup)))]
+      (is (= "input" (tag-of [:input {:value "x" :on-input f}])))
+      (is (= "textarea" (tag-of [:textarea {:value "x" :on-input f}])))
+      (is (= "input" (tag-of [:input {:on-input f}]))
+          "an uncontrolled input is emitted as the tag, and answers it")
+      (is (= "div" (tag-of [:div {}])))
+      (is (= "select" (tag-of [:select {:value "x" :on-input f}]))))))
+
+;; ---------------------------------------------------------------------------
 ;; What it leaves alone — every guard, by identity
 ;; ---------------------------------------------------------------------------
 

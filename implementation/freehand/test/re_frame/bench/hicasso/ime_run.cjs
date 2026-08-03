@@ -37,12 +37,26 @@
 // carriage of composition state on the native event, a cancelled
 // exchange leaving field and model exactly as before, a model-agreeing
 // exchange surviving to `compositionend`). RECORDED rows pin the
-// MEASURED per-implementation behaviour — the mid-composition rewrite a
-// refusing or normalising model provokes — so drift reds the run without
-// the row claiming the behaviour is desired. The comparative section
-// then asserts Arm 1's converge is nowhere WORSE than the plain-React
-// baseline measured in the same run, which is the question the PR #7371
-// audit put to this harness.
+// MEASURED per-implementation behaviour, so drift reds the run without
+// the row claiming the behaviour is desired.
+//
+// Since **rf2-digtt** the mid-composition rows are two conducts rather
+// than one, and the difference is the point. `hicasso` carries the
+// COMPOSITION CARVE-OUT — nothing writes a controlled text field while a
+// composition is live, and the refusal or normalisation lands whole at
+// `compositionend` — so its rows are `(CARVE-OUT)`. `react` and
+// `uix-port` keep the old `(pinned, DIVERGENT)` rows because the abort is
+// still what they do. The comparative section, which used to assert
+// PARITY (the converge is nowhere worse than React's own restore — the
+// PR #7371 audit's question, and true when it was asked), now asserts
+// the DIVERGENCE and its scope: one uninterrupted exchange against two,
+// and the same model and the same field once the exchange closes.
+//
+// **Witness scope: Chromium only.** `Input.imeSetComposition` is a CDP
+// method and CDP is Chromium's protocol, so every claim in this file is
+// witnessed on Chromium and nowhere else. WebKit's composition/key
+// ordering has had defects of its own; this harness cannot drive it, and
+// misconduct there would be a new bug rather than a known one.
 //
 // ## Why the bundle is a DEV build (`shadow-cljs compile`), not `release`
 //
@@ -383,16 +397,23 @@ async function s4Cancel(page, cdp, R) {
     if (field === 'plain') {
       R.check('s4 [plain]: a compositionend closed the exchange, with empty data',
         ends.length >= 1 && ends[ends.length - 1].data === '', ends.map((e) => e.data));
+    } else if (R.impl === 'hicasso') {
+      // THE CARVE-OUT, on the cancel path (rf2-digtt). Nothing wrote the
+      // field while the composition was live, so there IS a composition
+      // for the cancel to cancel — and cancelling it is the ordinary
+      // exchange the `plain` branch above asserts, on a field whose model
+      // refused every intermediate state.
+      R.check('s4 [digits]: the refusing field cancels like any other — a compositionend closed the exchange, with empty data',
+        ends.length >= 1 && ends[ends.length - 1].data === '', ends.map((e) => e.data));
     } else {
-      // MEASURED, first run of this harness, all three implementations:
-      // on the refusing field there is NO compositionend to observe. The
-      // model refused `か`, the implementation wrote the refused-to value
-      // back MID-composition, and that write silently aborted the
-      // exchange (the measured JS-write semantics — no compositionend
-      // fires on an abort). The later cancel found no composition left
-      // to cancel. Pinned so a composition carve-out landing upstream
-      // reds this row and gets it rewritten on purpose.
-      R.check('s4 [digits] (pinned): the exchange was already silently aborted — no compositionend ever fired',
+      // MEASURED, first run of this harness (2026-08-02), and now the
+      // DIVERGENCE rather than the parity: on plain React and on the UIx
+      // port there is NO compositionend to observe. The model refused
+      // `か`, the implementation wrote the refused-to value back
+      // MID-composition, and that write silently aborted the exchange
+      // (the measured JS-write semantics — no compositionend fires on an
+      // abort). The later cancel found no composition left to cancel.
+      R.check('s4 [digits] (pinned, DIVERGENT): the exchange was already silently aborted — no compositionend ever fired',
         ends.length === 0, ends.map((e) => e.data));
     }
     R.check(`s4 [${field}]: nothing committed`, st.committed[field] === undefined, st.committed);
@@ -400,19 +421,36 @@ async function s4Cancel(page, cdp, R) {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 5 — the mid-composition conduct matrix (the PR #7371 question)
+// Scenario 5 — the mid-composition conduct matrix (the PR #7371 question,
+// and since rf2-digtt the carve-out's own witness)
 // ---------------------------------------------------------------------------
 //
-// `digits` refuses the composition text, `upper` normalises it, and each
-// implementation converges the field toward the model SOMEWHERE — Arm 1's
-// converge inside the input event, React's restore at the end of the same
-// discrete event, the uix-port on the after-render queue when nothing
-// re-rendered. Every one of those writes aborts the live composition (the
-// measured JS-write semantics above). The rows RECORD that per
-// implementation, pinned, so the day a composition carve-out lands the
-// row goes red and gets rewritten on purpose.
+// `digits` refuses the composition text and `upper` normalises it, so on
+// both fields the model DISAGREES with what the IME is composing. That
+// disagreement is what every implementation used to resolve by writing
+// the field mid-composition — Arm 1's converge inside the input event,
+// React's restore at the end of the same discrete event, the uix-port on
+// the after-render queue — and every one of those writes silently aborts
+// the live exchange (the measured JS-write semantics in the header).
+//
+// **These rows were the tripwire the carve-out ruling was told to trip,
+// and they are flipped here on purpose (rf2-digtt).** Two conducts now,
+// asserted as a DIVERGENCE rather than as parity:
+//
+//   - `hicasso` re-pins ONE uninterrupted compositionstart → compositionend
+//     exchange. Nothing writes the field while the composition is live;
+//     the model refuses or normalises every intermediate state exactly as
+//     before; and the refusal or normalisation lands whole, once, at the
+//     commit.
+//   - `react` and `uix-port` keep pinning the OLD abort conduct, because
+//     it is still what they do and the pins are still true of them. They
+//     are the baseline the divergence is measured against, in the same
+//     run, on the same model.
 
 async function s5MidComposition(page, cdp, R, out) {
+  // The carve-out is Arm 1's; the other two pages are the baseline.
+  const carved = R.impl === 'hicasso';
+
   // -- digits: the refusing model -------------------------------------------
   await reset(page);
   await focusEnd(page, 'digits');
@@ -430,23 +468,55 @@ async function s5MidComposition(page, cdp, R, out) {
   await settle(page);
   const st2 = await state(page);
   const starts = ofType(nativeOf(st2, 'digits'), 'compositionstart').length;
-  await cancel(cdp);
+  const mid = (await fieldRead(page, 'digits')).value;
+
+  // COMMIT, rather than cancel: the carve-out defers the refusal to
+  // exactly here, so the row that reads it has to let the exchange close.
+  await commit(cdp, 'しん');
   await settle(page);
+  const st3 = await state(page);
+  const ends = ofType(nativeOf(st3, 'digits'), 'compositionend').length;
+  const closed = await fieldRead(page, 'digits');
 
   R.check('s5 [digits]: LAW — the refusing model never moved', modelAfter === '12', modelAfter);
+  R.check('s5 [digits]: LAW — and it had not moved when the exchange closed either',
+    st3.cells.digits === '12', st3.cells.digits);
   R.record('s5 [digits]: field immediately after the composing input (no settle)', immediate);
   R.record('s5 [digits]: field after settle', settled.value);
-  R.record('s5 [digits]: compositionstart count across one attempted exchange', starts);
+  R.record('s5 [digits]: field after the second composing update', mid);
+  R.record('s5 [digits]: compositionstart count across one exchange', starts);
+  R.record('s5 [digits]: compositionend count across one exchange', ends);
+  R.record('s5 [digits]: field once the exchange closed', closed.value);
 
-  const immediateExpected = { hicasso: '12', react: '12', 'uix-port': '12し' }[R.impl];
-  R.check(`s5 [digits] (pinned): the refused composition text is rewritten ${R.impl === 'uix-port' ? 'ONE FRAME LATE' : 'IN-TURN'}`,
-    immediate === immediateExpected, { immediate, expected: immediateExpected });
-  R.check('s5 [digits] (pinned): after settling, the write has landed and the field shows the refused-to value',
-    settled.value === '12', settled.value);
-  R.check('s5 [digits] (pinned): the write ABORTED the live composition — the next IME update minted a NEW compositionstart',
-    starts === 2, starts);
+  if (carved) {
+    R.check('s5 [digits] (CARVE-OUT): the composing input wrote NOTHING — the draft is on the screen in-turn',
+      immediate === '12し', immediate);
+    R.check('s5 [digits] (CARVE-OUT): and nothing wrote it after the settle either — not the converge, not React\'s restore',
+      settled.value === '12し', settled.value);
+    R.check('s5 [digits] (CARVE-OUT): the exchange was never aborted — ONE compositionstart across the whole of it',
+      starts === 1, starts);
+    R.check('s5 [digits] (CARVE-OUT): the second update grew the SAME draft',
+      mid === '12しん', mid);
+    R.check('s5 [digits] (CARVE-OUT): the exchange reached compositionend — exactly one, where the baseline has none',
+      ends === 1, ends);
+    R.check('s5 [digits] (CARVE-OUT): and the refusal landed WHOLE at the commit — the field is the model\'s again',
+      closed.value === '12', closed.value);
+  } else {
+    const immediateExpected = { react: '12', 'uix-port': '12し' }[R.impl];
+    R.check(`s5 [digits] (pinned, DIVERGENT): the refused composition text is rewritten ${R.impl === 'uix-port' ? 'ONE FRAME LATE' : 'IN-TURN'}`,
+      immediate === immediateExpected, { immediate, expected: immediateExpected });
+    R.check('s5 [digits] (pinned, DIVERGENT): after settling, the write has landed and the field shows the refused-to value',
+      settled.value === '12', settled.value);
+    R.check('s5 [digits] (pinned, DIVERGENT): the write ABORTED the live composition — the next IME update minted a NEW compositionstart',
+      starts === 2, starts);
+    R.check('s5 [digits] (pinned, DIVERGENT): and no compositionend was ever delivered for it',
+      ends === 0, ends);
+  }
 
-  out.digits = { immediate, settled: settled.value, caret: [settled.s, settled.e], starts };
+  out.digits = {
+    immediate, settled: settled.value, caret: [settled.s, settled.e],
+    starts, ends, closed: closed.value, model: st3.cells.digits,
+  };
 
   // -- upper: the normalising model -----------------------------------------
   await reset(page);
@@ -461,21 +531,42 @@ async function s5MidComposition(page, cdp, R, out) {
 
   await compose(cdp, 'sh');
   await settle(page);
-  const st3 = await state(page);
-  const upStarts = ofType(nativeOf(st3, 'upper'), 'compositionstart').length;
-  await cancel(cdp);
+  const st4 = await state(page);
+  const upStarts = ofType(nativeOf(st4, 'upper'), 'compositionstart').length;
+
+  await commit(cdp, 'sh');
   await settle(page);
+  const st5 = await state(page);
+  const upEnds = ofType(nativeOf(st5, 'upper'), 'compositionend').length;
+  const upClosed = await fieldRead(page, 'upper');
 
   R.check('s5 [upper]: the model normalised the intermediate composition text', upModel === 'S', upModel);
   R.record('s5 [upper]: field immediately after the composing input', upImmediate);
   R.record('s5 [upper]: field after settle', upSettled.value);
-  R.record('s5 [upper]: compositionstart count across one attempted exchange', upStarts);
-  R.check('s5 [upper] (pinned): the normalised value is written back over the live composition',
-    upSettled.value === 'S', upSettled.value);
-  R.check('s5 [upper] (pinned): and that write aborted the composition',
-    upStarts === 2, upStarts);
+  R.record('s5 [upper]: compositionstart count across one exchange', upStarts);
+  R.record('s5 [upper]: compositionend count across one exchange', upEnds);
+  R.record('s5 [upper]: field once the exchange closed', upClosed.value);
+  R.record('s5 [upper]: model once the exchange closed', st5.cells.upper);
 
-  out.upper = { immediate: upImmediate, settled: upSettled.value, starts: upStarts };
+  if (carved) {
+    R.check('s5 [upper] (CARVE-OUT): the composing input wrote nothing — the field shows the DRAFT while the model holds the normalisation',
+      upSettled.value === 's' && upModel === 'S', { field: upSettled.value, model: upModel });
+    R.check('s5 [upper] (CARVE-OUT): the exchange was never aborted', upStarts === 1, upStarts);
+    R.check('s5 [upper] (CARVE-OUT): it reached compositionend', upEnds === 1, upEnds);
+    R.check('s5 [upper] (CARVE-OUT): and the normalisation landed whole at the commit',
+      upClosed.value === 'SH' && st5.cells.upper === 'SH',
+      { field: upClosed.value, model: st5.cells.upper });
+  } else {
+    R.check('s5 [upper] (pinned, DIVERGENT): the normalised value is written back over the live composition',
+      upSettled.value === 'S', upSettled.value);
+    R.check('s5 [upper] (pinned, DIVERGENT): and that write aborted the composition',
+      upStarts === 2, upStarts);
+  }
+
+  out.upper = {
+    immediate: upImmediate, settled: upSettled.value, starts: upStarts,
+    ends: upEnds, closed: upClosed.value, model: st5.cells.upper,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -550,23 +641,40 @@ async function runImpl(browser, impl) {
     process.exit(1);
   }
 
-  // Comparative verdict: Arm 1's converge against the plain-React
-  // baseline measured in the SAME run. This is the audit's question in
-  // executable form — mid-composition, is the converge anywhere WORSE
-  // than what React's own restore already does?
+  // Comparative verdict: Arm 1's carve-out against the plain-React
+  // baseline measured in the SAME run, on the same model, in the same
+  // browser. Until rf2-digtt this section asserted PARITY — the converge
+  // is nowhere worse than React's own restore — and it was true. The
+  // ruling replaced the question: the arm is now deliberately BETTER
+  // here, and what has to be asserted is that the divergence is real and
+  // that it is scoped to the live composition and nothing else.
   const by = Object.fromEntries(outcomes.map((o) => [o.impl, o]));
   if (by.hicasso && by.react) {
     const R = by.hicasso.R;
     console.log(';; ==== IME comparative (hicasso vs the plain-React baseline) ====');
-    R.check('comparative: on the refusing field the converge does exactly what React does — same in-turn rewrite, same abort',
-      by.hicasso.digits.immediate === by.react.digits.immediate &&
-        by.hicasso.digits.settled === by.react.digits.settled &&
-        by.hicasso.digits.starts === by.react.digits.starts,
+    R.check('comparative: THE DIVERGENCE — one uninterrupted exchange on the arm where React aborts and the IME restarts',
+      by.hicasso.digits.starts === 1 && by.react.digits.starts === 2,
+      { hicasso: by.hicasso.digits.starts, react: by.react.digits.starts });
+    R.check('comparative: and the arm reaches a compositionend where React delivers none at all',
+      by.hicasso.digits.ends === 1 && by.react.digits.ends === 0,
+      { hicasso: by.hicasso.digits.ends, react: by.react.digits.ends });
+    R.check('comparative: mid-composition the arm shows the DRAFT where React has already written the refused-to value',
+      by.hicasso.digits.settled === '12し' && by.react.digits.settled === '12',
+      { hicasso: by.hicasso.digits.settled, react: by.react.digits.settled });
+    R.check('comparative: THE SCOPE — the refusal itself is identical. Same model throughout, same field once the exchange closes',
+      by.hicasso.digits.model === by.react.digits.model &&
+        by.hicasso.digits.closed === by.react.digits.closed,
       { hicasso: by.hicasso.digits, react: by.react.digits });
-    R.check('comparative: on the normalising field likewise',
-      by.hicasso.upper.settled === by.react.upper.settled &&
-        by.hicasso.upper.starts === by.react.upper.starts,
+    R.check('comparative: on the normalising field the same divergence, scoped the same way',
+      by.hicasso.upper.starts === 1 && by.react.upper.starts === 2 &&
+        by.hicasso.upper.model === by.react.upper.model,
       { hicasso: by.hicasso.upper, react: by.react.upper });
+  }
+  if (by.hicasso && by['uix-port']) {
+    const R = by.hicasso.R;
+    R.check('comparative: the UIx port aborts the exchange too — one frame later, and the arm diverges from it identically',
+      by.hicasso.digits.starts === 1 && by['uix-port'].digits.starts === 2,
+      { hicasso: by.hicasso.digits.starts, 'uix-port': by['uix-port'].digits.starts });
   }
 
   console.log(';; ==== IME RUNTIME ====');
