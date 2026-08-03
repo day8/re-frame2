@@ -3,6 +3,14 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# First line names the tree this run resolved (rf2-g2mxd).  A relative
+# invocation resolves `${BASH_SOURCE[0]}` against the shell's actual cwd, which
+# a backgrounded `cd <worktree> && sh scripts/…` does not reliably set — so a
+# gate can grade another worktree's diff and look entirely normal doing it.
+# See scripts/test-fast-pr.sh for the incident; invoke backgrounded gates by
+# ABSOLUTE path.
+printf 'gate root: %s\n' "$repo_root"
+
 artefacts=(
   implementation/core
   implementation/adapters/reagent

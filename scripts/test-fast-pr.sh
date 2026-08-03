@@ -99,6 +99,20 @@ spine_root="$(cd "$script_dir/.." && pwd)"
 diff_root="$spine_root"
 classifier="$spine_root/.github/scripts/report-changed-surfaces.sh"
 
+# NAME THE TREE, FIRST LINE, ALWAYS (rf2-g2mxd).  That derivation is why an
+# INVOCATION PATH can silently retarget the whole gate: `${BASH_SOURCE[0]}` is
+# relative when the invocation is, so `dirname` resolves it against whatever
+# cwd the shell actually has — and a `cd <worktree> && sh scripts/…` does not
+# always survive backgrounding.  On 2026-08-03 a worker's spine ran end to end
+# inside a DIFFERENT live worker's checkout: it took that tree as its spine
+# root, its diff root and its classifier input, graded that worker's diff, and
+# reported the verdict in this one's PR body.  A complete, internally
+# consistent run about the wrong work — the only visible trace was a foreign
+# path in an mkdocs INFO line ninety lines down.  One line at the top turns
+# that into something a human or an agent sees immediately, and greps for.
+# The fix at the call site is to invoke a backgrounded gate by ABSOLUTE path.
+printf 'gate root: %s\n' "$spine_root"
+
 with_docs="auto"     # auto | force | skip
 run_all=false
 plan_only=false

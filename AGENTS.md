@@ -50,6 +50,19 @@ sh scripts/remove-worker-worktree.sh <worktree-path>   # POSIX (primary)
 # Windows: powershell -ExecutionPolicy Bypass -File scripts/remove-worker-worktree.ps1 <worktree-path>
 ```
 
+## A Backgrounded Gate Runs by Absolute Path — or in Someone Else's Worktree
+
+Every gate script under `scripts/` derives its repo root from
+`${BASH_SOURCE[0]}`, which is relative when the invocation is — and a
+`cd <worktree> && sh scripts/…` does not reliably keep that `cd` once
+backgrounded, so the run adopts whatever cwd the shell really has. One did
+exactly that inside *another live worker's* checkout: it took that tree as its
+spine root, its diff root and its classifier input, then reported the resulting
+verdict as its own. A complete, internally consistent run about somebody else's
+work is far harder to catch than a broken one, so every gate prints
+`gate root: <path>` as its first line — check that line against your worktree
+before believing any colour.
+
 ## Gate Artefacts Go Where Git Ignores Them
 
 Never pipe a gate through `tail`, `head` or `grep` — a pipeline's exit status is
@@ -59,7 +72,7 @@ artefact that produces — the log *and* the exit-code file — must land on an
 ignored path; `*.log`, `*.exit` and `*-exit.txt` all are:
 
 ```bash
-sh scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
+sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
 ```
 
 A single untracked leftover makes `git worktree remove` refuse the tree from

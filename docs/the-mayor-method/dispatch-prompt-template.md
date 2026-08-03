@@ -92,7 +92,7 @@ relying on CI"). A silent skip fails review.
 
 ### How a gate is run, not just which one
 
-Three rules about the mechanics. Each is here because it cost real hours, and
+Four rules about the mechanics. Each is here because it cost real hours, and
 none of them is obvious from the gate command itself.
 
 - **Foreground, to completion.** A worker that backgrounds a long gate and ends
@@ -103,6 +103,16 @@ none of them is obvious from the gate command itself.
   every one recovered intact the moment somebody asked it for a status. If you
   background a gate anyway, **poll its log on a timer**; never end a turn
   waiting to be woken.
+- **Invoke a backgrounded gate by its ABSOLUTE path.** The gate scripts derive
+  their repo root from `${BASH_SOURCE[0]}`, which is relative when the
+  invocation is — and a `cd <worktree> && sh scripts/…` does not reliably keep
+  that `cd` once backgrounded, so the run adopts whatever cwd the shell really
+  has. One did exactly that inside *another live worker's* checkout: it took
+  that tree as its spine root, its diff root and its classifier input, then
+  reported the resulting verdict as its own. A complete, internally consistent
+  run about somebody else's work is far harder to catch than a broken one, so
+  every gate now prints `gate root: <path>` as its first line — **check that
+  line against your worktree before believing any colour.**
 - **Never pipe a gate through `tail`, `head` or `grep`.** A pipeline's exit
   status is its *last* command's, so a red runner reads green and the PR claims
   a pass it never got. Redirect to a log file, echo the runner's own exit code
@@ -112,7 +122,7 @@ none of them is obvious from the gate command itself.
   behind:
 
   ```bash
-  sh scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
+  sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
   ```
 
   Saying only "put the log somewhere ignored" is the trap: a worker satisfies it
