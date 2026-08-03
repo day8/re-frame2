@@ -1451,9 +1451,17 @@
           ;; the recursive grammar gate (`chart.layout/project-definition`)
           ;; BEFORE graph construction, so nothing reached ELK. Render a
           ;; rejection placeholder carrying the value-free canonical defect
-          ;; category (`:rf.error/machine-*`) + structural path — never the raw
-          ;; definition. Must precede the empty-nodes branch (a rejected
-          ;; definition also has empty `:nodes`).
+          ;; category (`:rf.error/machine-*`) + the DEPTH the defect sits at —
+          ;; never the raw definition. Must precede the empty-nodes branch (a
+          ;; rejected definition also has empty `:nodes`).
+          ;;
+          ;; rf2-oztox — this used to print the defect's `:path`, a vector of
+          ;; state ids read straight off the definition. `:definition` is a host
+          ;; prop, and the viewer's is decoded from a share URL, so on the
+          ;; rejection path those ids are precisely the material someone forged;
+          ;; `grammar/definition-summary` no longer carries them and this no
+          ;; longer prints them. `:depth` is the part of the path that survives
+          ;; being content-free, and it is the part a reader acts on.
           (:definition-error parsed)
           (let [{:keys [defect]} (:definition-error parsed)]
             [:div {:data-testid         (str testid "-invalid-definition")
@@ -1476,8 +1484,8 @@
              (str "Machine definition is structurally invalid"
                   (when (:category defect)
                     (str " — " (name (:category defect))))
-                  (when (seq (:path defect))
-                    (str " at " (pr-str (:path defect))))
+                  (when (pos? (or (:depth defect) 0))
+                    (str " at depth " (:depth defect)))
                   " — nothing to render.")])
 
           (empty? (:nodes parsed))

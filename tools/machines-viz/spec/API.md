@@ -51,7 +51,7 @@ registry).
 | Prop | Required | Default | Meaning |
 |---|---|---|---|
 | `:machine-id` | no | `nil` | Identifies the machine. Surfaces as the chart's aria-label and on every per-node `:data` payload (read by tests + hosts). |
-| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. A **structurally-invalid** definition (rf2-j538f7.18) is REJECTED by the canonical recursive grammar gate INSIDE `chart.layout/project-definition` BEFORE graph construction — nothing reaches ELK and no orphan edges to absent nodes are created; the chart renders a distinct **invalid-definition** placeholder (`data-testid "…-invalid-definition"`, `data-invalid-definition "<:rf.error/machine-* category>"`) carrying the value-free defect category + structural path. The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf/machine-meta machine-id)` and pass it in. |
+| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. A **structurally-invalid** definition (rf2-j538f7.18) is REJECTED by the canonical recursive grammar gate INSIDE `chart.layout/project-definition` BEFORE graph construction — nothing reaches ELK and no orphan edges to absent nodes are created; the chart renders a distinct **invalid-definition** placeholder (`data-testid "…-invalid-definition"`, `data-invalid-definition "<:rf.error/machine-* category>"`) carrying the value-free defect category + the DEPTH the defect sits at (never the state-id path — see [The value-free definition summary](#the-value-free-definition-summary)). The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf/machine-meta machine-id)` and pass it in. |
 | `:current-state` | no | `nil` | The live snapshot `:state` value for the active-state highlight. Accepts all three Spec 005 `:state` arms: a flat keyword (`:authing`), a hierarchical path (`[:auth :authing]`), **or a parallel region-map** (`{:data :loading :form :neutral}`). For a region-map the chart lights up **every** active region leaf simultaneously (the multi-active highlight — see [§Parallel multi-active highlight](#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). `nil` renders no highlight. |
 | `:from-highlight` | no | `nil` | Focused-event lens origin (a `:state` value). |
 | `:to-highlight` | no | `nil` | Focused-event lens landing (a `:state` value). |
@@ -2327,7 +2327,7 @@ sentence, and `ex-message` leads with the sentence and trails the
 
 | `:rf.error/id` | Meaning |
 |---|---|
-| `:scxml/invalid-spec` | Input spec fails the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id). |
+| `:scxml/invalid-spec` | Input spec fails the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id) — see [The value-free definition summary](#the-value-free-definition-summary) for exactly what that may and may not name. |
 | `:scxml/parse-error`  | Input XML is malformed or missing the `<scxml>` root. |
 
 ## AI-generate-a-machine (v1.1, rf2-1bncf)
@@ -2424,7 +2424,7 @@ sentence, and `ex-message` leads with the sentence and trails the
 |---|---|
 | `:ai-generate/no-resolver`  | `:resolver` opt was not provided. |
 | `:ai-generate/parse-failed` | Resolver output could not be parsed as EDN. |
-| `:ai-generate/invalid-spec` | Parsed value failed the canonical **recursive** grammar gate (`grammar/valid-definition?`) — see step 4 above. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id). |
+| `:ai-generate/invalid-spec` | Parsed value failed the canonical **recursive** grammar gate (`grammar/valid-definition?`) — see step 4 above. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id) — see [The value-free definition summary](#the-value-free-definition-summary). An LLM response is untrusted input, so nothing the model emitted survives into the diagnostic. |
 
 ### Determinism
 
@@ -2432,6 +2432,50 @@ The fn itself is deterministic given a deterministic resolver. LLM
 resolvers are not deterministic by default; for reproducible tests
 inject a stub mapping known prompts to canned EDN responses (see
 the AI-generate test ns for examples).
+
+## The value-free definition summary
+
+`grammar/definition-summary` is the ONE diagnostic every rejection path in
+this artefact stashes, so their reports agree: the SCXML importer under
+`:spec-summary`, AI-generate under `:spec-summary`, the Mermaid emitter under
+`:definition-summary`, the chart projector under `:definition-error`, and — via
+`valid-definition?` — the share decoder's `:invalid-chart-state`.
+
+Every one of those inputs is untrusted. A share fragment is forged by
+assumption, an LLM response is a string a model chose, and an SCXML / Mermaid
+document arrives from wherever the user got it. Projection cannot walk
+`ex-data` after the fact (EP-0015 / Spec 015 §exception-path residual), so the
+summary must not carry anything it was given — and it does not (rf2-oztox):
+
+| Slot | Carries |
+|---|---|
+| `:type` | The closed vocabulary `:map` / `:vector` / `:seq` / `:set` / `:keyword` / `:symbol` / `:string` / `:number` / `:boolean` / `:nil` / `:fn` / `:scalar` — the same set `re-frame.error/diag-value-summary` and `share/value-free-summary` use, so one diagnostic vocabulary reads across all three surfaces. |
+| `:count` | Cardinality of a counted collection or string. A lazy seq is deliberately NOT counted — realising it on the failure path is its own hazard. |
+| `:parallel` | Boolean: is the root a `:type :parallel` root. |
+| `:state-count`, `:region-count` | Integer child counts, when the definition has a map `:states` / `:regions`. |
+| `:defect` | The first structural defect, itself value-free: `:category` (the runtime's canonical `:rf.error/machine-*` id), `:slot` (`:on` / `:after` / `:always` / `:on-done`), `:depth` (an integer — how deep the defect sits), `:key-count` (an integer — how many keys offended). |
+
+That is content-free **by construction** rather than by redaction: every slot
+is a member of a closed vocabulary, an integer or a boolean, so no expression
+in the output is derived from the definition's content and the summary
+serializes to a fixed size whatever arrives. There is no key set to cap and no
+prefix to bound.
+
+Two slots are deliberately **absent**, and both used to be present:
+
+- the definition's top-level **`:keys`** — every key, uncapped and
+  unsanitised. A forged definition's key set is attacker-chosen in content
+  (keys carry markup, control characters and secrets as readily as values do)
+  and in size, so the summary grew with the forger's input without limit.
+  `:count` is what survives that rule, and it is the diagnosis a reader acts
+  on: "a 2000-key map where a machine definition was expected".
+- the defect's **`:path`** and **`:keys`** — the state ids and offending keys
+  read straight off the definition. `grammar/definition-defect` still returns
+  both, because its caller is holding the definition already; the SUMMARY
+  reports `:depth` and `:key-count` instead.
+
+Size and cardinality are kept on purpose. An integer cannot carry a fragment
+of a token, and without them the summary would be safe but useless.
 
 ## Public CLJS API surface — summary
 

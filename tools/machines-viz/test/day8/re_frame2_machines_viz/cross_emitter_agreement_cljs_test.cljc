@@ -745,3 +745,84 @@
         (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex))))
         (is (= category (get-in (ex-data ex) [:spec-summary :defect :category]))
             (str label ": ai's summary carries the canonical defect category"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-oztox — the summary is content-free by construction, and the guarantee
+;; is only worth anything WHERE IT LANDS: the whole thrown `ex-data` of every
+;; surface that stashes it. `grammar-validation-cljs-test` pins the summary's
+;; own grammar over a hostile corpus; this pins that no emitter re-introduces
+;; the definition alongside it, and that every thrown diagnostic stays a fixed
+;; size however large the forged definition is.
+;;
+;; All three emitters take untrusted input by their own headers' account —
+;; `ai_generate` an LLM response, `scxml` / `mermaid` an imported document,
+;; and the chart projector a host prop that the viewer decodes from a share
+;; URL.
+
+(def ^:private disclosure-sentinel "hunter2-swordfish-SENTINEL")
+
+(def ^:private disclosure-fragments
+  "Every 8-character window of the sentinel — a leak is proved by a FRAGMENT,
+  since a bounded prefix of attacker material is the defect, not the fix."
+  (into #{} (map #(subs disclosure-sentinel % (+ % 8)))
+        (range (- (count disclosure-sentinel) 7))))
+
+(defn- disclosing? [x]
+  (let [s (pr-str x)]
+    (boolean (some #(str/includes? s %) disclosure-fragments))))
+
+(def ^:private forged-definition
+  "A forged definition that reaches a defect leg through KEY-position material
+  — sentinel state ids, a sentinel-bearing unknown root key, and a live `:data`
+  slot. Pre-fix the thrown ex-data reproduced the root key set verbatim and the
+  embedded defect named the offending keys and their state-id path."
+  {:initial                                        (keyword disclosure-sentinel)
+   (keyword (str disclosure-sentinel "-root-key")) 1
+   :data                                           {:token disclosure-sentinel}
+   :states  {(keyword disclosure-sentinel)
+             {:on {:go (keyword (str disclosure-sentinel "-gone"))}}}})
+
+(def ^:private forged-definition-huge
+  "The same shape with 2000 sentinel-named states — the size arm."
+  (assoc forged-definition
+         :states (into {} (map (fn [i] [(keyword (str disclosure-sentinel "-" i)) {}]))
+                       (range 2000))))
+
+(def ^:private ex-data-serialized-bound
+  "The whole thrown ex-data — human `:message`/`:reason` prose included —
+  against a forged definition of ~2000 states. The bound proves
+  SIZE-INDEPENDENCE, not brevity."
+  700)
+
+(deftest thrown-diagnostics-disclose-nothing-they-were-given
+  (doseq [[surface throw-it] [["mermaid" #(mermaid/emit %)]
+                              ["scxml"   #(scxml/spec->scxml %)]
+                              ["ai"      #(ai/generate-machine "x" {:resolver (constantly (pr-str %))})]]]
+    (doseq [[size d] [["small" forged-definition] ["huge" forged-definition-huge]]]
+      (let [ex (throws-ex #(throw-it d))
+            dt (ex-data ex)]
+        (is (some? ex) (str surface "/" size ": must reject"))
+        (is (not (disclosing? dt))
+            (str surface "/" size ": no sentinel fragment anywhere in ex-data — " (pr-str dt)))
+        (is (not (disclosing? (ex-message ex)))
+            (str surface "/" size ": no sentinel fragment in the thrown message"))
+        (is (< (count (pr-str dt)) ex-data-serialized-bound)
+            (str surface "/" size ": ex-data serialized " (count (pr-str dt)) " chars")))))
+  (testing "the chart projection result is the fourth stash of the same summary"
+    (doseq [[size d] [["small" forged-definition] ["huge" forged-definition-huge]]]
+      (let [result (layout/project-definition d)]
+        (is (some? (:definition-error result)) (str "chart/" size ": rejects"))
+        (is (not (disclosing? (:definition-error result)))
+            (str "chart/" size ": no sentinel fragment in :definition-error — "
+                 (pr-str (:definition-error result))))))))
+
+(deftest thrown-diagnostics-do-not-grow-with-the-definition
+  (testing "a 2000-state forged definition throws the same-size ex-data as a 1-state one"
+    (doseq [[surface throw-it] [["mermaid" #(mermaid/emit %)]
+                                ["scxml"   #(scxml/spec->scxml %)]]]
+      (let [size  (fn [d] (count (pr-str (ex-data (throws-ex #(throw-it d))))))
+            small (size forged-definition)
+            big   (size forged-definition-huge)]
+        (is (<= (- big small) 6)
+            (str surface ": ex-data may grow only by the DIGITS of its counts; "
+                 small " -> " big))))))
