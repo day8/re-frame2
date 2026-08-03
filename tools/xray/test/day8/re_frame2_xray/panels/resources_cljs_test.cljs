@@ -23,6 +23,9 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
+            ;; CORE canonical-identity (not the resources artefact) — the routing
+            ;; blocking slot is keyed on the CEDN-1 byte id (rf2-btdl1).
+            [re-frame.identity :as rf-identity]
             [re-frame.registrar :as registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -506,7 +509,8 @@
     [:rf.xray/set-resource-routing-slice-override-for-test
      {:current {:route-id :route/article :nav-token "nav-1"}
       :resource-blocking
-      {"nav-1" #{[session-scope :article/by-slug {:slug "welcome"}]}}}]
+      {"nav-1" (let [k [session-scope :article/by-slug {:slug "welcome"}]]
+                 {(rf-identity/canonical-bytes k) k})}}]
     {:frame :rf/xray}))
 
 (deftest route-graph-shows-live-active-route
