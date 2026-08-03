@@ -74,6 +74,16 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Docs Gates — What Covers `docs/design/**`
+
+`mkdocs build --strict` does **not** cover `docs/design/**`. `mkdocs.yml`'s
+`exclude_docs` block deliberately keeps `design/freehand/` and `design/hicasso/`
+out of the site, so never nominate it as the gate for an edit confined to that
+tree — it will exit 0 having verified nothing. `scripts/check_doc_slugs.py` does
+cover it: markdown link targets and heading anchors, in the fast-PR spine and in
+`docs.yml`. Nothing checks tables, rendering, or nav, so verify anchors and table
+column counts by hand and say so in the PR body.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
 
