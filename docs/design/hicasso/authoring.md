@@ -211,10 +211,19 @@ arrives as `:id`/`:class`, as `"id"`/`"className"`, or as `:x/id`/`:x/class`
 Controlled text rides the synchronous door: dispatch → drain/commit → re-render
 lands the echo in the keystroke's own task; the caret survives value
 reassertion, and the key-map's composition gate keeps a composing Enter from
-committing (R-A1/R-A2 are v0's acceptance). The **value** path through a live
-composition is not fenced on any implementation: a refused or normalised value
-is written back mid-composition and the browser aborts the exchange, here and
-on plain React alike (`rf2-digtt`, unruled). On the lean-React arm the
+committing (R-A1/R-A2 are v0's acceptance). **A live IME composition is carved
+out of the convergence, and that is a deliberate divergence from plain React**
+(`rf2-digtt`, ruled 2026-08-03; HD-019's dated addendum). Nothing writes a
+controlled text field while a composition is running — not the runtime's
+converge and not React's own end-of-event restore — so a model that refuses or
+normalises what is being composed no longer destroys the exchange to say so:
+the composition survives, and the refusal or normalisation lands whole, once,
+at `compositionend`. Everywhere else the conduct is unchanged, including the
+model, which still sees and still refuses every intermediate composition state.
+Plain React and the UIx port abort the exchange in the same case; that is
+measured beside this in one run, and it is what the divergence is measured
+against. **Witnessed on Chromium only** — the harness drives composition over
+CDP, which is Chromium's protocol. On the lean-React arm the
 end-of-discrete-event restore is React's; a PATCH back end must own it
 (architecture.md, hard gate).
 
