@@ -33,7 +33,8 @@
   `walk-state-nodes` yields `[state-key state-node]` pairs for every
   node under `:states`, recursing through `:states` maps; used by the
   top-level dispatch."
-  (:require [re-frame.error :as error]
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.machines.choice :as choice]
             [re-frame.machines.grammar :as grammar]
             [re-frame.machines.internal-events :as internal-events]
@@ -68,6 +69,76 @@
   ([error-kw reason extras]
    (error/thrown-ex-info error-kw 'rf/reg-machine reason
                          {:recovery :fix-registration :extra extras})))
+
+;; ---------------------------------------------------------------------------
+;; Key totality (rf2-dhl4d)
+;;
+;; A machine definition is not always hand-written. It can be merged from
+;; config, decoded from JSON or transit, or emitted by a generator, so its KEYS
+;; are whatever the producer put there — a string, a number, a vector, an
+;; opaque host object. Two operations the key checks below perform are PARTIAL
+;; on the host: `namespace` is defined only on `Named`, and `pr-str` reaches an
+;; arbitrary object's `toString`. A partial operation on the REJECTION path
+;; destroys the very failure it was supposed to describe, so both are made
+;; total here, once, rather than at each of the three key checks.
+
+(defn- namespaced-key?
+  "Is `k` the NAMESPACED open-extension carve-out that every no-silent-swallow
+  key check honours?
+
+  TOTAL over any key a map can carry. This used to be a bare `(namespace k)`,
+  and `namespace` THROWS on a key that is not `Named`, so a definition as
+  ordinary as
+
+    {:initial :a :states {:a {}} \"x\" 1}
+
+  raised a host `ClassCastException` (a `js/Error` on CLJS) out of
+  `validate-machine!` in place of the `:rf.error/machine-unknown-node-key` that
+  `reg-machine`'s registration gate promises (rf2-dhl4d).
+
+  Testing `Named`-ness FIRST also makes the answer the RIGHT one rather than
+  merely non-throwing: a key that is not a keyword or a symbol is not a legal
+  node / spawn-spec key under any reading of the grammar, so it is not carved
+  out — it lands in the offending set and earns the same rejection a misspelt
+  `:on-entry` earns. `tools/machines-viz`'s hand-mirror of this walk was made
+  total the same way under rf2-oztox; the engine-grammar parity ratchet pins
+  the two answers together."
+  [k]
+  (and (or (keyword? k) (symbol? k))
+       (some? (namespace k))))
+
+(def ^:private literally-printable-types
+  "The `error/diag-value-summary` `:type` tags whose values `pr-str` renders
+  TOTALLY — no `toString` on an opaque host object, and no element-wise descent
+  into a collection that might be holding one."
+  #{:keyword :symbol :string :number :boolean :nil})
+
+(defn- key-label
+  "`k` rendered for a diagnostic MESSAGE, total over any key.
+
+  An EDN scalar prints LITERALLY, because naming the key IS the diagnostic —
+  \"you wrote :on-entry, the slot is :entry\" — and this validator's caller is
+  `reg-machine`, which is holding the definition already. That is the
+  deliberate divergence from `machines-viz`'s `definition-summary`, whose
+  caller is handed a definition decoded from a share URL and therefore reports
+  shape only.
+
+  Anything else — an opaque host object, or a collection that may contain one —
+  renders as its `error/diag-value-summary` shape tag (`<scalar>`, `<vector>`,
+  …). `pr-str` on such a value reaches `toString`, and a `toString` that throws
+  would replace the structured rejection with a host exception: the same defect
+  one level down from the one `namespaced-key?` fixes."
+  [k]
+  (let [{tag :type} (error/diag-value-summary k)]
+    (if (literally-printable-types tag)
+      (pr-str k)
+      (str "<" (name tag) ">"))))
+
+(defn- key-labels
+  "`ks` rendered as a vector-shaped diagnostic fragment, each element through
+  `key-label`."
+  [ks]
+  (str "[" (str/join " " (map key-label ks)) "]"))
 
 (defn- ref-resolves?
   "Mirror of the runtime resolver `transition/chase-ref`: a
@@ -189,7 +260,7 @@
       ;; (`validate-no-spawn-timeout-ms!` → `:rf.error/spawn-timeout-ms-
       ;; removed`, naming the replacement), so that SPECIFIC diagnostic wins.
       (let [offending (->> (keys spawn-all-spec)
-                           (remove #(namespace %))
+                           (remove namespaced-key?)
                            (remove known-spawn-all-block-keys)
                            (remove #{:timeout-ms})
                            vec)]
@@ -197,7 +268,7 @@
           (throw (validation-error
                    :rf.error/machine-spawn-all-bad-shape
                    (str ":spawn-all block declares unknown bare key(s) "
-                        (pr-str offending)
+                        (key-labels offending)
                         " — a bare key outside the reserved :spawn-all "
                         "vocabulary reads as a typo or a retired key (e.g. "
                         "the removed :cancel-on-decision?) and would be "
@@ -1425,11 +1496,13 @@
 
 (defn- unknown-bare-keys
   "The BARE (non-namespaced) keys of `m` that are NOT in `known` — the
-  no-silent-swallow discriminator. A namespaced key (`(namespace k)` non-nil) is
-  the open extension carve-out and is never flagged."
+  no-silent-swallow discriminator. A namespaced key is the open extension
+  carve-out and is never flagged; see `namespaced-key?` for why that test is
+  spelt the way it is and why a non-`Named` key is flagged rather than carved
+  out (rf2-dhl4d)."
   [m known]
   (->> (keys m)
-       (remove #(namespace %))
+       (remove namespaced-key?)
        (remove known)
        vec))
 
@@ -1452,8 +1525,8 @@
       (when (seq offending)
         (throw (validation-error
                  :rf.error/machine-unknown-node-key
-                 (str "state " state-key " declares unknown bare key(s) "
-                      (pr-str offending)
+                 (str "state " (key-label state-key) " declares unknown bare key(s) "
+                      (key-labels offending)
                       " — a bare key outside the reserved state-node vocabulary "
                       "reads as a typo (e.g. XState's :invoke for re-frame2's "
                       ":spawn, or :on-entry for :entry) and would be silently "
@@ -1481,9 +1554,9 @@
                      (when (seq offending)
                        (throw (validation-error
                                 :rf.error/machine-unknown-spawn-key
-                                (str where " on state " state-key
+                                (str where " on state " (key-label state-key)
                                      " declares unknown bare key(s) "
-                                     (pr-str offending)
+                                     (key-labels offending)
                                      " — a bare key outside the reserved "
                                      "spawn-spec vocabulary reads as a typo (e.g. "
                                      ":machine for :machine-id) and would leave "
