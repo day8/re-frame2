@@ -1710,6 +1710,43 @@ test('All required checks passed aggregator still present + needs jvm-core + clj
   assert.match(block, /- cljs\r?\n/);
 });
 
+// rf2-1x32v. The aggregator now reports a CANCELLED required job in
+// different words from a FAILED one — "incomplete, re-run" versus "failed" —
+// because reporting them identically is what made a transient read as a
+// defect, and a check that cries wolf is one that stops being read.
+//
+// Splitting one blocking step into two introduced a fail-open that did not
+// exist before: delete the cancelled arm and a cancelled required job reads
+// GREEN, which would let a cancelled `beads-pr-boundary` carry a tracker
+// database onto main. So both arms are pinned, each with its own `exit 1`.
+// The distinction is presentational ONLY — no signal is not a pass.
+test('the aggregator blocks on cancelled AND on failure, in distinct words (rf2-1x32v)', () => {
+  const steps = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed')
+    .split(/\n {6}- name: /)
+    .slice(1);
+  const armFor = (result) =>
+    steps.filter((s) => new RegExp(`if: \\$\\{\\{ contains\\(needs\\.\\*\\.result, '${result}'\\)`).test(s));
+
+  for (const result of ['failure', 'cancelled']) {
+    const arm = armFor(result);
+    assert.equal(arm.length, 1, `exactly one aggregator arm must guard on '${result}'`);
+    assert.match(
+      arm[0],
+      /^\s*exit 1\s*$/m,
+      `the '${result}' arm must BLOCK — a required job that produced no pass is never green`,
+    );
+  }
+  // Distinct words, so the operator is told which of the two it is.
+  assert.match(armFor('failure')[0], /FAILED/);
+  assert.match(armFor('cancelled')[0], /INCOMPLETE, not failed/);
+  // Failure is adjudicated FIRST, so a run carrying both is never described
+  // as merely incomplete.
+  assert.ok(
+    steps.indexOf(armFor('failure')[0]) < steps.indexOf(armFor('cancelled')[0]),
+    'the failure arm must precede the cancelled arm',
+  );
+});
+
 // rf2-wa3oo — the story-xray-browser PR job now runs the PR-SMOKE
 // tier, not the full sweep. It runs the Xray gate in --smoke mode and
 // the single-testbed Story :play-script gate (which renders the
