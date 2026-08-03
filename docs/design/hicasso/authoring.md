@@ -179,14 +179,17 @@ element the caller wrote). The same key and the same law hold at a crossing — 
 view head, a `defhost` head, `[:>]` — because `:&` is merged before any conversion
 and the conversion that follows is the position's own, so a forwarded `:className`
 crosses under the name it was written as. And an element's own classes belong on
-the **tag**, where the shorthand merge composes them with a forwarded `:class`
-rather than one silently replacing the other.
+the **tag**, where the shorthand composes them with a forwarded class rather than
+one silently replacing the other.
 
 Both halves of the law are enforced on the **slot the key is emitted into**, not on
 the key itself. Prop names reach React through one canonicalisation, so `"key"`,
 `:x/key` and `'key` are all React's key, and `:onInput` is the same handler as an
 owned `:on-input` — a remainder cannot reach either by changing how it spells them
-(HD-023(c′)).
+(HD-023(c′)). The tag shorthand is folded on the emitted slot for the same reason:
+an explicit id beats `#tag` and a declared class composes with `.foo` whether it
+arrives as `:id`/`:class`, as `"id"`/`"className"`, or as `:x/id`/`:x/class`
+(HD-023(c″)).
 
 ## The controlled-input door
 
