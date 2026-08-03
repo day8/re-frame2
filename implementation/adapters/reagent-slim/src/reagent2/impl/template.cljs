@@ -250,10 +250,11 @@
   probe, for a roster of three, asked once per prop occurrence on every
   element of every mount. Costed side by side on one run over the census
   page's own prop names: set 53.7 ns/op, three `===` compares 10.4, a
-  null-prototype index 15.8. The chain wins on the clock AND is the only
-  one of the three with no second data structure to keep in step with, so
-  the roster can live where it reads best — here. `front/codec`'s
-  `reserved-name?` is the same shape for the same reason."
+  null-prototype index derived from the set 15.8. The chain wins on the
+  clock, and it is the only one of the three that needs no data structure
+  at all — so the roster stops being a thing to look up and becomes
+  something to read. `front/codec`'s `reserved-name?` is the same shape
+  for the same reason."
   [n]
   (or (identical? "__proto__" n)
       (identical? "prototype" n)

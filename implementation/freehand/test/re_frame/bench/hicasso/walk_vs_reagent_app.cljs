@@ -529,21 +529,30 @@
 ;; The arm rows put `reagent2.impl.template` at 1.73-1.90x stock Reagent, and
 ;; the stage table names ONE term (`cached-prop-name`, ~2x stock). That term
 ;; weighs 1,489 prop occurrences over 1,202 elements — nowhere near the whole
-;; gap, and rf2-lhdp0 says so in as many words. These rows name the rest.
+;; gap, and rf2-lhdp0 says so in as many words. These rows named the rest, and
+;; the cuts they convicted took the arm to 1.19-1.24x.
+;;
+;; A `-ship` ROW IS THE PRE-rf2-lhdp0 SHAPE, not today's. It was shipping when
+;; these rows were written; the cheapened twin beside it is what shipped
+;; instead. They are kept as a PAIR because a delta measured in one process on
+;; one roster is the only way these terms compare — see the run-to-run spread
+;; on the arms — and because a future reader deserves the alternatives that
+;; were costed, not just the winner.
 ;;
 ;; Slim's per-element shapes are `defn-` private, so they are replicated here
 ;; the way the cache candidates above already are ("written here so every arm
 ;; is local"). Everything the replicas cannot reach privately is called for
 ;; real: `slim/parse-tag`, `slim/class-names`, `slim/cached-prop-name`,
-;; `slim/convert-prop-value` and `slim/void-tags` are all public.
+;; `slim/convert-prop-value` and `slim/void-tags` are all public. That last
+;; point is also why a `-ship` row does not freeze: its miss path calls the
+;; REAL `slim/cached-prop-name`, which moved.
 ;;
-;; WHAT A ROW HERE IS, AND IS NOT. A `-ship` row is a REPLICA of the shipping
-;; shape, not the shipping shape. It is held honest by AGREEMENT — every
-;; cheapened variant answers what its `-ship` twin answers, over the page's
-;; own literals AND the hostile names it does not carry, checked before any
-;; figure is read — so a `ship → cheap` delta names a term and its sign
-;; reliably. It is NOT calibrated in absolute terms against the real
-;; function, and must not be read as if it were: measured on the first run,
+;; WHAT A ROW HERE IS, AND IS NOT. A replica is held honest by AGREEMENT —
+;; every cheapened variant answers what its `-ship` twin answers, over the
+;; page's own literals AND the hostile names it does not carry, checked
+;; before any figure is read — so a `ship → cheap` delta names a term and its
+;; sign reliably. It is NOT calibrated in absolute terms against the real
+;; function, and must not be read as if it were: measured on one run,
 ;; `slim-prop-lookup-ship` read 86.0 ns/op where `prop-name-slim` — the same
 ;; algorithm, but the REAL `slim/cached-prop-name` — read 66.8. Same shape,
 ;; different call site, 29% apart.
@@ -556,20 +565,23 @@
 
 (def ^:private slim-reserved #{"__proto__" "prototype" "constructor"})
 
-;; Shipping: a PersistentHashSet `contains?` — a string hash plus a hash-map
-;; probe for a roster of three. Candidate: the `identical?` chain the codec
-;; already ships (prior art: front/codec.cljs `reserved-name?`).
+;; Was: a PersistentHashSet `contains?` — a string hash plus a hash-map probe
+;; for a roster of three. The `identical?` chain won and shipped (prior art:
+;; front/codec.cljs `reserved-name?`); the null-prototype index below lost to
+;; it on the clock AND carries a second roster, so it was declined.
 (defn- ^boolean slim-reserved-set? [n] (contains? slim-reserved n))
 (defn- ^boolean slim-reserved-chain? [n]
   (or (identical? "__proto__" n)
       (identical? "prototype" n)
       (identical? "constructor" n)))
 
-;; A null-prototype index DERIVED from the same set. Drift-proof by
-;; construction — there is no second roster to keep in step — and it is the
-;; shape that scales to the 14-entry void-tag roster, where an `identical?`
-;; chain would be 14 compares. `__proto__` is an ordinary own key on a
-;; null-prototype object, so the roster indexes itself without special-casing.
+;; A null-prototype index DERIVED from the same set, so it cannot drift from
+;; it. It loses to the chain at three names but WINS at fourteen, which is
+;; why `void-tag?` ships this shape and `reserved-prop-key?` ships the chain
+;; — the crossover is real and is the whole reason both are costed here.
+;; `__proto__` is an ordinary own key on a null-prototype object (the magic
+;; accessor lives on `Object.prototype`), so a roster indexes itself with no
+;; special case.
 (defn- ^js index-of-strings [ss]
   (reduce (fn [o s] (unchecked-set o s true) o) (js/Object.create nil) ss))
 
