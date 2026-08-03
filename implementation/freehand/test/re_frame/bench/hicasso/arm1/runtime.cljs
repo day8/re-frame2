@@ -1619,7 +1619,7 @@
      :what  "the codec's tag and prop caches, per distinct literal in the build"}]
    :absent
    [{:token :use-ref   :what "no useRef anywhere in the shell (HD-020(b))"}
-    {:token :use-state :what "no per-instance render-phase state of any kind"}
+    {:token :use-state :what "no per-instance render-phase state of any kind IN THE SHELL. The one useState on an Arm 1 page belongs to `front.controlled`'s composition shadow and is a controlled TEXT ELEMENT's, one per field — never a boundary's, and priced per field on `shapes/hook_budget_dom_cljs_test` (rf2-digtt)"}
     {:token :view-cell :what "no per-boundary object graph, reaction, watcher or scheduler"}
     {:token :candidate-ledger
      :what  "one scratch buffer, never two; nothing keyed by render, attempt, lane or generation; no per-read object; no commit-phase deref"}]})
