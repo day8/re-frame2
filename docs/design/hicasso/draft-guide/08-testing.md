@@ -77,8 +77,12 @@ component you mount-test once.
 
 ## The mounted door
 
-A shared browser facade covers `act`, root lifecycle, and residue assertions
-**[unfrozen — the facade has no name in the record]**.
+A shared browser facade covers root lifecycle, a synchronous dispatch door, and
+residue assertions **[unfrozen — the facade has no name in the record]**. Note what
+it deliberately is not built on: `act` diverts React's work to a queue that is not
+the browser's, which is right for an effect-ordering test and wrong for a witness
+that reads the page. The bench arm's fixture flushes instead, so an assertion on
+the line after a dispatch reads the DOM the user would have seen.
 
 One assertion is standing, on every mounted test: **zero leaked subscription
 ref-counts after teardown.** A related invariant rides with it — an unchanged hot
@@ -87,8 +91,8 @@ should show no churn at all.
 
 Reach for a mounted test when you need:
 
-- a real error boundary — `h/boundary` **[unfrozen]** is the runtime's class
-  component, taking `:fallback`, `:reset-key`, and `:on-error`;
+- a real error boundary catching a real throw
+  ([When a view throws](09-when-a-view-throws.md));
 - caret, selection, or IME behaviour, which only a real browser can prove
   ([Controlled inputs](04-controlled-inputs.md));
 - StrictMode, abandoned first mount, root teardown, or an HMR body swap;
@@ -133,7 +137,7 @@ these reads — and they are excellent at it precisely because that is all they 
 |---|---|
 | The headless render function's name and signature | **Not addressed.** HD-021 pins the semantics — structural render as data, sub reads overridable — and names nothing. `h/render` and the `{:subs …}` option above are this guide's invention |
 | The read resolver's shape | **Not addressed.** "A pure read resolver" is the whole of the record; a map is the obvious form, and it is a guess |
-| The mounted facade's name and API | **Not addressed** beyond "act, root lifecycle, residue assertions" |
+| The mounted facade's name and API | **Not addressed.** The bench arm's fixture is the only one that exists, it is not a product surface, and it already diverges from the description the record sketched it with — it flushes rather than using `act` |
 | Whether headless renders one boundary or a subtree | **Not addressed.** The example above renders one; whether child boundaries are rendered through or returned as unexpanded nodes is unstated, and it changes how every test is written |
 | How intent vectors are *invoked* in a headless test | **Not addressed.** They can be asserted by equality; whether the door lets you fire one and observe the dispatch is unstated |
 | The registry / manifest surface — views enumerable with schemas, docs, source coordinates | **Post-v0.** Named as the AI-ergonomics door |

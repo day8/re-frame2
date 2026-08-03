@@ -42,6 +42,9 @@ it is platform-native.
 }
 ```
 
+Nothing about the `--app-*` prefix is Hicasso's; name your custom properties
+whatever your stylesheet already does.
+
 Switching theme is one attribute flip on one element, and **restyling from there
 costs zero React work** — no re-render, no hook, no diff. The cascade recomputes and
 your component tree is never consulted, which is exactly right, because nothing in it
@@ -116,31 +119,34 @@ The obvious one: one view reads `:theme/current` and puts it on its own element.
 
 ```clojure
 (defview theme-scope [{:keys [children]}]
-  [:div {:data-theme (name (sub [:theme/current]))}
-   children])
+  (into [:div {:data-theme (name (sub [:theme/current]))}]
+        children))
 
 ;; At the root:
 [theme-scope {} [app {}]]
 ```
 
+`children` arrives as a realized *vector* of hiccup forms, which is why it is
+spliced with `into` rather than dropped in as one child —
+[Views and reads](02-views-and-reads.md#the-component-abi) has the rule.
+
 **Its true cost.** The boundary that reads the theme re-renders on every switch —
-that much is certain, and it is one boundary. What happens below it now turns on
-the [default value-equality bail-out](02-views-and-reads.md#boundaries-memoize-by-default)
+that much is certain, and it is one boundary. What happens below it turns on the
+[default value-equality bail-out](02-views-and-reads.md#boundaries-memoize-by-default)
 (HD-028) rather than on how `theme-scope` gets its content. `app` is a boundary
 either way — handed down as `children` or minted directly inside `theme-scope`'s
 own body — and its props are unaffected by the theme, so they compare `=` at every
 re-render and its own memo wrapper bails regardless of which style you write. The
-way to lose the bail-out is different from either style above: splice `app`'s
-markup in as a plain call instead of `[app {}]`. A plain call has no boundary of
-its own to hold a memo wrapper, so it re-runs with `theme-scope` every time —
-independent of which bridge you chose.
+way to lose the bail-out is to call `app` as a plain function instead of writing
+`[app {}]`. A plain call has no boundary of its own to hold a memo wrapper, so it
+re-runs with `theme-scope` every time — independent of which bridge you chose.
 
-That leaves one open question, not two. Whether an *interpreted* hiccup runtime
-preserves element identity for children a boundary merely passes through is still
-unmeasured, but it now decides only how *cheap* the skip is: a referentially
-identical child never reaches the comparator; a freshly minted one still reaches
-it and still bails, one step later. Neither path costs the app, as long as `app`
-stays a boundary.
+Element identity does not enter into it, because there is none to preserve.
+Children cross a boundary as hiccup data, not as React elements, so `theme-scope`
+mints a fresh element for `app` on every render whichever style you write. The
+skip is therefore always the comparator's `=`, never a referential short-circuit
+ahead of it — and `=` on an unchanged props map is cheap. What matters is only
+that `app` stays a boundary.
 
 ### Bridge B — an effect writes the attribute
 
@@ -278,11 +284,9 @@ order to remember, in exchange for a flexibility nobody is going to use.
 | Question | Status |
 |---|---|
 | **How the app-db choice reaches the `data-theme` scope** | **Unresolved, and the largest hole on this page.** HD-010 rules the choice into app-db and rules the switch to be one attribute flip, and never joins them. [Layer 3 and the DOM](#layer-3-and-the-dom) names both candidate bridges and prices them; picking one is a design decision, not a writing decision |
-| Whether a boundary that only passes children through preserves their element identity | **Not addressed**, but HD-028's default bail-out now covers bridge A's cost either way — this decides only whether the skip is free (identity-preserved) or a cheap `=` check (identity not preserved), not whether it happens |
 | Whether the theme attribute is per-root or per-document | **Not addressed.** Layer 3 promises frame isolation; a document-level attribute does not have it |
 | How a control declares a part | **Not addressed.** "Controls emit keyword-tagged parts" is the whole of the record; the attribute or macro that does it is unnamed |
 | How an app installs a theme | **Not addressed.** The merge order `base < app-theme < instance-props` is ruled; the mechanism that supplies the app-theme layer is not. Since there is no context, it is presumably passed or registered — the record does not say which |
 | The part-address shape | This guide writes `[:typeahead :root]` by analogy with the record's "part address" language; the actual shape is unstated |
-| CSS custom property naming convention | **Not addressed.** The `--app-*` prefix above is this guide's invention |
 | Where the boot-static part map lives | Implied by law (b) to be fixed at build; the residence is unstated |
 | The controls kit that would ship parts | **Post-v0** |

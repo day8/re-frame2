@@ -181,6 +181,11 @@ timeout returns to `:present` rather than finishing its exit and remounting. And
 presence never dispatches anything — a node lingering on screen is not a reason for
 anything in app-db to linger with it.
 
+**Order is frozen at first appearance**, deliberately, so an exiting child does not
+jump to a new slot halfway through its animation. Surviving keys keep the order
+they had and genuinely new keys are appended. A list that re-sorts while items are
+leaving therefore sorts at the data layer, not here.
+
 **Enter is the weak half, and this guide will not pretend otherwise.**
 `::h/mounting` exists, but driving an entrance as a `:mounting` → `:present` class
 flip can lose the race to the browser's first paint, and then nothing animates. For
@@ -235,5 +240,3 @@ that edge needs to know it exists.
 | The controls kit (drafts, revisions) | **Post-v0** |
 | The overlay top layer that would own open and dismiss | **Post-v0** |
 | The reusable-widget instance-key convention | **Post-v0**, named as a resolved design debt in HD-009's sugar |
-| Whether presence order can follow a live re-sort | **No, by design, inherited.** Presence freezes first-appearance slots so an exiting child does not jump mid-animation; a continuously re-sorting list orders at the data layer |
-| Where the line falls between "mechanics" and "semantic" in hard cases | **Judgment, by design.** HD-003 makes it a taught rule with no enforcement, and reopens if dogfooding shows it confusing in practice |
