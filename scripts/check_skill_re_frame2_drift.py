@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """No-bead-id + verification-posture + launcher-canonical + machine-handler-
-recipe + managed-http-recipe drift guard for the re-frame2 (authoring) skill.
+recipe + managed-http-recipe + form-action-CSRF drift guard for the re-frame2
+(authoring) skill.
 
 `spec/design.md` is the single normative source for the skill's locked
 decisions (L1–L11), file structure, cardinal rules, and verification posture;
@@ -124,6 +125,33 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      006 lawfully carries bead ids and Reagent-owned `:contextType` prose that
      the leaf-wide rules would reject).
 
+  7. **The form-action pattern's two fail-open shapes, in copyable code.** The
+     skill's `patterns/form-action.md` shipped
+     `(and server? (not= (:csrf-token form-params) active-token))` as its
+     canonical CSRF arm — the exact shape `spec/Pattern-FormAction.md` lists as
+     an anti-pattern, because it fails **open** on a request with no session
+     (`active-token` is nil, a token-less POST supplies nil, nil = nil, and the
+     rejection arm never fires). It also typed the draft, the event `:schema`
+     and the handler's validation call with one token-requiring schema, which
+     400s every hydrated-client submission in the release build. Rules 1-6 all
+     exited 0 over both. Rule 7 checks the two invariants inside code fences, at
+     BOTH ends of the projection — the skill leaves and the spec page.
+
+WHAT THIS GUARD IS, AND IS NOT (read before trusting a green run):
+    Rules 1-6 are *retrospective token patterns*. Each encodes one regression
+    somebody already found, checked against a leaf's own text. Nothing in this
+    script relates a `patterns/*.md` leaf to the `spec/Pattern-*.md` page it
+    projects — there is no notion of an upstream here at all — so the general
+    class "the spec page moved and the leaf did not" is invisible BY
+    CONSTRUCTION, and a green run is not evidence that any leaf agrees with its
+    source. A full fence-equivalence check is not buildable either: the leaves
+    are deliberately abridged projections, not copies. What Rule 7 does instead
+    is promote a pattern's SECURITY-shaped invariants out of prose and check
+    them at both ends, so neither the leaf nor the spec can carry the
+    anti-pattern in code a reader would copy, and a regression at either end
+    fails the gate. That is a narrower claim than "skill and spec agree", and it
+    is the claim this guard makes.
+
 Scanned leaves (globbed, so a new leaf is covered automatically):
     SKILL.md, README.md, references/**/*.md, patterns/**/*.md,
     decision-trees/**/*.md.
@@ -221,6 +249,29 @@ VERIFY_PROSE_RE = re.compile(
 #     prose — the retained advanced-note mention — is allowed; only a
 #     copy-pasteable positive recipe is rejected.
 FENCE_RE = re.compile(r"^\s*```")
+
+
+def fenced_blocks(text: str):
+    """Yield (opening-fence-lineno, block-body) for every fenced code block.
+
+    Three rules read code fences rather than prose, because a fence is what a
+    reader copies: an inline single-backtick mention of a bad shape in a
+    labelled "not this" warning is legal teaching, and a fenced one is not.
+    """
+    in_block = False
+    block_start = 0
+    block_lines: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if FENCE_RE.match(line):
+            if not in_block:
+                in_block, block_start, block_lines = True, lineno, []
+            else:
+                yield block_start, "\n".join(block_lines)
+                in_block, block_lines = False, []
+        elif in_block:
+            block_lines.append(line)
+
+
 REG_EVENT_TOKEN_RE = re.compile(r"\breg-event\b")
 MAKE_MACHINE_HANDLER_TOKEN_RE = re.compile(r"\bmake-machine-handler\b")
 MACHINE_HANDLER_MSG = (
@@ -245,21 +296,10 @@ def machine_handler_recipe_problems(text: str) -> list[tuple[int, str]]:
     self-test can pass a fenced fixture directly; an inline single-backtick
     mention in prose never enters a fenced block, so it is allowed."""
     problems: list[tuple[int, str]] = []
-    in_block = False
-    block_start = 0
-    block_lines: list[str] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        if FENCE_RE.match(line):
-            if not in_block:
-                in_block, block_start, block_lines = True, lineno, []
-            else:
-                body = "\n".join(block_lines)
-                if (REG_EVENT_TOKEN_RE.search(body)
-                        and MAKE_MACHINE_HANDLER_TOKEN_RE.search(body)):
-                    problems.append((block_start, MACHINE_HANDLER_MSG))
-                in_block, block_lines = False, []
-        elif in_block:
-            block_lines.append(line)
+    for block_start, body in fenced_blocks(text):
+        if (REG_EVENT_TOKEN_RE.search(body)
+                and MAKE_MACHINE_HANDLER_TOKEN_RE.search(body)):
+            problems.append((block_start, MACHINE_HANDLER_MSG))
     return problems
 
 
@@ -353,24 +393,13 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
     machine-form `:machine-id :rf.http/managed` spawn and the
     `[:rf.http/managed-abort …]` dispatch are deliberately not matched."""
     problems: list[tuple[int, str]] = []
-    in_block = False
-    block_start = 0
-    block_lines: list[str] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        if FENCE_RE.match(line):
-            if not in_block:
-                in_block, block_start, block_lines = True, lineno, []
-            else:
-                body = "\n".join(block_lines)
-                if (
-                    FX_MANAGED_RE.search(body)
-                    and HTTP_REQUEST_RE.search(body)
-                    and not HTTP_REPLY_TARGET_RE.search(body)
-                ):
-                    problems.append((block_start, MANAGED_HTTP_TARGETLESS_MSG))
-                in_block, block_lines = False, []
-        elif in_block:
-            block_lines.append(line)
+    for block_start, body in fenced_blocks(text):
+        if (
+            FX_MANAGED_RE.search(body)
+            and HTTP_REQUEST_RE.search(body)
+            and not HTTP_REPLY_TARGET_RE.search(body)
+        ):
+            problems.append((block_start, MANAGED_HTTP_TARGETLESS_MSG))
     return problems
 
 
@@ -754,6 +783,169 @@ def anchored_block_problems(label: str, block: str) -> list[str]:
     return problems
 
 
+# --- Rule 7 (rf2-1iclq): the form-action pattern's two FAIL-OPEN shapes,
+#     checked inside code fences at BOTH ends of the projection.
+#
+#     Rules 1-6 are retrospective token patterns over a leaf's own text, and
+#     none of them relates a leaf to the spec page it projects — see "WHAT THIS
+#     GUARD IS, AND IS NOT" in the module docstring. This rule does not close
+#     that gap in general (it cannot; the leaves are abridged, not copies). It
+#     closes it for the two shapes where being wrong is a security defect rather
+#     than a teaching wobble, and it checks them on the spec page too, so the
+#     source of truth cannot regress underneath the leaves either.
+#
+#     FENCED BLOCKS ONLY, and that is the semantics rather than a convenience:
+#     both pages teach the wrong shape deliberately, in inline prose, as an
+#     explicitly labelled "not this". A reader skimming for code to copy reads
+#     fences — so a fence must show only the correct form.
+#
+#     7a — FAIL-OPEN CSRF COMPARE. `(not= submitted active-token)` fails OPEN on
+#          a request with no session: `active-token` is nil, a token-less POST
+#          supplies nil, nil = nil, and the rejection arm never fires. Stated
+#          POSITIVELY rather than as a blacklist of bad spellings — any fenced
+#          CSRF equality comparison must carry a separate presence limb on the
+#          session token — so `(when-not (= …))` and `(if (= …))` are caught by
+#          the same rule, not by a second regex someone has to think to add.
+#     7b — THE TOKEN REQUIRED IN A FIELD SCHEMA. `[:csrf-token [:string …]]`
+#          with no `{:optional true}` props map rejects every hydrated-client
+#          submission in the RELEASE build (the handler's validation arm is
+#          ordinary code and does not elide, unlike the `:schema` tripwire), and
+#          makes the form slice's `:draft` unsatisfiable by construction, since
+#          the failure arm must never write a credential into a slice the page
+#          re-renders.
+#
+#     Beyond the globbed skill leaves, Rule 7 also reads the spec pattern page —
+#     the projection's source. Bounded to whole files that carry CSRF fences, in
+#     the spirit of the Rule 6c anchors.
+CSRF_EXTRA_FILES = (("spec", "Pattern-FormAction.md"),)
+
+CSRF_TOKEN_RE = re.compile(r"csrf", re.IGNORECASE)
+# A comparison head, as a form start.
+CSRF_COMPARE_HEAD_RE = re.compile(r"\(\s*(?:not=|=)\s")
+# How far past the comparison head a `csrf` mention still counts as the subject
+# of that comparison.
+CSRF_COMPARE_WINDOW = 140
+# The fail-CLOSED limb: the session token's PRESENCE, asserted separately from
+# the equality. `(some? active-token)` is the worked spelling; `nil?` and `seq`
+# are the same assertion written the other way round.
+CSRF_PRESENCE_LIMB_RE = re.compile(r"\bsome\?|\bnil\?|\(\s*seq\s")
+
+CSRF_FAIL_OPEN_MSG = (
+    "CSRF-FAIL-OPEN: this fenced block compares a CSRF token for equality but "
+    "carries no PRESENCE limb on the session token, so the rejection arm fails "
+    "OPEN. `(not= (:csrf-token form-params) active-token)` does not fire on a "
+    "request with no session: `active-token` is nil, an attacker's token-less "
+    "POST supplies nil, and nil = nil waves it through. Both limbs must hold — "
+    "`(not (and (some? active-token) (= (:csrf-token form-params) "
+    "active-token)))` (spec/Pattern-FormAction.md §Anti-patterns, §Conformance "
+    "checklist). A fence is what a reader copies, so the fail-closed form must "
+    "be the only one shown here; keep the `not=` shape as a labelled 'not this' "
+    "in inline prose, which this rule deliberately does not read."
+)
+CSRF_REQUIRED_IN_SCHEMA_MSG = (
+    "CSRF-TOKEN-REQUIRED-IN-SCHEMA: this fenced block declares `:csrf-token` as "
+    "a REQUIRED map entry (no `{:optional true}` props map). The hydrated client "
+    "has no session token to send, so a token-requiring schema pointed at the "
+    "handler's validation call rejects every client submission — and that arm is "
+    "ordinary handler code, NOT the elided `:schema` tripwire, so the form 400s "
+    "in the release build and never navigates. It also makes the form slice's "
+    "`:draft` unsatisfiable, since the failure arm must never write a credential "
+    "into a slice the page re-renders. Split the schemas: the editable FIELDS "
+    "type the draft and the validation call; the token rides the event-args "
+    "envelope as `[:csrf-token {:optional true :sensitive? true} …]` and is "
+    "checked in the server-guarded CSRF arm (spec/Pattern-FormAction.md "
+    "§The form schema and slice)."
+)
+
+# `[:csrf-token` followed by its optional props map. A required entry has no
+# props map at all, or one that does not mark the entry `:optional`.
+CSRF_SCHEMA_ENTRY_RE = re.compile(r"\[:csrf-token\b[ \t]*(\{[^}]*\})?")
+
+
+def _code_only(block: str) -> str:
+    """The block with string literals and `;` comments blanked to spaces —
+    offsets preserved, so a match index still points into the original. Paren
+    balance is only meaningful over code, and a fence's prose comments carry
+    both parens and (deliberately) the anti-pattern's own spelling."""
+    out = list(block)
+    i, n = 0, len(block)
+    while i < n:
+        ch = block[i]
+        if ch == '"':
+            j = i + 1
+            while j < n and block[j] != '"':
+                j += 2 if block[j] == "\\" else 1
+            for k in range(i, min(j + 1, n)):
+                out[k] = " "
+            i = j + 1
+        elif ch == ";":
+            j = block.find("\n", i)
+            j = n if j == -1 else j
+            for k in range(i, j):
+                out[k] = " "
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _enclosing_form(code: str, idx: int) -> str:
+    """The balanced form one level OUT from the form opening at `idx` — the
+    rejection expression the comparison sits inside.
+
+    Scoping the presence limb to THIS form rather than to the whole fence is
+    what makes the rule honest. The worked handler's fence also contains
+    `(some? explanation)` for the unrelated validation arm, so a block-wide
+    search for a presence limb would have been satisfied by it and the guard
+    would have exited 0 over the very defect it exists to catch — fail-open by
+    construction, which is the shape of bug this rule was written for."""
+    depth = 0
+    start = None
+    for i in range(idx - 1, -1, -1):
+        c = code[i]
+        if c == ")":
+            depth += 1
+        elif c == "(":
+            if depth == 0:
+                start = i
+                break
+            depth -= 1
+    if start is None:
+        return code
+    depth = 0
+    for i in range(start, len(code)):
+        if code[i] == "(":
+            depth += 1
+        elif code[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return code[start:i + 1]
+    return code[start:]
+
+
+def csrf_fence_problems(text: str) -> list[tuple[int, str]]:
+    """Rule 7 — the two fail-open form-action shapes, inside code fences.
+    Returns (opening-fence-lineno, message) tuples."""
+    problems: list[tuple[int, str]] = []
+    for block_start, body in fenced_blocks(text):
+        code = _code_only(body)
+        # 7a — a CSRF equality comparison whose own rejection expression carries
+        # no presence limb on the session token.
+        for m in CSRF_COMPARE_HEAD_RE.finditer(code):
+            window = code[m.start():m.start() + CSRF_COMPARE_WINDOW]
+            if not CSRF_TOKEN_RE.search(window):
+                continue
+            if not CSRF_PRESENCE_LIMB_RE.search(_enclosing_form(code, m.start())):
+                problems.append((block_start, CSRF_FAIL_OPEN_MSG))
+                break
+        # 7b — `:csrf-token` declared as a required map entry.
+        for m in CSRF_SCHEMA_ENTRY_RE.finditer(code):
+            if ":optional" not in (m.group(1) or ""):
+                problems.append((block_start, CSRF_REQUIRED_IN_SCHEMA_MSG))
+                break
+    return problems
+
+
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
 #     tree / locks sections. Operates on the whole authoring-prompt.md body
 #     (not the line-by-line leaf scan). `design.md` / `inputs.md` are the
@@ -871,6 +1063,9 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             problems.append(f"{rel}:{start_lineno}: {label}")
         for start_lineno, label in managed_http_recipe_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
+        # Rule 7 — the form-action fail-open shapes, per fenced block.
+        for start_lineno, label in csrf_fence_problems(body):
+            problems.append(f"{rel}:{start_lineno}: {label}")
         # Rule 6b — hooks-recipe residue shapes, checked PER SENTENCE (a mixed
         # Reagent+hooks physical line is carved so a Reagent `:contextType` never
         # bleeds into the hooks sentence, and a far-away negation cannot mask a
@@ -933,6 +1128,22 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for text in anchored_block_problems(label, block):
             problems.append(f"{rel}:{lineno}: {text}")
 
+    # Rule 7 (extra files) — the spec pattern page is the projection's SOURCE,
+    # so the same fail-open shapes are refused there too. Whole-file fenced
+    # scan; the page's own labelled "not this" prose is unfenced and unread.
+    for parts in CSRF_EXTRA_FILES:
+        target = REPO_ROOT.joinpath(*parts)
+        rel = "/".join(parts)
+        if not target.is_file():
+            problems.append(
+                f"{rel}: SETUP: the form-action CSRF authority is missing — "
+                "Rule 7's spec-side anchor has no file. If the page moved, "
+                "re-point CSRF_EXTRA_FILES in the same change."
+            )
+            continue
+        for start_lineno, label in csrf_fence_problems(_slurp(target)):
+            problems.append(f"{rel}:{start_lineno}: {label}")
+
     # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
     # not line-by-line, and lives under spec/ (out of the leaf scan above).
     if not AUTHORING_PROMPT.is_file():
@@ -962,10 +1173,11 @@ def run(*, verbose: bool, ci: bool) -> int:
     if verbose:
         print(
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
-            "machine-handler-recipe + managed-http-recipe + uix-helix-hooks "
-            "guard: scanned "
+            "machine-handler-recipe + managed-http-recipe + uix-helix-hooks + "
+            "form-action-csrf guard: scanned "
             f"{len(files)} user-facing leaves ({lines_checked} lines), "
-            f"{len(HOOKS_ANCHORED_BLOCKS)} bounded hooks-recipe blocks, plus "
+            f"{len(HOOKS_ANCHORED_BLOCKS)} bounded hooks-recipe blocks, "
+            f"{len(CSRF_EXTRA_FILES)} spec-side CSRF authority file(s), plus "
             "the spec/authoring-prompt.md launcher."
         )
 
@@ -981,9 +1193,12 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "bare no-arg capture-frame carry), the bounded recipe blocks "
                 "(the views per-adapter UIx/Helix rows, the setup skill's "
                 "'Reagent only' warning, and the Spec 006 UIx/Helix paragraph) "
-                "each still state that recipe in place, and the "
-                "launcher points at design.md + inputs.md without regrowing the "
-                "tree / locks."
+                "each still state that recipe in place, no code fence carries "
+                "a fail-open CSRF compare or a required `:csrf-token` field "
+                "(leaves and spec page alike), and the launcher points at "
+                "design.md + inputs.md without regrowing the tree / locks. "
+                "NOTE: this guard is a catalogue of known regressions, not a "
+                "skill/spec equivalence check — see the module docstring."
             )
         return 0
 
@@ -1002,9 +1217,10 @@ def run(*, verbose: bool, ci: bool) -> int:
         "+ use-frame recipe (never a reg-view-macro / bare-capture-frame / "
         ":contextType-attribution / semantic-reversal residue), keep each "
         "bounded recipe block stating that recipe IN PLACE (a correct paragraph "
-        "elsewhere in the file does not cover the table cell), and keep the "
-        "launcher pointing at the canonical design.md + inputs.md instead of "
-        "re-holding the tree / locks."
+        "elsewhere in the file does not cover the table cell), keep every CSRF "
+        "compare in a code fence failing CLOSED on both limbs with the token "
+        "off the field schema, and keep the launcher pointing at the canonical "
+        "design.md + inputs.md instead of re-holding the tree / locks."
     )
     return 1
 
@@ -1556,6 +1772,117 @@ def _self_test() -> int:
         if got:
             print(f"SELF-TEST FAIL ({lawful_label}): expected green, got {got}")
             failures += 1
+
+    # --- Rule 7 (rf2-1iclq): the form-action fail-open shapes in code fences.
+    #     `csrf_fence_problems` takes the WHOLE body (a fence spans lines), so
+    #     these fixtures carry their own fences.
+    def _fence(*lines: str) -> str:
+        return "```clojure\n" + "\n".join(lines) + "\n```\n"
+
+    fail_open_compare = _fence(
+        "(cond",
+        "  (and server? (not= (:csrf-token form-params) active-token))",
+        "  {:fx [[:rf.server/set-status 403]]})",
+    )
+    expect(
+        csrf_fence_problems, fail_open_compare,
+        dirty=True, label="W1 fenced `not=`-alone CSRF compare",
+    )
+    # The blacklist-free framing earns its keep here: a spelling nobody wrote a
+    # regex for is caught by the same missing-presence-limb rule.
+    fail_open_when_not = _fence(
+        "(when-not (= (:csrf-token form-params) active-token)",
+        "  {:fx [[:rf.server/set-status 403]]})",
+    )
+    expect(
+        csrf_fence_problems, fail_open_when_not,
+        dirty=True, label="W2 fenced `when-not (= …)` CSRF compare",
+    )
+    # CLEAN — the fail-closed form: presence limb AND equality.
+    fail_closed_compare = _fence(
+        "(cond",
+        "  (and server? (not (and (some? active-token)",
+        "                         (= (:csrf-token form-params) active-token))))",
+        "  {:fx [[:rf.server/set-status 403]]})",
+    )
+    expect(
+        csrf_fence_problems, fail_closed_compare,
+        dirty=False, label="X1 fenced fail-closed CSRF compare (both limbs)",
+    )
+    # CLEAN — the labelled 'not this' in INLINE prose is legal teaching and this
+    # rule must not read it. Both pages carry exactly this sentence.
+    expect(
+        csrf_fence_problems,
+        "- **Comparing the tokens with `not=` alone.** "
+        "`(not= (:csrf-token form-params) active-token)` fails **open** on a "
+        "request with no session.",
+        dirty=False, label="X2 unfenced 'not this' prose is not read",
+    )
+    # CLEAN — the view's hidden input names the field as a STRING, and a fence
+    # that merely mentions the token performs no comparison.
+    expect(
+        csrf_fence_problems,
+        _fence('[:input {:type "hidden" :name "csrf-token" :value csrf-token}]'),
+        dirty=False, label="X3 hidden-input fence (no comparison, no schema)",
+    )
+    # 7b — the token as a REQUIRED map entry.
+    expect(
+        csrf_fence_problems,
+        _fence("(def AddToCartForm",
+               "  [:map",
+               "   [:item-id [:string {:min 1}]]",
+               "   [:csrf-token [:string {:min 1}]]])"),
+        dirty=True, label="W3 fenced required `:csrf-token` field schema",
+    )
+    # CLEAN — the envelope shape: optional + sensitive, off the field schema.
+    expect(
+        csrf_fence_problems,
+        _fence("(def AddToCartSubmission",
+               "  (conj AddToCartFields",
+               "        [:csrf-token {:optional true :sensitive? true} "
+               "[:string {:min 1}]]))"),
+        dirty=False, label="X4 fenced `{:optional true}` envelope entry",
+    )
+
+    # --- Rule 7 against the REAL corpus, with mutations. A guard that cannot be
+    #     made to fail is worthless — that was the whole finding behind this
+    #     rule (the shipped leaf carried the fail-open compare and every existing
+    #     rule exited 0 over it). So: the shipped files must be green, and each
+    #     reintroduction of the defect must be caught.
+    for parts in (
+        ("skills", "re-frame2", "patterns", "form-action.md"),
+        ("spec", "Pattern-FormAction.md"),
+    ):
+        target = REPO_ROOT.joinpath(*parts)
+        rel = "/".join(parts)
+        if not target.is_file():
+            print(f"SELF-TEST FAIL (Y real file missing): {rel}")
+            failures += 1
+            continue
+        shipped = _slurp(target)
+        if csrf_fence_problems(shipped):
+            print(f"SELF-TEST FAIL (Y shipped file flagged): {rel}: "
+                  f"{csrf_fence_problems(shipped)}")
+            failures += 1
+        mutations = (
+            # The exact drift the shipped leaf carried before this rule existed.
+            ("fail-open compare",
+             "(and server? (not (and (some? active-token)",
+             "(and server? (not= (:csrf-token form-params) active-token)) #_("),
+            ("required token field",
+             "[:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]",
+             "[:csrf-token [:string {:min 1}]]"),
+        )
+        for mut_label, old, new in mutations:
+            if old not in shipped:
+                print(f"SELF-TEST FAIL (Y {mut_label} mutation was a no-op): "
+                      f"{rel}")
+                failures += 1
+                continue
+            if not csrf_fence_problems(shipped.replace(old, new)):
+                print(f"SELF-TEST FAIL (Y {mut_label} mutation not caught): "
+                      f"{rel}")
+                failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
