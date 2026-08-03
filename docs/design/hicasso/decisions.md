@@ -376,8 +376,10 @@ the fragment spelling is `[:<> …]`, and a view may return `nil`, one root, or 
 fragment; `:ref` is legal on native tags and `defhost`/`[:>]` crossings
 (callback refs only) and is **not** a v0 surface on Hicasso views (use ids).
 **Reopens** if the dogfood shows the vector/call distinction confusing — the
-fallback is a lint, not a third convention. Note: helper-donated reads within
-this model are collector-contingent (HD-002's stated consequence).
+fallback is a lint, not a third convention. Note: helper-donated reads are
+settled rather than contingent. HD-002's ruling makes the ambient collector the
+one product read surface, so a `sub` performed inside a helper is an ordinary
+read that lands in the calling boundary's window.
 
 ## HD-017 — Code residence and graduation
 
