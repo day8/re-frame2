@@ -2,7 +2,8 @@
   "THE DOGFOOD SCREEN — RENDERING 2 OF 3: grouped `use-subs` (HD-002 tier
   2, the product default).
 
-  The same screen, the same state layer, the same intents. One fixed
+  The same screen and the same shared state layer, with this rendering's
+  own event positions written out (as every rendering's now are). One fixed
   site per boundary receives the complete query collection and the body
   destructures the snapshot; the hook count does not move with the
   collection's size, which is the whole reason this tier — and not the
@@ -45,13 +46,13 @@
      [:span.remaining {:data-remaining remaining} (str remaining " left")]]))
 
 (defview new-item [_]
-  (let [{:keys [draft]} (use-subs {:draft [:dogfood/draft d/new-draft-key]})
-        {:keys [on-input on-submit on-key-down]} (d/new-item-intents)]
-    [:form.new {:on-submit on-submit}
+  (let [{:keys [draft]} (use-subs {:draft [:dogfood/draft d/new-draft-key]})]
+    [:form.new {:on-submit [:dogfood/create]}
      [:input.new-input {:type        "text"
                         :value       draft
-                        :on-input    on-input
-                        :on-key-down on-key-down}]
+                        :on-input    [:dogfood/edit-draft d/new-draft-key :re-frame.hicasso/value]
+                        :on-key-down {"Enter"  [:dogfood/create]
+                                      "Escape" [:dogfood/cancel d/new-draft-key]}}]
      [:button.add {:type "submit"} "Add"]]))
 
 (defn- filter-button
@@ -74,18 +75,17 @@
 
 (defview row [{:keys [id]}]
   (let [{:keys [todo draft]} (use-subs {:todo  [:dogfood/todo id]
-                                        :draft [:dogfood/draft id]})
-        {:keys [on-click-toggle on-click-remove on-input-title on-key-down]}
-        (d/row-intents id)]
+                                        :draft [:dogfood/draft id]})]
     [:li.row {:data-id id :data-done (str (boolean (:done? todo)))}
-     [:button.toggle {:type "button" :on-click on-click-toggle} "✓"]
+     [:button.toggle {:type "button" :on-click [:dogfood/toggle id]} "✓"]
      [:span.label (:title todo)]
      (when-not (:done? todo)
        [:input.draft {:type        "text"
                       :value       draft
-                      :on-input    on-input-title
-                      :on-key-down on-key-down}])
-     [:button.remove {:type "button" :on-click on-click-remove} "x"]]))
+                      :on-input    [:dogfood/edit-draft id :re-frame.hicasso/value]
+                      :on-key-down {"Enter"  [:dogfood/commit id]
+                                    "Escape" [:dogfood/cancel id]}}])
+     [:button.remove {:type "button" :on-click [:dogfood/remove id]} "x"]]))
 
 (defview todo-list [_]
   (let [{:keys [ids]} (use-subs {:ids [:dogfood/visible-ids]})]

@@ -152,10 +152,9 @@
 
 (deftest a-lowered-intent-reaches-a-real-event-handler
   (seeded! 3)
-  (let [row (dogfood/row-intents 1)
-        el  (intent/with-frame (frame-dispatch)
-                               (fn [] (codec/as-element
-                                       [:button {:on-click (:on-click-toggle row)} "toggle"])))
+  (let [el (intent/with-frame (frame-dispatch)
+                              (fn [] (codec/as-element
+                                      [:button {:on-click [:dogfood/toggle 1]} "toggle"])))
         on-click (aget (.-props el) "onClick")]
     (is (false? (read-sub [:dogfood/done? 1])))
     (on-click #js {:target #js {}})
@@ -167,7 +166,8 @@
   (let [el (intent/with-frame (frame-dispatch)
                               (fn [] (codec/as-element
                                       [:input {:value (read-sub [:dogfood/draft dogfood/new-draft-key])
-                                               :on-input (:on-input (dogfood/new-item-intents))}])))
+                                               :on-input [:dogfood/edit-draft dogfood/new-draft-key
+                                                          :re-frame.hicasso/value]}])))
         on-input (aget (.-props el) "onInput")]
     (is (= "" (aget (.-props el) "value")))
     (on-input #js {:target #js {:value "mi"}})
@@ -181,7 +181,7 @@
   (let [!prevented (atom false)
         el (intent/with-frame (frame-dispatch)
                               (fn [] (codec/as-element
-                                      [:form {:on-submit (:on-submit (dogfood/new-item-intents))}])))
+                                      [:form {:on-submit [:dogfood/create]}])))
         on-submit (aget (.-props el) "onSubmit")]
     (on-submit #js {:target #js {} :preventDefault (fn [] (reset! !prevented true))})
     (is (true? @!prevented))
@@ -194,7 +194,8 @@
   (send! [:dogfood/edit-draft 1 "renamed"])
   (let [el (intent/with-frame (frame-dispatch)
                               (fn [] (codec/as-element
-                                      [:input {:on-key-down (:on-key-down (dogfood/row-intents 1))}])))
+                                      [:input {:on-key-down {"Enter"  [:dogfood/commit 1]
+                                                             "Escape" [:dogfood/cancel 1]}}])))
         on-key-down (aget (.-props el) "onKeyDown")]
     (testing "a composing Enter commits nothing"
       (on-key-down #js {:key "Enter" :isComposing true :target #js {}})

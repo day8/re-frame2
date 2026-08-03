@@ -24,9 +24,12 @@
      the dispatched event vectors captured at the substrate's own
      `:events` listener stream, and both captures asserted equal to the
      script's STATED expectation — including two composing keystrokes
-     that must dispatch nothing. DOM parity proves the renderings build
-     the same page; this is the half that proves the page MEANS the same
-     thing when a user touches it.
+     that must dispatch nothing. The script reaches **every handler site
+     on the screen and both branches of both key-maps**; the coverage map
+     is on [[interaction-steps]], which is where a reader checks that the
+     claim and the script are the same size. DOM parity proves the
+     renderings build the same page; this is the half that proves the
+     page MEANS the same thing when a user touches it.
   2. **The narrow write touches one row.** A toggle re-renders the row it
      names and no other, on both Hicasso renderings — which is the index
      doing its job through React rather than a claim about it.
@@ -246,6 +249,12 @@
 ;; comparing the two captures is what lets the gate answer false against
 ;; a drift BOTH renderings share.
 ;;
+;; The script's SIZE is part of the claim. An equivalence published over
+;; "eight event positions" while the script drove five of them is a claim
+;; larger than its evidence, which is what the merged-PR audit of #7395
+;; found. [[interaction-steps]] now carries a site-by-step coverage map
+;; and drives all eight, both key-map branches, and all three filters.
+;;
 ;; Two of the keystrokes are composing — the modern signal (`isComposing`,
 ;; which React's synthetic keyboard event DROPS, so a gate that reads the
 ;; synthetic event is deaf to it) and the legacy one (`keyCode` 229) —
@@ -291,11 +300,16 @@
   nowhere in it — their expectation is silence."
   [[:dogfood/toggle 1]
    [:dogfood/set-filter :done]
+   [:dogfood/set-filter :active]
    [:dogfood/set-filter :all]
+   [:dogfood/edit-draft dogfood/new-draft-key "milk"]
+   [:dogfood/cancel dogfood/new-draft-key]
    [:dogfood/edit-draft dogfood/new-draft-key "milk"]
    [:dogfood/create]
    [:dogfood/edit-draft 0 "x"]
    [:dogfood/cancel 0]
+   [:dogfood/edit-draft 3 "renamed"]
+   [:dogfood/commit 3]
    [:dogfood/remove 2]
    [:dogfood/edit-draft dogfood/new-draft-key "bread"]
    [:dogfood/create]])
@@ -306,21 +320,49 @@
   the router's asynchronous door — the drain is a next-turn task — while
   the collector's is HD-019's synchronous one. The script must not care
   which it is driving, and a step's target can be a node the previous
-  step's drain revealed."
+  step's drain revealed.
+
+  **Every handler site the screen has, and every branch of both key-maps,
+  is driven here** (rf2-2rtt6.67, merged-PR audit of #7395 — the first
+  cut left three unexercised while the page claimed equivalence over all
+  of them). The eight sites against the steps that reach them:
+
+  | Handler site | Steps |
+  |---|---|
+  | toggle click | 1 |
+  | filter click | 2, 3, 4 — all three filters, so no branch of `visible-ids` is untaken |
+  | new-item `:on-input` | 5, 9, 16 |
+  | new-item keys | 6, 7 (composing, silent), 8 (Escape), 10 (Enter) |
+  | row `:on-input` | 11, 13 |
+  | row keys | 12 (Escape), 14 (Enter) |
+  | remove click | 15 |
+  | form submit | 17 |
+
+  `:dogfood/move` has no affordance in the markup, so it is correctly
+  absent rather than missing."
   [handle]
-  [#(.click (q1 handle "[data-id=\"1\"] .toggle"))       ; the narrow write
-   #(.click (q1 handle ".filter[data-filter=\"done\"]")) ; the broad write…
-   #(.click (q1 handle ".filter[data-filter=\"all\"]"))  ; …and back
-   #(type-into! (q1 handle ".new-input") "milk")
-   ;; The two composing keystrokes: the law is that NEITHER commits.
+  [#(.click (q1 handle "[data-id=\"1\"] .toggle"))         ; 1  the narrow write
+   #(.click (q1 handle ".filter[data-filter=\"done\"]"))   ; 2  the broad write…
+   #(.click (q1 handle ".filter[data-filter=\"active\"]")) ; 3  …its other branch…
+   #(.click (q1 handle ".filter[data-filter=\"all\"]"))    ; 4  …and back
+   #(type-into! (q1 handle ".new-input") "milk")           ; 5
+   ;; 6, 7 — the two composing keystrokes: the law is that NEITHER commits.
    #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? true  :key-code 13})
    #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? false :key-code 229})
-   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? false :key-code 13})
-   #(type-into! (q1 handle "[data-id=\"0\"] .draft") "x")
-   #(keydown! (q1 handle "[data-id=\"0\"] .draft") {:key "Escape" :composing? false :key-code 27})
-   #(.click (q1 handle "[data-id=\"2\"] .remove"))
-   #(type-into! (q1 handle ".new-input") "bread")
-   #(.click (q1 handle ".add"))])                        ; a real form submission
+   ;; 8 — the new-item field's OTHER key branch: Escape discards the draft,
+   ;; which is why step 9 can retype it from empty.
+   #(keydown! (q1 handle ".new-input") {:key "Escape" :composing? false :key-code 27})
+   #(type-into! (q1 handle ".new-input") "milk")           ; 9
+   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? false :key-code 13}) ; 10
+   #(type-into! (q1 handle "[data-id=\"0\"] .draft") "x")  ; 11
+   #(keydown! (q1 handle "[data-id=\"0\"] .draft") {:key "Escape" :composing? false :key-code 27}) ; 12
+   ;; 13, 14 — a row draft taken all the way to a COMMIT, the row key-map's
+   ;; branch the first cut never drove.
+   #(type-into! (q1 handle "[data-id=\"3\"] .draft") "renamed")
+   #(keydown! (q1 handle "[data-id=\"3\"] .draft") {:key "Enter" :composing? false :key-code 13})
+   #(.click (q1 handle "[data-id=\"2\"] .remove"))         ; 15
+   #(type-into! (q1 handle ".new-input") "bread")          ; 16
+   #(.click (q1 handle ".add"))])                          ; 17 a real form submission
 
 (defn- run-steps!
   "Run each thunk, then yield a macrotask — room for the router's drain —

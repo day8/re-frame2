@@ -166,26 +166,32 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; The intents the three renderings all write
+;; What is deliberately NOT here: the intents
 ;; ---------------------------------------------------------------------------
-
-(defn row-intents
-  "The event vectors a to-do row's markup carries, in the one spelling
-  all three renderings use. Returned as data so the three renderings
-  cannot drift on the events while claiming to differ only on the view."
-  [id]
-  {:on-click-toggle [:dogfood/toggle id]
-   :on-click-remove [:dogfood/remove id]
-   :on-input-title  [:dogfood/edit-draft id :re-frame.hicasso/value]
-   :on-key-down     {"Enter"  [:dogfood/commit id]
-                     "Escape" [:dogfood/cancel id]}})
-
-(defn new-item-intents
-  "The same, for the one controlled field at the head of the screen. The
-  submit intent carries no `::h/prevent` head, so it takes the position's
-  census-weighted default."
-  []
-  {:on-input    [:dogfood/edit-draft new-draft-key :re-frame.hicasso/value]
-   :on-submit   [:dogfood/create]
-   :on-key-down {"Enter"  [:dogfood/create]
-                 "Escape" [:dogfood/cancel new-draft-key]}})
+;;
+;; This namespace once exported `row-intents` / `new-item-intents` — the
+;; event vectors in Hicasso's data spelling, hoisted here so the three
+;; renderings "could not drift on the events while claiming to differ only
+;; on the view". They are gone, for two reasons that point the same way.
+;;
+;; 1. **They were never shared.** The raw-UIx rendering cannot consume an
+;;    intent vector; it writes closures. So the helpers were Hicasso
+;;    authoring living in a file named shared, and the preference case
+;;    counted the two renderings' view layers with thirteen lines of one
+;;    side's authoring sitting outside the count (rf2-2rtt6.67, merged-PR
+;;    audit of #7395). An ergonomics comparison whose numbers exclude part
+;;    of one surface is not measuring the thing it names.
+;; 2. **The guarantee they bought has a stronger replacement.** Sharing the
+;;    vectors made the renderings agree on the events BY CONSTRUCTION. The
+;;    intent-parity witness now proves the same agreement BY OBSERVATION,
+;;    at the `:events` stream, through a real-DOM script, against a stated
+;;    expectation neither rendering computes
+;;    (`arm1_dogfood_dom_cljs_test/the-two-live-renderings-dispatch-the-same-intents-on-the-same-interactions`).
+;;    That is strictly stronger: construction could not catch an intent
+;;    wired to the wrong POSITION — a correct vector on the wrong
+;;    handler — and observation does.
+;;
+;; Each rendering now writes its own event positions in its own spelling,
+;; which is exactly what the preference case is asking the authors to
+;; compare. What stays shared is what the comparison needs to be shared:
+;; one app-db shape, one event set, one subscription set.

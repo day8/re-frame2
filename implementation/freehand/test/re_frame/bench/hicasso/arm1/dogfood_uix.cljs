@@ -13,23 +13,45 @@
   (rf2-2rtt6.67). The one shared piece is the state layer
   (`re-frame.bench.hicasso.front.dogfood`): the events and subscriptions
   are identical by construction, so what differs between the renderings
-  is the view layer and nothing else.
+  is the view layer and nothing else. The intents are NOT shared — each
+  rendering writes its own event positions, and that they agree is
+  proved rather than arranged (`arm1_dogfood_dom_cljs_test`).
 
-  Three things this rendering cannot express, and they are the finding
-  rather than a complaint:
+  ## Three placement costs — stated as costs, not as impossibilities
 
-  1. **No conditional read.** [[row]] reads the draft on every render
-     including a completed row's, because a hook may not sit inside a
-     `when`. The collector rendering reads it only when the row is
-     editable.
-  2. **No helper-donated read.** [[filter-button]] takes the current
-     filter and the dispatch as arguments, because a hook may not run
-     inside a plain function called from a body.
-  3. **No intent as data.** Every handler is a closure that reaches into
-     the event for `.-value`, and each one is a place the wrong event id
-     can be written without anything noticing. The collector rendering
-     hands the shared `front.dogfood/row-intents` vectors to the props
-     map and the runtime writes the closures.
+  An earlier revision of this docstring called these three things the
+  rendering *cannot express*. That was too strong, and the merged-PR
+  audit of #7395 was right to catch it. React's rules constrain WHERE a
+  read may be written, not WHETHER the value can be had; each item below
+  is available to a UIx author at a stated structural price. The price
+  is the finding.
+
+  1. **A conditional read costs a component.** [[row]] reads the draft on
+     every render including a completed row's, because a hook may not sit
+     inside a `when`. A UIx author who wants the collector's behaviour
+     lifts the editable input into its own `defui` and renders THAT
+     conditionally — the hook is then unconditional inside it. The value
+     is obtainable; the branch has to become a component boundary, with
+     its own element, fiber and reconciliation. This is the same trade
+     the grouped rendering's docstring prices on the Hicasso side (\"a
+     conditional *child boundary* owning the draft — buys the edge back
+     and costs a second `defview`\"), so the two surfaces are being
+     charged symmetrically.
+  2. **A helper-donated read costs the helper its plainness.**
+     [[filter-button]] takes the current filter and the dispatch as
+     arguments because a hook may not run inside a *plain* function. It
+     may run inside another HOOK: `use-filter-button-props` would be
+     legal here, since [[filters]] calls it three times unconditionally.
+     The price is that the helper joins the caller's hook set and
+     inherits the call-site discipline — unconditional, fixed count, and
+     **not inside a variable-length `for`**, which is why [[todo-list]]'s
+     per-row read has no hook-shaped route at all and must be the
+     component in item 1.
+  3. **Intent-as-data is genuinely absent.** Every handler is a closure
+     that reaches into the event for `.-value`, and each one is a place
+     the wrong event id can be written without anything noticing. There
+     is no UIx spelling that makes a handler a value equality can
+     compare; this one is a real absence rather than a placement cost.
 
   And one thing it must know that the data key-map knows for it: **React's
   synthetic keyboard event drops `isComposing`** — the property is not in
