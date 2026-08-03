@@ -277,9 +277,14 @@
                    :on-change (fn [e] (write-draft! i e))}))
 
 (defui u-kb-form [{:keys [n]}]
-  (apply $ :form.kbform
-         (conj (mapv (fn [i] ($ u-kb-field {:key i :i i})) (range kb-fields-n))
-               ($ ux/m1 {:n n}))))
+  ;; The fields as a KEYED ARRAY child rather than as varargs: `$` is a
+  ;; macro, so it cannot be `apply`ed, and writing four literals here
+  ;; would put the field count in a fifth place. An array child renders
+  ;; inline, so the DOM is the other arms' DOM element for element — which
+  ;; the canonical-DOM gate checks rather than takes on trust.
+  ($ :form.kbform
+     (into-array (mapv (fn [i] ($ u-kb-field {:key i :i i})) (range kb-fields-n)))
+     ($ ux/m1 {:n n})))
 
 (defn u-kb-root [n]
   ($ uixa/frame-provider {:frame v/subs-frame}
