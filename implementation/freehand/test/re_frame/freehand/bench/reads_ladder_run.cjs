@@ -122,6 +122,21 @@ const CONTROL_PREDICTED = CONTROL_DOUBLES * 8;
 // across a mount/collect/release cycle moves several percent between rounds,
 // so this sits above that and far below the 2.01x the recorded fault made.
 const TOLERANCE = Number(process.env.LADDER_TOLERANCE || 0.25);
+// How far the in-situ positive control's measured range may sit from the
+// prediction its own arithmetic made and still count as THE INSTRUMENT HAS
+// SIGNAL.
+//
+// A SEPARATE KNOB FROM `TOLERANCE` ABOVE, which it happens to equal. That is
+// a coincidence and not a relationship: `TOLERANCE` is a relative difference
+// of MEDIANS between strata of one arm, adjudicated by the arm-order guard;
+// this is how far a control may sit from a PREDICTION. `p0_run.cjs` carries
+// the same pair under these same two names for the same reason. Generous on
+// purpose — the claim being gated is not that the model is exact, it is that
+// the instrument can see a change it predicts; the predecessor this control
+// exists to answer reported ~4.7 MB as 0.00 MB, which is orders of magnitude
+// and not percent. `spine_ablation_run.cjs`'s 1% band is NOT the precedent:
+// it is justified there by that ladder's own 0.13% worst reading.
+const CONTROL_SLACK = Number(process.env.LADDER_CONTROL_SLACK || 0.25);
 const INIT_FN = 're-frame.freehand.bench.reads-ladder-app/-main';
 
 // ---------------------------------------------------------------------------
@@ -466,10 +481,83 @@ async function runSubstrate(chromium, substrate) {
     verification: { mounts, unverified },
     perRound: rounds,
     orderVerdict: guard.verdict(orderSamples, { tolerance: TOLERANCE }),
+    // The verdict is carried BESIDE this substrate's own control readings,
+    // so the artefact says what was decided and not only what was measured.
+    controlSlack: CONTROL_SLACK,
+    controlVerdict: controlVerdicts(rounds, snapshots, CONTROL_PREDICTED, CONTROL_SLACK),
     snapshots,
     snapshotFailure,
     curves: curves(arms, rounds),
   };
+}
+
+/**
+ * `lane/control-verdict`'s rule over ONE reader's control readings: does the
+ * measured range meet ±`slack` of the prediction anywhere?
+ *
+ * FINITENESS IS TESTED FIRST, and separately. `spine_ablation_run.cjs`
+ * records why: a band test on its own is a bypass for a control that came
+ * back `NaN`, because every comparison against `NaN` is false. A reader that
+ * produced no finite number has not controlled anything, and a reader that
+ * took no readings at all has not either — both must fail rather than sail
+ * through an untaken comparison.
+ */
+function controlVerdict(reader, predicted, xs, slack) {
+  const lo = predicted * (1 - slack);
+  const hi = predicted * (1 + slack);
+  const finite = xs.length > 0 && xs.every((x) => Number.isFinite(x));
+  const measured = finite
+    ? {
+        mean: xs.reduce((a, x) => a + x, 0) / xs.length,
+        min: Math.min(...xs),
+        max: Math.max(...xs),
+      }
+    : { mean: NaN, min: NaN, max: NaN };
+  const ok = finite && measured.min <= hi && measured.max >= lo;
+  const n = (x) => (Number.isFinite(x) ? Math.round(x).toLocaleString('en-US') : String(x));
+  return {
+    reader,
+    predicted,
+    band: [lo, hi],
+    measured,
+    slack,
+    ok,
+    why: !finite
+      ? `${reader}: the control produced no finite reading (${xs.length} taken) — it has ` +
+        'controlled nothing'
+      : ok
+        ? `${reader}: predicted ${n(predicted)} B, measured ${n(measured.mean)} B ` +
+          `[${n(measured.min)}–${n(measured.max)}] — meets the prediction within ` +
+          `±${(slack * 100).toFixed(0)}%`
+        : `${reader}: predicted ${n(predicted)} B, measured ${n(measured.mean)} B ` +
+          `[${n(measured.min)}–${n(measured.max)}] — DISJOINT from ±${(slack * 100).toFixed(0)}% ` +
+          'of the prediction; the instrument did not see a change its own arithmetic says it ' +
+          'must, so no figure from this substrate is reportable',
+  };
+}
+
+/** One verdict per reader that actually took a control reading. */
+function controlVerdicts(rounds, snapshots, predicted, slack) {
+  const v = {
+    A: controlVerdict('reader A', predicted, rounds.map((r) => r.control.measuredCdp), slack),
+    B: controlVerdict('reader B', predicted, rounds.map((r) => r.control.measuredPerf), slack),
+  };
+  // Reader C exists only when the snapshot pass ran and reached its control.
+  if (snapshots && snapshots.control) {
+    v.C = controlVerdict('reader C', predicted, [snapshots.control.measured], slack);
+  }
+  return v;
+}
+
+/**
+ * The readers whose control did not hold. Empty means every one held — and
+ * an ABSENT verdict block is itself a failure, not a pass: this gate must
+ * not be defeated by the thing it reads going missing.
+ */
+function controlFailures(verdicts) {
+  const vs = Object.values(verdicts || {});
+  if (!vs.length) return ['no positive control was adjudicated at all'];
+  return vs.filter((v) => !v.ok).map((v) => v.why);
 }
 
 // ---------------------------------------------------------------------------
@@ -615,6 +703,11 @@ function report(all) {
     if (s.snapshots && s.snapshots.control) {
       L.push(`;;   reader C  measured ${b(s.snapshots.control.measured)} B  error ${pct(s.snapshots.control.error)}`);
     }
+    // Published on every run, passing or not: a control quoted only when it
+    // passes is not a control.
+    for (const v of Object.values(s.controlVerdict || {})) {
+      L.push(`;;   VERDICT ${v.ok ? 'ok  ' : 'FAIL'} ${v.why}`);
+    }
     L.push('');
     const cb = s.curves.curveB;
     L.push(`;;   CURVE B — fixed boundaries x growing reads; FITTED OVER R=${cb.fittedRungs.join('/')} ONLY`);
@@ -671,7 +764,7 @@ function report(all) {
 // main
 // ---------------------------------------------------------------------------
 
-(async () => {
+async function drive() {
   // The guard's own self-test runs BEFORE the bundle is even built: an
   // instrument whose refusal machinery is broken must not produce a table.
   const st = guard.selfTest();
@@ -745,5 +838,38 @@ function report(all) {
     console.error('[ladder] ORDER GUARD REFUSED — repair the arm, not the guard');
     process.exit(2);
   }
+  // THE CONTROL IS ADJUDICATED, not merely printed. For this instrument's
+  // whole life it was printed and nothing else — predicted beside measured
+  // beside an error percentage, with no pass/fail computed at all
+  // (rf2-bml5u) — so a control that had stopped seeing the change its own
+  // arithmetic predicts could not stop the run. A control printed without a
+  // verdict is a number beside a number.
+  //
+  // Exit 5, appended to the enumerated codes above rather than inserted
+  // among them: a run that previously refused with 2, 3 or 4 still refuses
+  // with the same code. The report and both artefacts are written well
+  // above, so the evidence survives the refusal.
+  const ctlFailed = all.flatMap((s) =>
+    controlFailures(s.controlVerdict).map((why) => `${s.substrate}: ${why}`)
+  );
+  if (ctlFailed.length) {
+    for (const why of ctlFailed) console.error(`[ladder] POSITIVE CONTROL — ${why}`);
+    console.error(
+      '[ladder] THE IN-SITU POSITIVE CONTROL DID NOT HOLD — an instrument that cannot see the ' +
+        'change its own arithmetic predicts has not measured the ones it does not predict either'
+    );
+    process.exit(5);
+  }
   console.error('[ladder] done');
-})().catch((e) => { console.error(e); process.exit(1); });
+}
+
+// The decision functions are exported so `heap_control_exit_path.test.cjs`
+// can exercise the control gate directly: this driver needs an `:advanced`
+// release build and a headless Chromium, so its verdicts cannot be reached
+// end-to-end from a unit test. Requiring this file must therefore NOT drive
+// it, which is what the `require.main` guard below is for.
+module.exports = { controlVerdict, controlVerdicts, controlFailures };
+
+if (require.main === module) {
+  drive().catch((e) => { console.error(e); process.exit(1); });
+}

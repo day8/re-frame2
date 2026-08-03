@@ -88,6 +88,20 @@ const WANT_SNAPSHOT = process.env.B7_SNAPSHOT !== '0';
 // allocation counter reading the same code twice does not, so this sits
 // above B8's noise floor and far below the 2.01x the recorded fault made.
 const TOLERANCE = Number(process.env.B7_TOLERANCE || 0.25);
+// How far the positive control's measured range may sit from the prediction
+// its own arithmetic made and still count as THE INSTRUMENT HAS SIGNAL.
+//
+// A SEPARATE KNOB FROM `TOLERANCE` ABOVE, which it happens to equal. That is
+// a coincidence and not a relationship: `TOLERANCE` is a relative difference
+// of MEDIANS between strata of one arm, adjudicated by the arm-order guard;
+// this is how far a control may sit from a PREDICTION. `p0_run.cjs` carries
+// the same pair under these same two names for the same reason. Generous on
+// purpose — the claim being gated is not that the model is exact, it is that
+// the instrument can see a change it predicts. B7's predecessor reported
+// ~4.7 MB of held doubles as 0.00 MB, which is orders of magnitude and not
+// percent. `spine_ablation_run.cjs`'s 1% band is NOT the precedent: it is
+// justified there by that ladder's own 0.13% worst reading.
+const CONTROL_SLACK = Number(process.env.B7_CONTROL_SLACK || 0.25);
 
 // The published arm set. `B7_ARMS` (comma-separated) overrides it, and
 // `B7_INIT_FN` points the bundle at a different `:init-fn` — the two seams
@@ -457,7 +471,15 @@ async function heapRow(chromium) {
         'A and B are two doors onto one V8 counter and are NOT independent — on 80,000 held ' +
         'objects they returned 3868954 both. C walks the object graph and is the independent one.',
     },
-    control: { shape: 'dense JS array of doubles', doubles: CONTROL_DOUBLES, predictedBytes: CONTROL_PREDICTED },
+    control: {
+      shape: 'dense JS array of doubles',
+      doubles: CONTROL_DOUBLES,
+      predictedBytes: CONTROL_PREDICTED,
+      slack: CONTROL_SLACK,
+      // The verdict is carried BESIDE the control it adjudicates, so the raw
+      // record says what was decided and not only what was measured.
+      verdict: controlVerdicts(rounds, snapshots, CONTROL_PREDICTED, CONTROL_SLACK),
+    },
     verification: { mounts, unverified },
     perRound: rounds,
     orderVerdict: guard.verdict(orderSamples, { tolerance: TOLERANCE }),
@@ -485,6 +507,75 @@ async function mountFrameRow(chromium) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * `lane/control-verdict`'s rule over ONE reader's control readings: does the
+ * measured range meet ±`slack` of the prediction anywhere?
+ *
+ * FINITENESS IS TESTED FIRST, and separately. `spine_ablation_run.cjs`
+ * records why: a band test on its own is a bypass for a control that came
+ * back `NaN`, because every comparison against `NaN` is false. A reader that
+ * produced no finite number has not controlled anything, and a reader that
+ * took no readings at all has not either — both must fail rather than sail
+ * through an untaken comparison.
+ */
+function controlVerdict(reader, predicted, xs, slack) {
+  const lo = predicted * (1 - slack);
+  const hi = predicted * (1 + slack);
+  const finite = xs.length > 0 && xs.every((x) => Number.isFinite(x));
+  const measured = finite
+    ? {
+        mean: xs.reduce((a, b) => a + b, 0) / xs.length,
+        min: Math.min(...xs),
+        max: Math.max(...xs),
+      }
+    : { mean: NaN, min: NaN, max: NaN };
+  const ok = finite && measured.min <= hi && measured.max >= lo;
+  const n = (x) => (Number.isFinite(x) ? Math.round(x).toLocaleString('en-US') : String(x));
+  return {
+    reader,
+    predicted,
+    band: [lo, hi],
+    measured,
+    slack,
+    ok,
+    why: !finite
+      ? `${reader}: the control produced no finite reading (${xs.length} taken) — it has ` +
+        'controlled nothing'
+      : ok
+        ? `${reader}: predicted ${n(predicted)} B, measured ${n(measured.mean)} B ` +
+          `[${n(measured.min)}–${n(measured.max)}] — meets the prediction within ` +
+          `±${(slack * 100).toFixed(0)}%`
+        : `${reader}: predicted ${n(predicted)} B, measured ${n(measured.mean)} B ` +
+          `[${n(measured.min)}–${n(measured.max)}] — DISJOINT from ±${(slack * 100).toFixed(0)}% ` +
+          'of the prediction; the instrument did not see a change its own arithmetic says it ' +
+          'must, so no figure in this row is reportable',
+  };
+}
+
+/** One verdict per reader that actually took a control reading. */
+function controlVerdicts(rounds, snapshots, predicted, slack) {
+  const v = {
+    A: controlVerdict('reader A', predicted, rounds.map((r) => r.control.measuredCdp), slack),
+    B: controlVerdict('reader B', predicted, rounds.map((r) => r.control.measuredPerf), slack),
+  };
+  // Reader C exists only when the snapshot pass ran and reached its control.
+  if (snapshots && snapshots.control) {
+    v.C = controlVerdict('reader C', predicted, [snapshots.control.measured], slack);
+  }
+  return v;
+}
+
+/**
+ * The readers whose control did not hold. Empty means every one held — and
+ * an ABSENT verdict block is itself a failure, not a pass: this gate must
+ * not be defeated by the thing it reads going missing.
+ */
+function controlFailures(verdicts) {
+  const vs = Object.values(verdicts || {});
+  if (!vs.length) return ['no positive control was adjudicated at all'];
+  return vs.filter((v) => !v.ok).map((v) => v.why);
+}
+
 function summariseHeap(row) {
   const stat = (xs) => {
     const s = [...xs].sort((a, b) => a - b);
@@ -506,6 +597,11 @@ function summariseHeap(row) {
       `;; positive control, instrument C: predicted ${row.snapshots.control.predictedBytes} B  |  ` +
         `measured ${row.snapshots.control.measured} B`
     );
+  }
+  // Published on every run, passing or not: a control quoted only when it
+  // passes is not a control.
+  for (const v of Object.values(row.control.verdict || {})) {
+    console.log(`;; positive control ${v.ok ? 'ok  ' : 'FAIL'} ${v.why}`);
   }
   console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
   console.log(';;');
@@ -538,7 +634,7 @@ function summariseHeap(row) {
   }
 }
 
-(async () => {
+async function drive() {
   // Does the arm-order guard still catch the faults it was built for?
   // Ahead of the build, because a broken guard makes every figure below
   // unpublishable and finding that out after a fifteen-minute run is
@@ -577,6 +673,20 @@ function summariseHeap(row) {
       if (out.heap.verification.unverified > 0) {
         failed = `heap: ${out.heap.verification.unverified} unverified mounts`;
       }
+      // THE CONTROL IS ADJUDICATED, not merely printed. For this
+      // instrument's whole life it was printed and nothing else — predicted
+      // beside measured beside an error percentage, with no pass/fail
+      // computed at all (rf2-bml5u) — so a control that had stopped seeing
+      // the change its own arithmetic predicts could not stop the run. A
+      // control printed without a verdict is a number beside a number.
+      // Report first, gate after: `summariseHeap` has already run and the
+      // raw artefact is written below, before any non-zero exit.
+      const ctlFailed = controlFailures(out.heap.control.verdict);
+      if (ctlFailed.length) {
+        failed = [failed, `heap: positive control — ${ctlFailed.join('; ')}`]
+          .filter(Boolean)
+          .join(' | ');
+      }
       refused = out.heap.orderVerdict.refuse;
     }
   } catch (e) {
@@ -603,4 +713,15 @@ function summariseHeap(row) {
     process.exit(2);
   }
   console.error('[b7] ok');
-})();
+}
+
+// The decision functions are exported so `heap_control_exit_path.test.cjs`
+// can exercise the control gate directly: this driver needs an `:advanced`
+// release build and a headless Chromium, so its verdicts cannot be reached
+// end-to-end from a unit test. Requiring this file must therefore NOT drive
+// it, which is what the `require.main` guard below is for.
+module.exports = { controlVerdict, controlVerdicts, controlFailures };
+
+if (require.main === module) {
+  drive();
+}
