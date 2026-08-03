@@ -363,7 +363,7 @@
   "All three arms cache the same value shape the codec caches, so the
   rows price the LOOKUP and not two different payloads."
   [k n]
-  (codec/->PropSlot (codec/prop-name k) (reserved-name? n) false false))
+  (codec/->PropSlot (codec/prop-name k) (reserved-name? n) false false false))
 
 (defn- guarded-lookup
   "The shipping lookup shape, written here so every arm is local."

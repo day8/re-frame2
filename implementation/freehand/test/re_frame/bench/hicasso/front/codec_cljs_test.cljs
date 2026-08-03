@@ -172,20 +172,88 @@
            lowering it here would also have thrown, there being no ambient
            frame in this test"))))
 
-(deftest the-shorthand-fast-lane-emits-what-the-donor-map-produced
-  ;; rf2-y1jkm lane 2: an element whose only class is the tag shorthand no
-  ;; longer routes through merge-shorthand's dissoc/assoc — the loop runs
-  ;; over the author's map and the shorthand's className is written AFTER
-  ;; it, because the donor path re-assoc'd `:class` LAST. The observable
-  ;; pin is the overwrite order for an exotic spelling that canonicalises
-  ;; onto the same slot: the shorthand won under the donor's map order and
-  ;; must keep winning under the lane.
-  (testing "a namespaced class spelling does not defeat the shorthand"
-    (is (= "a" (prop (codec/as-element [:div.a {:x/class "b"}]) "className"))))
-  (testing "a literal :class still takes the general lane and composes"
-    (is (= "a b" (prop (codec/as-element [:div.a {:class "b"}]) "className"))))
-  (testing "a caller remainder still takes the general lane and composes"
-    (is (= "a b" (prop (codec/as-element [:div.a {:& {:class "b"}}]) "className")))))
+(deftest the-shorthand-composes-with-a-class-however-it-is-spelled
+  ;; THIS TEST WAS THE OTHER WAY ROUND (rf2-2rtt6.36, merged-PR audit
+  ;; #7332). Under rf2-y1jkm's lane 2 the shorthand's className was written
+  ;; over whatever the loop had emitted, and an exotic spelling that
+  ;; canonicalises onto the same slot lost outright — `[:div.a {:x/class
+  ;; "b"}]` was pinned at "a". It was pinned because it MATCHED the general
+  ;; path, and the general path was itself wrong: the shorthand merge read
+  ;; `:class` and `:className` off the map by raw key, so it saw three of
+  ;; the spellings this codec accepts and silently dropped the rest.
+  ;;
+  ;; The shorthand is folded onto the EMITTED object now, where there is
+  ;; no spelling left to miss, so every one of them composes. The
+  ;; assertion below is the flipped one and it is the whole repair in a
+  ;; line.
+  (testing "a namespaced class spelling composes with the shorthand rather
+            than losing to it"
+    (is (= "a b" (prop (codec/as-element [:div.a {:x/class "b"}]) "className"))))
+  (testing "and so does every other spelling the codec accepts"
+    (doseq [k [:class :className "class" "className" 'class :x/class :class-name]]
+      (is (= "a b" (prop (codec/as-element [:div.a {k "b"}]) "className"))
+          (str "spelled " (pr-str k)))))
+  (testing "a caller remainder composes too, in every spelling"
+    (doseq [k [:class :className "class" "className" 'class :x/class]]
+      (is (= "a b" (prop (codec/as-element [:div.a {:& {k "b"}}]) "className"))
+          (str "forwarded as " (pr-str k)))))
+  (testing "the class value is coerced at the slot, so a collection joins
+            whatever key carried it — the coercion used to live in the map
+            surgery, where only `:class` and `:className` reached it"
+    (doseq [k [:class "className" :x/class]]
+      (is (= "a x y" (prop (codec/as-element [:div.a {k ["x" nil :y]}]) "className"))
+          (str "spelled " (pr-str k)))))
+  (testing "two spellings of the one slot COMPOSE rather than the last write
+            silently winning — a dropped class is the failure class the
+            ruling exists to delete"
+    (is (= "a b c" (prop (codec/as-element [:div.a {:class "b" :x/class "c"}]) "className")))))
+
+(deftest the-shorthand-id-loses-to-an-explicit-one-however-it-is-spelled
+  ;; The other half of merged-PR audit #7332. `#tag` is the weakest source
+  ;; of an id there is, and the rule "an explicit :id wins" was stated on
+  ;; the raw key — so `[:div#tag {"id" "explicit"}]` kept BOTH, landed both
+  ;; on React's one `id` slot, and left which one survived to the order the
+  ;; props map happened to iterate in.
+  (testing "written on the element"
+    (doseq [k [:id "id" 'id :x/id]]
+      (is (= "explicit" (prop (codec/as-element [:div#tag {k "explicit"}]) "id"))
+          (str "spelled " (pr-str k)))))
+  (testing "forwarded through the one merge — the door where the author of
+            the element never sees the key at all"
+    (doseq [k [:id "id" 'id :x/id]]
+      (is (= "caller" (prop (codec/as-element [:div#tag {:& {k "caller"}}]) "id"))
+          (str "forwarded as " (pr-str k)))))
+  (testing "and the shorthand still lands when nothing claims the slot"
+    (is (= "tag" (prop (codec/as-element [:div#tag {:& {:title "t"}}]) "id"))))
+  (testing "a near miss is not the id slot and keeps its own name"
+    (let [e (codec/as-element [:div#tag {:data-id "d" :ids "many"}])]
+      (is (= "tag" (prop e "id")))
+      (is (= "d" (prop e "data-id")))
+      (is (= "many" (prop e "ids"))))))
+
+(deftest the-shorthand-fold-does-not-depend-on-map-order
+  ;; The audit's phrasing: the answer must hold "independent of cache/render
+  ;; /map order". Both spellings of both slots in one remainder, written in
+  ;; both orders, and again in a map big enough to be a PersistentHashMap
+  ;; rather than an array map — the iteration order changes underneath and
+  ;; the emitted element does not.
+  (let [expected {"id" "caller" "className" "foo bar"}
+        emitted  (fn [e] {"id" (prop e "id") "className" (prop e "className")})]
+    (testing "the audit's own witness, both ways round"
+      (is (= expected (emitted (codec/as-element
+                                [:div#tag.foo {:& {"id" "caller" "className" "bar"}}]))))
+      (is (= expected (emitted (codec/as-element
+                                [:div#tag.foo {:& {"className" "bar" "id" "caller"}}])))))
+    (testing "and out of a hash map, whose iteration order is neither"
+      (let [caller (into {} (map (fn [i] [(keyword (str "data-" i)) i])) (range 12))]
+        (is (= expected (emitted (codec/as-element
+                                  [:div#tag.foo {:& (assoc caller "id" "caller" :x/class "bar")}]))))))
+    (testing "renders are independent of what the caches were asked first"
+      (codec/reset-caches!)
+      (codec/cached-prop-name "class")
+      (codec/cached-prop-name :x/id)
+      (is (= expected (emitted (codec/as-element
+                                [:div#tag.foo {:& {"id" "caller" "className" "bar"}}])))))))
 
 (deftest prop-values-are-converted-in-the-shapes-react-wants
   (testing "a style map becomes a JS object with camelCased keys"
@@ -380,7 +448,19 @@
       (is (= "form-control form-control-lg" (prop e "className"))))
     (testing "and a literal :class still wins outright, because it is a literal"
       (let [e (codec/as-element [:input.base {:& {:class "from-caller"} :class "owned"}])]
-        (is (= "base owned" (prop e "className")))))))
+        (is (= "base owned" (prop e "className")))))
+    (testing "composition does not reopen the deny: what composes is what
+              SURVIVED the merge, and an alias at a slot an owned literal
+              claims never gets that far — in either spelling"
+      (doseq [k ["className" :x/class 'class]]
+        (is (= "base owned"
+               (prop (codec/as-element [:input.base {:& {k "from-caller"} :class "owned"}])
+                     "className"))
+            (str "forwarded as " (pr-str k))))
+      (doseq [k ["id" :x/id 'id]]
+        (is (= "owned"
+               (prop (codec/as-element [:div#tag {:& {k "hostile"} :id "owned"}]) "id"))
+            (str "forwarded as " (pr-str k)))))))
 
 (deftest the-same-merge-and-the-same-law-hold-at-a-crossing
   (testing "the case the predecessor needs a THIRD rule for. Its spread forms

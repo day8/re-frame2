@@ -54,9 +54,10 @@
     tag-cache    \"div#main.wide\" -> ParsedTag
     prop-cache   \"on-click\"      -> PropSlot
 
-  A [[PropSlot]] is the React name the cache always held plus the three
+  A [[PropSlot]] is the React name the cache always held plus the four
   classifications that are pure functions of the same literal — reserved
-  slot, event position, ref slot (rf2-y1jkm). Same keys, same lifetime,
+  slot, event position, ref slot, class slot (rf2-y1jkm,
+  rf2-2rtt6.36). Same keys, same lifetime,
   same guard; one lookup now answers everything the per-prop walk used
   to re-derive per element per render.
 
@@ -137,7 +138,15 @@
   is asked of [[canonical-slot]], the slot the value will actually be
   emitted into, and never of the key it happened to be written as. A rule
   written against the raw key is a rule that `\"key\"`, `:x/ref` and
-  `:onInput` walk straight past."
+  `:onInput` walk straight past.
+
+  The tag's `#id`/`.class` shorthand answers the same question one step
+  further on: it is folded onto the **emitted object**, where the slot is
+  not resolved at all because it already *is* the slot. An explicit id
+  therefore beats `#tag` in every spelling, and a declared class composes
+  with `.foo` in every spelling — including a spelling a `:&` remainder
+  forwarded, which is the one door where the author of the element never
+  sees the key at all."
   (:require [clojure.string :as str]
             [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.front.intent :as intent]
@@ -292,12 +301,13 @@
               n
               (apply str start (map capitalize parts))))))))
 
-(deftype PropSlot [js-name reserved? event? ref?]
+(deftype PropSlot [js-name reserved? event? ref? class?]
   ;; What the prop cache holds for one prop literal (rf2-y1jkm): the React
-  ;; name the codec always cached, PLUS the three classifications the
+  ;; name the codec always cached, PLUS the four classifications the
   ;; per-prop walk used to re-derive per element per render — is the
   ;; emitted slot reserved, is the position an event position, is it the
-  ;; ref slot. Each is a pure function of the literal's NAME, so caching
+  ;; ref slot, is it the class slot. Each is a pure function of the
+  ;; literal's NAME, so caching
   ;; them beside the name changes what a lookup ANSWERS and nothing about
   ;; when it is valid: there is still exactly one entry per distinct
   ;; literal, minted on first sight, correct for the life of the build.
@@ -325,16 +335,23 @@
                 ;; "ref" — [[ref-slot]], spelled literally because the def
                 ;; sits below; `identical?` on primitive strings is value
                 ;; comparison.
-                (identical? "ref" js-name))))
+                (identical? "ref" js-name)
+                ;; "className" — [[class-slot]], likewise. The class slot
+                ;; is a position too: its value is coerced by
+                ;; [[class-names]] rather than by [[convert-prop-value]],
+                ;; and two spellings of it COMPOSE instead of one
+                ;; overwriting the other.
+                (identical? "className" js-name))))
 
 (def ^:private prop-cache
   ;; The three seeded entries are the RULE, not memos of one — see
   ;; [[react-renames]]. None is reserved, an event position, or the ref
-  ;; slot.
+  ;; slot; `class` IS the class slot, which is the whole reason the rule
+  ;; is stated on the emitted name rather than on the key.
   (doto (empty-cache)
-    (unchecked-set "class" (->PropSlot "className" false false false))
-    (unchecked-set "for" (->PropSlot "htmlFor" false false false))
-    (unchecked-set "charset" (->PropSlot "charSet" false false false))))
+    (unchecked-set "class" (->PropSlot "className" false false false true))
+    (unchecked-set "for" (->PropSlot "htmlFor" false false false false))
+    (unchecked-set "charset" (->PropSlot "charSet" false false false false))))
 
 (defn- prop-slot
   "The [[PropSlot]] for keyword/symbol `k` with name `n` — the caller has
@@ -409,6 +426,14 @@
 
 (def ^:private ref-slot "ref")
 
+;; The two slots the TAG can write into, named because the shorthand fold
+;; asks the emitted object for them rather than asking the props map for a
+;; key ([[convert-props]]). `#tag` is the weakest source of an id there is
+;; — it loses to any explicit one, in any spelling — and `.foo` composes
+;; with whatever the map emitted into `className`, in any spelling.
+(def ^:private id-slot "id")
+(def ^:private class-slot "className")
+
 (defn structural-slot?
   "Does `k` — in any spelling — land on `key` or `ref`?"
   [k]
@@ -454,18 +479,43 @@
    (let [a (class-names a) b (class-names b)]
      (cond (nil? a) b (nil? b) a :else (str a " " b)))))
 
-(defn- merge-shorthand
-  "Fold the tag's `#id`/`.class` shorthand into the props map. An explicit
-  `:id` wins over the shorthand; the shorthand class is *prepended* to an
-  explicit class, so `[:div.a {:class \"b\"}]` is `\"a b\"`."
-  [props ^ParsedTag parsed]
-  (let [id        (.-id parsed)
-        shorthand (.-className parsed)
-        props     (if (and id (not (contains? props :id))) (assoc props :id id) props)
-        declared  (or (:class props) (:className props))
-        merged    (class-names shorthand declared)]
-    (cond-> (dissoc props :className :class)
-      merged (assoc :class merged))))
+(defn- fold-shorthand!
+  "Fold the tag's `#id`/`.class` shorthand into the object the walk just
+  emitted, and return it.
+
+  **On the emitted object, and that is the whole repair.** The rule has
+  always been *an explicit id wins over the shorthand, and the shorthand
+  class is prepended to a declared one*; stated over the props MAP it read
+  `:id`, `:class` and `:className` and saw exactly three of the spellings
+  this codec accepts. `[:div#tag.foo {:& {\"id\" \"caller\" \"className\"
+  \"bar\"}}]` walked straight past it: neither key was seen, the shorthand
+  was added as a second entry landing on the same React slot, and which
+  one survived was decided by the order the props map happened to iterate
+  in — the explicit id could lose to `#tag`, and the caller's class could
+  replace `.foo` instead of composing with it.
+
+  Asked of the emitted object there is nothing left to resolve. Every
+  spelling has already been through [[canonical-slot]] on its way into
+  this object, so `id` present means *the author or their caller wrote an
+  id*, however they spelled it, and `className` holds the composed class
+  ([[convert-entry]]) whatever it was written as. One `undefined?` test
+  and one `class-names` answer both halves for every spelling at once.
+
+  It also deletes the map surgery the walk profile priced at most of
+  [[convert-props]]'s cost — the `dissoc`/`assoc` pair that rebuilt the
+  attribute map of every element carrying a shorthand — and with it the
+  fast lane that existed to dodge it."
+  [^js o ^ParsedTag parsed]
+  (when-some [id (.-id parsed)]
+    (when (undefined? (unchecked-get o id-slot))
+      (unchecked-set o id-slot id)))
+  (when-some [shorthand (.-className parsed)]
+    (let [declared (unchecked-get o class-slot)]
+      (unchecked-set o class-slot
+                     (if (undefined? declared)
+                       shorthand
+                       (class-names shorthand declared)))))
+  o)
 
 ;; ---------------------------------------------------------------------------
 ;; Prop values
@@ -614,7 +664,20 @@
   takes. The paths [[intent/lower-prop]] IS entered on reproduce its
   answers by construction: it re-asks `event-prop?` and re-takes the
   same branch this slot was minted from. A string key keeps the donor's
-  uncached path, byte for byte."
+  uncached path, byte for byte.
+
+  **The class slot is a position, like the ref slot beside it.** Its
+  value is coerced by [[class-names]] — a string, a keyword, a symbol or
+  a collection of those, nils dropped — rather than by
+  [[convert-prop-value]], which would hand React the `clj->js` array of
+  `{:class [\"a\" nil :b]}`; that coercion used to live in the map surgery
+  this walk replaced, and it is on the emitted slot now, so it holds for
+  `\"class\"` and `:x/class` as well as for `:class`. And it COMPOSES
+  with whatever is already in the slot: two spellings of the class of one
+  element are two map keys and one React slot, so letting the last write
+  win would drop a class silently, which is the failure class HD-023
+  exists to delete. Composing drops nothing, and it is what the slot
+  means."
   [o k v]
   (if (keyword-identical? :key k)
     o
@@ -626,6 +689,9 @@
                            (cond
                              (.-ref? s)
                              (check-ref! k v)
+
+                             (.-class? s)
+                             (class-names (unchecked-get o class-slot) v)
 
                              (and (.-event? s) (keyword? k))
                              (if (or (vector? v) (map? v) (fn? v))
@@ -640,9 +706,10 @@
       (let [n (cached-prop-name k)]
         (when-not (reserved-name? n)
           (unchecked-set o n (convert-prop-value
-                              (if (= ref-slot n)
-                                (check-ref! k v)
-                                (intent/lower-prop k v)))))
+                              (cond
+                                (identical? ref-slot n)   (check-ref! k v)
+                                (identical? class-slot n) (class-names (unchecked-get o class-slot) v)
+                                :else                     (intent/lower-prop k v)))))
         o))))
 
 (defn convert-props
@@ -654,50 +721,43 @@
 
   Two things about the order. Intent lowering happens *inside* the single
   walk, so the codec does not traverse the props map a second time to
-  find the event positions. And [[merge-caller]] runs FIRST — before the
-  tag shorthand and before any prop-name conversion — which is what lets
-  one rule cover the class the predecessor needs a third form for. A
-  forwarded `:className` is merged as the key it was written as and then
-  converted by *this position's* grammar; nothing canonicalises it into
-  `:class` on the way through and hands the wrong name onward. It also
-  puts a forwarded `:class` into the shorthand merge, so
-  `[:input.form-control {:& caller}]` composes `\"form-control\"` with the
-  caller's classes instead of one silently replacing the other.
+  find the event positions. And [[merge-caller]] runs FIRST — before any
+  prop-name conversion — which is what lets one rule cover the class the
+  predecessor needs a third form for. A forwarded `:className` is merged
+  as the key it was written as and then converted by *this position's*
+  grammar; nothing canonicalises it into `:class` on the way through and
+  hands the wrong name onward.
 
-  The `:ref` reservation and the ref position's exclusion from intent
-  lowering are both taken on the CANONICAL SLOT the walk has just
-  computed, rather than on the key — which is what makes them hold for
-  `\"ref\"` and `:x/ref` as well as for `:ref`, and costs the walk one
-  comparison it already had the value for.
+  The tag shorthand is folded LAST, onto the emitted object
+  ([[fold-shorthand!]]) — so `[:input.form-control {:& caller}]` composes
+  `\"form-control\"` with the caller's classes instead of one silently
+  replacing the other, and does so however the caller spelled them.
 
-  ## The three lanes (rf2-y1jkm)
+  The `:ref` reservation, the ref position's exclusion from intent
+  lowering, the class coercion and the shorthand fold are all taken on
+  the CANONICAL SLOT rather than on the key — which is what makes them
+  hold for `\"ref\"`, `:x/class` and `\"id\"` as well as for `:ref`,
+  `:class` and `:id`, and costs the walk one comparison it already had
+  the value for.
+
+  ## The two lanes (rf2-y1jkm, narrowed by rf2-2rtt6.36)
 
   The walk-cost profile (`walk_profile_app`, census page: 1,202
   elements, 567 of them with no attribute map, 924 with a `.class`
   shorthand, 71 with a declared `:class`) priced this function at 67.5%
-  of the whole interpreter walk, most of it the map surgery
-  [[merge-shorthand]] performs on elements whose only class IS the
-  shorthand. So the general path keeps its exact shape and two lanes
-  peel off the shapes that dominate a page, each producing the same
-  emitted object the general path produces, property for property and in
-  the same order:
+  of the whole interpreter walk, most of it the map surgery the
+  shorthand merge performed on elements whose only class IS the
+  shorthand. That surgery is **gone**: the shorthand is folded onto the
+  object the walk emits rather than into the map the walk reads, so
+  there is no `dissoc`/`assoc` pair on any path and no shape to peel a
+  lane off for. What is left is one lane and one short-circuit:
 
   1. **No attribute map at all** (`props` nil): the emitted object is
-     exactly the shorthand's `id`/`className`, so it is built directly.
-     What the general path would do — an empty merge, the shorthand
-     folded into a fresh map, one map iteration converting it back out —
-     is the identity of that, at the cost of the map machinery.
-  2. **Shorthand class, nothing merged against it** — no literal
-     `:class`/`:className` (the two keys [[merge-shorthand]] itself
-     consults), no `:&`, no `#id` shorthand: the merged class is the
-     shorthand string verbatim (`class-names` of a string against nil),
-     and the general path's re-`assoc` puts `:class` LAST in the map, so
-     emitting the loop first and the shorthand's `className` after it
-     writes the same slots in the same order — including the overwrite
-     order for an exotic spelling (`:x/class`) that canonicalises onto
-     the same slot.
-  3. **Everything else** — a declared class, a `:&` remainder, an `#id`
-     — takes the donor's path unchanged.
+     exactly the shorthand's `id`/`className`, so it is built directly —
+     no merge, no map iteration, no fold.
+  2. **Everything else**: convert the map (a `:&` remainder merged in
+     first, by identity when there is none), then fold the shorthand onto
+     the result.
 
   React's own `key` contract: the LITERAL `:key` is dropped in-loop (one
   keyword-identity test) rather than by a `dissoc` that copies the map;
@@ -707,32 +767,22 @@
 
   Per prop, one [[prop-slot]] lookup answers the React name AND the
   classifications the walk used to re-derive per element — reserved slot,
-  event position, ref slot — so a non-event prop no longer pays
-  [[re-frame.bench.hicasso.front.intent/event-prop?]]'s regex, and only
-  a lowerable value at an event position (a vector, a map, a function)
-  enters [[re-frame.bench.hicasso.front.intent/lower-prop]] at all. The
-  slot's `event?` flag is gated on `keyword?` at the call site — a
-  symbol shares the cache entry but is not an event position — and a
-  string-keyed prop takes the donor's uncached path unchanged."
+  event position, ref slot, class slot — so a non-event prop no longer
+  pays [[re-frame.bench.hicasso.front.intent/event-prop?]]'s regex, and
+  only a lowerable value at an event position (a vector, a map, a
+  function) enters
+  [[re-frame.bench.hicasso.front.intent/lower-prop]] at all. The slot's
+  `event?` flag is gated on `keyword?` at the call site — a symbol shares
+  the cache entry but is not an event position — and a string-keyed prop
+  takes the donor's uncached path unchanged."
   [props ^ParsedTag parsed]
-  (cond
-    (nil? props)
+  (if (nil? props)
     (let [o #js {}]
-      (when-some [id (.-id parsed)] (unchecked-set o "id" id))
-      (when-some [c (.-className parsed)] (unchecked-set o "className" c))
+      (when-some [id (.-id parsed)] (unchecked-set o id-slot id))
+      (when-some [c (.-className parsed)] (unchecked-set o class-slot c))
       o)
-
-    (and (some? (.-className parsed))
-         (nil? (.-id parsed))
-         (not (contains? props :class))
-         (not (contains? props :className))
-         (not (contains? props merge-key)))
-    (let [o (reduce-kv convert-entry #js {} props)]
-      (unchecked-set o "className" (.-className parsed))
-      o)
-
-    :else
-    (reduce-kv convert-entry #js {} (-> props merge-caller (merge-shorthand parsed)))))
+    (fold-shorthand! (reduce-kv convert-entry #js {} (merge-caller props))
+                     parsed)))
 
 ;; ---------------------------------------------------------------------------
 ;; Boundary heads (HD-016 / HD-004)
@@ -1496,7 +1546,7 @@
   []
   (doseq [k (js/Object.keys tag-cache)] (js-delete tag-cache k))
   (doseq [k (js/Object.keys prop-cache)] (js-delete prop-cache k))
-  (unchecked-set prop-cache "class" (->PropSlot "className" false false false))
-  (unchecked-set prop-cache "for" (->PropSlot "htmlFor" false false false))
-  (unchecked-set prop-cache "charset" (->PropSlot "charSet" false false false))
+  (unchecked-set prop-cache "class" (->PropSlot "className" false false false true))
+  (unchecked-set prop-cache "for" (->PropSlot "htmlFor" false false false false))
+  (unchecked-set prop-cache "charset" (->PropSlot "charSet" false false false false))
   nil)
