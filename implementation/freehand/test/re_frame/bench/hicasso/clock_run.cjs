@@ -1813,6 +1813,13 @@ function report(out) {
     `             clock_run.cjs --selftest': eleven cases including a superlinear refusal, a`,
     `             declaring-200-rendering-140 refusal, a degenerate denominator, one bad block in nine,`,
     `             and the sensitivity span above asserted rather than described.`,
+    `kb witness = ONE RECORD PER PHYSICAL KEY (rf2-0qj9w). The driver counts the keys it presses;`,
+    `             web-vitals' rules form at most one interaction per key; keys that raised no entry are`,
+    `             published as CENSORED under the 16 ms floor rather than dropped; and the recompute`,
+    `             census must read 100 cells + 4 fields on a substrate arm and NOTHING on a floor arm.`,
+    `             Each of those is a refusal that exits 1 naming itself. Its fixtures — including the`,
+    `             collapse a broken grouping produces — are 'node clock_witness.test.cjs', in the`,
+    `             fast-PR spine, and they also run on every invocation of this driver.`,
   ]) console.log(`;;   ${line}`);
 
   const outcomes = [];
