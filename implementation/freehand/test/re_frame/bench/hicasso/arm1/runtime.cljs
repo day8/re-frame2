@@ -1596,10 +1596,8 @@
   {:per-boundary
    [{:token :registration
      :what  "one JS object: the read set (shared with its entry), React's onStoreChange, and the acquired cell vector"}
-    {:token :index/live
-     :what  "one membership in the index's :live set"}
     {:token :index/b->subs
-     :what  "one map entry holding this boundary's read set"}
+     :what  "one map entry holding this boundary's read set — and, since rf2-ixb92, the index's ONLY record that the boundary is live; there is no separate :live membership beside it"}
     {:token :index/sub->bs
      :what  "one membership per edge in each read key's reader set"}
     {:token :react/use-sync-external-store
@@ -1644,7 +1642,7 @@
   (let [idx (index/snapshot)]
     {:cells      (count @!cells)
      :cell-refs  (reduce-kv (fn [acc _ ^js c] (+ acc (.-refs c))) 0 @!cells)
-     :boundaries (count (:live idx))
+     :boundaries (count (:b->subs idx))
      :edges      (reduce + 0 (map (fn [[_ v]] (count v)) (:b->subs idx)))
      :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @!entries))
      :generation (generation)

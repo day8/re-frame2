@@ -21,9 +21,10 @@
 
   Below the six sit the tests for what a runtime needs beyond the paper
   algebra: sub-key identity under value equality, the abandoned-render
-  guard, mount idempotence, the global-atom door, and the HD-005 evidence
-  seam. Those are not laws and do not pretend to be; they are the
-  obligations the laws would silently lose without them.
+  guard, mount idempotence, liveness as the forward-edge entry, the
+  global-atom door, and the HD-005 evidence seam. Those are not laws and
+  do not pretend to be; they are the obligations the laws would silently
+  lose without them.
 
   Everything here is a pure-value test against the algebra in
   [[re-frame.bench.hicasso.front.sub-index]] except the last two groups,
@@ -219,6 +220,54 @@
       (is (set? (idx/edges-of index :b)))
       (is (= #{[:x] [:y]} (idx/edges-of index :b)) "duplicates collapse")
       (is (= #{:b} (idx/dirty-boundaries index #{[:y]}))))))
+
+(deftest liveness-is-the-forward-edge-entry-and-there-is-no-second-record-of-it
+  (testing "rf2-ixb92. The index used to carry a third structure — `:live`,
+           a set of mounted boundary ids — beside the two edge maps, and it
+           held nothing `:b->subs` did not already hold: mount installs an
+           entry, unmount drops it, and record-reads only ever writes for a
+           boundary that is already there. This is that derivability as an
+           executable statement rather than an argument, walked across the
+           reachable values: at every step the set of boundaries the index
+           treats as mounted is exactly the key set of the forward edges"
+    (let [b0 (idx/empty-index)
+          b1 (idx/mount b0 :one)
+          b2 (idx/record-reads b1 :one #{[:x] [:y]})
+          b3 (idx/mount b2 :two)
+          b4 (idx/record-reads b3 :two #{[:x]})
+          b5 (idx/record-reads b4 :one #{[:x]})       ; law 4's narrowing
+          b6 (idx/record-reads b5 :one #{})           ; a body that read nothing
+          b7 (idx/mount b6 :one)                      ; StrictMode's second mount
+          b8 (idx/unmount b7 :one)
+          b9 (idx/record-reads b8 :one #{[:z]})       ; an abandoned render
+          ids [:one :two :never-mounted]]
+      (doseq [[step index live] [[:empty       b0 #{}]
+                                 [:mount       b1 #{:one}]
+                                 [:read        b2 #{:one}]
+                                 [:mount-2nd   b3 #{:one :two}]
+                                 [:read-2nd    b4 #{:one :two}]
+                                 [:narrow      b5 #{:one :two}]
+                                 [:read-none   b6 #{:one :two}]
+                                 [:remount     b7 #{:one :two}]
+                                 [:unmount     b8 #{:two}]
+                                 [:abandoned   b9 #{:two}]]]
+        (is (= live (set (keys (:b->subs index))))
+            (str "the forward edges' key set is the mounted set at " step))
+        (is (= live (into #{} (filter #(idx/live? index %)) ids))
+            (str "and `live?` answers from it, for every id, at " step)))))
+  (testing "the empty set `mount` installs is the whole registration, which
+           is why a boundary whose body read nothing is still live and can
+           still record edges afterwards — drop that entry as an
+           optimisation and the boundary dies silently"
+    (let [index (-> (idx/empty-index) (idx/mount :b))]
+      (is (true? (idx/live? index :b)))
+      (is (= #{} (idx/edges-of index :b)))
+      (is (= #{[:x]} (idx/edges-of (idx/record-reads index :b #{[:x]}) :b)))))
+  (testing "and there is no second record to drift out of step with the
+           first: an index value is exactly the two edge maps"
+    (is (= #{:sub->bs :b->subs} (set (keys (idx/empty-index)))))
+    (is (= #{:sub->bs :b->subs}
+           (set (keys (-> (idx/empty-index) (run :b [:x]) (idx/unmount :b))))))))
 
 (deftest the-global-index-is-one-atom-and-commit-is-its-only-door
   (idx/mount! :a)
