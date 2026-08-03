@@ -44,8 +44,9 @@ by eye.
 > [§5](#5-the-third-explanation-which-is-the-one-the-data-names) reports.
 > The correction is 13× against us on the advertised rate and still leaves 35%
 > a real improvement on 25%, whose rate is **9.1%**. Recomputed from the
-> committed dataset; the ceiling constant and the analysis script are code and
-> are `rf2-nk1hq`.
+> committed dataset. `rf2-nk1hq` has since corrected the script and **left the
+> constant at 35%**, restated in `seam.cjs` as a judgement rather than a
+> quantile.
 
 **No published magnitude changes** ([§8](#8-what-changes-for-the-record-nothing-and-why-that-is-the-check)).
 
@@ -304,9 +305,19 @@ model — pooled says 29.4%, run-preserving says 41.4% — and its real per-run
 false-fire rate is **2.7%**, thirteen times the advertised one. **The derivation
 is withdrawn.** What survives is the comparison the change was made for: at 25%
 the rate was **9.1%**, so 35% is still a 3.4× improvement, and it is the ceiling
-in force. Whether the constant should move again — 41% is where a genuine q99
-sits — is a judgement about code and is `rf2-nk1hq`, together with the analysis
-script that still resamples the wrong way.
+in force.
+
+**And the constant stays at 35%.** `rf2-nk1hq` corrected the script — it
+resamples run-preservingly now, and prints both models — and left `BAND_CEILING`
+where it was, restated in `seam.cjs` as a judgement rather than a quantile.
+Moving it to 41%, where a genuine q99 sits, would *relax* the gate, which is the
+direction that needs the stronger evidence, on the strength of the least stable
+number in the table: a 1% quantile whose whole tail above 35% is carried by one
+or two of nineteen run-regimes, and which reads 41.4% at 200,000 draws against
+42.4% at 20,000. No published magnitude is adjudicated differently at either
+value, and **0 of these nineteen runs breach 35% where 2 breach 25%**. So what
+the constant carries is a price — **2.7% per run** — rather than a derivation,
+and moving it again is an operator's call rather than this page's.
 
 **Three firings in two days is what a one-in-eleven rate produces.** The gate
 did not start failing. It was never a tripwire — it was a lottery ticket with
@@ -559,9 +570,12 @@ gitignored `out/`. Both are closed here.
   breaches, digit for digit. **And that durability is what caught the
   bootstrap**: [§5](#5-the-third-explanation-which-is-the-one-the-data-names)'s
   retraction is a recomputation over the committed file, taking no new run.
-  The **one figure on this page the script does not yet reproduce** is the
-  run-preserving distribution itself — `ladder_band.cjs` still pools blocks
-  across runs, which is `rf2-nk1hq`.
+  The **one figure the script did not reproduce** was the run-preserving
+  distribution itself, because `ladder_band.cjs` pooled blocks across runs. It
+  now computes both models and prints them side by side (`rf2-nk1hq`), so every
+  bootstrap figure this page publishes — both columns, on both clocks —
+  recomputes from the committed file, and its `--selftest` fails if the pooled
+  model is ever reinstated.
 - A raw dataset is ~220 KB and nineteen are ~4 MB, which does not belong in a
   repository. So `--emit` writes the reduced quantities every statistic is a
   function of — the eighteen per-block tared `floor` and `ctl-2x` cells on each
@@ -598,8 +612,11 @@ gitignored `out/`. Both are closed here.
   q99 is withdrawn ([§5](#5-the-third-explanation-which-is-the-one-the-data-names)).
 - **The ceiling is 35%, at a measured per-run false-fire rate of 2.7% against
   25%'s 9.1%, and the gate adjudicates the clock the rows are stated on.** The
-  frame-only band is reported on every run and refuses nothing. Whether 35%
-  should move to a genuine q99 is `rf2-nk1hq`.
+  frame-only band is reported on every run and refuses nothing. **It stays at
+  35%** (`rf2-nk1hq`): a genuine q99 sits at ~41%, and moving there would
+  *relax* the gate on the strength of the table's least stable number, while no
+  published magnitude is adjudicated differently at either value. The constant
+  is a judgement, and `seam.cjs` now says so.
 - **`rf2-cvvb7`'s multiplicativity finding is withdrawn.** Pure
   multiplicativity predicts `ctl-2x / floor = 2.00` with no variance; nineteen
   runs read 1.71 [1.62 – 1.84]. The correlation that carried it reads +0.88 on
