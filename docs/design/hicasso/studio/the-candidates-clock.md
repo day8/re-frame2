@@ -305,6 +305,80 @@ anyway, so nothing about the verdict turns on dropping it.
 instrument configurations and one discarded box, the candidate's mount row is
 above parity with Reagent-on-subs in every run and below it in none.
 
+### 3.4 The quiet window, and why it publishes nothing (`rf2-0qj9w`, 2026-08-04)
+
+A measurement window was booked for this page's two outstanding rows — the ruled
+payload was `HCLOCK_ONLY=M1,keystroke` with the raw dataset retained — on a box
+held exclusively idle for the run. **It publishes no magnitude, and this section
+is the record of why.** The window is the sixth run of this instrument; it is
+not in [§3.3](#33-the-published-run-and-the-four-before-it)'s table because that
+table is a table of point estimates and this run yielded none that may be
+transcribed.
+
+| | |
+|---|---|
+| Tree | `65b45ba0632e277d6a269f3804c23c33bbc12c84`, the code tree of `origin/main` at open |
+| Box at open | occupancy **1.48%**, 24 logical cores, 503 processes, 32.5 GB free |
+| Box at close | occupancy **1.37%**, same process counts, 32.4 GB free |
+| Occupancy method | summed per-process CPU-time deltas over a 10 s wall interval, divided by core count. **Not** `Win32_Processor.LoadPercentage`, which read 24% and 45% on this same idle box |
+| Driver exit code | **1** — the positive control on `M1` |
+| Retained dataset | `implementation/freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run1.json`, re-adjudicable with `clock_readjudicate.cjs` |
+
+**One refusal fired, and it is `M1`'s positive control.** `ctl-2x` measured
+**1.8443×** [1.3837 – 2.4233] on raw `TaskDuration` against 2.00× ±25% under the
+strict every-round rule of [§3.2](#32-the-positive-controls-predicted-before-each-run);
+at least one segment-round fell below the 1.5 floor, so the row is refused and no
+mount magnitude from it is reportable. Every *whole-run* gate cleared on both
+rows — no page error, arm-order guard reportable, canonical DOM identical, 0
+unverified of 1,008 on `M1` and of 756 on `keystroke`, band 21.4% against the
+35% ceiling. The refusal is scoped to the row, exactly as the driver scopes it.
+
+**The refusal is consistent with the mechanism [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)
+already measured, which is that an idle box is the *hard* case.** The band is
+widest at zero load — 24.6% against 8.3% at four competing cores, with
+`corr(band, floor) = −0.49` — and this run's 21.4% sits in that regime. The
+additive constant that makes a doubling control undershoot was re-measured here
+at **c(2×) = 0.83 ms**, or 17.8% of a floor sample that does not scale with the
+page. One run does not establish that quiet hurts this control; it does mean the
+quiet precondition, inherited as non-negotiable, is not sufficient for it, and
+the rebook should not assume more quiet is the repair.
+
+**The `keystroke` row cleared every gate it has and still cannot be published,
+for a reason that is about the rig rather than the box.** Both its controls
+passed — `ctl-50ms` produced 49.84 ms [49.43 – 50.27] of extra task time over 18
+segment-rounds against a predicted ≥ 40 ms, and Event Timing saw its paint move
+at duration p50 48.0 ms over n = 180 against a predicted ≥ 48 ms. The repaired
+witness reconciled exactly: 540 keys pressed, 466 interactions observed and 74
+censored under the 16 ms floor, summing to the keys sent; and the recompute
+census read `p0/cell ×100, p0/draft ×4` on all three substrate arms and no
+subscriptions at all on every floor arm, which is validation.md's 104 and is
+only reachable if the census-instrumented registration is the one the arms ran.
+But **the driver labels all three of its bars `UNADJUDICATED`**: this row's
+control burns a fixed 50 ms rather than doubling the page, so `control / floor`
+reads `(F + 50)/F` and moves with `F`, which is not a pair whose true ratio is a
+property of the page and therefore supplies no band. Under [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)'s
+rule a bar with no band is not adjudicated, so the row has no magnitude to
+publish however clean its witness is. **§5's published per-keystroke figures
+predate that rule and would be labelled `UNADJUDICATED` if re-taken today.**
+
+**A second reason bites independently, and it is the quantisation floor.** The
+smallest non-zero per-sample delta on this row was **0.146 ms** over 1,003
+distinct values. The separation between the candidate and the Reagent donor is
+**0.052 ms** per sample on raw `TaskDuration` — about a third of one grid step.
+A median over many samples can resolve below the grain, but a sign asserted from
+a third of a step is not a finding, and the driver's own ranges agree: every bar
+straddles 1.0.
+
+**What the rebook needs is a change to the rig, not a longer window.** The
+`keystroke` row wants a control whose ratio to the floor is a property of the
+page — the three-point construction of
+[a control that differences the constant away](a-control-that-differences-the-constant-away.md)
+is the obvious donor — because until it has one, no amount of quiet produces an
+adjudicable per-keystroke magnitude. Two smaller items belong with it: the
+dataset above carries `label: null` and `load: null` because `HCLOCK_LABEL` and
+`HCLOCK_LOAD` exist but were not part of the ruled payload, and a window's box
+state ought to be stamped into its own artefact rather than only into prose.
+
 ---
 
 ## 4. The mount row — the one row published as a magnitude
@@ -315,6 +389,12 @@ guard: reportable.** **Canonical DOM: identical.** **0 unverified of 1,008.**
 **Segment seam: 4.9%** — the same floor read 3.461 / 3.627 / 3.631 ms across the
 three segments. **Granularity: 0.092 ms** smallest non-zero delta over 974
 distinct values.
+
+**A sixth run refused this control on a verifiably idle box**, at 1.8443×
+[1.3837 – 2.4233] with a round below the 1.5 floor, and published no mount
+magnitude as a result —
+[§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04).
+Nothing in this section moves on that: it is a refusal, not a reading.
 
 Ratio to the floor measured in that round of that segment, tared, 6 rounds:
 
@@ -422,6 +502,34 @@ itself only half an operation.
 ---
 
 ## 5. Per-keystroke — every arm is one frame
+
+> **THIS ROW WAS TAKEN ON A WITNESS THAT HAS SINCE BEEN REPAIRED, AND ITS
+> `interactions` COLUMN IS THE DEFECT (`rf2-0qj9w`, PR #7439).** Two faults,
+> both since fixed and neither of them a property of the arms. The witness
+> rendered **one** field per arm where `validation.md` specifies a four-field
+> form over a 100-cell grid, and it gated no subscription recomputes at all.
+> And the entries were grouped by `${interactionId || 0}` *inside* an
+> already-known physical sample, so the zero-id `beforeinput` / `input` entries
+> became a second pseudo-interaction beside the real keyboard one — which is how
+> 60 keys per arm came to be reported as **109–115 "interactions"** below. Under
+> web-vitals' rules a zero-id entry is part of **no** interaction, and one
+> physical key forms at most one record.
+>
+> The repaired witness is four controlled fields with all four read back, one
+> record per physical key, keys that raised no entry published as **censored**
+> under the 16 ms floor rather than dropped, and a recompute census that must
+> read 104 on a substrate arm and none on a floor arm — each of them a refusal
+> that exits non-zero naming itself.
+>
+> **The re-take exists and is deliberately not published here.** It was taken in
+> the quiet window of [§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04)
+> and cleared every one of those gates, but its bars are `UNADJUDICATED` for
+> want of a band — this row's fixed-50 ms control supplies none — and the
+> window's other row refused, so the ruled posture is to publish no magnitude
+> and rebook. The raw dataset is retained and re-adjudicable. **The figures
+> below therefore stand as the last published reading and not as a current one**;
+> the direction they report survives the correction (`rf2-emvod`), but their `n`
+> and their interaction accounting do not.
 
 **Both controls: PASS.** `ctl-50ms` produced 49.95 ms [49.44 – 50.49] of extra
 task time (predicted ≥ 40 ms, every segment-round) and Event Timing interactions
