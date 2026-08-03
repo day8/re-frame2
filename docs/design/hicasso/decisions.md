@@ -628,6 +628,22 @@ resolver is the codec's own emitted prop name (`canonical-slot`) — the thing a
 asks is the thing the emitter will do. That resolver must be a pure function of the
 key, which is why a string prop name does not share the prop-name cache with the
 keyword of the same name.
+(c″) **The tag's `#id`/`.class` shorthand is folded on the emitted slot too.** The
+rule — an explicit id wins over `#tag`, and `.foo` composes with a declared class —
+was stated over the props *map*, where it read `:id`, `:class` and `:className` and
+therefore saw three of the spellings the codec accepts. Every other spelling
+survived as a second map key landing on the same React slot, so
+`[:div#tag.foo {:& {"id" "caller" "className" "bar"}}]` let the explicit id lose to
+`#tag` and the caller's class replace `.foo` instead of composing with it — map-order
+dependent again, and through `:&`'s own door, where the author of the element never
+sees the key. The shorthand is folded onto the object the walk EMITS instead: every
+spelling has already been through the canonical slot on its way into that object, so
+there is no key left to miss and nothing left to resolve. The class slot is a
+position in the same sense `ref` is — its value is coerced by the class rule rather
+than by the generic prop conversion, and two spellings of it compose rather than the
+last write silently winning. The fold also deletes the map surgery the shorthand
+merge performed on every element carrying a shorthand; that is a structural change,
+and its clock effect is **unmeasured** like the rest of `:&`.
 (d) The **same key and the same law hold at a crossing** (a Hicasso view head, a
 `defhost` head, `[:>]`). `:&` is merged *before* any conversion, and the conversion
 that follows is the position's own — so a forwarded `:className` crosses under the
@@ -653,8 +669,10 @@ precedent: UIx already uses `:&` for exactly this in this repo
 (`examples/substrates/uix/login/core.cljs:148`).
 **Class composition needs no exception.** An element's own classes are written on
 the **tag** (`[:input.form-control {:& caller}]`), which is not a literal attribute
-key, so the shorthand merge composes them with whatever the remainder brought. A
-literal `:class` still wins outright, because it is a literal.
+key, so the shorthand merge composes them with whatever the remainder brought —
+however the remainder spelled it (c″). A literal `:class` still wins outright,
+because it is a literal, and what composes is what SURVIVED the merge: an alias at a
+slot an owned literal claims never gets that far.
 **Demonstrated, not asserted.** The RealWorld article editor's four form fields
 (`examples/real-apps/realworld_resources/article_editor.cljs:496-522`) are ported
 both ways in `front/census_article_editor_cljs_test`, with the produced elements
