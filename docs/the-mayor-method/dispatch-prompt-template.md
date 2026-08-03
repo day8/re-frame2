@@ -90,6 +90,29 @@ Two hard-won rules:
 A skipped gate needs a one-line PR-body reason (e.g. "tool not installed locally;
 relying on CI"). A silent skip fails review.
 
+### How a gate is run, not just which one
+
+Three rules about the mechanics. Each is here because it cost real hours, and
+none of them is obvious from the gate command itself.
+
+- **Foreground, to completion.** A worker that backgrounds a long gate and ends
+  its turn waiting for the completion notification can wait forever: the
+  notification does not always arrive, and a turn that has ended has nothing
+  left to wake. The worker then reports "standing by" through idle tick after
+  idle tick while its branch sits unmoved — four such incidents in a single day,
+  every one recovered intact the moment somebody asked it for a status. If you
+  background a gate anyway, **poll its log on a timer**; never end a turn
+  waiting to be woken.
+- **Never pipe a gate through `tail`, `head` or `grep`.** A pipeline's exit
+  status is its *last* command's, so a red runner reads green and the PR claims
+  a pass it never got. Redirect to a log file, echo the runner's own exit code
+  explicitly, and quote that number in the PR body.
+- **Put the log somewhere git ignores** — `*.log` already is. An untracked
+  leftover (`bench-logs/`, `PRBODY.md`, `g-fastpr-exit.txt`) makes
+  `git worktree remove` refuse the tree from then on, and nine worktrees
+  accumulated exactly that way before anyone worked out why they would not
+  reap. Cheapest fix is to not create the residue.
+
 ## Choosing solo vs cluster
 
 Pick the shape by **priority first, then size** — don't reflexively dispatch
