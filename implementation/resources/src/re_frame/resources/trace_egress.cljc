@@ -188,7 +188,7 @@
   ## Grain: DECLARATION-conditional, and `:serialize`-only
 
   A `:redact` / `:omit` key has already had its WHOLE scope + params replaced by
-  opaque content-addressed tokens, which SUBSUMES the per-slot surface, so this
+  classification-chosen tokens, which SUBSUMES the per-slot surface, so this
   fires only under `:serialize`. Within `:serialize` it fires on the paths the
   owner DECLARED and on nothing else: a spec declaring nothing the key carries
   rides the key back IDENTICAL (`key-slot-declarations` returns nil), which is
@@ -258,7 +258,7 @@
   `[scope resource-id params]` for OFF-BOX trace egress. Returns
   `[projected-key sensitive?]`. For a REGISTERED owner the scope + params
   tokenize per the owner's `whole-entry-disposition` classification (a
-  `:sensitive?` / `:large?` key redacts to opaque content-addressed
+  `:sensitive?` / `:large?` key redacts to classification-chosen
   `{:rf/redacted <digest>}` tokens; a plain key rides verbatim) and, when that
   COARSE read says nothing, the owner's per-slot `:params` / `:scope`
   DECLARATIONS substitute in place (`redact-key-declarations`, rf2-dl7bz) — the
@@ -373,8 +373,8 @@
   without a row predicate: `:rf.scope/global` is a scalar and rides verbatim (no
   over-redaction); a `[tier {identity}]` 2-vector is not scoped-key-shaped, so
   the walk descends — the TIER KEYWORD rides verbatim (a tool still shows
-  \"session scope\") and the identity MAP tokenizes, distinct scopes keeping
-  distinct digests so per-scope joins survive; and on `:rf.resource/scope-resolved`
+  \"session scope\") and the identity MAP tokenizes to a content-FREE token (rf2-hzcv8: a
+  free scope tag has no owner claim to permit a digest); and on `:rf.resource/scope-resolved`
   itself the sibling has already substituted its `:rf/redacted` SENTINEL — a bare
   keyword, hence a scalar — which the default rides verbatim, leaving that row
   byte-identical (the sibling stamps `:sensitive?` on the row itself, so the
@@ -1019,9 +1019,9 @@
   rather than by the carrier walk, which is what makes the two carriers of one
   scope agree by construction: `:rf.scope/global` is a SCALAR and rides
   verbatim, a `[tier {identity}]` tuple keeps its TIER keyword (a tool still
-  reads \"session scope\") while the identity map tokenizes to a
-  content-addressed `{:rf/redacted <digest>}` — distinct scopes keeping distinct
-  digests, so per-scope joins survive — and an unresolved `{:from-db …}`
+  reads \"session scope\") while the identity map tokenizes to
+  a content-FREE `{:rf/redacted <shape>}` — a free scope tag carries no
+  owner claim that could permit a digest (rf2-hzcv8) — and an unresolved `{:from-db …}`
   reference tokenizes whole. Exactly what rf2-1zc33 settled for the same slot on
   the family's OWN rows; this is that ruling reaching the carrier the family
   projector never runs on.
@@ -1255,7 +1255,7 @@
                        (note! true (if (redacted-token? x) x (ssr/redact-value x)))
 
                        ;; the owner's own reply data — tokenized
-                       ;; content-addressed iff THIS reply's owner redacts, so a
+                       ;; content-FREE (rf2-hzcv8) iff THIS reply's owner redacts, so a
                        ;; plain resource's reply stays fully readable. Idempotent
                        ;; (an opaque token stays sensitive and is not re-digested).
                        (and owner-redacts? (reply-payload-slot k) (some? x))
@@ -1331,7 +1331,7 @@
                 (let [[mv s] (project-tags* v frame-id)]
                   (note! s) (assoc m k mv))
 
-                ;; cursor: a non-nil free cursor tag tokenizes (content-addressed)
+                ;; cursor: a non-nil free cursor tag tokenizes (content-FREE, rf2-hzcv8)
                 ;; iff the row's owner redacts; idempotent (an opaque token stays
                 ;; sensitive + is not re-hashed — `redact-value` of an already
                 ;; redacted token would re-digest, so guard it).
@@ -1346,7 +1346,7 @@
                 ;; `:rf.http/*` reply map (`:body` / `:body-text` / `:detail`)
                 ;; echoes submitted form fields + validation text — app-owned
                 ;; data the scoped-key vocabulary is blind to (rf2-7qbxbm). It
-                ;; is UNCONDITIONALLY tokenized off-box (content-addressed via
+                ;; is UNCONDITIONALLY tokenized off-box (content-FREE via
                 ;; `redact-value`, the same tokenizer the cursor uses) — the
                 ;; status/category attribution survives on the row's sibling
                 ;; scalar tags. Idempotent (an already-redacted token rides
@@ -1422,7 +1422,7 @@
   `ssr/project-scoped-key`).
 
   A `:sensitive?` / `:large?` owner's scope + params
-  tokenize to opaque content-addressed `{:rf/redacted <digest>}` (distinct
+  tokenize to classification-chosen `{:rf/redacted <digest>}` (distinct
   values stay distinct, so a tool's per-key joins survive); an owner making no
   coarse claim has its per-slot `:params` / `:scope` DECLARATIONS substituted
   inside the key (`redact-key-declarations`, rf2-dl7bz) so the declaration the
@@ -1447,8 +1447,8 @@
   defined tag (an app `:next-page-param` fn over the feed data, so it can carry
   a record id / tenant offset / timestamp), not a scoped key, so it escapes the
   scoped-key slots. It rides the ROW's owner classification (read from the
-  sibling `:resource/key`): tokenized to a content-addressed `{:rf/redacted
-  <digest>}` when that owner is non-`:serialize` (sensitive / large /
+  sibling `:resource/key`): tokenized to a content-FREE `{:rf/redacted
+  <shape>}` when that owner is non-`:serialize` (sensitive / large /
   unregistered fail-closed), riding verbatim for a plain feed (no
   over-redaction).
 

@@ -527,8 +527,13 @@
                     "each member's params tokenize through its own owner")
                 (is (every? #(= seq-resource-id (second (first %))) proj)
                     "each keeps its resource-id for attribution")
-                (is (= 2 (count (set (map #(nth (first %) 2) proj))))
-                    "and the two digests DIFFER — distinct identities stay
-                     distinct off-box, which a collapsed accumulator cannot show")
+                (is (= 1 (count (set (map #(nth (first %) 2) proj))))
+                    "and the two tokens now AGREE — this owner is `:sensitive?`,
+                     and rf2-hzcv8 settled that a sensitive value gets no
+                     content-derived token at all, so nothing survives
+                     projection to tell two sensitive identities apart. That
+                     does not weaken this ratchet: the accumulator's
+                     non-collapse is proven by the params-KIND assertion above,
+                     which reads the raw tags and never depended on the token")
                 (is (not (leaks-secret? proj)) "no plaintext off-box")
                 (is (not (leaks-cedn-token? proj)) "no CEDN-1 token off-box")))))))))

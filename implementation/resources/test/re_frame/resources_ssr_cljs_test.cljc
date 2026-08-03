@@ -350,12 +350,13 @@
         (is (not (str/includes? s "rf/redacted"))
             (str "and no digest rides either — the row is absent: " s))))))
 
-(deftest redacted-keys-stay-distinct-no-collision
+(deftest sensitive-keys-collapse-and-that-is-safe
   (reg! :secret/thing {:sensitive? true})
-  (testing "ADVERSARIAL: two distinct sensitive entries (same scope+resource,
-            DIFFERENT params) project to DISTINCT keys — the redaction does not
-            collapse them into one (no lost entry; rf2-otms75). rf2-4bjep: read
-            off the projection metadata, since neither row rides"
+  (testing "rf2-hzcv8 — two distinct SENSITIVE entries now project to the SAME
+            key. Distinctness was bought with a content-derived token, and a
+            content-derived token over a low-entropy identity is recoverable by
+            enumeration, so the trade is settled the other way: joins lose,
+            because the token they were bought with was the leak"
     (let [k1 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "alpha"})
           k2 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "beta"})
           e1 (entry {:resource-id :secret/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
@@ -365,24 +366,50 @@
                   nil 5000 (get-in rdb [state/resources-key :entries]))
           wks   (set (map :projected-key metas))]
       (is (= 2 (count metas)) "premise: the metadata still accounts for both entries")
-      (is (= 2 (count wks)) "two distinct projected (redacted) scoped keys (no collision)")
-      (is (= 2 (count (set (map (comp state/key-id :projected-key) metas))))
-          "…and two distinct BYTE identities, which is the form the collapse
-           would have taken")
+      (is (= 1 (count wks))
+          "the two sensitive keys project to ONE key — no content survives to tell them apart")
       (is (every? (fn [wk] (= :secret/thing (nth wk 1))) wks)
-          "both projected keys preserve the resource-id")
+          "the resource-id still rides — it is never a classification carrier")
       (is (every? (fn [wk] (and (contains? (nth wk 2) :rf/redacted)
                                 (not= {:slug "alpha"} (nth wk 2))
                                 (not= {:slug "beta"} (nth wk 2)))) wks)
-          "neither projected key carries the raw params")
+          "neither projected key carries the raw params")))
+
+  (testing "and the collapse costs nothing, because BOTH rows were already
+            withheld — the withholding matches the token by its :rf/redacted
+            KEY, never by its payload, so no two entries can collide onto one
+            surviving wire row (PR #7391 preserved)"
+    (let [k1 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "alpha"})
+          k2 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "beta"})
+          e1 (entry {:resource-id :secret/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
+          e2 (entry {:resource-id :secret/thing :data {:s 2} :loaded-at 1000 :stale-at 9.0e15})
+          rdb (runtime-db-with {k1 e1 k2 e2})]
       (is (empty? (get-in (ssr/project-resources-runtime-db rdb)
                           [state/resources-key :entries]))
-          "and neither row rides — distinctness is a property of the projection,
-           which the trace / tool egress boundaries still consume"))))
+          "neither row rides"))))
+
+(deftest large-keys-stay-distinct-no-collision
+  (reg! :bulky/thing {:large? true})
+  (testing "rf2-hzcv8 CONTROL — `:large?` is a SIZE claim, not a privacy claim,
+            so a content-derived token is permitted there and is KEPT. Two
+            distinct large entries still project to distinct keys, which is what
+            makes this a real classification split rather than a blanket removal"
+    (let [k1 (state/scoped-resource-key :rf.scope/global :bulky/thing {:slug "alpha"})
+          k2 (state/scoped-resource-key :rf.scope/global :bulky/thing {:slug "beta"})
+          e1 (entry {:resource-id :bulky/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
+          e2 (entry {:resource-id :bulky/thing :data {:s 2} :loaded-at 1000 :stale-at 9.0e15})
+          rdb   (runtime-db-with {k1 e1 k2 e2})
+          metas (ssr/projection-metadata
+                  nil 5000 (get-in rdb [state/resources-key :entries]))
+          wks   (set (map :projected-key metas))]
+      (is (= 2 (count metas)) "premise: the metadata accounts for both entries")
+      (is (= 2 (count wks)) "two distinct projected keys (no collision)")
+      (is (= 2 (count (set (map (comp state/key-id :projected-key) metas))))
+          "…and two distinct BYTE identities, which is the form a collapse would take"))))
 
 (deftest project-scoped-key-is-pure
-  (testing "project-scoped-key: :serialize rides verbatim; :redact/:omit redact
-            scope+params, preserve resource-id + distinctness"
+  (testing "project-scoped-key: :serialize rides verbatim; :redact/:omit both
+            redact scope+params and preserve the resource-id"
     (let [k1 (state/scoped-resource-key :rf.scope/global :r {:a 1})
           k2 (state/scoped-resource-key :rf.scope/global :r {:a 2})]
       ;; nil spec → no :params-schema marks → :serialize rides params verbatim.
@@ -391,64 +418,125 @@
             r2 (ssr/project-scoped-key k2 :redact nil)]
         (is (= :r (nth r1 1)) "resource-id preserved")
         (is (contains? (nth r1 2) :rf/redacted))
-        (is (not= r1 r2) "distinct params → distinct redacted keys")
-        (is (= r1 (ssr/project-scoped-key k1 :redact nil)) "deterministic (same input → same digest)")
-        (is (= (ssr/project-scoped-key k1 :redact nil) (ssr/project-scoped-key k1 :omit nil))
-            ":redact and :omit redact the key identically (both metadata-only)")))))
+        (is (= r1 r2)
+            "rf2-hzcv8 — SENSITIVE keys no longer stay distinct: the token that
+             kept them apart was the enumerable one")
+        (is (= r1 (ssr/project-scoped-key k1 :redact nil)) "deterministic"))
+      (let [o1 (ssr/project-scoped-key k1 :omit nil)
+            o2 (ssr/project-scoped-key k2 :omit nil)]
+        (is (not= o1 o2) ":omit (large) keeps distinctness — a size claim permits a digest")
+        (is (not= (ssr/project-scoped-key k1 :redact nil) o1)
+            ":redact and :omit no longer project identically — the payload is
+             chosen by classification (rf2-hzcv8)")))))
 
-;; ---- the tokenizer is byte-identical across hosts (rf2-4bjep) --------------
+;; ---- the token contract, per classification (rf2-4bjep / rf2-hzcv8) --------
 ;;
-;; `redact-value`'s digest was called "cross-process-stable" and was not: the
-;; JVM branch hashed UTF-8 bytes with exact integer arithmetic, while the CLJS
-;; branch hashed UTF-16 CODE UNITS masked to their low byte, multiplied 32-bit
-;; states with a double `*` whose product exceeds 2^53, and emitted a SIGNED
-;; result. The two agreed on NO input — `"tenant"` was `f93325e5` on the server
-;; and `74e22aec` in the browser — and roughly half of all inputs rendered as a
-;; negative 9-character hex, which is not the shape the function documents.
+;; `redact-value` used to emit `fnv-1a-32` of `(pr-str value)` for EVERY
+;; classification alike, and two separate things were wrong with it.
 ;;
-;; This fixture is what makes the claim testable rather than asserted. It is a
-;; `.cljc` deftest with LITERAL expected digests, so the JVM run and the
-;; `:node-test` run each check the same constants: a divergence reds on one host
-;; and not the other, and a shared regression reds on both. The cases are the
-;; three places the two encodings can part company — pure ASCII (where only the
-;; arithmetic can differ), a 2-byte non-ASCII code point (where UTF-8 and UTF-16
-;; disagree), and a SURROGATE PAIR (where a per-code-unit walk splits one code
-;; point in half). The non-ASCII strings are built from `char` code points rather
-;; than written as literals, so the fixture cannot be silently changed by a
-;; re-encoding of this file.
+;; The digest was not cross-host stable (rf2-4bjep): the JVM branch hashed UTF-8
+;; bytes with exact integer arithmetic, while the CLJS branch hashed UTF-16 CODE
+;; UNITS masked to their low byte, multiplied 32-bit states with a double `*`
+;; whose product exceeds 2^53, and emitted a SIGNED result. That is fixed in
+;; `fnv-1a-32` itself and the fixture below still pins it.
+;;
+;; And it was not a fixed function of the CANONICAL value (rf2-hzcv8): `pr-str`
+;; walks a map in iteration order, so `(array-map :a 1 :b 2)` and
+;; `(array-map :b 2 :a 1)` — which are `=` and have equal canonical bytes —
+;; emitted different digests. The digest now hashes `identity/canonical-bytes`,
+;; the repo's identity authority, which has that property by construction.
+;;
+;; The deeper repair is that the digest is now limited to the classification
+;; that PERMITS one. A sensitive value gets a content-FREE shape token, because
+;; a 32-bit token over a low-entropy tenant id is recoverable by enumeration and
+;; "we hashed it" was a false assurance.
+;;
+;; This fixture is what makes the cross-host claim testable rather than
+;; asserted. It is a `.cljc` deftest with LITERAL expected digests, so the JVM
+;; run and the `:node-test` run each check the same constants: a divergence reds
+;; on one host and not the other, and a shared regression reds on both. The
+;; cases are the three places the encodings can part company — pure ASCII (where
+;; only the arithmetic can differ), a 2-byte non-ASCII code point (where UTF-8
+;; and UTF-16 disagree), and a SURROGATE PAIR (where a per-code-unit walk splits
+;; one code point in half). The non-ASCII strings are built from `char` code
+;; points rather than written as literals, so the fixture cannot be silently
+;; changed by a re-encoding of this file.
 
 (def ^:private cafe-str (str "caf" (char 0xe9)))                      ;; "café"
 (def ^:private emoji-str (str "a" (char 0xd83d) (char 0xde00) "b"))   ;; "a<U+1F600>b"
 
-(deftest the-redaction-digest-is-byte-identical-across-clj-and-cljs
-  (testing "rf2-4bjep — `redact-value`'s digest is a fixed function of the
-            canonical value on EVERY host. The expected digests are literals
-            checked by both runs of this `.cljc`, which is the only shape of
-            assertion that can catch one host drifting from the other"
-    (is (= {:rf/redacted "f93325e5"} (ssr/redact-value "tenant"))
-        "ASCII: the case the two branches disagreed on even though their bytes
-         were identical — the double multiply lost the low bits")
-    (is (= {:rf/redacted "ffcaaa85"} (ssr/redact-value ""))
+(deftest sensitive-redaction-emits-no-content-derived-token
+  (testing "rf2-hzcv8 — the SENSITIVE arm (and every caller that names no
+            disposition, which is the fail-closed default) emits a token whose
+            every slot is a closed-vocabulary tag or an integer. There is no
+            candidate space to enumerate against it: every 6-character string
+            produces the same token"
+    (is (= {:rf/redacted {:type :string :count 6}} (ssr/redact-value "tenant")))
+    (is (= (ssr/redact-value "tenant") (ssr/redact-value "abc123"))
+        "two distinct 6-char secrets are INDISTINGUISHABLE — that is the property")
+    (is (= {:rf/redacted {:type :map :count 1}} (ssr/redact-value {:tenant-id cafe-str})))
+    (is (= {:rf/redacted {:type :number}} (ssr/redact-value 42)))
+    (is (= {:rf/redacted nil} (ssr/redact-value nil))
+        "nil / empty still projects to the stable no-content token")
+    (is (= {:rf/redacted nil} (ssr/redact-value {}))))
+
+  (testing "the 1-arity is the SAFE one, so a caller that cannot name a
+            disposition cannot accidentally mint an enumerable token"
+    (is (= (ssr/redact-value "tenant") (ssr/redact-value "tenant" :redact))))
+
+  (testing "and it is TOTAL — an app payload carrying a value outside CEDN-1 is
+            summarised, not thrown at. A redaction that explodes is not a
+            redaction"
+    (is (= {:rf/redacted {:type :map :count 1}} (ssr/redact-value {:f (fn [_])})))
+    (is (= {:rf/redacted {:type :number}} (ssr/redact-value 1.5)))))
+
+(deftest large-redaction-digest-is-byte-identical-across-clj-and-cljs
+  (testing "rf2-4bjep / rf2-hzcv8 — the `:omit` (large) digest is a fixed
+            function of the value's CANONICAL BYTES on EVERY host. The expected
+            digests are literals checked by both runs of this `.cljc`, which is
+            the only shape of assertion that can catch one host drifting"
+    (is (= {:rf/redacted "d6a56084"} (ssr/redact-value "tenant" :omit))
+        "ASCII: the case the two fnv branches disagreed on even though their
+         bytes were identical — the double multiply lost the low bits")
+    (is (= {:rf/redacted "475d8714"} (ssr/redact-value "" :omit))
         "the empty string still hashes (it is not the nil/empty-COLLECTION case)")
-    (is (= {:rf/redacted "d1ace591"} (ssr/redact-value cafe-str))
+    (is (= {:rf/redacted "3fb1602a"} (ssr/redact-value cafe-str :omit))
         "non-ASCII: one code point, two UTF-8 bytes, one UTF-16 code unit")
-    (is (= {:rf/redacted "215644f1"} (ssr/redact-value emoji-str))
+    (is (= {:rf/redacted "c4ef233c"} (ssr/redact-value emoji-str :omit))
         "a SURROGATE PAIR: one code point, four UTF-8 bytes, TWO UTF-16 code
          units — the case a per-code-unit walk cannot get right")
-    (is (= {:rf/redacted "a94ffb07"} (ssr/redact-value {:tenant-id cafe-str}))
+    (is (= {:rf/redacted "cd777c20"} (ssr/redact-value {:tenant-id cafe-str} :omit))
         "and the same through a whole scope map, which is how it is really used")
-    (is (= {:rf/redacted nil} (ssr/redact-value nil))
-        "nil / empty projects to the stable no-digest token")
-    (is (= {:rf/redacted nil} (ssr/redact-value {})))))
+    (is (= {:rf/redacted nil} (ssr/redact-value nil :omit)))))
 
-(deftest the-redaction-digest-has-the-shape-it-documents
+(deftest large-redaction-digest-is-a-function-of-the-canonical-value
+  (testing "rf2-hzcv8's concrete witness — `(array-map :a 1 :b 2)` and
+            `(array-map :b 2 :a 1)` are `=`, have equal canonical bytes, and
+            emitted 943e4859 / 08a47259 under `pr-str`. Hashing
+            identity/canonical-bytes makes them ONE token, on both hosts"
+    (is (= (ssr/redact-value (array-map :a 1 :b 2) :omit)
+           (ssr/redact-value (array-map :b 2 :a 1) :omit)))
+    (is (= {:rf/redacted "64f7985e"} (ssr/redact-value (array-map :a 1 :b 2) :omit))
+        "pinned as a literal so a host that reorders differently reds here"))
+
+  (testing "SET construction order likewise — canonical bytes sort set elements"
+    (is (= (ssr/redact-value #{:a :b :c} :omit)
+           (ssr/redact-value (into #{} [:c :b :a]) :omit))))
+
+  (testing "and a value OUTSIDE CEDN-1 falls back to the content-free shape
+            rather than throwing — `canonical-bytes` is partial, and an off-box
+            egress projector is handed whatever the app owns"
+    (is (= {:rf/redacted {:type :map :count 1}} (ssr/redact-value {:f (fn [_])} :omit)))
+    (is (= {:rf/redacted {:type :number}} (ssr/redact-value 1.5 :omit)))))
+
+(deftest the-large-redaction-digest-has-the-shape-it-documents
   (testing "rf2-4bjep — 8 lower-case hex characters, always. The CLJS branch's
             `bit-and` yielded a SIGNED int32, so about half of all inputs came
             out as a NEGATIVE 9-character string with a leading `-`. Stated over
             a spread wide enough to hit the negative half rather than over one
             lucky value"
     (let [digests (into []
-                        (map (fn [i] (:rf/redacted (ssr/redact-value {:n i :s (str "id-" i)}))))
+                        (map (fn [i] (:rf/redacted (ssr/redact-value {:n i :s (str "id-" i)} :omit))))
                         (range 256))]
       (is (every? (fn [d] (and (string? d)
                                (= 8 (count d))
