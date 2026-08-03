@@ -1030,6 +1030,293 @@
               0)))))))
 
 ;; ---------------------------------------------------------------------------
+;; 7 — the composition carve-out (rf2-digtt)
+;; ---------------------------------------------------------------------------
+;;
+;; **What these rows can witness, and what they cannot.** A composition
+;; is browser machinery — a range the IME owns — and nothing dispatched
+;; from page script creates one. `bench/hicasso/ime_run.cjs` drives the
+;; real thing over CDP and owns every claim about the EXCHANGE: that it
+;; survives, that a JS value write mid-composition aborts it silently,
+;; that the refusal lands whole at `compositionend`.
+;;
+;; What is witnessable here is the WRITE — the cause the harness measured
+;; the effect of — and it is worth witnessing on every PR because it is
+;; the mechanism, in-page, beside plain React on the same model in the
+;; same turn. The rows below assert that during a composing input event
+;; **nothing writes the field**: not this arm's converge (suppressed by
+;; one reading of the native event) and not React's own end-of-event
+;; restore (which finds the controlled value agreeing with the draft,
+;; because the shadow holds it there). The plain-React comparator writes
+;; in exactly that turn, which is the divergence stated as a measurement
+;; rather than as a claim.
+
+(defn- composition-start!
+  "Open a composition on `node`. The carve-out deliberately does not
+  read this event — the shadow is held by the composing `input` events
+  themselves — so it is here for faithfulness rather than as a signal,
+  which is one fewer thing to keep in step."
+  [node]
+  (.dispatchEvent node (js/CompositionEvent. "compositionstart"
+                                             #js {:bubbles true :data ""}))
+  nil)
+
+(defn- compose-into!
+  "Put `text` in the field the way a composing IME does: the value
+  changes first, and the `input` event that follows carries
+  `isComposing true` and `inputType \"insertCompositionText\"` — the two
+  members a real composing input carries and the one
+  [[re-frame.bench.hicasso.front.controlled/composing-input?]] reads.
+
+  The whole value is replaced rather than inserted at the caret, because
+  that is what a composition range does: each update REPLACES the draft
+  it is composing."
+  [node text]
+  (set-native-value! node text)
+  (.setSelectionRange node (count text) (count text))
+  (.dispatchEvent node (js/InputEvent. "input"
+                                       #js {:bubbles     true
+                                            :data        text
+                                            :inputType   "insertCompositionText"
+                                            :isComposing true}))
+  nil)
+
+(defn- composition-end!
+  "Close the composition, committing `data`."
+  [node data]
+  (.dispatchEvent node (js/CompositionEvent. "compositionend"
+                                             #js {:bubbles true :data data}))
+  nil)
+
+(deftest the-events-a-composition-carries-are-verified-on-the-native-event
+  (testing "the instrument before the rows that trust it — the
+           dead-`isComposing` lesson applied to this file's own composing
+           input. A row whose event silently carried `isComposing false`
+           would be green over a carve-out that never engaged"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM, and no InputEvent constructor")
+      (let [e (js/InputEvent. "input" #js {:bubbles     true
+                                           :data        "し"
+                                           :inputType   "insertCompositionText"
+                                           :isComposing true})]
+        (is (= "input" (.-type e)))
+        (is (true? (.-isComposing e))
+            "the signal the carve-out turns on is really on the event")
+        (is (= "insertCompositionText" (.-inputType e)))
+        (is (true? (.-bubbles e)) "React listens at the root")
+        (is (false? (.-isTrusted e))
+            "the one thing no synthetic event can carry — which is why the
+             EXCHANGE is the CDP harness's claim and only the WRITE is
+             this file's")))))
+
+(deftest a-composing-keystroke-writes-nothing-and-the-refusal-lands-at-the-end
+  (testing "THE CARVE-OUT (rf2-digtt). On a refusing cell, every write
+           that used to land mid-composition is gone — the arm's converge
+           by one reading of the native event, React's own restore because
+           the value it compares against is the live draft — and the
+           refusal arrives whole at `compositionend` instead"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (with-grid
+        (fn [handle]
+          (let [n (cell-input handle 11)]
+            (set-model! 11 "12")
+            (.focus n)
+            (.setSelectionRange n 2 2)
+            (composition-start! n)
+            (let [errs (reported-errors #(compose-into! n "12し"))]
+              (is (= [] errs)
+                  "NOTHING THREW — asserted through a window error listener,
+                   because React routes a throw inside a discrete event to
+                   `reportError` and a `try`/`catch` here would see nothing")
+              (is (= "12し" (.-value n))
+                  "THE ROW. The draft is still on the screen on the line
+                   after `dispatchEvent` returned — neither write happened")
+              (is (= [3 3] (caret n))
+                  "and the caret is where the IME left it, untouched")
+              (is (= "12" (model-value 11))
+                  "while the model refused it, exactly as it always did —
+                   the authored handler still runs and the policy still
+                   applies"))
+            (testing "and the next update continues the same draft"
+              (compose-into! n "12しん")
+              (is (= "12しん" (.-value n)))
+              (is (= "12" (model-value 11))))
+            (testing "the refusal lands whole, once, at compositionend"
+              (composition-end! n "しん")
+              (is (= "12" (.-value n))
+                  "the field snapped back to the model — visibly, at the
+                   commit, rather than silently mid-word")
+              (is (= [2 2] (caret n))
+                  "with the caret restored by offset from the end, which is
+                   the same algorithm every other row of this file reads")
+              (is (= "12" (model-value 11))))
+            (testing "and the field is an ordinary controlled field again"
+              (type-into! n "3")
+              (is (= "123" (.-value n)) "an accepted keystroke lands in-turn")
+              (is (= "123" (model-value 11)))
+              (type-into! n "z")
+              (is (= "123" (.-value n))
+                  "and a refused one comes off the screen in-turn, which is
+                   the conduct the carve-out suspends and nothing more"))))))))
+
+(deftest plain-react-writes-the-refused-value-in-the-same-turn
+  (testing "THE DIVERGENCE, measured beside the row above rather than
+           claimed. The same model, the same composing input event, on
+           UIx's plain-React cell: React's end-of-discrete-event restore
+           assigns `element.value` because the DOM differs from the
+           controlled value, and it does it in the turn the event
+           returned.
+
+           In a real composition that write is what destroys the exchange
+           — no `compositionend`, the in-flight kana gone — which is
+           `ime_run.cjs`'s measurement and not this row's. This row
+           witnesses the CAUSE: the write is there on React, and it is not
+           there on the arm"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (do
+        (pin! :react)
+        (fresh!)
+        (let [handle (uix-mount! 11)
+              n      (.querySelector (:container handle) "#u11")]
+          (try
+            (set-model! 11 "12")
+            (.focus n)
+            (.setSelectionRange n 2 2)
+            (composition-start! n)
+            (compose-into! n "12し")
+            (is (= "12" (.-value n))
+                "plain React put the refused-to value back over the live
+                 draft, in-turn — the conduct this arm now diverges from")
+            (is (= "12" (model-value 11)) "the model refused, as everywhere")
+            (finally
+              (react-dom/flushSync (fn [] (.unmount (:root handle))))
+              (restore-adapter-pin!))))))))
+
+(deftest a-composing-keystroke-on-an-agreeing-cell-changes-nothing
+  (testing "the survival law, kept: where the model takes what is composed
+           there was never a write to suppress, so the carve-out is
+           invisible — the field tracks the draft and the model tracks it
+           too, update by update"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (with-grid
+        (fn [handle]
+          (let [n (cell-input handle 7)]
+            (.focus n)
+            (composition-start! n)
+            (compose-into! n "s")
+            (is (= "s" (.-value n)))
+            (is (= "s" (model-value 7)) "the model observes the intermediate state")
+            (compose-into! n "し")
+            (is (= "し" (.-value n)))
+            (is (= "し" (model-value 7)))
+            (composition-end! n "し")
+            (is (= "し" (.-value n)) "and the commit moves nothing")
+            (is (= [1 1] (caret n)))
+            (is (= "し" (model-value 7)))))))))
+
+(deftest a-normalising-cell-shows-the-normalisation-at-the-commit
+  (testing "the other half of the carve-out's behavioural claim: the model
+           normalises every intermediate state as it always did, and the
+           FIELD shows the composition until the exchange closes"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (with-grid
+        (fn [handle]
+          (let [n (cell-input handle 13)]
+            (.focus n)
+            (composition-start! n)
+            (compose-into! n "s")
+            (is (= "s" (.-value n)) "the draft, not the normalisation")
+            (is (= "S" (model-value 13)) "while the model normalised it")
+            (compose-into! n "sh")
+            (is (= "sh" (.-value n)))
+            (is (= "SH" (model-value 13)))
+            (composition-end! n "sh")
+            (is (= "SH" (.-value n)) "the normalisation lands whole, at the end")
+            (is (= [2 2] (caret n)))))))))
+
+(deftest a-blur-releases-the-shadow-whatever-else-happened
+  (testing "THE SAFETY RIDER, first half. A composition the browser
+           abandons with the focus fires no `compositionend`, so the
+           release cannot be that event's alone. Blur releases
+           unconditionally, and the worst outcome available is the
+           ordinary converge"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (with-grid
+        (fn [handle]
+          (let [n (cell-input handle 11)]
+            (set-model! 11 "12")
+            (.focus n)
+            (composition-start! n)
+            (compose-into! n "12し")
+            (is (= "12し" (.-value n)) "the draft is held")
+            (.blur n)
+            ;; OUT of the discrete-event claim: the row is that the release
+            ;; happens at all, not that it happens in the blur's own turn.
+            (mount/settle!)
+            (is (= "12" (.-value n))
+                "the field is the model's again with no compositionend
+                 anywhere in the exchange")
+            (is (= "12" (model-value 11)))))))))
+
+(deftest a-non-composing-keystroke-releases-a-shadow-nothing-else-closed
+  (testing "THE SAFETY RIDER, second half — the recovery path for a
+           composition destroyed by some OTHER value write, which fires
+           nothing at all. The next ordinary keystroke is not composing,
+           and a change event that is not composing releases before it
+           converges, so the field cannot stay stuck on a draft the model
+           never agreed to"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (with-grid
+        (fn [handle]
+          (let [n (cell-input handle 11)]
+            (set-model! 11 "12")
+            (.focus n)
+            (composition-start! n)
+            (compose-into! n "12し")
+            (is (= "12し" (.-value n)) "a shadow is held, and nothing closed it")
+            (type-into! n "4")
+            (is (= "12" (.-value n))
+                "the ordinary keystroke released the shadow and converged in
+                 the same turn — the draft is gone and the model, which
+                 refused `12し4`, is what the field shows")
+            (is (= "12" (model-value 11)))))))))
+
+(deftest an-unmount-cannot-strand-a-shadow
+  (testing "THE SAFETY RIDER, third half, and the reason it needs no code:
+           the shadow is the internal component's own `useState`. There is
+           no registry, no node property and no module-level record, so an
+           element that goes away takes its shadow with it and the next
+           mount reads the model"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (do
+        (pin! :react)
+        (fresh!)
+        (let [first-handle (arm-mount!)]
+          (try
+            (let [n (cell-input first-handle 11)]
+              (set-model! 11 "12")
+              (.focus n)
+              (composition-start! n)
+              (compose-into! n "12し")
+              (is (= "12し" (.-value n)) "a shadow is live when the tree goes"))
+            (finally (mount/release! first-handle)))
+          (let [second-handle (arm-mount!)]
+            (try
+              (is (= "12" (.-value (cell-input second-handle 11)))
+                  "the remounted field is the model's, with nothing carried
+                   over from the composition that never ended")
+              (is (= "12" (model-value 11)))
+              (finally (mount/release! second-handle)
+                       (restore-adapter-pin!)))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Teardown
 ;; ---------------------------------------------------------------------------
 
