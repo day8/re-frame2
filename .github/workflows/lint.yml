@@ -1,8 +1,9 @@
 name: lint
 
-# Dual-linter CI gate.
+# Multi-linter CI gate.
 #
-# Two complementary linters run as parallel jobs:
+# Three complementary linters run as parallel jobs — two over the Clojure
+# trees, one over the JavaScript ones:
 #
 #   - clj-kondo: bug-class linter (unresolved symbols, arity mismatches,
 #     redefined vars, unused bindings). The `.clj-kondo/config.edn` at
@@ -19,6 +20,22 @@ name: lint
 #     parse — `splint/parsing-error` and friends) blocks the PR while
 #     style warnings stay informational — the same shape as the
 #     clj-kondo job's `--fail-level error`.
+#
+#   - ESLint (rf2-2rtt6.78): bug-class linter over the ~205 tracked
+#     `.cjs` / `.mjs` / `.js` files — bench drivers, gate runners,
+#     browser harnesses, MCP conformance suites — which until it landed
+#     were checked by NOTHING, so a syntax error or a typo'd `require`
+#     surfaced the first time somebody ran the file. Config lives in
+#     `eslint.config.mjs` at repo root, alongside `.clj-kondo/config.edn`
+#     and `.splint.edn`, and its rule set is deliberately hand-picked
+#     rather than `js.configs.recommended`: only rules that answer "what
+#     bug does this catch?", nothing about quoting, spacing, semicolons,
+#     import order or formatting. Everything in it is an error, so the
+#     job blocks on any finding while ESLint's own unused-disable-
+#     directive warnings stay informational — the same shape as the two
+#     jobs above. It landed green with zero suppressions in the tree and
+#     must stay that way: fix a finding, or file a bead naming it, but
+#     never silence it with a disable comment.
 #
 # Lint surface: implementation/, tools/ (minus template/resources/),
 # examples/, testbeds/. Generated trees (.shadow-cljs/, target/,
@@ -54,6 +71,17 @@ on:
       # lint workflow so the Splint gate validates the new config.
       - '.splint.edn'
       - '.github/workflows/lint.yml'
+      # (rf2-2rtt6.78) The ESLint gate's own surface. `eslint.config.mjs`
+      # is the rule set; the root `package.json` + `package-lock.json`
+      # pin the linter version the job installs, so a bump there must
+      # re-run the gate. The JS files themselves live under the trees
+      # already named here plus `scripts/` and `docs/tools/`, which
+      # nothing else in this filter reaches.
+      - 'eslint.config.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/**'
+      - 'docs/tools/**'
       # Public-API manifest drift-check surface (rf2-3nbl5.2).
       - 'spec/API.md'
       - 'spec/api-manifest.edn'
@@ -104,11 +132,17 @@ jobs:
   # Splint jobs key their `if:` on this output, while the always-present
   # aggregator does not — so an unrelated PR runs only this ~5-second job
   # plus the rollup, and both linters skip.
+  #
+  # `js_surface` (rf2-2rtt6.78) is the same idea for the ESLint job, and is
+  # classified SEPARATELY because the two surfaces are not nested: a PR
+  # touching only `scripts/*.mjs` lints under ESLint but has no Clojure to
+  # lint, and a PR touching only `spec/api-manifest.edn` is the reverse.
   detect:
     name: Detect lint surface
     runs-on: ubuntu-latest
     outputs:
       lint_surface: ${{ steps.detect.outputs.lint_surface }}
+      js_surface: ${{ steps.detect.outputs.js_surface }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -123,12 +157,14 @@ jobs:
         run: |
           if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
             echo "lint_surface=true" >> "$GITHUB_OUTPUT"
+            echo "js_surface=true" >> "$GITHUB_OUTPUT"
             echo "Non-PR event (${GITHUB_EVENT_NAME}): running linters unconditionally."
             exit 0
           fi
           git fetch --no-tags --depth=100 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
           files="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
           lint_surface=false
+          js_surface=false
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
@@ -165,7 +201,20 @@ jobs:
               spec/Privacy.md|docs/api/*|docs/story/api/*)
                 lint_surface=true ;;
             esac
+            # (rf2-2rtt6.78) The ESLint surface gets its OWN `case` rather than
+            # another arm above, and the reason is load-bearing: `case` is
+            # first-match-wins, so `implementation/scripts/foo.cjs` is claimed
+            # by the `implementation/*` arm and would never reach a JS arm
+            # placed after it. ESLint classifies by EXTENSION wherever the file
+            # lives, plus the gate's own config and root manifest — a linter
+            # bump in the lockfile has to re-run the linter.
+            case "$file" in
+              *.cjs|*.mjs|*.js|eslint.config.mjs|package.json|package-lock.json)
+                js_surface=true ;;
+            esac
           done <<< "$files"
+          echo "js_surface=${js_surface}" >> "$GITHUB_OUTPUT"
+          echo "js_surface=${js_surface}"
           echo "lint_surface=${lint_surface}" >> "$GITHUB_OUTPUT"
           echo "lint_surface=${lint_surface}"
 
@@ -302,6 +351,56 @@ jobs:
             ../testbeds
 
   # ---------------------------------------------------------------------------
+  # ESLint over the JS corpus (rf2-2rtt6.78).
+  #
+  # The Clojure counterpart of the two jobs above, for the ~205 tracked
+  # `.cjs` / `.mjs` / `.js` files that no gate looked at before this landed.
+  # Everything about the rule set — what it catches, what it deliberately
+  # refuses to police, and why it is not `js.configs.recommended` — is
+  # documented in `eslint.config.mjs` at repo root rather than repeated here.
+  #
+  # This is the cheapest job in the workflow by a wide margin: the root
+  # `package.json` carries ESLint and `globals` and NOTHING else (the CLJS
+  # build toolchain lives in `implementation/package.json` and is not
+  # installed here), so `npm ci` resolves ~70 packages in a few seconds and
+  # the lint pass over the whole corpus takes a few more.
+  #
+  # No `|| true`, no `continue-on-error`, and no `--max-warnings` override:
+  # every rule in the config is an error, so any finding fails the job, while
+  # ESLint's own unused-disable-directive reports stay warnings for triage —
+  # the same errors-block / warnings-informational shape as clj-kondo's
+  # `--fail-level error` and Splint's `--fail-on-errors`.
+  # ---------------------------------------------------------------------------
+  eslint:
+    name: ESLint (fail on errors, warnings informational)
+    needs: detect
+    if: needs.detect.outputs.js_surface == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          # Named explicitly: several `package-lock.json` files live in this
+          # repo (implementation/, tools/mcp-conformance/, the docs
+          # playground) and the cache must key on the ROOT one, which is the
+          # only lockfile this job installs from.
+          cache-dependency-path: package-lock.json
+
+      # `npm ci` from the committed root lockfile, so the linter version the
+      # gate runs is byte-identical to the one pinned in `package.json` —
+      # a floating `npx eslint@latest` would let a rule change red unrelated
+      # PRs with nothing in the diff to explain it.
+      - name: Install ESLint
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint:js
+
+  # ---------------------------------------------------------------------------
   # Public-API manifest drift-check (rf2-3nbl5.2 — API-governance keystone).
   #
   # Regenerates the machine-readable public-API manifest from the LIVE public
@@ -428,8 +527,8 @@ jobs:
   # passes iff every lint job that actually ran also passed. This is the
   # single lint context the branch ruleset should require: a skipped
   # surface-gated linter is OK (it contributed no signal), but the moment
-  # clj-kondo or Splint reports `failure`/`cancelled` the aggregator goes
-  # red and blocks the merge.
+  # clj-kondo, Splint or ESLint reports `failure`/`cancelled` the aggregator
+  # goes red and blocks the merge.
   #
   # `if: always()` is mandatory — without it the aggregator would itself be
   # skipped whenever an upstream job skips, and a skipped required check
@@ -446,6 +545,7 @@ jobs:
       - detect
       - clj-kondo
       - splint
+      - eslint
       - api-manifest
     steps:
       - name: Fail if any required lint job failed or was cancelled
