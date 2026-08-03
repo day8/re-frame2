@@ -49,7 +49,7 @@
     declares, so a second one appearing anywhere reds;
   - **no hook of any kind is interleaved into a shell's pair**: every
     `useContext` is immediately followed by its `useSyncExternalStore`,
-    which is the property that makes "not in a shell" a measurement
+    which is the property that makes *not in a shell* a measurement
     rather than an assurance.
 
   The cost is per controlled TEXT FIELD, not per boundary and not per

@@ -96,8 +96,8 @@ const READY_TIMEOUT_MS = 60 * 1000;
 
 // The check floor (the rf2-qqzmf lesson, carried here): a run that
 // asserted almost nothing must not exit 0. A full three-page run banks
-// ~150 checks; 100 refuses a silently-skipped page while leaving room
-// for per-impl variation.
+// ~120 checks (122 as of rf2-digtt's carve-out rows); 100 refuses a
+// silently-skipped page while leaving room for per-impl variation.
 const MIN_CHECKS = 100;
 
 const ALL_IMPLS = ['hicasso', 'react', 'uix-port'];
