@@ -1329,8 +1329,9 @@
            **The census is read after React's unmount and BEFORE the arm's
            teardown door**, and that ordering is the whole of it.
            `mount/release!` calls `runtime/reset-runtime!`, which disposes
-           every cell and empties the index by fiat, so a residue reading
-           taken after it is all zeros whatever the teardown released —
+           every cell — and with them every reader membership — by fiat, so
+           a residue reading taken after it is all zeros whatever the
+           teardown released —
            measured, by deleting `make-subscribe`'s cleanup
            `release-cell!`: the reading below goes red, and the same
            reading taken after `release!` stays green.
@@ -1349,10 +1350,21 @@
           (.focus n)
           (type-into! n "abc")
           (is (= "abc" (model-value 7)))
-          (is (= (inc grid/cells) (:boundaries (rt/stats)))
-              "a hundred cell registrations and the grid's own are really
-               standing before the teardown — the enclosing `grid` is a
-               `defview` too, so it is a boundary like any other")
+          (is (= grid/cells (:boundaries (rt/stats)))
+              "a hundred cell registrations are really standing before the
+               teardown. The enclosing `grid` is a `defview` too and its
+               registration is standing beside them — but its body READS
+               NOTHING, so since rf2-dabt3 it holds no reader membership
+               anywhere and the table has no record of it. That is the
+               design and not an omission: a registration is live exactly
+               while React holds its cleanup, and the arm keeps no second
+               record of liveness (rf2-ixb92 removed the last one). An
+               edgeless boundary retains its read-set entry and React's own
+               hook cells, and nothing else of this arm's")
+          (is (= (inc grid/cells) (:entries (rt/stats)))
+              "…which is where it shows up: 101 read-set entries, the
+               hundredth-and-first being the empty read sequence the grid
+               resolved")
           (react-dom/flushSync (fn [] (.unmount (:root handle))))
           (let [census (select-keys (rt/residue) [:cell-refs :boundaries :edges])]
             (mount/release! (assoc handle :root nil))
