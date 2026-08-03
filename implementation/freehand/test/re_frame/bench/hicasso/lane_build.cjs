@@ -70,9 +70,17 @@ const COMPLETED_RE = /\[(:[^\]\s]+)\]\s+Build completed\.[^\n]*?(\d+)\s+warnings
 const FAILED_RE = /\[(:[^\]\s]+)\]\s+Build failed/g;
 
 // `------ WARNING #1 - :undeclared-var ------`, the block header shadow prints
-// per warning. Used as the corroborating signal for refusal (4) above.
+// per warning. Used as the corroborating signal for refusal (4) above, and to
+// NAME the warning class in the refusal — a gate that reports "2 warning(s)"
+// without saying `:undeclared-var` makes the reader go hunting.
+//
+// The headline capture must run to the TRAILING dash-run rather than stopping
+// at the first `-`, because the class is separated from the number by one:
+// `WARNING #1 - :undeclared-var`. Getting that wrong is silent (an empty list
+// reads exactly like a build with no warnings), which is why
+// `lane_build.test.cjs` pins it.
 const WARNING_MARKER_RE = /-{2,}\s*WARNING\b/;
-const WARNING_HEADLINE_RE = /-{2,}\s*(WARNING\s*#\d+[^-\n]*?)\s*-{2,}/g;
+const WARNING_HEADLINE_RE = /-{2,}\s*(WARNING[^\n]*?)\s*-{3,}\s*$/gm;
 
 function stripAnsi(s) {
   return String(s).replace(ANSI_RE, '');
