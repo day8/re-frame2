@@ -791,6 +791,79 @@
 (defn- ^boolean slim-void-idx? [t]
   (true? (unchecked-get slim-void-index t)))
 
+;; --- the per-element hiccup-shape read (rf2-e7zxb) --------------------------
+;;
+;; `hiccup-shape` answers three questions at once — the slot value, whether it
+;; is a props map, and where children begin — and hands them back in a freshly
+;; minted 3-element PersistentVector that every one of its four call sites
+;; destructures and discards. The destructure is three `nth` calls ON TOP of
+;; the allocation, and the two derived answers are one expression each.
+;;
+;; Both arms fold the three values into ONE number, so the row prices the SHAPE
+;; DERIVATION and not a tail that differs between them.
+
+(defn- slim-shape-ship [argv first-pos]
+  (let [[head has-props first-child] (slim/hiccup-shape argv first-pos)]
+    (+ first-child (if has-props 100 0) (if (nil? head) 10000 0))))
+
+(defn- slim-shape-inline [argv first-pos]
+  (let [head        (nth argv first-pos nil)
+        has-props   (or (nil? head) (map? head))
+        first-child (+ first-pos (if has-props 1 0))]
+    (+ first-child (if has-props 100 0) (if (nil? head) 10000 0))))
+
+;; --- the per-element head dispatch (rf2-e7zxb) ------------------------------
+;;
+;; `vec-to-elem` asks four `(= tag :>)`-shaped questions before it reaches the
+;; `hiccup-tag?` branch that EVERY DOM element takes, and `cljs.core/=` falls
+;; through `identical?` to an `-equiv` protocol dispatch on a miss — so the
+;; common head pays four of them. `keyword-identical?` answers the same
+;; question with an `instance?` pair and an interned-string compare; `case` is
+;; the third shape. The three arms end identically so the row prices the
+;; DISPATCH, and the roster is `tags` — the page's own DOM heads, i.e. exactly
+;; the population that misses all four.
+
+(defn- ^boolean slim-hiccup-tag? [x]
+  (or (keyword? x) (symbol? x) (string? x)))
+
+(defn- slim-head-ship [tag]
+  (cond
+    (= tag :>)  0
+    (= tag :<>) 1
+    (= tag :r>) 2
+    (= tag :f>) 3
+    (slim-hiccup-tag? tag) 4
+    :else 5))
+
+(defn- slim-head-kwid [tag]
+  (cond
+    (keyword-identical? tag :>)  0
+    (keyword-identical? tag :<>) 1
+    (keyword-identical? tag :r>) 2
+    (keyword-identical? tag :f>) 3
+    (slim-hiccup-tag? tag) 4
+    :else 5))
+
+(defn- slim-head-case [tag]
+  (case tag
+    :>  0
+    :<> 1
+    :r> 2
+    :f> 3
+    (if (slim-hiccup-tag? tag) 4 5)))
+
+;; The heads a hiccup renderer must answer for and the census page does not
+;; carry — the four interop sentinels themselves; the same four RECONSTRUCTED
+;; at runtime, which a constants-table identity test would miss and `=` would
+;; not; their STRING and SYMBOL look-alikes, which must NOT match a keyword
+;; sentinel; a reserved head; and the non-named heads reaching the component
+;; branches.
+(def ^:private hostile-heads
+  [:> :<> :r> :f>
+   (keyword ">") (keyword "<>") (keyword "r>") (keyword "f>")
+   ">" "<>" "r>" "f>" ":>" (symbol ">") (symbol "<>")
+   :rf/suspense-boundary :div "div" (symbol "div") nil 7 (fn [] nil)])
+
 (defn- warm-slim! [^js tags ^js prop-keys]
   (dotimes [i (.-length prop-keys)]
     (let [k (aget prop-keys i)] (slim-prop-ship k) (slim-prop-np k)))
@@ -836,7 +909,14 @@
      ;; the per-element void probe
      [:slim-void-set  (ns-per-op micro-reps tag-strs slim-void-set?)]
      [:slim-void-case (ns-per-op micro-reps tag-strs slim-void-case?)]
-     [:slim-void-idx  (ns-per-op micro-reps tag-strs slim-void-idx?)]]))
+     [:slim-void-idx  (ns-per-op micro-reps tag-strs slim-void-idx?)]
+     ;; the per-element hiccup-shape read (rf2-e7zxb)
+     [:slim-shape-ship   (ns-per-op micro-reps el-vecs (fn [v] (slim-shape-ship v 1)))]
+     [:slim-shape-inline (ns-per-op micro-reps el-vecs (fn [v] (slim-shape-inline v 1)))]
+     ;; the per-element head dispatch (rf2-e7zxb)
+     [:slim-head-ship (ns-per-op micro-reps tags slim-head-ship)]
+     [:slim-head-kwid (ns-per-op micro-reps tags slim-head-kwid)]
+     [:slim-head-case (ns-per-op micro-reps tags slim-head-case)]]))
 
 (defn- slim-agreement
   "Every cheapened slim variant answers what the shipping shape answers —
@@ -876,7 +956,32 @@
                          (slim-convert-props-static slim-preamble-cheap p t)))
             (swap! bad conj [:pipeline-static i])))
         (when-not (= (slim-key-ship v) (slim-key-spec v p))
-          (swap! bad conj [:key i]))))
+          (swap! bad conj [:key i]))
+        ;; the shape read, at BOTH positions its call sites use (1 for a DOM
+        ;; tag and `:<>`, 2 for `:>`)
+        (when-not (= (slim-shape-ship v 1) (slim-shape-inline v 1))
+          (swap! bad conj [:shape-1 i]))
+        (when-not (= (slim-shape-ship v 2) (slim-shape-inline v 2))
+          (swap! bad conj [:shape-2 i]))))
+    ;; the head dispatch, over the page's own heads and the heads it lacks
+    (dotimes [i (.-length tags)]
+      (let [t (aget tags i)
+            s (slim-head-ship t)]
+        (when-not (= s (slim-head-kwid t)) (swap! bad conj [:head-kwid t]))
+        (when-not (= s (slim-head-case t)) (swap! bad conj [:head-case t]))))
+    (doseq [t hostile-heads]
+      (let [s (slim-head-ship t)]
+        (when-not (= s (slim-head-kwid t)) (swap! bad conj [:hostile-head-kwid (pr-str t)]))
+        (when-not (= s (slim-head-case t)) (swap! bad conj [:hostile-head-case (pr-str t)]))))
+    ;; the shape read over hostile SLOTS — nil and a map are the props shape,
+    ;; everything else is a child
+    (doseq [h [nil {} {:a 1} [] "x" 0 :k]]
+      (let [v ["div" h "c"]]
+        (when-not (= (slim-shape-ship v 1) (slim-shape-inline v 1))
+          (swap! bad conj [:hostile-shape (pr-str h)]))))
+    ;; and past the end of the vector, which `nth`'s not-found arm answers
+    (when-not (= (slim-shape-ship ["div"] 1) (slim-shape-inline ["div"] 1))
+      (swap! bad conj [:shape-past-end]))
     ;; hostile names the page does not carry
     (doseq [n ["__proto__" "prototype" "constructor" "toString" "hasOwnProperty"
                "valueOf" "isPrototypeOf"]]
