@@ -138,7 +138,7 @@ There is **one** callback form, `h/fn`, and it is an **ordinary function**:
 | Position | Contract |
 |---|---|
 | a native `:on-*` prop | **event** — a returned vector is dispatched; any other return is ignored |
-| a `defhost` `:callbacks` entry | as **declared** (`:event` or `:handler`) |
+| a `defhost` `:callbacks` entry | as **declared** (`:event`, `:handler` or `:render`) |
 | any other walked prop position (a slot, a foreign render prop) | **render** — pure; the return is output, and dispatching from inside is a loud error **naming the position** |
 | `:ref` | React's own contract; not lowered |
 | anywhere Hicasso does not walk | a plain function; it runs, and its return is ignored |
@@ -148,6 +148,21 @@ vector is; the value is lowered where it finally lands. Ordinary functions remai
 untouched at every position, which is why there is no separate identity-passthrough
 form: the codec already hands functions to React by identity so `React.memo` and
 handler-identity bail-outs keep working.
+
+**The declared contract governs every carrier at that position**, not just the
+`h/fn`. An intent vector and a key-map are each a dispatch and nothing else, so
+they are accepted at `:event` and refused at `:handler` and `:render` with
+`:rf.error/hicasso-intent-at-a-non-event-contract` — otherwise the value would be
+selecting the contract, which is the thing the row above forbids.
+
+**The vector spelling is event-first.** `::h/prevent`, `::h/value`, `::h/checked`
+and a key-map's key lookup read the DOM event from **argument one** — what a
+native position hands them and what `onDraft(event)` hands them. A value-first
+foreign invoker (`onPick(value, event)`) raises
+`:rf.error/hicasso-intent-needs-the-event` naming the position, rather than the
+engine's `value.preventDefault is not a function`; `h/fn` is the spelling there,
+since it receives every argument in order. An intent carrying neither a marker nor
+a decorator never reads its argument, so it is correct under any invoker contract.
 
 The point of the collapse is the last row. In the predecessor the roster forms are
 carriers — marker objects — so one handed to a raw `#js` prop is not callable and
