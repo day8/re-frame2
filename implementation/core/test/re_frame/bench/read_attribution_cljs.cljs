@@ -118,6 +118,16 @@
   printing only the slope is how an arm reading exactly TWICE its
   prediction at BOTH sizes went unremarked for as long as it did.
 
+  And the SMI pair REFUSES rather than merely commenting (rf2-l3jv4). It
+  used to print `*** NEITHER — the SMI arm is not measuring a tagged-slot
+  copy ***` and then exit 0 under the arm-order guard's `VERDICT:
+  reportable` beside it, so the exact recurrence the control exists to catch
+  could still be published. `re-frame.bench.calibration` turns the ratios
+  and the slope into a boolean, and this run's exit code is the OR of three
+  independent refusals: the arm order's, the read-back's, and the control's.
+  The DBL LARGE pair's ~+9% is deliberately NOT gated — it is an understood
+  large-object effect and every arm here allocates small ones.
+
   `NOOP` is the bare `keep!` loop — the inner-loop skeleton every arm below
   shares, with the arm's own body removed. It is PREDICTED TO READ 0, and
   it is the instrument's FLOOR. Near-zero arms are the CLJS story here (the
@@ -281,6 +291,7 @@
             [goog.string :as gstring]
             [goog.string.format]
             [re-frame.adapter.context :as adapter-context]
+            [re-frame.bench.calibration :as calib]
             [re-frame.bench.order-guard :as guard]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -1375,6 +1386,11 @@
   ;; a broken verdict here could lift a refusal it had no right to lift.
   (when-not (print-floor-self-test!)
     (throw (ex-info "floor-verdict self-test FAILED — nothing may be measured" {})))
+  ;; rf2-l3jv4 — and the control calibration, whose refusal is a third
+  ;; independent contributor to this run's exit code. Injected ratios,
+  ;; including the recorded 16.11 B/slot the owner bead was opened on.
+  (when-not (calib/print-self-test!)
+    (throw (ex-info "calibration self-test FAILED — nothing may be measured" {})))
   (let [n            (env-int "RA_N" 300)
         samples      (env-int "RA_SAMPLES" 42)
         warmup       (env-int "RA_WARMUP" 3)
@@ -1587,6 +1603,15 @@
                                            :windows    (get-in run [:windows label] 0))]))
                          plan))
             b    (fn [l] (:p50 (get res l)))
+            ;; rf2-l3jv4 — the control's own verdict, computed ONCE from the
+            ;; same p50s the CONTROLS block prints, and carried to the exit
+            ;; code at the bottom. The bands live in
+            ;; `re-frame.bench.calibration` and are expressed nowhere else,
+            ;; so what is printed and what refuses cannot drift apart.
+            cal  (calib/verdict
+                   (mapv (fn [d] {:d d :smi (b (ctl-key "SMI" d)) :dbl (b (ctl-key "DBL" d))})
+                         ctl-smi-ds)
+                   (slope b (ctl-key "SMI" 100) 100 (ctl-key "SMI" 200) 200))
             noop (b "NOOP")
             ;; per-READ figures. Every ladder arm runs `n` inner iterations, so
             ;; the per-read figure is the per-call figure over n — which divides
@@ -1617,30 +1642,36 @@
                 p (+ 32 16 (* 8 d))]
             (println (gstring/format ";;   DBL D=%-6d %12s B/copy   predicted %7d  %+.2f%%"
                              d (fmt m) p (* 100.0 (/ (- m p) p))))))
-        (doseq [d ctl-smi-ds]
-          (let [m (b (ctl-key "SMI" d))
-                r (b (ctl-key "DBL" d))]
-            (println (gstring/format
-                       ";;   SMI D=%-6d %12s B/copy   x%.4f of DBL D=%d (%s B)  -> %s"
-                       d (fmt m) (/ m r) d (fmt r)
-                       (cond
-                         (< 0.95 (/ m r) 1.05) "8 B/slot, compression OFF"
-                         (< 0.45 (/ m r) 0.55) "4 B/slot, compression ON"
-                         :else                 "*** NEITHER — the SMI arm is not measuring a tagged-slot copy ***")))))
+        (doseq [{:keys [d smi dbl ratio regime]} (:pairs cal)]
+          (println (gstring/format
+                     ";;   SMI D=%-6d %12s B/copy   x%.4f of DBL D=%d (%s B)  -> %s"
+                     d (fmt smi) ratio d (fmt dbl)
+                     (case regime
+                       :off     "8 B/slot, compression OFF"
+                       :on      "4 B/slot, compression ON"
+                       :neither "*** NEITHER — the SMI arm is not measuring a tagged-slot copy ***"))))
         (let [sm (slope b (ctl-key "DBL" 100) 100 (ctl-key "DBL" 200) 200)
               lg (slope b (ctl-key "DBL" 1000) 1000 (ctl-key "DBL" 10000) 10000)
-              si (slope b (ctl-key "SMI" 100) 100 (ctl-key "SMI" 200) 200)]
+              si (:slope cal)]
           (println (gstring/format
                      ";;   DBL slope, SMALL pair (100->200)     %.4f B/double  predicted 8.0000  %+.2f%%"
                      sm (* 100.0 (/ (- sm 8.0) 8.0))))
           (println (gstring/format
                      ";;   DBL slope, LARGE pair (1000->10000)  %.4f B/double  predicted 8.0000  %+.2f%%   (page-tail filler; the arms here are all SMALL objects)"
                      lg (* 100.0 (/ (- lg 8.0) 8.0))))
+          ;; rf2-l3jv4 — the width is the one the RATIOS above selected, not
+          ;; one read off this slope. Selecting it from the slope cannot see a
+          ;; doubled slope at all: 16.1 simply answers "OFF" and is then
+          ;; compared to 8.
           (println (gstring/format
-                     ";;   SMI slope, SMALL pair (100->200)     %.4f B/slot    -> pointer compression %s   %+.2f%% off that width"
-                     si (if (< si 6.0) "ON (4 B/slot, Chrome-like)"
-                            "OFF (8 B/slot, Node default)")
-                     (let [w (if (< si 6.0) 4.0 8.0)] (* 100.0 (/ (- si w) w))))))
+                     ";;   SMI slope, SMALL pair (100->200)     %.4f B/slot    -> pointer compression %s   %s"
+                     si (case (:regime cal)
+                          :off     "OFF (8 B/slot, Node default)"
+                          :on      "ON (4 B/slot, Chrome-like)"
+                          :neither "UNREADABLE — the ratios above name no regime")
+                     (if-let [off (:off-by cal)]
+                       (gstring/format "%+.2f%% off that width" (* 100.0 off))
+                       "no width to check it against"))))
         (println ";;")
         ;; --- the floor -----------------------------------------------------
         (println ";; THE FLOOR — NOOP is the bare keep! loop, PREDICTED 0 B")
@@ -2057,6 +2088,16 @@
                                              (keep #(when (not= :floor (:status %)) (:label %))
                                                    verdicts))
                                    " — what those arms read is not the per-window floor.")])))))))
+        ;; rf2-l3jv4 — the CONTROL's refusal, independent of the arm order's.
+        ;; The order guard asks whether an arm's figure moved with where in
+        ;; the plan it sat; this asks whether the instrument was measuring a
+        ;; tagged-slot copy at all. Until this bead the answer only ever
+        ;; printed, so a run could report `NEITHER` above and still exit 0
+        ;; under a `VERDICT: reportable`.
+        (doseq [line (calib/report-lines cal)]
+          (println line))
+        (when (:refuse? cal)
+          (set! (.-exitCode js/process) 2))
         (let [total (reduce + (map (fn [[l _ _]] (:unverified (get res l))) plan))
               wins  (reduce + (map (fn [[l _ _]] (:windows (get res l))) plan))]
           (println ";;")
