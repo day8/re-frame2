@@ -21,13 +21,25 @@
       `:schema` tripwire the handler's arm is ordinary code and does not
       elide. The same schema also made `[:cart :add-form :draft]` unsatisfiable
       by the page's own rule that the token must never enter that draft.
+    - rf2-eane2 after the #7347 audit: this suite called
+      `{:item-id \"sku-1\" :quantity 2 :csrf-token \"tok-abc\"}` the canonical
+      body a browser submits, and hard-coded it. A browser submits TEXT —
+      `quantity=2` parses to the string `\"2\"` under the string key
+      `\"quantity\"` — and the pattern required the host to parse the body
+      while defining no keywordisation or coercion contract at all. So the
+      proof was vacuous at exactly the seam that was missing: a real parsed
+      body 403'd (the CSRF compare looks up `:csrf-token` in a string-keyed
+      map and finds nothing) or 400'd (`\"2\"` is not an `:int`). The page now
+      names one normalisation owner — `:rf/server-init` — and prints the
+      decoding code, and the server shapes below are DERIVED from a literal
+      `application/x-www-form-urlencoded` body through that code.
 
-  Both defects are invisible to a reader and to every gate the page had. Both
-  are caught below by DRIVING the documented handler, so this suite cannot
-  drift from the page: every schema, helper and branch under test is read out
-  of the markdown fences at run time rather than transcribed here. A rewritten
-  example that still works stays green; one that reintroduces either defect
-  goes red naming the arm.
+  All three defects are invisible to a reader and to every gate the page had.
+  All three are caught below by DRIVING the documented handler, so this suite
+  cannot drift from the page: every schema, helper and branch under test is
+  read out of the markdown fences at run time rather than transcribed here. A
+  rewritten example that still works stays green; one that reintroduces any of
+  the defects goes red naming the arm.
 
   WHAT `deftest`s 1-2 PROVE THAT A SCHEMA-ONLY CHECK COULD NOT. The defect was
   never that a schema rejected a bad value — it was that the SHARED handler
@@ -48,7 +60,12 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [malli.error :as me]))
+            [malli.error :as me]
+            ;; Referenced by the page's own `decode-form-params`, which is
+            ;; EVALUATED into this namespace — so the alias is load-bearing
+            ;; even though no form typed here mentions it.
+            [malli.transform :as mt])
+  (:import [java.net URLDecoder]))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the worked example out of the page
@@ -111,11 +128,18 @@
   (delay
     (binding [*ns* (find-ns 're-frame.ssr-doc-example-form-action-test)]
       (let [schema-forms (forms (fence "(def AddToCartFields"))
+            seam-forms   (forms (fence "defn decode-form-params"))
             helper-forms (forms (fence "defn write-form-errors"))
             handler-form (first (forms (fence "rf/reg-event :cart/add-item")))]
         ;; The two `def`s (skip the `reg-app-schema` calls — `rf` is not
         ;; required here and `FormSlice` lives in Pattern-Forms).
         (doseq [f schema-forms :when (= 'def (first f))]
+          (eval f))
+        ;; The wire → domain seam: `route->action` and `decode-form-params`
+        ;; (skip the `rf/reg-event :rf/server-init` registration sharing the
+        ;; fence — `rf` and `route/match` are not resolvable here, and the
+        ;; two extracted forms are the whole of the normalisation contract).
+        (doseq [f seam-forms :when (contains? #{'def 'defn} (first f))]
           (eval f))
         ;; `write-form-errors` / `explain->errors`.
         (doseq [f helper-forms :when (= 'defn (first f))]
@@ -124,6 +148,9 @@
             "the example still registers the action handler with reg-event")
         {:fields     @(resolve 'AddToCartFields)
          :submission @(resolve 'AddToCartSubmission)
+         ;; The normalisation seam, exactly as the page prints it.
+         :decode        @(resolve 'decode-form-params)
+         :route->action @(resolve 'route->action)
          ;; The event-args schema exactly as the page declares it, with
          ;; `AddToCartSubmission` resolved from the metadata map.
          :event-schema (eval (:schema (nth handler-form 2)))
@@ -148,9 +175,43 @@
          (map keyword)
          set)))
 
+(def ^:private raw-wire-body
+  "What the BROWSER puts on the wire for the documented form with JS off:
+  `application/x-www-form-urlencoded`, one field per `<input name=…>`. Text,
+  end to end — there are no types and no keywords in a form submission."
+  "csrf-token=tok-abc&item-id=sku-1&quantity=2")
+
+(defn- parse-form-urlencoded
+  "The HOST ADAPTER's job — Ring's `wrap-params` produces exactly this shape,
+  and the pattern requires nothing more of a host than that it get here: a map
+  of STRING keys to STRING values. No keywordisation, no coercion. Everything
+  between this and the handler is the app's own responsibility, which is the
+  seam the #7347 audit found unnamed."
+  [body]
+  (into {} (for [pair (str/split body #"&")
+                 :let [[k v] (str/split pair #"=" 2)]]
+             [(URLDecoder/decode k "UTF-8") (URLDecoder/decode v "UTF-8")])))
+
+(def ^:private parsed-post
+  "The host adapter's output for `raw-wire-body` — what actually lands under
+  `:form-params`, and what `:rf/server-init` is handed."
+  (delay (parse-form-urlencoded raw-wire-body)))
+
+(defn- decode-post
+  "Drive a wire-shaped body through the PAGE's `decode-form-params`, resolving
+  the schema through the PAGE's `route->action` table. Both halves of the
+  documented normalisation seam, neither transcribed."
+  [parsed]
+  (let [{:keys [decode route->action]} @example
+        {:keys [schema]} (route->action :route/cart-add)]
+    (decode schema parsed)))
+
 (def ^:private server-post
-  "The canonical no-JS POST body: every field the HTML form carries."
-  {:item-id "sku-1" :quantity 2 :csrf-token "tok-abc"})
+  "The canonical no-JS POST body as the ACTION HANDLER receives it — derived
+  from the wire body above through the page's own seam, never hand-written.
+  Before the seam existed this was a hard-coded map of already-normalised
+  values, which is what made the earlier browser-to-handler proof vacuous."
+  (delay (decode-post @parsed-post)))
 
 (def ^:private client-dispatch
   "The canonical hydrated-client payload: the draft plus the view's `item-id`,
@@ -193,12 +254,97 @@
             one extra key — the token — and must be accepted by the same
             handler and the same field schema, then answered with the canonical
             POST-redirect-GET."
-    (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} server-post)]
+    (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} @server-post)]
       (is (= [[:rf.server/redirect {:status 303 :location "/cart"}]] fx)
           "the server arm emits the 303, not the client's :dispatch")
       (is (= [{:item-id "sku-1" :quantity 2}] (get-in db [:cart :items]))
           "the cart holds the EDITABLE FIELDS only — the token was never
            written into app-db"))))
+
+;; ===========================================================================
+;; (1b) THE TRANSPORT SEAM: a real form-urlencoded body reaches the 303
+;; ===========================================================================
+
+(deftest the-parsed-body-is-strings-keyed-by-strings
+  (testing "rf2-eane2 (#7347 audit): the premise the earlier proof skipped. A
+            browser submits text; the host adapter parses it; nothing in that
+            chain keywordises a key or coerces a value. Naming this shape is
+            what makes the normalisation owner a real obligation rather than a
+            style note."
+    (let [parsed @parsed-post]
+      (is (every? string? (keys parsed))
+          "the parsed body's keys are STRINGS — the handler's :csrf-token
+           lookup would find nothing")
+      (is (every? string? (vals parsed))
+          "and so are its values — \"2\", not 2")
+      (is (= @posted-field-names (set (map keyword (keys parsed))))
+          "and it carries exactly the inputs the documented form renders, so
+           the wire body under test is the one this page's HTML produces"))))
+
+(deftest the-documented-seam-turns-the-wire-body-into-the-handlers-shape
+  (testing "rf2-eane2 (#7347): one named owner, and its code is on the page.
+            `route->action` resolves the route to the event AND the schema that
+            decodes its body; `decode-form-params` does the decoding. Both are
+            extracted, so a page that drops either goes red here."
+    (let [{:keys [route->action]} @example]
+      (is (= :cart/add-item (:event (route->action :route/cart-add)))
+          "the table still resolves the documented route to its action event")
+      (is (some? (:schema (route->action :route/cart-add)))
+          "and to the schema that decodes its body — one table, both facts")
+      (is (= {:csrf-token "tok-abc" :item-id "sku-1" :quantity 2} @server-post)
+          "the seam keywordises the keys and coerces :quantity to an integer,
+           leaving the two string fields alone"))))
+
+(deftest the-no-js-post-reaches-303-driven-from-the-wire
+  (testing "rf2-eane2 (#7347): the end-to-end claim, from the bytes a browser
+            puts on the wire through the documented seam to the response. This
+            is the assertion the hard-coded body could not make."
+    (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"}
+                                  (decode-post (parse-form-urlencoded raw-wire-body)))]
+      (is (= [[:rf.server/redirect {:status 303 :location "/cart"}]] fx)
+          "a valid no-JS submission reaches the canonical POST-redirect-GET")
+      (is (= [{:item-id "sku-1" :quantity 2}] (get-in db [:cart :items]))
+          "carrying the coerced integer quantity into the cart, not \"2\""))))
+
+(deftest the-raw-parsed-body-does-not-reach-303-so-the-seam-is-load-bearing
+  (testing "rf2-eane2 (#7347): the counter-proof. Hand the handler what the
+            host adapter actually produced — undecoded — and a CORRECT
+            submission is rejected: the CSRF compare misses a string-keyed
+            :csrf-token and fails closed. A page that quietly drops the
+            normalisation step turns this test green in the worst possible
+            way, so it asserts the failure explicitly."
+    (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} @parsed-post)]
+      (is (= [[:rf.server/set-status 403]] fx)
+          "an un-normalised body 403s even though its token is right — this is
+           the bug the seam exists to prevent, not an acceptable outcome")
+      (is (nil? (get-in db [:cart :items]))
+          "and nothing reached the cart"))))
+
+(deftest malformed-wire-values-still-reach-the-safe-400-draft-path
+  (testing "rf2-eane2 (#7347): decoding must not become a second, unshaped
+            rejection point. A value the transformer cannot decode passes
+            through and fails the handler's own arm, so malformed input still
+            gets the documented 400-with-repopulated-draft rather than an
+            exception at the seam."
+    (testing "— a decodable but invalid quantity"
+      (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"}
+                                    (decode-post (parse-form-urlencoded
+                                                  "csrf-token=tok-abc&item-id=sku-1&quantity=0")))]
+        (is (= [[:rf.server/set-status 400]] fx) "the handler's validation arm")
+        (is (= {:item-id "sku-1" :quantity 0} (get-in db [:cart :add-form :draft]))
+            "the submitted values went back into the draft, coerced")
+        (is (not (contains? (get-in db [:cart :add-form :draft]) :csrf-token))
+            "and the token did not")))
+    (testing "— a value the transformer cannot decode at all"
+      (let [decoded (decode-post (parse-form-urlencoded
+                                  "csrf-token=tok-abc&item-id=sku-1&quantity=abc"))]
+        (is (= "abc" (:quantity decoded))
+            "the seam passes it through unchanged rather than throwing")
+        (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} decoded)]
+          (is (= [[:rf.server/set-status 400]] fx)
+              "so it lands on the same safe 400 path")
+          (is (nil? (get-in db [:cart :items]))
+              "and nothing reached the cart"))))))
 
 ;; ===========================================================================
 ;; (2) The shapes are the ones the page's own HTML and schemas describe
@@ -230,11 +376,11 @@
     (let [{:keys [fields event-schema]} @example]
       (is (m/validate fields client-dispatch)
           "field schema accepts the client draft")
-      (is (m/validate fields server-post)
+      (is (m/validate fields @server-post)
           "field schema accepts the server POST body unchanged")
       (is (m/validate event-schema [:cart/add-item client-dispatch])
           "the dev tripwire admits the client dispatch — it did not before")
-      (is (m/validate event-schema [:cart/add-item server-post])
+      (is (m/validate event-schema [:cart/add-item @server-post])
           "and the server POST")
       (is (not (m/validate fields (assoc client-dispatch :quantity 0)))
           "the field schema still REJECTS a bad quantity — the split did not
@@ -270,7 +416,7 @@
             schema the canonical draft was invalid BY CONSTRUCTION. Proven here
             against what the real handler writes, not against a transcription."
     (let [{:keys [fields draft-schema-sym]} @example
-          bad-post (assoc server-post :quantity 0)
+          bad-post (assoc @server-post :quantity 0)
           {:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} bad-post)
           drafted  (get-in db [:cart :add-form :draft])]
       (is (= 'AddToCartFields draft-schema-sym)
@@ -308,7 +454,7 @@
   (testing "rf2-eane2: the baseline the page always claimed — a submitted token
             that does not match the session's is a 403, before any mutation."
     (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"}
-                                  (assoc server-post :csrf-token "tok-WRONG"))]
+                                  (assoc @server-post :csrf-token "tok-WRONG"))]
       (is (= [[:rf.server/set-status 403]] fx) "403, not 400 and not success")
       (is (nil? (get-in db [:cart :items])) "no state mutation"))))
 
@@ -319,7 +465,7 @@
             copy, so a fail-open here undercuts the whole section. Both limbs
             must hold: session token present AND equal."
     (let [{:keys [db fx]} (invoke {:server? true :active-token nil}
-                                  (dissoc server-post :csrf-token))]
+                                  (dissoc @server-post :csrf-token))]
       (is (= [[:rf.server/set-status 403]] fx)
           "no session ⇒ 403; nil = nil must NOT read as a valid token")
       (is (nil? (get-in db [:cart :items]))
