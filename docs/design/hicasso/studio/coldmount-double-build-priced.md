@@ -363,8 +363,9 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 > `requestAnimationFrame` reads 1.00N at 1 and 2.00N at 300, a `MessageChannel`
 > post loses — is an operator-approved lifecycle contract (`rf2-2rtt6.14` ruled
 > the primitive a macrotask), so it was **not** changed by the audit repair, and
-> `rf2-2rtt6.25` stays OPEN on that decision. Standing witness:
-> `assert-use-subscribe-public-mount-schedule-rebuilds`.
+> `rf2-2rtt6.25` stays OPEN on that decision. Suite witness:
+> `assert-use-subscribe-browser-runner-schedule-rebuilds` — which pins the
+> **runner's** schedule, not a consumer's (`rf2-2rtt6.80`).
 >
 > **UPDATE, 2026-08-03 — the horizon was ruled, and the retraction above still
 > stands** (`rf2-2rtt6.71`, ruling (a)). The reap horizon moved from
@@ -378,11 +379,15 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 > row still reads two builds at any shippable horizon and witnesses the
 > runner's schedule rather than a consumer's (swept 0/8/16/32/64/256/1024/5000
 > ms and per-token arming; only ≥256 ms or no reaper at all flips it). The
-> evidence for the win remains the swap-the-primitive probe.
+> evidence for the win remains the swap-the-primitive probe — which
+> `rf2-2rtt6.80` has since committed as a runnable on-demand diagnostic,
+> `node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`,
+> measuring its page's render-to-passive-flush gap before it will read an
+> adoption integer and printing REFUSED with that gap when it cannot bound it.
 > **None of that revives the `shipped` rows below.**
 > They were measured on 2026-07-31, under the old horizon, inside `flushSync`,
-> and **no row on this page has been re-taken** — the flipped assertions are the
-> witness for the public schedule, not this instrument. Read the retraction as
+> and **no row on this page has been re-taken** — the public-schedule question
+> is answered off this page, by that diagnostic. Read the retraction as
 > written: these figures remain forced-synchronous mechanism figures, and the
 > shipped-performance claims they once carried remain withdrawn.
 

@@ -18,7 +18,7 @@
   REAPER WINS: the escrowed reference is released, the commit misses, and
   the cold read builds twice, `bodyRuns` 2.00N measured at N = 1 and
   N = 300 (rf2-2rtt6.25, merged-PR audit of #7305; browser assertion
-  `use-subscribe-public-mount-schedule-rebuilds`).
+  `use-subscribe-browser-runner-schedule-rebuilds`).
 
   So the `shipped` rows below are the MECHANISM measured where it is
   allowed to run to completion. They are not an acceptance witness for

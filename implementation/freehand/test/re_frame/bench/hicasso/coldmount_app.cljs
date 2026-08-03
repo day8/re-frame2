@@ -89,7 +89,7 @@
   escrowed reference was released, the commit missed, and the mount
   rebuilt — `bodyRuns` 2.00N, measured at N = 1 and N = 300
   (rf2-2rtt6.25, merged-PR audit of #7305; the browser assertion is
-  `use-subscribe-public-mount-schedule-rebuilds`).
+  `use-subscribe-browser-runner-schedule-rebuilds`).
 
   So the `shipped` arm here is **the forced-synchronous MECHANISM arm**,
   not an acceptance witness for shipped performance. Its rows say what
@@ -196,7 +196,7 @@
                         "so these rows remain forced-synchronous mechanism rows. The browser assertions "
                         "listed below do not witness it either — the test runner's render-to-flush gap "
                         "measures >128 ms, so they still read two builds at any shippable horizon.")
-   :assertions     ["use-subscribe-public-mount-schedule-rebuilds"
+   :assertions     ["use-subscribe-browser-runner-schedule-rebuilds"
                     "use-subscribe-escrow-leg-answers-on-the-public-mount-schedule"
                     "use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount"]})
 
