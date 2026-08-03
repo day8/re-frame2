@@ -5199,14 +5199,39 @@ jobs:
       - tools-playground
     steps:
       # `needs.*.result` is the spread of every dependency's final result.
-      # `contains(... , 'failure')` / `'cancelled')` catch any gating job
-      # that ran and did not pass. `skipped` (surface-gated job that did
-      # not run) and `success` are both acceptable, so they are NOT
-      # treated as failures.
-      - name: Fail if any required job failed or was cancelled
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      # `success` and `skipped` (a surface-gated job that did not run) are
+      # both acceptable. `failure` and `cancelled` are not — but they are
+      # NOT the same thing, and reporting them in the same words is what
+      # made a transient read as a defect (rf2-1x32v).
+      #
+      # A FAILURE is a verdict: a job ran and said no. A CANCELLATION is the
+      # ABSENCE of a verdict: the job was stopped — by a superseding push, by
+      # a re-run joining the same cancel-in-progress concurrency group, by an
+      # infra blip — and produced no signal at all.
+      #
+      # Both still BLOCK, and that is deliberate: no signal is not a pass,
+      # and this aggregator is the one context the branch ruleset requires,
+      # so a cancelled `beads-pr-boundary` reading green would let a tracker
+      # database ride a PR onto main. What changes is what the operator is
+      # told. "Incomplete, re-run" is an instruction; "failed" is an
+      # accusation, and an accusation that turns out to be spurious twice in
+      # a day teaches people to wave the check away — which is how a real
+      # violation eventually gets waved away too.
+      #
+      # Order matters: a real failure is reported in preference to a
+      # cancellation, so a run containing both is never described as merely
+      # incomplete.
+      - name: Blocked — a required job FAILED
+        if: ${{ contains(needs.*.result, 'failure') }}
         run: |
-          echo "::error::A required test.yml job reported failure or cancelled — blocking merge."
+          echo "::error::A required test.yml job FAILED — blocking merge. This is a real red: open the failing job and read its log. Re-running will not clear it."
+          echo "needs results: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+
+      - name: Blocked — a required job was CANCELLED (incomplete, not failed)
+        if: ${{ contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "::error::A required test.yml job was CANCELLED — INCOMPLETE, not failed. No required job reported failure; a cancelled job produced no signal at all, so this run cannot be called green either. Re-run the workflow ONCE, then leave it alone: for pull_request events this workflow's concurrency group is cancel-in-progress, so a second re-run cancels the attempt still in flight and the job can never finish (rf2-1x32v)."
           echo "needs results: ${{ join(needs.*.result, ', ') }}"
           exit 1
 
