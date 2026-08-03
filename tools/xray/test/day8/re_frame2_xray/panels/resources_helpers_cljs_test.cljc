@@ -557,7 +557,8 @@
 (def ^:private m5-routing-slice
   {:current {:route-id :route/article :nav-token m5-nav-token
              :params {:slug "welcome"} :path "/articles/welcome"}
-   :resource-blocking {m5-nav-token #{m5-article-key}}})
+   ;; rf2-btdl1 — the slot is the byte-keyed {<key-id> <scoped-key>} carrier.
+   :resource-blocking {m5-nav-token {(state/key-id m5-article-key) m5-article-key}}})
 
 (deftest project-route-graph-live-test
   (let [;; a FRESH cached :article/by-slug entry (loaded, stale-at in future)
@@ -640,8 +641,8 @@
   route has settled). The current route must NOT be flagged blocked."
   {:current {:route-id :route/article :nav-token cduftx-current-token
              :params {:slug "now-article"} :path "/articles/now-article"}
-   :resource-blocking {cduftx-stale-token   #{cduftx-stale-key}
-                       cduftx-current-token #{}}})
+   :resource-blocking {cduftx-stale-token   {(state/key-id cduftx-stale-key) cduftx-stale-key}
+                       cduftx-current-token {}}})
 
 (deftest project-route-graph-isolates-blocking-by-nav-token
   (testing "an OLD token's unsettled key for the current route's resource-id
