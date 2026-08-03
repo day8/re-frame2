@@ -375,11 +375,14 @@ published ensemble came near it (8.8–19.7% on the corrected clock, 10.3–23.6
 > **AND IT WAS THE TRIPWIRE RATHER THAN THE RUN (`rf2-ymi6j`).** This firing was
 > on the **frame-only** clock, provably: at this page's driver blob the gate
 > reads `o.verdict.seam.verdict.ceilingBreached` and nothing else. A re-take of
-> the ladder that set the threshold measures `P(band > 25%)` at **2.6% pooled,
-> 9.0% within-run**, so 25% sat inside the bulk of the statistic's own
-> distribution rather than above its tail — which is how a gate calibrated never
-> to fire came to fire three times in two days. The ceiling is now **35%**, set
-> from that distribution, and the gate reads the published clock. See
+> the ladder that set the threshold measures `P(band > 25%)` at **9.1% per
+> run**, so 25% sat inside the bulk of the statistic's own distribution rather
+> than above its tail — which is how a gate calibrated never to fire came to
+> fire three times in two days. The ceiling is now **35%**, whose own per-run
+> false-fire rate is 2.7%, and the gate reads the published clock. (That
+> ceiling was first published as the statistic's `q99`; the derivation is
+> **withdrawn** — it used a resampling model that pooled blocks across runs.)
+> See
 > [the band re-calibrated](the-band-re-calibrated.md#5-the-third-explanation-which-is-the-one-the-data-names).
 > This run's `bulk300` row stays refused: `rf2-7iqb5` refuses every bulk row on
 > the three-point control.
