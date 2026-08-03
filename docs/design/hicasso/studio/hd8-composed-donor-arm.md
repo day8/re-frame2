@@ -97,13 +97,16 @@ The two landings are `rf2-2rtt6.13` (PR #7304, **`9df5094816`**) — stopped
 retaining the disposed render-phase reaction — and `rf2-2rtt6.25` (PR #7305,
 **`f784ab0adb`**) — the hook-scoped provisional hand-off, a **mount-path** change
 that makes a cold read build one reaction instead of two **under a forced
-synchronous commit** (`act`/`flushSync`). It does not hold on the public mount
-schedule: `rf2-2rtt6.25`'s witness mounts through the adapter's `:render` slot
-with no `act` and no `flushSync`, and the shipped hook builds **twice** there —
-`bodyRuns` 2.00N at N = 1 and at N = 300 — the `setTimeout 0` reaper releasing
-the escrowed reference before React's passive subscribe. What stays open on
-`rf2-2rtt6.25` is the operator's decision on the reap horizon; see the retraction
-banner on
+synchronous commit** (`act`/`flushSync`). **As this page's rows were measured it
+did not hold on the public mount schedule**: `rf2-2rtt6.25`'s witness mounts
+through the adapter's `:render` slot with no `act` and no `flushSync`, and there
+the shipped hook built **twice** — `bodyRuns` 2.00N at N = 1 and at N = 300 —
+the `setTimeout 0` reaper releasing the escrowed reference before React's passive
+subscribe. `rf2-2rtt6.71` has since ruled the reap horizon out to `setTimeout 4`
+(2026-08-03), so the public schedule adopts too — by a measured margin, not a
+React guarantee — but **no row on this page was re-taken**, so every figure below
+still reads the two-build spine. See the retraction banner and its 2026-08-03
+update on
 [coldmount-double-build-priced.md](coldmount-double-build-priced.md#the-hand-off-landed--the-same-instrument-re-run-against-shipped-code).
 This page attributes no retained-heap benefit to `.25` either way. Both are
 ancestors of `main`.
