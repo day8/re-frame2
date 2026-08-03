@@ -533,19 +533,26 @@
 ;;
 ;; Slim's per-element shapes are `defn-` private, so they are replicated here
 ;; the way the cache candidates above already are ("written here so every arm
-;; is local"). The replicas are held honest two ways:
-;;
-;;   1. FIDELITY. `slim-prop-lookup-ship` replicates `slim/cached-prop-name`
-;;      exactly; its row must read the same as `prop-name-slim`, which calls
-;;      the REAL function. A replica that drifted would show up as a split
-;;      between those two rows.
-;;   2. AGREEMENT. Every cheapened variant answers what the shipping shape
-;;      answers, over the page's own literals AND the hostile names it does
-;;      not carry — checked before any figure is read.
-;;
-;; Everything the replicas cannot reach privately is called for real:
-;; `slim/parse-tag`, `slim/class-names`, `slim/cached-prop-name`,
+;; is local"). Everything the replicas cannot reach privately is called for
+;; real: `slim/parse-tag`, `slim/class-names`, `slim/cached-prop-name`,
 ;; `slim/convert-prop-value` and `slim/void-tags` are all public.
+;;
+;; WHAT A ROW HERE IS, AND IS NOT. A `-ship` row is a REPLICA of the shipping
+;; shape, not the shipping shape. It is held honest by AGREEMENT — every
+;; cheapened variant answers what its `-ship` twin answers, over the page's
+;; own literals AND the hostile names it does not carry, checked before any
+;; figure is read — so a `ship → cheap` delta names a term and its sign
+;; reliably. It is NOT calibrated in absolute terms against the real
+;; function, and must not be read as if it were: measured on the first run,
+;; `slim-prop-lookup-ship` read 86.0 ns/op where `prop-name-slim` — the same
+;; algorithm, but the REAL `slim/cached-prop-name` — read 66.8. Same shape,
+;; different call site, 29% apart.
+;;
+;; So the authority for "did the landed change move the shipping function?"
+;; is the STAGE table's own real-function rows (`prop-name-slim`,
+;; `convert-props-*`) and the ARM rows, compared across a before run and an
+;; after run. These rows are the map that says WHERE to cut; those rows are
+;; the verdict on the cut.
 
 (def ^:private slim-reserved #{"__proto__" "prototype" "constructor"})
 
@@ -709,6 +716,21 @@
       (reduce-kv (fn [o k v] (slim-top-prop-conv reserved? native? o k v))
                  #js {} with-shorthand))))
 
+;; Shipping threads `native?` into the reduce through a CLOSURE minted per
+;; element — `(fn [o k v] (top-prop-conv native? o k v))`. Decide the rule
+;; once per element instead and the reduce takes a static fn, so the mount
+;; allocates nothing to carry a boolean it already knows. Costed rather than
+;; assumed: V8 allocates closures cheaply and this may be free.
+(defn- slim-native-prop-conv  [o k v] (slim-top-prop-conv slim-reserved-chain? true o k v))
+(defn- slim-interop-prop-conv [o k v] (slim-top-prop-conv slim-reserved-chain? false o k v))
+
+(defn- slim-convert-props-static [preamble props parsed]
+  (let [native?        (string? (.-tag parsed))
+        with-shorthand (preamble props parsed)]
+    (when (seq with-shorthand)
+      (reduce-kv (if native? slim-native-prop-conv slim-interop-prop-conv)
+                 #js {} with-shorthand))))
+
 ;; --- the per-element `:key` read -------------------------------------------
 ;;
 ;; Shipping asks `vector?` twice, reads `meta`, then `nth 0`, a `case`, `nth 1`
@@ -774,7 +796,11 @@
                   (fn [p t] (slim-convert-props slim-preamble-ship slim-reserved-set? p t)))]
      [:slim-convert-props-cheap
       (ns-per-op2 micro-reps el-props parsed
-                  (fn [p t] (slim-convert-props slim-preamble-cheap slim-reserved-idx? p t)))]
+                  (fn [p t] (slim-convert-props slim-preamble-cheap slim-reserved-chain? p t)))]
+     ;; cheap vs static differ ONLY by the per-element closure.
+     [:slim-convert-props-static
+      (ns-per-op2 micro-reps el-props parsed
+                  (fn [p t] (slim-convert-props-static slim-preamble-cheap p t)))]
      ;; the per-element key read
      [:slim-key-ship (ns-per-op micro-reps el-vecs slim-key-ship)]
      [:slim-key-spec (ns-per-op2 micro-reps el-vecs el-props slim-key-spec)]
@@ -810,11 +836,16 @@
             v (aget el-vecs i)]
         (when-not (= (slim-preamble-ship p t) (slim-preamble-cheap p t))
           (swap! bad conj [:preamble i]))
-        (when-not (= (js/JSON.stringify
-                       (slim-convert-props slim-preamble-ship slim-reserved-set? p t))
-                     (js/JSON.stringify
-                       (slim-convert-props slim-preamble-cheap slim-reserved-chain? p t)))
-          (swap! bad conj [:pipeline i]))
+        (let [shipped (js/JSON.stringify
+                        (slim-convert-props slim-preamble-ship slim-reserved-set? p t))]
+          (when-not (= shipped
+                       (js/JSON.stringify
+                         (slim-convert-props slim-preamble-cheap slim-reserved-chain? p t)))
+            (swap! bad conj [:pipeline i]))
+          (when-not (= shipped
+                       (js/JSON.stringify
+                         (slim-convert-props-static slim-preamble-cheap p t)))
+            (swap! bad conj [:pipeline-static i])))
         (when-not (= (slim-key-ship v) (slim-key-spec v p))
           (swap! bad conj [:key i]))))
     ;; hostile names the page does not carry

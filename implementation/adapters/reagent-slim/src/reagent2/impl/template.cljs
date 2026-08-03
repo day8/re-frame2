@@ -239,30 +239,23 @@
 ;; to carry. See `own-key?`'s epitaph below.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private reserved-prop-keys
-  "JS property keys that must NEVER be `aset` from user-controlled
-  input. Writing to these mutates the prototype of the object instead
-  of creating an own property, which leaks inherited slots across
-  every subsequent prop-map conversion. Per rf2-dwds9 MEDIUM."
-  #{"__proto__" "prototype" "constructor"})
+(defn- ^boolean reserved-prop-key?
+  "True for the three JS property names that must NEVER be `aset` from
+  user-controlled input: writing to one of them mutates the target's
+  prototype instead of creating an own property, leaking inherited slots
+  across every subsequent prop-map conversion. Per rf2-dwds9 MEDIUM.
 
-;; A null-prototype index DERIVED from the roster above, so there is exactly
-;; ONE list of reserved names in this file and nothing to keep in step
-;; (rf2-lhdp0). `contains?` on a PersistentHashSet costs a string hash plus a
-;; hash-map probe; this costs one property load. It is asked once per prop
-;; occurrence on every element of every mount, at the `aset` chokepoint, so
-;; the difference is a per-mount term rather than a micro-optimisation.
-;;
-;; `__proto__` is an ORDINARY own key on a null-prototype object — the
-;; magic accessor lives on `Object.prototype`, which this object does not
-;; have — so the roster indexes itself with no special case.
-(def ^:private reserved-prop-key-index
-  (reduce (fn [o k] (unchecked-set o k true) o)
-          (js/Object.create nil)
-          reserved-prop-keys))
-
-(defn- ^boolean reserved-prop-key? [n]
-  (true? (unchecked-get reserved-prop-key-index n)))
+  THE ROSTER IS THE FUNCTION BODY (rf2-lhdp0). This was a
+  `PersistentHashSet` and a `contains?`, which is a string hash plus a
+  hash-map probe — 53.7 ns/op on the census page's own prop names, for a
+  roster of three, asked once per prop occurrence on every element of every
+  mount. Three `===` compares answer it in 10.4 ns and need no second
+  data structure to keep in step with. `front/codec`'s `reserved-name?`
+  is the same shape for the same reason."
+  [n]
+  (or (identical? "__proto__" n)
+      (identical? "prototype" n)
+      (identical? "constructor" n)))
 
 ;; WHY THERE IS NO `own-key?` ANY MORE (rf2-tsuk6, closed structurally by
 ;; rf2-lhdp0).
@@ -743,9 +736,14 @@
 ;; OR via `:key` in the props map. We honour the meta first, falling
 ;; back to the props map.
 ;;
-;; Reached from two directions: the element constructors AND `expand-seq`'s
-;; per-child missing-key DEBUG warning, which runs on the RAW list children
-;; of EVERY head shape. That warning path is why each interop head keeps a
+;; ONE rule, TWO entry points. `react-key` is the rule and takes the props
+;; slot; `get-react-key` finds the slot first, for a caller that holds only
+;; a vector. The constructors that have already shaped their argv
+;; (`native-element`, `fragment-element`) call the rule; `expand-seq`'s
+;; per-child missing-key DEBUG warning — which runs on the RAW list children
+;; of EVERY head shape — and the cold component constructors call the finder.
+;;
+;; That warning path is why each interop head keeps a
 ;; case here — including `:r>`: `raw-element` owns `:r>` key stamping during
 ;; construction, but a raw `:r>` child (e.g.
 ;; `(for [x xs] [:r> C #js {:key x}])`) still flows through the missing-key
@@ -754,40 +752,33 @@
 ;; properly-keyed `:r>` list child.
 ;; ---------------------------------------------------------------------------
 
-(defn- get-react-key [v]
-  (let [k (when (vector? v) (some-> (meta v) :key))]
-    (or k
-        (case (when (vector? v) (nth v 0 nil))
-          (:> :f>) (when (map? (nth v 2 nil)) (:key (nth v 2 nil)))
-          ;; `:r>` reaches here only via expand-seq's missing-key warning
-          ;; (see the header note); read the js-props `.key` React honours.
-          :r>      (some-> (nth v 2 nil) (.-key))
-          (when (map? (nth v 1 nil)) (:key (nth v 1 nil)))))))
+(defn- react-key
+  "THE RULE: `^{:key …}` meta on the hiccup vector wins; failing that, the
+  props map's `:key`. `props` is the vector's props slot, nil when it has
+  none — `(:key nil)` is nil, so the absence needs no branch.
 
-(defn- react-key-from-props
-  "`get-react-key` for a caller that ALREADY knows the props slot.
-
-  `native-element` — the emit path for every DOM element and every `:>`
-  interop element, so the overwhelming majority of a mount's elements —
-  has just computed `hiccup-shape`'s `head`, which IS the slot
-  `get-react-key` goes looking for. Given that, the general function's
-  work is a `vector?` pair, an `nth 0`, a `case` dispatch, a second `nth`
-  and a `map?` — all of it to re-derive a value already in hand — before
-  the one `:key` lookup it wanted (rf2-lhdp0).
-
-  EQUIVALENT BY CONSTRUCTION, both routes into `native-element`:
-
-    - a DOM tag enters at `first-pos` 1, so `head` is `(nth argv 1 nil)`,
-      which is what `get-react-key`'s DEFAULT branch reads;
-    - `:>` enters at `first-pos` 2 (`interop-element`), so `head` is
-      `(nth argv 2 nil)`, which is what its `(:> :f>)` branch reads.
-
-  `props` is `hiccup-shape`'s `head` — nil or a map, because that is what
-  made `has-props?` true. `(:key nil)` is nil, matching the general
-  function's `map?` guard for the nil case."
+  This is what an element constructor calls. Locating the props slot is
+  precisely what `hiccup-shape` has just done for it, so re-deriving the
+  slot from the head — `get-react-key`'s `nth`/`case` ladder below — is
+  work the hot path does not owe: 133.9 → 62.8 ns per element on the
+  census page (rf2-lhdp0)."
   [argv props]
   (or (some-> (meta argv) :key)
       (:key props)))
+
+(defn- get-react-key
+  "[[react-key]] for a caller holding only a hiccup vector, which must
+  find the props slot before it can read it: the slot is at index 2 under
+  an interop head and index 1 otherwise."
+  [v]
+  (when (vector? v)
+    (case (nth v 0 nil)
+      (:> :f>) (react-key v (let [h (nth v 2 nil)] (when (map? h) h)))
+      ;; `:r>` reaches here only via expand-seq's missing-key warning (see
+      ;; the header note); its props slot is a JS object, so the rule's
+      ;; `:key` lookup does not apply — read the `.key` React honours.
+      :r>      (or (some-> (meta v) :key) (some-> (nth v 2 nil) (.-key)))
+      (react-key v (let [h (nth v 1 nil)] (when (map? h) h))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-coord stamping (per IMPL-SPEC §5.4 + §9.4)
@@ -853,9 +844,13 @@
 
 ;; A null-prototype index DERIVED from `void-tags`, so the roster above stays
 ;; the single source of truth and there is no second list to drift
-;; (rf2-lhdp0). The probe is asked once per DOM element of every mount, and a
-;; `contains?` on a 14-entry PersistentHashSet costs a string hash plus a
-;; hash-map probe where a property load costs one lookup.
+;; (rf2-lhdp0). The probe is asked once per DOM element of every mount, and
+;; `contains?` on this 14-entry PersistentHashSet measured 102.3 ns/op on the
+;; census page's own tag strings — a string hash plus a hash-map probe, where
+;; a property load on a prototype-less object is 17.5. Unlike the three-name
+;; reserved roster, fourteen `===` compares are not the readable answer here,
+;; so the index earns its five lines; a `case` was costed too (25.4) and
+;; declined because it would be a SECOND copy of the roster.
 (def ^:private void-tag-index
   (reduce (fn [o t] (unchecked-set o t true) o)
           (js/Object.create nil)
@@ -1008,10 +1003,11 @@
         props     (cond-> (when has-props head)
                     (and *source-coord* (string? component)) merge-source-coord-attr)
         js-props  (or (convert-props props parsed) #js {})]
-    ;; `props` is `hiccup-shape`'s own props slot (the source-coord merge only
-    ;; ever adds `:data-rf2-source-coord`, never `:key`), so the slot the
-    ;; general `get-react-key` would go and re-derive is already bound here.
-    (when-some [key (react-key-from-props argv props)]
+    ;; `props` IS the props slot `get-react-key` would go and re-derive, on
+    ;; both routes here: a DOM tag enters at `first-pos` 1 and `:>` at 2,
+    ;; which are exactly the two indices that ladder reads. (The source-coord
+    ;; merge only ever adds `:data-rf2-source-coord`, never `:key`.)
+    (when-some [key (react-key argv props)]
       (set! (.-key js-props) key))
     (make-element argv component js-props first-child)))
 
@@ -1121,7 +1117,8 @@
         js-props  (or (when (and has-props (some? head))
                         (convert-prop-value head))
                       #js {})]
-    (when-some [key (get-react-key argv)]
+    ;; The slot is in hand, so the rule is read directly — see `react-key`.
+    (when-some [key (react-key argv (when has-props head))]
       (set! (.-key js-props) key))
     (make-element argv (.-Fragment react) js-props first-child)))
 
