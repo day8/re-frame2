@@ -96,6 +96,11 @@ realized once and flattened one level, `nil` and `false` render nothing, `true` 
 error, and an existing React element is a legal child anywhere. A view may return
 `nil`, a single root, or a fragment.
 
+`(:children props)` is a **vector of hiccup forms**, so splice it rather than
+dropping it in whole — `(into [:ul.nested] children)`, or `(into [:<>] children)`
+when you have nothing to wrap it in. A raw vector in child position is read as
+hiccup, and a vector whose head is itself a vector is not a legal element.
+
 `:key` never reaches your body. That is React's contract, not a Hicasso choice, and
 pretending otherwise would be the kind of leaky convenience that costs you a day
 when it finally bites.

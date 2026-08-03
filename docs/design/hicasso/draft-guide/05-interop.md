@@ -3,15 +3,14 @@
 > **Draft ahead of the product artefact.** This page teaches the landed surface —
 > ruled in [decisions.md](../decisions.md) (HD-001…HD-028). `defhost`'s door is
 > witnessed end-to-end by
-> `implementation/freehand/test/re_frame/bench/hicasso/arm1/host_hatch_dom_cljs_test.cljs`
-> (rf2-2rtt6.65): one foreign React component with its own state, its own effects,
-> its own context read and three different invoker styles on its callbacks,
-> declared once and driven from a Hicasso tree. No `implementation/hicasso/`
-> artefact ships yet, though, and spellings marked **[unfrozen]** stay provisional
-> until the API freeze. Three things this page describes are ruled but **not
-> built** — the `[:>]` raw escape, the migration codemod and SSR — one default,
-> deep prop conversion, is deliberately not offered at all, and `defhost`'s option
-> keys are still open. See **Not settled yet**.
+> `implementation/freehand/test/re_frame/bench/hicasso/arm1/host_hatch_dom_cljs_test.cljs`:
+> one foreign React component with its own state, its own effects, its own context
+> read and three different invoker styles on its callbacks, declared once and
+> driven from a Hicasso tree. No `implementation/hicasso/` artefact ships yet,
+> though, and spellings marked **[unfrozen]** stay provisional until the API
+> freeze. Three things this page describes are ruled but **not built** — the `[:>]`
+> raw escape, the migration codemod and SSR — and one default, deep prop
+> conversion, is deliberately not offered at all. See **Not settled yet**.
 
 You want a date picker from npm. In Reagent you write `[:> DatePicker {...}]` and
 move on. Hicasso asks you to write one line first:
@@ -25,7 +24,8 @@ move on. Hicasso asks you to write one line first:
   {:callbacks {:on-change :event}})     ;; defhost is [unfrozen]
 ```
 
-Then use it anywhere, and it is indistinguishable from a native view:
+Then use it anywhere a view is legal — including as another view's child, since
+children cross as ordinary hiccup and are lowered by whoever renders them:
 
 ```clojure
 (ns app.views
@@ -80,7 +80,16 @@ Reagent was never `[:>]`, it was `r/atom`.
 
 Policy overrides live on the declaration rather than at the call site, which is the
 whole point: one place decides how this component is crossed, and every use site
-inherits it. The option keys are not in the record; see **Not settled yet**.
+inherits it. There is exactly one option today — `:callbacks`, a finite map from
+prop name to `:event`, `:handler` or `:render`, and the subject of the next
+section.
+
+Everything a declaration can get wrong, it gets wrong *at the declaration*, where
+your stack trace points at the line you wrote: a contract that is not one of the
+three, a contract on `:key` or `:ref` (React's, not positions), two spellings of
+one prop declared twice, and a component that resolved to `nil` — the classic
+`:default` against a library that has no default export, which React would
+otherwise report from somewhere else entirely.
 
 Deep conversion — camelCasing keys *inside* a nested option map — is deliberately
 not offered at any level. Guessing which nested maps are options and which are data
@@ -118,6 +127,15 @@ from it. This is the shape for a library's imperative surface (`open()`,
 own render* — `renderRow`, `renderItem`, a render prop. The body must be pure: its
 return is what the library puts in its tree, and dispatching from inside it raises
 `:rf.error/hicasso-dispatch-in-render-position`, naming the position.
+
+Read "from inside it" exactly. **The row you build may carry ordinary intents.** A
+`renderRow` that returns `[:li {:on-click [:row/pick id]} title]` is the whole
+point of a render prop, and that handler fires later, at the user's click, into
+the frame of the boundary that supplied the callback — the only frame that could
+own it, since the foreign component has none. What is forbidden is dispatching
+*while the call is running*, whether directly or by lowering a handler and firing
+it synchronously in the same body. The distinction is the law's own: pure while
+you are building the row, ordinary once you have handed it over.
 
 ### The declaration decides; the value never overrules it
 
@@ -409,10 +427,9 @@ two or three genuinely hard widgets.
 
 | Question | Status |
 |---|---|
-| `defhost`'s option keys | **Not addressed.** "Policy overrides live on the declaration" is as far as the record goes |
+| Whether `defhost` grows a second option beyond `:callbacks` | **Not addressed.** HD-011 names strong defaults and "policy overrides on the declaration", and `:callbacks` is the only override the landed door carries. Whether the SSR placeholder or the conversion defaults ever become declarable is unstated |
 | The migration codemod | **Ruled, unbuilt.** HD-011's rationale leans on it, but nothing has been built and the record names neither a tool nor an invocation |
 | When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** HD-022 rules the refusal and the value-space; the registry, the timings and the commands roster are explicitly out of v0 |
 | Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
 | The SSR placeholder's shape | Declared policy, inert in v0 |
-| Whether a hosted component can be a `defview`'s child via `(:children props)` | The ABI says an existing React element is a legal child anywhere, which implies yes; not stated for the host case specifically |
 | Embedding Hicasso *inside* a React-primary app | Named in the charter's use-case roster (item 11); no surface designed |

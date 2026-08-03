@@ -19,7 +19,9 @@ Here is what you write:
 ```
 
 That's it. Value in from a subscription, intent out to an event — ordinary
-`:value` and `:on-input`, no ceremony. The rest of this page is about the
+`:value` and `:on-input`, no ceremony. `:on-change` works identically; the runtime
+converges after whichever of the two runs last for a keystroke, and takes
+`:on-change` when a field carries both. The rest of this page is about the
 machinery underneath, because you need to know what it guarantees and where it
 stops.
 
@@ -230,6 +232,4 @@ with a commit on blur is not a compromise. It is the right shape.
 | The revision prop's spelling on a controlled element | **Not addressed.** The reset law is ruled; the attribute that carries the revision is unnamed |
 | The buffered / draft-and-commit input ladder | **Post-v0, explicitly.** The charter defers "the full buffered/revision input ladder"; v0 ships R-A1/R-A2 and no more |
 | The controls kit that owns drafts and revisions | **Post-v0.** HD-009 leans on it for ephemeral state, and it does not exist in v0 — so in v0 a draft is app-db state you write yourself |
-| Which props count as controlled | HD-010's merge law names `:value` and `:checked`; the converge's own scope is exact (caret-bearing `input` or `textarea`, non-nil `:value`); whether the controlled roster is longer is unstated |
-| The value path through a live IME composition | **Ruled 2026-08-03, and shipped.** Convergence is suspended while a composition is live and the field converges once at `compositionend` — a deliberate divergence from plain React and the UIx port, both of which still abort the exchange. Witnessed on Chromium (the harness drives composition over CDP); WebKit is undriven rather than known-good |
-| Whether `:on-input` or `:on-change` is the taught attribute | The landed screens write `:on-input` for text and `:on-change` for checkboxes; the choice is convention, not ruling |
+| Whether `:on-input` or `:on-change` is the taught attribute | Both work, and the runtime takes whichever runs last. The landed screens write `:on-input` for text and `:on-change` for checkboxes; which one the guide should teach is convention, not ruling |
