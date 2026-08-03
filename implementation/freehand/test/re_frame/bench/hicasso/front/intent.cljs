@@ -43,7 +43,7 @@
   | Position | How it is recognised | Contract |
   |---|---|---|
   | a native `:on-*` prop | [[event-prop?]] — the same two-shape rule as an intent vector | **event**: a returned VECTOR is dispatched; any other return is ignored |
-  | a `defhost` `:callbacks` entry | the declaration already says `:event` or `:handler` — never inferred from an `on*` name | as declared; `:handler` is the return-ignored contract |
+  | a `defhost` `:callbacks` entry | the declaration already says `:event`, `:handler` or `:render` — never inferred from an `on*` name | as declared; `:handler` is the return-ignored contract |
   | any other prop position (a slot, a render prop) | not an event position | **render**: pure. The return is the render output and is NOT dispatched; dispatching *from inside the call* is a loud error naming the position |
   | `:ref` | [[ref-position?]] | React's own: commit phase, the node as the argument, the return as the detach cleanup. Excluded from lowering entirely |
   | anywhere Hicasso does not walk — a raw `#js` prop, a value handed to a foreign API | it is not a position | it is a plain function and it simply runs; the return is ignored |
@@ -51,6 +51,21 @@
   That last row is the deletion. There is no carrier object, so there is
   nothing that can fail to be callable, so the fifth rule has nothing to
   govern.
+
+  **THE DECLARATION GOVERNS EVERY CARRIER AT ITS POSITION, not just the
+  callback.** A declared position accepts four carriers — the one callback
+  form, an intent vector, a key-map, and an ordinary value — and the row
+  above is a law about the POSITION, so the contract has to be the outer
+  question and the carrier the inner one.
+  [[lower-declared-prop]] is written that way on purpose: dispatch on the
+  contract, then on the value. Reading the value first is how a
+  declaration that says `:handler` ends up silently dispatching a bare
+  intent, and how a `:render` position dispatches during the foreign
+  component's render — the value quietly selecting the contract, which is
+  the exact defect the ruling deletes. A dispatching carrier at
+  `:handler` or at `:render` is therefore
+  `:rf.error/hicasso-intent-at-a-non-event-contract`, named at the
+  position, rather than a contract silently overridden.
 
   **A Hicasso view's own props map is not a position — it is data in
   transit.** An intent vector handed to a view is not lowered there
@@ -68,6 +83,37 @@
   identity keep working. The behaviour the predecessor spells as a fourth
   roster form is the default here. The census agrees with the omission —
   zero foreign components across 85 idiomatic files.
+
+  ## The argument law: the vector spelling is EVENT-FIRST
+
+  One law, and it covers every feature of the vector spelling that reads
+  the event — `::h/prevent`, `::h/value`, `::h/checked`, `:on-submit`'s
+  auto-prevent and the key-map's `.key` lookup alike: **a vector or a
+  key-map takes the DOM event from argument ONE.** That is what every
+  native position hands it, and what an event-first foreign contract
+  (`(on-draft event)`) hands it too.
+
+  A value-first foreign invoker — `(on-pick value event)`, the date
+  picker's `(on-change date)` — has no event at argument one, and there is
+  nothing to guess: the vector cannot know which of the library's
+  arguments is the event, and a runtime that went looking for one would be
+  reintroducing inference at the exact seam HD-011 forbids it. **`h/fn` is
+  that spelling**, and it needs no rule of its own, because the one form
+  receives every argument the invoker passed, in order.
+
+  What the law buys is that the violation is LOUD.
+  [[event-arg!]] checks the one property the closure is about to read and
+  raises `:rf.error/hicasso-intent-needs-the-event` naming the position,
+  the intent, and the argument that actually arrived. Without it the
+  author gets `value.preventDefault is not a function` — the engine's own
+  `TypeError`, naming nothing they wrote, which is the failure class the
+  whole ruling exists to delete.
+
+  It is paid only by the closures that read the event. An intent carrying
+  no marker and no prevent never touches its argument, so it costs
+  nothing, and it is correct under ANY invoker contract — which is why the
+  overwhelmingly common `[:todo/toggle id]` at a declared position needs
+  no law at all.
 
   ## The frame, and why the closure closes over it
 
@@ -343,23 +389,39 @@
                        {:position k :event event}))]
       (apply f args))))
 
-(defn- declared-callback
-  "**A `defhost` `:callbacks` entry.** The declaration already carries the
-  contract — `:event` or `:handler`, never inferred from an `on*` name —
-  so this is the position table's third row and it needs no new
-  machinery. `:handler` is the return-ignored contract, which for a form
-  that is already an ordinary function is the function itself."
-  [k f contract]
-  (case contract
-    :event   (event-callback k f)
-    :handler f
-    :render  (render-callback k f)
-    (fail! :rf.error/hicasso-unknown-callback-contract
-           'front.intent/lower-declared-prop
-           (str "A declaration gave " (pr-str k) " the callback contract "
-                (pr-str contract) ". The contracts are :event, :handler and :render.")
-           :declare-event-handler-or-render
-           {:position k :contract contract})))
+;; ---------------------------------------------------------------------------
+;; The argument law — the vector spelling is EVENT-FIRST (HD-024)
+;; ---------------------------------------------------------------------------
+
+(defn- event-arg!
+  "Answer `e` when it is the DOM event this closure needs, and raise a
+  diagnostic naming the POSITION when it is not. `slot` is the one
+  property the closure is about to read off it — `preventDefault`,
+  `target`, `key` — so the check is the read that was going to happen
+  anyway, and the message can say which capability was missing rather
+  than asserting a type.
+
+  See the namespace docstring §The argument law. The whole point is that
+  a value-first foreign invoker produces THIS error, naming the position
+  and pointing at `h/fn`, instead of the engine's
+  `value.preventDefault is not a function` — which names nothing the
+  author wrote and is the failure class HD-024 exists to delete."
+  [k form e slot]
+  (if (and (some? e) (some? (unchecked-get e slot)))
+    e
+    (fail! :rf.error/hicasso-intent-needs-the-event
+           'front.intent/lower-prop
+           (str "The intent " (pr-str form) " at " (pr-str k) " reads the DOM "
+                "event's `" slot "`, but the first argument its invoker passed "
+                "was " (pr-str e) ", which has none. The vector spelling is "
+                "EVENT-FIRST: it takes the event from argument one, which is "
+                "what every native position and every event-first foreign "
+                "contract hands it. A value-first invoker — (on-pick value "
+                "event) — has no event there, and nothing can guess which of "
+                "its arguments is one. Write an h/fn instead: the one form "
+                "receives every argument the invoker passed, in order.")
+           :write-an-h-fn-at-a-value-first-position
+           {:position k :form form :argument e :needed slot})))
 
 ;; ---------------------------------------------------------------------------
 ;; The marker roster and its one pure materializer
@@ -621,7 +683,14 @@
   [[markers?]] is ever asked, and the materializer then sees the ordinary
   intent it has always seen. The navigate head is classified here too —
   the same one-compare, once per render — and its whole lowering lives in
-  [[navigate-handler]]."
+  [[navigate-handler]].
+
+  **Only the branches that read the event carry the argument law**
+  ([[event-arg!]], and the namespace docstring's §The argument law): each
+  checks the one property its own first read needs, and the `:else`
+  branch — an intent with no marker and no prevent, which is the
+  overwhelming case — never touches its argument at all, so it costs
+  nothing and is correct under any invoker contract."
   [k v]
   (if (navigate-head? v)
     (navigate-handler k v)
@@ -631,15 +700,26 @@
           prevent   (or decorated (prevent-by-default? k))
           dynamic   (markers? intent)]
       (cond
-        (and prevent dynamic)       (fn [e] (.preventDefault e) (dispatch (materialize intent e)))
-        prevent                     (fn [e] (.preventDefault e) (dispatch intent))
-        dynamic                     (fn [e] (dispatch (materialize intent e)))
+        (and prevent dynamic)       (fn [e] (event-arg! k v e "preventDefault")
+                                            (.preventDefault e)
+                                            (dispatch (materialize intent e)))
+        prevent                     (fn [e] (event-arg! k v e "preventDefault")
+                                            (.preventDefault e)
+                                            (dispatch intent))
+        dynamic                     (fn [e] (event-arg! k v e "target")
+                                            (dispatch (materialize intent e)))
         :else                       (fn [_e] (dispatch intent))))))
 
 (defn- key-map-handler
   "Lower a data key-map into one closure over a plain map of key-string →
   handler. The map is built once per render; an event costs one
-  composition test and one lookup."
+  composition test and one lookup.
+
+  The argument law applies here too, and the property it needs is `key`:
+  without the check a key-map handed a value-first invoker's first
+  argument would find no `.key`, look nothing up, and do NOTHING — the
+  silently dead handler every loud error in this namespace exists to
+  delete."
   [k key-map]
   (let [lowered (reduce-kv (fn [m key-name v]
                              (assoc m key-name (cond
@@ -649,6 +729,7 @@
                            {}
                            key-map)]
     (fn [e]
+      (event-arg! k key-map e "key")
       (when-not (composing? e)
         (when-some [h (get lowered (.-key e))]
           (h e))))))
@@ -694,6 +775,31 @@
       (render-callback k v)
       v)))
 
+(defn- refuse-dispatching-carrier!
+  "An intent vector or a key-map at a position the declaration gave the
+  `:handler` or `:render` contract. Both carriers ARE a dispatch and
+  nothing else, and neither contract dispatches, so there is no reading
+  of the value that could satisfy the declaration — which is why this is
+  a refusal at lowering rather than a wrapper that does less."
+  [k v contract]
+  (fail! :rf.error/hicasso-intent-at-a-non-event-contract
+         'front.intent/lower-declared-prop
+         (str "The declaration gives " (pr-str k) " the " (pr-str contract)
+              " contract, and it was handed " (pr-str v) ". "
+              (if (keyword-identical? :handler contract)
+                (str "A :handler's return is ignored and Hicasso dispatches "
+                     "nothing from it, so a carrier whose entire content is a "
+                     "dispatch has no meaning at that contract. ")
+                (str ":render is a PURE position — it is invoked during the "
+                     "foreign component's own render, where dispatching is "
+                     ":rf.error/hicasso-dispatch-in-render-position. "))
+              "Declare " (pr-str k) " :event if what happens there is an "
+              "event, or write an h/fn that does the " (pr-str contract)
+              " work. The contract comes from the position, so the value "
+              "never gets to overrule it.")
+         :declare-the-position-event-or-write-an-h-fn
+         {:position k :contract contract :value v}))
+
 (defn lower-declared-prop
   "Lower one prop whose contract a `defhost` declaration named — the
   position table's second row. Kept separate from [[lower-prop]] so the
@@ -701,13 +807,48 @@
   predecessor's own rule is that a host's callback contract is 'a finite
   map from EXACT prop names to `:event` or `:handler`; never inferred
   from an `on*` name', and that rule survives here because the position,
-  not the value, carries the contract."
+  not the value, carries the contract.
+
+  **The contract is the OUTER dispatch and the carrier the inner one**,
+  which is the whole law made structural. Dispatching on the value first
+  is how a declared `:handler` ends up silently dispatching a bare
+  intent, and how a declared `:render` dispatches during the foreign
+  component's render: the value selecting the contract, which is the
+  defect HD-024 exists to delete. So each contract states what it accepts
+  and refuses the rest:
+
+  | Contract | `h/fn` | intent vector / key-map | anything else |
+  |---|---|---|---|
+  | `:event`   | the event wrapper — a returned vector dispatches | lowered exactly as at a native event position | crosses untouched |
+  | `:handler` | the function itself, by identity | **refused** ([[refuse-dispatching-carrier!]]) | crosses untouched |
+  | `:render`  | the render wrapper — dispatching inside is loud | **refused** | crosses untouched |
+
+  `:event` keeps the vector and key-map conveniences because dispatching
+  is exactly what that contract means; the vector's own argument law
+  applies there unchanged ([[event-arg!]]). An ordinary unmarked function
+  crosses untouched at every contract — `raw-fn`'s passthrough is the
+  default here, and a plain fn is claimed by no position."
   [k v contract]
-  (cond
-    (callback? v) (declared-callback k v contract)
-    (vector? v)   (intent-handler k v)
-    (map? v)      (key-map-handler k v)
-    :else         v))
+  (case contract
+    :event   (cond
+               (callback? v) (event-callback k v)
+               (vector? v)   (intent-handler k v)
+               (map? v)      (key-map-handler k v)
+               :else         v)
+    :handler (cond
+               (callback? v)             v
+               (or (vector? v) (map? v)) (refuse-dispatching-carrier! k v contract)
+               :else                     v)
+    :render  (cond
+               (callback? v)             (render-callback k v)
+               (or (vector? v) (map? v)) (refuse-dispatching-carrier! k v contract)
+               :else                     v)
+    (fail! :rf.error/hicasso-unknown-callback-contract
+           'front.intent/lower-declared-prop
+           (str "A declaration gave " (pr-str k) " the callback contract "
+                (pr-str contract) ". The contracts are :event, :handler and :render.")
+           :declare-event-handler-or-render
+           {:position k :contract contract})))
 
 (defn lower-props
   "Walk a props map once, lowering every position that carries something
