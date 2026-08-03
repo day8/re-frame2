@@ -453,7 +453,13 @@ is the failure mode.
 > or normalises every intermediate composition state exactly as before, and on
 > the refusing field the exchange ends with the same model and the same field as
 > the React baseline reaches. `ime_run.cjs` asserts the divergence and its scope
-> comparatively, in one run, on one model.
+> comparatively, in one run, on one model. The re-run turned up one thing the
+> scope claim does **not** extend to, and it is pinned rather than smoothed
+> over: on a *normalising* field the baseline does not merely lose the
+> composition, it corrupts what the exchange commits — each aborted draft is
+> written back and the IME's next composition composes on top of it, so
+> `s`/`sh`/commit ends at model `"SSHSH"` where the carve-out commits the `"SH"`
+> that was typed.
 >
 > **The mechanism is two halves, because two writes destroy the exchange and
 > only one is ours.** (a) The converge declines to run when the change event
@@ -490,7 +496,10 @@ is the failure mode.
 > change event that is not composing (the recovery path for a composition some
 > other write aborted silently, which fires nothing), `blur`, and unmount for
 > free — the shadow is the component's own state and cannot outlive the element.
-> The worst degradation available is a converge, which is today's conduct.
+> The hold or release also runs **before** the author's handler at every slot,
+> so a handler that throws cannot strand one either. The worst degradation
+> available is a converge, which is today's conduct. All four paths are
+> witnessed in a live React tree by `arm1_controlled_grid_dom_cljs_test` §7.
 >
 > **Witness scope: Chromium only.** `Input.imeSetComposition` is a CDP method and
 > CDP is Chromium's protocol, so every composition claim here is witnessed on
