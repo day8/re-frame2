@@ -103,10 +103,10 @@ through the adapter's `:render` slot with no `act` and no `flushSync`, and there
 the shipped hook built **twice** — `bodyRuns` 2.00N at N = 1 and at N = 300 —
 the `setTimeout 0` reaper releasing the escrowed reference before React's passive
 subscribe. `rf2-2rtt6.71` has since ruled the reap horizon out to `setTimeout 4`
-(2026-08-03), so the public schedule adopts too — by a measured margin, not a
-React guarantee — but **no row on this page was re-taken**, so every figure below
-still reads the two-build spine. See the retraction banner and its 2026-08-03
-update on
+(2026-08-03) on the strength of a swap-the-primitive probe — a measured margin,
+not a React guarantee — but **no row on this page was re-taken**, so every figure
+below still reads the two-build spine. See the retraction banner and its
+2026-08-03 update on
 [coldmount-double-build-priced.md](coldmount-double-build-priced.md#the-hand-off-landed--the-same-instrument-re-run-against-shipped-code).
 This page attributes no retained-heap benefit to `.25` either way. Both are
 ancestors of `main`.

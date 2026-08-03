@@ -105,13 +105,13 @@
 
   UPDATE, 2026-08-03 (rf2-2rtt6.71): the reap horizon has since been
   RULED out to `setTimeout 4` — the shortest probed delay reading 1.00N
-  at N = 1 and N = 300 — so the public schedule adopts too, by a measured
-  margin and not by any React guarantee. **That changes nothing on this
-  page.** No measurement window here was altered and no row was re-taken,
-  so every figure below is still a forced-synchronous mechanism figure
-  measured under the old horizon, and the adoption on the public schedule
-  is witnessed by the flipped browser assertions rather than by anything
-  here.
+  at N = 1 and N = 300 on the ruling's own swap-the-primitive probe — by
+  a measured margin and not by any React guarantee. **That changes
+  nothing on this page.** No measurement window here was altered and no
+  row was re-taken, so every figure below is still a forced-synchronous
+  mechanism figure measured under the old horizon. Nor do the browser
+  assertions witness the win: that runner's render-to-passive-flush gap
+  measures >128 ms, so they read two builds at any shippable horizon.
 
   ## What fails the run
 
@@ -190,11 +190,12 @@
                         "the race; the lost race costs a construction and the steady state is one "
                         "durable reference.")
    :horizon        (str "RULED setTimeout 4 (rf2-2rtt6.71, 2026-08-03) — the shortest probed delay "
-                        "reading 1.00N at N = 1 and N = 300, so the adoption is now realised on the "
-                        "public schedule too. It is a MARGIN, not a React guarantee. That is witnessed "
-                        "by the flipped assertions listed below and by nothing on this page: no "
-                        "measurement window here was altered and no row was re-taken under the new "
-                        "horizon, so these rows remain forced-synchronous mechanism rows.")
+                        "reading 1.00N at N = 1 and N = 300, on the ruling's own swap-the-primitive "
+                        "probe. It is a MARGIN, not a React guarantee, and nothing on this page "
+                        "witnesses it: no measurement window here was altered and no row was re-taken, "
+                        "so these rows remain forced-synchronous mechanism rows. The browser assertions "
+                        "listed below do not witness it either — the test runner's render-to-flush gap "
+                        "measures >128 ms, so they still read two builds at any shippable horizon.")
    :assertions     ["use-subscribe-public-mount-schedule-rebuilds"
                     "use-subscribe-escrow-leg-answers-on-the-public-mount-schedule"
                     "use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount"]})

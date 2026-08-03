@@ -45,10 +45,10 @@ HeadlessChrome 147.0.7727.15 (Chromium via Playwright), `:advanced`,
 > **forced-synchronous mechanism arm**, with a `:schedule` key carrying the
 > qualifier the prose here carries. Its `:horizon` field additionally records
 > that the reap horizon was **ruled `setTimeout 4`** on 2026-08-03
-> (`rf2-2rtt6.71`) and that the public schedule therefore adopts — witnessed by
-> the flipped browser assertions, **not** by anything on this page. Wording
-> only, twice over — no measurement window was altered and no row was re-taken,
-> so the rows below still say what they said.
+> (`rf2-2rtt6.71`), witnessed by the ruling's swap-the-primitive probe and
+> **not** by anything on this page. Wording only, twice over — no measurement
+> window was altered and no row was re-taken, so the rows below still say what
+> they said.
 
 Reproduce (each row is one page and one driver invocation; the plain command
 runs all five over the same gates):
@@ -372,9 +372,14 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 > at N = 1 and N = 300 alike, so the hand-off's adoption **is** realised on the
 > public `createRoot().render()` path from that date. It is a **margin, not a
 > React guarantee** — React specifies no maximum render-to-subscribe interval,
-> and a future scheduling change could silently restore the double build; the
-> standing witness above was FLIPPED rather than deleted and is now the
-> tripwire that would say so. **None of that revives the `shipped` rows below.**
+> and a future scheduling change could silently restore the double build. The
+> standing witness named above was **NOT** flipped with the ruling: on the
+> browser test runner the render-to-passive-flush gap measures >128 ms, so that
+> row still reads two builds at any shippable horizon and witnesses the
+> runner's schedule rather than a consumer's (swept 0/8/16/32/64/256/1024/5000
+> ms and per-token arming; only ≥256 ms or no reaper at all flips it). The
+> evidence for the win remains the swap-the-primitive probe.
+> **None of that revives the `shipped` rows below.**
 > They were measured on 2026-07-31, under the old horizon, inside `flushSync`,
 > and **no row on this page has been re-taken** — the flipped assertions are the
 > witness for the public schedule, not this instrument. Read the retraction as
