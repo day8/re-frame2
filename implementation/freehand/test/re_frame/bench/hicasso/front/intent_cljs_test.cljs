@@ -502,6 +502,77 @@
             (is (re-find #":row-renderer" (ex-message e))))))
       (is (= [] @!seen) "and nothing reached the frame"))))
 
+(deftest a-handler-lowered-inside-a-render-body-belongs-to-the-supplying-boundary
+  (testing "rf2-2rtt6.74. The refusal above is INVOCATION-scoped: it covers the
+            call, not everything the call LOWERED. A render prop exists to
+            build interactive rows, and a row's `:on-click` is a legitimate
+            event position that merely happened to be lowered during a render
+            — so it fires later, into the frame of the boundary that SUPPLIED
+            the callback. Nothing else can own it: the invoker has no frame of
+            its own, and frames are isolated contexts."
+    (let [!supplier (recorder)
+          !other    (recorder)
+          !row      (atom nil)
+          !cb       (atom nil)
+          !frame    (atom ::unread)
+          h (intent/with-frame ::supplier (dispatching !supplier)
+              (fn [] (intent/lower-prop
+                       :row-renderer
+                       (intent/callback
+                         (fn [title]
+                           (reset! !frame intent/*frame*)
+                           (reset! !row (intent/lower-prop :on-click [:row/pick title]))
+                           (reset! !cb  (intent/lower-prop
+                                          :on-change
+                                          (intent/callback (fn [_] [:row/changed title]))))
+                           [:li title])))))]
+      (testing "the invocation runs under a DIFFERENT boundary — what a foreign
+                component nested below another one does — so neither claim
+                below can pass by accident"
+        (is (= [:li "milk"]
+               (intent/with-frame ::other (dispatching !other)
+                 (fn [] (h "milk"))))
+            "the return is still the render output")
+        (is (= ::supplier @!frame)
+            "and inside the call the ambient frame is the OWNER's, which is
+             what route-link reads to pin a navigation")
+        (is (= [] @!supplier) "the render itself dispatched nothing")
+        (is (= [] @!other)))
+      (testing "and then the browser's click, long after both extents unwound"
+        (is (nil? intent/*dispatch*))
+        (@!row (ev {}))
+        (@!cb (ev {}))
+        (is (= [[:row/pick "milk"] [:row/changed "milk"]] @!supplier)
+            "the intent vector AND the event-position h/fn both landed on the
+             supplying boundary's recorder")
+        (is (= [] @!other)
+            "two frames, two recorders — and the OTHER one was the ambient
+             frame while the row was built, so this is not vacuous")))))
+
+(deftest a-render-callback-with-no-owner-forwards-to-a-loud-error-never-to-silence
+  (testing "the no-owner edge of the same law. The wrapper was lowered with no
+            frame-locked dispatch in scope, so there is nothing to forward to.
+            The refusal still covers the call; a handler lowered inside it
+            raises the ordinary outside-boundary error when it fires — the
+            silently inert handler is the one outcome that is never available."
+    (is (nil? intent/*dispatch*))
+    (let [!row (atom nil)
+          h    (intent/lower-prop
+                 :row-renderer
+                 (intent/callback (fn [_]
+                                    (reset! !row (intent/lower-prop :on-click [:oops]))
+                                    [:li])))]
+      (is (= [:li] (h {})) "the body ran and its return is the output")
+      (try
+        (@!row (ev {}))
+        (is false "should have thrown")
+        (catch :default e
+          (let [d (ex-data e)]
+            (is (= :rf.error/hicasso-intent-outside-boundary (:rf.error/id d)))
+            (is (= :row-renderer (:position d)) "named at the render position")
+            (is (= [:oops] (:event d)))
+            (is (re-find #":row-renderer" (ex-message e)))))))))
+
 (deftest a-declaration-can-name-the-contract-instead-of-the-position
   (testing "the position table's second row. A `defhost` declaration carries
             `:event` or `:handler` per EXACT prop name and never infers it

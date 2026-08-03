@@ -757,6 +757,61 @@
             (is (re-find #":on-render-row" (ex-message e))))))
       (is (= [] @!seen) "and nothing reached the frame"))))
 
+(defn- crossed-in-frame
+  "[[crossed]] with the boundary's FRAME KEYWORD bound as well — the
+  3-arity door, which is what a row body's `intent/*frame*` read (and a
+  `route-link` in one) needs. Answers `[element !dispatched]`."
+  [frame-kw head props]
+  (let [!seen (atom [])
+        el    (intent/with-frame frame-kw (fn [ev] (swap! !seen conj ev) nil)
+                (fn [] (codec/as-element [head props])))]
+    [el !seen]))
+
+(deftest a-render-props-row-is-owned-by-the-boundary-that-supplied-the-callback
+  (testing "rf2-2rtt6.74, at the real `renderRow` seam. HD-024's refusal is
+            INVOCATION-scoped — poison while the call runs, forward to the
+            owner once it has returned — so the handlers a `:render` body
+            LOWERS are not poisoned with it. Which is most of what a render
+            prop is for: a row that is not interactive works either way, and
+            the failure this pins used to land on the USER's click.
+
+            Two frames and two recorders are live, and the ambient one at
+            invocation is the OTHER — what a foreign component nested below
+            a second boundary does — so the ownership claim cannot pass by
+            accident."
+    (let [!other (atom [])
+          !frame (atom ::unread)
+          !row   (atom nil)
+          [el !supplier]
+          (crossed-in-frame
+            ::supplier render-picker
+            {:on-render-row
+             (hfn [label]
+               (reset! !frame intent/*frame*)
+               (reset! !row (codec/as-element
+                              [:li {:on-click [:hatch/picked label "row"]}]))
+               ;; an event-position h/fn, lowered in the same body
+               (codec/as-element
+                 [:button {:on-click (hfn [_] [:hatch/closed])}]))})
+          btn (intent/with-frame ::other (fn [ev] (swap! !other conj ev) nil)
+                (fn [] ((prop el "onRenderRow") "paris")))]
+      (is (= ::supplier @!frame)
+          "inside the invocation the ambient frame is the OWNER's, not the
+           invoking boundary's — the frame a route-link in a row body pins to")
+      (is (= [] @!supplier) "the render itself dispatched nothing")
+      (is (= [] @!other))
+
+      (testing "and then the browser's click, long after both extents unwound"
+        (is (nil? intent/*dispatch*))
+        ((prop @!row "onClick") #js {})
+        ((prop btn "onClick") #js {})
+        (is (= [[:hatch/picked "paris" "row"] [:hatch/closed]] @!supplier)
+            "the row's intent vector AND the event-position h/fn both fired
+             into the SUPPLYING boundary's recorder")
+        (is (= [] @!other)
+            "and nothing reached the boundary that merely invoked the render
+             prop — which is what makes the ownership assertion non-vacuous")))))
+
 (deftest the-vector-spelling-is-event-first-and-says-so-when-it-is-not
   (testing "the positive half, at the invoker contract the door was built for:
             an EVENT-FIRST foreign call, which is what onDraft makes"
