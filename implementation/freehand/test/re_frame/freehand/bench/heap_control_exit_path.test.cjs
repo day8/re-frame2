@@ -36,12 +36,8 @@ const path = require('node:path');
 // Requiring a driver must NOT drive it: the `require.main === module` guard
 // is itself part of what is under test here.
 const DRIVERS = [
-  { tag: '[b7]', file: path.join(__dirname, 'b7_run.cjs'), mod: require('./b7_run.cjs') },
-  {
-    tag: '[ladder]',
-    file: path.join(__dirname, 'reads_ladder_run.cjs'),
-    mod: require('./reads_ladder_run.cjs'),
-  },
+  { file: path.join(__dirname, 'b7_run.cjs'), mod: require('./b7_run.cjs') },
+  { file: path.join(__dirname, 'reads_ladder_run.cjs'), mod: require('./reads_ladder_run.cjs') },
 ];
 
 const PREDICTED = 587500 * 8; // 4,700,000 B — both drivers' own arithmetic
@@ -63,7 +59,7 @@ const rounds = (over = []) =>
 
 const snaps = (measured) => ({ control: { predictedBytes: PREDICTED, measured } });
 
-for (const { tag, file, mod } of DRIVERS) {
+for (const { file, mod } of DRIVERS) {
   const { controlVerdict, controlVerdicts, controlFailures } = mod;
   const name = path.basename(file);
   const SRC = fs.readFileSync(file, 'utf8');
