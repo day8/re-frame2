@@ -245,7 +245,20 @@ mount-gate amendment (2026-08-02, `rf2-2rtt6.1`). On the re-take the published
 rungs read indistinguishable from both Reagent paths on raw `TaskDuration`, and
 beat `reagent-slim` outright on the page's own instrument — while the gated
 `donor / uix` pairs sit **at** the amended 1.10× line (means 1.086 – 1.139,
-every range straddling the boundary; instrument-limited, not a pass). The
+every range straddling the boundary; instrument-limited, not a pass).
+**On the clock of record that rests on one row, and this paragraph should say
+so.** Replaying the driver's current `verdict()` over the committed datasets
+exits `5`: five of the six rows missed their positive control — `uix/M` 1.6503,
+`uix/U` 1.5566, `reagent/M` 1.6868, `slim/M` 1.5518 and `slim/U` 1.7100 against
+a predicted 2.00× — and no magnitude from a failed-control row is reportable.
+`reagent/U` is the row that passed strict, on the tightest band that page
+carries at 5.4%; on it `donor-r1 / reagent` reads 0.9880 [0.8915 – 1.0737] and
+`donor-r2 / reagent` 0.9888 [0.8891 – 1.0349], so the non-reproduction is
+stated by a row entitled to state it. `reagent/M` agrees in direction and
+contributes no magnitude of its own, and the four straddling `uix` and `slim`
+rows failed the control as well. The `reagent-slim` result is the page's own
+instrument rather than the clock of record — a separate measurement, whose
+control was clean on every round. The
 verdict's direction stands; its published magnitude was a property of the stale
 spine and the demoted clock. Full tables and provenance:
 [the re-take on the current tree](studio/hd8-composed-donor-arm.md#the-re-take-on-the-current-tree-rf2-2rtt631).
