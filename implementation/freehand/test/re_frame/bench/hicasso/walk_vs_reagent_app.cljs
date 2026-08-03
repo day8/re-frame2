@@ -721,13 +721,16 @@
 ;; once per element instead and the reduce takes a static fn, so the mount
 ;; allocates nothing to carry a boolean it already knows.
 ;;
-;; COSTED AND DECLINED (rf2-lhdp0). It is free: `slim-convert-props-cheap`
-;; and `slim-convert-props-static` read 151.8303 ns/op EACH — the same
-;; figure to four places, because both windows landed in the same 100 µs
-;; `performance.now` bucket, which bounds the term at under ~0.3 ns per
-;; element. V8 does not charge for the closure, so shipping keeps the
-;; version that reads as one function instead of three. The row stays so
-;; the next reader does not re-derive the guess.
+;; COSTED AND DECLINED (rf2-lhdp0), and it took TWO runs to say so honestly.
+;; On the first, `slim-convert-props-cheap` and `slim-convert-props-static`
+;; read 151.8303 ns/op EACH — the same figure to four places, because both
+;; windows landed in the same 100 µs `performance.now` bucket. Read alone
+;; that looks like a tight zero. On the second the static form read 326.1
+;; against the closure's 287.4, i.e. 13% SLOWER. So the term is not merely
+;; small, it does not reliably have a SIGN: V8 does not charge for the
+;; closure, and the run-to-run spread on this row is wider than anything the
+;; restructure could win. Shipping keeps the version that reads as one
+;; function rather than three. The row stays so the guess is not re-derived.
 (defn- slim-native-prop-conv  [o k v] (slim-top-prop-conv slim-reserved-chain? true o k v))
 (defn- slim-interop-prop-conv [o k v] (slim-top-prop-conv slim-reserved-chain? false o k v))
 
