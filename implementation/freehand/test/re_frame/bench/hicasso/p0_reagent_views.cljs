@@ -102,6 +102,18 @@
 ;; The subscriptions and the frames
 ;; ---------------------------------------------------------------------------
 
+(defn cell-value
+  "`:p0/cell`'s COMPUTATION, as a named function.
+
+  It is named rather than inlined into the registration below so that a
+  witness which must register the query behind something — the keystroke
+  witness registers it behind a recompute census (rf2-0qj9w) — reaches
+  ONE body instead of copying it. A copied `(get-in db [:cells i])` is
+  the drift class this lane already pays for deliberately in its ARMS,
+  and there is no reason to pay it for an accessor."
+  [db i]
+  (get-in db [:cells i]))
+
 (defn register!
   "The sub graph: ONE layer-1 subscription, keyed by index, one read per
   boundary — the first rung of the HD-002 1/3/7/20 ladder.
@@ -113,7 +125,7 @@
   re-register overwrites with the identical handler, so calling it twice
   and calling it once are the same registry."
   []
-  (rf/reg-sub :p0/cell (fn [db [_ i]] (get-in db [:cells i])))
+  (rf/reg-sub :p0/cell (fn [db [_ i]] (cell-value db i)))
   nil)
 
 (register!)
