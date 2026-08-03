@@ -451,10 +451,25 @@ rejected/unchanged-model path leans on React's own controlled restore for the
 measured the gap, `rf2-fki5d` closed it. Resets are by **explicit caller
 revision, never value equality** (the
 predecessor's ruled reset law, kept — `docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`). The browser witnesses that prove the door
-are the 100-cell grid rows: same-turn echo, mid-string caret, selection, IME
-composition (`composing?`/keyCode-229), unchanged-model rejection, async
-normalisation. On a PATCH back end the restore obligation transfers to the
-renderer (architecture.md, hard gate).
+are the 100-cell grid rows: same-turn echo, mid-string caret, selection,
+unchanged-model rejection, async normalisation. **The IME witness is narrower
+than the other five, and is recorded as such.** What is proven is the *commit*
+fence — a composing Enter commits nothing, on the native event's `composing?`
+and on the legacy keyCode-229 signal, each independently — witnessed in-page on
+the grid and established against the browser's own composition machinery by
+`ime_run.cjs` (`rf2-o27h3`: CDP-driven trusted composition, on this arm's
+element path, plain React and the UIx port alike). What is **not** proven, and
+is not to be written as though it were, is the *value* path through a live
+composition: the same harness measured a refused or normalised value being
+written back mid-composition, and such a write silently aborts the exchange —
+this arm's converge in turn, plain React in turn through its own restore, the
+UIx port a frame later. The converge is therefore nowhere worse than the React
+baseline, but "composition survives value reassertion" is false for every
+implementation the moment the model disagrees. Whether to suspend convergence
+until `compositionend` is a behavioural choice inside this exception's scope and
+is unruled (`rf2-digtt`); until it is settled, K4's IME half is open rather than
+green. On a PATCH back end the restore obligation transfers to the renderer
+(architecture.md, hard gate).
 **Rationale.** The harness's trap table is explicit: any design where the input
 value round-trips through an external store must *name* its synchronous door.
 This names it, and the first controlled-input commit cannot stall on an
@@ -477,7 +492,8 @@ evidence recorded by `rf2-fki5d`).
 `flushSync` exception additionally reopens if its named live-tree invariant row
 goes red — React mirroring controlled text into `defaultValue` is what makes
 the node-held record valid, and it is not a public React guarantee — or if any
-candidate second call site appears.
+candidate second call site appears. The composition value path reopens on
+`rf2-digtt`'s ruling, whichever way it goes.
 
 ## HD-020 — v0 host mechanics: frame plumbing, hook ledger, error boundary, SSR posture
 

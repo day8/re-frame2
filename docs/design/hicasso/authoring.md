@@ -194,8 +194,12 @@ arrives as `:id`/`:class`, as `"id"`/`"className"`, or as `:x/id`/`:x/class`
 ## The controlled-input door
 
 Controlled text rides the synchronous door: dispatch → drain/commit → re-render
-lands the echo in the keystroke's own task; caret and IME survive value
-reassertion (R-A1/R-A2 are v0's acceptance). On the lean-React arm the
+lands the echo in the keystroke's own task; the caret survives value
+reassertion, and the key-map's composition gate keeps a composing Enter from
+committing (R-A1/R-A2 are v0's acceptance). The **value** path through a live
+composition is not fenced on any implementation: a refused or normalised value
+is written back mid-composition and the browser aborts the exchange, here and
+on plain React alike (`rf2-digtt`, unruled). On the lean-React arm the
 end-of-discrete-event restore is React's; a PATCH back end must own it
 (architecture.md, hard gate).
 
