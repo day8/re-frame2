@@ -6,6 +6,7 @@
 //   node .../ladder_band.cjs --emit data.json out/.../*.json   ... and write the
 //                                                              compact dataset
 //   node .../ladder_band.cjs --from data.json                recompute FROM it
+//   node .../ladder_band.cjs --selftest                      the resampling model
 //
 // ## Why this file exists
 //
@@ -39,6 +40,17 @@
 // What it does NOT carry is the per-sample distribution inside a block. A
 // question about within-block shape needs the raw datasets, which are kept
 // beside the run and named in the page's provenance.
+//
+// ## What durability caught (rf2-nk1hq)
+//
+// Because the dataset survived, the ceiling's derivation could be checked
+// after the fact — and it did not hold. This file's bootstrap pooled all 342
+// blocks and built each synthetic run by drawing eighteen of them across
+// unrelated runs and load rungs, which is not a future run, and a comment here
+// argued that pooling was the CONSERVATIVE choice. It is the narrower one. The
+// bootstrap below is now run-preserving, both models are printed side by side
+// so the retraction can be checked, and `--selftest` fails if the pooled model
+// is ever reinstated. No new measurement was taken to find any of it.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -218,12 +230,63 @@ function inflate(cr) {
 // ---------------------------------------------------------------------------
 //
 // The band is a p10–p90 half-width over EIGHTEEN blocks, and eighteen is not
-// many. Whether a 25% ceiling is a tripwire or a coin toss is a question about
-// that statistic's own tail, and nineteen calibration runs cannot answer it —
+// many. Whether a ceiling is a tripwire or a coin toss is a question about that
+// statistic's own tail, and nineteen calibration runs cannot answer it —
 // nineteen draws bound a 1-in-20 event at exactly one observation. Resampling
-// the blocks does: draw eighteen blocks with replacement from the pooled set,
-// recompute the band, and read off how often it clears the ceiling.
-function bootstrapBand(ratios, draws, seed) {
+// does.
+//
+// WHAT A DRAW HAS TO BE. A draw stands for a FUTURE RUN, and the eighteen
+// blocks of a real run are not eighteen independent draws from the ladder:
+// they are taken back-to-back, on one box, at one load rung, inside one
+// window, so they share a regime and they CLUSTER. Two models follow, and only
+// the second is a model of a run:
+//
+//   POOLED-BLOCK     draw eighteen blocks from the ladder's 342, ignoring
+//                    which run each came from. Every synthetic run is a
+//                    mixture of unrelated boxes and unrelated rungs.
+//   RUN-PRESERVING   draw one of the nineteen runs, then resample THAT run's
+//                    own eighteen blocks. The regime survives the draw.
+//
+// POOLING IS NARROWER, WHICH IS THE OPPOSITE OF WHAT THIS FILE FIRST ARGUED.
+// It said the pooled model "carries between-run variation and is the wider, so
+// it is what a ceiling should be set against". That is refuted by its own
+// arithmetic: mixing regimes averages the between-run spread INTO each
+// synthetic run instead of leaving it BETWEEN them, and averaging is what
+// narrows a tail. On this ladder's raw `TaskDuration`, pooled against
+// run-preserving — q50 13.0/11.5%, q90 19.9/23.4%, q95 22.7/31.0%, q99
+// 29.4/**41.4**% — pooling is narrower at every quantile above the median.
+// The correct figure was printed all along, in the column this file's own
+// comment then told the reader to disregard.
+//
+// Both are computed and both are printed. The run-preserving one is
+// OPERATIVE; the pooled one is kept because `BAND_CEILING`'s withdrawn "q99"
+// derivation was read off it, and a reader checking that retraction needs the
+// number being retracted. See `rf2-nk1hq` and section 5 of
+// `docs/design/hicasso/studio/the-band-re-calibrated.md`.
+
+/**
+ * Draws per model. Fixed, and large enough that a q99 is stable in its third
+ * significant figure — the page quotes these to a tenth of a percent, and at
+ * 20,000 the fourth figure still moves with the seed.
+ */
+const BOOT_DRAWS = 200000;
+
+/** The band of one synthetic eighteen-block run — `seam.cjs`'s definition. */
+function bandOfBlocks(pick) {
+  const v = [...pick].sort((a, b) => a - b);
+  const q = (p) => v[Math.min(v.length - 1, Math.max(0, Math.floor(p * v.length)))];
+  return (q(0.9) - q(0.1)) / (2 * p50(pick));
+}
+
+/**
+ * `draws` synthetic runs, each of eighteen blocks resampled from whatever
+ * `source(next)` hands back, sorted. Seeded, because a bootstrap that moves
+ * when it is recomputed on the same data cannot be checked by the reader.
+ *
+ * `source` is the ONLY difference between the two models, which is the whole
+ * lesson: the defect this function was fixed for was one line.
+ */
+function bootstrap(draws, seed, source) {
   let s = seed >>> 0 || 0x9e3779b9;
   const next = () => {
     s ^= s << 13; s >>>= 0;
@@ -233,16 +296,119 @@ function bootstrapBand(ratios, draws, seed) {
   };
   const out = [];
   for (let it = 0; it < draws; it++) {
+    const src = source(next);
     const pick = [];
-    for (let i = 0; i < 18; i++) pick.push(ratios[Math.floor(next() * ratios.length)]);
-    const v = [...pick].sort((a, b) => a - b);
-    const q = (p) => v[Math.min(v.length - 1, Math.max(0, Math.floor(p * v.length)))];
-    out.push((q(0.9) - q(0.1)) / (2 * p50(pick)));
+    for (let i = 0; i < 18; i++) pick.push(src[Math.floor(next() * src.length)]);
+    out.push(bandOfBlocks(pick));
   }
   out.sort((a, b) => a - b);
   return out;
 }
+
+/**
+ * RUN-PRESERVING — the operative model. `perRun[i]` is one run's block ratios.
+ */
+const bootstrapBand = (perRun, draws, seed) =>
+  bootstrap(draws, seed, (next) => perRun[Math.floor(next() * perRun.length)]);
+
+/**
+ * POOLED-BLOCK — the withdrawn model, printed beside the operative one so the
+ * retraction can be checked rather than taken on trust. Its `source` ignores
+ * `next`, so it consumes the same PRNG stream this file always did and still
+ * reproduces the pooled figures as first published.
+ */
+const bootstrapBandPooled = (perRun, draws, seed) => {
+  const pooled = perRun.flat();
+  return bootstrap(draws, seed, () => pooled);
+};
+
 const quant = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(p * sorted.length)))];
+const rateAbove = (sorted, c) => sorted.filter((b) => b > c).length / sorted.length;
+
+// ---------------------------------------------------------------------------
+// The self-test — a test of the RESAMPLING MODEL, and of nothing else
+// ---------------------------------------------------------------------------
+//
+// `node ladder_band.cjs --selftest`, the convention `seam.cjs` already uses.
+//
+// The pooled-block bootstrap shipped for two days and nobody caught it,
+// because the two models agree on the median and every check anyone would
+// think to write is a check on the median. So both fixtures below are built to
+// FAIL under pooled-block resampling and PASS under run-preserving, with
+// margins wide enough that no seed rescues the wrong model, and they cover the
+// two directions the error can take:
+//
+//   1. Runs that differ in CENTRE. Pooling reports a band no run has.
+//   2. Runs that differ in DISPERSION — the ladder's own shape, one jumpy run
+//      among steady ones. Pooling reports a tail no run has, and it is the
+//      NARROWER of the two, which is the specific claim §5 retracted.
+//
+// Fixture 1 alone would leave "pooled is at least conservative" standing;
+// fixture 2 is what refutes it.
+function selfTest() {
+  const checks = [];
+  const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail });
+  const block18 = (v) => Array.from({ length: 18 }, () => v);
+  const q99 = (perRun, boot) => quant(boot(perRun, 20000, 0x5eed5eed), 0.99);
+
+  {
+    // 1. TWO CLEARLY-DIFFERENT RUNS, each internally constant: every block of
+    //    run A reads 1.0 and every block of run B reads 2.0. Neither run has
+    //    any band at all — resample either one and you get 1.0s or 2.0s, so
+    //    p10 = p90 and the band is EXACTLY zero. Pooling draws from both and
+    //    reports a third of a band that belongs to neither, which is the
+    //    defect in one line: a synthetic mixed-regime block sample is not a
+    //    run.
+    const f = [block18(1), block18(2)];
+    const r = q99(f, bootstrapBand);
+    const p = q99(f, bootstrapBandPooled);
+    check(
+      'two runs with no band of their own resample to NO band, and pooling invents one',
+      r < 0.01 && p > 0.25,
+      `run-preserving q99 ${pc(r)}, pooled-block q99 ${pc(p)}`
+    );
+  }
+
+  {
+    // 2. NINETEEN RUNS, EIGHTEEN STEADY AND ONE JUMPY — the ladder's shape,
+    //    where the band is widest on the idle box. The jumpy run is 1 run in
+    //    19, so it is 5.3% of the DRAWS under run-preserving and the q99 sits
+    //    inside its tail; but its blocks are also only 5.3% of the pool, so
+    //    under pooling a draw of eighteen gets about one of them and a p10–p90
+    //    half-width trims it away. Pooling therefore reports a tail LOWER than
+    //    any real run's, which is exactly what it does on the real ladder
+    //    (29.4% against 41.4%) and exactly what the withdrawn comment claimed
+    //    could not happen.
+    const jumpy = Array.from({ length: 18 }, (_, i) => 0.55 + i * 0.05);
+    const f = [...Array.from({ length: 18 }, () => block18(1)), jumpy];
+    const r = q99(f, bootstrapBand);
+    const p = q99(f, bootstrapBandPooled);
+    check(
+      'one jumpy run among eighteen steady ones is in the tail run-preserving, and POOLING NARROWS IT',
+      r > 0.35 && p < 0.25 && r > 2 * p,
+      `run-preserving q99 ${pc(r)}, pooled-block q99 ${pc(p)}`
+    );
+  }
+
+  {
+    // 3. And the models must not be told apart by the seed. Both fixtures are
+    //    re-read on four unrelated seeds; a check that passes only on
+    //    0x5eed5eed is a coincidence, not a regression.
+    const jumpy = Array.from({ length: 18 }, (_, i) => 0.55 + i * 0.05);
+    const f = [...Array.from({ length: 18 }, () => block18(1)), jumpy];
+    const spread = [1, 12345, 0x5eed5eed, 0xdeadbeef].map((s) => ({
+      r: quant(bootstrapBand(f, 20000, s), 0.99),
+      p: quant(bootstrapBandPooled(f, 20000, s), 0.99),
+    }));
+    check(
+      'the two models are separated on EVERY seed, so the separation is the model and not the draw',
+      spread.every((x) => x.r > 0.35 && x.p < 0.25),
+      spread.map((x) => `${pc(x.r)}/${pc(x.p)}`).join('  ')
+    );
+  }
+
+  return { ok: checks.every((c) => c.ok), checks };
+}
 
 // ---------------------------------------------------------------------------
 
@@ -254,7 +420,16 @@ function main() {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--emit') emit = argv[++i];
     else if (argv[i] === '--from') from = argv[++i];
-    else files.push(argv[i]);
+    else if (argv[i] === '--selftest') {
+      const st = selfTest();
+      for (const c of st.checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.detail ? '  — ' + c.detail : ''}`);
+      if (!st.ok) {
+        console.error('\nladder_band self-test FAILED');
+        process.exit(1);
+      }
+      console.log('\nladder_band self-test ok');
+      return;
+    } else files.push(argv[i]);
   }
 
   let runs;
@@ -333,7 +508,13 @@ function main() {
     console.log('');
     console.log('**Correlations across the ladder** — the multiplicativity evidence:');
     console.log('');
-    console.log(`- corr(ctl-2x/floor, floor) = **${corr(rs.map((r) => r.ctl2xMean), floors).toFixed(2)}** — an additive \`c\` reads \`(2W+c)/(W+c)\`, which FALLS as \`c\` grows, so a NEGATIVE sign is the additive signature`);
+    // NOT diagnostic, and the line that said it was has been removed. The old
+    // reading — "`(2W+c)/(W+c)` FALLS as `c` grows, so a NEGATIVE sign is the
+    // additive signature" — holds `W` fixed and varies `c`, which is not what
+    // this ladder does. Here `c` is roughly fixed and load varies `W`, and
+    // `(2W+c)/(W+c)` RISES with `W`. Section 6 of `the-band-re-calibrated.md`
+    // and `seam.cjs` withdrew the argument; this printer kept emitting it.
+    console.log(`- corr(ctl-2x/floor, floor) = **${corr(rs.map((r) => r.ctl2xMean), floors).toFixed(2)}** — NOT DIAGNOSTIC, and not evidence either way. Across this ladder \`c\` is roughly fixed and load varies \`W\`, so \`(2W+c)/(W+c)\` RISES with \`W\`; and the statistic is unstable enough to read +0.88 on one nineteen-run ensemble and -0.04 on another taken 25 minutes later on the same box. The rung table below is what carries the argument`);
     console.log(`- corr(bar, floor)          = ${corr(rs.map((r) => r.bar), floors).toFixed(2)}`);
     console.log(`- corr(bar, seam)           = ${corr(rs.map((r) => r.bar), rs.map((r) => r.seam)).toFixed(2)}`);
     console.log(`- corr(band, floor)         = ${corr(rs.map((r) => r.band), floors).toFixed(2)} — does the BAND track load?`);
@@ -357,48 +538,38 @@ function main() {
     }
     console.log('');
 
-    // The bootstrap.
-    const pooled = rs.flatMap((r) => r.ratios);
-    const bs = bootstrapBand(pooled, 20000, 0x5eed5eed);
-    // AND a within-run bootstrap: resample each run's OWN eighteen blocks, so
-    // the question is "would this run breach again if re-taken under identical
-    // conditions" rather than "would a run drawn from the whole ladder". The
-    // pooled one carries between-run variation and is the wider — a future run
-    // is a future run, not a repeat of a past one, so the pooled one is what a
-    // ceiling should be set against and the within-run one is the floor of the
-    // estimate.
-    const withinRun = mean(
-      rs.map((r) => {
-        const b = bootstrapBand(r.ratios, 2000, 0x5eed5eed);
-        return b.filter((x) => x > seamlib.BAND_CEILING).length / b.length;
-      })
-    );
+    // The bootstrap. Both models, one sample each, reused for every candidate
+    // ceiling below — `P(fire)` at a threshold is a filter over the sample the
+    // quantiles are read from, so the two cannot disagree with each other.
+    const perRun = rs.map((r) => r.ratios);
+    const bsRun = bootstrapBand(perRun, BOOT_DRAWS, 0x5eed5eed);
+    const bsPooled = bootstrapBandPooled(perRun, BOOT_DRAWS, 0x5eed5eed);
     console.log(
-      `**The band's own run-level sampling distribution**, 20,000 resamples of 18 blocks from this ` +
-        `ladder's ${pooled.length} pooled blocks: median ${pc(quant(bs, 0.5))}, q90 ${pc(quant(bs, 0.9))}, ` +
-        `q95 ${pc(quant(bs, 0.95))}, q99 ${pc(quant(bs, 0.99))}.`
+      `**The band's own run-level sampling distribution**, ${BOOT_DRAWS.toLocaleString('en-US')} draws of 18 ` +
+        `blocks from this ladder's ${rs.length} runs. RUN-PRESERVING (operative — draw a run, resample ITS ` +
+        `blocks): median ${pc(quant(bsRun, 0.5))}, q90 ${pc(quant(bsRun, 0.9))}, q95 ${pc(quant(bsRun, 0.95))}, ` +
+        `q99 **${pc(quant(bsRun, 0.99))}**. POOLED-BLOCK (withdrawn — draw 18 of the ${perRun.flat().length} ` +
+        `blocks regardless of run): ${pc(quant(bsPooled, 0.5))} / ${pc(quant(bsPooled, 0.9))} / ` +
+        `${pc(quant(bsPooled, 0.95))} / ${pc(quant(bsPooled, 0.99))} — NARROWER through the whole upper tail, ` +
+        `which is why the ceiling's "q99" derivation was withdrawn.`
     );
     console.log('');
-    console.log(`| candidate ceiling | P(fire) pooled | P(fire) within-run | runs of these 19 that breach |`);
+    console.log(`| candidate ceiling | P(fire) pooled-block (withdrawn) | **P(fire) run-preserving** | runs of these 19 that breach |`);
     console.log('|---:|---:|---:|---:|');
     for (const c of [0.2, 0.25, 0.3, 0.35, 0.4]) {
-      const pooledP = bs.filter((b) => b > c).length / bs.length;
-      const wr = mean(
-        rs.map((r) => {
-          const b = bootstrapBand(r.ratios, 2000, 0x5eed5eed);
-          return b.filter((x) => x > c).length / b.length;
-        })
-      );
       console.log(
-        `| ${pc(c)} | ${(pooledP * 100).toFixed(1)}% | ${(wr * 100).toFixed(1)}% | ` +
+        `| ${pc(c)} | ${(rateAbove(bsPooled, c) * 100).toFixed(2)}% | **${(rateAbove(bsRun, c) * 100).toFixed(1)}%** | ` +
           `${rs.filter((r) => r.band > c).length} of ${rs.length} |`
       );
     }
     console.log('');
     console.log(
-      `At the ceiling in force (${pc(seamlib.BAND_CEILING)}) the within-run estimate is ` +
-        `${(withinRun * 100).toFixed(1)}% and ${rs.filter((r) => r.band > seamlib.BAND_CEILING).length} of ` +
-        `${rs.length} of this ladder's runs breach.`
+      `At the ceiling in force (${pc(seamlib.BAND_CEILING)}) a run false-fires at ` +
+        `**${(rateAbove(bsRun, seamlib.BAND_CEILING) * 100).toFixed(1)}%** run-preserving ` +
+        `(${(rateAbove(bsPooled, seamlib.BAND_CEILING) * 100).toFixed(2)}% under the withdrawn pooled model), and ` +
+        `${rs.filter((r) => r.band > seamlib.BAND_CEILING).length} of ${rs.length} of this ladder's runs breach. ` +
+        `${pc(seamlib.BAND_CEILING)} is the q99 of NEITHER model; it is a judgement, and the comparison it was ` +
+        `made for survives — 25% false-fires at ${(rateAbove(bsRun, 0.25) * 100).toFixed(1)}%.`
     );
     console.log('');
   }
