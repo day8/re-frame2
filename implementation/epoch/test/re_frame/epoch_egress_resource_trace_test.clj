@@ -657,13 +657,18 @@
         (is (= :secret/article brid) "the resource-id (position 1) survives")
         (is (redacted-component? bscope) "the scope is tokenized")
         (is (redacted-component? bparams) "the canonical params are tokenized"))
-      (testing ":identities tokenizes per key, preserving per-key DISTINCTNESS
-                so a tool's per-key joins survive"
-        (is (= 2 (count (:identities tags))))
+      (testing ":identities tokenizes per key. Per-key DISTINCTNESS is NOT
+                preserved for a sensitive owner (rf2-hzcv8): the digest that
+                preserved it was recoverable by enumeration over a low-entropy
+                auth token, so it is gone. The vector's CARDINALITY and each
+                member's resource-id still ride, which is what makes the row a
+                partition a tool can read"
+        (is (= 2 (count (:identities tags)))
+            "both members still ride — the count is the partition fact")
         (is (every? #(= :secret/article (second %)) (:identities tags)))
         (is (every? #(redacted-component? (nth % 2)) (:identities tags)))
-        (is (apply not= (map #(nth % 2) (:identities tags)))
-            "two distinct keys keep two distinct digests"))
+        (is (apply = (map #(nth % 2) (:identities tags)))
+            "and the two tokens AGREE — nothing content-derived tells them apart"))
       (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
       (testing "the plan's structural attribution rides verbatim"
         (is (= :r/article (:route-id tags)))
@@ -715,9 +720,16 @@
           (is (redacted-component? (first (first ks))) "the scope is tokenized")
           (is (redacted-component? (nth (first ks) 2))
               "the canonical params — a route's path parameters — are tokenized")))
-      (testing "three DISTINCT identities keep three distinct digests, so the
-                partition a tool reads off one row is still a partition"
-        (is (= 3 (count (set (map #(nth (first %) 2) (partition-slots tags)))))))
+      (testing "the three identities no longer keep three distinct digests
+                (rf2-hzcv8 — a sensitive owner's token is content-free), but the
+                partition a tool reads off one row survives on the STRUCTURE:
+                each slot is its own vector, each of a known size, each member
+                keeping its resource-id"
+        (is (= 1 (count (set (map #(nth (first %) 2) (partition-slots tags)))))
+            "all three tokens agree — the content that separated them is gone")
+        (is (= [1 1 1] (mapv count (partition-slots tags)))
+            "and the partition is still a partition: three slots, one identity
+             each, which is the fact the row exists to report"))
       (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
       (testing "the counts beside the vectors are structural scalars and ride"
         (is (= 1 (:ensured tags)))
@@ -1356,10 +1368,20 @@
       (is (= [k1] (:matched tags))
           "and so does the plain owner's :matched key vector"))))
 
-(deftest free-scope-tokens-stay-distinct-per-scope
-  (testing "rf2-1zc33 — distinct scopes must keep DISTINCT digests, so an Xray
-            invalidation graph can still group and join by scope after the
-            identity map tokenizes"
+(deftest free-scope-tokens-carry-no-enumerable-content
+  (testing "rf2-1zc33 / rf2-hzcv8 — a free scope tag keeps its TIER keyword, so
+            an Xray invalidation graph still groups by scope tier; but the
+            identity map's token is CONTENT-FREE, so two distinct sessions are
+            indistinguishable after projection.
+
+            This assertion used to run the other way — distinct scopes kept
+            distinct digests, so a tool could join per session. rf2-hzcv8
+            settled that the digest which bought that join was the leak: a
+            session id lives in a candidate space small enough to enumerate, so
+            a 32-bit token over it is recoverable and testable. A free scope tag
+            carries no owner claim that could permit a content-derived token, so
+            it takes the fail-closed shape. Per-session joins lose; tier-level
+            attribution, which is what the graph actually groups on, survives."
     (let [r1 (record-with [(event :rf.resource/invalidated
                                   {:rf.frame/id :test/rt :scope session-scope})])
           r2 (record-with [(event :rf.resource/invalidated
@@ -1367,11 +1389,12 @@
           s1 (free-scope r1)
           s2 (free-scope r2)]
       (is (= :rf.scope/session (first s1) (first s2))
-          "both keep the tier keyword")
+          "both keep the tier keyword — attribution survives")
       (is (redacted-component? (second s1)))
       (is (redacted-component? (second s2)))
-      (is (not= (second s1) (second s2))
-          "two distinct scopes keep two distinct digests"))))
+      (is (= (second s1) (second s2))
+          "and the two tokens AGREE — nothing content-derived survives to tell
+           two sessions apart"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (7) the SIBLING still owns its own row — nothing changes on scope-resolved
@@ -1720,10 +1743,12 @@
       (is (not (:sensitive? (:tags do-fx)))
           "on either carrier"))))
 
-(deftest fx-carrier-scope-tokens-stay-distinct-per-scope
-  (testing "rf2-425mm — distinct scopes must keep DISTINCT digests on the fx
-            carriers too, so an Xray effect graph can still group and join a
-            record's requests by session after the identity map tokenizes"
+(deftest fx-carrier-scope-tokens-carry-no-enumerable-content
+  (testing "rf2-425mm / rf2-hzcv8 — the fx carriers take the SAME token contract
+            as the family's own rows, which is the whole point of rf2-425mm: one
+            scope, one rule, whichever carrier it rides. So the carrier's scope
+            token is content-free too, and two distinct sessions agree here
+            exactly as they do on the trace row above"
     (let [proj  (fn [scope]
                   (let [k (sk scope :derived/profile profile-params)]
                     (-> (fx-carrier-record (managed-args k scope))
@@ -1734,8 +1759,11 @@
           s2    (proj other-session-scope)]
       (is (tokenized-scope? s1))
       (is (tokenized-scope? s2))
-      (is (not= (second s1) (second s2))
-          "two distinct sessions keep two distinct digests"))))
+      (is (= :rf.scope/session (first s1) (first s2))
+          "the tier keyword rides on the carrier too")
+      (is (= (second s1) (second s2))
+          "and the two tokens AGREE — the carrier did not acquire a weaker rule
+           than the row"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
@@ -2095,10 +2123,17 @@
       (is (not (:sensitive? (:tags req-row)))
           "the request row is not"))))
 
-(deftest fx-carrier-reply-tokens-stay-distinct-per-value
-  (testing "rf2-xx4ty — distinct bodies must keep DISTINCT digests, so an Xray
-            effect graph can still tell two reads' completions apart after the
-            payload tokenizes"
+(deftest fx-carrier-reply-tokens-carry-no-enumerable-content
+  (testing "rf2-xx4ty / rf2-hzcv8 — a redacting owner's reply body and params
+            tokenize on the carrier, and the token is content-free. Two distinct
+            reads' completions are therefore no longer tellable apart off-box.
+
+            That join is the exact thing rf2-hzcv8 declines to buy with an
+            enumerable token: a reply body echoes submitted fields and a params
+            map carries the slug, both low-entropy enough to confirm a guess
+            against a 32-bit digest. The row's structural attribution — which
+            resource, which frame, which op — is what a tool groups on, and it
+            rides verbatim beside these slots"
     (let [proj  (fn [params value]
                   (let [k (sk session-scope :derived/profile params)]
                     (-> (reply-carrier-record (read-reply k session-scope value))
@@ -2107,10 +2142,10 @@
                         first)))
           r1    (proj reply-params reply-value)
           r2    (proj {:slug (str secret "-2")} {:email "other@example.com"})]
-      (is (not= (:value r1) (:value r2))
-          "two distinct bodies keep two distinct digests")
-      (is (not= (:params r1) (:params r2))
-          "and so do two distinct params maps"))))
+      (is (= (:value r1) (:value r2))
+          "two distinct bodies of the same shape produce ONE token")
+      (is (= (:params r1) (:params r2))
+          "and so do two distinct params maps of the same shape"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
@@ -2922,11 +2957,13 @@
         (is (= :secret/vector-params brid) "the resource-id (position 1) survives")
         (is (redacted-component? bscope) "the scope is tokenized")
         (is (redacted-component? bparams) "the VECTOR params are tokenized"))
-      (testing ":identities keeps per-key DISTINCTNESS so a tool's joins survive"
+      (testing ":identities no longer keeps per-key distinctness for a sensitive
+                owner (rf2-hzcv8) — the token is content-free, and VECTOR params
+                take the same rule as map params"
         (is (= 2 (count (:identities tags))))
         (is (every? #(redacted-component? (nth % 2)) (:identities tags)))
-        (is (apply not= (map #(nth % 2) (:identities tags)))
-            "two distinct vector-params keys keep two distinct digests"))
+        (is (apply = (map #(nth % 2) (:identities tags)))
+            "two distinct vector-params keys produce ONE token"))
       (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
       (testing "the plan's structural attribution still rides verbatim"
         (is (= [:r/root :r/article] (:branch tags)))
