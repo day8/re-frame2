@@ -217,6 +217,14 @@ events. Witnessed end-to-end — grammar, equality, refusals, real clicks throug
 real router — in `front/route_link_cljs_test` and
 `shapes/route_link_dom_cljs_test`.
 
+Routing also publishes a `:prefetch` opt-in, and Hicasso declines it for v0 — out
+loud, rather than by ignoring it. A `route-link` carrying `:prefetch` in any form,
+`nil` and `false` included, fails at render with
+`:rf.error/hicasso-route-link-prefetch-declined`. A key that merely fell through
+would leave you with a link that prefetches nothing, reports it nowhere, and
+carries a stray attribute on the anchor. If you want prefetching today, write it as
+an ordinary intent at `:on-mouse-enter`.
+
 ## Callbacks carry their frame
 
 A generated callback closes over its boundary's frame, resolved once per boundary
@@ -259,5 +267,3 @@ dispatch, and a plain `(fn …)` when you want to read it and do something else.
 | Question | Status |
 |---|---|
 | `h/fn`'s spelling | Working name; HD-024 leaves the spelling unfrozen like every declaration spelling |
-| A symmetric allow-default head | **Explicitly not shipped.** Added only if dogfooding produces a real site needing both native submission and equality-based structural testing (HD-026) |
-| `:prefetch` on `route-link` | **Declined for v0** — the census counts no prefetch site; reopens if one appears (HD-027) |
