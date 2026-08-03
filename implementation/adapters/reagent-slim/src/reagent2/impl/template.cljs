@@ -246,12 +246,14 @@
   across every subsequent prop-map conversion. Per rf2-dwds9 MEDIUM.
 
   THE ROSTER IS THE FUNCTION BODY (rf2-lhdp0). This was a
-  `PersistentHashSet` and a `contains?`, which is a string hash plus a
-  hash-map probe — 53.7 ns/op on the census page's own prop names, for a
-  roster of three, asked once per prop occurrence on every element of every
-  mount. Three `===` compares answer it in 10.4 ns and need no second
-  data structure to keep in step with. `front/codec`'s `reserved-name?`
-  is the same shape for the same reason."
+  `PersistentHashSet` and a `contains?` — a string hash plus a hash-map
+  probe, for a roster of three, asked once per prop occurrence on every
+  element of every mount. Costed side by side on one run over the census
+  page's own prop names: set 53.7 ns/op, three `===` compares 10.4, a
+  null-prototype index 15.8. The chain wins on the clock AND is the only
+  one of the three with no second data structure to keep in step with, so
+  the roster can live where it reads best — here. `front/codec`'s
+  `reserved-name?` is the same shape for the same reason."
   [n]
   (or (identical? "__proto__" n)
       (identical? "prototype" n)
@@ -281,6 +283,10 @@
 ;;
 ;; This is strictly safer than the guard it replaces, not a trade: a cache
 ;; that CANNOT serve an inherited value beats one that promises to notice.
+;; It is also where the bead's named term went: `cached-prop-name` read 2.0x
+;; stock Reagent's over the census page's 1,489 prop occurrences before this
+;; and 0.53x after, measured on the real function in the same instrument
+;; either side of the change (rf2-lhdp0).
 
 (def ^:private tag-name-cache (js/Object.create nil))
 
@@ -760,8 +766,8 @@
   This is what an element constructor calls. Locating the props slot is
   precisely what `hiccup-shape` has just done for it, so re-deriving the
   slot from the head — `get-react-key`'s `nth`/`case` ladder below — is
-  work the hot path does not owe: 133.9 → 62.8 ns per element on the
-  census page (rf2-lhdp0)."
+  work the hot path does not owe: 133.9 → 62.8 ns per element, the two
+  costed side by side on one run over the census page (rf2-lhdp0)."
   [argv props]
   (or (some-> (meta argv) :key)
       (:key props)))
@@ -845,12 +851,13 @@
 ;; A null-prototype index DERIVED from `void-tags`, so the roster above stays
 ;; the single source of truth and there is no second list to drift
 ;; (rf2-lhdp0). The probe is asked once per DOM element of every mount, and
-;; `contains?` on this 14-entry PersistentHashSet measured 102.3 ns/op on the
-;; census page's own tag strings — a string hash plus a hash-map probe, where
-;; a property load on a prototype-less object is 17.5. Unlike the three-name
-;; reserved roster, fourteen `===` compares are not the readable answer here,
-;; so the index earns its five lines; a `case` was costed too (25.4) and
-;; declined because it would be a SECOND copy of the roster.
+;; costed side by side on one run over the census page's own tag strings,
+;; `contains?` on this 14-entry PersistentHashSet was 102.3 ns/op — a string
+;; hash plus a hash-map probe — against 17.5 for a property load on a
+;; prototype-less object. Fourteen `===` compares are not the readable answer
+;; the three-name reserved roster's are, so here the index earns its five
+;; lines; a `case` was costed too (25.4) and declined because it would be a
+;; SECOND copy of the roster.
 (def ^:private void-tag-index
   (reduce (fn [o t] (unchecked-set o t true) o)
           (js/Object.create nil)
