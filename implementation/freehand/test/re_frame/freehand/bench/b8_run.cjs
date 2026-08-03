@@ -1008,8 +1008,52 @@ function report(out) {
 }
 
 // ---------------------------------------------------------------------------
+// The exit decision
+// ---------------------------------------------------------------------------
 
-(async () => {
+// A refusal that only PRINTS is not a refusal (rf2-tb345, audit #7226).
+// `reportWarmth` has always named the (arm, D) combinations that never
+// stopped trending, and `report` has always persisted that list as
+// `summary.warmupUnsettled` — but the exit block read the arm-order guard's
+// list and nothing else, so a run could print "NOT SETTLED inside the
+// ceiling" and still exit 0 whenever the measured-round guard was clean.
+// An arm warmed on a site that was still moving has its figures taken off
+// that trajectory; that is not a green run, and the process has to say so.
+//
+// Both questions are now asked HERE, in one pure function over the summary,
+// which is what makes the exit path checkable without a browser — see
+// `b8_exit_path.test.cjs`.
+//
+// The two refusals are INDEPENDENT. An unsettled warm-up refuses on its
+// own; an order refusal refuses on its own; when both fire both are named.
+// The code when both fire is the arm-order guard's, so no run that exited 2
+// before exits anything else now.
+//
+//   0  clean
+//   2  the arm-order guard refused (rf2-88pie) — also when 3 would apply
+//   3  a site never settled inside the warm-up ceiling (rf2-tb345)
+//
+// Neither refusal suppresses output: the table is printed and B8_RAW_OUT is
+// written before this is consulted. A refusal is about what may be QUOTED,
+// not about throwing the measurement away.
+function verdict(summary) {
+  const order = (summary && summary.orderRefusals) || [];
+  const unsettled = (summary && summary.warmupUnsettled) || [];
+  const lines = [];
+  if (unsettled.length) {
+    lines.push(
+      `[b8] REFUSED — warm-up never settled inside the ceiling (rf2-tb345): ` +
+        `${unsettled.join(', ')} — those arms were measured on a site that was ` +
+        'still moving. Raise B8_WARMUP_MAX and re-run.'
+    );
+  }
+  if (order.length) {
+    lines.push(`[b8] REFUSED by the arm-order guard (rf2-88pie): ${order.join(', ')}`);
+  }
+  return { code: order.length ? 2 : unsettled.length ? 3 : 0, lines };
+}
+
+async function drive() {
   if (!NO_BUILD) build();
   const server = serve();
   let out;
@@ -1030,16 +1074,18 @@ function report(out) {
   }
   if (failed) {
     console.error(`[b8] FAILED: ${failed}`);
-    process.exit(1);
+    return 1;
   }
-  // A run whose figures the arm-order guard refused is not a green run.
-  // The data is printed and the raw file is written — the refusal is about
-  // what may be QUOTED, not about throwing the measurement away.
-  if (out && out.summary && out.summary.orderRefusals && out.summary.orderRefusals.length) {
-    console.error(
-      `[b8] REFUSED by the arm-order guard (rf2-88pie): ${out.summary.orderRefusals.join(', ')}`
-    );
-    process.exit(2);
-  }
-  console.error('[b8] ok');
-})();
+  const v = verdict(out && out.summary);
+  for (const line of v.lines) console.error(line);
+  if (v.code === 0) console.error('[b8] ok');
+  return v.code;
+}
+
+module.exports = { verdict };
+
+if (require.main === module) {
+  drive().then((code) => {
+    if (code !== 0) process.exit(code);
+  });
+}
