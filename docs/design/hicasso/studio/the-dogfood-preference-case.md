@@ -67,7 +67,7 @@ since they were written (`rf2-2rtt6.35` `h/fn`, HD-023 `:&`, HD-026
 retirement of the prevent metadata in `rf2-2rtt6.57`, and HD-028's
 value-equality boundary default — see §3.7).
 
-**The collector rendering needed no code change.** Every event position takes
+**The collector rendering needed no change to its authoring spellings.** Every event position takes
 a literal intent vector, nothing forwards a props remainder, no anchor acts as
 a button (the one submit position takes the census-weighted auto-prevent),
 nothing routes, and nothing animates an exit. So none of the four collapsed
@@ -79,12 +79,11 @@ absence rather than a pass**: the dogfood screen exercises the tier-1 core
 escape hatches, which is what the census predicted a spine screen would look
 like.
 
-That statement is about the landed *spellings*, and it still holds. The
-collector file did change after the audit, for an unrelated reason: its intent
+The file itself did change after the audit, for an unrelated reason: its intent
 vectors moved out of the shared state file and into the event positions where
-they are written (§3.1). No spelling changed — the same vectors are at the same
-positions — and the DOM and intent witnesses both hold across the move, which
-is the point of having them.
+they are written (§3.1). No spelling changed — the same vectors sit at the same
+positions — and both witnesses hold across the move, which is the point of
+having them.
 
 **The raw-UIx rendering needed two changes to be the control it claims to
 be**, and one of them is itself a finding:
