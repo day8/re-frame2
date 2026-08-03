@@ -1716,7 +1716,7 @@
     {:token :react/use-sync-external-store
      :what  "React's own hook cell for the one subscription hook"}
     {:token :react/use-context
-     :what  "React's own hook cell for the frame hook"}
+     :what  "React's own hook cell for the frame hook, plus the fiber's context dependency record — held by the CONTEXT-fed shell only. The frame-fed variant ([[mint-frame-prop-view!]]) does NOT hold it: its frame arrives as the element prop `rfFrame`, which costs one slot in every boundary element's props object instead. A ladder reading this table for that variant must subtract this token and add that slot (rf2-2rtt6.39, priced on rf2-2rtt6.72)"}
     {:token :react/memo-fiber
      :what  "one EXTRA React fiber — `mint-view!`'s props-equality bail-out is a `React.memo` carrying a comparator, and a memo with a custom comparator stays a MemoComponent rather than collapsing into React's SimpleMemoComponent, so React holds a wrapper fiber above the component's own (rf2-2rtt6.52)"}
     {:token :read-set-entry
