@@ -481,8 +481,9 @@ is the failure mode.
 > reading; a call site outside this namespace still needs its own ruling.
 >
 > **The price, paid in public.** One React fiber and one `useState` cell per
-> controlled `input`/`textarea`, plus one props copy and three handler closures
-> per render of a convergeable one. **HD-020(b)'s ≤2-hook budget is untouched**:
+> controlled `input`/`textarea`, plus — on a convergeable one, per render — one
+> props copy and four closures: the three wrapped handlers and the release they
+> share. **HD-020(b)'s ≤2-hook budget is untouched**:
 > the shadow is not a boundary shell, and `shapes/hook_budget_dom_cljs_test`
 > now separates the two counts — the shell sequence is still the declared pair
 > once per boundary, the shadow's hook is counted per controlled text field, and
