@@ -224,7 +224,7 @@
                             (:pump! opts)
                             default-blocking-pump!)
              :tick-ms     (or tick-ms 5)})
-     {:settled? true :timed-out #{} :route-blocking-failure nil})))
+     {:settled? true :timed-out [] :route-blocking-failure nil})))
 
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
 ;;

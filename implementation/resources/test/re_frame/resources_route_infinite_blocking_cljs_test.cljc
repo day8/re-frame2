@@ -101,8 +101,14 @@
 (defn- entry [scoped-key]
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entry-path scoped-key)))
 
-(defn- blocking-slot [nav-token]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (route/blocking-path nav-token)))
+(defn- blocking-slot
+  "The live blocking slot for `nav-token`, projected to the SET of its scoped
+  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier
+  (rf2-btdl1); these assertions ask a membership question the projection
+  answers."
+  [nav-token]
+  (set (vals (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                     (route/blocking-path nav-token)))))
 
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))

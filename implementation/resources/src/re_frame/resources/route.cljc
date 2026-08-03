@@ -31,7 +31,8 @@
          nav-token]`;
        - classifies blocking vs background — a blocking requirement that
          does NOT already have usable data AT COMMIT records its scoped
-         key under `[:rf.runtime/routing :resource-blocking nav-token]`,
+         key under `[:rf.runtime/routing :resource-blocking nav-token]`
+         (keyed by its CEDN-1 byte `key-id`),
          so the route transition stays `:loading` (and SSR has a wait
          point) until it resolves, while non-blocking ones fetch in the
          background and an already-fresh blocking one records nothing (the
@@ -79,7 +80,8 @@
 ;;
 ;; Blocking route resources are tracked under their nav-token in the
 ;; routing-runtime subtree (a sibling of `:current` / `:pending-navigation`
-;; under `[:rf.runtime/routing …]`), so:
+;; under `[:rf.runtime/routing …]`) as a `{<key-id> <scoped-key>}` map — the
+;; same byte-exact carrier shape `:entries` uses (rf2-btdl1), so:
 ;;   - the slot names the OUTSTANDING blocking requirements for that
 ;;     activation; `reconcile-readiness` below prunes each as it resolves and
 ;;     projects `:transition` / `:error` from what remains (EP-0037 R1: route
@@ -88,9 +90,9 @@
 ;;   - a newer navigation's nav-token has its OWN slot, so a stale
 ;;     blocking drain (old nav-token) is structurally a no-op (its slot is
 ;;     released on leave);
-;;   - the slot is per-nav-token EDN (scoped keys), not host state, so it
-;;     rides epoch restore / SSR coherently with the rest of the routing
-;;     runtime-db.
+;;   - the slot is per-nav-token EDN (byte `key-id`s to their kind-preserving
+;;     scoped keys), not host state, so it rides epoch restore / SSR
+;;     coherently with the rest of the routing runtime-db.
 
 (def routing-key
   "The routing-runtime subtree key (`:rf.runtime/routing`). The blocking
@@ -100,9 +102,10 @@
   :rf.runtime/routing)
 
 (defn blocking-path
-  "Runtime-db-relative path to the blocking scoped-key set for a
-  nav-token: `[:rf.runtime/routing :resource-blocking <nav-token>]`. Per
-  Spec 016 §Route integration."
+  "Runtime-db-relative path to the blocking identity map for a nav-token:
+  `[:rf.runtime/routing :resource-blocking <nav-token>]`, holding
+  `{<key-id> <scoped-key>}` (rf2-btdl1 — byte-exact membership, no order
+  promise). Per Spec 016 §Route integration."
   [nav-token]
   [routing-key :resource-blocking nav-token])
 
@@ -115,8 +118,9 @@
 
 (defn blocking-slots-map-path
   "Runtime-db-relative path to the WHOLE per-nav-token blocking-slots map
-  (`[:rf.runtime/routing :resource-blocking]`), keyed by nav-token. Used to
-  drop a superseded token's slot wholesale (rf2-l2gofj)."
+  (`[:rf.runtime/routing :resource-blocking]`), keyed by nav-token — each
+  value is that token's `{<key-id> <scoped-key>}` map. Used to drop a
+  superseded token's slot wholesale (rf2-l2gofj)."
   []
   [routing-key :resource-blocking])
 
@@ -146,7 +150,8 @@
 ;; The FULL set of scoped resource identities a nav-token's effective
 ;; parent-to-leaf plan owns (blocking AND non-blocking) is recorded under
 ;; `[:rf.runtime/routing :resource-plan <nav-token>]`, a sibling of
-;; `:resource-blocking`. The NEXT full activation reads the SUPERSEDED
+;; `:resource-blocking` and carried in the same `{<key-id> <scoped-key>}`
+;; shape (rf2-btdl1). The NEXT full activation reads the SUPERSEDED
 ;; nav-token's slot to compute the kept/added/removed plan diff for
 ;; attach-before-release owner handoff + the partial-revalidation law (Spec
 ;; 016 §Effective parent-chain resource plans). Like the blocking slot it is
@@ -155,9 +160,10 @@
 ;; owner is released.
 
 (defn plan-path
-  "Runtime-db-relative path to the plan-identity set for a nav-token:
-  `[:rf.runtime/routing :resource-plan <nav-token>]`. Per Spec 016
-  §Effective parent-chain resource plans."
+  "Runtime-db-relative path to the plan-identity map for a nav-token:
+  `[:rf.runtime/routing :resource-plan <nav-token>]`, holding
+  `{<key-id> <scoped-key>}`. Per Spec 016 §Effective parent-chain resource
+  plans."
   [nav-token]
   [routing-key :resource-plan nav-token])
 
@@ -168,10 +174,11 @@
   [routing-key :resource-plan])
 
 (defn plan-identities
-  "The set of scoped resource identities the plan for `nav-token` owned, read
-  from `runtime-db` (`#{}` when none). The plan-diff's PREVIOUS-set input."
+  "The scoped resource identities the plan for `nav-token` owned, read from
+  `runtime-db` as `{<key-id> <scoped-key>}` (`{}` when none). The plan-diff's
+  PREVIOUS-identity input."
   [runtime-db nav-token]
-  (or (get-in runtime-db (plan-path nav-token)) #{}))
+  (or (get-in runtime-db (plan-path nav-token)) {}))
 
 (defn clear-plan-slot
   "Pure: dissoc the ENTIRE plan-identity slot for a superseded `nav-token`.
@@ -353,7 +360,7 @@
 
   The projection (Spec 012 §Route readiness is a resource projection):
 
-  | current nav-token's outstanding blocking set | `:transition` | `:error`        |
+  | current nav-token's outstanding blocking map | `:transition` | `:error`        |
   |----------------------------------------------|---------------|-----------------|
   | contains a `:failed` requirement             | `:error`      | first failure   |
   | otherwise contains a `:pending` requirement  | `:loading`    | nil             |
@@ -399,17 +406,18 @@
          blocking   (get-in runtime-db (blocking-path nav-token))]
      (if (empty? blocking)
        runtime-db
-       (let [entry-of    (fn [k] (get-in runtime-db (state/entry-path k)))
-             outstanding (into #{} (remove (comp requirement-met? entry-of)) blocking)
-             ;; deterministic first failure: the outstanding slot is a SET, so
-             ;; the pick is ordered by the canonical CEDN-1 byte key rather
-             ;; than hash order — stable across settles that prune siblings.
-             failed      (->> outstanding
-                              (filter #(= :failed (requirement-state (entry-of %))))
-                              (sort-by state/key-id)
+       (let [entry-of    (fn [k-id] (get-in runtime-db (state/entry-path-by-id k-id)))
+             outstanding (into {} (remove (comp requirement-met? entry-of key)) blocking)
+             ;; deterministic first failure: the outstanding slot promises no
+             ;; order, so the pick is ordered by the canonical CEDN-1 byte
+             ;; key-id the slot is already keyed on — stable across settles
+             ;; that prune siblings, and read off the carrier rather than
+             ;; recomputed (rf2-btdl1).
+             failed      (->> (sort-by key outstanding)
+                              (filter (comp #(= :failed (requirement-state %)) entry-of key))
                               first)
              transition  (cond failed :error (seq outstanding) :loading :else :idle)
-             err         (when failed (route-blocking-error (entry-of failed) nav-token))
+             err         (when failed (route-blocking-error (entry-of (key failed)) nav-token))
              db'         (assoc-in runtime-db (blocking-path nav-token) outstanding)]
          (if (and (= transition (get-in db' (conj slice-path :transition)))
                   (= err        (get-in db' (conj slice-path :error))))
@@ -696,7 +704,8 @@
   its whole declared `:resources` (`order-by-after`, fail-closed on a
   missing/cyclic local `:after`), then, for each `:when`-admitted entry,
   resolve scope + canonical params (fail-closed) and compute its scoped-key
-  identity. A validation/`:when`/params/scope THROW propagates to the plan
+  identity (plus its byte `key-id`, the grouping key everything downstream
+  uses). A validation/`:when`/params/scope THROW propagates to the plan
   boundary (a committed failed activation), CARRYING the contributing route +
   local declaration id (`attributed`). EP-0037 R2 rules 2-4."
   [branch route ctx app-db]
@@ -731,6 +740,13 @@
                               :scope          scope
                               :cparams        cparams
                               :scoped-key     scoped-key
+                              ;; rf2-btdl1 — the CEDN-1 byte identity, computed
+                              ;; ONCE here and used as the grouping / carrier
+                              ;; key everywhere downstream. `=` is coarser than
+                              ;; this (vector-vs-list params), so grouping on
+                              ;; the scoped key itself collapses a supported
+                              ;; pair before any ensure is dispatched.
+                              :key-id         (state/key-id scoped-key)
                               :blocking?      (boolean (:blocking? entry))
                               :keep-previous? (boolean (:keep-previous? entry))})
                    (inc n)]))
@@ -776,31 +792,42 @@
   [groups]
   (into []
         (mapcat
-          (fn [[scoped-key occs]]
+          (fn [[_key-id occs]]
             (let [by-seq (sort-by :seq occs)]
               (when (> (count (into #{} (map :route-id) occs)) 1)
                 (let [ancestor (first by-seq)]
                   (for [child (rest by-seq)
                         :when (not= (:route-id child) (:route-id ancestor))]
                     {:resource   (:resource ancestor)
-                     :scoped-key scoped-key
+                     ;; the advisory names the KIND-PRESERVING scoped key, not
+                     ;; the byte `key-id` the group is keyed on (rf2-btdl1).
+                     :scoped-key (:scoped-key ancestor)
                      :ancestor   {:route-id (:route-id ancestor) :local-id (:local-id ancestor)}
                      :child      {:route-id (:route-id child)    :local-id (:local-id child)}}))))))
         groups))
 
 (defn- collapse-and-order
-  "Collapse occurrences by scoped-key identity and stable-topologically order
-  the grouped graph. Returns `{:ordered [dedup-req …] :advisories […]}` or
+  "Collapse occurrences by resource identity and stable-topologically order the
+  grouped graph. Returns `{:ordered [dedup-req …] :advisories […]}` or
   `{:cycle [scoped-key …]}` when identity collapse makes the grouped graph
   cyclic (EP-0037 R2 rule 6 — the plan then fails and dispatches no ensures).
   A dedup-req combines the group per the constraint-preserving rules: blocking
   when ANY contributor blocks, `:keep-previous?` when ANY requests it, every
   contributor retained in `:contributors`; the earliest occurrence (min `:seq`)
-  fixes the group's position + is the topo tie-breaker."
+  fixes the group's position + is the topo tie-breaker.
+
+  rf2-btdl1 — the grouping grain is the CEDN-1 byte `key-id`, NOT Clojure `=`
+  over the scoped key. `=` is coarser exactly where resource identity is not
+  (vector-vs-list params — rf2-wgutc2), so grouping on the scoped key made two
+  route entries requiring genuinely distinct identities collapse into ONE
+  dedup-req: one ensure dispatched, the second byte identity never fetched.
+  That is a DISPATCH defect, not a diagnostic one. The dedup-req still carries
+  the kind-preserving `:scoped-key` — that is what consumers join on — beside
+  the `:key-id` the carriers are keyed on."
   [occs]
   (let [occ-by-id  (into {} (map (juxt :occ-id identity)) occs)
-        group-of   (fn [oid] (:scoped-key (occ-by-id oid)))
-        groups     (group-by :scoped-key occs)
+        group-of   (fn [oid] (:key-id (occ-by-id oid)))
+        groups     (group-by :key-id occs)
         gkeys      (set (keys groups))
         gedges     (into #{}
                          (comp (map (fn [[u v]] [(group-of u) (group-of v)]))
@@ -816,7 +843,8 @@
          (mapv (fn [gk]
                  (let [os     (sort-by :seq (groups gk))
                        rep    (first os)]
-                   {:scoped-key     gk
+                   {:scoped-key     (:scoped-key rep)
+                    :key-id         gk
                     :resource       (:resource rep)
                     :scope          (:scope rep)
                     :cparams        (:cparams rep)
@@ -830,7 +858,9 @@
          :advisories (redundant-child-advisories groups)}
         (let [ready (keep (fn [[g d]] (when (zero? d) g)) indeg)]
           (if (empty? ready)
-            {:cycle (vec (keys indeg))}
+            ;; the cycle is REPORTED in scoped keys — a byte `key-id` blob
+            ;; names nothing an author could act on.
+            {:cycle (mapv (comp :scoped-key first groups) (keys indeg))}
             (let [g      (first (sort-by group-rank ready))
                   indeg' (reduce (fn [m s] (update m s dec))
                                  (dissoc indeg g) (succ g))]
@@ -929,7 +959,7 @@
   metadata on entry. Pure planner over the route + ctx; the runtime
   effects (ensure dispatches, blocking-slot write, prior-owner release,
   planning-error trace) are returned as an fx vector + the blocking
-  scoped-key set. Per Spec 016 §Route integration.
+  identity map. Per Spec 016 §Route integration.
 
   `route` is the resolved route value
   (`{:id :params :query :fragment …}`), `ctx` the reserved entry context
@@ -939,8 +969,9 @@
   (the route-entry app-db value — see the `:app-db` paragraph below), and
   `:runtime-db` (the pre-commit runtime-db, read for the AT-COMMIT resource
   facts that decide which blocking requirements still have to resolve —
-  `requirement-ready?`). Returns `{:fx [...] :blocking #{<scoped-key> …}
-  :plan-error err?}`.
+  `requirement-ready?`). Returns `{:fx [...] :blocking {<key-id> <scoped-key>}
+  :identities {<key-id> <scoped-key>} :plan-error err?}` — both identity
+  carriers are byte-keyed maps with NO order promise (rf2-btdl1).
 
   FAIL-CLOSED structural inputs (rf2-ac71vm): a `nil` `ctx` or a missing
   `nav-token` is a planning bug, not a silently-defaulted read — the owner
@@ -1078,21 +1109,19 @@
         ;; Both carriers are consequently maps from `key-id` to the scoped key.
         ;; Membership is byte-exact; the EMITTED value is still the scoped key,
         ;; because that is what a consumer joins on.
-        prev-by-id (into {} (map (juxt state/key-id identity)) prev-identities)
-        next-by-id (into {}
-                         (map (fn [{:keys [scoped-key]}] [(state/key-id scoped-key) scoped-key]))
-                         ordered)
-        ;; the RETURN map's `:identities` keeps its documented set shape
-        ;; (`{<nav-token> #{<scoped-key> …}}` — Spec-Schemas §`:rf/runtime-db`),
-        ;; derived from the byte-keyed carrier so there is ONE source. Note that
-        ;; a set cannot itself hold a byte-distinct `=` pair, so the HANDOFF
-        ;; still has the collapse this repair removed from the planner's own
-        ;; arithmetic — see the note on `removed-identities` below.
-        next-ids  (set (vals next-by-id))
-        entry-of  (fn [scoped-key] (get-in runtime-db (state/entry-path scoped-key)))
-        adopted?  (fn [{:keys [scoped-key]}]
-                    (and (contains? prev-by-id (state/key-id scoped-key))
-                         (adoptable? runtime-db (entry-of scoped-key))))
+        ;;
+        ;; rf2-btdl1 — and so is the HANDOFF. `prev-identities` arrives as the
+        ;; byte-keyed map routing recorded under `[:rf.runtime/routing
+        ;; :resource-plan <token>]`, which needs no keying; a direct planner
+        ;; call may hand any collection of scoped keys, which does.
+        prev-by-id (if (map? prev-identities)
+                     prev-identities
+                     (into {} (map (juxt state/key-id identity)) prev-identities))
+        next-by-id (into {} (map (juxt :key-id :scoped-key)) ordered)
+        entry-of  (fn [k-id] (get-in runtime-db (state/entry-path-by-id k-id)))
+        adopted?  (fn [{:keys [key-id]}]
+                    (and (contains? prev-by-id key-id)
+                         (adoptable? runtime-db (entry-of key-id))))
         req-fx    (mapv
                     (fn [{:keys [resource scope cparams keep-previous?] :as req}]
                       (let [base {:resource resource :scope scope :params cparams
@@ -1117,10 +1146,10 @@
         ;; committing `:idle` over an identity with none. Without a
         ;; `runtime-db` nothing reads as ready and every blocking requirement is
         ;; recorded, which is the fail-safe direction.
-        blocking  (into #{}
+        blocking  (into {}
                         (comp (filter :blocking?)
-                              (map :scoped-key)
-                              (remove #(requirement-ready? (entry-of %))))
+                              (remove #(requirement-ready? (entry-of (:key-id %))))
+                              (map (juxt :key-id :scoped-key)))
                         ordered)
         ;; EP-0037 R2 plan-diff projection (Tooling: old/new kept/added/removed
         ;; identities): `:ensured` counts the ADDED identities (real ensures),
@@ -1145,11 +1174,11 @@
         ;; answer, not an ordered one. Removal is not an ordered operation: the
         ;; whole prior owner goes in ONE `release-fx`, so there is no order for
         ;; the row to report. Nor is one available — the routing handoff records
-        ;; `(:identities plan)` (a SET) under `[:rf.runtime/routing
-        ;; :resource-plan <token>]` and hands that set straight back as the next
-        ;; activation's `prev-identities`, so filtering the caller's collection
-        ;; in place would only republish set-iteration order while CLAIMING the
-        ;; prior plan's.
+        ;; `(:identities plan)` (an unordered MAP, rf2-btdl1) under
+        ;; `[:rf.runtime/routing :resource-plan <token>]` and hands it straight
+        ;; back as the next activation's `prev-identities`, so filtering the
+        ;; caller's collection in place would only republish map-iteration order
+        ;; while CLAIMING the prior plan's.
         ;;
         ;; Dropping to a de-duplicated prior collection is necessary but NOT
         ;; sufficient, and the CLJS lane proved it: a small CLJS set is backed by
@@ -1173,17 +1202,15 @@
         ;; rather than recomputed — one derivation of the identity, used for both
         ;; the difference and the order.
         ;;
-        ;; WHAT REMAINS, stated rather than implied: the byte-distinct `=` pair
-        ;; can still be collapsed BEFORE this function sees it. `ordered` comes
-        ;; from `collapse-and-order`, which groups occurrences by scoped key
-        ;; under Clojure `=`, and the routing handoff records a plan's identities
-        ;; as a `set` of scoped keys. So a caller that supplies both members of
-        ;; such a pair as `prev-identities` now gets both reported — a direct
-        ;; planner call, and the shape a byte-exact handoff would deliver — while
-        ;; the LIVE handoff cannot yet supply both. Closing that needs the
-        ;; planner's dedupe grain and two documented cross-feature runtime-db
-        ;; slot shapes to move together, which is a larger change than a trace
-        ;; row's contract: rf2-btdl1 carries it.
+        ;; NOTHING REMAINS UPSTREAM, and that is the point of rf2-btdl1: the
+        ;; byte-distinct `=` pair survives the WHOLE path now. `ordered` comes
+        ;; from `collapse-and-order`, which groups by `key-id`, so two route
+        ;; entries requiring the pair produce two dedup-reqs and two ensures;
+        ;; and the routing handoff records a plan's identities as a byte-keyed
+        ;; MAP, so both members ride to the next activation and each is diffed,
+        ;; blocked, reconciled and drained on its own. A caller that supplies
+        ;; both as `prev-identities` — a direct planner call OR the live handoff
+        ;; — gets both reported.
         ;;
         ;; Nothing else from the EP's §Tooling list is projected — no
         ;; occurrence/dependency groups, no per-contributor requirement mapping,
@@ -1205,12 +1232,16 @@
                           :ensured            added-count
                           :kept               (- (count ordered) added-count)
                           :removed            removed-count
-                          :blocking           (vec blocking)
+                          ;; an ORDERED TRACE VECTOR of scoped keys, read off
+                          ;; the byte-keyed carrier's values (rf2-btdl1) — a
+                          ;; membership answer with no promised order, exactly
+                          ;; as before.
+                          :blocking           (vec (vals blocking))
                           ;; the planner's GROUPED PLAN ORDER — `ordered` is
                           ;; post-dedupe (one entry per collapsed identity
                           ;; group), so this carries each identity exactly once,
-                          ;; in the order the plan executes. `next-ids` is the
-                          ;; same content as a SET and rides the RETURN map
+                          ;; in the order the plan executes. `next-by-id` is the
+                          ;; same content byte-keyed and rides the RETURN map
                           ;; below, which `commit-navigation` consumes.
                           :identities         (mapv :scoped-key ordered)
                           :ensured-identities ensured-identities
@@ -1218,20 +1249,21 @@
                           :removed-identities removed-identities}
                    (seq advisories) (assoc :redundant-children advisories)
                    plan-error       (assoc :plan-error true)))
-    ;; The blocking set, identity set + plan-error ride back to
-    ;; `commit-navigation`, which writes the blocking + plan slots under the
-    ;; nav-token + records a plan-error on the route slice's `:error`, ATOMICALLY
-    ;; with the commit. The fx (attach effects then the prior-owner release) are
-    ;; spliced into the commit fx — attach-before-release.
+    ;; The blocking + identity MAPS (`{<key-id> <scoped-key>}`) and plan-error
+    ;; ride back to `commit-navigation`, which writes the blocking + plan slots
+    ;; under the nav-token + records a plan-error on the route slice's `:error`,
+    ;; ATOMICALLY with the commit. The fx (attach effects then the prior-owner
+    ;; release) are spliced into the commit fx — attach-before-release.
     {:fx         (vec (concat req-fx release-fx))
      :blocking   blocking
-     :identities next-ids
+     :identities next-by-id
      :advisories advisories
      :plan-error plan-error}))
 
 (defn on-route-entry-fx
   "The `:routing/on-route-entry` hook body routing's `commit-navigation`
-  consults. Returns `{:fx [...] :blocking #{<scoped-key> …} :plan-error
+  consults. Returns `{:fx [...] :blocking {<key-id> <scoped-key>} :identities
+  {<key-id> <scoped-key>} :plan-error
   err?}`, or nil when there is NOTHING to do (the new route declares no
   `:resources` AND there is no prior route owner to release). The plan
   runs whenever either side has work: it ensures the new route's resources
@@ -1269,9 +1301,11 @@
   EP-0037 R2: `:branch` is the effective parent-to-leaf contributor chain
   (`[{:route-id :route-meta} …]` parent-most-first) routing resolves from the
   target's `:parent` links; `:branch-error` is a fail-loud branch-resolution
-  descriptor (an unresolved / cyclic `:parent`); `:prev-identities` is the set
-  of scoped resource identities the SUPERSEDED nav-token's plan owned (the
-  plan-diff's previous set). A routing build that predates R2 threads no
+  descriptor (an unresolved / cyclic `:parent`); `:prev-identities` is the
+  byte-keyed `{<key-id> <scoped-key>}` map of resource identities the
+  SUPERSEDED nav-token's plan owned (the plan-diff's previous membership; a
+  direct planner call may hand any collection of scoped keys instead). A
+  routing build that predates R2 threads no
   `:branch`, and the planner falls back to a single-segment (leaf-only) branch."
   [{:keys [route-meta route-id params query fragment nav-token
            prev-id prev-nav-token ctx app-db runtime-db branch branch-error

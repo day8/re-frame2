@@ -90,8 +90,21 @@
 (defn- entries []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entries-path)))
 
-(defn- blocking-slot [nav-token]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (route/blocking-path nav-token)))
+(defn- blocking-slot
+  "The live blocking slot for `nav-token`, projected to the SET of its scoped
+  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier
+  (rf2-btdl1); these assertions ask a membership question that the projection
+  answers, and the byte-exactness of the carrier is pinned directly off
+  `route/blocking-path` by `r2-a-plan-holding-both-byte-distinct-twins-*`."
+  [nav-token]
+  (set (vals (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                     (route/blocking-path nav-token)))))
+
+(defn- blocking-map
+  "The byte-keyed blocking / plan-identity carrier `{<key-id> <scoped-key>}`
+  over `ks` — the shape both routing slots hold (rf2-btdl1)."
+  [& ks]
+  (into {} (map (juxt state/key-id identity)) ks))
 
 (defn- article-spec [overrides]
   (merge {:scope         :rf.scope/global
@@ -798,7 +811,7 @@
       (is (= [:shell/banner :leaf/list] (mapv #(:resource (second %)) ensures))
           "banner deduped + fixed earliest; leaf list follows"))
     (testing "blocking? is OR across contributors — the parent marked it blocking"
-      (is (contains? (:blocking plan) banner-key)))
+      (is (contains? (:blocking plan) (state/key-id banner-key))))
     (testing "the redundant child declaration surfaces as an advisory"
       (is (= 1 (count (:advisories plan))))
       (let [adv (first (:advisories plan))]
@@ -935,16 +948,16 @@
   ;; promises no order and none leaks in from the caller: removal is not an
   ;; ordered operation (the whole prior owner goes in ONE release effect), and
   ;; no prior-plan order is available to report anyway — the live routing
-  ;; handoff records `(:identities plan)` as a SET under
-  ;; `[:rf.runtime/routing :resource-plan <token>]` and hands that same set back
-  ;; as the next activation's `:prev-identities`. Filtering the caller's
-  ;; collection in place would republish set-iteration order while CLAIMING the
-  ;; prior plan's.
+  ;; handoff records `(:identities plan)` as an UNORDERED MAP under
+  ;; `[:rf.runtime/routing :resource-plan <token>]` (rf2-btdl1) and hands that
+  ;; same map back as the next activation's `:prev-identities`. Filtering the
+  ;; caller's collection in place would republish carrier-iteration order while
+  ;; CLAIMING the prior plan's.
   ;;
-  ;; Dropping to that set is necessary but not sufficient, which is exactly what
-  ;; this test caught: a small CLJS set is backed by an ARRAY map and iterates in
-  ;; INSERTION order, so the caller's sequence walked straight back out under
-  ;; CLJS while the JVM's hash-set iteration order hid the leak. The row is
+  ;; Dropping to that carrier is necessary but not sufficient, which is exactly
+  ;; what this test caught: a small CLJS set/map is backed by an ARRAY map and
+  ;; iterates in INSERTION order, so the caller's sequence walked straight back
+  ;; out under CLJS while the JVM's hash iteration order hid the leak. The row is
   ;; sorted by the CEDN-1 `key-id`, which is what makes it a pure function of the
   ;; removal membership on BOTH hosts. Per Spec 009 §Where trace emission lives.
   (rf/reg-resource :rm/v (article-spec {}) article-spec-request)
@@ -993,7 +1006,7 @@
                 however the caller supplied them"
         (doseq [[label tags] [["a vector"                        forward]
                               ["its reverse"                     backward]
-                              ["a SET (the live routing handoff)" as-set]
+                              ["a SET (a de-duplicated caller)"   as-set]
                               ["a duplicate-bearing vector"      duplicated]]]
           (is (some? tags) (str label ": the activation emits one :rf.resource/route-plan row"))
           (is (= 3 (:removed tags))
@@ -1009,7 +1022,7 @@
                  ":removed-identities — the row promises membership, not the "
                  "prior plan's order (Spec 009 §Where trace emission lives)"))
         (is (= (:removed-identities forward) (:removed-identities as-set))
-            (str "the live routing handoff threads a SET; a sequential caller "
+            (str "a de-duplicated caller collection and a sequential one "
                  "must get the byte-identical row"))
         (is (= (:removed-identities forward) (:removed-identities duplicated))
             (str "a duplicate in :prev-identities can neither duplicate an "
@@ -1151,10 +1164,9 @@
   ;; and one value to Clojure `=`. Navigating between them therefore removes one
   ;; identity and ensures the other — and the row said `:removed 0`.
   ;;
-  ;; This is the case the LIVE handoff can express, because each plan holds one
-  ;; member of the pair: the set-shaped `[:rf.runtime/routing :resource-plan]`
-  ;; slot round-trips a single identity faithfully. It is a plan holding BOTH at
-  ;; once that the slot cannot carry, which is rf2-btdl1 and not this bead.
+  ;; Each plan here holds ONE member of the pair. The case where a SINGLE plan
+  ;; holds BOTH — which the old set-shaped `[:rf.runtime/routing :resource-plan]`
+  ;; slot could not carry at all — is rf2-btdl1's twin regression below.
   (rf/reg-resource :tw/feed (article-spec {}) article-spec-request)
   (rf/reg-route :route/tw-vec
                 {:resources [{:resource :tw/feed :params (fn [_] {:slug "f" :tags ["a"]})}]}
@@ -1194,6 +1206,142 @@
               "while the twin is ENSURED")
           (is (empty? (:kept-identities tags))
               "and nothing was kept — the two are not one identity"))))))
+
+(deftest r2-a-plan-holding-both-byte-distinct-twins-plans-blocks-and-drains-both
+  ;; rf2-btdl1 — THE twin regression. One plan requires BOTH members of an
+  ;; `=`-equal but byte-DISTINCT pair, through the real `:rf.route/navigate`
+  ;; path and the real routing handoff.
+  ;;
+  ;; Before this repair the pair could not survive the round trip at all, and
+  ;; it failed twice over: `collapse-and-order` grouped occurrences by scoped
+  ;; key under Clojure `=`, so two route entries requiring the two identities
+  ;; produced ONE dedup-req — one ensure dispatched, the second byte identity
+  ;; never fetched (a DISPATCH defect); and the `[:rf.runtime/routing
+  ;; :resource-plan]` / `:resource-blocking` slots were SETS, which cannot hold
+  ;; both members however carefully the planner counted.
+  ;;
+  ;; Every claim below is asserted on `state/key-id`, never on `=`: the two
+  ;; scoped keys are `=` and hash alike, so an `=`-written assertion would pass
+  ;; on the WRONG key and prove nothing.
+  (rf/reg-resource :tw2/feed (article-spec {}) article-spec-request)
+  (rf/reg-route :route/tw2-both
+                {:resources [{:id        :vec-entry
+                              :resource  :tw2/feed
+                              :params    (fn [_] {:slug "f" :tags ["a"]})
+                              :blocking? true}
+                             {:id        :list-entry
+                              :resource  :tw2/feed
+                              :params    (fn [_] {:slug "f" :tags (list "a")})
+                              :blocking? true}]}
+                "/tw2/both")
+  (let [vec-key  (state/scoped-resource-key* :rf.scope/global :tw2/feed {:slug "f" :tags ["a"]})
+        list-key (state/scoped-resource-key* :rf.scope/global :tw2/feed {:slug "f" :tags (list "a")})
+        ids      (fn [ks] (vec (sort (mapv state/key-id ks))))
+        rdb      (fn [] (:rf.db/runtime (rf/frame-state-value :rf/default)))]
+    (testing "premise: ONE value to Clojure, TWO identities to the cache"
+      (is (= vec-key list-key))
+      (is (= 1 (count (set [vec-key list-key]))))
+      (is (not= (state/key-id vec-key) (state/key-id list-key)))
+      (is (not= (state/entry-path vec-key) (state/entry-path list-key))))
+    (let [tags      (:tags (first (record-op-traces!
+                                    :rf.resource/route-plan
+                                    (fn [] (rf/dispatch-sync
+                                             [:rf.route/navigate {:to :route/tw2-both}])))))
+          token     (:nav-token (slice))
+          ;; the blocking carrier AS COMMITTED — the SSR drain reads exactly
+          ;; this and pumps until every member settles.
+          blocking0 (get-in (rdb) (route/blocking-path token))]
+      (testing "TWO dedup-reqs, TWO ensures — the second identity is really fetched"
+        (is (some? (entry vec-key)) "the vector-bearing identity was ensured")
+        (is (some? (entry list-key)) "…and so was its list-bearing twin")
+        (is (= 2 (count (select-keys (entries) [(state/key-id vec-key)
+                                                (state/key-id list-key)])))
+            "two cache entries at two byte paths — a collapsed plan leaves one"))
+      (testing "the handoff slot carries BOTH identities, byte-keyed"
+        (is (= (blocking-map vec-key list-key) (get-in (rdb) (route/plan-path token)))
+            "[:rf.runtime/routing :resource-plan <token>] is {key-id scoped-key}
+             and holds the pair — a set held exactly one of them"))
+      (testing "…and so does the blocking slot: two independent wait points"
+        (is (= (blocking-map vec-key list-key) blocking0))
+        (is (= :loading (:transition (slice)))
+            "both blocking first loads are outstanding"))
+      (testing "the SSR drain sees both, and only both, as unsettled"
+        (is (false? (res-ssr/blocking-settled? (entries) blocking0)))
+        (is (= (ids [vec-key list-key])
+               (ids (vals (res-ssr/unsettled-blocking-keys (entries) blocking0))))))
+      (testing "each twin settles INDEPENDENTLY — one settle prunes one wait point"
+        (settle-success! vec-key [{:id 1}])
+        (is (= (blocking-map list-key) (get-in (rdb) (route/blocking-path token)))
+            "only the LIST-bearing requirement is still outstanding; an
+             `=`-keyed prune could not have told the two apart")
+        (is (= :loading (:transition (slice)))
+            "the route is still :loading — the twin has not settled")
+        (is (false? (res-ssr/blocking-settled? (entries) blocking0))
+            "the SSR drain agrees: one member of the pair is still in flight")
+        (is (= (ids [list-key])
+               (ids (vals (res-ssr/unsettled-blocking-keys (entries) blocking0))))))
+      (testing "…and when the twin settles too the route lands and the drain ends"
+        (settle-success! list-key [{:id 2}])
+        (is (empty? (get-in (rdb) (route/blocking-path token))))
+        (is (= :idle (:transition (slice))))
+        (is (true? (res-ssr/blocking-settled? (entries) blocking0))))
+      (when interop/debug-enabled?
+        (testing "the plan row reports two ensures over two identities"
+          (is (= 2 (:ensured tags)) "two real ensures, not one deduped ensure")
+          (is (= 0 (:kept tags)))
+          (is (= 0 (:removed tags)))
+          (is (= (ids [vec-key list-key]) (ids (:identities tags))))
+          (is (= (ids [vec-key list-key]) (ids (:ensured-identities tags))))
+          (is (= (ids [vec-key list-key]) (ids (:blocking tags)))))))))
+
+(deftest r2-a-transition-keeping-one-twin-and-removing-the-other-reports-both
+  ;; rf2-btdl1 — the other half of the twin regression: a navigation AWAY from
+  ;; the both-twins plan to one that keeps the VECTOR-bearing identity and
+  ;; drops its LIST-bearing twin. The prior plan's handoff slot now carries
+  ;; both, so the diff has both to reason about — under the old set-shaped slot
+  ;; the prior plan arrived holding ONE identity and the removal was invisible.
+  (rf/reg-resource :tw3/feed (article-spec {}) article-spec-request)
+  (rf/reg-route :route/tw3-both
+                {:resources [{:id :vec-entry  :resource :tw3/feed
+                              :params (fn [_] {:slug "g" :tags ["a"]})}
+                             {:id :list-entry :resource :tw3/feed
+                              :params (fn [_] {:slug "g" :tags (list "a")})}]}
+                "/tw3/both")
+  (rf/reg-route :route/tw3-vec
+                {:resources [{:resource :tw3/feed
+                              :params (fn [_] {:slug "g" :tags ["a"]})}]}
+                "/tw3/vec")
+  (let [vec-key  (state/scoped-resource-key* :rf.scope/global :tw3/feed {:slug "g" :tags ["a"]})
+        list-key (state/scoped-resource-key* :rf.scope/global :tw3/feed {:slug "g" :tags (list "a")})
+        ids      (fn [ks] (mapv state/key-id ks))
+        rdb      (fn [] (:rf.db/runtime (rf/frame-state-value :rf/default)))]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/tw3-both}])
+    ;; both twins LOAD, so the retained one is genuinely adoptable at commit.
+    (settle-success! vec-key [{:id 1}])
+    (settle-success! list-key [{:id 2}])
+    (testing "premise: the first plan owns BOTH byte identities"
+      (is (= (blocking-map vec-key list-key)
+             (get-in (rdb) (route/plan-path (:nav-token (slice)))))))
+    (let [tags  (:tags (first (record-op-traces!
+                                :rf.resource/route-plan
+                                (fn [] (rf/dispatch-sync
+                                         [:rf.route/navigate {:to :route/tw3-vec}])))))
+          token (:nav-token (slice))]
+      (testing "the NEXT handoff carries exactly the surviving identity"
+        (is (= (blocking-map vec-key) (get-in (rdb) (route/plan-path token)))))
+      (when interop/debug-enabled?
+        (testing "one KEPT, one REMOVED, nothing ensured — and the row names which"
+          (is (= 1 (:kept tags)) "the vector-bearing twin was adopted, not re-fetched")
+          (is (= 0 (:ensured tags)))
+          (is (= 1 (:removed tags))
+              "the list-bearing twin left the plan — a set-shaped prior slot
+               reported :removed 0 here, having never carried it")
+          (is (= (ids [vec-key]) (ids (:kept-identities tags)))
+              "asserted on the byte identity: `=` would accept the twin")
+          (is (= (ids [list-key]) (ids (:removed-identities tags))))
+          (is (empty? (:ensured-identities tags)))
+          (is (= (:kept tags) (count (:kept-identities tags))))
+          (is (= (:removed tags) (count (:removed-identities tags)))))))))
 
 (deftest r2-plan-order-is-witnessed-not-merely-membership
   ;; rf2-dlkou — `:identities` / `:ensured-identities` / `:kept-identities` carry
@@ -1366,7 +1514,7 @@
                                               :nav-token  nav-token
                                               :transition transition
                                               :error      nil}
-                          :resource-blocking {nav-token (set (keys entries-by-key))}}
+                          :resource-blocking {nav-token (apply blocking-map (keys entries-by-key))}}
    :rf.runtime/resources {:entries (into {} (map (fn [[k e]] [(state/key-id k) e]))
                                          entries-by-key)}})
 
@@ -1386,7 +1534,7 @@
                 (runtime-db-with "nav-1" :idle {req-a {:status :loaded :data {:x 1}}
                                                 req-b {:status :loading :data nil :attempt 1}}))]
       (is (= :loading (get-in rdb [:rf.runtime/routing :current :transition])))
-      (is (= #{req-b} (get-in rdb (route/blocking-path "nav-1")))
+      (is (= (blocking-map req-b) (get-in rdb (route/blocking-path "nav-1")))
           "only the outstanding requirement remains")))
   (testing "a failed blocking first load → :error carrying the structured error"
     (let [rdb (route/reconcile-readiness
@@ -1398,7 +1546,7 @@
       (is (= :error (get-in rdb [:rf.runtime/routing :current :transition])))
       (is (= :rf.error/resource-route-blocking (:rf.error/id err)))
       (is (= :article/by-slug (:resource-id err)))
-      (is (= #{req-a} (get-in rdb (route/blocking-path "nav-1")))
+      (is (= (blocking-map req-a) (get-in rdb (route/blocking-path "nav-1")))
           "the failed requirement is NOT pruned — a later successful load re-projects :idle")))
   (testing "an ABORTED first load un-blocks rather than erroring the route"
     (let [rdb (route/reconcile-readiness
@@ -1459,7 +1607,7 @@
           (str "the slice reports the CURRENT deterministic first failure — "
                ":error is a pure function of the live outstanding set, NOT a "
                "latched first observation that could go stale on refetch"))
-      (is (= #{early late} (get-in rdb2 (route/blocking-path "nav-1")))
+      (is (= (blocking-map early late) (get-in rdb2 (route/blocking-path "nav-1")))
           "neither failed requirement is pruned")
       (is (= 1 (count (blocking-error-traces traces)))
           "ONE trace per transition INTO :error, not one per settle")))
@@ -1483,7 +1631,7 @@
                        ;; fails again
                        (route/reconcile-readiness
                          (-> rdb2
-                             (assoc-in (route/blocking-path "nav-1") #{req-a})
+                             (assoc-in (route/blocking-path "nav-1") (blocking-map req-a))
                              (assoc-in (state/entry-path req-a) (failed-req 500)))))))]
       (is (= 2 (count (blocking-error-traces traces)))
           "two distinct transitions INTO :error are two traces"))))
@@ -1717,7 +1865,7 @@
             ds   (plan-dispatches plan)]
         (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource/adopt-owner))))
         (is (= [:lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
-        (is (not (contains? (:blocking plan) shared-key))
+        (is (not (contains? (:blocking plan) (state/key-id shared-key)))
             "already has usable data — nothing left to wait for")))
     (testing "an IN-FLIGHT retained identity is adopted — its own settle drains the slot"
       (let [plan (plan-for (rdb-with-entries
@@ -1726,7 +1874,7 @@
                              (ledger-with "w-1" :running)))
             ds   (plan-dispatches plan)]
         (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource/adopt-owner))))
-        (is (contains? (:blocking plan) shared-key) "still outstanding")))
+        (is (contains? (:blocking plan) (state/key-id shared-key)) "still outstanding")))
     (testing "a MISSING retained identity takes the ordinary ensure path"
       ;; The bead's repro: prior-plan membership alone dispatched adopt-owner,
       ;; which is a NO-OP on an absent entry — the committed blocking slot then
@@ -1735,7 +1883,7 @@
             ds   (plan-dispatches plan)]
         (is (empty? (of-event ds :rf.resource/adopt-owner)))
         (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
-        (is (contains? (:blocking plan) shared-key)
+        (is (contains? (:blocking plan) (state/key-id shared-key))
             "recorded blocking — and an ensure now exists to drain it")))
     (testing "an UNUSABLE retained identity (settled, no data, no work) is ensured"
       (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :idle
@@ -1743,7 +1891,7 @@
             ds   (plan-dispatches plan)]
         (is (empty? (of-event ds :rf.resource/adopt-owner)))
         (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
-        (is (contains? (:blocking plan) shared-key)
+        (is (contains? (:blocking plan) (state/key-id shared-key))
             "a blocking requirement with no usable data at commit must hold the route")))
     (testing "a retained identity whose work is DEAD is ensured, not adopted"
       (let [plan (plan-for (rdb-with-entries

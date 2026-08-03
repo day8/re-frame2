@@ -6,7 +6,7 @@
 
     - `re-frame.routing.readiness/project-at-commit` — the COMMIT-TIME half,
       seeding the stored slice from a freshly built plan, in ROUTING
-      vocabulary (`{:plan-error … :blocking #{…}}`);
+      vocabulary (`{:plan-error … :blocking {<key-id> <scoped-key>}}`);
     - `re-frame.resources.route/reconcile-readiness` — the REPLY-DRIVEN half,
       re-projecting from live resource facts on every settle / adoption /
       fresh-skip / hydration / restore, in SPEC 016 vocabulary (requirements
@@ -56,6 +56,12 @@
 (def ^:private req-b
   (state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "b"}))
 
+(defn- blocking-map
+  "The byte-keyed blocking carrier `{<key-id> <scoped-key>}` both slots hold
+  (rf2-btdl1)."
+  [& ks]
+  (into {} (map (juxt state/key-id identity)) ks))
+
 (def ^:private plan-error
   {:rf.error/id :rf.error/resource-route-plan
    :reason      "params failed their schema"})
@@ -85,7 +91,7 @@
                                                  entries-by-key)}}
     entries-by-key
     (assoc-in [:rf.runtime/routing :resource-blocking nav-token]
-              (set (keys entries-by-key)))))
+              (apply blocking-map (keys entries-by-key)))))
 
 ;; ---- the shared table -----------------------------------------------------
 
@@ -101,7 +107,7 @@
     ;; routing: a plan error alongside a non-empty blocking set. The plan
     ;; error must win, or a route whose plan could not be formed would report
     ;; itself as merely loading.
-    :plan       {:plan-error plan-error :blocking #{req-a}}
+    :plan       {:plan-error plan-error :blocking (blocking-map req-a)}
     ;; resources: a committed planning failure writes :error on the slice and
     ;; NO blocking slot, so reconciliation is a structural no-op that must
     ;; preserve it.
@@ -115,7 +121,7 @@
     ;; commit-time half only as a plan that could not be formed. Its error leg
     ;; is `:plan-error`; that leg outranking `:blocking` is the same
     ;; precedence claim.
-    :plan       {:plan-error plan-error :blocking #{req-a req-b}}
+    :plan       {:plan-error plan-error :blocking (blocking-map req-a req-b)}
     :committed  [:loading nil]
     ;; resources: one `:failed` requirement beside one `:pending` one.
     :entries    {req-a entry-failed req-b entry-pending}}
@@ -123,7 +129,7 @@
    {:class      "a blocking first load pending, none failed — loading beats idle"
     :transition :loading
     :error?     false
-    :plan       {:plan-error nil :blocking #{req-a}}
+    :plan       {:plan-error nil :blocking (blocking-map req-a)}
     :committed  [:idle nil]
     ;; a ready sibling is pruned; the pending one still holds the route.
     :entries    {req-a entry-pending req-b entry-ready}}
@@ -133,21 +139,21 @@
     :error?     false
     ;; routing: the planner records only requirements without usable data at
     ;; commit, so 'all ready' arrives as an empty blocking set.
-    :plan       {:plan-error nil :blocking #{}}
+    :plan       {:plan-error nil :blocking {}}
     :committed  [:loading nil]
     :entries    {req-a entry-ready req-b entry-ready}}
 
    {:class      "an aborted blocking first load un-blocks — idle, no spurious error"
     :transition :idle
     :error?     false
-    :plan       {:plan-error nil :blocking #{}}
+    :plan       {:plan-error nil :blocking {}}
     :committed  [:loading nil]
     :entries    {req-a entry-inert}}
 
    {:class      "no blocking requirements at all — idle"
     :transition :idle
     :error?     false
-    :plan       {:plan-error nil :blocking #{}}
+    :plan       {:plan-error nil :blocking {}}
     :committed  [:idle nil]
     :entries    {}}
 

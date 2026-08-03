@@ -146,6 +146,12 @@
   (into {} (map (fn [[sk e]] [(state/key-id sk) (assoc e :resource/key sk)])) m))
 (defn- entry-by [entries sk] (get entries (state/key-id sk)))
 
+(defn- blocking-map
+  "The byte-keyed blocking carrier `{<key-id> <scoped-key>}` the route slice
+  writes and the drain consumes (rf2-btdl1)."
+  [& ks]
+  (into {} (map (juxt state/key-id identity)) ks))
+
 (def ^:private gkey
   ;; canonical global-scope key for :article/by-slug {:slug "x"}
   (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"}))
@@ -564,13 +570,13 @@
           errored (entry {:resource-id :b :status :error})
           loading (entry {:resource-id :c :status :loading})
           es      (entries* {ka loaded kb errored kc loading})]
-      (is (true?  (ssr/blocking-settled? es #{ka kb}))
+      (is (true?  (ssr/blocking-settled? es (blocking-map ka kb)))
           ":loaded and :error are settled")
-      (is (false? (ssr/blocking-settled? es #{ka kc}))
+      (is (false? (ssr/blocking-settled? es (blocking-map ka kc)))
           ":loading is NOT settled")
-      (is (false? (ssr/blocking-settled? es #{ka [:rf.scope/global :missing {}]}))
+      (is (false? (ssr/blocking-settled? es (blocking-map ka [:rf.scope/global :missing {}])))
           "an absent (never-enqueued) blocking key is not settled")
-      (is (true?  (ssr/blocking-settled? es #{}))
+      (is (true?  (ssr/blocking-settled? es {}))
           "no blocking resources → trivially settled (never blocks render)"))))
 
 (deftest blocking-timeout-settles-first-load-failure
@@ -580,7 +586,7 @@
           loaded  (entry {:resource-id :b :status :loaded :data {:x 1}})
           es      (entries* {ka loading kb loaded})
           {:keys [entries route-blocking-failure]}
-          (ssr/settle-blocking-timeout es #{ka kb} 250 :app/main)]
+          (ssr/settle-blocking-timeout es (blocking-map ka kb) 250 :app/main)]
       (testing "the unsettled blocking entry settles to a first-load :error"
         (let [se (entry-by entries ka)]
           (is (= :error (:status se)))
@@ -598,7 +604,7 @@
   (testing "no unsettled blocking entries → no failure record, entries unchanged"
     (let [es (entries* {ka (entry {:resource-id :a :status :loaded :data {:x 1}})})
           {:keys [entries route-blocking-failure]}
-          (ssr/settle-blocking-timeout es #{ka} 250 :app/main)]
+          (ssr/settle-blocking-timeout es (blocking-map ka) 250 :app/main)]
       (is (= es entries))
       (is (nil? route-blocking-failure)))))
 
@@ -606,7 +612,7 @@
   (testing "an absent blocking key (enqueued but never wrote an entry) settles to :error"
     (let [kmiss (state/scoped-resource-key :rf.scope/global :missing {})
           {:keys [entries route-blocking-failure]}
-          (ssr/settle-blocking-timeout {} #{kmiss} 100 :app/main)]
+          (ssr/settle-blocking-timeout {} (blocking-map kmiss) 100 :app/main)]
       ;; rf2-9e0tyq — the settled entry is keyed on the byte key-id.
       (is (= :error (:status (entry-by entries kmiss))))
       (is (= #{kmiss} (set (:timed-out route-blocking-failure)))))))
@@ -634,23 +640,26 @@
 
 (defn- with-blocking-slot
   "Add a routing slice naming `nav-token` live + a `:resource-blocking` slot
-  holding `blocking-keys` for it, into `runtime-db` (mirrors what the route
-  slice writes on entry)."
+  holding `blocking-keys` for it as the byte-keyed `{<key-id> <scoped-key>}`
+  carrier, into `runtime-db` (mirrors what the route slice writes on entry —
+  rf2-btdl1)."
   [runtime-db nav-token blocking-keys]
   (-> runtime-db
       (assoc-in [:rf.runtime/routing :current :nav-token] nav-token)
-      (assoc-in [:rf.runtime/routing :resource-blocking nav-token] (set blocking-keys))))
+      (assoc-in [:rf.runtime/routing :resource-blocking nav-token]
+                (apply blocking-map blocking-keys))))
 
 (deftest current-blocking-keys-reads-current-nav-token-slot
   (testing "current-blocking-keys reads ONLY the current nav-token's blocking slot"
     (let [rdb (-> (runtime-db-with {})
-                  (with-blocking-slot "nav-1" #{ka kb})
+                  (with-blocking-slot "nav-1" [ka kb])
                   ;; a superseded nav-token's stale slot must NOT leak in
-                  (assoc-in [:rf.runtime/routing :resource-blocking "nav-OLD"] #{kc}))]
-      (is (= #{ka kb} (ssr/current-blocking-keys rdb))))
+                  (assoc-in [:rf.runtime/routing :resource-blocking "nav-OLD"]
+                            (blocking-map kc)))]
+      (is (= (blocking-map ka kb) (ssr/current-blocking-keys rdb))))
     (testing "no routing slice / no current nav-token → empty (never blocks)"
-      (is (= #{} (ssr/current-blocking-keys (runtime-db-with {}))))
-      (is (= #{} (ssr/current-blocking-keys {}))))))
+      (is (= {} (ssr/current-blocking-keys (runtime-db-with {}))))
+      (is (= {} (ssr/current-blocking-keys {}))))))
 
 (deftest drain-noop-when-no-blocking-resources
   (testing "a route with no blocking resources returns :settled? immediately, no pump"
@@ -660,7 +669,7 @@
           res    (ssr/drain-blocking-resources!
                    fid {:pump! (fn [_] (swap! pumped inc)) :deadline-ms 1000})]
       (is (true? (:settled? res)))
-      (is (= #{} (:timed-out res)))
+      (is (= [] (:timed-out res)))
       (is (nil? (:route-blocking-failure res)))
       (is (zero? @pumped) "no blocking set → the loop never pumps")
       (frame/destroy-frame! fid))))
@@ -669,7 +678,7 @@
   (testing "blocking entries already settled → :settled? true, runtime-db untouched, no timeout"
     (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loaded :data {:x 1}})
                                     kb (entry {:resource-id :b :status :error})})
-                  (with-blocking-slot "nav-1" #{ka kb}))
+                  (with-blocking-slot "nav-1" [ka kb]))
           fid (seed-frame-runtime-db! :ssr/drain-settled rdb)
           res (ssr/drain-blocking-resources! fid {:pump! (fn [_] nil) :deadline-ms 1000})]
       (is (true? (:settled? res)))
@@ -683,7 +692,7 @@
   (testing "the loop pumps until an in-flight blocking entry settles; the pump
             mutates the live frame so the loop observes the settle and does NOT time out"
     (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loading :data nil})})
-                  (with-blocking-slot "nav-1" #{ka}))
+                  (with-blocking-slot "nav-1" [ka]))
           fid (seed-frame-runtime-db! :ssr/drain-pump rdb)
           ;; the pump simulates the async reply landing on the 2nd tick: it
           ;; flips the blocking entry to :loaded in the live frame's runtime-db.
@@ -707,7 +716,7 @@
             hung :loading / skeleton) once the render deadline fires — the
             acceptance criterion"
     (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loading :data nil})})
-                  (with-blocking-slot "nav-1" #{ka}))
+                  (with-blocking-slot "nav-1" [ka]))
           fid (seed-frame-runtime-db! :ssr/drain-timeout rdb)
           ;; a deterministic clock that jumps past the deadline on the 1st
           ;; re-check after start, so the test never actually sleeps; pump! is
@@ -717,7 +726,7 @@
       (let [res (ssr/drain-blocking-resources!
                   fid {:pump! (fn [_] nil) :deadline-ms 50 :clock-fn clock-fn})]
         (is (false? (:settled? res)) "the loop reported a timeout, not a settle")
-        (is (= #{ka} (:timed-out res)))
+        (is (= [ka] (:timed-out res)))
         (let [se (get-in (frame/frame-runtime-db-value fid)
                          [state/resources-key :entries (state/key-id ka)])]
           (is (= :error (:status se))
@@ -733,7 +742,7 @@
   (testing "a nil :pump! (a synchronous stub) still respects the deadline — a
             blocking resource that never settles times out rather than looping forever"
     (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loading :data nil})})
-                  (with-blocking-slot "nav-1" #{ka}))
+                  (with-blocking-slot "nav-1" [ka]))
           fid (seed-frame-runtime-db! :ssr/drain-nilpump rdb)
           clk (atom 0)
           clock-fn (fn [] (let [v @clk] (swap! clk + 100) v))
@@ -810,7 +819,7 @@
               "the entry is :loading (not yet settled)"))
         ;; publish the nav-token blocking slot the drain reads (mirrors what the
         ;; route slice writes on entry).
-        (frame/swap-runtime-db! fid with-blocking-slot "nav-1" #{gkey})
+        (frame/swap-runtime-db! fid with-blocking-slot "nav-1" [gkey])
         ;; the pump fires the REAL reply on the 2nd tick — settling the entry
         ;; :loaded AND the ledger row terminal :completed + clearing the handle
         ;; through `succeeded-handler`, exactly as a real transport reply would.
@@ -859,7 +868,7 @@
                          {:resource :article/by-slug :scope :rf.scope/global
                           :params {:slug "x"} :owner [:ssr "req-2" "nav-2"]}]
                         {:frame fid})
-      (frame/swap-runtime-db! fid with-blocking-slot "nav-2" #{gkey})
+      (frame/swap-runtime-db! fid with-blocking-slot "nav-2" [gkey])
       (let [wid (get-in (frame/frame-runtime-db-value fid) (conj (state/entry-path gkey) :current-work))
             ;; deterministic clock that jumps past the deadline; pump! is a no-op
             ;; (the real reply never lands → the ledger row stays :running).
@@ -871,7 +880,7 @@
                     fid {:pump! (fn [_] nil) :deadline-ms 50 :clock-fn clock-fn})]
           (testing "the drain did NOT release early — it reported a timeout"
             (is (false? (:settled? res)))
-            (is (= #{gkey} (:timed-out res)))
+            (is (= [gkey] (:timed-out res)))
             (is (= :rf.error/resource-ssr-blocking-timeout
                    (:rf.error/id (:route-blocking-failure res)))))
           (testing "the never-settling blocking entry is settled to a structured

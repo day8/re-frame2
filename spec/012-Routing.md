@@ -936,7 +936,7 @@ The public `:rf.route/transition` and `:rf.route/error` reads name the route's *
 |---|---|---|
 | plan could not be formed | `:error` | the structured planning error (`:rf.error/resource-route-plan`) |
 | any blocking first load is pending and none has failed | `:loading` | `nil` |
-| a blocking first load failed | `:error` | the deterministic first failure — the outstanding blocking set is ordered by canonical CEDN-1 resource-key identity, not by hash or plan order, so the pick is stable across settles that prune siblings (`:rf.error/resource-route-blocking`) |
+| a blocking first load failed | `:error` | the deterministic first failure — the outstanding blocking requirements are keyed by canonical CEDN-1 resource-key identity and the pick is ordered by that key, not by hash or plan order, so it is stable across settles that prune siblings (`:rf.error/resource-route-blocking`) |
 | all blocking requirements have usable data, or there are none | `:idle` | `nil` |
 | Resources artefact absent | `:idle` | `nil` |
 
