@@ -141,6 +141,21 @@
   A boundary that is not live is ignored. See the namespace docstring:
   an abandoned render must not resurrect an unmounted boundary's edges.
 
+  **`set` here is a coercion and must never become a copy, and that is a
+  measured constraint rather than a stylistic one (rf2-aqgr2).** A caller
+  handing over a set — which is what every runtime caller does — hands
+  over the set the FORWARD EDGE THEN RETAINS FOR THE LIFE OF THE MOUNT,
+  and `cljs.core/set` gives it back unchanged when it is already a
+  meta-less set. Replace this call with a rebuild (`(into #{} …)`, a
+  transient loop) and the boundary retains a second hash set with
+  identical contents: measured on `p0_run.cjs --only ladder`, that costs
+  **+46 B/read** on the Reagent segment and **+47 B/read** on the UIx
+  segment, donors unmoved, and it would be invisible in every test in the
+  suite. The coercion stays for callers that pass a sequence, which is
+  the general contract this namespace is written to;
+  `the-forward-edge-shares-a-callers-set-rather-than-copying-it` is what
+  keeps the sharing from being lost to a tidy-up.
+
   **Which half of the difference a caller exercises depends on how
   durable its boundary ids are, and that is worth knowing before reading
   a discharge against this function (rf2-2rtt6.47).** A caller that

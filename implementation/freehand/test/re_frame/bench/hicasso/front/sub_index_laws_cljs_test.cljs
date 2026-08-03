@@ -197,6 +197,29 @@
       (is (= #{} (idx/edges-of index :b)))
       (is (true? (idx/live? index :b))))))
 
+(deftest the-forward-edge-shares-a-callers-set-rather-than-copying-it
+  (testing "rf2-aqgr2, and the assertion is `identical?` on purpose. The
+           forward edge retains this set for the life of the mount, so a
+           `record-reads` that COPIED it would leave the boundary holding
+           a second hash set with the same contents — measured at +46
+           B/read (Reagent segment) and +47 (UIx) on `p0_run.cjs --only
+           ladder`, and invisible to every value-equality assertion in
+           this file. `cljs.core/set` returns a meta-less set unchanged,
+           so the sharing is already there; this is the row that stops a
+           rebuild being reintroduced as a tidy-up"
+    (let [reads #{[:x] [:y]}
+          index (-> (idx/empty-index) (idx/mount :b) (idx/record-reads :b reads))]
+      (is (identical? reads (idx/edges-of index :b)))))
+  (testing "and a caller handing over a SEQUENCE still gets a set edge —
+           that is the general contract this namespace is written to, and
+           the coercion is what a caller passing read order relies on"
+    (let [index (-> (idx/empty-index)
+                    (idx/mount :b)
+                    (idx/record-reads :b [[:x] [:y] [:x]]))]
+      (is (set? (idx/edges-of index :b)))
+      (is (= #{[:x] [:y]} (idx/edges-of index :b)) "duplicates collapse")
+      (is (= #{:b} (idx/dirty-boundaries index #{[:y]}))))))
+
 (deftest the-global-index-is-one-atom-and-commit-is-its-only-door
   (idx/mount! :a)
   (idx/mount! :b)

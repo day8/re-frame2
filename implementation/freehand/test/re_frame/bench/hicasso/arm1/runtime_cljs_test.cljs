@@ -474,6 +474,16 @@
   (seeded! 3)
   (let [a (mounted! (fn [_] [:span (str (rt/sub [:dogfood/remaining]))]))
         b (mounted! (fn [_] [:span (str (rt/sub [:dogfood/remaining]))]))]
+    (is (= 1 (:cells (rt/stats)))
+        "ONE cell for the shared key, holding two references — and that is
+         also what lets `cell-watch-key` be a single namespaced constant
+         rather than an identity minted per cell (rf2-aqgr2). A watch key
+         has to be unique within the reference it watches; no two cells
+         ever hold the same reaction, so nothing can clobber another
+         cell's watch. Mint a cell per reader instead and this row goes
+         red: two cells on one reaction, and the second `add-watch`
+         silently replacing the first's")
+    (is (= 2 (:cell-refs (rt/stats))))
     (rt/dispatch! frame-id [:dogfood/toggle 0])
     (is (= 1 @(:hits a)))
     (is (= 1 @(:hits b)))

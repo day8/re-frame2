@@ -494,8 +494,29 @@
 (defonce ^:private !batching (volatile! false))
 (defonce ^:private !generation (volatile! 0))
 (defonce ^:private !deferred (volatile! #{}))
-(defonce ^:private !watch-counter (volatile! 0))
 (defonce ^:private !registry-epoch (volatile! 0))
+
+(def ^:private cell-watch-key
+  "**One constant keyword for every cell's value-change watch** — not a
+  minted-per-cell identity (rf2-aqgr2).
+
+  A watch key has to be unique *within the watched reference*, and it is:
+  there is at most one cell per `(frame, query)`, `subs/subscribe` hands
+  back that pair's own cached reaction, and no two cells ever hold the
+  same reaction — so one namespaced constant collides with nothing this
+  arm installs, and its namespace keeps it clear of the substrate's own
+  watchers (`substrate.observation` keys per handle on the same
+  reactions).
+
+  It used to be `(keyword \"rf-hicasso-arm1\" (str \"w\" (vswap! counter inc)))`,
+  which bought that same uniqueness by allocating a `Keyword`, its name
+  string and its fully-qualified string per cell and retaining all three
+  in the cell and in the reaction's watch map — per *unique key*, which is
+  per *read* on the distinct-query rung the per-read heap ladder is taken
+  on. The uniqueness was already structural; only the identity was being
+  paid for. The counter goes with it: a global that numbered something
+  that never needed a number."
+  ::cell-watch)
 
 (defn generation
   "The commit generation. Bumped once per flush that moved something."
@@ -586,7 +607,7 @@
 (defn- dispose-cell! [^js cell]
   (when-not (.-disposed cell)
     (set! (.-disposed cell) true)
-    (when-some [r (.-reaction cell)] (remove-watch r (.-watchKey cell)))
+    (when-some [r (.-reaction cell)] (remove-watch r cell-watch-key))
     (swap! !cells dissoc (.-subKey cell))
     (subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
   nil)
@@ -621,13 +642,12 @@
   [^js cell]
   (let [frame-kw (.-frameKw cell)
         query-v  (.-queryV cell)
-        wk       (.-watchKey cell)
         reaction (subs/subscribe query-v {:frame frame-kw})]
     (set! (.-reaction cell) reaction)
     (when (some? reaction)
       ;; ONE baseline deref, before the watch — see `acquire-cell!`.
       @reaction
-      (add-watch reaction wk
+      (add-watch reaction cell-watch-key
                  (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! cell))))
       (interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
     cell))
@@ -786,13 +806,10 @@
   (let [^js cell (or (get @!cells sub-key)
                  (let [frame-kw (nth sub-key 0)
                        query-v  (nth sub-key 1)
-                       wk       (keyword "rf-hicasso-arm1"
-                                         (str "w" (vswap! !watch-counter inc)))
                        ^js fresh #js {"subKey"   sub-key
                                      "frameKw"  frame-kw
                                      "queryV"   query-v
                                      "reaction" nil
-                                     "watchKey" wk
                                      ;; NOT zero. A key with no cell
                                      ;; contributes the CURRENT
                                      ;; `commit-basis` to `getSnapshot`,
