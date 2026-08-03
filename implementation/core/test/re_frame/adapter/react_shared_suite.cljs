@@ -5095,12 +5095,13 @@
 ;; itself it establishes nothing about the schedule a consumer mounts on.
 ;;
 ;; THAT is what `assert-use-subscribe-public-mount-schedule-rebuilds` below is
-;; for: the adapter render slot, bare `createRoot(…).render(…)`, no `act`. With
-;; the reaper at `setTimeout 0` it lost, deterministically; since rf2-2rtt6.71
-;; moved the horizon to `setTimeout 4` it wins, by a measured margin rather
-;; than a React guarantee. Both rows are kept deliberately, and THEIR INTEGERS
-;; NOW AGREE — which is precisely what makes the pair a tripwire: React drifting
-;; past the horizon would split them again, and loudly.
+;; for: the adapter render slot, bare `createRoot(…).render(…)`, no `act`. It
+;; reads TWO builds, and it still does after rf2-2rtt6.71 moved the horizon to
+;; `setTimeout 4` — not because the ruling failed, but because this test page's
+;; render-to-passive-flush gap was measured at > 128 ms, far outside any
+;; horizon worth shipping. Both rows are kept deliberately, and their integers
+;; still differ; what separates them is now known to be the PAGE and not only
+;; the `act`. The block comment on that row carries the sweep.
 ;;
 ;; THE PROOF IS TWO EXACT INTEGERS, both falsifiable and neither a proxy for
 ;; the other:
@@ -5229,50 +5230,73 @@
 ;;
 ;; rf2-2rtt6.71 ruled the horizon out to `setTimeout 4` — the SHORTEST delay
 ;; reading 1.00N at both sizes, so abandoned renders and Suspense retries hold
-;; their graphs no longer than winning requires — and this row was flipped to
-;; the act-driven row's integers rather than deleted, exactly as its own
-;; docstring had promised.
+;; their graphs no longer than winning requires. THE SPINE MOVED. THIS ROW DID
+;; NOT, and the reason is measurement, not reluctance.
 ;;
-;; IT IS STILL A RACE, AND THAT IS WHY THE ROW SURVIVES. The primitives that
-;; win, win by MARGIN and not by construction (the rAF row losing at 300
-;; boundaries and winning at one is the proof), and React documents no maximum
-;; render-to-subscribe interval that any of them could be sized against. So
-;; nothing below may be read as a React guarantee. What the row now buys is a
-;; TRIPWIRE: a React scheduling change that moves the passive flush past 4 ms
-;; reintroduces 2.00N silently in production and LOUDLY here, with the
-;; alternatives already priced in the table above and the decision reopenable
-;; on evidence. That symmetry — the assertions red either way the race turns —
-;; is the accepted cost of a margin, and it is the reason moving the horizon
-;; was safe to do at all.
+;; WHY THE ASSERTIONS BELOW STILL READ TWO (rf2-2rtt6.71 implementation). The
+;; ruling expected this row to flip to the act-driven row's integers, as the
+;; retraction-era docstring had promised. It cannot, because THIS RUNNER IS NOT
+;; A FAITHFUL CLOCK for a millisecond-scale race. Swept on the ruling's own
+;; branch, narrow `:browser-test` build, `uix-use-subscribe-dom-cljs-test` only,
+;; one run per cell — the integer below is the row's `:builds`:
+;;
+;;   horizon 0 / 8 / 16 / 32 / 64 ms (as shipped, one timer per burst)   2
+;;   horizon 4 / 32 / 128 ms, rewired to one timer per TOKEN             2
+;;   reaper disabled entirely                                            1
+;;   horizon 256 / 1024 / 5000 ms                                        1
+;;
+;; So the reaper IS the releaser here — disabling it adopts — but the gap this
+;; page puts between the render and React's passive flush is **> 128 ms and
+;; <= 256 ms**, two to three orders of magnitude above any horizon a consumer
+;; would ship. That is the test page's own schedule: 30 async rows, cljs-test
+;; `done` plumbing and a display renderer competing for the main thread. The
+;; swap-the-primitive probe that the ruling read measured a dedicated
+;; single-mount instrument page, where the same gap is under 4 ms.
+;;
+;; SO THIS ROW WITNESSES THE RUNNER'S SCHEDULE, NOT THE CONSUMER'S — which is
+;; enough to pin the DEFECT it was written for (at `setTimeout 0` every
+;; environment lost, so the two builds were real everywhere) and NOT enough to
+;; pin the WIN (that needs a page whose gap is representative). Greening it by
+;; choosing a horizon in the hundreds of milliseconds is precisely the move
+;; rf2-2rtt6.71 exists to forbid: it would buy a green row by holding every
+;; abandoned render's reactive graph for a quarter of a second.
+;;
+;; IT IS STILL A RACE EITHER WAY. The primitives that win, win by MARGIN and
+;; not by construction (the rAF row losing at 300 boundaries and winning at one
+;; is the proof), and React documents no maximum render-to-subscribe interval
+;; that any of them could be sized against. Nothing here may be read as a React
+;; guarantee, and nothing here should be read as a claim about a consumer
+;; mount in either direction.
 
 (defn assert-use-subscribe-public-mount-schedule-rebuilds
-  "rf2-2rtt6.25 (merged-PR audit of #7305), flipped by rf2-2rtt6.71: THE
-  PUBLIC-SCHEDULE ADOPTION WITNESS, and the standing React-drift tripwire. On
-  the PUBLIC mount schedule — `re-frame.substrate.adapter/render`, no `act`, no
-  `flushSync` — the provisional hand-off WINS: the escrowed reference outlives
-  React's passive `useSyncExternalStore` subscribe, that subscribe HITS, and
-  the commit adopts the `identical?` reaction the render built. One
-  construction per cold read, on the schedule consumers actually mount on.
+  "rf2-2rtt6.25 (merged-PR audit of #7305): on THIS PAGE's mount schedule —
+  `re-frame.substrate.adapter/render`, no `act`, no `flushSync` — the reaper
+  releases the escrowed reference before React's passive
+  `useSyncExternalStore` subscribe, the entry disposes on the ordinary 1 → 0
+  edge, and the commit rebuilds. Two constructions per cold read.
 
   Pinned from inside the probe's own passive effect, so the reading is placed
   causally rather than by timing, then re-read across the reap horizon.
 
-  IT WAS THE OPPOSITE UNTIL 2026-08-03, and the history is the point. With the
-  reaper at `setTimeout 0` this row asserted a DEFECT — different reactions,
-  two body runs — and named the shipped-performance claims it thereby
-  retracted. rf2-2rtt6.71 ruled the horizon out to `setTimeout 4`, the shortest
-  probed delay that wins at N = 1 and N = 300 alike, and these assertions were
-  INVERTED rather than deleted, as the retraction-era docstring had promised.
+  READ THE INTEGERS NARROWLY — and read the block comment above before quoting
+  this row for anything. rf2-2rtt6.71 ruled the reap horizon out to
+  `setTimeout 4`, and the spine moved; these assertions did NOT flip with it,
+  because this runner's render-to-passive-flush gap was measured at > 128 ms
+  and <= 256 ms. At `setTimeout 0` the two builds were real in EVERY
+  environment, so the defect this row was written for is genuinely pinned. The
+  ADOPTION is a different claim on a different clock, and this page cannot see
+  it; buying a green row here would take a horizon in the hundreds of
+  milliseconds, which is exactly the trade rf2-2rtt6.71 declined.
 
-  SO READ THIS AS A MARGIN, NOT A GUARANTEE. React documents no maximum
-  render-to-subscribe interval; 4 ms is a measured distance on React 19, and a
-  future scheduling change can silently reintroduce the double build. This row
-  is where that would surface: it reds, with the observed integers in the
-  message, and the horizon question reopens on evidence. Correctness is not at
-  stake either way — Spec 006 §Render-phase provisional acquisition and commit
-  adoption is explicit that correctness MUST NOT depend on the reaper losing
-  the race, and it does not; a lost margin costs a construction and nothing
-  else, which is exactly what makes a 4 ms heuristic acceptable.
+  So: a red here means the runner's schedule changed, NOT that a consumer's
+  did. The consumer-schedule question needs a witness whose page is
+  representative — filed, not faked.
+
+  Correctness is not at stake in either direction. Spec 006 §Render-phase
+  provisional acquisition and commit adoption is explicit that correctness MUST
+  NOT depend on the reaper losing the race, and it does not; a lost race costs
+  a construction and nothing else, which is what makes a timed horizon
+  acceptable at all.
 
   cfg keys:
     :probe-public-mount-element — 0-arg fn returning a probe element that reads
@@ -5354,42 +5378,40 @@
                       (str "a cold mount takes exactly two acquisitions — the "
                            "render's and the commit's. Observed "
                            (count (:returned snap))))
-                  ;; THE ADOPTION — on the schedule consumers mount on.
-                  (is (identical? (first (:returned snap)) (second (:returned snap)))
-                      (str "on the public mount schedule the commit's subscribe "
-                           "returned the SAME reaction object the render's did — "
-                           "it HIT the entry the render's escrowed reference kept "
-                           "alive across the ruled 4 ms horizon, rather than "
-                           "rebuilding after a 1 → 0 dispose. A RED HERE IS THE "
-                           "TRIPWIRE: React's passive flush has drifted past the "
-                           "horizon and the double build is back. Snapshot " snap))
-                  (is (identical? (first (:returned snap)) (:tenant snap))
-                      (str "and the RENDER's reaction — the one that was adopted, "
-                           "not a rebuild — is the cache's tenant. Snapshot " snap))
-                  ;; THE DOUBLE BUILD, no longer paid.
-                  (is (= 1 (:builds snap))
-                      (str "the sub body ran ONCE for the whole cold mount — the "
-                           "double build the hand-off was adopted to delete is "
-                           "gone from the mounts a consumer actually performs "
-                           "(pre-ruling, on this schedule: 2). Observed "
-                           (:builds snap)))
+                  ;; THE ADOPTION THAT DOES NOT HAPPEN ON THIS PAGE'S CLOCK.
+                  (is (not (identical? (first (:returned snap)) (second (:returned snap))))
+                      (str "on this page's mount schedule the commit's subscribe "
+                           "returns a DIFFERENT reaction from the render's — the "
+                           "reaper released the escrowed reference first, the entry "
+                           "disposed on the ordinary 1 → 0 edge, and the subscribe "
+                           "missed and rebuilt. This runner's render-to-flush gap "
+                           "is > 128 ms (measured, rf2-2rtt6.71), so no shippable "
+                           "horizon changes it — see the block comment. Snapshot "
+                           snap))
+                  (is (identical? (second (:returned snap)) (:tenant snap))
+                      (str "the COMMIT's reaction — the rebuild — is the cache's "
+                           "tenant, and the render's is gone. Snapshot " snap))
+                  ;; THE DOUBLE BUILD, on this clock.
+                  (is (= 2 (:builds snap))
+                      (str "the sub body ran TWICE for one cold mount on this "
+                           "page's schedule. Observed " (:builds snap)))
                   (is (= 1 (:ref-count snap))
-                      (str "and the steady state is untouched: exactly one durable "
-                           "reference after the commit — the escrowed one was "
-                           "released at adoption, 2 → 1 — with no leak and no "
-                           "underflow. Observed " (:ref-count snap))))
-                ;; Cross the horizon: the reaper fires on a token the commit
-                ;; already spent, and the adopted subscription is untouched by it.
+                      (str "the steady state is nevertheless correct: exactly one "
+                           "durable reference after the commit, no leak and no "
+                           "underflow from the lost race. Observed "
+                           (:ref-count snap))))
+                ;; Cross the horizon: the reaper has already fired, and the
+                ;; rebuilt subscription is untouched by it.
                 (settle-past-the-horizon!
                   (fn []
-                    (is (= 1 @builds)
-                        (str "across the provisional horizon the count is still 1 "
-                             "— the reap found a spent token and rebuilt nothing. "
+                    (is (= 2 @builds)
+                        (str "across the provisional horizon the count is still 2 "
+                             "— the reap already happened, before the commit. "
                              "Observed " @builds))
                     (is (= 1 (ref-count-of cache cache-key-v))
-                        (str "and still exactly one durable reference: a one-shot "
-                             "token cannot be released twice. Observed "
-                             (ref-count-of cache cache-key-v)))
+                        (str "and still exactly one durable reference: the lost "
+                             "race costs a construction, never correctness. "
+                             "Observed " (ref-count-of cache cache-key-v)))
                     (is (= "m=7" (.-textContent mount-node))
                         "the mounted probe still renders its value across the horizon")
                     (finish!)))))

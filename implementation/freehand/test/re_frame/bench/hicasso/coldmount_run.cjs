@@ -59,9 +59,10 @@
 // acquisition and commit adoption).
 //
 // UPDATE, 2026-08-03 (rf2-2rtt6.71): the reap horizon is now `setTimeout 4`,
-// so the public schedule adopts as well — by a measured margin, not a React
-// guarantee, and witnessed by the browser assertions rather than by this
-// driver. No row here was re-taken, so the qualifier above stands as written.
+// ruled off the swap-the-primitive probe — a measured margin, not a React
+// guarantee. No row here was re-taken, so the qualifier above stands as
+// written, and the browser assertions do not witness the win either (that
+// runner's render-to-flush gap measures >128 ms).
 
 'use strict';
 

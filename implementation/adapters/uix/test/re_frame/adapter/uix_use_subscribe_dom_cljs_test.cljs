@@ -504,17 +504,18 @@
 (deftest use-subscribe-commit-adopts-the-render-phase-reaction
   (suite/assert-use-subscribe-commit-adopts-the-render-phase-reaction cfg))
 
-;; rf2-2rtt6.25 (merged-PR audit of #7305), flipped by rf2-2rtt6.71 — the same
-;; two integers, on the PUBLIC mount schedule: `re-frame.substrate.adapter/
-;; render`, no act, no flushSync. The row above forces React's passive subscribe
-;; forward, which is the ordering the hand-off needs; this one forces nothing.
-;; With the reaper at `setTimeout 0` the reaper won there and the commit
-;; rebuilt, so the row pinned TWO builds and named the retracted claim; the
-;; ruled `setTimeout 4` horizon wins instead, so it now pins ONE — by a measured
-;; margin and never a React guarantee, which is exactly what makes it the
-;; standing drift tripwire. Its companion pins that `get-snap`'s escrow leg is
-;; reachable on that schedule either way, because the pre-commit consistency
-;; check runs in the render's own task, before any macrotask can reap.
+;; rf2-2rtt6.25 (merged-PR audit of #7305) — the same two integers, on the
+;; PUBLIC mount schedule: `re-frame.substrate.adapter/render`, no act, no
+;; flushSync. The row above forces React's passive subscribe forward, which is
+;; the ordering the hand-off needs; this one forces nothing, and there the
+;; reaper wins and the commit rebuilds — so it pins TWO builds. It still does
+;; after rf2-2rtt6.71 moved the horizon to `setTimeout 4`: this PAGE's
+;; render-to-flush gap was measured at > 128 ms, so no shippable horizon flips
+;; it, and the row is a witness for the runner's schedule rather than a
+;; consumer's (the sweep is in the suite's block comment). Its companion pins
+;; that `get-snap`'s escrow leg is nevertheless still reachable, because the
+;; pre-commit consistency check runs in the render's own task, before any
+;; macrotask can reap.
 (deftest use-subscribe-public-mount-schedule-rebuilds
   (suite/assert-use-subscribe-public-mount-schedule-rebuilds cfg))
 
@@ -528,12 +529,12 @@
   (suite/assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon cfg))
 
 ;; rf2-2rtt6.25 (merged-PR audit of #7326) — the adversarial row, and the reason
-;; the ruled margin is a performance bet and never a correctness one. A
+;; the ruled horizon is a performance bet and never a correctness one. A
 ;; provisional the reaper released must be unreachable, and a later mount must
 ;; paint an app-db movement the abandoned render never saw. That holds whether
 ;; the later mount adopts its own render build or rebuilds after its own reaper
-;; — so if the 4 ms margin is ever lost, what comes back is a second
-;; construction, never a stale paint.
+;; — so whichever way the race turns, what changes is a construction and never
+;; a stale paint.
 (deftest use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount
   (suite/assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount cfg))
 

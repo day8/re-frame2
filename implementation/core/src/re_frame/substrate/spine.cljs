@@ -2271,14 +2271,21 @@
 ;; render-to-subscribe interval, so 4 ms cannot be sized against a contract —
 ;; it is the measured distance on React 19 today, and a future scheduling
 ;; change can silently reintroduce 2.00N. The claim here is therefore NARROW:
-;; one build on the tested shipping schedule, with the two-build rebuild as
-;; the safe fallback, and adoption stays a best-effort optimisation that no
-;; caller may rely on. The tripwire is an ASSERTION and not a comment —
-;; `assert-use-subscribe-public-mount-schedule-rebuilds` (UIx entry
-;; `use-subscribe-public-mount-schedule-rebuilds`) mounts through the adapter
-;; `:render` slot with no `act` and no `flushSync` and pins `identical?` plus
-;; ONE construction, so if React drifts the suite reds and the question
-;; reopens with evidence instead of regressing in silence.
+;; one build on the instrument page the ruling measured, with the two-build
+;; rebuild as the safe fallback, and adoption stays a best-effort optimisation
+;; that no caller may rely on.
+;;
+;; AND THE BROWSER SUITE IS NOT THE WITNESS FOR IT (rf2-2rtt6.71 implementation
+;; sweep). `assert-use-subscribe-public-mount-schedule-rebuilds` mounts through
+;; the adapter `:render` slot with no `act` and no `flushSync`, and it still
+;; reads TWO builds at this horizon — because the gap that page puts between
+;; the render and React's passive flush measures > 128 ms and <= 256 ms, two to
+;; three orders of magnitude past anything shippable. Disabling the reaper, or
+;; raising it to 256 ms, flips it; 0/8/16/32/64 do not, per-token arming does
+;; not. So that row pins the DEFECT the `setTimeout 0` era had in every
+;; environment, and it is NOT evidence about a consumer mount at this horizon
+;; in either direction. A witness on a representative page is owed; until it
+;; exists the ruling's own probe is the only measurement of the win.
 ;;
 ;; WHY NO MORE MACHINERY THAN A NUMBER. No new hook and no new public
 ;; mechanism hardens the margin, because Spec 006's "correctness MUST NOT
