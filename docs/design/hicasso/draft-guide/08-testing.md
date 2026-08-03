@@ -62,7 +62,8 @@ earning their place.
 
 If a body calls a React hook — a callback ref for measurement, a `useEffect` for an
 SDK, anything at a host edge — headless is out. If a body renders a foreign
-component through [`defhost` or `[:>]`](05-interop.md), the foreign region is out.
+component through [`defhost`](05-interop.md) (or the `[:>]` escape, once it is
+built), the foreign region is out.
 
 The temptation is obvious: stub the hook dispatcher, get the whole tree back, keep
 the fast tests. HD-021 forecloses it. A fake dispatcher passes tests that a real
