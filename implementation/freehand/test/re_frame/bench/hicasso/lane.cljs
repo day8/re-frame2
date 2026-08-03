@@ -916,6 +916,70 @@
      v)))
 
 ;; ---------------------------------------------------------------------------
+;; The `page.evaluate` boundary
+;; ---------------------------------------------------------------------------
+;;
+;; Playwright carries plain data and plain `js/Error`s back out of
+;; `page.evaluate`. A CLJS `ex-info` is neither, so what the driver was
+;; handed for an arm's own `fail!` was the MINIFIED TYPE NAME of the thing
+;; that was caught:
+;;
+;;     [clock] FAILED: M1: page.evaluate: vj
+;;
+;; `vj` is `cljs.core/ExceptionInfo` under `:advanced`. The `:rf.error/id`,
+;; the message, the `:where` and the whole ex-data map — every field the
+;; thrower wrote precisely so the reader would know what broke — were
+;; destroyed at the boundary (rf2-029ed). An instrument that reports on
+;; itself instead of on its subject cannot be debugged by anyone.
+;;
+;; The repair belongs HERE, on the page side, because this is the last
+;; place `ex-message` and `ex-data` are still in vocabulary. Every front
+;; door goes through [[legible-doors]] once, at construction, and any
+;; throw leaves as an ordinary `js/Error` whose message names the door,
+;; the id and the data. Nothing is special-cased to a particular id: what
+;; the arm threw is what the driver prints.
+
+(def ^:private ^:const ex-data-cap
+  "How much of an ex-data map crosses the boundary. A payload can carry a
+  DOM node or a whole app-db, and a report that is itself unreadable is
+  the defect this repairs."
+  2000)
+
+(defn describe-throw
+  "One line a driver can act on, for anything a front door can throw."
+  [door e]
+  (try
+    (let [d (ex-data e)]
+      (if (some? d)
+        (let [s (pr-str d)]
+          (str door " threw " (or (:rf.error/id d) "an ex-info with no :rf.error/id")
+               " — " (ex-message e)
+               " — ex-data " (if (> (count s) ex-data-cap)
+                               (str (subs s 0 ex-data-cap) " …(truncated)")
+                               s)))
+        (str door " threw " (or (ex-message e) (str e)))))
+    (catch :default e2
+      ;; The reporter must not become the fault. Whatever defeated the
+      ;; printer, the driver still gets the door and a reason.
+      (str door " threw something whose description itself failed: " (.-message e2)))))
+
+(defn legible-doors
+  "Wrap every function on a front-door `#js {}` so an `ex-info` reaching
+  `page.evaluate` arrives as a plain `js/Error` that names the fault.
+  Returns the same object, mutated in place."
+  [^js door-obj]
+  (doseq [k (js/Object.keys door-obj)]
+    (let [f (aget door-obj k)]
+      (when (fn? f)
+        (aset door-obj k
+              (fn [& args]
+                (try
+                  (apply f args)
+                  (catch :default e
+                    (throw (js/Error. (describe-throw k e))))))))))
+  door-obj)
+
+;; ---------------------------------------------------------------------------
 ;; Publication
 ;; ---------------------------------------------------------------------------
 

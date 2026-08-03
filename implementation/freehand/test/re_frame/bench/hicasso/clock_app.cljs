@@ -139,6 +139,38 @@
 (defn- next-gen! [] (:gen (swap! state update :gen inc)))
 (defn- next-op! [] (:op (swap! state update :op inc)))
 
+(def ^:private clock-images
+  "THE FRAME'S IMAGES, and the reason this row cannot use the default one.
+
+  `[:sub :p0/cell]` is registered TWICE in this bundle, at load, from two
+  namespaces: `p0-reagent-views/register!` — the shared floor accessor
+  every other row's arms read — and `clock-views/register-subs!`, which
+  registers the SAME computation (`v/cell-value`, so there is still one
+  body) behind the recompute census the keystroke witness gates on.
+
+  A second `reg-sub` from a second namespace does not OVERWRITE the first;
+  the registrar keeps both, tagged with their source provenance, and
+  default image assembly then refuses to let selection order decide which
+  one the frame runs — `:rf.error/image-duplicate-id`, and correctly so.
+  That refusal is what stopped this driver dead in round 0 on every row
+  (rf2-029ed), and it stopped it at `enter-segment!`, before any sample.
+
+  So the override is made DELIBERATE, through the mechanism the refusal
+  itself names: two composed images, the census-instrumented registration
+  in the LATER one, which wins and whose shadow is reported. The resulting
+  registry is exactly the one `register-subs!`'s docstring already
+  describes — `enter-segment!` calls it on every segment entry, for every
+  row, so the census-bearing body was always the intended survivor.
+
+  The two images UNION to the whole store, so nothing is dropped: the
+  first selects every namespace except the witness's, the second selects
+  the witness's alone."
+  [(rf/image {:id :clock/lane
+              :select-ns {:include ["**"]
+                          :exclude ["re-frame.bench.hicasso.clock-views"]}})
+   (rf/image {:id :clock/witness
+              :select-ns {:include ["re-frame.bench.hicasso.clock-views"]}})])
+
 (defn enter-segment!
   "Tear down whatever adapter is installed, install this segment's,
   re-register the sub graph and stand the frame back up seeded.
@@ -167,7 +199,7 @@
     ;; the indexed `:p0/draft`, both behind the recompute census the
     ;; keystroke witness gates on.
     (kv/register-subs!)
-    (rf/make-frame {:id v/subs-frame})
+    (rf/make-frame {:id v/subs-frame :images clock-images})
     (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
     (lane/leave-act-environment!)
     (swap! state assoc :segment seg-id :cells (zeros v/cells-n))
@@ -904,6 +936,7 @@
   (lane/leave-act-environment!)
   (swap! state assoc :tally (lane/tally))
   (set! (.-HCLOCK js/window)
+        (lane/legible-doors
         #js {:rows     (clj->js (mapv (fn [[k m]] {:id (name k) :why (:why m)}) rows))
              :segments (clj->js (mapv (fn [s] {:id (name (:id s)) :name (:name s)}) segments))
              :cellsN    v/cells-n
@@ -947,7 +980,7 @@
              ;; sub-cache, `runtime/residue` counts the candidate's own
              ;; cells, edges and cached entries.
              :residue       (fn [] (pr-str {:lane (lane/residue v/subs-frame)
-                                            :arm1 (hrt/residue)}))})
+                                            :arm1 (hrt/residue)}))}))
   (set! (.-HCLOCK_READY js/window) true)
   (js/console.log ";; HCLOCK ready")
   nil)
