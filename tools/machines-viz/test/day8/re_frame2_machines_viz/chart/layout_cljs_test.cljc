@@ -1011,9 +1011,20 @@
         (is (empty? edges) (str label ": no orphan edges to absent nodes"))
         (is (= expected (get-in definition-error [:defect :category]))
             (str label ": carries the canonical defect category"))
-        ;; the value-free summary never leaks a raw node/value.
-        (is (some? (:keys definition-error))
-            (str label ": carries the structural top-level key set")))))
+        ;; rf2-oztox — the summary is content-free BY CONSTRUCTION, so what it
+        ;; carries beside the category is CARDINALITY, never material read off
+        ;; the definition. `:keys` (every top-level key, uncapped) is gone, and
+        ;; this assertion — which pinned it — now pins its replacement. The
+        ;; full grammar is `definition-summary-is-content-free-by-construction`
+        ;; in the grammar-validation ns.
+        (is (nil? (:keys definition-error))
+            (str label ": no raw top-level key set rides the projection result"))
+        (is (nil? (get-in definition-error [:defect :path]))
+            (str label ": no raw state-id path either"))
+        (is (integer? (:count definition-error))
+            (str label ": carries the structural top-level key COUNT"))
+        (is (integer? (get-in definition-error [:defect :depth]))
+            (str label ": carries the defect's DEPTH, not its path")))))
 
   (testing "a nil definition is NOT an error (it is the empty-state placeholder),
             and a VALID definition still projects nodes"

@@ -388,3 +388,218 @@
                                     :on {:one [:a :two]}
                                     :regions {:a {:initial :one :states {:one {} :two {}}}
                                               :b {:initial :one :states {:one {} :two {}}}}})))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 — the summary is content-free BY CONSTRUCTION (rf2-oztox)
+;;
+;; `defect-diagnostics-are-value-free` above plants a secret in a VALUE
+;; position and hunts for it. It passed for as long as `definition-summary`
+;; disclosed the definition anyway, because a sentinel hunt only ever finds the
+;; leak someone thought to plant: the map leg returned `:keys` — every
+;; top-level key, uncapped and unsanitised — and the `:defect` it embedded
+;; named the offending KEYS and the state-id PATH they sat at. All three are
+;; KEY-position material that hunt never looked at, and all three are
+;; attacker-chosen in content and in size: a definition reaches this function
+;; from a forged share URL (the share decoder gates `…/chart`'s `:definition`
+;; through `valid-definition?`), from an LLM response, and from SCXML /
+;; Mermaid import.
+;;
+;; So the checks below are a GRAMMAR, not a hunt. Every summary this namespace
+;; can emit, over a corpus of hostile definitions, must consist of a `:type`
+;; from a closed vocabulary plus integers and booleans and NOTHING else, and
+;; must serialize inside a fixed bound however large the forged definition is.
+;; A future leak fails that without anyone remembering to plant a sentinel.
+
+(def ^:private sentinel
+  "The token planted in every position a forged definition can reach. Nothing
+  the summary carries may reproduce it — as a string, a keyword, a symbol, a
+  state id, or a map KEY."
+  "hunter2-swordfish-SENTINEL")
+
+(def ^:private sentinel-fragments
+  "Every 8-character window of the sentinel. A leak is proved by a FRAGMENT,
+  not only by the whole token: a bounded prefix of attacker material is the
+  defect, not the fix."
+  (into #{} (map #(subs sentinel % (+ % 8))) (range (- (count sentinel) 7))))
+
+(defn- discloses?
+  "Does `x`, once serialized, reproduce any fragment of the sentinel — under
+  any key, at any depth, as a string, a keyword, a symbol or a map key?
+  `pr-str` is the check rather than a string walk precisely because a leaked
+  KEYWORD is not a string, which is how `:keys` survived a test file that
+  already claimed to assert this."
+  [x]
+  (let [s (pr-str x)]
+    (boolean (some #(str/includes? s %) sentinel-fragments))))
+
+(def ^:private exploding-key
+  "A map key whose `toString` THROWS. The old summary ran `(sort-by str (keys
+  definition))` over caller-supplied keys, and `unknown-bare-keys` called
+  `namespace` on them — either could raise the KEY's own exception in place of
+  the failure the summariser was called to describe (the rf2-210uq path-5
+  shape). A caller can put one in a definition, and a forged payload decodes to
+  a non-`Named` key as readily as to a keyword."
+  #?(:clj  (reify Object
+             (toString [_] (throw (ex-info (str "toString exploded: " sentinel) {}))))
+     :cljs (let [o #js {}]
+             (set! (.-toString o)
+                   (fn [] (throw (js/Error. (str "toString exploded: " sentinel)))))
+             o)))
+
+(def ^:private hostile-keys
+  "Sentinel-bearing keys of every type a forged definition can carry, plus keys
+  that are markup and control characters — a disclosed key set is pasted into a
+  console, a log viewer or an issue tracker."
+  {(str "string-key-" sentinel)                 1
+   (keyword sentinel)                           2
+   (keyword sentinel sentinel)                  3
+   (symbol sentinel)                            4
+   [sentinel]                                   5
+   {sentinel sentinel}                          6
+   (str "<script>alert(" sentinel ")</script>") 7
+   (str \u001b "[31m" sentinel \u001b "[0m")    8
+   (str "CR\r\nLF-" sentinel)                   9
+   (str "NUL" \u0000 "-" sentinel)              10
+   4111111111111111                             11
+   true                                         12})
+
+(def ^:private attacker-sized-definition
+  "2000 sentinel-named states. The old `:keys` leg reproduced every top-level
+  key and the embedded `:defect` named the offending ones and their path, so
+  the summary grew with the forger's input without limit."
+  {:initial                             (keyword (str sentinel "-0"))
+   (keyword (str sentinel "-root-key")) 1
+   :states  (into {} (map (fn [i] [(keyword (str sentinel "-" i)) {}])) (range 2000))})
+
+(def ^:private forged-definitions
+  "Definitions a forged share fragment, an LLM response or an SCXML / Mermaid
+  import can hand the grammar. Each is rejected; no rejection may name anything
+  it was given."
+  [["hostile keys of every key type on the root"
+    (merge hostile-keys {:initial :a :states {:a {}}})]
+   ["a hostile key on a state node"
+    {:initial :a :states {:a (merge hostile-keys {})}}]
+   ["a key whose toString throws"
+    {:initial :a :states {:a {}} exploding-key 1}]
+   ["sentinel state ids with a dangling target"
+    {:initial (keyword sentinel)
+     :states  {(keyword sentinel) {:on {(keyword sentinel) (keyword (str sentinel "-gone"))}}}}]
+   ["a sentinel-named nested compound missing :initial"
+    {:initial (keyword sentinel)
+     :states  {(keyword sentinel) {:states {(keyword (str sentinel "-inner")) {}}}}}]
+   ["an attacker-sized 2000-state definition" attacker-sized-definition]
+   ["a live :data slot beside a defect"
+    {:initial :a :states {:a {:on-entry (fn [_] sentinel)}} :data {:token sentinel}}]
+   ["a parallel root of sentinel-named regions"
+    {:type :parallel :regions {(keyword sentinel) {:states {(keyword sentinel) {}}}}}]
+   ["a sentinel string where a definition was expected"    sentinel]
+   ["a sentinel keyword with no length bound"
+    (keyword (apply str (repeat 20 sentinel)))]
+   ["a sentinel symbol"                                    (symbol sentinel)]
+   ["a vector of secrets"                                  [sentinel sentinel]]
+   ["a set of secrets"                                     #{sentinel}]
+   ["a list of secrets"                                    (list sentinel)]
+   ["a lazy seq of secrets"                                (map identity [sentinel])]
+   ["a live fn"                                            (fn [] sentinel)]
+   ["a 16-digit card number"                               4111111111111111]
+   ["a boolean"                                            true]
+   ["nil"                                                  nil]
+   ;; The `:else` leg. It is the one the bead named directly (`{:type :value}`,
+   ;; outside the closed vocabulary the other two summarisers share), and
+   ;; without an opaque host object in the corpus nothing would reach it — a
+   ;; hole that would have let the tag drift back unnoticed.
+   ["an opaque host object naming the sentinel"
+    #?(:clj (java.io.File. ^String sentinel) :cljs (js-obj "k" sentinel))]])
+
+(def ^:private summary-keys
+  "The CLOSED key set of a summary. Nothing else may appear, because every
+  other slot would have to be derived from the definition's CONTENT."
+  #{:type :count :parallel :state-count :region-count :defect})
+
+(def ^:private defect-keys
+  "The CLOSED key set of an embedded `:defect`. `:path` and `:keys` are
+  deliberately absent — they are the state ids and the offending keys read
+  straight off the definition, which is to say the forger's own material."
+  #{:category :slot :depth :key-count})
+
+(def ^:private defect-slots #{:on :after :always :on-done})
+
+(defn- non-neg-int-slots?
+  "Every one of `ks` present in `m` is a non-negative integer."
+  [m ks]
+  (every? (fn [k] (or (not (contains? m k))
+                      (let [v (get m k)] (and (integer? v) (not (neg? v))))))
+          ks))
+
+(defn- content-free-defect? [d]
+  (and (map? d)
+       (every? defect-keys (keys d))
+       (keyword? (:category d))
+       (= "rf.error" (namespace (:category d)))
+       (str/starts-with? (name (:category d)) "machine-")
+       (or (not (contains? d :slot)) (contains? defect-slots (:slot d)))
+       (non-neg-int-slots? d [:depth :key-count])))
+
+(defn- content-free-summary?
+  "The grammar. A summary's key set is a subset of `summary-keys`, its `:type`
+  is in the closed vocabulary, its counts are non-negative integers, its
+  `:parallel` is a boolean, and its `:defect` — when present — satisfies
+  `content-free-defect?`."
+  [s]
+  (and (map? s)
+       (every? summary-keys (keys s))
+       (contains? g/summary-type-vocabulary (:type s))
+       (non-neg-int-slots? s [:count :state-count :region-count])
+       (or (not (contains? s :parallel)) (boolean? (:parallel s)))
+       (or (not (contains? s :defect))   (content-free-defect? (:defect s)))))
+
+(def ^:private summary-serialized-bound
+  "A summary is the same size whatever arrives. 200 characters is slack over
+  the longest legal shape (every optional slot present, the longest
+  `:rf.error/machine-*` category, four-digit counts) and orders of magnitude
+  under the definitions below."
+  200)
+
+(deftest definition-summary-is-content-free-by-construction
+  (doseq [[label d] forged-definitions]
+    (let [s (g/definition-summary d)]
+      (is (content-free-summary? s)
+          (str label " — not a content-free summary: " (pr-str s)))
+      (is (not (discloses? s))
+          (str label " — no sentinel fragment may survive: " (pr-str s)))
+      (is (<= (count (pr-str s)) summary-serialized-bound)
+          (str label " — fixed serialized bound, got " (count (pr-str s))))))
+  (testing "every forged definition is in fact REJECTED, so the summary is on
+            the path that matters rather than a valid-definition no-op"
+    (doseq [[label d] forged-definitions]
+      (is (false? (g/valid-definition? d)) (str label " — must be rejected"))
+      (is (some? (:defect (g/definition-summary d)))
+          (str label " — the summary carries the defect")))))
+
+(deftest definition-summary-does-not-grow-with-the-definition
+  (testing "a 2000-state forged definition summarises to the same size as a
+            1-state one — the guarantee a capped `:keys` could never give"
+    (let [size  #(count (pr-str (g/definition-summary %)))
+          small (size {:initial :a :states {:a {}} "x" 1})
+          big   (size (assoc attacker-sized-definition "x" 1))]
+      (is (<= (- big small) 6)
+          (str "the summary may grow only by the DIGITS of its counts; "
+               small " -> " big)))))
+
+(deftest hostile-keys-do-not-destroy-the-failure-being-described
+  (testing "rf2-oztox — a key that is not `Named` no longer throws out of the
+            validator. `unknown-bare-keys` called `namespace` on every key, and
+            `namespace` throws on a String / host object, so a forged
+            definition carrying a string key replaced the documented rejection
+            with a host cast exception — out of `valid-definition?` itself, and
+            therefore out of every boundary that delegates to it."
+    (doseq [[label d] [["a string key on the root"    {:initial :a :states {:a {}} "x" 1}]
+                       ["a string key on a node"      {:initial :a :states {:a {"x" 1}}}]
+                       ["a key whose toString throws" {:initial :a :states {:a {}} exploding-key 1}]
+                       ["a number key"                {:initial :a :states {:a {}} 42 1}]
+                       ["a vector key"                {:initial :a :states {:a {}} [:x] 1}]]]
+      (is (= :rf.error/machine-unknown-node-key (category d))
+          (str label " — the documented defect, not a host exception"))
+      (is (false? (g/valid-definition? d)) (str label " — rejects cleanly"))))
+  (testing "the namespaced-key carve-out is unchanged"
+    (is (nil? (g/definition-defect {:initial :a :states {:a {:my.app/note "x"}}})))))

@@ -300,37 +300,120 @@
   [definition]
   (nil? (definition-defect definition)))
 
+(def summary-type-vocabulary
+  "The CLOSED `:type` vocabulary `definition-summary` may emit — deliberately
+  the set `re-frame.error/diag-value-summary` and
+  `machines-viz.share/value-free-summary` already share (rf2-210uq /
+  rf2-m46qv), so a tool reading a thrown `ex-data` from any of the three reads
+  ONE diagnostic vocabulary."
+  #{:map :vector :seq :set :keyword :symbol :string :number :boolean :nil
+    :fn :scalar})
+
+(defn- defect-summary
+  "The value-free projection of a `definition-defect` (rf2-oztox).
+
+  `definition-defect` is the diagnostic for a caller that ALREADY HOLDS the
+  definition, so it names the offending material directly: a `:path` of state
+  ids and, for key defects, the offending `:keys`. Both are read straight off
+  the definition, so both are attacker-chosen in CONTENT and in SIZE when the
+  definition is forged — which is exactly the case `definition-summary` exists
+  to describe. This projection keeps the diagnosis and drops the material:
+
+    {:category  <:rf.error/machine-*>   ;; closed — the literals in this file
+     :slot      :on | :after | :always | :on-done   ;; closed, when present
+     :depth     <int>      ;; how deep the defect sits, not WHERE
+     :key-count <int>}     ;; how many keys offended, not WHICH
+
+  Every slot is a member of a closed vocabulary or an integer, so nothing here
+  is derived from the definition's content. `:depth` and `:key-count` are the
+  parts of `:path` / `:keys` that survive that rule, and they are the useful
+  parts: \"two unknown keys on a node three levels down\" is the diagnosis a
+  reader acts on, and an integer cannot carry a fragment of a token."
+  [defect]
+  (let [{:keys [category path slot]} defect
+        offending                    (get defect :keys)]
+    (cond-> {:category category}
+      slot          (assoc :slot slot)
+      (some? path)  (assoc :depth (count path))
+      (seq offending) (assoc :key-count (count offending)))))
+
 (defn definition-summary
   "EP-0015 / Spec 015 §exception-path residual (rf2-8nzxib) — a value-FREE
-  structural diagnostic for a rejected `definition`. A definition can carry
-  a `:data` slot holding live runtime values, and projection cannot walk
-  `ex-data` after the fact, so the summary reports only STRUCTURAL facts —
-  the top-level key SET, parallel?, and child counts — never the values.
-  The single summary the three emitters share so their thrown-error
-  diagnostics agree (each stashes it under its own surface-specific ex-data
-  key: `:spec-summary` / `:definition-summary`).
+  structural diagnostic for a rejected `definition`. The single summary the
+  three emitters, the share boundary and the chart projector share so their
+  rejection diagnostics agree (each stashes it under its own surface-specific
+  key: `:spec-summary` / `:definition-summary` / `:definition-error`).
 
-  rf2-j538f7.18 — when the definition carries a structural defect the summary
-  also carries the value-free `:defect` (the FIRST `definition-defect` — its
-  `:category` = the engine's `:rf.error/machine-*` id, plus a structural
-  `:path` and, for key/target defects, the offending keys / slot), so every
-  surface that stashes this summary carries the CANONICAL defect category while
-  keeping its own surface-specific error id."
+  Shape:
+
+    {:type         <member of `summary-type-vocabulary`>
+     :count        <int>   ;; counted collection / string
+     :parallel     <bool>  ;; map only
+     :state-count  <int>   ;; map with a map `:states`
+     :region-count <int>   ;; map with a map `:regions`
+     :defect       <`defect-summary`>}  ;; when the definition is rejected
+
+  **Content-free BY CONSTRUCTION (rf2-oztox).** Every value this can carry is
+  a member of a closed vocabulary, an integer, or a boolean, so no expression
+  in the output is derived from the input's CONTENT and the serialized summary
+  is a fixed size whatever arrives. That is a structural guarantee rather than
+  a redaction-quality argument — there is no prefix to bound and no key set to
+  cap — and it is the only claim worth making about a value this function is
+  handed from a forged share URL (`share/decode-share-url` gates `…/chart`'s
+  `:definition` through `valid-definition?`), from an LLM response
+  (`ai_generate`), and from SCXML / Mermaid input.
+
+  IT DID NOT HOLD BEFORE, on the two legs rf2-210uq removed from
+  `re-frame.error/diag-value-summary` and rf2-m46qv removed from
+  `share/value-free-summary`, reproduced here a third time:
+
+  - `:keys` — every top-level key of the rejected definition, uncapped and
+    unsanitised, riding into an ex-info that names itself value-free. A
+    forged definition's key set is attacker-chosen in content (keys carry
+    markup, control characters and secrets as readily as values do) and in
+    size, so the summary grew with the forger's input without limit. Removing
+    it also removes the `(sort-by str (keys definition))` that ran `str` over
+    caller-supplied keys, where a key whose `toString` THREW replaced the
+    documented failure with its own exception.
+  - the `:else {:type :value}` tag, outside the closed vocabulary the other
+    two summarisers now share.
+
+  SIZE AND SHAPE ARE DELIBERATELY KEPT. `:count` / `:state-count` /
+  `:region-count` / `:parallel` are what make the summary useful rather than
+  merely safe — \"a 2000-key map where a machine definition was expected\", \"a
+  parallel root with 3 regions\" is the diagnosis — and none of them can carry
+  a fragment of a token. A lazy seq is NOT counted: realising it on the
+  failure path is its own hazard.
+
+  rf2-j538f7.18 — a rejected definition also carries `:defect`, whose
+  `:category` is the engine's canonical `:rf.error/machine-*` id, so every
+  surface that stashes this summary reports the CANONICAL defect while keeping
+  its own surface-specific error id. See `defect-summary` for why it is a
+  projection of `definition-defect` rather than the defect itself."
   [definition]
   (let [defect (definition-defect definition)
-        base   (if (map? definition)
+        base   (cond
+                 (map? definition)
                  (cond-> {:type     :map
-                          :keys     (vec (sort-by str (keys definition)))
+                          :count    (count definition)
                           :parallel (parallel-definition? definition)}
                    (map? (:states definition))  (assoc :state-count  (count (:states definition)))
                    (map? (:regions definition)) (assoc :region-count (count (:regions definition))))
-                 (cond
-                   (nil? definition)        {:type :nil}
-                   (sequential? definition) {:type  (if (vector? definition) :vector :seq)
-                                             :count (count definition)}
-                   :else                    {:type :value}))]
+
+                 (nil? definition)     {:type :nil}
+                 (vector? definition)  {:type :vector :count (count definition)}
+                 (set? definition)     {:type :set    :count (count definition)}
+                 (string? definition)  {:type :string :count (count definition)}
+                 (keyword? definition) {:type :keyword}
+                 (symbol? definition)  {:type :symbol}
+                 (boolean? definition) {:type :boolean}
+                 (number? definition)  {:type :number}
+                 (seq? definition)     {:type :seq}      ; NOT counted — see above
+                 (fn? definition)      {:type :fn}
+                 (seqable? definition) {:type :seq}
+                 :else                 {:type :scalar})]
     (cond-> base
-      defect (assoc :defect defect))))
+      defect (assoc :defect (defect-summary defect)))))
 
 (defn parent-path
   "The parent path of `path` (its `pop`); `[]` for an empty/top-level
@@ -566,9 +649,27 @@
 
 (defn- unknown-bare-keys
   "The BARE keys of `m` not in `known` (a namespaced key is the open extension
-  carve-out and never flagged)."
+  carve-out and never flagged).
+
+  TOTAL over any key a forged definition can carry (rf2-oztox). The carve-out
+  used to be a bare `(remove #(namespace %))`, and `namespace` THROWS on a key
+  that is not `Named` — so `{:initial :a :states {:a {}} \"x\" 1}`, which a
+  transit-decoded share payload carries as readily as a keyword-keyed one, threw
+  a host `ClassCastException` out of `definition-defect`, and therefore out of
+  `valid-definition?`, in place of the documented `:invalid-chart-state` /
+  `:invalid-definition` rejection every boundary here promises. That is the
+  rf2-210uq path-5 shape one level below the one the bead named: a hostile key
+  destroying the failure it was supposed to produce.
+
+  Testing `Named`-ness first also makes the answer the RIGHT one rather than
+  merely non-throwing. A node key that is not a keyword is not a legal node key
+  under any reading of the grammar, so it belongs in `offending` — the same
+  `:rf.error/machine-unknown-node-key` a misspelled `:on-entry` earns."
   [m known]
-  (->> (keys m) (remove #(namespace %)) (remove known) vec))
+  (->> (keys m)
+       (remove #(and (or (keyword? %) (symbol? %)) (namespace %)))
+       (remove known)
+       vec))
 
 ;; ---- per-node defect checks (each returns a value-free defect map or nil) --
 
