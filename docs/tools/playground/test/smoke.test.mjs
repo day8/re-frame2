@@ -89,7 +89,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { extname, join, dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
@@ -339,13 +339,9 @@ const PAGE = `<!DOCTYPE html>
   <script src="/playground.js"></script>
 </body></html>`;
 
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".css": "text/css",
-};
-
+// Every route below writes its own `content-type` explicitly, so there is no
+// extension-to-MIME lookup to do — the generic static-server shape this file
+// once had was replaced by the three named routes.
 const server = createServer(async (req, res) => {
   try {
     const p = req.url.split("?")[0];

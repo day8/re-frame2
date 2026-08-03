@@ -57,7 +57,6 @@ const {
 } = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
-const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const OUT_DIR = path.join(
   IMPL_ROOT,
   'out',

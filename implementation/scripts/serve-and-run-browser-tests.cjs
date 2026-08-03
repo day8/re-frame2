@@ -37,7 +37,6 @@ const {
 // enforcement, signal-handler installation — on require).
 const {
   computeRunnerEnv,
-  DRIFT_UNVERIFIABLE_ENV_VAR,
   DRIFT_UNVERIFIABLE_FLAG,
 } = require('./lib/browser-runner-drift-env.cjs');
 

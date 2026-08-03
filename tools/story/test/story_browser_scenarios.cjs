@@ -31,10 +31,6 @@ const assert = require('assert/strict');
 // shell, and by a `primeHelpDismissed` write that the shell reads on mount.
 const NAV_TIMEOUT_MS = 30000;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function urlFor(page, path) {
   return new URL(path, page.url()).href;
 }

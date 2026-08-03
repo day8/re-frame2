@@ -61,7 +61,6 @@ const {
   colorToHex,
   parseExTokens,
   sharedContrastContract,
-  WCAG_AA_NORMAL_TEXT,
   RETIRED_OG_SOURCE_COLORS,
 } = scanner;
 

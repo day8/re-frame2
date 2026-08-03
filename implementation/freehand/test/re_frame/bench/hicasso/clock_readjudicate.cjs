@@ -54,7 +54,6 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const r4 = (x) => Math.round(x * 10000) / 10000;
 const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 

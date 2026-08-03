@@ -42,7 +42,6 @@
 
 'use strict';
 
-const fs   = require('fs');
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
 const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');

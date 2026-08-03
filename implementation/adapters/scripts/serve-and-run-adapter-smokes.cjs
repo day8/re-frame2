@@ -48,11 +48,7 @@ const path = require('path');
 // duplicating either, so all the browser harnesses stage + resolve ports
 // identically. The adapter-specific manifest moves with this runner.
 const { resolveExamplesPort } = require('../../../examples/scripts/examples-port.cjs');
-const {
-  ADAPTER_SMOKES,
-  parseFilterPatterns,
-  selectEntries,
-} = require('./adapter-smoke-filter.cjs');
+const { parseFilterPatterns, selectEntries } = require('./adapter-smoke-filter.cjs');
 const { stageShared, cleanStageDirs } = require('../../../examples/scripts/examples-staging.cjs');
 const {
   createHarnessCleanup,
