@@ -2,11 +2,14 @@
   "ARM 1's RUNTIME, proved without a browser (rf2-2rtt6.9).
 
   Everything this arm does that is not React's is answerable here: the
-  read surfaces, the commit path, the index wiring, the generation fence,
-  HD-002's ownership state machine and allowed edge-diff operation, and
-  the standing zero-leaked-subscription-ref-counts assertion. The `-dom`
-  suites then prove that React drives *this* seam — they do not re-prove
-  what the seam does.
+  read surfaces, the commit path, the cell table's wiring, the generation
+  fence, HD-002's ownership state machine and allowed edge-diff
+  operation, and the standing zero-leaked-subscription-ref-counts
+  assertion. The `-dom` suites then prove that React drives *this* seam —
+  they do not re-prove what the seam does.
+
+  The six laws the dependency edges answer for live next door, in
+  `arm1/cell_table_laws_cljs_test` (rf2-dabt3).
 
   The adapter is UIx's, not `plain-atom`'s, and that is load-bearing:
   plain-atom has no reactivity layer at all (\"no caching, no
@@ -21,7 +24,6 @@
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.bench.hicasso.front.sub-index :as idx]
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]))
 
@@ -51,14 +53,17 @@
 
 (defn- key-of [query] [frame-id query])
 
-(defn- the-live-boundary
-  "The one live boundary's id, for the tests that mount exactly one. It
-  comes from the forward-edge map's key set because that IS the index's
-  record of liveness (rf2-ixb92) — there is no separate `:live` set to
-  read it from, and asking `:b->subs` for it is the same lookup the old
-  set answered."
-  []
-  (first (keys (:b->subs (idx/snapshot)))))
+(defn- boundary-reading
+  "The registration reading `sub-key`, for the tests that mount exactly
+  one boundary on it.
+
+  It is read off an EDGE because the fused table keeps no registry of
+  live boundaries and never did keep a second one (rf2-ixb92,
+  rf2-dabt3): a registration is live exactly while React holds its
+  cleanup, and the only record of it anywhere is its membership in the
+  reader list of each key it reads."
+  [sub-key]
+  (first (rt/cell-readers sub-key)))
 
 ;; ---------------------------------------------------------------------------
 ;; The hook ledger and the retained inventory (HD-020(b))
@@ -252,10 +257,10 @@
 ;; HD-002 clause (a) — the ownership state machine
 ;; ---------------------------------------------------------------------------
 
-(deftest a-render-mutates-neither-the-index-nor-a-reference
+(deftest a-render-mutates-neither-the-cell-table-nor-a-reference
   (seeded! 3)
   (testing "the invariant the whole state machine reduces to: no
-           render-phase code mutates the index or a subscription
+           render-phase code mutates the cell table or a subscription
            ref-count, so an abandoned render needs no cleanup because it
            never did anything that would need cleaning"
     (let [before (rt/stats)]
@@ -328,23 +333,27 @@
     (release)
     (let [narrow  (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
           release (rt/commit-boundary! narrow (fn []))
-          b       (the-live-boundary)]
-      (is (= 1 (count (idx/edges-of (idx/snapshot) b))))
-      (is (empty? (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))
+          b       (boundary-reading (key-of [:dogfood/todo 0]))]
+      (is (= 1 (count (rt/boundary-reads b))))
+      (is (empty? (rt/cell-readers (key-of [:dogfood/todo 1])))
           "and the dropped key has no reader left behind")
       (release))))
 
-(deftest the-wired-path-never-takes-the-diffs-dropping-half
+(deftest the-wired-path-replaces-wholesale-and-never-takes-a-difference
   (seeded! 3)
-  (testing "rf2-2rtt6.47. HD-002(b) used to be discharged against
-           `record-reads`'s set difference, and this wiring never runs its
-           dropping half: the boundary id is the registration React mints
-           per `subscribe`, so a changed read set arrives as a FRESH id
-           with an empty held set. Every `:edges-changed` the index emits
-           on this path therefore adds everything and drops nothing —
-           asserted, so the docstring's claim is checkable"
+  (testing "rf2-2rtt6.47, as settled by rf2-dabt3. HD-002(b) used to be
+           discharged against a separate index's `record-reads` set
+           difference, and this wiring never ran its dropping half: the
+           boundary id is the registration React mints per `subscribe`,
+           so a changed read set arrives as a FRESH registration with an
+           empty held set. With the readers on the cell there is no
+           difference left to take at all — a registration installs its
+           memberships and its cleanup removes exactly those. Every
+           `:edges-changed` on this path therefore adds everything and
+           drops nothing, which is asserted so the docstring's claim is
+           checkable rather than argued"
     (let [seen (atom [])]
-      (idx/set-evidence-sink!
+      (rt/set-evidence-sink!
         (fn [e] (when (= :edges-changed (:event e)) (swap! seen conj e))))
       (try
         (let [wide  (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
@@ -359,15 +368,15 @@
                change — there is no cheap route for `n-1 of n unchanged`")
           (let [narrow (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
                 stop2  (rt/commit-boundary! narrow (fn []))
-                b      (the-live-boundary)]
+                b      (boundary-reading (key-of [:dogfood/todo 0]))]
             (is (= 1 (:cell-refs (rt/stats))) "and re-acquired from nothing")
-            (is (= #{(key-of [:dogfood/todo 0])} (idx/edges-of (idx/snapshot) b))
+            (is (= #{(key-of [:dogfood/todo 0])} (rt/boundary-reads b))
                 "the narrowing landed")
-            (is (empty? (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))
-                "and it landed through `unmount`'s drop-everything, not
-                 through the difference")
+            (is (empty? (rt/cell-readers (key-of [:dogfood/todo 1])))
+                "and it landed through the previous cleanup's
+                 drop-everything, not through a difference")
             (stop2)))
-        (finally (idx/set-evidence-sink! nil)))
+        (finally (rt/set-evidence-sink! nil)))
       (is (= 2 (count @seen)) "two commits, two edge-change records")
       (is (every? (comp empty? :dropped) @seen)
           (str "and neither dropped anything: " (pr-str (mapv :dropped @seen))))
@@ -376,8 +385,9 @@
 
 (deftest reading-one-key-twice-is-one-edge
   (seeded! 3)
-  (testing "the buffer is a sequence and the index edge is set-valued; the
-           diff collapses them"
+  (testing "the buffer is a sequence and the entry's read set is
+           set-valued; the coercion collapses them, so a key read twice
+           takes one membership rather than two"
     (let [entry   (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
                                    (str (rt/sub [:dogfood/todo 0]))]))
           release (rt/commit-boundary! entry (fn []))]
@@ -459,7 +469,16 @@
       (is (contains? shared :key-cell)
           "the key cell IS shared — one per unique (frame, query) however
            many boundaries read it — so this is a classification and not a
-           blanket move"))))
+           blanket move")))
+  (testing "rf2-dabt3: the two index tokens are gone and ONE membership
+           token stands where they did. A ladder reading this inventory
+           must count one slot per read, not a forward-edge map entry
+           plus a reverse-edge set membership plus the singleton set the
+           second map retained per key at fan-out 1"
+    (let [per-b (into #{} (map :token) (:per-boundary (rt/retained-inventory)))]
+      (is (contains? per-b :cell/reader-membership))
+      (is (not (contains? per-b :index/b->subs)))
+      (is (not (contains? per-b :index/sub->bs))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The commit path: write -> dirty keys -> index -> dirty boundaries
@@ -561,7 +580,8 @@
     (is (true? @seen) "and the winning run read the committed value")
     (is (true? @first-read) "both of the winning run's reads are on one commit")
     (is (= #{(key-of [:dogfood/done? 0])} (reads-of entry))
-        "the index sees the winning render's reads, not the abandoned one's")
+        "the commit would install the winning render's reads, not the
+         abandoned one's")
     ((:release! warm))))
 
 (deftest a-body-that-writes-on-every-run-fails-loudly

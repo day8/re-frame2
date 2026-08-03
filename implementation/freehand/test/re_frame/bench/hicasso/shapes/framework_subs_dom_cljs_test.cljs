@@ -2,18 +2,19 @@
   "**FRAMEWORK SUBS, EXERCISED THROUGH THE ARM** (rf2-2rtt6.53).
 
   The charter counts framework subs at **27% of census read traffic** and
-  says \"the index serves them first-class\". The roster ports read the
+  says \"the index serves them first-class\" — the dependency edges, which
+  since rf2-dabt3 are the cell table's own reader lists. The roster ports read the
   same *shape* through plain `reg-sub`s (`:conduit/favorite-pending?`),
   so until this file nothing witnessed that a real framework sub reads
   identically to an app sub through the collector. Two things went
   unchecked, and each has a test here named for it:
 
-  1. **The query vector's arg is a MAP.** The index's sub-key identity is
-     value equality on `[frame-kw query-v]`, and every roster read
-     exercises it on scalars. Here the census's own pair —
+  1. **The query vector's arg is a MAP.** The cell table's sub-key
+     identity is value equality on `[frame-kw query-v]`, and every roster
+     read exercises it on scalars. Here the census's own pair —
      `[:rf/mutation {:instance [:favorite slug]}]` alongside the row's
      app sub — is mounted through the arm, and a *freshly constructed*
-     value-equal key finds the same cell and the same reader set.
+     value-equal key finds the same cell and the same reader list.
 
   2. **A framework sub's value moves on a different clock than a db
      write.** `:rf/mutation` is a `reg-runtime-sub`: its facts live in
@@ -71,7 +72,6 @@
             [re-frame.bench.hicasso.arm1.hook-probe :as probe]
             [re-frame.bench.hicasso.arm1.mount :as mount]
             [re-frame.bench.hicasso.arm1.runtime :as rt :refer [sub]]
-            [re-frame.bench.hicasso.front.sub-index :as index]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.hicasso.shapes.model :as m]
             [re-frame.core :as rf]
@@ -261,7 +261,7 @@
     (mount/settle!)))
 
 ;; ===========================================================================
-;; 1 — the index serves a map-arg framework sub under VALUE equality
+;; 1 — the cell table serves a map-arg framework sub under VALUE equality
 ;; ===========================================================================
 
 (deftest the-sub-key-identity-holds-on-a-map-arg-key
@@ -281,14 +281,16 @@
                 "the map arg is a value, not an object identity")
             (is (some? (rt/cell-reaction [frame-id resource-read]))
                 "and so is the resource read's"))
-          (testing "and finds the readers the index holds for it"
-            (let [idx (index/snapshot)]
-              (is (= 2 (count (index/readers-of idx [frame-id (mutation-read slug-0)])))
-                  "card 0 and the detail both hold the shared instance's edge")
-              (is (= 1 (count (index/readers-of idx [frame-id (mutation-read (:slug (m/article 1)))])))
-                  "card 1's instance has exactly its own reader")
-              (is (= 0 (count (index/readers-of idx [frame-id (mutation-read "no-such-slug")])))
-                  "law 6: an instance nobody reads has no phantom reader")))
+          (testing "and finds the readers the cell holds for it (rf2-dabt3:
+                   the reverse edge is the cell's own reader list now, so
+                   this counts memberships on the table rather than a
+                   second map's reader set)"
+            (is (= 2 (count (rt/cell-readers [frame-id (mutation-read slug-0)])))
+                "card 0 and the detail both hold the shared instance's edge")
+            (is (= 1 (count (rt/cell-readers [frame-id (mutation-read (:slug (m/article 1)))])))
+                "card 1's instance has exactly its own reader")
+            (is (= 0 (count (rt/cell-readers [frame-id (mutation-read "no-such-slug")])))
+                "law 6: an instance nobody reads has no phantom reader"))
           (finally (mount/release! handle)))))))
 
 ;; ===========================================================================
@@ -382,7 +384,7 @@
             (is (= "loading" (text handle "fw-feed-status"))
                 "the page's own DOM moved, so the two 0s below are not passing
                  because the write did nothing")
-            (is (= 1 (runs :page)) "the index answered for exactly one boundary")
+            (is (= 1 (runs :page)) "the dirty walk answered for exactly one boundary")
             (is (= 0 (runs slug-0)) "…and the card bailed out — this read 1 before the repair")
             (is (= 0 (runs :detail)) "as did the detail — this read 1 before the repair"))
           (reset-runs!)
@@ -394,7 +396,7 @@
             (is (= 1 (runs :page)))
             (is (= 0 (runs :detail))
                 "its read did not move, so the bail-out held it quiet — this
-                 read 1 before the repair, on the cascade rather than the index"))
+                 read 1 before the repair, on the cascade rather than the edges"))
           (finally (mount/release! handle)))))))
 
 ;; ===========================================================================

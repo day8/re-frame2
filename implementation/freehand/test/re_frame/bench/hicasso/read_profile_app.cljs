@@ -10,8 +10,8 @@
   read the time goes. This entry answers that: the acceptance page's own
   141-read roster, performed by the shipping read path and by a family of
   single-phase ablations in one process, interleaved, plus the commit
-  half (cell construction, reaction wiring, index write) and a per-op
-  micro table.
+  half (cell construction, reaction wiring, reader membership) and a
+  per-op micro table.
 
   ## DIAGNOSTIC, not published
 
@@ -69,8 +69,13 @@
   What the render's cold read deliberately does not pay, the commit does:
   one durable cell per unique key — `subs/subscribe`, the baseline deref,
   the value-change watch, the disposal hook, the `!cells` insert — plus
-  the index mount and the whole-set `record-reads!`. Phase B prices that
-  half through the runtime's own [[rt/commit-boundary!]] seam on four
+  one reader membership per key. **That last term re-shaped under
+  rf2-dabt3**: the dependency index used to be a second process-global
+  structure and the commit paid an `index/mount!` plus a whole-set
+  `record-reads!` into it; the readers now live on the cell, so the
+  commit pushes one slot per key and the copy prices that instead.
+  Phase B prices that half through the runtime's own
+  [[rt/commit-boundary!]] seam on four
   identically-seeded frames per window (window ~= 4 x 141 acquisitions,
   clear of the 100 us clock clamp), released and settled between samples
   with a residue equality gate.
@@ -78,10 +83,10 @@
   | arm         | one window is                                     | what it prices |
   |-------------|---------------------------------------------------|----------------|
   | `commit`    | 4 frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
-  | `c-local`   | faithful copy: cell mint + subscribe + baseline deref + watch + dispose hook + map insert + index | the ablation baseline, validated against `commit` |
+  | `c-local`   | faithful copy: cell mint + subscribe + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
-  | `c-noindex` | `c-local` minus `index/mount!` + `record-reads!`  | the index write |
+  | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge (rf2-dabt3) |
   | `c-nomap`   | `c-local` minus the per-key cells-map insert      | the cell-map insert |
   | `b-build`   | 4 frames x 141 bare `subscribe` + deref (torn down sync, outside the window) | build + compute WITHOUT in-window dispose — beside `no-shell` it floors the render read's dispose/evict share |
 
@@ -95,7 +100,6 @@
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.mount :as arm1-mount]
             [re-frame.bench.hicasso.arm1.runtime :as rt :refer [sub]]
-            [re-frame.bench.hicasso.front.sub-index :as idx]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.hicasso.shapes.large-template :as lt]
             [re-frame.core :as rf]
@@ -355,7 +359,7 @@
 (def ^:const C-FULL 0)
 (def ^:const C-NOWATCH 1)
 (def ^:const C-NOSUB 2)
-(def ^:const C-NOINDEX 3)
+(def ^:const C-NOREADERS 3)
 (def ^:const C-NOMAP 4)
 
 (def ^:private cell-watch-key
@@ -381,16 +385,22 @@
   "Faithful copy of the commit half `make-subscribe` performs for one
   boundary at `mode`: the registration object, one cell per key of the
   read SET (`subs/subscribe` + the baseline deref + the value-change
-  watch + the disposal hook + the map insert), then the index mount and
-  the whole-set `record-reads!`. Answers a teardown fn that mirrors the
-  returned unsubscribe closure — run OUTSIDE the window.
+  watch + the disposal hook + the map insert), each cell taking the
+  registration onto its reader list. Answers a teardown fn that mirrors
+  the returned unsubscribe closure — run OUTSIDE the window.
 
   The stubs, stated: `c-nosub` keeps the computation (a `compute-sub`
   against the frame-state snapshot) so its delta prices the reaction
   build + cache insert rather than build-plus-compute; `c-nowatch` skips
   both the watch and the disposal hook; the disposal hook and the watch
   callback are no-ops rather than the arm's real repair fns, which is a
-  floor in the stubs' favour."
+  floor in the stubs' favour.
+
+  `c-noreaders` is the rf2-dabt3 ablation and it is the whole reason the
+  arm survived the fusion: it drops the cell's `readers` array and the
+  membership push, so `c-local - c-noreaders` prices the fused reverse
+  edge on the same instrument that used to price the retired index's
+  `mount!` + `record-reads!` pair. Attribution, not assertion."
   [mode frame-id reads-set fs]
   (let [reg   #js {"reads" reads-set "notify" (fn [] nil)}
         cells #js []
@@ -405,7 +415,6 @@
                           "queryV"   q
                           "reaction" r
                           "epoch"    (rt/commit-basis frame-id)
-                          "refs"     1
                           "disposed" false}]
         (if (identical? mode C-NOSUB)
           (subs/compute-sub q fs)
@@ -413,16 +422,18 @@
               (when-not (identical? mode C-NOWATCH)
                 (add-watch r cell-watch-key (fn [_ _ _ _] nil))
                 (interop/add-on-dispose! r (fn [] nil)))))
+        ;; The fused reverse edge: one slot per key, which is the
+        ;; boundary's edge and its reference at once (rf2-dabt3). The
+        ;; array is minted with the registration already in it, exactly
+        ;; as `acquire-cell!`'s `#js []` + `.push` leaves it at fan-out 1
+        ;; — which IS the fan-out on this roster, every key distinct.
+        (when-not (identical? mode C-NOREADERS)
+          (unchecked-set cell "readers" #js [reg]))
         (.push cells cell)
         (when-not (identical? mode C-NOMAP)
           (vswap! !map assoc sub-key cell))))
     (unchecked-set reg "cells" cells)
-    (when-not (identical? mode C-NOINDEX)
-      (idx/mount! reg)
-      (idx/record-reads! reg reads-set))
     (fn teardown []
-      (when-not (identical? mode C-NOINDEX)
-        (idx/unmount! reg))
       (dotimes [i (alength cells)]
         (let [^js cell (aget cells i)]
           (when-some [r (.-reaction cell)]
@@ -456,7 +467,7 @@
      {:id :c-local   :run (mk-local C-FULL)}
      {:id :c-nowatch :run (mk-local C-NOWATCH)}
      {:id :c-nosub   :run (mk-local C-NOSUB)}
-     {:id :c-noindex :run (mk-local C-NOINDEX)}
+     {:id :c-noreaders :run (mk-local C-NOREADERS)}
      {:id :c-nomap   :run (mk-local C-NOMAP)}
      {:id :b-build
       :run (fn [] (mapv (fn [f] (build-only! f roster)) commit-frames))}]))
@@ -644,7 +655,7 @@
                                                         b-sampling b-rounds baseline))))
                               (.then
                                 (fn [{:keys [readings samples]}]
-                                  (let [ids  [:commit :c-local :c-nowatch :c-nosub :c-noindex :c-nomap :b-build]
+                                  (let [ids  [:commit :c-local :c-nowatch :c-nosub :c-noreaders :c-nomap :b-build]
                                         rows (arm-rows ids readings 4)
                                         gv-b (lane/guard! samples "read-profile phase B (in-page ms, diagnostic)")]
                                     (lane/record! :read-profile-commit
@@ -662,7 +673,7 @@
                                       (js/console.log (str ";;   copy fidelity: c-local/commit = " (fmt (/ clocal commit') 4)))
                                       (js/console.log (delta-line "watch-wiring (c-local - c-nowatch)" clocal (:p50 (get rows :c-nowatch))))
                                       (js/console.log (delta-line "reaction-build+cache-insert (c-local - c-nosub)" clocal (:p50 (get rows :c-nosub))))
-                                      (js/console.log (delta-line "index-write (c-local - c-noindex)" clocal (:p50 (get rows :c-noindex))))
+                                      (js/console.log (delta-line "reader-membership (c-local - c-noreaders)" clocal (:p50 (get rows :c-noreaders))))
                                       (js/console.log (delta-line "cell-map-insert (c-local - c-nomap)" clocal (:p50 (get rows :c-nomap))))
                                       (js/console.log (str ";;   b-build (build+compute, no in-window dispose): "
                                                            (fmt (:p50 (get rows :b-build)) 4) " ms/pass ("

@@ -9,8 +9,18 @@
   test: that the front half **composes**. An intent written in the
   authoring spelling, lowered by the intent module through the codec's
   prop walk, invoked as the browser would invoke it, reaches a real
-  re-frame2 event handler and moves a real app-db — and the index says
-  which boundary that write dirtied.
+  re-frame2 event handler and moves a real app-db.
+
+  **The dependency index is no longer part of that composition
+  (rf2-dabt3).** This file used to close with a row driving
+  `front.sub-index`'s pure doors over the screen's own read sets, because
+  the index was deliverable 2 of the shared front half. The tournament
+  ended, the sole surviving consumer took the reverse edge onto its key
+  cells, and the namespace was deleted; that row lives on as
+  `the-table-answers-the-screens-own-narrow-and-broad-writes` in
+  `arm1/cell_table_laws_cljs_test`, where the fused doors and a substrate
+  that actually notifies make the same claim against real notifications
+  rather than against a value algebra.
 
   Nothing here mounts a screen. HD-014 starts the six-week clock at the
   first Hicasso-arm commit that mounts the dogfood screen, and that
@@ -19,7 +29,6 @@
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.front.sub-index :as idx]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -29,10 +38,9 @@
 (def ^:private frame-id ::dogfood)
 
 (defn- seeded!
-  "A frame with `n` to-dos, and the index reset alongside it."
+  "A frame with `n` to-dos."
   ([] (seeded! 3))
   ([n]
-   (idx/reset-index!)
    (dogfood/make-frame! frame-id n)
    frame-id))
 
@@ -210,26 +218,3 @@
       (is (= "" (read-sub [:dogfood/draft 1])))
       (is (= "renamed" (:title (read-sub [:dogfood/todo 1])))))))
 
-;; ---------------------------------------------------------------------------
-;; The index over the real screen's reads
-;; ---------------------------------------------------------------------------
-
-(deftest the-index-answers-the-screens-own-narrow-and-broad-writes
-  (seeded! 3)
-  (idx/mount! :header)
-  (idx/mount! :row-0)
-  (idx/mount! :row-1)
-  (idx/record-reads! :header #{[:dogfood/remaining] [:dogfood/visible-ids]})
-  (idx/record-reads! :row-0 #{[:dogfood/todo 0] [:dogfood/done? 0]})
-  (idx/record-reads! :row-1 #{[:dogfood/todo 1] [:dogfood/done? 1]})
-  (testing "the narrow write dirties the one row and the header that counts it"
-    (is (= #{:row-1 :header}
-           (idx/commit! #{[:dogfood/done? 1] [:dogfood/remaining]}))))
-  (testing "the broad write dirties every reader of the list"
-    (is (= #{:header} (idx/commit! #{[:dogfood/visible-ids]}))))
-  (testing "a to-do nobody has mounted a row for dirties nothing"
-    (is (= #{} (idx/commit! #{[:dogfood/todo 2]}))))
-  (testing "unmounting a row takes its edges with it"
-    (idx/unmount! :row-1)
-    (is (= #{} (idx/commit! #{[:dogfood/done? 1]})))
-    (is (= #{:header} (idx/commit! #{[:dogfood/remaining]})))))
