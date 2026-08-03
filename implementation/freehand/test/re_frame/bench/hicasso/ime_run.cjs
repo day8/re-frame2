@@ -665,10 +665,20 @@ async function runImpl(browser, impl) {
       by.hicasso.digits.model === by.react.digits.model &&
         by.hicasso.digits.closed === by.react.digits.closed,
       { hicasso: by.hicasso.digits, react: by.react.digits });
-    R.check('comparative: on the normalising field the same divergence, scoped the same way',
+    R.check('comparative: on the normalising field the same divergence — one uninterrupted exchange against two, a compositionend against none',
       by.hicasso.upper.starts === 1 && by.react.upper.starts === 2 &&
-        by.hicasso.upper.model === by.react.upper.model,
+        by.hicasso.upper.ends === 1 && by.react.upper.ends === 0,
       { hicasso: by.hicasso.upper, react: by.react.upper });
+    // MEASURED 2026-08-03, and the row the digits scope-claim above does
+    // NOT extend to: on a normalising model the baseline's abort does not
+    // merely lose the composition, it CORRUPTS what the exchange commits.
+    // Each aborted draft is written back into the field, and the IME's
+    // next composition composes on top of it — `s` → `S`, `sh` on top of
+    // `S` → `SSH`, the commit on top of that → `SSHSH`. The arm, having
+    // written nothing until the end, commits the `SH` the user typed.
+    R.check('comparative: THE SCOPE, on the normalising field — the arm commits what was composed; the baseline commits what its own restarts left behind',
+      by.hicasso.upper.model === 'SH' && by.react.upper.model === 'SSHSH',
+      { hicasso: by.hicasso.upper.model, react: by.react.upper.model });
   }
   if (by.hicasso && by['uix-port']) {
     const R = by.hicasso.R;
