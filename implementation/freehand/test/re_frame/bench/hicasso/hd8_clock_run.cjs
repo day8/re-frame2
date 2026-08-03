@@ -73,6 +73,13 @@
 //   0  measured; gates passed
 //   1  the run failed its own gates (build, page error, parity, quiet-box)
 //   2  THE ARM-ORDER GUARD REFUSED — repair the arm, never the guard
+//   3  a window's value never reached the page (unverified read-backs)
+//   4  the run's reproducibility band breached seam.cjs's ceiling
+//   5  the positive control did not see the change its arithmetic predicts
+//
+// 3, 4 and 5 are rf2-rr6do's repair: all three were computed, printed and
+// written into the dataset, and none of them reached the exit. See the note
+// above `verdict` below.
 
 'use strict';
 
@@ -683,23 +690,131 @@ function report(out) {
 }
 
 // ---------------------------------------------------------------------------
+// The exit decision
+// ---------------------------------------------------------------------------
+
+// A refusal that only PRINTS is not a refusal (rf2-rr6do; rf2-tb345 repaired
+// the same defect one tree over, in b8_run.cjs). This driver computed THREE
+// refusals, printed each one loudly, wrote each into the dataset — and then
+// took its exit off `failed` and the arm-order guard ALONE. So a quiet box
+// with a clean guard could print
+//
+//   ;; writes   4 unverified of 36 (mount + element-count read-backs)
+//   ;; ---- THE BAND ...: 41.2% — ceiling 35% — BREACHED, no magnitude reportable ----
+//   ;;   FAIL  measured 1.21x [...] against [1.50 – 2.50]
+//
+// and still exit 0, on figures its own report had just refused.
+//
+// The correct shape already existed one file over: `clock_run.cjs` gates all
+// three — unverified writes, the band ceiling, the positive control. This is
+// that shape, with the decision moved into ONE pure function over a flat
+// summary so the exit path is checkable without a release build and a
+// headless Chromium — see `clock_exit_path.test.cjs`.
+//
+// The four conditions are INDEPENDENT: each refuses on its own, and when
+// several fire every one of them is named. Precedence preserves every code
+// this driver already had — a run that exited 1 still exits 1, a run the
+// arm-order guard refused still exits 2 — so nothing that used to refuse now
+// refuses differently.
+//
+// No refusal suppresses output: the tables are printed and the datasets are
+// written before this is consulted. A refusal is about what may be QUOTED,
+// not about throwing the measurement away.
+
+/** The flat record the exit is decided on: one entry per row actually taken. */
+function summarise(failed, results) {
+  return {
+    failed: failed || null,
+    rows: (results || []).map((r) => ({
+      id: `${r.runId}/${r.rowId}`,
+      guardRefuse: r.adjudication.guardRefuse,
+      unverified: r.tally.unverified,
+      writes: r.tally.writes,
+      ctlOk: r.adjudication.ctl.ok,
+      ctlMeasured: r.adjudication.ctl.measured.mean,
+      ceilingBreached: r.adjudication.assessed.verdict.ceilingBreached,
+      band: r.adjudication.assessed.bandStats.band,
+    })),
+  };
+}
+
+function verdict(summary) {
+  const failed = summary && summary.failed;
+  const rows = (summary && summary.rows) || [];
+  const pct = (x) => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : 'n/a');
+  const lines = [];
+
+  const refused = rows.filter((r) => r.guardRefuse);
+  const unverified = rows.filter((r) => r.unverified > 0);
+  const overCeiling = rows.filter((r) => r.ceilingBreached);
+  const ctlFailed = rows.filter((r) => !r.ctlOk);
+
+  if (failed) lines.push(`[hd8clock] FAILED: ${failed}`);
+  if (refused.length) {
+    lines.push(
+      '[hd8clock] ARM-ORDER GUARD REFUSED — at least one figure above depends on where in the plan ' +
+        'it was measured, and may not be reported as measured. Repair the arm, not the guard: ' +
+        refused.map((r) => r.id).join(', ')
+    );
+  }
+  if (unverified.length) {
+    lines.push(
+      '[hd8clock] REFUSED — unverified operations (rf2-rr6do): a window whose value never reached ' +
+        'the page is not a measurement of that page: ' +
+        unverified.map((r) => `${r.id}: ${r.unverified} of ${r.writes}`).join(', ')
+    );
+  }
+  if (overCeiling.length) {
+    lines.push(
+      `[hd8clock] REFUSED — the run's own reproducibility band exceeds seam.cjs's ceiling ` +
+        `(rf2-ymi6j, rf2-rr6do) on: ` +
+        overCeiling.map((r) => `${r.id} (${pct(r.band)})`).join(', ') +
+        '. ctl-2x and floor are two arms in the SAME block whose true ratio is a property of the ' +
+        'page, so a band that wide means the box could not reproduce identical work — no magnitude ' +
+        'from those rows is reportable, whatever its margin.'
+    );
+  }
+  if (ctlFailed.length) {
+    lines.push(
+      '[hd8clock] REFUSED — the positive control did not see the change its own arithmetic ' +
+        'predicts (rf2-rr6do) on: ' +
+        ctlFailed.map((r) => `${r.id} (measured ${Number(r.ctlMeasured).toFixed(4)}x)`).join(', ') +
+        '. No MAGNITUDE from those rows is reportable.'
+    );
+  }
+
+  const code = failed
+    ? 1
+    : refused.length
+      ? 2
+      : unverified.length
+        ? 3
+        : overCeiling.length
+          ? 4
+          : ctlFailed.length
+            ? 5
+            : 0;
+  return { code, lines };
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-(async () => {
+async function drive() {
   const gst = guard.selfTest();
   console.log(';; ==== ARM-ORDER GUARD SELF-TEST ====');
   for (const cse of gst.checks) console.log(`;;   ${cse.ok ? 'ok  ' : 'FAIL'}  ${cse.name}`);
   if (!gst.ok) {
     console.error('[hd8clock] the arm-order guard failed its own self-test; nothing was measured');
-    process.exit(1);
+    return 1;
   }
   const sst = seamlib.selfTest();
   console.log(';; ==== SEAM/BAND SELF-TEST ====');
   for (const cse of sst.checks) console.log(`;;   ${cse.ok ? 'ok  ' : 'FAIL'}  ${cse.name}`);
   if (!sst.ok) {
     console.error('[hd8clock] seam.cjs failed its own self-test; nothing was measured');
-    process.exit(1);
+    return 1;
   }
 
   const sha = revision();
@@ -730,7 +845,6 @@ function report(out) {
   const server = serve();
   const results = [];
   let failed = null;
-  let refused = false;
   try {
     const { chromium } = require('playwright');
     for (const runDef of RUNS) {
@@ -747,7 +861,6 @@ function report(out) {
           }
           const out = await runRow(browser, runDef, rowId);
           const adj = report(out);
-          if (adj.guardRefuse) refused = true;
           results.push({ ...out, adjudication: adj, quiet: q, windowStart });
         }
       } finally {
@@ -813,16 +926,18 @@ function report(out) {
   console.log(';;   operator\'s to overturn (rf2-2rtt6.1). This driver prints measurements and');
   console.log(';;   per-pair adjudications against the recorded line; nothing here amends the bar.');
 
-  if (failed) {
-    console.error(`[hd8clock] FAILED: ${failed}`);
-    process.exit(1);
+  const v = verdict(summarise(failed, results));
+  for (const line of v.lines) console.error(line);
+  if (v.code === 0) {
+    console.error('[hd8clock] ok — measured, and no arm reads differently for its position in the plan');
   }
-  if (refused) {
-    console.error(
-      '[hd8clock] ARM-ORDER GUARD REFUSED — at least one figure above depends on where in the plan ' +
-        'it was measured, and may not be reported as measured. Repair the arm, not the guard.'
-    );
-    process.exit(2);
-  }
-  console.error('[hd8clock] ok — measured, and no arm reads differently for its position in the plan');
-})();
+  return v.code;
+}
+
+module.exports = { summarise, verdict };
+
+if (require.main === module) {
+  drive().then((code) => {
+    if (code !== 0) process.exit(code);
+  });
+}

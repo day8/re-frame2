@@ -62,12 +62,29 @@
 // writes never reached the page. All three are exits now, and the
 // denominator counts only arms that could have been verified.
 //
+// AND THE SAME DEFECT, FOUND TWICE MORE (rf2-rr6do)
+// -------------------------------------------------
+// Gates 3 and 4 above were in the same condition the audit of #7262 found
+// the other three in: computed, printed, written into `report.json`, and
+// never read by the verdict. An arm that hit `HN_WARMUP_MAX` still trending
+// printed `still trending at the N-window ceiling` and the run went on to
+// say `VERDICT: reportable.` — figures taken off a site that was still
+// moving. A leg sitting on the clock quantum printed `CLAMP-LIMITED, not
+// quotable as absolute` beside a table whose whole purpose is to quote
+// absolutes. Both are exits now.
+//
 // EXIT CODES
 //   0  reportable
 //   1  a gate failed, or the run could not complete
 //   2  THE ARM-ORDER GUARD REFUSED. No figure from this run may be
 //      published. Repair the arm — more warm-up, more rounds, a quieter
 //      box — never the guard's tolerance.
+//   3  an arm never SETTLED inside the warm-up ceiling — it was measured on
+//      a site still trending. Raise HN_WARMUP_MAX and re-run (rf2-rr6do,
+//      the same refusal rf2-tb345 gave b8).
+//   4  a quoted leg sits on the clock quantum, so the absolute table it
+//      feeds is not a reading (rf2-rr6do). More writes per sample; not a
+//      looser clamp.
 
 'use strict';
 
@@ -875,53 +892,135 @@ async function main() {
   say('');
 
   // --- the verdict --------------------------------------------------------
-  // A lost position is worse than a refusal, because it makes the guard's
-  // phase factor quietly adjudicate fewer samples than it names. It gets
-  // its own exit rather than being folded into the guard's.
-  if (positionsLost) {
-    say('VERDICT: FAILED — some samples reached the guard with no finite position, so the');
-    say('         phase factor was adjudicated on less evidence than it reported. Nothing');
-    say('         above may be published until every sample carries its position.');
-    process.exitCode = 1;
-    return;
+  const v = verdict({
+    positionsLost,
+    orderRefuse: report.refuse,
+    leaked,
+    badTotal,
+    writeTotal,
+    offenders: arms
+      .filter((a) => !skipVerify.includes(a) && badByArm[a] > 0)
+      .map((a) => `${a}:${badByArm[a]}`)
+      .join(' '),
+    identityOk,
+    warmupUnsettled: arms.filter((a) => !settled[a]),
+    warmupMax: WARMUP_MAX,
+    clamped,
+  });
+  for (const line of v.lines) say(line);
+  if (v.code !== 0) process.exitCode = v.code;
+}
+
+// ---------------------------------------------------------------------------
+// The exit decision
+// ---------------------------------------------------------------------------
+
+// ONE pure function over the run's summary, which is what makes this exit
+// path checkable without a release build and a headless Chromium — see
+// `hicasso_narrow_exit_path.test.cjs`. It is also what stops the defect
+// growing back: the way all five of this driver's earlier fail-opens grew
+// was a second reading of a computed condition somewhere below the report,
+// and there is now only one place a condition can be read.
+//
+// Every condition is INDEPENDENT — each refuses on its own, and when several
+// fire every one of them is named, so a run is never told about one fault
+// while a second stays hidden until the first is repaired.
+//
+// PRECEDENCE IS THE EXISTING ONE, AND THE TWO NEW REFUSALS SIT LAST. A run
+// that exited 1 before still exits 1; a run the arm-order guard refused
+// still exits 2. 3 and 4 can therefore only change the verdict of a run that
+// was previously being called `reportable.`, which is precisely the set
+// rf2-rr6do is about.
+//
+//   3  AN UNSETTLED WARM-UP. `settled[arm]` was computed inside the
+//      `WARMUP_MAX` loop, printed twice — once per arm, once in the
+//      `warm-up` header line with a `*` — and stored as `warmupSettled` in
+//      report.json. Nothing read it. An arm that reached the ceiling still
+//      trending had its figures taken off a moving site, and "still
+//      trending" printed above "reportable." is not a gate.
+//
+//   4  A CLAMP-LIMITED LEG, scoped deliberately narrower than the others.
+//      This driver exists to publish ABSOLUTE per-write milliseconds and the
+//      write/flush split taken from the same legs; a leg carrying less than
+//      10x the measured clock quantum per sample is a reading of the clock,
+//      not of the arm, and the run itself says so — `not quotable as
+//      absolute`. The repair is more writes per sample (HN_WRITES), which
+//      lifts the per-sample figure off the quantum. It is NOT a looser
+//      multiple: the clamp is a property of `performance.now()` on the box,
+//      and a threshold moved until it passes has stopped being a threshold.
+function verdict(s) {
+  const lines = [];
+  const say = (...xs) => lines.push(...xs);
+
+  if (s.positionsLost) {
+    say(
+      'VERDICT: FAILED — some samples reached the guard with no finite position, so the',
+      '         phase factor was adjudicated on less evidence than it reported. Nothing',
+      '         above may be published until every sample carries its position.'
+    );
   }
-  if (report.refuse) {
-    say('VERDICT: REFUSED by the arm-order guard. No figure above may be published.');
-    say('         Repair the arm — more warm-up, more rounds, a quieter box. Not the tolerance.');
-    process.exitCode = 2;
-    return;
+  if (s.orderRefuse) {
+    say(
+      'VERDICT: REFUSED by the arm-order guard. No figure above may be published.',
+      '         Repair the arm — more warm-up, more rounds, a quieter box. Not the tolerance.'
+    );
   }
-  if (leaked) {
-    say('VERDICT: FAILED — an arm\'s total moved with the control size. The leg accounting leaks.');
-    process.exitCode = 1;
-    return;
+  if (s.leaked) {
+    say("VERDICT: FAILED — an arm's total moved with the control size. The leg accounting leaks.");
   }
   // A stale write on a REAL arm was printed and stored and nothing else: a
   // run could report `VERDICT: reportable` beside a column saying some of
   // its writes never reached the page. The read-back gate is the reason the
   // figures above are about a page rather than about a clock, so it fails
   // the run.
-  if (badTotal > 0) {
-    const offenders = arms
-      .filter((a) => !skipVerify.includes(a) && badByArm[a] > 0)
-      .map((a) => `${a}:${badByArm[a]}`)
-      .join(' ');
-    say(`VERDICT: FAILED — ${badTotal} of ${writeTotal} measured writes never reached the DOM`);
-    say(`         (${offenders}). A window that did not commit is not a measurement of one.`);
-    process.exitCode = 1;
-    return;
+  if (s.badTotal > 0) {
+    say(
+      `VERDICT: FAILED — ${s.badTotal} of ${s.writeTotal} measured writes never reached the DOM`,
+      `         (${s.offenders}). A window that did not commit is not a measurement of one.`
+    );
   }
   // The three legs are read off the SAME four clock samples the total is, so
   // they must sum to it exactly. A discrepancy means the accumulator is
   // mis-wired, and the write-versus-flush SPLIT — the figure this bead
   // exists to publish — is taken straight from those legs.
-  if (!identityOk) {
-    say('VERDICT: FAILED — write + gap + force does not equal the published total on every arm.');
-    say('         The leg accounting is mis-wired and the write/flush split cannot be quoted.');
-    process.exitCode = 1;
-    return;
+  if (!s.identityOk) {
+    say(
+      'VERDICT: FAILED — write + gap + force does not equal the published total on every arm.',
+      '         The leg accounting is mis-wired and the write/flush split cannot be quoted.'
+    );
   }
-  say('VERDICT: reportable.');
+  const unsettled = s.warmupUnsettled || [];
+  if (unsettled.length) {
+    say(
+      `VERDICT: REFUSED — warm-up never settled inside the ${s.warmupMax}-window ceiling on:`,
+      `         ${unsettled.join(', ')}. Those arms were measured on a site that was still`,
+      '         trending, so their figures are of the trajectory, not of the arm. Raise',
+      '         HN_WARMUP_MAX and re-run (rf2-rr6do).'
+    );
+  }
+  const clamped = s.clamped || [];
+  if (clamped.length) {
+    say(
+      'VERDICT: REFUSED — a quoted leg sits on the clock quantum, so the absolute table above',
+      `         is not a reading of the arm: ${clamped.join(', ')}. Raise HN_WRITES so each`,
+      '         sample carries at least 10x the quantum; do not loosen the multiple (rf2-rr6do).'
+    );
+  }
+
+  if (lines.length === 0) {
+    say('VERDICT: reportable.');
+    return { code: 0, lines };
+  }
+  const code = s.positionsLost
+    ? 1
+    : s.orderRefuse
+      ? 2
+      : s.leaked || s.badTotal > 0 || !s.identityOk
+        ? 1
+        : unsettled.length
+          ? 3
+          : 4;
+  return { code, lines };
 }
 
 // The donor's shared navigation, with its ceiling NAMED. Reached by path
@@ -953,7 +1052,14 @@ function loadNavigate() {
   }
 }
 
-main().catch((e) => {
-  console.error('[hn] FAILED —', e && e.stack ? e.stack : e);
-  process.exit(1);
-});
+module.exports = { verdict };
+
+// Requiring this file must NOT drive it — the exit-path test loads `verdict`
+// out of it, and a driver that launches Chromium on `require` could not be
+// tested at all.
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('[hn] FAILED —', e && e.stack ? e.stack : e);
+    process.exit(1);
+  });
+}
