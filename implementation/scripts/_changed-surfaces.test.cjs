@@ -1622,6 +1622,36 @@ test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links (rf2
   );
 });
 
+// rf2-03298 — the fast-PR spine's tiering + mkdocs-resolution harness
+// (scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh) has existed
+// since rf2-lwweq, and for its whole life NO workflow and NO npm script ran it:
+// every assertion in it was local-only, i.e. skippable, i.e. not a gate. That is
+// how the module-only mkdocs fallback rf2-g7p7l added could have been deleted
+// while every remote check stayed green. #7364 wired the harness into the
+// unconditional verify-readme-links job — but that wiring has no pin of its own.
+// Deleting the step leaves valid YAML, a green matrix, and a witness that is
+// local-only again, which is the original defect in a new shape. Same invariant
+// as the adapter-disposition arm above, for the same reason, running in the same
+// unconditional job (js-harness-self-tests -> test:script-policy).
+test('the fast-PR spine self-test harness is wired into a REQUIRED check (rf2-03298)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const readmeLinks = jobBlock(workflow, 'verify-readme-links');
+  assert.match(
+    readmeLinks,
+    /bash scripts\/_test_fixtures\/test_fast_pr_docs_gate\/run-self-test\.sh/,
+    'verify-readme-links must run the fast-PR spine self-test harness (unconditional job)',
+  );
+  // A job absent from all-required-passed's `needs:` is ADVISORY whatever its own
+  // gate says (the standing rule this repo pins elsewhere), so the invocation
+  // above only gates anything while verify-readme-links stays in that list.
+  const aggregator = jobBlock(workflow, 'all-required-passed');
+  assert.match(
+    aggregator,
+    /^\s*- verify-readme-links\s*$/m,
+    'all-required-passed must keep verify-readme-links in needs: — otherwise the spine self-test harness is advisory',
+  );
+});
+
 // rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be
 // job-level gated (needs + if), NOT trigger-filtered, and the
 // pull_request trigger must stay unfiltered so the aggregator is always

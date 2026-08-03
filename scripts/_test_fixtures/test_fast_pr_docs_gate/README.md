@@ -48,10 +48,17 @@ The harness covers:
   and on GitHub CI `requirements.txt` always puts a bare `mkdocs` on PATH, so it
   can never execute a module fallback there. These cases construct the
   module-only state instead: a PATH with every `mkdocs`-providing directory
-  removed plus a stub `python` that answers only `-m mkdocs --version`. They
-  assert the exact command the spine selected, that a console script still wins
-  over a working module launcher, and that a host where nothing resolves reports
-  `unresolved` rather than anything that reads as a pass.
+  removed plus a stub directory that shadows all three launchers `resolve_mkdocs`
+  tries and lets exactly one of them answer `-m mkdocs --version`. There is one
+  such case per supported launcher — AC (`python`), AC1 (`python3`), AC2 (`py`) —
+  because a witness for `python` alone cannot tell a working three-entry loop
+  from a one-entry one, and `python3`-only / `py`-only checkouts are the two this
+  fallback exists for. AD asserts a console script still wins over a working
+  module launcher; AE asserts a host where nothing resolves reports `unresolved`
+  rather than anything that reads as a pass. Shadowing matters: the sanitised
+  PATH still carries the host's real interpreters, so an unshadowed `python3`
+  witness would be satisfied by the host's `python` and stay green through the
+  regression it exists to catch.
 
 ## Where it runs
 
@@ -60,7 +67,12 @@ Two places, and both matter:
 * **CI** — test.yml's always-on `verify-readme-links` job runs this harness on
   every pull request, and that job is in `all-required-passed`'s `needs:`. Until
   rf2-03298 no workflow and no npm script referenced this file at all, so every
-  assertion in it was local-only and therefore skippable.
+  assertion in it was local-only and therefore skippable. That wiring is itself
+  pinned: `implementation/scripts/_changed-surfaces.test.cjs` asserts both halves
+  of it — the invocation inside `verify-readme-links`, and that job's presence in
+  `all-required-passed`'s `needs:` — under the equally unconditional
+  `js-harness-self-tests` job. Deleting the step leaves valid YAML and a green
+  matrix otherwise, which is exactly how the harness went unrun for so long.
 * **The local spine** — `scripts/test-fast-pr.sh` runs it when the diff touches
   the spine or this fixture tree (rf2-fhdd3). No recursion: the harness invokes
   the spine in `--plan` mode, which exits before the gate steps.
