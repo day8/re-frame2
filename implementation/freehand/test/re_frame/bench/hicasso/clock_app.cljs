@@ -162,8 +162,11 @@
     ;; pointing at the previous incarnation.
     (hrt/reset-runtime!)
     (rf/init! adapter)
-    (v/register!)
-    (kv/register-draft!)
+    ;; `clock-views/register-subs!` and not `v/register!`: it registers
+    ;; BOTH `:p0/cell` (through `v/cell-value`, so there is one body) and
+    ;; the indexed `:p0/draft`, both behind the recompute census the
+    ;; keystroke witness gates on.
+    (kv/register-subs!)
     (rf/make-frame {:id v/subs-frame})
     (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
     (lane/leave-act-environment!)
@@ -460,11 +463,20 @@
                   (cond-> (dirty-floor-arm id d) (= d top) (assoc :ctl3-top? true)))
                 (sort-by val ctl3-dirty)))))
 
-(defn- kb-floor-arm [id busy]
+(defn- kb-floor-arm
+  "The keystroke floor, and `:ctl-50ms` which is the same arm with the
+  control's fifty milliseconds inside its handler.
+
+  **No `:lower-bound?` (rf2-0qj9w).** It carried one until the prose that
+  had already ruled this arm a CALIBRATOR — run 1 measured all three
+  substrate arms BELOW it — was reconciled with the metadata. A flag that
+  says the opposite of the page it is published beside is worse than no
+  flag: nothing read it, and anything that started to would have read a
+  refuted classification."
+  [id busy]
   {:id           id
    :cells        kv/kb-cells-n
    :control?     (pos? busy)
-   :lower-bound? true
    :mount        (fn [container]
                    (let [root (react-dom-client/createRoot container)]
                      (react-dom/flushSync
@@ -794,17 +806,36 @@
   (swap! state assoc :sabotage (when (and (number? d) (pos? d) (<= d ctl3-cells)) (long d)))
   (:sabotage @state))
 
-(defn focus-draft!
-  "Focus this arm's controlled field, so the driver's key events land in
-  it. Outside every window."
+(defn- draft-fields
+  "This arm's four controlled inputs, in document order. Position rather
+  than `data-i`: the attribute is there to be read by a human looking at
+  the page, and a selector built on it would let a mis-labelled field
+  match the wrong index silently."
   [arm-id]
-  (let [cont (:container (get-in @state [:prepared arm-id]))
-        el   (some-> cont (.querySelector "input.draft"))]
+  (some-> (:container (get-in @state [:prepared arm-id]))
+          (.querySelectorAll "input.draft")))
+
+(defn focus-draft!
+  "Focus field `i` of this arm's form, so the driver's key events land in
+  it. Outside every window.
+
+  Answers false when the field is not there, and the driver treats that
+  as a fatal rather than as a key that missed: a keystroke row whose key
+  went nowhere measures the settle."
+  [arm-id i]
+  (let [els (draft-fields arm-id)
+        el  (some-> els (aget i))]
     (if (some? el) (do (.focus ^js el) true) false)))
 
 (defn settle-and-verify!
   "The half of a keystroke sample the page owns: settle the frame the
-  keypress caused, then read the field's value back out of the DOM.
+  keypress caused, then read ALL FOUR field values back out of the DOM.
+
+  All four, not just the one typed into (rf2-0qj9w). The row's claim is
+  that a keystroke moves exactly one field's value while every layer-1
+  subscription on the page recomputes, and a read-back that only looked
+  at the typed field could not tell that claim from a handler that had
+  smeared across the form or reset its neighbours.
 
   The driver sends the key through the protocol's input domain rather than
   dispatching one from JavaScript. A JavaScript-dispatched event is not a
@@ -812,10 +843,11 @@
   [arm-id expected]
   (.then (settle-frame)
          (fn [_]
-           (let [cont (:container (get-in @state [:prepared arm-id]))
-                 el   (some-> cont (.querySelector "input.draft"))
-                 got  (some-> ^js el .-value)]
-             #js {:ok (bank! (= expected got)) :got (str got)}))))
+           (let [els (draft-fields arm-id)
+                 got (mapv (fn [i] (str (some-> els (aget i) .-value)))
+                           (range kv/kb-fields-n))
+                 exp (mapv str (js->clj expected))]
+             #js {:ok (bank! (= exp got)) :got (clj->js got)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The fairness gate
@@ -874,8 +906,9 @@
   (set! (.-HCLOCK js/window)
         #js {:rows     (clj->js (mapv (fn [[k m]] {:id (name k) :why (:why m)}) rows))
              :segments (clj->js (mapv (fn [s] {:id (name (:id s)) :name (:name s)}) segments))
-             :cellsN   v/cells-n
-             :kbCellsN kv/kb-cells-n
+             :cellsN    v/cells-n
+             :kbCellsN  kv/kb-cells-n
+             :kbFieldsN kv/kb-fields-n
              :enterSegment  (fn [seg] (enter-segment! (keyword seg)) true)
              ;; `dirty` is the DECLARED count and never the sabotaged one.
              ;; The driver's prediction is derived from what the page says
@@ -889,8 +922,7 @@
                                                       :control (boolean (:control? a))
                                                       :dirty   (or (:dirty a) 0)
                                                       :ctl3    (boolean (:ctl3? a))
-                                                      :ctl3Witness (boolean (:ctl3-witness? a))
-                                                      :lowerBound (boolean (:lower-bound? a))})
+                                                      :ctl3Witness (boolean (:ctl3-witness? a))})
                                              (arms-for (keyword row) (keyword seg)))))
              :canon         (fn [row arm] (canon! (keyword row) (keyword arm)))
              :prepare       (fn [row arm] (prepare! (keyword row) (keyword arm)))
@@ -898,8 +930,13 @@
              :reap          (fn [row] (reap! (keyword row)))
              :solo          (fn [row arm] (solo! (keyword row) (keyword arm)))
              :finish        (fn [row arm] (finish! (keyword row) (keyword arm)))
-             :focusDraft    (fn [arm] (focus-draft! (keyword arm)))
+             :focusDraft    (fn [arm i] (focus-draft! (keyword arm) i))
              :settleVerify  (fn [arm expected] (settle-and-verify! (keyword arm) expected))
+             ;; THE RECOMPUTE CENSUS. Armed and read in a WARM-UP sample,
+             ;; so no measured sample carries its cost, and around a REAL
+             ;; keypress, so what it counts is the path the row publishes.
+             :censusStart   (fn [] (kv/census-start!) true)
+             :censusTake    (fn [] (kv/census-take!))
              :settle        (fn [] (settle-frame))
              :sabotage      (fn [d] (sabotage! d))
              :tally         (fn [] (clj->js (lane/tally-value (:tally @state))))

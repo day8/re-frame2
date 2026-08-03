@@ -67,6 +67,20 @@
 // (Playwright's `keyboard.press`), because a JavaScript-dispatched event
 // is not a user interaction and Event Timing reports user interactions.
 //
+// ITS ACCOUNTING IS `clock_witness.cjs`'s, AND IT CAN REFUSE (rf2-0qj9w).
+// The first cut of this row grouped entries by `${interactionId || 0}`
+// inside an already-known physical sample, so the zero-id `beforeinput` /
+// `input` entries became a second pseudo-interaction beside the real
+// keyboard one and the published table called 109-115 records
+// "interactions" for 60 keys. It also printed a `totalKeys` that omitted
+// the arm axis — 180 for the 540 keys it sent. The repair is that the
+// driver COUNTS THE KEYS IT PRESSES, one record is formed per physical
+// key under web-vitals' interaction-id rules, keys that produced no entry
+// are published as CENSORED rather than dropped, and every one of those
+// statements is a gate whose failure exits non-zero naming itself. The
+// witness's own refusals are fixtures: `node clock_run.cjs --selftest`,
+// and `clock_witness.test.cjs` in the fast-PR spine.
+//
 // ## EVERY ROW SAYS WHICH REGIME PRODUCED IT (rf2-cvvb7)
 //
 // The first pass of this driver printed a cross-segment floor seam and hoped
@@ -123,6 +137,7 @@ const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
 const { shadowBuild } = require('./lane_build.cjs');
 const guard = require('../../freehand/bench/order_guard.cjs');
 const seamlib = require('./seam.cjs');
+const kbwitness = require('./clock_witness.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -718,35 +733,38 @@ function deltaOf(a, b) {
 // the page program: it is instrument code, it belongs to whoever is doing
 // the measuring, and `addInitScript` puts it in before any page script
 // runs so `buffered: true` has something to buffer.
+//
+// `__ETKEY` — the WHOLE physical key in flight, not just its arm — is
+// stamped onto each entry AT OBSERVATION TIME (rf2-0qj9w). It used to be
+// the arm alone, with the round and the sample index added by the driver
+// at drain time; an entry that arrived one drain late therefore inherited
+// the NEXT sample's index and was silently attributed to a keypress that
+// did not raise it. Stamping in the page removes the possibility rather
+// than making it unlikely. An entry observed with no key in flight keeps
+// `key: null` and reaches the adjudicator as an `unattributed-entry`
+// refusal.
 const EVENT_TIMING_INIT = `
   window.__ET = [];
-  window.__ETARM = null;
-  window.__ETUNATTRIBUTED = 0;
+  window.__ETKEY = null;
+  const __etpush = (e, name) => {
+    window.__ET.push({
+      key: window.__ETKEY,
+      name: name,
+      startTime: e.startTime,
+      processingStart: e.processingStart,
+      processingEnd: e.processingEnd,
+      duration: e.duration,
+      interactionId: e.interactionId,
+    });
+  };
   try {
     new PerformanceObserver((list) => {
-      for (const e of list.getEntries()) {
-        if (!window.__ETARM) { window.__ETUNATTRIBUTED++; }
-        window.__ET.push({
-          arm: window.__ETARM,
-          name: e.name,
-          startTime: e.startTime,
-          processingStart: e.processingStart,
-          processingEnd: e.processingEnd,
-          duration: e.duration,
-          interactionId: e.interactionId,
-        });
-      }
+      for (const e of list.getEntries()) __etpush(e, e.name);
     }).observe({ type: 'event', durationThreshold: 16, buffered: true });
   } catch (err) { window.__ETERROR = String(err); }
   try {
     new PerformanceObserver((list) => {
-      for (const e of list.getEntries()) {
-        window.__ET.push({
-          arm: window.__ETARM, name: 'first-input:' + e.name,
-          startTime: e.startTime, processingStart: e.processingStart,
-          processingEnd: e.processingEnd, duration: e.duration, interactionId: e.interactionId,
-        });
-      }
+      for (const e of list.getEntries()) __etpush(e, 'first-input:' + e.name);
     }).observe({ type: 'first-input', buffered: true });
   } catch (err) { window.__ETERROR2 = String(err); }
 `;
@@ -797,6 +815,18 @@ async function runRow(browser, rowId) {
   }
 
   const isKeystroke = rowId === 'keystroke';
+  // The witness's stated shape, READ FROM THE PAGE rather than repeated
+  // here: validation.md names `a 4-field form and a 100-cell grid`, the page
+  // is what implements it, and a driver carrying its own copy of those two
+  // numbers is a driver that can grade a witness it is not looking at.
+  const kbShape = isKeystroke
+    ? await page.evaluate(() => ({ cells: window.HCLOCK.kbCellsN, fields: window.HCLOCK.kbFieldsN }))
+    : { cells: 0, fields: 0 };
+  const kbFields = kbShape.fields;
+  // The census rides the LAST warm-up sample. With no warm-up there is no
+  // unmeasured sample to ride, so none is taken and the adjudicator refuses
+  // the row for want of one — which is the right answer, not a gap.
+  const censusAt = WARMUP > 0 ? WARMUP - 1 : -1;
   let armPlan = []; // the page's own plan, carrying each arm's DECLARED dirty count
   const samples = []; // for the arm-order guard, on taskNet
   // The SAME samples for the SAME guard on the corrected clock. A figure
@@ -817,7 +847,12 @@ async function runRow(browser, rowId) {
   const decomposition = {}; // "seg/arm" -> accumulated style/layout/counts
   const canon = {}; // "seg/arm" -> {hash, bytes, control}
   const eventTiming = []; // raw PerformanceEventTiming records
-  let unattributedET = 0;
+  // GROUND TRUTH for the keystroke row: every warm key the driver pressed,
+  // counted at the press. The published `n` is this array's length rather
+  // than arithmetic over the design — the arithmetic is what got the arm
+  // axis wrong and printed 180 for 540.
+  const sentKeys = [];
+  const census = {}; // "seg/arm" -> {query -> recomputes}, taken in a warm-up
   let position = 0;
   let previous = null;
   const granularity = new Set();
@@ -863,8 +898,12 @@ async function runRow(browser, rowId) {
 
       for (const a of armIds) await page.evaluate(([r, arm]) => window.HCLOCK.prepare(r, arm), [rowId, a]);
 
-      const typed = {}; // per-arm accumulated field value, keystroke row only
-      for (const a of armIds) typed[a] = '';
+      // Per-arm accumulated field values, keystroke row only — ONE STRING
+      // PER FIELD. The witness is validation.md's 4-field form, a sample
+      // types into one field, and every sample reads all four back, so the
+      // expectation has to carry all four.
+      const typed = {};
+      for (const a of armIds) typed[a] = Array(kbFields).fill('');
 
       const acc = {};
       const accTask = {};
@@ -900,15 +939,31 @@ async function runRow(browser, rowId) {
               await page.evaluate(([r, arm]) => window.HCLOCK.sample(r, arm), [rowId, armId]);
             }
           } else if (isKeystroke) {
-            await page.evaluate(
-              ([arm]) => {
-                window.__ETARM = arm;
-                return window.HCLOCK.focusDraft(arm);
+            // The field ROTATES with the sample, so all four are exercised
+            // and the one-value-moves claim is checked at four different
+            // indices rather than at one.
+            const field = s % kbFields;
+            const focused = await page.evaluate(
+              ([arm, k]) => {
+                window.__ETKEY = k;
+                return window.HCLOCK.focusDraft(arm, k.field);
               },
-              [armId]
+              [armId, { seg, arm: armId, round, sampleIndex: s, field, warm: s >= WARMUP }]
             );
-            typed[armId] += 'a';
+            if (!focused) {
+              await page.close();
+              throw new Error(
+                `${seg}/${armId} round ${round} sample ${s}: field ${field} is not on the page, so the ` +
+                  `key would have gone nowhere and the window would have measured the settle`
+              );
+            }
+            // THE RECOMPUTE CENSUS rides the LAST WARM-UP sample: a real
+            // keypress on the path the row publishes, and not one measured
+            // sample carries its cost.
+            if (s === censusAt) await page.evaluate(() => window.HCLOCK.censusStart());
+            typed[armId][field] += 'a';
             await page.keyboard.press('a');
+            if (s >= WARMUP) sentKeys.push({ seg, arm: armId, round, sampleIndex: s, field });
             const res = await page.evaluate(
               ([arm, exp]) => window.HCLOCK.settleVerify(arm, exp),
               [armId, typed[armId]]
@@ -935,17 +990,33 @@ async function runRow(browser, rowId) {
             // A second settle before draining: Event Timing entries reach
             // the observer in a task AFTER the frame that painted them.
             await page.evaluate(() => window.HCLOCK.settle());
+            if (s === censusAt) {
+              census[`${seg}/${armId}`] = await page.evaluate(() => window.HCLOCK.censusTake());
+            }
             const drained = await page.evaluate(() => {
               const es = window.__ET;
               window.__ET = [];
-              const u = window.__ETUNATTRIBUTED;
-              window.__ETUNATTRIBUTED = 0;
-              window.__ETARM = null;
-              return { es, u };
+              window.__ETKEY = null;
+              return es;
             });
-            unattributedET += drained.u;
-            for (const e of drained.es) {
-              eventTiming.push({ ...e, seg, round, sampleIndex: s, warm: s >= WARMUP });
+            for (const e of drained) {
+              // The key was stamped IN THE PAGE when the entry was observed.
+              // An entry with none is kept, marked warm, and refused by the
+              // adjudicator — never quietly filtered into nonexistence.
+              const k = e.key;
+              eventTiming.push({
+                name: e.name,
+                startTime: e.startTime,
+                processingStart: e.processingStart,
+                processingEnd: e.processingEnd,
+                duration: e.duration,
+                interactionId: e.interactionId,
+                seg: k ? k.seg : null,
+                arm: k ? k.arm : null,
+                round: k ? k.round : null,
+                sampleIndex: k ? k.sampleIndex : null,
+                warm: k ? k.warm : true,
+              });
             }
           }
 
@@ -994,7 +1065,7 @@ async function runRow(browser, rowId) {
 
   return {
     rowId, samples, samplesTask, rounds, roundsTask, roundsLayout, inPageRounds, decomposition, canon, tally, residue, runtime,
-    eventTiming, unattributedET, etError, pageErrors, armPlan, sabotage,
+    eventTiming, sentKeys, census, kbShape, etError, pageErrors, armPlan, sabotage,
     granularity: [...granularity].sort((a, b) => a - b),
   };
 }
@@ -1039,7 +1110,7 @@ function crossSegment(rounds, numSeg, numArm, denSeg, denArm, raw) {
 function report(out) {
   const {
     rowId, samples, samplesTask, rounds, roundsTask, roundsLayout, inPageRounds, decomposition, canon, tally, residue, runtime,
-    eventTiming, unattributedET, etError, granularity, armPlan, sabotage,
+    eventTiming, sentKeys, census, kbShape, etError, granularity, armPlan, sabotage,
   } = out;
 
   console.log(`;; ==== ROW ${rowId} ====`);
@@ -1345,61 +1416,36 @@ function report(out) {
 
   // --- event timing ---------------------------------------------------------
   let etVerdict = null;
+  let kbVerdict = null;
   if (rowId === 'keystroke') {
-    console.log(`;; ---- Event Timing (paint-inclusive; duration rounded to 8 ms, floor 16 ms) ----`);
     if (etError) console.log(`;;   observer error: ${etError}`);
-    const warm = eventTiming.filter((e) => e.warm && !e.name.startsWith('first-input:'));
-    const totalKeys = ROUNDS * SEGMENTS.length * SAMPLES;
-    console.log(
-      `;;   ${warm.length} reported ENTRIES from ${totalKeys} measured keystrokes ` +
-        `(one keypress raises several: keydown, beforeinput, input, keyup, …); ` +
-        `${unattributedET} arrived with no arm in flight`
-    );
-    // ONE INTERACTION, not one event. INP's own definition: the events a
-    // keypress raises share an `interactionId`, and the latency of the
-    // interaction is the LONGEST of them — reporting the entries
-    // individually multiplies the sample count by the event count and says
-    // nothing extra, because every entry of one keypress ends at the same
-    // paint.
-    const byArm = {};
-    const inter = new Map();
-    for (const e of warm) {
-      const key = e.arm ? `${e.seg}/${e.arm}` : `${e.seg}/<unattributed>`;
-      const id = `${key}#${e.round}#${e.sampleIndex}#${e.interactionId || 0}`;
-      const cur = inter.get(id);
-      if (!cur || e.duration > cur.duration) inter.set(id, { key, ...e });
-    }
-    for (const v of inter.values()) (byArm[v.key] ||= []).push(v);
+    // ONE RECORD PER PHYSICAL KEY, and the driver's own press count is the
+    // denominator. `clock_witness.cjs` owns every rule here — which entries
+    // form an interaction, what a censored key is, what the recompute census
+    // has to say — because an adjudicator that only runs behind a browser is
+    // an adjudicator nobody has watched refuse.
+    kbVerdict = kbwitness.adjudicate({
+      sent: sentKeys,
+      entries: eventTiming,
+      census,
+      shape: {
+        cells: kbShape.cells,
+        fields: kbShape.fields,
+        substrate: SEGMENTS,
+        floors: [FLOOR, 'ctl-50ms'],
+      },
+    });
+    for (const line of kbwitness.format(kbVerdict)) console.log(line);
     const names = {};
-    for (const e of warm) names[e.name] = (names[e.name] || 0) + 1;
+    for (const e of eventTiming.filter((x) => x.warm)) names[e.name] = (names[e.name] || 0) + 1;
     console.log(`;;   event names seen: ${Object.entries(names).map(([n, c]) => `${n}x${c}`).join(', ')}`);
-    for (const [k, es] of Object.entries(byArm)) {
-      const dur = summarise(es.map((e) => e.duration));
-      const proc = summarise(es.map((e) => e.processingEnd - e.processingStart));
-      const delay = summarise(es.map((e) => e.processingStart - e.startTime));
-      console.log(
-        `;;   ${k.padEnd(28)} interactions=${String(dur.n).padStart(3)}  duration p50 ${dur.p50.toFixed(1)} ms ` +
-          `[${dur.min.toFixed(1)} – ${dur.max.toFixed(1)}]  processing p50 ${proc.p50.toFixed(3)} ms  ` +
-          `input-delay p50 ${delay.p50.toFixed(3)} ms`
-      );
-    }
-    for (const seg of SEGMENTS) {
-      for (const arm of armsOf(seg)) {
-        if (byArm[`${seg}/${arm}`] || arm === PLUMB) continue;
-        console.log(
-          `;;   ${(seg + '/' + arm).padEnd(28)} NO ENTRY — every interaction landed under the ` +
-            `16 ms reporting floor, which is a result and not a gap`
-        );
-      }
-    }
-    // THE PREDICTED CONTROL for this instrument.
-    const ctl = Object.entries(byArm)
-      .filter(([k]) => k.endsWith('/ctl-50ms'))
-      .flatMap(([, es]) => es);
+
+    // THE PREDICTED CONTROL for this instrument, on the repaired records.
+    const ctl = kbVerdict.records.filter((r) => r.arm === 'ctl-50ms');
     const sawIt = ctl.length > 0 && p50(ctl.map((e) => e.duration)) >= CTL_BUSY_MS - 2;
     etVerdict = {
-      predicted: `ctl-50ms produces Event Timing interactions whose duration p50 is >= ${CTL_BUSY_MS - 2} ms`,
-      measured: ctl.length ? `n=${ctl.length}, p50 ${p50(ctl.map((e) => e.duration)).toFixed(1)} ms` : 'no entries',
+      predicted: `ctl-50ms produces one Event Timing interaction per physical key whose duration p50 is >= ${CTL_BUSY_MS - 2} ms`,
+      measured: ctl.length ? `n=${ctl.length}, p50 ${p50(ctl.map((e) => e.duration)).toFixed(1)} ms` : 'no interactions',
       ok: sawIt,
     };
     console.log(
@@ -1649,7 +1695,7 @@ function report(out) {
   for (const line of guard.format(vTask, `${rowId} — raw TaskDuration (PUBLISHED)`)) console.log(line);
 
   return {
-    bar, inPageBar, barTask, ctlTask, bandTask, ctlVerdict, etVerdict, guardVerdict: v,
+    bar, inPageBar, barTask, ctlTask, bandTask, ctlVerdict, etVerdict, kbVerdict, guardVerdict: v,
     guardVerdictTask: vTask, ctl3, ctl3Net, ctl3Layout, ctl3Parity, constants, sabotage,
     seamTask: {
       band: Number.isFinite(assessedTask.bandStats.band) ? r4(assessedTask.bandStats.band) : null,
@@ -1677,6 +1723,19 @@ function report(out) {
     process.exit(1);
   }
   console.error(`[clock] three-point control self-test: ${c3st.checks.length} checks, all ok`);
+
+  // The keystroke witness's fixtures run on EVERY invocation, not only under
+  // `--selftest`, for the three-point control's reason: they are cheap, they
+  // are the only thing that has ever seen this adjudicator refuse, and a run
+  // whose adjudicator is broken should never reach a browser.
+  const kbst = kbwitness.selfTest();
+  const badKb = kbst.checks.filter((c) => !c.ok);
+  for (const c of kbst.checks) console.error(`[clock] kb self-test    ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
+  if (badKb.length > 0) {
+    console.error(`[clock] the keystroke witness's own self-test FAILED: ${badKb.map((c) => c.name).join(', ')}`);
+    process.exit(1);
+  }
+  console.error(`[clock] keystroke witness self-test: ${kbst.checks.length} checks, all ok`);
 
   if (SELFTEST_ONLY) {
     const g = guard.selfTest();
@@ -1838,6 +1897,26 @@ function report(out) {
             barTask: o.verdict.barTask,
             ctlTask: o.verdict.ctlTask,
             bandTask: o.verdict.bandTask,
+            // THE KEYSTROKE ROW'S RAW ACCOUNTING. `sentKeys` is what the
+            // driver pressed, `eventTiming` is what the browser reported and
+            // `census` is what recomputed — so the published records, the
+            // censored count and the localisation can all be recomputed from
+            // the file without re-running the box, which is what the seam
+            // study's merged-PR audit asked of every row here.
+            sentKeys: o.out.sentKeys,
+            eventTiming: o.out.eventTiming,
+            census: o.out.census,
+            kbShape: o.out.kbShape,
+            kbWitness: o.verdict.kbVerdict
+              ? {
+                  ok: o.verdict.kbVerdict.ok,
+                  faults: o.verdict.kbVerdict.faults,
+                  totals: o.verdict.kbVerdict.totals,
+                  perArm: o.verdict.kbVerdict.perArm,
+                  records: o.verdict.kbVerdict.records,
+                  censored: o.verdict.kbVerdict.censored,
+                }
+              : null,
           })),
         },
         null,
@@ -1894,6 +1973,25 @@ function report(out) {
         `canonical-DOM gate because their page is not the floor's, so this is the only thing checking ` +
         `them, and a difference of differences between two different pages is not a difference.`
     );
+    process.exit(1);
+  }
+  // THE PER-KEYSTROKE WITNESS REFUSES BY NAME (rf2-0qj9w). Its faults are
+  // statements about whether the row's `n` MEANS anything — whether every key
+  // the driver pressed is accounted for exactly once, whether an entry the
+  // browser reported belongs to a key that was pressed, and whether the page
+  // recomputed the subscriptions validation.md's witness states it must. None
+  // of that is adjudicable from a magnitude, so it is refused ahead of one.
+  const kbRefused = outcomes.filter((o) => o.verdict.kbVerdict && !o.verdict.kbVerdict.ok);
+  if (kbRefused.length > 0) {
+    console.error(
+      `[clock] FAILED: the per-keystroke witness REFUSED — its accounting does not close, so the row's ` +
+        `n is not a count of anything:`
+    );
+    for (const o of kbRefused) {
+      for (const f of o.verdict.kbVerdict.faults) {
+        console.error(`[clock]   ${o.out.rowId} [${f.code}] ${f.why}`);
+      }
+    }
     process.exit(1);
   }
   const unverified = outcomes.filter((o) => o.verdict.tally.unverified > 0);

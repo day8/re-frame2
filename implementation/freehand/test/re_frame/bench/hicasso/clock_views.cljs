@@ -26,11 +26,31 @@
 
   ## The per-keystroke witness, and the one place the arms differ
 
-  [[kb-form]] is a controlled text field over `[:p0/draft]` sitting above
-  100 sub-reading boundaries. A keystroke installs a whole new app-db, so
-  all 101 layer-1 subscriptions recompute and exactly one boundary's value
-  changes — the narrow-localisation question, met through a real input
-  event rather than through a harness write.
+  [[kb-form]] is validation.md's stated per-keystroke shape: **a 4-field
+  form and a 100-cell grid**. Four controlled text fields over
+  `[:p0/draft i]` sit above 100 sub-reading boundaries, and a sample types
+  one physical key into ONE of them. A keystroke installs a whole new
+  app-db, so all 104 layer-1 subscriptions recompute and exactly one
+  boundary's value changes — the narrow-localisation question, met through
+  a real input event rather than through a harness write.
+
+  ## The recompute census, because 'which boundaries re-ran' is not the
+  ## question validation.md asks
+
+  Its per-keystroke budget requires **sub-recompute localisation — which
+  subs recompute, not merely which boundaries re-run** — and a DOM
+  read-back cannot answer that. [[register-subs!]] therefore registers
+  both of the witness's layer-1 queries behind [[tick!]], and the driver
+  arms the census for one WARM-UP keystroke per arm and reads the counts
+  back. Warm-up, so no measured sample carries the census's cost; a real
+  keypress, so the count is of the path the row publishes.
+
+  The counter is a nil check on a disarmed atom the rest of the time, and
+  it sits inside every arm of every row this entry drives, so it is
+  common-mode and cancels in a ratio. The census is a GATE rather than a
+  diagnostic: a substrate arm that does not recompute exactly
+  `kb-cells-n + kb-fields-n` layer-1 subs, or a floor arm that recomputes
+  any at all, refuses the row.
 
   **The handler is a plain callback on every arm, and that is deliberate.**
   HD-012 states the bar over VIEW WORK; rf2-2rtt6.3 measured the event
@@ -51,13 +71,13 @@
   ## bound — measured
 
   [[kb-floor]] is the only arm that does not write app-db: it is the
-  floor, so it has no substrate to write to, and its draft lives in a
+  floor, so it has no substrate to write to, and its drafts live in a
   `useState`. Everywhere else in this lane the floor is the cheapest arm
   on the page, and the first instinct is to label this one a lower bound
   too. **Run 1 of `clock_run.cjs` measured the opposite**: all three
   substrate arms read BELOW it (0.87–0.92× floor), because a `useState`
-  write re-renders the whole 101-element tree top-down while a
-  subscription write re-renders only the boundary whose value moved.
+  write re-renders the whole tree top-down while a subscription write
+  re-renders only the boundary whose value moved.
 
   So it is a CALIBRATOR and never a bound in either direction — the same
   page, the same commit, no reactive graph — and a substrate arm reading
@@ -86,33 +106,79 @@
   form and a 100-cell grid`, and this is the grid half."
   100)
 
+(def kb-fields-n
+  "4 fields — the FORM half of the same budget line. It was one field
+  until rf2-0qj9w; a single field cannot exercise the property the row is
+  about, which is that a keystroke into one field moves exactly one
+  field's value while every layer-1 subscription on the page recomputes."
+  4)
+
 (defn kb-elements
-  "One for the form, one for the input, one for the list, then three per
-  row. Arithmetic, so the mount gate is against a WRITTEN expectation
-  rather than against whatever the mount happened to produce."
+  "One for the form, one per field, one for the list, then three per row.
+  Arithmetic, so the mount gate is against a WRITTEN expectation rather
+  than against whatever the mount happened to produce."
   [n]
-  (+ 3 (* 3 n)))
+  (+ 2 kb-fields-n (* 3 n)))
 
-(defn register-draft!
-  "The draft subscription, registered beside `p0-reagent-views/register!`'s
-  `:p0/cell`. A separate query id rather than a reserved cell index: an
-  index would make the field's read indistinguishable from a grid
-  boundary's in every census this lane takes.
+;; ---------------------------------------------------------------------------
+;; The recompute census
+;; ---------------------------------------------------------------------------
 
-  A function as well as a load-time call, for `register!`'s reason: the
-  run installs and destroys an adapter once per segment and re-registers
-  on every segment entry, and a re-register overwrites with the identical
-  handler."
-  []
-  (rf/reg-sub :p0/draft (fn [db _] (get db :draft "")))
+(def ^:private census
+  "`nil` when disarmed; a JS object of query-name -> recompute count when
+  armed. A plain object rather than a map in an atom: [[tick!]] runs
+  inside a subscription computation and must not allocate."
+  (atom nil))
+
+(defn- tick!
+  "Count one recompute of `q`, if the census is armed."
+  [q]
+  (when-some [c @census]
+    (unchecked-set c q (inc (or (unchecked-get c q) 0))))
   nil)
 
-(register-draft!)
+(defn census-start!
+  "Arm the census. Called from the driver, in a WARM-UP sample."
+  []
+  (reset! census #js {})
+  nil)
+
+(defn census-take!
+  "Disarm and answer the counts."
+  []
+  (let [c @census]
+    (reset! census nil)
+    (or c #js {})))
+
+(defn register-subs!
+  "The witness's TWO layer-1 queries, both behind the census.
+
+  `:p0/cell` is registered here rather than left to
+  `p0-reagent-views/register!` because the census has to see it: the grid
+  is 100 of the 104 subscriptions a keystroke recomputes, and a census
+  that could only see the fields would answer the easy quarter of
+  validation.md's question. It delegates to `v/cell-value`, so there is
+  still exactly one body for that computation.
+
+  `:p0/draft` is INDEXED and keeps a query id of its own rather than
+  taking a reserved cell index: an index would make a field's read
+  indistinguishable from a grid boundary's in every census this lane
+  takes — including this one.
+
+  A function as well as a load-time call: the run installs and destroys
+  an adapter once per segment and re-registers on every segment entry,
+  and a re-register overwrites with the identical handler."
+  []
+  (rf/reg-sub :p0/cell  (fn [db [_ i]] (tick! "p0/cell")  (v/cell-value db i)))
+  (rf/reg-sub :p0/draft (fn [db [_ i]] (tick! "p0/draft") (get-in db [:draft i] "")))
+  nil)
+
+(register-subs!)
 
 (defn seed
-  "The keystroke witness's app-db — the grid's cells plus an empty draft."
+  "The keystroke witness's app-db — the grid's cells plus empty drafts."
   [n]
-  (assoc (v/seed-cells n 0) :draft ""))
+  (assoc (v/seed-cells n 0) :draft (vec (repeat kb-fields-n ""))))
 
 (defn write-draft!
   "THE ONE HANDLER, shared by all three substrate arms.
@@ -120,11 +186,25 @@
   `replace-app-db!` and not `dispatch-sync`, for the reason
   `p0-converge-app/subs-bulk-arm` gives: the bar is stated over view work
   and the event drain is priced on its own row. Installing a whole new
-  app-db is what makes every one of the witness's 101 layer-1
-  subscriptions recompute while exactly one value changes."
-  [e]
-  (let [s (.. e -target -value)]
-    (frame/replace-app-db! v/subs-frame (assoc (seed kb-cells-n) :draft s)))
+  app-db is what makes every one of the witness's 104 layer-1
+  subscriptions recompute while exactly one value changes.
+
+  **The drafts CARRY FORWARD, the cells are rebuilt** — `write-cells!`'s
+  rule in `clock_app`, for its reason. The grid is re-installed from
+  [[seed]] so that all 100 cell subscriptions recompute; the four field
+  values are read out of the standing app-db and only field `i` is
+  replaced, so the other three keep what earlier samples typed. Resetting
+  them would move four values per keystroke instead of one, and the row
+  would stop measuring what its name says. The driver reads ALL FOUR
+  fields back, so a handler that smeared into a neighbour is a refusal
+  rather than a footnote."
+  [i e]
+  (let [s      (.. e -target -value)
+        drafts (or (:draft (rf/app-db-value v/subs-frame))
+                   (vec (repeat kb-fields-n "")))]
+    (frame/replace-app-db! v/subs-frame
+                           (assoc (v/seed-cells kb-cells-n 0)
+                                  :draft (assoc drafts i s))))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -152,37 +232,37 @@
         (range n)))
 
 (defview kb-field
-  "The controlled field. `:value` is a subscription read and `:on-change`
+  "One controlled field. `:value` is a subscription read and `:on-change`
   is [[write-draft!]] behind HD-024's one callback form."
-  [_]
+  [{:keys [i]}]
   [:input.draft {:type      "text"
-                 :data-i    "draft"
-                 :value     (sub [:p0/draft])
-                 :on-change (intent/callback write-draft!)}])
+                 :data-i    (str "draft-" i)
+                 :value     (sub [:p0/draft i])
+                 :on-change (intent/callback (fn [e] (write-draft! i e)))}])
 
 (defn kb-form
-  "The keystroke page: the field above the grid."
+  "The keystroke page: four fields above the grid."
   [n]
-  [:form.kbform
-   [kb-field {}]
-   (m1 n)])
+  (into [:form.kbform]
+        (conj (mapv (fn [i] [kb-field {:key i :i i}]) (range kb-fields-n))
+              (m1 n))))
 
 ;; ---------------------------------------------------------------------------
 ;; REAGENT — the denominator
 ;; ---------------------------------------------------------------------------
 
 (reg-view ^{:rf/id :p0/kb-field} r-kb-field
-  [_]
+  [i]
   [:input.draft {:type      "text"
-                 :data-i    "draft"
-                 :value     @(rf/subscribe [:p0/draft])
-                 :on-change write-draft!}])
+                 :data-i    (str "draft-" i)
+                 :value     @(rf/subscribe [:p0/draft i])
+                 :on-change (fn [e] (write-draft! i e))}])
 
 (reg-view ^{:rf/id :p0/kb-form} r-kb-form
   [n]
-  [:form.kbform
-   [r-kb-field nil]
-   [v/m1-subs n]])
+  (into [:form.kbform]
+        (conj (mapv (fn [i] ^{:key i} [r-kb-field i]) (range kb-fields-n))
+              [v/m1-subs n])))
 
 (defn r-kb-root [n]
   [rf/frame-provider {:frame v/subs-frame} [r-kb-form n]])
@@ -191,23 +271,23 @@
 ;; UIx — the co-instrumented comparator
 ;; ---------------------------------------------------------------------------
 
-(defui u-kb-field [_]
+(defui u-kb-field [{:keys [i]}]
   ($ :input.draft {:type      "text"
-                   :data-i    "draft"
-                   :value     (uixa/use-subscribe [:p0/draft])
-                   :on-change write-draft!}))
+                   :data-i    (str "draft-" i)
+                   :value     (uixa/use-subscribe [:p0/draft i])
+                   :on-change (fn [e] (write-draft! i e))}))
 
 (defui u-kb-form [{:keys [n]}]
-  ($ :form.kbform
-     ($ u-kb-field {})
-     ($ ux/m1 {:n n})))
+  (apply $ :form.kbform
+         (conj (mapv (fn [i] ($ u-kb-field {:key i :i i})) (range kb-fields-n))
+               ($ ux/m1 {:n n}))))
 
 (defn u-kb-root [n]
   ($ uixa/frame-provider {:frame v/subs-frame}
      ($ u-kb-form {:n n})))
 
 ;; ---------------------------------------------------------------------------
-;; The floor — hand-built, no substrate, a LABELLED LOWER BOUND
+;; The floor — hand-built, no substrate, a CALIBRATOR
 ;; ---------------------------------------------------------------------------
 
 (defn- spin!
@@ -225,40 +305,55 @@
   nil)
 
 (def ^:private kb-floor
-  "The same page, hand-built with `react/createElement`, its draft in a
+  "The same page, hand-built with `react/createElement`, its drafts in a
   `useState`. No subscription, no frame, no reactive graph — the
-  irreducible cost of asking React to keep this field controlled and this
-  list on screen.
+  irreducible cost of asking React to keep these fields controlled and
+  this list on screen.
 
-  A LOWER BOUND and never a comparator: it does not write app-db, so it
-  does not recompute 101 subscriptions per keystroke. Published as one.
+  **A CALIBRATOR and never a bound in either direction** (rf2-0qj9w). It
+  does not write app-db, so it recomputes no subscriptions at all — and
+  the instinct that therefore makes it a lower bound is the one run 1
+  refuted: a `useState` write re-renders the whole tree top-down while a
+  subscription write re-renders one boundary, and all three substrate
+  arms read BELOW it. An arm under 1.0x here is localisation showing up
+  on the clock, not an anomaly.
 
   `busy` is the positive control's knob. At 0 this is the floor; at 50 it
   is `:ctl-50ms`, which spends fifty milliseconds inside the handler so
-  the instrument has a change its own arithmetic predicts."
+  the instrument has a change its own arithmetic predicts.
+
+  ONE `useState` over a four-slot array rather than four hooks, so the
+  floor's hook count does not move with the field count and the arm stays
+  the same shape it was at one field."
   (fn kb-floor-fn [^js props]
-    (let [n     (unchecked-get props "n")
-          busy  (unchecked-get props "busy")
-          state (react/useState "")
-          draft (aget state 0)
-          put!  (aget state 1)]
+    (let [n      (unchecked-get props "n")
+          busy   (unchecked-get props "busy")
+          state  (react/useState (fn [] (into-array (repeat kb-fields-n ""))))
+          drafts (aget state 0)
+          put!   (aget state 1)]
       ;; Children as VARARGS rather than as an array: an array child needs
       ;; a `key` per entry and `v/m1-floor` — which is the M1 floor
       ;; unchanged, so that the two floors are one page — does not carry
       ;; one. Varargs is React's own escape from that and costs the page
       ;; nothing.
-      (react/createElement
-        "form" #js {:className "kbform"}
-        (react/createElement
-          "input" #js {:className "draft"
-                       :type      "text"
-                       :data-i    "draft"
-                       :value     draft
-                       :onChange  (fn [e]
-                                    (let [s (.. e -target -value)]
-                                      (spin! busy)
-                                      (put! s)))})
-        (v/m1-floor (vec (repeat n 0)))))))
+      (apply react/createElement
+             "form" #js {:className "kbform"}
+             (conj
+               (mapv (fn [i]
+                       (react/createElement
+                         "input" #js {:className "draft"
+                                      :type      "text"
+                                      :data-i    (str "draft-" i)
+                                      :value     (aget drafts i)
+                                      :onChange  (fn [e]
+                                                   (let [s (.. e -target -value)]
+                                                     (spin! busy)
+                                                     (put! (fn [prev]
+                                                             (let [nx (.slice prev)]
+                                                               (aset nx i s)
+                                                               nx)))))}))
+                     (range kb-fields-n))
+               (v/m1-floor (vec (repeat n 0))))))))
 
 (defn kb-floor-element
   "The floor's element, at `n` boundaries and `busy` milliseconds of
