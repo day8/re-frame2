@@ -17,8 +17,18 @@
 // disable comments to land green. A gate that ships with a suppression file is
 // worse than no gate, because people stop reading it. The curated set below
 // reported 24 findings across 17 files — every one of them dead code — all of
-// which were deleted in the landing PR, so this config lands with ZERO
-// suppressions anywhere in the tree.
+// which were deleted in the landing PR.
+//
+// SUPPRESSIONS IN THE TREE: exactly one, and it is load-bearing.
+// `tools/story/test/story_feature_load.cjs` wraps a skipped scenario's body in
+// `/* eslint-disable no-unreachable */` … `/* eslint-enable no-unreachable */`.
+// That probe returns early behind a `console.warn` while its assertions wait
+// for a CLJS port; delete the pair and `no-unreachable` errors on them, so it
+// goes only when the code it guards goes. This header used to claim ZERO
+// suppressions anywhere in the tree, which was wrong the day it was written:
+// the landing PR deleted two dead directives from that very file and kept this
+// live one. Keep the count here honest — a suppression that no comment admits
+// to is how a gate quietly stops meaning what it says (rf2-o4ohg).
 //
 // EVERY RULE HERE ANSWERS "WHAT BUG DOES THIS CATCH?":
 //
