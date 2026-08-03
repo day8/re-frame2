@@ -62,7 +62,9 @@
   snapshot — Spec 016 §Restore and replay part 5) and need not ride. Per
   Spec 016 §Runtime-subsystem graduation clause 4."
   (:require [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
+            [re-frame.identity :as identity]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
@@ -179,20 +181,30 @@
 ;; the resource-id (position 1, never sensitive) so the refetch plan can name
 ;; it, and (b) a DISTINCT key so the index recompute does not collapse two
 ;; entries. We therefore project the sensitive/large scope + params to a
-;; content-addressed DIGEST: distinct values almost always stay distinct (no
-;; collision / lost entry) and the raw identity does not ride.
+;; `{:rf/redacted …}` token so the raw identity does not ride.
 ;;
-;; What the digest is NOT (rf2-4bjep). It is a 32-bit NON-CRYPTOGRAPHIC hash,
+;; What the digest is NOT (rf2-4bjep). It was a 32-bit NON-CRYPTOGRAPHIC hash,
 ;; so it is neither injective nor one-way: FNV-1a-32 reaches birthday
 ;; collisions at roughly 2^16 distinct identities, and a low-entropy identity
 ;; (a tenant slug, an account id) is BRUTE-FORCEABLE from its digest in
 ;; milliseconds. "Distinct values stay distinct" is a cache-hygiene property
 ;; that holds overwhelmingly in practice, NOT a security guarantee, and the
-;; token is opaque only in the sense that the raw bytes are absent. Nothing may
-;; therefore treat it as a principal-safe identity — which is exactly why the
-;; coarse rows are WITHHELD from the wire rather than made addressable by it
-;; (see `unaddressable-wire-key?`), and it is why the digest no longer egresses
+;; token was opaque only in the sense that the raw bytes were absent. Nothing
+;; may therefore treat it as a principal-safe identity — which is exactly why
+;; the coarse rows are WITHHELD from the wire rather than made addressable by
+;; it (see `unaddressable-wire-key?`), and it is why the digest no longer
+;; egresses
 ;; from an SSR render at all.
+;;
+;; AND IT NO LONGER EGRESSES FROM THE SENSITIVE CLASS ANYWHERE (rf2-hzcv8).
+;; Withholding closed the HYDRATION boundary; the same token kept leaving the
+;; process through `re-frame.resources.trace-egress`, which is the other trust
+;; boundary and the one an off-box trace sink sits on. A token an attacker can
+;; test a low-entropy candidate space against is not a redaction whatever wire
+;; it rides, so the SENSITIVE arm now emits a content-FREE shape token and only
+;; the `:omit` (large — a SIZE claim, not a privacy claim) arm keeps a digest,
+;; derived from CEDN-1 canonical bytes rather than from `pr-str`. See
+;; `redact-value`.
 
 (def ^:private fnv-offset-basis 2166136261)
 (def ^:private fnv-prime 16777619)
@@ -289,35 +301,108 @@
            :cljs (let [hx (.toString (unsigned-bit-shift-right h 0) 16)]
                    (str (subs "00000000" 0 (max 0 (- 8 (count hx)))) hx)))))))
 
+(defn- shape-token
+  "The CONTENT-FREE payload of a `{:rf/redacted …}` token: `value`'s shape,
+  through `error/diag-value-summary`'s closed vocabulary — a `:type` tag drawn
+  from a fixed set, plus a `:count` for a counted collection or string.
+
+  Every slot is a member of a closed vocabulary or an integer, so no expression
+  in the output is derived from `value`'s CONTENT. That is the rf2-210uq
+  property, adopted here verbatim rather than re-derived: a candidate space
+  cannot be enumerated against `{:type :map :count 2}`, because every map of
+  two entries produces it. Size is deliberately kept — an integer cannot carry
+  a fragment of a token, and \"a 40-entry scope map\" is the diagnosis a reader
+  acts on.
+
+  It is also order-independent and host-independent for free, which is the
+  cross-host determinism clause satisfied by construction rather than by
+  arithmetic: `(array-map :a 1 :b 2)` and `(array-map :b 2 :a 1)` are both
+  `{:type :map :count 2}` on both hosts. And it is TOTAL — `diag-value-summary`
+  reaches neither `toString` nor `pr-str`, so an app payload carrying a host
+  object cannot destroy the redaction being performed on it."
+  [value]
+  (error/diag-value-summary value))
+
+(defn- canonical-digest-token
+  "The CONTENT-ADDRESSED payload of a `{:rf/redacted …}` token: `fnv-1a-32` over
+  `value`'s CEDN-1 canonical bytes.
+
+  `identity/canonical-bytes` is the repo's identity authority and is what makes
+  this a fixed function of the CANONICAL value rather than of one spelling of
+  it: `(array-map :a 1 :b 2)` and `(array-map :b 2 :a 1)` are `=`, have equal
+  canonical bytes, and now produce one token — on both hosts. `pr-str`, which
+  this replaced, does not have that property (rf2-hzcv8): it walks a map in
+  iteration order, so two equal values emitted two different digests and the
+  \"fixed function of the canonical value\" claim was false.
+
+  Only a classification that PERMITS a content-derived token may use this — see
+  `redact-value`. `canonical-bytes` is PARTIAL (it rejects any value outside
+  CEDN-1: functions, host objects, floats), so a value it refuses falls back to
+  `shape-token`. That is fail-closed in the right direction and it keeps the
+  path total: an off-box egress projector is handed app payloads, and a
+  redaction that throws is not a redaction."
+  [value]
+  (try
+    (fnv-1a-32 (identity/canonical-bytes value))
+    (catch #?(:clj Throwable :cljs :default) _t
+      (shape-token value))))
+
 (defn redact-value
   "Project an owner-local identity-bearing `value` to its wire shape under a
-  metadata-only (`:redact` / `:omit`) classification: a `{:rf/redacted
-  <digest>}` token whose digest content-addresses the canonical value (Spec
-  016 clause 4 / rf2-otms75). Distinct values get distinct digests (so a
-  projected key / cursor stays unique — the index recompute never collapses
-  two entries, and a tool's per-page joins survive) and the raw value does not
-  ride. A nil / empty value (the empty-scope / no-params case) projects to a
-  stable `{:rf/redacted nil}` — there is nothing sensitive to hide.
+  metadata-only (`:redact` / `:omit`) classification — a `{:rf/redacted …}`
+  token (Spec 016 clause 4 / rf2-otms75). A nil / empty value (the empty-scope
+  / no-params case) projects to a stable `{:rf/redacted nil}`: there is nothing
+  to hide.
 
-  THE TOKEN IS NOT A PRINCIPAL-SAFE IDENTITY (rf2-4bjep). `fnv-1a-32` is a
-  32-bit non-cryptographic hash: distinctness is overwhelming but not
-  guaranteed (birthday collisions from roughly 2^16 identities), and a
-  low-entropy identity is recoverable from its digest by enumeration. So the
-  token may be used to KEEP APART values that are already on the same side of
-  a trust boundary, and never to decide that two values are the same principal
-  or to carry an identity across one. The SSR hydration wire consequently does
-  not ship it at all — a coarse row is withheld (`project-resources-runtime-db`)
-  rather than made addressable by its digest.
+  THE PAYLOAD IS CHOSEN BY CLASSIFICATION, and the default is the safe one:
 
-  Used both for a scoped key's scope / params components (`project-scoped-key`)
-  and for the off-box trace-egress projection of the load-more cursor tag
-  (`:page-param` / `:next-page-param` — rf2-3tysyj), which can carry record
-  ids; the same content-addressed tokenizer keeps the two boundaries from
-  drifting."
-  [value]
-  (if (or (nil? value) (and (coll? value) (empty? value)))
-    {:rf/redacted nil}
-    {:rf/redacted (fnv-1a-32 (pr-str value))}))
+    :redact (SENSITIVE, and every caller that does not name a disposition)
+      — a CONTENT-FREE `shape-token`. A sensitive value gets no content-derived
+        token at all.
+    :omit (LARGE, not sensitive)
+      — a `canonical-digest-token`, so distinct values stay distinct and a
+        tool's per-key / per-page joins survive.
+
+  WHY THE SENSITIVE ARM CARRIES NO DIGEST (rf2-hzcv8). It used to carry
+  `fnv-1a-32` of `(pr-str value)` for every classification alike. FNV-1a-32 is
+  a 32-bit non-cryptographic hash, so a low-entropy tenant id, account id or
+  page cursor is recoverable from its token by ENUMERATION — the candidate
+  space is small enough to walk. rf2-4bjep proved exactly that and responded by
+  withholding coarse rows from SSR hydration, but the same token kept leaving
+  the process through `re-frame.resources.trace-egress`, which is the other
+  trust boundary and the one an off-box trace sink sits on. Spec 015's
+  sensitive-marker contract is that `:rf/redacted` carries NO information about
+  the underlying content and that a sensitive value is not revealable by any
+  observation surface; a token an attacker can test candidates against does not
+  meet it, and calling it \"classification-chosen\" was a false assurance.
+
+  So the enumerable token is gone from the sensitive class rather than made
+  stronger. Preserving JOINS is not a reason to emit one — that is the trade
+  rf2-hzcv8 settles — and the trusted-local `:include-sensitive?` opt-in
+  remains the only lift to raw content. `:omit` is a SIZE claim, not a privacy
+  claim, so a content-derived token is permitted there and is kept, now derived
+  from canonical bytes.
+
+  Both payloads are safe by CONSTRUCTION rather than by strength: one is a tag
+  and an integer, the other a fixed function of an authoritative canonical
+  encoding. Neither is a general hashing or key-management framework, and no
+  caller gained a new public surface — `redact-value`'s 1-arity is unchanged
+  and now means the SAFE thing.
+
+  Used for a scoped key's scope / params components (`project-scoped-key`) and,
+  through the 1-arity, for the off-box trace-egress projections of the
+  load-more cursor tag (`:page-param` / `:next-page-param` — rf2-3tysyj), a
+  free `:scope` tag's identity map, an HTTP failure envelope, and any
+  unrecognised map under a resource-family trace tag. Those callers have no
+  disposition to hand it and therefore get the sensitive shape, which is the
+  fail-closed answer their fail-closed walk already intends."
+  ([value] (redact-value value :redact))
+  ([value disposition]
+   (if (or (nil? value) (and (coll? value) (empty? value)))
+     {:rf/redacted nil}
+     {:rf/redacted (if (= :omit disposition)
+                     (canonical-digest-token value)
+                     (shape-token value))})))
 
 ;; ---- is a wire key one the live client can DERIVE? (rf2-rjq9d) ------------
 ;;
@@ -377,7 +462,7 @@
 ;; and `unaddressable-wire-key?` matches BOTH substitutions.
 
 (defn- coarse-redaction-token?
-  "True iff `v` is the coarse CONTENT-ADDRESSED `{:rf/redacted <digest>}` token
+  "True iff `v` is the coarse WHOLE-COMPONENT `{:rf/redacted …}` token
   `redact-value` mints for a `:redact` / `:omit` resource's whole scope / params
   component. Distinguished from the per-slot constant sentinel — they share the
   `:rf/redacted` spelling and both make a key underivable, but only this one is
@@ -415,7 +500,7 @@
 (defn- unaddressable-wire-key?
   "True iff `scoped-key` is a hydrated wire key the live client CANNOT derive:
   its SCOPE (index 0) or PARAMS (index 2) carries a projection substitution —
-  a per-slot constant sentinel (rf2-rjq9d) or a coarse content-addressed token
+  a per-slot constant sentinel (rf2-rjq9d) or a coarse whole-component token
   (rf2-4bjep). The resource-id at index 1 is never a classification carrier and
   is not scanned.
 
@@ -445,12 +530,20 @@
       answer here either — `trace-egress/redact-key-declarations` (rf2-dl7bz)
       derives the same two-component substitution from the SPEC, because a
       frameless trace boundary cannot read the registry;
-    - `:redact` / `:omit` — the scope and params are replaced by opaque
-      content-addressed `{:rf/redacted <digest>}` tokens so the sensitive /
-      large raw identity does NOT ride, while the resource-id (position 1) and
-      key DISTINCTNESS are preserved (the digest differs per distinct value).
-      The COARSE whole-entry claim already redacts the WHOLE params component
-      here, so the per-slot params surface is subsumed.
+    - `:redact` / `:omit` — the scope and params are replaced by
+      `{:rf/redacted …}` tokens so the raw identity does NOT ride. The token's
+      payload is chosen by the disposition (`redact-value`): `:redact` is the
+      SENSITIVE claim and gets a content-FREE shape token, `:omit` is a SIZE
+      claim and keeps a canonical-bytes digest, so key DISTINCTNESS survives
+      for the large class and is deliberately surrendered for the sensitive one
+      (rf2-hzcv8 — an enumerable token is not worth a join). The COARSE
+      whole-entry claim already redacts the WHOLE params component here, so the
+      per-slot params surface is subsumed.
+
+      Losing sensitive distinctness costs nothing downstream: a re-keyed row is
+      WITHHELD from the hydration projection either way (`unaddressable-wire-
+      key?` matches the token by its `:rf/redacted` KEY, never by its payload),
+      so no two entries can collide onto one surviving wire row.
 
   The wire key keeps the `[scope resource-id params]` SHAPE so the client's
   index recompute + refetch plan parse it unchanged (resource-id at position
@@ -461,7 +554,7 @@
   (if (= :serialize disposition)
     scoped-key
     (let [[scope resource-id params] scoped-key]
-      [(redact-value scope) resource-id (redact-value params)])))
+      [(redact-value scope disposition) resource-id (redact-value params disposition)])))
 
 (defn disposition+project-key
   "Resolve a scoped key's resource OWNER spec, compute its whole-entry
@@ -474,7 +567,7 @@
        (the coarse owner `:sensitive?` / `:large?` root-prop claim; scope
        resolver inputs never propagate classification to the output);
     3. projected key ← `project-scoped-key scoped-key disposition spec`
-       (`:redact` / `:omit` replace scope + params with opaque content-addressed
+       (`:redact` / `:omit` replace scope + params with classification-chosen
        `{:rf/redacted <digest>}` tokens; `:serialize` rides VERBATIM — the
        resource-id always survives. A `:serialize` key's per-slot `:params` /
        `:scope` projection-relative declarations are the registry-driven concern
@@ -558,7 +651,7 @@
         ;;     sensitivity propagation);
         ;;   - `projected-key` is the in-entry `:resource/key` copy projected the
         ;;     SAME way as the wire MAP key (rf2-9e0tyq) — a `:redact` / `:omit`
-        ;;     resource redacts its scope + params to opaque content-addressed
+        ;;     resource redacts its scope + params to classification-chosen
         ;;     tokens, so the raw identity never rides in EITHER carrier; a
         ;;     `:serialize` key rides verbatim and its per-slot scope + params
         ;;     are registry-projected below.
@@ -604,7 +697,7 @@
         ;; the client re-derive the PROJECTED key-id and adopt the entry under
         ;; it: the per-slot substitution is the CONSTANT `:rf/redacted` /
         ;; `:rf.size/large-elided` sentinel (`classification/project-entry-key-
-        ;; component`), NOT the content-addressed `{:rf/redacted <digest>}` token
+        ;; component`), NOT the classification-chosen `{:rf/redacted …}` token
         ;; the coarse arm uses, so the mapping is MANY-TO-ONE precisely on the
         ;; slots that carry principal identity. Two tenants' keys project to one
         ;; key, and an adopt-by-projected-key client would read one principal's
@@ -623,9 +716,9 @@
         ;; projection preserve the entry's identity? A coarse `:redact` /
         ;; `:omit` key answers no just as a per-slot-declared `:serialize` key
         ;; does — `project-scoped-key` replaces BOTH its components with
-        ;; content-addressed tokens — and its row is withheld for the same
-        ;; reason (see `unaddressable-wire-key?` for why the token's
-        ;; content-addressing does not buy the coarse arm an adoption path).
+        ;; `{:rf/redacted …}` tokens — and its row is withheld for the same
+        ;; reason (see `unaddressable-wire-key?`: neither token payload buys
+        ;; the coarse arm an adoption path).
         ;; Comparing key-ids is exact, so nothing here sniffs a shape.
         key-derivable? (= (state/key-id projected-key) key-id)
         ;; the `:serialize`-specific NAME for that answer, which drives the
@@ -719,7 +812,7 @@
         ;; rf2-9e0tyq — the in-entry `:resource/key` copy is the SAME projected
         ;; key computed above (`disposition+project-key`), matching the wire MAP
         ;; key: a `:redact` / `:omit` resource redacts its scope + params to
-        ;; opaque content-addressed tokens here too, so the raw identity never
+        ;; classification-chosen tokens here too, so the raw identity never
         ;; rides in EITHER carrier.
         ;;
         ;; The `:serialize` per-slot arm is projected ABOVE (the data decision
@@ -812,7 +905,7 @@
   serialize all of `:rf.db/runtime` by default\").
 
   rf2-otms75 — the projected MAP KEY is also privacy-aligned: a `:sensitive?` /
-  `:large?` resource's scope + params are redacted to opaque content-addressed
+  `:large?` resource's scope + params are redacted to classification-chosen
   tokens in the wire key (`project-scoped-key`), so the raw identity never
   rides any more than its data does (Spec 016 clause 4). A `:serialize`
   resource's key rides verbatim EXCEPT where the owner's own projection-relative
