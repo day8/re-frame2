@@ -2,14 +2,16 @@
 
 > **Draft ahead of the product artefact.** This page teaches the landed surface —
 > ruled in [decisions.md](../decisions.md) (HD-001…HD-028). `defhost`'s door is
-> now witnessed end-to-end by the bench arm's tests under
-> `implementation/freehand/test/re_frame/bench/hicasso/` (rf2-2rtt6.65), but no
-> `implementation/hicasso/` artefact ships yet, and spellings marked
-> **[unfrozen]** stay provisional until the API freeze. Two things stay
-> deliberately unbuilt at v0 — the `[:>]` raw escape and SSR — and one default,
-> deep prop conversion, is deliberately not offered at all; two things stay
-> genuinely unsettled — `defhost`'s option keys and the codemod. See
-> **Not settled yet**.
+> witnessed end-to-end by
+> `implementation/freehand/test/re_frame/bench/hicasso/arm1/host_hatch_dom_cljs_test.cljs`
+> (rf2-2rtt6.65): one foreign React component with its own state, its own effects,
+> its own context read and three different invoker styles on its callbacks,
+> declared once and driven from a Hicasso tree. No `implementation/hicasso/`
+> artefact ships yet, though, and spellings marked **[unfrozen]** stay provisional
+> until the API freeze. Three things this page describes are ruled but **not
+> built** — the `[:>]` raw escape, the migration codemod and SSR — one default,
+> deep prop conversion, is deliberately not offered at all, and `defhost`'s option
+> keys are still open. See **Not settled yet**.
 
 You want a date picker from npm. In Reagent you write `[:> DatePicker {...}]` and
 move on. Hicasso asks you to write one line first:
@@ -27,21 +29,24 @@ Then use it anywhere, and it is indistinguishable from a native view:
 
 ```clojure
 (ns app.views
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.hicasso :as h :refer [defview sub]]
             [app.hosts.date-picker :refer [date-picker]]))
 
-[date-picker {:selected  due-date
-              ;; the library hands the date first, not an event — no target
-              ;; for ::h/value to read, so h/fn takes the value directly
-              :on-change (h/fn [date & _] [:task/set-due date])}]
+(defview due-field [_]
+  [date-picker {:selected  (sub [:task/due-date])
+                ;; react-datepicker calls onChange(date) — the date first, and
+                ;; no event at argument one. An intent vector refuses there;
+                ;; h/fn takes the library's own arguments, in order.
+                :on-change (h/fn [date & _] [:task/set-due date])}])
 ```
 
 ## Why a declaration instead of `[:>]`
 
 HD-011's Ruling settles the hierarchy in a sentence: **`defhost` is the door, and the
 only form taught**; `[:>]` "survives only as the explicitly secondary raw escape …
-for the cases a static declaration cannot express." Both forms are legal. Only one is
-taught. This page is written in that order for that reason.
+for the cases a static declaration cannot express." Both forms are ruled legal.
+Only one is built, and only one is taught. This page is written in that order for
+that reason.
 
 `[:> DatePicker {...}]` puts a raw JavaScript value inside your data tree. Three
 things break at that node, all of them quietly:
@@ -57,9 +62,10 @@ things break at that node, all of them quietly:
 host namespace, and leaves the rest of your view tree pure data.
 
 The honest counter-argument is that a declaration is friction, and the counter to
-*that* is arithmetic: it amortizes to zero over every use site, and a codemod exists
-for migration. The expensive half of leaving Reagent was never `[:>]` — it was
-`r/atom`.
+*that* is arithmetic: it amortizes to zero over every use site. HD-011's rationale
+leans on a migration codemod as well, and that half has not been built, so today
+the conversion is by hand. It is a small hand: the expensive part of leaving
+Reagent was never `[:>]`, it was `r/atom`.
 
 ## The defaults
 
@@ -141,6 +147,12 @@ function`. **`h/fn` is the spelling for those positions** — it receives every
 argument the invoker passed, in order, which is exactly what the opening example
 does.
 
+Both halves are witnessed at a real crossing, which is what settles the question
+this page used to hedge. The host-hatch suite drives `::h/value` through a widget's
+event-first `onChange` and the model updates; it then drives `::h/prevent`,
+`::h/value` and a key-map through the *same* widget's value-first `onPick` and gets
+the refusal instead, naming `:on-pick` and the string that actually arrived.
+
 An intent carrying neither a marker nor `::h/prevent` never touches its argument,
 so `{:on-pick [:city/picked "paris"]}` is correct under any invoker contract at
 all.
@@ -212,10 +224,10 @@ which by looking somewhere else.
 
 ## Migrating from Reagent
 
-A codemod handles the mechanical part: collect the `[:> X …]` sites, emit the
-`defhost` block, rewrite the call sites. It runs incrementally, so a large app
-converts a namespace at a time rather than in one commit. The codemod's name and
-invocation are not in the record.
+HD-011 rules a codemod for the mechanical part — collect the `[:> X …]` sites, emit
+the `defhost` block, rewrite the call sites — but nothing has been built, and the
+record names neither a tool nor an invocation. By hand it is the same three moves,
+and it goes a namespace at a time, so a large app never needs one big commit.
 
 ## Imperative SDKs
 
@@ -376,7 +388,7 @@ This table names mechanisms; the minted ids on this surface —
 | An intent vector or key-map at a declared slot raises `:rf.error/hicasso-intent-at-a-non-event-contract` | The slot is declared `:handler` or `:render`, and neither contract dispatches — the declaration governs the carrier, so the value cannot overrule it | Declare the slot `:event` if what happens there is an event, or write an `h/fn` that does the `:handler`/`:render` work |
 | `:rf.error/hicasso-intent-needs-the-event`, naming a slot whose library hands a value first | The vector spelling reads the DOM event from argument one, and this invoker put something else there | Write an `h/fn` at that slot — it gets every argument the library passed, in order |
 | A namespace stops loading on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host namespace |
-| Structural test can't match a node | It's a `[:>]` node — reduced structural identity, by design | Declare it with `defhost`, or assert around it |
+| Structural test can't match a node | A `[:>]` node, once the escape is built — reduced structural identity, by design | Declare it with `defhost`, or assert around it |
 | Provider from a library needs to wrap the tree | Hosted like anything else | `defhost` the provider; it is a component |
 | A hosted component doesn't update when the page clearly changed | The boundary above it bailed out on value-equal props (HD-028) — it was never re-entered, so the host was never asked to render | Trace the value to the host's *own* boundary's props, not a parent's |
 | The SDK mounts twice in dev and you end with two live handles | StrictMode double-invoke, plus a handle stored outside the attach's closure — so the second attach overwrote the first instead of replacing it | One attach, one handle, one cleanup, all in one closure; return the cleanup from the ref |
@@ -398,10 +410,9 @@ two or three genuinely hard widgets.
 | Question | Status |
 |---|---|
 | `defhost`'s option keys | **Not addressed.** "Policy overrides live on the declaration" is as far as the record goes |
-| The codemod's name and invocation | **Not addressed** |
+| The migration codemod | **Ruled, unbuilt.** HD-011's rationale leans on it, but nothing has been built and the record names neither a tool nor an invocation |
 | When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** HD-022 rules the refusal and the value-space; the registry, the timings and the commands roster are explicitly out of v0 |
 | Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
-| Whether `::h/value` works across a host crossing | **Settled, and it is a law rather than a caveat.** The vector spelling is event-first, so `::h/value` works exactly when the foreign contract hands the DOM event first — the way `onChange`/`onInput` do. A value-first invoker (`onPick(value, event)`, or the date picker's `onChange` above) raises `:rf.error/hicasso-intent-needs-the-event` naming the position; write an `h/fn` there instead, as the opening example does. See **The vector spelling is event-first** above |
 | The SSR placeholder's shape | Declared policy, inert in v0 |
 | Whether a hosted component can be a `defview`'s child via `(:children props)` | The ABI says an existing React element is a legal child anywhere, which implies yes; not stated for the host case specifically |
 | Embedding Hicasso *inside* a React-primary app | Named in the charter's use-case roster (item 11); no surface designed |
