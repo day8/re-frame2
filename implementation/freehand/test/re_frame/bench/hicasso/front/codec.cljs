@@ -1311,7 +1311,13 @@
   EMITTED element — a controlled `value`, a change handler, a type with
   a caret — and those are canonical slots rather than spellings. It is
   one JS `switch` on the tag for every element that is not an `:input`
-  or a `:textarea`, which is nearly all of them. rf2-fki5d."
+  or a `:textarea`, which is nearly all of them. rf2-fki5d.
+
+  It also **answers what to render the props as**, which since rf2-digtt
+  is the tag for everything except a controlled `input`/`textarea` —
+  those get the composition shadow's component, and the tag it renders
+  is the tag parsed here. The codec asks one question and takes one
+  answer; which of the two it is belongs entirely to that namespace."
   [argv]
   (let [parsed      (cached-parse (nth argv 0))
         has-props?  (props-map? argv 1)
@@ -1319,10 +1325,10 @@
         ;; nil, not `(or props {})` — the absent attribute map is
         ;; [[convert-props]]'s first lane, and wrapping it in an empty
         ;; map was the whole cost of telling it so (rf2-y1jkm).
-        js-props    (convert-props props parsed)]
-    (controlled/install! (.-tag parsed) js-props)
+        js-props    (convert-props props parsed)
+        component   (controlled/install! (.-tag parsed) js-props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    (make-element (.-tag parsed) js-props argv (if has-props? 2 1))))
+    (make-element component js-props argv (if has-props? 2 1))))
 
 (defn- boundary-element [argv]
   (let [has-props? (props-map? argv 1)

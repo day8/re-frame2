@@ -53,6 +53,7 @@
   the PR would be measuring two different things."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.bench.hicasso.front.codec :as codec]
+            [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.front.intent :as intent]))
 
 (use-fixtures :each {:before (fn [] (codec/reset-caches!))})
@@ -147,9 +148,17 @@
     (cond (array? c) (vec c) (nil? c) [] :else [c])))
 
 (defn- inputs
-  "Every `<input>` element in a rendered fieldset, in document order."
+  "Every `<input>` element in a rendered fieldset, in document order.
+
+  Read through [[re-frame.bench.hicasso.front.controlled/element-tag]]
+  rather than `.-type`, because a controlled field's element type is the
+  composition shadow's component and the tag it renders is what this
+  question is about (rf2-digtt). Every prop these rows go on to read —
+  the static attributes, `onInput`, `onBlur` — is on that element
+  unchanged; only the type moved."
   [e]
-  (into [] (mapcat (fn [group] (filter #(and (some? %) (= "input" (.-type %)))
+  (into [] (mapcat (fn [group] (filter #(and (some? %)
+                                             (= "input" (controlled/element-tag %)))
                                        (children-of group))))
         (children-of e)))
 

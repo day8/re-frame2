@@ -1,6 +1,7 @@
 (ns re-frame.bench.hicasso.front.controlled
   "THE CONTROLLED-ELEMENT CONVERGE — same turn, caret where the edit left
-  it (rf2-fki5d, the residue rf2-n3dxw was left open on).
+  it (rf2-fki5d, the residue rf2-n3dxw was left open on), and a live IME
+  composition carved out of it (rf2-digtt).
 
   Neither shipped path gives a store-backed field both halves of what it
   owes its user. React converges inside the discrete event and throws the
@@ -15,14 +16,24 @@
   it applies to, and wraps the change handler the author already wrote.
   The view is unchanged: an ordinary `:value` / `:on-input` pair, no
   ref, no effect, no escape hatch, and **nothing added to the boundary
-  shell**, so HD-020's ≤2-hook budget is untouched. UIx's own answer to
-  the same problem is a wrapper *component* per input carrying three
-  hooks (`uix/compiler/input.cljs:132-143`).
+  shell**, so HD-020's ≤2-hook budget is untouched.
+
+  One thing is *not* in the element path, and [[shadow-component]] says
+  why: React's own end-of-event restore is not ours to skip, so the
+  composition carve-out needs a fiber of its own. It is one internal
+  component carrying one `useState`, standing in front of controlled
+  `input`/`textarea` elements and nowhere else — still not the boundary
+  shell, and still not the author's to know about. UIx's answer to the
+  *caret* problem is a wrapper component per input carrying three hooks
+  (`uix/compiler/input.cljs:132-143`); this one is not that wrapper, and
+  the caret half of the mechanism is still the element path's.
 
   ## What runs, and when
 
   At the end of the change handler — still inside the discrete event,
-  and still **ahead of React's own end-of-event restore**:
+  and still **ahead of React's own end-of-event restore** — unless the
+  event arrived mid-composition, which is [[composing-input?]]'s
+  question and the whole of the carve-out's first half:
 
   1. `flushSync`, so the synchronous door's commit lands now rather than
      in the `finally` of React's `batchedUpdates$1`;
@@ -106,6 +117,8 @@
     (`:1738`), so the two exclusions are the same exclusion. React's own
     restore still converges the *value* on those types; there was never
     a caret there to lose.
+  - **A change handler to run after.** No handler, no end of a handler
+    to converge at.
 
   A guard that does not hold means no wrapper at all — not a wrapper
   that quietly does less. The element then behaves exactly as it did
@@ -129,6 +142,16 @@
   `arm1_controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`
   quotes it and reds by name without this reading.
 
+  **The same measurement is why [[shadow-component]] stands in front of
+  every controlled `input`/`textarea` rather than only the convergeable
+  ones.** That row asserts React kept the NODE across the type change —
+  a premise that holds only while the element's React *type* is stable,
+  and a component chosen by a predicate reading `:type` would flip from
+  the wrapper to the bare tag under exactly that keystroke, remounting
+  the field and taking the focus with it. So the component question is
+  the tag and the controlled `value`, and the `:type` question is asked
+  inside, where a wrong answer costs nothing.
+
   ## The one handler, and the door
 
   `onChange` when the author wrote one, `onInput` otherwise. React's
@@ -151,25 +174,70 @@
   and restoring two offsets is a different algorithm from the one it
   runs (rf2-n3dxw).
 
-  ## Composition, measured (rf2-o27h3)
+  ## The composition carve-out (rf2-digtt), and why it is two halves
 
   A composing IME produces exactly the `input` events this wrapper runs
-  on, so its conduct mid-composition is a measured property, not an
-  intention — `bench/hicasso/ime_run.cjs` drives real CDP composition
-  at it beside plain React and the UIx port. Measured: on a
-  model-agreeing field the exchange **survives** — the value write never
-  fires (and an equal write is short-circuited by the browser's own
-  setter anyway), and the unconditional `setSelectionRange` did not
-  disturb the composition range. On a field whose model refuses or
-  normalises, the write lands **mid-composition and silently destroys
-  the exchange** — precisely as React's own end-of-event restore does on
-  the same field in the same turn, and as the UIx port does one frame
-  later. Nowhere worse than the baseline, asserted comparatively; not
-  composition-fenced either, same as the baseline. Whether this path
-  should carve composition out — suppress the converge while
-  `isComposing`, converge once at `compositionend` — is a behavioural
-  choice inside HD-019's exception scope awaiting a ruling: rf2-digtt."
-  (:require ["react-dom" :as react-dom]))
+  on. `bench/hicasso/ime_run.cjs` drives real CDP composition at it
+  beside plain React and the UIx port, and what it measured is the whole
+  reason the carve-out exists: on a field whose model **refuses or
+  normalises** the composition text, the value written back lands
+  mid-composition and **silently destroys the exchange** — no
+  `compositionend`, the in-flight kana gone, a fresh `compositionstart`
+  on the IME's next update. Plain React does it in the same turn through
+  its own restore; the UIx port does it one frame later.
+
+  The operator ruled the carve-out IN (2026-08-03, recorded as an
+  addendum to HD-019): controlled-text convergence is suppressed while a
+  composition is live, and the field converges ONCE at `compositionend`
+  against the then-current model. A composition is a browser-owned draft
+  of the user's; destroying it silently is not a parity target worth
+  keeping. **On a refusing or normalising field this runtime therefore
+  diverges from plain React deliberately** — the composition survives to
+  its commit and the refusal lands whole, visibly, at `compositionend`.
+
+  It takes two halves because **two different writes destroy the
+  exchange, and only one of them is ours**:
+
+  1. **This converge**, suppressed by [[composing-input?]] at the end of
+     the change handler. One reading, one branch.
+  2. **React's own end-of-discrete-event restore**, which is not ours to
+     skip. `ChangeEventPlugin` banks a restore target for every
+     controlled change; the `finally` of `batchedUpdates$1` flushes
+     pending sync work and then hands the committed props to
+     `updateInput`, which assigns `element.value` **whenever it differs
+     from the controlled value**. Skipping only half (1) falls through to
+     exactly the plain-React conduct the harness measured aborting the
+     exchange — which is why a bare `when-not composing` is proven
+     insufficient rather than merely incomplete.
+
+  [[shadow-component]] is half (2), and it is stated as a property
+  rather than as a trick: **while a composition is live, the value React
+  sees agrees with the live DOM draft**, so React's restore finds
+  nothing to write and its own `element.value !== value` guard is what
+  does the skipping. Nothing here reaches into React's internals, mutates
+  props React holds, or intercepts a value setter.
+
+  ## The shadow is released unconditionally, and that is the safety rider
+
+  The worst thing this could degrade to is a field stuck showing a draft
+  the model never agreed to. It cannot, because **every path out of a
+  composition releases the shadow** and there is no path that only
+  *some* of them cover:
+
+  - `compositionend` — the ordinary end, commit or cancel alike;
+  - a change event that is **not** composing — which is what recovers a
+    composition some *other* value write aborted silently, since the
+    abort itself fires nothing;
+  - `blur` — the composition the browser abandoned with the focus;
+  - unmount, for free: the shadow is this component's own `useState` and
+    cannot outlive the element that holds it. There is no registry, no
+    node property and no module-level record to strand.
+
+  A release is `set-shadow(nil)`, and a release when nothing is held is
+  free — React bails out of an update to an identical state. So the
+  degenerate outcome is a converge, which is exactly today's conduct."
+  (:require ["react" :as react]
+            ["react-dom" :as react-dom]))
 
 (defn- noop [])
 
@@ -194,6 +262,32 @@
   about it."
   [node]
   (.-defaultValue node))
+
+;; ---------------------------------------------------------------------------
+;; The composition reading
+;; ---------------------------------------------------------------------------
+
+(defn composing-input?
+  "Did this change event arrive in the middle of a live IME composition?
+
+  Read off the **native** event, for the reason
+  [[re-frame.bench.hicasso.front.intent/composing?]] states at length:
+  React hands a handler a synthetic event built by copying an enumerated
+  interface, and what is not on the list is not on the event.
+
+  This is deliberately **not** that gate, and not a second spelling of
+  it. The key-map's gate answers a KEY event, and it needs the legacy
+  keyCode-229 signal because that is all some IMEs send on a keydown. An
+  `input` event has no `keyCode` to read, and every browser that fires
+  composition events at all sets `isComposing` on the input events a
+  composition produces. Two different events, two readings; folding them
+  together would put a key signal on a path that cannot produce one.
+
+  A raw DOM event has no `nativeEvent`, and a synthetic `#js {:target …}`
+  from a node-side row has neither — so both read *not composing*, which
+  is what keeps every row written before the carve-out reading as it did."
+  [e]
+  (true? (some-> (.-nativeEvent e) (.-isComposing))))
 
 ;; ---------------------------------------------------------------------------
 ;; The converge
@@ -266,7 +360,17 @@
   restore; it is the same question [[install!]] asked, asked again at
   the only other moment it can change. Answered no, the element is
   left exactly as React leaves it — which is what it would have been
-  had it been minted as a `number` field to begin with."
+  had it been minted as a `number` field to begin with.
+
+  ## The two call sites, and why they are one behaviour
+
+  Since rf2-digtt this runs at the end of a change handler that is
+  **not** composing, and again once at `compositionend`. HD-019 grants
+  the `flushSync` exception to an audited call site rather than to a
+  count, and its addendum audits the second: same element, same
+  namespace, same door, and at most one of them per event. The
+  composition path is the keystroke path with its convergence deferred
+  to the end of the exchange — not a second mechanism."
   [node]
   (let [dom-value (.-value node)
         caret-was (.-selectionStart node)]
@@ -279,7 +383,7 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; Installation — what the element path calls
+;; The guards
 ;; ---------------------------------------------------------------------------
 
 (def ^:private caret-types
@@ -314,33 +418,184 @@
     (fn? (unchecked-get js-props "onInput"))  "onInput"
     :else                                     nil))
 
-(defn- convergeable?
-  "Is this element one whose rendered value React records on the node?
-  See the namespace docstring — each clause is a condition on the
-  record, not a taste about which elements deserve the behaviour."
+(defn- controlled-text-tag?
+  "Is this a form control React mirrors a controlled `value` onto?
+
+  **The `:type` is deliberately not asked**, and that omission is the
+  whole difference between this and [[convergeable?]]. This predicate
+  chooses a React element TYPE, and an element type that changed under a
+  live field would remount it — losing the focus, the selection and any
+  composition in flight — where the attribute change React actually
+  performs loses nothing. The type-flip row in
+  `arm1_controlled_grid_dom_cljs_test` measures precisely that node
+  identity, and a `text` → `number` keystroke is the case it measures."
   [tag js-props]
   (and (convergeable-tag? tag)
-       (some? (unchecked-get js-props "value"))
+       (some? (unchecked-get js-props "value"))))
+
+(defn- convergeable?
+  "Is this element one whose rendered value React records on the node,
+  and which has a handler to converge at the end of? See the namespace
+  docstring — each clause is a condition on the record, not a taste
+  about which elements deserve the behaviour."
+  [tag js-props]
+  (and (controlled-text-tag? tag js-props)
        (nil? (unchecked-get js-props "defaultValue"))
-       (caret-type? tag js-props)))
+       (caret-type? tag js-props)
+       (some? (change-slot js-props))))
+
+;; ---------------------------------------------------------------------------
+;; The composition shadow — the half of the carve-out that is React's
+;; ---------------------------------------------------------------------------
+
+(def ^:private native-tag-key
+  "Where [[shadow-component]] records the tag it renders, so
+  [[element-tag]] can answer for an emitted element without knowing
+  this namespace exists."
+  "hicassoNativeTag")
+
+(defn- shadowed-props
+  "The props the native tag is rendered with while `shadow` is held —
+  the author's, with the value and three handlers replaced.
+
+  `shadow` is `nil` when no composition is live, and the value the
+  element renders is then the author's own; while it is held, **the
+  value React sees is the live DOM draft**, which is the entire
+  mechanism: React's restore assigns `element.value` only when it
+  differs from the controlled value, so agreeing with the draft is what
+  makes the restore a no-op. See the namespace docstring.
+
+  Three slots, and each is a release or a hold:
+
+  - the **change slot** — [[install!]]'s converging handler, called
+    first so the author's handler and the model move exactly as they
+    always did. Composing, the draft is held and the converge inside it
+    has already declined to run; not composing, the shadow is released
+    *before* the inner handler, so the release renders inside the
+    converge's own `flushSync` and one flush does both jobs.
+  - **`onCompositionEnd`** — release, then converge once against the
+    then-current model. This is where a refusal lands, whole and
+    visible, on a field whose model would have destroyed the exchange
+    to say so.
+  - **`onBlur`** — release, and nothing else. A blurred field has no
+    caret worth restoring; the release alone re-renders the model's
+    value and React's own commit writes it.
+
+  The author's handler at each slot is preserved and called; an element
+  with no handler at a slot simply has one now, which is invisible."
+  [props shadow set-shadow]
+  (let [out      (js/Object.assign #js {} props)
+        release! (fn [] (set-shadow nil))
+        slot     (change-slot props)
+        inner    (unchecked-get props slot)
+        ended    (unchecked-get props "onCompositionEnd")
+        blurred  (unchecked-get props "onBlur")]
+    (when (some? shadow)
+      (unchecked-set out "value" shadow))
+    (unchecked-set out slot
+                   (fn hicasso-composition-shadow [e]
+                     (if (composing-input? e)
+                       (do (inner e)
+                           (set-shadow (some-> (.-target e) (.-value))))
+                       (do (release!)
+                           (inner e)))
+                     nil))
+    (unchecked-set out "onCompositionEnd"
+                   (fn hicasso-composition-end [e]
+                     (when (fn? ended) (ended e))
+                     (release!)
+                     (when-some [node (.-target e)]
+                       (converge! node))
+                     nil))
+    (unchecked-set out "onBlur"
+                   (fn hicasso-composition-release [e]
+                     (when (fn? blurred) (blurred e))
+                     (release!)
+                     nil))
+    out))
+
+(defn- shadow-component
+  "The internal component that holds the composition shadow for `tag`.
+
+  ONE `useState`, no ref, no effect, and no props of its own: the author
+  writes `[:input {:value … :on-input …}]` and the element path decides
+  this stands in front of it. It is a *public-React* mechanism on
+  purpose — the ruling's preference and this file's — because the only
+  supported way to change what React's controlled restore compares
+  against is to change what React rendered.
+
+  **It stands in front of every controlled `input`/`textarea`, not only
+  the convergeable ones**, and asks [[convergeable?]] again inside. A
+  component chosen by a predicate that reads `:type` would flip to the
+  bare tag the moment a synchronous handler re-rendered the field from
+  `text` to `number` — remounting the element React would otherwise have
+  kept, which is a strictly worse outcome than the inert render this
+  costs. Where the answer is no the props go through **by identity**: no
+  copy, no closures, nothing but the fiber and its one hook cell."
+  [tag]
+  (let [component (fn [props]
+                    (let [hook       (react/useState nil)
+                          shadow     (aget hook 0)
+                          set-shadow (aget hook 1)]
+                      (react/createElement
+                       tag
+                       (if (convergeable? tag props)
+                         (shadowed-props props shadow set-shadow)
+                         props))))]
+    (unchecked-set component "displayName" (str "hicasso/controlled-" tag))
+    (unchecked-set component native-tag-key tag)
+    component))
+
+(def ^:private shadow-input (shadow-component "input"))
+(def ^:private shadow-textarea (shadow-component "textarea"))
+
+(defn element-tag
+  "The native tag `e` will render — `\"input\"` for a controlled field
+  whose element type is the shadow component, and `(.-type e)` for
+  everything else.
+
+  The one reader an element-tree test needs, so that walking what the
+  codec emitted stays a question about the DOM rather than about this
+  namespace. `front/census_article_editor_cljs_test` picks its inputs
+  out of a rendered fieldset with it."
+  [e]
+  (let [t (.-type e)]
+    (or (when (fn? t) (unchecked-get t native-tag-key))
+        t)))
+
+;; ---------------------------------------------------------------------------
+;; Installation — what the element path calls
+;; ---------------------------------------------------------------------------
 
 (defn install!
-  "Wrap the change handler on `js-props` so the element converges in-turn
-  with the caret intact. Mutates the props object the codec has just
-  built and is about to hand to `createElement`, and returns it.
+  "Prepare `js-props` and answer **what to render them as**.
 
-  A fresh wrapper per render is the same shape the codec already has for
-  every lowered intent, and it closes over nothing but the author's
-  handler — deliberately **not** over the value, which is the stale
-  reading [[converge-to!]] exists to keep out of the write."
+  Mutates the props object the codec has just built and is about to hand
+  to `createElement`, and returns the component for it: the tag itself
+  for everything that is not a controlled `input`/`textarea`, and
+  [[shadow-component]]'s otherwise.
+
+  Where the element is [[convergeable?]] the change handler is wrapped
+  so the field converges in-turn with the caret intact — unless the
+  event arrived mid-composition, which is the carve-out's first half and
+  is one reading of the native event. A fresh wrapper per render is the
+  same shape the codec already has for every lowered intent, and it
+  closes over nothing but the author's handler — deliberately **not**
+  over the value, which is the stale reading [[converge-to!]] exists to
+  keep out of the write."
   [tag js-props]
   (when (convergeable? tag js-props)
-    (when-some [slot (change-slot js-props)]
-      (let [handler (unchecked-get js-props slot)]
-        (unchecked-set js-props slot
-                       (fn hicasso-converging-change [e]
-                         (handler e)
+    (let [slot    (change-slot js-props)
+          handler (unchecked-get js-props slot)]
+      (unchecked-set js-props slot
+                     (fn hicasso-converging-change [e]
+                       (handler e)
+                       (when-not (composing-input? e)
                          (when-some [node (.-target e)]
-                           (converge! node))
-                         nil)))))
-  js-props)
+                           (converge! node)))
+                       nil))))
+  (if (controlled-text-tag? tag js-props)
+    (case tag
+      "input"    shadow-input
+      "textarea" shadow-textarea)
+    tag))
