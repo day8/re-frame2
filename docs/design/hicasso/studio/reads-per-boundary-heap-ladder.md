@@ -1170,19 +1170,47 @@ and exit **0** on all three runs.
 The page-chrome row measured **+195 and +220 B** per boundary for the same
 wrapper; this rung reads **+100 to +106 B**. Both reproduce on their own
 instrument, so the disagreement is real and belongs to the shapes, not to a bad
-run. **The leading candidate explanation is React's double buffering, and it is
-offered as a hypothesis because this run did not count fibers:** the ladder
-mounts an arm and *holds* it with no writes, so only the current tree exists and
-the wrapper costs one extra fiber; the page-chrome instrument performs its four
-write ops before reading, and an updated component retains an `alternate` fiber
-beside its current one, so a wrapper position there can be holding two. Roughly
-2× is what that predicts, and roughly 2× is what the two instruments differ by.
-**Testing it needs a fiber count, which is filed rather than claimed.**
+run. **What produces it is not yet known, and the first candidate has been
+excluded.**
 
-The practical reading is the one the ruling asked for: **a Fiber is not a fixed
-tax, and the shape it sits on decides what it costs.** Quoting either
-instrument's figure onto the other's shape is the error this rung exists to
-prevent.
+> **Correction, 2026-08-03 (`rf2-2rtt6.61`).** This paragraph offered React's
+> double buffering as the leading explanation: the ladder mounts and *holds*, so
+> the wrapper costs one extra fiber, while the page-chrome instrument was said to
+> perform its four write ops before reading heap, so an updated component would
+> retain an `alternate` fiber beside its current one and a wrapper position there
+> could be holding two. Roughly 2× is what that predicts, and roughly 2× is what
+> the instruments differ by. It was published as a hypothesis and not as a
+> result, because neither run counted fibers.
+>
+> **Its premise is false, and the instruments' own source says so.**
+> `chrome_run.cjs` takes the whole heap half FIRST, on a quiet page —
+> `heapForArms` at line 243, under the comment *"the heap half, first, on a quiet
+> page"*, and the clock half's `runOp` calls do not begin until line 264.
+> `heapOnce` (lines 164–182) is `resetRuntime` → baseline read → `mountArm` →
+> held read, with no op between the mount and the read. The same ordering is
+> present at `cb179b6b3c`, the commit that published the +195/+220 figures, so
+> those numbers were taken on a held tree exactly as this rung's were — as is the
+> ladder's own window (`p0_run.cjs` lines 588–593: gc, pre-read, `mountOne`, gc,
+> held read).
+>
+> **Both instruments mount and hold.** Double buffering cannot be what separates
+> them, and the general rule the bead proposed — *a memo wrapper costs one fiber
+> on a held tree and two on a tree that has been updated* — is **not** adopted:
+> no measurement on this programme has read an updated tree's wrapper at all. The
+> exclusion is settled from committed source; no fiber count was needed to reach
+> it, and none was taken.
+>
+> **What separates them is still open**, and is `rf2-2rtt6.79`. It asks for the
+> fiber count on a different question: whether the wrapper is ONE fiber on both
+> shapes, in which case the difference is in what a fiber *holds* rather than in
+> how many there are — a 17-element card reading two subscriptions against an
+> R=0 cell reading nothing is an order of magnitude apart in retained bytes per
+> boundary, against a 2× in what the wrapper adds to it.
+
+The practical reading is the one the ruling asked for and it is unchanged by any
+of this: **a Fiber is not a fixed tax, and the shape it sits on decides what it
+costs.** Quoting either instrument's figure onto the other's shape is the error
+this rung exists to prevent.
 
 #### What this settles, and what it hands the operator
 
