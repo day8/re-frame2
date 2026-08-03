@@ -1,15 +1,23 @@
 # The candidate's clock — mount, bulk K=100/300, narrow, per-keystroke
 
-**The candidate is slower on the clock.** On the mount row — the only row of
-five whose positive control passed — Hicasso Arm 1 mounts the 300-boundary
-witness at **1.21× Reagent-on-subs** [0.9756 – 1.7208], above the ship bar's
-`≤ 1.0×` and above
+**The candidate is slower on the clock, and the correction made it slower
+still.** On the mount row — the only row of five whose positive control passed —
+Hicasso Arm 1 mounts the 300-boundary witness at **1.4896× Reagent-on-subs**
+[1.3488 – 1.5989]. That is the figure of record: it is on raw `TaskDuration`,
+which holds the operation's own script as well as the frame it causes, and it is
+above the ship bar's `≤ 1.0×` and above
 [the restated M1 red zone](../validation.md#the-clock-gates-restated-on-the-post-25-tree)
-of `1.0150×`. **Five runs of this instrument put it at 1.01, 1.11, 1.10, 1.11
-and 1.21 — every one above parity, none below.** The range straddles 1.0 at
-n = 6, so a deficit is not *established*; it is equally true that a pass is not,
-and a candidate that needs its range's lower edge to reach a bar has not reached
-it.
+of `1.0150×`. **Its interval does not straddle 1.0**, so the deficit is
+*established* and not merely indicated.
+
+**The number this page itself measured is `1.21×`** [0.9756 – 1.7208], and every
+magnitude below is on that same superseded clock — `taskNet`, which subtracts the
+operation's own script and is therefore frame-**only** (`rf2-yd52q`). Five runs
+of this instrument put the mount at 1.01, 1.11, 1.10, 1.11 and 1.21 — every one
+above parity, none below — and the corrected clock lands above all five. The
+frame-only range *did* straddle 1.0 at n = 6, which is why this page originally
+declined to call the deficit established; that hedge is a property of the
+frame-only reading and does not carry onto the clock the row is now stated on.
 
 On per-keystroke it is **indistinguishable from both donors**, and all three are
 one frame. The three bulk rows **could not be measured honestly**; this page
@@ -328,11 +336,15 @@ The bar arithmetic — two floor-normalised ratios, one against the other:
 Reagent-on-subs, same run and same instrument*, and the restated M1 red zone is
 `1.0150×` because under Ruling 1 the red zone **is** the measured UIx ratio. The
 candidate's point estimate is above both, in this run and in the four before it.
-Its range straddles 1.0, so at n = 6 the deficit is not *established* — and
+**On the clock of record the deficit is established**: `1.4896×`
+[1.3488 – 1.5989] does not straddle 1.0, and `rf2-emvod`'s independent ensemble
+agrees in direction at `1.3737×` [1.3289 – 1.4331]. ~~Its range straddles 1.0,
+so at n = 6 the deficit is not *established*~~ — that was the frame-only
+reading's hedge and it is spent. What still holds either way is
 validation.md's own rule that *a margin under 5% is instrument-limited rather
-than cleared* cuts the other way here: a 21% margin is well outside the
-instrument-limited band, and a 10–21% margin repeated across five runs is not
-noise about zero.
+than cleared*, which cuts against the candidate here: a 21% margin was already
+well outside the instrument-limited band, a 49% one more so, and a 10–21% margin
+repeated across five runs was never noise about zero.
 
 **The deficit is the codec, not the spine, and the decomposition says so.**
 Mean task milliseconds per mount, run 5:
@@ -924,11 +936,13 @@ per-block dataset it emits is **committed** at
 ## 8. What this hands the programme
 
 - **The candidate has clock rows.** It did not before.
-- **On mount it is 1.21× Reagent-on-subs** on the published run and above parity
-  in all five, against a `≤ 1.0×` win condition and a `1.0150×` red zone. Not a
-  clear K1 kill — K1 asks for `> Reagent` *after two serious runtime
-  iterations*, and the range still straddles 1.0 — but not a pass, and the
-  direction has never once come back the other way.
+- **On mount it is 1.4896× Reagent-on-subs** on the clock of record
+  [1.3488 – 1.5989], against a `≤ 1.0×` win condition and a `1.0150×` red zone.
+  This page's own `1.21×` is the frame-only reading of the same row, above
+  parity in all five of its runs; the correction moved the figure *up*. Still
+  not a clear K1 kill — K1 asks for `> Reagent` *after two serious runtime
+  iterations* — but no longer a range that straddles parity, and the direction
+  has never once come back the other way.
 - **The deficit's location is measured, not inferred.** The candidate pays
   +1.06 ms over its own floor where the identical spine under the identical
   adapter pays +0.38 ms. It is the runtime hiccup codec walking 901 elements.

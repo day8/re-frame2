@@ -1,11 +1,18 @@
 # The clock behind the published rows
 
-**Audit (rf2-8nqsl).** Every wall-clock row this programme has published was
-taken on one instrument: `performance.now()`, sampled around a `flushSync` and
-closed the instant that call returns. No published clock row has ever been read
-on an instrument that could see the style recalculation, layout and paint the
-operation caused. This page establishes that from source, prices it against a
-second clock on the same samples, and says which rows survive.
+**Audit (rf2-8nqsl), of the record as it stood on 2026-08-01.** Every wall-clock
+row the programme had published by that date was taken on one instrument:
+`performance.now()`, sampled around a `flushSync` and closed the instant that
+call returns. No published clock row **had** been read on an instrument that
+could see the style recalculation, layout and paint the operation caused. This
+page establishes that from source, prices it against a second clock on the same
+samples, and says which rows survive. **That premise is now historical**, and
+deliberately so: the audit is what moved the programme off it, and rows
+published since — [bulk broad, re-taken](bulk-broad-re-taken.md),
+[the candidate's rows](rows-re-adjudicated-on-the-corrected-clock.md),
+[the band](the-band-re-calibrated.md) — are stated on raw `TaskDuration`, which
+is script and frame in one number. Read the sentences above in the past tense
+they are written in; the present tense is the paragraph that follows.
 
 **Three clocks now appear in this programme's record, and every figure below
 says which one produced it.** They are the **in-page** window; **`taskNet`**
