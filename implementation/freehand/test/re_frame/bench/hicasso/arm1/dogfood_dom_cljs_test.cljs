@@ -30,6 +30,21 @@
      claim and the script are the same size. DOM parity proves the
      renderings build the same page; this is the half that proves the
      page MEANS the same thing when a user touches it.
+
+     **And the comparator PINS the controlled-input implementation it is
+     compared against (rf2-2rtt6.75).** The script types into two UIx
+     `:input`s (`dogfood_uix.cljs`'s `.new-input` and `.draft`), and
+     `uix.compiler.aot/create-uix-input` can build either React's
+     controlled input or UIx's port of Reagent's rAF-driven one. Which
+     one was INHERITED here — correct, but only because
+     `re-frame.adapter.uix` pins it at load (rf2-heqwo), never because
+     this row asked. Measured, not inferred: with that pin cleared every
+     claim in this namespace stayed GREEN while those two fields were the
+     Reagent port, so the gate was silent about which product it was
+     comparing against (rf2-2rtt6.41 reproduced exactly that). The
+     `:each` fixture now pins [[adapter-default-implementation]] going in
+     and witnesses it coming out ([[pin-is-adapters-default!]]), so the
+     comparison names its own subject.
   2. **The narrow write touches one row.** A toggle re-renders the row it
      names and no other, on both Hicasso renderings — which is the index
      doing its job through React rather than a claim about it.
@@ -54,12 +69,63 @@
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
+            [uix.compiler.input]
             [uix.core :refer [$ defui]]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
-(use-fixtures :each
+;; ---------------------------------------------------------------------------
+;; Pinning the input implementation
+;; ---------------------------------------------------------------------------
+
+(def input-implementations
+  "The two things `uix.compiler.aot/create-uix-input` can build, and the
+  value of `uix.compiler.input/*use-reagent-input-enabled?*` that selects
+  each. `nil` — UIx's OWN unset default — is not a third option; it is
+  *whichever of these two the bundle's contents imply*, which is exactly
+  the thing a parity gate must not be deciding by accident."
+  {:react false :uix-reagent-input true})
+
+(def adapter-default-implementation
+  "What `re-frame.adapter.uix` pins at load (rf2-heqwo) — i.e. what a
+  re-frame2 UIx app actually renders `:input` with — and therefore what
+  the comparator is held to. NOT `nil`: `cljs.test` runs every namespace
+  in one shared JS runtime, so leaving the var cleared would hand the
+  `:input` choice back to the bundle for every namespace scheduled after
+  this one. That this literal is the adapter's real default is
+  `controlled_grid_dom_cljs_test`'s claim to make, not this file's; here
+  it is the subject the parity gate names."
+  :react)
+
+(defn- pin! [impl]
+  (set! uix.compiler.input/*use-reagent-input-enabled?*
+        (get input-implementations impl)))
+
+(defn- pin-is-adapters-default!
+  "The witness for a fault that is invisible where it is caused. A row
+  that leaves the pin somewhere other than the adapter's own value breaks
+  LATER namespaces, not itself — its own assertions stay green and the
+  suite that reds is someone else's. So the check cannot live in a row
+  (it would have to be scheduled last to mean anything, and `cljs.test`
+  promises no order within a namespace); it lives in the `:each`
+  teardown, where it reads the var after every row in this file. It
+  OBSERVES and never repairs — a teardown that re-pinned would make
+  itself true."
+  []
+  (is (= (get input-implementations adapter-default-implementation)
+         uix.compiler.input/*use-reagent-input-enabled?*)
+      "a row in this namespace has just left
+       `uix.compiler.input/*use-reagent-input-enabled?*` somewhere other
+       than the adapter's own pin — a cleared pin re-arms UIx's classpath
+       sniff for every namespace scheduled after this one in the same
+       build"))
+
+;; ---------------------------------------------------------------------------
+;; Fixtures
+;; ---------------------------------------------------------------------------
+
+(def ^:private runtime-fixture
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter
      ;; `:ambient-frame nil` is load-bearing, not tidiness. The fixture's
@@ -76,6 +142,14 @@
      ;; leaves is not readable inside one synchronous test body.
      :async?  true
      :init-fn (fn [] (rt/reset-runtime!))}))
+
+(use-fixtures :each
+  {:before (fn []
+             ((:before runtime-fixture))
+             (pin! adapter-default-implementation))
+   :after  (fn []
+             ((:after runtime-fixture))
+             (pin-is-adapters-default!))})
 
 (def ^:private frame-id ::arm1-dogfood)
 (def ^:private todo-count 6)
