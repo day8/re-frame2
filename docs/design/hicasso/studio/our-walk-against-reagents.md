@@ -500,7 +500,12 @@ here is the **diagnostic in-page walk clock**, not the clock of record. The
 advisory pass separates these explicitly: this run answers its rider (b), while
 moving the null is its (a), "a donor-row re-take on the census or M1
 instrument, which needs a window that can adjudicate". That re-take is
-`rf2-2rtt6.31` and it remains open and untaken.
+`rf2-2rtt6.31`, and it has been taken — it landed in `1ac48c4a0b` (PR #7378)
+and its rows are published in
+[the re-take on the current tree](hd8-composed-donor-arm.md#the-re-take-on-the-current-tree-rf2-2rtt631).
+The bead is still open, but on a separate held question — the clock-of-record
+driver's write-before-refuse dataset ordering, which is an operator ruling —
+and not because the re-take is outstanding.
 
 ### Controls, all of them, and the box
 
