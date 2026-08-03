@@ -773,7 +773,12 @@ const EVENT_TIMING_INIT = `
 // One row
 // ---------------------------------------------------------------------------
 
-async function runRow(browser, rowId) {
+// `trace` is the caller's `{step}` box, and it exists because THE SEGMENT
+// ORDER ROTATES WITH THE ROUND: a bare `M1: <error>` does not say which
+// segment was on the page when it threw, so it does not say whether the
+// candidate failed or a donor did (rf2-029ed). Written at each point the
+// row moves, read only if the row dies.
+async function runRow(browser, rowId, trace) {
   // A FRESH PAGE per row, not a fresh navigation in the same one: this
   // lane's recorded fault is a page that gets slower the longer it runs,
   // and a reused page carries whatever caused that across the row boundary.
@@ -884,6 +889,7 @@ async function runRow(browser, rowId) {
     const perSegLayout = {};
 
     for (const seg of segOrder) {
+      trace.step = `round ${round}, segment ${seg}`;
       await page.evaluate((s) => window.HCLOCK.enterSegment(s), seg);
       const plan = await page.evaluate(([r, s]) => window.HCLOCK.plan(r, s), [rowId, seg]);
       const armIds = plan.map((a) => a.id);
@@ -919,6 +925,7 @@ async function runRow(browser, rowId) {
       for (let s = 0; s < WARMUP + SAMPLES; s++) {
         for (const j of guard.schedule(armIds.length, s)) {
           const armId = armIds[j];
+          trace.step = `round ${round}, segment ${seg}, sample ${s}, arm ${armId}`;
           let inPageMs = NaN;
           let ok = true;
 
@@ -1827,11 +1834,12 @@ function report(out) {
   try {
     for (const rowId of ROWS) {
       console.error(`[clock] row ${rowId}`);
+      const trace = { step: null };
       try {
-        const out = await runRow(browser, rowId);
+        const out = await runRow(browser, rowId, trace);
         outcomes.push({ out, verdict: report(out) });
       } catch (e) {
-        died = `${rowId}: ${e.message}`;
+        died = `${rowId}${trace.step ? ` at ${trace.step}` : ''}: ${e.message}`;
         break;
       }
     }

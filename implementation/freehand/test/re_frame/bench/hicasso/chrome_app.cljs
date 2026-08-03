@@ -288,13 +288,14 @@
   (rf/init! uix-adapter/adapter)
   (lane/leave-act-environment!)
   (set! (.-HCHROME js/window)
+        (lane/legible-doors
         #js {"mountArm"      mountArm
              "runOp"         runOp
              "releaseArm"    releaseArm
              "residue"       residue
              "resetRuntime"  resetRuntime
              "runtimeLabel"  runtimeLabel
-             "cardsN"        cardsN})
+             "cardsN"        cardsN}))
   (lane/record! "ready" {:arms (mapv (fn [[k v]] {:id k :why (:why v)}) arms)
                          :cards cards-n
                          :runtime (lane/runtime-label)})

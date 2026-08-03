@@ -255,6 +255,7 @@
                       "canFail"  (boolean can-fail?)
                       "problems" (mapv pr-str problems)})))
     (set! (.-HD8CLOCK js/window)
+          (lane/legible-doors
           #js {:adapter       (name which)
                :plan          (fn [row]
                                 (clj->js (mapv (fn [a] {:id      (name (:id a))
@@ -269,7 +270,7 @@
                :tally         (fn [] (clj->js (lane/tally-value (:tally @state))))
                :teardownCheck (fn [] (clj->js (mapv :where (lane/drain-teardown-failures!))))
                :runtime       (fn [] (pr-str (lane/runtime-label)))
-               :residue       (fn [] (pr-str (lane/residue (rows/frame-of :floor))))})
+               :residue       (fn [] (pr-str (lane/residue (rows/frame-of :floor))))}))
     (set! (.-HD8CLOCK_READY js/window) true)
     (js/console.log ";; HD8CLOCK ready")
     nil))

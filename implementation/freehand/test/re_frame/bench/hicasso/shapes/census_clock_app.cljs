@@ -186,6 +186,7 @@
                       "canFail"  (boolean can-fail?)
                       "problems" (mapv pr-str problems)})))
     (set! (.-C56CLOCK js/window)
+          (lane/legible-doors
           #js {:adapter       (name which)
                :plan          (fn [row]
                                 (clj->js (mapv (fn [a] {:id      (name (:id a))
@@ -202,7 +203,7 @@
                :tally         (fn [] (clj->js (lane/tally-value (:tally @state))))
                :teardownCheck (fn [] (clj->js (mapv :where (lane/drain-teardown-failures!))))
                :runtime       (fn [] (pr-str (lane/runtime-label)))
-               :residue       (fn [] (pr-str (lane/residue (arms/frame-of :feed :hicasso))))})
+               :residue       (fn [] (pr-str (lane/residue (arms/frame-of :feed :hicasso))))}))
     (set! (.-C56CLOCK_READY js/window) true)
     (js/console.log ";; C56CLOCK ready")
     nil))
