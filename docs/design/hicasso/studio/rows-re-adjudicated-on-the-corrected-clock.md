@@ -328,9 +328,11 @@ contributes no magnitude to those two rows and the driver refused them before
 any control was consulted.
 
 > **THE TRIPWIRE WAS THE PROBLEM (`rf2-ymi6j`).** A re-take of the ladder that
-> set it measures `P(band > 25%)` at **2.6–9.0% per run**, so three firings in
-> two days is the rate rather than an event, and the ceiling is now **35%**, set
-> from the statistic's own bootstrap q99. Run 8 would today be *adjudicated*
+> set it measures `P(band > 25%)` at **9.1% per run**, so three firings in
+> two days is the rate rather than an event, and the ceiling is now **35%**, at
+> a per-run false-fire rate of 2.7%. (It was first published as the statistic's
+> bootstrap `q99`; that derivation is **withdrawn** — the model pooled blocks
+> across runs, and 35% is the `q99` of neither model.) Run 8 would today be *adjudicated*
 > rather than refused — and **no magnitude changes**, because `bulk300` is
 > refused by `rf2-7iqb5`'s three-point control and `narrow`'s 2–9% margin is
 > inside its own 28.4% band at any ceiling.

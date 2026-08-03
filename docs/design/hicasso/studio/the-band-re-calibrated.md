@@ -25,12 +25,27 @@ clock accordingly. But both breaches breach on *both* clocks, so that is not
 what fired the ceiling either.
 
 **What fired it is that 25% was never above the tail; it was above nineteen
-draws of the tail.** Bootstrapping the band's own run-level sampling
-distribution puts its q99 at **29.1%** and `P(band > 25%)` at **2.6%** pooled,
-**9.0%** resampling each run's own blocks. Three firings in two days is what a
-rate between one-in-eleven and one-in-forty produces. The ceiling is now
-**35%**, set from that distribution rather than from the largest of nineteen
-observations, at a measured `P(fire)` of **0.2%**.
+draws of the tail.** Bootstrapping the band's own sampling distribution puts
+`P(band > 25%)` at **9.1%** per run. Three firings in two days is what a
+one-in-eleven rate produces. The ceiling is now **35%**, set above the
+largest of nineteen observations by a margin the bootstrap prices rather than
+by eye.
+
+> **RETRACTED (audit of PR #7368): this page derived that ceiling from the
+> wrong resampling model, and 35% is not the `q99` of anything.** The bootstrap
+> it published draws each synthetic run's eighteen blocks from all 342 blocks
+> of all nineteen runs, which shuffles away the regime the eighteen blocks of a
+> real run share. **Run-preserving resampling** — draw one of the nineteen runs,
+> then resample *its* eighteen blocks — is what a future run looks like, and it
+> reads a `q99` of **41.4%** against the pooled model's 29.4%. So the derivation
+> is withdrawn, not restated at a new number: **the ceiling in force is 35%, its
+> measured per-run false-fire rate is 2.7% and not the 0.2% this page
+> advertised**, and the run-preserving distribution is now the one
+> [§5](#5-the-third-explanation-which-is-the-one-the-data-names) reports.
+> The correction is 13× against us on the advertised rate and still leaves 35%
+> a real improvement on 25%, whose rate is **9.1%**. Recomputed from the
+> committed dataset; the ceiling constant and the analysis script are code and
+> are `rf2-nk1hq`.
 
 **No published magnitude changes** ([§8](#8-what-changes-for-the-record-nothing-and-why-that-is-the-check)).
 
@@ -76,7 +91,7 @@ that fire would calibrate the ceiling on the runs that pass it.
 |---|---|---|---|
 | **P1** | task floor − `taskNet` floor = 0.8–1.5 ms at every rung | **+1.337 ms** mean, positive on **19 of 19** runs | **confirmed** |
 | **P2** | corrected band no wider than frame-only | frame-only wider on **14 of 19**; mean 15.3% against 14.0% | **confirmed** |
-| **P3** | fires at least once; `P(fire)` 2–15% frame-only | fires **2 of 19**; frame-only `P(fire)` 4.7% pooled, 11.2% within-run | **confirmed** |
+| **P3** | fires at least once; `P(fire)` 2–15% frame-only | fires **2 of 19**; frame-only `P(fire)` **11.3%** run-preserving (4.7% under the pooled model this page has since withdrawn) | **confirmed** |
 | **P4** | `corr` less positive than +0.41 | **−0.04** on the published clock, −0.03 frame-only | **confirmed — and the statistic turns out not to be diagnostic at all** ([§6](#6-multiplicativity-is-withdrawn-and-the-correlation-that-carried-it-was-never-diagnostic)) |
 | **P5** | no monotone trend in the seam | 12.2 / 3.4 / 3.9 / 9.1 / 3.3 / 4.8% by rung — no trend | **confirmed** |
 | **P6** | rung-0 band at or above 9.3% | **25.0%** frame-only, 24.6% published | **confirmed, and by a factor of nearly three** |
@@ -238,37 +253,67 @@ being above the tail.**
 
 The band is a p10–p90 half-width over eighteen blocks. Eighteen is not many,
 and nineteen runs bound a one-in-twenty event at exactly one observation.
-Resampling eighteen blocks with replacement from this ladder's 342 gives the
-statistic's run-level sampling distribution directly:
+Resampling recovers the statistic's sampling distribution — but **which blocks
+you are allowed to draw together decides the answer**, and this page got that
+wrong the first time.
 
-| | `taskNet` | raw `TaskDuration` |
+**The two models.** *Pooled-block*: draw eighteen blocks with replacement from
+this ladder's 342, ignoring which run each came from. *Run-preserving*: draw one
+of the nineteen runs, then resample **that run's own** eighteen blocks. Only the
+second is a model of a future run, because the eighteen blocks of a real run
+share a box, a rung and a twenty-second window; pooling shuffles that regime
+away and, contrary to what this page originally argued, makes the upper tail
+**narrower** rather than wider:
+
+| | pooled-block | **run-preserving** |
 |---|---:|---:|
-| median | 14.8% | 13.0% |
-| q90 | 22.1% | 19.8% |
-| q95 | 24.7% | 22.8% |
-| q99 | 31.6% | **29.1%** |
+| median | 13.0% | 11.5% |
+| q90 | 19.9% | 23.4% |
+| q95 | 22.7% | 31.0% |
+| q99 | 29.4% | **41.4%** |
+
+*(raw `TaskDuration`, 200,000 draws each, recomputed from the committed compact
+dataset. The pooled column is the one this page first published, where it read
+13.0 / 19.8 / 22.8 / 29.1% at 20,000 draws — the fourth-figure differences are
+Monte-Carlo noise and not a change of statistic. The frame-only clock reads
+12.5 / 26.2 / 33.1 / **45.9%** on the same four quantiles under the
+run-preserving model.)*
 
 And the exceedance at candidate ceilings, with the observed count beside it so
 the bootstrap can be checked against the runs it came from:
 
-| candidate ceiling | `P(fire)` pooled | `P(fire)` within-run | runs of 19 that breach |
+| candidate ceiling | `P(fire)` pooled-block | **`P(fire)` run-preserving** | runs of 19 that breach |
 |---:|---:|---:|---:|
-| 20% | 9.6% | 15.0% | 4 |
-| **25%** *(the ceiling that fired)* | **2.6%** | **9.0%** | **2** |
-| 30% | 0.9% | 5.8% | 1 |
-| **35%** *(the ceiling now)* | **0.2%** | **2.7%** | **0** |
-| 40% | 0.0% | 1.1% | 0 |
+| 20% | 9.8% | **15.0%** | 4 |
+| **25%** *(the ceiling that fired)* | 2.7% | **9.1%** | **2** |
+| 30% | 0.9% | **5.9%** | 1 |
+| **35%** *(the ceiling now)* | 0.2% | **2.7%** | **0** |
+| 40% | 0.06% | **1.2%** | 0 |
 
-*(raw `TaskDuration`. The pooled column resamples from all 342 blocks and so
-carries between-run variation; the within-run column resamples each run's own
-eighteen and so does not. A future run is a future run rather than a repeat of
-a past one, so the pooled figure is what a ceiling should be set against and
-the within-run figure is the floor of the estimate.)*
+*(raw `TaskDuration`. **The run-preserving column is the operative one.** This
+page originally led with the pooled column on the argument that it "carries
+between-run variation" and is therefore the conservative choice. That argument
+is refuted by its own arithmetic: pooling is narrower at every quantile above
+the median, and it is narrower because averaging blocks across regimes is
+exactly what a real run does not get to do. The correct figure was printed all
+along, in the column this page then declined to use.)*
 
-**Three firings in two days is what a rate between one-in-eleven and
-one-in-forty produces.** The gate did not start failing. It was never a
-tripwire — it was a lottery ticket with good odds, described as a tripwire
-because nineteen draws had not yet drawn one.
+**What that costs the ceiling, stated plainly.** `35%` was published as "the
+statistic's own q99, at a measured `P(fire)` of 0.2%". It is the q99 of neither
+model — pooled says 29.4%, run-preserving says 41.4% — and its real per-run
+false-fire rate is **2.7%**, thirteen times the advertised one. **The derivation
+is withdrawn.** What survives is the comparison the change was made for: at 25%
+the rate was **9.1%**, so 35% is still a 3.4× improvement, and it is the ceiling
+in force. Whether the constant should move again — 41% is where a genuine q99
+sits — is a judgement about code and is `rf2-nk1hq`, together with the analysis
+script that still resamples the wrong way.
+
+**Three firings in two days is what a one-in-eleven rate produces.** The gate
+did not start failing. It was never a tripwire — it was a lottery ticket with
+good odds, described as a tripwire because nineteen draws had not yet drawn one.
+(This page originally gave the rate as "between one-in-eleven and one-in-forty",
+the low end of which is the pooled model's 2.6% and is not a rate a run
+experiences.)
 
 **And the band itself has widened since the calibration.** `rf2-cvvb7` measured
 4.4 – 18.5%, mean 8.9%, on `taskNet`. The same design on the same box today
@@ -283,8 +328,8 @@ the instrument moving, and the instrument moved.
 | | |
 |---|---|
 | **The band, on the clock the rows are stated on** | **4.4% – 31.1%, mean 14.0%, median 11.7%**, over 19 runs at 0–20 competing cores |
-| Its run-level q99 | 29.1% |
-| **`BAND_CEILING`** | **35%**, `P(fire)` 0.2% pooled / 2.7% within-run |
+| Its run-level q99 | **41.4%** run-preserving (~~29.1%~~ was the pooled-block model, withdrawn) |
+| **`BAND_CEILING`** | **35%**, `P(fire)` **2.7% per run** (~~0.2%~~ was the pooled figure). Not a q99 of anything; see the retraction in [§5](#5-the-third-explanation-which-is-the-one-the-data-names) and `rf2-nk1hq` |
 | What the ceiling gate reads | **raw `TaskDuration`** only |
 | What the frame-only band does now | computed, printed and stored on every run; never a ground of refusal |
 | The gate that actually bites | unchanged — a margin inside the run's own band is instrument-limited |
@@ -511,7 +556,12 @@ gitignored `out/`. Both are closed here.
   than reimplementing them — so a figure here and a figure the driver printed
   are the same figure by construction. Checked run by run: the analysis
   reproduces all nineteen runs' printed bands on both clocks, including the two
-  breaches, digit for digit.
+  breaches, digit for digit. **And that durability is what caught the
+  bootstrap**: [§5](#5-the-third-explanation-which-is-the-one-the-data-names)'s
+  retraction is a recomputation over the committed file, taking no new run.
+  The **one figure on this page the script does not yet reproduce** is the
+  run-preserving distribution itself — `ladder_band.cjs` still pools blocks
+  across runs, which is `rf2-nk1hq`.
 - A raw dataset is ~220 KB and nineteen are ~4 MB, which does not belong in a
   repository. So `--emit` writes the reduced quantities every statistic is a
   function of — the eighteen per-block tared `floor` and `ctl-2x` cells on each
@@ -537,12 +587,19 @@ gitignored `out/`. Both are closed here.
   floor read against a `bulk300` `taskNet` range — two clocks 1.34 ms apart.
 - **A gate calibrated never to fire, fired because it was calibrated against
   nineteen draws rather than against a distribution.** `P(band > 25%)` is
-  2.6–9.0% per run. The general lesson costs nothing to reuse: a threshold set
+  **9.1%** per run. The general lesson costs nothing to reuse: a threshold set
   above the largest of *n* observations has an unmeasured false-fire rate, and
   the bootstrap that measures it is twenty lines.
-- **The ceiling is 35%, set from the statistic's own q99, and the gate
-  adjudicates the clock the rows are stated on.** The frame-only band is
-  reported on every run and refuses nothing.
+- **And the second lesson is that twenty lines is enough to get wrong.** This
+  page's own bootstrap pooled blocks across runs, which destroys the regime the
+  eighteen blocks of one run share and **narrows** the upper tail: it put the
+  q99 at 29.4% where run-preserving resampling puts it at **41.4%**, and the
+  per-run false-fire rate at 0.2% where it is **2.7%**. The claim that 35% is a
+  q99 is withdrawn ([§5](#5-the-third-explanation-which-is-the-one-the-data-names)).
+- **The ceiling is 35%, at a measured per-run false-fire rate of 2.7% against
+  25%'s 9.1%, and the gate adjudicates the clock the rows are stated on.** The
+  frame-only band is reported on every run and refuses nothing. Whether 35%
+  should move to a genuine q99 is `rf2-nk1hq`.
 - **`rf2-cvvb7`'s multiplicativity finding is withdrawn.** Pure
   multiplicativity predicts `ctl-2x / floor = 2.00` with no variance; nineteen
   runs read 1.71 [1.62 – 1.84]. The correlation that carried it reads +0.88 on
