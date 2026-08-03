@@ -438,7 +438,9 @@ function main() {
     runs = j.runs.map(inflate);
   } else {
     if (files.length === 0) {
-      console.error('usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json');
+      console.error(
+        'usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json   |   --selftest'
+      );
       process.exit(2);
     }
     runs = files.map(readRun);
