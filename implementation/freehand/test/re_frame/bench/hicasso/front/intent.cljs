@@ -135,6 +135,14 @@
   A vector at an event position with no ambient frame is a loud error,
   never a silently inert handler.
 
+  A RENDER callback ([[render-callback]]) re-establishes that ambient
+  context for its own invocation, out of what it captured when it was
+  lowered, so a row built inside a foreign `renderRow` belongs to the
+  boundary that SUPPLIED the callback — the only frame that can own it.
+  The render-position refusal is scoped to the invocation and not to
+  everything the invocation lowered: poison while the call is running,
+  forward to the owner after it returns (rf2-2rtt6.74).
+
   ## The marker roster and its one pure materializer
 
   Two markers, both of which the ruled surface names:
@@ -373,23 +381,83 @@
   POSITION rather than the form the author chose, because under one form
   the form is never the answer to \"what did I get wrong?\".
 
-  Enforced by poisoning the ambient dispatch for the call's dynamic
-  extent: an intent lowered inside, or a direct call, both land on the
-  same error id. `.preventDefault`-style side effects are untouched."
+  **Enforcement is INVOCATION-SCOPED: poison while the call is running,
+  forward to the owner once it has returned.** Poisoning the ambient
+  dispatch for the call's dynamic extent and leaving it at that conflates
+  two different things, because lowering captures the same var the poison
+  replaced. The row a `renderRow` prop exists to build —
+
+      (h/as-element [:li {:on-click [:row/pick (:id row)]} (:title row)])
+
+  — closes over the poison and raises at the USER'S CLICK, for a click:
+  a legitimate event position that merely happened to be LOWERED during a
+  render (rf2-2rtt6.74). The law is \"dispatching from inside the call\",
+  and a closure that will dispatch later is not that.
+
+  So the wrapper captures the ambient dispatch AND frame at LOWERING
+  time — the supplying boundary's, because the wrapper is minted during
+  that boundary's eager `with-frame` + `as-element` walk — and each
+  invocation mints a fresh GATE over them, binds it as [[*dispatch*]] for
+  the call, and arms it in a `finally`. Call-active, the gate raises;
+  call-complete, it forwards to the owner. That is a TEMPORAL
+  discrimination, which is the law's own line, rather than a second
+  \"capturable\" binding — which would let the synchronous
+  lower-and-fire-NOW case succeed silently and weaken the law it was
+  meant to preserve.
+
+  [[require-dispatch]], [[intent-handler]] and [[event-callback]] are
+  UNCHANGED: they still capture [[*dispatch*]], which inside a callback is
+  now the gate, and that one substitution is the whole of the repair.
+
+  [[*frame*]] is rebound to the owner's for the same extent, so a
+  [[re-frame.bench.hicasso.front.route-link/route-link]] in a row body
+  pins its navigation to the boundary that SUPPLIED the callback. That is
+  the only frame that can own it: the foreign component has no frame of
+  its own, and frames are isolated contexts.
+
+  A callback lowered with no owner in scope at all still poisons while it
+  runs, and a handler lowered inside it raises the ordinary
+  `:rf.error/hicasso-intent-outside-boundary` when it fires — loud, never
+  a silently inert handler. `.preventDefault`-style side effects are
+  untouched."
   [k f]
-  (fn hicasso-render-callback [& args]
-    (binding [*dispatch*
-              (fn [event]
-                (fail! :rf.error/hicasso-dispatch-in-render-position
-                       'front.intent/lower-prop
-                       (str "A callback at " (pr-str k) " dispatched " (pr-str event)
-                            " while it was running. " (pr-str k) " is a RENDER "
-                            "position: it is invoked during a render, so it must be "
-                            "pure. Move the dispatch to an event position, or to an "
-                            "event handler that owns the work.")
-                       :dispatch-from-an-event-position
-                       {:position k :event event}))]
-      (apply f args))))
+  (let [owner-dispatch *dispatch*
+        owner-frame    *frame*]
+    (fn hicasso-render-callback [& args]
+      ;; `armed?` is false for the call's dynamic extent and set in the
+      ;; `finally` below, so ARMED means the invocation has RETURNED and
+      ;; the gate now forwards rather than raises.
+      (let [armed? (volatile! false)
+            gate   (fn hicasso-render-gate [event]
+                     (cond
+                       (not @armed?)
+                       (fail! :rf.error/hicasso-dispatch-in-render-position
+                              'front.intent/lower-prop
+                              (str "A callback at " (pr-str k) " dispatched " (pr-str event)
+                                   " while it was running. " (pr-str k) " is a RENDER "
+                                   "position: it is invoked during a render, so it must be "
+                                   "pure. Move the dispatch to an event position, or to an "
+                                   "event handler that owns the work.")
+                              :dispatch-from-an-event-position
+                              {:position k :event event})
+
+                       owner-dispatch (owner-dispatch event)
+
+                       :else
+                       (fail! :rf.error/hicasso-intent-outside-boundary
+                              'front.intent/lower-prop
+                              (str "A handler lowered inside the callback at " (pr-str k)
+                                   " dispatched " (pr-str event) " after the render "
+                                   "returned, but the callback itself was lowered with no "
+                                   "frame-locked dispatch in scope. A render callback's "
+                                   "handlers fire into the frame of the boundary that "
+                                   "SUPPLIED it, and there was none.")
+                              :lower-intents-inside-a-boundary-render
+                              {:position k :event event})))]
+        (binding [*frame* owner-frame *dispatch* gate]
+          (try
+            (apply f args)
+            (finally (vreset! armed? true))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The argument law — the vector spelling is EVENT-FIRST (HD-024)

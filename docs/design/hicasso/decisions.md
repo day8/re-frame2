@@ -788,6 +788,52 @@ cost is **unmeasured** and is named here rather than claimed away.
 
 ## HD-024 — One callback form; the position selects the contract
 
+> **Addendum, 2026-08-03 — render-position enforcement is INVOCATION-scoped, and
+> the owner forwards (`rf2-2rtt6.74`).** Both laws below stand: a `:render`
+> position is pure, and dispatching from inside the call is
+> `:rf.error/hicasso-dispatch-in-render-position`, naming the position. What is
+> superseded is the Rationale's mechanism sentence — "enforced by poisoning the
+> ambient dispatch for the call's dynamic extent" — insofar as it read as though
+> handlers *lowered* inside the call stayed poisoned forever. They do not; the
+> sentence stays below as the record of what was ruled first.
+>
+> **The defect.** Lowering captures the same var the poison replaced, so the row a
+> `renderRow` prop exists to build — `(h/as-element [:li {:on-click [:row/pick
+> id]} …])` — closed over the poison and raised at the USER'S click, for a click:
+> a legitimate event position that merely happened to be lowered during a render.
+> A render prop producing a non-interactive row worked; one producing an
+> interactive row did not — which is most of what render props are for — and the
+> failure landed a phase and a component away from the author's site, the worst
+> failure geometry available.
+>
+> **What was ruled.** Enforcement is scoped to the INVOCATION, not to everything
+> the invocation lowered: poison while the call is running, forward to the owner
+> once it has returned. The wrapper captures the ambient dispatch and frame at
+> LOWERING time, and each invocation mints a fresh gate over them, binds it as the
+> ambient dispatch for the call, and arms it in a `finally`. The discrimination is
+> TEMPORAL — call-active versus call-complete — which is the law's own line, and
+> it is why a synchronous lower-and-fire-NOW inside the body still raises while a
+> lower-now/fire-later row no longer does. A second "capturable" binding would
+> instead have let the synchronous case dispatch silently, weakening law 1 to
+> preserve a mechanism.
+>
+> **The owner is the SUPPLYING boundary's frame** — the boundary whose codec walk
+> lowered the `:render` prop. It is the only candidate: the wrapper is minted
+> inside that boundary's `with-frame` extent, the foreign component has no frame
+> of its own, and frames-as-isolated-contexts forbids any other. The ambient frame
+> is rebound to it for the invocation as well, so a `route-link` written in a row
+> body pins its navigation there rather than failing loudly. Where no owner was in
+> scope at wrapper creation, a handler lowered inside raises the ordinary
+> `:rf.error/hicasso-intent-outside-boundary` when it fires — loud, never silent,
+> and never a new error id.
+>
+> **Fence.** No new API, no config knob, no new error id, nothing about
+> scheduling, and no auto-conversion of what a render body returns. Witnessed by a
+> two-frame ownership row at the real declared-`:render` crossing
+> (`arm1/host_hatch_dom_cljs_test`), by its closure-level twin and the no-owner
+> edge (`front/intent_cljs_test`); the two purity edges — a direct dispatch inside
+> the call, and a synchronous lower-and-fire — are unmodified and still raise.
+
 **Ruling.** Hicasso ships **one** callback form — `h/fn` (spelling unfrozen) — and
 it is **an ordinary function**. The contract comes from the **position**, because
 the runtime already knows every position it walks:
