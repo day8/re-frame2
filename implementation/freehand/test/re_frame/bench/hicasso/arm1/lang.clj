@@ -77,13 +77,24 @@
         {:callbacks {:on-change :event}})
 
       [date-picker {:selected  due-date
-                    :on-change [:task/set-due ::h/value]}]
+                    :on-change (hfn [date & _] [:task/set-due date])}]
 
   `opts` is optional and carries `:callbacks` — a FINITE map from exact
   prop names to `:event`, `:handler` or `:render`, never inferred from an
   `on*` spelling. Policy lives on the declaration, so every use site
   inherits it; the defaults, the refusals and the crossing itself are
   [[re-frame.bench.hicasso.front.codec/mint-host!]]'s.
+
+  The callback is an [[hfn]] and not an intent vector because
+  react-datepicker calls `onChange(date, event)` — VALUE-first, with no
+  event at argument one — while the vector spelling is EVENT-first
+  (HD-024's argument law, in
+  [[re-frame.bench.hicasso.front.intent]]). `[:task/set-due ::h/value]`
+  there raises `:rf.error/hicasso-intent-needs-the-event` naming the
+  position, and the one callback form is the spelling that sees the
+  library's own arguments, in order. At an EVENT-first foreign callback —
+  `onDraft(event)` — the vector and its markers are legal and shorter.
+  Both halves are witnessed in `arm1/host_hatch_dom_cljs_test`.
 
   Like [[defview]] it is not a compiler: it expands to a `def` of the
   minted head, reads no body, and captures only the name — for
