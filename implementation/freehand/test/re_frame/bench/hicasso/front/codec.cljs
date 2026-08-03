@@ -56,10 +56,9 @@
 
   A [[PropSlot]] is the React name the cache always held plus the four
   classifications that are pure functions of the same literal — reserved
-  slot, event position, ref slot, class slot (rf2-y1jkm,
-  rf2-2rtt6.36). Same keys, same lifetime,
-  same guard; one lookup now answers everything the per-prop walk used
-  to re-derive per element per render.
+  slot, event position, ref slot, class slot (rf2-y1jkm, rf2-2rtt6.36).
+  Same keys, same lifetime, same guard; one lookup now answers everything
+  the per-prop walk used to re-derive per element per render.
 
   That is the whole of the accelerant HD-004 permits in the lean arm.
   There is **no template extraction, no hole plan, no node reference, and
@@ -307,10 +306,10 @@
   ;; per-prop walk used to re-derive per element per render — is the
   ;; emitted slot reserved, is the position an event position, is it the
   ;; ref slot, is it the class slot. Each is a pure function of the
-  ;; literal's NAME, so caching
-  ;; them beside the name changes what a lookup ANSWERS and nothing about
-  ;; when it is valid: there is still exactly one entry per distinct
-  ;; literal, minted on first sight, correct for the life of the build.
+  ;; literal's NAME, so caching them beside the name changes what a lookup
+  ;; ANSWERS and nothing about when it is valid: there is still exactly
+  ;; one entry per distinct literal, minted on first sight, correct for
+  ;; the life of the build.
   ;;
   ;; `event?` is the name-string's answer (`intent/event-prop?` on the
   ;; NAME), and the consumer must gate it on `keyword?` — a symbol
