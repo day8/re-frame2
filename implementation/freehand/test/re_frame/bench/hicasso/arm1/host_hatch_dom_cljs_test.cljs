@@ -221,10 +221,11 @@
   else — it is a component (the guide's own troubleshooting row)."
   (.-Provider theme-context))
 
-(defhost render-picker widget
+(defhost render-picker
   "The same component, declared with all THREE contracts on it — the
   matrix below needs one host that can be handed every carrier at every
   contract, and `:render` is the row `picker` above has no slot for."
+  widget
   {:callbacks {:on-pick       :event
                :on-imperative :handler
                :on-render-row :render}})
@@ -641,11 +642,11 @@
 ;;       `value.preventDefault is not a function`, the engine's own
 ;;       TypeError naming nothing the author wrote.
 ;;
-;; The rows below cross through the real minted head and then invoke the
+;; The matrix rows cross through the real minted head and then invoke the
 ;; lowered prop the way [[widget]] invokes it — `(f (.-value props) e)` for
-;; `onPick`, `(f e)` for `onDraft`, both visible in this file.  The mounted
-;; render-prop row above the matrix is the other half: a `:render` slot
-;; actually called during the foreign component's render.
+;; `onPick`, `(f e)` for `onDraft`, both written into the component above.
+;; The first row is the other half, and needs the DOM: a declared `:render`
+;; slot actually called during the foreign component's own render.
 
 (defn- prop [^js el nm] (unchecked-get (unchecked-get el "props") nm))
 
