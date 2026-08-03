@@ -60,7 +60,6 @@
 //      records are on stdout before the refusal so the evidence survives
 //      it; the deltas are void and must not be quoted.
 
-const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
@@ -68,6 +67,9 @@ const path = require('node:path');
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 const { watchPage } = require('../../freehand/bench/sentinel.cjs');
 const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
+// shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
+// lane's one build door refuses a warned build (rf2-2rtt6.73).
+const { shadowBuild } = require('./lane_build.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -102,15 +104,13 @@ function build() {
     console.error(`[chrome] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs`);
   }
   console.error(`[chrome] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const r = spawnSync(process.execPath, [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE], {
-    cwd: IMPL,
-    stdio: ['ignore', 'inherit', 'inherit'],
+  shadowBuild({
+    impl: IMPL,
+    mode: 'release',
+    buildId: BUILD_ID,
+    configMerge: CONFIG_MERGE,
+    tag: 'chrome',
   });
-  if (r.status !== 0) {
-    console.error(`[chrome] build failed with status ${r.status}`);
-    process.exit(1);
-  }
 }
 
 const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };

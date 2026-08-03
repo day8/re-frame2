@@ -76,7 +76,6 @@
 
 'use strict';
 
-const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
@@ -87,6 +86,9 @@ const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs'
 // a single run, so it was poisoning its own later rungs with its earlier ones
 // without any second driver being involved.
 const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
+// shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
+// lane's one build door refuses a warned build (rf2-2rtt6.73).
+const { shadowBuild } = require('./lane_build.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const BUILD_ID = 'hicasso-bench';
@@ -221,16 +223,13 @@ function build(variant) {
     `{:output-dir "${variant.outDir}" :asset-path "." ` +
     `:compiler-options {:source-map true} ` +
     `:modules {:main {:init-fn ${variant.initFn}}}}`;
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const r = spawnSync(
-    process.execPath,
-    [runner, dev ? 'compile' : 'release', BUILD_ID, '--config-merge', merge],
-    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
-  );
-  if (r.status !== 0) {
-    console.error(`[z3vlz] build failed with status ${r.status}`);
-    process.exit(1);
-  }
+  shadowBuild({
+    impl: IMPL,
+    mode: dev ? 'compile' : 'release',
+    buildId: BUILD_ID,
+    configMerge: merge,
+    tag: 'z3vlz',
+  });
 }
 
 // `reagent2/...` also contains the substring `reagent`, so stock Reagent is

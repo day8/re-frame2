@@ -823,6 +823,20 @@ if [ "$run_node" = true ]; then
 
   run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
     bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
+
+  # Hicasso bench-lane compile coverage (rf2-2rtt6.73).  NO PR gate compiled
+  # this lane: `:node-test` selects `cljs-test$` and `:browser-test` selects
+  # `-dom-cljs-test$`, and nothing test-shaped requires the arms, so
+  # out/node-test.js carried zero occurrences of `walk_profile_app` and
+  # out/browser-test/ had no such module.  The only compiler that ever saw an
+  # arm was `:hicasso-bench`, driven BY HAND — a broken arm could not go red,
+  # and a worker mutation-proving a change through the lane proved nothing.
+  # The arms are deliberately LOCAL COPIES of shipping code (the rf2-2rtt6.32
+  # call-convention discipline), so they drift by construction and a compile
+  # is the cheapest thing that notices.  ~45s: one dev-mode `shadow-cljs
+  # compile` of all 100 lane namespaces, warnings treated as failures.
+  run "hicasso bench-lane compile" "cd implementation && npm run test:hicasso-compile" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-compile"
 else
   printf '\n--- cljs_node_test surface unchanged → skipping npm/CLJS/isolation (override with --all) ---\n'
   note_skipped "npm/CLJS/isolation (cljs_node_test surface unchanged; --all forces)"
