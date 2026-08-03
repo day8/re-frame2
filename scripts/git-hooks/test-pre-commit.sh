@@ -1537,6 +1537,173 @@ case "$out" in
     fi ;;
 esac
 
+# ----------------------------------------------------------------------------
+# 8j-8l: EQUAL COUNTS ARE NOT EQUALITY (rf2-rjqtj).
+#
+# 8i's floor answers "is the export big enough?". It cannot answer "does the
+# export still contain what HEAD contains?" — and there is a second writer that
+# makes the difference matter: the merged-PR audit commits issue rows straight
+# to Git, and `git pull` brings other checkouts' rows the same way. When both
+# sides move they diverge one row for one row, the count does not budge, and
+# the floor waves through an export that deletes the Git-only rows.
+#
+# OBSERVED: commit 667c744dc875 passed at 1938 == 1938 and still dropped
+# rf2-3jw04, rf2-jv36i and rf2-lhdp0 and reverted rf2-2rtt6.52/.63.
+#
+# The fixture is the bead's own acceptance, and every row below is load-bearing:
+#
+#   rf2-a   unchanged on both sides
+#   rf2-b   NEWER ON GIT   — closed at 03:00; the export still has it open
+#   rf2-c   NEWER ON DOLT  — closed at 02:00; HEAD still has it open
+#   rf2-g1  GIT ONLY       — the export has never heard of it
+#   rf2-d1  DOLT ONLY      — HEAD has never heard of it
+#
+# Four issue rows plus two memories a side: six against six. Neither side's
+# facts may be lost, and 8j proves the refusal while 8k proves the recovery.
+# ----------------------------------------------------------------------------
+{
+  printf '{"_type":"issue","id":"rf2-a","status":"open","updated_at":"2026-08-01T00:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-b","status":"closed","updated_at":"2026-08-02T03:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-c","status":"open","updated_at":"2026-08-01T00:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-g1","status":"open","updated_at":"2026-08-02T01:00:00Z"}\n'
+  printf '{"_type":"memory","key":"m1","value":"one"}\n'
+  printf '{"_type":"memory","key":"m2","value":"two"}\n'
+} > "$CBOX/head-diverged.jsonl"
+{
+  printf '{"_type":"issue","id":"rf2-a","status":"open","updated_at":"2026-08-01T00:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-b","status":"open","updated_at":"2026-08-01T12:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-c","status":"closed","updated_at":"2026-08-02T02:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-d1","status":"open","updated_at":"2026-08-02T01:30:00Z"}\n'
+  printf '{"_type":"memory","key":"m1","value":"one"}\n'
+  printf '{"_type":"memory","key":"m2","value":"two"}\n'
+} > "$CBOX/db-diverged.jsonl"
+
+(
+  cd "$CREPO"
+  cp -f "$CBOX/head-diverged.jsonl" .beads/issues.jsonl
+  git add -- .beads/issues.jsonl
+  git commit -q -m 'seed: HEAD and the database have diverged at equal row count'
+) >/dev/null 2>&1
+
+# 8j: THE ACCEPTANCE. Equal counts, disjoint one-for-one substitution, one
+# newer state on each side. The only safe answer is to refuse and name what
+# would be lost — with the FIELDS, because an id-set comparison proves presence
+# and nothing more (an interrupted Dolt GC reverted a close in the field while
+# every id stayed intact).
+cp -f "$CBOX/db-diverged.jsonl" "$CBOX/db.jsonl"
+before=$(git -C "$CREPO" rev-parse HEAD)
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0)
+    fail "(8j) an equal-count divergence was checkpointed: rf2-g1 and rf2-b's close are GONE"
+    cat "$COUT" >&2 ;;
+  *)
+    if [ "$before" != "$after" ]; then
+      fail "(8j) the divergence was refused but something was still committed"
+    elif ! grep -q 'EQUAL COUNTS ARE NOT EQUALITY' "$CERR"; then
+      fail "(8j) refused, but not for the equal-count reason"
+      cat "$CERR" >&2
+    elif ! grep -q 'GONE .*rf2-g1' "$CERR"; then
+      fail "(8j) did not name the Git-only bead that would be DELETED"
+      cat "$CERR" >&2
+    elif ! grep -q 'REVERT .*rf2-b' "$CERR"; then
+      fail "(8j) did not name the Git-newer bead that would be REVERTED"
+      cat "$CERR" >&2
+    elif ! grep -q '2026-08-02T03:00:00Z' "$CERR"; then
+      fail "(8j) named the ids but not the FIELDS; presence is not state"
+      cat "$CERR" >&2
+    elif grep -qE 'rf2-c|rf2-d1' "$CERR"; then
+      fail "(8j) cried wolf over the DOLT-side facts; forward motion is not a divergence"
+      cat "$CERR" >&2
+    elif ! grep -q 'rf2-g1' "$CREPO/.beads/issues.jsonl"; then
+      fail "(8j) the tracker was overwritten despite the refusal"
+    else
+      pass "(8j) an equal-count divergence is refused, naming both lost facts and their fields"
+    fi ;;
+esac
+
+# 8j-remedy: a refusal nobody can act on gets bypassed. The message names a file
+# holding exactly the Git-only and Git-newer rows, so `bd import` of it is the
+# whole recovery — the bead's own verified mechanism, and the reason this guard
+# does not need a sync service.
+remedy=$(sed -n 's/^ *bd import \(.*\)$/\1/p' "$CERR" | head -1)
+if [ -n "$remedy" ] && [ -s "$remedy" ]; then
+  if [ "$(awk 'END{print NR}' "$remedy")" = "2" ] \
+     && grep -q 'rf2-g1' "$remedy" && grep -q 'rf2-b' "$remedy"; then
+    pass "(8j) and it stages exactly the two rows an import must carry"
+  else
+    fail "(8j) the remedy file did not hold exactly the Git-only/Git-newer rows"
+    cat "$remedy" >&2
+  fi
+else
+  fail "(8j) no remedy file was written, so the refusal is not actionable"
+fi
+if [ -n "$remedy" ]; then rm -f "$remedy"; fi
+
+# 8k: AND THE RECOVERY COMPLETES. The operator runs that import, so the database
+# becomes the UNION. The next checkpoint must commit, and the committed tracker
+# must carry ALL FOUR facts — the bead's "neither fact may be lost", end to end.
+{
+  printf '{"_type":"issue","id":"rf2-a","status":"open","updated_at":"2026-08-01T00:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-b","status":"closed","updated_at":"2026-08-02T03:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-c","status":"closed","updated_at":"2026-08-02T02:00:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-d1","status":"open","updated_at":"2026-08-02T01:30:00Z"}\n'
+  printf '{"_type":"issue","id":"rf2-g1","status":"open","updated_at":"2026-08-02T01:00:00Z"}\n'
+  printf '{"_type":"memory","key":"m1","value":"one"}\n'
+  printf '{"_type":"memory","key":"m2","value":"two"}\n'
+} > "$CBOX/db.jsonl"
+before=$(git -C "$CREPO" rev-parse HEAD)
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0)
+    committed=$(git -C "$CREPO" show HEAD:.beads/issues.jsonl)
+    if [ "$before" = "$after" ]; then
+      fail "(8k) the post-import checkpoint committed nothing"
+    elif ! printf '%s\n' "$committed" | grep -q 'rf2-g1'; then
+      fail "(8k) the Git-only bead was lost after the import"
+    elif ! printf '%s\n' "$committed" | grep -q '"id":"rf2-b","status":"closed"'; then
+      fail "(8k) the Git-side close was reverted after the import"
+    elif ! printf '%s\n' "$committed" | grep -q 'rf2-d1'; then
+      fail "(8k) the Dolt-only bead was lost"
+    elif ! printf '%s\n' "$committed" | grep -q '"id":"rf2-c","status":"closed"'; then
+      fail "(8k) the Dolt-side close was lost"
+    elif ! printf '%s\n' "$committed" | grep -q '"key":"m1"'; then
+      fail "(8k) the memory rows did not ride along"
+    else
+      pass "(8k) after the import the checkpoint commits, and neither side's facts are lost"
+    fi ;;
+  *) fail "(8k) the checkpoint still refused a database that is now a superset ($out)"
+     cat "$CERR" >&2 ;;
+esac
+
+# 8l: THE AMBIGUOUS ROW. Same `updated_at`, different `status`: neither side is
+# newer, so neither may be chosen automatically — and no import can adjudicate a
+# tie, so none is offered. This is the class the field data insisted on: an
+# id-set comparison would call it clean.
+sed 's/"id":"rf2-c","status":"closed"/"id":"rf2-c","status":"open"/' \
+  "$CBOX/db.jsonl" > "$CBOX/db-ambig.jsonl"
+cp -f "$CBOX/db-ambig.jsonl" "$CBOX/db.jsonl"
+before=$(git -C "$CREPO" rev-parse HEAD)
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0) fail "(8l) a same-timestamp status conflict was silently resolved by the export" ;;
+  *)
+    if [ "$before" != "$after" ]; then
+      fail "(8l) the ambiguous row was refused but something was committed"
+    elif ! grep -q 'AMBIG .*rf2-c' "$CERR"; then
+      fail "(8l) refused, but did not name the row as ambiguous"
+      cat "$CERR" >&2
+    elif grep -q 'bd import' "$CERR"; then
+      fail "(8l) offered an import for a tie an import cannot adjudicate"
+      cat "$CERR" >&2
+    else
+      pass "(8l) a same-timestamp status conflict is refused, and no import is offered"
+    fi ;;
+esac
+
 rm -rf "$CBOX"
 
 fi
