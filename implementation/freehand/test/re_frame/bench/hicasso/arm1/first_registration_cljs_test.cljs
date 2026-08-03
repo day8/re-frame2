@@ -33,19 +33,37 @@
   change again.
 
   The rows below are the direct witness the merged-PR audit asked for.
-  One of them is a **pin rather than a repair**: a first registration
-  landing in the render→commit gap reaches no cell, because the boundary
-  has none yet, and the epoch sum cannot report it either — a `reg-sub`
-  moves neither term of `commit-basis`. That is the registry axis inside
-  the second window, permanently outside this arithmetic and closable
-  only by the term this programme costed and declined; the commit does
-  acquire against the live registration, so what it costs is a delayed
-  paint the next write clears, not a retired computation.
+  The transition has **two halves**, and they are repaired by two
+  different mechanisms because they are two different situations.
 
-  The bottom row is the bill: a first registration of an id **no cell
-  holds** must still disturb nothing, because the alternative this
-  programme declined was a registry term in every key's contribution to
-  `getSnapshot`."
+  A boundary that already HOLDS a cell is repaired by the registration
+  event: `first-registration!` scans the cells for the id and drops the
+  reference, so the next read falls through to the cold probe and the
+  rebuilt attachment notifies later writes. That is the mounted case, and
+  the first two rows.
+
+  A boundary inside the **render→commit gap** holds no cell, so that scan
+  reaches nothing on its behalf. It is repaired by the `registry-epoch`
+  term of `commit-basis` (rf2-2rtt6.50): a key with no cell contributes a
+  LIVE basis reading, the cell the commit creates is stamped with the
+  basis as it stands then, and a `reg-sub` between the two makes the two
+  numbers differ — so React's own post-`subscribe` tear check schedules
+  the re-render. That was a **pin rather than a repair** until
+  rf2-2rtt6.50, on the reasoning that the only available term was the one
+  rf2-2rtt6.44 costed and declined. It is not: what that costing priced
+  was a registry term in every key's *live* contribution to
+  `getSnapshot`, which moves every mounted boundary in the application on
+  every `reg-sub` and buys each one a render that reads back through a
+  dead reference. A term in the *basis* is read live by the staged branch
+  alone — so it reaches exactly the keys that have the defect, and the
+  extra render it buys reads back through a cell that is alive and
+  correct.
+
+  The bottom rows are the bill, and they are what makes that distinction
+  checkable rather than argued: a first registration of an id **no cell
+  holds** must still disturb a mounted boundary by nothing at all. Those
+  assertions are unchanged by the term, which is the cleanest available
+  proof that the option taken is not the option declined."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
@@ -183,51 +201,59 @@
              to stop reading through it, not to re-read it")
         (release!)))))
 
-(deftest deliberately-a-first-registration-in-the-render-commit-gap-moves-no-snapshot
-  (testing "the OTHER window, pinned rather than closed. The rows above
-            are the mounted case — a boundary that already holds a cell.
-            The render→commit gap is the case where it does not: the body
-            has returned `nil`, and the registration lands before React
-            runs the effect that acquires the edge. There is no cell for
-            [[first-registration!]] to reach, and the epoch sum cannot
-            report it either — a key with no cell contributes its frame's
-            `commit-basis`, and a `reg-sub` moves neither term of it. So
-            the number React re-reads after `subscribe` is the number it
-            captured at render, and it schedules nothing.
+(deftest a-first-registration-in-the-render-commit-gap-moves-the-snapshot
+  (testing "the OTHER window (rf2-2rtt6.50). The rows above are the
+            mounted case — a boundary that already holds a cell. The
+            render→commit gap is the case where it does not: the body has
+            returned `nil`, and the registration lands before React runs
+            the effect that acquires the edge. There is no cell for
+            [[first-registration!]] to reach, so the repair those rows
+            witness reaches nothing here.
 
-            This is the registry axis inside the second window, and it is
-            the same thing `generation_fence_coverage_cljs_test` states
-            for a re-registration: permanently outside this arithmetic,
-            and closable only by the registry term that programme
-            declined. What saves it is that the commit DID acquire against
-            the live registration, so the boundary is correct from its
-            next render onwards and the next write to the frame schedules
-            one. It is a delayed paint, not a retired computation."
+            What reaches it is the `registry-epoch` term of
+            `commit-basis`. A key with no cell contributes a LIVE basis
+            reading to `getSnapshot`; the cell the commit creates is
+            stamped with the basis as it stands THEN. A `reg-sub` between
+            the two moves the term, so the two numbers differ, so React's
+            post-`subscribe` re-check sees a tear and schedules the
+            re-render — which reads back through a cell that is alive and
+            holds the real handler. That is what distinguishes this from
+            the transitions rf2-2rtt6.44 declined a term for, where the
+            extra render would have read back through a dead reference.
+
+            The correction is React's tear check, NOT a notification: the
+            arm's own notify path runs off `flush!`, and a registration
+            is not a value change on an acquired reaction. `hits` staying
+            zero is that distinction on the board."
     (let [seen (volatile! :unread)
           f    (make-frame! ::gap {:v 1})]
       (rt/render-body f (reader q-gap seen) {})
       (is (nil? @seen) "the body ran against no registration")
       (let [entry     (rt/last-reads)
             at-render (rt/snapshot-of entry)
+            epoch     (rt/registry-epoch)
             hits      (volatile! 0)]
         ;; THE REGISTRATION, inside the gap: after the body returned and
         ;; before React's effect acquires the edge.
         (rf/reg-sub (first q-gap) (fn [db _] (:v db)))
+        (is (> (rt/registry-epoch) epoch)
+            "precondition: the arm counted the registration — the term the
+             rest of this row turns on actually moved")
         (let [release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
-          (is (= at-render (rt/snapshot-of entry))
-              "the snapshot did not move across the commit, so React's
-               post-`subscribe` re-check sees no tear and schedules no
-               re-render — the boundary keeps the `nil` it painted")
-          (is (zero? @hits) "and nothing notified it either")
+          (is (not= at-render (rt/snapshot-of entry))
+              "the snapshot MOVED across the commit, so React's
+               post-`subscribe` re-check sees a tear and schedules the
+               re-render the boundary needs to stop painting `nil`")
+          (is (zero? @hits)
+              "and it is the tear check that does it, not a notification —
+               a `reg-sub` reaches `flush!` by no route")
           (is (= 1 @(rt/cell-reaction [f q-gap]))
-              "though the cell the commit acquired holds the REAL handler:
-               nothing is retired here, and the next render is correct")
-          (testing "so it heals on the next write rather than at the
-                    registration"
-            (frame/replace-app-db! f {:v 2})
-            (is (pos? @hits) "the write notified")
+              "and the cell the commit acquired holds the REAL handler, so
+               the render React just scheduled reads the right value")
+          (testing "which the re-render then does, at once rather than at
+                    the next write"
             (rt/render-body f (reader q-gap seen) {})
-            (is (= 2 @seen)))
+            (is (= 1 @seen) "1, not nil: the delayed paint is gone"))
           (release!))))))
 
 ;; ---------------------------------------------------------------------------
@@ -265,11 +291,11 @@
            registration is not a reason to rebuild an attachment")
       (release!))))
 
-(deftest closing-the-first-registration-cost-no-hook-and-nothing-in-the-snapshot
+(deftest closing-the-first-registration-cost-no-hook-and-no-per-boundary-object
   (testing "the same fences `disposed_cell_cljs_test` holds for the
-            disposal half. What repairs a first registration is an event,
-            not a term, so the shell is unchanged and the snapshot
-            arithmetic is unchanged."
+            disposal half. The held-cell half is repaired by an event and
+            the gap half by one term shared by every key, so neither buys
+            a React hook and neither buys a per-boundary object."
     (is (= 2 (count rt/shell-hook-ledger))
         "still two hooks — a registrar hook is not a React hook")
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]

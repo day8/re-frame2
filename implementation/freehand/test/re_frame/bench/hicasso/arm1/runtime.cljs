@@ -249,14 +249,17 @@
 
       commit-basis(frame) = this runtime's flush generation
                           + that frame's own physical-install epoch
+                          + this runtime's registry epoch
 
   [[generation]] counts flushes. `frame-commit-epoch` is the substrate's
   own counter, bumped once per physical frame-state install at both
   write chokepoints, and Spec 006's observation port already uses it for
   exactly this question — *did the frame's durable state move in the
   render→commit gap?* — because it answers without watching anything.
-  That second term is what the runtime was missing, and it is why the
-  basis is not just the generation:
+  [[registry-epoch]] counts `:sub` registrations, which are neither a
+  flush nor an install, so a `reg-sub` in the gap would otherwise move no
+  term at all (rf2-2rtt6.50). The second term is what the runtime was
+  missing, and it is why the basis is not just the generation:
 
   > The generation only moves when `flush!` bumps it, `flush!` only runs
   > from `mark-dirty!`, and `mark-dirty!`'s only caller is the
@@ -294,17 +297,33 @@
   component. Those notifications are deferred to a macrotask; the fence
   has already made the *rendering* boundary correct.
 
-  ### The other two axes, and why they are not the basis's to carry
+  ### The other two axes, and which half of each the basis carries
 
-  The predecessor compared three things, and the basis answers one of
-  them. The other two — a `:sub` registration (its `:registry-epoch`)
-  and a same-id frame reincarnation (its `:node-key`) — move neither
-  term, and rf2-2rtt6.44 established that **adding a term for them would
-  have closed nothing**. Each of them leaves the cell holding a reaction
-  that can no longer answer for its key, so a number that moved would
-  have bought exactly one extra render, and that render would have read
-  back through the same dead reference. What each does to the cell, and
-  what the arm hears when it happens:
+  The predecessor compared three things. The other two — a `:sub`
+  registration (its `:registry-epoch`) and a same-id frame reincarnation
+  (its `:node-key`) — split cleanly by whether the boundary in question
+  **already holds a cell** for the key, and the two halves want opposite
+  answers.
+
+  For a boundary that holds one, rf2-2rtt6.44 established that **adding a
+  term would have closed nothing**: each transition leaves the cell
+  holding a reaction that can no longer answer for its key, so a number
+  that moved would have bought exactly one extra render, and that render
+  would have read back through the same dead reference. That half is
+  carried by the substrate's own events, below.
+
+  For a boundary inside the render→commit gap there is no cell, so there
+  is no dead reference — the commit acquires against whatever is live
+  *then*, and one extra render is exactly the repair. rf2-2rtt6.50 closes
+  the registry half of that, with the [[registry-epoch]] term of the
+  basis; because a held key contributes a frozen stamp and only a staged
+  key reads the basis live, the term reaches the gap and costs the
+  mounted case nothing. The `:node-key` half stays open and is stated in
+  [[commit-basis]] — the basis TIES across a reincarnation, so no
+  arithmetic over these terms could report it.
+
+  What each transition does to a *held* cell, and what the arm hears when
+  it happens:
 
   | transition | what the cell is left holding | what announces it |
   |---|---|---|
@@ -318,13 +337,21 @@
   which covers the two transitions that dispose; the third disposes
   nothing — `registrar/add-replacement-hook!` fires only when a previous
   handler existed — so the arm hangs it off
-  `registrar/add-registration-hook!`, narrowed to first-time `:sub`
-  registrations and to the cells that hold the id being registered. It
-  costs no React hook, no per-boundary object, nothing in the snapshot
-  arithmetic, and no read of the registry's own epoch — the epoch-sum
-  `getSnapshot` is untouched, and an unrelated registration moves no
-  boundary's snapshot. rf2-2rtt6.44 records the costing that rejected
-  the alternative.
+  `registrar/add-registration-hook!` ([[sub-registered!]]), narrowed to
+  first-time `:sub` registrations and to the cells that hold the id being
+  registered. It costs no React hook and no per-boundary object.
+
+  The gap half rides the same hook, one line earlier, as a `vswap!` on
+  [[registry-epoch]] — so the arm reads a registry count it keeps itself
+  and `observation/registry-epoch*` stays `^:private`. **What
+  rf2-2rtt6.44 rejected is still rejected**: that was a registry term in
+  every key's *live* contribution to [[make-snapshot]], which moves every
+  mounted boundary in the application on every `reg-sub`. This term is in
+  the basis, which [[make-snapshot]] reads live for staged keys only, so
+  an unrelated registration still moves no *mounted* boundary's
+  snapshot — the invariant
+  `a-first-registration-of-an-id-no-cell-holds-disturbs-nothing` states,
+  and the one that distinguishes the two options.
 
   ## What is deliberately NOT here (the hard fences)
 
@@ -468,18 +495,32 @@
 (defonce ^:private !generation (volatile! 0))
 (defonce ^:private !deferred (volatile! #{}))
 (defonce ^:private !watch-counter (volatile! 0))
+(defonce ^:private !registry-epoch (volatile! 0))
 
 (defn generation
   "The commit generation. Bumped once per flush that moved something."
   []
   @!generation)
 
+(defn registry-epoch
+  "**The arm's own count of `:sub` registrations** — first-time and
+  replacement alike — and the third term of [[commit-basis]].
+
+  It is the arm's rather than the substrate's on purpose.
+  `observation/registry-epoch*` counts exactly this and is `^:private`;
+  the arm already installs a registration hook for [[first-registration!]],
+  so the counter is a `vswap!` on a hook that runs anyway rather than a
+  new public reader on a production namespace. Monotone, like both other
+  terms."
+  []
+  @!registry-epoch)
+
 (defn commit-basis
   "**The number both invariant-5 windows are judged against** — this
-  runtime's flush [[generation]] plus `frame`'s own physical-install
+  runtime's flush [[generation]], plus `frame`'s own physical-install
   epoch (`re-frame.frame/frame-commit-epoch`, the substrate's
   observation-port evidence counter, bumped once per frame-state install
-  at both write chokepoints).
+  at both write chokepoints), plus the arm's [[registry-epoch]].
 
   The generation alone cannot carry it, and the reason is structural
   rather than a matter of degree: the generation moves only through
@@ -488,29 +529,52 @@
   can move without moving it. The frame's install epoch has no such
   dependency — it is a counter read, not a watch — which is exactly why
   Spec 006's observation port uses it to ask whether durable state moved
-  in the render→commit gap.
+  in the render→commit gap. And neither of them is a registry write, so
+  the third term is what carries a `reg-sub` landing in that gap.
 
-  Both terms are monotone within a frame incarnation, so the basis is,
-  and so is any sum of bases and cell epochs. Deliberately
+  All three terms are monotone within a frame incarnation, so the basis
+  is, and so is any sum of bases and cell epochs. Deliberately
   install-counting rather than `=`-counting: a value-equal install still
   advances it, which costs at most one redundant re-render and cannot
   cost a missed one. Pure read; allocates nothing.
 
-  Silent on two axes, and permanently so — no `:sub` registration is a
-  frame-state install, and a same-id frame reincarnation RESTARTS
-  `frame-commit-epoch` at 0 (measured: A's epoch and B's are both 1, so
-  the basis TIES across the reincarnation), which is the case the
-  observation port needs its `:node-key` field for. **Neither axis is
-  this number's to carry**, and rf2-2rtt6.44 settled why rather than
-  extending it: every one of those transitions leaves the cell holding a
-  reaction that can no longer answer for its key, so a moved number
-  would only buy a re-render that read back through the same dead
-  reference. [[invalidate-cell!]] carries all three, reached from the
-  substrate's own disposal for the two that dispose (a re-registration,
-  a frame teardown) and from [[first-registration!]] for the one that
-  does not."
+  ## Why the registry term costs the mounted case nothing (rf2-2rtt6.50)
+
+  This is the term rf2-2rtt6.44 costed and declined, and **it is not the
+  thing that was declined.** What that costing priced was a registry term
+  in every key's *live* contribution to [[make-snapshot]] — which would
+  have moved every mounted boundary's number on every `reg-sub` in the
+  application, and bought a re-render that read straight back through a
+  dead cell. This term is in the basis, and the basis is read live by
+  exactly one branch of that sum: **a key no cell holds yet**. A held key
+  contributes its cell's *frozen* stamp, which no registration touches.
+
+  So the reach of the term is precisely the set of keys inside a
+  render→commit gap, which is the set of keys that have the defect. A
+  mounted boundary holds a reference to every key it reads, so it has no
+  staged term at all and an unrelated `reg-sub` moves its snapshot by
+  zero — `a-first-registration-of-an-id-no-cell-holds-disturbs-nothing`
+  asserts exactly that, and it is unchanged by this term, which is the
+  cleanest available proof that the two options are different options.
+
+  Conservative in the safe direction and only there, exactly as the
+  install term already is: a boundary mounting as an *unrelated* module
+  registers its subs re-renders once for nothing. A MISSED move would be
+  the P0, and adding a monotone term to a monotone sum cannot cause one.
+
+  Still silent on one axis, and permanently so: a same-id frame
+  reincarnation RESTARTS `frame-commit-epoch` at 0 (measured: A's epoch
+  and B's are both 1, so the basis TIES across the reincarnation), which
+  is the case the observation port needs its `:node-key` field for. That
+  axis is not this number's to carry, and rf2-2rtt6.44 settled why: the
+  transition leaves the cell holding a reaction that can no longer answer
+  for its key, so a moved number would only buy a re-render that read
+  back through the same dead reference. [[invalidate-cell!]] carries the
+  *held*-cell half of all three axes; this term carries the *staged* half
+  of the registry one, where there is no dead reference to read back
+  through because the commit acquires against the live registration."
   [frame-kw]
-  (+ @!generation (frame/frame-commit-epoch frame-kw)))
+  (+ @!generation (frame/frame-commit-epoch frame-kw) @!registry-epoch))
 
 (declare flush!)
 
@@ -660,7 +724,12 @@
   The scan is `@!cells`, on first-time `:sub` registrations only. Those
   are namespace-load and lazy-module-load events — an HMR save
   re-registers, so its ids take the `:was`-non-nil branch and never get
-  here — and at namespace load there are no cells to scan."
+  here — and at namespace load there are no cells to scan.
+
+  **It is the held-cell half of the axis, and only that half.** A
+  boundary inside the render→commit gap has no cell for the id, so this
+  scan reaches nothing on its behalf; the [[registry-epoch]] term of
+  [[commit-basis]] carries that half instead. rf2-2rtt6.50."
   [{:keys [kind id was]}]
   (when (and (= :sub kind) (nil? was))
     ;; `first`, not `(nth … 0)`: a registrar hook's throw is SWALLOWED by
@@ -675,15 +744,38 @@
         (invalidate-cell! cell))))
   nil)
 
+(defn- sub-registered!
+  "The arm's whole listening post on the registry, and the two halves of
+  the registry axis in one place because they are one event.
+
+  **Bump then scan.** [[registry-epoch]] counts every `:sub` registration,
+  first-time or replacement, because both are the same defect in the
+  render→commit gap: the body read one computation and the commit
+  acquires against another, and neither the flush generation nor the
+  frame's install epoch moves for either. [[first-registration!]] then
+  repairs the cells that already hold the id, which is the half a
+  replacement reaches by its own disposal and a first registration
+  reaches by no route at all.
+
+  The bump is before the scan deliberately. [[invalidate-cell!]]'s
+  synchronous phase drops a reaction reference, and a render that races
+  it must not see an epoch from before the registration it is about to
+  read against."
+  [{:keys [kind] :as registration}]
+  (when (= :sub kind)
+    (vswap! !registry-epoch inc)
+    (first-registration! registration))
+  nil)
+
 ;; Arm it once per process, at load. `defonce` is the arming, so the var
 ;; exists for its side effect and is deliberately never read — the hook
 ;; vector is the only thing that holds the fn. The hook is the substrate's
 ;; own extension point and the arm installs nothing else global; it costs
-;; a keyword compare and a nil check on every registration of any kind,
-;; and the scan above only on a first-time `:sub`.
+;; a keyword compare on every registration of any kind, a `vswap!` on
+;; every `:sub` one, and the scan above only on a first-time `:sub`.
 #_:clj-kondo/ignore
 (defonce ^:private first-registration-armed
-  (do (registrar/add-registration-hook! first-registration!) true))
+  (do (registrar/add-registration-hook! sub-registered!) true))
 
 (defn- acquire-cell!
   "**Commit-phase only.** Take (building if necessary) the durable
@@ -1112,7 +1204,10 @@
   That one term is what reaches the render→commit gap. A staged key
   contributes `basis@render` while the boundary renders and, once the
   commit has created its cell, `basis@commit` — the same number when
-  nothing installed in between and a different one when something did.
+  nothing moved in between and a different one when something did. It is
+  a *live* [[commit-basis]] read, which is why the basis's registry term
+  reaches a `reg-sub` in the gap (rf2-2rtt6.50) and why a held key —
+  whose contribution is the cell's frozen stamp — is untouched by one.
   React re-reads this closure immediately after `subscribe` returns
   (`updateStoreInstance` is the next passive effect) and compares
   against the value **that fiber** captured at render, so the tear check
@@ -1499,6 +1594,7 @@
   (vreset! !deferred #{})
   (vreset! !batching false)
   (vreset! !generation 0)
+  (vreset! !registry-epoch 0)
   (set! (.-entry rstate) nil)
   (set! (.-frame rstate) nil)
   (set! (.-probe rstate) nil)
