@@ -505,6 +505,54 @@
       (is (= 1 (.-length (js/Object.keys js-props)))
           "caller's js-props gained no extra own keys"))))
 
+(deftest as-element-interop-heads-are-keyword-sentinels-rf2-e7zxb
+  (testing "rf2-e7zxb: the four interop heads are dispatched by a `case`,
+            which lowers to a switch on the head's `.-fqn`. A head
+            RECONSTRUCTED at runtime is not `identical?` to the literal, so
+            this is the pin that the dispatch is by VALUE — exactly what the
+            `(= tag :>)` ladder it replaced answered."
+    (let [Comp (fn FakeComp [_props] nil)]
+      (is (= Comp (.-type ^js (template/as-element [(keyword ">") Comp {:foo "bar"}])))
+          "a reconstructed :> still reaches interop-element")
+      (is (= (.-Fragment react)
+             (.-type ^js (template/as-element [(keyword "<>") [:div "a"]])))
+          "a reconstructed :<> still reaches fragment-element")
+      (is (= Comp (.-type ^js (template/as-element [(keyword "r>") Comp #js {}])))
+          "a reconstructed :r> still reaches raw-element")
+      (is (fn? (.-type ^js (template/as-element [(keyword "f>") (fn [] [:div])])))
+          "a reconstructed :f> still reaches function-element")))
+
+  (testing "rf2-e7zxb: the STRING and SYMBOL look-alikes are DOM-tag heads,
+            not sentinels — the `case` must refuse a non-keyword, and the
+            `(= tag :>)` ladder did too."
+    (is (= ">" (.-type ^js (template/as-element [">" "x"])))
+        "the string \">\" is a custom-element tag, not the :> head")
+    (is (= "<>" (.-type ^js (template/as-element ["<>" "x"])))
+        "the string \"<>\" is a tag, not the :<> head")
+    (is (= ">" (.-type ^js (template/as-element [(symbol ">") "x"])))
+        "the symbol '> is a tag, not the :> head")))
+
+(deftest props-slot-rule-rf2-e7zxb
+  (testing "rf2-e7zxb: `props-slot?` is the one named rule four call sites
+            share — nil or a map occupies the props slot, anything else is
+            the first child."
+    (is (true? (template/props-slot? nil)))
+    (is (true? (template/props-slot? {})))
+    (is (true? (template/props-slot? {:id "x"})))
+    (is (false? (template/props-slot? "x")))
+    (is (false? (template/props-slot? [:span])))
+    (is (false? (template/props-slot? 0)))
+    (is (false? (template/props-slot? :kw))))
+
+  (testing "an explicit nil props slot is a props slot, so children start
+            one later — the arm a past-the-end index also takes"
+    (let [^js el (template/as-element [:div nil "only-child"])]
+      (is (= "div" (.-type el)))
+      (is (= "only-child" (-> el .-props .-children))))
+    (let [^js el (template/as-element [:div "first" "second"])]
+      (is (= 2 (.-length (-> el .-props .-children)))
+          "a non-map slot is the first CHILD, not props"))))
+
 (deftest as-element-function-component-is-real-fn-component-rf2-bf4uw2
   (testing "rf2-bf4uw2: [:f> f] renders f as a REAL React FUNCTION
             component — NOT a class. The prior fn-to-class lowering

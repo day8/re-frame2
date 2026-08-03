@@ -765,10 +765,11 @@
   none — `(:key nil)` is nil, so the absence needs no branch.
 
   This is what an element constructor calls. Locating the props slot is
-  precisely what `hiccup-shape` has just done for it, so re-deriving the
-  slot from the head — `get-react-key`'s `nth`/`case` ladder below — is
-  work the hot path does not owe: 133.9 → 62.8 ns per element, the two
-  costed side by side on one run over the census page (rf2-lhdp0)."
+  precisely what the constructor's own `props-slot?` test has just done for
+  it, so re-deriving the slot from the head — `get-react-key`'s `nth`/`case`
+  ladder below — is work the hot path does not owe: 133.9 → 62.8 ns per
+  element, the two costed side by side on one run over the census page
+  (rf2-lhdp0)."
   [argv props]
   (or (some-> (meta argv) :key)
       (:key props)))
@@ -963,26 +964,36 @@
 ;; ---------------------------------------------------------------------------
 ;; Shared hiccup-shape detection
 ;;
-;; Five sites (native-element, fragment-element, emit-dom-vector,
-;; emit-fragment, plus the make-element consumer) ask the same shape
-;; question: "is the slot at `first-pos` a props map, and where do
-;; children start?" One helper, one shape — drift-proof.
+;; Four sites (native-element, fragment-element, and the server walker's
+;; emit-dom-vector / emit-fragment) ask the same shape question: "is the slot
+;; at `first-pos` a props map, and where do children start?"
+;;
+;; THE RULE IS THE SHARED THING; THE ARITHMETIC IS NOT (rf2-e7zxb). This was
+;; `hiccup-shape`, which answered all three parts at once and handed them back
+;; in a freshly minted `[head has-props first-child]` vector that every call
+;; site destructured and discarded — an allocation plus three `nth` calls per
+;; element, to carry two answers that are one expression each. Costed side by
+;; side on the census page's own 1,202 element vectors, the tuple read 85.3
+;; ns/element against 44.9 for the same three answers derived in place (0.53x;
+;; 0.49x and 0.49x on two further runs, so the sign is not a run artefact).
+;; Stock Reagent allocates nothing here.
+;;
+;; What could actually drift between four sites is the RULE — what counts as a
+;; props slot — so that is what keeps a name. `(nth argv first-pos nil)` and
+;; "children start one later if there was a props map" are self-evident at each
+;; site, and reading them there beats trusting the field order of a positional
+;; tuple.
 ;; ---------------------------------------------------------------------------
 
-(defn hiccup-shape
-  "Inspect `argv` starting at index `first-pos`. Returns a 3-element
-  vector `[head has-props? first-child]` where:
+(defn ^boolean props-slot?
+  "True when hiccup slot value `head` occupies the conventional props-map
+  position: nil, or a map. Anything else is the first CHILD.
 
-    - `head` is `(nth argv first-pos nil)`.
-    - `has-props?` is true when `head` is nil or a map (the
-      props-map slot is the conventional Reagent shape).
-    - `first-child` is the argv index where children begin
-      (`first-pos + 1` if a props map is present, else `first-pos`)."
-  [argv first-pos]
-  (let [head      (nth argv first-pos nil)
-        has-props (or (nil? head) (map? head))
-        first-child (+ first-pos (if has-props 1 0))]
-    [head has-props first-child]))
+  `head` is the slot VALUE — `(nth argv first-pos nil)` — not the vector, so
+  the `nil` arm covers both an explicit `[:div nil \"x\"]` and an index past
+  the end of the vector."
+  [head]
+  (or (nil? head) (map? head)))
 
 (defn- native-element
   "Emit a DOM element. `parsed` is the parsed HiccupTag; `argv` the
@@ -1006,11 +1017,13 @@
   DOM element downstream (§5.4's 'first hiccup vector with a DOM-tag
   head')."
   [^HiccupTag parsed argv first-pos]
-  (let [component (.-tag parsed)
-        [head has-props first-child] (hiccup-shape argv first-pos)
-        props     (cond-> (when has-props head)
-                    (and *source-coord* (string? component)) merge-source-coord-attr)
-        js-props  (or (convert-props props parsed) #js {})]
+  (let [component   (.-tag parsed)
+        head        (nth argv first-pos nil)
+        has-props   (props-slot? head)
+        first-child (+ first-pos (if has-props 1 0))
+        props       (cond-> (when has-props head)
+                      (and *source-coord* (string? component)) merge-source-coord-attr)
+        js-props    (or (convert-props props parsed) #js {})]
     ;; `props` IS the props slot `get-react-key` would go and re-derive, on
     ;; both routes here: a DOM tag enters at `first-pos` 1 and `:>` at 2,
     ;; which are exactly the two indices that ladder reads. (The source-coord
@@ -1121,10 +1134,12 @@
   `[:<> & children]` or `[:<> {:key k} & children]`. Props map (if
   present) is JS-converted; only `:key` is meaningful on Fragments."
   [argv]
-  (let [[head has-props first-child] (hiccup-shape argv 1)
-        js-props  (or (when (and has-props (some? head))
-                        (convert-prop-value head))
-                      #js {})]
+  (let [head        (nth argv 1 nil)
+        has-props   (props-slot? head)
+        first-child (if has-props 2 1)
+        js-props    (or (when (and has-props (some? head))
+                          (convert-prop-value head))
+                        #js {})]
     ;; The slot is in hand, so the rule is read directly — see `react-key`.
     (when-some [key (react-key argv (when has-props head))]
       (set! (.-key js-props) key))
@@ -1160,51 +1175,69 @@
                                        "vector a head tag (e.g. [:div …]).")
                      :recovery    :supply-a-head-tag})))
   (let [tag (nth argv 0 nil)]
-    (cond
-      ;; Interop heads — checked first so they don't get treated as
-      ;; user fns or DOM tags.
-      (= tag :>)  (interop-element argv)
-      (= tag :<>) (fragment-element argv)
-      (= tag :r>) (raw-element argv)
-      (= tag :f>) (function-element argv)
+    ;; The four interop heads are KEYWORD SENTINELS, and `case` is what says
+    ;; so — they are answered together, before anything can mistake one for a
+    ;; user fn or a DOM tag.
+    ;;
+    ;; `case` over all-keyword tests lowers to `(if (keyword? tag) (.-fqn tag)
+    ;; nil)` and a JS `switch` on that string, so the whole roster costs ONE
+    ;; keyword test and one constant-time dispatch. The ladder it replaces
+    ;; asked four `(= tag :>)`-shaped questions, and `cljs.core/=` falls
+    ;; through `identical?` to an `-equiv` protocol dispatch on a miss — which
+    ;; every DOM element, i.e. essentially every element, misses four times.
+    ;; Costed on the census page's own 1,202 heads: 191.3 ns/element for the
+    ;; ladder against 33.7 for the `case` (9.6 and 9.2 against 64.5 and 68.6
+    ;; on two further runs — the absolutes move with the box, the sign does
+    ;; not). rf2-e7zxb.
+    ;;
+    ;; The lowering is also why this is not merely an identity trick: the fqn
+    ;; switch answers a RECONSTRUCTED `(keyword ">")` exactly as `=` did, and
+    ;; still refuses the string `">"` and the symbol `'>`, which are DOM-tag
+    ;; heads and must fall through to `hiccup-tag?`.
+    (case tag
+      :>  (interop-element argv)
+      :<> (fragment-element argv)
+      :r> (raw-element argv)
+      :f> (function-element argv)
 
-      ;; DOM-tag head — keyword, symbol, or string.
-      (hiccup-tag? tag)
-      (native-element (cached-parse tag argv) argv 1)
+      (cond
+        ;; DOM-tag head — keyword, symbol, or string.
+        (hiccup-tag? tag)
+        (native-element (cached-parse tag argv) argv 1)
 
-      ;; Reagent / React class head — instantiate directly.
-      (component/reagent-class? tag)
-      (react-component-element tag argv)
+        ;; Reagent / React class head — instantiate directly.
+        (component/reagent-class? tag)
+        (react-component-element tag argv)
 
-      (component/react-class? tag)
-      (react-component-element tag argv)
+        (component/react-class? tag)
+        (react-component-element tag argv)
 
-      ;; Plain user fn head — wrap via fn-to-class for reactive
-      ;; subscription wiring.
-      (fn? tag)
-      (react-component-element tag argv)
+        ;; Plain user fn head — wrap via fn-to-class for reactive
+        ;; subscription wiring.
+        (fn? tag)
+        (react-component-element tag argv)
 
-      :else
-      ;; Canonical shape replicated inline (bundle isolation — see the
-      ;; empty-vector throw above for the rationale).
-      ;; EP-0015 (rf2-uwqale): the head + argv summarise into shape-only
-      ;; diagnostics — never the raw head/children. A bad-tag throw is
-      ;; captured by error boundaries / host logs before the projector can
-      ;; classify it, and the argv carries app-owned hiccup children that
-      ;; can hold sensitive/large values.
-      (throw (ex-info (str "Hiccup head " (pr-str (diag/value-summary tag))
-                           " is not a valid element head; use a keyword "
-                           "(DOM tag or :>/:<>/:r>/:f>), a Reagent component "
-                           "class, a React component class, or a fn. "
-                           "[:rf.error/template-bad-tag]")
-                      {:rf.error/id   :rf.error/template-bad-tag
-                       :where         'reagent2.template/as-element
-                       :reason        (str "Hiccup head must be a keyword (DOM tag "
-                                           "or :>/:<>/:r>/:f>), a Reagent component "
-                                           "class, a React component class, or a fn.")
-                       :recovery      :supply-a-valid-hiccup-head
-                       :tag/summary   (diag/value-summary tag)
-                       :argv/summary  (diag/value-summary argv)})))))
+        :else
+        ;; Canonical shape replicated inline (bundle isolation — see the
+        ;; empty-vector throw above for the rationale).
+        ;; EP-0015 (rf2-uwqale): the head + argv summarise into shape-only
+        ;; diagnostics — never the raw head/children. A bad-tag throw is
+        ;; captured by error boundaries / host logs before the projector can
+        ;; classify it, and the argv carries app-owned hiccup children that
+        ;; can hold sensitive/large values.
+        (throw (ex-info (str "Hiccup head " (pr-str (diag/value-summary tag))
+                             " is not a valid element head; use a keyword "
+                             "(DOM tag or :>/:<>/:r>/:f>), a Reagent component "
+                             "class, a React component class, or a fn. "
+                             "[:rf.error/template-bad-tag]")
+                        {:rf.error/id   :rf.error/template-bad-tag
+                         :where         'reagent2.template/as-element
+                         :reason        (str "Hiccup head must be a keyword (DOM tag "
+                                             "or :>/:<>/:r>/:f>), a Reagent component "
+                                             "class, a React component class, or a fn.")
+                         :recovery      :supply-a-valid-hiccup-head
+                         :tag/summary   (diag/value-summary tag)
+                         :argv/summary  (diag/value-summary argv)}))))))
 
 (defn as-element
   "Top-level hiccup → React element conversion.

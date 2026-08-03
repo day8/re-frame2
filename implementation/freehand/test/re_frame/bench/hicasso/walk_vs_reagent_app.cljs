@@ -793,17 +793,23 @@
 
 ;; --- the per-element hiccup-shape read (rf2-e7zxb) --------------------------
 ;;
-;; `hiccup-shape` answers three questions at once — the slot value, whether it
-;; is a props map, and where children begin — and hands them back in a freshly
-;; minted 3-element PersistentVector that every one of its four call sites
-;; destructures and discards. The destructure is three `nth` calls ON TOP of
-;; the allocation, and the two derived answers are one expression each.
+;; The pre-rf2-e7zxb `hiccup-shape` answered three questions at once — the slot
+;; value, whether it is a props map, and where children begin — and handed them
+;; back in a freshly minted 3-element PersistentVector that every one of its
+;; four call sites destructured and discarded. The destructure is three `nth`
+;; calls ON TOP of the allocation, and the two derived answers are one
+;; expression each. The `-inline` arm won and shipped; `props-slot?` is what
+;; kept a name, because the RULE is the thing four sites could drift on.
 ;;
 ;; Both arms fold the three values into ONE number, so the row prices the SHAPE
 ;; DERIVATION and not a tail that differs between them.
 
 (defn- slim-shape-ship [argv first-pos]
-  (let [[head has-props first-child] (slim/hiccup-shape argv first-pos)]
+  (let [[head has-props first-child]
+        (let [head        (nth argv first-pos nil)
+              has-props   (or (nil? head) (map? head))
+              first-child (+ first-pos (if has-props 1 0))]
+          [head has-props first-child])]
     (+ first-child (if has-props 100 0) (if (nil? head) 10000 0))))
 
 (defn- slim-shape-inline [argv first-pos]
@@ -814,14 +820,17 @@
 
 ;; --- the per-element head dispatch (rf2-e7zxb) ------------------------------
 ;;
-;; `vec-to-elem` asks four `(= tag :>)`-shaped questions before it reaches the
-;; `hiccup-tag?` branch that EVERY DOM element takes, and `cljs.core/=` falls
-;; through `identical?` to an `-equiv` protocol dispatch on a miss — so the
-;; common head pays four of them. `keyword-identical?` answers the same
-;; question with an `instance?` pair and an interned-string compare; `case` is
-;; the third shape. The three arms end identically so the row prices the
-;; DISPATCH, and the roster is `tags` — the page's own DOM heads, i.e. exactly
-;; the population that misses all four.
+;; The pre-rf2-e7zxb `vec-to-elem` asked four `(= tag :>)`-shaped questions
+;; before it reached the `hiccup-tag?` branch that EVERY DOM element takes, and
+;; `cljs.core/=` falls through `identical?` to an `-equiv` protocol dispatch on
+;; a miss — so the common head paid four of them. `keyword-identical?` answers
+;; the same question with an `instance?` pair and an interned-string compare;
+;; `case` over all-keyword tests lowers to ONE `(if (keyword? x) (.-fqn x) nil)`
+;; and a JS `switch`, which is both the cheapest of the three on every run and
+;; the one that says "these four heads are constants" structurally. `case`
+;; shipped. The three arms end identically so the row prices the DISPATCH, and
+;; the roster is `tags` — the page's own DOM heads, i.e. exactly the population
+;; that misses all four.
 
 (defn- ^boolean slim-hiccup-tag? [x]
   (or (keyword? x) (symbol? x) (string? x)))
