@@ -66,16 +66,17 @@
 
   One sentence carries it, and it is the positive form of the tripwire:
 
-  > **No render-phase code mutates the index or a subscription
+  > **No render-phase code mutates the cell table or a subscription
   > ref-count. The only global mutation is the commit's.**
 
       RENDERING   the body runs; reads append to ONE module-level scratch
                   array, reset unconditionally at the top of every body
       PENDING     the body returned; the scratch has been resolved to a
-                  cached read-set entry; the index is untouched
+                  cached read-set entry; the cell table is untouched
       COMMITTED   React called the entry's `subscribe`; the registration
-                  exists, the edges are installed, the cells are acquired
-      UNMOUNTED   React called the cleanup; edges and references released
+                  exists and sits in each read key's cell reader list —
+                  which is its edge and its reference, one membership
+      UNMOUNTED   React called the cleanup; every membership is removed
 
   An abandoned render is `PENDING → RENDERING`, and it needs no cleanup
   because it never did anything that would need cleaning. The scratch is
@@ -94,26 +95,27 @@
 
   **The replacement is `unmount-all` + `mount-all`, not a set difference,
   and it is worth being exact about that (rf2-2rtt6.47).** The clause
-  used to be discharged against `front.sub-index/record-reads`'s
-  difference — the operation `front/sub_index_laws_cljs_test` proves law
-  4 for. This wiring never takes its dropping half. A boundary id here is
-  the registration object minted inside [[make-subscribe]], so a changed
-  read set means a new entry, a new `subscribe`, a new registration and
-  therefore a new id; `index/mount!` installs `#{}` for it, and the
-  `record-reads!` that follows sees `held = #{}`, `added = the whole read
-  set`, `dropped = #{}` every single time. The narrowing is done by the
-  *previous* registration's cleanup calling `index/unmount!`, which drops
-  every edge outright. `the-wired-path-never-takes-the-diffs-dropping-half`
-  asserts that, so the claim is checkable rather than argued.
+  used to be discharged against a separate index namespace's
+  `record-reads` difference, and this wiring never took its dropping
+  half: a boundary id here is the registration object minted inside
+  [[make-subscribe]], so a changed read set means a new entry, a new
+  `subscribe` and therefore a new registration, whose held edge set is
+  empty by construction. Since rf2-dabt3 **there is no difference left to
+  take** — a registration installs itself in each acquired cell's reader
+  list and its cleanup removes itself from exactly those, which *is* the
+  wholesale replacement rather than a degenerate case of something more
+  general. `law-4-a-rerun-with-fewer-reads-drops-the-edges-it-stopped-reading`
+  proves the outcome against the fused doors.
 
   What the changed case therefore costs, for an `n`-read boundary with
-  one key different: `n` `release-cell!`s and up to `n` armed reapers,
-  one entry miss (a `.slice`, an `(into #{} ks)` and two closures), `n`
-  `acquire-cell!`s, one `mount!` and one `record-reads!` — two whole-map
-  rebuilds of `:sub->bs`. There is **no cheap route for \"19 of 20 keys
-  unchanged\"**, and a page whose rows change read set on a data change
-  pays it per row. That is the honest price and the thing to watch on the
-  bulk rows.
+  one key different: `n` membership removals and up to `n` armed reapers,
+  one entry miss (a `.slice`, an `(into #{} ks)` and two closures), and
+  `n` [[acquire-cell!]]s, each pushing one slot onto a cell's reader
+  list. There is **no cheap route for \"19 of 20 keys unchanged\"**, and a
+  page whose rows change read set on a data change pays it per row. That
+  is the honest price and the thing to watch on the bulk rows. What it no
+  longer includes is the pair of whole-map rebuilds of a second
+  process-global map that the separate index charged on the same commit.
 
   A durable per-boundary id would make the difference live, and it is
   **unavailable at this arm's fences rather than merely unbuilt**. It has
@@ -123,9 +125,9 @@
   into `subscribe` would mean `subscribe` closing over something other
   than the read set, which is what makes it a shared, identity-stable
   pure function of a value in the first place. Buying the diff costs the
-  two properties this arm exists to demonstrate, so it is not bought.
-  The difference stays in the shared front half — general, proved, and
-  driven in its degenerate form from here.
+  two properties this arm exists to demonstrate, so it is not bought —
+  and nothing needs it, because the subscribe/cleanup pair React already
+  performs is the whole operation.
 
   The ordered compare is a false-negative device and never a wrong
   answer: two renders that read the same keys in a different order miss
@@ -224,7 +226,7 @@
 
       write -> the sub layer's equality cutoff -> key-cell watch -> dirty set
         -> flush: epoch bump + generation bump
-        -> front.sub-index/commit! -> dirty boundary set
+        -> the dirty CELLS' own reader lists -> dirty boundary set
         -> registration notify (React's onStoreChange)
         -> React re-renders exactly those boundaries
         -> bodies re-run -> hiccup -> front.codec -> React reconciles
@@ -357,15 +359,14 @@
 
   No compiler and no analyzer: bodies are ordinary functions and hiccup
   is interpreted by the shared codec at runtime. No dual mode: one shell,
-  one index, one read path — the two HD-002 tiers differ in *where the
-  author writes the read*, not in the machinery underneath. No
+  one cell table, one read path — the two HD-002 tiers differ in *where
+  the author writes the read*, not in the machinery underneath. No
   ViewCell-class object graph. No candidate ledger. Codec caching is the
   only accelerant (HD-004); nothing here holds a node reference, plans a
   hole, or writes the DOM."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.front.sub-index :as index]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -474,20 +475,54 @@
               nil))
 
 ;; ---------------------------------------------------------------------------
-;; Key cells — one per unique (frame, query), shared by every reader,
-;; created and acquired ONLY at commit
+;; THE CELL TABLE — one cell per unique (frame, query), shared by every
+;; reader, created and acquired ONLY at commit; and, since rf2-dabt3, the
+;; dependency index itself
 ;; ---------------------------------------------------------------------------
 ;;
-;; The sub-key the index sees is `[frame-kw query-v]`. validation.md pins
-;; sub-key identity as `(query-id, args)` under value equality; qualifying
-;; it by frame is strictly finer, and it is the honest key for a runtime
-;; in which two frames are isolated contexts holding two different
-;; app-dbs. The pair is a value, so every index law reads it exactly as it
-;; reads a bare query vector.
+;; A sub-key is `[frame-kw query-v]`. validation.md pins sub-key identity
+;; as `(query-id, args)` under value equality; qualifying it by frame is
+;; strictly finer, and it is the honest key for a runtime in which two
+;; frames are isolated contexts holding two different app-dbs. The pair is
+;; a value, so every law below reads it exactly as it reads a bare query
+;; vector.
+;;
+;; ## The reverse edge lives on the cell (rf2-dabt3)
+;;
+;; This table used to run beside a second process-global structure — a
+;; `front.sub-index` holding `sub-key -> #{boundary}` and
+;; `boundary -> #{sub-key}` — and the two were keyed by the SAME B·R key
+;; space. Every read therefore paid two persistent map entries where the
+;; design needs one table, plus, at fan-out 1 (which is what the
+;; distinct-query ladder rung measures), a singleton `PersistentHashSet`
+;; per key whose whole job was to hold one pointer.
+;;
+;; So the readers moved onto the cell. `.-readers` is that key's reverse
+;; edge, and one slot in it is simultaneously **the boundary's edge on the
+;; key and its reference to the key's cell** — which is why the cell has
+;; no `refs` counter beside it: the reader list IS the count, and two
+;; records that must stay equal are one record that cannot drift. The
+;; forward edge needs no home either: [[make-subscribe]]'s registration
+;; already holds `.-reads`, the read-set entry's own key set, by
+;; reference.
+;;
+;; **No lookup got worse.** The dirty set was already a walk of the dirty
+;; keys' reader sets, and [[flush!]] already holds the dirty CELLS — it
+;; used to map `.-subKey` over them purely so the index could map them
+;; straight back. That round trip is what went away; the union is now
+;; taken directly off the cells in hand.
+;;
+;; The tournament is what makes this available. While two arms shared the
+;; front half, the index had to be a general, separately-testable algebra
+;; serving both; Arm 2 was withdrawn on 2026-07-31 and the sole surviving
+;; consumer owns the table (architecture.md §2).
 ;;
 ;; Cells are plain JS objects rather than a deftype on purpose: this is
 ;; the object the heap ladder prices per unique key, and a deftype would
 ;; add a constructor and a prototype to a structure with no behaviour.
+;; `.-readers` is a JS array for the same reason — at the fan-out this
+;; table actually sees, a `.push` and an `.indexOf` beat a persistent set
+;; and retain one object rather than a container per membership.
 
 (defonce ^:private !cells (atom {}))
 (defonce ^:private !dirty (volatile! #{}))
@@ -617,7 +652,8 @@
   a keyed reorder that unmounts and remounts a row within one turn reuses
   the reaction instead of rebuilding it."
   [^js cell]
-  (js/setTimeout (fn [] (when (and (zero? (.-refs cell)) (not (.-disposed cell)))
+  (js/setTimeout (fn [] (when (and (zero? (alength (.-readers cell)))
+                                   (not (.-disposed cell)))
                           (dispose-cell! cell)))
                  0)
   nil)
@@ -799,10 +835,17 @@
 
 (defn- acquire-cell!
   "**Commit-phase only.** Take (building if necessary) the durable
-  reference for `sub-key`, and attach the one watch that turns the sub
-  layer's equality cutoff into this arm's dirty set. Acquire without
-  deref: the render already knows the value."
-  [sub-key]
+  reference for `sub-key` on `reg`'s behalf, and attach the one watch
+  that turns the sub layer's equality cutoff into this arm's dirty set.
+  Acquire without deref: the render already knows the value.
+
+  Taking the reference and recording the edge are **one act**: `reg` is
+  pushed onto the cell's reader list, which is both the key's reverse
+  edge and its reference count (rf2-dabt3). A registration acquires each
+  key of its read SET exactly once, so a slot per reader is the whole
+  invariant and `.indexOf` in [[release-cell!]] cannot find the wrong
+  one."
+  [sub-key ^js reg]
   (let [^js cell (or (get @!cells sub-key)
                  (let [frame-kw (nth sub-key 0)
                        query-v  (nth sub-key 1)
@@ -823,7 +866,10 @@
                                      ;; post-subscribe re-check corrects
                                      ;; the boundary. rf2-2rtt6.42.
                                      "epoch"    (commit-basis frame-kw)
-                                     "refs"     0
+                                     ;; The key's reverse edge AND its
+                                     ;; reference count, in one array —
+                                     ;; see the section header.
+                                     "readers"  #js []
                                      "disposed" false}]
                    ;; ONE baseline deref, at construction, before the watch.
                    ;;
@@ -860,12 +906,57 @@
                    (wire-cell! fresh)
                    (swap! !cells assoc sub-key fresh)
                    fresh))]
-    (set! (.-refs cell) (inc (.-refs cell)))
+    (.push (.-readers cell) reg)
     cell))
 
-(defn- release-cell! [^js cell]
-  (set! (.-refs cell) (dec (.-refs cell)))
-  (when (<= (.-refs cell) 0) (arm-cell-reaper! cell))
+(defn- release-cell!
+  "Drop `reg`'s membership — its edge on this key and its reference to
+  this key's cell, which are one slot. A cell whose last reader leaves is
+  handed to the reaper."
+  [^js cell ^js reg]
+  (let [readers (.-readers cell)
+        i       (.indexOf readers reg)]
+    (when (<= 0 i) (.splice readers i 1))
+    (when (zero? (alength readers)) (arm-cell-reaper! cell)))
+  nil)
+
+;; ---------------------------------------------------------------------------
+;; The evidence sink seam (HD-005)
+;; ---------------------------------------------------------------------------
+;;
+;; Two lines — a holder and a setter — so dev tooling can attach to the
+;; dependency edges later with no redesign. It moved here from the retired
+;; `front.sub-index` unchanged in shape: the `:edges-changed` and `:commit`
+;; events keep their keys, so anything written against the seam attaches to
+;; the fused table without being rewritten.
+;;
+;; Detached cost is one deref and one nil test at each of the two tap
+;; points, and **that is a literal count, which it only is because the nil
+;; test is the outermost form at each tap point**: nothing the sink would
+;; have been handed gets built when there is no sink. A third line used to
+;; own that check — a private `evidence!` the tap points called with the
+;; event already constructed — and the indirection is what hid the cost,
+;; charging the detached path one event map per boundary per commit and one
+;; per commit, garbage the moment it was made and so invisible to a
+;; retained-heap ladder (rf2-e3i6y). Factoring the guard back out restores
+;; the claim's falsity, which is why it reads as duplication and stays.
+;;
+;; Fusing the index in moved one more allocation behind the guard
+;; (rf2-dabt3): [[flush!]]'s `(into #{} (map .-subKey) dirty)` used to be
+;; built unconditionally because the index's `commit!` took sub-keys, and
+;; the cells were mapped straight back. The dirty set is now taken off the
+;; cells in hand, so that set is evidence-only and is built only when a
+;; sink is listening.
+;;
+;; **No evidence subsystem ships**: no manifest, no registry, no buffering,
+;; and the sink is nil until something sets it.
+
+(defonce ^:private !evidence-sink (atom nil))
+
+(defn set-evidence-sink!
+  "Attach (or with nil, detach) the evidence sink."
+  [f]
+  (reset! !evidence-sink f)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -876,10 +967,21 @@
   (doseq [^js r registrations]
     (when-some [n (.-notify r)] (n))))
 
+(defn- dirty-readers
+  "The boundaries a commit must re-run: the union of the dirty cells' own
+  reader lists.
+
+  Laws 5 and 6 in one expression. It is a union, so a boundary reading two
+  dirty keys is notified once; and a key nothing holds has no cell, so it
+  is not in `dirty` at all and contributes no phantom reader — a dirty set
+  made entirely of unread keys is empty rather than everything."
+  [dirty]
+  (reduce (fn [acc ^js c] (into acc (.-readers c))) #{} dirty))
+
 (defn flush!
-  "Turn the dirty sub-key set into re-render work: bump each dirty key's
-  epoch, bump the generation, ask the index which boundaries read those
-  keys, and hand each one React's own `onStoreChange`.
+  "Turn the dirty cell set into re-render work: bump each dirty key's
+  epoch, bump the generation, union the dirty cells' readers, and hand
+  each one React's own `onStoreChange`.
 
   Notifications are deferred to a macrotask when a body is running: an
   `onStoreChange` fired from inside somebody's render is a render-phase
@@ -898,7 +1000,11 @@
       ;; the frame's install epoch never falls, so the new stamp is
       ;; above the one this cell last carried.
       (doseq [^js c dirty] (set! (.-epoch c) (commit-basis (.-frameKw c))))
-      (let [boundaries (index/commit! (into #{} (map (fn [^js c] (.-subKey c))) dirty))]
+      (let [boundaries (dirty-readers dirty)]
+        (when-some [sink @!evidence-sink]
+          (sink {:event            :commit
+                 :dirty-subs       (into #{} (map (fn [^js c] (.-subKey c))) dirty)
+                 :dirty-boundaries boundaries}))
         (if (rendering?)
           (do (vswap! !deferred into boundaries)
               (js/setTimeout (fn []
@@ -1256,35 +1362,44 @@
   "React's `subscribe`, as a pure function of the read set.
 
   **The only global mutation in the state machine.** The boundary's
-  registration is minted from React's own `onStoreChange`, the index
-  learns the boundary and its edges, and each key takes its committed
-  reference. The returned cleanup is the exact inverse and is the only
-  place edges and references are released, so teardown is symmetric with
-  mount whatever React did with the renders in between.
+  registration is minted from React's own `onStoreChange` and installs
+  itself in each read key's cell as a reader — which is that key's
+  reverse edge and the boundary's reference to it, one slot rather than
+  two records. The returned cleanup is the exact inverse and is the only
+  place memberships are released, so teardown is symmetric with mount
+  whatever React did with the renders in between.
 
   The registration holds exactly the cells it acquired, so its cleanup
   cannot release a successor's after a reap and rebuild.
 
+  **The forward edge needs no home**: `.-reads` on the registration IS
+  it — the entry's own key set, shared by reference and never copied, so
+  the fused table stores the reverse edge and nothing else (rf2-dabt3).
+
   **The registration is also the boundary id, and that is what makes the
-  index's edge diff degenerate here** — a fresh id every time, so
-  `record-reads!` always adds the whole read set against an empty held
-  set and never drops anything. A read-set change is this cleanup
-  followed by a fresh call to a different entry's `subscribe`: the
-  edge-set replacement in full, done by the pair rather than by a
-  difference. See the ns docstring, clause (b)."
+  replacement wholesale here** — a fresh id every time, so a read-set
+  change is this cleanup followed by a fresh call to a different entry's
+  `subscribe`: the edge-set replacement in full, done by the pair. See
+  the ns docstring, clause (b).
+
+  **Abandoned renders are safe structurally rather than by a guard.** The
+  retired index needed a liveness check in `record-reads` so a stale
+  body run could not resurrect an unmounted boundary's edges; here there
+  is no render-phase write to guard, because the only write is inside
+  this closure and React calls it at commit and nowhere else."
   [^js entry]
   (fn subscribe [on-store-change]
     (let [reads (.-set entry)
           ^js reg #js {"reads" reads "notify" on-store-change}
-          cells (mapv acquire-cell! reads)]
+          cells (mapv (fn [sub-key] (acquire-cell! sub-key reg)) reads)]
       (unchecked-set reg "cells" cells)
-      (index/mount! reg)
-      (index/record-reads! reg reads)
+      (when-some [sink @!evidence-sink]
+        (when (seq reads)
+          (sink {:event :edges-changed :boundary reg :added reads :dropped #{}})))
       (set! (.-refs entry) (inc (.-refs entry)))
       (fn unsubscribe []
         (set! (.-notify reg) nil)
-        (index/unmount! reg)
-        (doseq [cell cells] (release-cell! cell))
+        (doseq [cell cells] (release-cell! cell reg))
         (set! (.-refs entry) (dec (.-refs entry)))
         (when (<= (.-refs entry) 0) (arm-entry-reaper! entry))
         nil))))
@@ -1595,11 +1710,9 @@
   []
   {:per-boundary
    [{:token :registration
-     :what  "one JS object: the read set (shared with its entry), React's onStoreChange, and the acquired cell vector"}
-    {:token :index/b->subs
-     :what  "one map entry holding this boundary's read set — and, since rf2-ixb92, the index's ONLY record that the boundary is live; there is no separate :live membership beside it"}
-    {:token :index/sub->bs
-     :what  "one membership per edge in each read key's reader set"}
+     :what  "one JS object: the read set (shared with its entry, never copied — and since rf2-dabt3 this IS the forward edge, so no map holds a second copy of it), React's onStoreChange, and the acquired cell vector"}
+    {:token :cell/reader-membership
+     :what  "one slot in each read key's cell-local reader list — the key's reverse edge and this boundary's reference to the key's cell, which are ONE membership since rf2-dabt3. It replaces the retired index's :index/b->subs entry, its :index/sub->bs membership, and the singleton reader SET the second map retained per key at fan-out 1"}
     {:token :react/use-sync-external-store
      :what  "React's own hook cell for the one subscription hook"}
     {:token :react/use-context
@@ -1610,7 +1723,7 @@
      :what  "one key array, key SET, subscribe and getSnapshot per distinct read SEQUENCE — shared ONLY with boundaries whose sequence is identical, so on the distinct-query rung the ladder is taken on there is one per boundary"}]
    :shared
    [{:token :key-cell
-     :what  "one cell + one sub-cache reaction per unique (frame, query), however many boundaries read it"}
+     :what  "one cell + one sub-cache reaction + one reader ARRAY per unique (frame, query), however many boundaries read it — the array is the one container the fusion retains, in place of a persistent map entry AND a persistent set per key"}
     {:token :scratch
      :what  "ONE module-level array for the whole runtime, reset by overwrite; its capacity is the high-water read count"}
     {:token :frame-ops
@@ -1635,15 +1748,46 @@
   [sub-key]
   (some-> ^js (get @!cells sub-key) (.-reaction)))
 
+(defn cell-readers
+  "The registrations currently reading `sub-key` — the cell's own reader
+  list, which is the whole of the fused table's reverse edge.
+
+  A witness reader, answered as a vector so a caller cannot mutate the
+  live list. It replaces the retired index's `readers-of`, and it is what
+  the reader-counting rows assert against."
+  [sub-key]
+  (if-some [^js c (get @!cells sub-key)]
+    (vec (.-readers c))
+    []))
+
+(defn boundary-reads
+  "The sub-key set `reg` reads — the fused table's `edges-of`.
+
+  It is a field read rather than a lookup, and that is the point: the
+  forward edge was always on the registration (`.-reads`, the read-set
+  entry's own key set, shared by reference), which is why retiring the
+  index cost no structure (rf2-dabt3)."
+  [^js reg]
+  (.-reads reg))
+
 (defn stats
   "What the witnesses read: live cells, live boundaries, cached read-set
-  entries, the generation, and the codec caches."
+  entries, the generation, and the codec caches.
+
+  `:cell-refs` and `:edges` are **one number**, counted once, because one
+  reader slot is both the reference and the edge — the fusion, stated in
+  the instrument rather than argued in a docstring. `:boundaries` counts
+  the distinct registrations holding at least one such slot; a boundary
+  whose body read nothing retains nothing in this table, so it is
+  correctly absent (its read-set entry is still counted by `:entries`)."
   []
-  (let [idx (index/snapshot)]
-    {:cells      (count @!cells)
-     :cell-refs  (reduce-kv (fn [acc _ ^js c] (+ acc (.-refs c))) 0 @!cells)
-     :boundaries (count (:b->subs idx))
-     :edges      (reduce + 0 (map (fn [[_ v]] (count v)) (:b->subs idx)))
+  (let [cells       @!cells
+        memberships (reduce-kv (fn [acc _ ^js c] (+ acc (alength (.-readers c)))) 0 cells)
+        boundaries  (reduce-kv (fn [acc _ ^js c] (into acc (.-readers c))) #{} cells)]
+    {:cells      (count cells)
+     :cell-refs  memberships
+     :edges      memberships
+     :boundaries (count boundaries)
      :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @!entries))
      :generation (generation)
      :frames     (count @!frame-ops)
@@ -1665,7 +1809,9 @@
 (defn residue
   "What must be zero after a clean teardown. `:cell-refs` is the standing
   zero-leaked-subscription-ref-counts assertion; `:boundaries` and
-  `:edges` are the index's half of it."
+  `:edges` are the dependency edges' half of it — now read off the same
+  memberships, which is why a leak cannot show in one and hide in the
+  other."
   []
   (select-keys (stats) [:cells :cell-refs :boundaries :edges :entries]))
 
@@ -1687,6 +1833,5 @@
   (set! (.-frame rstate) nil)
   (set! (.-probe rstate) nil)
   (set! (.-length scratch) 0)
-  (index/reset-index!)
   (forget-frame-ops!)
   nil)
