@@ -5,22 +5,32 @@
 own driver over three re-frame2 arms — Reagent-on-subs, UIx-on-subs and Hicasso
 Arm 1, sharing one model and building byte-identical DOM — an instrument this
 programme did not write reads the candidate's mount at **1.1756× Reagent**
-against our published **1.2107×**, and reads the contested `UIx / Reagent`
-bulk-broad comparison at **0.9740× — parity**, against a published **0.6291×**
-that claimed a 37% win.
+against **1.2789×** from our own clock on the same app, the same operation and
+the same DOM — an **8.8%** instrument gap with a named mechanism, and that
+like-for-like pair is the corroboration this page has. It reads the contested
+`UIx / Reagent` bulk-broad comparison at **0.9740× — parity**, against a
+published **0.6291×** that claimed a 37% win.
 
-That second number is the one that matters, because it is now the **third**
-reading of that row taken past the `flushSync` boundary and the third to refuse
-the win: this benchmark reads `0.9740×`, our own clock method on this benchmark's
-app reads `1.1401×`, and
-[the in-page audit](https://github.com/day8/re-frame2/pull/7357) read `1.0509×`.
-Three instruments, two of them ours and one of them nobody's here, none
-reproducing a 37% win.
+**The comparison this page originally led with — `1.1756×` against our published
+`1.2107×` — is withdrawn, because those are two different clocks.** `1.2107×` is
+`taskNet` on the `page.evaluate` harness, which subtracts the operation's own
+script and is therefore frame-**only** (`rf2-yd52q`); every figure on *this* page
+is script **and** frame. On the candidate's own witness the corrected clock reads
+**1.4896×**, so the mount deficit is **worse** than the figure this page was read
+as corroborating rather than equal to it within 20%. What survives — and it is
+the stronger claim — is that an outside driver and ours agree to 8.8% on one app
+on one clock, so the deficit is not a harness artefact.
 
-**The three are not all on the same clock, and this page originally said they
-were.** Both of *this page's* readings are script-and-frame; the audit's
-`1.0509×` is frame-**only** and is superseded by `0.8602×`. Which is which, and
-why this page's own figures need no correction, is [§0](#0-which-clock-produced-which-number-rf2-emvod).
+The bulk number is the one that matters most, because it is the **third** reading
+of that row taken past the `flushSync` boundary and the third to refuse the win:
+this benchmark reads `0.9740×`, our own clock method on this benchmark's app
+reads `1.1401×`, and
+[the in-page audit](https://github.com/day8/re-frame2/pull/7357) read `1.0509×`
+— that last one frame-**only**, and superseded by `0.8602×`. Three instruments,
+two of them ours and one of them nobody's here, none reproducing a 37% win.
+
+Which reading is on which clock, and why this page's own figures need no
+correction at all, is [§0](#0-which-clock-produced-which-number-rf2-emvod).
 
 Owner: `rf2-rguy1`. The bar and the kill criteria live on `rf2-2rtt6.1`.
 
