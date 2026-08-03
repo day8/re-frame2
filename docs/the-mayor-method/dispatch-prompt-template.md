@@ -107,11 +107,20 @@ none of them is obvious from the gate command itself.
   status is its *last* command's, so a red runner reads green and the PR claims
   a pass it never got. Redirect to a log file, echo the runner's own exit code
   explicitly, and quote that number in the PR body.
-- **Put the log somewhere git ignores** — `*.log` already is. An untracked
-  leftover (`bench-logs/`, `PRBODY.md`, `g-fastpr-exit.txt`) makes
-  `git worktree remove` refuse the tree from then on, and nine worktrees
-  accumulated exactly that way before anyone worked out why they would not
-  reap. Cheapest fix is to not create the residue.
+- **Put *every* gate artefact where git ignores it** — the log and the exit-code
+  file both. `*.log`, `*.exit` and `*-exit.txt` all are, so this leaves nothing
+  behind:
+
+  ```bash
+  sh scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
+  ```
+
+  Saying only "put the log somewhere ignored" is the trap: a worker satisfies it
+  and still strands the exit file, which for a while was itself untracked. One
+  leftover is enough — `bench-logs/`, `PRBODY.md`, an unignored exit file — and
+  `git worktree remove` refuses the tree from then on. Nine worktrees
+  accumulated exactly that way before anyone worked out why they would not reap.
+  Cheapest fix is to not create the residue.
 
 ## Choosing solo vs cluster
 
