@@ -431,7 +431,9 @@ async function main() {
     await gc();
     await cdp.send('HeapProfiler.startSampling', { samplingInterval: 4096 });
     const pre = await readCdp();
-    const r = await page.evaluate(
+    // The run's return value is not read here — `readCdp()` above and below is
+    // what this sampler measures — but the call itself is the workload.
+    await page.evaluate(
       ([a, k, w]) => window.B8.run(a, k, w),
       ['freehand-interpreted', kind, n]
     );

@@ -31,7 +31,6 @@ const fs = require('fs');
 const path = require('path');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 const {
-  TOKEN_FILE_BASENAME,
   createHarnessCleanup,
   publishOwnershipToken,
   resolveServePort,

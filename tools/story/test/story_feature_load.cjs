@@ -44,7 +44,7 @@ const NAV_TIMEOUT_MS = 30000;
  *                  declared-out-of-scope rather than running a probe that
  *                  would not exercise the named feature.
  *
- * To add a new MATRIX_FEATURES row, append to `COVERAGE_MATRIX` with the
+ * To add a new coverage row, append to `COVERAGE_MATRIX` with the
  * right kind. Never wire a probe whose body does not exercise the row's
  * feature — demote to 'owned-by' instead and name the owning gate.
  */
@@ -1222,10 +1222,8 @@ const COVERAGE_MATRIX = [
       // Until the migration is merged the scenario is skipped with a
       // visible `console.warn` rather than blocking every subsequent
       // PR's Browser gate.
-      // eslint-disable-next-line no-console
       console.warn('SKIP: reg-variant scenario · migrating to CLJS unit per rf2-8awk1');
       return;
-      /* eslint-disable no-unreachable */
     },
   },
   {
@@ -1536,8 +1534,6 @@ const COVERAGE_MATRIX = [
     why: 'fingerprint drift detection needs a registration mutation under a watch driver; the feature-load gate has no hook for live re-registration, so any browser-only probe would be a smoke test of an unrelated surface.',
   },
 ];
-
-const MATRIX_FEATURES = COVERAGE_MATRIX.map((row) => row.feature);
 
 function validateCoverageMatrix() {
   const seen = new Set();

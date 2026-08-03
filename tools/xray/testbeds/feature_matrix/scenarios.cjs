@@ -180,10 +180,6 @@ const STAGED_SURFACES = [
   },
 ];
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function openXray(page) {
   if ((await page.locator('[data-testid="rf-xray-shell"]').count()) === 0) {
     await page.keyboard.press('Control+Shift+C');
@@ -973,14 +969,6 @@ async function expectTraceContainsAll(page, checks) {
       throw new Error(`Trace did not contain ${label}; patterns checked against ${events.length} events.`);
     }
   }
-}
-
-async function expectNumericTextAtLeast(locator, min, timeoutMs = 5000) {
-  await waitForValue(
-    async () => Number(((await locator.textContent()) || '').trim()),
-    (value) => Number.isFinite(value) && value >= min,
-    { timeoutMs, description: `numeric text >= ${min}` },
-  );
 }
 
 async function readHostCounter(page) {
@@ -1895,24 +1883,6 @@ async function runDeepMachine(page, state) {
   state.deepMachine.chartProjection = chartProjection;
 }
 
-async function runAppDbPrivacyLarge(page) {
-  await openXray(page);
-  await clearTrace(page);
-
-  for (const id of [
-    'toggle-theme',
-    'toggle-notifications',
-    'add-cart-item',
-    'bump-first-item-qty',
-    'register-new-sku',
-    'revoke-write-and-collapse',
-  ]) {
-    await clickTestId(page, id);
-  }
-  await clickSidebar(page, 'app-db', 'rf-xray-app-db-diff');
-  await expectVisible(page.locator('[data-testid="rf-xray-app-db-diff"]'), 5000);
-}
-
 async function runLargeDispatcher(page, state) {
   await openXray(page);
   await clearTrace(page);
@@ -2166,127 +2136,6 @@ async function runLaunchModesTwentyEventLoad(page, state) {
       after,
     });
   }
-}
-
-// Deepened coverage of the Config (Spec 015) surface. The lightweight
-// chrome smokes cover inline auto-mount + the Ctrl+Shift+C toggle + the
-// editor/project-root config round-trip. This scenario pins the
-// `configure!` multi-key map + partial-update semantics: a single call
-// carrying five keys round-trips every key; a second call carrying only
-// one key leaves the other four slots untouched.
-async function runConfigurePartialUpdate(page, state) {
-  await expectHostCounterEquals(page, 5, 10000);
-  await openXray(page);
-
-  const configureVerify = await page.evaluate(() => {
-    const cljs = window.cljs && window.cljs.core;
-    const cfg  = window.day8 && window.day8.re_frame2_xray &&
-                 window.day8.re_frame2_xray.config;
-    if (!cljs || !cfg) return { ok: false, reason: 'no config' };
-    if (typeof cfg.configure_BANG_ !== 'function') {
-      return { ok: false, reason: 'configure_BANG_ missing' };
-    }
-    // Two-arg keyword constructor: kw(ns, n) → :ns/n. Every configure!
-    // key lives under :rf.xray/* or :rf.privacy/* (cross-tool privacy).
-    const kw = (ns, n) => (cljs.keyword.call
-      ? cljs.keyword.call(null, ns, n)
-      : cljs.keyword(ns, n));
-    const eq = cljs._EQ_;
-    const issues = [];
-
-    // Snapshot pre-state so we can restore exactly.
-    const preEditor       = cfg.get_editor();
-    const preProjectRoot  = cfg.get_project_root();
-    const preLayoutHost   = cfg.get_layout_host_selector();
-    const preAutoOpen     = cfg.auto_open_enabled_QMARK_();
-    const preEgressProf   = cfg.get_egress_profile();
-    const localRaw        = kw('rf.egress', 'local-raw');
-
-    // Multi-key configure — every slot round-trips in one call.
-    const opts1 = cljs.PersistentArrayMap.fromArray([
-      kw('rf.xray', 'editor'),                cljs.keyword('idea'),
-      kw('rf.xray', 'project-root'),          '/tmp/probe-multi-key',
-      kw('rf.xray', 'layout-host-selector'),  '#rf2-qd5r6-probe-host',
-      kw('rf.xray', 'auto-open?'),            false,
-      kw('rf.xray', 'egress-profile'),        localRaw,
-    ], true, false);
-    cfg.configure_BANG_(opts1);
-
-    if (!eq(cfg.get_editor(), cljs.keyword('idea'))) {
-      issues.push(`:rf.xray/editor after multi-key configure expected :idea; got ${cljs.pr_str(cfg.get_editor())}`);
-    }
-    if (cfg.get_project_root() !== '/tmp/probe-multi-key') {
-      issues.push(`:rf.xray/project-root expected '/tmp/probe-multi-key'; got ${cfg.get_project_root()}`);
-    }
-    if (cfg.get_layout_host_selector() !== '#rf2-qd5r6-probe-host') {
-      issues.push(`:rf.xray/layout-host-selector expected probe host; got ${cfg.get_layout_host_selector()}`);
-    }
-    if (cfg.auto_open_enabled_QMARK_() !== false) {
-      issues.push(`:rf.xray/auto-open? expected false; got ${cfg.auto_open_enabled_QMARK_()}`);
-    }
-    if (!eq(cfg.get_egress_profile(), localRaw)) {
-      issues.push(`:rf.xray/egress-profile expected :rf.egress/local-raw; got ${cljs.pr_str(cfg.get_egress_profile())}`);
-    }
-
-    // Partial-update — second configure with ONLY :rf.xray/editor
-    // leaves every other slot untouched.
-    const opts2 = cljs.PersistentArrayMap.fromArray([
-      kw('rf.xray', 'editor'), cljs.keyword('zed'),
-    ], true, false);
-    cfg.configure_BANG_(opts2);
-    if (!eq(cfg.get_editor(), cljs.keyword('zed'))) {
-      issues.push(`:rf.xray/editor after partial configure expected :zed; got ${cljs.pr_str(cfg.get_editor())}`);
-    }
-    if (cfg.get_project_root() !== '/tmp/probe-multi-key') {
-      issues.push(`:rf.xray/project-root regressed on partial configure; got ${cfg.get_project_root()}`);
-    }
-    if (cfg.get_layout_host_selector() !== '#rf2-qd5r6-probe-host') {
-      issues.push(`:rf.xray/layout-host-selector regressed on partial configure; got ${cfg.get_layout_host_selector()}`);
-    }
-    if (cfg.auto_open_enabled_QMARK_() !== false) {
-      issues.push(`:rf.xray/auto-open? regressed on partial configure; got ${cfg.auto_open_enabled_QMARK_()}`);
-    }
-    if (!eq(cfg.get_egress_profile(), localRaw)) {
-      issues.push(`:rf.xray/egress-profile regressed on partial configure; got ${cljs.pr_str(cfg.get_egress_profile())}`);
-    }
-
-    // set-auto-open!(null) round-trips to the default true.
-    cfg.set_auto_open_BANG_(null);
-    if (cfg.auto_open_enabled_QMARK_() !== true) {
-      issues.push(`set-auto-open!(null) expected reset to true; got ${cfg.auto_open_enabled_QMARK_()}`);
-    }
-    cfg.set_auto_open_BANG_(false);
-    if (cfg.auto_open_enabled_QMARK_() !== false) {
-      issues.push(`set-auto-open!(false) expected false; got ${cfg.auto_open_enabled_QMARK_()}`);
-    }
-
-    // set-layout-host-selector!(null) resets to the default selector.
-    cfg.set_layout_host_selector_BANG_(null);
-    if (cfg.get_layout_host_selector() !== '[data-rf-xray-host]') {
-      issues.push(`set-layout-host-selector!(null) expected '[data-rf-xray-host]'; got ${cfg.get_layout_host_selector()}`);
-    }
-
-    // Restore pre-state. Narrowing the egress profile :rf.egress/local-raw
-    // → redacting default triggers the trace-bus retroactive scrub per
-    // Spec 009 §Privacy; that's expected and not visible here.
-    cfg.set_editor_BANG_(preEditor);
-    cfg.set_project_root_BANG_(preProjectRoot);
-    cfg.set_layout_host_selector_BANG_(preLayoutHost);
-    cfg.set_auto_open_BANG_(preAutoOpen);
-    cfg.set_egress_profile_BANG_(preEgressProf);
-
-    return { ok: true, issues };
-  });
-  if (!configureVerify.ok) {
-    failWithDetails(`Could not run configure! probe: ${configureVerify.reason}`, {});
-  }
-  if (configureVerify.issues.length > 0) {
-    failWithDetails(
-      'configure! multi-key + partial-update failures',
-      { issues: configureVerify.issues },
-    );
-  }
-  state.configureProbe = { ok: true };
 }
 
 // Static-mode browser scenario.

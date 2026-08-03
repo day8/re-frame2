@@ -61,9 +61,7 @@
 // drift across the run cancels to first order; and a per-round seam figure
 // is published so a reader can see what did not cancel.
 
-const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const path = require('node:path');
 
 const { chromium } = require('playwright');
 

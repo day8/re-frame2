@@ -28,7 +28,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { decodeDedupEnvelope, DEDUP_TABLE_KEY, ROOT_CACHE_ID, CACHE_NS_PREFIX } =
+const { decodeDedupEnvelope, DEDUP_TABLE_KEY, CACHE_NS_PREFIX } =
   require('../lib/dedup-envelope.cjs');
 
 // Build a cache id string for entry N (`de-dupe.cache/cache-N`).

@@ -3,7 +3,6 @@
  * and runs the files together without booting either MCP server. */
 'use strict';
 
-const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { TESTS, ROOT } = require('./test-all.cjs');

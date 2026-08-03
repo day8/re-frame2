@@ -16,7 +16,6 @@ const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
-const os = require('node:os');
 const crossSpawn = require('cross-spawn');
 const {
   resolveTrustedExe,
@@ -809,8 +808,6 @@ function runTrusted(name, args, cwd) {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
     });
-    let stdout = '';
-    let stderr = '';
     let settled = false;
     let childExited = false;
     let timedOut = false;
@@ -877,14 +874,13 @@ function runTrusted(name, args, cwd) {
     }, SETUP_COMMAND_TIMEOUT_MS);
     timer.unref();
 
-    child.stdout.on('data', (d) => {
-      stdout += String(d);
-      recordChunk(`[${name}:stdout] `, d);
-    });
-    child.stderr.on('data', (d) => {
-      stderr += String(d);
-      recordChunk(`[${name}:stderr] `, d, 'stderr');
-    });
+    // `recordChunk` is the only consumer — the setup child's output is
+    // streamed to the run log, never re-read as a whole. The two `stdout` /
+    // `stderr` string accumulators that used to sit alongside these calls were
+    // appended to on every chunk and read by nothing, so a chatty setup
+    // command grew them for the life of the promise to no purpose.
+    child.stdout.on('data', (d) => recordChunk(`[${name}:stdout] `, d));
+    child.stderr.on('data', (d) => recordChunk(`[${name}:stderr] `, d, 'stderr'));
     child.on('error', (err) => settle(reject, err));
     child.on('exit', (code, signal) => {
       // Record the exit so the timeout path's awaited grace
