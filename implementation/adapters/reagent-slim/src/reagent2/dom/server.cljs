@@ -747,7 +747,9 @@
   (let [head      (nth argv 0 nil)
         parsed    (template/parse-tag head argv)
         tag-str   (.-tag parsed)
-        [first-arg has-props children-pos] (template/hiccup-shape argv 1)
+        first-arg  (nth argv 1 nil)
+        has-props  (template/props-slot? first-arg)
+        children-pos (if has-props 2 1)
         user-attrs (when (and has-props (some? first-arg)) first-arg)
         attrs      (merge-shorthand parsed user-attrs)
         n          (count argv)
@@ -782,8 +784,8 @@
 (defn- emit-fragment
   "Emit a `:<>` fragment — children only, no surrounding markup."
   [^StringBuffer sb argv]
-  (let [n         (count argv)
-        [_head _has-props children-pos] (template/hiccup-shape argv 1)]
+  (let [n            (count argv)
+        children-pos (if (template/props-slot? (nth argv 1 nil)) 2 1)]
     (when (< children-pos n)
       (emit-children sb (subvec argv children-pos)))))
 
