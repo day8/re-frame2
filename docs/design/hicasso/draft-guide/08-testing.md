@@ -28,8 +28,8 @@ function anywhere in the tree performs one, so read the block below as the shape
 that is ruled rather than a test you can write this afternoon:
 
 ```clojure
-;; SKETCH — h/render does not exist. HD-021's ruled semantics, spelled by
-;; this guide so the shape is visible.
+;; SKETCH — h/render does not exist, and its spelling is [unfrozen] besides.
+;; HD-021's ruled semantics, spelled by this guide so the shape is visible.
 (deftest todo-row-renders-title
   (let [tree (h/render [todo-row {:id 7}]
                        {:subs {[:todo/by-id 7]      {:title "Buy milk"}
