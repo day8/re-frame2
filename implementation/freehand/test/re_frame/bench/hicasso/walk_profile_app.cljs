@@ -409,9 +409,15 @@
         children   (codec/realize-children argv (if has-props? 2 1))
         body-props (codec/realize-deep (cond-> (dissoc props :key)
                                          children (assoc :children children)))
+        head       (nth argv 0)
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    (walk-create mode (nth argv 0) js-props)))
+    ;; The frame-as-a-prop variant's one emission cost (rf2-2rtt6.39).
+    ;; Priced at nothing on THIS page — the census counts zero boundaries
+    ;; — and copied anyway, so the arm stays a copy of what ships.
+    (when (codec/frame-prop-head? head)
+      (unchecked-set js-props "rfFrame" intent/*frame*))
+    (walk-create mode head js-props)))
 
 (defn- walk-fragment [mode argv]
   (let [has-props? (map? (nth argv 1 nil))
