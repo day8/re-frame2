@@ -37,6 +37,21 @@
   beside it on the same frame changes behaviour with the pin. That is the
   measurement that licenses every row after it to say \"React\" and mean it.
 
+  ## AND THE PIN GOES BACK WHERE THE ADAPTER PUT IT
+
+  Since rf2-heqwo, `re-frame.adapter.uix` `set!`s the var to `false` at
+  LOAD, so a re-frame2 UIx app no longer runs the classpath sniff at all.
+  `cljs.test` runs every namespace in ONE shared JS runtime, so a row here
+  that cleared the pin and walked away would hand the `:input` choice back
+  to the bundle for every namespace scheduled after this one — a fault
+  that is invisible where it is caused and reds a suite nobody is looking
+  at. This file shipped exactly that (rf2-2rtt6.41: the teardown wrote
+  `nil`) and nothing noticed, so the discipline is now enforced rather
+  than described: rows restore through [[restore-adapter-pin!]], the raw
+  `nil` selector is reachable only inside [[with-uix-raw-default]]'s
+  `try`/`finally`, and [[pin-is-adapters-default!]] re-reads the var after
+  EVERY row in the `:each` teardown.
+
   ## What React's own restore does, and what it does not
 
   React's end-of-discrete-event state restore fires even when nothing
@@ -111,7 +126,78 @@
             ["react-dom/client" :as react-dom-client])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview hfn]]))
 
-(use-fixtures :each
+;; ---------------------------------------------------------------------------
+;; Pinning the input implementation
+;; ---------------------------------------------------------------------------
+
+(def input-implementations
+  "The two things `uix.compiler.aot/create-uix-input` can build, and the
+  value of `uix.compiler.input/*use-reagent-input-enabled?*` that selects
+  each. `nil` — UIx's OWN unset default — is not a third option; it is
+  *whichever of these two the bundle's contents imply*, which is the thing
+  this file exists to stop measuring by accident."
+  {:react false :uix-reagent-input true})
+
+(def adapter-default-implementation
+  "What `re-frame.adapter.uix` pins at load (rf2-heqwo), and therefore what
+  every row here restores. NOT `nil`: see the ns docstring's second
+  section — clearing the pin re-arms the classpath sniff for every later
+  namespace in the same build."
+  :react)
+
+(def ^:private pin-at-load
+  "The var as `re-frame.adapter.uix`'s load left it, snapshotted at THIS
+  namespace's load. `re-frame.adapter.uix` is in the `:require` above so
+  CLJS runs its load first, and every other `set!` in this build happens
+  inside a test body — i.e. after all loads. So this is the adapter's own
+  answer and nothing else's, and it is what stops
+  [[adapter-default-implementation]] from being a literal that could drift
+  away from the adapter it names."
+  uix.compiler.input/*use-reagent-input-enabled?*)
+
+(defn- pin! [impl]
+  (set! uix.compiler.input/*use-reagent-input-enabled?*
+        (get input-implementations impl)))
+
+(defn- restore-adapter-pin!
+  "The teardown half of [[pin!]]. Restores the ADAPTER's pin, which is not
+  the same thing as clearing it."
+  []
+  (pin! adapter-default-implementation))
+
+(defn- with-uix-raw-default
+  "Run `f` with the adapter's pin CLEARED, so UIx's own classpath sniff is
+  observable, and restore the pin however `f` ends. The only place in this
+  file that writes `nil`, and the `finally` is why it is allowed to."
+  [f]
+  (set! uix.compiler.input/*use-reagent-input-enabled?* nil)
+  (try (f) (finally (restore-adapter-pin!))))
+
+(defn- pin-is-adapters-default!
+  "The witness for a fault that is invisible where it is caused.
+
+  A row that leaves the pin cleared breaks LATER namespaces, not itself:
+  its own assertions stay green and the suite that reds is someone else's.
+  So the check cannot live in a row — a row would have to be scheduled
+  last to mean anything, and `cljs.test` promises no order within a
+  namespace. It lives in the `:each` teardown instead, where it reads the
+  var after every row in this file."
+  []
+  (is (= (get input-implementations adapter-default-implementation)
+         uix.compiler.input/*use-reagent-input-enabled?*)
+      "a row in this namespace has just left
+       `uix.compiler.input/*use-reagent-input-enabled?*` somewhere other
+       than the adapter's own pin. Tear down with `restore-adapter-pin!`,
+       never `set! nil`, and reach the raw selector only inside
+       `with-uix-raw-default` — a cleared pin re-arms UIx's classpath
+       sniff for every namespace scheduled after this one in the same
+       build"))
+
+;; ---------------------------------------------------------------------------
+;; Fixtures
+;; ---------------------------------------------------------------------------
+
+(def ^:private runtime-fixture
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
      ;; `:ambient-frame nil` is load-bearing: the fixture's default leaves
@@ -123,27 +209,16 @@
      :async?        true
      :init-fn       (fn [] (rt/reset-runtime!))}))
 
+(use-fixtures :each
+  {:before (:before runtime-fixture)
+   :after  (fn []
+             ((:after runtime-fixture))
+             (pin-is-adapters-default!))})
+
 (def ^:private frame-id ::arm1-grid)
 
 (defn- skip! [why]
   (is true (str "a caret in a real text field needs a real DOM — " why)))
-
-;; ---------------------------------------------------------------------------
-;; Pinning the input implementation
-;; ---------------------------------------------------------------------------
-
-(def input-implementations
-  "The two things `uix.compiler.aot/create-uix-input` can build, and the
-  value of `uix.compiler.input/*use-reagent-input-enabled?*` that selects
-  each. `nil` — the shipped default — is not a third option; it is
-  *whichever of these two the bundle's contents imply*."
-  {:react false :uix-reagent-input true})
-
-(defn- pin! [impl]
-  (set! uix.compiler.input/*use-reagent-input-enabled?*
-        (get input-implementations impl)))
-
-(defn- unpin! [] (set! uix.compiler.input/*use-reagent-input-enabled?* nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The harness
@@ -236,7 +311,7 @@
    (fresh!)
    (let [handle (arm-mount!)]
      (try (f handle)
-          (finally (mount/release! handle) (unpin!))))))
+          (finally (mount/release! handle) (restore-adapter-pin!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The UIx comparator — its own root, its own provider
@@ -274,19 +349,36 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-selector-is-live-in-this-bundle
-  (testing "UIx's default answer is a fact about the classpath, and this
-           bundle carries Reagent — so an unpinned UIx `:input` here is not
-           a plain React controlled input at all"
+  (testing "the pin is the adapter's and the sniff underneath it would have
+           answered the other way — two claims, and the row is worth
+           nothing without both"
     (is (some? reagent.impl.batching/do-after-render)
         "Reagent's after-render queue is in this bundle, which is exactly
-         what makes UIx's default answer `true`")
-    (unpin!)
-    (is (true? (uix.compiler.input/should-use-reagent-input?)))
+         what makes UIx's UNPINNED answer `true`")
+    (is (= (get input-implementations adapter-default-implementation) pin-at-load)
+        "`re-frame.adapter.uix`'s load really did leave the var at
+         `adapter-default-implementation`'s value — asserted from a
+         snapshot taken at this namespace's load, so no sibling suite's
+         per-row pinning can stand in for the pin and mask its absence")
+    (is (false? (uix.compiler.input/should-use-reagent-input?))
+        "and that is still the live answer here: React's own controlled
+         input, by the adapter's decision rather than the classpath's")
+    (with-uix-raw-default
+      (fn []
+        (is (true? (uix.compiler.input/should-use-reagent-input?))
+            "CLEAR the pin and the bundle chooses instead — the port. This
+             is the accident rf2-heqwo removed, and it is what makes the
+             assertion above a measurement rather than a coincidence")))
+    (is (false? (uix.compiler.input/should-use-reagent-input?))
+        "the pin is back, because the raw probe ran inside a `finally` and
+         not merely before a restore that an early return could skip")
     (pin! :react)
     (is (false? (uix.compiler.input/should-use-reagent-input?)))
     (pin! :uix-reagent-input)
-    (is (true? (uix.compiler.input/should-use-reagent-input?)))
-    (unpin!)))
+    (is (true? (uix.compiler.input/should-use-reagent-input?))
+        "the port stays reachable by name — the ruling made React the
+         default, not the only option")
+    (restore-adapter-pin!)))
 
 (deftest the-arms-input-is-reacts-own-whatever-the-selector-says
   (async done
@@ -333,7 +425,7 @@
                   (is false (str "the deferred converge threw: " (ex-message e)))))
               (uix-release! ctrl)
               (mount/release! arm)
-              (unpin!)
+              (restore-adapter-pin!)
               (done))))))))
 
 (deftest the-arm-reads-the-same-on-both-pins
@@ -897,7 +989,7 @@
                      still holds what the TEXT render wrote. It is no
                      longer the value this element renders, so there is
                      nothing here the converge could correctly write")))
-            (finally (mount/release! handle) (unpin!))))))))
+            (finally (mount/release! handle) (restore-adapter-pin!))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — :async-normalisation
@@ -933,7 +1025,7 @@
                   (catch :default e
                     (is false (str "the late correction threw: " (ex-message e)))))
                 (mount/release! handle)
-                (unpin!)
+                (restore-adapter-pin!)
                 (done))
               0)))))))
 
@@ -974,7 +1066,7 @@
           (react-dom/flushSync (fn [] (.unmount (:root handle))))
           (let [census (select-keys (rt/residue) [:cell-refs :boundaries :edges])]
             (mount/release! (assoc handle :root nil))
-            (unpin!)
+            (restore-adapter-pin!)
             (is (= {:cell-refs 0 :boundaries 0 :edges 0} census)
                 "zero leaked subscription ref-counts, zero boundaries and zero
                  edges the moment React's unmount returned")))))))
