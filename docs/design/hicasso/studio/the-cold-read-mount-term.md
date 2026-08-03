@@ -66,7 +66,7 @@ interleave, adjudicated before anything is read.
 `commit-boundary!` seam; four identically-seeded frames per window; released
 and settled between samples behind a residue equality gate that never fired):
 
-| term | delta ms/commit | share |
+| term | delta ms/commit | share of `c-local` |
 |---|---|---|
 | whole commit (`commit`, shipping seam) | 0.8875 [0.8000–1.0750] | — (6.29 µs/key; copy fidelity c-local/commit = 0.9718) |
 | — **reaction build + cache insert** (`c-local − c-nosub`) | **0.4125** | **47.8%** |
@@ -74,6 +74,23 @@ and settled between samples behind a residue equality gate that never fired):
 | — cell-map insert (`c-local − c-nomap`) | 0.0375 | 4.3% |
 | — watch wiring (`c-local − c-nowatch`) | 0.0250 | 2.9% |
 | `b-build` (141 × subscribe + deref, no in-window dispose) | 0.6000 | context: build + compute alone |
+
+> **These rows are dated `cb41ee537b`, and one change has landed under them**
+> (rf2-gttif). `rf2-aqgr2` (`f7fd0c6a52`) stopped the runtime minting a
+> `Keyword` per key cell — 141 mints per commit on this shape — so **0.8875
+> and 6.29 µs/key are now upper bounds** on the shipping seam, and the shares,
+> which divide by `c-local` (0.8625 here), are lower bounds by the same term:
+> the copy carried that mint too, until `rf2-6wh9o` (`54a2a78924`) removed it
+> there as well. The term is small — 141 mints against a phase-B grid that
+> resolves to 0.025 ms/commit, and the nearest anchor in the micro table below
+> is 53 ns for a two-element vector — so it is about one quantum, and only a
+> re-take on a quiet box settles it (`rf2-d360z`). **The four deltas do not
+> move at all**: the mint was bound above `commit-local!`'s `C-NOWATCH` guard
+> and present in every mode, so it stood on both sides of each and cancelled
+> exactly. **Nor does the fidelity ratio** — both arms carried the mint and
+> both have since lost it, so it is common-mode there too; and the copy is
+> once again *structurally* identical to the seam it prices, which warrants
+> the `c-*` ablations better than a clock agreement on its own ever did.
 
 Micro table, over the page's own roster (ns/op): `subscribe-once` 5,284;
 `compute-sub` 1,170; the raw handler invoke 227; `registrar/lookup` 67;
@@ -245,7 +262,10 @@ resolve and peek), and the honest next rung — 0.89 µs/read — belongs to
 its fences. The commit half re-read 0.7625 ms [0.5750–1.0250] with the same
 decomposition as before (reaction build + cache insert 51.9%, index write
 5.6%, watch wiring 3.7%, cell-map insert on the quantum), and stays as
-designed: the durable wiring, amortised over the mount.
+designed: the durable wiring, amortised over the mount. That re-read is
+`0c0ff21f0d`'s and carries §1's staleness for the same reason — the per-cell
+keyword mint was still on both arms — so it is an upper bound and its shares
+lower bounds, by the same about-one-quantum term.
 
 ## 5. The parity gap the re-take tripped over — found, bisected, repaired
 
