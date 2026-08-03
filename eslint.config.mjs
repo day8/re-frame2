@@ -62,6 +62,27 @@
 // type-aware configuration. If a rule's failure mode is "this reads oddly"
 // rather than "this is a bug", it does not belong here.
 //
+// WHAT THIS GATE DOES NOT CATCH — stated because a linter that is assumed to
+// cover more than it does is worse than one whose edges are known. Both limits
+// below were confirmed by mutating a real driver and watching the gate stay
+// green:
+//
+//   - A MISSPELLED PROPERTY OR METHOD on an object that does exist.
+//     `console.errr(…)` passes. `no-undef` resolves free identifiers, and
+//     `console` resolves fine; knowing that `.errr` is not a member of it
+//     needs type information, which is deliberately out of scope. A
+//     misspelled *variable* or *function* reference — `lenght(xs)`, or `pth`
+//     where `path` was bound — IS caught, and that is the common shape.
+//
+//   - A `require()` PATH THAT DOES NOT RESOLVE, when the binding it produces
+//     is used. `require('node:pathh')` passes if something reads the result.
+//     Core ESLint has no module-resolution rule; catching this needs a plugin
+//     (`eslint-plugin-n`'s `n/no-missing-require`, or `import/no-unresolved`
+//     with a resolver), which is a second toolchain for a defect Node itself
+//     reports on the first line of the first run. Note the useful partial: a
+//     bad `require` whose binding is NEVER read is caught, by `no-unused-vars`
+//     — which is the shape a dead import actually takes in practice.
+//
 // Warnings never fail the run — the same shape as the clj-kondo
 // (`--fail-level error`) and Splint (`--fail-on-errors`) jobs alongside it in
 // `.github/workflows/lint.yml`. Everything above is an error, so in practice
