@@ -81,7 +81,7 @@ not offered at any level. Guessing which nested maps are options and which are d
 is the support burden the shallow default exists to delete; convert the map yourself
 when a library wants camelCase inside it.
 
-## Callbacks: `:event` and `:handler`
+## Callbacks: `:event`, `:handler` and `:render`
 
 A declared slot in `:callbacks` carries a contract, never inferred from an `on*`
 spelling:
@@ -89,7 +89,8 @@ spelling:
 ```clojure
 (h/defhost picker Widget
   {:callbacks {:on-pick       :event
-               :on-imperative :handler}})
+               :on-imperative :handler
+               :on-render-row :render}})
 ```
 
 **`:event`** is the door's version of an ordinary `:on-*` position — an intent
@@ -97,9 +98,7 @@ vector, or an `h/fn` when you need to read what the library handed you. The proo
 pins the detail a native position doesn't have to: a foreign invoker calls with
 *its own* arguments, not a lone DOM event — `onPick(value, event)`,
 `onDraft(event)` — and **every argument the invoker passed reaches the `h/fn`
-body**, in the order the library sent them. `::h/prevent` works at a declared
-`:event` position too, and calls `.preventDefault` on whichever argument is the
-real DOM event.
+body**, in the order the library sent them.
 
 **`:handler`** crosses the function by identity rather than wrapping it: the
 library gets exactly the function you wrote — so a library that memoises on
@@ -108,6 +107,43 @@ goes back to *that caller*; Hicasso never sees the return and never dispatches
 from it. This is the shape for a library's imperative surface (`open()`,
 `scrollTo()`): `defhost` doesn't know what an arbitrary imperative call means, so
 `:handler` stays out of its way entirely.
+
+**`:render`** is the third contract, for a library that calls you back *during its
+own render* — `renderRow`, `renderItem`, a render prop. The body must be pure: its
+return is what the library puts in its tree, and dispatching from inside it raises
+`:rf.error/hicasso-dispatch-in-render-position`, naming the position.
+
+### The declaration decides; the value never overrules it
+
+The contract you declared governs **every** carrier at that position, not just the
+`h/fn`. An intent vector and a key-map are each a dispatch and nothing else, so
+they are accepted at `:event` — where dispatching is what the contract means — and
+**refused** at `:handler` and `:render` with
+`:rf.error/hicasso-intent-at-a-non-event-contract`. There is no reading of a bare
+vector that a `:handler` could honour, and a `:render` position that dispatched
+would be dispatching mid-render. If what happens at that slot is an event, declare
+it `:event`; otherwise write an `h/fn` that does the work. An ordinary unmarked
+function crosses untouched at all three.
+
+### The vector spelling is event-first
+
+`::h/prevent`, `::h/value`, `::h/checked` and a key-map's key lookup all read the
+DOM event, and they all read it from **argument one**. That is what every native
+position hands them, and what an event-first foreign contract (`onDraft(event)`)
+hands them too.
+
+A value-first invoker — `onPick(value, event)`, or the date picker's
+`onChange(date)` — has no event at argument one, and nothing can guess which of a
+library's arguments is one. Hicasso says so rather than letting the engine say it:
+you get `:rf.error/hicasso-intent-needs-the-event`, naming the position and the
+argument that actually arrived, instead of `value.preventDefault is not a
+function`. **`h/fn` is the spelling for those positions** — it receives every
+argument the invoker passed, in order, which is exactly what the opening example
+does.
+
+An intent carrying neither a marker nor `::h/prevent` never touches its argument,
+so `{:on-pick [:city/picked "paris"]}` is correct under any invoker contract at
+all.
 
 ## Providers cross the door too
 
@@ -329,12 +365,16 @@ will rescue it later.
 
 ## Troubleshooting
 
-This table names mechanisms; the one minted id on this surface —
-`:rf.error/hicasso-ref-vector-reserved` — is covered above.
+This table names mechanisms; the minted ids on this surface —
+`:rf.error/hicasso-ref-vector-reserved`,
+`:rf.error/hicasso-intent-at-a-non-event-contract` and
+`:rf.error/hicasso-intent-needs-the-event` — are covered above.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Prop arrives as `on-change` and the library ignores it | Nested keys expected in camelCase; deep conversion is deliberately not offered | Convert the nested map yourself before it crosses |
+| An intent vector or key-map at a declared slot raises `:rf.error/hicasso-intent-at-a-non-event-contract` | The slot is declared `:handler` or `:render`, and neither contract dispatches — the declaration governs the carrier, so the value cannot overrule it | Declare the slot `:event` if what happens there is an event, or write an `h/fn` that does the `:handler`/`:render` work |
+| `:rf.error/hicasso-intent-needs-the-event`, naming a slot whose library hands a value first | The vector spelling reads the DOM event from argument one, and this invoker put something else there | Write an `h/fn` at that slot — it gets every argument the library passed, in order |
 | A namespace stops loading on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host namespace |
 | Structural test can't match a node | It's a `[:>]` node — reduced structural identity, by design | Declare it with `defhost`, or assert around it |
 | Provider from a library needs to wrap the tree | Hosted like anything else | `defhost` the provider; it is a component |
@@ -361,7 +401,7 @@ two or three genuinely hard widgets.
 | The codemod's name and invocation | **Not addressed** |
 | When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** HD-022 rules the refusal and the value-space; the registry, the timings and the commands roster are explicitly out of v0 |
 | Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
-| Whether `::h/value` works across a host crossing | **Proven, conditionally.** It works exactly when the foreign contract hands the DOM event first — the way `onChange`/`onInput` do. A value-first invoker (`onPick(value, event)`, or the date picker's `onChange` above) has no event at that position for `::h/value` to read a target from; write an `h/fn` there instead, as the opening example does |
+| Whether `::h/value` works across a host crossing | **Settled, and it is a law rather than a caveat.** The vector spelling is event-first, so `::h/value` works exactly when the foreign contract hands the DOM event first — the way `onChange`/`onInput` do. A value-first invoker (`onPick(value, event)`, or the date picker's `onChange` above) raises `:rf.error/hicasso-intent-needs-the-event` naming the position; write an `h/fn` there instead, as the opening example does. See **The vector spelling is event-first** above |
 | The SSR placeholder's shape | Declared policy, inert in v0 |
 | Whether a hosted component can be a `defview`'s child via `(:children props)` | The ABI says an existing React element is a legal child anywhere, which implies yes; not stated for the host case specifically |
 | Embedding Hicasso *inside* a React-primary app | Named in the charter's use-case roster (item 11); no surface designed |
