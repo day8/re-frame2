@@ -2781,7 +2781,7 @@
         (do (enable-react-act-env!)
             (f act-fn))))))
 
-;; ---- the provisional horizon (rf2-2rtt6.25) --------------------------------
+;; ---- the provisional horizon (rf2-2rtt6.25, moved by rf2-2rtt6.71) ---------
 ;;
 ;; The spine's render-phase provisional reference is released by whichever
 ;; arrives first: the commit that adopts it, or a host-MACROTASK reaper armed
@@ -2796,9 +2796,31 @@
 ;; The wait is ALSO the empirical proof of the primitive, in two legs that only
 ;; a macrotask reaper passes together: SYNCHRONOUSLY after `act()` the
 ;; reference is still held (a microtask reaper would already read 0, because
-;; act drains microtasks), and ONE timer turn later it is gone. Ordering is not
-;; a race: the spine armed its drain before the assertion armed its wait, and
-;; same-delay timers fire in the order they were armed.
+;; act drains microtasks), and one timer turn PAST the horizon it is gone.
+;;
+;; THE DELAY IS PART OF THE PROOF (rf2-2rtt6.71). While the spine's horizon was
+;; `setTimeout 0` these assertions could settle on a bare `setTimeout 0` of
+;; their own and rely on same-delay timers firing in arm order — the spine
+;; armed its drain first. The ruled horizon is `setTimeout 4`, so that no
+;; longer holds: a 0 ms settle fires strictly BEFORE the reap, and a 4 ms one
+;; would be a coin toss. Every horizon-crossing assertion therefore goes
+;; through `settle-past-the-horizon!` below, which waits comfortably past it.
+
+(def ^:private horizon-settle-ms
+  "How long a horizon-crossing assertion waits, in milliseconds. It MUST exceed
+  the spine's own reap horizon (`spine/provisional-horizon-ms`, ruled 4 by
+  rf2-2rtt6.71) with room to spare — the assertions read the state the reaper
+  LEFT, so a settle that races it proves nothing. Deliberately not read from
+  the spine: these rows assert the observable contract, not the constant."
+  24)
+
+(defn- settle-past-the-horizon!
+  "Run `k` on a host macrotask turn guaranteed to be LATER than the spine's
+  provisional reap. Every assertion in this file that concludes anything from
+  the reaper having run goes through here, so the horizon has exactly one place
+  to move."
+  [k]
+  (js/setTimeout k horizon-settle-ms))
 
 (defn- ref-count-of
   "The sub-cache ref-count for `k`, or 0 when the slot is absent — the shape
@@ -4481,12 +4503,12 @@
                    "0 here). Observed "
                    (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
           (async done
-            (js/setTimeout
+            (settle-past-the-horizon!
               (fn []
                 (try
-                  ;; THE CONTRACT, one settle later.
+                  ;; THE CONTRACT, one settle past the horizon.
                   (is (zero? (ref-count-of cache cache-key-v))
-                      (str "after ONE macrotask settle the abandoned render holds "
+                      (str "past the reap horizon the abandoned render holds "
                            "NOTHING — observed "
                            (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
                   (is (nil? (get @cache cache-key-v))
@@ -4515,8 +4537,7 @@
                         (try (.unmount root2) (catch :default _ nil)))))
                   (finally
                     (try (.unmount root) (catch :default _ nil))
-                    (done))))
-              0))))))))
+                    (done))))))))))))
 
 ;; ---- getSnapshot tracks the committed reaction (rf2-sqhjtu) ---------------
 ;;
@@ -5066,18 +5087,20 @@
 ;; cold read; at layer 2+ the whole `:<-` chain twice. The render phase now
 ;; keeps its reference in escrow, so the commit's subscribe HITS and adopts.
 ;;
-;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES (rf2-2rtt6.25 audit of #7305).
-;; It mounts under `act()`, which forces React's passive `useSyncExternalStore`
-;; subscribe to run before control returns — and that IS the ordering the
-;; hand-off needs. On the schedule a consumer actually mounts on (the adapter
-;; render slot, i.e. bare `createRoot(…).render(…)`) the `setTimeout 0` reaper
-;; wins instead, and the commit rebuilds. That is measured, three trials, at
-;; N = 1 and N = 300, by
-;; `assert-use-subscribe-public-mount-schedule-rebuilds` below. So this row
-;; pins the mechanism — escrow, hit, adopt, 2 → 1 — under a schedule that lets
-;; it run to completion; it does NOT establish that any shipped mount gets it.
-;; Both rows are kept deliberately: the day the horizon question is settled,
-;; their integers must agree.
+;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES (rf2-2rtt6.25 audit of #7305;
+;; rf2-2rtt6.71 ruling). It mounts under `act()`, which forces React's passive
+;; `useSyncExternalStore` subscribe to run before control returns — and that IS
+;; the ordering the hand-off needs. So this row pins the MECHANISM — escrow,
+;; hit, adopt, 2 → 1 — under a schedule that lets it run to completion, and by
+;; itself it establishes nothing about the schedule a consumer mounts on.
+;;
+;; THAT is what `assert-use-subscribe-public-mount-schedule-rebuilds` below is
+;; for: the adapter render slot, bare `createRoot(…).render(…)`, no `act`. With
+;; the reaper at `setTimeout 0` it lost, deterministically; since rf2-2rtt6.71
+;; moved the horizon to `setTimeout 4` it wins, by a measured margin rather
+;; than a React guarantee. Both rows are kept deliberately, and THEIR INTEGERS
+;; NOW AGREE — which is precisely what makes the pair a tripwire: React drifting
+;; past the horizon would split them again, and loudly.
 ;;
 ;; THE PROOF IS TWO EXACT INTEGERS, both falsifiable and neither a proxy for
 ;; the other:
@@ -5191,51 +5214,65 @@
 ;; host chooses to get there; `await-settlement!` only yields turns until it
 ;; has, and its budget expiring fails an assertion rather than hanging.
 ;;
-;; WHAT IT FOUND — AND WHY THIS ROW ASSERTS THE NUMBER IT DOES. The audit was
-;; right. On the public schedule the reaper wins: the render's reaction is
-;; disposed before React's passive subscribe, the commit misses and rebuilds,
-;; and the mount pays TWO constructions — the very term the hand-off was
-;; adopted to delete. Measured here, and independently at N = 1 and N = 300 in
-;; a swap-the-primitive probe, three trials each:
+;; WHAT IT FOUND, AND WHAT WAS DONE ABOUT IT. The audit was right: with the
+;; reaper at `setTimeout 0` the race was lost on this schedule every time — the
+;; render's reaction disposed before React's passive subscribe, the commit
+;; missed and rebuilt, and the mount paid TWO constructions, the very term the
+;; hand-off was adopted to delete. Measured here, and independently at N = 1 and
+;; N = 300 in a swap-the-primitive probe, three trials each:
 ;;
-;;   `setTimeout 0` (shipped)  bodyRuns 2.00N at N = 1 and N = 300
-;;   `setTimeout 4`            bodyRuns 1.00N at N = 1 and N = 300
+;;   `setTimeout 0`            bodyRuns 2.00N at N = 1 and N = 300
+;;   `setTimeout 4` (RULED)    bodyRuns 1.00N at N = 1 and N = 300
 ;;   `setTimeout 32`           bodyRuns 1.00N at N = 1 and N = 300
 ;;   `requestAnimationFrame`   bodyRuns 1.00N at N = 1, 2.00N at N = 300
 ;;   `MessageChannel`          bodyRuns 2.00N at N = 1
 ;;
-;; So the hand-off is not broken — it is a RACE, and on the shipping schedule
-;; it loses. A `setTimeout 0` armed inside the render fires before React's
-;; scheduler gets back to flushing passive effects; the primitives that win
-;; win by margin, not by construction (the rAF row losing at 300 boundaries and
-;; winning at one is the proof of that), and React documents no maximum
-;; render-to-subscribe interval that any of them could be sized against.
+;; rf2-2rtt6.71 ruled the horizon out to `setTimeout 4` — the SHORTEST delay
+;; reading 1.00N at both sizes, so abandoned renders and Suspense retries hold
+;; their graphs no longer than winning requires — and this row was flipped to
+;; the act-driven row's integers rather than deleted, exactly as its own
+;; docstring had promised.
 ;;
-;; MOVING THE HORIZON IS NOT A WORKER'S CALL. rf2-2rtt6.14's ruling made the
-;; macrotask reap an operator-approved lifecycle contract, so this row does the
-;; only honest thing available to it: it asserts what the shipped code DOES,
-;; names the claim that is thereby retracted, and leaves the decision open.
-;; The assertions below are written to be INVERTED, not deleted, the day the
-;; horizon question is settled — at which point they read exactly like the
-;; act-driven row above.
+;; IT IS STILL A RACE, AND THAT IS WHY THE ROW SURVIVES. The primitives that
+;; win, win by MARGIN and not by construction (the rAF row losing at 300
+;; boundaries and winning at one is the proof), and React documents no maximum
+;; render-to-subscribe interval that any of them could be sized against. So
+;; nothing below may be read as a React guarantee. What the row now buys is a
+;; TRIPWIRE: a React scheduling change that moves the passive flush past 4 ms
+;; reintroduces 2.00N silently in production and LOUDLY here, with the
+;; alternatives already priced in the table above and the decision reopenable
+;; on evidence. That symmetry — the assertions red either way the race turns —
+;; is the accepted cost of a margin, and it is the reason moving the horizon
+;; was safe to do at all.
 
 (defn assert-use-subscribe-public-mount-schedule-rebuilds
-  "rf2-2rtt6.25 (merged-PR audit of #7305): THE RETRACTION WITNESS. On the
-  PUBLIC mount schedule — `re-frame.substrate.adapter/render`, no `act`, no
-  `flushSync` — the provisional hand-off does NOT win: the `setTimeout 0`
-  reaper releases the escrowed reference before React's passive
-  `useSyncExternalStore` subscribe, the entry disposes on the ordinary 1 → 0
-  edge, and the commit rebuilds. Two constructions per cold read, exactly as
-  before the hand-off shipped.
+  "rf2-2rtt6.25 (merged-PR audit of #7305), flipped by rf2-2rtt6.71: THE
+  PUBLIC-SCHEDULE ADOPTION WITNESS, and the standing React-drift tripwire. On
+  the PUBLIC mount schedule — `re-frame.substrate.adapter/render`, no `act`, no
+  `flushSync` — the provisional hand-off WINS: the escrowed reference outlives
+  React's passive `useSyncExternalStore` subscribe, that subscribe HITS, and
+  the commit adopts the `identical?` reaction the render built. One
+  construction per cold read, on the schedule consumers actually mount on.
 
   Pinned from inside the probe's own passive effect, so the reading is placed
-  causally rather than by timing, then re-read across the horizon.
+  causally rather than by timing, then re-read across the reap horizon.
 
-  This asserts a DEFECT, deliberately. The mechanism is correct (Spec 006
-  §Render-phase provisional acquisition and commit adoption is explicit that
-  correctness must not depend on the reaper losing the race, and it does not);
-  what is absent is the benefit. Flip these five assertions to the act-driven
-  row's — `identical?`, `= 1` — when the horizon question is ruled.
+  IT WAS THE OPPOSITE UNTIL 2026-08-03, and the history is the point. With the
+  reaper at `setTimeout 0` this row asserted a DEFECT — different reactions,
+  two body runs — and named the shipped-performance claims it thereby
+  retracted. rf2-2rtt6.71 ruled the horizon out to `setTimeout 4`, the shortest
+  probed delay that wins at N = 1 and N = 300 alike, and these assertions were
+  INVERTED rather than deleted, as the retraction-era docstring had promised.
+
+  SO READ THIS AS A MARGIN, NOT A GUARANTEE. React documents no maximum
+  render-to-subscribe interval; 4 ms is a measured distance on React 19, and a
+  future scheduling change can silently reintroduce the double build. This row
+  is where that would surface: it reds, with the observed integers in the
+  message, and the horizon question reopens on evidence. Correctness is not at
+  stake either way — Spec 006 §Render-phase provisional acquisition and commit
+  adoption is explicit that correctness MUST NOT depend on the reaper losing
+  the race, and it does not; a lost margin costs a construction and nothing
+  else, which is exactly what makes a 4 ms heuristic acceptable.
 
   cfg keys:
     :probe-public-mount-element — 0-arg fn returning a probe element that reads
@@ -5317,46 +5354,45 @@
                       (str "a cold mount takes exactly two acquisitions — the "
                            "render's and the commit's. Observed "
                            (count (:returned snap))))
-                  ;; THE ADOPTION THAT DOES NOT HAPPEN HERE.
-                  (is (not (identical? (first (:returned snap)) (second (:returned snap))))
-                      (str "RETRACTED CLAIM: on the public mount schedule the "
-                           "commit's subscribe returns a DIFFERENT reaction from "
-                           "the render's — the reaper released the escrowed "
-                           "reference first, the entry disposed on the ordinary "
-                           "1 → 0 edge, and the subscribe missed and rebuilt. "
-                           "Flip this to `identical?` when the horizon is ruled. "
-                           "Snapshot " snap))
-                  (is (identical? (second (:returned snap)) (:tenant snap))
-                      (str "the COMMIT's reaction — the rebuild — is the cache's "
-                           "tenant, and the render's is gone. Snapshot " snap))
-                  ;; THE DOUBLE BUILD, still being paid.
-                  (is (= 2 (:builds snap))
-                      (str "RETRACTED CLAIM: the sub body ran TWICE for one cold "
-                           "mount — the double build the hand-off was adopted to "
-                           "delete is still paid on every mount a consumer "
-                           "performs. Flip this to 1 when the horizon is ruled. "
-                           "Observed " (:builds snap)))
+                  ;; THE ADOPTION — on the schedule consumers mount on.
+                  (is (identical? (first (:returned snap)) (second (:returned snap)))
+                      (str "on the public mount schedule the commit's subscribe "
+                           "returned the SAME reaction object the render's did — "
+                           "it HIT the entry the render's escrowed reference kept "
+                           "alive across the ruled 4 ms horizon, rather than "
+                           "rebuilding after a 1 → 0 dispose. A RED HERE IS THE "
+                           "TRIPWIRE: React's passive flush has drifted past the "
+                           "horizon and the double build is back. Snapshot " snap))
+                  (is (identical? (first (:returned snap)) (:tenant snap))
+                      (str "and the RENDER's reaction — the one that was adopted, "
+                           "not a rebuild — is the cache's tenant. Snapshot " snap))
+                  ;; THE DOUBLE BUILD, no longer paid.
+                  (is (= 1 (:builds snap))
+                      (str "the sub body ran ONCE for the whole cold mount — the "
+                           "double build the hand-off was adopted to delete is "
+                           "gone from the mounts a consumer actually performs "
+                           "(pre-ruling, on this schedule: 2). Observed "
+                           (:builds snap)))
                   (is (= 1 (:ref-count snap))
-                      (str "the steady state is nevertheless correct: exactly one "
-                           "durable reference after the commit, no leak and no "
-                           "underflow from the lost race. Observed "
-                           (:ref-count snap))))
-                ;; Cross the horizon: the reaper has already fired, and the
-                ;; rebuilt subscription is untouched by it.
-                (js/setTimeout
+                      (str "and the steady state is untouched: exactly one durable "
+                           "reference after the commit — the escrowed one was "
+                           "released at adoption, 2 → 1 — with no leak and no "
+                           "underflow. Observed " (:ref-count snap))))
+                ;; Cross the horizon: the reaper fires on a token the commit
+                ;; already spent, and the adopted subscription is untouched by it.
+                (settle-past-the-horizon!
                   (fn []
-                    (is (= 2 @builds)
-                        (str "across the provisional horizon the count is still 2 "
-                             "— the reap already happened, before the commit. "
+                    (is (= 1 @builds)
+                        (str "across the provisional horizon the count is still 1 "
+                             "— the reap found a spent token and rebuilt nothing. "
                              "Observed " @builds))
                     (is (= 1 (ref-count-of cache cache-key-v))
-                        (str "and still exactly one durable reference: the lost "
-                             "race costs a construction, never correctness. "
-                             "Observed " (ref-count-of cache cache-key-v)))
+                        (str "and still exactly one durable reference: a one-shot "
+                             "token cannot be released twice. Observed "
+                             (ref-count-of cache cache-key-v)))
                     (is (= "m=7" (.-textContent mount-node))
                         "the mounted probe still renders its value across the horizon")
-                    (finish!))
-                  0)))
+                    (finish!)))))
             240))))))
 
 ;; ---- get-snap's ESCROW LEG, on that same schedule (rf2-2rtt6.13 × .25) -----
@@ -5549,7 +5585,7 @@
           ;; Cross the horizon. The token the render escrowed was spent at
           ;; adoption; the reaper still fires.
           (async done
-            (js/setTimeout
+            (settle-past-the-horizon!
               (fn []
                 (try
                   (is (= 1 (ref-count-of cache cache-key-v))
@@ -5569,8 +5605,7 @@
                       "unmount still returns the query to zero refs")
                   (finally
                     (try (.unmount root) (catch :default _ nil))
-                    (done))))
-              0))))))))
+                    (done))))))))))))
 
 (defn assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
   "rf2-2rtt6.25: an abandoned COLD render of a LAYER-2 sub leaves the parent
@@ -5616,20 +5651,19 @@
                    "the parent and constructs no second input. Observed "
                    (ref-count-of cache input-k)))
           (async done
-            (js/setTimeout
+            (settle-past-the-horizon!
               (fn []
                 (try
                   ;; After it: the ordinary cascade, from the ordinary edge.
                   (is (nil? (get @cache parent-k))
-                      "one settle later the layer-2 parent is disposed and evicted")
+                      "past the horizon the layer-2 parent is disposed and evicted")
                   (is (nil? (get @cache input-k))
                       "and the disposal CASCADED to the input, which had no other
                        reader — the whole topology an abandoned render materialised
                        is released at the horizon, not retained")
                   (finally
                     (try (.unmount root) (catch :default _ nil))
-                    (done))))
-              0))))))))
+                    (done))))))))))))
 
 (defn assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount
   "rf2-2rtt6.25 (merged-PR audit of #7326): THE ADVERSARIAL ROW. A provisional
@@ -5704,12 +5738,12 @@
                 (str "still held before the horizon — observed "
                      (ref-count-of cache cache-key-v)))
             (async done
-              (js/setTimeout
+              (settle-past-the-horizon!
                 (fn []
                   ;; The horizon: the escrow is released, 1 → 0 disposes, the
                   ;; slot is evicted. `abandoned` is now a DISPOSED reaction.
                   (is (nil? (get @cache cache-key-v))
-                      (str "one settle later the abandoned render's provisional is "
+                      (str "past the horizon the abandoned render's provisional is "
                            "reaped, disposed and evicted — observed ref-count "
                            (ref-count-of cache cache-key-v)))
                   (act-fn (fn [] (try (.unmount root) (catch :default _ nil))))
@@ -5759,7 +5793,7 @@
                                 (str "exactly one durable reference — observed "
                                      (:ref-count snap)))))
                         ;; And neither spent token may decrement the successor.
-                        (js/setTimeout
+                        (settle-past-the-horizon!
                           (fn []
                             (try
                               (is (= 1 (ref-count-of cache cache-key-v))
@@ -5773,10 +5807,8 @@
                               (finally
                                 (reset! pm-on-commit nil)
                                 (when-let [u @unmount] (try (u) (catch :default _ nil)))
-                                (done))))
-                          0))
-                      240)))
-                0)))))))))
+                                (done))))))
+                      240))))))))))))
 
 (defn assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
   "rf2-2rtt6.25 (SSR): `renderToString` runs the hook's render phase and never
@@ -5785,7 +5817,8 @@
   render must net zero at the horizon.
 
   Node-safe: no DOM, no `act()`, no root. Node's timers are the same host
-  macrotask the browser reaper uses, so the horizon is the same one settle.
+  macrotask the browser reaper uses, so the horizon is the same one — and this
+  row waits past it through `settle-past-the-horizon!` like every other.
 
   cfg keys: `:probe-refcount-element`, `:refcount-target`, `:rc-query`, and
   `:ssr-frame` (this assertion's own frame)."
@@ -5806,16 +5839,15 @@
                "render, one attempt, one reference — and still holds it after the "
                "render returns. Observed " (ref-count-of cache cache-key-v)))
       (async done
-        (js/setTimeout
+        (settle-past-the-horizon!
           (fn []
             (is (zero? (ref-count-of cache cache-key-v))
-                (str "and nets ZERO after one settle: nothing on the server ever "
+                (str "and nets ZERO past the horizon: nothing on the server ever "
                      "commits, so the reaper is the only owner there is. Observed "
                      (ref-count-of cache cache-key-v)))
             (is (nil? (get @cache cache-key-v))
                 "the slot is evicted on the same 1 → 0 edge as any other release")
-            (done))
-          0)))))
+            (done)))))))
 
 ;; ---- key-change serves the NEW target (rf2-naz09e) ------------------------
 ;;
