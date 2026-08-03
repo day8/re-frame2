@@ -239,19 +239,20 @@ floor-normalised, plumb-tared**. Before rows are `rf2-6c237`'s.
 
 `uix` run — **the gate**:
 
-| row | before | **after** | band | verdict |
+| row | before | **after** | band | control | verdict |
+|---|---|---|---|---|---|
+| large-template (acceptance) | 1.4759× [1.3281 – 1.6302], band 6.1% | **1.1884× [1.1223 – 1.2660]** | 7.0% | **PASS** | **FAILS THE LINE** — whole range above 1.10, margin 8.0% clears the band |
+| feed | 1.3311× [1.2357 – 1.4195], band 3.9% | **1.0737× [0.9669 – 1.1859]** | 6.7% | **PASS** | **INSTRUMENT-LIMITED** — the range straddles 1.10, which is NOT a pass |
+| ordinary | 1.2097× [1.0751 – 1.3274], band 10.0% | 1.1698× [0.9671 – 1.5014] | 19.2% | **FAIL** | INSTRUMENT-LIMITED (straddles 1.10) **and the control FAILED** |
+
+`reagent` run — co-instrumented, **never a second gate**. Its control held on
+one row of three, and the other two rows are reported carrying that failure:
+
+| row | control | hicasso / uix | hicasso / reagent | uix / reagent |
 |---|---|---|---|---|
-| large-template (acceptance) | 1.4759× [1.3281 – 1.6302], band 6.1% | **1.1884× [1.1223 – 1.2660]** | 7.0% | **FAILS THE LINE** — whole range above 1.10, margin 8.0% clears the band |
-| feed | 1.3311× [1.2357 – 1.4195], band 3.9% | **1.0737× [0.9669 – 1.1859]** | 6.7% | **INSTRUMENT-LIMITED** — the range straddles 1.10, which is NOT a pass |
-| ordinary | 1.2097× [1.0751 – 1.3274], band 10.0% | 1.1698× [0.9671 – 1.5014] | 15.8% | INSTRUMENT-LIMITED (straddles 1.10) **and the control FAILED** |
-
-`reagent` run — co-instrumented, **never a second gate**:
-
-| row | hicasso / uix | hicasso / reagent | uix / reagent |
-|---|---|---|---|
-| large-template | 1.1566× [0.9258 – 1.3686] | 1.0436× [STRADDLES 1.0] | 0.9064× [STRADDLES 1.0] |
-| feed | 1.1814× [1.1121 – 1.3159] | 1.1438× [STRADDLES 1.0] | 0.9685× [STRADDLES 1.0] |
-| ordinary | 1.1334× [STRADDLES 1.0] | — | — |
+| large-template | **PASS** | 1.1566× [0.9258 – 1.3686] | 1.0436× [STRADDLES 1.0] | 0.9064× [STRADDLES 1.0] |
+| feed | **FAIL** | 1.1814× [1.1121 – 1.3159] | 1.1438× [STRADDLES 1.0] | 0.9685× [STRADDLES 1.0] |
+| ordinary | **FAIL** | 1.1334× [STRADDLES 1.0] | — | — |
 
 **Absolutes, `uix` run** (p50 raw `TaskDuration`, tared; `= taskNet + in-page`):
 
@@ -267,12 +268,34 @@ arms (the cleanest gated pair in the file), E=5,129, grain 1.836 ms; ordinary
 B=7, E=51, and it sits near this door's own floor, which is why its control
 could not hold.
 
-**Positive controls:** large-template **PASS** 1.8392× [1.6188 – 2.0111]
-against the arithmetic prediction 1.9759× (strict — every block inside the
-band); feed **PASS** 1.9924× [1.8057 – 2.1729] against 1.9943×; ordinary
-**FAIL** 1.2056× [0.9188 – 1.6452] against 1.7255× — the 51-element page is
-below what this door can resolve, and the row is published carrying that
-failure rather than quoting a magnitude the instrument did not earn.
+**Positive controls, per run and per row** — `ctl-2x` / floor per block, judged
+strict against ±25% of the row's element arithmetic, and a run has a control
+verdict on each row separately rather than one for the whole run:
+
+| row | prediction | band | `uix` run | `reagent` run |
+|---|---|---|---|---|
+| large-template | 1.9759× | [1.4819 – 2.4698] | **PASS** 1.8392× [1.6188 – 2.0111] | **PASS** 1.8411× [1.6835 – 2.3183] |
+| feed | 1.9943× | [1.4958 – 2.4929] | **PASS** 1.9924× [1.8057 – 2.1729] | **FAIL** 2.0331× [1.8533 – 2.5099] |
+| ordinary | 1.7255× | [1.2941 – 2.1569] | **FAIL** 1.2056× [0.9188 – 1.6452] | **FAIL** 1.2374× [0.9437 – 1.6574] |
+
+**The two rows that carry the gate are certified on the `uix` run; on the
+`reagent` run only large-template's control held.** The ordinary control fails
+on both runs for the same reason and fails badly — a 51-element page is below
+what this door can resolve, and most of its blocks land under the floor of the
+band. The `reagent` feed control fails differently: seventeen of its eighteen
+blocks are inside, and one reads 2.5099× against a 2.4929× ceiling. Strict is
+strict, and a rule that only binds when the outlier is large is not a control —
+so it is recorded as a failure, with its distance from the ceiling stated so
+the reader can see which kind of failure it is.
+
+That distinction changes nothing about the gate and everything about how the
+secondary table is read. Per
+[the census clock rows](census-real-clock-rows.md), a Reagent comparison is
+never a second product gate — but **every magnitude from a run whose control
+failed carries that failure**, so the `reagent` table's feed and ordinary rows
+above are recorded, not adjudicative, and no argument on this page rests on
+them. The gated verdicts of record are the `uix` run's, whose acceptance and
+feed controls both passed.
 
 **Read-backs:** 0 unverified of 1,260 per `uix`-run row, 0 of 1,512 per
 `reagent`-run row.
@@ -323,7 +346,8 @@ failure rather than quoting a magnitude the instrument did not earn.
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
 | **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — 18 blocks, the published shape |
 | **Clock / door / tare** | PUBLISHED: `Performance.getMetrics` raw `TaskDuration`, frame-settled. DIAGNOSTIC: `taskNet` + the in-page window on the same samples. One door for every arm including the plumb tare (`page.evaluate → C56CLOCK.sample`), tare subtracted from every figure |
-| **Guard / band** | arm-order guard tolerance 0.35 — **reportable on all six row-runs**; band ceiling 35%, and every row's band was well inside it (6.7–15.8%) |
+| **Guard / band** | arm-order guard tolerance 0.35 — **reportable on all six row-runs**; band ceiling 35%, and every row's band was inside it — **6.7–29.8% across the six**: `uix` 7.0 / 6.7 / 19.2%, `reagent` 8.7 / 11.9 / 29.8% (large-template / feed / ordinary) |
+| **Controls** | strict ±25%, adjudicated **per row within each run** rather than once per run: `uix` PASS / PASS / FAIL, `reagent` PASS / FAIL / FAIL (large-template / feed / ordinary). §5 carries each failure onto the magnitudes it touches |
 | **Read-backs** | 0 unverified of 1,260 (`uix` rows) and 1,512 (`reagent` rows) |
 | **Windows** | announced on the bead before opening and closed after. `uix` `2026-08-02T18:14:02Z – 18:17:26Z`; `reagent` `18:17:26Z – 18:21:10Z`. Quiet gate (8 × 1 s < 30% CPU) **QUIET on attempt 1 for all six rows** |
 | **Exit codes** | published run `0`. **The first attempt was REFUSED and published nothing**: the box would not go quiet before `uix/feed` across five attempts (CPU runs in the 22–46% range against the 30% gate) while sibling workers held the machine, and the runner discards a partial run rather than reporting it. The `uix/large-template` row of that attempt did take, and it is not quoted here |
