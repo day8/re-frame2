@@ -1347,24 +1347,36 @@ The heap delta reproduces at **~200 B per boundary**, which is a Fiber. The cloc
 rows do not separate from run-to-run noise at this round count, so the mount and
 bulk cost is stated as a **bound (≲10%)** rather than a figure. On the card-shaped
 boundary actually measured, 200 B is **+1.8%**. Against the **R=0 shell** — the
-figure validation.md's paper line is stated against, which the ladder puts at
-1,143 B, already over the 1 KB line — the same 200 B would be ≈ +17%. Both
-readings are true, they are not interchangeable, and the shell one had to be
-re-taken on the ladder's own instrument.
+figure validation.md's paper line is stated against, which the ladder put at
+1,143 B at the time, already over the 1 KB line — the same 200 B would be ≈ +17%.
+Both readings are true, they are not interchangeable, and the shell one had to be
+re-taken on the ladder's own instrument. *(Both figures in this paragraph are the
+2026-08-02 state; the shell has since moved and the re-take below is the current
+one.)*
 
-**The shell re-take has since been done** (`rf2-2rtt6.58`, 2026-08-02, P0 bench,
-both arms in one session with a third run bracketing them —
-[the rows](studio/reads-per-boundary-heap-ladder.md#the-memo-wrapper-priced-on-this-rung-rf2-2rtt658)):
+**The shell re-take has since been done twice.** The first pair
+(`rf2-2rtt6.58`, 2026-08-02) was taken on `worker/cascade-2rtt6-52`, and its
+audit found the blobs did not match the post-#7390 landed implementation, so it
+does not stand as the current price. **The pair below was re-taken on
+2026-08-04 against `origin/main` `81321da3fe`** — `A → B → A`, one session, box
+verified quiet before each run, exit 0 on all three
+([the rows](studio/reads-per-boundary-heap-ladder.md#the-memo-wrapper-re-taken-on-the-tree-that-ships-rf2-2rtt658-re-take)):
 
-| R=0 shell | no wrapper | wrapper | delta |
-|---|---:|---:|---:|
-| Hicasso, Reagent segment | 1,141 B [1,125–1,154] | **1,247 B** [1,240–1,257] | **+106 B, +9.3%** |
-| Hicasso, UIx segment | 1,138 B [1,119–1,159] | **1,236 B** [1,227–1,250] | **+100 B, +8.8%** |
+| R=0 shell | no wrapper | wrapper | delta | vs the 1 KB line |
+|---|---:|---:|---:|---|
+| Hicasso, Reagent segment | 994 B [985–1,003] | **1,099.5 B** [1,088–1,112] | **+105.5 B, +10.6%** | 0.99× → **1.10×** |
+| Hicasso, UIx segment | 992 B [985–998] | **1,097 B** [1,092–1,105] | **+105.0 B, +10.6%** | 0.99× → **1.10×** |
+
+*(The 2026-08-02 pair read 1,141 → 1,247 B and 1,138 → 1,236 B: +106 B / +9.3%
+and +98 B / +8.6%. The **delta reproduced to within 1 B on both segments**; the
+base fell ~140 B under `rf2-aqgr2` and `rf2-dabt3`, which is where the
+percentage and the disposition move.)*
 
 **≈ +100 B, not ≈ +200 B — the ≈ +17% projection above over-estimated it by
 about a factor of two.** The A/B ranges are disjoint, the donors do not move, and
 the per-read slope is **identical to the byte** with and without the wrapper
-(1,447 and 2,289 B/read), confirming this ruling's claim that the cost is
+(1,278 and 2,115 B/read on the 2026-08-04 tree; 1,447 and 2,289 on the
+2026-08-02 one), confirming this ruling's claim that the cost is
 constant in R and lands in the shell. ~~The two instruments differ because the
 ladder mounts and *holds* while the page-chrome rig writes first, and an updated
 component retains an `alternate` fiber a held one does not — offered as the
@@ -1382,13 +1394,29 @@ taken on; what separates them is open as `rf2-2rtt6.79`. The ruling itself is
 untouched: the wrapper is a per-boundary constant in R, and **a Fiber is not a
 fixed byte count — the shape it sits on decides what it costs.**
 
-**What remains open is the disposition, and it is the operator's.** Whether +9%
-on a shell **already 1.14× over** the paper line is "pushing retained heap
-meaningfully farther past the bar" is not answered by any text: the clause is
-unquantified here, in validation.md and in the heap-regime ruling, and the
-*Reopens* clause below is worded as **failing** the bar — which this shell did at
-1,141 B before any wrapper existed. The wrapper widens a pre-existing failure
-rather than causing one. Still one thing the measurement does **not** settle:
+**What remains open is the disposition, and it is the operator's.** Whether
++10.6% is "pushing retained heap meaningfully farther past the bar" is not
+answered by any text: the clause is unquantified here, in validation.md and in
+the heap-regime ruling.
+
+**Amended 2026-08-04 (`rf2-2rtt6.58` re-take): the argument this paragraph used
+to make no longer holds.** It read *"the Reopens clause below is worded as
+failing the bar — which this shell did at 1,141 B before any wrapper existed, so
+the wrapper widens a pre-existing failure rather than causing one."* On the tree
+that ships, the shell without the wrapper reads **994 / 992 B** — not over the
+line — and with it **1,099.5 / 1,097 B**, which is. `rf2-aqgr2` and `rf2-dabt3`
+took ~140 B out of the shell in between, and **the wrapper is now the thing that
+carries it across.** Two cautions belong with that, both in the operator's
+favour rather than the ruling's: 994 B is 6 B under 1,000 and its own per-round
+band straddles the line, so the no-wrapper arm is *at* the line and not
+distinguishable from it, while the wrapper arm clears the line by more than
+validation.md's ~75 B shape sensitivity in **every** measured round. The
+`Reopens` clause is therefore live in a way it was not on 2026-08-02, and
+**this ruling's own pre-registered fallback is the one on the table**: retain
+HD-006 and ship the same comparator as an explicit boundary-level opt-in. No
+candidate-bar row has been written into validation.md either way.
+
+Still one thing the measurement does **not** settle:
 whether the mount row carries a real few-per-cent regression, which needs
 `clock_run.cjs`'s adjudicated M1 row.
 
