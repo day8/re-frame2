@@ -90,10 +90,19 @@
 
   ## The evidence sink (HD-005)
 
-  Three lines — a holder, a setter, and a nil-checked emit — so dev
-  tooling can attach to the dependency index later with no redesign.
-  Detached cost is one deref and one nil test at each of the two tap
-  points. **No evidence subsystem ships**: there is no manifest, no
+  Two lines — a holder and a setter — so dev tooling can attach to the
+  dependency index later with no redesign. Detached cost is one deref and
+  one nil test at each of the two tap points, and **that is a literal
+  count, which it only is because the nil test is the outermost form at
+  each tap point**: nothing the sink would have been handed gets built
+  when there is no sink. A third line used to own that check — a private
+  `evidence!` the tap points called with the event already constructed —
+  and the indirection is what hid the cost, charging the detached path one
+  event map per boundary per commit at [[record-reads!]] and one per
+  commit at [[commit!]], garbage the moment it was made and so invisible
+  to a retained-heap ladder (rf2-e3i6y). Factoring the guard back out
+  restores the claim's falsity, which is why it reads as duplication here
+  and stays. **No evidence subsystem ships**: there is no manifest, no
   registry, no buffering, and the sink is nil until something sets it."
   (:require [clojure.set :as set]))
 
@@ -103,7 +112,6 @@
 
 (defonce ^:private !evidence-sink (atom nil))
 (defn set-evidence-sink! "Attach (or with nil, detach) the evidence sink." [f] (reset! !evidence-sink f) nil)
-(defn- evidence! [event] (when-some [sink @!evidence-sink] (sink event)) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The pure algebra — an index is a value; every op returns the next value
@@ -262,11 +270,12 @@
         after  (:b->subs (swap! !index record-reads boundary-id read-sub-keys))
         held   (get before boundary-id #{})
         reads  (get after boundary-id #{})]
-    (when (not= held reads)
-      (evidence! {:event   :edges-changed
-                  :boundary boundary-id
-                  :added   (set/difference reads held)
-                  :dropped (set/difference held reads)}))
+    (when-some [sink @!evidence-sink]
+      (when (not= held reads)
+        (sink {:event    :edges-changed
+               :boundary boundary-id
+               :added    (set/difference reads held)
+               :dropped  (set/difference held reads)})))
     nil))
 
 (defn commit!
@@ -275,7 +284,8 @@
   re-run. Reads the index; never mutates it."
   [dirty-sub-keys]
   (let [dirty (dirty-boundaries @!index dirty-sub-keys)]
-    (evidence! {:event :commit :dirty-subs (set dirty-sub-keys) :dirty-boundaries dirty})
+    (when-some [sink @!evidence-sink]
+      (sink {:event :commit :dirty-subs (set dirty-sub-keys) :dirty-boundaries dirty}))
     dirty))
 
 ;; ---------------------------------------------------------------------------
