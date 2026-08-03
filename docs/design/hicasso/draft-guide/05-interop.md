@@ -260,7 +260,7 @@ host-ownership pattern is a product-phase question; the v0 answer is React, used
 honestly, at the edge.
 
 Used honestly means **the attach and the teardown are written as one thing.** An SDK
-that mounts and never tears down is the most common bug on this seam, and it is not
+that mounts and never tears down is the most common bug at this edge, and it is not
 subtle — you get two maps, two resize observers, and a leak per remount. React 19's
 callback ref makes the pairing structural: **whatever the ref function returns is its
 cleanup**, so you cannot write the attach without deciding what undoes it.
@@ -287,14 +287,14 @@ cleanup**, so you cannot write the attach without deciding what undoes it.
     [:div.map {:ref attach}]))
 ```
 
-Four properties, and each one is load-bearing.
+Four properties, and dropping any one of them breaks something specific.
 
 **The handle is per-attach, not per-namespace.** It is created by the attach and
 captured by the cleanup that attach returned. Two attaches produce two handles and
 two cleanups, correctly paired. The moment you hoist that handle into a `defonce`
 atom or a module-level var, a second attach overwrites the first and the first
 instance leaks — which is the actual mechanism behind every "it mounted twice" report
-on this seam.
+at this edge.
 
 **The teardown is idempotent.** The `done?` latch makes a second call a no-op. React
 calls each cleanup exactly once, so strictly this is belt and braces — but SDK
