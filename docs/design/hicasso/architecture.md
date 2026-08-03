@@ -13,6 +13,20 @@ normative in [decisions.md](decisions.md); the proof obligations live in
 > not because it lost. HD-007's two-equal-arms ruling is superseded accordingly;
 > the Arm 2 material below is kept as the design record of a road not taken.
 
+> **Amendment, 2026-08-03 (rf2-dabt3): deliverable 2 of the shared front half is
+> retired.** The subscription→boundary index is no longer a structure of its
+> own. Its readers moved onto Arm 1's key cells, `front.sub-index` was deleted,
+> and the six laws are now discharged against the fused table's doors. **This is
+> a consequence of the ruling above and could not have been taken before it**:
+> deliverable 2 was shared, so while two arms were live the index had to be a
+> general, separately-testable algebra with its own namespace and its own
+> six-law suite. With Arm 2 withdrawn there is one consumer, and it already had
+> a table keyed by the same `(frame, query)` space — so the second structure was
+> paying two persistent map entries, and a singleton reader set per key at
+> fan-out 1, to say what one reader list on the existing cell says. §2 and the
+> Arm 1 section below carry the corrected wording; nothing about the laws
+> themselves changed.
+
 ## The space
 
 | | **Views re-run when dirty** | **Views run once; reactive holes** |
@@ -34,22 +48,35 @@ elements vs own DOM).
    scheduler). Codec-work caching (parsed tags, prop-name conversion, cached
    stable component heads) is in scope (HD-004; it was in scope for both arms
    when both ran).
-2. **The subscription→boundary index** — sub-key `(query-id, args)` → boundary
-   set; dirty set computed at commit; edge add/remove on mount/unmount/re-run;
-   conditional reads as an edge-set diff. The pure model is proven (spike-01)
-   under **six laws**, restated here so the tracked record is self-sufficient:
+2. ~~**The subscription→boundary index**~~ — **retired 2026-08-03 (rf2-dabt3);
+   the dependency edges live on Arm 1's key cells.** The six laws are unchanged
+   and still normative — sub-key `(query-id, args)` → boundary set; dirty set
+   computed at commit; edge add/remove on mount/unmount/re-run; conditional
+   reads as an edge-set replacement — and they are restated here so the tracked
+   record is self-sufficient:
    (1) after mount+read, a commit of that sub dirties that boundary only;
    (2) two boundaries sharing a sub both dirty; (3) unmount removes edges;
    (4) a re-run with fewer reads drops edges (conditional read); (5) the broad
    dirty set is the union of all readers of any dirty sub; (6) an unknown dirty
-   sub yields the empty set — no phantom boundaries. Index edges live in global
-   maps — shared structure, not per-boundary object fan-out — and are not
-   reactions: only the commit applies the dirty set. **The index serves the
-   one product read tier** — the ambient collector, which records edges — **and
-   its comparator**, grouped, which declares them; the scalar comparator arm
-   does not use it. The index carries a
-   ~3-line nil-checked evidence sink seam (HD-005) so tooling can attach later;
-   no evidence subsystem ships in v0.
+   sub yields the empty set — no phantom boundaries. What changed is **where
+   they are answered**, and the tournament's end is what made the change
+   available: while both arms were live the index had to be a general,
+   separately-testable algebra serving two consumers, so it was a namespace of
+   its own (`front.sub-index`) holding two process-global maps. Arm 2 was
+   withdrawn on 2026-07-31 and the sole surviving consumer now owns the table.
+   Edges therefore live **on the key cell that already existed** — one reader
+   list per `(frame, query)`, still shared structure rather than per-boundary
+   object fan-out, still not reactions, and still applied only at the commit.
+   The reverse edge and the subscription reference are now **one membership**,
+   and the forward edge needs no storage at all because the registration
+   already holds its read set by reference. The pure `spike-01` model remains
+   the proof of the algebra; the laws are discharged against the fused doors in
+   `arm1/cell_table_laws_cljs_test`. **The edges serve the one product read
+   tier** — the ambient collector, which records them — **and its comparator**,
+   grouped, which declares them; the scalar comparator arm does not use them.
+   The ~3-line nil-checked evidence sink seam (HD-005) moved with them, event
+   shapes unchanged, so tooling attaches without redesign; no evidence
+   subsystem ships in v0.
 3. **Ergonomics-as-data** — event vectors in attributes, the value placeholder,
    auto-prevent on submit, the composition-gated key-map, `route-link`
    ([authoring.md](authoring.md)).
@@ -68,20 +95,28 @@ elements vs own DOM).
   subscription/epoch hook and the frame-context hook (HD-020); refs are callback
   refs, never `useRef` in the shell. A ViewCell-class per-boundary object graph
   appearing means the arm has failed.
-- **Re-render path (grouped/collector topology)**: commit → dirty sub-keys →
-  index → dirty boundary set → per-boundary epoch bump → React re-renders
+- **Re-render path (grouped/collector topology)**: commit → dirty key cells →
+  the union of their reader lists → per-boundary epoch bump → React re-renders
   exactly those boundaries → bodies re-run against the committed snapshot →
-  hiccup → codec → React reconciles. A generation fence keeps all reads within
-  one render pass on one commit (invariant-5 preservation; the staged-stale CI
-  witness guards it). The scalar *comparator* arm has a different topology —
-  React notifies per uSES hook and the index is not in its notify path; it is
-  priced by the 1/3/7/20 heap ladder, never by the shell-hook budget.
+  hiccup → codec → React reconciles. No lookup was lost when the index fused in
+  (rf2-dabt3): the commit already held the dirty cells and was mapping their
+  sub-keys out purely so a second structure could map them straight back. A
+  generation fence keeps all reads within one render pass on one commit
+  (invariant-5 preservation; the staged-stale CI witness guards it). The scalar
+  *comparator* arm has a different topology — React notifies per uSES hook and
+  the edges are not in its notify path; it is priced by the 1/3/7/20 heap
+  ladder, never by the shell-hook budget.
 - **Boundary-exclusive retention is priced, not "absent"**: a boundary
-  necessarily retains an identity token, index membership, its
-  subscription/epoch cell, and (collector tier) a committed read set. Before an
-  arm is admitted, every boundary-exclusive token, callback, hook cell, epoch,
-  map entry, and edge membership is inventoried in the 1/3/7/20 heap ladder
-  against the 0.4–0.5 KB target — honest accounting, not a claimed absence.
+  necessarily retains an identity token, one reader-list membership per key it
+  reads, its subscription/epoch cell, and (collector tier) a committed read
+  set. **That membership is one slot, not three** — before rf2-dabt3 the
+  inventory carried `:index/b->subs` (a forward-edge map entry), `:index/sub->bs`
+  (a reverse-edge set membership) and, at fan-out 1, the singleton
+  `PersistentHashSet` the reverse map retained per key; the retained inventory
+  now carries a single `:cell/reader-membership` in their place. Before an arm
+  is admitted, every boundary-exclusive token, callback, hook cell, epoch, map
+  entry, and edge membership is inventoried in the 1/3/7/20 heap ladder against
+  the 0.4–0.5 KB target — honest accounting, not a claimed absence.
 - **Inside-React feasibility constraints** (internalize before writing shells):
   React re-renders only via parent, local state, context, uSES, or root render; a
   root store cannot pay the consistency guarantee "once" (no root observer of
@@ -212,5 +247,6 @@ disposable (spike branch or the local `ai/` tree) until the surviving arm
 graduates into a tracked `implementation/hicasso/` artefact. (HD-017 wrote that
 condition as "the P2 ruling graduates exactly one arm"; the 2026-07-31 product
 ruling settled *which* arm ahead of P2, and the residence rule is otherwise
-unchanged.) The spike-01 index model is library input to the front half, not a
-product namespace.
+unchanged.) The spike-01 index model was library input to the front half, not a
+product namespace; since rf2-dabt3 its algebra is discharged directly against
+Arm 1's cell table and `front.sub-index` no longer exists.
