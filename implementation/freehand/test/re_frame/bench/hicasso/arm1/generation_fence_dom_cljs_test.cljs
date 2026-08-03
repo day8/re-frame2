@@ -44,6 +44,7 @@
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.core :as rf]
             [re-frame.test-support :as test-support])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
@@ -214,6 +215,77 @@
             (is (= "true" (read-back handle "data-after"))
                 "the boundary was corrected: React re-read the store after
                  `subscribe` and found a number that had moved"))
+          (finally (mount/release! handle)))))))
+
+;; ---------------------------------------------------------------------------
+;; Case 4 — a first REGISTRATION lands in the gap (rf2-2rtt6.50)
+;; ---------------------------------------------------------------------------
+;;
+;; Case 3 moves a staged read's VALUE in the gap. This one moves its
+;; COMPUTATION: the reading boundary's query is not registered when its
+;; body runs, so the read takes the substrate's nil-recovery, and the
+;; registration lands before React acquires the edge. Neither the flush
+;; generation nor the frame's install epoch moves for a `reg-sub`, and
+;; the boundary has no cell for `first-registration!` to reach — so
+;; without the basis's registry term React re-reads the number the fiber
+;; captured at render, finds no tear, and the boundary paints the
+;; recovery's `nil` until the next write to the frame.
+;;
+;; Staged the way Case 3 is, and for the same reason: a SIBLING boundary
+;; acting during the same React render pass, after the reading boundary's
+;; fence has closed. That needs no guess about when React runs a passive
+;; effect — the registration is strictly inside the render, and
+;; `subscribe` runs strictly after it. This is the lazily-loaded-module
+;; shape, which is the one the reachability argument names.
+
+(def ^:private gap-q [::lazily-registered])
+
+(defonce ^:private !gap-registrations (atom 0))
+
+(defview gap-reader
+  "Renders FIRST, and reads a query NOTHING has registered."
+  [_]
+  (let [v (rt/sub gap-q)]
+    [:li.row {:data-after (str v) :data-before (str v)} (str v)]))
+
+(defview gap-registrar
+  "Renders SECOND, in the same pass, and registers the sub its sibling
+  just read. Once — a body that registers on every run moves the basis on
+  every run, which is a write loop, and the fence fails that loudly rather
+  than spinning."
+  [_]
+  ;; A read of its own, so this is an ordinary boundary rather than a
+  ;; contrivance with no edges.
+  (rt/sub [:dogfood/filter])
+  (when (zero? @!gap-registrations)
+    (swap! !gap-registrations inc)
+    (rf/reg-sub (first gap-q) (fn [_ _] :arrived)))
+  [:li.writer])
+
+(deftest a-first-registration-landing-in-the-gap-is-corrected-in-the-dom
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (reset! !gap-registrations 0)
+      (lane/leave-act-environment!)
+      (dogfood/make-frame! frame-id 3)
+      (dogfood/reseed! frame-id 3)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id
+                                [:ul [gap-reader {}] [gap-registrar {}]])]
+        (try
+          (is (= 1 @!gap-registrations) "the sibling registered, exactly once")
+          (mount/settle!)
+          (mount/settle!)
+          (testing "the reader's query had no handler when its body ran and no
+                   cell when the registration landed, so `first-registration!`
+                   reached nothing on its behalf and neither the generation nor
+                   the frame's install epoch moved — and the DOM must still not
+                   be stale"
+            (is (= ":arrived" (read-back handle "data-after"))
+                "the boundary was corrected inside the mount: React re-read the
+                 store after `subscribe`, found a number the registry term had
+                 moved, and re-rendered through the cell the commit acquired
+                 against the live registration"))
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
