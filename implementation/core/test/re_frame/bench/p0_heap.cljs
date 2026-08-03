@@ -391,13 +391,18 @@
            ;; every mount of every arm (rf2-2rtt6.34). On a candidate arm
            ;; it is what makes "one hook plus N edges in a shared index" a
            ;; number the driver gates rather than a sentence in a
-           ;; docstring: `boundaries` must be B, `edges` must be E,
-           ;; `cells` must be Q, and `entries` must be B at Q = E — one
-           ;; read-set entry per boundary, because on the distinct-query
-           ;; witness no two boundaries read the same SET and the entry
-           ;; cache's sharing buys nothing. On a DONOR arm every one of
-           ;; them must be zero, which is the check that the candidate's
-           ;; runtime is not standing behind the rows it is compared to.
+           ;; docstring: `boundaries` must be B WHERE ANYTHING IS READ,
+           ;; `edges` must be E, `cells` must be Q, and `entries` must be
+           ;; B at Q = E — one read-set entry per boundary, because on the
+           ;; distinct-query witness no two boundaries read the same SET
+           ;; and the entry cache's sharing buys nothing. With no reads at
+           ;; all `boundaries` is 0 and `entries` is 1: since rf2-dabt3
+           ;; fused the sub-index into the cell table the runtime knows a
+           ;; boundary only through the cells it reads, so an edgeless one
+           ;; retains no membership and is correctly absent. On a DONOR
+           ;; arm every one of them must be zero, which is the check that
+           ;; the candidate's runtime is not standing behind the rows it
+           ;; is compared to.
            :hicasso      #js {:cells      (:cells hic)
                               :cellRefs   (:cell-refs hic)
                               :boundaries (:boundaries hic)
