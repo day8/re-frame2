@@ -22,8 +22,11 @@ HeadlessChrome 147.0.7727.15 (Chromium via Playwright), `:advanced`,
 > (`rf2-2rtt6.25`) re-ran this instrument against shipped code and added the
 > `shipped` witness arm — **and that section's shipped-performance figures are
 > RETRACTED (2026-08-01): the instrument mounts inside `flushSync`, and on the
-> public `createRoot().render()` path the hand-off loses its race and the
-> double build is still paid. See the banner at the head of that section.**
+> public `createRoot().render()` path the hand-off lost its race under the
+> `setTimeout 0` horizon those rows were taken on, so the double build was
+> still paid. `rf2-2rtt6.71` has since ruled that horizon out to `setTimeout 4`
+> — which does NOT revive the rows, because none was re-taken. See the banner
+> at the head of that section.**
 > Authored on `worker/handoff-2rtt6-25`; those figures
 > are this second set of blobs:
 >
@@ -40,8 +43,12 @@ HeadlessChrome 147.0.7727.15 (Chromium via Playwright), `:advanced`,
 > and the emitted records still said the shipped cold read builds once. The
 > arm is now named in the source and stamped in every emitted record as the
 > **forced-synchronous mechanism arm**, with a `:schedule` key carrying the
-> qualifier the prose here carries. Wording only — no measurement window was
-> altered to repair provenance, so the rows below still say what they said.
+> qualifier the prose here carries. Its `:horizon` field additionally records
+> that the reap horizon was **ruled `setTimeout 4`** on 2026-08-03
+> (`rf2-2rtt6.71`) and that the public schedule therefore adopts — witnessed by
+> the flipped browser assertions, **not** by anything on this page. Wording
+> only, twice over — no measurement window was altered and no row was re-taken,
+> so the rows below still say what they said.
 
 Reproduce (each row is one page and one driver invocation; the plain command
 runs all five over the same gates):
@@ -358,6 +365,21 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 > the primitive a macrotask), so it was **not** changed by the audit repair, and
 > `rf2-2rtt6.25` stays OPEN on that decision. Standing witness:
 > `assert-use-subscribe-public-mount-schedule-rebuilds`.
+>
+> **UPDATE, 2026-08-03 — the horizon was ruled, and the retraction above still
+> stands** (`rf2-2rtt6.71`, ruling (a)). The reap horizon moved from
+> `setTimeout 0` to **`setTimeout 4`**, the shortest probed delay reading 1.00N
+> at N = 1 and N = 300 alike, so the hand-off's adoption **is** realised on the
+> public `createRoot().render()` path from that date. It is a **margin, not a
+> React guarantee** — React specifies no maximum render-to-subscribe interval,
+> and a future scheduling change could silently restore the double build; the
+> standing witness above was FLIPPED rather than deleted and is now the
+> tripwire that would say so. **None of that revives the `shipped` rows below.**
+> They were measured on 2026-07-31, under the old horizon, inside `flushSync`,
+> and **no row on this page has been re-taken** — the flipped assertions are the
+> witness for the public schedule, not this instrument. Read the retraction as
+> written: these figures remain forced-synchronous mechanism figures, and the
+> shipped-performance claims they once carried remain withdrawn.
 
 **Bead** `rf2-2rtt6.25` · **ruled ADOPT on `rf2-2rtt6.14`** (Mike, 2026-07-31) ·
 **re-measured** 2026-07-31 13:4x AUSEST, same box, same runtime line as every

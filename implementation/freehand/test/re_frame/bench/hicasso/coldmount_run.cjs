@@ -48,14 +48,20 @@
 // returns — the ordering the rf2-2rtt6.25 provisional hand-off needs to win
 // its race with its own reaper. The public client mount path
 // (`re-frame.substrate.adapter/render`, a bare `createRoot().render()`) does
-// NOT force it, and there the reaper fires first and the cold mount rebuilds.
+// NOT force it, and when these rows were taken — 2026-07-31, reap horizon
+// `setTimeout 0` — the reaper fired first there and the cold mount rebuilt.
 //
 // So the `shipped` arm below is the forced-synchronous MECHANISM arm: it says
 // what the hand-off costs and saves when it runs to completion, and it is NOT
 // an acceptance witness for shipped mount performance. Every record this run
 // emits carries that as a `:schedule` key. Nothing is unsound — the lost race
 // costs a construction, never correctness (Spec 006 §Render-phase provisional
-// acquisition and commit adoption). The reap horizon is an operator decision.
+// acquisition and commit adoption).
+//
+// UPDATE, 2026-08-03 (rf2-2rtt6.71): the reap horizon is now `setTimeout 4`,
+// so the public schedule adopts as well — by a measured margin, not a React
+// guarantee, and witnessed by the browser assertions rather than by this
+// driver. No row here was re-taken, so the qualifier above stands as written.
 
 'use strict';
 

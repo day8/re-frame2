@@ -84,28 +84,34 @@
   and that IS the ordering the rf2-2rtt6.25 hand-off needs in order to
   win its race with its own reaper. **The shipping client mount path does
   not force it**: `re-frame.substrate.adapter/render` is a bare
-  `createRoot(…).render(…)`, and there the `setTimeout 0` reaper fires
-  first, so the escrowed reference is released, the commit misses, and
-  the mount rebuilds — `bodyRuns` 2.00N, measured at N = 1 and N = 300
+  `createRoot(…).render(…)`, and when these rows were taken (2026-07-31,
+  reap horizon `setTimeout 0`) the reaper fired first there, so the
+  escrowed reference was released, the commit missed, and the mount
+  rebuilt — `bodyRuns` 2.00N, measured at N = 1 and N = 300
   (rf2-2rtt6.25, merged-PR audit of #7305; the browser assertion is
   `use-subscribe-public-mount-schedule-rebuilds`).
 
   So the `shipped` arm here is **the forced-synchronous MECHANISM arm**,
   not an acceptance witness for shipped performance. Its rows say what
   the hand-off costs and saves WHEN IT RUNS TO COMPLETION. They are not a
-  statement about any mount a consumer performs today, and the
-  `:schedule` key on every record emitted below says so in the data as
-  well as in this docstring. The instruments themselves — the counting
-  witness, the fidelity control, the residue gate, the segment-order
-  control — are unaffected; what changed is which schedule they speak
-  for. Nothing here is unsound: Spec 006 §Render-phase provisional
-  acquisition and commit adoption requires that correctness never depend
-  on the reaper losing the race, and the lost race costs a construction
-  and nothing else.
+  statement about any mount a consumer performs, and the `:schedule` key
+  on every record emitted below says so in the data as well as in this
+  docstring. The instruments themselves — the counting witness, the
+  fidelity control, the residue gate, the segment-order control — are
+  unaffected; what changed is which schedule they speak for. Nothing here
+  is unsound: Spec 006 §Render-phase provisional acquisition and commit
+  adoption requires that correctness never depend on the reaper losing
+  the race, and the lost race costs a construction and nothing else.
 
-  The reap horizon that would recover the saving on the public schedule
-  is an OPERATOR DECISION (rf2-2rtt6.14 ruled the primitive), so no
-  measurement window in this file is touched to repair the wording.
+  UPDATE, 2026-08-03 (rf2-2rtt6.71): the reap horizon has since been
+  RULED out to `setTimeout 4` — the shortest probed delay reading 1.00N
+  at N = 1 and N = 300 — so the public schedule adopts too, by a measured
+  margin and not by any React guarantee. **That changes nothing on this
+  page.** No measurement window here was altered and no row was re-taken,
+  so every figure below is still a forced-synchronous mechanism figure
+  measured under the old horizon, and the adoption on the public schedule
+  is witnessed by the flipped browser assertions rather than by anything
+  here.
 
   ## What fails the run
 
@@ -172,16 +178,23 @@
   {:mount-schedule :forced-synchronous
    :how            "react-dom/flushSync around every mount — the timed ones in lane/mount-arm! and lane/mount-batch!, the counted ones in coldmount-views/witness!"
    :arm            "the shipped hook's hand-off MECHANISM, measured where it is allowed to run to completion"
-   :not            (str "NOT a shipped-mount-performance claim. The public client mount path is "
-                        "re-frame.substrate.adapter/render — a bare createRoot().render() — and there "
-                        "the setTimeout-0 reaper releases the escrowed reference before React's passive "
-                        "useSyncExternalStore subscribe, so the commit misses and rebuilds: bodyRuns "
-                        "2.00N at N = 1 and N = 300 (rf2-2rtt6.25, merged-PR audit of #7305).")
+   :not            (str "NOT a shipped-mount-performance claim, and still not one after rf2-2rtt6.71. "
+                        "Every mount here is forced with flushSync, and every published row was taken "
+                        "2026-07-31 while the reap horizon was setTimeout 0 — on which the public client "
+                        "mount path (re-frame.substrate.adapter/render, a bare createRoot().render()) "
+                        "reaped the escrowed reference before React's passive useSyncExternalStore "
+                        "subscribe, so the commit missed and rebuilt: bodyRuns 2.00N at N = 1 and N = 300 "
+                        "(rf2-2rtt6.25, merged-PR audit of #7305). Neither fact is repaired by re-pricing.")
    :correctness    (str "unaffected either way — Spec 006 §Render-phase provisional acquisition and "
                         "commit adoption requires that correctness never depend on the reaper losing "
                         "the race; the lost race costs a construction and the steady state is one "
                         "durable reference.")
-   :horizon        "the reap horizon that would recover the saving on the public schedule is an OPERATOR DECISION (rf2-2rtt6.14 ruled the primitive); no measurement window here was altered to repair provenance"
+   :horizon        (str "RULED setTimeout 4 (rf2-2rtt6.71, 2026-08-03) — the shortest probed delay "
+                        "reading 1.00N at N = 1 and N = 300, so the adoption is now realised on the "
+                        "public schedule too. It is a MARGIN, not a React guarantee. That is witnessed "
+                        "by the flipped assertions listed below and by nothing on this page: no "
+                        "measurement window here was altered and no row was re-taken under the new "
+                        "horizon, so these rows remain forced-synchronous mechanism rows.")
    :assertions     ["use-subscribe-public-mount-schedule-rebuilds"
                     "use-subscribe-escrow-leg-answers-on-the-public-mount-schedule"
                     "use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount"]})
