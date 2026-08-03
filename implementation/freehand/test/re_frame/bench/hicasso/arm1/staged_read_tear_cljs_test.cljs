@@ -49,14 +49,17 @@
 
       commit-basis(frame) = the runtime's flush generation
                           + `re-frame.frame/frame-commit-epoch`
+                          + the runtime's registry epoch
 
   The second term is the substrate's own observation-port evidence
   counter — one bump per physical frame-state install, at both write
   chokepoints — and Spec 006 already uses it to answer exactly this
-  question without watching anything. So a staged key's number is
-  `basis@render` while the boundary renders and `basis@commit` once the
-  commit acquires it: equal when nothing installed in the gap, different
-  when something did. React stores each fiber's render-time snapshot and
+  question without watching anything. The third counts `:sub`
+  registrations, which are neither a flush nor an install (rf2-2rtt6.50);
+  this file's rows are the version axis and do not exercise it. So a
+  staged key's number is `basis@render` while the boundary renders and
+  `basis@commit` once the commit acquires it: equal when nothing moved in
+  the gap, different when something did. React stores each fiber's render-time snapshot and
   re-reads `getSnapshot` immediately after `subscribe` returns
   (`updateStoreInstance` is the very next passive effect), so the
   comparison is per boundary, is one number, and holds **no record of
