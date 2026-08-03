@@ -545,6 +545,116 @@
             (is (= :rf.error/hicasso-unknown-callback-contract
                    (:rf.error/id (ex-data e))))))))))
 
+(deftest the-declared-contract-governs-the-value-and-not-the-other-way-round
+  (testing "the law made structural: the CONTRACT is the outer question and
+            the carrier the inner one. Reading the value first is how a
+            declaration that says :handler ends up silently dispatching a
+            bare intent, and how a :render position dispatches during the
+            foreign component's render — the value quietly selecting the
+            contract, which is the one thing HD-024 exists to prevent."
+    (let [!seen (recorder)]
+      (testing ":event keeps the vector and key-map conveniences, because
+                dispatching is exactly what that contract MEANS"
+        (let [h (intent/with-frame (dispatching !seen)
+                                   (fn [] (intent/lower-declared-prop
+                                            :onValueChange [:host/changed 1] :event)))]
+          (h (ev {}))
+          (is (= [[:host/changed 1]] @!seen)))
+        (reset! !seen [])
+        (let [h (intent/with-frame (dispatching !seen)
+                                   (fn [] (intent/lower-declared-prop
+                                            :onValueChange {"Enter" [:host/changed 2]} :event)))]
+          (h (ev {:key "Enter"}))
+          (is (= [[:host/changed 2]] @!seen))))
+      (testing "and refuses them precisely at :handler and at :render, where
+                no reading of the value could satisfy the declaration"
+        (reset! !seen [])
+        (doseq [contract [:handler :render]
+                carrier  [[:host/changed 3] {"Enter" [:host/changed 3]}]]
+          (try
+            (intent/with-frame (dispatching !seen)
+                               (fn [] (intent/lower-declared-prop :onValueChange carrier contract)))
+            (is false (str "should have thrown for " contract " / " (pr-str carrier)))
+            (catch :default e
+              (let [d (ex-data e)]
+                (is (= :rf.error/hicasso-intent-at-a-non-event-contract (:rf.error/id d)))
+                (is (= :onValueChange (:position d)))
+                (is (= contract (:contract d)))
+                (is (= carrier (:value d)))
+                (is (re-find #":onValueChange" (ex-message e))
+                    "and the diagnostic names the POSITION")))))
+        (is (= [] @!seen) "nothing was dispatched on the way to any refusal"))
+      (testing "an ordinary unmarked function crosses untouched at every
+                contract — a plain fn is claimed by no position, so `raw-fn`'s
+                passthrough stays the default here as everywhere else"
+        (let [f (fn [_] :whatever)]
+          (doseq [contract [:event :handler :render]]
+            (is (identical? f (intent/lower-declared-prop :onValueChange f contract))
+                (str "at " contract))))))))
+
+;; ---------------------------------------------------------------------------
+;; The argument law: the vector spelling is EVENT-FIRST (HD-024)
+;; ---------------------------------------------------------------------------
+;;
+;; One law over every feature of the vector spelling that reads the event.
+;; It cannot fail at a native position — React hands the event first, always
+;; — but the SAME lowering serves a `defhost` `:event` slot, where a foreign
+;; invoker calls with its own contract. Without the law the author gets
+;; `value.preventDefault is not a function`: the engine's TypeError, naming
+;; nothing they wrote, which is exactly the failure class the one-form ruling
+;; deletes.
+
+(deftest the-vector-spelling-reads-the-event-from-argument-one
+  (let [d (dispatching (recorder))]
+    (testing "`::h/prevent` needs `preventDefault`, and says so when argument
+              one has none"
+      (let [h (intent/with-frame d (fn [] (intent/lower-prop
+                                            :on-pick [:re-frame.hicasso/prevent [:go]])))]
+        (try
+          (h "a-value")
+          (is false "should have thrown")
+          (catch :default e
+            (let [data (ex-data e)]
+              (is (= :rf.error/hicasso-intent-needs-the-event (:rf.error/id data)))
+              (is (= :on-pick (:position data)))
+              (is (= "preventDefault" (:needed data)))
+              (is (= "a-value" (:argument data)))
+              (is (re-find #":on-pick" (ex-message e)) "it names the POSITION")
+              (is (re-find #"h/fn" (ex-message e)) "and the spelling that works"))))))
+    (testing "`:on-submit`'s auto-prevent is the same law, reached by the
+              policy default rather than by the head"
+      (let [h (intent/with-frame d (fn [] (intent/lower-prop :on-submit [:go])))]
+        (is (= :rf.error/hicasso-intent-needs-the-event
+               (try (h "a-value") ::no (catch :default e (:rf.error/id (ex-data e))))))))
+    (testing "the markers need `target`, and the diagnostic says which"
+      (let [h (intent/with-frame d (fn [] (intent/lower-prop
+                                            :on-pick [:set :re-frame.hicasso/value])))]
+        (try
+          (h 7)
+          (is false "should have thrown")
+          (catch :default e
+            (is (= "target" (:needed (ex-data e))))))))
+    (testing "a key-map needs `key` — and it is the sharpest of the three,
+              because without the law it looks nothing up and does NOTHING"
+      (let [h (intent/with-frame d (fn [] (intent/lower-prop
+                                            :on-pick {"Enter" [:go]})))]
+        (is (= :rf.error/hicasso-intent-needs-the-event
+               (try (h 7) ::no (catch :default e (:rf.error/id (ex-data e))))))))
+    (testing "nil is refused the same way rather than raising the engine's own
+              null dereference"
+      (let [h (intent/with-frame d (fn [] (intent/lower-prop :on-submit [:go])))]
+        (is (= :rf.error/hicasso-intent-needs-the-event
+               (try (h nil) ::no (catch :default e (:rf.error/id (ex-data e))))))))
+    (testing "while an intent with NEITHER a marker nor a prevent never reads
+              its argument at all, so it costs no law and is correct under any
+              invoker contract — the overwhelmingly common case"
+      (let [!seen (recorder)
+            h     (intent/with-frame (dispatching !seen)
+                                     (fn [] (intent/lower-prop :on-pick [:go 1])))]
+        (h "a-value")
+        (h nil)
+        (is (= [[:go 1] [:go 1]] @!seen))))))
+
 (deftest outside-every-walked-position-the-form-is-just-a-function
   (testing "the row that deletes the predecessor's FIFTH rule. There, the
             roster is site-owned and a carrier handed to a raw #js prop is a

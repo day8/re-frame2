@@ -68,6 +68,7 @@
             [re-frame.bench.hicasso.arm1.presence :refer [presence]]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
+            [re-frame.bench.hicasso.front.intent :as intent]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
@@ -195,6 +196,13 @@
                           (when-some [f (.-onImperative props)]
                             (swap! !instr assoc :imperative-return (f 41))))}
         "run")
+      ;; A RENDER PROP — invoked during THIS component's own render, which
+      ;; is the position table's render row met at a real foreign
+      ;; component (`renderRow`/`renderItem`, the shape half the ecosystem
+      ;; ships). Its return goes straight into the library's tree.
+      (react/createElement "div" #js {:className "widget-render"}
+        (when-some [f (.-onRenderRow props)]
+          (f (.-label props))))
       (react/createElement "div" #js {:className "widget-slot"}
         (.-children props)))))
 
@@ -212,6 +220,14 @@
   "A provider an ecosystem library hands you is hosted like anything
   else — it is a component (the guide's own troubleshooting row)."
   (.-Provider theme-context))
+
+(defhost render-picker widget
+  "The same component, declared with all THREE contracts on it — the
+  matrix below needs one host that can be handed every carrier at every
+  contract, and `:render` is the row `picker` above has no slot for."
+  {:callbacks {:on-pick       :event
+               :on-imperative :handler
+               :on-render-row :render}})
 
 (def ^:private memo-widget (react/memo widget))
 
@@ -254,6 +270,15 @@
   nothing else."
   [_]
   [picker {:label (rt/sub [:hatch/label])}])
+
+(defview render-prop-page
+  "A declared `:render` slot, driven by the foreign component's own
+  render. The body is pure and its return is what the library puts in
+  its tree — the position table's render row, met where it actually
+  bites."
+  [_]
+  [render-picker {:label         (rt/sub [:hatch/label])
+                  :on-render-row (hfn [label] (str "rendered:" label))}])
 
 (defview tray
   "The host under presence, WITH callbacks — the fence rf2-2rtt6.66's
@@ -594,6 +619,193 @@
         (is (= 1 (unchecked-get row "day-of-week"))
             "nested keys are NOT renamed — shallow means shallow")
         (is (nil? (unchecked-get row "dayOfWeek")))))))
+
+;; ---------------------------------------------------------------------------
+;; 5b — the declaration GOVERNS, and the vector spelling is EVENT-FIRST
+;;      (HD-024, rf2-2rtt6.35). These rows run under :node-test too.
+;; ---------------------------------------------------------------------------
+;;
+;; Two laws, one surface, and both of them are about the door rather than
+;; about the value:
+;;
+;;   (a) the CONTRACT the declaration named governs every carrier at that
+;;       position — not only the `h/fn`.  Before this, a vector took the
+;;       intent path and a map the key-map path whatever the declaration
+;;       said, so a slot declared `:handler` silently dispatched and a
+;;       slot declared `:render` could dispatch during the foreign
+;;       component's own render.  That is the value selecting the
+;;       contract, which is precisely what HD-024 deletes.
+;;   (b) the vector spelling reads the DOM event from argument ONE.  A
+;;       foreign invoker that hands a value first has no event there, and
+;;       the refusal names the POSITION and points at `h/fn` — instead of
+;;       `value.preventDefault is not a function`, the engine's own
+;;       TypeError naming nothing the author wrote.
+;;
+;; The rows below cross through the real minted head and then invoke the
+;; lowered prop the way [[widget]] invokes it — `(f (.-value props) e)` for
+;; `onPick`, `(f e)` for `onDraft`, both visible in this file.  The mounted
+;; render-prop row above the matrix is the other half: a `:render` slot
+;; actually called during the foreign component's render.
+
+(defn- prop [^js el nm] (unchecked-get (unchecked-get el "props") nm))
+
+(defn- crossed
+  "Cross one attr map through the real door under a recording dispatch,
+  and answer `[element !dispatched]`. The frame is bound for the crossing
+  only, so every closure it produces is invoked — like a browser's — after
+  the render's dynamic extent has unwound."
+  [head props]
+  (let [!seen (atom [])
+        el    (intent/with-frame (fn [ev] (swap! !seen conj ev) nil)
+                (fn [] (codec/as-element [head props])))]
+    [el !seen]))
+
+(deftest a-declared-render-slot-is-invoked-during-the-foreign-render
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (instr!)
+      (fresh!)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id [render-prop-page {}])]
+        (try
+          (mount/settle!)
+          (is (= "rendered:due date" (.-textContent (q handle ".widget-render")))
+              "the h/fn ran inside the foreign component's own render and its
+               return went into the library's tree — not to dispatch")
+          (is (= [] (:picked (db))) "and nothing dispatched")
+          (finally (mount/release! handle)))))))
+
+(deftest the-declaration-governs-every-carrier-at-its-position
+  (testing ":event takes all four carriers, because dispatching is what that
+            contract MEANS"
+    (let [[el !seen] (crossed render-picker
+                             {:on-pick (hfn [city e] [:hatch/picked city (.-type e)])})]
+      ((prop el "onPick") "paris" #js {:type "click"})
+      (is (= [[:hatch/picked "paris" "click"]] @!seen) "h/fn: the returned vector dispatched"))
+    (let [[el !seen] (crossed render-picker {:on-pick [:hatch/picked "static" "vec"]})]
+      ((prop el "onPick") #js {})
+      (is (= [[:hatch/picked "static" "vec"]] @!seen) "an intent vector lowers as at a native position"))
+    (let [[el !seen] (crossed render-picker {:on-pick {"Enter" [:hatch/closed]}})]
+      ((prop el "onPick") #js {:key "Enter"})
+      (is (= [[:hatch/closed]] @!seen) "and a key-map lowers as at a native position"))
+    (let [[el !seen] (crossed render-picker {:on-pick identity})]
+      (is (identical? identity (prop el "onPick"))
+          "an ordinary function is claimed by no contract and crosses by identity")
+      (is (= [] @!seen))))
+
+  (testing ":handler crosses the h/fn by identity and REFUSES the dispatching
+            carriers — its return is ignored and Hicasso dispatches nothing
+            from it, so a carrier whose entire content is a dispatch has no
+            reading there"
+    (let [[el _] (crossed render-picker {:on-imperative stable-imperative})]
+      (is (identical? stable-imperative (prop el "onImperative"))))
+    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+           (error-id #(crossed render-picker {:on-imperative [:hatch/closed]})))
+        "a bare intent at a declared :handler no longer silently dispatches")
+    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+           (error-id #(crossed render-picker {:on-imperative {"Enter" [:hatch/closed]}}))))
+    (let [[el _] (crossed render-picker {:on-imperative identity})]
+      (is (identical? identity (prop el "onImperative"))
+          "and an ordinary function still crosses untouched")))
+
+  (testing ":render wraps the h/fn and refuses the dispatching carriers too —
+            a :render position is invoked DURING a render, so a carrier that
+            is nothing but a dispatch is the one thing it can never be"
+    (let [[el !seen] (crossed render-picker {:on-render-row (hfn [label] (str "row:" label))})]
+      (is (= "row:x" ((prop el "onRenderRow") "x")) "the return went back to the caller")
+      (is (= [] @!seen)))
+    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+           (error-id #(crossed render-picker {:on-render-row [:hatch/closed]})))
+        "the audit's sharpest case: an intent vector at a declared :render
+         position used to take the intent path and dispatch during the
+         foreign component's render")
+    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+           (error-id #(crossed render-picker {:on-render-row {"Enter" [:hatch/closed]}}))))
+    (let [[el _] (crossed render-picker {:on-render-row identity})]
+      (is (identical? identity (prop el "onRenderRow")))))
+
+  (testing "the refusal names the position, the contract and the value —
+            never the form, because under ONE form the form is never the
+            answer to what went wrong"
+    (try
+      (crossed render-picker {:on-imperative [:hatch/closed]})
+      (is false "should have thrown")
+      (catch :default e
+        (let [d (ex-data e)]
+          (is (= :on-imperative (:position d)))
+          (is (= :handler (:contract d)))
+          (is (= [:hatch/closed] (:value d)))
+          (is (re-find #":on-imperative" (ex-message e))))))))
+
+(deftest a-dispatch-from-a-declared-render-position-names-the-position
+  (testing "HD-024's core law at the door: the CONTRACT the declaration named
+            decides, and a :render contract poisons the ambient frame-locked
+            dispatch for the call's dynamic extent — the same id a native
+            render position raises, because the position is the thing that
+            selected it"
+    (let [[el !seen] (crossed render-picker
+                             {:on-render-row (hfn [_] (intent/*dispatch* [:hatch/closed]) "never")})]
+      (try
+        ((prop el "onRenderRow") "x")
+        (is false "should have thrown")
+        (catch :default e
+          (let [d (ex-data e)]
+            (is (= :rf.error/hicasso-dispatch-in-render-position (:rf.error/id d)))
+            (is (= :on-render-row (:position d)))
+            (is (= [:hatch/closed] (:event d)))
+            (is (re-find #":on-render-row" (ex-message e))))))
+      (is (= [] @!seen) "and nothing reached the frame"))))
+
+(deftest the-vector-spelling-is-event-first-and-says-so-when-it-is-not
+  (testing "the positive half, at the invoker contract the door was built for:
+            an EVENT-FIRST foreign call, which is what onDraft makes"
+    (let [[el !seen] (crossed picker {:on-draft [:hatch/typed :re-frame.hicasso/value]})]
+      ((prop el "onDraft") #js {:target #js {:value "west"}})
+      (is (= [[:hatch/typed "west"]] @!seen))))
+
+  (testing "and the case audit #7398 named. The widget calls
+            `(f (.-value props) e)` — VALUE-first — so argument one is a
+            string, and `.preventDefault` on it is the engine's own
+            TypeError naming nothing the author wrote. It is this error
+            instead, and it names the POSITION"
+    (let [[el !seen] (crossed picker {:on-pick [:re-frame.hicasso/prevent [:hatch/closed]]})]
+      (try
+        ((prop el "onPick") "paris" #js {:preventDefault (fn [] nil)})
+        (is false "should have thrown")
+        (catch :default e
+          (let [d (ex-data e)]
+            (is (= :rf.error/hicasso-intent-needs-the-event (:rf.error/id d)))
+            (is (= :on-pick (:position d)))
+            (is (= "preventDefault" (:needed d)))
+            (is (= "paris" (:argument d)))
+            (is (re-find #"h/fn" (ex-message e)) "and it points at the spelling that works"))))
+      (is (= [] @!seen) "and nothing dispatched off a half-run handler")))
+
+  (testing "the SAME law, one message, for the markers — which is the whole
+            point of stating it once: `::h/value` at a value-first position
+            fails the same way and reads the same diagnostic"
+    (let [[el _] (crossed picker {:on-pick [:hatch/picked :re-frame.hicasso/value "kind"]})]
+      (try
+        ((prop el "onPick") "paris" #js {:target #js {:value "x"}})
+        (is false "should have thrown")
+        (catch :default e
+          (let [d (ex-data e)]
+            (is (= :rf.error/hicasso-intent-needs-the-event (:rf.error/id d)))
+            (is (= "target" (:needed d))))))))
+
+  (testing "and a key-map, whose failure without the law is the WORST of the
+            three — no `.key` to look up means no branch, which is a handler
+            that silently does nothing"
+    (let [[el _] (crossed picker {:on-pick {"Enter" [:hatch/closed]}})]
+      (is (= :rf.error/hicasso-intent-needs-the-event
+             (error-id #((prop el "onPick") "paris" #js {:key "Enter"}))))))
+
+  (testing "while an intent carrying NEITHER a marker nor a prevent never
+            touches its argument, so it is correct under any invoker contract
+            and pays no law at all — which is the overwhelmingly common case"
+    (let [[el !seen] (crossed picker {:on-pick [:hatch/picked "static" "kind"]})]
+      ((prop el "onPick") "paris" #js {})
+      (is (= [[:hatch/picked "static" "kind"]] @!seen)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — the hook budget distinction, at React's own dispatcher
