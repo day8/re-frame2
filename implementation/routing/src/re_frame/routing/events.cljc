@@ -234,9 +234,10 @@
                                           :nav-token  token})
         ;; The optional Resources artefact publishes the late-bound
         ;; `:routing/on-route-entry` hook and returns
-        ;; `{:fx [...] :blocking #{<scoped-key> …} :plan-error err?}`. The
+        ;; `{:fx [...] :blocking {<key-id> <scoped-key>} :identities {…}
+        ;; :plan-error err?}`. The
         ;; ensure dispatches + prior-owner release are spliced into the commit
-        ;; fx; the blocking set is written into the nav-token's blocking slot
+        ;; fx; the blocking map is written into the nav-token's blocking slot
         ;; ATOMICALLY with the commit (so it is present before any ensure
         ;; reply can drain it, keeping the route :loading until blocking
         ;; resources settle — Spec 016 §Route integration); a planning error
@@ -244,9 +245,11 @@
         ;; `:error`, visible to the `:rf/route` sub + Xray. No-op when no
         ;; Resources artefact / no `:resources` route metadata.
         route-meta (registrar/lookup :route route-id)
-        ;; EP-0037 R2: read the SUPERSEDED nav-token's owned identity set — the
-        ;; plan diff's previous set (`[:rf.runtime/routing :resource-plan
-        ;; <token>]`, a resources-written sibling of `:resource-blocking`).
+        ;; EP-0037 R2: read the SUPERSEDED nav-token's owned identities — the
+        ;; plan diff's previous membership (`[:rf.runtime/routing :resource-plan
+        ;; <token>]`, a resources-written sibling of `:resource-blocking`; both
+        ;; are `{<key-id> <scoped-key>}` maps, byte-exact so a vector-params and
+        ;; a list-params identity cannot collapse into one — rf2-btdl1).
         ;; Routing owns the `:parent` walk (`resolve-branch`, run once in
         ;; `route-plan` and threaded in as `branch-contributors` /
         ;; `branch-error`); the Resources plan composes + diffs.
@@ -295,7 +298,7 @@
                        (cond-> (seq (:blocking plan))
                          (assoc-in [:rf.runtime/routing :resource-blocking token]
                                    (:blocking plan)))
-                       ;; EP-0037 R2: record the plan's full owned identity set
+                       ;; EP-0037 R2: record the plan's full owned identity map
                        ;; under the nav-token so the NEXT full activation diffs
                        ;; kept/added/removed for attach-before-release handoff.
                        (cond-> (seq (:identities plan))

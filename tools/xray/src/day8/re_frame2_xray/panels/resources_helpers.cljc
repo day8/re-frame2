@@ -119,9 +119,11 @@
 (def routing-blocking-key
   "The per-nav-token unsettled-blocking subtree key under the routing slice
   (`:resource-blocking`). `[:rf.runtime/routing :resource-blocking
-  <nav-token>]` holds the set of scoped keys whose blocking ensure has NOT
-  yet settled for that navigation (Spec 016 §Route integration — the SSR /
-  route wait points)."
+  <nav-token>]` holds `{<key-id> <scoped-key>}` for the resources whose
+  blocking ensure has NOT yet settled for that navigation (Spec 016 §Route
+  integration — the SSR / route wait points). Byte-keyed, so two `=`-equal
+  requirements with different collection KINDS stay two wait points
+  (rf2-btdl1)."
   :resource-blocking)
 
 ;; ---------------------------------------------------------------------------
@@ -799,8 +801,9 @@
 
 (defn routing-blocking-keys
   "Extract the live UNSETTLED-blocking scoped keys from the routing-runtime
-  subtree. `[:resource-blocking <nav-token>]` is a map of per-nav-token sets
-  of scoped keys whose blocking ensure has not yet settled.
+  subtree. `[:resource-blocking <nav-token>]` is a map of per-nav-token
+  `{<key-id> <scoped-key>}` maps naming the resources whose blocking ensure
+  has not yet settled (rf2-btdl1); this returns their scoped-key VALUES.
 
   TWO arities (rf2-cduftx F2):
 
@@ -824,12 +827,12 @@
   ([routing-slice]
    (let [by-token (when (map? routing-slice)
                     (get routing-slice routing-blocking-key))]
-     (into [] (mapcat seq) (vals (or by-token {})))))
+     (into [] (mapcat vals) (vals (or by-token {})))))
   ([routing-slice nav-token]
    (let [by-token (when (map? routing-slice)
                     (get routing-slice routing-blocking-key))]
      (if (some? nav-token)
-       (into [] (get by-token nav-token #{}))
+       (into [] (vals (get by-token nav-token)))
        []))))
 
 (defn- resource-liveness

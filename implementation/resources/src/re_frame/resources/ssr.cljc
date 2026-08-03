@@ -1024,32 +1024,34 @@
 
 (defn blocking-settled?
   "The SSR blocking-drain PREDICATE (Spec 016 §SSR and hydration step 4):
-  given the frame's resource `:entries` and the set of `blocking-keys` the
+  given the frame's resource `:entries` and the `blocking` identity map the
   route enqueued for the current nav-token, return true iff EVERY blocking
   entry has settled (`entry-settled?`). The host adapter loops the event
   pump until this returns true (or the timeout fires — `settle-blocking-
-  timeout`). An empty `blocking-keys` set is trivially settled (a route
+  timeout`). An empty `blocking` map is trivially settled (a route
   with no blocking resources never blocks the render). PURE — the host
   reads the live frame's entries each tick and re-evaluates.
 
-  `blocking-keys` are scoped resource keys (the VECTOR form the route slice
-  stores); nav-token isolation is the CALLER's responsibility — the route
-  slice computes the blocking-keys for the current nav-token only, so a
-  superseded navigation's keys never enter this predicate.
+  `blocking` is `{<key-id> <scoped-key>}` (rf2-btdl1 — the byte-exact shape
+  the route slice stores, so a vector-params and a list-params requirement are
+  two entries here and BOTH must settle); nav-token isolation is the CALLER's
+  responsibility — the route slice computes the blocking map for the current
+  nav-token only, so a superseded navigation's keys never enter this predicate.
 
-  rf2-9e0tyq: `entries` is keyed on the CEDN-1 byte `key-id`, so each
-  scoped-key vector is translated through `state/key-id` before lookup."
-  [entries blocking-keys]
-  (every? (fn [k] (entry-settled? (get entries (state/key-id k)))) blocking-keys))
+  rf2-9e0tyq: `entries` is keyed on the CEDN-1 byte `key-id`, which is exactly
+  what the carrier's own keys are — no translation."
+  [entries blocking]
+  (every? (fn [[k-id _]] (entry-settled? (get entries k-id))) blocking))
 
 (defn unsettled-blocking-keys
-  "Return the subset of `blocking-keys` whose entries have NOT settled
-  (still `:idle` / `:loading` / `:fetching`, or absent). The set
+  "Return the sub-MAP of `blocking` (`{<key-id> <scoped-key>}`) whose entries
+  have NOT settled (still `:idle` / `:loading` / `:fetching`, or absent). What
   `settle-blocking-timeout` fails closed against when the SSR deadline
   fires. Per Spec 016 §SSR and hydration (blocking timeout policy).
-  rf2-9e0tyq: looks each scoped-key vector up by its byte `key-id`."
-  [entries blocking-keys]
-  (into #{} (remove (fn [k] (entry-settled? (get entries (state/key-id k))))) blocking-keys))
+  rf2-btdl1: byte-keyed throughout, so two `=`-equal-but-byte-distinct
+  requirements are never reported (or settled) as one."
+  [entries blocking]
+  (into {} (remove (fn [[k-id _]] (entry-settled? (get entries k-id)))) blocking))
 
 (defn ssr-timeout-error
   "The structured first-load failure envelope a blocking SSR timeout
@@ -1074,7 +1076,7 @@
   SSR frame, records the route blocking failure, and lets the renderer
   choose error / skeleton / fallback — it MUST NOT hang indefinitely).
 
-  Pure `(entries blocking-keys deadline-ms) -> {:entries :route-blocking-
+  Pure `(entries blocking deadline-ms) -> {:entries :route-blocking-
   failure}`:
 
     - every UNSETTLED blocking entry (`unsettled-blocking-keys`) is settled
@@ -1090,20 +1092,22 @@
   SSR frame's runtime-db and hands `:route-blocking-failure` to the route
   slice / renderer. This namespace does NOT touch route state directly (the
   route slice owns that surface)."
-  [entries blocking-keys deadline-ms frame-id]
-  (let [unsettled (unsettled-blocking-keys entries blocking-keys)]
+  [entries blocking deadline-ms frame-id]
+  (let [unsettled (unsettled-blocking-keys entries blocking)
+        ;; the REPORTED value is the kind-preserving scoped key, as it has
+        ;; always been; only the carrier is byte-keyed (rf2-btdl1).
+        timed-out (vec (vals unsettled))]
     (if (empty? unsettled)
       {:entries entries :route-blocking-failure nil}
       (let [error    (ssr-timeout-error deadline-ms)
-            ;; rf2-9e0tyq — `unsettled` are scoped-key VECTORS; the `:entries`
-            ;; map is keyed on the byte `key-id`, so key each settle by
-            ;; `key-id` and stamp the entry's own `:resource/key` vector (so a
+            ;; rf2-9e0tyq — the `:entries` map is keyed on the byte `key-id`,
+            ;; which `unsettled` already carries as its own keys; each settle is
+            ;; stamped with the entry's `:resource/key` VECTOR so a
             ;; freshly-minted timeout entry carries its identity for the
-            ;; downstream iterators / projection).
+            ;; downstream iterators / projection.
             entries' (reduce
-                       (fn [es k]
-                         (let [k-id  (state/key-id k)
-                               entry (or (get es k-id)
+                       (fn [es [k-id k]]
+                         (let [entry (or (get es k-id)
                                          (state/empty-entry (second k) k))]
                            (assoc es k-id (state/entry-failed entry {:error error}))))
                        entries unsettled)]
@@ -1112,7 +1116,7 @@
                             :where       're-frame.resources.ssr/settle-blocking-timeout
                             :frame       frame-id
                             :recovery    :settled-as-first-load-failure
-                            :timed-out   (vec unsettled)
+                            :timed-out   timed-out
                             :limit-ms    deadline-ms
                             :reason      (str (count unsettled) " blocking SSR "
                                               "resource(s) did not settle within "
@@ -1121,15 +1125,15 @@
         {:entries entries'
          :route-blocking-failure
          {:rf.error/id :rf.error/resource-ssr-blocking-timeout
-          :timed-out   (vec unsettled)
+          :timed-out   timed-out
           :limit-ms    deadline-ms
           :error       error}}))))
 
 ;; ---- routing slice literals (duplicated, not imported) --------------------
 ;;
 ;; Two SSR-slice consumers read the routing-runtime subtree:
-;;   - the BLOCKING DRAIN reads the current nav-token's blocking scoped-key
-;;     set the route slice wrote on entry (`route.cljc` §blocking-path), so it
+;;   - the BLOCKING DRAIN reads the current nav-token's blocking identity map
+;;     the route slice wrote on entry (`route.cljc` §blocking-path), so it
 ;;     knows which resources must settle before the render;
 ;;   - RESTORE reconciliation compares a restored route owner's nav-token
 ;;     against the nav-token the restored routing slice considers live (Spec
@@ -1157,16 +1161,18 @@
   [routing-key :current :nav-token])
 
 (def ^:private routing-resource-blocking-key
-  "The routing-runtime child holding per-nav-token blocking scoped-key sets
+  "The routing-runtime child holding per-nav-token blocking identity maps
   (`:resource-blocking`). The route slice writes `[:rf.runtime/routing
-  :resource-blocking <nav-token>]` on entry (`route.cljc/blocking-path`);
-  the SSR drain loop reads the CURRENT nav-token's slot."
+  :resource-blocking <nav-token>]` on entry (`route.cljc/blocking-path`) as
+  `{<key-id> <scoped-key>}`; the SSR drain loop reads the CURRENT nav-token's
+  slot."
   :resource-blocking)
 
 (defn current-blocking-keys
-  "Read the set of blocking scoped resource keys the route slice enqueued for
-  the CURRENT nav-token from `runtime-db` (`[:rf.runtime/routing
-  :resource-blocking <current-nav-token>]`). Returns `#{}` when there is no
+  "Read the blocking resource identities the route slice enqueued for the
+  CURRENT nav-token from `runtime-db` (`[:rf.runtime/routing
+  :resource-blocking <current-nav-token>]`) as `{<key-id> <scoped-key>}`.
+  Returns `{}` when there is no
   routing slice, no current nav-token, or no blocking resources for it — a
   route with no blocking resources never blocks the render. Reads ONLY the
   current nav-token's slot; a superseded navigation's stale slot never enters
@@ -1175,7 +1181,7 @@
   [runtime-db]
   (let [nav-token (get-in runtime-db routing-current-nav-token-path)]
     (or (get-in runtime-db [routing-key routing-resource-blocking-key nav-token])
-        #{})))
+        {})))
 
 ;; ---- the SSR blocking-drain LOOP (Spec 016 §SSR and hydration steps 3-4) ---
 ;;
@@ -1226,9 +1232,12 @@
                    after each `pump!`; the hint lets a host yield in bounded
                    slices rather than busy-spinning.
 
-  Returns `{:settled? <bool> :timed-out <#{scoped-key}> :route-blocking-failure
-  <record-or-nil>}`. On a clean settle within budget: `:settled? true`,
-  `:timed-out #{}`, no failure record, and the frame's runtime-db is
+  Returns `{:settled? <bool> :timed-out [<scoped-key> …] :route-blocking-failure
+  <record-or-nil>}`. `:timed-out` is the SAME vector of scoped keys the
+  failure record carries (rf2-btdl1 — one spelling; a set would collapse two
+  `=`-equal-but-byte-distinct requirements into one report). On a clean settle
+  within budget: `:settled? true`,
+  `:timed-out []`, no failure record, and the frame's runtime-db is
   UNCHANGED. On timeout: the still-unsettled blocking entries are settled to
   first-load failures IN the frame's runtime-db (via `swap-runtime-db!`),
   `:settled? false`, and `:route-blocking-failure` carries the record the host
@@ -1244,7 +1253,7 @@
         rdb0     (frame/frame-runtime-db-value frame-id)
         blocking (current-blocking-keys rdb0)]
     (if (empty? blocking)
-      {:settled? true :timed-out #{} :route-blocking-failure nil}
+      {:settled? true :timed-out [] :route-blocking-failure nil}
       (let [start    (clock-fn)
             deadline (+ start deadline-ms)]
         (loop []
@@ -1254,7 +1263,7 @@
               ;; every blocking entry settled within budget — render sees the
               ;; settled state, runtime-db untouched.
               (blocking-settled? entries blocking)
-              {:settled? true :timed-out #{} :route-blocking-failure nil}
+              {:settled? true :timed-out [] :route-blocking-failure nil}
 
               ;; deadline elapsed — settle every still-unsettled blocking entry
               ;; to a first-load failure and INSTALL it (the render then sees a
@@ -1265,9 +1274,9 @@
                 (frame/swap-runtime-db! frame-id assoc-in
                                         [state/resources-key :entries] entries)
                 {:settled?              false
-                 :timed-out             (unsettled-blocking-keys
-                                          (get-in rdb [state/resources-key :entries])
-                                          blocking)
+                 :timed-out             (vec (vals (unsettled-blocking-keys
+                                                     (get-in rdb [state/resources-key :entries])
+                                                     blocking)))
                  :route-blocking-failure route-blocking-failure})
 
               ;; not yet settled, budget remains — pump the host event loop so

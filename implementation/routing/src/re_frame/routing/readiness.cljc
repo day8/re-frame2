@@ -43,10 +43,12 @@
   built (leaf-only, until R2) resource plan.
 
   `plan` is the `:routing/on-route-entry` hook result
-  `{:blocking #{<scoped-key> …} :plan-error <err-or-nil> …}` (nil when no
-  Resources artefact is loaded or the route declares no `:resources`). At
+  `{:blocking {<key-id> <scoped-key>} :plan-error <err-or-nil> …}` (nil when no
+  Resources artefact is loaded or the route declares no `:resources`; the
+  blocking carrier is byte-keyed with no order promise — rf2-btdl1, and this
+  projection reads only its emptiness). At
   commit the blocking requirements have only just been ensured, so a non-empty
-  blocking set is a pending first load → `:loading`; a planning failure →
+  blocking map is a pending first load → `:loading`; a planning failure →
   `:error` (carrying the planning error); otherwise → `:idle`. The Resources
   reply handlers then reconcile `:loading` → `:idle` / `:error` as each blocking
   requirement settles, through their OWN statement of the same table

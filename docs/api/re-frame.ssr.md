@@ -585,7 +585,7 @@ An SSR host adapter populates a per-frame request slot once per request, before 
   ```clojure
   ;; Host render path: settle blocking resources before walking the tree.
   (ssr/drain-blocking-resources! :app/request-frame {:ssr-blocking-timeout-ms 5000})
-  ;; => {:settled? true :timed-out #{} :route-blocking-failure nil}
+  ;; => {:settled? true :timed-out [] :route-blocking-failure nil}
   ```
 
 ## Keyword surfaces

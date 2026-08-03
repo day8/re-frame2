@@ -17,7 +17,7 @@
 
     1. HOOK-ABSENT no-op fast path — the DEFAULT path for every SSR app that
        does not load the optional resources artefact. It MUST return
-       `{:settled? true :timed-out #{} :route-blocking-failure nil}` — the
+       `{:settled? true :timed-out [] :route-blocking-failure nil}` — the
        shape the Ring host consults for its pre-render `:settled?` /
        `:route-blocking-failure` decision. A regression returning nil / a
        wrong shape would break that consult with no ssr-slice test to catch it.
@@ -59,13 +59,16 @@
 ;; ---- (1) hook-absent no-op fast path ---------------------------------------
 
 (def ^:private settled-shape
-  {:settled? true :timed-out #{} :route-blocking-failure nil})
+  ;; rf2-btdl1 — `:timed-out` is a VECTOR of scoped keys (the one spelling the
+  ;; drain and its failure record share); a set would collapse two `=`-equal-
+  ;; but-byte-distinct requirements into one report.
+  {:settled? true :timed-out [] :route-blocking-failure nil})
 
 (deftest hook-absent-returns-the-settled-fast-path-shape
   (testing "rf2-zplpsp — with NO resources artefact (the `:resources/drain-
   blocking-ssr!` hook unregistered — the default for every no-resources SSR
   app) the façade is a no-op returning the exact settled-shape the Ring host
-  consults: {:settled? true :timed-out #{} :route-blocking-failure nil}"
+  consults: {:settled? true :timed-out [] :route-blocking-failure nil}"
     (let [prev (late-bind/get-fn drain-key)]
       (try
         (swap! late-bind/hooks dissoc drain-key)
