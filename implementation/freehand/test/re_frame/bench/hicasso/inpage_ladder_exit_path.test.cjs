@@ -73,15 +73,36 @@ test('readMap finds its key with CRLF line endings, and with LF', () => {
   assert.strictEqual(agg.readMap(crlf, 'rounds'), ' [[0 :floor 1.5]]');
 });
 
-test('THE CRLF CRASH: the tracked datasets really are CRLF, and still parse', () => {
-  // Not a hypothetical. If this repository ever normalises the datasets to
-  // LF the first assertion goes quiet and the second still holds, which is
-  // the correct outcome — but while they are CRLF, this is the exact input
-  // that used to kill the file before it compared anything.
-  const raw = fs.readFileSync(path.join(DIR, 'runA.edn'), 'utf8');
-  assert.ok(raw.includes('\r\n'), 'runA.edn is expected to carry CRLF on this checkout');
-  assert.doesNotThrow(() => agg.readMap(raw, 'rounds'));
-  assert.doesNotThrow(() => agg.readMap(raw, 'ratio-to-floor'));
+test('THE CRLF CRASH: a real dataset adjudicates identically as CRLF and as LF', () => {
+  // The exact input that used to kill this file before it compared a single
+  // figure — held HERE rather than read off the disk. Both variants are built
+  // from the tracked dataset however git materialised it: a Windows checkout
+  // (`core.autocrlf=true`) lands CRLF, a Linux one lands the stored LF, and
+  // normalising then re-rendering gives both on either.
+  //
+  // THIS TEST USED TO ASSERT `runA.edn` CARRIES CRLF, which is a fact about
+  // git's checkout settings, not about this code: true on Windows, false on
+  // Linux CI, and it failed there while passing here. The behaviour worth
+  // pinning was never "the file is CRLF" — it is "the ending is not part of
+  // the data", and that is what is asserted now, on every platform.
+  const lf = read('A').replace(/\r\n/g, '\n');
+  const crlf = lf.replace(/\n/g, '\r\n');
+  assert.ok(!lf.includes('\r'), 'the LF variant must carry no CR at all');
+  assert.ok(crlf.includes('\r\n'), 'the CRLF variant must really carry CRLF');
+
+  // The crash itself: `readMap`'s anchor was spelled LF-only, so on CRLF it
+  // matched nothing and threw `dataset has no :rounds` for every key.
+  for (const key of ['rounds', 'arms', 'decomposition', 'ratio-to-floor']) {
+    assert.strictEqual(
+      agg.readMap(crlf, key),
+      agg.readMap(lf, key),
+      `:${key} must read the same whichever way the file landed`
+    );
+  }
+  // And the whole adjudication, not merely the key lookup: a CRLF dataset
+  // must reach the same verdict, and that verdict must still be CLEAN.
+  assert.deepStrictEqual(agg.checkRun('A', crlf), agg.checkRun('A', lf));
+  assert.deepStrictEqual(agg.checkRun('A', crlf).problems, []);
 });
 
 test('a genuinely absent key still throws — the fix must not paper over one', () => {
