@@ -118,6 +118,13 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# First line names the tree this run resolved — see scripts/test-fast-pr.sh
+# (rf2-g2mxd): a relative invocation resolves `${BASH_SOURCE[0]}` against the
+# shell's actual cwd, so a backgrounded gate can silently run in, and grade,
+# another worktree.  Invoke backgrounded gates by ABSOLUTE path.
+printf 'gate root: %s\n' "$repo_root"
+
 core="$repo_root/implementation/core"
 test_root="$core/test"
 
