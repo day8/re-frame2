@@ -51,18 +51,72 @@
 // thing that can silently drop the file you cared about, and re-compiling a
 // handful of test namespaces is cheaper than that risk.
 //
+// ## `:advanced` — MEASURED, and why there is no nightly release gate
+//
+// This block used to say that an "externs-inference fault" was invisible to a
+// dev-mode gate and that `lane_build.cjs` caught the `:advanced` classes at
+// driver time. rf2-2rtt6.77 was filed off that claim, asking for a nightly
+// that releases each arm under `:advanced`. The claim was then TESTED rather
+// than assumed, and it does not hold. Recorded here so it is not re-derived a
+// third time. Timings are one box, with `.shadow-cljs/builds/hicasso-bench`
+// cleared before each, which the lane's cache rule requires anyway:
+//
+//     dev compile, all 101 lane namespaces (THIS gate)     77s
+//     `:advanced` release, ONE arm                         64s
+//     `:advanced` release, all 101 in one module          132s
+//
+//   1. EXTERNS INFERENCE IS ALREADY COVERED HERE, in dev. `:infer-externs
+//      :auto` is shadow-cljs's own `default-compiler-options`
+//      (`shadow.build.api`), and `shadow.build.compiler` binds `:infer-warning`
+//      into `ana/*cljs-warnings*` for every non-jar source in BOTH modes — it
+//      is not a release-only pass. MUTATION-PROVED: rewriting
+//      `parity_probe_app`'s `(some-> e .-message)` to an unknown property made
+//      THIS gate exit 1 with `WARNING #1 - :infer-warning` / `Cannot infer
+//      target type in expression`. The `:advanced` release of the same tree
+//      reported the identical single warning from the identical line. Same
+//      catch, half the wall clock. `check-examples-compile.cjs` already said
+//      as much — it lists "an externs-inference miss" among the classes its
+//      own DEV compile catches — so this file was the outlier, not the rule.
+//   2. CLOSURE RENAMING FAULTS EMIT NO COMPILER DIAGNOSTIC AT ALL, so no build
+//      gate in any mode sees them: a release of a program that will die on a
+//      renamed property still exits 0 with 0 warnings. EXECUTION catches those
+//      — the driver's fail-closed page.
+//   3. THE rf2-2rtt6.20 CLASS IS EXPLICITLY NOT BUILD-OBSERVABLE. That bead's
+//      own words are that the poisoned shadow-js index "COMPILES CLEANLY and
+//      then produce[s] an `:advanced` bundle that DIED ON ITS FIRST
+//      EXECUTION". Its fix is `lane_cache.cjs`, which this gate already calls.
+//
+// What is left for an `:advanced` BUILD to catch over lane sources is Closure
+// hard errors, and that class is empty by construction: no lane source uses
+// `js*`, so there is no unparsed JS for Closure to reject; the only npm
+// modules the lane requires directly are `react`, `react-dom` and
+// `react-dom/client`, the same three `test:bundle-isolation`,
+// `test:perf-bundle`, `test:elision` and `test:ui-g1` already push through
+// shadow-js under `:advanced`; and Closure type checking is off by shadow's
+// default (`:closure-warnings {:check-types :off}`), so there are no
+// `:advanced`-only type errors to find either.
+//
+// So the nightly was NOT built: no fault could be constructed that it would
+// catch and this gate would miss, and a gate nobody can make fire is the
+// fail-open class this lane keeps repairing rather than a repair of it.
+// Per-arm was priced for completeness — 25 `-main`s x 64s is ~27 minutes —
+// and it buys nothing over the one-module release above, whose namespace set
+// is a SUPERSET of every arm's.
+//
 // ## LIMITS — what this gate still cannot see
 //
-//   * `:advanced`-only breakage. It compiles in dev mode, so a Closure
-//     renaming / externs-inference fault that only appears in the `:advanced`
-//     bundle the drivers actually measure is invisible here. `lane_build.cjs`
-//     catches those at driver time, on the run that would publish them.
 //   * Anything that COMPILES. An arm whose numbers stopped meaning what its
 //     name says, a local copy that has drifted from the shipping code it
 //     mirrors, a measurement window that no longer brackets the work — all
 //     compile clean. This gate proves the lane still BUILDS, never that it
 //     still MEASURES.
-//   * Runtime faults. Nothing is executed here; no page is mounted.
+//   * Runtime faults. Nothing is executed here; no page is mounted — and per
+//     (2) and (3) above, that is where the whole remaining `:advanced` risk
+//     lives. An arm nobody has run since it broke can still be `:advanced`-
+//     broken with every gate green. The only instrument that reaches it is a
+//     BOOT of each arm's release bundle, ~30 minutes nightly across 25 arms
+//     plus a per-arm sentinel contract; judged out of proportion to the
+//     residual on rf2-2rtt6.77, not overlooked.
 
 const fs = require('node:fs');
 const path = require('node:path');
