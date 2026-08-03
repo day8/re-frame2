@@ -1578,6 +1578,176 @@ concurrent workers); runs ~3.9 minutes each, all exit 0, `0 unverified of
 
 ---
 
+### The sub-index fusion, priced on the ladder (rf2-zei9w)
+
+**2026-08-04.** `rf2-dabt3` landed the fusion — `front.sub-index` retired, the
+reverse edge moved onto each key cell's own reader list — and deliberately
+published **no magnitude**, because the box was not quiet when it landed and a
+figure taken under five concurrent workers would have read as evidence without
+being any. This section is that magnitude, taken on a verified-quiet box, with
+the prediction quoted before the rows rather than summarised after them.
+
+#### The prediction, quoted, and how it fared
+
+From `rf2-dabt3`, written before any of this was measured:
+
+> The elimination is REAL — two persistent maps over one B·R key space, plus a
+> singleton PersistentHashSet per key at fan-out 1. PR #7418's run D prices ONE
+> retained set membership at +46/+47 B/read, **so the reverse edge's total is
+> plausibly several times that.**
+
+and, on the same bead:
+
+> It is plausibly **the single largest remaining term** in the +391 B/read bill
+> (down from +499).
+
+against which the same bead's own dispatch note entered a caution that turns
+out to have been the important sentence:
+
+> a naive cell-local reader set still retains a container per cell at fan-out 1.
+
+| the claim | verdict | what was measured |
+|---|---|---|
+| the elimination is real | **MET** | −60 B/read, in **both** segments, donors unmoved |
+| the reverse edge's total is several times one 46 B membership | **MET**, but only on the derived total | ~151 / ~152 B/read, ≈ 3.3× one membership |
+| it is the single largest remaining term in the bill | **not settled here** | it was ≈ 39% of the +390 B/read bill — consistent, but the other terms are unpriced |
+| (implied) the surviving array is the cheap residue | **MISSED** | the fused array costs **91–92 B/read**, ≈ 2× one membership, and is 60% of what the whole old reverse edge cost |
+
+The fusion **won, and won in both segments by the same 60 bytes** — but it
+banked only about **40%** of the term it removed, because a JS array per cell
+is not free. The caution was right and the flattering reading was wrong.
+
+#### The rows
+
+Six rounds, `p0_run.cjs --only ladder`, both donors riding as same-run
+controls, exit 0 with every gate answered. The donors reproduce
+`rf2-aqgr2`'s B″ anchor of 948 / 2,980 to within the 1 B round-to-round
+wobble that section already names, which is what makes the cross-session
+comparison below quotable at all.
+
+| segment | donor | candidate | candidate − donor | ratio |
+|---|---:|---:|---:|---:|
+| Reagent (`reagent-subs`) | 947 B/read | 1,278 B/read | +331 | 1.3492× |
+| UIx (`uix-subs`) | 2,980 B/read | 2,115 B/read | −864 | 0.7099× (29.0% margin) |
+
+Both candidate fits are lines in R on all six rounds (r² 0.99931 and 0.99957),
+and the R=0 shell is 1,103 B and 1,097 B — measured, not fitted.
+
+Against B″, restating the table `rf2-aqgr2` left:
+
+| live number | on B″ (`rf2-aqgr2`) | on the fusion (this section) |
+|---|---:|---:|
+| the design's bill (Reagent seg.) | +390 B/read (1.4114×) | **+331 B/read** (1.3492×) |
+| the design's win (UIx seg.) | −805 B/read (0.7299×, 27.0%) | **−864 B/read** (0.7099×, 29.0%) |
+| the bracket a shipped Hicasso sits in | 1,338 – 2,175 B/read | **1,278 – 2,115 B/read** |
+| the grouped tier's ~2,000 B line | 1,338 < 2,000 < 2,175 | unchanged in kind: 1,278 < 2,000 < 2,115 |
+
+**943/948 B/read is still not beaten** and the verdict's shape is unchanged:
+won against UIx, lost to Reagent's `deref`-capture.
+
+#### The ablation attributes the surviving array rather than inferring it
+
+The whole-arm delta above cannot say how much of the fused design is the
+reader array itself. A second run does, by removing it: every cell's
+`"readers"` slot points at **one process-global `#js []`** and the membership
+push is dropped. (The literal instruction — drop the array — cannot be run:
+`.-readers` becomes `undefined` and `release-cell!`'s `.indexOf`,
+`arm-cell-reaper!`'s and `stats`'s `alength` all throw. The shared-array shape
+answers `-1` and `0` instead, so the reaper still fires and teardown stays
+clean.) The probe is a working-tree edit and **ships nowhere**.
+
+| segment | main | ablated | attributed to the reader array |
+|---|---:|---:|---:|
+| Reagent (`reagent-subs`) | 1,278 B/read | 1,187 B/read | **91 B/read** |
+| UIx (`uix-subs`) | 2,115 B/read | 2,023 B/read | **92 B/read** |
+
+The per-round bands are **disjoint** — main [1,275–1,280] against ablated
+[1,186–1,188], and main [2,110–2,117] against ablated [2,018–2,025] — so the
+attribution separates in every one of the six rounds rather than on the mean.
+Donors moved by 0.05 and 0.19 B/read, which is the same-run negative control.
+
+**The R=0 shell does not move**: 1,103 → 1,098 B and 1,097 → 1,097 B, each
+inside the other's band. That is the shape a per-key array term predicts and a
+per-boundary one does not — at R=0 there are no cells, so there are no arrays
+to remove.
+
+The ablation run **exits 1, by construction and only by construction**: with
+no slot ever pushed, `stats` derives `:boundaries` and `:edges` from an
+always-empty array and reads 0. That is 96 structural failures — exactly
+2 fields × 4 rungs × 2 segments × 6 rounds — and **nothing else fails**: no
+donor arm, no residue check, no `cells` or `entries` field, arm-order verdict
+reportable, positive control 0.9997, `0 unverified of 154 mounts`. The two
+fields that break are precisely the two the ablation removes, which is what
+makes this an attribution rather than a subtraction.
+
+#### The commit-time term is below this instrument's resolution
+
+`read_profile_app`'s phase B prices the same fused edge on the clock, through
+`c-local − c-noreaders`. **These rows are diagnostic and are never a gate
+row.**
+
+| arm | p50 ms/pass | µs/read |
+|---|---:|---:|
+| `commit` | 0.4500 | — |
+| `c-local` | 0.4250 | 3.01 |
+| `c-noreaders` | 0.4000 | 2.84 |
+| `c-nowatch` | 0.3875 | 2.75 |
+| `c-nomap` | 0.3875 | 2.75 |
+| `b-build` | 0.3375 | 2.39 |
+| `c-nosub` | 0.1750 | 1.24 |
+
+`c-local − c-noreaders` = **+0.0250 ms/pass** (0.18 µs/read), copy fidelity
+`c-local/commit` 0.9444, positive control predicted 0.925× and measured
+0.925×, exit 0.
+
+**The term is not resolved, and this run is what establishes that rather than
+weakening it.** Every phase-B p50 lands exactly on a 0.0125 ms/pass grid, so
+the delta is two grid steps. The same contrast taken on the same instrument
+hours earlier read **−0.0250 ms/pass** — the same magnitude with the opposite
+sign. A quantity whose sign inverts between sessions at two grid steps is
+below the clock's floor, so the honest reading is **NOT RESOLVED** — not
+"free". The heap ladder above prices this edge; this instrument cannot.
+
+#### What this section hands the programme
+
+The fusion is banked at −60 B/read in both segments and the bill is restated
+at +331 / −864. What it also hands over is a **named, measured, surviving
+term**: 91–92 B/read of JS array, per unique key, retained purely to hold
+reader pointers at a fan-out where the overwhelmingly common case is one
+reader. That is about twice what one PersistentHashSet membership costs, and
+it is the largest single term this page has ever attributed to a container
+rather than to a value. Whether it can be collapsed — a scalar slot that
+promotes to an array on the second reader is the obvious shape — is not
+attacked here and wants its own ruling, not a byte shave.
+
+#### Provenance
+
+Both ladder runs on `23d60a1fe9`, which is `origin/main`; the ablation is that
+tree plus a three-hunk working-tree edit to `arm1/runtime.cljs`, reverted
+byte-identically afterwards (sha256
+`db5f27408900f549f8ef22f68fc8578d3d2564c9a18c6b2d069acc60b9d9f5d1` before and
+after, `git diff HEAD` and `git status --porcelain` both empty). B″'s figures
+are quoted from the section above and were taken on `1ef3fdb73e` plus that
+landing. Conditions: 2026-08-04 02:02:43–02:11:15 +1000, React 19.2.0, Reagent
+2.0.1, UIx 1.4.4, `:advanced` with `goog.DEBUG false`, headless Chromium via
+Playwright, Windows 11. **Box verified quiet at both ends** — node 15, chrome
+55, java 0, 500 processes, ~31.5 GB free at open and close, with real CPU
+occupancy 1.05% at open and 1.64% at close measured as summed per-process
+CPU-time deltas over 24 logical cores (the coarse `LoadPercentage` poll reads
+an order of magnitude higher and is noise); all 15 node processes idle MCP
+servers, no JVM, zero open PRs, no other worker. The box did not change across
+the window, so the runs are same-load. Ladder runs ~2.9 minutes each,
+ladder-fit self-test 3 of 3 on both.
+
+This section was blocked on `rf2-xzg3b`: `--only ladder`'s `:boundaries`
+expectation still encoded the pre-fusion, R-independent reading and refused
+the fused arm at R=0. The first attempt at this measurement declined to widen
+that gate to admit its own run, and published nothing; the fix landed as
+PR #7451 and the expectation is now `R === 0 ? 0 : B`, which is strictly
+stronger — the old form could not have detected a boundary retained at R=0.
+
+---
+
 ## 7. Anchors, and one that does not fully reproduce
 
 The R=0 rung is here to tie this instrument to the published sub-free rows
