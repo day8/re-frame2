@@ -455,8 +455,10 @@ selection, unchanged-model rejection, async normalisation — IME composition is
 asserted by the real-composition harness `ime_run.cjs` (`rf2-o27h3`: CDP-driven
 trusted composition against all three input implementations; the commit fence
 on both signals, survival of a model-agreeing exchange, cancellation restoring
-field and model, and the measured mid-composition rewrite matrix `rf2-digtt`
-records), never in-page — a dispatched `Event` exercises neither React's
+field and model, and — since `rf2-digtt`'s carve-out ruling, 2026-08-03 — the
+divergence matrix: one uninterrupted exchange on this arm against the abort
+plain React and the UIx port still perform, with the refusal landing whole at
+`compositionend`. Chromium only, CDP being Chromium's protocol), never in-page — a dispatched `Event` exercises neither React's
 composition path nor the browser's composition range, which is why the grid
 suites still carry no composition row; the caret across a
 refusal and across a normalisation is the arm's own since `rf2-fki5d`, taken in

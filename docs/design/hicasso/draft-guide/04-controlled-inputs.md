@@ -52,8 +52,9 @@ commit before React's end-of-event restore, so value *and caret* are correct
 in-turn — including when the model rejected or normalised the keystroke. What you
 get for free is exactly what the first example shows: ordinary `:value` and
 `:on-change`/`:on-input`, no ceremony, and a caret that stays put. The boundary
-is equally exact: the exception is one audited call site, reached from the
-element path once per keystroke, on controlled text entry only (a caret-bearing
+is equally exact: the exception is one audited converge, reached from the
+element path once per keystroke — and once at `compositionend` instead, for the
+composition carve-out below — on controlled text entry only (a caret-bearing
 `input` or a `textarea` with a non-nil `:value`), and inert everywhere else.
 Needing `flushSync` anywhere else would still be a finding, not an implementation
 detail.
@@ -80,26 +81,39 @@ unchanged-model rejection, and async normalisation. K4 in
 fails same-tick echo or IME on Chromium and WebKit for a simple form. This is
 not a polish item.
 
-The sixth is IME, and it is the one place where the guarantee is narrower than
-you would assume, so it is worth stating exactly.
+The sixth is IME, and it is the one place where this runtime deliberately does
+something plain React does not, so it is worth stating exactly.
 
-**Proven: a composing Enter commits nothing.** Mid-composition, Enter picks an
+**A composing Enter commits nothing.** Mid-composition, Enter picks an
 IME candidate; it is not a submit. The runtime's key-map gates on the native
 event's `isComposing` and on the legacy keyCode-229 signal that some browsers
 still send, each on its own — witnessed on the grid, and again against the
 browser's real composition machinery driven over CDP, on this runtime, on plain
 React and on the UIx port alike.
 
-**Open: the value path through a live composition.** If your model refuses or
-normalises what the IME has composed so far, the corrected value is written back
-*inside* the composing input event — and a value write during composition
-silently aborts the exchange. The in-flight kana are gone, no `compositionend`
-fires, and the IME opens a fresh composition on its next update. That is
-measured, and it is not something this runtime introduced: plain React does the
-same thing in the same turn through its own restore, and the UIx port does it a
-frame later. So do not lean on composition surviving value reassertion. For a
-field whose model can disagree mid-composition it survives nowhere today, and
-whether to suspend convergence until `compositionend` is an open ruling.
+**A live composition is carved out of the convergence, and it survives.** If
+your model refuses or normalises what the IME has composed so far, nothing is
+written to the field while the composition is running — not the runtime's
+converge, and not React's own end-of-event restore. Your handler still runs on
+every composing update and your model still refuses or normalises exactly as it
+would for a keystroke; what changed is that the *field* keeps showing the
+composition until the user commits it, and the refusal or normalisation lands
+whole, once, at `compositionend`.
+
+That is a divergence from plain React, claimed as one. On plain React the
+corrected value is written back *inside* the composing input event, and a value
+write during composition silently aborts the exchange: the in-flight kana are
+gone, no `compositionend` fires, and the IME opens a fresh composition on its
+next update — with each aborted draft left in the field for the next one to
+compose on top of. The UIx port does the same a frame later. Both are measured
+beside this runtime in the same harness run, which is where the claim comes
+from.
+
+Two things to know about the scope. It applies to controlled **text** entry —
+the same door everything else on this page describes — and it is **witnessed on
+Chromium**, because the harness drives real composition over CDP and CDP is
+Chromium's protocol. If you see an IME misbehave on WebKit, that is a bug worth
+reporting rather than a documented limit.
 
 ## Rejection: when the model says no
 
@@ -191,7 +205,7 @@ This table names mechanisms; the door's failures are behavioural, not error ids.
 | Characters drop when typing fast | The dispatch path went async — a debounce, a `setTimeout`, a queued effect between keystroke and commit | Keep the controlled path on the synchronous door; debounce the *consumer* of the value, not the write |
 | Caret jumps to end of field on every keystroke | The value was reasserted without caret preservation | R-A2 territory — a real bug in the runtime, not in your view |
 | Enter commits half-typed text mid-composition | A hand-written key handler that bypasses the intent path | Use the data key-map — the commit fence lives there, on both composition signals |
-| An IME composition dies when the model refuses or normalises it | Value reassertion during composition, which the browser treats as an abort | Open, and not yours to fix: plain React and the UIx port do the same. A field whose model agrees mid-composition is unaffected |
+| An IME composition dies when the model refuses or normalises it | Value reassertion during composition, which the browser treats as an abort | Not this runtime: the converge is carved out of a live composition and React's restore is held off with it. On plain React and the UIx port it is theirs, and not yours to fix |
 | Typing the "reset" value clears the field | Reset keyed on value equality somewhere | Reset on explicit revision |
 | Field goes read-only after an async normalise | The model round-trip didn't complete | Async normalisation is one of the six door witnesses; check the handler returns a `:db` write |
 | Focus lost after a validation failure | Something remounted the node | Remount-as-reset is disqualified precisely for this |
@@ -217,5 +231,5 @@ with a commit on blur is not a compromise. It is the right shape.
 | The buffered / draft-and-commit input ladder | **Post-v0, explicitly.** The charter defers "the full buffered/revision input ladder"; v0 ships R-A1/R-A2 and no more |
 | The controls kit that owns drafts and revisions | **Post-v0.** HD-009 leans on it for ephemeral state, and it does not exist in v0 — so in v0 a draft is app-db state you write yourself |
 | Which props count as controlled | HD-010's merge law names `:value` and `:checked`; the converge's own scope is exact (caret-bearing `input` or `textarea`, non-nil `:value`); whether the controlled roster is longer is unstated |
-| The value path through a live IME composition | **Open.** The commit fence is proven; a refused or normalised value is still written back mid-composition, which aborts the exchange — measured on this runtime, plain React and the UIx port alike. Whether to suspend convergence until `compositionend` is an unruled behavioural choice |
+| The value path through a live IME composition | **Ruled 2026-08-03, and shipped.** Convergence is suspended while a composition is live and the field converges once at `compositionend` — a deliberate divergence from plain React and the UIx port, both of which still abort the exchange. Witnessed on Chromium (the harness drives composition over CDP); WebKit is undriven rather than known-good |
 | Whether `:on-input` or `:on-change` is the taught attribute | The landed screens write `:on-input` for text and `:on-change` for checkboxes; the choice is convention, not ruling |

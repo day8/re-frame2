@@ -205,20 +205,79 @@ path with the converge installed. What it holds and what it measured:
 - **The model observes every intermediate composition state** on all three:
   the change handler fires per composing `input`, so `s`/`sh`/`し` each
   reach app-db. The fence is the commit door, not the value path.
-- **A refused or normalised value is written back mid-composition on all
+- **A refused or normalised value was written back mid-composition on all
   three, and the write silently destroys the exchange** — no
   `compositionend`, fresh `compositionstart` on the IME's next update.
-  React in-turn, the converge in-turn, the port one frame late. The
-  converge is nowhere worse than the React baseline (asserted
-  comparatively, same run), but the PR #7371 audit's pin — that it
-  neither writes nor moves selection mid-composition — is false for every
-  implementation the moment the model disagrees. A composition carve-out
-  is a behavioural choice inside HD-019's exception scope and needs a
-  ruling: **`rf2-digtt`**, where the measured matrix lives.
+  React in-turn, the converge in-turn, the port one frame late. That was
+  the finding (`rf2-digtt`), and the converge was nowhere worse than the
+  React baseline; but the PR #7371 audit's pin — that it neither writes
+  nor moves selection mid-composition — was false for every
+  implementation the moment the model disagreed. **The operator ruled the
+  carve-out IN on 2026-08-03, and the section below is what the same
+  harness measures now.**
+
+### The composition carve-out, and where it diverges from React
+
+**Taken 2026-08-03 (`rf2-digtt`, HD-019's dated addendum).** Controlled-text
+convergence is suppressed while a composition is live; the field converges
+once, at `compositionend`, against the then-current model. The re-run of
+`ime_run.cjs` is two conducts rather than one, and the difference is the
+claim — measured in a single run, on one model, in one browser:
+
+| after one composing input on a model-**refusing** field (`digits`, model `"12"`, composing `し`) | Arm 1 | plain React | UIx port |
+|---|---|---|---|
+| field, in-turn | `"12し"` | `"12"` | `"12し"` |
+| field, settled | `"12し"` | `"12"` | `"12"` |
+| `compositionstart` across the exchange | **1** | 2 | 2 |
+| `compositionend` delivered | **1** | 0 | 0 |
+| field once the exchange closes | `"12"` | `"12"` | `"12"` |
+| model, throughout | `"12"` | `"12"` | `"12"` |
+
+Read it as one sentence: **the refusal is identical; what differs is that the
+user's composition survives to reach it.** Arm 1 writes nothing while the
+composition runs — neither its own converge, suppressed by one reading of the
+native event's `isComposing`, nor React's end-of-event restore, which finds
+the controlled value already agreeing with the live draft and assigns
+nothing. The refusal then lands whole and visibly at the commit.
+
+On the **normalising** field (`upper`) the divergence is larger than
+"survives versus does not", and the harness pins it:
+
+| `upper`, composing `s` then `sh`, then committing | Arm 1 | plain React |
+|---|---|---|
+| field while composing | `"s"`, `"sh"` (the draft) | `"S"`, `"S"` |
+| model while composing | `"S"`, `"SH"` | `"S"`, `"SH"` |
+| model once the exchange closes | **`"SH"`** | **`"SSHSH"`** |
+
+The baseline does not merely lose the composition: each aborted draft is
+written back into the field, and the IME's next composition composes *on top
+of it* — `s` → `S`, `sh` on top of `S` → `SSH`, the commit on top of that →
+`SSHSH`. Arm 1, having written nothing until the end, commits the `SH` that
+was typed. That row is a `comparative:` check in `ime_run.cjs`, not prose
+here.
+
 - A cancelled exchange (`compositionend` with empty data) leaves field and
-  model exactly as before, on all three — with the measured wrinkle that on
-  a refusing field there is no `compositionend` at all, because the abort
-  already happened.
+  model exactly as before, on all three. The refusing field is where the two
+  conducts part again: on Arm 1 it cancels like any other field, because
+  there is a live composition left to cancel; on React and the port there is
+  no `compositionend` at all, because the abort already happened.
+- **What is in-page, and what needs the harness.** A composition is browser
+  machinery and nothing dispatched from page script creates one, so the
+  *exchange* is `ime_run.cjs`'s claim alone. What the PR-gated suite witnesses
+  is the **write** — the cause — in
+  `arm1_controlled_grid_dom_cljs_test` §7: on a composing `input` event the
+  arm's field is untouched in-turn, while plain React's cell on the same
+  model in the same turn already shows the refused-to value. The
+  safety-rider paths (blur, a non-composing keystroke, unmount) are witnessed
+  there too.
+
+> **Witness scope: Chromium only.** `Input.imeSetComposition` is a CDP method
+> and CDP is Chromium's protocol, so every composition measurement on this page
+> — before and after the carve-out — is Chromium's and nowhere else's. WebKit
+> has had composition/key-ordering defects of its own; driving it would need a
+> different instrument, which is not built and is not being mandated here.
+> Misconduct observed on WebKit is a new bug rather than a known limitation of
+> this record.
 
 ## The options, and what they cost
 
@@ -355,7 +414,9 @@ element path — a UIx consumer is not on that path and does not get it.
   it. One thing it recorded is not answered and is not rounded up — the
   **range** row (a second algorithm, and off the change path entirely). The
   **IME** fence is now established by the real-composition harness
-  (`rf2-o27h3`, the *IME composition* section above), whose one open
-  residue — the mid-composition rewrite every implementation performs when
-  the model disagrees — is `rf2-digtt`. And nothing here reaches a UIx
-  consumer's `:input`.
+  (`rf2-o27h3`, the *IME composition* section above), and its one open
+  residue — the mid-composition rewrite every implementation performed when
+  the model disagreed — was closed by `rf2-digtt`'s carve-out on
+  2026-08-03, in Arm 1 only. And nothing here reaches a UIx consumer's
+  `:input`: the carve-out is the element path's, so a UIx consumer's
+  composition is still React's to abort.

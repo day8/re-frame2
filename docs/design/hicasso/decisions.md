@@ -431,6 +431,76 @@ is the failure mode.
 
 ## HD-019 — The synchronous controlled-input door (v0 mechanics)
 
+> **Addendum, 2026-08-03 — the composition carve-out is IN (`rf2-digtt`).** The
+> ruling below left one question open and named the bead that would settle it:
+> whether to suspend convergence until `compositionend`. It is settled, in
+> favour of the carve-out, and this record's "not proven, and not to be written
+> as though it were" clause about the value path through a live composition is
+> superseded by what follows. Everything else in the ruling stands unchanged.
+>
+> **What was ruled.** Controlled-text convergence is suppressed while an IME
+> composition is live; the field converges **once**, at `compositionend`,
+> against the then-current model. Automatic for any `:value`/`:on-input` pair —
+> no public option and no config knob. Under the old conduct a CJK/IME user on a
+> refusing or normalising field had in-flight kana destroyed mid-word with no
+> feedback at all; under the carve-out the composition survives and the refusal
+> lands whole and visibly at the commit. A composition is a browser-owned draft
+> of the user's, and destroying it silently is not a parity target worth
+> keeping.
+>
+> **This is a deliberate divergence from plain React, and it is claimed as
+> one.** It is scoped precisely to Hicasso's converge: the model still refuses
+> or normalises every intermediate composition state exactly as before, and on
+> the refusing field the exchange ends with the same model and the same field as
+> the React baseline reaches. `ime_run.cjs` asserts the divergence and its scope
+> comparatively, in one run, on one model.
+>
+> **The mechanism is two halves, because two writes destroy the exchange and
+> only one is ours.** (a) The converge declines to run when the change event
+> arrived mid-composition — one reading of the native event's `isComposing`.
+> (b) React's own end-of-discrete-event restore is not ours to skip, so an
+> internal single-`useState` component holds **the value React sees at the live
+> DOM draft** while a composition runs, and React's own `element.value !== value`
+> guard does the skipping. A bare "skip the converge" is proven insufficient by
+> this bead's measured matrix: plain React, which has no converge in the loop,
+> aborts the exchange anyway. Nothing reaches into React's internals, mutates
+> props React holds, or intercepts a value setter.
+>
+> **The second `flushSync` call site is audited here, as this record requires.**
+> `front.controlled/converge!` is now reached from two places in its own
+> namespace: the end of a change handler that is *not* composing, and once at
+> `compositionend`. Same element, same door, at most one per event, and the
+> composition path is the keystroke path with its convergence deferred to the
+> end of the exchange rather than a second mechanism. The grant stands on that
+> reading; a call site outside this namespace still needs its own ruling.
+>
+> **The price, paid in public.** One React fiber and one `useState` cell per
+> controlled `input`/`textarea`, plus one props copy and three handler closures
+> per render of a convergeable one. **HD-020(b)'s ≤2-hook budget is untouched**:
+> the shadow is not a boundary shell, and `shapes/hook_budget_dom_cljs_test`
+> now separates the two counts — the shell sequence is still the declared pair
+> once per boundary, the shadow's hook is counted per controlled text field, and
+> no hook is ever interleaved into a shell's pair. A page with no controlled
+> input pays nothing. The shadow's component deliberately does **not** read
+> `:type`, because an element type that changed under a live field would remount
+> it; the `:type` question is asked inside, one render later, where a wrong
+> answer costs nothing.
+>
+> **Release is unconditional**, which is the safety rider: `compositionend`, any
+> change event that is not composing (the recovery path for a composition some
+> other write aborted silently, which fires nothing), `blur`, and unmount for
+> free — the shadow is the component's own state and cannot outlive the element.
+> The worst degradation available is a converge, which is today's conduct.
+>
+> **Witness scope: Chromium only.** `Input.imeSetComposition` is a CDP method and
+> CDP is Chromium's protocol, so every composition claim here is witnessed on
+> Chromium and nowhere else. WebKit has had composition/key-ordering defects of
+> its own; this harness cannot drive it, and misconduct there is a new bug bead
+> rather than a known limitation.
+>
+> **K4's IME half is no longer open on this question.** `rf2-dfz6f` rewrites the
+> fitness harness's R-A2 wording separately.
+
 **Ruling.** On the lean-React arm: a controlled element's event-vector lowering
 dispatches **synchronously inside the discrete browser event** (the
 dispatch-sync-class drain), and the spine's store notification runs synchronously
