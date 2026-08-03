@@ -307,7 +307,7 @@
     (is (= #{} (idx/commit! #{[:stray]})))))
 
 ;; ---------------------------------------------------------------------------
-;; HD-005 — the evidence seam is three lines, nil by default, and silent
+;; HD-005 — the evidence seam is two lines, nil by default, and silent
 ;; ---------------------------------------------------------------------------
 
 (deftest the-evidence-seam-is-detached-by-default-and-attachable-without-redesign
