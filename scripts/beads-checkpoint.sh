@@ -24,6 +24,23 @@
 # working tree. A reverted file can then never be committed over newer database
 # state, because the file is regenerated before it is read.
 #
+# THE SECOND FAULT (rf2-rjqtj): EXPORT FIRST IS NOT ENOUGH ON ITS OWN.
+#
+#   Exporting first is right when the database is strictly ahead of Git. It is
+#   wrong when Git is ahead in places — and Git can be, because a second writer
+#   exists: the merged-PR audit commits issue rows straight to Git, and a `git
+#   pull` brings other checkouts' rows in the same way. When both sides move,
+#   they can diverge at the SAME ROW COUNT, one row for one row. The row-count
+#   floor below then sees 1938 == 1938 and waves the export through, and the
+#   commit deletes the Git-only rows and reverts the newer Git statuses.
+#
+#   OBSERVED, not hypothetical: commit 667c744dc875 dropped rf2-3jw04,
+#   rf2-jv36i and rf2-lhdp0 and reverted rf2-2rtt6.52/.63 exactly this way.
+#
+#   So the export is now compared to HEAD by issue id, `updated_at` and
+#   `status` before it is allowed to overwrite anything — see `git_only_facts`.
+#   EQUAL COUNTS ARE NOT EQUALITY.
+#
 # USAGE
 #
 #   sh scripts/beads-checkpoint.sh [-m MESSAGE]
@@ -188,6 +205,117 @@ same_content() {
   cmp -s "$TMP_A" "$TMP_B"
 }
 
+# git_only_facts EXPORT HEAD_COPY REMEDY_PATH — print one line per tracker fact
+# HEAD carries that the fresh export does not, and write the rows that would
+# repair the database to REMEDY_PATH. No output means the export is a safe
+# superset of HEAD and the checkpoint may proceed.
+#
+# THE FAULT THIS EXISTS TO STOP (rf2-rjqtj): see the second fault at the top of
+# this file. Row counts are a floor, not an equality test.
+#
+# Three classes, all of them "Git knows something Dolt does not":
+#
+#   GONE    an issue id at HEAD that the export has no row for at all. The
+#           commit would DELETE that bead.
+#   REVERT  an id in both, where HEAD's `updated_at` is strictly NEWER than the
+#           export's. The commit would revert it to an older status.
+#   AMBIG   an id in both carrying the SAME `updated_at` but a DIFFERENT
+#           `status`. Neither side can be called newer, so neither may be
+#           chosen automatically.
+#
+# The opposite direction — ids only the export has, rows the export has newer —
+# is the normal forward motion of a checkpoint and is deliberately not reported.
+#
+# WHY `status` AND `updated_at`, NOT JUST THE ID SET: an id-set comparison
+# proves presence, nothing more. Confirmed in the field: an interrupted Dolt
+# generational GC reverted a bead's close and five note appends while every id
+# stayed intact. Presence is not state.
+#
+# THE ID IS THE STABLE BEAD ID (`rf2-…`), NEVER A ROW UUID. `bd` regenerates row
+# and comment UUIDs on re-import, so a UUID-keyed diff reports phantom losses —
+# it flagged three beads that existed and were closed. `"id":"` occurs up to
+# eight times in a single row because every comment carries one; only the FIRST
+# occurrence is the bead's, because `bd export` writes `_type` and `id` at the
+# front of the row. A row whose id cannot be read is REPORTED rather than
+# skipped: a guard that silently stops guarding is the bug being fixed here.
+#
+# Rows are compared only when both sides carry a non-empty `updated_at`. Without
+# timestamps there is no basis on which to call either side newer, and inventing
+# one would turn every ordinary close into a refusal.
+#
+# REMEDY_PATH receives the GONE and REVERT rows exactly as HEAD holds them, so
+# `bd import` of that file is the whole recovery — the bead's own verified,
+# bounded mechanism: it created the three missing ids, updated exactly the two
+# newer Git rows, skipped the stale ones, and preserved every newer Dolt row and
+# cursor. AMBIG rows are deliberately left out; an import cannot adjudicate them.
+#
+# REMEDY_PATH reaches awk through the ENVIRONMENT, not through `-v`: awk
+# processes escape sequences in a `-v` value, so a Windows-shaped TMPDIR
+# (`C:\Users\…`) would arrive with its backslashes eaten and the rows would land
+# somewhere other than the path the message names. ENVIRON is taken verbatim.
+git_only_facts() {
+  RF2_BDCHK_REMEDY="$3" awk -v cap=20 '
+    function jval(line, key,   pfx, re) {
+      pfx = "\"" key "\":\""
+      re  = pfx "[^\"]*\""
+      if (match(line, re)) {
+        return substr(line, RSTART + length(pfx), RLENGTH - length(pfx) - 1)
+      }
+      return ""
+    }
+    { sub(/\r$/, "") }
+    index($0, "\"_type\":\"issue\"") == 0 { next }
+    {
+      id = jval($0, "id")
+      st = jval($0, "status")
+      up = jval($0, "updated_at")
+    }
+    # First file: the fresh export. (FNR == NR is sound here because the caller
+    # has already refused a zero-row export, so file 1 is never empty.)
+    FNR == NR {
+      if (id == "") { xbad++; next }
+      xseen[id] = 1; xst[id] = st; xup[id] = up
+      next
+    }
+    # Second file: HEAD.
+    {
+      if (id == "") { hbad++; next }
+      if (!(id in xseen)) {
+        if (++ngone <= cap) {
+          printf "  GONE    %s  would be DELETED (HEAD: status=%s updated_at=%s)\n", id, st, up
+        }
+        print $0 > ENVIRON["RF2_BDCHK_REMEDY"]
+        next
+      }
+      if (up != "" && xup[id] != "" && up > xup[id]) {
+        if (++nrev <= cap) {
+          printf "  REVERT  %s  HEAD status=%s updated_at=%s -> export status=%s updated_at=%s\n", \
+                 id, st, up, xst[id], xup[id]
+        }
+        print $0 > ENVIRON["RF2_BDCHK_REMEDY"]
+        next
+      }
+      if (up != "" && up == xup[id] && st != xst[id]) {
+        if (++namb <= cap) {
+          printf "  AMBIG   %s  same updated_at=%s but HEAD status=%s, export status=%s\n", \
+                 id, up, st, xst[id]
+        }
+      }
+    }
+    END {
+      if (ngone > cap) printf "  ... and %d more that would be DELETED\n", ngone - cap
+      if (nrev  > cap) printf "  ... and %d more that would be REVERTED\n", nrev - cap
+      if (namb  > cap) printf "  ... and %d more ambiguous rows\n", namb - cap
+      if (xbad > 0) {
+        printf "  UNREADABLE  %d issue rows in the fresh export carry no readable id\n", xbad
+      }
+      if (hbad > 0) {
+        printf "  UNREADABLE  %d issue rows at HEAD carry no readable id\n", hbad
+      }
+    }
+  ' "$1" "$2"
+}
+
 # ---------------------------------------------------------------------------
 # --pre-pull: would clearing `.beads` throw tracker state away?
 # ---------------------------------------------------------------------------
@@ -251,6 +379,45 @@ if [ "$head_rows" -gt 0 ] && [ $((export_rows * 10)) -lt $((head_rows * 9)) ]; t
   printf '  Inspect with `bd status`, then commit by hand if the shrink is genuine.\n' >&2
   exit 1
 fi
+
+# DIVERGENCE GUARD (rf2-rjqtj). The floor above answers "is the export big
+# enough?". It cannot answer "does the export still contain what HEAD contains?"
+# — and at equal counts it has already said yes to an export that did not.
+# Nothing has been written yet, so a refusal here leaves the tracker exactly as
+# it was found.
+REMEDY="${TMPDIR:-/tmp}/rf2-beads-git-only-$$.jsonl"
+rm -f "$REMEDY"
+FACTS=$(git_only_facts "$TMP_EXPORT" "$TMP_HEAD" "$REMEDY")
+if [ -n "$FACTS" ]; then
+  printf 'beads-checkpoint: HEAD carries tracker facts the fresh export does NOT.\n' >&2
+  printf '  export %s rows, HEAD %s rows.' "$export_rows" "$head_rows" >&2
+  if [ "$export_rows" = "$head_rows" ]; then
+    printf ' EQUAL COUNTS ARE NOT EQUALITY:\n' >&2
+    printf '  commit 667c744dc875 passed this floor at 1938 == 1938 and still deleted three\n' >&2
+    printf '  issues and reverted two closes, because Git and Dolt had diverged one for one.\n' >&2
+  else
+    printf '\n' >&2
+  fi
+  printf '\n%s\n\n' "$FACTS" >&2
+  printf '  Committing this export would lose exactly those facts, so it was NOT committed.\n' >&2
+  printf '  %s is UNTOUCHED.\n\n' "$TRACKER" >&2
+  if [ -s "$REMEDY" ]; then
+    printf '  To teach the database what Git already knows, then checkpoint again:\n\n' >&2
+    printf '      bd import %s\n' "$REMEDY" >&2
+    printf '      sh scripts/beads-checkpoint.sh\n\n' >&2
+    printf '  That file holds only the rows above, as HEAD holds them; `bd import` is\n' >&2
+    printf '  timestamp-safe, so it creates what is missing, updates what is genuinely\n' >&2
+    printf '  newer, and skips the rest. Newer database rows are preserved.\n\n' >&2
+  else
+    rm -f "$REMEDY"
+  fi
+  printf '  If the loss is DELIBERATE (a `bd delete`, a `bd gc`, an AMBIG row you have\n' >&2
+  printf '  adjudicated), take the export by hand and commit it yourself:\n\n' >&2
+  printf '      bd export --include-memories > %s\n' "$TRACKER" >&2
+  printf '      git add -- %s && git commit -m "chore(beads): ..."\n\n' "$TRACKER" >&2
+  exit 1
+fi
+rm -f "$REMEDY"
 
 # The export is trustworthy — it is now the working tracker. From here on the
 # working file cannot be a stale revert, whatever it was a moment ago.
