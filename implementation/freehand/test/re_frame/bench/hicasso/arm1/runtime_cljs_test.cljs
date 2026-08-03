@@ -51,6 +51,15 @@
 
 (defn- key-of [query] [frame-id query])
 
+(defn- the-live-boundary
+  "The one live boundary's id, for the tests that mount exactly one. It
+  comes from the forward-edge map's key set because that IS the index's
+  record of liveness (rf2-ixb92) — there is no separate `:live` set to
+  read it from, and asking `:b->subs` for it is the same lookup the old
+  set answered."
+  []
+  (first (keys (:b->subs (idx/snapshot)))))
+
 ;; ---------------------------------------------------------------------------
 ;; The hook ledger and the retained inventory (HD-020(b))
 ;; ---------------------------------------------------------------------------
@@ -319,7 +328,7 @@
     (release)
     (let [narrow  (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
           release (rt/commit-boundary! narrow (fn []))
-          b       (first (:live (idx/snapshot)))]
+          b       (the-live-boundary)]
       (is (= 1 (count (idx/edges-of (idx/snapshot) b))))
       (is (empty? (idx/readers-of (idx/snapshot) (key-of [:dogfood/todo 1])))
           "and the dropped key has no reader left behind")
@@ -350,7 +359,7 @@
                change — there is no cheap route for `n-1 of n unchanged`")
           (let [narrow (render (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]))
                 stop2  (rt/commit-boundary! narrow (fn []))
-                b      (first (:live (idx/snapshot)))]
+                b      (the-live-boundary)]
             (is (= 1 (:cell-refs (rt/stats))) "and re-acquired from nothing")
             (is (= #{(key-of [:dogfood/todo 0])} (idx/edges-of (idx/snapshot) b))
                 "the narrowing landed")

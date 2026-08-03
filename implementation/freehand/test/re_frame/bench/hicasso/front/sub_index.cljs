@@ -10,19 +10,38 @@
   in this namespace exists to keep that answer correct as boundaries
   mount, read, re-run with a different read set, and unmount.
 
-  The index is **global maps, not reactions**. Two maps and a set live in
-  a single atom:
+  The index is **global maps, not reactions**. Two maps live in a single
+  atom:
 
       :sub->bs   sub-key      -> #{boundary-id}    the reverse edges
       :b->subs   boundary-id  -> #{sub-key}        the forward edges
-      :live      #{boundary-id}                    mounted boundaries
 
   Shared structure, not per-boundary object fan-out. A boundary's
-  membership in the index is one entry in `:b->subs`, one entry in
-  `:live`, and one membership per edge in `:sub->bs` — there is no
-  per-boundary reaction, watcher, or cell here, and a ViewCell-class
-  object graph appearing in this file is the explicit failure marker for
-  the whole programme (architecture.md, Arm 1).
+  membership in the index is one entry in `:b->subs` and one membership
+  per edge in `:sub->bs` — there is no per-boundary reaction, watcher, or
+  cell here, and a ViewCell-class object graph appearing in this file is
+  the explicit failure marker for the whole programme (architecture.md,
+  Arm 1).
+
+  ## Liveness is the forward-edge entry, and there is no second record
+
+  A boundary is live exactly when `:b->subs` holds an entry for it
+  (rf2-ixb92). There used to be a third structure — `:live`, a set of
+  mounted boundary ids — and it carried no information the forward edges
+  did not already carry: [[mount]] installs `#{}` for a boundary it has
+  not seen, [[unmount]] drops the entry, and [[record-reads]] only ever
+  writes for a boundary that is already there, so the set was the key set
+  of `:b->subs` at every reachable index value. Deriving it costs
+  nothing — `contains?` and `count` are the same operations on a
+  persistent map as on a persistent set — and it removes both a
+  membership per mounted boundary from the retained inventory and a
+  second place [[mount]] and [[unmount]] had to stay symmetric in.
+
+  That makes the empty set [[mount]] installs load-bearing rather than
+  tidy: it is *the* record that the boundary exists, so a boundary whose
+  body read nothing is still live and can still record edges later.
+  `liveness-is-the-forward-edge-entry-and-there-is-no-second-record-of-it`
+  holds both halves.
 
   **Nothing in here is reactive.** The index does not watch, subscribe,
   schedule, or notify. It is a pure function of the edges it has been
@@ -94,18 +113,22 @@
   "A fresh, empty index value."
   []
   {:sub->bs {}
-   :b->subs {}
-   :live    #{}})
+   :b->subs {}})
 
 (defn mount
-  "Register `boundary-id` as live. Idempotent: a boundary already in the
-  index keeps the edges it has recorded, because StrictMode mounts a
-  boundary twice and HMR remounts it, and neither event means its reads
-  went away."
+  "Register `boundary-id` as live — which, since rf2-ixb92, is exactly
+  *give it a forward-edge entry*. The empty set is therefore the whole
+  registration and not a convenience: it is what [[live?]] answers from
+  and what [[record-reads]] checks before it writes.
+
+  Idempotent, and now by returning the index unchanged rather than by
+  rebuilding it: a boundary already in the index keeps the edges it has
+  recorded, because StrictMode mounts a boundary twice and HMR remounts
+  it, and neither event means its reads went away."
   [idx boundary-id]
-  (cond-> (update idx :live conj boundary-id)
-    (not (contains? (:b->subs idx) boundary-id))
-    (assoc-in [:b->subs boundary-id] #{})))
+  (if (contains? (:b->subs idx) boundary-id)
+    idx
+    (assoc-in idx [:b->subs boundary-id] #{})))
 
 (defn- drop-edges
   "Remove `boundary-id` from the reverse edges of every key in `sub-keys`,
@@ -127,8 +150,7 @@
   [idx boundary-id]
   (-> idx
       (update :sub->bs drop-edges boundary-id (get-in idx [:b->subs boundary-id] #{}))
-      (update :b->subs dissoc boundary-id)
-      (update :live disj boundary-id)))
+      (update :b->subs dissoc boundary-id)))
 
 (defn record-reads
   "Replace `boundary-id`'s edge set with the sub-keys its body just read.
@@ -169,7 +191,7 @@
   narrowing it to one caller's wiring would make a second `record-reads`
   for the same id leak edges silently."
   [idx boundary-id read-sub-keys]
-  (if-not (contains? (:live idx) boundary-id)
+  (if-not (contains? (:b->subs idx) boundary-id)
     idx
     (let [reads   (set read-sub-keys)
           held    (get-in idx [:b->subs boundary-id] #{})
@@ -204,9 +226,11 @@
   (get (:sub->bs idx) sub-key #{}))
 
 (defn live?
-  "Is `boundary-id` mounted?"
+  "Is `boundary-id` mounted? Answered from the forward edges, because
+  holding a forward-edge entry is what being mounted *is* (rf2-ixb92) —
+  including the entry that is still `#{}` because the body read nothing."
   [idx boundary-id]
-  (contains? (:live idx) boundary-id))
+  (contains? (:b->subs idx) boundary-id))
 
 ;; ---------------------------------------------------------------------------
 ;; The global index — one atom, the runtime's door
