@@ -231,14 +231,28 @@
                                 :adopted?  (and (some? @render-tenant)
                                                 (identical? @render-tenant tenant))
                                 :ref-count (or (get-in @cache [query-v :ref-count]) 0)
-                                :dom       (.-textContent container)}))))))
+                                :dom       (.-textContent container)})))
+                  ;; Hand the turn back only AFTER every reading is taken: the
+                  ;; continuation runs as a microtask off this resolve, and a
+                  ;; reading taken there would sit behind the rest of the
+                  ;; effect queue instead of at the first post-subscribe
+                  ;; instant.
+                  (@resolve! :committed))))
       (let [unmount (substrate-adapter/render ($ Boundary) container {})]
         (-> (js/Promise.race #js [committed (timeout-after commit-budget-ms :timeout)])
             (.then
               (fn [outcome]
                 (let [rec (cond-> {:trial      n
                                    :cold?      cold?
+                                   ;; A trial that never RENDERED and one that
+                                   ;; rendered and never committed are
+                                   ;; different faults; the record separates
+                                   ;; them rather than reporting a shared nil.
+                                   :rendered?  (some? @t0)
                                    :committed? (not= outcome :timeout)}
+
+                            (= outcome :timeout)
+                            (assoc :dom-at-timeout (.-textContent container))
                             (not= outcome :timeout)
                             (assoc :gap-ms (lane/round4 (- @t1 @t0)))
 
@@ -382,6 +396,78 @@
   (js/console.log (str ";;   horizon " horizon-ms " ms (spine provisional-horizon-ms)"
                        "   qualifying ceiling " ceiling-ms " ms")))
 
+(defn- trial-line [r]
+  (str ";;   trial " (:trial r)
+       "  gap " (:gap-ms r) " ms"
+       "  builds " (:builds r)
+       "  adopted? " (:adopted? r)
+       "  refs " (:ref-count r)
+       "  dom " (pr-str (:dom r))))
+
+;; ---------------------------------------------------------------------------
+;; The two phases
+;; ---------------------------------------------------------------------------
+
+(defn- adjudicate-adoption!
+  "PHASE 2 — reached only from a qualifying phase-1 gap, and refusing again if
+  its own mounts do not qualify. `adoption-faults` is not called on a
+  disqualified set: a NOT-ADOPTED read off a slow mount is a noise artefact
+  wearing a regression's clothes."
+  [horizon-ms ceiling-ms]
+  (-> (run-trials! (trial-ids "a" adoption-trials) true)
+      (.then
+        (fn [rows]
+          (let [summary (gap-summary rows)
+                bad     (disqualifiers rows ceiling-ms)]
+            (lane/record! :adoption {:horizon-ms horizon-ms
+                                     :ceiling-ms ceiling-ms
+                                     :summary    summary
+                                     :rows       rows})
+            (print-gap! "phase 2 — adoption mounts" summary ceiling-ms horizon-ms)
+            (doseq [r rows] (js/console.log (trial-line r)))
+            (if (seq bad)
+              (verdict! :REFUSED
+                        (into ["phase 1 qualified but an adoption mount did not, so its"
+                               "integers were discarded unread."]
+                              bad))
+              (let [faults (adoption-faults rows)]
+                (if (seq faults)
+                  (verdict! :NOT-ADOPTED
+                            (into ["every gap qualified — this page CAN see the race — and the"
+                                   "commit still did not adopt the render's build. On a qualifying"
+                                   "page that is a MECHANISM regression, not a scheduling one."]
+                                  faults))
+                  (verdict! :ADOPTED
+                            [(str adoption-trials " of " adoption-trials " cold mounts: one "
+                                  "sub-body run, the render's reaction still the cache's tenant "
+                                  "at the first post-subscribe instant, one durable reference.")
+                             (str "A MARGIN, NOT A CONTRACT: React documents no maximum "
+                                  "render-to-subscribe interval. Re-run when the react / "
+                                  "react-dom / playwright pins move.")]))))
+            (lane/done!))))))
+
+(defn- adjudicate-gap!
+  "PHASE 1 — the schedule, and nothing else. Answers a promise so the caller's
+  chain is the same shape whichever way this goes."
+  [rows horizon-ms ceiling-ms]
+  (let [summary (gap-summary rows)
+        bad     (disqualifiers rows ceiling-ms)]
+    (lane/record! :gap {:horizon-ms horizon-ms
+                        :ceiling-ms ceiling-ms
+                        :summary    summary
+                        :rows       rows})
+    (print-gap! "phase 1 — schedule" summary ceiling-ms horizon-ms)
+    (if (seq bad)
+      (do (verdict! :REFUSED
+                    (into ["this page cannot bound its render-to-passive-flush gap under the"
+                           "reap horizon with margin, so the adoption integers were NOT read."
+                           "This is not a failure of the adoption; it is a refusal to"
+                           "adjudicate it here."]
+                          bad))
+          (lane/done!)
+          (js/Promise.resolve nil))
+      (adjudicate-adoption! horizon-ms ceiling-ms))))
+
 (defn ^:export -main []
   (rf/init! uixa/adapter)
   ;; Every reading here is taken outside React's act queue, so the commit
@@ -392,80 +478,15 @@
       (do (lane/fail! error) (lane/done!))
       (-> (js/Promise.resolve nil)
           (.then (fn [_] (register!)))
-          ;; ---- WARM-UP: printed, never counted --------------------------
+          ;; WARM-UP: printed, never counted. The first mount on a fresh page
+          ;; pays React's own lazy initialisation.
           (.then (fn [_] (run-trials! (trial-ids "w" warmup-trials) false)))
-          (.then
-            (fn [warm]
-              (lane/record! :warmup {:rows warm})
-              (js/console.log (str ";; warm-up gaps (discarded): "
-                                   (pr-str (mapv :gap-ms warm)) " ms"))
-              ;; ---- PHASE 1: the gap, and NOTHING else -------------------
-              (run-trials! (trial-ids "g" gap-trials) false)))
-          (.then
-            (fn [gap-rows]
-              (let [summary (gap-summary gap-rows)
-                    bad     (disqualifiers gap-rows ceiling-ms)]
-                (lane/record! :gap {:horizon-ms horizon-ms
-                                    :ceiling-ms ceiling-ms
-                                    :summary    summary
-                                    :rows       gap-rows})
-                (print-gap! "phase 1 — schedule" summary ceiling-ms horizon-ms)
-                (if (seq bad)
-                  (do (verdict! :REFUSED
-                                (into ["this page cannot bound its render-to-passive-flush gap "
-                                       "under the reap horizon with margin, so the adoption "
-                                       "integers were NOT read. This is not a failure of the "
-                                       "adoption; it is a refusal to adjudicate it here."]
-                                      bad))
-                      (lane/done!))
-                  ;; ---- PHASE 2: only now, the integers ------------------
-                  (-> (run-trials! (trial-ids "a" adoption-trials) true)
-                      (.then
-                        (fn [rows]
-                          (let [s2  (gap-summary rows)
-                                bad (disqualifiers rows ceiling-ms)]
-                            (lane/record! :adoption {:horizon-ms horizon-ms
-                                                     :ceiling-ms ceiling-ms
-                                                     :summary    s2
-                                                     :rows       rows})
-                            (print-gap! "phase 2 — adoption mounts" s2 ceiling-ms horizon-ms)
-                            (doseq [r rows]
-                              (js/console.log
-                                (str ";;   trial " (:trial r)
-                                     "  gap " (:gap-ms r) " ms"
-                                     "  builds " (:builds r)
-                                     "  adopted? " (:adopted? r)
-                                     "  refs " (:ref-count r)
-                                     "  dom " (pr-str (:dom r)))))
-                            (cond
-                              ;; A phase-2 mount that lost its own clock voids
-                              ;; its own integers: a NOT-ADOPTED read off a
-                              ;; slow mount would be a noise artefact wearing a
-                              ;; regression's clothes.
-                              (seq bad)
-                              (verdict! :REFUSED
-                                        (into ["phase 1 qualified but an adoption mount did not, "
-                                               "so its integers were discarded unread"]
-                                              bad))
-
-                              :else
-                              (let [faults (adoption-faults rows)]
-                                (if (seq faults)
-                                  (verdict! :NOT-ADOPTED
-                                            (into [(str "every gap qualified — this page CAN see the "
-                                                        "race — and the commit still did not adopt the "
-                                                        "render's build. On a qualifying page that is a "
-                                                        "MECHANISM regression, not a scheduling one.")]
-                                                  faults))
-                                  (verdict! :ADOPTED
-                                            [(str adoption-trials " of " adoption-trials
-                                                  " cold mounts: one sub-body run, the render's reaction "
-                                                  "still the cache's tenant at the first post-subscribe "
-                                                  "instant, one durable reference.")
-                                             (str "A MARGIN, NOT A CONTRACT: React documents no maximum "
-                                                  "render-to-subscribe interval. Re-run when the react / "
-                                                  "react-dom / playwright pins move.")]))))
-                            (lane/done!))))))))
+          (.then (fn [warm]
+                   (lane/record! :warmup {:rows warm})
+                   (js/console.log (str ";; warm-up gaps (discarded): "
+                                        (pr-str (mapv :gap-ms warm)) " ms"))
+                   (run-trials! (trial-ids "g" gap-trials) false)))
+          (.then (fn [rows] (adjudicate-gap! rows horizon-ms ceiling-ms)))
           (.catch (fn [e]
                     (lane/fail! (or (some-> e .-message) (str e)))
                     (lane/done!)))))))

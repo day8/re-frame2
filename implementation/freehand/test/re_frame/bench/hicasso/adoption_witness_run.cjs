@@ -193,9 +193,15 @@ function serve() {
 
 async function runPage(browser, horizonMs, ceilingMs) {
   const page = await browser.newPage();
+  // The page's own records, PLUS everything the browser complains about. A
+  // console filter that drops React's warnings is a way to run a diagnostic
+  // past the message explaining why it read nothing.
   page.on('console', (msg) => {
     const t = msg.text();
     if (t.startsWith(';; ') || t.startsWith(`[${TAG}]`)) console.log(t);
+    else if (msg.type() === 'error' || msg.type() === 'warning') {
+      console.log(`;; [browser ${msg.type()}] ${t}`);
+    }
   });
   // Watching starts BEFORE the navigation (rf2-f5roa): a throw before the
   // sentinel must not cost the full budget before the driver looks.
