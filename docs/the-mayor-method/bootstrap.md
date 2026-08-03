@@ -90,6 +90,16 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 - *Checkpoint tracker state on the heartbeat.* Many trackers auto-stage but never
   commit; commit + push the tracker file each cycle so a long session's state
   isn't stranded locally.
+- *A tracker write can silently revert.* Items verified closed can read OPEN again
+  cycles later — a rollback to an earlier snapshot, a re-import over the top — and
+  nothing in the loop surfaces it, so the session's "closed" count quietly
+  overstates. Verifying at the moment you close is not enough: each cycle, re-check
+  everything closed this session and re-close what reverted, with evidence. Two ways
+  that audit lies — key it on the stable item id, never an internal row UUID
+  (re-import regenerates UUIDs, so a UUID-keyed diff reports phantom losses), and
+  read the status FIELD, not the whole record, which matches "open" inside a title.
+  A verification tool that misreports is the same defect class as the bug it was
+  written to catch.
 - *The exit code is the verdict; the summary is decoration.* Piping a gate into
   `tail` or `grep` returns the pipe's status, not the runner's, so a worker reads
   "0 failures" and reports green on a failed run. Require capture to a file, an
