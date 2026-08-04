@@ -265,6 +265,18 @@ as degenerate for an interpreted root — the dogfood screen and a ~1,200-elemen
 page both hash `83b865f8`. The instrument cannot witness anything here, and the
 SSR witness rows are byte-level for that reason.
 
+**Addendum, 2026-08-05 — `rf2-2rtt6.91` has closed (PR #7510); the instruction is
+unchanged and its reason is now firmer.** Do not lean on `:rf/render-hash` for any of
+this — but no longer because the value is degenerate. Because **this tier carries no
+such value**: Spec 011 tiers hydration-mismatch detection by render-tree
+representation rather than by adapter brand, and a root React adopts (a compiled
+`re-frame.ui` root, a native UIx root, or a Freehand root) now emits none at either
+end. The figure still reproduces — the witness rows were rewired to take the hash
+from `ssr-hash/render-tree-hash` directly — and `83b865f8` was never a fact about
+either page: it is the FNV-1a-32 of the canonical EDN `[#fn[] {}]`, so **any**
+unresolved `[<fn> {}]` root takes it. The SSR witness rows stay byte-level, and now
+there is not even a degenerate instrument to be tempted by.
+
 ### Reader cost
 
 **Zero new concepts.** The SSR fact is `defhost`'s default, already taught in
