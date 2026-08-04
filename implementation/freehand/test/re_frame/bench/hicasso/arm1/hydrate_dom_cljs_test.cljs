@@ -451,7 +451,7 @@
       (do
         (fresh!)
         (let [html      (server-html! [screen {}])
-              container (server-dom! html)]
+              container (stamp-server-nodes! (server-dom! html))]
           (rt/reset-body-runs!)
           (let [handle (mount/hydrate-root! container frame-id [screen {}])]
             (-> (adopted!)
@@ -470,10 +470,25 @@
                                NOT moving. An instrument that inferred a run
                                from the render React was asked for would move
                                here, and would then be unable to tell a
-                               genuine adoption from a skipped one"
+                               genuine adoption from a skipped one.
+
+                               **This row also pins the hydrated root's
+                               SHAPE** (`mount/tree`). The closer rides as a
+                               Fragment sibling, and a `render!` that handed
+                               the same root a bare provider instead would not
+                               be a cheap re-render — React would reconcile a
+                               different top element, tear the adopted subtree
+                               down and mount a fresh one. Measured before the
+                               repair: four body runs and four replaced nodes,
+                               i.e. everything the adoption achieved, undone by
+                               the first ordinary render"
                         (rt/reset-body-runs!)
                         (mount/render! handle [screen {}])
                         (is (zero? (rt/body-runs))
                             (str "a props-equal re-render ran no body; read "
-                                 (rt/body-runs))))
+                                 (rt/body-runs)))
+                        (is (every? server-node?
+                                    (array-seq (.querySelectorAll container ".row")))
+                            "and every row is still the SERVER'S node — the
+                             render did not remount the adopted tree"))
                       (finally (mount/release! handle) (done))))))))))))

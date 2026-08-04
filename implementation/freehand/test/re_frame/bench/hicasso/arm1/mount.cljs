@@ -53,6 +53,36 @@
   (react-dom/flushSync (fn [] nil))
   nil)
 
+(declare adoption-window-closer)
+
+(defn- tree
+  "The root element for `handle`'s next render — **the one place the root
+  tree's SHAPE is decided**, and the reason it is a function of the
+  handle rather than of its two callers.
+
+  A hydrated root carries [[adoption-window-closer]] as a Fragment
+  sibling of the app subtree, and it has to carry it on EVERY subsequent
+  render: React reconciles a root by its top element, so handing a
+  hydrated root a bare provider where a Fragment stood would not be a
+  cheaper render, it would be a different tree — React unmounts the
+  adopted subtree and mounts a fresh one, discarding every node, cell and
+  subscription the adoption just established. Measured: the first
+  `render!` after a hydration re-ran all four boundary bodies and
+  replaced all four DOM nodes.
+
+  An ordinary root gets no wrapper at all, which keeps the tree the whole
+  bench lane measures exactly what it was — no extra fiber, no extra
+  passive effect, and nothing new in
+  `re-frame.bench.hicasso.arm1.runtime/retained-inventory`."
+  [handle hiccup]
+  (let [app (provider (:frame handle)
+                      (codec/root-element (:frame handle) hiccup))]
+    (if (:hydrated? handle)
+      (react/createElement (.-Fragment react) nil
+                           (react/createElement adoption-window-closer nil)
+                           app)
+      app)))
+
 (defn render!
   "Render `hiccup` into an existing root, synchronously.
 
@@ -62,12 +92,11 @@
   to inherit the frame from — the case rf2-2rtt6.39's frame-as-a-prop
   variant needs named. The context provider is installed regardless: it
   is what the substrate's other React-shaped adapters read, and what the
-  error boundary and the presence tray resolve their frame from."
+  error boundary and the presence tray resolve their frame from.
+
+  Takes a hydrated handle unchanged — [[tree]] is what makes that true."
   [handle hiccup]
-  (react-dom/flushSync
-    (fn [] (.render (:root handle)
-                    (provider (:frame handle)
-                              (codec/root-element (:frame handle) hiccup)))))
+  (react-dom/flushSync (fn [] (.render (:root handle) (tree handle hiccup))))
   handle)
 
 (defn root!
@@ -131,17 +160,19 @@
 
   The closer sits OUTSIDE the frame provider on purpose — it reads no
   subscription and needs no frame, and a nil-rendering component with no
-  frame dependency is the smallest thing that can carry the effect."
+  frame dependency is the smallest thing that can carry the effect.
+
+  ## The handle carries `:hydrated?`, and it has to
+
+  [[root!]]'s three keys are all here and every door takes this handle
+  unchanged. The fourth key is not decoration: the wrapper above is part
+  of the ROOT's shape, so [[render!]] has to reproduce it or React tears
+  the adopted tree down and rebuilds it. [[tree]] is the one place that
+  decision is made and `:hydrated?` is what it reads."
   [container frame-kw hiccup]
   (rt/open-adoption-window!)
-  {:root      (react-dom-client/hydrateRoot
-                container
-                (react/createElement
-                  (.-Fragment react) nil
-                  (react/createElement adoption-window-closer nil)
-                  (provider frame-kw (codec/root-element frame-kw hiccup))))
-   :frame     frame-kw
-   :container container})
+  (let [handle {:frame frame-kw :container container :hydrated? true}]
+    (assoc handle :root (react-dom-client/hydrateRoot container (tree handle hiccup)))))
 
 (defn unmount!
   "Unmount the root and detach its container, and **touch nothing the
