@@ -783,7 +783,12 @@
             React slot, so letting the last write win would drop a class
             silently"
     (let [e (codec/as-element [a-host {:class "a" :x/class ["b" :c]}])]
-      (is (= "a b c" (prop e "className")))))
+      (is (= "a b c" (prop e "className"))))
+    ;; the guide's own example, asserted verbatim so the page cannot drift
+    ;; from the door (draft-guide/05-interop.md §Defaults)
+    (is (= "btn on wide"
+           (prop (codec/as-element [a-host {:class ["btn" nil :on] :className "wide"}])
+                 "className"))))
   (testing "nothing else at the slot moves. A string is verbatim, a keyword
             still stringifies (rf2-vrvv9's rule, unchanged), and a
             namespaced keyword still drops its namespace HERE and only here"
