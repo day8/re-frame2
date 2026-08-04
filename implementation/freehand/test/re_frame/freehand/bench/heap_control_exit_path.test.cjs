@@ -249,12 +249,48 @@ test('reads_ladder_run.cjs: the control gate is APPENDED as 5, shifting no exist
   const SRC = fs.readFileSync(path.join(__dirname, 'reads_ladder_run.cjs'), 'utf8');
   const tail = SRC.slice(SRC.indexOf('async function drive('));
   const codes = [...tail.matchAll(/process\.exit\((\d)\)/g)].map((m) => Number(m[1]));
-  // A guard self-test failure opens with 1 and the top-level catch closes
-  // with 1; between them are the enumerated gates, in source order:
-  // unverified 3, reader-C 4, order 2, and the new control 5 LAST.
-  assert.deepStrictEqual(codes, [1, 3, 4, 2, 5, 1]);
+  // THE ENUMERATED GATES, in source order: unverified 3, reader-C 4, order 2,
+  // and the control 5 LAST. Those four numbers, and their order, are the
+  // claim — a run that previously refused with 2, 3 or 4 must still do so.
+  //
+  // The 1s are FILTERED OUT rather than counted, and the reason is a fault
+  // this assertion had until rf2-sib23 tripped it. It used to fingerprint
+  // every `process.exit` in `drive` as the literal `[1, 3, 4, 2, 5, 1]`, so
+  // ANY new refusal anywhere in the function turned it red — including one
+  // that shifts nothing, which is exactly what its own title says it is
+  // guarding against. Exit 1 is not an enumerated gate here: it is this
+  // driver's "the instrument is not in a state to measure" family, which the
+  // guard self-test opens with, the top-level catch closes with, and to which
+  // the page-error refusal was added. Membership of that family is checked
+  // below instead, which is a stronger statement than a count.
+  const enumerated = codes.filter((c) => c !== 1);
+  assert.deepStrictEqual(enumerated, [3, 4, 2, 5]);
   assert.ok(tail.indexOf('ctlFailed') > tail.indexOf('ORDER GUARD REFUSED'),
     'the new gate goes last, so a run that previously refused with 2/3/4 still does');
+});
+
+test('reads_ladder_run.cjs: the page-error refusal took no number of its own (rf2-sib23)', () => {
+  const SRC = fs.readFileSync(path.join(__dirname, 'reads_ladder_run.cjs'), 'utf8');
+  const tail = SRC.slice(SRC.indexOf('async function drive('));
+  const at = tail.indexOf('const pageErrors = pageFailures();');
+  assert.ok(at > 0, 'the page failures must be read in the exit path');
+  // It refuses with 1 — the existing family — and it refuses AHEAD of the
+  // enumerated gates, because those adjudicate readings while this one says
+  // the readings are not of the thing they name.
+  assert.match(
+    tail.slice(at),
+    /if \(pageErrors\.length\) \{[\s\S]{0,900}?process\.exit\(1\);/,
+    'a page error must refuse, and with the existing code 1'
+  );
+  assert.ok(
+    at < tail.indexOf('UNVERIFIED mounts'),
+    'the page-error refusal precedes the enumerated gates'
+  );
+  // And the artefacts still survive it: both files are written above.
+  assert.ok(
+    tail.indexOf("'reads-ladder.txt'") < at,
+    'the evidence must survive the refusal'
+  );
 });
 
 let failed = 0;
