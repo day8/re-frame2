@@ -479,20 +479,29 @@ sitting will want them:
 The caveat that *does* change the pricing is §4's: adoption reporting has a
 documented hole at attribute-only mismatches, and only one arm can produce them.
 
-### The Node entry's byte accounting is still UTF-16, and no figure from it is used
+### The Node entry's byte accounting was UTF-16; it has been repaired, and no figure from it is used here
 
-`rf2-2rtt6.86`'s reopening stands. `driver.cjs` has exactly one commit in its
-history — `9214396f73`, its creation — so no repair has landed. The current code
-still reads `documentBytes: r.first.document.length` (`driver.cjs:176-187`) and
-logs `${out.document.length} B` (`driver.cjs:235-237`); `String.prototype.length`
-counts UTF-16 code units. The bake manifest's byte columns and the live server's
-size log are therefore mislabelled.
+When this page was written, `driver.cjs` had exactly one commit in its history —
+`9214396f73`, its creation — and the bake manifest's byte columns, the bake
+console's ` B` column and the live server's size log were all
+`String.prototype.length`, which counts UTF-16 code units rather than bytes.
+That is why **no size figure from that manifest appears anywhere on this page**,
+and the sentence stands as written: the pricing below never banked one.
 
-**No size figure from that manifest appears anywhere on this page.** The one
-byte count quoted from the corpus — X1(a)'s 3,101 — comes from the witness page,
-carries the same UTF-16 caveat, and is used here only as an identity claim
-(render #1 equals render #2), never as a size. The SHA-256 is unaffected: it is
-computed with an explicit `'utf8'` encoding at `driver.cjs:129`.
+`rf2-2rtt6.114` has since landed the repair prescribed by `rf2-2rtt6.86`'s audit
+note. All five sites now measure `Buffer.byteLength(s, 'utf8')`, and the bake
+checks each manifest column against `fs.statSync` of the file it just wrote, so
+a column that disagrees with its own fixture now refuses instead of baking.
+
+Two things are deliberately unchanged. The SHA-256 never needed repair — it is
+computed with an explicit `'utf8'` encoding at `driver.cjs:129`, so every digest
+row here was always a function of bytes. And the one byte count quoted from the
+corpus — X1(a)'s **3,101** — does **not** come from the manifest: it comes from
+the spike witness's own `report!` payload, which `rf2-2rtt6.114` left alone. It
+therefore still carries the UTF-16 caveat, and is still used here only as an
+identity claim (render #1 equals render #2), never as a size. Repairing it would
+move a published figure and is a decision rather than a chore; it is carried on
+the follow-up bead with the rest of the lane's `(count s)` byte claims.
 
 ## 7. What the spike corpus licenses, and what it does not
 
