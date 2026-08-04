@@ -59,10 +59,48 @@
 #     REMOVE_REFUSED_DIRTY=  git refused; the paths are listed and tagged
 #                            [build output] or [KEEP].
 #     REMOVE_REFUSED_KEEP=   -ForceDisposable stopped at unreviewed work.
-#     REMOVE_FAILED=         the tree is CLEAN, so this really is a file lock
-#                            and really is worth retrying.
+#     REMOVE_FAILED=         the tree is CLEAN and INTACT, so this really is a
+#                            file lock and really is worth retrying.
+#     REMOVE_PARTIAL=        a HUSK (rf2-k3j2w) - see below. Exit 3.
 #   -DryRun reports the same partition up front as WOULD_NEED_FORCE= (all
 #   build output, sweepable) or WOULD_REFUSE_KEEP= (needs a human first).
+#
+#   THE FOURTH OUTCOME: A PARTIAL REMOVAL (rf2-k3j2w). `git worktree remove`
+#   is not atomic on Windows. It can deregister the worktree and delete its
+#   `.git`, then hit a file lock on the directory itself and stop - leaving a
+#   HUSK: every source file still on disk, no worktree behind it. Measured on
+#   Windows 11 against a throwaway worktree with one open file handle held
+#   inside it:
+#
+#     git worktree remove --force <wt>   ->  exit 255, "failed to delete
+#                                            '<wt>': Invalid argument"
+#     git worktree list                  ->  <wt> ALREADY GONE
+#     <wt>/.git                          ->  ALREADY DELETED
+#     <wt>/**                            ->  every other file still present
+#
+#   The state is genuinely hard to see, which is why it earned a name here:
+#     - `git worktree list` does not mention it - already deregistered;
+#     - `git worktree prune` does not clear it - prune drops ADMIN records for
+#       directories that vanished, and here the opposite happened;
+#     - `git -C <husk> status --porcelain` FAILS and prints nothing, which the
+#       clean/dirty split above read as "tree is CLEAN" and therefore as
+#       REMOVE_FAILED, "safe to retry once it clears". Retrying is futile: the
+#       registered-worktree check refuses it, forever;
+#     - to a human `ls` it is indistinguishable from a live worktree.
+#   And it is not a near-miss. A husk kills a running gate exactly as a
+#   completed removal does - "the removal failed" is NOT "the worker was
+#   unaffected". Both entry points report it: a removal that fails this way,
+#   and a later invocation handed a path that is already a husk.
+#
+#   Exit codes split on WHAT THE CALLER SHOULD DO NEXT:
+#     0  done.
+#     1  refused or failed, worktree INTACT - this script is still the right
+#        tool (retry when the lock clears; -ForceDisposable for build output;
+#        a human for [KEEP] paths).
+#     2  usage error.
+#     3  PARTIAL - already gutted and deregistered; this script can do nothing
+#        more with it. 3 wins over 1 when both occur in one run, because it is
+#        the outcome needing a different remedy.
 param(
   # Position = 0 is load-bearing: ValueFromRemainingArguments alone does NOT
   # make a parameter positional, so an unnamed path would otherwise bind to
@@ -82,6 +120,32 @@ $ErrorActionPreference = "Stop"
 
 function Normalize-Path([string]$Path) {
   return [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+}
+
+# Run git and hand back its output and exit code, NEVER throwing.
+#
+# This script's whole job is to handle git commands that fail — a refused
+# removal, a status inside a directory that is no longer a repository — so a
+# failing git is normal control flow here, not an exception. Windows PowerShell
+# disagrees: with $ErrorActionPreference = "Stop" (set above, and wanted for
+# every cmdlet) a native command that writes ANYTHING to stderr raises a
+# terminating NativeCommandError, and neither `2>$null` nor `2>&1` reliably
+# suppresses it. Observed while adding the husk probes: `git status` inside a
+# husk aborted the script with a NativeCommandError instead of returning empty,
+# and the same latent trap sat under `git worktree remove` — the one call in
+# this file guaranteed to write to stderr on the very path that must be
+# classified rather than crashed on (rf2-k3j2w).
+#
+# Lowering the preference INSIDE a function is scoped to that function's
+# dynamic extent, so the strict setting is restored on return with no
+# bookkeeping, and cmdlet errors elsewhere keep terminating as before.
+function Invoke-GitQuiet([string[]]$GitArgs) {
+  $ErrorActionPreference = 'Continue'
+  $out = & git @GitArgs 2>&1
+  return [pscustomobject]@{
+    Output   = @($out | ForEach-Object { [string]$_ })
+    ExitCode = $LASTEXITCODE
+  }
 }
 
 # Paths inside a node_modules whose disappearance is damage on its own, whatever
@@ -122,9 +186,42 @@ function Get-NodeModulesSignature([string]$Path) {
 # and `.Count` on it throws under Set-StrictMode - which is exactly the
 # one-leftover-log case this function exists to report. An @() inside the
 # function cannot prevent that; one at the call site can.
+#
+# ONLY MEANINGFUL ON AN INTACT WORKTREE. On a husk the git call fails, prints
+# nothing, and this returns empty - identical to clean. Every caller therefore
+# checks Test-WorktreeIsIntact FIRST.
+# The EXIT CODE decides, not the output: on a husk the merged output holds
+# git's fatal text, which is not a list of dirty paths. See Invoke-GitQuiet.
 function Get-WorktreeDirt([string]$Path) {
-  return @(& git -C $Path status --porcelain 2>$null) |
-    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  $r = Invoke-GitQuiet @('-C', $Path, 'status', '--porcelain')
+  if ($r.ExitCode -ne 0) { return @() }
+  return @($r.Output) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+}
+
+# Is there still a git worktree behind this directory?
+#
+# The one honest discriminator for a HUSK (rf2-k3j2w): a partially failed
+# `git worktree remove` deletes the worktree's `.git` before it deletes the
+# files, so a husk's files survive with nothing behind them. Seen in the wild
+# at C:/Users/miket/code/re-frame2-worktrees/procpair on 2026-08-05 - `ls`
+# shows a full checkout, `rev-parse` exits 128, `git worktree list` has never
+# heard of it and `git worktree prune` reports nothing to do.
+#
+# Note this is a READ of git's own state, not a guess about who is using the
+# tree. Whether an AGENT is still alive is not knowable from here and this
+# script does not try - see the reaping rule in docs/the-mayor-method.
+#
+# BOTH halves are load-bearing. `rev-parse` alone walks UP the directory tree,
+# so a husk sitting inside another checkout would answer with THAT repo and
+# read as intact; the Test-Path catches it, because a linked worktree always
+# has a `.git` file at its root and a husk is exactly the tree that lost one.
+# And Test-Path alone would accept a dangling or truncated `.git`. -SelfTest
+# proves each clause against the husk shape only that clause can see.
+function Test-WorktreeIsIntact([string]$Path) {
+  if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) { return $false }
+  # Via Invoke-GitQuiet: the dangling-`.git` case reaches this line with git
+  # about to write a fatal to stderr.
+  return ((Invoke-GitQuiet @('-C', $Path, 'rev-parse', '--git-dir')).ExitCode -eq 0)
 }
 
 # Is one `git status --porcelain` line safe to delete unreviewed?
@@ -234,6 +331,38 @@ function Disarm-Link([string]$Path) {
   return (-not (Test-Path -LiteralPath $Path))
 }
 
+# Disarm every node_modules link under one worktree, before anything recursive
+# runs over it.
+#
+# Extracted from the main loop so the HUSK path gets the identical protection
+# (rf2-k3j2w). A husk left behind by a bare `git worktree remove` - one that
+# never went through this script - can still hold an ARMED junction, and the
+# only remedy left for a husk is a plain recursive delete, which is precisely
+# what empties the target. Disarming before we recommend that delete is the
+# difference between advice and a loaded gun. Measured against the husk of a
+# throwaway worktree carrying a junction: this script reported DISARMED and
+# the junction's target still held all 5 of its files afterwards, where the
+# previous version refused the path and left the junction armed.
+function Disarm-WorktreeLinks([string]$Root) {
+  $foundAny = $false
+  foreach ($nm in (Find-NodeModules $Root)) {
+    if (-not (Test-IsLink $nm)) { continue }
+    $foundAny = $true
+    $item = Get-Item -LiteralPath $nm -Force -ErrorAction SilentlyContinue
+    $linkTarget = if ($null -ne $item -and $null -ne $item.Target) { ($item.Target | Select-Object -First 1) } else { '<unresolved>' }
+    if ($DryRun) {
+      Write-Output "WOULD_DISARM=$nm -> $linkTarget"
+      continue
+    }
+    if (-not (Disarm-Link $nm)) {
+      Write-Error "Failed to remove the link $nm - it is still present. ABORTING before 'git worktree remove', which would delete THROUGH it into $linkTarget."
+      exit 1
+    }
+    Write-Output "DISARMED=$nm -> $linkTarget"
+  }
+  if (-not $foundAny) { Write-Output "NO_LINKS=$Root" }
+}
+
 # Say WHY the removal failed instead of guessing (rf2-p0m6m).
 #
 # `git worktree remove` has two failure modes with OPPOSITE remedies:
@@ -250,17 +379,53 @@ function Disarm-Link([string]$Path) {
 # a full session of other workers; every one of them was simply dirty, holding
 # a single untracked `logs/`, `bench-logs/`, `PRBODY.md` or `*-exit.txt` the
 # worker left behind. Telling the two apart is the whole fix.
+# A partially removed worktree - a HUSK. Says what was already done TO the
+# tree, and why this script is the wrong tool from here on (rf2-k3j2w).
+function Write-Husk([string]$Path) {
+  Write-Warning "REMOVE_PARTIAL=$Path"
+  # One Write-Warning per line: a multi-line string gets the WARNING prefix
+  # only on its first line and a blank line between every other.
+  foreach ($line in @(
+      'The worktree is already GUTTED: git deregistered it and deleted its .git,',
+      'then could not delete the directory - a file lock taken mid-removal. The',
+      'files you can still see have no worktree behind them.',
+      'THIS IS A DESTROYED TREE, NOT AN UNTOUCHED ONE. If an agent was using it,',
+      'its build or gate run has already been broken; a partial removal kills a',
+      'running gate exactly as a complete one does (rf2-k3j2w).',
+      'Retrying this script will not finish the job - there is no registered',
+      'worktree left to remove, and `git worktree prune` has nothing to clear.',
+      'Any node_modules link has been disarmed, so what remains is an ordinary',
+      'directory delete, once whatever holds the lock has exited:',
+      "  Remove-Item -Recurse -Force $Path")) {
+    Write-Warning $line
+  }
+}
+
 function Write-RemoveFailure([string]$Path) {
+  # A husk reads as CLEAN below - the git call fails and prints nothing - so
+  # it has to be ruled out before the dirty/locked split runs (rf2-k3j2w).
+  if (-not (Test-WorktreeIsIntact $Path)) {
+    Write-Husk $Path
+    $script:partial = $true
+    return
+  }
   $dirt = @(Get-WorktreeDirt $Path)
   if ($dirt.Count -eq 0) {
-    Write-Warning "REMOVE_FAILED=$Path (tree is CLEAN, so this is a file lock: links are already disarmed; safe to retry once it clears)"
+    Write-Warning "REMOVE_FAILED=$Path (tree is CLEAN and still INTACT, so this is a file lock: links are already disarmed; safe to retry once it clears)"
     return
   }
   Write-Warning "REMOVE_REFUSED_DIRTY=$Path"
   Write-AnnotatedDirt $dirt -AsWarning
   # One Write-Warning per line: a multi-line string gets the WARNING prefix
   # only on its first line and a blank line between every other.
-  $tail = if ((Get-UndisposableLines $dirt).Count -eq 0) {
+  # @() around the call, exactly as Get-WorktreeDirt's header demands: the
+  # function returns @(), PowerShell UNROLLS it on the way out, an empty result
+  # arrives as $null, and `$null.Count` is a terminating error under
+  # Set-StrictMode. Without the wrapper this line threw on every dirty tree, so
+  # on Windows the REMOVE_REFUSED_DIRTY report died immediately after listing
+  # the paths — swallowing the one sentence that tells a hygiene sweep whether
+  # -ForceDisposable will clear the tree. Reproduced against main, 2026-08-05.
+  $tail = if (@(Get-UndisposableLines $dirt).Count -eq 0) {
     @('All of it is build/gate output: -ForceDisposable will sweep the tree.')
   } else {
     @('The [KEEP] paths are NOT build output - an uncommitted edit, a note, a draft.',
@@ -336,7 +501,63 @@ if ($SelfTest) {
     }
     Write-Output "SELF_TEST nested_loss top_level_entries_unchanged=$shallowBefore signature $nBefore -> $nAfter"
 
-    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), and the canary caught nested-only loss."
+    # The HUSK detector (rf2-k3j2w), in a throwaway repo; never touches this one.
+    #
+    # THREE fixtures, because Test-WorktreeIsIntact has two clauses and each
+    # catches a husk the other misses:
+    #   outside  - a husk with no repo above it (the shape seen in the wild).
+    #              rev-parse fails; this is the one whose dirt reads EMPTY, i.e.
+    #              identical to a clean tree, which is how a gutted worktree
+    #              came to be reported as a retryable file lock.
+    #   nested   - a husk inside another checkout. rev-parse WALKS UP, finds the
+    #              enclosing repo and answers happily; only the missing `.git`
+    #              gives it away.
+    #   dangling - `.git` present but naming an admin dir that is gone. The
+    #              Test-Path check calls that intact; only rev-parse sees it.
+    $stRepo = Join-Path $stRoot 'husk-repo'
+    $stOutside = Join-Path $stRoot 'husk-outside'
+    $stNested = Join-Path $stRepo 'husk-nested'
+    New-Item -ItemType Directory -Force -Path $stRepo | Out-Null
+    Push-Location $stRepo
+    try {
+      $null = Invoke-GitQuiet @('init', '-q', '.')
+      $null = Invoke-GitQuiet @('-c', 'user.email=selftest@example.invalid', '-c', 'user.name=selftest',
+                                'commit', '-q', '--allow-empty', '-m', 'init')
+      $null = Invoke-GitQuiet @('worktree', 'add', '-q', $stOutside, '-b', 'husk-probe-outside')
+      $null = Invoke-GitQuiet @('worktree', 'add', '-q', $stNested, '-b', 'husk-probe-nested')
+    }
+    finally { Pop-Location }
+
+    if ((Test-Path -LiteralPath (Join-Path $stOutside '.git')) -and
+        (Test-Path -LiteralPath (Join-Path $stNested '.git'))) {
+      foreach ($stWt in @($stOutside, $stNested)) {
+        if (-not (Test-WorktreeIsIntact $stWt)) {
+          Write-Error "SELF_TEST=FAILED a live worktree read as not-intact: $stWt"
+          exit 1
+        }
+        # Precisely what a partial removal leaves behind.
+        Remove-Item -LiteralPath (Join-Path $stWt '.git') -Force
+        if (Test-WorktreeIsIntact $stWt) {
+          Write-Error "SELF_TEST=FAILED a husk read as INTACT: $stWt - it would be classified as a clean tree and a retryable lock."
+          exit 1
+        }
+      }
+      if (@(Get-WorktreeDirt $stOutside).Count -ne 0) {
+        Write-Error "SELF_TEST=FAILED the husk fixture does not reproduce the ambiguity it exists to test."
+        exit 1
+      }
+      Set-Content -LiteralPath (Join-Path $stOutside '.git') -Value "gitdir: $(Join-Path $stRoot 'no-such-admin-dir')"
+      if (Test-WorktreeIsIntact $stOutside) {
+        Write-Error "SELF_TEST=FAILED a dangling .git read as INTACT; the Test-Path check alone cannot see it."
+        exit 1
+      }
+      Write-Output "SELF_TEST husk detected=yes for all three shapes (outside a repo, where Get-WorktreeDirt reads EMPTY - the trap; nested inside one, where rev-parse walks up and is fooled; and a dangling .git, where the Test-Path check is fooled)"
+    }
+    else {
+      Write-Output "SELF_TEST husk=SKIPPED (no throwaway worktrees could be built here)"
+    }
+
+    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the canary caught nested-only loss, and a husk is not mistaken for a clean tree."
     exit 0
   }
   finally {
@@ -397,6 +618,7 @@ foreach ($line in @(& git -C $mayorRootPath worktree list --porcelain 2>$null)) 
 # Per worktree: disarm, verify, THEN remove.
 # ---------------------------------------------------------------------------
 $failed = $false
+$script:partial = $false
 
 foreach ($rawTarget in $Worktree) {
   if ([string]::IsNullOrWhiteSpace($rawTarget)) { continue }
@@ -411,29 +633,25 @@ foreach ($rawTarget in $Worktree) {
 
   # Refuse anything git does not know as a linked worktree. This script never
   # deletes a directory itself; if git will not remove it, neither will we.
+  #
+  # One unregistered path is NOT a mistyped argument, and saying so is the
+  # difference between an actionable message and a wild goose chase: a HUSK
+  # left by an earlier partial removal is deregistered BY DEFINITION, so the
+  # old advice here ("run 'git worktree prune'") sent the caller after an
+  # entry that had already been cleared (rf2-k3j2w). Disarm it and name it.
   if ($roster -notcontains $wt.ToLowerInvariant()) {
+    if ((Test-Path -LiteralPath $wt -PathType Container) -and (-not (Test-WorktreeIsIntact $wt))) {
+      Disarm-WorktreeLinks $wt
+      Write-Husk $wt
+      $script:partial = $true
+      continue
+    }
     Write-Error "Not a registered worktree of ${mayorRootPath}: $wt (run 'git worktree list'; 'git worktree prune' clears stale entries)."
     exit 1
   }
 
   # 1. Disarm every link, before anything recursive runs over the tree.
-  $foundAny = $false
-  foreach ($nm in (Find-NodeModules $wt)) {
-    if (-not (Test-IsLink $nm)) { continue }
-    $foundAny = $true
-    $item = Get-Item -LiteralPath $nm -Force -ErrorAction SilentlyContinue
-    $linkTarget = if ($null -ne $item -and $null -ne $item.Target) { ($item.Target | Select-Object -First 1) } else { '<unresolved>' }
-    if ($DryRun) {
-      Write-Output "WOULD_DISARM=$nm -> $linkTarget"
-      continue
-    }
-    if (-not (Disarm-Link $nm)) {
-      Write-Error "Failed to remove the link $nm - it is still present. ABORTING before 'git worktree remove', which would delete THROUGH it into $linkTarget."
-      exit 1
-    }
-    Write-Output "DISARMED=$nm -> $linkTarget"
-  }
-  if (-not $foundAny) { Write-Output "NO_LINKS=$wt" }
+  Disarm-WorktreeLinks $wt
 
   # 2. Only now remove the worktree. Never chained with the disarm.
   $dirt = @(Get-WorktreeDirt $wt)
@@ -469,9 +687,17 @@ foreach ($rawTarget in $Worktree) {
     $failed = $true
   }
   else {
-    if ($Force -or $ForceDisposable) { & git -C $mayorRootPath worktree remove --force $wt }
-    else { & git -C $mayorRootPath worktree remove $wt }
-    if ($LASTEXITCODE -eq 0) {
+    $removeArgs = if ($Force -or $ForceDisposable) {
+      @('-C', $mayorRootPath, 'worktree', 'remove', '--force', $wt)
+    } else {
+      @('-C', $mayorRootPath, 'worktree', 'remove', $wt)
+    }
+    $removeResult = Invoke-GitQuiet $removeArgs
+    # git's own diagnosis, verbatim and unprefixed, exactly where the POSIX
+    # primary puts it. It is the first thing a reader wants and it is not ours
+    # to reword.
+    foreach ($l in $removeResult.Output) { [Console]::Error.WriteLine($l) }
+    if ($removeResult.ExitCode -eq 0) {
       Write-Output "REMOVED=$wt"
     }
     else {
@@ -503,6 +729,10 @@ run from $mayorRootPath, then re-check the counts before dispatching anything.
 "@
   exit 1
 }
+
+# A partial removal outranks a plain failure: both are non-zero, but only one
+# of them means "stop calling this script about that path" (rf2-k3j2w).
+if ($script:partial) { exit 3 }
 
 if ($failed) { exit 1 }
 

@@ -56,8 +56,21 @@
 #   REMOVED=<worktree path>
 #   CANARY_AFTER=<path> <signature>
 #   OK: worktree removal complete.
-#   Exit 0 on success, 1 on failure, 2 on usage error. A moved canary prints
-#   CANARY_FAILED to stderr with the npm ci recovery command.
+#   Exit 0 on success, 1 on failure, 2 on usage error, 3 on a PARTIAL removal
+#   (below). A moved canary prints CANARY_FAILED to stderr with the npm ci
+#   recovery command.
+#
+#   The exit codes split on WHAT THE CALLER SHOULD DO NEXT, which is the only
+#   thing a caller can act on:
+#     0  done.
+#     1  refused or failed, and the worktree is INTACT — this script is still
+#        the right tool (retry when the lock clears; --force-disposable for
+#        build output; a human for [KEEP] paths).
+#     2  usage error.
+#     3  PARTIAL — the tree is already gutted and deregistered. This script
+#        can do nothing more with it; see REMOVE_PARTIAL below. 3 wins over 1
+#        when both occur in one run, because it is the outcome needing a
+#        different remedy.
 #
 #   A <signature> is `<immediate-entries>/<recursive-files>/<sentinels-present>`,
 #   e.g. `103/2933/2`. The recursive count and the sentinels are load-bearing:
@@ -70,10 +83,29 @@
 #     REMOVE_REFUSED_DIRTY=  git refused; the paths are listed and tagged
 #                            [build output] or [KEEP].
 #     REMOVE_REFUSED_KEEP=   --force-disposable stopped at unreviewed work.
-#     REMOVE_FAILED=         the tree is CLEAN, so this really is a file lock
-#                            and really is worth retrying.
+#     REMOVE_FAILED=         the tree is CLEAN and INTACT, so this really is a
+#                            file lock and really is worth retrying.
+#     REMOVE_PARTIAL=        a HUSK (rf2-k3j2w) — see below. Exit 3.
 #   --dry-run reports the same partition up front as WOULD_NEED_FORCE= (all
 #   build output, sweepable) or WOULD_REFUSE_KEEP= (needs a human first).
+#
+#   THE FOURTH OUTCOME: A PARTIAL REMOVAL (rf2-k3j2w). `git worktree remove`
+#   is not atomic on Windows. It can deregister the worktree and delete its
+#   `.git`, then hit a file lock on the directory itself and stop — leaving a
+#   HUSK: every source file still on disk, no worktree behind it. The state is
+#   genuinely hard to see, which is why it earned a name here:
+#     - `git worktree list` does not mention it — already deregistered;
+#     - `git worktree prune` does not clear it — prune drops ADMIN records for
+#       directories that vanished, and here the opposite happened;
+#     - `git -C <husk> status --porcelain` FAILS and prints nothing, which the
+#       clean/dirty split above read as "tree is CLEAN" and therefore as
+#       REMOVE_FAILED, "safe to retry once it clears". Retrying is futile: the
+#       registered-worktree check refuses it, forever;
+#     - to a human `ls` it is indistinguishable from a live worktree.
+#   And it is not a near-miss. A husk kills a running gate exactly as a
+#   completed removal does — "the removal failed" is NOT "the worker was
+#   unaffected". Both entry points report it: a removal that fails this way,
+#   and a later invocation handed a path that is already a husk.
 #
 # Cross-platform: POSIX sh; runs under Git Bash on Windows, macOS, Linux.
 # No bashisms (`[[`, arrays, `<<<`).
@@ -193,8 +225,36 @@ signature() {
 # What `git worktree remove` will refuse over: modified or untracked files.
 # Empty output means clean. This is the discriminator behind a failed removal
 # (rf2-p0m6m) — see report_remove_failure.
+#
+# ONLY MEANINGFUL ON AN INTACT WORKTREE. On a husk the git call fails, prints
+# nothing, and this returns empty — identical to clean. Every caller therefore
+# checks worktree_is_intact FIRST.
 worktree_dirt() {
   git -C "$1" status --porcelain 2>/dev/null || true
+}
+
+# Is there still a git worktree behind this directory?
+#
+# The one honest discriminator for a HUSK (rf2-k3j2w): a partially failed
+# `git worktree remove` deletes the worktree's `.git` before it deletes the
+# files, so a husk's files survive with nothing behind them. Verified against
+# C:/Users/miket/code/re-frame2-worktrees/procpair on 2026-08-05 — `ls` shows
+# a full checkout, `rev-parse --git-dir` exits 128, `git worktree list` has
+# never heard of it and `git worktree prune` reports nothing to do.
+#
+# Note this is a READ of git's own state, not a guess about who is using the
+# tree. Whether an AGENT is still alive is not knowable from here and this
+# script does not try — see the reaping rule in docs/the-mayor-method.
+#
+# BOTH halves are load-bearing. `rev-parse` alone walks UP the directory tree,
+# so a husk sitting inside another checkout would answer with THAT repo and
+# read as intact; the `-e` catches it, because a linked worktree always has a
+# `.git` file at its root and a husk is exactly the tree that lost one. And
+# `-e` alone would accept a dangling or truncated `.git`. Neither is compared
+# against a path shape: under Git Bash `git` prints `C:/Users/...` where `pwd`
+# prints `/c/Users/...`, and a textual compare of the two never matches.
+worktree_is_intact() {
+  [ -e "$1/.git" ] && git -C "$1" rev-parse --git-dir >/dev/null 2>&1
 }
 
 # Is one `git status --porcelain` line safe to delete unreviewed?
@@ -282,6 +342,39 @@ disarm_link() {
   return 0
 }
 
+# Disarm every node_modules link under one worktree, before anything recursive
+# runs over it.
+#
+# Extracted from the main loop so the HUSK path gets the identical protection
+# (rf2-k3j2w). A husk left behind by a bare `git worktree remove` — one that
+# never went through this script — can still hold an ARMED junction, and the
+# only remedy left for a husk is a plain `rm -rf`, which is precisely the
+# recursive delete that empties the target. Disarming before we recommend that
+# delete is the difference between advice and a loaded gun.
+disarm_worktree_links() {
+  _dwl_wt="$1"
+  find_node_modules "$_dwl_wt" > "$WORK_DIR/wt-nm"
+  _dwl_found=0
+  while IFS= read -r nm; do
+    [ -n "$nm" ] || continue
+    if [ ! -L "$nm" ]; then
+      continue
+    fi
+    _dwl_found=1
+    link_target=$(readlink "$nm" 2>/dev/null || printf '<unresolved>')
+    if [ "$DRY_RUN" -eq 1 ]; then
+      printf 'WOULD_DISARM=%s -> %s\n' "$nm" "$link_target"
+      continue
+    fi
+    disarm_link "$nm" \
+      || die "Failed to unlink $nm — it is still present. ABORTING before 'git worktree remove', which would delete THROUGH it into $link_target."
+    printf 'DISARMED=%s -> %s\n' "$nm" "$link_target"
+  done < "$WORK_DIR/wt-nm"
+  if [ "$_dwl_found" -eq 0 ]; then
+    printf 'NO_LINKS=%s\n' "$_dwl_wt"
+  fi
+}
+
 # Say WHY the removal failed instead of guessing (rf2-p0m6m).
 #
 # `git worktree remove` has two failure modes with OPPOSITE remedies:
@@ -298,11 +391,35 @@ disarm_link() {
 # a full session of other workers; every one of them was simply dirty, holding
 # a single untracked `logs/`, `bench-logs/`, `PRBODY.md` or `*-exit.txt` the
 # worker left behind. Telling the two apart is the whole fix.
+# A partially removed worktree — a HUSK. Says what was already done TO the
+# tree, and why this script is the wrong tool from here on (rf2-k3j2w).
+report_husk() {
+  printf 'REMOVE_PARTIAL=%s\n' "$1" >&2
+  printf 'The worktree is already GUTTED: git deregistered it and deleted its .git,\n' >&2
+  printf 'then could not delete the directory — a file lock taken mid-removal. The\n' >&2
+  printf 'files you can still see have no worktree behind them.\n' >&2
+  printf 'THIS IS A DESTROYED TREE, NOT AN UNTOUCHED ONE. If an agent was using it,\n' >&2
+  printf 'its build or gate run has already been broken; a partial removal kills a\n' >&2
+  printf 'running gate exactly as a complete one does (rf2-k3j2w).\n' >&2
+  printf 'Retrying this script will not finish the job — there is no registered\n' >&2
+  printf 'worktree left to remove, and `git worktree prune` has nothing to clear.\n' >&2
+  printf 'Any node_modules link has been disarmed, so what remains is an ordinary\n' >&2
+  printf 'directory delete, once whatever holds the lock has exited:\n' >&2
+  printf '  rm -rf %s\n' "$1" >&2
+}
+
 report_remove_failure() {
   _rf_wt="$1"
+  # A husk reads as CLEAN below — the git call fails and prints nothing — so
+  # it has to be ruled out before the dirty/locked split runs (rf2-k3j2w).
+  if ! worktree_is_intact "$_rf_wt"; then
+    report_husk "$_rf_wt"
+    PARTIAL=1
+    return
+  fi
   _rf_dirt=$(worktree_dirt "$_rf_wt")
   if [ -z "$_rf_dirt" ]; then
-    printf 'REMOVE_FAILED=%s (tree is CLEAN, so this is a file lock: links are already disarmed; safe to retry once it clears)\n' "$_rf_wt" >&2
+    printf 'REMOVE_FAILED=%s (tree is CLEAN and still INTACT, so this is a file lock: links are already disarmed; safe to retry once it clears)\n' "$_rf_wt" >&2
     return
   fi
   printf 'REMOVE_REFUSED_DIRTY=%s\n' "$_rf_wt" >&2
@@ -386,7 +503,54 @@ if [ "$SELF_TEST" -eq 1 ]; then
   printf 'SELF_TEST nested_loss top_level_entries_unchanged=%s signature %s -> %s\n' \
     "${ST_N_BEFORE%%/*}" "$ST_N_BEFORE" "$ST_N_AFTER"
 
-  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), and the canary caught nested-only loss.\n' "$ST_AFTER"
+  # The HUSK detector (rf2-k3j2w), in a throwaway repo; never touches this one.
+  #
+  # TWO fixtures, because worktree_is_intact has two clauses and each catches a
+  # husk the other misses:
+  #   outside — a husk with no repo above it (the shape seen in the wild here).
+  #             `rev-parse` fails; this is the one whose dirt reads EMPTY, i.e.
+  #             identical to a clean tree, which is how a gutted worktree came
+  #             to be reported as a retryable file lock.
+  #   nested  — a husk sitting inside another checkout. `rev-parse` WALKS UP,
+  #             finds the enclosing repo and answers happily; only the missing
+  #             `.git` gives it away. Drop that clause and this fixture is the
+  #             one that fails.
+  ST_REPO="$WORK_DIR/husk-repo"
+  mkdir -p "$ST_REPO"
+  ( cd "$ST_REPO" \
+      && git init -q . \
+      && git -c user.email=selftest@example.invalid -c user.name=selftest \
+             commit -q --allow-empty -m init \
+      && git worktree add -q "$WORK_DIR/husk-outside" -b husk-probe-outside \
+      && git worktree add -q "$ST_REPO/husk-nested"   -b husk-probe-nested ) >/dev/null 2>&1 || true
+
+  if [ -e "$WORK_DIR/husk-outside/.git" ] && [ -e "$ST_REPO/husk-nested/.git" ]; then
+    for ST_WT in "$WORK_DIR/husk-outside" "$ST_REPO/husk-nested"; do
+      worktree_is_intact "$ST_WT" \
+        || die "SELF_TEST=FAILED a live worktree read as not-intact: $ST_WT"
+      rm -f "$ST_WT/.git"   # precisely what a partial removal leaves behind
+      if worktree_is_intact "$ST_WT"; then
+        die "SELF_TEST=FAILED a husk read as INTACT: $ST_WT — it would be classified as a clean tree and a retryable lock."
+      fi
+    done
+    if [ -n "$(worktree_dirt "$WORK_DIR/husk-outside")" ]; then
+      die "SELF_TEST=FAILED the husk fixture does not reproduce the ambiguity it exists to test."
+    fi
+
+    # A THIRD shape, and the one that keeps the other clause honest: `.git` is
+    # PRESENT but dangling — it names an admin directory that is gone. The `-e`
+    # check calls that intact; only rev-parse sees through it.
+    printf 'gitdir: %s\n' "$WORK_DIR/no-such-admin-dir" > "$WORK_DIR/husk-outside/.git"
+    if worktree_is_intact "$WORK_DIR/husk-outside"; then
+      die "SELF_TEST=FAILED a dangling .git read as INTACT; the -e check alone cannot see it."
+    fi
+
+    printf 'SELF_TEST husk detected=yes for all three shapes (outside a repo, where worktree_dirt reads EMPTY — the trap; nested inside one, where rev-parse walks up and is fooled; and a dangling .git, where the -e check is fooled)\n'
+  else
+    printf 'SELF_TEST husk=SKIPPED (no throwaway worktrees could be built here)\n'
+  fi
+
+  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the canary caught nested-only loss, and a husk is not mistaken for a clean tree.\n' "$ST_AFTER"
   exit 0
 fi
 
@@ -451,6 +615,7 @@ done < "$WORK_DIR/roster-raw"
 # Per worktree: disarm, verify, THEN remove.
 # ---------------------------------------------------------------------------
 FAILED=0
+PARTIAL=0
 
 while IFS= read -r raw_target; do
   [ -n "$raw_target" ] || continue
@@ -464,31 +629,24 @@ while IFS= read -r raw_target; do
 
   # Refuse anything git does not know as a linked worktree. This script never
   # deletes a directory itself; if git will not remove it, neither will we.
+  #
+  # One unregistered path is NOT a mistyped argument, and saying so is the
+  # difference between an actionable message and a wild goose chase: a HUSK
+  # left by an earlier partial removal is deregistered BY DEFINITION, so the
+  # old advice here ("run 'git worktree prune'") sent the caller after an
+  # entry that had already been cleared (rf2-k3j2w). Disarm it and name it.
   if ! grep -Fxq "$(to_lower "$WT")" "$WORK_DIR/roster"; then
+    if [ -d "$WT" ] && ! worktree_is_intact "$WT"; then
+      disarm_worktree_links "$WT"
+      report_husk "$WT"
+      PARTIAL=1
+      continue
+    fi
     die "Not a registered worktree of $MAYOR_ROOT: $WT (run 'git worktree list'; 'git worktree prune' clears stale entries)."
   fi
 
   # 1. Disarm every link, before anything recursive runs over the tree.
-  find_node_modules "$WT" > "$WORK_DIR/wt-nm"
-  found_any=0
-  while IFS= read -r nm; do
-    [ -n "$nm" ] || continue
-    if [ ! -L "$nm" ]; then
-      continue
-    fi
-    found_any=1
-    link_target=$(readlink "$nm" 2>/dev/null || printf '<unresolved>')
-    if [ "$DRY_RUN" -eq 1 ]; then
-      printf 'WOULD_DISARM=%s -> %s\n' "$nm" "$link_target"
-      continue
-    fi
-    disarm_link "$nm" \
-      || die "Failed to unlink $nm — it is still present. ABORTING before 'git worktree remove', which would delete THROUGH it into $link_target."
-    printf 'DISARMED=%s -> %s\n' "$nm" "$link_target"
-  done < "$WORK_DIR/wt-nm"
-  if [ "$found_any" -eq 0 ]; then
-    printf 'NO_LINKS=%s\n' "$WT"
-  fi
+  disarm_worktree_links "$WT"
 
   # 2. Only now remove the worktree. Never chained with the disarm.
   wt_dirt=$(worktree_dirt "$WT")
@@ -556,6 +714,12 @@ if [ "$CANARY_BAD" -eq 1 ]; then
   printf '  npm ci --prefix implementation\n' >&2
   printf 'run from %s, then re-check the counts before dispatching anything.\n' "$MAYOR_ROOT" >&2
   exit 1
+fi
+
+# A partial removal outranks a plain failure: both are non-zero, but only one
+# of them means "stop calling this script about that path" (rf2-k3j2w).
+if [ "$PARTIAL" -ne 0 ]; then
+  exit 3
 fi
 
 if [ "$FAILED" -ne 0 ]; then
