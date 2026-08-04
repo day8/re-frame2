@@ -25,6 +25,12 @@
   one was proved able to go red by deleting the guard it watches; the
   mutation ledger is in the PR body.
 
+  One consequence of that recovery is worth stating, because it shapes
+  how the read rows are written: the recovered `nil` is **cached**, so a
+  second read of the same bad query is served from the cache and fans
+  nothing. Every read row below therefore uses each bad key exactly once
+  and takes all of its claims off that single read.
+
   The DOM half — two mounted instances, the hook ledger, and the memo
   bail-out over fresh-but-equal key vectors — is
   `arm1/state-dom-cljs-test`."
@@ -73,13 +79,21 @@
          (filter #(some-> % :rf.error/id namespace (= "rf.error")))
          (vec))))
 
+(defn- refusal
+  "The ex-data of the `id` refusal `thunk` produced, or nil.
+
+  Selected by id rather than taken as the first record, because the
+  runtime fans its OWN category alongside ours — a refused read arrives
+  as a sub-exception carrying our ex-info as its cause — and a row that
+  read the first record would be asserting about the wrapper."
+  [id thunk]
+  (first (filter #(= id (:rf.error/id %)) (refusals thunk))))
+
 (defn- refused?
   "Did `thunk` refuse with `id`, naming `concern`?"
   [id concern thunk]
-  (boolean (some (fn [d] (and (= id (:rf.error/id d))
-                              (= concern (:concern d))
-                              (string? (:reason d))))
-                 (refusals thunk))))
+  (let [d (refusal id thunk)]
+    (boolean (and d (= concern (:concern d)) (string? (:reason d))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Independence — the whole reason the key is explicit
@@ -182,16 +196,21 @@
              forgotten argument all evaluate to"
       (is (refused? :rf.error/hicasso-state-bad-key ::open?
                     #(read* f [::open? nil]))))
-    (testing "a map — a whole entity handed over where its id was meant"
-      (is (refused? :rf.error/hicasso-state-bad-key ::open?
-                    #(read* f [::open? {:id 1}]))))
+    (testing "a map — a whole entity handed over where its id was meant.
+             Read ONCE, and every claim about it taken off that one read:
+             the runtime recovers a failed sub to nil and CACHES it, so a
+             second read of the same query is served from the cache and
+             fans nothing. Each bad key below therefore appears exactly
+             once in this file."
+      (let [d (refusal :rf.error/hicasso-state-bad-key
+                       #(read* f [::open? {:id 1}]))]
+        (is (some? d) "the read refused")
+        (is (= ::open? (:concern d)) "and NAMED the concern")
+        (is (= {:id 1} (:instance-key d)) "and carried the offending key")
+        (is (= :read (:op d)) "and the side it fired on")))
     (testing "and a missing key altogether"
       (is (refused? :rf.error/hicasso-state-bad-key ::open?
-                    #(read* f [::open?]))))
-    (testing "the refusal carries the offending key and the side it fired on"
-      (let [d (first (refusals #(read* f [::open? {:id 1}])))]
-        (is (= {:id 1} (:instance-key d)))
-        (is (= :read (:op d)))))))
+                    #(read* f [::open?]))))))
 
 (deftest a-bad-instance-key-is-refused-at-the-write-naming-the-concern
   (state/reg-state ::open? {:default false})
@@ -205,7 +224,8 @@
           "a refused write is a refused write — the read-side check alone
            would have left this entry in the db"))
     (testing "the refusal names the side it fired on"
-      (is (= :write (:op (first (refusals #(send! f [::open? nil true]))))))))
+      (is (= :write (:op (refusal :rf.error/hicasso-state-bad-key
+                                  #(send! f [::open? nil true])))))))
 
   (testing "clear refuses a bad key too — it is a write"
     (state/reg-state ::open? {:default false})
@@ -228,8 +248,8 @@
                   #(state/reg-state ::not-a-map [:default false])))
     (testing "and the refusal names what it did not recognise"
       (is (= [:defualt]
-             (:unknown (first (refusals #(state/reg-state ::typo2
-                                                          {:defualt true})))))))))
+             (:unknown (refusal :rf.error/hicasso-state-bad-option
+                                #(state/reg-state ::typo2 {:defualt true}))))))))
 
 (deftest re-registering-is-a-refresh-only-when-the-default-agrees
   (testing "a namespace reload re-runs the same call, and that must work"

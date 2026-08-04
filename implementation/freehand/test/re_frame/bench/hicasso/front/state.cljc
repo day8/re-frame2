@@ -193,19 +193,19 @@
 ;; Registration
 ;; ---------------------------------------------------------------------------
 
-(defonce ^:private !defaults
-  "concern -> the `:default` it was registered with.
-
-  Registration-time bookkeeping, NOT runtime state: nothing reads it
-  during a render, it holds no per-instance value, and it is the same kind
-  of thing the sub and event registries themselves are. It exists so a
-  second [[reg-state]] for one concern with a DIFFERENT default can be
-  refused rather than silently changing what every un-set instance reads.
-
-  `defonce`, so a hot reload of THIS namespace does not forget what is
-  already registered — which is the stricter reading, and the cost is
-  stated in [[reg-state]]."
-  (atom {}))
+;; `concern -> the :default it was registered with`.
+;;
+;; Registration-time bookkeeping, NOT runtime state: nothing reads it
+;; during a render, it holds no per-instance value, and it is the same kind
+;; of thing the sub and event registries themselves are. It exists so a
+;; second `reg-state` for one concern with a DIFFERENT default can be
+;; refused rather than silently changing what every un-set instance reads.
+;;
+;; `defonce`, so a hot reload of THIS namespace does not forget what is
+;; already registered — which is the stricter reading, and the cost is
+;; stated in `reg-state`. (`defonce` takes no docstring in CLJS, which is
+;; why this one is a comment.)
+(defonce ^:private !defaults (atom {}))
 
 (defn reg-state
   "Register a per-instance state `concern`, and mint the two ordinary core
