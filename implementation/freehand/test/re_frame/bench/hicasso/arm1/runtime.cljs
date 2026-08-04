@@ -405,7 +405,11 @@
   ([[cold-read!]] — nil until a cold read mints it, reset by every
   [[run-once]] exactly as the scratch is). One JS object for the whole
   runtime — not one per render."
-  #js {"frame" nil "collector" false "grouped" false "entry" nil "probe" nil})
+  #js {"frame"    nil "collector" false "grouped" false "entry" nil "probe" nil
+       ;; The always-on body-run counter (rf2-2rtt6.84 (6)) — one integer
+       ;; on the object that already exists, bumped by [[run-once]] and
+       ;; read by [[body-runs]].
+       "bodyRuns" 0})
 
 (def ^:private ^js scratch
   "**The one scratch buffer**, reused by every body and reset by
@@ -420,6 +424,60 @@
   "Is a boundary body running right now?"
   []
   (some? (.-frame rstate)))
+
+;; ---------------------------------------------------------------------------
+;; The adoption window (rf2-2rtt6.84)
+;; ---------------------------------------------------------------------------
+
+(def ^:private ^js adoption
+  "Is this page's tree being ADOPTED from server-rendered HTML right now?
+
+  Opened by [[re-frame.bench.hicasso.arm1.mount/hydrate-root!]] before it
+  calls `hydrateRoot`, and closed by that root's closer component from a
+  passive effect on the hydration commit — the spine's own pattern
+  (`re-frame.substrate.spine/adoption-window-closer`), whose whole point
+  is that a passive effect runs strictly AFTER the commit and therefore
+  cannot close the window early.
+
+  **Module-level, like every other slot in this arm.** `rstate`, the
+  scratch and the cell table are one-per-page too. A page hydrates once,
+  at boot, so one window is the shape the case has; a second hydrating
+  root opened while the first window is still open would share it, and
+  that limit is stated rather than engineered around. The spine keeps its
+  flag root-local because it hands the flag to its closer as a prop —
+  doing the same here would put a prop or a context read on
+  `arm1.presence`, which is a cost this arm has no case for.
+
+  A boolean and nothing else: it selects **adoption behaviour** in a
+  renderer that still has exactly one render mode (the charter's
+  one-mode law). Nothing branches on it but presence's born-present
+  seeding."
+  #js {"open" false})
+
+(defn adopting?
+  "Is a hydration adoption in flight?
+
+  False on every ordinary client mount, and false again the moment the
+  adopted root's closer commits. A server render entry opens the same
+  window around its own `renderToString`, so the two halves of an SSR
+  route answer this identically — which is what stops the client's first
+  pass from rendering something the server did not."
+  []
+  (.-open adoption))
+
+(defn open-adoption-window!
+  "Declare the renders that follow to be adopting server-rendered DOM."
+  []
+  (set! (.-open adoption) true)
+  nil)
+
+(defn close-adoption-window!
+  "Close the window. The closer component's passive effect calls this,
+  and so does [[reset-runtime!]] — a fixture that throws mid-hydration
+  must not leave the page permanently adopting."
+  []
+  (set! (.-open adoption) false)
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Frame-locked ops, resolved once per frame and not once per boundary
@@ -1262,14 +1320,56 @@
                (if (seq left) (assoc m bucket-key left) (dissoc m bucket-key)))))
     nil))
 
+(def ^:private entry-reap-horizon-ms
+  "The provisional-entry reaper's delay: **4 ms, not 0** (rf2-2rtt6.84).
+
+  ## What the 0 raced
+
+  An entry is minted during the RENDER ([[entry-for]], from
+  [[render-body]]) and claimed during the COMMIT — React calls the
+  entry's `subscribe` from a passive effect, and that is the only place
+  `refs` goes above zero. A `setTimeout 0` armed inside the render
+  therefore has to beat React back to its own passive flush, and on a
+  root React renders CONCURRENTLY it does not: the entry is evicted from
+  the cache before it is claimed, the subscribed boundary holds a
+  detached entry, and the next render of the same read sequence misses,
+  mints a second entry, and hands `useSyncExternalStore` a different
+  `subscribe` — so React tears the subscription down and rebuilds it,
+  releasing and re-acquiring every cell, immediately after adoption.
+
+  `hydrateRoot` is exactly such a root, which is why this moved with the
+  hydration door. It is the same class rf2-2rtt6.71 fixed in the spine,
+  where a `setTimeout 0` escrow reaper beat `createRoot().render()`'s
+  passive flush and cost `bodyRuns` 2.00N on every consumer mount; 4 ms
+  was the SHORTEST delay measured to win there, at N = 1 and N = 300
+  alike, and this arm adopts that number rather than inventing one.
+
+  ## A MARGIN, NOT A CONTRACT
+
+  React documents no maximum render-to-subscribe interval, so 4 ms cannot
+  be sized against a guarantee — it is the measured distance on React 19
+  today, and a scheduling change can silently reintroduce the rebuild.
+  **No caller may rely on it.** Correctness does not: a lost race costs
+  a cache miss and a rebuilt subscription, never a wrong value, because
+  the entry object itself survives in the closure that was handed out.
+  What the horizon buys is that the adoption is realised, and what it
+  costs is that an abandoned render's entry sits in the cache 4 ms longer
+  than it used to — the zero-leak property is unchanged, its zero-POINT
+  moved."
+  4)
+
 (defn- arm-entry-reaper!
-  "An entry with no committed boundary is dropped one macrotask later.
+  "An entry with no committed boundary is dropped at the reap horizon.
   Two callers, one rule: an entry a discarded render minted was never
   claimed, and an entry whose last boundary unmounted is no longer
   anybody's. Both are cache eviction and neither is a record of something
-  to undo."
+  to undo.
+
+  The horizon is [[entry-reap-horizon-ms]] — deliberately past a bare
+  `setTimeout 0`, and deliberately not a promise to anyone."
   [^js entry]
-  (js/setTimeout (fn [] (when (zero? (.-refs entry)) (drop-entry! entry))) 0)
+  (js/setTimeout (fn [] (when (zero? (.-refs entry)) (drop-entry! entry)))
+                 entry-reap-horizon-ms)
   nil)
 
 (defn- entry-matches?
@@ -1440,6 +1540,11 @@
   (set! (.-grouped rstate) false)
   (set! (.-probe rstate) nil)
   (set! (.-frame rstate) frame-kw)
+  ;; THE BODY-RUN COUNTER, bumped where a body actually runs and nowhere
+  ;; else — see [[body-runs]]. Here rather than in `shell` because the
+  ;; generation fence can run a body twice for one render, and a real
+  ;; count is the one that says so.
+  (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
   (try
     (intent/with-frame frame-kw (frame-dispatch frame-kw)
       (fn [] (codec/as-element (body-fn props))))
@@ -1506,6 +1611,46 @@
   claim in a docstring."
   []
   {:collector? (.-collector rstate) :grouped? (.-grouped rstate)})
+
+(defn body-runs
+  "How many boundary bodies this runtime has run, since the process
+  started or since the last [[reset-body-runs!]].
+
+  ## Always on, and why that was the choice (rf2-2rtt6.84 (6))
+
+  The SSR spike's adoption row has to read body runs out of the build it
+  actually drives, and the arm's builds are `:advanced` with
+  `goog.DEBUG false` — so a `goog.DEBUG`-gated instrument is not an
+  instrument there, it is dead code the compiler removes. The two
+  candidates were a declared dev-build witness row and an always-on
+  counter. **The counter wins**, because a dev-build row would answer
+  about a build nobody ships and would have to be believed rather than
+  read, and because the price is a single integer increment on a JS
+  object that already exists, next to a body run that allocates elements
+  — below the noise of everything the lane's clock rows measure.
+
+  ## It counts REAL runs (HD-028's rider)
+
+  The bump is inside [[run-once]], which is where a body is invoked. It
+  is therefore blind to how the render got there: a `React.memo` bail-out
+  on `mint-view!`'s wrapper shows up as an increment that did NOT happen,
+  which is exactly what makes this a measurement of adoption rather than
+  an inference from the memo's behaviour. A boundary React skipped and a
+  boundary React ran are two different numbers here, and the memo cannot
+  make the second look like the first.
+
+  Monotone: witnesses take a DELTA across the thing they are measuring,
+  which is why [[reset-runtime!]] deliberately leaves it alone — a
+  teardown door that zeroed the instrument would let a reading taken on
+  the wrong side of a reset look like a reading."
+  []
+  (.-bodyRuns rstate))
+
+(defn reset-body-runs!
+  "Zero [[body-runs]]. Explicit, and not part of [[reset-runtime!]]."
+  []
+  (set! (.-bodyRuns rstate) 0)
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The shell — exactly two React hooks, and no useRef
@@ -1833,5 +1978,8 @@
   (set! (.-frame rstate) nil)
   (set! (.-probe rstate) nil)
   (set! (.-length scratch) 0)
+  ;; A fixture that threw mid-hydration must not leave the page adopting.
+  ;; `bodyRuns` is deliberately NOT reset here — see [[body-runs]].
+  (close-adoption-window!)
   (forget-frame-ops!)
   nil)

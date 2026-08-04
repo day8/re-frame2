@@ -630,7 +630,10 @@
 ;; later, deliberately, so a keyed reorder reuses them.
 
 (def ^:private reaper-horizon-ms
-  "One macrotask, with room — `arm1/runtime` arms both reapers at 0 ms."
+  "One macrotask, with room: `arm1/runtime` arms the cell reaper at 0 ms
+  and the entry reaper at its 4 ms horizon (rf2-2rtt6.84), so 8 clears
+  both — and clears them in order, because the reapers are armed during
+  the unmount and this timer immediately after it."
   8)
 
 (def ^:private nothing-retained

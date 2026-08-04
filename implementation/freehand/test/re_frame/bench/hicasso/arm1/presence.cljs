@@ -65,7 +65,15 @@
   The effect that remains does the two things only a clock can: it flips
   `:mounting` to `:present` after paint, and it arms **one** timer at the
   earliest deadline. Deadlines are absolute instants, so a timer re-armed
-  because some *other* key changed cannot extend a child's retention."
+  because some *other* key changed cannot extend a child's retention.
+
+  ## Born present under adoption (rf2-2rtt6.84)
+
+  A hydrating tree's children are already on the screen, so they start
+  `:present` rather than `:mounting` — the machine's own `settle`,
+  applied one render earlier, gated on `runtime/adopting?`. It costs no
+  hook, changes no transform, and is scoped to the adoption window; see
+  the comment at the binding below."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
@@ -87,7 +95,30 @@
         hook       (react/useState presence/initial)
         state      (aget hook 0)
         set-state  (aget hook 1)
-        next       (presence/step state children (now) timeout-ms)]
+        stepped    (presence/step state children (now) timeout-ms)
+        ;; BORN PRESENT UNDER ADOPTION (rf2-2rtt6.84). A child a render
+        ;; meets for the first time is `:mounting`, which is right for a
+        ;; child that is genuinely appearing and wrong for one that is
+        ;; already on the screen: under hydration every child is already
+        ;; painted, so entering them replays an enter animation the user
+        ;; watched the server deliver, and — worse — makes the first
+        ;; client pass render each child's `::h/mounting` overrides
+        ;; (`opacity: 0`, typically) over DOM that carries none.
+        ;;
+        ;; The fix is the machine's own [[front.presence/settle]], the
+        ;; function the enter flip already uses, applied one render
+        ;; earlier. So this is ADOPTION BEHAVIOUR — a different starting
+        ;; phase for a tree that is being adopted — and not a second
+        ;; render mode: the transform, the overrides, the deadlines and
+        ;; the terminal bound are all unchanged, and `adopting?` is false
+        ;; for every ordinary mount and false again the moment the
+        ;; closer commits.
+        ;;
+        ;; A SERVER render entry opens the same window, so the server's
+        ;; HTML and the client's first pass agree by construction; that
+        ;; agreement is the whole reason the flag is read here in the
+        ;; RENDER rather than in the effect below.
+        next       (if (rt/adopting?) (presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the
     ;; equality test converges rather than looping.
