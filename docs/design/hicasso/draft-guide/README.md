@@ -25,6 +25,7 @@ narrower question — **what does a programmer actually type?**
 | [Ephemeral state](07-ephemeral-state.md) | Decide where "is this dropdown open?" lives, given there is no `local` — and where "it left but is still fading out" lives, given app-db cannot hold it |
 | [Testing](08-testing.md) | Assert a view's output without a browser, and know when you still need one |
 | [When a view throws](09-when-a-view-throws.md) | Keep one broken view from taking the page down with it |
+| [Server-side rendering](10-server-side-rendering.md) | Serve a page rendered from a db snapshot and adopt it live in the browser — what exists, what is landing, and how to write an app so SSR is free |
 
 The page count is editorial judgement now. It used to be a budget: K5 in
 [validation.md](../validation.md) killed the programme at "more than ~8 public
