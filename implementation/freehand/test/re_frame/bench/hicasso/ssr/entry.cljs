@@ -246,9 +246,11 @@
             ;; It is left as the framework's own call (R0 — this bead does
             ;; not invent a payload byte) and pinned by
             ;; `the-render-hash-is-degenerate-for-an-interpreted-root` so
-            ;; nobody can start relying on it by accident; the repair is
-            ;; a bead, and it is the SSR programme's, because a real fix
-            ;; is a server AND client contract.
+            ;; nobody can start relying on it by accident. The repair is
+            ;; rf2-2rtt6.91, and it is the SSR programme's rather than
+            ;; this bead's, because a real fix is a server AND client
+            ;; contract: a normalisation invented here alone would make
+            ;; every page a MISMATCH instead of a non-check.
             render-hash (ssr-hash/render-tree-hash hiccup)
             policy-opts (cond-> {:payload payload}
                           (some? client-frame-id) (assoc :client-frame-id client-frame-id)
