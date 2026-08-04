@@ -16,15 +16,16 @@ on the server, adopt in the browser, and stay honest about both.
 
 The runtime that paints in the browser is the runtime that paints on the server.
 There is no separate HTML emitter hoping to match. The framework's existing
-hydration path carries the result across: a payload of app state plus a
-structural render hash goes into the page; the client seeds from that payload,
-verifies the first client tree against the server hash, and React's `hydrateRoot`
-keeps the server's nodes and attaches listeners.
+hydration path carries the result across: a payload of app state goes into the
+page, the client seeds from it before its first render, and React's `hydrateRoot`
+keeps the server's nodes and attaches listeners — reporting any divergence it
+had to recover from on the way.
 
 Hicasso does not invent a parallel mechanism. It participates in the framework
 path — payload, `:rf/hydrate`, mismatch check, `ssr-ring` as the HTTP host — and
 only has to hold up its own end: render a tree on the server, and adopt that tree
-in the browser.
+in the browser. The one place the tier matters is *which* mismatch check it gets;
+[The framework story today](#the-framework-story-today) is precise about it.
 
 ## The framework story today
 
@@ -35,16 +36,35 @@ teaches the full corpus.
 
 **Server, per request:** create a fresh frame for that request; run
 `:initial-events` (client-only effects with `:platforms #{:client}` are skipped);
-render the settled snapshot to HTML; embed the serialised state and render hash
-in a framework-owned payload (`__rf_payload`); destroy the frame in a `finally`.
+render the settled snapshot to HTML; embed the serialised state in a
+framework-owned payload (`__rf_payload`); destroy the frame in a `finally`.
 
-**Client, once:** `hydrate!` reads the payload, dispatches `:rf/hydrate` **before**
-the first render so the server's state *replaces* the client's, verifies the
-structural hash (disagreement raises `:rf.ssr/hydration-mismatch`), then adopts
-the DOM.
+**Client, once:** `hydrate!` reads the payload and dispatches `:rf/hydrate`
+**before** the first render, so the server's state *replaces* the client's. Then
+React adopts the DOM, and adoption is what checks the two halves agree.
 
-None of that is Hicasso-specific. Everything below is what the view layer adds on
-top.
+**Which check you get depends on the substrate, and Hicasso gets React's.**
+Spec 011 tiers mismatch detection by render-tree representation. A
+*hiccup*-tier host — Reagent, Reagent-slim — has views that are pure functions
+returning a data tree, so the server can hash its tree, the client can re-hash
+its first render, and `verify-hydration!` compares the two structural hashes.
+Hicasso is not in that tier: its views reach React as elements and the tree is
+walked *inside* React, so there is no data tree to hash and **no
+`:rf/render-hash` rides the wire**. Verification is React's own adoption
+instead — React diffs the client's first render against the server DOM and
+reports what it recovers from through `onRecoverableError`, which the framework
+surfaces as the same `:rf.ssr/hydration-mismatch` diagnostic.
+
+That is a real check with a documented edge: React reports a text-content
+mismatch or a missing, extra or wrong-type element, and it does **not** report
+an attribute-only divergence (a stale `class` or `style` on an element whose tag
+and text still match) — React makes no guarantee to patch those, so it takes a
+development-only warning path and calls no production callback. React's recovery
+is a replacement, not a patch, so the page ends up correct and the disagreement
+ends up on the diagnostic bus.
+
+None of that is Hicasso-specific except the tier it lands in. Everything below is
+what the view layer adds on top.
 
 ## What Hicasso adds
 
@@ -162,7 +182,8 @@ snapshot, adopted whole by the client.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | React reports a hydration mismatch during adoption | The client's first render disagreed with the server HTML — a body read the platform (clock, `js/window`, random) instead of props and reads | Keep bodies pure; platform work goes to effects (`:platforms #{:client}`) and host edges |
-| `:rf.ssr/hydration-mismatch` after the first render | Structural-hash verify failed: hydrate ran after first render, a seed overwrote the payload, or the two sides run different builds | Call `hydrate!` before anything renders — read → hydrate → verify, in that order |
+| `:rf.ssr/hydration-mismatch` from the framework, with a `:where` and an `:error` | The same React adoption divergence, surfaced onto the diagnostic bus. It carries no hashes — this tier has none | Read the `:error`; the cause is the row above. Hydrate before anything renders, so the first client render is against the server's state |
+| A divergence React never reported at all | It was **attribute-only** — a stale `class`, `style` or ARIA value under a matching tag and text. React makes no guarantee to patch those and calls no production callback | Not traceable on this tier by construction. Find it the way you would any other stale value: the attribute came from state the two sides disagreed on |
 | A foreign component throws `window is not defined` on the server | Its render reached for the browser, and a bare component name says nothing about that | Declare `:ssr :client-only` (default) or `{:fallback …}` on `defhost` |
 | A controlled input's text jumps just after adoption | Not this design: hydration does not converge controlled text | If you see it under another stack, the server markup and the model disagreed — fix the shared state |
 | Frames accumulate on a long-running server | A request path skipped teardown | Destroy the per-request frame in a `finally`, throw path included — copy the reference example |
