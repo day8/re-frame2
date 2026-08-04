@@ -8,6 +8,8 @@ You want a date picker from npm. Declare it once, then use it anywhere a view is
 legal:
 
 ```clojure
+;; cf. implementation/freehand/test/re_frame/bench/hicasso/arm1/
+;;     host_hatch_dom_cljs_test.cljs — the witness for every claim on this page.
 (ns app.hosts.date-picker
   (:require [re-frame.hicasso :as h]
             ["react-datepicker" :default DatePicker]))
