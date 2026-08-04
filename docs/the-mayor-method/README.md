@@ -178,9 +178,11 @@ project advanced."
 **Merge trap:** `gh pr merge --delete-branch` fails when the worker
 worktree still holds the branch. Use `gh pr merge --squash --admin` (no
 `--delete-branch`), then `git push origin --delete <branch>`, then leave
-local cleanup until the worker is closed and the worktree is verifiably
-clean. Full sequence in [`bootstrap.md`](bootstrap.md) (the PR-merge
-`/loop` block).
+local cleanup until the worker has **reported done**. Not until it looks
+done: a merged PR and a clean tree are both routinely true of a worker
+still running its gates, and reaping on either destroys that run. Full
+sequence in [`bootstrap.md`](bootstrap.md) (the PR-merge `/loop` block),
+and the reasoning in its "hard-won" list.
 
 ## Cross-review
 
