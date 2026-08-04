@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 'use strict';
-// THE HICASSO CLOCK DRIVERS' EXIT PATH — a printed refusal must refuse.
+// THE HICASSO BENCH DRIVERS' EXIT PATH — a printed refusal must refuse.
 // rf2-rr6do, following rf2-tb345's repair of the same defect in b8_run.cjs,
 // and rf2-y7mw7, which found the twenty-fourth instance of it — in
 // `clock_run.cjs`, the driver this file's header once held up as the correct
 // shape.
+//
+// It began as the two CLOCK drivers' pin and now holds four, because the
+// defect is not a property of clocks: it is one copied exit block, and the
+// pin belongs wherever the block went. `hd8_run.cjs` (rf2-x6g04) is the
+// fourth and is not a clock driver at all.
 //
 //     node freehand/test/re_frame/bench/hicasso/clock_exit_path.test.cjs
 //
@@ -445,6 +450,172 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('if (!NO_BUILD)'));
     assert.match(block, /reportabilitySelfTest\(\)/);
     assert.match(block, /\[\.\.\.g\.checks, \.\.\.s\.checks, \.\.\.x\.checks\]\.filter/);
+  });
+}
+
+// --- hd8_run.cjs: the read-back and the refused correction must exit -------
+//
+// rf2-x6g04. The HD-008 donor driver is not a clock driver, but it carried
+// the same copied exit block: it read `hardFail`, `contractFailed` and the
+// arm-order `refused`, and printed `[hd8] ok`. Three refusals it computes and
+// PRINTS reached nothing. Like its neighbours it needs an `:advanced` build
+// and a headless Chromium, so its decision is a pure function over a flat
+// record and is exercised here directly.
+
+{
+  const HD8 = path.join(__dirname, 'hd8_run.cjs');
+  const { summarise, verdict, verdictSelfTest } = require('./hd8_run.cjs');
+  const SRC = fs.readFileSync(HD8, 'utf8');
+  const t = (what, fn) => test(`hd8_run.cjs: ${what}`, fn);
+  const run = (over) => ({ id: 'slim', summary: {}, correction: {}, pageErrors: [], ...over });
+  // The reachable read-back shape, exactly as `mask-failed-read-backs`
+  // (hd8_rows.cljs ~913-944) writes it into the row's `:summary`.
+  const readBack = () =>
+    run({
+      summary: {
+        'write-narrow': {
+          vsFloor: { floor: { min: 1, max: 1 }, 'reagent-slim': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 } },
+          headToHead: {},
+        },
+      },
+    });
+  // And the reachable refusal shape (hd8_rows.cljs ~1307/1315/1330/1365).
+  const refusedCorrection = () =>
+    run({ correction: { 'write-narrow': { verdict: 'refused', reason: 'correction-changes-the-verdict', why: 'reverses the row' } } });
+
+  // --- the driver's own fixtures, which `--selftest` also runs -------------
+
+  t("the decision's own self-test passes, every case", () => {
+    const { checks } = verdictSelfTest();
+    assert.ok(checks.length >= 15, `expected the decision's fixtures, got ${checks.length}`);
+    const bad = checks.filter((c) => !c.ok);
+    assert.deepStrictEqual(bad, [], bad.map((c) => `${c.name}: ${c.detail}`).join('\n'));
+  });
+
+  // --- THE FAIL-OPENS, driven here as well as in the driver ---------------
+
+  t('THE FAIL-OPEN (a): a failed DOM read-back cannot exit 0', () => {
+    const v = verdict(summarise({ runs: [readBack()] }));
+    assert.notStrictEqual(v.code, 0, 'a run whose arm never reached the DOM must not exit 0');
+    assert.strictEqual(v.code, 3, 'and it exits 3, as hd8_clock_run.cjs numbers the same refusal');
+    assert.match(v.lines.join('\n'), /never reached the DOM/);
+    assert.match(v.lines.join('\n'), /slim \/ write-narrow \/ reagent-slim vs floor: failed-dom-read-back \(1 of 78 unverified\)/);
+  });
+
+  t('THE FAIL-OPEN (b): a REFUSED yield correction cannot exit 0', () => {
+    const v = verdict(summarise({ runs: [refusedCorrection()] }));
+    assert.notStrictEqual(v.code, 0);
+    assert.strictEqual(v.code, 4);
+    assert.match(v.lines.join('\n'), /yield correction could not be discharged/);
+    assert.match(v.lines.join('\n'), /write-narrow: correction-changes-the-verdict/);
+  });
+
+  t('THE FAIL-OPEN (c): a pageerror recorded beside the sentinel cannot exit 0', () => {
+    const v = verdict(summarise({ runs: [run({ pageErrors: ['pageerror: boom'] })] }));
+    assert.strictEqual(v.code, 1, 'a page error is the exit 1 this driver already documented');
+    assert.match(v.lines.join('\n'), /already thrown/);
+  });
+
+  t('a genuinely reportable run still exits 0 and says nothing', () => {
+    const v = verdict(
+      summarise({
+        runs: [
+          run({
+            summary: { 'write-narrow': { vsFloor: { floor: { min: 1, max: 1 }, 'donor-r1': { min: 2, max: 2 } }, headToHead: { 'a vs b': { min: 1, max: 1 } } } },
+            correction: { 'write-narrow': { verdict: 'not-owed' } },
+          }),
+        ],
+      })
+    );
+    assert.deepStrictEqual(v, { code: 0, lines: [] });
+  });
+
+  t('a `corrected` correction is not a refusal — only `refused` is', () => {
+    assert.strictEqual(verdict(summarise({ runs: [run({ correction: { r: { verdict: 'corrected' } } })] })).code, 0);
+  });
+
+  // --- the gates that already existed are UNCHANGED, which is half the repair
+
+  t('a hard failure still exits 1, exactly as before', () => {
+    const v = verdict(summarise({ hardFail: 'slim: boom' }));
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[0], /^\[hd8\] FAILED: slim: boom/);
+  });
+
+  t('a contract self-test failure still exits 1, with its own sentence', () => {
+    const v = verdict(summarise({ contractFailed: 'slim: fixtures' }));
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[0], /does not agree with its recorded fixtures/);
+  });
+
+  t('the arm-order guard still exits 2, and still says repair the arm', () => {
+    const v = verdict(summarise({ orderRefused: true }));
+    assert.strictEqual(v.code, 2);
+    assert.match(v.lines[0], /ARM-ORDER GUARD REFUSED/);
+    assert.match(v.lines[0], /Repair the arm, not the guard/);
+  });
+
+  t('no verdict masks another — a run failing several is refused for every one', () => {
+    const v = verdict(summarise({ orderRefused: true, runs: [readBack(), refusedCorrection()] }));
+    assert.strictEqual(v.code, 2, 'the hardest code wins the exit');
+    const all = v.lines.join('\n');
+    assert.match(all, /ARM-ORDER GUARD REFUSED/);
+    assert.match(all, /never reached the DOM/);
+    assert.match(all, /yield correction could not be discharged/);
+  });
+
+  // --- the wiring: `verdict` is load-bearing, not decorative ---------------
+
+  const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
+
+  t('the driver exposes its decision and does not drive itself on require', () => {
+    assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
+    assert.match(SRC, /module\.exports = \{ summarise, verdict, verdictSelfTest \};/);
+    assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
+  });
+
+  t('the summary reads the markers the table printed, rather than recomputing them', () => {
+    // A second computation is a second decision, and a second decision is
+    // this whole file's subject.
+    assert.match(SRC, /if \(v && v\.unpublished\)/);
+    assert.match(SRC, /c\.verdict === 'refused'/);
+  });
+
+  t('the sentinel\'s failures are READ, which they were not at all', () => {
+    // In `runOne`, above `main` — the driver installed `watchPage` and then
+    // read nobody's failures, alone among the six callers of it.
+    assert.match(SRC, /const pageErrors = watch\.failures\.map/);
+    assert.match(SRC, /correction, contractSelfTest, userAgent, lines, pageErrors,/);
+  });
+
+  t('the exit code comes from `verdict` and from nothing else', () => {
+    assert.match(MAIN, /for \(const line of decision\.lines\) console\.error\(line\);/);
+    assert.match(MAIN, /if \(decision\.code !== 0\) process\.exit\(decision\.code\);/);
+    const tail = MAIN.slice(MAIN.indexOf('for (const line of decision.lines)'));
+    assert.strictEqual(
+      (tail.match(/process\.exit/g) || []).length,
+      1,
+      'the decision must have ONE seat — a second exit below it is a second decision'
+    );
+    // No SECOND `if (someRefusal)` below the seat. Matched on the condition
+    // rather than the bare word, because the `ok` line legitimately says
+    // "no yield correction was refused" — prose is not a decision.
+    assert.ok(
+      !/if \(\s*(hardFail|contractFailed|refused|orderRefused)\s*\)/.test(tail),
+      'nothing downstream of the decision may read a refusal on its own'
+    );
+  });
+
+  t('`--selftest` runs the decision, so an operator sees it before the browser opens', () => {
+    const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('const sha = revision()'));
+    assert.match(block, /\[\.\.\.st\.checks, \.\.\.ts\.checks, \.\.\.vs\.checks\]\.filter/);
+    assert.match(SRC, /const vs = verdictSelfTest\(\);/);
+  });
+
+  t('the `ok` line no longer claims only what the old gates checked', () => {
+    const ok = SRC.slice(SRC.indexOf("'[hd8] ok"));
+    assert.match(ok, /survived its DOM read-back/);
+    assert.match(ok, /no yield correction was refused/);
   });
 }
 
