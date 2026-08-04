@@ -258,6 +258,59 @@ instance props can express.
 
 ## HD-011 — The interop door
 
+> **Addendum, 2026-08-04 — the SSR placeholder listed among the defaults below
+> is BUILT, and it is a declaration option with two values (`rf2-2rtt6.85`).**
+> HD-020(d) held this default "declared policy for later phases, inert in v0";
+> the operator's same-date SSR ruling (HD-020's addendum, `rf2-2rtt6.83`) makes
+> SSR required scope, so it is activated here. The 2026-08-04 runtime audit
+> found it was not inert but **absent**: `mint-host!` read `:callbacks` and
+> silently ignored every other option, so a policy could be written and never
+> applied.
+>
+> **The spelling.** `defhost`'s `opts` carry `:ssr`, whose value is either
+> `:client-only` — the **default**, applied when `:ssr` is absent — or
+> `{:fallback <hiccup>}`. `:client-only` renders nothing where the host sits
+> until the client has adopted the markup; `{:fallback …}` renders that markup
+> there instead. There is no third value. The conservative default is the
+> honest one: a foreign React component is exactly the node whose render may
+> reach for `window`, and a declaration that names only the component tells the
+> door nothing about that.
+>
+> **Everything is refused at the declaration**, where this record already puts
+> every other host refusal. A third `:ssr` value, an explicit `nil`, an empty
+> or multi-key fallback map, and a fallback that is not hiccup all raise
+> `:rf.error/hicasso-host-bad-ssr-policy` or the walk's own error at mint —
+> the fallback is walked once, there. **And an option `defhost` does not know
+> is now refused rather than ignored** (`:rf.error/hicasso-host-unknown-option`,
+> roster `#{:callbacks :ssr}`): the silent-ignore was its own defect, of the
+> same class as an intent crossing to a library as inert data.
+>
+> **One mechanism, three places.** A declaration mints one gate — a component
+> whose single `useSyncExternalStore` answers `false` from its **server**
+> snapshot and `true` from its client one. React reads the server snapshot
+> under `renderToString` **and again on hydration's first client pass**, then
+> re-renders with the client snapshot once adoption completes. So the server
+> render honours the policy by rendering rather than by consulting it, the
+> first client pass produces what the server produced (there is no mismatch to
+> reconcile, which is asserted against React's own `onRecoverableError` rather
+> than by reading the settled DOM), and a fresh `createRoot` mount — which
+> never consults a server snapshot — renders the foreign component on its first
+> pass with no placeholder flash. A server walk therefore needs no policy
+> branch of its own.
+>
+> **The cost, because it changed a property this record claimed.** The door
+> used to mint no wrapper, no fiber and no hook: the foreign component was the
+> element's own type. It now mints one gate per declaration, so a crossing
+> costs **one fiber and one hook**. HD-020(b)'s ≤2-hook budget is untouched and
+> still means what it said — it is a statement about Hicasso's **boundary**
+> shells, `shell-hook-ledger` still declares two, and the gate is not a
+> boundary: it holds no subscription, reads no frame and runs no body. The
+> hosted-page hook census was updated to state the new truth rather than
+> deleted, and now reads the shell's two, then the door's one, then nothing
+> that is not the hosted component's own roster. Witnessed in
+> `arm1/host_ssr_dom_cljs_test` (declaration, server render, fresh mount,
+> hydration) and `arm1/host_hatch_dom_cljs_test` (the hook census).
+
 **Ruling.** **`defhost` is the door, and the only form taught**: a one-line
 declaration with strong defaults (shallow camelCase props, hiccup children →
 elements, functions pass through, SSR placeholder), policy overrides on the
