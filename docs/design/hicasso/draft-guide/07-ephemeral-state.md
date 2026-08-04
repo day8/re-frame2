@@ -1,12 +1,10 @@
 # Ephemeral state
 
-> **Draft ahead of the product artefact.** This page teaches the landed surface —
-> ruled in [decisions.md](../decisions.md) (HD-001…HD-028), witnessed by the bench
-> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
+> **Draft ahead of the product artefact.** This page teaches the landed surface,
+> witnessed by the bench arm under
+> `implementation/freehand/test/re_frame/bench/hicasso/` — but no
 > `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
-> stay provisional until the API freeze. One surface here is ahead of even that:
-> `h/reg-state` is **ruled but still landing** (2026-08-04), and the page says so
-> where it teaches it.
+> stay provisional until the API freeze.
 
 Is this dropdown open? Is this row hovered? Is this panel expanded?
 
@@ -18,9 +16,8 @@ That is a strong claim, so here is the evidence it rests on: a census of **85
 idiomatic re-frame files**, containing every classic hard case, found **zero
 view-local reactive cells**. Not few. Zero. Most of Reagent's local-state demand was
 manufactured by machinery — the reaction engine, deref capture, argv memoization —
-that Hicasso deletes structurally. And a second reactive system sits at the top of
-the anti-regression fence in the [charter](../charter.md): a view layer that grows
-one has failed back into its predecessors.
+that Hicasso deletes structurally. A second reactive system for application state
+is the failure mode this surface refuses to reintroduce.
 
 ## The placement rule
 
@@ -85,16 +82,11 @@ component.
 That last one is worth sitting with. "Open this dropdown in a test" is a `:db`
 write, not a click simulation.
 
-The second part is that **the ten lines become one.** On 2026-08-04 the sugar
-HD-009 had been holding as an unfrozen sketch was designed and ruled into v0
-(the dated HD-009 addendum in [decisions.md](../decisions.md) is the record).
-Honest tense, as this page's banner says: `h/reg-state` is ruled and in
-implementation — nothing has landed yet, and the spelling is **[unfrozen]** —
-so today you write the ten lines above, and they are exactly what the
-declaration will register for you:
+The second part is that **the ten lines become one.** `h/reg-state` **[unfrozen]**
+is landed sugar, witnessed in the bench arm. It registers the same ordinary sub
+and event you would have written by hand:
 
 ```clojure
-;; RULED 2026-08-04 — in implementation, not yet landed.
 (h/reg-state ::expanded? {:default false})
 ;; mints: a parametric sub        (sub [::expanded? panel-id])
 ;;        a concern-named setter  [::expanded? panel-id true]
@@ -103,33 +95,34 @@ declaration will register for you:
 
 One declaration per *concern* — a namespace-qualified keyword — with
 `{:default v}` as the only option. No state system arrives with it: it
-registers the same ordinary sub and event you would have written, reading and
-writing plain app-db at a documented path, which is why everything above stays
-true under it — time travel, Xray, per-frame isolation, tests writing `:db`.
-The long form remains worth knowing anyway: it is the definition of what
-`reg-state` does, and the shape you graduate to when a write starts to *mean*
-something (next section — the example's `:panel/toggle` is already that
-graduation).
+registers ordinary re-frame artefacts that read and write plain app-db at a
+documented path, which is why everything above stays true under it — time
+travel, Xray, per-frame isolation, tests writing `:db`.
 
-Two details are part of the ruling because getting them wrong is silent
-otherwise. **Clearing is a framework event, not a magic value**: dispatch
+Keep the long form in mind anyway. It is the definition of what `reg-state`
+mints, and the shape you graduate to when a write starts to *mean* something
+(next section — the example's `:panel/toggle` is already that graduation).
+
+Two details matter because getting them wrong is silent otherwise.
+
+**Clearing is a framework event, not a magic value.** Dispatch
 `[::h/clear ::expanded? panel-id]` and the entry is removed, so the default
-shows through again. A reserved clear *value* was rejected on the record — a
-concern whose legitimate values are keywords could then silently delete state.
-And **a nil or malformed instance key refuses loudly**, at read and at write,
-with `:rf.error/hicasso-state-bad-key` naming the concern — instead of quietly
-filing every instance's state under the same broken key.
+shows through again. A reserved clear *value* is not offered — a concern whose
+legitimate values are keywords could then silently delete state.
+
+**A nil or malformed instance key refuses loudly**, at read and at write, with
+`:rf.error/hicasso-state-bad-key` naming the concern — instead of quietly filing
+every instance's state under the same broken key.
 
 ## Choosing the instance key
 
 `reg-state` and the long form share one authored input: the instance key —
 `panel-id` above, the value that keeps a hundred panels from sharing one
-`expanded?`. Hicasso mints no identity for you. (React's `useId` was examined
-and disqualified on the record: its hydration ids diverge under the arm's own
-hydration root, and outside hydration it is a counter whose ids do not survive
-remount — which state resident in app-db cannot tolerate.) The key is authored
-data — a keyword, string, number, or vector of these — and four rules cover
-choosing it.
+`expanded?`. Hicasso mints no identity for you. React's `useId` is not a fit
+here: its hydration ids can diverge under a hydration root, and outside
+hydration it is a counter whose ids do not survive remount — which state
+resident in app-db cannot tolerate. The key is authored data — a keyword,
+string, number, or vector of these — and four rules cover choosing it.
 
 **Domain ids first — entity-qualified when entities can collide.** The best key
 already exists in your data: the order's id, the row's id, a literal namespaced
@@ -170,10 +163,10 @@ Write `[:panel/toggle id]`, never a generic `[:ui/set [:panel/expanded id] true]
 
 A named event is a name for what happened, which is the entire premise of the event
 log being readable. A generic setter turns your event history into a diff stream and
-takes the meaning out of the one place the framework was keeping it for you. This is
-also HD-009's law for the sugar, kept by the ruled `reg-state`: the setter it mints
-is **named by its concern** — `[::expanded? panel-id false]` reads as what it is in
-the log — never a generic `ui/set`.
+takes the meaning out of the one place the framework was keeping it for you.
+`reg-state` keeps that law for the sugar: the setter it mints is **named by its
+concern** — `[::expanded? panel-id false]` reads as what it is in the log — never a
+generic `ui/set`.
 
 The concern-named setter is a floor, not a ceiling. When an occurrence means more
 than an assignment — the collapse should fire an effect, other state reacts, the
@@ -187,25 +180,15 @@ Layer 2 above is mostly a promise. The controls kit that would own drafts and
 revisions is post-v0. So is the overlay top layer. In v0, a dismissible dropdown is
 CSS if you can manage it, and app-db if you can't.
 
-The ceremony story, though, moved on 2026-08-04. HD-009 originally shipped
-nothing here: the sugar was a pre-agreed *response class*, an unfrozen
-`defstate` sketch to be designed only if dogfooding demanded it. The operator
-ruled it into v0 instead, and the same-day design programme — three independent
-designs, three adversarial reviews — produced the `reg-state` ruling this page
-now teaches. One peer review had argued for a `useState` fence and a
-pre-designed tier; the fence is still rejected — there is no lint police — and
-the tier that was once withdrawn from pre-commitment is now simply *designed*,
-on evidence: `[:ui <concern> <instance-key>]`, one conventional app-space root.
-The no-`local` core stands throughout.
+What *is* in v0 is the ceremony answer: `reg-state` for the ordinary assignment
+case, the long form when a write means more than assignment, one conventional
+app-space root at `[:ui <concern> <instance-key>]`, and no second state system.
+There is still no lint fence around `useState` — the placement rule is taught, not
+policed — and the no-`local` core stands throughout.
 
-The response class did not disappear; it moved one rung up. If dogfooding shows
-that explicitly threading the instance key is itself what fails the preference
-test, the pre-registered escalation is the ambient/auto door from the rejected
-structural design — a recorded mechanism, not an ad-hoc invention, and still
-never a state system.
-
-So: a v0 complaint about state ceremony is still **expected signal**, not a
-verdict. The first response shipped early, and the next one is already named.
+A complaint about state ceremony is **expected signal**, not a verdict. If
+explicitly threading the instance key turns out to be the pain, the next step
+is an ambient/auto door — still never a parallel state system.
 
 ## The state you cannot put in app-db: "it left, but it is still on screen"
 
@@ -233,12 +216,10 @@ the way out — **in its own attribute map**:
 
 Three things about that block.
 
-**There is no child view.** The whole tray is written inline, in the parent. In the
-predecessor this is not possible: the phase is an ambient read, so reading it in
-markup written inline in the parent silently gives you the *parent's* phase, and
-the guide says so outright. The fix there is to extract the toast into a declared
-keyed view — a view whose only reason to exist is that a dynamic variable needs
-somewhere to resolve.
+**There is no child view.** The whole tray is written inline, in the parent.
+Phase is not an ambient dynamic that could silently resolve to the parent's
+context — exit attributes sit on the node itself as data, so inline markup is
+safe.
 
 **The a11y attributes are one map, not three conditionals.** A retained node is
 still in the document: it can take focus and clicks until you say otherwise. That
@@ -297,23 +278,22 @@ you have looked at the paint race and decided you can live with losing it now an
 then. What it is not is the recommended way to make something fade in.
 
 One thing to know before you lean on mounting-phase attributes for correctness
-rather than for looks. Under the ruled SSR design a presence-managed node
-**hydrates born-present**, so server HTML never carries `:mounting`-phase
-attributes at all ([Server-side rendering](10-server-side-rendering.md)). Nothing
-that arrived with the page replays an entrance over content the user is already
-reading, which is the behaviour you want — but it does mean the first paint of a
-server-rendered page is not a moment when `::h/mounting` has been applied.
+rather than for looks. Under SSR, a presence-managed node **hydrates
+born-present**, so server HTML never carries `:mounting`-phase attributes at all
+([Server-side rendering](10-server-side-rendering.md)). Nothing that arrived with
+the page replays an entrance over content the user is already reading, which is
+the behaviour you want — but it does mean the first paint of a server-rendered
+page is not a moment when `::h/mounting` has been applied.
 
 ## Where is `:on-mount`?
 
 There is no `:on-mount` and no `:on-unmount`, and as with `local`, the absence is
-ruled rather than pending. Hicasso took the *attribute* half of Replicant's
+deliberate rather than pending. Hicasso took the *attribute* half of Replicant's
 mechanism — `::h/mounting` and `::h/unmounting` above — and rejected the callback
-half, `:replicant/on-mount` and `:replicant/on-unmount`, as less data-oriented
-than a registered behaviour. Presence is the one mechanism that knows a node
-arrived or left, and it never dispatches anything about either, deliberately. And
-the hook-budget witness holds the tier-1 shapes to a page with no `useEffect` on
-it anywhere.
+half as less data-oriented than a registered behaviour. Presence is the one
+mechanism that knows a node arrived or left, and it never dispatches anything
+about either, deliberately. And the hook-budget witness holds the tier-1 shapes
+to a page with no `useEffect` on it anywhere.
 
 An absence with nowhere to go would be a gap. Four jobs send people looking for
 `:on-mount`, and each of them has a home.
@@ -353,12 +333,13 @@ row.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Reaching for `useState` to hold "is this open?" | That's semantic state | app-db, or CSS if the platform tracks it |
-| Searching for `:on-mount`, `componentDidMount`, or a mount `useEffect` | There is none, and the absence is ruled rather than pending | Name the job: route `:resources` for page data, `:initial-events` for startup, presence for animation, a callback `:ref` or `defhost` at a host edge |
+| Reaching for `useState` to hold "is this open?" | That's semantic state | app-db (`reg-state` or the long form), or CSS if the platform tracks it |
+| Searching for `:on-mount`, `componentDidMount`, or a mount `useEffect` | There is none, and the absence is deliberate rather than pending | Name the job: route `:resources` for page data, `:initial-events` for startup, presence for animation, a callback `:ref` or `defhost` at a host edge |
 | A dismissed item disappears instantly with no exit animation | The node left with the data | `h/presence` with a `:timeout-ms` at least as long as the exit transition |
 | A retained node still takes focus or clicks while fading | The exit override does not carry `:inert` / `:aria-hidden` | Put all three in the `::h/unmounting` map |
 | An exit override on a view head raises `:rf.error/hicasso-presence-override-on-a-view` | Presence merges overrides into nodes it can see; a view is opaque to it, and a silently dropped override is the failure class the loud error exists to delete | The view receives `:rf/phase` — branch or style on that |
 | Every panel in a list opens at once | The state isn't parameterised by instance — or two instances share one key | Key the path per instance: [Choosing the instance key](#choosing-the-instance-key) |
+| A nil or malformed instance key raises `:rf.error/hicasso-state-bad-key` | The key is not a keyword, string, number, or vector of those | Author a stable domain or placement key; nest with `h/child-key` when needed |
 | A hook body can't be tested headlessly | Hooks put a body outside headless scope, by design | Move the semantic half to app-db; mount-test the mechanics |
 | Hook-order error after a conditional early-return | React's rules, now yours | Hooks at the top of the body, unconditionally |
 | app-db is full of `:ui` noise | Expected — it is the honest home | Namespace the keys and exclude the tier from persistence by convention |
@@ -382,8 +363,7 @@ that edge needs to know it exists.
 
 | Question | Status |
 |---|---|
-| `h/reg-state` (the sketch formerly spelled `defstate`) | **Ruled 2026-08-04** — the shape is fixed and in implementation (`rf2-2rtt6.98`), not yet landed; the spelling is **[unfrozen]** until the API freeze |
-| The declared app-db `[:ui …]` tier | **Ruled 2026-08-04.** One app-space conventional root, concern-first: `[:ui <concern> <instance-key>]`. Per-frame isolation is free (app-db is per frame); durable persistence excludes the tier by convention; the payload obligation above is the SSR half |
+| Vector `:ref` host behaviours (`{:ref [::id opts]}`) | **Reserved, not designed** — refused today with `:rf.error/hicasso-ref-vector-reserved`; write a function ref until a data spelling exists |
 | The controls kit (drafts, revisions) | **Post-v0** |
 | The overlay top layer that would own open and dismiss | **Post-v0** |
-| The reusable-widget instance-key convention | **Ruled 2026-08-04, in v0** — the four rules in [Choosing the instance key](#choosing-the-instance-key); the sugar that carries it is in implementation (`rf2-2rtt6.98`) |
+| The spellings | `h/reg-state`, `h/presence`, `h/child-key` and friends are bench-arm names; every spelling on this page is **[unfrozen]** until the API freeze |

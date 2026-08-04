@@ -1,39 +1,31 @@
 # Server-side rendering
 
-> **Draft ahead of the product artefact — and this page carries more in-flight
-> scope than any other, so it is written in strict honest tense.** SSR +
-> hydration became **required** Hicasso scope by operator ruling on 2026-08-04;
-> the HD-020 addendum in [decisions.md](../decisions.md) is the record, and the
-> same-date addendum in
-> [EP-0038](../../../EP/EP-0038-the-hicasso-view-layer-programme.md) carries the
-> requirement set. The framework's own SSR machinery **ships today**. Of
-> Hicasso's doors, the hydration door and `defhost`'s `:ssr` policy are
-> **landed in the bench arm and witnessed**; the Node render entry is **in
-> review**; the end-to-end witness has **not run**; the production server arm
-> is **not ruled**. Every section says which of those it is describing,
-> spellings marked **[unfrozen]** stay provisional until the API freeze, and an
-> app that needs SSR before the doors land uses a first-class adapter — this
-> page ends on exactly that.
+> **Draft ahead of the product artefact — and this page carries more open scope
+> than most.** The framework's own SSR machinery **ships today**. Hicasso's
+> hydration door, `defhost`'s `:ssr` policy, the Node render entry, and the
+> spike witness set are **landed and witnessed in the bench arm**; the
+> production server arm is **not decided**. No `implementation/hicasso/`
+> artefact ships yet, spellings marked **[unfrozen]** stay provisional until
+> the API freeze, and an app that needs full production SSR today still has a
+> supported path through the first-class adapters — this page ends on exactly
+> that.
 
 SSR is not a feature re-frame2 bolted on; it is one of the reasons the
 architecture looks the way it does. Spec 011 opens by calling it a core goal,
 and the decisions that make it cheap were taken long ago: views are pure
 functions of state, events are data, and a frame is cheap enough to create for
 one request and destroy when the response is written. Hicasso claims to be
-re-frame2's **native** view layer, and on 2026-08-04 the operator drew the
-consequence — *"SSR is an important part of re-frame2. If hicasso is to be the
-re-frame native view layer then it has to be used with SSR."* HD-020 had ruled
-SSR out of v0; that clause carried its own reopening condition, and this is the
-ruling that reopened it.
+re-frame2's **native** view layer, so it has to hold up its end of that story —
+render on the server, adopt in the browser, and keep both sides honest.
 
-The design that came out of that ruling fits in a sentence:
+The design fits in a sentence:
 
-> **One renderer, run in two places, judged in one.**
+> **One renderer, run in two places, judged by the framework's hydration
+> machinery.**
 
 The runtime that renders in the browser is the runtime that renders on the
-server; the framework's existing hydration machinery carries the result across;
-and whether the whole story holds is decided by one witness set at one sitting,
-not by this guide's optimism.
+server; the framework's existing hydration path carries the result across;
+parity is construction, not a second emitter hoping to agree.
 
 ## The framework's story, which exists today
 
@@ -74,54 +66,53 @@ teaches it at corpus depth. The shape, in brief:
 4. The DOM is adopted with React's `hydrateRoot` — the server's nodes are kept
    and listeners attached, never thrown away and rebuilt.
 
-None of that is Hicasso's to reinvent. Requirement R0 of the ruling says so
-outright: Hicasso participates in the **existing** story — the payload, the
-`:rf/hydrate` door, the mismatch machinery, `ssr-ring` as the HTTP host —
-never a parallel Hicasso-only mechanism. Everything below is about the two
-places where a view layer has to hold up its own end: rendering on the server,
-and adopting in the browser.
+None of that is Hicasso's to reinvent. Hicasso participates in the **existing**
+story — the payload, the `:rf/hydrate` door, the mismatch machinery, `ssr-ring`
+as the HTTP host — never a parallel Hicasso-only mechanism. Everything below is
+about the two places where a view layer has to hold up its own end: rendering
+on the server, and adopting in the browser.
 
 ## What Hicasso adds, door by door
 
-| Door | What it is | Status, 2026-08-04 |
+| Door | What it is | Status |
 |---|---|---|
-| The hydration door | `hydrate-root!` **[unfrozen]** beside `root!` — adopt server DOM into a live root | **Landed**, witnessed in the bench arm (`rf2-2rtt6.84`) |
-| The `:ssr` host policy | `defhost` declares what a foreign region does server-side | **Landed**, witnessed; dated HD-011 addendum (`rf2-2rtt6.85`) |
-| The Node render entry | `renderToString` of the existing runtime, fixture bake, live demo | **In review** — the PR is open, not on main (`rf2-2rtt6.86`) |
-| The spike witness | X1–X5 on the hydrated dogfood screen | **Not run** (`rf2-2rtt6.87`) |
-| The production server arm | JVM structural walk vs Node sidecar | **Not ruled** — priced and ruled at the P2 sitting (`rf2-2rtt6.88`) |
+| The hydration door | `hydrate-root!` **[unfrozen]** beside `root!` — adopt server DOM into a live root | **Landed**, witnessed in the bench arm |
+| The `:ssr` host policy | `defhost` declares what a foreign region does server-side | **Landed**, witnessed |
+| The Node render entry | `renderToString` of the existing runtime, fixture bake, live demo | **Landed** in the bench arm (`ssr/entry.cljs`, `entry_cljs_test`) |
+| The spike witness | X1–X5 end-to-end on a hydrated screen | **Run** — measured rows exist in tests; no product verdict is claimed here |
+| The production server arm | JVM structural walk vs Node sidecar | **Not decided** |
 
 "Landed" means what it means everywhere in this guide: witnessed by the bench
 arm's tests under
 `implementation/freehand/test/re_frame/bench/hicasso/`, with no
-`implementation/hicasso/` artefact anywhere. "In review" means the code exists
-on a branch, and this page does not call a branch the tree.
+`implementation/hicasso/` artefact anywhere. "Run" for the spike means the
+witness measurements exist; it does not mean a product go/no-go has been
+declared from them.
 
 ### The server engine is the client runtime
 
-The ruled server engine is not a second renderer. It is the existing runtime
-run under `react-dom/server`'s `renderToString`, so hydration parity holds by
+The server engine is not a second renderer. It is the existing runtime run
+under `react-dom/server`'s `renderToString`, so hydration parity holds by
 construction — there is no separate emitter whose output could drift from what
 the client would have rendered. The property that makes this safe is already
-on main and witnessed: every boundary shell passes a server snapshot to its
+witnessed: every boundary shell passes a server snapshot to its
 `useSyncExternalStore`, so under a server render React never subscribes —
 every `sub` read is the mutation-free cold probe, no commit runs, no effect
 fires, and the render leaves **zero durable registration** behind. A server
-render is an abandoned render, and HD-002's ledger discipline already required
-the runtime to survive those (requirement R6).
+render is an abandoned render, and the runtime's ledger discipline already
+requires it to survive those.
 
 The *entry* that runs it per request — a gensym frame, app-db seeded through
 the framework doors, `renderToString`, the payload built with the framework's
 own bytes, `destroy-frame!` in a `finally`, plus baked fixtures and a live
-page-level demo driver — is `rf2-2rtt6.86`, in review and not on main. Two of
-its properties are requirements rather than aspirations, worth knowing in
-advance: the render is deterministic (same bundle + same snapshot means
+page-level demo driver — is in the bench arm at `ssr/entry.cljs` and covered
+by `entry_cljs_test`. Two of its properties are requirements rather than
+aspirations: the render is deterministic (same bundle + same snapshot means
 byte-identical HTML, checked by double render), and the demo driver is
 **explicitly not a production host** — Spec 011's HTTP response contract stays
 `ssr-ring`'s.
 
-SSR *speed*, meanwhile, is off the bar on the record — fast applications, not
-fast SSR (HD-012 stands unchanged).
+SSR *speed*, meanwhile, is off the bar — fast applications, not fast SSR.
 
 ### The hydration door — landed
 
@@ -131,8 +122,8 @@ node, a frame and one view, except the node already holds the server's markup
 and the frame has already adopted the server's state. It returns the same
 handle shape `root!` does, so teardown treats a hydrated root like any other.
 
-Three of its properties are the reason it took a ruling rather than an
-afternoon, and all three are witnessed (`arm1/hydrate_dom_cljs_test`):
+Three of its properties are the reason this door is more than a thin wrap, and
+all three are witnessed (`arm1/hydrate_dom_cljs_test`):
 
 - **It calls `hydrateRoot` plain — no `flushSync` — so it returns before
   adoption completes.** React adopts concurrently; the DOM on the line after
@@ -145,14 +136,13 @@ afternoon, and all three are witnessed (`arm1/hydrate_dom_cljs_test`):
   in its `:present` state: nothing that arrived with the page replays an
   entrance over content the user is already reading, and server HTML does not
   arrive carrying mounting-phase `opacity: 0` overrides.
-- **Hydration never converges controlled text.** HD-019's row extends to the
-  hydrated path: a controlled input arrives with React's `defaultValue` mirror
-  intact and the model's value as the one truth. There is no flash of server
-  text corrected a beat later.
+- **Hydration never converges controlled text.** A controlled input arrives
+  with React's `defaultValue` mirror intact and the model's value as the one
+  truth. There is no flash of server text corrected a beat later.
 
 One more, for the witnesses rather than the reader: the boundary memo never
-fakes adoption — body runs are counted, not inferred (HD-028) — which is what
-lets the spike below say "exactly one body pass" and mean it.
+fakes adoption — body runs are counted, not inferred — which is what lets the
+spike below say "exactly one body pass" and mean it.
 
 ### The `:ssr` host policy — landed
 
@@ -171,38 +161,33 @@ nothing about that. So the declaration says it
 adopted the page; `{:fallback <hiccup>}` renders that markup there instead.
 There is no third value: a policy the gate does not recognise is refused at
 the declaration (`:rf.error/hicasso-host-bad-ssr-policy`), and an option
-`defhost` does not know is now a refusal too
-(`:rf.error/hicasso-host-unknown-option`) rather than the silent ignore the
-2026-08-04 audit found. One mechanism serves all three places the policy has
-to hold — the server render, hydration's first client pass, and a fresh
-client-only mount, which renders the foreign component immediately with no
-placeholder flash. Witnessed in `arm1/host_ssr_dom_cljs_test`, with the honest
-cost on the record: the door used to mint no wrapper at all, and the gate is
-one fiber and one hook per declaration.
+`defhost` does not know is a refusal too
+(`:rf.error/hicasso-host-unknown-option`) rather than a silent ignore. One
+mechanism serves all three places the policy has to hold — the server render,
+hydration's first client pass, and a fresh client-only mount, which renders
+the foreign component immediately with no placeholder flash. Witnessed in
+`arm1/host_ssr_dom_cljs_test`. The honest cost: the gate is one fiber and one
+hook per declaration.
 
-### The witness and the sitting — ahead
+### The spike witness — measured
 
-Whether all of this works as **one page** is not this guide's to assert. The
-X1–X5 spike witness (`rf2-2rtt6.87`, not run; it depends on the render entry)
-drives the programme's dogfood screen through the whole arc and reports, with
-SHA and repro command per row: byte-identical double render and canonical-DOM
-parity with a client-only mount; adoption with zero mismatch, server node
-identity preserved and exactly one body pass; reactivity adopted on React's
-own schedule; a 17-step real-DOM intent script driven at the hydrated screen,
-controlled-text echo included; and clean teardown. It is the P2 sitting's SSR
-feasibility input, and it publishes **no verdict** — the verdict is the
-operator's.
+Whether all of this works as **one page** is not this guide's to declare as a
+product verdict. The X1–X5 spike witness has **run**: tests drive a
+representative screen through the whole arc and report measured outcomes —
+byte-identical double render and canonical-DOM parity with a client-only mount;
+adoption with zero mismatch, server node identity preserved and exactly one
+body pass; reactivity adopted on React's own schedule; a multi-step real-DOM
+intent script driven at the hydrated screen, controlled-text echo included; and
+clean teardown. Those rows are evidence, not a ship decision. This page claims
+what was measured; it does not claim a product go/no-go.
 
-The same sitting prices and rules the **production server arm**
-(`rf2-2rtt6.88`). The default direction to be priced is a JVM structural walk
-— the codec's pure analysis rules twinned on the JVM, folded to HTML by the
-tree emitter the SSR artefact already ships, in-process with `ssr-ring` —
-which would also discharge most of [Testing](08-testing.md)'s headless door,
-since a structural render core is the larger half of one. Priced beside it: a
-Node sidecar behind an EDN render contract, with `ssr-ring` keeping HTTP
-either way. Neither is built. Do not design a deployment against either yet —
-this is the one part of the story where the record genuinely does not know the
-answer.
+The **production server arm** remains open. One candidate is a JVM structural
+walk — pure analysis rules on the JVM, folded to HTML by the tree emitter the
+SSR artefact already ships, in-process with `ssr-ring` — which would also
+discharge most of [Testing](08-testing.md)'s headless door, since a structural
+render core is the larger half of one. Beside it: a Node sidecar behind an EDN
+render contract, with `ssr-ring` keeping HTTP either way. Neither is built as
+the production answer. Do not design a deployment against either yet.
 
 ## Write the app so SSR is free
 
@@ -262,19 +247,17 @@ easiest to write is also the app that serves.
 
 ## Non-goals
 
-Stated once, per the 2026-08-04 addendum in
-[EP-0038](../../../EP/EP-0038-the-hicasso-view-layer-programme.md), so nobody
-reads silence as intent: **streaming** (`renderToPipeableStream` is out of
-scope), **React Server Components**, **islands / partial hydration**, **no-JS
-progressive enhancement** and **SEO metadata management** are not part of this
-story. Neither is SSR speed as a bar — HD-012's line stands. The story is one
-page, rendered whole from a snapshot, adopted whole by the client.
+Stated once so nobody reads silence as intent: **streaming**
+(`renderToPipeableStream` is out of scope), **React Server Components**,
+**islands / partial hydration**, **no-JS progressive enhancement** and **SEO
+metadata management** are not part of this story. Neither is SSR speed as a
+bar. The story is one page, rendered whole from a snapshot, adopted whole by
+the client.
 
 ## Troubleshooting
 
 The first two rows are the framework machinery's, live today under the
-adapters and inherited unchanged (requirement R0); the rest belong to the
-landed doors.
+adapters and inherited unchanged; the rest belong to the landed doors.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
@@ -286,23 +269,26 @@ landed doors.
 
 ## When you need SSR today
 
-Use a first-class adapter. The Reagent and UIx
+Use a first-class adapter for a full production SSR app. The Reagent and UIx
 [adapters](../../../core/views.md) are supported, actively maintained, and
 carry the whole Spec 011 story end to end — the reference example at
-`examples/capabilities/ssr` is exactly that, runnable now. This is not a
-consolation: adapters remaining the answer is a *successful* outcome for the
-programme ([Getting started](01-getting-started.md) says the same about the
-whole of Hicasso). What this chapter adds for an adapter user is the
+`examples/capabilities/ssr` is exactly that, runnable now. That is not a
+consolation: adapters remaining a production answer is a *successful* outcome
+([Getting started](01-getting-started.md) says the same about the whole of
+Hicasso).
+
+Hicasso's own doors — hydration, `:ssr` host policy, the Node render entry, the
+spike measurements — are **bench-witnessed**. They prove the design holds under
+the arm's tests; they are not yet a product package under
+`implementation/hicasso/`. What this chapter still gives an adapter user is the
 authored-code discipline above, most of which — events as data, pure bodies,
-platform work in effects — is portable re-frame2 rather than Hicasso, and
-costs nothing to adopt early.
+platform work in effects — is portable re-frame2 rather than Hicasso, and costs
+nothing to adopt early.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| The Node render entry, the fixture bake, the live demo driver | **In review** (`rf2-2rtt6.86`) — ruled and written, not on main. Until it merges, nothing in the tree renders a Hicasso page per request |
-| The X1–X5 spike witness | **Not run** (`rf2-2rtt6.87`); depends on the render entry. Its rows are the P2 sitting's SSR feasibility input, and it publishes no verdict |
-| The production server arm | **Not ruled** (`rf2-2rtt6.88`, decided at the P2 sitting): a JVM structural walk (the default direction, to be priced; it would co-discharge the headless testing door) vs a Node sidecar behind an EDN render contract. `ssr-ring` keeps Spec 011's HTTP response contract either way |
+| The production server arm | **Not decided**: a JVM structural walk (default direction to be priced; it would co-discharge the headless testing door) vs a Node sidecar behind an EDN render contract. `ssr-ring` keeps Spec 011's HTTP response contract either way |
 | How the boot composes at the product surface | **Not addressed.** The bench door associates a container, a frame and a view; the framework's `hydrate!` seeds and verifies state before first render. Whether the product artefact offers one operation or two — and where `:initial-events` sits on a hydrating load — is unstated |
 | The spellings | `hydrate-root!` is a bench-arm name, as `root!` was before it; every spelling on this page is **[unfrozen]** until the API freeze |

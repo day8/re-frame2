@@ -1,10 +1,7 @@
 # Events as data
 
-> **Draft ahead of the product artefact.** This page teaches the landed surface —
-> ruled in [decisions.md](../decisions.md) (HD-001…HD-028), witnessed by the bench
-> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
-> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
-> stay provisional until the API freeze.
+> **Draft ahead of the product artefact.** No `implementation/hicasso/` artefact
+> ships yet. Spellings marked **[unfrozen]** stay provisional until the API freeze.
 
 Handler attributes are where a data-oriented view layer usually gives up. You have
 been writing pure data all the way down the tree, and then `:on-click` needs a
@@ -36,15 +33,22 @@ target's `.value` and `.checked`:
          :on-input [:todo.ui/edit id ::h/value]}]
 ```
 
-At dispatch, the placeholder is replaced by the input's value, so the handler
-receives `[:todo.ui/edit 7 "milk"]` — an ordinary event vector, indistinguishable
-from one you dispatched by hand. Substitution happens at the intent vector's top
-level only, which is the shape the corpus writes; a marker buried in nested
-structure is not looked for.
+```clojure
+[:input {:type      :checkbox
+         :checked   done?
+         :on-change [:todo/set-done id ::h/checked]}]
+```
 
-The census says the markers cover about **97% of the corpus's 183 handler sites**.
-That number is why they exist: two markers turn nearly every handler attribute in a
-real application into data.
+At dispatch, the placeholder is replaced by the input's value or checked state, so
+the handler receives `[:todo.ui/edit 7 "milk"]` or `[:todo/set-done 7 true]` —
+ordinary event vectors, indistinguishable from ones you dispatched by hand.
+Substitution happens at the intent vector's top level only, which is the shape you
+write; a marker buried in nested structure is not looked for.
+
+Those two markers cover almost every handler site that only needs the target's
+value or checked state. For the full controlled-input round-trip — value in from a
+subscription, intent out, caret and same-tick echo — see
+[Controlled inputs](04-controlled-inputs.md).
 
 ## Functions still work
 
@@ -88,14 +92,10 @@ conditional dispatch is an ordinary `when`:
 | `:ref` | React's own contract — the node on attach, your return as the cleanup |
 | a raw `#js` prop you built yourself | nothing at all. It is a function; it runs |
 
-That last row is the one worth knowing about, because of what it is not. In the
-predecessor there are four callback forms plus a rule about where they reach, and
-the forms are *carriers* — marker objects, not functions. Hand one to a raw `#js`
-prop and the library calls `props.onPing(…)` on something that is not callable, so
-what you get is the JavaScript engine's own `TypeError`, worded after whatever
-expression it tripped on, naming nothing you wrote. `h/fn` is a function
-everywhere. Put it somewhere the runtime does not walk and you lose the contract,
-not the call.
+That last row is worth knowing about. `h/fn` is a real function everywhere. Put it
+somewhere the runtime does not walk and you lose the contract, not the call — the
+library gets a callable, not a marker object that blows up as a `TypeError` naming
+nothing you wrote.
 
 You never pick a form. There is one, and where you put it is the decision.
 
@@ -124,10 +124,9 @@ An intent vector at `:on-submit` prevents the browser's default navigation:
  [:button {:type :submit} "Sign up"]]
 ```
 
-No `(.preventDefault e)`. It is census-weighted policy — forms in the corpus wanted
-it every time — so the runtime does it. For the rare form that wants a real
-submission, write the handler as `h/fn`: a callback is handed the event, so the
-runtime leaves it alone and the event is yours (HD-026).
+No `(.preventDefault e)`. Forms almost always want it, so the runtime does it. For
+the rare form that wants a real submission, write the handler as `h/fn`: a callback
+is handed the event, so the runtime leaves it alone and the event is yours.
 
 ### Everywhere else, prevention is one head
 
@@ -182,14 +181,17 @@ composes. Which is a good argument for it not being your handler.
 
 ## Links: `route-link` and the navigate head
 
-Most of an application's anchors are navigations — the census counts **106
-route-links across 85 files**, which makes the link the most-repeated tier-1 form
-there is. Its spelling is `route-link`, a plain function over the routing
-artefact's link seam (HD-027):
+Most of an application's anchors are navigations. Spell the link as `route-link`, a
+plain function over the routing artefact's link seam:
 
 ```clojure
-(route-link {:to :conduit.profile/show :params {:username username}}
-  username)
+(ns conduit.views.profile
+  (:require [re-frame.hicasso :as h :refer [defview sub route-link]]))
+
+(defview author-byline [{:keys [username]}]
+  (route-link {:to :conduit.profile/show :params {:username username}
+               :class "author"}
+    username))
 ```
 
 You name a route and its params and never see a URL. What comes back is one real
@@ -200,22 +202,19 @@ click decision off the tree. Because it is a plain function, not a boundary, it
 inlines: no hook, no subscription read, no row in any boundary count. An author
 byline is not a unit of re-render.
 
-The click law is routing's, stated once, and it is the one every other link
-surface already runs: a modifier-click or auxiliary click stays the browser's (a
-new tab opens), a `:target` or `:download` anchor stays native, and everything
-else is `preventDefault` plus a dispatch of the routing intent to the frame that
-was captured at render. Rendering a `route-link` with routing absent fails at
-render, naming the `:to` — never a dead anchor.
+The click law is routing's, stated once: a modifier-click or auxiliary click stays
+the browser's (a new tab opens), a `:target` or `:download` anchor stays native,
+and everything else is `preventDefault` plus a dispatch of the routing intent to
+the frame that was captured at render. Rendering a `route-link` with the routing
+artefact absent fails at render with `:rf.error/routing-artefact-missing`, naming
+the `:to` — never a dead anchor.
 
 **The `:on-click` you pass is the pre-navigation veto**, and its roster is closed:
 `nil`, `[::h/prevent [:app/event]]`, `h/fn`, or a plain function. The prevent form
 is the declarative veto — the navigation is cancelled and your intent dispatched
-instead, which is exactly the cancelable-navigation case the prevent head was
-built for. A **bare** intent vector there is refused loudly: the click already
+instead. A **bare** intent vector there is refused loudly: the click already
 produces the one routing intent, and one user action must not yield two semantic
-events. Witnessed end-to-end — grammar, equality, refusals, real clicks through a
-real router — in `front/route_link_cljs_test` and
-`shapes/route_link_dom_cljs_test`.
+events.
 
 Routing also publishes a `:prefetch` opt-in, and Hicasso declines it for v0 — out
 loud, rather than by ignoring it. A `route-link` carrying `:prefetch` in any form,
@@ -241,15 +240,16 @@ explicitly.**
 
 ## Troubleshooting
 
-This table names mechanisms rather than error ids; the ids the record does mint
-are named in the sections above.
+This table names mechanisms rather than error ids; the ids the page does mint are
+named in the sections above.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Page navigates and reloads on form submit | Something bypassed the intent path — a hand-written `:on-submit` function | Use an intent vector, or call `.preventDefault` yourself in the function |
-| Handler receives the placeholder keyword instead of a value | The placeholder was used at an event position with no value to substitute | `::h/value` is for value-bearing events; read the event object with a function elsewhere |
+| Handler receives the placeholder keyword instead of a value | The placeholder was used at an event position with no value to substitute | `::h/value` is for value-bearing events; `::h/checked` for checkboxes; read the event object with a function elsewhere |
 | Enter commits half-typed Japanese text | Composition handling was written by hand | Use the `:on-key-down` key map — the composition law is centralised there |
 | A `route-link` refuses your `:on-click` intent vector | The click already produces the one routing intent — a bare second intent is one action, two events | Wrap it: `[::h/prevent [:app/event]]` cancels the navigation and dispatches yours instead |
+| `:rf.error/routing-artefact-missing` when rendering a `route-link` | Routing is not on the classpath / not required at boot | Require `re-frame.routing` (and the rest of your routing setup) so the artefact is present before the link renders |
 | `:rf.error/no-frame-context` from a timeout | A bare `dispatch` in async code | Capture the frame at the call site, or dispatch an event that owns the async work through `:fx` |
 | An intent fires but no handler runs | Unregistered event id | Registration happens on namespace load; check the boot namespace requires it |
 
@@ -257,13 +257,11 @@ are named in the sections above.
 
 When you need the event object itself. Pointer coordinates, `dataTransfer`,
 `stopPropagation`, anything measuring the DOM — those are functions, and reaching
-for one is not a failure. The census puts these at roughly 3% of handler sites,
-which is the right size for an escape hatch: too small to design the syntax around,
-too real to pretend away. Reach for `h/fn` when you want to read the event *and*
+for one is not a failure. Reach for `h/fn` when you want to read the event *and*
 dispatch, and a plain `(fn …)` when you want to read it and do something else.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| `h/fn`'s spelling | Working name; HD-024 leaves the spelling unfrozen like every declaration spelling |
+| `h/fn`'s spelling | Working name; unfrozen like every declaration spelling |
