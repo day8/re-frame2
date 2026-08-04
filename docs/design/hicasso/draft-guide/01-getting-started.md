@@ -155,10 +155,16 @@ No boot-path error ids are minted yet, so this table names mechanisms rather tha
 
 ## When not to use this
 
-**Server-side rendering is out of v0**, explicitly (HD-020). `defview` bodies stay
-`.cljc`-compatible by construction, so nothing is being painted into a corner, but no
-JVM or SSR render path ships in v0 and `defhost`'s SSR-placeholder default is inert
-policy for a later phase. If you need SSR now, use a
+**Server-side rendering is required Hicasso scope — and none of it has landed
+yet.** HD-020 originally ruled SSR out of v0; the 2026-08-04 operator ruling
+reopened that clause and made SSR + hydration required scope (the HD-020 addendum
+in [decisions.md](../decisions.md) is the record). The story is the framework's
+own Spec 011 mechanism, not a Hicasso-private one: the server embeds the
+`#__rf_payload` EDN payload and the client adopts it through the reserved
+`:rf/hydrate` door before first render. The pieces — the hydration door,
+`defhost`'s `:ssr` policy, the Node render entry and the spike witness — are in
+progress as beads `rf2-2rtt6.84`–`.87`, and no Hicasso SSR or JVM render path
+exists in the tree today. Until they land, an app that needs SSR now still uses a
 [Reagent or UIx adapter](../../../core/views.md), which are first-class and
 supported.
 

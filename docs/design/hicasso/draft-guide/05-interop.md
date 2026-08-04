@@ -9,8 +9,10 @@
 > driven from a Hicasso tree. No `implementation/hicasso/` artefact ships yet,
 > though, and spellings marked **[unfrozen]** stay provisional until the API
 > freeze. Three things this page describes are ruled but **not built** — the `[:>]`
-> raw escape, the migration codemod and SSR — and one default, deep prop
-> conversion, is deliberately not offered at all. See **Not settled yet**.
+> raw escape, the migration codemod, and the `defhost` `:ssr` policy (being
+> activated now that the 2026-08-04 ruling made SSR required Hicasso scope —
+> `rf2-2rtt6.85`, in progress) — and one default, deep prop conversion, is
+> deliberately not offered at all. See **Not settled yet**.
 
 You want a date picker from npm. In Reagent you write `[:> DatePicker {...}]` and
 move on. Hicasso asks you to write one line first:
@@ -76,7 +78,7 @@ Reagent was never `[:>]`, it was `r/atom`.
 | Props | shallow camelCase conversion — `:on-change` becomes `onChange` |
 | Children | hiccup children are converted to React elements |
 | Functions | pass through unconverted |
-| SSR | a placeholder (declared policy; inert in v0, since SSR is out of v0 per HD-020) |
+| SSR | `:client-only` — the host region renders nothing server-side. Being activated as the declarable `:ssr` option (`:client-only` default, or `{:fallback <hiccup>}` for pre-adoption placeholder markup) per the 2026-08-04 SSR ruling (HD-020 addendum); in progress as `rf2-2rtt6.85`, not landed |
 
 Policy overrides live on the declaration rather than at the call site, which is the
 whole point: one place decides how this component is crossed, and every use site
@@ -427,9 +429,9 @@ two or three genuinely hard widgets.
 
 | Question | Status |
 |---|---|
-| Whether `defhost` grows a second option beyond `:callbacks` | **Not addressed.** HD-011 names strong defaults and "policy overrides on the declaration", and `:callbacks` is the only override the landed door carries. Whether the SSR placeholder or the conversion defaults ever become declarable is unstated |
+| Whether `defhost` grows a second option beyond `:callbacks` | **Settled for SSR, in progress.** The 2026-08-04 SSR ruling activates the placeholder as the second option: `:ssr`, taking `:client-only` (the default) or `{:fallback <hiccup>}`, any other value refused at mint time (`rf2-2rtt6.85`; not landed — `:callbacks` is still the only override the landed door carries). Whether the conversion defaults ever become declarable is still unstated |
 | The migration codemod | **Ruled, unbuilt.** HD-011's rationale leans on it, but nothing has been built and the record names neither a tool nor an invocation |
 | When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** HD-022 rules the refusal and the value-space; the registry, the timings and the commands roster are explicitly out of v0 |
 | Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
-| The SSR placeholder's shape | Declared policy, inert in v0 |
+| The SSR placeholder's shape | **Ruled 2026-08-04, unbuilt.** `:ssr` — `:client-only` (default) or `{:fallback <hiccup>}`, refusal on anything else (`rf2-2rtt6.85`). Today the landed door reads only `:callbacks`, so no placeholder exists in the tree, inert or otherwise |
 | Embedding Hicasso *inside* a React-primary app | Named in the charter's use-case roster (item 11); no surface designed |

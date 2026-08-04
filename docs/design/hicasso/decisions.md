@@ -577,6 +577,33 @@ candidate second call site appears. The composition value path reopens on
 
 ## HD-020 — v0 host mechanics: frame plumbing, hook ledger, error boundary, SSR posture
 
+> **Addendum, 2026-08-04 — clause (d) is reopened and reversed: SSR + hydration
+> is REQUIRED Hicasso scope (`rf2-2rtt6.83`).** This entry's own Reopens line
+> says "at product phase (SSR, richer boundary API) by ordinary ruling"; this
+> is that ruling, taken by the operator. **Mike, 2026-08-04, verbatim:** *"SSR
+> is an important part of re-frame2. If hicasso is to be the re-frame native
+> view layer then it has to be used with SSR"* — and, earlier the same day:
+> *"hicasso is useless unless it does SSR."*
+>
+> **What is ruled.** SSR + hydration moves from out-of-v0 to required Hicasso
+> scope. Hicasso participates in re-frame2's **existing** SSR story — Spec 011
+> (`spec/011-SSR.md`): the payload policy, the `#__rf_payload` EDN embed, the
+> `hydrate!` boot helper and the reserved `:rf/hydrate` db adoption before
+> first render, the hydration-mismatch machinery, and `ssr-ring` as the HTTP
+> host — **never a parallel Hicasso-only mechanism** (requirement R0). The full
+> requirement set R0–R8, the non-goals, and the P2-sitting linkage are recorded
+> in the same-date addendum in
+> `docs/EP/EP-0038-the-hicasso-view-layer-programme.md`.
+>
+> **What does not move.** SSR *speed* stays off the bar: HD-012 and
+> validation.md's "never SSR or test-lane speed" line stand unchanged. Clauses
+> (a)–(c) of the ruling below — frame plumbing, the hook ledger, the error
+> boundary — stand as written.
+>
+> **Status is honest tense.** The ruling is recorded; nothing has landed. The
+> hydration door, the `defhost` `:ssr` policy, the Node render entry, and the
+> X1–X5 spike witness are in progress as beads `rf2-2rtt6.84`–`.87`.
+
 **Ruling.** (a) **Frame plumbing**: each boundary reads the frame once via the
 substrate's single internal context, then binds it ambiently for the render's
 dynamic extent so inlined helpers and generated callbacks resolve it without
