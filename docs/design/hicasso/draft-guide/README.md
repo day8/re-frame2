@@ -1,6 +1,6 @@
 # Hicasso — draft user guide
 
-> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Behaviour matches the experimental arm under `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
 Hicasso is re-frame2's native view layer: interpreted Hiccup on a React
 function-component host. This guide answers one question — **what does a
@@ -13,9 +13,9 @@ programmer actually type?**
 | [Events as data](03-events-as-data.md) | Put an event vector in an attribute and let the runtime build the callback — clicks, keys, prevention, and links |
 | [Controlled inputs](04-controlled-inputs.md) | Type into a text field whose value round-trips through app-db, and keep your caret |
 | [Interop](05-interop.md) | Use a React component from npm |
-| [Theming](06-theming.md) | Style a component library without a context API |
+| [Theming](06-theming.md) | Theme with CSS tokens and app-db — without a context API (part maps for libraries are still open) |
 | [Ephemeral state](07-ephemeral-state.md) | Decide where "is this dropdown open?" lives, given there is no `local`; where "it left but is still fading out" lives, given app-db cannot hold it; and where the jobs you wanted `:on-mount` for actually go |
-| [Testing](08-testing.md) | Assert a view's output without a browser, and know when you still need one |
+| [Testing](08-testing.md) | Assert intents and trees as data today; know when you still need a browser |
 | [When a view throws](09-when-a-view-throws.md) | Keep one broken view from taking the page down with it |
 | [Server-side rendering](10-server-side-rendering.md) | Serve a page rendered from a db snapshot and adopt it live in the browser |
 

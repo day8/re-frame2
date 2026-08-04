@@ -1,6 +1,6 @@
 # Events as data
 
-> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Behaviour matches the experimental arm under `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
 Handler attributes are where a data-oriented view layer usually gives up. You
 write pure data all the way down the tree, then `:on-click` needs a function, so
@@ -188,10 +188,22 @@ Most of an application's anchors are navigations. Spell the link as
 
 You name a route and its params and never see a URL. What comes back is one real
 `<a>` whose `:href` is routing's own synthesis and whose `:on-click` carries the
-click decision **as data**, under the second reserved head, `[::h/navigate {…}]`
-— so two renders of one link are equal under `=`, and a structural test reads
-the click decision off the tree. Because it is a plain function, not a boundary,
-it inlines: no hook, no subscription read, no row in any boundary count.
+click decision **as data**, under the second reserved head:
+
+```clojure
+;; Closed map, four keys — the shape a structural test can `=`.
+;; :payload is routing's own synthesis, not something you invent at the link site.
+[::h/navigate {:frame   :rf/default
+               :payload [:rf.route/url-requested {:url    "/profile/jane"
+                                                  :to     :conduit.profile/show
+                                                  :params {:username "jane"}}]
+               :native? false
+               :veto    nil}]
+```
+
+So two renders of one link are equal under `=`, and a structural test reads the
+click decision off the tree. Because it is a plain function, not a boundary, it
+inlines: no hook, no subscription read, no row in any boundary count.
 
 The click law is routing's, stated once: a modifier-click or auxiliary click
 stays the browser's (a new tab opens), a `:target` or `:download` anchor stays
