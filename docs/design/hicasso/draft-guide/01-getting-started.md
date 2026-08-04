@@ -1,19 +1,17 @@
 # Getting started
 
-> **Draft ahead of the product artefact.** No `implementation/hicasso/` ships yet.
-> Spellings marked **[unfrozen]** are provisional until the API freeze. Behaviour
-> shown here is witnessed under `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Behaviour matches the experimental arm under `implementation/freehand/test/re_frame/bench/hicasso/`.
 
 Booting a re-frame2 app today takes about thirty lines: create a React root,
 install an adapter, render a `frame-root` inside it, remember the root across
 hot reloads so React doesn't get a second `create-root` for a live node. Every
-app writes the same thirty lines and every app gets one of them subtly wrong at
-least once.
+app writes the same ceremony and gets one of the lines subtly wrong at least
+once.
 
-Hicasso collapses that into one call. **One root operation associates a DOM
-node, a frame, and initial events, and returns an idempotent teardown.** Names
-and arities wait for the API freeze; the product-shaped surface below is what
-this guide teaches.
+Hicasso collapses that into one call.
+
+> **One root associates a DOM node, a frame, and initial events, and returns
+> an idempotent teardown.**
 
 ## Your first app
 
@@ -79,7 +77,7 @@ And the boot namespace, which is the actual subject of this page:
 That is the whole boot. `h/root!` **[unfrozen]** takes the DOM node, a config
 map, and one view, and hands back a teardown function. Exact names and arities
 are not frozen; treat the shape — node, config, view → teardown — as the
-authoring contract this guide teaches.
+contract this guide teaches.
 
 The `{}` on `[views/todo-app {}]` is optional — `[views/todo-app]` renders the
 same thing, and the body receives an empty props map either way. Write whichever
@@ -103,14 +101,12 @@ Idempotence is part of the contract, not a courtesy. Teardown paths get called
 from `finally` blocks, test fixtures, and reload hooks that don't coordinate, so
 a second call has to be a no-op rather than a crash.
 
-The standing assertion behind it is worth knowing even if you never write it
-yourself: **zero leaked subscription ref-counts after teardown**. If a root goes
-away and a subscription cache entry survives, that is a bug in Hicasso, not a
-lifecycle subtlety you were supposed to manage.
+After teardown, **subscription ref-counts drop to zero**. A surviving cache
+entry after a root goes away is a Hicasso bug, not something you manage.
 
 ## Hot reload
 
-Hot reload has a floor rather than a prescribed mechanism. After a body swap:
+After a body swap:
 
 - the root, the frame, and app-db survive;
 - the changed view body is the one that runs;
@@ -118,20 +114,16 @@ Hot reload has a floor rather than a prescribed mechanism. After a body swap:
 
 Preserving hook-local state across a swap is optional, so don't build on it.
 
-Note what the floor implies for the code above. `defonce` keeps the root alive
-across reloads, and the guarantee says the *changed body* is used — so a
-`^:dev/after-load` remount hook is not part of the designed story.
-
-Half the mechanism is visible in how `defview` expands. It is a `def` of a
-freshly minted head, so re-evaluating the namespace produces a *new* head —
-which is a new React element type, and React replaces that subtree rather than
-trying to reconcile it. Nothing has to force its way past the default bail-out.
-What is not pinned is what makes the next render happen at all; see **Not
-settled yet**.
+`defonce` keeps the root alive across reloads, and the guarantee says the
+*changed body* is used — so a `^:dev/after-load` remount hook is not required.
+`defview` expands to a `def` of a freshly minted head: re-evaluating the
+namespace produces a *new* head, which is a new React element type, so React
+replaces that subtree rather than reconciling past the default bail-out. What
+is still open is what *triggers* the next render; see **Not settled yet**.
 
 If you edit `:todo/initialise` itself and want the new seed to run, reset the
-frame or reload the page. Hot reload preserves state by design, and it will
-happily preserve it right past your edited setup event.
+frame or reload the page. Hot reload preserves state by design — including past
+your edited setup event.
 
 ## More than one frame
 
@@ -148,31 +140,25 @@ than `:rf.error/*` ids.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | `sub` throws outside a view | `sub` is render-scoped; there is no `@`-anywhere in Hicasso | Use `rf/subscribe-once` in handler and utility code |
-| Async callback dispatches and nothing happens | A bare `dispatch` from a timeout has no frame | Callbacks generated from intent vectors carry their boundary's frame; hand-written async needs the frame explicitly |
+| Async callback dispatches and nothing happens | A bare `dispatch` from a timeout has no frame | Callbacks from intent vectors carry their boundary's frame; hand-written async needs the frame explicitly |
 | First paint shows empty state, then flickers | Seeding raced the first render | Seed through `:initial-events`, not a post-mount dispatch |
 | A view renders twice on mount in dev | React StrictMode double-invokes bodies | Nothing to fix — bodies are pure and re-runnable by contract |
 | Second `h/root!` on the same node | The node already has a live root | Keep the root in a `defonce`; call the teardown before re-rooting |
 
 ## When not to use this
 
-**Server-side rendering is in scope for Hicasso.** The story is the framework's
-own Spec 011 mechanism, not a Hicasso-private one: the server embeds the
-`#__rf_payload` EDN payload and the client adopts it through the reserved
-`:rf/hydrate` door before first render. In the bench arm, the hydration door,
-`defhost`'s `:ssr` policy, the Node render entry, and the spike witness are
-landed and witnessed. The production server arm is still open.
-
-There is still no product `implementation/hicasso/` artefact. If you need the
-full published SSR guide path in production today, a
+**SSR is in scope for Hicasso**, via the framework's Spec 011 path rather than a
+private one. [Server-side rendering](10-server-side-rendering.md) covers the
+Hicasso side. Until there is a product `implementation/hicasso/` package, if you
+need a published production SSR path today, a
 [Reagent or UIx adapter](../../../core/views.md) remains first-class and
-supported. [Server-side rendering](10-server-side-rendering.md) tells the Hicasso
-story door by door.
+supported.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| The root operation's name, its config keys, and the teardown's name | Semantics pinned; names **[unfrozen]** until the API freeze |
-| Does `rf/init!` and adapter installation still apply? | **Not addressed.** Hicasso is a native view layer rather than an adapter, but nothing yet says whether the root operation subsumes process setup or whether an `init!`-equivalent survives |
-| What triggers the re-render after a hot-reload body swap | **Not addressed.** The guarantees and `defview`'s expansion settle how the new body is picked up; nothing says who asks for the render |
-| Where the frame config other than `:initial-events` goes | **Not addressed.** `frame-root` takes a config map today; whether the root operation passes one through is unstated |
+| Root operation name, config keys, teardown name | Behaviour fixed; names **[unfrozen]** |
+| Does `rf/init!` and adapter installation still apply? | **Open.** Hicasso is a native view layer, not an adapter — unclear whether the root subsumes process setup |
+| What triggers re-render after a hot-reload body swap | **Open.** Guarantees and `defview` expansion settle how the new body is picked up; not who asks for the render |
+| Where frame config other than `:initial-events` goes | **Open.** `frame-root` takes a config map today; whether the root passes one through is unstated |

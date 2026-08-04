@@ -1,12 +1,11 @@
 # Controlled inputs
 
-> **Draft ahead of the product artefact.** No `implementation/hicasso/` artefact
-> ships yet. Spellings marked **[unfrozen]** stay provisional until the API freeze.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]**
+> may change. Behaviour matches the experimental arm under
+> `implementation/freehand/test/re_frame/bench/hicasso/`.
 
-A controlled text input is the hardest correctness problem a view layer has, and
-almost none of the difficulty is visible in the code you write.
-
-Here is what you write:
+A text field whose value lives in app-db: value in from a subscription, intent out
+on every keystroke. That is the whole required path.
 
 ```clojure
 (defview title-field [{:keys [id]}]
@@ -15,131 +14,51 @@ Here is what you write:
            :on-input [:todo.ui/edit id ::h/value]}])
 ```
 
-That's it. Value in from a subscription, intent out to an event — ordinary
-`:value` and `:on-input`, no ceremony. `:on-change` works identically; the runtime
-converges after whichever of the two runs last for a keystroke, and takes
-`:on-change` when a field carries both. The rest of this page is about the
-machinery underneath, because you need to know what it guarantees and where it
-stops.
+> **Ordinary `:value` and `:on-input` — no caret helper, no local atom.**
 
-For checkboxes and other non-text controls, the same intent-vector style applies —
-see [`::h/checked`](03-events-as-data.md#the-value-placeholders) on
+`:on-change` works the same way; if a field carries both, the runtime keeps the
+last one that ran for that keystroke. For checkboxes, use
+[`::h/checked`](03-events-as-data.md#the-value-placeholders) the same way — see
 [Events as data](03-events-as-data.md).
 
-## Why this is hard
+## What you get
 
-The value shown on screen lives in app-db, which means every keystroke makes a round
-trip: keystroke → dispatch → event handler → app-db commit → subscription →
-re-render → DOM value.
+The value on screen is app-db state, so every keystroke is a round trip:
+keystroke → dispatch → handler → commit → subscription → re-render → DOM value.
+Hicasso keeps that path **inside the same browser turn**, so two things hold without
+you writing either:
 
-If any part of that is asynchronous, you get the classic failure set. Fast typists
-drop characters. The caret jumps to the end of the field on every edit. IME
-composition breaks mid-word. Frameworks that leave this to taste end up with ad-hoc
-caret heuristics — track the last DOM value, reposition the cursor, hope composition
-survives. The comment in one such module says the alternative "gives the user a
-jarring experience," which is generous.
+1. **Same-tick echo.** The accepted character is back in the field before the
+   browser finishes the event. Fast typists do not drop characters.
+2. **Caret and selection stay put** when the model rejects or rewrites what was
+   typed — mid-string edits included. Remounting the input to "reset" it is not
+   an answer here: remount destroys focus, selection, and composition.
 
-## The synchronous door
-
-A controlled element's intent **dispatches synchronously inside the discrete
-browser event**, and the subscription layer's store notification runs
-synchronously too, so React commits the echo in the same turn. The value is back
-in the DOM before the browser's event handling finishes.
-
-`flushSync` is never the general default, and the one exception is named rather
-than left to taste: the controlled-text **converge** flushes the door's pending
-commit before React's end-of-event restore, so value *and caret* are correct
-in-turn — including when the model rejected or normalised the keystroke. What you
-get for free is exactly what the first example shows: ordinary `:value` and
-`:on-change`/`:on-input`, no ceremony, and a caret that stays put. The boundary
-is equally exact: the exception is one audited converge, reached from the
-element path once per keystroke — and once at `compositionend` instead, for the
-composition carve-out below — on controlled text entry only (a caret-bearing
-`input` or a `textarea` with a non-nil `:value`), and inert everywhere else.
-Needing `flushSync` anywhere else would still be a finding, not an implementation
-detail.
-
-## What the door guarantees
-
-Two operational guarantees, and they are v0's acceptance bar:
-
-**R-A1 — same-tick echo.** A keystroke flows event → commit → re-render such that
-the DOM value never lags the accepted keystroke. No dropped characters, no
-reordering, under the substrate's scheduling. A substrate that batches or defers
-renders must state its input-path exception mechanically — the synchronous door *is*
-that statement.
-
-**R-A2 — caret and selection preservation** when the rendered value differs from
-what was typed. Reject, transform, reformat: mid-string edits included.
-**Remount-as-reset is disqualified** — it destroys focus, selection, and
-composition state, so "just change the key" is not an available answer here.
-
-Browser witnesses stand behind the door on a 100-cell editing grid: same-turn echo,
-mid-string caret, selection, unchanged-model rejection, and async normalisation.
-
-The IME path is the one place where this runtime deliberately does something plain
-React does not, so it is worth stating exactly.
-
-**A composing Enter commits nothing.** Mid-composition, Enter picks an
-IME candidate; it is not a submit. The runtime's key-map gates on the native
-event's `isComposing` and on the legacy keyCode-229 signal that some browsers
-still send, each on its own — witnessed on the grid, and again against the
-browser's real composition machinery driven over CDP, on this runtime, on plain
-React and on the UIx port alike.
-
-**A live composition is carved out of the convergence, and it survives.** If
-your model refuses or normalises what the IME has composed so far, nothing is
-written to the field while the composition is running — not the runtime's
-converge, and not React's own end-of-event restore. Your handler still runs on
-every composing update and your model still refuses or normalises exactly as it
-would for a keystroke; what changed is that the *field* keeps showing the
-composition until the user commits it, and the refusal or normalisation lands
-whole, once, at `compositionend`.
-
-That is a divergence from plain React, claimed as one. On plain React the
-corrected value is written back *inside* the composing input event, and a value
-write during composition silently aborts the exchange: the in-flight kana are
-gone, no `compositionend` fires, and the IME opens a fresh composition on its
-next update — with each aborted draft left in the field for the next one to
-compose on top of. The UIx port does the same a frame later. Both are measured
-beside this runtime in the same harness run, which is where the claim comes
-from.
-
-Two things to know about the scope. It applies to controlled **text** entry —
-the same door everything else on this page describes — and it is **witnessed on
-Chromium**, because the harness drives real composition over CDP and CDP is
-Chromium's protocol. If you see an IME misbehave on WebKit, that is a bug worth
-reporting rather than a documented limit.
-
-## Rejection: when the model says no
-
-Your handler doesn't have to accept what was typed:
+Return `nil` from the handler and the field stays on the model value with the caret
+intact. That is the same path as a successful write; you do not special-case
+rejection in the view.
 
 ```clojure
 (rf/reg-event :order/set-quantity
   (fn [{:keys [db]} [_ id typed]]
     (if (re-matches #"\d*" typed)
       {:db (assoc-in db [:orders id :qty] typed)}
-      nil)))                                       ;; rejected — no-op, model unchanged
+      nil)))                                       ;; rejected — model unchanged
 ```
 
-The rejected path leans on **React's own end-of-discrete-event restore** for the
-*value*: the DOM node briefly holds the typed character, the model doesn't change,
-and React reasserts the model value when the discrete event ends. The **caret**,
-though, React's restore throws away — so the runtime takes it itself, in the
-element path, which is what the converge above is for. Either way, none of this is
-your code: return `nil` from the handler and the field shows the model, caret
-intact. R-A2 is why that path is not optional.
+IME composition is handled for you on the data key-map: a composing Enter does not
+submit, and a live composition is not overwritten when the model refuses or
+normalises mid-draft. Details under [Advanced](#advanced) if you need them.
 
-## Forwarding attributes onto a controlled input
+## Forwarding attributes: `:&`
 
-Sooner or later you write a `field` wrapper: one place that owns the controlled
-contract, and call sites that still need to pass a placeholder, a `name`, a test id.
-The remainder rides in one reserved key, `:&`:
+Sooner or later you wrap the controlled contract once and let call sites pass
+placeholder, `name`, test id, and friends. The remainder rides under one reserved
+key, `:&`:
 
 ```clojure
 (defview field [{:keys [id busy?] :as attrs}]
-  [:input.form-control {:& (dissoc attrs :id :busy?)   ;; whatever the caller sent
+  [:input.form-control {:& (dissoc attrs :id :busy?)
                         :value    (sub [:editor/field id])
                         :disabled busy?
                         :on-input [:editor/edit-field id ::h/value]}])
@@ -147,77 +66,97 @@ The remainder rides in one reserved key, `:&`:
 [field {:id :title :busy? busy? :type "text" :placeholder "Article Title"}]
 ```
 
-**The literal keys you write always win.** Not "usually", not "if you pick the right
-merge form" — always. So a caller who forwards a whole props map, a theme that
-supplies part attributes, or a genuinely hostile remainder carrying `:value` and
-`:on-input` all reach nothing that matters. Your `:value` is your `:value`.
+**Literal keys always win** over anything in `:&`. A caller (or a hostile remainder)
+cannot override your `:value` or `:on-input`. When you *want* the caller's value to
+win, leave the literal out: `[:input {:& attrs}]`. Put the element's own classes on
+the tag (`[:input.form-control …]`); `:key` and `:ref` are never taken from `:&`.
 
-That is the whole design, and it exists because of the thing it deletes: merge forms
-where the wrong choice silently drops caret and IME protection. Correctness by
-choice of syntax is the worst kind, because the code looks fine.
+The law is on the prop slot React ends up with, not the key spelling — so
+`"key"`, `:x/ref`, or `:onInput` against your `:on-input` reach nothing that
+matters either.
 
-Two consequences worth knowing.
+## Resets are by revision, not by value
 
-**Say it by not saying it.** When you *want* the caller's value to win, leave the
-literal out. `[:input {:& attrs}]` takes everything the caller sent. The default is
-the safe direction and the override is the explicit one, which is the way round you
-want when the thing being defended is a caret.
-
-**Classes compose on the tag.** `:key` and `:ref` are never taken from `:&`, and a
-literal `:class` wins outright like any literal — so put your element's own classes
-on the tag (`[:input.form-control {:& attrs}]`) and the shorthand merge combines
-them with whatever the caller brought.
-
-**Spelling it differently does not get round it.** The law is enforced on the prop
-slot React ends up with, not on the key as written, so a remainder carrying
-`"key"`, `:x/ref` or an `:onInput` against your own `:on-input` reaches none of
-them. You do not have to think about this; it is here so you know there is nothing
-to think about.
-
-## Resets are by revision, never by value
-
-When you need to force a field back to a value — a form reset, a "revert" button, a
-server-supplied normalisation — **the trigger is an explicit caller revision, not
-value equality.**
-
-The reason is a specific bug. If you reset whenever the incoming value equals some
-target, then a user who legitimately types that value gets their field yanked out
-from under them, and a rejected same-value reassertion becomes invisible. Explicit
-revision means the reset fires exactly when the caller says so: zero stale paints,
-loop-impossible, correct on retry.
-
-The prop that carries the revision does not have a Hicasso spelling yet; see
-**Not settled yet**.
+Force a field back to a value with an **explicit revision** from the caller — form
+reset, revert, server normalisation — not by comparing the incoming value to a
+target. Value-equality reset is how a user who legitimately types that value gets
+yanked mid-edit, and how a same-value reassertion becomes invisible. The prop that
+carries the revision is still unnamed; see **Not settled yet**.
 
 ## Troubleshooting
 
-This table names mechanisms; the door's failures are behavioural, not error ids.
-
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Characters drop when typing fast | The dispatch path went async — a debounce, a `setTimeout`, a queued effect between keystroke and commit | Keep the controlled path on the synchronous door; debounce the *consumer* of the value, not the write |
-| Caret jumps to end of field on every keystroke | The value was reasserted without caret preservation | R-A2 territory — a real bug in the runtime, not in your view |
-| Enter commits half-typed text mid-composition | A hand-written key handler that bypasses the intent path | Use the data key-map — the commit fence lives there, on both composition signals |
-| An IME composition dies when the model refuses or normalises it | Value reassertion during composition, which the browser treats as an abort | Not this runtime: the converge is carved out of a live composition and React's restore is held off with it. On plain React and the UIx port it is theirs, and not yours to fix |
-| Typing the "reset" value clears the field | Reset keyed on value equality somewhere | Reset on explicit revision |
-| Field goes read-only after an async normalise | The model round-trip didn't complete | Async normalisation is one of the door witnesses; check the handler returns a `:db` write |
-| Focus lost after a validation failure | Something remounted the node | Remount-as-reset is disqualified precisely for this |
+| Characters drop when typing fast | Something async sat between keystroke and commit — debounce, `setTimeout`, a queued effect | Keep the controlled write synchronous; debounce *consumers* of the value, not the write itself |
+| Caret jumps to the end on every keystroke | Value reasserted without caret preservation | Runtime bug, not your view — report it |
+| Enter commits half-typed text mid-composition | A hand-written key handler that bypasses the intent path | Use the data key-map; the composition check lives there |
+| Composition dies when the model refuses mid-draft | A value write during composition (browser treats that as abort) | Not this runtime on controlled text: composition is left alone until `compositionend` |
+| Typing the "reset" value clears the field | Reset keyed on value equality somewhere | Reset on an explicit revision |
+| Focus lost after validation fails | Something remounted the node | Do not remount to reset — that is exactly what destroys focus |
 
 ## When not to control an input
 
-Controlled means every keystroke writes to app-db. On a dense editing grid that is
-one dispatch and one commit per cell per keystroke — price it before you reach for
-it. Which subs recompute matters as much as which boundaries re-render.
+Controlled means every keystroke writes app-db. On a dense grid that is one
+dispatch per cell per keystroke — price it before you pay it.
 
-If a field's intermediate values are nobody's business — a search box whose only
-consumer is a debounced query, a scratch field in a modal — an uncontrolled input
-with a commit on blur is not a compromise. It is the right shape.
+If intermediate values are nobody's business — a search box that only feeds a
+debounced query, a scratch field in a modal — leave the input uncontrolled and
+commit on blur. That is the right shape, not a shortcut.
+
+## Advanced
+
+### Same-tick mechanics (and the one `flushSync`)
+
+Dispatch for a controlled element runs **synchronously inside the discrete browser
+event**, and store notification is synchronous too, so React commits the echo in
+the same turn. The value is back in the DOM before the browser finishes handling
+the event.
+
+`flushSync` is not a general default. The one named exception is the controlled-text
+**converge**: it flushes the pending commit before React's end-of-event restore, so
+value *and caret* are correct in-turn — including when the model rejected or
+normalised the keystroke. That path runs once per keystroke on controlled text
+entry only (a caret-bearing `input` or a `textarea` with a non-nil `:value`), and
+once at `compositionend` for the composition carve-out below. Everywhere else it
+is inert. Needing `flushSync` for anything else is a design problem, not a
+feature.
+
+### Rejection and React's restore
+
+When the handler returns `nil`, the DOM node may briefly hold the typed character;
+React reasserts the model value when the discrete event ends. React's restore
+throws the caret away, so the runtime restores caret and selection itself on that
+converge path. You still only write `nil`.
+
+### IME composition
+
+Two rules, both automatic on the data key-map and controlled-text path:
+
+**A composing Enter commits nothing.** Mid-composition, Enter picks an IME
+candidate; it is not a submit. The key-map gates on the native event's
+`isComposing` and on the legacy keyCode-229 signal some browsers still send.
+
+**A live composition is not overwritten.** If the model refuses or normalises what
+the IME has composed so far, nothing is written to the field while composition is
+running — not the converge, and not React's end-of-event restore. Your handler
+still runs on every composing update; the field keeps showing the composition until
+the user commits it, and the refusal or normalisation applies whole at
+`compositionend`.
+
+That last point differs from plain React. On plain React a corrected value written
+during composition can abort the exchange: in-flight kana vanish, `compositionend`
+never fires, and the next update starts a fresh composition on a half-written
+draft. Hicasso carves the live composition out of that restore on purpose.
+
+Scope: controlled **text** entry (same path as the rest of this page). Composition
+behaviour is proven on Chromium; a WebKit IME misbehave is a bug report, not a
+documented limit.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| The revision prop's spelling on a controlled element | **Not addressed.** The reset law is fixed; the attribute that carries the revision is unnamed |
-| The buffered / draft-and-commit input ladder | **Post-v0.** v0 ships R-A1/R-A2 and no more |
-| The controls kit that owns drafts and revisions | **Post-v0.** In v0 a draft is app-db state you write yourself |
-| Whether `:on-input` or `:on-change` is the taught attribute | Both work, and the runtime takes whichever runs last. Landed screens write `:on-input` for text and `:on-change` for checkboxes; which one the guide should teach is convention, not a hard law |
+| The revision prop's spelling on a controlled element | Reset law fixed; the attribute name is still open |
+| A buffered / draft-and-commit input ladder | Not in the first ship of same-tick echo + caret preservation |
+| A controls kit that owns drafts and revisions | Not first ship — a draft is app-db state you write yourself |
+| Whether `:on-input` or `:on-change` is the taught attribute | Both work; the runtime takes whichever runs last. Current screens use `:on-input` for text and `:on-change` for checkboxes |

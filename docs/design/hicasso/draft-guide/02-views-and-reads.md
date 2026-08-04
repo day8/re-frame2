@@ -1,15 +1,13 @@
 # Views and reads
 
-> **Draft ahead of the product artefact.** No `implementation/hicasso/` ships yet.
-> Spellings marked **[unfrozen]** are provisional until the API freeze. Behaviour
-> shown here is witnessed under `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Behaviour matches the experimental arm under `implementation/freehand/test/re_frame/bench/hicasso/`.
 
 Views that re-render too coarse, and subscription reads that can't live where
 you use them, are the same pain twice: either you hoist a value and re-render a
 room full of siblings, or you invent a second way to read just so a helper can
 see the current filter. Hicasso's answer is a view that is a function from a
-props map to hiccup, and **one** read surface — `sub`, an ordinary function
-call at the point of use:
+props map to hiccup, and **one** way to read — `sub`, an ordinary function call
+at the point of use:
 
 ```clojure
 (ns todo.views
@@ -26,9 +24,10 @@ call at the point of use:
                 :on-input [:todo.ui/edit id ::h/value]}])]))
 ```
 
-Note the third read: it happens only when `editing?` is true, in the middle of
-an expression, and that is legal — the whole point of the surface. `sub` is the
-only product read surface; read where you need the value.
+> **`sub` is legal anywhere in the body** — inside a `let`, a `when`, a helper
+> call. Read where you need the value.
+
+`sub` is the only read form. There is no second spelling for helpers.
 
 ## Boundaries and inlining
 
@@ -46,14 +45,14 @@ React owns its identity, and it can re-render without its parent.
 A **plain call** is just a function call. Its hiccup is spliced into the
 caller's tree, it has no boundary of its own, and any `sub` it performs donates
 that read *upward* to the enclosing boundary. Helpers cost nothing at runtime
-and buy no re-render granularity, which is the trade in one sentence. And
-because reads are ordinary calls, **helpers can read**: a `filter-button` that
-needs the current filter just reads it, and the read belongs to whichever
-boundary is rendering — no value threaded down as an argument.
+and buy no re-render granularity. And because reads are ordinary calls,
+**helpers can read**: a `filter-button` that needs the current filter just
+reads it, and the read belongs to whichever boundary is rendering — no value
+threaded down as an argument.
 
-One rule, one visible distinction. Re-render granularity is a thing you should
-be able to see by reading the source, and Reagent's `^{:key}` metadata folklore
-is gone with it. Keys go in the props map:
+One rule, one visible distinction. Re-render granularity is something you should
+see by reading the source. Keys go in the props map (no Reagent `^{:key}`
+metadata):
 
 ```clojure
 (defview todo-list [_]
@@ -62,19 +61,19 @@ is gone with it. Keys go in the props map:
      [todo-row {:key id :id id}])])
 ```
 
-A bare seq of boundary children needs keys, and today you get React's own key
-warning in development if you forget — a Hicasso-minted one is planned but not
-built. The `for`-lowering sugar that would derive the key from the binding is
-**not v0** — you write `:key` yourself. Putting a plain `defn` in head position
-— `[badge {...}]` where `badge` was never minted by `defview` — is
-`:rf.error/hicasso-bad-head`, a loud error rather than a silent embedding.
+A bare seq of boundary children needs keys. Forget one today and you get React's
+own key warning in development; a Hicasso-minted warning is planned but not
+built. Sugar that would derive the key from a `for` binding is **not yet** —
+you write `:key` yourself. Putting a plain `defn` in head position —
+`[badge {...}]` where `badge` was never minted by `defview` — raises
+`:rf.error/hicasso-bad-head`.
 
 ### The component ABI
 
 | Head | Props | Children | `:key` | `:ref` |
 |---|---|---|---|---|
 | Native tag — `[:div …]` | attribute map | trailing forms | `:key` in the attribute map | callback ref, legal |
-| Hicasso view — `[todo-row …]` | one props map | trailing forms, arriving as `(:children props)` | in the props map, **extracted before your body sees props** | not a v0 surface — use ids |
+| Hicasso view — `[todo-row …]` | one props map | trailing forms, arriving as `(:children props)` | in the props map, **extracted before your body sees props** | not yet — use ids |
 | Fragment — `[:<> …]` | — | trailing forms | on the fragment's props map | — |
 | Foreign — `defhost` (and `[:>]`, once it is built) | converted per declaration | hiccup children become elements | `:key` in props | callback ref, legal |
 
@@ -88,9 +87,7 @@ dropping it in whole — `(into [:ul.nested] children)`, or `(into [:<>] childre
 when you have nothing to wrap it in. A raw vector in child position is read as
 hiccup, and a vector whose head is itself a vector is not a legal element.
 
-`:key` never reaches your body. That is React's contract, not a Hicasso choice,
-and pretending otherwise would be the kind of leaky convenience that costs you a
-day when it finally bites.
+`:key` never reaches your body. That is React's contract, not a Hicasso choice.
 
 ### Bodies are pure and re-runnable
 
@@ -113,21 +110,17 @@ props say. And a function-valued prop compares unequal by identity, deliberately
 — a freshly allocated closure is never `=` to the last one, so an inline handler
 defeats the bail-out every time it is passed fresh.
 
-If you are coming from Reagent this should feel familiar rather than surprising —
-Reagent has compared argv and skipped for a decade, and this is the same shape.
-There is no public opt-out in v1: a boundary that genuinely wants to re-run every
-time its parent does takes an explicit changing revision prop, not a `:memo
-false` switch.
+If you are coming from Reagent this should feel familiar — Reagent has compared
+argv and skipped for a decade, and this is the same shape. There is no public
+opt-out: a boundary that genuinely wants to re-run every time its parent does
+takes an explicit changing revision prop, not a `:memo false` switch.
 
-One corollary is worth stating outright, because the opposite is the thing people
-worry about. Reading a subscription high in the tree and passing the value down
-as a prop does **not** lose an update: the boundary that reads is the boundary
-that invalidates, and every boundary the changed value actually reaches receives
-unequal props at that hop, so the default bail-out never applies to it — the
-value arrives. What the default buys you, beyond that chain, is that a boundary
-the value does **not** reach skips instead of re-rendering for nothing. Moving
-the read down is still a granularity fix, not a correctness fix, and if you go
-looking for a lost update you will not find one.
+Reading a subscription high in the tree and passing the value down as a prop
+does **not** lose an update: the boundary that reads is the boundary that
+invalidates, and every boundary the changed value actually reaches receives
+unequal props at that hop. What the default buys you, beyond that chain, is that
+a boundary the value does **not** reach skips instead of re-rendering for
+nothing. Moving the read down is a granularity fix, not a correctness fix.
 
 Whether the bail-out stays the *default* is still open; see **Not settled yet**.
 Nothing you write changes either way; what may change is whether you have to ask
@@ -152,31 +145,29 @@ you.
       :on-input    [:editor/set-title ::h/value]}]))
 ```
 
-Five rules cover the whole of it.
+Five rules cover it.
 
 **Names go kebab to camel.** `:on-click` emits `onClick` and `:default-value`
 emits `defaultValue`. `:aria-*` and `:data-*` pass through exactly as written,
-because that is what the DOM wants, and a `--custom-property` is preserved
-verbatim. Three attributes React spells differently from HTML are renamed for
-you: `:class` → `className`, `:for` → `htmlFor`, `:charset` → `charSet`.
+and a `--custom-property` is preserved verbatim. Three attributes React spells
+differently from HTML are renamed for you: `:class` → `className`,
+`:for` → `htmlFor`, `:charset` → `charSet`.
 
 **Values convert one level deep.** A nested map — `:style` and its kin — has its
 own keys camelCased, so `{:margin-top 8}` arrives as `marginTop`. Keywords and
 symbols become their names, which is why `:type :text` is `type="text"`.
-Functions cross by identity, deliberately: rewrapping them would defeat the
-default value-equality bail-out and every other comparison that looks at handler
-identity.
+Functions cross by identity: rewrapping them would defeat the default
+value-equality bail-out.
 
 **`:class` takes more than a string.** A keyword, a symbol, or a collection of
 those, with `nil`s dropped and the rest joined by spaces — so the `(when …)`
-above contributes nothing at all when it is false, and you never build a class
-string by hand.
+above contributes nothing when it is false, and you never build a class string
+by hand.
 
-**The tag's `#id` and `.class` shorthand composes** — and the id comes first, as
-it does in every hiccup dialect: `:input#title.form-control`, never
+**The tag's `#id` and `.class` shorthand composes** — id first, as in every
+hiccup dialect: `:input#title.form-control`, never
 `:input.form-control#title`. An explicit `:id` in the map wins over `#title`,
-and `.form-control` on the tag is joined with whatever `:class` brings rather
-than one of them silently replacing the other.
+and `.form-control` on the tag is joined with whatever `:class` brings.
 
 **`:key` is not an attribute.** It is React's identity contract: it is read off
 the map, it never reaches your body, and it is not emitted as a prop.
@@ -184,29 +175,29 @@ the map, it never reaches your body, and it is not emitted as a prop.
 One further key is reserved, and it is the only attribute merge Hicasso has.
 `:&` carries a map of attributes from somewhere else — a caller's forwarded
 remainder, a theme's part attributes — and **the literal keys you write always
-win over it**. The case that makes the law worth having is a controlled input,
-so
-[Controlled inputs](04-controlled-inputs.md#forwarding-attributes-onto-a-controlled-input)
+win over it**. The case that makes the law worth having is a controlled input, so
+[Controlled inputs](04-controlled-inputs.md#forwarding-attributes-)
 teaches it in full.
 
-## How `sub` works, in the four sentences that matter
+## How `sub` works
 
-One fixed runtime hook per boundary collects the reads the body actually made,
-and the commit installs exactly that edge set — so **a branch not taken
-contributes no edge**. Reads inside a lazy `for` are forced by the same pass
-that turns hiccup into elements, so they land in the right boundary's window.
-**A read that escapes the render is loud, never silently stale**: a stored
-handler, a stashed lazy seq, or a `delay` forced later fails naming the query,
-and an unforced `delay` crossing a boundary is refused at the crossing — the
-alternative in each case would be a value that is correct on screen and frozen
-thereafter, attributable to nothing. The honest cost sits on the other side: the
-edge set is a function of what the body *did*, so a body whose control flow
-changes its reads from render to render pays a re-subscribe that replaces the
-whole set, not just the changed key.
+Four sentences:
 
-That last sentence is the one to design around. It is a real difference from a
-surface whose edges are static: dynamic control flow is legal, and the price is
-a whole-set refresh when the taken branches change.
+1. One fixed runtime hook per boundary collects the reads the body actually made,
+   and the commit installs exactly that edge set — so **a branch not taken
+   contributes no edge**.
+2. Reads inside a lazy `for` are forced by the same pass that turns hiccup into
+   elements, so they land in the right boundary's window.
+3. **A read that escapes the render is loud, never silently stale**: a stored
+   handler, a stashed lazy seq, or a `delay` forced later fails naming the
+   query; an unforced `delay` crossing a boundary is refused at the crossing.
+4. The edge set is a function of what the body *did*, so a body whose control
+   flow changes its reads from render to render re-subscribes the whole set, not
+   just the changed key.
+
+That last point is the one to design around. Dynamic control flow is legal; the
+price when taken branches change is a whole-set refresh. See **Advanced** for
+the collector mechanics.
 
 ## Rules every read obeys
 
@@ -216,31 +207,25 @@ a whole-set refresh when the taken branches change.
 - **Framework subscriptions read identically to your own** — machine tags,
   resource and mutation state, route identity. They are first-class in the
   index, not a special case.
-- **Sub-key identity is `(query-id, args)` under value equality.** Note what
-  that buys you: a *freshly allocated* map or vector is not a problem. Two
-  structurally equal persistent values are one cache key, so rebuilding
-  `{:scope :all}` inside the query on every render hits the same entry every
-  time, and you do not have to hoist it into a `def` or memoize it to be safe.
-  Sorting the same items into the same order is the same story — `=` compares
-  sequential values by their contents, so a freshly sorted seq is the key the
-  last one was, at the cost of walking it. Two things do thrash the index. An
-  argument whose **value** genuinely moved is a different key, and correctly so:
-  a timestamp folded into the query, or a sort order that really changed. And an
-  argument carrying **reference** identity rather than value identity — a
-  function, a JS object or array, a host object — is unequal to itself between
-  renders, because for those `=` is identity. Documented, programmer-trusted,
-  not policed.
+- **Sub-key identity is `(query-id, args)` under value equality.** A *freshly
+  allocated* map or vector is not a problem: two structurally equal persistent
+  values are one cache key, so rebuilding `{:scope :all}` inside the query on
+  every render hits the same entry. What thrashes the index: an argument whose
+  **value** genuinely moved (a timestamp, a sort order that really changed),
+  and an argument carrying **reference** identity (a function, a JS object or
+  array, a host object) — for those `=` is identity, so they are unequal to
+  themselves between renders. Documented, programmer-trusted, not policed.
 
 ## Troubleshooting
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| A boundary doesn't re-render even though something on screen should have changed | Its props still compare `=` to last render and it made no read of its own that moved — the default bail-out is doing exactly what it's for | Read the changing value with `sub` inside the boundary that displays it, or thread it down as a prop so the value actually differs there |
-| A boundary re-renders every time though its props look unchanged | A prop carries reference identity rather than value identity — an inline function literal, a JS object or array, a host object — so `=` correctly says unequal | Hoist the function, or convert the value to a persistent one. Freshness is not the problem: two structurally equal persistent values are `=` however recently they were built |
-| One cell changes and 300 boundaries re-render | The read lives too high in the tree | Push the read down into the boundary that displays it |
-| One value changes and a whole subtree re-renders with it | The value is read in an ancestor and passed down as a prop. Nothing is *lost* — the reading ancestor re-renders with the new value, and every boundary the value actually reaches has unequal props at that hop, so the default bail-out does not catch it there. Coarse invalidation, not missed invalidation | Read at the point of use, so the boundary that displays the value is the boundary that invalidates |
-| A read after the render throws, naming the query | A handler closure, a stashed lazy seq, or a `delay` deferred a `sub` past the render | Read during the render and close over the value; the loud error is the alternative to a silently frozen edge |
-| Index thrash, subscriptions constantly re-created | Query args that are not *value*-stable — a folded-in timestamp, a sort order that really changed, or a JS object or function carrying reference identity | Allocation is fine; two equal persistent values are one key however freshly built. Make the args equal under `=` between renders |
+| Boundary doesn't re-render though the screen should have changed | Props still `=` last render and no own read moved — bail-out working as designed | `sub` the changing value inside the boundary that displays it, or thread it as a prop so the value differs there |
+| Boundary re-renders every time though props look unchanged | A prop carries reference identity (inline `fn`, JS object/array, host object) | Hoist the function, or use a persistent value. Two equal persistent values are `=` however freshly built |
+| One cell changes and 300 boundaries re-render | The read lives too high | Push the read down into the boundary that displays it |
+| One value changes and a whole subtree re-renders | Value read in an ancestor and passed as a prop — coarse invalidation, not a missed one | Read at the point of use |
+| A read after the render throws, naming the query | A handler closure, stashed lazy seq, or `delay` deferred a `sub` past the render | Read during the render and close over the value |
+| Index thrash, subscriptions constantly re-created | Query args not *value*-stable (timestamp, real sort-order change, or JS/fn identity) | Make the args equal under `=` between renders; allocation of equal persistent values is fine |
 | A body's side effect fires twice | StrictMode double-invoke | Bodies are pure; move the effect out |
 
 ## When not to use a boundary
@@ -251,10 +236,36 @@ and simpler — no element, no identity, no index membership. Boundaries are for
 *re-render granularity*. Reach for one when you want something to update
 independently, not because the markup got long.
 
+## Advanced
+
+### The sub collector
+
+Each boundary owns one fixed runtime hook that opens a collection window for the
+duration of the body. Every `sub` call in that window records its query. At
+commit, the runtime installs **exactly** the edge set the body just made —
+nothing from a branch not taken, nothing from a previous render that no longer
+applies.
+
+Reads inside a lazy `for` (or any other lazy seq) are forced by the same pass
+that lowers hiccup to React elements. That is why they still land in the right
+boundary: the force happens while the window is open, not later when something
+else walks the seq.
+
+Escape is loud on purpose. If you close over a `sub` call site (rather than its
+value), stash an unforced lazy seq that contains a read, or force a `delay`
+after the render, the runtime fails naming the query. An unforced `delay` that
+would cross a boundary is refused at the crossing. The alternative in each case
+is a value that looks right on screen and freezes thereafter, with nothing to
+blame.
+
+Because the edge set tracks control flow, a body that sometimes reads three
+queries and sometimes five pays a full re-subscribe when the taken set changes —
+not a surgical add/remove of one key. That is the cost of legal dynamic reads.
+
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| `sub` and `defview` spellings | Working names; declaration spellings stay **[unfrozen]** until the API freeze |
-| Whether the value-equality bail-out stays the **default** | **Open.** The runtime implements memo-by-default today; an alternative that ships the same comparator as an explicit opt-in is still on the table. This page teaches the default because that is what is landed |
-| The dev warning for an unkeyed seq — its id and whether it is dev-only | **Not addressed** beyond "dev warning"; nothing mints one yet — what a reader sees today is React's own key warning |
+| `sub` and `defview` spellings | Working names; **[unfrozen]** until API freeze |
+| Whether value-equality bail-out stays the **default** | **Open.** Runtime implements memo-by-default today; explicit opt-in is still on the table |
+| Dev warning for an unkeyed seq — id and whether dev-only | **Open.** Today you see React's own key warning |

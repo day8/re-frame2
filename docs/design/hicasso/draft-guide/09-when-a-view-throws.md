@@ -1,15 +1,14 @@
 # When a view throws
 
-> **Draft ahead of the product artefact.** No `implementation/hicasso/` artefact
-> ships yet. Spellings marked **[unfrozen]** stay provisional until the API freeze.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]**
+> may change. Behaviour matches the experimental arm under
+> `implementation/freehand/test/re_frame/bench/hicasso/`.
 
-A view body throws — a `nil` where a map was expected, a key that moved, a
-subscription returning a shape last week's code doesn't handle. React's answer is
-not a red box around the broken component. **React unmounts the entire root**, and
-your user is looking at a blank page.
+A view body throws — `nil` where a map was expected, a key that moved, a
+subscription shape last week's code cannot handle. React's default is not a red
+box around the broken component.
 
-That is the right default for a framework that cannot know which parts of your app
-are independent. You do know, so you say so:
+> **React unmounts the entire root. You fence regions.**
 
 ```clojure
 (defview article-page [{:keys [id]}]
@@ -20,15 +19,14 @@ are independent. You do know, so you say so:
    [site-footer {}]])
 ```
 
-If `article-body` throws, the header and footer stay on screen and the paragraph
-takes its place. Nothing else in the tree notices.
+If `article-body` throws, the header and footer stay up and the paragraph takes
+its place. Nothing else in the tree notices.
 
 ## The three keys
 
-`h/boundary` **[unfrozen]** is the runtime's own error boundary, and it takes
-exactly three props. There is no error classification, no retry policy, no logging
-surface — each of those is your application's decision, and `:on-error` is the door
-you make them behind.
+`h/boundary` **[unfrozen]** takes exactly three props. No built-in classification,
+retry policy, or logging — those are your app's decisions; `:on-error` is where
+you make them.
 
 | Key | Shape | What it does |
 |---|---|---|
@@ -36,15 +34,13 @@ you make them behind.
 | `:reset-key` | any value, compared with `=` | changing it clears the caught failure and re-mounts the children |
 | `:on-error` | an intent vector, or a plain function | fires once per caught failure |
 
-**`:fallback` can read the error.** Pass a function and it is called with whatever
-was thrown, so a development build can show the message and a production one can
-show a sentence. Hiccup the function returns is lowered exactly like hiccup you
-wrote inline — intents included.
+**`:fallback` can read the error.** Pass a function and it receives whatever was
+thrown — show the message in development, a sentence in production. Hiccup it
+returns is lowered like any other, intents included.
 
-**`:reset-key` is how a retry happens, and it is yours to schedule.** The boundary
-never guesses. It clears its caught failure when the key changes, and remounts the
-children; if they throw again, it catches again. A counter in app-db is the usual
-shape:
+**`:reset-key` is how retry works.** The boundary never guesses. It clears when the
+key changes and remounts the children; if they throw again, it catches again. A
+counter in app-db is the usual shape:
 
 ```clojure
 (defview article-page [{:keys [id]}]
@@ -58,73 +54,66 @@ shape:
     [article-body {:id id}]]])
 ```
 
-That retry button is an ordinary intent inside a fallback, and it works — the
-fallback is walked inside the boundary's own render, and the boundary re-binds the
-frame it was mounted under around that walk so a handler there lowers exactly as it
-would in the parent's body.
+The retry button is an ordinary intent inside the fallback. The fallback is walked
+in the boundary's own render under the frame the boundary was mounted in, so
+handlers lower the same way they would in the parent.
 
 **`:on-error` fires once per failure.** A vector is dispatched with the error
-appended, so `[:app/record-failure]` reaches your handler as
-`[:app/record-failure error]`, in the frame the boundary is mounted under. A
-function is called with the error instead, and nothing is dispatched. Once means
-once even in development, where StrictMode runs the throwing render twice and React
-still reports a single catch.
+appended — `[:app/record-failure]` reaches the handler as
+`[:app/record-failure error]` — in the boundary's frame. A function is called with
+the error and nothing is dispatched. Once means once even under StrictMode: the
+throwing render may run twice in development, and React still reports a single
+catch.
 
-## What it does not catch
+## What it catches
 
-Worth knowing precisely, because a boundary that quietly does not catch is worse
-than no boundary at all. This is React's line, and Hicasso inherits it exactly.
+React's line, inherited exactly:
 
-**Caught:** a throw from a render, and from the lifecycle and effects of the tree
-below.
+**Caught:** a throw from render, and from lifecycle and effects of the tree below.
 
-**Not caught:** a throw from an event handler, from a `setTimeout`, or from
-anything else the browser calls outside React's own work loop. An intent handler
-that throws lands in the browser's error channel, not here — and that is the right
-place for it, because your event pipeline has its own error handling and a view
-layer should not be intercepting it.
+**Not caught:** a throw from an event handler, a `setTimeout`, or anything else the
+browser calls outside React's work loop. An intent handler that throws goes to the
+browser's error channel — correct, because the event pipeline has its own error
+handling and the view layer should not intercept it.
 
 ## Where to put them
 
 Not everywhere, and not once at the root.
 
-One boundary at the root gives you a whole-page fallback, which is barely better
-than the blank page: the user has lost their navigation too. One boundary per view
-is the other extreme — a fallback per byline is noise, and most of your views
-cannot fail independently of their parent anyway.
+A single root boundary is a whole-page fallback — barely better than a blank
+screen; navigation goes with it. One boundary per view is noise, and most views
+cannot fail independently of their parent.
 
-The useful grain is a **region a user can still work without**: a panel, a tab
+The useful grain is a **region the user can still work without**: a panel, a tab
 body, a sidebar widget, a route's main content. Ask what the rest of the page is
-still good for if this part is gone. If the answer is "nothing", the boundary
-belongs further up.
+worth if this part is gone. If the answer is "nothing", put the boundary higher.
 
-One caution on nesting. **A fallback that throws while rendering is caught by the
-next boundary up**, so a clever fallback that reads the state that caused the
-failure can turn one broken panel into a broken page. Keep fallbacks dull.
+**A fallback that throws while rendering is caught by the next boundary up.** A
+clever fallback that re-reads the state that caused the failure can turn one
+broken panel into a broken page. Keep fallbacks dull.
 
 ## Troubleshooting
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| The whole page goes blank when one view throws | Nothing caught it — React unmounts the root by default | Put an `h/boundary` around the region that can fail |
-| A throw from an event handler isn't caught | Handlers run outside React's work loop; boundaries only see render, lifecycle and effects | Handle it in the event pipeline, where the error already has a home |
-| The fallback shows and never goes away | No `:reset-key`, or the key never changes | The retry is the caller's to schedule — move a counter in app-db and read it as the key |
-| A retry button in the fallback does nothing | Check it is an intent vector at `:on-click` and that the boundary is mounted under a frame | Intents in a fallback lower under the boundary's own frame; with no frame in scope you get `:rf.error/hicasso-intent-outside-boundary` naming the intent |
-| One panel breaks and the whole page goes with it | The fallback itself threw, and the next boundary up caught that instead | Keep the fallback dull — no reads of the state that failed, no computation |
-| `:on-error` fires twice in development | It doesn't — StrictMode re-runs the failing render, and React still reports one catch | If you genuinely see two, they are two failures |
+| Whole page blanks when one view throws | Nothing caught it — React unmounts the root by default | Put `h/boundary` around the region that can fail |
+| Throw from an event handler isn't caught | Handlers run outside React's work loop | Handle it in the event pipeline |
+| Fallback shows and never leaves | No `:reset-key`, or the key never changes | Move a counter in app-db and read it as the key |
+| Retry button in the fallback does nothing | Missing intent at `:on-click`, or no frame in scope | Intents in a fallback lower under the boundary's frame; without a frame you get `:rf.error/hicasso-intent-outside-boundary` naming the intent |
+| One panel breaks and the whole page follows | The fallback itself threw; the next boundary up caught that | Keep the fallback dull — no reads of the failed state, no heavy work |
+| `:on-error` seems to fire twice in development | It doesn't — StrictMode re-runs the failing render; React still reports one catch | Two fires means two real failures |
 
-## When not to reach for one
+## When not to use one
 
 If the failure is *expected* — a request that can 404, a form that can be invalid,
-a resource that can be unavailable — it is not an exception, it is a state. Model
-it in app-db and render it. A boundary is for the failures you did not anticipate,
-and using one for the ones you did makes a thrown exception part of your control
-flow, which is a worse version of a `:status` key.
+a resource that can be unavailable — it is a state, not an exception. Model it in
+app-db and render it. A boundary is for failures you did not plan for. Using one
+for control flow is a worse version of a `:status` key.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| `h/boundary`'s name and its three key names | Semantics pinned; the spellings are unfrozen like every other declaration spelling |
-| Whether `:on-error` should reach an application-wide handler as well | **Not addressed.** The per-boundary door ships; how an app aggregates failures is its own business today |
-| A richer boundary API | **Post-v0** |
+| `h/boundary` name and its three key names | Behaviour fixed; spellings **[unfrozen]** with the rest of the declaration API |
+| Whether `:on-error` should also reach an app-wide handler | Not addressed — per-boundary `:on-error` ships; aggregation is the app's business |
+| A richer boundary API | Open after the first ship |
