@@ -277,6 +277,36 @@
       ;; regions rather than pruning the tree.
       (is (str/includes? html "<h1>hosts</h1>")))))
 
+(defn- walk-reachable-host-heads
+  "Every minted host head reachable from `form` through vectors and seqs
+  — which is exactly what the retired `ssr.host-policy/apply-policy`
+  could see, reproduced in six lines so the retirement's load-bearing
+  claim is a CHECK rather than a paragraph. Used by the row below."
+  [form]
+  (cond
+    (vector? form) (let [head (nth form 0 nil)]
+                     (if (codec/host-head? head)
+                       [head]
+                       (into [] (mapcat walk-reachable-host-heads) form)))
+    (seq? form)    (into [] (mapcat walk-reachable-host-heads) form)
+    :else          []))
+
+(deftest a-pre-walk-over-the-handed-in-form-cannot-see-a-nested-host
+  (testing "WHY THE WALK IS GONE RATHER THAN KEPT BESIDE THE GATE
+           (rf2-2rtt6.92). A walk can only reach the tree it is handed, and
+           this is that reach, measured. Keep this row if a server-side
+           pre-walk is ever proposed again: it is the whole argument in two
+           numbers."
+    (is (= 3 (count (walk-reachable-host-heads fixtures/host-screen)))
+        "the CONTROL — the handed-in row's three host uses are visible to a
+         walk, so the measurement below is about position and not about a
+         walk that finds nothing anywhere")
+    (is (= 0 (count (walk-reachable-host-heads fixtures/nested-host-screen)))
+        "and the nested row's are INVISIBLE to it: those elements do not
+         exist until the boundary body runs inside `renderToString`. A walk
+         kept alive beside the gate would therefore be a second mechanism
+         that covers a strict subset of the first")))
+
 (deftest a-host-used-inside-a-defview-body-honours-its-policy
   (testing "THE POSITION NO PRE-WALK COULD REACH (rf2-2rtt6.92). Both hosts
            are used inside a boundary body, so their elements do not exist
