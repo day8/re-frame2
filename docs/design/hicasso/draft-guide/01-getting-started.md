@@ -2,39 +2,91 @@
 
 > **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
-You already know re-frame's pipeline: events write app-db, subscriptions derive
-values, views paint the screen. What you still choose is *how* those views meet
-React. Today that usually means a Reagent or UIx **adapter** — first-class, and
-still the right production path for many apps. Hicasso is the other bet: a view
-layer **built for re-frame2**, not bolted on beside it.
+You already know re-frame2's pipeline: events write **app-db**, subscriptions
+derive values, views paint the screen. What you still choose is *how* those views
+meet React.
 
-## Why use it
+Today that usually means a **Reagent** or **UIx adapter** — first-class,
+supported, and the right production path for many apps. **Hicasso is the other
+option:** re-frame2's **native** view layer. Not an adapter bolted onto someone
+else's component model. A **Hiccup-first, interpreted**, data-oriented view
+system designed for re-frame2 — flexibility, testability, and tight integration
+with the framework you already use.
 
-Three things you feel in the first hour of writing an app, not in a benchmark.
+> **Hicasso — Hiccup views for re-frame2.** Same events, same app-db, same
+> subscriptions. A different (and deliberate) way to write the screen.
 
-**The tree stays data.** An `:on-click` can be `[:todo/toggle id]` instead of a
-closure. You can `=` a button, a form, a route link. Tests and tools read the
-same tree the user clicked — no "render, click, hope the handler ran." Later
-pages spell that out; the first view below already does it.
+## What kind of product it is
 
-**You read where you use the value.** `sub` is an ordinary function call, legal
-inside a `when`, a helper, a loop. You do not invent a second way to read just
-so a child can see the current filter. [Views and reads](02-views-and-reads.md)
-is the full story.
+**Interpreted Hiccup.** You write vectors and maps. The runtime walks them into
+React elements. There is no JSX transform and no second markup language. Markup
+stays ordinary Clojure data — the thing you `map`, `filter`, `pprint`, and (when
+the tree is pure data) assert with `=`.
 
-**Boot is one call, not thirty lines of glue.** Adapter mounts still work; they
-also accumulate the same ceremony every app copies wrong once — React root,
-adapter install, `frame-root`, hot-reload root identity. Hicasso collapses that
-to a single root operation with a teardown you can call twice without fear.
+**Data-oriented by default.** Handlers can be event vectors, not closures. Keys,
+prevent, navigate, and controlled field values have data spellings. That is the
+main product delta vs "use React, wire re-frame on the side."
 
-> **Use Hicasso when you want views that are re-frame all the way down — data
-> handlers, point-of-use reads, and a root that owns mount and teardown.**
+**Built for re-frame2's clock.** Subscriptions are the reactive source; the
+commit is the write clock. Views are pure and re-runnable. There is no second
+app-facing state model — no ratom graph, no product `local` for application
+state. Semantic UI state lives in app-db (with sugar where it helps).
 
-What you are *not* choosing: a second app architecture. Events, app-db, and
-subscriptions stay the same. Only the view layer and how you put it on a DOM
-node change. The rest of this guide is the rest of that surface — intents,
-controlled inputs, interop, presence, SSR. This page gets one view on screen
-and takes it down again.
+**A peer of Reagent and UIx, not a wrapper.** Reagent is the familiar hiccup
+authoring dialect with its own reactive runtime. UIx is React-with-hooks in
+Clojure. Hicasso aims at what UIx users miss from Reagent (markup as data,
+helpers that return data, structural tests) without becoming a better Reagent
+reaction engine. The charter's line is useful: *a better UIx with hiccup
+interpretation, not a better Reagent.*
+
+## Why pick it over Reagent or UIx
+
+**Vs Reagent**
+
+1. **The tree stays data, including clicks.** `{:on-click [:todo/toggle id]}`
+   instead of `#(rf/dispatch …)`. Tests and tools can `=` the tree; you do not
+   mount-and-click to learn what a button means.
+2. **Reads at the point of use, without a second local-state system.** `sub` is
+   an ordinary call — legal in a `when`, a helper, a loop. Semantic UI state goes
+   to app-db; no product `r/atom` for "is this open?"
+
+**Vs UIx**
+
+1. **You stay in re-frame's model, not React's.** UIx is hooks-first; the adapter
+   is re-frame *plus* that world. Hicasso's happy path is pure bodies, data
+   handlers, and app-db — hooks are a host edge, not the default architecture.
+2. **Same data-tree win.** Event meaning is still data, not a function React
+   holds.
+
+**Not the pitch:** "stellar performance." The programme bar is competitive with
+Reagent on the important rows — good enough to ship, not a speed-marketing
+product. Prefer Hicasso for **authoring, testing shape, and re-frame integration**,
+not for winning a microbenchmark war.
+
+## What you get (feature map)
+
+Honest list. Each row is a real surface in this guide; none is a promise of a
+finished product package.
+
+| Capability | What it means | Where |
+|---|---|---|
+| **Hiccup-first views** | `defview`, boundaries vs plain helpers, attribute conversion, `:&` merge | [Views and reads](02-views-and-reads.md) |
+| **Point-of-use `sub`** | One read form; framework subs (route, machines, resources) read the same way | [Views and reads](02-views-and-reads.md) |
+| **Events as data** | Intent vectors, `::h/value` / `::h/checked`, prevent, key-map, `h/fn` when you need the event | [Events as data](03-events-as-data.md) |
+| **Routing links as data** | `route-link` — href + click decision assertable with `=` | [Events as data](03-events-as-data.md) |
+| **Controlled inputs** | Value through app-db; same-tick echo; caret preservation; careful IME on the controlled path | [Controlled inputs](04-controlled-inputs.md) |
+| **Testing shape** | **Today:** assert intents / prevent / navigate / presence attrs with `=` (no browser). **Mounted** for hooks, caret, real React. **Planned:** full headless structural render (ruled, not built; no dedicated bead yet) | [Testing](08-testing.md) |
+| **Interop** | `defhost` for npm React components; policies at the declaration; `[:>]` secondary and still landing | [Interop](05-interop.md) |
+| **Ephemeral UI state** | No product `local`; `reg-state` sugar; placement rules | [Ephemeral state](07-ephemeral-state.md) |
+| **Exit / enter animation** | `h/presence` — node can outlive app-db for a fade-out | [Ephemeral state](07-ephemeral-state.md) |
+| **Lifecycle without `:on-mount`** | Page data → routes; seed → `:initial-events`; animation → presence; DOM/SDK → ref / `defhost` | [Ephemeral state](07-ephemeral-state.md) |
+| **Error regions** | `h/boundary` — one broken view does not blank the page | [When a view throws](09-when-a-view-throws.md) |
+| **Theming without context** | CSS tokens + app-db theme *choice*; part maps for libraries still open | [Theming](06-theming.md) |
+| **Mount / unmount** | One root operation; idempotent teardown; zero leaked sub ref-counts after teardown | this page |
+| **Multi-frame** | Two roots, two frames — isolated app-dbs on one page | this page |
+| **SSR participation** | Same pure bodies + framework hydration; experimental doors exist; production package still open | [Server-side rendering](10-server-side-rendering.md) |
+| **Xray-friendly UI** | UI state in app-db + named events shows up in app-db diffs and time-travel; not a special Hicasso Xray tab | framework Xray + this design |
+| **Performance** | Good / competitive goal vs Reagent; not "fastest UI library" | programme bar, not a guide claim |
 
 ## Your first app
 
@@ -77,10 +129,12 @@ Three namespaces, in the shape any re-frame2 app already uses.
        title]])])
 ```
 
-That view reads with `sub` — an ordinary function call at the point of use.
-[Views and reads](02-views-and-reads.md) covers it.
+That view already shows two Hicasso habits: **`sub` at the point of use**, and an
+**intent vector** on `:on-change` (here a toggle by id — no value to read from the
+event). [Views and reads](02-views-and-reads.md) and
+[Events as data](03-events-as-data.md) go deeper.
 
-And the boot namespace, which is the actual subject of this page:
+And the boot namespace:
 
 ```clojure
 (ns todo.main
@@ -97,8 +151,6 @@ And the boot namespace, which is the actual subject of this page:
            [views/todo-app {}]))
 ```
 
-That is the whole boot — the one call from the open:
-
 > **One root associates a DOM node, a frame, and initial events, and returns
 > an idempotent teardown.**
 
@@ -107,29 +159,25 @@ hands back a teardown function. Exact names and arities are not frozen; treat
 the shape — node, config, view → teardown — as the contract this guide teaches.
 
 The `{}` on `[views/todo-app {}]` is optional — `[views/todo-app]` renders the
-same thing, and the body receives an empty props map either way. Write whichever
-reads better at the call site.
+same thing, and the body receives an empty props map either way.
 
-`:initial-events` behaves exactly as it does under
+`:initial-events` behaves as under
 [`frame-root`](../../../core/how-to/boot-and-mount-an-app.md): ordinary events,
-run once in order, seeding app-db before first paint. Even initial values arrive
+run once in order, seeding app-db **before** first paint. Initial values arrive
 by event — that rule does not change because the view layer did.
 
 ## The teardown
-
-`h/root!` returns a function. Call it and the root unmounts, the subscriptions
-release, and the DOM node is yours again:
 
 ```clojure
 (stop!)   ;; idempotent — calling it twice is not an error
 ```
 
-Idempotence is part of the contract, not a courtesy. Teardown paths get called
-from `finally` blocks, test fixtures, and reload hooks that don't coordinate, so
-a second call has to be a no-op rather than a crash.
+The root unmounts, subscriptions release, the DOM node is yours again. Teardown
+paths run from `finally` blocks, fixtures, and reload hooks that do not
+coordinate — a second call is a no-op, not a crash.
 
 After teardown, **subscription ref-counts drop to zero**. A surviving cache
-entry after a root goes away is a Hicasso bug, not something you manage.
+entry is a Hicasso bug, not something you manage.
 
 ## Hot reload
 
@@ -139,61 +187,57 @@ After a body swap:
 - the changed view body is the one that runs;
 - no subscriptions leak.
 
-Preserving hook-local state across a swap is optional, so don't build on it.
+Preserving hook-local state across a swap is optional — do not build on it.
+`defonce` keeps the root; `defview` mints a new React element type on re-eval, so
+React replaces that subtree. What *triggers* the next render is still open; see
+**Not settled yet**.
 
-`defonce` keeps the root alive across reloads, and the guarantee says the
-*changed body* is used — so a `^:dev/after-load` remount hook is not required.
-`defview` expands to a `def` of a freshly minted head: re-evaluating the
-namespace produces a *new* head, which is a new React element type, so React
-replaces that subtree rather than reconciling past the default bail-out. What
-is still open is what *triggers* the next render; see **Not settled yet**.
-
-If you edit `:todo/initialise` itself and want the new seed to run, reset the
-frame or reload the page. Hot reload preserves state by design — including past
-your edited setup event.
+If you edit `:todo/initialise` and want the new seed, reset the frame or reload
+the page. Hot reload preserves state — including past your edited setup event.
 
 ## More than one frame
 
-`:frame` names the frame the root ensures, the same way `:id` does for
-`frame-root`. Two roots with two different frame ids give you two isolated apps
-on one page — own app-db, own queue, own subscription cache. Views inside one
-root never reach into another frame's state.
+`:frame` names the frame the root ensures (like `:id` on `frame-root`). Two roots
+with two frame ids → two isolated apps on one page: own app-db, queue, and
+subscription cache. Views in one root never read another frame's state.
 
 ## Troubleshooting
 
-No boot-path error ids are minted yet, so this table names mechanisms rather
-than `:rf.error/*` ids.
+No boot-path error ids are minted yet; this table names mechanisms.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| `sub` throws outside a view | `sub` is render-scoped; there is no `@`-anywhere in Hicasso | Use `rf/subscribe-once` in handler and utility code |
-| Async callback dispatches and nothing happens | A bare `dispatch` from a timeout has no frame | Callbacks from intent vectors carry their [boundary](02-views-and-reads.md#boundaries-and-inlining)'s frame; hand-written async needs the frame explicitly |
-| First paint shows empty state, then flickers | Seeding raced the first render | Seed through `:initial-events`, not a post-mount dispatch |
-| A view renders twice on mount in dev | React StrictMode double-invokes bodies | Nothing to fix — bodies are pure and re-runnable by contract |
-| Second `h/root!` on the same node | The node already has a live root | Keep the root in a `defonce`; call the teardown before re-rooting |
+| `sub` throws outside a view | `sub` is render-scoped; there is no `@`-anywhere | `rf/subscribe-once` in handlers and utilities |
+| Async callback dispatches and nothing happens | Bare `dispatch` from a timeout has no frame | Intent callbacks carry their [boundary](02-views-and-reads.md#boundaries-and-inlining)'s frame; hand-written async needs the frame explicitly |
+| First paint empty, then flickers | Seed raced first render | Seed through `:initial-events`, not a post-mount dispatch |
+| View renders twice on mount in dev | StrictMode double-invokes bodies | Expected — bodies are pure and re-runnable |
+| Second `h/root!` on the same node | Live root already owns the node | `defonce` the teardown; call it before re-rooting |
 
-## When not to use this
+## When not to use Hicasso
 
-**You are happy on Reagent or UIx.** Those adapters are first-class and
-supported. Hicasso is not "Reagent, but shorter boot" — it is a different view
-layer with different spellings (`defview` / `sub`, intent vectors, no `r/atom`).
-If your team already ships on an adapter and nothing hurts, stay there.
+**You are happy on Reagent or UIx.** Stay. Adapters are first-class. Hicasso is a
+different view layer (`defview` / `sub`, intent vectors, no product `r/atom`), not
+"the same thing with shorter boot."
 
-**You need a published production SSR path today.** SSR is in scope for Hicasso
-([Server-side rendering](10-server-side-rendering.md)), but there is not yet a
-product package under `implementation/hicasso/`. For production SSR now, use a
-[Reagent or UIx adapter](../../../core/views.md) and the framework's Spec 011
-story.
+**You need a published production SSR path today.** SSR is in scope
+([Server-side rendering](10-server-side-rendering.md)), but there is no product
+package under `implementation/hicasso/` yet. Use a
+[Reagent or UIx adapter](../../../core/views.md) and Spec 011 for production now.
 
-**You only wanted a thinner mount helper.** If the rest of Hicasso (data
-handlers, point-of-use `sub`, presence, `defhost`) is not the draw, an adapter
-`frame-root` is enough — do not adopt a view layer for one less boot line.
+**You wanted React-first authoring.** Heavy hooks, render props everywhere, a
+React design system as the centre of the app — UIx (or raw React) may fit better.
+Hicasso meets foreign React at `defhost`; it does not try to be the best pure-React
+CLJS library.
+
+**You only wanted thinner mount glue.** If data handlers, point-of-use `sub`, and
+the rest of the map above are not the draw, adapter `frame-root` is enough.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
 | Root operation name, config keys, teardown name | Behaviour fixed; names **[unfrozen]** |
-| Does `rf/init!` and adapter installation still apply? | **Open.** Hicasso is a native view layer, not an adapter — unclear whether the root subsumes process setup |
-| What triggers re-render after a hot-reload body swap | **Open.** Guarantees and `defview` expansion settle how the new body is picked up; not who asks for the render |
-| Where frame config other than `:initial-events` goes | **Open.** `frame-root` takes a config map today; whether the root passes one through is unstated |
+| Does `rf/init!` / adapter install still apply? | **Open.** Native view layer — unclear whether the root subsumes process setup |
+| What triggers re-render after a hot-reload body swap | **Open** |
+| Where frame config other than `:initial-events` goes | **Open** |
+| Full headless view render for tests | **Designed, unbuilt** — see [Testing](08-testing.md) |

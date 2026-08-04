@@ -8,7 +8,7 @@ programmer actually type?**
 
 | Page | Its one job |
 |---|---|
-| [Getting started](01-getting-started.md) | Why Hicasso, then put one view on screen and take it down again |
+| [Getting started](01-getting-started.md) | What Hicasso is (vs Reagent/UIx), what you get, then put one view on screen |
 | [Views and reads](02-views-and-reads.md) | Write a view; read subscriptions where you use them; write its attributes |
 | [Events as data](03-events-as-data.md) | Put an event vector in an attribute and let the runtime build the callback — clicks, keys, prevention, and links |
 | [Controlled inputs](04-controlled-inputs.md) | Type into a text field whose value round-trips through app-db, and keep your caret |
