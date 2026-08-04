@@ -182,6 +182,14 @@ SPINE_LANES = (
         r"^\./\.github/scripts/verify-version-lockstep\.sh$",
         "spine always-on: 'lockstep version drift'",
     ),
+    # Its self-test arm is a SEPARATE required step of the same job, so it needs
+    # its own signature -- the live lane's `$`-anchored pattern cannot match it,
+    # which is why it sat in this report until rf2-ejm7m gave it a lane.
+    Lane(
+        "version-lockstep-self-test",
+        r"^\./\.github/scripts/verify-version-lockstep\.sh --self-test$",
+        "spine always-on: 'lockstep gate self-test'",
+    ),
     Lane(
         "spine-self-test",
         r"^bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test\.sh$",
