@@ -243,7 +243,8 @@
   [[re-frame.bench.hicasso.front.controlled]] wraps the handler this
   namespace produced, after it has produced it, and nothing about the
   lowering changes because of it (rf2-fki5d)."
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ambient frame (HD-020(a))
@@ -265,16 +266,62 @@
   `v/route-link` performs with `require-current-frame!`)."
   nil)
 
+(def ^:private ambient-frame-refusal
+  "The detail this arm hands core's refusal tier (rf2-2rtt6.122). One
+  module-level constant, so establishing the extent allocates nothing.
+
+  The sentence has to be the one an author can act on, because the whole
+  point of the tier is that the generic `:rf.error/no-frame-context` advice
+  — establish a scope — is WRONG here: a body always sits under a frame
+  boundary, so following it would change nothing and the boundary would go
+  on quietly not re-rendering."
+  {:substrate :hicasso
+   :extent    'hicasso/boundary-render
+   :recovery  :read-through-the-boundary-collector
+   :reason    (str "Read through the boundary's own collector (`sub`), which is what "
+                   "makes a read an EDGE the boundary re-renders on, and dispatch "
+                   "through an intent at a handler position (which lowers to this "
+                   "boundary's frame-locked dispatch) or through an explicitly framed "
+                   "call. An ambient subscribe here would resolve the boundary's frame "
+                   "and then mutate the subscription cache during the render phase "
+                   "while contributing ZERO collector edges — leaving a boundary that "
+                   "never re-renders when that subscription moves, which is HD-002 "
+                   "clause (a)'s forbidden class. It used to succeed silently under "
+                   "some adapters and throw under others; now it refuses under all "
+                   "of them.")})
+
 (defn with-frame
   "Run `body-fn` with the boundary's render context bound ambiently. Two
   doors: an ARM binds both the frame keyword and its frame-locked
   `dispatch` (the 3-arity — the one [[route-link]] and the navigate head
   need); a lowering test that only drives closures may bind the dispatch
   alone (the 2-arity), and anything frame-keyword-dependent it lowers
-  stays a loud error rather than a silent guess."
+  stays a loud error rather than a silent guess.
+
+  THE THIRD VAR IS CORE'S REFUSAL TIER (rf2-2rtt6.122). This extent is
+  exactly the render extent HD-002 clause (a) governs, so it is exactly
+  where ambient `rf/subscribe` / `rf/dispatch` must stop resolving. It is
+  bound HERE, fused into the binding this function already performs, rather
+  than through `frame/call-with-ambient-frame-refused` around the call:
+  `binding` pushes and pops its whole set once, so the fence costs the arm
+  no additional frame — the general seam exists for substrates that are not
+  already binding something.
+
+  It covers all three doors deliberately. A body is the obvious one, but
+  the error boundary's fallback and the presence tray's retained children
+  are author-written render-phase code walked under this same binding, and
+  an ambient read is exactly as invisible to the collector there.
+
+  An explicitly carried frame is untouched, in this extent as everywhere:
+  `{:frame <id>}` never consults the ambient resolver, and `rf/with-frame`
+  inside a body still answers. The refusal deletes the ambient FIND, not
+  the carrying."
   ([dispatch body-fn] (with-frame nil dispatch body-fn))
   ([frame-kw dispatch body-fn]
-   (binding [*frame* frame-kw *dispatch* dispatch] (body-fn))))
+   (binding [*frame*                       frame-kw
+             *dispatch*                    dispatch
+             frame/*ambient-frame-refusal* ambient-frame-refusal]
+     (body-fn))))
 
 (defn- fail! [id where reason recovery extra]
   (throw (ex-info (str reason " [" id "]")

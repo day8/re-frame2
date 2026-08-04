@@ -168,3 +168,93 @@
       (frame/ensure-default-frame!)
       (is (identical? original (frame/frame :rf/default))
           "idempotent — a second call does not replace the frame"))))
+
+;; ---- the REFUSAL tier — "no ambient frame is legal here" (rf2-2rtt6.122) --
+;;
+;; The third tier of the same resolver. The two above answer WHICH frame is
+;; current; this one lets a substrate withdraw the AMBIENT reach for a
+;; dynamic extent it owns, so an operation that would have FOUND a frame
+;; refuses by name instead of silently succeeding.
+;;
+;; On the JVM there is no React-context tier to withdraw, so these rows pin
+;; the half that is runtime-independent and therefore the half most likely
+;; to rot unnoticed: the carried tier survives the refusal, and the two
+;; absences report as two different errors. The CLJS half — tier 2 genuinely
+;; withdrawn under a live context publication — is
+;; `re-frame.bench.hicasso.arm1.ambient-refusal-cljs-test`.
+
+(defn- refused-id
+  "The `:rf.error/id` of whatever `f` threw, or ::no-throw."
+  [f]
+  (try (f) ::no-throw
+       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+
+(deftest a-refused-extent-reports-its-own-error-not-absence
+  (testing "two absences, two errors: a refused ambient reach is not the
+           same mistake as having no scope at all, and reporting it as one
+           would hand the author advice — establish a scope — that cannot
+           fix it"
+    (is (= :rf.error/no-frame-context
+           (refused-id #(frame/require-current-frame! :subscribe)))
+        "outside any refusal the generic absence error is untouched")
+    (is (= :rf.error/ambient-frame-refused
+           (refused-id #(frame/call-with-ambient-frame-refused
+                          {:substrate :probe :reason "Use the probe's own reader."}
+                          (fn [] (frame/require-current-frame! :subscribe)))))
+        "inside one, the refusal names itself")))
+
+(deftest the-refusal-payload-carries-the-substrates-own-account
+  (testing "core owns the tier; the refusing substrate owns the sentence the
+           author reads, and its detail keys reach the payload"
+    (let [data (try (frame/call-with-ambient-frame-refused
+                      {:substrate :probe
+                       :recovery  :read-through-the-probe
+                       :reason    "Use the probe's own reader."}
+                      (fn [] (frame/require-current-frame! :subscribe {:where 'probe/read})))
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/ambient-frame-refused (:rf.error/id data)))
+      (is (= :subscribe (:operation data)))
+      (is (= :probe (:substrate data)))
+      (is (= :read-through-the-probe (:recovery data))
+          "the substrate's recovery wins over core's default")
+      (is (= 'probe/read (:where data)) "call-site detail still threads through")
+      (is (.contains ^String (:reason data) "Use the probe's own reader.")
+          "and its sentence is carried verbatim, not paraphrased"))))
+
+(deftest a-carried-stamp-still-carries-inside-a-refused-extent
+  (testing "the refusal withdraws the ambient FIND, never the carrying —
+           `with-frame` and `{:frame id}` are the two spellings of the same
+           EP-0002 idea and must not disagree inside a refused extent"
+    (frame/ensure-default-frame!)
+    (frame/call-with-ambient-frame-refused
+      {:substrate :probe :reason "Use the probe's own reader."}
+      (fn []
+        (is (nil? (frame/resolve-current-frame))
+            "nothing carried: the reader honestly answers 'no ambient frame'")
+        (binding [frame/*current-frame* :rf/default]
+          (is (= :rf/default (frame/resolve-current-frame))
+              "a carried stamp answers")
+          (is (= :rf/default (frame/require-current-frame! :subscribe))
+              "and requiring it does not throw"))))))
+
+(deftest the-refusal-is-fail-closed-and-unwinds
+  (testing "a nil detail map still refuses — a fence that disarms because
+           its argument was nil is the trap class the tier deletes"
+    (is (= :rf.error/ambient-frame-refused
+           (refused-id #(frame/call-with-ambient-frame-refused
+                          nil
+                          (fn [] (frame/require-current-frame! :dispatch)))))))
+  (testing "and the extent is exactly the call: it has unwound by the time
+           the call returns, which is what makes it safe for a render
+           extent whose children run afterwards"
+    (frame/call-with-ambient-frame-refused {:substrate :probe} (fn [] nil))
+    (is (nil? frame/*ambient-frame-refusal*))
+    (is (= :rf.error/no-frame-context
+           (refused-id #(frame/require-current-frame! :subscribe)))
+        "the generic error is back")))
+
+(deftest the-refusal-returns-the-thunks-value
+  (testing "it is a wrapper, not a gate — the extent is established around
+           work that is expected to succeed"
+    (is (= 42 (frame/call-with-ambient-frame-refused {:substrate :probe}
+                                                     (fn [] 42))))))
