@@ -19,16 +19,22 @@
 // reported 24 findings across 17 files — every one of them dead code — all of
 // which were deleted in the landing PR.
 //
-// SUPPRESSIONS IN THE TREE: exactly one, and it is load-bearing.
-// `tools/story/test/story_feature_load.cjs` wraps a skipped scenario's body in
-// `/* eslint-disable no-unreachable */` … `/* eslint-enable no-unreachable */`.
-// That probe returns early behind a `console.warn` while its assertions wait
-// for a CLJS port; delete the pair and `no-unreachable` errors on them, so it
-// goes only when the code it guards goes. This header used to claim ZERO
-// suppressions anywhere in the tree, which was wrong the day it was written:
-// the landing PR deleted two dead directives from that very file and kept this
-// live one. Keep the count here honest — a suppression that no comment admits
-// to is how a gate quietly stops meaning what it says (rf2-o4ohg).
+// SUPPRESSIONS IN THE TREE: none.
+// This claim is checkable, so check it rather than trusting it — the regex
+// matches the DIRECTIVE forms only, so prose mentioning them (this header
+// included) does not register as a hit, and a clean run prints nothing:
+//   git grep -nE "(/\*|//) *eslint-(disable|enable)" -- '*.cjs' '*.js' '*.mjs'
+// The count has been wrong before. The header first claimed ZERO, which was
+// false the day it was written (rf2-o4ohg); it then claimed exactly one — a
+// load-bearing `no-unreachable` pair in
+// `tools/story/test/story_feature_load.cjs` holding the dead body of a probe
+// that returned early behind a `console.warn` while its assertions waited for
+// a CLJS port. That wait had already ended: every assertion had a live owner
+// in the CLJS units and in the sibling `story_browser_scenarios.cjs`. The row
+// was demoted to `kind: 'owned-by'` and the dead body deleted, and the
+// suppression went with the code it guarded (rf2-kvsm1).
+// Keep the count here honest — a suppression that no comment admits to is how
+// a gate quietly stops meaning what it says.
 //
 // EVERY RULE HERE ANSWERS "WHAT BUG DOES THIS CATCH?":
 //
