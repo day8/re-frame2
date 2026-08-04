@@ -402,7 +402,7 @@ report_husk() {
   printf 'its build or gate run has already been broken; a partial removal kills a\n' >&2
   printf 'running gate exactly as a complete one does (rf2-k3j2w).\n' >&2
   printf 'Retrying this script will not finish the job — there is no registered\n' >&2
-  printf 'worktree left to remove, and `git worktree prune` has nothing to clear.\n' >&2
+  printf "worktree left to remove, and 'git worktree prune' has nothing to clear.\n" >&2
   printf 'Any node_modules link has been disarmed, so what remains is an ordinary\n' >&2
   printf 'directory delete, once whatever holds the lock has exited:\n' >&2
   printf '  rm -rf %s\n' "$1" >&2
