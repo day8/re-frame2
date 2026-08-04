@@ -721,6 +721,136 @@ run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose
   python "$spine_root/scripts/check_fast_pr_gap.py" --check
 
 # ---------------------------------------------------------------------------
+# THE REST OF CI'S ALWAYS-ON INVARIANT CHECKERS (rf2-ejm7m).
+#
+# The gate above NAMED these; this block RUNS them.  Every line below is a
+# required check from a job CI runs UNCONDITIONALLY — `verify-skill-mcp-drift`
+# and `verify-readme-links` both sit in `all-required-passed`'s `needs:` with no
+# `if:` and no `needs: detect`, so no diff can fail to reach them.  Always-on
+# here is therefore the faithful mirror, not a local choice.
+#
+# MEASURED BEFORE ADDING, because "cheap" was an assumption worth checking
+# (rf2-ejm7m ruling).  All 29 invocations below, timed individually from a clean
+# checkout: 4.46s cold / 4.58s warm as a batch.  The largest single one is
+# `check_keyword_catalogue_drift --verbose` at ~1.0s; twenty-five of the
+# remaining twenty-eight are under 0.15s, which is barely more than the ~0.02s
+# interpreter start each one pays.  Against a 14.3s always-on block that is
+# ~30%, for thirteen live scans and sixteen self-test arms that previously had
+# NO way to be run locally at all.
+#
+# WRITTEN OUT ONE PER LINE, deliberately.  A loop over a script-name variable
+# would be shorter and would BREAK THE RATCHET: `check_fast_pr_gap.py` derives
+# this spine's coverage by reading THIS FILE's source for the literal shape
+# `python "$spine_root/scripts/check_<name>.py"`, matching (script, mode) pairs
+# against CI's.  Interpolate the name and the derivation sees nothing, every CI
+# checker is re-reported as unrun, and the gap map goes from derived to
+# fictional.  The literal form is what keeps the map true with no second list to
+# maintain — add a line here and the checker leaves the report by construction.
+#
+# Each pairs CI's self-test arm with CI's live arm, in CI's own order and with
+# CI's own flags, so this block and the `verify-skill-mcp-drift` job log read
+# the same way.  The rationale for each individual gate lives where it was
+# written — in that job's step comments in `.github/workflows/test.yml`.
+run "MCP/skill title-safety self-test" "python scripts/check_skill_mcp_drift.py --self-test --ci" \
+  python "$spine_root/scripts/check_skill_mcp_drift.py" --self-test --ci
+
+run "skill migration cite-integrity self-test" "python scripts/check_skill_migration_cites.py --self-test" \
+  python "$spine_root/scripts/check_skill_migration_cites.py" --self-test
+
+run "migration contract-drift self-test" "python scripts/check_skill_migration_contract_drift.py --self-test" \
+  python "$spine_root/scripts/check_skill_migration_contract_drift.py" --self-test
+
+run "migration contract drift (M-11/M-13)" "python scripts/check_skill_migration_contract_drift.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_migration_contract_drift.py" --verbose --ci
+
+run "migration O-16/O-17 router self-test" "python scripts/check_skill_migration_o1617_router_drift.py --self-test" \
+  python "$spine_root/scripts/check_skill_migration_o1617_router_drift.py" --self-test
+
+run "migration O-16/O-17 router drift" "python scripts/check_skill_migration_o1617_router_drift.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_migration_o1617_router_drift.py" --verbose --ci
+
+run "implementor partition self-test" "python scripts/check_skill_implementor_partition_drift.py --self-test" \
+  python "$spine_root/scripts/check_skill_implementor_partition_drift.py" --self-test
+
+run "implementor partition drift" "python scripts/check_skill_implementor_partition_drift.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_implementor_partition_drift.py" --verbose --ci
+
+run "re-frame2 skill drift self-test" "python scripts/check_skill_re_frame2_drift.py --self-test" \
+  python "$spine_root/scripts/check_skill_re_frame2_drift.py" --self-test
+
+run "re-frame2 skill drift" "python scripts/check_skill_re_frame2_drift.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_re_frame2_drift.py" --verbose --ci
+
+run "skill package-refs self-test" "python scripts/check_skill_package_refs.py --self-test" \
+  python "$spine_root/scripts/check_skill_package_refs.py" --self-test
+
+run "skill package refs" "python scripts/check_skill_package_refs.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_package_refs.py" --verbose --ci
+
+run "pair-authoring drift self-test" "python scripts/check_skill_pair_authoring_drift.py --self-test" \
+  python "$spine_root/scripts/check_skill_pair_authoring_drift.py" --self-test
+
+run "pair-authoring drift" "python scripts/check_skill_pair_authoring_drift.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_pair_authoring_drift.py" --verbose --ci
+
+run "setup-counter drift self-test" "python scripts/check_skill_setup_counter_drift.py --self-test" \
+  python "$spine_root/scripts/check_skill_setup_counter_drift.py" --self-test
+
+run "setup-counter drift" "python scripts/check_skill_setup_counter_drift.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_setup_counter_drift.py" --verbose --ci
+
+run "eval-packaging self-test" "python scripts/check_skill_eval_packaging.py --self-test --ci" \
+  python "$spine_root/scripts/check_skill_eval_packaging.py" --self-test --ci
+
+run "skill eval packaging" "python scripts/check_skill_eval_packaging.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_eval_packaging.py" --verbose --ci
+
+run "Xray tab-inventory self-test" "python scripts/check_skill_xray_tab_inventory_drift.py --self-test" \
+  python "$spine_root/scripts/check_skill_xray_tab_inventory_drift.py" --self-test
+
+run "Xray tab-inventory drift" "python scripts/check_skill_xray_tab_inventory_drift.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_xray_tab_inventory_drift.py" --verbose --ci
+
+run "skill redirect anchors" "python scripts/check_skill_redirect_anchors.py" \
+  python "$spine_root/scripts/check_skill_redirect_anchors.py"
+
+run "keyword-catalogue drift self-test" "python scripts/check_keyword_catalogue_drift.py --self-test --verbose" \
+  python "$spine_root/scripts/check_keyword_catalogue_drift.py" --self-test --verbose
+
+run "keyword-catalogue drift" "python scripts/check_keyword_catalogue_drift.py --verbose" \
+  python "$spine_root/scripts/check_keyword_catalogue_drift.py" --verbose
+
+run "CI reproduce-commands self-test" "python scripts/check_ci_reproduce_commands.py --self-test --verbose" \
+  python "$spine_root/scripts/check_ci_reproduce_commands.py" --self-test --verbose
+
+run "CI reproduce-commands" "python scripts/check_ci_reproduce_commands.py --check --verbose" \
+  python "$spine_root/scripts/check_ci_reproduce_commands.py" --check --verbose
+
+# The last three are `verify-readme-links`', not the invariant job's.  Note that
+# CI runs `check_readme_links --ci` ALWAYS-ON while this spine runs it in the
+# documentation tier; only the self-test arm is added here, so the live scan
+# keeps its existing tier and nothing gets slower for a code-only diff.
+run "README link validator self-test" "python scripts/check_readme_links.py --self-test --verbose" \
+  python "$spine_root/scripts/check_readme_links.py" --self-test --verbose
+
+run "README inventory ratchet self-test" "python scripts/check_readme_inventories.py --self-test --verbose" \
+  python "$spine_root/scripts/check_readme_inventories.py" --self-test --verbose
+
+run "adapter-disposition self-test" "python scripts/check_adapter_disposition.py --self-test --verbose" \
+  python "$spine_root/scripts/check_adapter_disposition.py" --self-test --verbose
+
+run "adapter disposition" "python scripts/check_adapter_disposition.py --verbose --ci" \
+  python "$spine_root/scripts/check_adapter_disposition.py" --verbose --ci
+
+# The lockstep gate's OWN self-test (rf2-ejm7m).  The live scan above is the
+# spine's oldest always-on gate; its self-test arm — the thing that proves the
+# lockstep checkers still fire — is a separate required step of the same job and
+# had no lane.  ~1.7s.  Same CRLF-stripping dance as the live invocation: this
+# checkout is Windows, and the script is `bash`, not `python`.
+run "lockstep gate self-test" "./.github/scripts/verify-version-lockstep.sh --self-test" \
+  bash -lc "tmp='$spine_root/.github/scripts/.verify-version-lockstep.selftest.tmp.'\$\$; trap 'rm -f \"\$tmp\"' EXIT; tr -d '\r' < '$spine_root/.github/scripts/verify-version-lockstep.sh' > \"\$tmp\"; bash \"\$tmp\" --self-test"
+
+# ---------------------------------------------------------------------------
 # The spine's OWN self-test — armed only when the spine's own tree changed
 # (rf2-fhdd3).  Every other gate above pairs a self-test with a live scan; the
 # runner had neither.  `run-self-test.sh` drives this script in `--plan` mode
