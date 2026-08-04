@@ -645,6 +645,17 @@ def report(gap: GapMap, brief: bool) -> list[str]:
         "  checks passed` (test.yml), `Lint required` (lint.yml) and `Docs required` "
         "(docs.yml)."
     )
+    # Not a to-do list.  Many of these are surface-gated in CI and will skip on a
+    # diff that does not reach them; the claim is only that NONE of them is
+    # decided by this spine, so a green here says nothing about any of them.
+    out.append(
+        "  This is not a to-do list: most are surface-gated in CI and skip on a diff "
+        "that does not"
+    )
+    out.append(
+        "  reach them. The claim is narrower and harder -- NONE of them is decided "
+        "here."
+    )
 
     if gap.partial:
         out.append("")
