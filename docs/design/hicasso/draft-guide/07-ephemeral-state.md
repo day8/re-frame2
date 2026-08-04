@@ -4,7 +4,9 @@
 > ruled in [decisions.md](../decisions.md) (HD-001…HD-028), witnessed by the bench
 > arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
 > `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
-> stay provisional until the API freeze.
+> stay provisional until the API freeze. One surface here is ahead of even that:
+> `h/reg-state` is **ruled but still landing** (2026-08-04), and the page says so
+> where it teaches it.
 
 Is this dropdown open? Is this row hovered? Is this panel expanded?
 
@@ -55,9 +57,9 @@ Work down the list, not up it. Most of the time you stop at 1.
 The objection to app-db for UI state is always ceremony: an event, a subscription,
 and a keypath for something as small as "is this open?"
 
-The answer is that **the tax is per-concern, not per-instance.** One parametric
-subscription and one named event serve every instance of the widget in the app,
-forever:
+The answer comes in two parts, and the first is that **the tax is per-concern,
+not per-instance.** One parametric subscription and one named event serve every
+instance of the widget in the app, forever:
 
 ```clojure
 (rf/reg-sub :panel/expanded?
@@ -83,6 +85,85 @@ component.
 That last one is worth sitting with. "Open this dropdown in a test" is a `:db`
 write, not a click simulation.
 
+The second part is that **the ten lines become one.** On 2026-08-04 the sugar
+HD-009 had been holding as an unfrozen sketch was designed and ruled into v0
+(the dated HD-009 addendum in [decisions.md](../decisions.md) is the record).
+Honest tense, as this page's banner says: `h/reg-state` is ruled and in
+implementation — nothing has landed yet, and the spelling is **[unfrozen]** —
+so today you write the ten lines above, and they are exactly what the
+declaration will register for you:
+
+```clojure
+;; RULED 2026-08-04 — in implementation, not yet landed.
+(h/reg-state ::expanded? {:default false})
+;; mints: a parametric sub        (sub [::expanded? panel-id])
+;;        a concern-named setter  [::expanded? panel-id true]
+;;        the documented path     [:ui ::expanded? panel-id]
+```
+
+One declaration per *concern* — a namespace-qualified keyword — with
+`{:default v}` as the only option. No state system arrives with it: it
+registers the same ordinary sub and event you would have written, reading and
+writing plain app-db at a documented path, which is why everything above stays
+true under it — time travel, Xray, per-frame isolation, tests writing `:db`.
+The long form remains worth knowing anyway: it is the definition of what
+`reg-state` does, and the shape you graduate to when a write starts to *mean*
+something (next section — the example's `:panel/toggle` is already that
+graduation).
+
+Two details are part of the ruling because getting them wrong is silent
+otherwise. **Clearing is a framework event, not a magic value**: dispatch
+`[::h/clear ::expanded? panel-id]` and the entry is removed, so the default
+shows through again. A reserved clear *value* was rejected on the record — a
+concern whose legitimate values are keywords could then silently delete state.
+And **a nil or malformed instance key refuses loudly**, at read and at write,
+with `:rf.error/hicasso-state-bad-key` naming the concern — instead of quietly
+filing every instance's state under the same broken key.
+
+## Choosing the instance key
+
+`reg-state` and the long form share one authored input: the instance key —
+`panel-id` above, the value that keeps a hundred panels from sharing one
+`expanded?`. Hicasso mints no identity for you. (React's `useId` was examined
+and disqualified on the record: its hydration ids diverge under the arm's own
+hydration root, and outside hydration it is a counter whose ids do not survive
+remount — which state resident in app-db cannot tolerate.) The key is authored
+data — a keyword, string, number, or vector of these — and four rules cover
+choosing it.
+
+**Domain ids first — entity-qualified when entities can collide.** The best key
+already exists in your data: the order's id, the row's id, a literal namespaced
+keyword for a singleton placement. But a *generic* widget serving two entity
+types must not key by bare id — order 42 and invoice 42 both landing on
+`(sub [::expanded? 42])` is one entry, and the two silently share state.
+Qualify the id *value*: `[:order/id 42]` and `[:invoice/id 42]` are different
+keys, and the vector is already legal key grammar.
+
+**Placement-like concerns key by placement; value-like concerns key by
+entity.** Ask whether the concern is about the *slot on screen* or the *thing
+shown in it*. A master list and a detail pane both showing order 42: the
+order's draft is value-like — key it by entity, and both panes sharing one
+draft is correct, because it is the same draft. `expanded?` is placement-like —
+key it by placement (or placement plus entity), because collapsing the detail
+pane must not fold the list row.
+
+**Nest with `h/child-key`.** A widget inside a widget extends its parent's key
+instead of inventing a fresh one: `(h/child-key parent-key :filter)` yields
+`[parent-key :filter]`, and conj's onto a key that is already a vector — so
+every key bottoms out as a flat vector of authored data, and two children of
+two different parents can never collide.
+
+**If it would be a good React `:key`, it is a good instance key.** Derived from
+your data, stable across renders, unique among siblings — the same judgment,
+reused. This is also the SSR determinism rule: server and client must compute
+the same key from the same snapshot, which authored data does and render-order
+counters do not. One obligation follows on server-rendered pages: instance
+state lives under `[:ui …]`, and the payload policy is fail-closed — when
+server-side events write render-affecting instance state, the payload allowlist
+must name `:ui`, or the client renders from state the server never sent and
+hydration reports the mismatch
+([Server-side rendering](10-server-side-rendering.md)).
+
 ## Named events, not a generic setter
 
 Write `[:panel/toggle id]`, never a generic `[:ui/set [:panel/expanded id] true]`.
@@ -90,8 +171,15 @@ Write `[:panel/toggle id]`, never a generic `[:ui/set [:panel/expanded id] true]
 A named event is a name for what happened, which is the entire premise of the event
 log being readable. A generic setter turns your event history into a diff stream and
 takes the meaning out of the one place the framework was keeping it for you. This is
-also why HD-009 pre-commits that any future sugar mints a **named** setter event and
-never a generic `ui/set`.
+also HD-009's law for the sugar, kept by the ruled `reg-state`: the setter it mints
+is **named by its concern** — `[::expanded? panel-id false]` reads as what it is in
+the log — never a generic `ui/set`.
+
+The concern-named setter is a floor, not a ceiling. When an occurrence means more
+than an assignment — the collapse should fire an effect, other state reacts, the
+log should say *toggle* — graduate to a named domain event like `[:panel/toggle id]`
+and let the setter go. The sugar exists so ceremony never stops you putting state
+where it belongs, not so assignment replaces meaning.
 
 ## What v0 actually gives you
 
@@ -99,30 +187,25 @@ Layer 2 above is mostly a promise. The controls kit that would own drafts and
 revisions is post-v0. So is the overlay top layer. In v0, a dismissible dropdown is
 CSS if you can manage it, and app-db if you can't.
 
-HD-009 is explicit that this is expected to generate complaints, and equally
-explicit about what happens next. If dogfooding shows the residual ceremony
-registering, the pre-agreed *response class* is one-declaration sugar — never a
-state system:
+The ceremony story, though, moved on 2026-08-04. HD-009 originally shipped
+nothing here: the sugar was a pre-agreed *response class*, an unfrozen
+`defstate` sketch to be designed only if dogfooding demanded it. The operator
+ruled it into v0 instead, and the same-day design programme — three independent
+designs, three adversarial reviews — produced the `reg-state` ruling this page
+now teaches. One peer review had argued for a `useState` fence and a
+pre-designed tier; the fence is still rejected — there is no lint police — and
+the tier that was once withdrawn from pre-commitment is now simply *designed*,
+on evidence: `[:ui <concern> <instance-key>]`, one conventional app-space root.
+The no-`local` core stands throughout.
 
-```clojure
-;; SKETCH — v0 ships nothing here, and the shape is unfrozen.
-(h/defstate ::open {:default false})
-;; would mint: a parametric sub (sub [::open id])
-;;             and a NAMED setter event [::open id v]
-```
+The response class did not disappear; it moved one rung up. If dogfooding shows
+that explicitly threading the instance key is itself what fails the preference
+test, the pre-registered escalation is the ambient/auto door from the rejected
+structural design — a recorded mechanism, not an ad-hoc invention, and still
+never a state system.
 
-Read that block as an illustration of a *response class*, not a plan of record. Its
-concrete shape — including whether a declared app-db tier is involved and what that
-tier's frame and persistence scope would be — is **unfrozen until the evidence
-exists**. v0 ships nothing here and pre-commits to nothing beyond "sugar, not a state
-system."
-
-One peer review argued for a `useState` fence and a pre-designed tier. It was
-adopted in part: the tier pre-commitment was withdrawn and there is no lint police.
-The no-`local` core stands.
-
-So: a v0 complaint about state ceremony is **expected signal**, not a verdict. It
-triggers the sugar iteration, not a kill.
+So: a v0 complaint about state ceremony is still **expected signal**, not a
+verdict. The first response shipped early, and the next one is already named.
 
 ## The state you cannot put in app-db: "it left, but it is still on screen"
 
@@ -275,7 +358,7 @@ row.
 | A dismissed item disappears instantly with no exit animation | The node left with the data | `h/presence` with a `:timeout-ms` at least as long as the exit transition |
 | A retained node still takes focus or clicks while fading | The exit override does not carry `:inert` / `:aria-hidden` | Put all three in the `::h/unmounting` map |
 | An exit override on a view head raises `:rf.error/hicasso-presence-override-on-a-view` | Presence merges overrides into nodes it can see; a view is opaque to it, and a silently dropped override is the failure class the loud error exists to delete | The view receives `:rf/phase` — branch or style on that |
-| Every panel in a list opens at once | The state isn't parameterised by instance | Key the app-db path by the widget's id |
+| Every panel in a list opens at once | The state isn't parameterised by instance — or two instances share one key | Key the path per instance: [Choosing the instance key](#choosing-the-instance-key) |
 | A hook body can't be tested headlessly | Hooks put a body outside headless scope, by design | Move the semantic half to app-db; mount-test the mechanics |
 | Hook-order error after a conditional early-return | React's rules, now yours | Hooks at the top of the body, unconditionally |
 | app-db is full of `:ui` noise | Expected — it is the honest home | Namespace the keys and exclude the tier from persistence by convention |
@@ -299,8 +382,8 @@ that edge needs to know it exists.
 
 | Question | Status |
 |---|---|
-| `defstate`'s shape, and whether it ever ships | **Unfrozen by ruling.** HD-009 pre-commits to a response *class*, not a design; v0 ships nothing |
-| Whether a declared app-db `:ui` tier exists, and its frame and persistence scope | **Withdrawn from pre-commitment.** The `[:ui …]` keypaths on this page are ordinary app-db keys this guide chose, not a ruled tier |
+| `h/reg-state` (the sketch formerly spelled `defstate`) | **Ruled 2026-08-04** — the shape is fixed and in implementation (`rf2-2rtt6.98`), not yet landed; the spelling is **[unfrozen]** until the API freeze |
+| The declared app-db `[:ui …]` tier | **Ruled 2026-08-04.** One app-space conventional root, concern-first: `[:ui <concern> <instance-key>]`. Per-frame isolation is free (app-db is per frame); durable persistence excludes the tier by convention; the payload obligation above is the SSR half |
 | The controls kit (drafts, revisions) | **Post-v0** |
 | The overlay top layer that would own open and dismiss | **Post-v0** |
-| The reusable-widget instance-key convention | **Post-v0**, named as a resolved design debt in HD-009's sugar |
+| The reusable-widget instance-key convention | **Ruled 2026-08-04, in v0** — the four rules in [Choosing the instance key](#choosing-the-instance-key); the sugar that carries it is in implementation (`rf2-2rtt6.98`) |

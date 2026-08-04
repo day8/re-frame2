@@ -193,6 +193,90 @@ predecessors' pattern of building before measuring.
 
 ## HD-009 — Ephemeral state: no `local`, ever
 
+> **Addendum, 2026-08-04 — the sugar and the reusable-widget instance-key
+> convention move INTO v0, and the sugar is ruled: `h/reg-state`
+> (`rf2-2rtt6.100`).** Operator ruling (Mike, 2026-08-04): both move from
+> post-v0 into v0 scope, amending this entry. The same-day design programme ran
+> three independent designs (explicit-key / auto-structural / ident) through
+> three adversarial reviews: explicit 0 fatal / 5 major, ident 0 fatal /
+> 8 major, auto **1 FATAL** — ordinal identity is strictly *less* stable than
+> React's own (a conditional sibling shifts ordinals at runtime and state
+> teleports between instances, silently), and the only repair collapses it
+> into the explicit design. All three attackers' forced choices converged:
+> **build explicit, amended.**
+>
+> **What is superseded, and what stands.** This entry's "v0 ships nothing and
+> pre-commits to nothing beyond 'sugar, not a state system'" sentence — and
+> with it the "unfrozen until the evidence exists" deferral of the sugar's
+> shape and tier — is superseded: the evidence now exists, and the shape is
+> ruled below. The no-`local` core, the **named**-setter-event law, and
+> "never a generic `ui/set`" stand unchanged; the ruled design is that sugar,
+> designed. "Sugar, not a state system" also survives inspection: `reg-state`
+> holds no runtime state, no hooks, no context — it registers ordinary core
+> artefacts.
+>
+> **The ruled design.** `(h/reg-state ::concern {:default v})` — a plain
+> `.cljc` function, not a macro; one namespace-qualified *concern* keyword;
+> `{:default v}` the only option; unknown options and a non-namespaced
+> concern refused loudly at registration. It mints a parametric sub
+> `(sub [::concern ikey])`, a concern-named setter event `[::concern ikey v]`,
+> and the documented path `[:ui ::concern ikey]`.
+>
+> **The tier, unanimously adjudicated.** ONE app-space conventional root,
+> concern-first: `[:ui <concern> <instance-key>]`. No `:rf/*` app-db root
+> exists or may be minted for it — Conventions' two-partition doctrine — and a
+> framework-squatted qualified root of the `:ui/state` kind is likewise
+> rejected. Per-frame isolation costs nothing, because app-db is per-frame.
+> Durable persistence excludes the tier by convention.
+>
+> **Clear is a framework-named EVENT, not a value sentinel.**
+> `[::h/clear ::concern ikey]` restores the default by removing the entry
+> (empty concern maps pruned). The `::h/clear`-in-value-position variant is
+> rejected on the record: a keyword-valued concern could silently dissoc
+> where app data flows.
+>
+> **Refusals are loud.** A nil or malformed instance key refuses at read and
+> at write with `:rf.error/hicasso-state-bad-key`, naming the concern —
+> converting the guide's silent every-instance-shares pitfall into an error.
+> Nesting composes by one pure helper, `h/child-key`
+> (`(if (vector? k) (conj k part) [k part])`), so every key is by induction a
+> flat vector of authored data.
+>
+> **Four rules are taught, not policed.** (a) Domain ids first, and
+> entity-qualified id *values* (`[:order/id 42]`) when one widget serves more
+> than one entity type — bare ids let order 42 and invoice 42 collide
+> silently. (b) Placement-like concerns (`expanded?`, `open?`, active tab)
+> key by placement; value-like concerns (drafts, favourites, in-flight
+> status) key by entity — a master list and a detail pane sharing one draft
+> of order 42 is correct, sharing one `expanded?` is a bug. (c) `h/child-key`
+> for widget-in-widget nesting. (d) Determinism: *"if it would be a good
+> React `:key`, it is a good instance key."*
+>
+> **The SSR payload obligation (unanimous adjudication).** The payload policy
+> is fail-closed, and therefore an allowlist MUST name `:ui` whenever
+> server-side events write render-affecting instance state; strip the tier
+> only if the server never writes it. The obligation is witnessed green AND
+> red-by-design by `rf2-2rtt6.99` — a deliberate omission producing the
+> hydration mismatch. The payload is render-consistency, not persistence.
+>
+> **The `useId` autopsy is preserved here so the question is never
+> relitigated.** React's `useId` is disqualified for app-db-resident keys:
+> fiber-position hydration ids diverge under the arm's own hydration root,
+> and counter-based ids are non-remount-stable outside hydration — state
+> keyed by them is orphaned on every remount, and app-db snapshots, event
+> logs and tests stop being comparable across boot modes.
+>
+> **The pre-registered response class is now the ambient door.** If dogfooding
+> shows the *explicit threading tax itself* failing the preference test, the
+> escalation is the rejected auto design's ambient/auto mechanism — a
+> recorded door, not ad-hoc invention, and still never a state system. That
+> updates this entry's Reopens shape in place.
+>
+> **Status is honest tense.** The ruling is recorded; nothing has landed.
+> `h/reg-state`, `[::h/clear …]`, `h/child-key` and the refusals are in
+> implementation as `rf2-2rtt6.98`; the guide teaches the convention in the
+> same tense.
+
 **Ruling.** No component-local reactive cell (`local`, ratom-equivalent, or
 `useState` for app state) exists in Hicasso. In order: CSS for hover/focus;
 platform-carried state (the top layer owns open/dismiss; resources/mutations own

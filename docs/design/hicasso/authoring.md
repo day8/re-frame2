@@ -312,25 +312,29 @@ CSS for hover/focus; platform-carried state (the top layer owns open/dismiss;
 resources/mutations own async status; the controls kit owns drafts/revisions);
 host-private React state at host edges for geometry/composition; and app-db for
 everything semantically meaningful — where the tax is per-*concern*, not
-per-instance (one parametric sub + one named event serve every instance). If the
-dogfood shows the residual ceremony registering, the pre-agreed *response class*
-is one-declaration sugar — never a state system:
+per-instance (one parametric sub + one named event serve every instance). The
+one-declaration sugar for that pattern was **ruled into v0 on 2026-08-04**
+(HD-009's dated addendum in [decisions.md](decisions.md) is the record; it is
+in implementation, not yet landed):
 
 ```clojure
-;; SKETCH — v0 ships nothing here, and the shape is unfrozen.
-(h/defstate ::open {:default false})
-;; would mint: a parametric sub (sub [::open id])
-;;             and a NAMED setter event [::open id v] — never a generic ui/set
+;; RULED 2026-08-04 — in implementation, not yet landed; spelling [unfrozen].
+(h/reg-state ::open {:default false})
+;; mints: a parametric sub (sub [::open ikey])
+;;        a concern-named setter event [::open ikey v] — never a generic ui/set
+;;        the documented path [:ui ::open ikey]
+;; clear: the framework event [::h/clear ::open ikey] removes the entry;
+;;        bad keys refuse loudly (:rf.error/hicasso-state-bad-key)
+;; nesting: (h/child-key parent-key part)
 ```
 
-Read that as an illustration of the response *class*, not a plan of record.
-HD-009 freezes two things about it and nothing else: that any such sugar mints a
-**named** setter event rather than a generic `ui/set`, and that it is sugar
-rather than a state system. Its concrete shape — the `defstate` spelling,
-whether a declared app-db tier is involved at all, and what that tier's frame
-and persistence scope would be — stays **unfrozen until the evidence exists**,
-and so does whether it ever ships. v0 ships nothing here; the concept budget
-arbitrates.
+The instance key is authored data — domain ids first, entity-qualified id
+values when one widget serves two entity types, placement-like vs value-like
+sharing, "a good React `:key` is a good instance key" — four rules taught in
+[the guide](draft-guide/07-ephemeral-state.md), not policed. What HD-009 froze
+about any such sugar still holds under the ruled design: it mints a **named**
+setter event rather than a generic `ui/set`, and it is sugar rather than a
+state system — no runtime state, no hooks, no context.
 
 ## Testing doors
 
