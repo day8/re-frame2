@@ -130,14 +130,18 @@
      :html-attrs    {…} or nil                  ;; stamped on <html>
      :body-attrs    {…} or nil                  ;; stamped on <body>
      :head-hash     \"…\" or nil                  ;; client-reconstructible head-model hash
-     :doc-hash      \"…\"                         ;; BODY-ONLY structural hash
+     :doc-hash      \"…\" or nil                  ;; BODY-ONLY structural hash
      :shell-html    \"…\"                        ;; chunk 1 body
      :continuations [{:id … :subtree …} …]}     ;; drain queue (FIFO)
 
   `:doc-hash` is the body-only structural hash. It
   describes the PRE-drain shell — the exact tree streamed in chunk 1 — and
   drives the streaming root-element `data-rf-render-hash` marker (when
-  `:emit-hash?` is true). `:head-hash` is the SEPARATE client-
+  `:emit-hash?` is true). It is **nil when `:root-view` resolves to the
+  unresolved root form** — that root carries no hash on either channel
+  (rf2-q1b96; see `lifecycle/render-document-hash`), so neither the chunk-1
+  marker nor the final payload's `:rf/render-hash` appears.
+  `:head-hash` is the SEPARATE client-
   reconstructible head-model hash (`lifecycle/render-head-hash` over
   `resolve-head`'s `:head-model`) — nil when the head is not client-
   reconstructible (explicit `:head` string / degraded resolution). The
@@ -278,9 +282,16 @@
                             {:html-attrs  html-attrs
                              :body-attrs  body-attrs
                              ;; Mark the body tree actually streamed in chunk 1.
+                             ;; nil `doc-hash` (an unresolved root form —
+                             ;; rf2-q1b96) omits the marker as well as the
+                             ;; payload key; `default-streaming-prefix` stamps
+                             ;; only from `:render-hash` and never recomputes,
+                             ;; so no `:emit-hash?` gate is needed here.
                              :render-hash (when emit-hash? doc-hash)
-                             ;; Wire hash markers share the emit toggle; payload
-                             ;; hashes remain unconditional.
+                             ;; Wire hash markers share the emit toggle; the
+                             ;; payload's head hash stays unconditional (the
+                             ;; head model is client-reconstructible on every
+                             ;; tier, so it is never degenerate).
                              :head-hash   (when emit-hash? head-hash)})]
       ;; Chunk 1 — shell prefix + shell HTML (with template fallbacks) +
       ;; the app-root close. Stamp the phase before each write
@@ -360,7 +371,11 @@
       ;; shell hash and preserve exactly-once root resolution. The shell marker
       ;; remains pre-drain because it describes chunk 1; the head hash is
       ;; drain-invariant. Server `:root-view` and client `:render-tree-fn` must
-      ;; use symmetric expanded or unexpanded forms.
+      ;; use symmetric EXPANDED forms — `(fn [] ((rf/view :app/root)))` against
+      ;; `#((rf/view :app/root))`. "Symmetric unexpanded" is no longer a second
+      ;; way to agree: both sides would hash the constant `[#fn[]]`, a check
+      ;; that can never fail, so an unexpanded server root now carries no hash
+      ;; at all (rf2-q1b96).
       ;;
       ;; Set phase before both payload construction and its write.
       (vreset! phase [:final-payload nil])

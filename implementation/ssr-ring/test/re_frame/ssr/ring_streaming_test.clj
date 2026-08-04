@@ -1211,7 +1211,9 @@
     (let [mk      (fn [head]
                     (ssr-ring/stream-handler
                       {:initial-events [[:rf.test.server/init]]
-                       :root-view [(rf/view :test/root)]
+                       ;; rf2-q1b96 — resolving form; the body-only-hash
+                       ;; assertions below need a hash to exist.
+                       :root-view (fn [] ((rf/view :test/root)))
                        :head      head
                        :payload   :rf.ssr.payload/whole-app-db}))
           body-a  (drain-stream (:body ((mk "<title>Alpha</title>")
@@ -1251,7 +1253,9 @@
     (let [mk      (fn [init]
                     (ssr-ring/stream-handler
                       {:initial-events [[:rf.test.server/init] [init]]
-                       :root-view [(rf/view :test/root)]
+                       ;; rf2-q1b96 — resolving form: `(= ha hb)` below would
+                       ;; hold vacuously (nil = nil) on an unresolved root.
+                       :root-view (fn [] ((rf/view :test/root)))
                        :payload   :rf.ssr.payload/whole-app-db}))
           body-a  (drain-stream (:body ((mk :test.stream/seed-head-a)
                                         {:uri "/" :request-method :get})))
@@ -1263,6 +1267,10 @@
           head-hb (stream-payload-head-hash body-b)]
       (is (str/includes? body-a "<title>Stream head A</title>"))
       (is (str/includes? body-b "<title>Stream head B</title>"))
+      ;; rf2-q1b96 — assert PRESENCE before equality. With the pre-fix
+      ;; unresolved `:root-view` this equality held vacuously as nil = nil.
+      (is (some? ha) "render A carries :rf/render-hash")
+      (is (some? hb) "render B carries :rf/render-hash")
       (is (= ha hb)
           "rf2-1oxjxk: different reg-head title (identical body) → SAME
            streamed :rf/render-hash (body-only)")
@@ -1282,7 +1290,9 @@
             with no explicit :head/:reg-head)."
     (let [handler  (ssr-ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]
-                      :root-view  [(rf/view :test/root)]
+                      ;; rf2-q1b96 — resolving form; an unresolved root
+                      ;; carries no hash on either channel.
+                      :root-view  (fn [] ((rf/view :test/root)))
                       :emit-hash? true
                       :payload    :rf.ssr.payload/whole-app-db})
           body     (drain-stream (:body (handler {:uri "/" :request-method :get})))
@@ -1313,7 +1323,11 @@
             wire (it was a no-op for the HTML path before)."
     (let [handler  (ssr-ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]
-                      :root-view  [(rf/view :test/root)]
+                      ;; rf2-q1b96 — resolving form, so this test still
+                      ;; isolates the `:emit-hash?` toggle: the payload keys
+                      ;; below are present BECAUSE a hash exists, proving the
+                      ;; opt gates the wire markers and nothing else.
+                      :root-view  (fn [] ((rf/view :test/root)))
                       :emit-hash? false
                       :payload    :rf.ssr.payload/whole-app-db})
           body     (drain-stream (:body (handler {:uri "/" :request-method :get})))]
@@ -1509,7 +1523,10 @@
     (let [counter   (atom 0)
           handler   (ssr-ring/stream-handler
                       {:initial-events [[:rf.test/init-noni]]
-                       :root-view (fn [] [(rf/view :pages/stream-noni) (swap! counter inc)])
+                       ;; rf2-q1b96 — outer call: RESOLVES the view instead of
+                       ;; handing back a reference, so a hash exists at all.
+                       ;; Still non-idempotent and still one invocation.
+                       :root-view (fn [] ((rf/view :pages/stream-noni) (swap! counter inc)))
                        :payload   :rf.ssr.payload/whole-app-db})
           response  (handler {:uri "/" :request-method :get})
           body      (drain-stream (:body response))

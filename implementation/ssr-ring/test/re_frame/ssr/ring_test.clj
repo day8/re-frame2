@@ -355,8 +355,12 @@
                              {:id "b" :title "Article B"}])
 
     (let [handler (ssr-ring/ssr-handler
+                    ;; rf2-q1b96 — the RESOLVING root-view form. The hash
+                    ;; assertion below is what forces it: an unresolved
+                    ;; `[(rf/view :pages/articles)]` renders byte-identical
+                    ;; HTML but carries no hash on either channel.
                     {:initial-events    [[:rf/server-init]]
-                     :root-view    [(rf/view :pages/articles)]
+                     :root-view    (fn [] ((rf/view :pages/articles)))
                      :fx-overrides {:http/get :http/get.canned}
                      :payload :rf.ssr.payload/whole-app-db})
           request {:uri            "/articles"
@@ -788,8 +792,13 @@
 
       (let [handler  (ssr-ring/ssr-handler
                        {:initial-events [[:init/ok-noni]]
+                        ;; rf2-q1b96 — outer call: the fn RESOLVES the view
+                        ;; rather than handing back a reference to it, so the
+                        ;; hash channel exists at all. Still non-idempotent
+                        ;; (the counter rides into the tree) and still exactly
+                        ;; one invocation, which is what rf2-6t36h pins.
                         :root-view (fn []
-                                     [(rf/view :pages/noni) (swap! counter inc)])
+                                     ((rf/view :pages/noni) (swap! counter inc)))
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/noni" :request-method :get})
             body     (:body response)
@@ -883,7 +892,9 @@
     (let [mk      (fn [head]
                     (ssr-ring/ssr-handler
                       {:initial-events [[:init/noop-head]]
-                       :root-view [(rf/view :pages/fixed-body)]
+                       ;; rf2-q1b96 — resolving form; the body-only-hash
+                       ;; assertions below need a hash to exist.
+                       :root-view (fn [] ((rf/view :pages/fixed-body)))
                        :head      head
                        :payload   :rf.ssr.payload/whole-app-db}))
           body-a  (:body ((mk "<title>Alpha</title>") {:uri "/" :request-method :get}))

@@ -113,6 +113,23 @@
                       (rf/view :id); a keyword head is an HTML element, never
                       a view — rf2-j81hs)
                       against the settled request frame.
+                      Two spellings emit byte-identical HTML but differ on
+                      the hydration hash channel (rf2-q1b96):
+
+                        (fn [] ((rf/view :app/root)))  ;; resolves → hashed
+                        [(rf/view :app/root)]          ;; a reference → no hash
+
+                      A root that stays a callable-headed vector is the
+                      UNRESOLVED root form; hashing it yields one constant
+                      for every application, so the handler emits no
+                      `data-rf-render-hash` and no payload `:rf/render-hash`
+                      for it. That is the shape an ADOPTION-TIER root
+                      (compiled `re-frame.ui`, native UIx, Freehand) can only
+                      ever be, and Spec 011 §Hydration-mismatch detection
+                      requires it to carry none. A hiccup-tier host that
+                      wants the channel passes the resolving form — the only
+                      one symmetric with the documented client
+                      `:render-tree-fn #((rf/view :app/root))`.
     :payload        — non-empty allowlist of top-level app-db keys, or the
                       explicit `:rf.ssr.payload/whole-app-db` opt-in. Missing
                       and unknown policies fail at handler construction.
@@ -125,7 +142,9 @@
     :ssr            — per-frame `:ssr` config map (e.g.
                       `{:dev-error-detail? true
                         :public-error-id   :myapp/projector}`).
-    :emit-hash?     — emit hydration hash markers (default true).
+    :emit-hash?     — emit hydration hash markers (default true). Gates the
+                      WIRE markers only; the payload's hash keys are driven
+                      by whether a hash exists at all (see `:root-view`).
     :client-frame-id — stable frame id stamped as the payload's WIRE
                       `:rf/frame-id`, when the deployment fixes one both
                       server and client agree on ahead of time. Default
