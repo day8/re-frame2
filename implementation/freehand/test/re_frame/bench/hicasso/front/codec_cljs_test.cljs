@@ -685,6 +685,83 @@
     (is (= [[:todo.ui/edit 7 "bread"]] @!seen))))
 
 ;; ---------------------------------------------------------------------------
+;; The named value at a foreign crossing (rf2-vrvv9)
+;; ---------------------------------------------------------------------------
+
+(defn- a-foreign-component
+  "Stands in for a library's component — anything React would accept as
+  an element type. Nothing renders here; the questions below are all
+  about what the codec BUILT."
+  [_js-props]
+  nil)
+
+(def ^:private a-host (codec/mint-host! "AHost" a-foreign-component))
+
+(defn- host-prop
+  "The value the codec emitted at `slot` for a one-prop host crossing.
+  Reads the GATE element's props, which are the props object the foreign
+  component receives — the gate forwards it verbatim."
+  [k v slot]
+  (prop (codec/as-element [a-host {k v}]) slot))
+
+(deftest a-namespaced-keyword-keeps-its-namespace-at-a-host-prop
+  (testing "the shape rf2-vrvv9 names. `(name :theme/dark)` is \"dark\", so
+            the namespace used to be discarded on its way to a hosted
+            React-context provider and the value arrived as a plausible
+            string that had lost half its identity."
+    (is (= :theme/dark (host-prop :value :theme/dark "value"))
+        "the keyword crosses whole — not \"dark\", not \"theme/dark\""))
+  (testing "and the collision that made the loss silent is gone. Two
+            keywords from different namespaces used to arrive as ONE
+            string; a crossing that answers two inputs with one output is
+            not a conversion."
+    (let [crossed #{(host-prop :value :theme/dark "value")
+                    (host-prop :value :other/dark "value")}]
+      (is (= 2 (count crossed))
+          "two distinct values in, two distinct values out")
+      (is (= #{:theme/dark :other/dark} crossed))))
+  (testing "an unnamespaced keyword and a symbol take the same rule — the
+            question is the position, never the shape of the name"
+    (is (= :contained (host-prop :variant :contained "variant")))
+    (is (= 'sym (host-prop :variant 'sym "variant")))))
+
+(deftest a-named-value-bound-for-an-html-attribute-still-stringifies
+  (testing "className, id and role: the value is an HTML attribute wherever
+            the component passes it on, and a string is the only
+            representation there is"
+    (is (= "primary" (host-prop :class :primary "className")))
+    (is (= "greeting" (host-prop :id :greeting "id")))
+    (is (= "dialog" (host-prop :role :dialog "role"))))
+  (testing "the data-* / aria-* families, by prefix"
+    (is (= "row" (host-prop :data-kind :row "data-kind")))
+    (is (= "close" (host-prop :aria-label :close "aria-label"))))
+  (testing "the rule is written against the emitted SLOT, never the map key
+            — `:class` and `:className` are one position, and a rule that
+            read the spelling is a rule the other spelling walks past"
+    (is (= "primary" (host-prop :className :primary "className")))
+    (is (= "primary" (host-prop "class" :primary "className"))))
+  (testing "the namespace drop survives ONLY here, and it is the same answer
+            the native walk gives at the same name"
+    (is (= "dark" (host-prop :class :theme/dark "className")))
+    (is (= "dark" (prop (codec/as-element [:div {:class :theme/dark}]) "className"))
+        "the native crossing, unchanged")))
+
+(deftest every-other-host-prop-value-crosses-exactly-as-it-did
+  (testing "functions by identity — `React.memo` and every downstream
+            bail-out that compares handler identity"
+    (let [f (fn [_])]
+      (is (identical? f (host-prop :on-thing f "onThing")))))
+  (testing "collections through clj->js, whose nested keys keep the spelling
+            the author wrote"
+    (let [o (host-prop :options {:pageSize 10} "options")]
+      (is (= 10 (aget o "pageSize")))))
+  (testing "strings, numbers, booleans and nil, verbatim"
+    (is (= "due date" (host-prop :label "due date" "label")))
+    (is (= 7 (host-prop :count 7 "count")))
+    (is (true? (host-prop :open true "open")))
+    (is (nil? (host-prop :label nil "label")))))
+
+;; ---------------------------------------------------------------------------
 ;; What the codec must NOT be
 ;; ---------------------------------------------------------------------------
 

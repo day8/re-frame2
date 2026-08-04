@@ -143,7 +143,13 @@
 (defn- instr! []
   (reset! !instr {:mounts 0 :cleanups 0 :renders 0
                   :imperative-args [] :imperative-return nil
-                  :received-imperative nil :ref-node nil :ref-cleanups 0}))
+                  :received-imperative nil :ref-node nil :ref-cleanups 0
+                  ;; Every context value the foreign side ever read, in the
+                  ;; order it read them (rf2-vrvv9). Accumulated rather than
+                  ;; overwritten because the question is whether two
+                  ;; DISTINCT values stay distinct across the crossing, and
+                  ;; the last one alone cannot answer it.
+                  :context-themes []}))
 
 (defn- widget
   "The worst reasonable case, as a plain React function component — raw
@@ -154,6 +160,7 @@
   (when-some [f (.-onImperative props)]
     (swap! !instr assoc :received-imperative f))
   (let [theme       (react/useContext theme-context)
+        _           (swap! !instr update :context-themes (fnil conj []) theme)
         clicks-hook (react/useState 0)
         clicks      (aget clicks-hook 0)
         set-clicks  (aget clicks-hook 1)
@@ -272,6 +279,20 @@
              :on-imperative stable-imperative
              :ref           grab-ref}
      [:em.gifted "from hiccup"]]]])
+
+(defview namespaced-theme-page
+  "TWO hosted providers of the ONE context, side by side, each handed a
+  namespaced keyword from a DIFFERENT namespace (rf2-vrvv9). Siblings
+  rather than nested, because the question is whether two distinct values
+  stay two — and a nested pair would only ever show the inner one.
+
+  This is HD-011's flagship case at its full width: a provider an
+  ecosystem library hands you, whose `:value` names a theme, and a
+  foreign consumer below reading it back through `useContext`."
+  [_]
+  [:div.themes
+   [:div.theme-a [themed {:value :theme/dark} [picker {:label "a"}]]]
+   [:div.theme-b [themed {:value :other/dark} [picker {:label "b"}]]]])
 
 (defview host-page
   "The minimal page the hook probe counts: one shell, one hosted widget,
@@ -426,6 +447,42 @@
                       (finally (vreset! census (teardown-census! handle))))
                     (is (= released @census))
                     (done))))
+              (.catch (fn [e] (is false (str e)) (done)))))))))
+
+(deftest two-namespaced-keywords-reach-two-providers-as-two-distinct-values
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (instr!)
+        (fresh!)
+        (let [handle (mount/root! (mount/fresh-container!) frame-id
+                                  [namespaced-theme-page {}])]
+          (-> (settled!)
+              (.then
+                (fn [_]
+                  (try
+                    (let [seen (set (:context-themes @!instr))]
+                      (testing "rf2-vrvv9, at the far end of the crossing. The
+                                foreign consumer records every context value it
+                                reads; under the old `(name v)` rule BOTH
+                                providers handed it \"dark\" and this set held
+                                ONE element — two themes, silently one, with
+                                nothing thrown anywhere."
+                        (is (= 2 (count seen))
+                            "the collision, stated as a count: two distinct
+                             keywords in, two distinct values out")
+                        (is (= #{:theme/dark :other/dark} seen)
+                            "and they are the keywords the author wrote,
+                             namespaces intact — so `=` against that literal is
+                             the whole of reading a context value back"))
+                      (testing "the DOM the foreign component built agrees: it
+                                puts the context value on an attribute, and the
+                                two subtrees differ there"
+                        (is (not= (attr handle ".theme-a .widget" "data-theme")
+                                  (attr handle ".theme-b .widget" "data-theme")))))
+                    (finally (mount/release! handle)))
+                  (done)))
               (.catch (fn [e] (is false (str e)) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -616,10 +673,23 @@
     (let [h  (codec/mint-host! "hatch/shallow" widget {})
           el (codec/as-element [h {:menu-items [{:day-of-week 1}]
                                    :variant    :compact
+                                   :theme      :theme/dark
+                                   :class      :primary
                                    :plain-fn   identity}])
           ^js props (unchecked-get el "props")]
-      (is (= "compact" (unchecked-get props "variant"))
-          "keyword values cross by name")
+      (is (= :compact (unchecked-get props "variant"))
+          "keyword values cross by IDENTITY, not by name (rf2-vrvv9) — the
+           shallow default's own rule, applied to the value: the author is
+           handed to the library exactly what they typed, here as at the
+           nested map below")
+      (is (= :theme/dark (unchecked-get props "theme"))
+          "so a namespaced keyword keeps its namespace. `(name :theme/dark)`
+           was \"dark\", which :other/dark also was — one output for two
+           inputs, silently")
+      (is (= "primary" (unchecked-get props "className"))
+          "the one exception: a value bound for an HTML attribute has no
+           representation but a string, and this is the answer the native
+           walk gives at the same name")
       (is (identical? identity (unchecked-get props "plainFn"))
           "functions cross by identity — a value handed to a foreign API,
            not a position")
