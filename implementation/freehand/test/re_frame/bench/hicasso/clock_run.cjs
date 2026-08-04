@@ -1717,7 +1717,62 @@ function report(out) {
 
 // ---------------------------------------------------------------------------
 
-(async () => {
+/**
+ * THE RUN'S FINAL DECISION, as a pure function of a flat per-row summary.
+ *
+ * Everything above this point is a WHOLE-RUN gate — a page that threw, a
+ * guard refusal, two arms building different pages, an unverified write, a
+ * band over the ceiling — and each takes its own exit where it is found.
+ * What is left is the pair of judgements that are about a ROW, and they are
+ * taken here, together, because the defect this function exists to prevent
+ * is one of them being computed and never reaching the exit code.
+ *
+ * `rows` is one entry per measured row:
+ *
+ *   rowId             the row's id, as printed
+ *   ctlOk             its positive control saw the change its arithmetic predicts
+ *   ctlNote           the parenthetical a control refusal prints, if any
+ *   adjudicable       at least one PUBLISHED bar carries a band
+ *   unadjudicatedWhy  why it does not, in the adjudicator's own words
+ *
+ * EXIT 1 HERE IS PER-ROW, AND THE ROWS THAT PASSED ARE STILL ROWS. Reaching
+ * this point means every whole-run gate cleared on every row; these two are
+ * the only ones this driver scopes to the row that failed them, because they
+ * are the only ones whose claim is about a row.
+ */
+function reportability(rows, opts) {
+  const list = Array.isArray(rows) ? rows : [];
+  const sabotage = (opts && opts.sabotage) || null;
+  const ctlFailed = list.filter((r) => !r.ctlOk);
+  const passed = list.filter((r) => r.ctlOk).map((r) => r.rowId);
+  const lines = [];
+  if (ctlFailed.length > 0) {
+    lines.push(
+      `[clock] FAILED: the positive control did not see the change its own arithmetic predicts on: ` +
+        `${ctlFailed.map((r) => `${r.rowId}${r.ctlNote || ''}`).join(', ')}. ` +
+        `No MAGNITUDE from those rows is reportable.`
+    );
+    if (sabotage) {
+      lines.push(
+        `[clock] HCLOCK_CTL3_SABOTAGE=${sabotage} WAS SET: the control's arms rendered ${sabotage} cells ` +
+          `while declaring 200. This refusal is the DEMONSTRATION that the control can fail, and this run is not ` +
+          `a measurement of anything.`
+      );
+    }
+  }
+  if (ctlFailed.length === 0) return { code: 0, lines };
+  lines.push(
+    passed.length > 0
+      ? `[clock] REPORTABLE: ${passed.join(', ')} — control passed, guard clean, canonical DOM identical, ` +
+          `0 unverified. Publish those and mark the rest.`
+      : `[clock] REPORTABLE: none.`
+  );
+  return { code: 1, lines };
+}
+
+// ---------------------------------------------------------------------------
+
+async function main() {
   // THE ADJUDICATORS' SELF-TESTS, and they run before anything is built or
   // launched. `ctl3SelfTest` is the one that matters for this driver's new
   // control: its cases are the REFUSALS — superlinear work, an arm that does
@@ -2095,7 +2150,6 @@ function report(out) {
     o.verdict.ctl3
       ? !o.verdict.ctl3.ok
       : !o.verdict.ctlVerdict.ok || (o.verdict.ctlTask && !o.verdict.ctlTask.ok);
-  const ctlFailed = outcomes.filter((o) => ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok));
   const demoted = outcomes.filter(
     (o) => o.verdict.ctl3 && o.verdict.ctl3.ok && (!o.verdict.ctlVerdict.ok || (o.verdict.ctlTask && !o.verdict.ctlTask.ok))
   );
@@ -2107,34 +2161,26 @@ function report(out) {
         `${o.verdict.constants ? o.verdict.constants.c2x.mean.toFixed(4) : '?'} ms is the reported reason they differ.`
     );
   }
-  if (ctlFailed.length > 0) {
-    const passed = outcomes.filter((o) => !ctlFailed.includes(o)).map((o) => o.out.rowId);
-    console.error(
-      `[clock] FAILED: the positive control did not see the change its own arithmetic predicts on: ` +
-        `${ctlFailed
-          .map((o) => `${o.out.rowId}${o.verdict.ctl3 ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)` : ''}`)
-          .join(', ')}. No MAGNITUDE from those rows is reportable.`
-    );
-    if (CTL3_SABOTAGE) {
-      console.error(
-        `[clock] HCLOCK_CTL3_SABOTAGE=${CTL3_SABOTAGE} WAS SET: the control's arms rendered ${CTL3_SABOTAGE} cells ` +
-          `while declaring 200. This refusal is the DEMONSTRATION that the control can fail, and this run is not ` +
-          `a measurement of anything.`
-      );
-    }
-    // EXIT 1 HERE IS PER-ROW, AND THE ROWS THAT PASSED ARE STILL ROWS.
-    // Everything before this line is a whole-run gate — a page that threw,
-    // a guard refusal, two arms building different pages, an unverified
-    // write — and reaching here means every one of them cleared on every
-    // row. A control is the only gate this driver scopes to the row that
-    // failed it, because that is the only one whose claim is about a row.
-    console.error(
-      passed.length > 0
-        ? `[clock] REPORTABLE: ${passed.join(', ')} — control passed, guard clean, canonical DOM identical, ` +
-            `0 unverified. Publish those and mark the rest.`
-        : `[clock] REPORTABLE: none.`
-    );
-    process.exit(1);
-  }
+  // THE DECISION HAS ONE SEAT (`reportability`, above). Nothing below reads a
+  // refusal on its own: the summary is built, the function decides, its lines
+  // are printed and its code is the exit code.
+  const decision = reportability(
+    outcomes.map((o) => ({
+      rowId: o.out.rowId,
+      ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
+      ctlNote: o.verdict.ctl3
+        ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)`
+        : '',
+    })),
+    { sabotage: CTL3_SABOTAGE }
+  );
+  for (const line of decision.lines) console.error(line);
+  if (decision.code !== 0) process.exit(decision.code);
   console.error('[clock] ok');
-})();
+}
+
+module.exports = { reportability };
+
+if (require.main === module) {
+  main();
+}
