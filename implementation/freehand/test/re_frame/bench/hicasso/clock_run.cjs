@@ -1744,7 +1744,8 @@ function reportability(rows, opts) {
   const list = Array.isArray(rows) ? rows : [];
   const sabotage = (opts && opts.sabotage) || null;
   const ctlFailed = list.filter((r) => !r.ctlOk);
-  const passed = list.filter((r) => r.ctlOk).map((r) => r.rowId);
+  const unadjudicated = list.filter((r) => !r.adjudicable);
+  const passed = list.filter((r) => r.ctlOk && r.adjudicable).map((r) => r.rowId);
   const lines = [];
   if (ctlFailed.length > 0) {
     lines.push(
@@ -1760,14 +1761,115 @@ function reportability(rows, opts) {
       );
     }
   }
-  if (ctlFailed.length === 0) return { code: 0, lines };
+  // AND A ROW MAY HAVE NO ADJUDICABLE BAR AT ALL (rf2-y7mw7). This is a
+  // different claim from the control's and it used to reach nothing: the
+  // driver labelled every bar on such a row UNADJUDICATED four hundred lines
+  // above, then exited 0 because the control had passed. A control that
+  // passes certifies the instrument had SIGNAL; it does not supply the band a
+  // magnitude is adjudicated AGAINST, and a driver that cannot adjudicate a
+  // figure may not announce it. Refused after the control and never instead
+  // of it — a row can fail both, and both are said.
+  if (unadjudicated.length > 0) {
+    lines.push(
+      `[clock] FAILED: no published bar can be ADJUDICATED on: ` +
+        `${unadjudicated.map((r) => r.rowId).join(', ')}. The row has a magnitude and nothing to tell it ` +
+        `from parity, so no figure from it is reportable — a passing control is not a band:`
+    );
+    for (const r of unadjudicated) {
+      lines.push(`[clock]   ${r.rowId}: ${r.unadjudicatedWhy || 'no proportional control on this row'}`);
+    }
+  }
+  if (ctlFailed.length === 0 && unadjudicated.length === 0) return { code: 0, lines };
   lines.push(
     passed.length > 0
       ? `[clock] REPORTABLE: ${passed.join(', ')} — control passed, guard clean, canonical DOM identical, ` +
-          `0 unverified. Publish those and mark the rest.`
+          `0 unverified, and every published bar adjudicated against this run's own band. ` +
+          `Publish those and mark the rest.`
       : `[clock] REPORTABLE: none.`
   );
   return { code: 1, lines };
+}
+
+/**
+ * THE DECISION'S OWN FIXTURES, in the idiom of every other adjudicator here:
+ * the refusals stated as cases rather than as prose, run by `--selftest`
+ * before a browser opens and by `clock_exit_path.test.cjs` in CI.
+ *
+ * The case that matters is the FIRST one. It is the run this driver actually
+ * produces under `HCLOCK_ONLY=keystroke` — both controls pass, every whole-run
+ * gate clears, and every bar comes back UNADJUDICATED — and until rf2-y7mw7 it
+ * printed `[clock] ok` and exited 0.
+ */
+function reportabilitySelfTest() {
+  const checks = [];
+  const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail: detail || '' });
+  const KEYSTROKE_WHY = "UNADJUDICATED — this row's control burns a fixed 50 ms rather than doubling the page";
+  const row = (over) => ({ rowId: 'M1', ctlOk: true, ctlNote: '', adjudicable: true, ...over });
+  const keystroke = () => row({ rowId: 'keystroke', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY });
+
+  const green = reportability([row({}), row({ rowId: 'bulk300' })]);
+  check('a run whose every row is adjudicated exits 0 and says nothing', green.code === 0 && green.lines.length === 0);
+
+  const unadj = reportability([keystroke()]);
+  check(
+    'a row whose every bar is UNADJUDICATED cannot exit 0 — the case that used to be green',
+    unadj.code !== 0,
+    `code ${unadj.code}`
+  );
+  check(
+    'and the refusal NAMES the row and the adjudicator\'s own reason',
+    /no published bar can be ADJUDICATED on: keystroke/.test(unadj.lines[0] || '') &&
+      unadj.lines.some((l) => l.includes(KEYSTROKE_WHY)),
+    unadj.lines.join(' | ')
+  );
+  check(
+    'a row with nothing to publish is not announced as REPORTABLE',
+    unadj.lines[unadj.lines.length - 1] === '[clock] REPORTABLE: none.',
+    unadj.lines[unadj.lines.length - 1]
+  );
+
+  const mixed = reportability([row({}), keystroke()]);
+  check(
+    'an unadjudicated row refuses the run while the adjudicated rows stay reportable',
+    mixed.code !== 0 && /REPORTABLE: M1 —/.test(mixed.lines[mixed.lines.length - 1]),
+    mixed.lines[mixed.lines.length - 1]
+  );
+  check(
+    'and REPORTABLE no longer says "publish" without saying "adjudicated"',
+    /every published bar adjudicated against this run's own band/.test(mixed.lines[mixed.lines.length - 1]),
+    mixed.lines[mixed.lines.length - 1]
+  );
+
+  // THE CONTROL GATE IS UNCHANGED, which is the other half of the repair: the
+  // bar-level verdict was ADDED to the exit code, not substituted for the
+  // row-level one.
+  const ctl = reportability([row({ ctlOk: false, ctlNote: ' (three-point 1.2134x vs 2.0101x)' })]);
+  check(
+    'a failed positive control still refuses, alone, exactly as before',
+    ctl.code === 1 && /the positive control did not see the change/.test(ctl.lines[0] || ''),
+    ctl.lines.join(' | ')
+  );
+  const sab = reportability([row({ ctlOk: false })], { sabotage: 140 });
+  check(
+    'the falsification knob still says the run was a falsification',
+    sab.code === 1 && sab.lines.some((l) => l.includes('HCLOCK_CTL3_SABOTAGE=140')),
+    sab.lines.join(' | ')
+  );
+
+  const both = reportability([row({ rowId: 'keystroke', ctlOk: false, adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY })]);
+  check(
+    'a row that fails BOTH is refused for both — neither verdict masks the other',
+    both.code === 1 &&
+      both.lines.some((l) => l.includes('the positive control did not see the change')) &&
+      both.lines.some((l) => l.includes('no published bar can be ADJUDICATED')),
+    both.lines.join(' | ')
+  );
+
+  const empty = reportability([]);
+  check('a run that took no rows is not a refusal', empty.code === 0 && empty.lines.length === 0);
+  check('and neither is one that never ran', reportability(undefined).code === 0);
+
+  return { checks };
 }
 
 // ---------------------------------------------------------------------------
@@ -1804,9 +1906,15 @@ async function main() {
   if (SELFTEST_ONLY) {
     const g = guard.selfTest();
     const s = seamlib.selfTest();
+    // AND THE DECISION ITSELF (rf2-y7mw7). Every other self-test here asks
+    // whether an adjudicator can refuse; this one asks whether its refusal
+    // reaches the exit code, which is the fault the other twenty-three could
+    // not have caught.
+    const x = reportabilitySelfTest();
     for (const c of g.checks) console.error(`[clock] guard self-test ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
     for (const c of s.checks) console.error(`[clock] seam self-test  ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
-    const bad = [...g.checks, ...s.checks].filter((c) => !c.ok);
+    for (const c of x.checks) console.error(`[clock] exit self-test  ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.ok ? '' : ` — ${c.detail}`}`);
+    const bad = [...g.checks, ...s.checks, ...x.checks].filter((c) => !c.ok);
     console.error(`[clock] --selftest: ${bad.length === 0 ? 'ALL ADJUDICATORS OK' : 'FAILURES: ' + bad.length}`);
     process.exit(bad.length === 0 ? 0 : 1);
   }
@@ -2165,13 +2273,25 @@ async function main() {
   // refusal on its own: the summary is built, the function decides, its lines
   // are printed and its code is the exit code.
   const decision = reportability(
-    outcomes.map((o) => ({
-      rowId: o.out.rowId,
-      ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
-      ctlNote: o.verdict.ctl3
-        ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)`
-        : '',
-    })),
+    outcomes.map((o) => {
+      // THE ADJUDICATION OF THE PUBLISHED CLOCK, read off the same object the
+      // report printed and the dataset stored — not recomputed here, because a
+      // second computation is a second decision.
+      const bars = (o.verdict.seamTask && o.verdict.seamTask.rows) || {};
+      const names = Object.keys(bars);
+      const unadj = names.filter((n) => bars[n].unadjudicated);
+      return {
+        rowId: o.out.rowId,
+        ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
+        ctlNote: o.verdict.ctl3
+          ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)`
+          : '',
+        // Fail closed on a row that adjudicated no bar at all: an empty
+        // verdict is an absent one, not a clean one.
+        adjudicable: names.length > 0 && unadj.length < names.length,
+        unadjudicatedWhy: unadj.length > 0 ? bars[unadj[0]].why : 'the run adjudicated no bar on this row at all',
+      };
+    }),
     { sabotage: CTL3_SABOTAGE }
   );
   for (const line of decision.lines) console.error(line);
@@ -2179,7 +2299,7 @@ async function main() {
   console.error('[clock] ok');
 }
 
-module.exports = { reportability };
+module.exports = { reportability, reportabilitySelfTest };
 
 if (require.main === module) {
   main();

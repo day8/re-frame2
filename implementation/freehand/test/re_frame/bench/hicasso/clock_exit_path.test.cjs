@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 'use strict';
-// THE HD8/CENSUS CLOCK DRIVERS' EXIT PATH — a printed refusal must refuse.
-// rf2-rr6do, following rf2-tb345's repair of the same defect in b8_run.cjs.
+// THE HICASSO CLOCK DRIVERS' EXIT PATH — a printed refusal must refuse.
+// rf2-rr6do, following rf2-tb345's repair of the same defect in b8_run.cjs,
+// and rf2-y7mw7, which found the twenty-fourth instance of it — in
+// `clock_run.cjs`, the driver this file's header once held up as the correct
+// shape.
 //
 //     node freehand/test/re_frame/bench/hicasso/clock_exit_path.test.cjs
 //
@@ -32,6 +35,14 @@
 //
 // THE CORRECT SHAPE ALREADY EXISTED: `clock_run.cjs` gates all three. This
 // is that shape, made checkable.
+//
+// AND THEN `clock_run.cjs` ITSELF (rf2-y7mw7). It gated all three and still
+// exited 0 on a row it had adjudicated NOTHING on: it computes a row-level
+// control verdict and a bar-level adjudication independently, and only the
+// first reached the exit code. `HCLOCK_ONLY=keystroke` alone printed
+// `[clock] ok` for a run whose every bar it had just labelled UNADJUDICATED.
+// Its decision now has one seat too, and the last section of this file is
+// that seat's fixtures plus the wiring that makes them load-bearing.
 //
 // Wired into implementation/package.json via `test:script-helpers`.
 
@@ -300,6 +311,142 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const band = verdict({ failed: null, rows: [row({ ceilingBreached: true, band: 0.4 })] });
   assert.notStrictEqual(band.code, 0, 'P4 promises a refusal when the band cannot hold');
 });
+
+// --- clock_run.cjs: the bar-level adjudication must reach the exit code -------
+//
+// rf2-y7mw7. `clock_run.cjs` is the candidate clock and needs an `:advanced`
+// build and a headless Chromium, so — exactly as above — its decision is a
+// pure function over a flat per-row summary and is exercised here directly.
+
+{
+  const CLOCK = path.join(__dirname, 'clock_run.cjs');
+  const { reportability, reportabilitySelfTest } = require('./clock_run.cjs');
+  const SRC = fs.readFileSync(CLOCK, 'utf8');
+  const t = (what, fn) => test(`clock_run.cjs: ${what}`, fn);
+  const KEYSTROKE_WHY = "UNADJUDICATED — this row's control burns a fixed 50 ms rather than doubling the page";
+  const clockRow = (over) => ({ rowId: 'M1', ctlOk: true, ctlNote: '', adjudicable: true, ...over });
+
+  // --- the driver's own fixtures, which `--selftest` also runs --------------
+
+  t("the decision's own self-test passes, every case", () => {
+    const { checks } = reportabilitySelfTest();
+    assert.ok(checks.length >= 10, `expected the decision's fixtures, got ${checks.length}`);
+    const bad = checks.filter((c) => !c.ok);
+    assert.deepStrictEqual(bad, [], bad.map((c) => `${c.name}: ${c.detail}`).join('\n'));
+  });
+
+  // --- the defect itself, driven here as well as in the driver -------------
+
+  t('THE FAIL-OPEN: a row whose every bar is UNADJUDICATED cannot exit 0', () => {
+    const v = reportability([
+      clockRow({ rowId: 'keystroke', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY }),
+    ]);
+    assert.notStrictEqual(v.code, 0, 'a run with no adjudicable bar must not exit 0');
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[0], /no published bar can be ADJUDICATED on: keystroke/);
+    assert.match(v.lines[1], /keystroke: UNADJUDICATED/);
+    assert.strictEqual(v.lines[2], '[clock] REPORTABLE: none.');
+  });
+
+  t('a row that adjudicated NO bar at all fails closed rather than open', () => {
+    // The summary the driver builds sets `adjudicable` false when the verdict
+    // carries no bars, so a verdict that went missing refuses instead of
+    // passing quietly — the same reason `seam.cjs` refuses a NaN band.
+    const v = reportability([clockRow({ adjudicable: false, unadjudicatedWhy: undefined })]);
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[1], /M1: no proportional control on this row/);
+  });
+
+  t('a genuinely reportable run still exits 0 and says nothing', () => {
+    const v = reportability([clockRow({}), clockRow({ rowId: 'bulk300' })]);
+    assert.deepStrictEqual(v, { code: 0, lines: [] });
+  });
+
+  t('a bar INSIDE the band is adjudicated, so an instrument-limited row still exits 0', () => {
+    // `LIMITED` is a verdict. Only `UNADJUDICATED` is the absence of one, and
+    // conflating them would turn this gate into a magnitude gate.
+    assert.strictEqual(reportability([clockRow({ adjudicable: true })]).code, 0);
+  });
+
+  // --- the control gate is UNCHANGED, which is half the repair --------------
+
+  t('a failed positive control alone still exits 1, exactly as before', () => {
+    const v = reportability([clockRow({ ctlOk: false, ctlNote: ' (three-point 1.2134x vs 2.0101x)' })]);
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[0], /the positive control did not see the change its own arithmetic predicts on: /);
+    assert.match(v.lines[0], /M1 \(three-point 1\.2134x vs 2\.0101x\)/);
+    assert.match(v.lines[0], /No MAGNITUDE from those rows is reportable/);
+  });
+
+  t('the control refusal is still per-row: the rows that passed are still rows', () => {
+    const v = reportability([clockRow({}), clockRow({ rowId: 'narrow', ctlOk: false })]);
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[v.lines.length - 1], /^\[clock\] REPORTABLE: M1 —/);
+  });
+
+  t('HCLOCK_CTL3_SABOTAGE still declares the run a falsification', () => {
+    const v = reportability([clockRow({ ctlOk: false })], { sabotage: 140 });
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[1], /HCLOCK_CTL3_SABOTAGE=140 WAS SET/);
+  });
+
+  t('neither verdict masks the other — a row failing both is refused for both', () => {
+    const v = reportability([
+      clockRow({ rowId: 'keystroke', ctlOk: false, adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY }),
+    ]);
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[0], /positive control/);
+    assert.match(v.lines[1], /no published bar can be ADJUDICATED/);
+    assert.strictEqual(v.lines[3], '[clock] REPORTABLE: none.');
+  });
+
+  // --- and the sentence that invited the publication -----------------------
+
+  t('REPORTABLE no longer says "Publish those" without saying "adjudicated"', () => {
+    const v = reportability([clockRow({}), clockRow({ rowId: 'keystroke', adjudicable: false })]);
+    const line = v.lines[v.lines.length - 1];
+    assert.match(line, /every published bar adjudicated against this run's own band/);
+    assert.doesNotMatch(line, /keystroke/, 'an unadjudicated row must never appear in REPORTABLE');
+  });
+
+  // --- the wiring: `reportability` is load-bearing, not decorative ----------
+
+  const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
+
+  t('the driver exposes its decision and does not drive itself on require', () => {
+    assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
+    assert.match(SRC, /module\.exports = \{ reportability, reportabilitySelfTest \};/);
+    assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
+  });
+
+  t('the summary reads the adjudication the report printed, rather than recomputing it', () => {
+    // A second computation is a second decision, and a second decision is
+    // this whole file's subject.
+    assert.match(MAIN, /o\.verdict\.seamTask && o\.verdict\.seamTask\.rows/);
+    assert.match(MAIN, /adjudicable: names\.length > 0 && unadj\.length < names\.length,/);
+  });
+
+  t('the exit code comes from `reportability` and from nothing else', () => {
+    assert.match(MAIN, /for \(const line of decision\.lines\) console\.error\(line\);/);
+    assert.match(MAIN, /if \(decision\.code !== 0\) process\.exit\(decision\.code\);/);
+    const tail = MAIN.slice(MAIN.indexOf('for (const line of decision.lines)'));
+    assert.strictEqual(
+      (tail.match(/process\.exit/g) || []).length,
+      1,
+      'the decision must have ONE seat — a second exit below it is a second decision'
+    );
+    assert.ok(
+      !/ctlBad\(|seamTask|unadjudicated|ctlFailed/.test(tail),
+      'nothing downstream of the decision may read a refusal on its own'
+    );
+  });
+
+  t('`--selftest` runs the decision, so an operator sees it before the browser opens', () => {
+    const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('if (!NO_BUILD)'));
+    assert.match(block, /reportabilitySelfTest\(\)/);
+    assert.match(block, /\[\.\.\.g\.checks, \.\.\.s\.checks, \.\.\.x\.checks\]\.filter/);
+  });
+}
 
 let failed = 0;
 for (const [name, fn] of tests) {
