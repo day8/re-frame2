@@ -169,6 +169,12 @@ _IMAGE_CTX_RE = re.compile(r"\b(?:rf/image|image/image|make-frame|:images)\b")
 # A `make-frame` / image opts map can span several lines, so the anchoring token
 # may sit a few lines from the key. The co-occurrence window (lines on each side).
 _MAKE_FRAME_WINDOW = 4
+# Removed-context suppression window (lines each side). A retirement-discussing
+# `deftest` name / `testing` string / comment can sit a few lines above the
+# retired-key data line (e.g. a `doseq` over retired specs), so the window is
+# slightly wider than a bare neighbour pair.
+_REMOVED_CTX_WINDOW = 3
+
 # The gate's ADVERTISED contract — the exact token set the module docstring
 # promises, written out once so the self-test can hold the implementation to it.
 # `--self-test` asserts BOTH that the detectors emit exactly this set and that
@@ -211,12 +217,6 @@ _TOKEN_PREFILTER_RE = re.compile(
 # decoded at all. (Universal-newline translation only ever turns CR / CRLF into
 # LF; it cannot join characters across the break, so it cannot conjure a token.)
 _TOKEN_PREFILTER_BYTES_RE = re.compile(_TOKEN_PREFILTER_RE.pattern.encode("ascii"))
-
-# Removed-context suppression window (lines each side). A retirement-discussing
-# `deftest` name / `testing` string / comment can sit a few lines above the
-# retired-key data line (e.g. a `doseq` over retired specs), so the window is
-# slightly wider than a bare neighbour pair.
-_REMOVED_CTX_WINDOW = 3
 
 
 # --------------------------------------------------------------------------
