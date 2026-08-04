@@ -198,6 +198,20 @@ Two things this argument deliberately does **not** lean on:
   it by rendering. A branch for `[:>]` would be a second mechanism for the thing the
   gate exists to do once.
 
+**Addendum, 2026-08-05 — `rf2-2rtt6.91` has closed (PR #7510); the instruction
+stands and its reason is now stronger.** The first bullet's "is open" is stale, and
+nothing else about it is: the measurement still reproduces exactly, because the
+witness rows that chose byte digests were rewired to take the hash from
+`ssr-hash/render-tree-hash` directly. What changed is *why* nothing here may lean on
+the hash. It is no longer "the value is degenerate" but "this tier carries no such
+value" — Spec 011 tiers hydration-mismatch detection by **render-tree
+representation, not by adapter brand**, and a root React adopts (a compiled
+`re-frame.ui` root, a native UIx root, or a Freehand root) now carries no
+`:rf/render-hash` at either end. `83b865f8` was in any case never a fact about this
+design: it is the FNV-1a-32 of the canonical EDN `[#fn[] {}]`, so **any** unresolved
+`[<fn> {}]` root takes it. Every claim here still rests on React's own reconciliation
+report, which is the door this design was already built to.
+
 The `createRoot` case falls out unchanged: a fresh mount never consults a server
 snapshot, so it renders the foreign component on its very first pass with no
 placeholder flash.

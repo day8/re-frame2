@@ -73,6 +73,30 @@ byte digest separates them. **This is not a repair of the instrument** — the
 repair is a server *and* client contract and it is `rf2-2rtt6.91`'s. It is the
 reason X1(a) is stated as a SHA-256 over the document.
 
+**Addendum, 2026-08-05 — `rf2-2rtt6.91` has closed (PR #7510); every figure on
+this page is unchanged and still reproduces.** The repair deliberately kept the
+measurement live, so this is a status correction and not a re-measurement. Three
+things, covering this rationale, the `:rf/render-hash` column in the table above,
+and the §X5 passage below that reports both pages taking `83b865f8`:
+
+- **The column is now a fact about the hash function, not about the wire.** An
+  adoption-tier root — a compiled `re-frame.ui` root, a native UIx root, or a
+  Freehand root — emits no `:rf/render-hash` in its payload and stamps no
+  `data-rf-render-hash` marker; Spec 011 states that server end of the tier rule,
+  which keys on render-tree representation rather than adapter brand. The value
+  in the column is the hash such a root *would* have had, and it is still taken.
+- **`83b865f8` was never a fact about these two pages.** It is the FNV-1a-32 of
+  the canonical EDN `[#fn[] {}]` — the unresolved `[<minted head> {props}]` root,
+  in which canonical EDN renders every function identically — so **any**
+  `[<fn> {}]` root takes it. That is why two entirely different pages agreed.
+- **The figures still reproduce exactly.** The three rows that *chose* byte
+  digests over the hash were rewired to take it from `ssr-hash/render-tree-hash`
+  directly rather than from the payload, precisely so this page and the
+  server-arm dossier would keep reproducing after the entry stopped emitting.
+
+The sentence above stands as written: this page was not the repair of the
+instrument. The repair was `rf2-2rtt6.91`'s, and it has landed.
+
 ## X1(b) — canonical-DOM parity
 
 The hydrated-from-server DOM against a cold client-only mount of the same

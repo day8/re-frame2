@@ -476,6 +476,45 @@ sitting will want them:
    `rf2-2rtt6.91`'s owner, not a ruling, and it does not change the pricing of
    either arm.
 
+**Addendum, 2026-08-05 — `rf2-2rtt6.91` has closed (PR #7510), and Observation 3
+was the ruling.** The section above stands as written: it is a dated record of a
+measurement that is *still exactly reproducible*, and nothing on this page ever
+leaned on the hash. Three corrections, none of which move a figure:
+
+- **The status.** The hash is no longer live for this tier. The Hicasso SSR
+  entry stopped emitting `:rf/render-hash` altogether, and Spec 011 now states
+  the **server** end of the tier rule it already stated for the client: a root
+  that verifies by React-native adoption — a compiled `re-frame.ui` root, a
+  native UIx root, or a Freehand root — carries no `:rf/render-hash` in its
+  payload and stamps no `data-rf-render-hash` marker on its root element.
+  Observation 3 read the tiering correctly: it keys on **render-tree
+  representation, not on adapter brand**, and candidate (c) was the spec's own
+  existing answer for Hicasso's tier rather than a concession. The payload now
+  **omits** the key rather than stamping a nil, because the schema slot is
+  `{:optional true} :string` and not `[:maybe :string]` — a present-and-nil key
+  is not a legal spelling of absence.
+- **`83b865f8` was never a Hicasso fact.** It is the FNV-1a-32 of the canonical
+  EDN `[#fn[] {}]` — the *unresolved* `[<minted head> {props}]` root, in which
+  canonical EDN renders every function identically. **Any** `[<fn> {}]` root
+  takes the same value, which is exactly why the dogfood screen and the
+  ~1,200-element Conduit feed agreed. The degeneracy is a fact about hashing an
+  unresolved root form, not about either arm's renderer — which is also why it
+  never separated the two arms and never could have.
+- **The figures above remain exactly reproducible.** The repair deliberately
+  kept the measurement live: the witness rows that *chose* byte digests now take
+  the hash from `ssr-hash/render-tree-hash` directly rather than from the
+  payload, so `83b865f8`, `a510149b…` and `4308c288…` all still reproduce after
+  the entry stopped emitting.
+
+**Observation 2 is unchanged and still live.** The production call site still
+takes the hash from the root hiccup *before* the render
+(`lifecycle/render-document-hash` at `pipeline.clj:543`, which is
+`rf/render-tree-hash` over the same unresolved form), and the tier ruling did
+not touch it; it remains a question for the production pipeline, tracked on its
+own bead. So the degeneracy still reaches production identically whichever arm
+renders — what changed is only the *reason* nothing here leans on the hash: no
+longer "it is degenerate", but "this tier carries none, at either end".
+
 The caveat that *does* change the pricing is §4's: adoption reporting has a
 documented hole at attribute-only mismatches, and only one arm can produce them.
 

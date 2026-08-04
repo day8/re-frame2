@@ -59,6 +59,22 @@ leans on it, and none below does. And **a console capture whose window shuts whe
 found three rows vacuous for exactly that reason and repaired them; every witness
 proposed here inherits the repaired window.
 
+**Addendum, 2026-08-05 — `rf2-2rtt6.91` has closed (PR #7510); the first instrument
+limit is now a stronger one, not a weaker one.** The paragraph above stands and its
+figure still reproduces: the witness rows that chose byte digests were rewired to
+take the hash from `ssr-hash/render-tree-hash` directly, so `83b865f8` remains
+measured. Two corrections. The limit is no longer "the value is degenerate for an
+interpreted root" but **"this tier carries no such value"** — Spec 011 tiers
+hydration-mismatch detection by render-tree representation rather than by adapter
+brand, and a root React adopts (a compiled `re-frame.ui` root, a native UIx root, or
+a Freehand root) now emits no `:rf/render-hash` and stamps no marker at either end.
+And `83b865f8` was never a fact about the dogfood screen or the Conduit feed: it is
+the FNV-1a-32 of the canonical EDN `[#fn[] {}]`, so **any** unresolved `[<fn> {}]`
+root takes it. This *strengthens* both places the fact is used — O7's fail-open
+obligation, and the §"blind" row below, where the middle column's blindness is
+attributed to canonical EDN rendering every function identically. That attribution
+was, and remains, the correct one; it is the whole mechanism.
+
 ## The thesis: the escape is a head-minting question
 
 Every obligation in the ledger is **already held** by code that exists:
