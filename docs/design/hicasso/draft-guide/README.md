@@ -18,7 +18,7 @@ programmer actually type?**
 | [Testing](08-testing.md) | Assert intents and trees as data today; know when you still need a browser |
 | [When a view throws](09-when-a-view-throws.md) | Keep one broken view from taking the page down with it |
 | [Server-side rendering](10-server-side-rendering.md) | Serve a page rendered from a db snapshot and adopt it live in the browser |
-| [Below Hiccup](11-below-hiccup.md) | When a path is hot: still-Hiccup levers, host-edge React, `defhost` — and what is *not* an escape |
+| [Below Hiccup](11-below-hiccup.md) | 98% of views need no special path; for the ~2%, the ladder down (still Hiccup → host edge → `defhost`) |
 
 ## How to read the markers
 
