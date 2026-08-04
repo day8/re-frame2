@@ -69,6 +69,7 @@ Dependency-light — Python stdlib only.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -178,6 +179,39 @@ _ADVERTISED_KINDS = frozenset({
     ":rf.image/requires", ":rf.gen/requires",
     ":replace", "make-frame :capabilities",
 })
+
+# THE PRE-FILTER (rf2-e1xx0) — a SUPERSET of every detector above, and the only
+# reason this gate is cheap.
+#
+# Each detector's pattern begins with one of these literal substrings, so text
+# containing none of them cannot match any of them. `:replace` is deliberately
+# listed bare: it is a prefix of `:replace-standard`, so one alternative covers
+# both. `:capabilities` is the literal key, never the bare word `capability`.
+#
+# WHY IT IS SOUND, and why it is NOT a narrowing of what the gate matches: the
+# filter is applied to the RAW text of a file and then to each MASKED line, and
+# every masking pass in this module only ever BLANKS characters (comments and
+# string literals become runs of spaces, length preserved). Blanking can remove a
+# token, never create one — so "no literal token anywhere in this text" implies
+# "no detector can fire here", exactly. Everything the filter skips would have
+# produced no finding; the verdicts are identical, and the equivalence is held to
+# the real corpus plus a per-token/per-context synthetic corpus in the PR.
+_TOKEN_PREFILTER_RE = re.compile(
+    r":replace"              # covers :replace AND :replace-standard
+    r"|:rf\.image/requires"
+    r"|:rf\.gen/requires"
+    r"|:include-ns"
+    r"|:exclude-ns"
+    r"|:capabilities"
+)
+# The same filter over undecoded bytes, derived from the pattern above so the two
+# cannot drift. Every token is pure ASCII and UTF-8 never encodes a non-ASCII
+# character using ASCII bytes, so a token is present in the bytes exactly when it
+# is present in the decoded text — which lets a file be ruled out before it is
+# decoded at all. (Universal-newline translation only ever turns CR / CRLF into
+# LF; it cannot join characters across the break, so it cannot conjure a token.)
+_TOKEN_PREFILTER_BYTES_RE = re.compile(_TOKEN_PREFILTER_RE.pattern.encode("ascii"))
+
 # Removed-context suppression window (lines each side). A retirement-discussing
 # `deftest` name / `testing` string / comment can sit a few lines above the
 # retired-key data line (e.g. a `doseq` over retired specs), so the window is
@@ -232,7 +266,6 @@ def _implemented_kinds() -> frozenset[str]:
 # --------------------------------------------------------------------------
 
 _FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})")
-_LINE_COMMENT_RE = re.compile(r";.*$")
 _INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1")
 # A double-quoted Clojure string literal (no escape handling needed for the
 # token search — masking only ever REMOVES potential matches). Masked so a
@@ -242,10 +275,16 @@ _CLJ_STRING_RE = re.compile(r'"[^"]*"')
 
 
 def _mask_clj_comment(line: str) -> str:
-    m = _LINE_COMMENT_RE.search(line)
-    if not m:
+    """Blank from the first `;` to end of line, length-preserving.
+
+    `str.find` rather than a `;.*$` regex: this runs on every line of every file
+    that reaches the scanner, and the regex was ~190k searches doing what an
+    index lookup does. `line` never carries its newline (it comes from
+    `splitlines`), so the first `;` to the end IS the whole comment.
+    """
+    start = line.find(";")
+    if start < 0:
         return line
-    start = m.start()
     return line[:start] + (" " * (len(line) - start))
 
 
@@ -283,35 +322,38 @@ def _code_fence_lines(text: str) -> list[tuple[int, str]]:
     return out
 
 
+# A whole Clojure string literal: the opening `"`, then any run of ordinary
+# characters or backslash-escaped pairs (so `\"` does not close early), then the
+# closing `"` — or the end of the text when the string is never closed, which
+# blanks to EOF exactly as the character scanner this replaced did. DOTALL so a
+# literal spans lines.
+_CLJ_STRING_SPAN_RE = re.compile(r'"(?:[^"\\]|\\.)*(?:"|\\?\Z)', re.DOTALL)
+
+
+def _blank_span(match: re.Match) -> str:
+    """Blank a matched span to spaces, keeping its newlines (and so its length,
+    and so every line number after it)."""
+    span = match.group(0)
+    if "\n" not in span:
+        return " " * len(span)
+    return "\n".join(" " * len(seg) for seg in span.split("\n"))
+
+
 def _mask_multiline_clj_strings(text: str) -> str:
     """Blank every double-quoted Clojure string literal across the WHOLE file,
     length-preserving (newlines kept), so a retired token named inside a
     MULTI-LINE docstring is not a live-code hit. A `"` opens a string; the next
     unescaped `"` closes it. Escapes (`\\"`) are honoured so an embedded quote
-    does not close early."""
-    out: list[str] = []
-    in_str = False
-    escaped = False
-    for ch in text:
-        if in_str:
-            if escaped:
-                escaped = False
-                out.append(" " if ch != "\n" else "\n")
-            elif ch == "\\":
-                escaped = True
-                out.append(" ")
-            elif ch == '"':
-                in_str = False
-                out.append(" ")
-            else:
-                out.append(" " if ch != "\n" else "\n")
-        else:
-            if ch == '"':
-                in_str = True
-                out.append(" ")
-            else:
-                out.append(ch)
-    return "".join(out)
+    does not close early.
+
+    One regex sweep, not a per-character loop: the loop was 12s of this gate's
+    runtime over the corpus, 2.6M `str.join` calls for a pass that blanks whole
+    spans (rf2-e1xx0). Newlines survive because the replacement blanks every
+    character EXCEPT `\\n`, which is what keeps line numbers honest downstream.
+    """
+    if '"' not in text:
+        return text
+    return _CLJ_STRING_SPAN_RE.sub(_blank_span, text)
 
 
 def _clj_code_lines(text: str) -> list[tuple[int, str]]:
@@ -371,6 +413,13 @@ def _scan_lines(lines: list[tuple[int, str]], path: Path,
     masked_by_no = {ln: s for ln, s in lines}
     findings: list[Finding] = []
     for line_no, masked in lines:
+        # PRE-FILTER (rf2-e1xx0). Every hit below requires one of the retired
+        # tokens to match THIS line, so a line carrying none of their literal
+        # substrings can be skipped whole — before the two context windows are
+        # joined and before the regex battery runs. That is the 9.4M searches and
+        # the 2.6M joins: the overwhelming majority of lines contain no token.
+        if not _TOKEN_PREFILTER_RE.search(masked):
+            continue
         raw_context = " ".join(
             raw[n - 1] if 0 <= n - 1 < len(raw) else ""
             for n in range(line_no - _REMOVED_CTX_WINDOW, line_no + _REMOVED_CTX_WINDOW + 1)
@@ -393,6 +442,12 @@ def _scan_lines(lines: list[tuple[int, str]], path: Path,
 
 def _scan_text(path: Path, text: str, rel_posix: str) -> list[Finding]:
     if _is_allowlisted(rel_posix):
+        return []
+    # PRE-FILTER (rf2-e1xx0). Masking only blanks characters, so a file whose RAW
+    # text carries no retired token cannot produce one after masking either. Most
+    # of the corpus lands here, and lands here before the fence walk and the
+    # string-masking pass have to touch it at all.
+    if not _TOKEN_PREFILTER_RE.search(text):
         return []
     raw = text.splitlines()
     if path.suffix in _DOC_SUFFIXES:
@@ -421,20 +476,37 @@ def _tool_spec_scan_dirs(repo_root: Path) -> list[str]:
 
 def _iter_files(scan_root: Path, repo_root: Path,
                 suffixes: tuple[str, ...]) -> Iterable[Path]:
+    """Every file under `scan_root` with one of `suffixes`, excluded trees
+    dropped, in sorted order.
+
+    PRUNED, not filtered-after (rf2-e1xx0). The excluded directory names are
+    removed from `os.walk`'s dirnames in place, so a checkout with
+    `implementation/node_modules` populated — which every worker worktree has —
+    never enumerates it. `rglob("*")` used to list all ~50k entries and discard
+    them one at a time. The surviving set is identical: nothing under an excluded
+    directory could pass the check below either.
+    """
     if scan_root.is_file():
         if scan_root.suffix in suffixes:
             yield scan_root
         return
-    for path in sorted(scan_root.rglob("*")):
-        if path.suffix not in suffixes:
+    scan_prefix_len = len(scan_root.as_posix()) + 1
+    repo_prefix = repo_root.as_posix() + "/"
+    matches: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(scan_root):
+        dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
+        for name in filenames:
+            if os.path.splitext(name)[1] in suffixes:
+                matches.append(Path(dirpath) / name)
+    for path in sorted(matches):
+        # Kept as the belt to the pruning's braces, and now on string ops:
+        # `Path.relative_to` was half a second of pathlib object churn over the
+        # corpus, for a prefix strip.
+        posix = path.as_posix()
+        if set(posix[scan_prefix_len:].split("/")) & _EXCLUDE_DIR_NAMES:
             continue
-        parts = set(path.relative_to(scan_root).parts)
-        if parts & _EXCLUDE_DIR_NAMES:
-            continue
-        try:
-            rel_posix = path.relative_to(repo_root).as_posix()
-        except ValueError:
-            rel_posix = path.as_posix()
+        rel_posix = (posix[len(repo_prefix):]
+                     if posix.startswith(repo_prefix) else posix)
         if any(rel_posix.startswith(pre) for pre in _EXCLUDE_REL_PREFIXES):
             continue
         yield path
@@ -455,8 +527,7 @@ def scan(repo_root: Path,
             if path in seen:
                 continue
             seen.add(path)
-            rel = _rel(path, repo_root)
-            findings.extend(_scan_text(path, _read(path), rel))
+            findings.extend(_scan_file(path, repo_root))
     for d in source_dirs:
         root = repo_root / d
         if not root.exists():
@@ -465,16 +536,32 @@ def scan(repo_root: Path,
             if path in seen:
                 continue
             seen.add(path)
-            rel = _rel(path, repo_root)
-            findings.extend(_scan_text(path, _read(path), rel))
+            findings.extend(_scan_file(path, repo_root))
     return findings
 
 
+def _scan_file(path: Path, repo_root: Path) -> list[Finding]:
+    """Scan one file on disk.
+
+    The bytes are read first and filtered before anything is decoded: the vast
+    majority of the corpus carries no retired token at all, and there is no
+    reason to build a `str` for a file that cannot produce a finding. Files that
+    DO carry one are then read through `_read` exactly as before, so the decoding
+    (and its universal-newline translation) is untouched on the path that
+    actually scans.
+    """
+    rel = _rel(path, repo_root)
+    if _is_allowlisted(rel):
+        return []
+    if not _TOKEN_PREFILTER_BYTES_RE.search(path.read_bytes()):
+        return []
+    return _scan_text(path, _read(path), rel)
+
+
 def _rel(path: Path, repo_root: Path) -> str:
-    try:
-        return path.relative_to(repo_root).as_posix()
-    except ValueError:
-        return path.as_posix()
+    posix = path.as_posix()
+    prefix = repo_root.as_posix() + "/"
+    return posix[len(prefix):] if posix.startswith(prefix) else posix
 
 
 def _read(path: Path) -> str:
