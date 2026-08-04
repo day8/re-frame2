@@ -55,7 +55,8 @@ of the view tree as data. Friction once; free at every use site. The Reagent
 
 | Default | Behaviour |
 |---|---|
-| Props | shallow camelCase — `:on-change` → `onChange` |
+| Prop names | shallow camelCase — `:on-change` → `onChange` |
+| Prop values | crossed whole — a keyword stays a keyword. Only `:class`, `:id`, `:role`, `data-*` and `aria-*` stringify, where an HTML attribute is the destination and a string is the only representation there is |
 | Children | hiccup → React elements |
 | Functions | pass through unconverted |
 | SSR | `:client-only` — nothing server-side until the client adopts. Override with `:ssr`: `:client-only`, or `{:fallback <hiccup>}` for placeholder markup. Bad policy → `:rf.error/hicasso-host-bad-ssr-policy` at mint. Full story: [Server-side rendering](10-server-side-rendering.md) |
@@ -67,9 +68,20 @@ that resolved to `nil` (classic `:default` against a library with no default
 export) also fail at the declaration — where your stack points at the line you
 wrote.
 
+**A keyword value crosses as a keyword.** `[picker {:variant :compact}]` hands
+the library `:compact`, not `"compact"`, and two keywords that differ only in
+namespace stay two distinct values. A native tag is the other way round —
+`:type :text` becomes `type="text"` — because a keyword there is always bound for
+an HTML attribute, which is the same reason a host's `:class` and `:id`
+stringify. If the library wants a string, write one at the call site, or
+`(name :compact)`.
+
 **No deep conversion.** Nested option maps are not camelCased for you. Guessing
 which nested maps are options and which are data is a support trap; convert those
-maps yourself when the library wants camelCase inside them.
+maps yourself when the library wants camelCase inside them. Values inside a
+collection are shallow in the same way: they go through `clj->js`, which takes a
+keyword's name and drops any namespace, so `{:opts {:mode :theme/dark}}` reaches
+the library holding `"dark"`.
 
 ## Callbacks: `:event`, `:handler`, `:render`
 
@@ -170,6 +182,7 @@ emit `defhost`, rewrite call sites. A codemod is planned and not built.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Prop arrives as `on-change` and the library ignores it | Nested keys expected camelCase; deep conversion is not offered | Convert the nested map yourself before it crosses |
+| The library ignored a keyword prop value | A keyword crosses a host prop unchanged; only HTML-attribute names stringify | Write the string at the call site — `"compact"`, or `(name :compact)` |
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | Slot is `:handler` or `:render`; neither dispatches | Declare `:event`, or write an `h/fn` for the real work |
 | `:rf.error/hicasso-intent-needs-the-event` | Vector spelling needs the DOM event at arg one; library put something else there | Use `h/fn` — full argument list, library order |
 | Namespace won't load on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host ns |

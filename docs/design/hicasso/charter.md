@@ -124,6 +124,12 @@ canonical.
   lowers, or refuses body forms; any grammar; any proof system; any second body
   emitter. If a compiler or dual mode becomes *required* to meet the bar, that is
   a kill, not a feature.
+  **Amended 2026-08-04 (design + adversarial ruling, operator-overturnable):**
+  the `for`-lowering named above is ruled out on the evidence to date and retired
+  behind a door rather than deleted. The shelved shape is a scalar-refusing
+  `h/for`, and its trigger is the dogfood preference test failing specifically on
+  list ceremony; until then authors write `:key` themselves. The permission above
+  stands as the record of what this charter pre-registered.
 - **One mode.** No compiled tier, no promotion knob.
 - **The anti-regression fence** — the programme has failed back into its
   predecessors if any of these appear: dual authoring modes or a public compiler
@@ -160,8 +166,9 @@ unless it does SSR"), through the framework's own Spec 011 story, recorded as
 the HD-020 addendum in [decisions.md](decisions.md) and the same-date EP-0038
 addendum. The sentences above stand as the record of what v0 pre-registered.
 SSR *speed* stays off the bar, and "SSR as identity" stays in the deferred
-list — SSR is a required capability, not the product's identity. In progress as
-beads `rf2-2rtt6.84`–`.87`; nothing has landed yet.
+list — SSR is a required capability, not the product's identity. Four pieces have
+since landed on the now-closed beads `rf2-2rtt6.84`–`.87`: the hydration door,
+the `defhost` `:ssr` policy, the Node render entry, and the X1–X5 spike witness.
 
 **A. The everyday SPA spine** (where the bar lives)
 1. Ordinary views — the ~50-element form/list/layout shape.
