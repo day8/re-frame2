@@ -215,22 +215,25 @@
        :warnings         complaints across the WHOLE adoption}
 
   The console capture spans the adoption rather than the call. See the
-  namespace docstring."
-  [html]
-  (let [container (stamp-server-nodes! (server-dom! html))
-        {:keys [captured close!]} (open-console-capture!)
-        handle    (mount/hydrate-root! container frame-id [collector/screen {}])
-        at-return (count @captured)
-        open?     (rt/adopting?)]
-    (-> (adopted!)
-        (.then (fn [ok]
-                 (close!)
-                 {:handle        handle
-                  :container     container
-                  :adopted?      ok
-                  :window-open?  open?
-                  :sync-warnings at-return
-                  :warnings      @captured})))))
+  namespace docstring. `capture-opts` reaches
+  `open-console-capture!` — one caller sets `:swallow-uncaught?`, and it
+  is the row that manufactures the fault."
+  ([html] (hydrate-and-adopt! html nil))
+  ([html capture-opts]
+   (let [container (stamp-server-nodes! (server-dom! html))
+        {:keys [captured close!]} (open-console-capture! capture-opts)
+         handle    (mount/hydrate-root! container frame-id [collector/screen {}])
+         at-return (count @captured)
+         open?     (rt/adopting?)]
+     (-> (adopted!)
+         (.then (fn [ok]
+                  (close!)
+                  {:handle        handle
+                   :container     container
+                   :adopted?      ok
+                   :window-open?  open?
+                   :sync-warnings at-return
+                   :warnings      @captured}))))))
 
 (defn- client-only!
   "A cold, ordinary client mount of the same screen on the same frame —
@@ -368,10 +371,18 @@
                           (str "and the SERVER ran the same " boundary-count
                                " bodies for the same screen, so the two sides "
                                "rendered the same tree — read " body-runs))
-                      (is (= boundary-count (:boundaries (rt/stats)))
-                          "…and the runtime's own boundary census agrees with
-                           the roster this row names, so the expected number
-                           is not a constant nobody checks")
+                      (is (= boundary-count (inc (:boundaries (rt/stats))))
+                          (str "…and the runtime's own census agrees with the
+                                roster this row names, so " boundary-count
+                               " is not a constant nobody checks. `:boundaries`
+                                counts registrations holding at least one CELL
+                                READER, and `screen`'s body reads no
+                                subscription — it composes the other four — so
+                                it retains nothing in that table and is
+                                correctly absent (`runtime/stats` says exactly
+                                this). Exactly one such boundary on this
+                                screen, hence the `inc`; read "
+                               (:boundaries (rt/stats))))
                       (is (= boundary-count (:entries (rt/stats)))
                           "**and every one of them is subscribed to an entry
                            still in the cache** — the row the 0 → 4 ms reap
@@ -401,14 +412,22 @@
            first is the window a synchronous capture would have had. If
            they differ, a synchronous capture cannot see a hydration
            mismatch at all, and that is a fact about every row anywhere
-           that asserts `zero warnings` through one"
+           that asserts `zero warnings` through one.
+
+           **This is the one row in the lane that sets
+           `:swallow-uncaught?`**, and it is the row that manufactures the
+           fault. React reports a recoverable hydration error through
+           `reportError`, which the browser runner treats as a fatal
+           uncaught `pageerror` whatever the tally says (rf2-mwx08) — a
+           rule this row does not soften, because the error is not
+           unasserted here, it IS the assertion"
     (async done
       (if-not (mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (same-snapshot!)
           (let [{:keys [html]} (server! {:snapshot (dogfood/seed-db (inc todo-count))})]
-            (-> (hydrate-and-adopt! html)
+            (-> (hydrate-and-adopt! html {:swallow-uncaught? true})
                 (.then
                   (fn [{:keys [handle container warnings sync-warnings]}]
                     (try
@@ -511,6 +530,18 @@
               (mount/release! handle)
               (resolve result))))))))
 
+(defn- hydrated-script-run!
+  "Adopt the server's page and run the script at it. A promise of the
+  capture."
+  []
+  (same-snapshot!)
+  (-> (hydrate-and-adopt! (:html (server!)))
+      (.then (fn [{:keys [handle adopted? warnings]}]
+               (is (true? adopted?) "adoption completed")
+               (is (= [] warnings)
+                   (str "and reported nothing: " (pr-str warnings)))
+               (capture-script! handle)))))
+
 (deftest x4-the-hydrated-screen-dispatches-the-stated-intents
   (async done
     (if-not (mount/browser?)
@@ -520,15 +551,8 @@
         (same-snapshot!)
         (-> (capture-script! (client-only!))
             (.then (fn [cold-run]
-                     (same-snapshot!)
-                     (-> (hydrate-and-adopt! (:html (server!)))
-                         (.then (fn [{:keys [handle adopted? warnings]}]
-                                  (is (true? adopted?) "adoption completed")
-                                  (is (= [] warnings)
-                                      (str "and reported nothing: " (pr-str warnings)))
-                                  (-> (capture-script! handle)
-                                      (.then (fn [hydrated-run]
-                                               [cold-run hydrated-run])))))))))
+                     (.then (hydrated-script-run!)
+                            (fn [hydrated-run] [cold-run hydrated-run]))))
             (.then
               (fn [[cold-run hydrated-run]]
                 (is (= script/interaction-intents (:intents cold-run))
