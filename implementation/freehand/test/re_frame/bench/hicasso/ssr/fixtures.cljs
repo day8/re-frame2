@@ -27,6 +27,12 @@
     [[nested-host-screen]].
   - **Presence's `::h/mounting` overrides** — and that row is a PINNED
     DEFECT rather than a feature. See [[presence-tray]].
+  - **The instance-key payload obligation, TWICE** — one page whose boot
+    events write `h/reg-state` instance state, rendered once with `:ui`
+    on the allowlist and once without it. The two rows are a matched
+    pair and only mean anything together; see
+    [[re-frame.bench.hicasso.ssr.instance-key]] and the witness
+    `ssr/instance-key-payload-dom-cljs-test`.
 
   ## The host rows are REAL DECLARATIONS (rf2-2rtt6.92)
 
@@ -50,6 +56,7 @@
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.shapes.large-template :as large-template]
             [re-frame.bench.hicasso.shapes.model :as model]
+            [re-frame.bench.hicasso.ssr.instance-key :as instance-key]
             [re-frame.routing :as routing]
             ["react" :as react])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defhost defview]]))
@@ -208,6 +215,28 @@
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
     :title    "Hicasso SSR — defhost :ssr policy, nested"
+    :script-src "/main.js"}
+
+   ;; THE MATCHED PAIR. Same hiccup, same boot events, same everything
+   ;; but the `:payload` allowlist — which is the only way to state the
+   ;; obligation as a measurement rather than as prose. Both allowlists
+   ;; are WELL FORMED: the fail-closed policy refuses an ABSENT one and
+   ;; has no way to refuse a wrong one, so what catches the second row is
+   ;; React's own hydration-mismatch machinery and nothing else.
+   {:id     "instance-key-payload"
+    :why    "server boot events write reg-state instance state and the allowlist NAMES :ui — the obligation met"
+    :hiccup [instance-key/screen {}]
+    :initial-events instance-key/boot-events
+    :payload  (conj instance-key/domain-keys :ui)
+    :title    "Hicasso SSR — instance state, :ui shipped"
+    :script-src "/main.js"}
+
+   {:id     "instance-key-payload-omitted"
+    :why    "the SAME page with :ui OMITTED — a well-formed allowlist that strands the instance state, and the red-by-design half of the obligation witness"
+    :hiccup [instance-key/screen {}]
+    :initial-events instance-key/boot-events
+    :payload  instance-key/domain-keys
+    :title    "Hicasso SSR — instance state, :ui stranded"
     :script-src "/main.js"}])
 
 (defn ids
