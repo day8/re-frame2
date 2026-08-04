@@ -114,18 +114,46 @@
  *   ../../../../core/test/re_frame/bench/p0_run.cjs
  *   ../../../../adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs
  *
- * WHAT WAS DELIBERATELY *NOT* DONE, so the next reader does not read the
- * absence as an oversight: none of the nine had its sentinel wait converted
- * from `page.waitForFunction` to `race` above. That conversion is the OTHER
- * half of this file — rf2-f5roa's "report it promptly" — and it is a change
- * to when a FAILING run reports, not to whether it reports. The fault
- * rf2-sib23 closed is the opposite case: the page throws and STILL reaches
- * its sentinel, so the wait returns normally and the exit block is where the
- * signal has to be read. Converting nine waits as well would have been nine
- * more behaviours nobody had watched.
+ * ...AND THE NINE NOW RACE, TOO (rf2-qv761, 2026-08-05)
+ * ---------------------------------------------------
+ * rf2-sib23 gave the nine the COLLECTOR and deliberately left their sentinel
+ * waits as `page.waitForFunction`, recording the absence so it would not be
+ * read as an oversight. All twelve of those waits are now `race` calls, which
+ * is the other half of this file finally reaching the drivers that needed it
+ * most: a page that dies at load under `b10_prod_run.cjs` cost TWENTY
+ * MINUTES to say so, and under `p0_run.cjs`'s clock row, thirty.
  *
- * `pageerror_exit_path.test.cjs` pins the class: each driver's refusal, and
- * the wiring from the handler to the exit code in all nine.
+ * TWO PROPERTIES MAKE THE CONVERSION SAFE, and they are worth stating because
+ * neither is obvious:
+ *
+ *   1. IT CANNOT SHORTEN A RUN THAT WOULD HAVE PASSED. `race` rejects only on
+ *      a recorded failure, and since rf2-sib23 every one of the nine already
+ *      refuses at its exit on exactly that array. So any run this reports on
+ *      early was already going to be non-zero; what changes is when, and the
+ *      failure line names the cause instead of naming the clock.
+ *   2. NO NEW EXIT CODE. Every rejection lands in a path each driver already
+ *      had — `drive()`'s rejection handler in `b6_prod`, `b6_profile` and
+ *      `b10_prod`; the existing `catch` in `b7`, `p0`, the ladder and the
+ *      ablation; `failed` in `b8`; `hicasso_narrow`'s `main` catch — and all
+ *      of those are that driver's existing 1.
+ *
+ * WHAT IT DOES COST, stated rather than discovered later. In rf2-sib23's own
+ * case — the page that throws and STILL reaches its sentinel — the run now
+ * fails AT THE WAIT rather than after printing its table, so the partial rows
+ * a late throw would have left behind are no longer printed. The verdict is
+ * identical either way (both are that driver's 1, both name the page error);
+ * what is lost is diagnostic residue in the narrow window between "some rows
+ * measured" and "sentinel set". The motivating case in rf2-f5roa and
+ * rf2-qv761 is a `ReferenceError` at page load, where there is no residue to
+ * lose and fifteen to thirty minutes to save. The exit-block refusals
+ * rf2-sib23 installed are NOT removed and are not dead: a failure recorded
+ * after the sentinel has already flipped — during the result `evaluate`s, the
+ * measurement loop that follows a READY wait, or teardown — still reaches the
+ * exit block and nowhere else.
+ *
+ * `pageerror_exit_path.test.cjs` pins both halves of the class: each driver's
+ * refusal, the wiring from the handler to the exit code in all nine, and that
+ * every sentinel wait in the fleet is raced rather than bare.
  */
 
 /**
