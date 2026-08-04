@@ -42,6 +42,11 @@
   is to trust the programmer). `defhost` — HD-011's taught door — is
   NOT absent any more: [[mint-host!]] is the declaration and the host
   head is the fourth element class, §Host heads below (rf2-2rtt6.65).
+  Neither is HD-011's SSR placeholder, which HD-020(d) left inert until
+  the operator ruled SSR into scope: `:ssr` is a declaration option
+  with two values, and [[mint-host-gate!]] is the one mechanism that
+  serves the server render, hydration's first client pass and a fresh
+  `createRoot` mount alike (rf2-2rtt6.85).
 
   ## Codec-work caching only (HD-004)
 
@@ -964,6 +969,42 @@
 ;; `:onPick` name the same slot, so the declaration binds however the
 ;; author spells the prop — while an undeclared `onFoo` never becomes an
 ;; event position no matter how event-shaped its name is.
+;;
+;; ## The `:ssr` policy — HD-011's placeholder, activated (rf2-2rtt6.85)
+;;
+;; HD-011 listed "SSR placeholder" among `defhost`'s strong defaults and
+;; HD-020(d) left it inert; the operator's 2026-08-04 ruling makes SSR
+;; required scope, so the placeholder is now real. TWO VALUES, and the
+;; author writes at most one of them:
+;;
+;;     :ssr :client-only        ; THE DEFAULT — omit :ssr and this is it
+;;     :ssr {:fallback <hiccup>}
+;;
+;; `:client-only` renders NOTHING where the host sits until the client
+;; has adopted the markup; `{:fallback …}` renders that hiccup there
+;; instead. Anything else is refused at the declaration. The default is
+;; the conservative one because a foreign React component is exactly the
+;; node whose render may reach for `window` — the door cannot know, so it
+;; does not guess.
+;;
+;; **ONE mechanism serves the server, the hydration pass and the fresh
+;; mount**, and it is [[mint-host-gate!]]: a one-hook component whose
+;; `useSyncExternalStore` answers `false` from its SERVER snapshot and
+;; `true` from its client one. React reads the server snapshot under
+;; `renderToString` and again on hydration's first client pass, then
+;; re-renders with the client snapshot once adoption completes — so the
+;; server HTML and the first client pass agree BY CONSTRUCTION (no
+;; mismatch to reconcile), and a `createRoot` mount, which never consults
+;; a server snapshot at all, renders the foreign component on its very
+;; first pass with no placeholder flash. A server walk therefore does not
+;; have to consult the policy separately; it consults it by rendering.
+;;
+;; **The price, stated because it changed** (rf2-2rtt6.85): the door used
+;; to mint no wrapper, no fiber and no hook — the foreign component was
+;; the element's own type. It now mints ONE gate per declaration, so a
+;; crossing costs one fiber and one hook. HD-020(b)'s ≤2 budget is a
+;; statement about Hicasso's BOUNDARY shells and is untouched: the gate
+;; is not a boundary, holds no subscription, and reads no frame.
 
 (def ^:private host-marker "hicassoHost")
 
@@ -971,6 +1012,80 @@
   "The three contracts a declaration may name — the position table's
   roster in `front.intent`, verbatim."
   #{:event :handler :render})
+
+(def ^:private host-options
+  "Every key a declaration may carry. [[mint-host!]] read `:callbacks`
+  and SILENTLY IGNORED everything else until rf2-2rtt6.85 — so a
+  misspelled `:ssr`, or a policy invented by an author reading the
+  wrong docstring, was a no-op that looked like a setting. That is the
+  same defect class as an intent crossing as inert data, and it gets
+  the same treatment: refused, at the declaration."
+  #{:callbacks :ssr})
+
+;; --- The gate -------------------------------------------------------------
+;;
+;; Three module-level functions rather than literals written at the call
+;; site: `useSyncExternalStore` compares the subscribe function by
+;; identity and re-subscribes when it changes, and a fresh closure per
+;; render would make every host re-subscribe on every render for no
+;; reason at all. There is nothing to subscribe TO — adoption happens
+;; once and never un-happens — so the subscribe function's whole body is
+;; the unsubscribe it must return.
+
+(def ^:private gate-no-subscribe (fn [_] (fn [] nil)))
+(def ^:private gate-adopted (fn [] true))
+(def ^:private gate-unadopted (fn [] false))
+
+(defn- mint-host-gate!
+  "The one component a declaration mints: the foreign component behind
+  its `:ssr` policy.
+
+  `fallback` is walked into an element HERE, at the declaration —
+  which is where every other host refusal fires, so a fallback that is
+  not hiccup fails with the author's own stack rather than one render
+  into a server response. It is walked ONCE and the element is reused
+  at every site of the host: React elements are immutable values, and a
+  placeholder that differs per site is not a placeholder. The corollary
+  is the rule the guide states: **a fallback is inert markup** — it is
+  not a body, so a subscription or an intent written there is the same
+  loud error it would be anywhere outside a boundary.
+
+  The gate hands its own props straight through to the foreign
+  component, so the crossing's props object is exactly the one
+  [[host-element]] built — `ref` included, which React 19 carries as an
+  ordinary prop — and `:key` never reaches here, because
+  `createElement` took it off the gate's own element."
+  [host-name component fallback]
+  (let [placeholder (when (some? fallback) (as-element fallback))
+        gate        (fn [props]
+                      (if (react/useSyncExternalStore
+                            gate-no-subscribe gate-adopted gate-unadopted)
+                        (react/createElement component props)
+                        placeholder))]
+    (unchecked-set gate "displayName" host-name)
+    gate))
+
+(defn- declared-ssr
+  "The `:ssr` policy this declaration carries, validated. Absent means
+  `:client-only` — the ruled default, so an author who writes nothing
+  gets the conservative answer and an author who writes the default
+  explicitly gets the same one."
+  [host-name opts]
+  (let [policy (get opts :ssr :client-only)]
+    (if (or (keyword-identical? :client-only policy)
+            (and (map? policy)
+                 (= 1 (count policy))
+                 (some? (:fallback policy))))
+      policy
+      (fail! :rf.error/hicasso-host-bad-ssr-policy
+             'front.codec/mint-host!
+             (str "defhost " host-name " declares :ssr " (pr-str policy)
+                  ". The policy is :client-only — the default, meaning the "
+                  "host region renders nothing until the client adopts it — "
+                  "or {:fallback <hiccup>}, meaning that markup renders "
+                  "there instead. There is no third value.")
+             :declare-client-only-or-a-fallback
+             {:host host-name :ssr policy}))))
 
 (defn mint-host!
   "THE ONE-LINE DECLARATION (HD-011). Give the crossing to `component` a
@@ -985,12 +1100,15 @@
   export) and the render-time alternative is React's own error naming
   nothing the author wrote.
 
-  `opts` carries `:callbacks` — the finite contract map above. Each key
-  is normalized to its canonical slot at MINT time, so the lookup the
-  crossing performs per prop is one `get`; a contract outside the roster,
-  a declaration on a structural slot (`key`/`ref` are React's, not
-  positions), and two spellings landing on one slot are all refused at
-  the declaration, where the author's stack is the declaration site."
+  `opts` carries `:callbacks` — the finite contract map above — and
+  `:ssr`, the placeholder policy (`:client-only` by default, or
+  `{:fallback <hiccup>}`). Each callback key is normalized to its
+  canonical slot at MINT time, so the lookup the crossing performs per
+  prop is one `get`; a contract outside the roster, a declaration on a
+  structural slot (`key`/`ref` are React's, not positions), two
+  spellings landing on one slot, an `:ssr` value outside the two, and
+  an option key outside `#{:callbacks :ssr}` are all refused at the
+  declaration, where the author's stack is the declaration site."
   ([host-name component] (mint-host! host-name component {}))
   ([host-name component opts]
    (when (nil? component)
@@ -1001,7 +1119,18 @@
                  "`:default` against a library with no default export.")
             :hand-the-declaration-a-real-component
             {:host host-name}))
-   (let [declared
+   (doseq [k (keys opts)]
+     (when-not (contains? host-options k)
+       (fail! :rf.error/hicasso-host-unknown-option
+              'front.codec/mint-host!
+              (str "defhost " host-name " was declared with " (pr-str k)
+                   ", which is not an option. A declaration carries "
+                   ":callbacks and :ssr. Reading past an option it does not "
+                   "know is how a policy comes to be set and never applied.")
+              :declare-callbacks-or-ssr
+              {:host host-name :option k :options host-options})))
+   (let [ssr (declared-ssr host-name opts)
+         declared
          (reduce-kv
            (fn [m k contract]
              (let [slot (cached-prop-name k)]
@@ -1035,7 +1164,10 @@
            {}
            (or (:callbacks opts) {}))
          ^js head #js {"component"   component
+                       "gate"        (mint-host-gate! host-name component
+                                                      (:fallback ssr))
                        "callbacks"   declared
+                       "ssr"         ssr
                        "displayName" host-name}]
      (unchecked-set head host-marker true)
      head)))
@@ -1045,6 +1177,16 @@
   no registry, no map — the same shape as [[boundary-head?]]."
   [v]
   (and (some? v) (true? (unchecked-get v host-marker))))
+
+(defn host-ssr
+  "The `:ssr` policy `head` was declared with — `:client-only` or
+  `{:fallback <hiccup>}`. The declaration read back as data, for a
+  server walk that wants to state the policy it is honouring
+  (rf2-2rtt6.86) and for the witnesses that assert on it. Nothing on
+  the render path reads it: the policy is enforced by the gate, which
+  is the element's type."
+  [^js head]
+  (unchecked-get head "ssr"))
 
 ;; ---------------------------------------------------------------------------
 ;; Hiccup shape
@@ -1493,11 +1635,16 @@
   Children are trailing forms converted hiccup→element and handed to the
   foreign component as ordinary React children — HD-011's third default.
 
-  The head itself contributes NOTHING at render: no wrapper component,
-  no fiber, no hook. The foreign component is the element's own type, so
-  its hooks, its state and its refs are React's affair under React's
-  rules — which is the whole point of the door, and what keeps HD-020's
-  ≤2-hook budget a statement about Hicasso's boundaries alone."
+  The element's TYPE is the declaration's gate ([[mint-host-gate!]]),
+  which is one fiber and one hook, and the foreign component is what
+  the gate renders once the markup is adopted. Everything else is
+  unchanged by that: the props object built here is the object the
+  foreign component receives, `:key` is React's on the gate's element
+  where it always was, and the component's hooks, state and refs stay
+  React's affair under React's rules — which is the whole point of the
+  door, and what keeps HD-020's ≤2-hook budget a statement about
+  Hicasso's BOUNDARIES. The gate is not one: no frame, no subscription,
+  no body."
   [argv]
   (let [^js head   (nth argv 0)
         declared   (unchecked-get head "callbacks")
@@ -1505,7 +1652,7 @@
         props      (merge-caller (if has-props? (nth argv 1) {}))
         js-props   (reduce-kv (partial host-entry head declared) #js {} props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    (make-element (unchecked-get head "component") js-props argv (if has-props? 2 1))))
+    (make-element (unchecked-get head "gate") js-props argv (if has-props? 2 1))))
 
 (defn- fragment-element [argv]
   (let [has-props? (props-map? argv 1)

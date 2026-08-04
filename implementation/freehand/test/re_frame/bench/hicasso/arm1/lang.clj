@@ -81,8 +81,22 @@
 
   `opts` is optional and carries `:callbacks` — a FINITE map from exact
   prop names to `:event`, `:handler` or `:render`, never inferred from an
-  `on*` spelling. Policy lives on the declaration, so every use site
-  inherits it; the defaults, the refusals and the crossing itself are
+  `on*` spelling — and `:ssr`, the placeholder policy:
+
+      (defhost chart Chart
+        {:ssr {:fallback [:div.chart-skeleton]}})
+
+  `:ssr :client-only` is the DEFAULT and needs no writing: the host
+  region renders nothing on the server and nothing on hydration's first
+  client pass, and the foreign component mounts once the markup is
+  adopted. `{:fallback <hiccup>}` renders that markup there instead.
+  A fresh (non-hydrated) mount renders the foreign component on its
+  first pass under either policy — the placeholder never flashes. There
+  is no third value, and an option `defhost` does not know is refused
+  rather than ignored.
+
+  Policy lives on the declaration, so every use site inherits it; the
+  defaults, the refusals and the crossing itself are
   [[re-frame.bench.hicasso.front.codec/mint-host!]]'s.
 
   The callback is an [[hfn]] and not an intent vector because
