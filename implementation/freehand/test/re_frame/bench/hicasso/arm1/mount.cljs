@@ -171,11 +171,18 @@
 (defn- emit-hydration-mismatch!
   "Spec 011's `:rf.ssr/hydration-mismatch`, tier-discriminated by
   `:where` — this door's own site, the way the spine tags
-  `re-frame.substrate.spine/make-render` and the compiled tier tags
-  `re-frame.ui/hydrate-root`. No hash and no `:root-id`: a React-element
-  root has neither. `:recovery` is `:warned-and-replaced` because React
-  has already patched the DOM by the time this runs — there is no
+  `re-frame.substrate.spine/make-render` and the compiled tier tags its
+  own hydrate door. No hash and no `:root-id`: a React-element root has
+  neither. `:recovery` is `:warned-and-replaced` because React has
+  already patched the DOM by the time this runs — there is no
   `:hard-error` escalation to make.
+
+  **The compiled tier's namespace is deliberately not spelled**, here or
+  anywhere under `implementation/freehand`. EP-0036's donor-boundary law
+  is enforced by a plain `git grep` over this tree, and a grep cannot
+  tell a docstring from a `:require` — correctly, because a cleverer one
+  would eventually let a real dependency through. Naming the donor in
+  prose reds the gate; describing it does not.
 
   Not an event and it mints no epoch: it fires from a React root-error
   callback, outside any dispatch scope."
