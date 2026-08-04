@@ -281,6 +281,22 @@ escape's mechanism changes. This is a departure from the bead's 12:06 comment, w
 fork should exist. A fork at the one edge whose entire argument is zero-fork is the wrong
 default; deferring to the door costs nothing and cannot be wrong in any branch.
 
+> **Answered 2026-08-05 (`rf2-2rtt6.117`) — no, and the question inverted before it could be
+> put.** `.117` was spun out as a *parity* question: the escape had just been given a dev-only
+> warning, so does the door get the same one? The pin above retracts that grant. There is now
+> no warning at `[:>]` to be at parity with — `[:>]` is unbuilt, and by this section's ruling
+> it will never carry a diagnostic the door lacks — so the answer to the question as asked is
+> **no**, on the premise rather than on the merits. The second horn the bead offers ("or is the
+> door's declaration story sufficient signal?") is not the reason either; it was never reached.
+>
+> What survives of `.117` is not a second decision. It is the **warn** arm of the one
+> three-way ruling §7 R1 states as *refuse, warn, or leave* — the ruling `rf2-2rtt6.116`
+> escalates, on the ground that it turns a shipped accept at a declared door into something
+> else. That is the operator's, and nothing here anticipates it: if the door refuses, a warning
+> is moot; if the door leaves the crossing alone, warn-versus-leave is live and is still one
+> question, not two. Whichever way it goes, the escape does what the door does and no line of
+> the mechanism above changes.
+
 ---
 
 ## 4. Edge 3 — what "reduced structural identity" concretely means

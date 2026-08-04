@@ -272,10 +272,9 @@ predecessors' pattern of building before measuring.
 > recorded door, not ad-hoc invention, and still never a state system. That
 > updates this entry's Reopens shape in place.
 >
-> **Status is honest tense.** The ruling is recorded; nothing has landed.
-> `h/reg-state`, `[::h/clear …]`, `h/child-key` and the refusals are in
-> implementation as `rf2-2rtt6.98`; the guide teaches the convention in the
-> same tense.
+> **Status.** `h/reg-state`, `[::h/clear …]`, `h/child-key` and the refusal
+> surface have since landed on the now-closed bead `rf2-2rtt6.98`; the guide
+> teaches the convention in the same tense.
 
 **Ruling.** No component-local reactive cell (`local`, ratom-equivalent, or
 `useState` for app state) exists in Hicasso. In order: CSS for hover/focus;
@@ -517,6 +516,49 @@ fallback is a lint, not a third convention. Note: helper-donated reads are
 settled rather than contingent. HD-002's ruling makes the ambient collector the
 one product read surface, so a `sub` performed inside a helper is an ordinary
 read that lands in the calling boundary's window.
+
+> **Addendum, 2026-08-04 (`rf2-2rtt6.105`) — the `for`-lowering sugar is ruled
+> out, and the door it retires behind is named.** The details list above pins
+> that the sugar "is **not** v0". That clause is not wrong; it was incomplete,
+> because a reader could learn the sugar was out of v0 without learning it was
+> subsequently ruled out for v-anything. A design pass plus an adversarial review
+> briefed to *force* the build case returned **DO-NOT-BUILD** — recorded at the
+> adjudicated strength and no stronger: ruled out **on today's evidence**,
+> **operator-overturnable**, with a pre-agreed response class. Never "never".
+>
+> **The door, by name.** The shelved shape is a **scalar-refusing `h/for`** —
+> `(h/for [id ids] [row {:id id}])`, with a loud refusal on a non-scalar binding
+> value, the refusal itself being the lesson. Its trigger is the dogfood
+> preference test failing **specifically on list ceremony**, which is HD-009's own
+> reopen shape. Until that gate fires authors write `:key` themselves, and that is
+> the taught answer rather than a gap waiting on sugar. The charter's by-name
+> pre-permission of the sugar is retired behind this same door rather than
+> deleted; [charter.md](charter.md)'s "No analyzer" bullet carries the matching
+> amendment, and the two records are meant to be read as one.
+>
+> **What the verdict rests on.** The cost case, and it survives independently of
+> how often the sugar would serve. The sugar would be the first control form in a
+> collector grammar whose *absence* of control forms is a marketed virtue, and it
+> could never retire the explicit `:key`, so every list would carry two spellings
+> forever. The binding value is only *sometimes* the identity: a destructured or
+> entity-valued binding is string-coerced by React through CLJS `toString` into
+> content-derived identity, so editing a row silently remounts it — and every
+> repair for that (refuse entities, add a `:key-fn` arm) collapses back toward the
+> explicit spelling, which is the instance-key programme's arc re-run. The
+> `defview`-macro-rewrite route is dead on the no-analyzer fence, where partial
+> coverage would be a silent-inconsistency factory. Against all of that, the
+> ceremony saved is roughly a dozen characters per list site. The dominating
+> repair the pass identified — a dev warning on a **non-primitive `:key` value**,
+> closing the same hazard in the explicit spelling at zero concept cost — is
+> designed but **not landed** (`rf2-2rtt6.104`), and this verdict deliberately
+> does not lean on it.
+>
+> **Corpus correction, binding on any record of this ruling.** The decisive
+> framing is **not** "wrong at two-thirds" — that ratio belongs to the v1-idiom
+> examples corpus. The governing Hicasso-idiom corpus, the charter's own `shapes/`
+> tree included, runs **~70% scalar binding-as-key**, which reads *for* the sugar
+> rather than against it. The verdict took that correction and stood, because it
+> never rested on serve rate.
 
 > **Note, 2026-08-05 (rf2-d03av): "callback refs only" states what v0 TEACHES,
 > not what it refuses.** The clause above reads as a prohibition, and it is not
@@ -769,9 +811,9 @@ candidate second call site appears. The composition value path reopens on
 > (a)–(c) of the ruling below — frame plumbing, the hook ledger, the error
 > boundary — stand as written.
 >
-> **Status is honest tense.** The ruling is recorded; nothing has landed. The
-> hydration door, the `defhost` `:ssr` policy, the Node render entry, and the
-> X1–X5 spike witness are in progress as beads `rf2-2rtt6.84`–`.87`.
+> **Status.** Four pieces have since landed on the now-closed beads
+> `rf2-2rtt6.84`–`.87`: the hydration door, the `defhost` `:ssr` policy, the
+> Node render entry, and the X1–X5 spike witness.
 
 **Ruling.** (a) **Frame plumbing**: each boundary reads the frame once via the
 substrate's single internal context, then binds it ambiently for the render's
