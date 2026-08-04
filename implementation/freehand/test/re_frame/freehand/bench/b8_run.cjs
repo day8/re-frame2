@@ -49,6 +49,7 @@ const path = require('node:path');
 
 const guard = require('./order_guard.cjs');
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+const { watchPage } = require('./sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT = path.join(IMPL, 'out', 'b8');
@@ -182,7 +183,15 @@ async function main() {
     const t = m.text();
     if (t.startsWith(';; B8')) console.error(t);
   });
-  page.on('pageerror', (e) => console.error('[b8] page error:', e.message));
+  // THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23). This
+  // was a bare `page.on('pageerror', ...)` that logged and recorded nothing;
+  // the array now reaches `verdict` below, which is the only seat this run's
+  // exit code has. `sentinel.cjs`'s header carries the finding, including why
+  // no page-side `try`/`catch` can close it under React 19.2. The sentinel
+  // wait is deliberately NOT converted to `watch.race` — that is rf2-f5roa's
+  // separate "report it promptly" remedy, and the fault here is the page that
+  // throws AND STILL reaches `B8_READY`, which the wait returns from normally.
+  const watch = watchPage(page, 'b8');
   // `'commit'`, not `'load'` (rf2-p9fa3). `b8-app/-main` is the bundle's
   // `:init-fn`: it mounts all four update arms and installs `window.B8`
   // synchronously inside the `<script>`, and only the seed that follows is
@@ -607,9 +616,11 @@ async function main() {
   console.error('[b8] sampler negative control ...');
   const sampler = await samplerControl(KINDS[0], nFor[KINDS[0]]['freehand-interpreted'][0], refBpd);
 
+  const pageErrors = watch.failures.map((f) => `${f.kind}: ${f.detail}`);
+  watch.dispose();
   await browser.close();
   return { rows, sampler, retention, keptDropped, refBytesPerDouble: refBpd, nFor, warmth,
-           integrity: integ, precise: { probes } };
+           integrity: integ, precise: { probes }, pageErrors };
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,6 +1015,10 @@ function report(out) {
     );
   }
   summary.orderRefusals = refusals;
+  // The page's own failures ride into the summary beside the two refusal
+  // lists, so `verdict` stays the ONE reading of everything the exit code
+  // depends on (rf2-sib23).
+  summary.pageErrors = out.pageErrors || [];
   return summary;
 }
 
@@ -1024,22 +1039,39 @@ function report(out) {
 // which is what makes the exit path checkable without a browser — see
 // `b8_exit_path.test.cjs`.
 //
-// The two refusals are INDEPENDENT. An unsettled warm-up refuses on its
-// own; an order refusal refuses on its own; when both fire both are named.
-// The code when both fire is the arm-order guard's, so no run that exited 2
-// before exits anything else now.
+// The refusals are INDEPENDENT. An unsettled warm-up refuses on its own; an
+// order refusal refuses on its own; an uncaught page error refuses on its
+// own; when several fire every one is named. The code when both of the first
+// two fire is the arm-order guard's, so no run that exited 2 before exits
+// anything else now.
 //
 //   0  clean
+//   1  the page threw and kept going (rf2-sib23)
 //   2  the arm-order guard refused (rf2-88pie) — also when 3 would apply
 //   3  a site never settled inside the warm-up ceiling (rf2-tb345)
 //
-// Neither refusal suppresses output: the table is printed and B8_RAW_OUT is
+// Exit 1 is the code `drive` already used for a run that failed outright,
+// and a page that threw IS that: the third refusal is rf2-sib23's repair,
+// where a bare `pageerror` handler printed the throw and the run exited 0
+// beneath it. `B8_ERROR` does not cover it — React 19.2 routes an uncaught
+// render error to `reportError` instead of rethrowing, so the app's own
+// catch never runs and the page carries on to `B8_READY`. See `sentinel.cjs`.
+//
+// No refusal suppresses output: the table is printed and B8_RAW_OUT is
 // written before this is consulted. A refusal is about what may be QUOTED,
 // not about throwing the measurement away.
 function verdict(summary) {
   const order = (summary && summary.orderRefusals) || [];
   const unsettled = (summary && summary.warmupUnsettled) || [];
+  const pageErrors = (summary && summary.pageErrors) || [];
   const lines = [];
+  if (pageErrors.length) {
+    lines.push(
+      '[b8] FAILED: the page threw and kept going, so every figure above was taken on a page ' +
+        'that is not the page under test (rf2-sib23):\n  ' +
+        pageErrors.join('\n  ')
+    );
+  }
   if (unsettled.length) {
     lines.push(
       `[b8] REFUSED — warm-up never settled inside the ceiling (rf2-tb345): ` +
@@ -1050,7 +1082,10 @@ function verdict(summary) {
   if (order.length) {
     lines.push(`[b8] REFUSED by the arm-order guard (rf2-88pie): ${order.join(', ')}`);
   }
-  return { code: order.length ? 2 : unsettled.length ? 3 : 0, lines };
+  return {
+    code: pageErrors.length ? 1 : order.length ? 2 : unsettled.length ? 3 : 0,
+    lines,
+  };
 }
 
 async function drive() {

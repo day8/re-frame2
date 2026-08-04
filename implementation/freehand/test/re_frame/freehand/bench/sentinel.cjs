@@ -66,17 +66,18 @@
  * returns; this only guarantees that the wait RETURNS — promptly, and saying
  * which of the two things happened.
  *
- * ...AND IT ONLY HELPS THE DRIVERS THAT USE IT (rf2-jvheq, settled 2026-08-04)
+ * ...AND IT ONCE ONLY HELPED THE DRIVERS THAT USED IT (rf2-jvheq, settled
+ * 2026-08-04; closed by rf2-sib23, 2026-08-05)
  * -------------------------------------------------------------------------
- * Nine drivers do not, and instead install a bare handler that prints:
+ * Nine drivers did not, and instead installed a bare handler that printed:
  *
  *     page.on('pageerror', (e) => console.error(`[b8] page error: ${e.message}`))
  *
  * with no array and no reference from the exit block. They were filed as an
  * AUDIT rather than a fault, because the sweep that found them could not show
  * the gap was reachable: each also waits on `'... || window.X_ERROR'`, which
- * covers every throw the app itself catches and reports. THE AUDIT IS NOW
- * SETTLED, BY RUNNING IT RATHER THAN BY READING, AND THE GAP IS REAL:
+ * covers every throw the app itself catches and reports. THE AUDIT WAS
+ * SETTLED BY RUNNING IT RATHER THAN BY READING, AND THE GAP IS REAL:
  *
  *   1. Chromium raises `pageerror` for a throw inside `requestAnimationFrame`,
  *      inside `setTimeout`, and for an unhandled promise rejection, while a
@@ -101,12 +102,30 @@
  *      `setInterval` keeps firing, so the run still completes and sets
  *      `B10_DONE`.
  *
- * The remedy is the one this file's callers already have — collect into an
- * array and refuse — never removing the handler and never relaxing a
- * sentinel. It is not applied here because a gate nobody has watched fire is
- * not a gate, and each of the nine needs an `:advanced` release build and a
- * headless Chromium to make it fire; that is tracked separately rather than
- * shipped unproven.
+ * ALL NINE NOW CALL `watchPage` AND READ ITS `failures` AT THEIR EXIT
+ * (rf2-sib23). The remedy is the one this file's other callers already had —
+ * collect into an array and refuse — and nothing was removed to get it: each
+ * bare handler was REPLACED by this collector, which still prints the same
+ * error and additionally records it, plus the two failures the bare handler
+ * could never see (`crash`, and a failed `document`/`script` request).
+ *
+ *   b6_prod_run.cjs   b6_profile_run.cjs   b7_run.cjs   b8_run.cjs
+ *   b10_prod_run.cjs  reads_ladder_run.cjs spine_ablation_run.cjs
+ *   ../../../../core/test/re_frame/bench/p0_run.cjs
+ *   ../../../../adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs
+ *
+ * WHAT WAS DELIBERATELY *NOT* DONE, so the next reader does not read the
+ * absence as an oversight: none of the nine had its sentinel wait converted
+ * from `page.waitForFunction` to `race` above. That conversion is the OTHER
+ * half of this file — rf2-f5roa's "report it promptly" — and it is a change
+ * to when a FAILING run reports, not to whether it reports. The fault
+ * rf2-sib23 closed is the opposite case: the page throws and STILL reaches
+ * its sentinel, so the wait returns normally and the exit block is where the
+ * signal has to be read. Converting nine waits as well would have been nine
+ * more behaviours nobody had watched.
+ *
+ * `pageerror_exit_path.test.cjs` pins the class: each driver's refusal, and
+ * the wiring from the handler to the exit code in all nine.
  */
 
 /**

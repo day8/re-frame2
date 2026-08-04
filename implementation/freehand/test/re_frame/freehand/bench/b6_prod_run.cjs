@@ -20,6 +20,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+const { watchPage } = require('./sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 // `B6_INIT_FN` / `B6_OUT_DIR` point this driver at a different entry —
@@ -87,7 +88,17 @@ async function run() {
     const t = msg.text();
     if (t.startsWith(';; B6')) console.log(t);
   });
-  page.on('pageerror', (e) => console.error('[b6] page error:', e.message));
+  // THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23). This
+  // was a bare `page.on('pageerror', ...)` that logged and recorded nothing,
+  // so an uncaught throw was announced on stderr and the run exited 0 beneath
+  // it. `sentinel.cjs`'s header carries the whole finding — including why no
+  // page-side `try`/`catch` can close it under React 19.2 — and this is the
+  // remedy its other callers already have: collect, then refuse. The sentinel
+  // wait below is deliberately NOT converted to `watch.race` here; that is
+  // rf2-f5roa's separate "report it promptly" remedy, and the fault this file
+  // has is the one where the page throws AND STILL reaches `B6_DONE`, which
+  // the wait returns from normally.
+  const watch = watchPage(page, 'b6');
   // `'commit'`, not `'load'` (rf2-p9fa3). `b6-prod-app/-main` is this
   // bundle's `:init-fn`, so it runs inside the `<script>` — the parity pass
   // and every mount row are measured while the document is still loading,
@@ -106,11 +117,48 @@ async function run() {
   });
   const err = await page.evaluate('window.B6_ERROR || null');
   const results = await page.evaluate('window.B6_RESULTS || {}');
+  const pageErrors = watch.failures.map((f) => `${f.kind}: ${f.detail}`);
+  watch.dispose();
   await browser.close();
-  return { err, results };
+  return { err, results, pageErrors };
 }
 
-(async () => {
+// ---------------------------------------------------------------------------
+// The exit decision
+// ---------------------------------------------------------------------------
+
+// ONE pure function over the run's outcome, exported so the refusal can be
+// watched without a release build and a headless Chromium — the shape
+// rf2-y7mw7 and rf2-x6g04 established for this fleet, and the reason this
+// file's exit block is no longer an inline `if` nobody could reach.
+//
+// The two conditions are INDEPENDENT and both are named when both fire.
+// `err` is what it always was; `pageErrors` is rf2-sib23's repair and takes
+// the SAME code, because a page that threw is a page whose figures are not
+// figures — `sentinel.cjs` has said so in words since rf2-f5roa, and this
+// driver was exiting 0 underneath the sentence.
+//
+//   0  measured
+//   1  the run failed its own gates (`B6_ERROR`, or the page threw)
+//
+// No refusal suppresses output: every published record is printed before
+// this is consulted. A refusal is about what may be QUOTED.
+function verdict(outcome) {
+  const o = outcome || {};
+  const pageErrors = o.pageErrors || [];
+  const lines = [];
+  if (o.err) lines.push(`[b6] FAILED: ${o.err}`);
+  if (pageErrors.length) {
+    lines.push(
+      '[b6] FAILED: the page threw and kept going, so every record above was taken on a page ' +
+        'that is not the page under test (rf2-sib23):\n  ' +
+        pageErrors.join('\n  ')
+    );
+  }
+  return { code: o.err || pageErrors.length ? 1 : 0, lines };
+}
+
+async function drive() {
   build();
   const server = serve();
   let outcome;
@@ -123,9 +171,25 @@ async function run() {
     console.log(`;; ==== B6 PROD ${k} ====`);
     console.log(v);
   }
-  if (outcome.err) {
-    console.error(`[b6] FAILED: ${outcome.err}`);
-    process.exit(1);
-  }
-  console.error('[b6] ok');
-})();
+  const v = verdict(outcome);
+  for (const line of v.lines) console.error(line);
+  if (v.code === 0) console.error('[b6] ok');
+  return v.code;
+}
+
+module.exports = { verdict };
+
+// Requiring this file must NOT drive it — `pageerror_exit_path.test.cjs` loads
+// `verdict` out of it, and a driver that builds an `:advanced` bundle on
+// `require` could not be tested at all.
+if (require.main === module) {
+  drive().then(
+    (code) => {
+      if (code !== 0) process.exit(code);
+    },
+    (e) => {
+      console.error(`[b6] FAILED: ${e && e.stack ? e.stack : e}`);
+      process.exit(1);
+    }
+  );
+}

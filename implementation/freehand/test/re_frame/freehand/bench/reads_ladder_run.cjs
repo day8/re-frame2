@@ -99,6 +99,7 @@ const path = require('node:path');
 
 const guard = require('./order_guard.cjs');
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+const { watchPage } = require('./sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 // FORWARD SLASHES, and not by accident. `:output-dir` is spliced into the
@@ -192,12 +193,29 @@ function serve() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// One entry per page this run opened — one per substrate. Flattened once, at
+// the exit.
+const PAGE_WATCHES = [];
+const pageFailures = () =>
+  PAGE_WATCHES.flatMap((w) => w.failures).map((f) => `${f.kind}: ${f.detail}`);
+
 async function newPage(chromium, query, budget) {
   const browser = await chromium.launch({
     args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'],
   });
   const page = await browser.newPage();
-  page.on('pageerror', (e) => console.error('[ladder] page error:', e.message));
+  // EVERY PAGE THIS RUN OPENS IS WATCHED, AND EVERY WATCH IS READ AT THE EXIT
+  // (rf2-sib23). This was a bare `page.on('pageerror', ...)` that printed and
+  // recorded nothing, so a throw was announced on stderr and `drive` below
+  // exited 0 underneath it. One page is opened per substrate, which is why
+  // the watches are collected rather than held in a local: a `pageerror` on
+  // ANY substrate has to reach the one exit. `sentinel.cjs`'s header carries
+  // the finding, including why no page-side `try`/`catch` can close it under
+  // React 19.2. The sentinel waits are deliberately NOT converted to
+  // `watch.race` — that is rf2-f5roa's separate "report it promptly" remedy,
+  // and the fault here is the page that throws AND STILL reaches
+  // `LADDER_READY`, which the waits return from normally.
+  PAGE_WATCHES.push(watchPage(page, 'ladder'));
   // `'commit'`, not `'load'` (rf2-p9fa3): the bundle's `:init-fn` runs
   // synchronously inside the `<script>`, so the load event is downstream of
   // work this driver budgets separately.
@@ -808,6 +826,27 @@ async function drive() {
   console.log(text);
   fs.writeFileSync(path.join(OUT, 'reads-ladder.txt'), text + '\n');
   console.error(`[ladder] wrote ${path.join(OUT, 'reads-ladder.json')}`);
+
+  // THE PAGES' OWN FAILURES, READ FIRST (rf2-sib23). A benchmark that threw
+  // and kept going publishes a precise number for a page that is not the page
+  // under test, so this outranks every band and count below it: those gates
+  // adjudicate readings, and this one says the readings are not of the thing.
+  // Exit 1 — the code this driver already uses for "the instrument is not in
+  // a state to measure", and deliberately NOT a new number among the
+  // enumerated refusals, since a page that threw is not a refusal about what
+  // may be quoted. The artefacts are written above, so the partial evidence
+  // survives.
+  const pageErrors = pageFailures();
+  if (pageErrors.length) {
+    for (const e of pageErrors) console.error(`[ladder] PAGE ERROR — ${e}`);
+    console.error(
+      '[ladder] THE PAGE THREW AND KEPT GOING — every figure in the table above was taken ' +
+        'after an uncaught error, so none of it is a reading of the substrate it names. This ' +
+        'is not closeable inside the app: React does not rethrow an uncaught render error to ' +
+        'the caller of flushSync (see sentinel.cjs). Re-run on a clean page.'
+    );
+    process.exit(1);
+  }
 
   const refused = all.filter((s) => s.orderVerdict.refuse);
   const unverified = all.reduce((t, s) => t + s.verification.unverified, 0);
