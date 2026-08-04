@@ -22,7 +22,14 @@
   `flushSync` that lets an already-scheduled sync-lane notification land.
   Neither is `act` — `act` diverts work to a queue that is not the
   browser's, which is the right tool for an effect-ordering test and the
-  wrong one for a witness that reads the page."
+  wrong one for a witness that reads the page.
+
+  **[[hydrate-root!]] is the exception, and deliberately** (rf2-2rtt6.84).
+  Adoption is React's own concurrent business and nothing in this tree
+  forces it synchronously; wrapping `hydrateRoot` in a `flushSync` would
+  be inventing a schedule to make a witness easier to write. So that one
+  door returns before the tree is adopted, and a witness for it waits for
+  the closer instead of for a flush."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
@@ -71,6 +78,70 @@
                 :container container}]
     (render! handle hiccup)
     handle))
+
+(defn adoption-window-closer
+  "The component that CLOSES the adoption window, on the hydration commit
+  and not before (rf2-2rtt6.84).
+
+  Lifted verbatim in shape from the spine's own
+  `re-frame.substrate.spine/adoption-window-closer`: a passive
+  `useEffect` with empty deps, so it runs exactly once and strictly AFTER
+  the commit that adopted the server DOM. Renders nil — no DOM, so it
+  adds nothing for `hydrateRoot` to match and cannot itself mismatch.
+
+  Public because that is what makes adoption OBSERVABLE without a probe:
+  `(rt/adopting?)` answering false is this effect having run, which is
+  the completion signal a witness waits on in place of the `flushSync`
+  [[hydrate-root!]] refuses to perform."
+  [_props]
+  (react/useEffect (fn close-window [] (rt/close-adoption-window!) js/undefined)
+                   #js [])
+  nil)
+
+(aset adoption-window-closer "displayName" "hicasso/adoption-window-closer")
+
+(defn hydrate-root!
+  "Associate `container`'s **existing server-rendered DOM** with
+  `frame-kw` and `hiccup`, by adoption. [[root!]]'s hydrating twin, and
+  the client half every SSR route shares (rf2-2rtt6.84).
+
+  Returns the same handle shape [[root!]] does — `{:root :frame
+  :container}` — so [[render!]], [[dispatch!]], [[unmount!]] and
+  [[release!]] all take a hydrated handle unchanged.
+
+  ## `hydrateRoot` is called PLAIN
+
+  No `flushSync`, and that is a finding rather than an omission: nothing
+  in this tree forces hydration synchronously, so a flush here would
+  manufacture a schedule no shipped caller has and every row taken
+  through it would be a row about the manufactured one. The consequence
+  is that **this returns before the tree is adopted** — React adopts
+  concurrently, and the DOM on the line after this call is still the
+  server's.
+
+  ## So the window is closed by a COMPONENT, not by this function
+
+  [[adoption-window-closer]] rides as a Fragment sibling of the app
+  subtree and clears the window from its passive effect. That is the
+  spine's pattern (`spine.cljs`, `adoption-window-closer` /
+  `make-render`), and the reason is the same in both places: a passive
+  effect is the earliest thing that is unambiguously after the hydration
+  commit. Closing the window here, before `hydrateRoot` returns, would
+  close it before a single body had run inside it.
+
+  The closer sits OUTSIDE the frame provider on purpose — it reads no
+  subscription and needs no frame, and a nil-rendering component with no
+  frame dependency is the smallest thing that can carry the effect."
+  [container frame-kw hiccup]
+  (rt/open-adoption-window!)
+  {:root      (react-dom-client/hydrateRoot
+                container
+                (react/createElement
+                  (.-Fragment react) nil
+                  (react/createElement adoption-window-closer nil)
+                  (provider frame-kw (codec/root-element frame-kw hiccup))))
+   :frame     frame-kw
+   :container container})
 
 (defn unmount!
   "Unmount the root and detach its container, and **touch nothing the
