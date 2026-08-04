@@ -172,6 +172,18 @@ not unasserted, it *is* the assertion. The proper repair is at the door and is
 filed as **`rf2-2rtt6.97`**: `arm1/mount/hydrate-root!` passes no
 `onRecoverableError`, where both the spine and `host_ssr_dom_cljs_test` do.
 
+**Repaired — and the `preventDefault` stays** (`rf2-2rtt6.97`, landed after this
+page published). The door now installs the spine's arrangement: an
+`onRecoverableError` that emits `:rf.ssr/hydration-mismatch` while the adoption
+window is open. What it does *not* do is make the mismatch quieter, and that is
+the arrangement rather than a shortfall — installing any `onRecoverableError`
+takes React's default off, so the spine re-reports through
+`report-recoverable-default!` and never clobbers. A door that stopped
+re-reporting would have deleted the uncaught `pageerror` `rf2-mwx08` reads,
+which is precisely the fail-open that rule exists to prevent. So the diagnostic
+is added *beside* the uncaught error, not instead of it, and a row that
+manufactures a fault still swallows it at its own call site.
+
 ## X3 — reactivity adopted
 
 `rf2-2rtt6.80`'s on-demand diagnostic, **extended to the hydration schedule** as
