@@ -274,6 +274,9 @@ own and always re-renders with its parent anyway, a plain function is cheaper
 and simpler. Reach for a boundary when you want something to update
 independently, not because the markup got long.
 
+When the issue is **cost**, not only structure — host-edge React, foreign
+components, what is *not* an escape — see [Below Hiccup](11-below-hiccup.md).
+
 ## Advanced
 
 ### The sub collector

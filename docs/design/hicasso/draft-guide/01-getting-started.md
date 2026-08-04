@@ -87,6 +87,7 @@ finished product package.
 | **SSR participation** | Same pure bodies + framework hydration; experimental doors exist; production package still open | [Server-side rendering](10-server-side-rendering.md) |
 | **Xray-friendly UI** | UI state in app-db + named events shows up in app-db diffs and time-travel; not a special Hicasso Xray tab | framework Xray + this design |
 | **Performance** | Good / competitive goal vs Reagent; not "fastest UI library" | programme bar, not a guide claim |
+| **Going lower** | No dual mode; still-Hiccup levers, then host-edge React / `defhost` | [Below Hiccup](11-below-hiccup.md) |
 
 ## Your first app
 
