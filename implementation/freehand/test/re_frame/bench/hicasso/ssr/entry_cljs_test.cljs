@@ -24,7 +24,6 @@
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.ssr.entry :as entry]
             [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
-            [re-frame.bench.hicasso.ssr.host-policy :as host-policy]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as ssr-constants]
             [re-frame.test-support :as test-support]))
@@ -239,11 +238,25 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Clause 6 — defhost regions honour the :ssr policy server-side
+;;
+;; ONE MECHANISM, NOT TWO (rf2-2rtt6.92). These rows read the SERVER HTML
+;; a real `(defhost … {:ssr …})` declaration produces through the entry,
+;; so they are evidence about the door rather than about whichever
+;; internal honours it. That was not true when they were written: the
+;; fallback row stamped the policy slot onto a minted head by hand, which
+;; proves a reader and never the declaration. `ssr/fixtures` now writes
+;; both hosts the way an author writes them.
+;;
+;; The entry's pre-walk (`ssr.host-policy`) is retired. It could only
+;; reach the hiccup the entry was HANDED, which is why the third row
+;; below exists — the same two declarations at a use site inside a
+;; `defview` body, where no such walk can see them.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-host-with-no-declared-policy-renders-nothing
-  (testing "the ruled :client-only default, reached with no stamping at all"
-    (is (= :client-only (host-policy/policy-of fixtures/default-host)))
+  (testing "the ruled :client-only default, taken from the door — the
+           declaration writes no :ssr at all"
+    (is (= :client-only (codec/host-ssr fixtures/default-host)))
     (let [{:keys [html]} (entry/render (fixtures/row "defhost-ssr-policy"))]
       (is (not (str/includes? html "CLIENT-ONLY-WIDGET"))
           "a :client-only host's component must not reach the server HTML")
@@ -251,22 +264,51 @@
 
 (deftest a-host-declaring-a-fallback-renders-the-fallback
   (testing "{:fallback hiccup} — including from inside a `for`, the lazy position"
+    (is (= {:fallback [:span.host-fallback "loading…"]}
+           (codec/host-ssr fixtures/fallback-host))
+        "and the markup below is that declaration's, read back as data")
     (let [{:keys [html]} (entry/render (fixtures/row "defhost-ssr-policy"))]
       (is (str/includes? html "class=\"host-fallback\""))
       (is (= 2 (count (re-seq #"loading" html)))
-          "both rows of the `for` got their fallback — a walk that stopped at
-           the seq would render one (the root-level host) and miss these")
-      ;; The chrome around the hosts is untouched, so the walk replaced
+          "both rows of the `for` got their fallback — a mechanism that
+           stopped at the seq would render one (the root-level host) and
+           miss these")
+      ;; The chrome around the hosts is untouched, so the policy replaced
       ;; regions rather than pruning the tree.
       (is (str/includes? html "<h1>hosts</h1>")))))
 
-(deftest an-unknown-policy-is-refused-rather-than-rendered
-  (testing "fail-CLOSED: a policy this walk does not know never falls through
-           to rendering the client's component"
-    (let [bogus (codec/mint-host! "ssr-fixture/bogus" (fn [_] nil))]
-      (unchecked-set bogus host-policy/policy-slot :sometimes)
-      (is (= :rf.error/hicasso-unknown-ssr-policy
-             (error-id #(host-policy/apply-policy [:div [bogus {}]])))))))
+(deftest a-host-used-inside-a-defview-body-honours-its-policy
+  (testing "THE POSITION NO PRE-WALK COULD REACH (rf2-2rtt6.92). Both hosts
+           are used inside a boundary body, so their elements do not exist
+           when this entry is handed its hiccup — that body runs inside
+           `renderToString` and the codec's crossing creates them there. The
+           policy holds anyway, because it is the element's own TYPE: the
+           gate `mint-host!` mints answers `false` from its server snapshot.
+           A `ssr.host-policy/apply-policy`-shaped walk over the handed-in
+           form renders this row's `:client-only` host's component into the
+           HTML, which is the failure this row names."
+    (let [{:keys [html]} (entry/render (fixtures/row "defhost-ssr-nested"))]
+      ;; Non-vacuity first: the boundary body really did run, and its
+      ;; native chrome is in the markup — so an absent host region is an
+      ;; absent host region and not an absent page.
+      (is (str/includes? html "class=\"nested-hosts\"")
+          "the defview body ran on the server")
+      (is (str/includes? html "<h2>nested</h2>"))
+      (is (str/includes? html "<h1>nested hosts</h1>")
+          "and so did the ordinary root above it")
+
+      (testing ":client-only, at a nested use site"
+        (is (not (str/includes? html "CLIENT-ONLY-WIDGET"))
+            "the foreign component's markup must not reach the server HTML
+             from inside a body either")
+        (is (not (str/includes? html "client-widget"))))
+
+      (testing "{:fallback …}, at a nested use site"
+        (is (str/includes? html "class=\"host-fallback\"")
+            "the declared placeholder is what the server wrote there")
+        (is (= 1 (count (re-seq #"loading" html)))
+            "exactly one — this row has one fallback host, so a count is a
+             real assertion and not a presence check in disguise")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The corpus renders at all — the bake's own precondition

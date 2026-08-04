@@ -25,6 +25,32 @@
     *abandoned render* by design, and the ledger discipline holds for the
     same reason it holds for a render React throws away in the browser.
 
+  ## `defhost`'s `:ssr` POLICY NEEDS NOTHING HERE (rf2-2rtt6.92)
+
+  A reader looking for where the server honours `:client-only` and
+  `{:fallback …}` will not find it in this namespace, and that is the
+  design rather than an omission. `mint-host!` mints ONE gate per
+  declaration (`front/codec.cljs` — [[re-frame.bench.hicasso.front.codec/mint-host!]]),
+  a component whose single `useSyncExternalStore` answers `false` from
+  its SERVER snapshot, so under `renderToString` the gate renders the
+  declaration's pre-walked fallback element — or nothing — **because it
+  is the element's own type**. The policy is honoured by rendering.
+
+  This entry did carry a second mechanism for one clause of a fortnight:
+  a `ssr.host-policy/apply-policy` pre-walk over the hiccup handed in,
+  written by rf2-2rtt6.86 while rf2-2rtt6.85 was still an open PR and
+  clause 6 had to be real on main. It is retired, and the reason is
+  worth one sentence because it is the argument against ever writing it
+  again: **a pre-walk can only reach the tree it is handed**, and a host
+  used inside a boundary BODY is not in that tree — that body runs
+  inside `renderToString` and the codec's own crossing creates its
+  element. The gate reaches both positions, costs no per-request tree
+  rebuild, and cannot disagree with the client about a policy it never
+  reads twice. Both positions are witnessed on the server HTML by
+  `ssr/entry_cljs_test` (`a-host-with-no-declared-policy-renders-nothing`,
+  `a-host-declaring-a-fallback-renders-the-fallback`, and
+  `a-host-used-inside-a-defview-body-honours-its-policy`).
+
   ## What one request is
 
   [[render]] is the whole of it, and the order is the interesting part:
@@ -118,7 +144,6 @@
   (:require [re-frame.bench.hicasso.arm1.mount :as mount]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.ssr.host-policy :as host-policy]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as ssr-constants]
             [re-frame.ssr.hash :as ssr-hash]
@@ -260,20 +285,18 @@
       ;; the client half — see the namespace docstring. Closed in the
       ;; `finally`.
       (rt/open-adoption-window!)
-      (let [;; The server walk consults `defhost`'s `:ssr` policy BEFORE
-            ;; anything is turned into an element — see
-            ;; `ssr.host-policy` for which hosts it reaches and which
-            ;; rf2-2rtt6.85's own shell covers from the other side.
-            tree        (host-policy/apply-policy hiccup)
+      (let [;; The hiccup as WRITTEN — there is no server-only tree here.
+            ;; `defhost`'s `:ssr` policy is honoured by the gate that is
+            ;; the host element's own type, so this entry hands React the
+            ;; same form the browser mount hands it; see the namespace
+            ;; docstring's §`defhost`'s `:ssr` policy needs nothing here.
             html        (rdom-server/renderToString
-                          (mount/provider frame-id (codec/root-element frame-id tree)))
-            ;; The hash is of the tree BOTH ENDS SHARE — the hiccup as
-            ;; written, not the policy-applied server tree. A
+                          (mount/provider frame-id (codec/root-element frame-id hiccup)))
+            ;; The hash is therefore of the tree BOTH ENDS SHARE by
+            ;; construction, which is what the instrument wants: a
             ;; `:client-only` region is a deliberate server/client
-            ;; difference in the MARKUP; the render tree's structural
-            ;; identity is the same on both sides, and hashing the server
-            ;; tree would make every host region a hydration mismatch by
-            ;; construction.
+            ;; difference in the MARKUP, while the render tree's
+            ;; structural identity is the same on both sides.
             ;;
             ;; FINDING, WITNESSED AND FILED rather than papered over: this
             ;; hash is DEGENERATE for an interpreted root. Spec 011's
