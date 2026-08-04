@@ -155,18 +155,19 @@ No boot-path error ids are minted yet, so this table names mechanisms rather tha
 
 ## When not to use this
 
-**Server-side rendering is required Hicasso scope — and none of it has landed
-yet.** HD-020 originally ruled SSR out of v0; the 2026-08-04 operator ruling
+**Server-side rendering is required Hicasso scope — and it is landing, not
+landed.** HD-020 originally ruled SSR out of v0; the 2026-08-04 operator ruling
 reopened that clause and made SSR + hydration required scope (the HD-020 addendum
 in [decisions.md](../decisions.md) is the record). The story is the framework's
 own Spec 011 mechanism, not a Hicasso-private one: the server embeds the
 `#__rf_payload` EDN payload and the client adopts it through the reserved
-`:rf/hydrate` door before first render. The pieces — the hydration door,
-`defhost`'s `:ssr` policy, the Node render entry and the spike witness — are in
-progress as beads `rf2-2rtt6.84`–`.87`, and no Hicasso SSR or JVM render path
-exists in the tree today. Until they land, an app that needs SSR now still uses a
-[Reagent or UIx adapter](../../../core/views.md), which are first-class and
-supported.
+`:rf/hydrate` door before first render. Of the pieces (`rf2-2rtt6.84`–`.87`),
+the hydration door and `defhost`'s `:ssr` policy are witnessed in the bench arm
+today; the Node render entry and the spike witness are still in flight —
+[Server-side rendering](10-server-side-rendering.md) tells the story door by
+door, in honest tense. Until the doors all land, an app that needs SSR now still
+uses a [Reagent or UIx adapter](../../../core/views.md), which are first-class
+and supported.
 
 The same applies to the whole programme, not just this page: adapters continuing to
 be the answer is a *successful* outcome for Hicasso, not a failure mode.
