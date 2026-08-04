@@ -168,6 +168,16 @@ _IMAGE_CTX_RE = re.compile(r"\b(?:rf/image|image/image|make-frame|:images)\b")
 # A `make-frame` / image opts map can span several lines, so the anchoring token
 # may sit a few lines from the key. The co-occurrence window (lines on each side).
 _MAKE_FRAME_WINDOW = 4
+# The gate's ADVERTISED contract — the exact token set the module docstring
+# promises, written out once so the self-test can hold the implementation to it.
+# `--self-test` asserts BOTH that the detectors emit exactly this set and that
+# every member has its own positive fixture, so a token can never again lose its
+# detector (or gain one) unnoticed. See `_run_self_tests` (rf2-e1xx0).
+_ADVERTISED_KINDS = frozenset({
+    ":include-ns", ":exclude-ns", ":replace-standard",
+    ":rf.image/requires", ":rf.gen/requires",
+    ":replace", "make-frame :capabilities",
+})
 # Removed-context suppression window (lines each side). A retirement-discussing
 # `deftest` name / `testing` string / comment can sit a few lines above the
 # retired-key data line (e.g. a `doseq` over retired specs), so the window is
@@ -199,6 +209,22 @@ class Finding(NamedTuple):
     line: int
     kind: str
     snippet: str
+
+
+# Every `Finding.kind` is this prefix + one member of `_ADVERTISED_KINDS`.
+_KIND_PREFIX = "live-retired:"
+
+
+def _implemented_kinds() -> frozenset[str]:
+    """The retired kinds the detectors can actually emit, derived from the
+    patterns themselves — the self-test holds this against the advertised set."""
+    kinds = {kind for kind, _ in _IMAGE_ONLY_RETIRED}
+    kinds |= {kind for kind, _ in _CONTEXT_RETIRED}
+    if _REPLACE_RE.search(":replace "):
+        kinds.add(":replace")
+    if _CAPABILITIES_KEY_RE.search(":capabilities "):
+        kinds.add("make-frame :capabilities")
+    return frozenset(kinds)
 
 
 # --------------------------------------------------------------------------
@@ -361,7 +387,7 @@ def _scan_lines(lines: list[tuple[int, str]], path: Path,
             hits = _retired_key_hits(masked, masked_neighbour)
         for kind in hits:
             snippet = raw[line_no - 1].strip() if 0 <= line_no - 1 < len(raw) else ""
-            findings.append(Finding(path, line_no, f"live-retired:{kind}", snippet))
+            findings.append(Finding(path, line_no, _KIND_PREFIX + kind, snippet))
     return findings
 
 
@@ -503,13 +529,53 @@ _SELF_TEST_FIXTURE_ROOT = (
     Path(__file__).resolve().parent / "_test_fixtures" / "check_retired_image_keys"
 )
 
+# The EXACT kind set every POSITIVE fixture must yield — ONE retired token per
+# fixture, declared here.
+#
+# WHY EXACT, AND WHY ONE TOKEN EACH (rf2-e1xx0). This assertion used to be "at
+# least one finding" over multi-token fixtures, and that is fail-open: a fixture
+# carrying `:replace` AND `make-frame :capabilities` still reports a finding when
+# either detector dies, because its sibling covers for it. Measured on the old
+# fixtures, killing a single detector left --self-test GREEN for SIX of the seven
+# tokens — every one except `:include-ns`, which happened to own a fixture alone.
+# One token per fixture plus an exact-set assertion is what makes a dead detector
+# red BY NAME, which is the whole job of a guard's self-test.
+_POSITIVE_EXPECTATIONS: dict[str, frozenset[str]] = {
+    "positive/live_include_ns_fenced.md":
+        frozenset({":include-ns"}),
+    "positive/live_exclude_ns_fenced.md":
+        frozenset({":exclude-ns"}),
+    "positive/live_replace_standard_fenced.md":
+        frozenset({":replace-standard"}),
+    "positive/live_replace_key_fenced.md":
+        frozenset({":replace"}),
+    "positive/live_make_frame_capabilities_fenced.md":
+        frozenset({"make-frame :capabilities"}),
+    "positive/live_image_requires_source.cljc":
+        frozenset({":rf.image/requires"}),
+    "positive/live_gen_requires_source.cljc":
+        frozenset({":rf.gen/requires"}),
+}
+
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Scan each fixture file and assert the expected finding count.
+    """Scan each fixture and assert the EXACT set of retired kinds it yields.
 
-    Positive fixtures plant a LIVE retired key (in a code fence / live code);
-    negative fixtures plant the same token under removed-context, in prose, in an
-    inline span, in a `str/replace` call, or the :rf.capability vocab — all GREEN.
+    Positive fixtures plant exactly ONE live retired token (in a code fence or in
+    live Clojure source) and declare it in `_POSITIVE_EXPECTATIONS`; negative
+    fixtures plant the same tokens under removed-context, in prose, in an inline
+    span, in a `str/replace` call, outside image proximity, or as the
+    `:rf.capability` vocab — all GREEN.
+
+    Three assertions, and each closes a different way for the gate to go quietly
+    toothless:
+
+      1. Per fixture, the kind set must match EXACTLY — a dead detector reds by
+         name instead of being masked by a sibling finding in the same file.
+      2. The detectors must implement EXACTLY the advertised token set, so the
+         module docstring's promise is executable rather than aspirational.
+      3. Every advertised token must OWN a positive fixture, so a token added
+         without one cannot pass unexercised.
     """
     root = _SELF_TEST_FIXTURE_ROOT
     if not root.is_dir():
@@ -517,33 +583,87 @@ def _run_self_tests(verbose: bool = False) -> int:
         return 2
     failures = 0
     checked = 0
+    covered: set[str] = set()
     for path in sorted(root.rglob("*")):
         if path.suffix not in (_DOC_SUFFIXES + _CLJ_SUFFIXES):
             continue
         rel = path.relative_to(root).as_posix()
-        expect_positive = rel.startswith("positive/")
         # Fixtures are scanned with the SELF-allowlist bypassed (they live under
         # _test_fixtures, normally allowlisted) — pass the bare basename as the
         # rel so the allowlist's self-rule does not exempt them.
         findings = _scan_text(path, _read(path), path.name)
-        n = len(findings)
-        ok = (n > 0) if expect_positive else (n == 0)
+        actual = frozenset(f.kind.removeprefix(_KIND_PREFIX) for f in findings)
         checked += 1
-        if not ok:
+        if rel.startswith("positive/"):
+            expected = _POSITIVE_EXPECTATIONS.get(rel)
+            if expected is None:
+                failures += 1
+                sys.stderr.write(
+                    f"  SELF-TEST FAIL: {rel} is a positive fixture with no entry "
+                    "in _POSITIVE_EXPECTATIONS — declare the EXACT kind(s) it must "
+                    "yield (one retired token per fixture).\n"
+                )
+                continue
+            covered |= expected
+        elif rel.startswith("negative/"):
+            expected = frozenset()
+        else:
             failures += 1
             sys.stderr.write(
-                f"  SELF-TEST FAIL: {rel} expected "
-                f"{'>=1' if expect_positive else '0'} finding(s), got {n}\n"
+                f"  SELF-TEST FAIL: {rel} sits in neither positive/ nor negative/ "
+                "— a fixture whose expectation cannot be read is not a test.\n"
             )
+            continue
+        if actual != expected:
+            failures += 1
+            sys.stderr.write(f"  SELF-TEST FAIL: {rel}\n")
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            if missing:
+                sys.stderr.write(
+                    "      DETECTOR DEAD — this fixture plants "
+                    f"{', '.join(missing)} and the gate did not see it\n"
+                )
+            if extra:
+                sys.stderr.write(
+                    f"      UNEXPECTED kind(s): {', '.join(extra)}\n"
+                )
             for f in findings:
                 sys.stderr.write(f"      {f.kind}: line {f.line}: {f.snippet}\n")
         elif verbose:
-            sys.stderr.write(f"  ok: {rel} ({n} finding(s))\n")
+            sys.stderr.write(
+                f"  ok: {rel} ({', '.join(sorted(actual)) or 'no findings'})\n"
+            )
+
+    implemented = _implemented_kinds()
+    if implemented != _ADVERTISED_KINDS:
+        failures += 1
+        sys.stderr.write(
+            "  SELF-TEST FAIL: the detectors no longer implement the advertised "
+            "retired set.\n"
+            f"      absent from the detectors: {sorted(_ADVERTISED_KINDS - implemented)}\n"
+            f"      not advertised:            {sorted(implemented - _ADVERTISED_KINDS)}\n"
+        )
+    uncovered = sorted(_ADVERTISED_KINDS - covered)
+    if uncovered:
+        failures += 1
+        sys.stderr.write(
+            "  SELF-TEST FAIL: advertised retired token(s) with no positive "
+            f"fixture of their own: {', '.join(uncovered)}\n"
+            "      Add one fixture per token and declare it in "
+            "_POSITIVE_EXPECTATIONS.\n"
+        )
+
     if failures:
-        sys.stderr.write(f"\n{failures}/{checked} self-test fixture(s) FAILED.\n")
+        sys.stderr.write(
+            f"\n{failures} self-test failure(s) across {checked} fixture(s).\n"
+        )
         return 1
     if verbose:
-        sys.stderr.write(f"\nall {checked} self-test fixture(s) passed.\n")
+        sys.stderr.write(
+            f"\nall {checked} self-test fixture(s) passed; all "
+            f"{len(_ADVERTISED_KINDS)} advertised retired token(s) covered.\n"
+        )
     return 0
 
 
