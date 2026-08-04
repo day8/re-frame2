@@ -114,7 +114,7 @@
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
   | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
-  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
+  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -1587,6 +1587,15 @@
   ([[convert-prop-value]]) and the answer the server serializer gives, so
   the two crossings agree on every attribute both can carry.
 
+  **`className` no longer arrives here at all** (rf2-2rtt6.119).
+  [[host-entry]] takes the class slot ahead of this function and hands it
+  to [[class-names]], which is the coercion the native walk takes and the
+  only one that answers a COLLECTION correctly — the arm the named-value
+  rule above could never reach, since a collection is not a named value.
+  The slot stays on the roster because the roster states which SLOTS are
+  bound for HTML attributes, which is still true of `className` and is
+  what keeps this function's answer right if it is ever asked directly.
+
   **No dev warning accompanies this**, and the omission is deliberate.
   `reagent-slim` warns once per non-HTML keyword prop because it narrowed
   the rule underneath an installed Reagent codebase and the warning is
@@ -1648,7 +1657,35 @@
   than inferred; everything else crosses shallowly. `event?` is gated on
   `keyword?` for the same reason the native walk gates it — a symbol
   spelled `on-click` shares the cache entry and is not an event
-  position."
+  position.
+
+  ## The class slot is a POSITION here too (rf2-2rtt6.119)
+
+  `className` is the one slot whose value has a coercion of its own —
+  [[class-names]] — rather than the position's ordinary conversion, and
+  that coercion belongs to the SLOT rather than to either walk. It was
+  taken at the native position only, so the two crossings answered the
+  same authored shape differently: `{:class [\"a\" nil :b]}` reached a
+  native tag as `\"a b\"` and reached a declared foreign component as the
+  JS array `[\"a\", null, \"b\"]` — `clj->js`'s answer, and not a class
+  string at all. React writes that array to the DOM as `\"a,,b\"`
+  wherever the component passes it on, so nothing threw and the styling
+  was simply wrong.
+
+  rf2-vrvv9 already settled the principle and applied half of it: at
+  `className`, `id`, `role` and the `data-*`/`aria-*` families the value
+  is bound for an HTML attribute, so a named value keeps `(name v)` there
+  — *\"which is also the answer the NATIVE walk gives at the same
+  names\"* ([[host-prop-value]]). That sentence is the law; the
+  collection arm was the half of it still unwritten, because a collection
+  never reached the named-value branch. Asking `class?` here — the flag
+  the [[PropSlot]] already carries, so a declared-slot lookup pays one
+  property read and a string key one compare — makes the two crossings
+  agree at the class slot for **every** value shape.
+
+  It composes, for the reason [[convert-entry]] composes: two spellings
+  of one element's class are two map keys and one React slot, and letting
+  the last write win drops a class silently."
   [^js head declared o k v]
   (if (keyword-identical? :key k)
     o
@@ -1657,6 +1694,7 @@
           slot         (if keyword-ish? (.-js-name s) (cached-prop-name k))
           reserved?    (if keyword-ish? (.-reserved? s) (reserved-name? slot))
           ref?         (if keyword-ish? (.-ref? s) (= ref-slot slot))
+          class?       (if keyword-ish? (.-class? s) (identical? class-slot slot))
           event?       (if keyword-ish?
                          (and (.-event? s) (keyword? k))
                          (intent/event-prop? k))]
@@ -1668,6 +1706,15 @@
 
             (contains? declared slot)
             (intent/lower-declared-prop k v (get declared slot))
+
+            ;; The slot's own coercion, and the slot's own composition —
+            ;; the same law [[convert-entry]] takes at the native
+            ;; position, taken here so the two crossings agree
+            ;; (rf2-2rtt6.119). Below the declaration, because HD-011's
+            ;; whole point is that a DECLARED position means what the
+            ;; declaration says it means.
+            class?
+            (class-names (unchecked-get o class-slot) v)
 
             :else
             (do (when (and event? (or (vector? v) (map? v)))

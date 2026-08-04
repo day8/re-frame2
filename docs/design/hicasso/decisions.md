@@ -518,6 +518,38 @@ settled rather than contingent. HD-002's ruling makes the ambient collector the
 one product read surface, so a `sub` performed inside a helper is an ordinary
 read that lands in the calling boundary's window.
 
+> **Note, 2026-08-05 (rf2-d03av): "callback refs only" states what v0 TEACHES,
+> not what it refuses.** The clause above reads as a prohibition, and it is not
+> enforced as one: `front.codec/check-ref!` refuses exactly one value — the
+> reserved **vector** — and passes everything else through. That is not a gap
+> in the check, it is [HD-022](#hd-022--refs-vector-value-space-is-reserved-now-and-refused-loudly-in-v0)
+> in as many words: *"That is the whole ruling — one refusal branch and one
+> error id."* HD-022 is later than this clause and is the ruling actually about
+> `:ref`'s value space, so where the two are read as disagreeing, HD-022 governs.
+>
+> The consequence, stated so it is a decision rather than an oversight: an
+> **object ref** (`(react/createRef)`) is legal at a native tag and at a
+> `defhost`/`[:>]` crossing. React 19 carries `ref` as an ordinary prop, so it
+> attaches and detaches exactly as React documents; nothing is silently dropped
+> and nothing needs repairing. It is **untaught, not illegal** — the guide
+> teaches the callback ref because attach and teardown are one thing there
+> (React 19 returns the cleanup from the callback), and that is an ergonomic
+> recommendation the codec does not police. Refusing a spelling that works
+> correctly would be friction rather than safety, and pre-alpha this project
+> trusts the programmer.
+>
+> Read the clause as: *`:ref` is legal on native tags and `defhost`/`[:>]`
+> crossings; the callback ref is the taught form; the reserved vector spelling
+> is refused; `:ref` is not a v0 surface on Hicasso views (use ids).*
+>
+> Design C's parity rule is what makes this the cheap answer as well as the
+> right one: whatever is decided applies to **both** crossing forms and to
+> native tags, and a rule enforced at one crossing and not the other is worse
+> than a rule enforced at neither. Doing nothing satisfies parity for free.
+> Pinned by `front/codec_cljs_test` →
+> `an-object-ref-crosses-by-identity-at-both-positions`, so a later refusal
+> cannot land silently.
+
 ## HD-017 — Code residence and graduation
 
 > **Note, 2026-07-31.** This entry's graduation clause was written as "the P2

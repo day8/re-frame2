@@ -83,13 +83,21 @@ declared so it is scored from day one, not discovered mid-clock:
 An existing React element is a legal child anywhere (pass-through). A view may
 return `nil`, one root, or a fragment.
 
-`:ref` takes a **function** in v0. A **vector** is the reserved value-space for the
+`:ref` takes a **function** in v0 — the taught form, and the one the guide
+teaches, because React 19 makes attach and teardown structural there (whatever the
+callback returns is its cleanup). A **vector** is the reserved value-space for the
 later data spelling (`{:ref [registered-id config]}`) and is refused loudly —
 `:rf.error/hicasso-ref-vector-reserved` (HD-022). The reservation is one branch and
 one error id; it exists so the imperative escape can become data without minting a
 second attribute name, and it carries one honest limit that shapes what you write
 today: a ref callback fires on attach and detach and **never on config change**, so
 steady-state change belongs on an effect, not on the ref.
+
+The vector is the **only** value the codec refuses there. An object ref
+(`(react/createRef)`) is untaught rather than illegal: React 19 carries `ref` as an
+ordinary prop, so it crosses by identity at a native tag and at a `defhost`/`[:>]`
+crossing alike and behaves exactly as React documents (HD-016's 2026-08-05 note,
+rf2-d03av).
 
 ## Event intent as data
 
