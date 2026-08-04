@@ -455,6 +455,15 @@ of its scope for the declared form too.
   bead's fence and outside Hicasso, but it is a stale sentence a reader of this edge
   will trip over. Recorded as a finding, not actioned.
 
+  > **Fixed 2026-08-05 (`rf2-whfte`) — the finding was right, and 008 now says so.**
+  > The qualified-host bullet no longer claims the crossing is opaque. What is opaque
+  > is what the foreign component *renders beneath* the crossing — a host node's
+  > `:children` are the declared SSR projection, never the registered component's own
+  > output — while the crossing itself (`:rf.ui/host`, its declared `:rf.ui/host-ssr`
+  > policy, and its `:props`) is an ordinary headless read in the `jvm` and `browser`
+  > structural cells. The bullet above stands as the record of what was true when this
+  > page was written; the reader it warns about no longer trips.
+
 ---
 
 ## Edge 4 — the legal Component-value boundary, and where refusal falls
