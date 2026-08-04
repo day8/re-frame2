@@ -606,6 +606,29 @@ jobs:
         continue-on-error: true
         run: python scripts/check_ci_reproduce_commands.py --check --verbose
 
+      # Fast-PR gap map (rf2-13zre). `scripts/test-fast-pr.sh` is not a superset
+      # of the required checks, and until this gate nothing said which ones it
+      # omits — three workers on 2026-08-04 shipped a green spine into a red
+      # required check, each discovering a different one. The map is DERIVED (the
+      # three aggregators' `needs:`, then each job's gate steps, then the spine's
+      # own invocations), so a new required job or a new step inside an existing
+      # one is reported as unrun by construction. What this gate protects is the
+      # spine's COVERAGE CLAIMS: a signature in `SPINE_LANES` that stops matching
+      # any required step means the spine still claims a lane for a check CI
+      # renamed, moved or deleted — a false claim, and red here. It lives in this
+      # job rather than the spine alone because a workflow edit is exactly the
+      # change that can invalidate it while touching no surface the spine tiers
+      # on. Self-test first, then the live audit.
+      - name: Self-test the fast-PR gap map
+        id: check_fast_pr_gap_selftest
+        continue-on-error: true
+        run: python scripts/check_fast_pr_gap.py --self-test --verbose
+
+      - name: Verify the fast-PR spine's coverage claims still match the required checks
+        id: check_fast_pr_gap
+        continue-on-error: true
+        run: python scripts/check_fast_pr_gap.py --check
+
       # The verdict. Every checker above carries `continue-on-error: true`, so
       # the job never short-circuits and its RESULT is decided only here.
       # `toJSON(steps)` is the map of every step that declared an `id`. Each

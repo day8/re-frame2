@@ -104,6 +104,7 @@ This axis is revisited at API-freeze / external-alpha prep, alongside the facade
 | `bash scripts/test-freehand-prod-gate.sh` | `implementation/freehand` under the same gate, same shape, its own roster (rf2-8alkj). 125 of 133 namespaces, 1159 tests, 7930 assertions, green; 8 rostered known-red under rf2-74a89. This artefact was the last whole artefact no lane ran under the documented production posture, and what it covers is not incidental: the `{:reactive false}` opt-out (rf2-oxlpy) is a **safety mechanism whose production behaviour is the thing under test** — rf2-3slzz's totality probe was written posture-agnostic precisely so a second run genuinely is the production posture — and `re-frame.freehand.evidence` exists in order to be compiled away in a release build (PR #7177 armed the CLJS half of that; this is the JVM half). CI arm: the required `jvm-freehand-prod-gate` job. |
 | `scripts/test-jvm-tools.sh` | Tool JVM artefacts. |
 | `scripts/check_jvm_lane_rosters.py` | Asserts the two roster scripts above against `test.yml`'s required-job list, both ways: every rostered artefact is run by a job in `all-required-passed`'s `needs:`, and every required job running `clojure -M:test` is on a roster (rf2-as6bg). The test-lane bijection gate *reads* the rosters to discover the JVM lanes, so it cannot see an artefact missing from one — that blind spot is how `tools/machines-viz` and `tools/testbed-support` sat on the local roster with no CI job, and how `tools/template` had a CI job and no local lane. Runs in the fast spine and in CI's always-on `verify-readme-links` job. |
+| `scripts/check_fast_pr_gap.py` | Names the **required** checks the fast spine does not run, at step granularity, with the local command for each — see [Required checks the fast-PR spine does not run](#required-checks-the-fast-pr-spine-does-not-run). `--list` prints the full report; `--brief` is the digest the spine appends to its own PASS line; the default `--check` is the drift ratchet, and runs both in the spine and in CI's `verify-skill-mcp-drift` job. Everything is derived — the required set from the three aggregators' `needs:`, each job's gate steps from its `run:` bodies, coverage from the spine's own invocations — so a new required job, or a new step inside an existing one, is reported as unrun by construction rather than by somebody remembering to write it down (rf2-13zre). |
 | `scripts/test-rigorous-local.sh` | Local mirror of the expensive sweep (spine + JVM + browser/bundle/Story/Xray), **plus** the Freehand mounted-correctness lane `bench:freehand-browser` (rf2-rmtj0). Use before release-sized changes. Three things it is not: it does not reproduce `freehand-bench.yml`'s evidence-publication semantics — a local bench run labels its records unattributable by design, and this script consumes the lane's verdict while ignoring its distributions, so citable numbers still come only from the scheduled lane on its pinned hardware; its inventory is pinned by a self-test that derives most of its expectations from `expensive-tests.yml`, so a gate scheduled anywhere else must be pinned by name in `implementation/scripts/_rigorous-local-inventory.test.cjs` or it can drop out in silence; and it mirrors the **expensive** sweep, not the PR lane — gates that live only in `test.yml` are deliberately out of scope, because that workflow is surface-classified and so the change that would break one is the change that queues it (rf2-0l1nv). |
 
 Everything narrower is named in the **Kinds of tests** table; the full script catalogues are `implementation/package.json` and the per-tool `tools/*/package.json`. Per-artefact JVM suites run from the artefact directory: `cd implementation/<name> && clojure -M:test` (same under `tools/`).
@@ -111,6 +112,53 @@ Everything narrower is named in the **Kinds of tests** table; the full script ca
 Green output stays quiet; red must name the violated contract, owning surface, and reproduction command — see [`docs/quiet-tests.md`](docs/quiet-tests.md).
 
 **Windows-local policy.** CI (Linux) is authoritative for the full JVM suite; the core gate is not split or weakened, and a Windows-local hang is a *file-lock* symptom (a stale orphaned shadow/Node/JVM holding `implementation/` or `out/`), not a correctness signal. When it happens: `scripts/test-core-jvm-windows.ps1` (bounded run; its timeout dump proves the lock-holder), `scripts/reap-stale-test-processes.ps1` (guarded reaper, dry-run by default), `scripts/test-jvm-nses-windows.ps1` (per-namespace sharding to localise a hang) — then push and let CI run the authoritative suite.
+
+## Required checks the fast-PR spine does not run
+
+`scripts/test-fast-pr.sh` is a **spine, not a mirror**. `PASS fast PR spine` is entirely
+compatible with a red required check, and on 2026-08-04 three workers in a row proved it —
+each one green locally, each one red in CI on a *different* check, each costing a round
+trip. Do not read the list from here; derive it:
+
+```bash
+python scripts/check_fast_pr_gap.py --list    # every unrun required check + its local command
+python scripts/check_fast_pr_gap.py --brief   # the digest the spine appends to its PASS line
+```
+
+It is derived rather than written down because a written list would already be wrong: two
+PRs landed new required steps in `test.yml` on the day the gap was first catalogued. Three
+properties of that gap are worth carrying in your head before you read the report.
+
+**There are three required status contexts, not one.** `All required checks passed`
+(`test.yml`), `Lint required` (`lint.yml`) and `Docs required` (`docs.yml`) each aggregate
+their own `needs:` list. The spine has lanes only in the first — `clj-kondo`, Splint,
+ESLint and the public-API manifest drift-check are all required, and none of them is in
+any tier of the spine.
+
+**A required check can be a step *inside* a job the spine runs, and it need not be a
+test.** The spine's skipped-tier enumeration cannot see that class: the tier is not
+skipped and the step is not a suite. The EP-0036 donor-boundary check is the clearest
+case — it is the last step of the `jvm-freehand` job, so it reports under the display name
+*"JVM freehand (clojure -M:test)"*, and it is a `git grep` for `re-frame.ui` /
+`re_frame/ui` / `re-frame2-ui` over `implementation/freehand`. It has fired on a docstring
+naming `re-frame.ui/hydrate-root` in prose, and that is correct: the gate cannot
+distinguish prose from a `:require`, and a cleverer grep would eventually admit a real
+dependency. A worker reading that red goes looking for a failing test that does not exist,
+which is why the report names the **check** and prints what it actually runs. The same
+class covers `npm run test:ui-isolation` (a step of the `cljs` job whose node-test build
+the spine *does* run) and the required `python scripts/check_*.py` invariant checkers that
+have no local lane.
+
+**A local `clj-kondo` pass proves nothing unless it is the pinned build.** CI installs an
+exact version and fails on ERROR level only, warnings staying informational; two versions
+disagree about which findings are errors, and this project's Windows checkout has
+reproduced exactly that — 0 errors locally on the line CI failed, and 10 different errors
+CI never reported. The report prints the pin, read from the workflow's own installer step
+so a bump cannot leave it stale.
+
+The spine covers one thing workers have got wrong by hand: the JS harness gate is
+`npm run test:script-policy && npm run test:script-helpers`, **chained**, and running only
+the second half has let a red through. The spine runs it chained, as CI does.
 
 ## Changed-surface classifier
 
