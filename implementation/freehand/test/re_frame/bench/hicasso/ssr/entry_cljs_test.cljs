@@ -26,6 +26,9 @@
             [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as ssr-constants]
+            ;; rf2-2rtt6.91 — the entry no longer computes a render hash, so
+            ;; the row that keeps the measurement live takes it DIRECTLY.
+            [re-frame.ssr.hash :as ssr-hash]
             [re-frame.test-support :as test-support]))
 
 ;; The adapter is UIx's for the reason `arm1/runtime_cljs_test` gives: it
@@ -105,12 +108,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-payload-is-the-frameworks-own
-  (let [{:keys [payload payload-edn payload-script render-hash]} (entry/render dogfood-request)]
+  (let [{:keys [payload payload-edn payload-script]} (entry/render dogfood-request)]
 
-    (testing "the three always-present keys, per Spec 011"
-      (is (= #{:rf/version :rf/app-db :rf/render-hash} (set (keys payload))))
-      (is (int? (:rf/version payload)))
-      (is (= render-hash (:rf/render-hash payload))))
+    (testing "the two always-present keys, per Spec 011 (rf2-2rtt6.91 — an
+             adoption-tier root carries no `:rf/render-hash`, and the
+             schema marks the slot `{:optional true}` for exactly this)"
+      (is (= #{:rf/version :rf/app-db} (set (keys payload))))
+      (is (int? (:rf/version payload))))
 
     (testing "the per-request gensym NEVER reaches the wire (rf2-lm2yzy)"
       (is (not (contains? payload :rf/frame-id))
@@ -154,21 +158,51 @@
                                                  :payload :rf.ssr.payload/whole-app-db))]
       (is (= (set (keys (dogfood/seed-db 4))) (set (keys (:rf/app-db payload))))))))
 
-(deftest the-render-hash-is-degenerate-for-an-interpreted-root
-  (testing "PINNED AS A DEFECT, not asserted as behaviour: Spec 011's
-           hydration-mismatch hash is over the RENDER TREE, and Hicasso's
-           root hiccup is one vector whose head is a function — so two
-           different screens hash the same and the instrument is fail-open.
-           This row exists so the day someone repairs it, it goes red and
-           they read the comment in ssr/entry.cljs rather than rediscovering
-           the measurement."
-    (let [dogfood (:render-hash (entry/render dogfood-request))
-          conduit (:render-hash (entry/render (fixtures/row "conduit-feed")))
-          markup  (:render-hash (entry/render (fixtures/row "defhost-ssr-policy")))]
+(deftest the-interpreted-root-ships-no-render-hash
+  (testing "rf2-2rtt6.91, and it is Spec 011's own answer rather than a
+           concession. §Hydration-mismatch detection tiers detection by
+           RENDER-TREE REPRESENTATION: the hash channel is the hiccup
+           tier's, and a root that reaches React as an element — compiled
+           `re-frame.ui`, native UIx, Freehand — verifies by React-native
+           adoption and `deliberately carries no such hash`. This entry is
+           that tier, so the key is ABSENT from the payload and the marker
+           is absent from the document.
+
+           This row replaces `the-render-hash-is-degenerate-for-an-
+           interpreted-root`, which pinned the defect: the entry used to
+           hash the root hiccup as handed in, and since that form is
+           `[<minted head> {props}]` and `canonical-edn` renders every fn
+           as `#fn[]`, two different screens took the same value."
+    (let [{:keys [payload document]} (entry/render dogfood-request)]
+      (is (not (contains? payload :rf/render-hash))
+          "ABSENT, not nil — `:rf/render-hash` is `{:optional true} :string`
+           in Spec-Schemas, so a nil-valued key is not a legal spelling of
+           absence, and `build-payload` omits it on a nil hash")
+      (is (not (str/includes? document "data-rf-render-hash"))
+          "and no root marker either — the two ends of one channel"))))
+
+(deftest the-hash-this-root-would-have-had-is-a-constant
+  (testing "THE MEASUREMENT THAT SETTLED IT, kept live so the removal above
+           cannot decay into folklore. It is a fact about
+           `render-tree-hash` over an unresolved root form, not about the
+           entry — so it is taken directly, and it goes on being taken
+           after the entry stopped emitting.
+
+           A degenerate value is worse than an absent one: an absent value
+           cannot be mistaken for evidence, while a constant one is a
+           fail-open gate wearing the shape of a check."
+    (let [hash-of  #(ssr-hash/render-tree-hash (:hiccup (fixtures/row %)))
+          dogfood  (ssr-hash/render-tree-hash (:hiccup dogfood-request))
+          conduit  (hash-of "conduit-feed")
+          markup   (hash-of "defhost-ssr-policy")]
       (is (= dogfood conduit)
-          "the dogfood screen and the 1,200-element Conduit feed hash the same")
-      ;; And the non-vacuity control: a root whose hiccup IS markup does
-      ;; hash differently, so the hash function itself works and it is the
+          "the dogfood screen and the 1,200-element Conduit feed would have
+           taken the same hash")
+      (is (= "83b865f8" dogfood)
+          "and it is the published value — the canonical EDN of every
+           `[<fn> {}]` root, which is the whole of what the hash could see")
+      ;; The non-vacuity control: a root whose hiccup IS markup hashes
+      ;; differently, so the hash function itself works and it is the
       ;; interpreted root that defeats it.
       (is (not= dogfood markup)))))
 
@@ -350,9 +384,14 @@
       (let [{:keys [html document payload]} (entry/render row)]
         (is (seq html) (str id " rendered empty markup"))
         (is (str/starts-with? document "<!DOCTYPE html>"))
-        (is (str/includes? document "<div id=\"app\" data-rf-render-hash=")
+        (is (str/includes? document "<div id=\"app\">")
             "the app root carries the id the client bootstrap mounts on —
              a `:or` default that never fires shipped `id=\"\"` once")
         (is (str/includes? document (str "id=\"" ssr-constants/payload-script-id "\"")))
         (is (str/ends-with? document "</body></html>"))
-        (is (some? (:rf/render-hash payload)))))))
+        ;; rf2-2rtt6.91 — EVERY row, not just the two the exclusion row
+        ;; names: an adoption-tier root carries no hash at either end.
+        (is (not (str/includes? document "data-rf-render-hash"))
+            (str id " stamped a render-hash marker on an adoption-tier root"))
+        (is (not (contains? payload :rf/render-hash))
+            (str id " shipped :rf/render-hash in an adoption-tier payload"))))))

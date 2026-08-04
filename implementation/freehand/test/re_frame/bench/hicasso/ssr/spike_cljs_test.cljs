@@ -24,15 +24,19 @@
   the RENDER TREE, and Hicasso's root hiccup is one vector whose head is
   a function — `canonical-edn` renders every function identically, so the
   dogfood screen and the ~1,200-element Conduit feed page **both hash
-  `83b865f8`** (rf2-2rtt6.91, pinned by
-  `the-render-hash-is-degenerate-for-an-interpreted-root`). Leaning a
-  determinism row on it would be leaning on a constant.
+  `83b865f8`**. Leaning a determinism row on it would be leaning on a
+  constant.
 
-  So [[the-byte-digest-separates-the-two-pages-render-hash-cannot]] takes
-  that exact pair and shows the byte digest telling them apart. That is
-  not a repair of the instrument — the repair is rf2-2rtt6.91's, and it
-  is a server AND client contract — it is the reason this row is entitled
-  to say `deterministic` when the framework's own hash cannot.
+  rf2-2rtt6.91 has since read Spec 011's own answer for this tier — an
+  adoption-tier root carries no hash at either end — and the entry emits
+  none, so there is now nothing on the wire to lean on either. The
+  measurement stands unchanged and
+  [[the-byte-digest-separates-the-two-pages-render-hash-cannot]] still
+  takes that exact pair, now over `ssr-hash/render-tree-hash` directly:
+  the degeneracy is a fact about hashing an unresolved root form, not
+  about this entry, so removing the emission does not retire it. It is
+  the reason this row is entitled to say `deterministic` where the
+  framework's structural hash could not.
 
   ## What each row can lie about, and what stops it
 
@@ -48,6 +52,9 @@
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.ssr.entry :as entry]
             [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
+            ;; rf2-2rtt6.91 — the entry ships no render hash, so the control
+            ;; row takes the hash it is a control AGAINST directly.
+            [re-frame.ssr.hash :as ssr-hash]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
@@ -110,7 +117,10 @@
                        {:row          dogfood-row-id
                         :sha256       ha
                         :bytes        (count (:document a))
-                        :render-hash  (str (:render-hash a))})
+                        ;; rf2-2rtt6.91 — the published column, taken where
+                        ;; the fact lives now that the entry emits none.
+                        :render-hash  (str (ssr-hash/render-tree-hash
+                                             (:hiccup (fixtures/row dogfood-row-id))))})
               (done)))
           (.catch (fn [e] (is false (str "X1(a) threw: " e)) (done)))))))
 
@@ -134,29 +144,38 @@
             (.catch (fn [e] (is false (str "the mutation proof threw: " e)) (done))))))))
 
 (deftest the-byte-digest-separates-the-two-pages-render-hash-cannot
-  (testing "**the non-vacuity control, taken against a KNOWN degenerate
-           instrument** (rf2-2rtt6.91). Spec 011's `:rf/render-hash` gives
-           the dogfood screen and the ~1,200-element Conduit feed the same
-           value, because the hash is over a root hiccup whose head is a
-           function. The byte digest is over what the server actually
-           emitted, so it separates them — which is why X1(a) is stated as
-           a SHA-256 over the document and never as a render hash. This
-           row does NOT repair the instrument; the repair is a server AND
-           client contract and it is rf2-2rtt6.91's"
+  (testing "**the non-vacuity control, taken against the hash this tier
+           does not carry** (rf2-2rtt6.91). A structural hash over these
+           two roots gives the dogfood screen and the ~1,200-element
+           Conduit feed the same value, because the only tree available to
+           hash is a root vector whose head is a function. The byte digest
+           is over what the server actually emitted, so it separates them
+           — which is why X1(a) is stated as a SHA-256 over the document
+           and never as a render hash.
+
+           Two assertions, and the order is the argument: the entry ships
+           no `:rf/render-hash` at all (Spec 011 routes an adoption-tier
+           root to React-native adoption instead), and the value it would
+           have shipped is a constant, so its absence costs this row
+           nothing"
     (async done
-      (let [dog     (entry/render (fixtures/row dogfood-row-id))
-            conduit (entry/render (fixtures/row "conduit-feed"))]
-        (is (= (:render-hash dog) (:render-hash conduit))
-            "the framework's render hash still cannot tell these two pages
-             apart — if this has gone red, rf2-2rtt6.91 has landed and this
-             row's premise needs re-reading")
+      (let [dog       (entry/render (fixtures/row dogfood-row-id))
+            conduit   (entry/render (fixtures/row "conduit-feed"))
+            dog-h     (ssr-hash/render-tree-hash (:hiccup (fixtures/row dogfood-row-id)))
+            conduit-h (ssr-hash/render-tree-hash (:hiccup (fixtures/row "conduit-feed")))]
+        (is (not (contains? (:payload dog) :rf/render-hash))
+            "no hash on the wire for an adoption-tier root")
+        (is (= dog-h conduit-h)
+            "and a structural hash over these roots still cannot tell the
+             two pages apart — which is why there is none")
         (-> (js/Promise.all #js [(sha256-hex (:document dog))
                                  (sha256-hex (:document conduit))])
             (.then (fn [[hd hc]]
                      (is (not= hd hc)
                          "and the byte digest does")
                      (report! "X1a-vs-render-hash"
-                              {:render-hash-shared (str (:render-hash dog))
+                              {:render-hash-shared (str dog-h)
+                               :render-hash-on-wire "absent"
                                :dogfood-sha256     hd
                                :conduit-sha256     hc})
                      (done)))

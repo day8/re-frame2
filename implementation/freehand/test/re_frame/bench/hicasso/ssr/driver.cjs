@@ -219,7 +219,9 @@ function bake(api) {
       documentBytes,
       bodyBytes,
       payloadBytes,
-      renderHash: r.first.renderHash,
+      // No renderHash column — rf2-2rtt6.91 removed the hash from an
+      // adoption-tier root's wire, and it was the same constant for every
+      // row here anyway. sha256 is the column that separates fixtures.
       sha256: a,
       frames: [r.first.frameId, r.second.frameId],
     });
