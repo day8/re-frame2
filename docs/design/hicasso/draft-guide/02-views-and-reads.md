@@ -1,13 +1,14 @@
 # Views and reads
 
-> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Behaviour matches the experimental arm under `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
 Views that re-render too coarse, and subscription reads that can't live where
-you use them, are the same pain twice: either you hoist a value and re-render a
+you use them, are the same pain twice. Either you hoist a value and re-render a
 room full of siblings, or you invent a second way to read just so a helper can
-see the current filter. Hicasso's answer is a view that is a function from a
-props map to hiccup, and **one** way to read — `sub`, an ordinary function call
-at the point of use:
+see the current filter.
+
+Hicasso's answer is a view that is a function from a props map to hiccup, and
+**one** way to read — `sub`, an ordinary function call at the point of use:
 
 ```clojure
 (ns todo.views
@@ -31,8 +32,8 @@ at the point of use:
 
 ## Boundaries and inlining
 
-Two ways to reach another function from a view body, and the difference is
-visible in the syntax.
+Two ways to reach another function from a view body. The difference is in the
+syntax:
 
 ```clojure
 [todo-row {:key id :id id}]   ;; a vector — a BOUNDARY child
@@ -48,14 +49,12 @@ intents in its hiccup dispatch to.
 A **plain call** is just a function call, and owns none of them. Its hiccup is
 spliced into the caller's tree, and any `sub` it performs donates that read
 *upward* to the enclosing boundary. Helpers cost nothing at runtime and buy no
-re-render granularity. And because reads are ordinary calls, **helpers can
-read**: a `filter-button` that needs the current filter just reads it, and the
-read belongs to whichever boundary is rendering — no value threaded down as an
-argument.
+re-render granularity. Because reads are ordinary calls, **helpers can read**: a
+`filter-button` that needs the current filter just reads it, and the read belongs
+to whichever boundary is rendering — no value threaded down as an argument.
 
-One rule, one visible distinction. Re-render granularity is something you should
-see by reading the source. Keys go in the props map (no Reagent `^{:key}`
-metadata):
+One rule, one visible distinction. Re-render granularity should be obvious from
+the source. Keys go in the props map (no Reagent `^{:key}` metadata):
 
 ```clojure
 (defview todo-list [_]
@@ -92,6 +91,31 @@ hiccup, and a vector whose head is itself a vector is not a legal element.
 
 `:key` never reaches your body. That is React's contract, not a Hicasso choice.
 
+**Fragments and multi-root returns.** A view may return a fragment when it has
+no single wrapper to offer:
+
+```clojure
+(defview toolbar [_]
+  [:<>
+   [save-button {}]
+   [cancel-button {}]])
+```
+
+**Trailing children become `(:children props)`.** A parent that wraps markup
+around its children splices that vector — it does not drop the whole vector in
+as one hiccup child:
+
+```clojure
+(defview card [{:keys [title children]}]
+  (into [:section.card
+         [:h2 title]]
+        children))
+
+[card {:title "Inbox"}
+ [message-row {:id 1}]
+ [message-row {:id 2}]]
+```
+
 ### Bodies are pure and re-runnable
 
 React StrictMode runs your body twice in development. That is fine — bodies are
@@ -121,9 +145,9 @@ takes an explicit changing revision prop, not a `:memo false` switch.
 Reading a subscription high in the tree and passing the value down as a prop
 does **not** lose an update: the boundary that reads is the boundary that
 invalidates, and every boundary the changed value actually reaches receives
-unequal props at that hop. What the default buys you, beyond that chain, is that
-a boundary the value does **not** reach skips instead of re-rendering for
-nothing. Moving the read down is a granularity fix, not a correctness fix.
+unequal props at that hop. What the default buys you is that a boundary the
+value does **not** reach skips instead of re-rendering for nothing. Moving the
+read down is a granularity fix, not a correctness fix.
 
 Whether the bail-out stays the *default* is still open; see **Not settled yet**.
 Nothing you write changes either way; what may change is whether you have to ask
@@ -179,12 +203,12 @@ One further key is reserved, and it is the only attribute merge Hicasso has.
 `:&` carries a map of attributes from somewhere else — a caller's forwarded
 remainder, a theme's part attributes — and **the literal keys you write always
 win over it**. The case that makes the law worth having is a controlled input, so
-[Controlled inputs](04-controlled-inputs.md#forwarding-attributes-)
+[Controlled inputs](04-controlled-inputs.md#forwarding-attributes)
 teaches it in full.
 
 ## How `sub` works
 
-Four sentences:
+Four operational claims:
 
 1. One fixed runtime hook per boundary collects the reads the body actually made,
    and the commit installs exactly that edge set — so **a branch not taken
@@ -198,15 +222,21 @@ Four sentences:
    flow changes its reads from render to render re-subscribes the whole set, not
    just the changed key.
 
-That last point is the one to design around. Dynamic control flow is legal; the
-price when taken branches change is a whole-set refresh. See **Advanced** for
+That last point is the one to design around. Dynamic control flow is legal; when
+taken branches change, the price is a whole-set refresh. See **Advanced** for
 the collector mechanics.
 
 ## Rules every read obeys
 
 - **Reading outside a render is an error.** There is no `@`-anywhere. Handler
-  and utility code uses `rf/subscribe-once`, which is a one-shot read that
-  retains no reactive handle.
+  and utility code uses `rf/subscribe-once` — a one-shot read that retains no
+  reactive handle:
+
+  ```clojure
+  ;; Outside a render — e.g. a utility, or an effect body:
+  (let [rows (rf/subscribe-once [:report/rows])]
+    (export/write! rows))
+  ```
 - **Framework subscriptions read identically to your own** — machine tags,
   resource and mutation state, route identity. They are first-class in the
   index, not a special case.

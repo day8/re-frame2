@@ -1,12 +1,11 @@
 # Getting started
 
-> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Behaviour matches the experimental arm under `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
 Booting a re-frame2 app today takes about thirty lines: create a React root,
 install an adapter, render a `frame-root` inside it, remember the root across
 hot reloads so React doesn't get a second `create-root` for a live node. Every
-app writes the same ceremony and gets one of the lines subtly wrong at least
-once.
+app writes the same ceremony and gets one of the lines wrong at least once.
 
 Hicasso collapses that into one call.
 

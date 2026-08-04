@@ -1,8 +1,6 @@
 # Interop
 
-> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]**
-> may change. Behaviour matches the experimental arm under
-> `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
 You want a date picker from npm. Declare it once, then use it anywhere a view is
 legal:
@@ -30,6 +28,8 @@ legal:
                 ;; takes the library's arguments in order.
                 :on-change (h/fn [date & _] [:task/set-due date])}])
 ```
+
+> **Declare the host once. Use it like any other view head.**
 
 Children cross as ordinary hiccup and lower where they render — including as
 another view's child.
@@ -242,8 +242,8 @@ and put React's hook rules on you. Both are fine; both are yours.
 
 #### If you are not on React 19
 
-Cleanup-returning refs are a React 19 contract. Older shape: callback with the node
-on attach and `nil` on detach, handle in a ref that outlives one invocation:
+Cleanup-returning refs are a React 19 contract. Older shape: callback with the
+node on attach and `nil` on detach, handle in a ref that outlives one invocation:
 
 ```clojure
 (let [handle (react/useRef nil)

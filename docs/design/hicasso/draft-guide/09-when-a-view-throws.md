@@ -1,8 +1,6 @@
 # When a view throws
 
-> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]**
-> may change. Behaviour matches the experimental arm under
-> `implementation/freehand/test/re_frame/bench/hicasso/`.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
 A view body throws — `nil` where a map was expected, a key that moved, a
 subscription shape last week's code cannot handle. React's default is not a red
