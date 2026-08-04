@@ -124,6 +124,16 @@ const { resetLaneBuildCache } = require(
   path.join(IMPL, 'freehand/test/re_frame/freehand/bench/lane_cache.cjs')
 );
 
+// THE LANE'S ONE PAGE-FAILURE COLLECTOR (rf2-sib23), reached the same way and
+// with NO FALLBACK for the same reason: a fallback would silently re-arm the
+// fail-open this require exists to close. `sentinel.cjs` carries the finding —
+// nine drivers, this one among them, installed a bare `pageerror` handler
+// that printed and recorded nothing, so an uncaught throw was announced on
+// stderr and the run exited 0 beneath it.
+const { watchPage } = require(
+  path.join(IMPL, 'freehand/test/re_frame/freehand/bench/sentinel.cjs')
+);
+
 // --- the plan ---------------------------------------------------------------
 //
 // Four rounds of six measured samples is 24 samples an arm, which is what
@@ -314,7 +324,17 @@ async function main() {
     const t = m.text();
     if (t.startsWith(';; HN')) console.error(t);
   });
-  page.on('pageerror', (e) => console.error('[hn] page error:', e.message));
+  // THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23). The
+  // array reaches `verdict` below, which is this driver's ONE seat for a
+  // decision — the property that stopped its five earlier fail-opens growing
+  // back, and the property this one bypassed entirely by never being read.
+  // `HN_ERROR` does not cover it: React 19.2 routes an uncaught render error
+  // to `reportError` instead of rethrowing, so the app's own catch never runs
+  // and the page carries on to `HN_READY`. The sentinel wait below is
+  // deliberately NOT converted to `watch.race` — that is rf2-f5roa's separate
+  // "report it promptly" remedy, and the fault here is the page that throws
+  // AND STILL reaches its sentinel, which the wait returns from normally.
+  const watch = watchPage(page, 'hn');
 
   const { navigate, NAV_TIMEOUT_MS } = loadNavigate();
   await navigate(page, `http://127.0.0.1:${PORT}/`, {
@@ -497,6 +517,8 @@ async function main() {
   }
   console.error(`[hn] control ladder — ${pass2.length} samples at ${CTL_1} -> ${CTL_2} ms`);
 
+  const pageErrors = watch.failures.map((f) => `${f.kind}: ${f.detail}`);
+  watch.dispose();
   await browser.close();
   server.close();
 
@@ -893,6 +915,7 @@ async function main() {
 
   // --- the verdict --------------------------------------------------------
   const v = verdict({
+    pageErrors,
     positionsLost,
     orderRefuse: report.refuse,
     leaked,
@@ -939,6 +962,14 @@ async function main() {
 //      trending had its figures taken off a moving site, and "still
 //      trending" printed above "reportable." is not a gate.
 //
+//   1  ALSO an uncaught `pageerror` (rf2-sib23). It takes the code this
+//      driver already had for "the run did not measure what it claims to
+//      have measured", so no run's code changes; what changes is that a run
+//      whose page THREW can no longer be called `reportable.` The signal was
+//      collected by nobody until now — a bare handler printed it — and the
+//      app cannot supply it, because React does not rethrow an uncaught
+//      render error to the caller of `flushSync`.
+//
 //   4  A CLAMP-LIMITED LEG, scoped deliberately narrower than the others.
 //      This driver exists to publish ABSOLUTE per-write milliseconds and the
 //      write/flush split taken from the same legs; a leg carrying less than
@@ -952,6 +983,21 @@ function verdict(s) {
   const lines = [];
   const say = (...xs) => lines.push(...xs);
 
+  // AN UNCAUGHT PAGE ERROR, FIRST AND WITH THE EXISTING CODE 1 (rf2-sib23).
+  // It sits at the head because it is not a judgement about a figure — it
+  // says the figures are not of the page they name — and it takes 1 rather
+  // than a new number because that is already this driver's code for "the
+  // run did not measure what it claims to have measured".
+  const pageErrors = s.pageErrors || [];
+  if (pageErrors.length) {
+    say(
+      'VERDICT: FAILED — the page threw and kept going, so every figure above was taken on a',
+      '         page that is not the page under test. No window.HN_ERROR is set for this:',
+      '         React does not rethrow an uncaught render error to the caller of flushSync',
+      '         (see sentinel.cjs). Re-run on a clean page.',
+      ...pageErrors.map((e) => `         ${e}`)
+    );
+  }
   if (s.positionsLost) {
     say(
       'VERDICT: FAILED — some samples reached the guard with no finite position, so the',
@@ -1011,7 +1057,7 @@ function verdict(s) {
     say('VERDICT: reportable.');
     return { code: 0, lines };
   }
-  const code = s.positionsLost
+  const code = pageErrors.length || s.positionsLost
     ? 1
     : s.orderRefuse
       ? 2

@@ -71,6 +71,7 @@ const path = require('node:path');
 
 const guard = require('./order_guard.cjs');
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+const { watchPage } = require('./sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT = path.join(IMPL, process.env.B7_OUT_DIR || path.join('out', 'b7'));
@@ -178,6 +179,11 @@ function serve() {
 // very differently — 120s for the heap instrument, fifteen minutes for the
 // mount-frame run — which is the second reason the ceiling has to say which
 // one it is NOT.
+// One entry per page this run opened. Flattened once, at the exit.
+const PAGE_WATCHES = [];
+const pageFailures = () =>
+  PAGE_WATCHES.flatMap((w) => w.failures).map((f) => `${f.kind}: ${f.detail}`);
+
 async function newPage(chromium, query, budget) {
   const browser = await chromium.launch({
     args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'],
@@ -187,7 +193,18 @@ async function newPage(chromium, query, budget) {
     const t = m.text();
     if (t.startsWith(';; B7')) console.log(t);
   });
-  page.on('pageerror', (e) => console.error('[b7] page error:', e.message));
+  // EVERY PAGE THIS RUN OPENS IS WATCHED, AND EVERY WATCH IS READ AT THE EXIT
+  // (rf2-sib23). This was a bare `page.on('pageerror', ...)` that printed and
+  // recorded nothing, so a throw was announced on stderr and `drive` below
+  // exited 0 underneath it. Two rows open two pages here, which is why the
+  // watches are collected rather than held in a local: a `pageerror` on
+  // EITHER has to reach the one exit. `sentinel.cjs`'s header carries the
+  // finding, including why no page-side `try`/`catch` can close it under
+  // React 19.2. The sentinel waits are deliberately NOT converted to
+  // `watch.race` — that is rf2-f5roa's separate "report it promptly" remedy,
+  // and the fault here is the page that throws AND STILL reaches its
+  // sentinel, which the waits return from normally.
+  PAGE_WATCHES.push(watchPage(page, 'b7'));
   // `'commit'`, not `'load'` (rf2-p9fa3), and this is the SHARPEST instance of
   // the class in the repo. `b7-app/-main` is the bundle's `:init-fn`, and in
   // `?mode=mount-frame` it runs `run-mount-frame!` — the parity pass plus six
@@ -699,6 +716,18 @@ async function drive() {
     fs.mkdirSync(path.dirname(raw), { recursive: true });
     fs.writeFileSync(raw, JSON.stringify(out, null, 2));
     console.error(`[b7] raw data -> ${raw}`);
+  }
+  // THE PAGES' OWN FAILURES, FOLDED INTO THE REFUSAL THE EXIT ALREADY READS
+  // (rf2-sib23). A benchmark that threw and kept going publishes a precise
+  // number for a page that is not the page under test, and until this line
+  // that throw was printed and nothing else. It joins `failed` rather than
+  // taking a code of its own because it is the same class as every other
+  // entry there — the run did not measure what it says it measured.
+  const pageErrors = pageFailures();
+  if (pageErrors.length) {
+    failed = [failed, `the page threw and kept going:\n  ${pageErrors.join('\n  ')}`]
+      .filter(Boolean)
+      .join(' | ');
   }
   if (failed) {
     console.error(`[b7] FAILED: ${failed}`);

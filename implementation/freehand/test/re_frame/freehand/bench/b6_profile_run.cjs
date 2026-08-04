@@ -24,6 +24,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+const { watchPage } = require('./sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT = path.join(IMPL, 'out', 'b6-profile');
@@ -93,7 +94,12 @@ async function run() {
     const t = m.text();
     if (t.startsWith(';; B6')) console.error(t);
   });
-  page.on('pageerror', (e) => console.error('[b6p] page error:', e.message));
+  // THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23) — see
+  // the note in `b6_prod_run.cjs` and the finding in `sentinel.cjs`. A profile
+  // is the LAST place a thrown-and-continued page should pass silently: the
+  // sample stream would be of the recovery, and the flame graph would look
+  // like an answer.
+  const watch = watchPage(page, 'b6p');
   // `'commit'`, not `'load'` (rf2-p9fa3). `b6-profile-app/-main` is this
   // bundle's `:init-fn`: it mounts the profiled arm, mounts the reference arm
   // and canonicalises BOTH pages for the parity gate — all synchronously,
@@ -126,11 +132,44 @@ async function run() {
   console.error(`[b6p] profiling ${WRITES} writes of arm ${ARM} ...`);
   const res = await page.evaluate((n) => window.B6_RUN(n), WRITES);
   const { profile } = await client.send('Profiler.stop');
+  const pageErrors = watch.failures.map((f) => `${f.kind}: ${f.detail}`);
+  watch.dispose();
   await browser.close();
-  return { res, profile };
+  return { res, profile, pageErrors };
 }
 
-(async () => {
+// ---------------------------------------------------------------------------
+// The exit decision
+// ---------------------------------------------------------------------------
+
+// ONE pure function over the run's outcome, exported so the refusal can be
+// watched without a `:pseudo-names` build and a headless Chromium (rf2-y7mw7's
+// shape). The unverified-writes gate is what it always was; the page-error
+// gate is rf2-sib23's repair and takes the same code.
+//
+//   0  profiled
+//   1  the run failed its own gates (writes that never reached the DOM, or
+//      the page threw)
+//
+// The `.cpuprofile` is written before this is consulted: a refusal is about
+// what may be QUOTED, not about throwing the artefact away.
+function verdict({ unverified, of, pageErrors } = {}) {
+  const errs = pageErrors || [];
+  const lines = [];
+  if (unverified > 0) {
+    lines.push(`[b6p] FAILED: ${unverified} of ${of} writes did not reach the DOM`);
+  }
+  if (errs.length) {
+    lines.push(
+      '[b6p] FAILED: the page threw and kept going, so the profile above is of a page that is ' +
+        'not the page under test (rf2-sib23):\n  ' +
+        errs.join('\n  ')
+    );
+  }
+  return { code: unverified > 0 || errs.length ? 1 : 0, lines };
+}
+
+async function drive() {
   if (!NO_BUILD) build();
   fs.mkdirSync(OUT, { recursive: true });
   const server = serve();
@@ -146,9 +185,24 @@ async function run() {
   fs.writeFileSync(file, JSON.stringify(out.profile));
   console.log(out.res.edn);
   console.log(`;; profile -> ${file}`);
-  if (out.res.unverified > 0) {
-    console.error(`[b6p] FAILED: ${out.res.unverified} of ${WRITES} writes did not reach the DOM`);
-    process.exit(1);
-  }
-  console.error('[b6p] ok');
-})();
+  const v = verdict({ unverified: out.res.unverified, of: WRITES, pageErrors: out.pageErrors });
+  for (const line of v.lines) console.error(line);
+  if (v.code === 0) console.error('[b6p] ok');
+  return v.code;
+}
+
+module.exports = { verdict };
+
+// Requiring this file must NOT drive it — `pageerror_exit_path.test.cjs` loads
+// `verdict` out of it.
+if (require.main === module) {
+  drive().then(
+    (code) => {
+      if (code !== 0) process.exit(code);
+    },
+    (e) => {
+      console.error(`[b6p] FAILED: ${e && e.stack ? e.stack : e}`);
+      process.exit(1);
+    }
+  );
+}

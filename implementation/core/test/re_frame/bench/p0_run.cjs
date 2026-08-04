@@ -110,6 +110,9 @@ const path = require('node:path');
 
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
 const { resetLaneBuildCache } = require('../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
+// The bench lane's one page-failure collector, reached by path across the
+// test trees exactly as `lane_cache.cjs` is (rf2-sib23).
+const { watchPage } = require('../../../../freehand/test/re_frame/freehand/bench/sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../..');
 
@@ -363,6 +366,13 @@ function serve() {
 // so the whole clock run happens INSIDE the `<script>` and the `load`
 // event is downstream of it. Waiting for `load` would be waiting for the
 // benchmark against a thirty-second ceiling nothing here could see.
+// One entry per page this run opened, and this driver opens MANY — one per
+// clock round, plus one for each of the heap, fanout and ladder rows.
+// Flattened once, at the exit.
+const PAGE_WATCHES = [];
+const pageFailures = () =>
+  PAGE_WATCHES.flatMap((w) => w.failures).map((f) => `${f.kind}: ${f.detail}`);
+
 async function newPage(chromium, query) {
   const browser = await chromium.launch({
     args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'],
@@ -380,7 +390,19 @@ async function newPage(chromium, query) {
       console.error(`[p0] page ${m.type()}: ${t.slice(0, 400)}`);
     }
   });
-  page.on('pageerror', (e) => console.error('[p0] page error:', e.message));
+  // AND THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23).
+  // The console handler above already refuses to filter a React warning out
+  // of the operator's view, for exactly the reason stated there — and one
+  // line below it, an UNCAUGHT THROW was printed and recorded nowhere, so the
+  // run exited 0 on top of it. `sentinel.cjs`'s header carries the finding,
+  // including why no page-side `try`/`catch` can close it under React 19.2.
+  // ONE PAGE PER CLOCK ROUND is the reason these are collected rather than
+  // held in a local: a throw in any round has to reach the one exit. The
+  // sentinel waits are deliberately NOT converted to `watch.race` — that is
+  // rf2-f5roa's separate "report it promptly" remedy, and the fault here is
+  // the page that throws AND STILL reaches its sentinel, which the waits
+  // return from normally.
+  PAGE_WATCHES.push(watchPage(page, 'p0'));
   await page.goto(`http://127.0.0.1:${PORT}/${query}`, {
     waitUntil: 'commit',
     timeout: 120000,
@@ -1419,6 +1441,19 @@ if (require.main === module) (async () => {
     fs.mkdirSync(path.dirname(raw), { recursive: true });
     fs.writeFileSync(raw, JSON.stringify(out, null, 2));
     console.error(`[p0] raw data -> ${raw}`);
+  }
+  // THE PAGES' OWN FAILURES, JOINING THE LIST THE EXIT ALREADY READS
+  // (rf2-sib23). It joins `failures` rather than taking a code of its own
+  // because it is the same class as every other entry there — the run did not
+  // measure what it says it measured — and because that list is already the
+  // one place this driver decides on. Every raw artefact is written above, so
+  // the evidence survives the refusal.
+  for (const e of pageFailures()) {
+    failures.push(
+      `the page threw and kept going — ${e}. Every figure above was taken after an uncaught ` +
+        'error, and no window.P0_ERROR is set for one: React does not rethrow an uncaught ' +
+        'render error to the caller of flushSync (see sentinel.cjs).'
+    );
   }
   if (failures.length) {
     for (const f of failures) console.error(`[p0] FAILED: ${f}`);

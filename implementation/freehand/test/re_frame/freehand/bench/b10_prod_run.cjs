@@ -29,6 +29,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+const { watchPage } = require('./sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT_DIR = process.env.B10_OUT_DIR || 'out/b10-prod';
@@ -120,7 +121,16 @@ async function run() {
     const t = msg.text();
     if (t.startsWith(';; B10') || t.startsWith(';; B6')) console.log(t);
   });
-  page.on('pageerror', (e) => console.error('[b10] page error:', e.message));
+  // THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23), and
+  // THIS DRIVER IS THE WORST OF THE NINE — which is why the finding names it
+  // by hand. `b10_two_clock.cljs` (~670/694/709) drives the run from two
+  // `setInterval`s and a live `MutationObserver`. A throw inside any of those
+  // is a DETACHED TASK: it escapes `-main`'s `try` and the promise chain's
+  // `.catch` alike, `setInterval` keeps firing after a throwing callback, and
+  // so the run completes, sets `B10_DONE`, and publishes a mangled M3 record.
+  // That path needs no React at all — it is the second, independent mechanism
+  // `sentinel.cjs` records, and nothing inside the app can see it.
+  const watch = watchPage(page, 'b10');
   // `waitUntil: 'commit'` for rf2-dczpv's reason: the entry starts running
   // during page load, so the `load` event cannot fire until the whole run
   // yields — waiting for it would be waiting for the benchmark, against a
@@ -143,11 +153,48 @@ async function run() {
   });
   const err = await page.evaluate('window.B10_ERROR || null');
   const results = await page.evaluate('window.B10_RESULTS || {}');
+  const pageErrors = watch.failures.map((f) => `${f.kind}: ${f.detail}`);
+  watch.dispose();
   await browser.close();
-  return { err, results };
+  return { err, results, pageErrors };
 }
 
-(async () => {
+// ---------------------------------------------------------------------------
+// The exit decision
+// ---------------------------------------------------------------------------
+
+// ONE pure function over the run's outcome, exported so the refusal can be
+// watched without an `:advanced` build and a headless Chromium (rf2-y7mw7's
+// shape).
+//
+//   0  measured
+//   1  the run failed its own gates (`B10_ERROR`, or the page threw)
+//
+// `B10_ERROR` and a `pageerror` are NOT the same signal here, which is the
+// whole of rf2-sib23 for this file: `B10_ERROR` is what `-main`'s own catch
+// records, and the interval/observer tasks that drive M3 never pass through
+// it. A run could set neither `B10_ERROR` nor a failure of any kind, print a
+// complete M3 record, and be a record of a page that had already thrown.
+//
+// The records are printed before this is consulted: a refusal is about what
+// may be QUOTED, not about throwing the measurement away.
+function verdict(outcome) {
+  const o = outcome || {};
+  const pageErrors = o.pageErrors || [];
+  const lines = [];
+  if (o.err) lines.push(`[b10] FAILED: ${o.err}`);
+  if (pageErrors.length) {
+    lines.push(
+      '[b10] FAILED: the page threw and kept going — the interval and MutationObserver tasks ' +
+        'that drive this run survive a throw, so the record above may be of a page that is not ' +
+        'the page under test (rf2-sib23):\n  ' +
+        pageErrors.join('\n  ')
+    );
+  }
+  return { code: o.err || pageErrors.length ? 1 : 0, lines };
+}
+
+async function drive() {
   build();
   const server = serve();
   let outcome;
@@ -160,9 +207,24 @@ async function run() {
     console.log(`;; ==== B10 PROD ${k} ====`);
     console.log(v);
   }
-  if (outcome.err) {
-    console.error(`[b10] FAILED: ${outcome.err}`);
-    process.exit(1);
-  }
-  console.error('[b10] ok');
-})();
+  const v = verdict(outcome);
+  for (const line of v.lines) console.error(line);
+  if (v.code === 0) console.error('[b10] ok');
+  return v.code;
+}
+
+module.exports = { verdict };
+
+// Requiring this file must NOT drive it — `pageerror_exit_path.test.cjs` loads
+// `verdict` out of it.
+if (require.main === module) {
+  drive().then(
+    (code) => {
+      if (code !== 0) process.exit(code);
+    },
+    (e) => {
+      console.error(`[b10] FAILED: ${e && e.stack ? e.stack : e}`);
+      process.exit(1);
+    }
+  );
+}
