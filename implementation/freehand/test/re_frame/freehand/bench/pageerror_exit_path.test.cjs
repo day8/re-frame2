@@ -260,7 +260,9 @@ const WIRED = [
   {
     id: 'b7_run.cjs',
     file: path.join(BENCH, 'b7_run.cjs'),
-    collects: /PAGE_WATCHES\.push\(watchPage\(page, 'b7'\)\)/,
+    // The collector is NAMED as well as collected since rf2-qv761, because
+    // each row races its own sentinel against this same watch.
+    collects: /const watch = watchPage\(page, 'b7'\);\s*PAGE_WATCHES\.push\(watch\);/,
     carries: /const pageErrors = pageFailures\(\);/,
     // b7 has no pure verdict: its exit reads one `failed` slot, so the
     // refusal joins that slot rather than growing a second reading.
@@ -278,7 +280,7 @@ const WIRED = [
   {
     id: 'reads_ladder_run.cjs',
     file: path.join(BENCH, 'reads_ladder_run.cjs'),
-    collects: /PAGE_WATCHES\.push\(watchPage\(page, 'ladder'\)\)/,
+    collects: /const watch = watchPage\(page, 'ladder'\);\s*PAGE_WATCHES\.push\(watch\);/,
     carries: /const pageErrors = pageFailures\(\);/,
     decides: /if \(pageErrors\.length\) \{[\s\S]{0,900}?process\.exit\(1\);/,
     green: /console\.error\('\[ladder\] done'\)/,
@@ -286,7 +288,7 @@ const WIRED = [
   {
     id: 'spine_ablation_run.cjs',
     file: path.join(BENCH, 'spine_ablation_run.cjs'),
-    collects: /PAGE_WATCHES\.push\(watchPage\(page, 'abl'\)\)/,
+    collects: /const watch = watchPage\(page, 'abl'\);\s*PAGE_WATCHES\.push\(watch\);/,
     carries: /const pageErrors = pageFailures\(\);/,
     decides: /if \(pageErrors\.length\) \{[\s\S]{0,900}?process\.exit\(1\);/,
     green: /console\.error\('\[abl\] done'\)/,
@@ -294,7 +296,7 @@ const WIRED = [
   {
     id: 'p0_run.cjs',
     file: path.join(CORE_BENCH, 'p0_run.cjs'),
-    collects: /PAGE_WATCHES\.push\(watchPage\(page, 'p0'\)\)/,
+    collects: /const watch = watchPage\(page, 'p0'\);\s*PAGE_WATCHES\.push\(watch\);/,
     carries: /for \(const e of pageFailures\(\)\) \{/,
     // p0 already collected EVERY failed gate into one list rather than one
     // slot, precisely so a later gate's silence could not overwrite an
@@ -460,6 +462,129 @@ test('every driver that uses the shared collector also READS its failures', () =
     }
   }
   assert.deepStrictEqual(offenders, [], 'a watcher nobody reads is not a watcher');
+});
+
+// ===========================================================================
+// 4. THE END-TO-END PROOFS — the probes that made two of the four watchable,
+//    and the two properties that keep them honest.
+// ===========================================================================
+//
+// rf2-sib23 could watch five of the nine refuse and named the four it could
+// not: no pure exported verdict, so no unit test could reach the decision,
+// and no way to make the page throw, so no end-to-end run could either.
+// rf2-va5nm closed half of that — `b7_run.cjs` and `p0_run.cjs` have now BOTH
+// been watched exiting non-zero in their own processes, against a real
+// `:advanced` build and a real headless Chromium, and both exiting 0 on the
+// same row with the throw removed.
+//
+// The lever was each driver's OWN published seam — `B7_INIT_FN`, `P0_INIT_FN`
+// — pointed at a namespace that requires the REAL app and adds one detached
+// throw. rf2-va5nm is explicit that the alternative was worse: *a wrong stub
+// is not a cheaper proof, it is a fiction that can pass or fail for reasons
+// that have nothing to do with the gate.* And `--no-build` was refused
+// outright — a knob that serves a stale bundle beside a published figure is a
+// new fail-open in the family this whole line of work exists to close.
+//
+// So the two things worth pinning are that the probe is not a stub, and that
+// nothing ships it.
+
+const PROBES = [
+  {
+    id: 'b7_pageerror_probe.cljs',
+    file: path.join(BENCH, 'b7_pageerror_probe.cljs'),
+    ns: 're-frame.freehand.bench.b7-pageerror-probe',
+    app: 're-frame.freehand.bench.b7-app',
+    call: /\(b7-app\/-main\)/,
+    driver: path.join(BENCH, 'b7_run.cjs'),
+    seam: /const INIT_FN = process\.env\.B7_INIT_FN \|\|/,
+  },
+  {
+    id: 'p0_pageerror_probe.cljs',
+    file: path.join(CORE_BENCH, 'p0_pageerror_probe.cljs'),
+    ns: 're-frame.bench.p0-pageerror-probe',
+    app: 're-frame.bench.p0-app',
+    call: /\(p0-app\/-main\)/,
+    driver: path.join(CORE_BENCH, 'p0_run.cjs'),
+    seam: /const INIT_FN = process\.env\.P0_INIT_FN \|\|/,
+  },
+];
+
+for (const p of PROBES) {
+  test(`${p.id}: it is the REAL app plus a throw, not a stub`, () => {
+    assert.ok(fs.existsSync(p.file), `${p.id} must exist at ${p.file}`);
+    const s = src(p.file);
+    assert.match(s, new RegExp(`\\(ns ${p.ns.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    // It REQUIRES the published entry and CALLS it. A probe that reimplemented
+    // the page would be the stub rf2-va5nm refused, and it would prove nothing
+    // about the driver's gate.
+    assert.match(s, new RegExp(`:require \\[${p.app.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} :as`));
+    assert.match(s, p.call, `${p.id} must call the real app's -main`);
+    // And the throw is DETACHED — a task the app has already returned from.
+    // A throw inside `-main` would be caught by the app's own `catch`, set
+    // `window.*_ERROR`, and exercise a gate that was never broken.
+    assert.match(s, /js\/setTimeout/, `${p.id}'s throw must be detached`);
+    assert.match(s, /\(throw \(js\/Error\./, `${p.id} must actually throw`);
+  });
+
+  test(`${p.id}: NOTHING SHIPS IT — no driver default and no build points here`, () => {
+    // The probe is a way to make a real page throw, not a second entry. If a
+    // driver ever defaulted to it, or a build id named it, this file's whole
+    // claim — that the proof was taken on the published instrument — would be
+    // false, and a published figure could be measured on the probe.
+    const driver = code(src(p.driver));
+    assert.ok(
+      !driver.includes(p.ns),
+      `${path.basename(p.driver)} must not name ${p.ns} in code — it is an operator seam`
+    );
+    assert.match(src(p.driver), p.seam, `${path.basename(p.driver)} must keep its own INIT_FN seam`);
+    const shadow = fs.readFileSync(path.join(IMPL, 'shadow-cljs.edn'), 'utf8');
+    assert.ok(!shadow.includes(p.ns), `shadow-cljs.edn must not name ${p.ns}`);
+  });
+}
+
+// ===========================================================================
+// 5. EVERY SENTINEL WAIT IN THE COLLECTOR'S FLEET IS RACED (rf2-qv761)
+// ===========================================================================
+//
+// The other half of `sentinel.cjs`, and the half rf2-sib23 deliberately left
+// undone. A page that dies BEFORE its sentinel still satisfies section 2
+// above — the failure is recorded and the exit refuses on it — but the exit
+// is fifteen, twenty or thirty minutes away, because the bare
+// `page.waitForFunction` in front of it has no idea the page is gone. The
+// operator gets `Timeout 1200000ms exceeded` about a `ReferenceError` from
+// the first second.
+//
+// The rule is DERIVED and narrow: a driver that installs the shared collector
+// must not then wait on a bare `page.waitForFunction`, because it is holding
+// the very object that already knows. It deliberately says nothing about the
+// drivers that do not use `watchPage` — five in the hicasso tree collect into
+// a local array and wait bare, which is a different (and older) shape, and
+// converting them is not this bead.
+
+test('no driver holding the shared collector waits on a BARE page.waitForFunction', () => {
+  const offenders = [];
+  for (const { file, src: s } of benchDrivers()) {
+    if (!/watchPage\(/.test(s)) continue;
+    if (/page\.waitForFunction\(/.test(s)) offenders.push(path.relative(IMPL, file));
+  }
+  assert.deepStrictEqual(
+    offenders,
+    [],
+    'a driver that installed watchPage and then waited bare is asking a page that is already '
+      + 'dead to please finish — race the sentinel against it (sentinel.cjs, rf2-qv761)'
+  );
+});
+
+test('and every one of the nine actually races SOMETHING', () => {
+  // The inverse of the rule above: deleting a wait would satisfy it
+  // vacuously. Each of the nine must carry at least one `race` call, and its
+  // budget must be NAMED — `race` refuses an unnamed ceiling by construction
+  // (rf2-p9fa3), so this pins the intent rather than the mechanism.
+  for (const w of WIRED) {
+    const s = code(src(w.file));
+    assert.match(s, /\bwatch\.race\(/, `${w.id} must race its sentinel`);
+    assert.match(s, /budget:/, `${w.id}'s race must name the budget it did NOT spend`);
+  }
 });
 
 let failed = 0;

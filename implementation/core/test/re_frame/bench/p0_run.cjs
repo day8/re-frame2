@@ -398,16 +398,17 @@ async function newPage(chromium, query) {
   // including why no page-side `try`/`catch` can close it under React 19.2.
   // ONE PAGE PER CLOCK ROUND is the reason these are collected rather than
   // held in a local: a throw in any round has to reach the one exit. The
-  // sentinel waits are deliberately NOT converted to `watch.race` — that is
-  // rf2-f5roa's separate "report it promptly" remedy, and the fault here is
-  // the page that throws AND STILL reaches its sentinel, which the waits
-  // return from normally.
-  PAGE_WATCHES.push(watchPage(page, 'p0'));
+  // watch is also RETURNED, because every caller races its own sentinel
+  // against it (rf2-qv761) — this driver's clock wait is the largest budget
+  // in the fleet at thirty minutes, and a page that dies at load used to
+  // spend all of it before saying so.
+  const watch = watchPage(page, 'p0');
+  PAGE_WATCHES.push(watch);
   await page.goto(`http://127.0.0.1:${PORT}/${query}`, {
     waitUntil: 'commit',
     timeout: 120000,
   });
-  return { browser, page };
+  return { browser, page, watch };
 }
 
 // ---------------------------------------------------------------------------
@@ -428,9 +429,16 @@ async function clockRow(chromium) {
   for (let r = 0; r < ROUNDS && !err; r++) {
     console.error(`[p0] clock round ${r + 1}/${ROUNDS} (fresh page) ...`);
     const q = `?round=${r}&samples=${SAMPLES}&warmup=${WARMUPS}`;
-    const { browser, page } = await newPage(chromium, q);
-    await page.waitForFunction('window.P0_DONE === true || window.P0_ERROR', null, {
-      timeout: CLOCK_TIMEOUT_MS,
+    const { browser, page, watch } = await newPage(chromium, q);
+    // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. `race`
+    // rejects only on a failure `watch` recorded, and the exit block already
+    // folds exactly those failures into `failures`, so no run that would have
+    // passed is shortened. The rejection lands in the driver's existing
+    // `catch`, which pushes onto `failures` — this driver's exit 1. The
+    // arm-order guard keeps its 2.
+    await watch.race('window.P0_DONE === true || window.P0_ERROR', {
+      timeoutMs: CLOCK_TIMEOUT_MS,
+      budget: `the ${Math.round(CLOCK_TIMEOUT_MS / 60000)}-minute wait for window.P0_DONE (round ${r})`,
     });
     err = await page.evaluate('window.P0_ERROR || null');
     const edn = await page.evaluate('window.P0_ROUND || null');
@@ -452,9 +460,11 @@ async function clockRow(chromium) {
   // JavaScript. `adjudicate` is the ONLY door onto the fold: a driver that
   // could take the record without the verdicts is the hole this closed.
   console.error('[p0] aggregating ...');
-  const { browser, page } = await newPage(chromium, '?mode=aggregate');
-  await page.waitForFunction('window.P0_READY === true || window.P0_ERROR', null, {
-    timeout: 180000,
+  const { browser, page, watch } = await newPage(chromium, '?mode=aggregate');
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`.
+  await watch.race('window.P0_READY === true || window.P0_ERROR', {
+    timeoutMs: 180000,
+    budget: 'the 180s wait for window.P0_READY (the aggregate page)',
   });
   const adj = await page.evaluate(
     ([e, s]) => window.P0A.adjudicate(e, s),
@@ -511,9 +521,11 @@ async function heapPass(
   chromium,
   { benchmark, bead, plan: planOf, roots, rounds: nRounds, preflight, analyse }
 ) {
-  const { browser, page } = await newPage(chromium, '?mode=heap');
-  await page.waitForFunction('window.P0_READY === true || window.P0_ERROR', null, {
-    timeout: 180000,
+  const { browser, page, watch } = await newPage(chromium, '?mode=heap');
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`.
+  await watch.race('window.P0_READY === true || window.P0_ERROR', {
+    timeoutMs: 180000,
+    budget: 'the 180s wait for window.P0_READY (the heap page)',
   });
   const err = await page.evaluate('window.P0_ERROR || null');
   if (err) {

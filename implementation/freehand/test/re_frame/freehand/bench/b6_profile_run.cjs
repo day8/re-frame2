@@ -113,8 +113,14 @@ async function run() {
     timeoutMs: NAV_TIMEOUT_MS,
     budget: 'the 5-minute wait for `window.B6_READY`',
   });
-  await page.waitForFunction('window.B6_READY === true || window.B6_ERROR', null, {
-    timeout: 5 * 60 * 1000,
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. A profile
+  // whose page died at load used to cost five minutes to say so. `race`
+  // rejects only on a failure `watch` recorded, which `verdict` below already
+  // refuses on, so no run that would have passed is shortened; the rejection
+  // takes this driver's existing exit 1 through `drive`'s rejection handler.
+  await watch.race('window.B6_READY === true || window.B6_ERROR', {
+    timeoutMs: 5 * 60 * 1000,
+    budget: 'the 5-minute wait for `window.B6_READY`',
   });
   const err = await page.evaluate('window.B6_ERROR || null');
   if (err) throw new Error(err);

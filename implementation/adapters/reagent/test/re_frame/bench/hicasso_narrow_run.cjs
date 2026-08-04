@@ -330,10 +330,7 @@ async function main() {
   // back, and the property this one bypassed entirely by never being read.
   // `HN_ERROR` does not cover it: React 19.2 routes an uncaught render error
   // to `reportError` instead of rethrowing, so the app's own catch never runs
-  // and the page carries on to `HN_READY`. The sentinel wait below is
-  // deliberately NOT converted to `watch.race` — that is rf2-f5roa's separate
-  // "report it promptly" remedy, and the fault here is the page that throws
-  // AND STILL reaches its sentinel, which the wait returns from normally.
+  // and the page carries on to `HN_READY`.
   const watch = watchPage(page, 'hn');
 
   const { navigate, NAV_TIMEOUT_MS } = loadNavigate();
@@ -342,8 +339,14 @@ async function main() {
     timeoutMs: NAV_TIMEOUT_MS,
     budget: 'the 5-minute wait for `window.HN_READY`',
   });
-  await page.waitForFunction('window.HN_READY === true || window.HN_ERROR', null, {
-    timeout: 5 * 60 * 1000,
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. `race`
+  // rejects only on a failure `watch` recorded, and `verdict` below already
+  // refuses on exactly that array, so no run that would have passed is
+  // shortened. The rejection lands in `main`'s existing rejection handler,
+  // which is this driver's exit 1; its 2, 3 and 4 are untouched.
+  await watch.race('window.HN_READY === true || window.HN_ERROR', {
+    timeoutMs: 5 * 60 * 1000,
+    budget: 'the 5-minute wait for `window.HN_READY`',
   });
   const bootErr = await page.evaluate('window.HN_ERROR || null');
   if (bootErr) throw new Error(`page failed to initialise: ${bootErr}`);

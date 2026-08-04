@@ -93,11 +93,7 @@ async function run() {
   // so an uncaught throw was announced on stderr and the run exited 0 beneath
   // it. `sentinel.cjs`'s header carries the whole finding — including why no
   // page-side `try`/`catch` can close it under React 19.2 — and this is the
-  // remedy its other callers already have: collect, then refuse. The sentinel
-  // wait below is deliberately NOT converted to `watch.race` here; that is
-  // rf2-f5roa's separate "report it promptly" remedy, and the fault this file
-  // has is the one where the page throws AND STILL reaches `B6_DONE`, which
-  // the wait returns from normally.
+  // remedy its other callers already have: collect, then refuse.
   const watch = watchPage(page, 'b6');
   // `'commit'`, not `'load'` (rf2-p9fa3). `b6-prod-app/-main` is this
   // bundle's `:init-fn`, so it runs inside the `<script>` — the parity pass
@@ -112,8 +108,16 @@ async function run() {
     timeoutMs: NAV_TIMEOUT_MS,
     budget: 'the 15-minute wait for `window.B6_DONE`',
   });
-  await page.waitForFunction('window.B6_DONE === true || window.B6_ERROR', null, {
-    timeout: 15 * 60 * 1000,
+  // RACED AGAINST THE PAGE DYING, not merely bounded by it (rf2-qv761). A
+  // page that throws at load never reaches `B6_DONE`, so the bare wait ran
+  // its whole budget and then reported `Timeout 900000ms exceeded` about a
+  // `ReferenceError` fifteen minutes earlier. This cannot shorten a run that
+  // would have passed: `race` rejects only on a failure `watch` recorded, and
+  // `verdict` below already refuses on exactly that array. The rejection is
+  // this driver's existing exit 1, taken by `drive`'s rejection handler.
+  await watch.race('window.B6_DONE === true || window.B6_ERROR', {
+    timeoutMs: 15 * 60 * 1000,
+    budget: 'the 15-minute wait for `window.B6_DONE`',
   });
   const err = await page.evaluate('window.B6_ERROR || null');
   const results = await page.evaluate('window.B6_RESULTS || {}');

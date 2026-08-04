@@ -148,8 +148,15 @@ async function run() {
     timeoutMs: NAV_TIMEOUT_MS,
     budget: 'the 20-minute wait for `window.B10_DONE`',
   });
-  await page.waitForFunction('window.B10_DONE === true || window.B10_ERROR', null, {
-    timeout: 20 * 60 * 1000,
+  // RACED AGAINST THE PAGE DYING (rf2-qv761), and this driver had the largest
+  // budget of the nine to burn: a page that died at load cost TWENTY MINUTES
+  // to report a `ReferenceError` from the first second. `race` rejects only
+  // on a failure `watch` recorded, and `verdict` below already refuses on
+  // exactly that array, so no run that would have passed is shortened. The
+  // rejection takes this driver's existing exit 1 via `drive`'s handler.
+  await watch.race('window.B10_DONE === true || window.B10_ERROR', {
+    timeoutMs: 20 * 60 * 1000,
+    budget: 'the 20-minute wait for `window.B10_DONE`',
   });
   const err = await page.evaluate('window.B10_ERROR || null');
   const results = await page.evaluate('window.B10_RESULTS || {}');
