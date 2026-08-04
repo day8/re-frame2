@@ -39,16 +39,19 @@ visible in the syntax.
 (todo-row {:id id})           ;; a call — INLINED into the enclosing boundary
 ```
 
-A **vector** in head position mints a React element. It is its own boundary:
-React owns its identity, and it can re-render without its parent.
+A **vector** in head position mints a React element, and that element is a
+**boundary** — Hicasso's unit of independent re-rendering. A boundary owns four
+things: React's identity for it, the `sub` reads its body makes, its
+[value-equality bail-out](#boundaries-memoize-by-default), and the frame the
+intents in its hiccup dispatch to.
 
-A **plain call** is just a function call. Its hiccup is spliced into the
-caller's tree, it has no boundary of its own, and any `sub` it performs donates
-that read *upward* to the enclosing boundary. Helpers cost nothing at runtime
-and buy no re-render granularity. And because reads are ordinary calls,
-**helpers can read**: a `filter-button` that needs the current filter just
-reads it, and the read belongs to whichever boundary is rendering — no value
-threaded down as an argument.
+A **plain call** is just a function call, and owns none of them. Its hiccup is
+spliced into the caller's tree, and any `sub` it performs donates that read
+*upward* to the enclosing boundary. Helpers cost nothing at runtime and buy no
+re-render granularity. And because reads are ordinary calls, **helpers can
+read**: a `filter-button` that needs the current filter just reads it, and the
+read belongs to whichever boundary is rendering — no value threaded down as an
+argument.
 
 One rule, one visible distinction. Re-render granularity is something you should
 see by reading the source. Keys go in the props map (no Reagent `^{:key}`
@@ -232,8 +235,7 @@ the collector mechanics.
 
 Not every function needs to be a view. If a piece of markup has no reads of its
 own and always re-renders with its parent anyway, a plain function is cheaper
-and simpler — no element, no identity, no index membership. Boundaries are for
-*re-render granularity*. Reach for one when you want something to update
+and simpler. Reach for a boundary when you want something to update
 independently, not because the markup got long.
 
 ## Advanced

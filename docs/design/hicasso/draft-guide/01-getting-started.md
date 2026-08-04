@@ -140,7 +140,7 @@ than `:rf.error/*` ids.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | `sub` throws outside a view | `sub` is render-scoped; there is no `@`-anywhere in Hicasso | Use `rf/subscribe-once` in handler and utility code |
-| Async callback dispatches and nothing happens | A bare `dispatch` from a timeout has no frame | Callbacks from intent vectors carry their boundary's frame; hand-written async needs the frame explicitly |
+| Async callback dispatches and nothing happens | A bare `dispatch` from a timeout has no frame | Callbacks from intent vectors carry their [boundary](02-views-and-reads.md#boundaries-and-inlining)'s frame; hand-written async needs the frame explicitly |
 | First paint shows empty state, then flickers | Seeding raced the first render | Seed through `:initial-events`, not a post-mount dispatch |
 | A view renders twice on mount in dev | React StrictMode double-invokes bodies | Nothing to fix — bodies are pure and re-runnable by contract |
 | Second `h/root!` on the same node | The node already has a live root | Keep the root in a `defonce`; call the teardown before re-rooting |

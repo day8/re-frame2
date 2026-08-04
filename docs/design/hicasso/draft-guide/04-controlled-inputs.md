@@ -91,6 +91,7 @@ carries the revision is still unnamed; see **Not settled yet**.
 | Caret jumps to the end on every keystroke | Value reasserted without caret preservation | Runtime bug, not your view — report it |
 | Enter commits half-typed text mid-composition | A hand-written key handler that bypasses the intent path | Use the data key-map; the composition check lives there |
 | Composition dies when the model refuses mid-draft | A value write during composition (browser treats that as abort) | Not this runtime on controlled text: composition is left alone until `compositionend` |
+| An IME commit lands stale text, then corrects itself | Something async sat between keystroke and commit, so `compositionend` reconciled the field against a model the deferred write had not reached yet | Keep the controlled write synchronous. The composition survives either way — only what it commits is late |
 | Typing the "reset" value clears the field | Reset keyed on value equality somewhere | Reset on an explicit revision |
 | Focus lost after validation fails | Something remounted the node | Do not remount to reset — that is exactly what destroys focus |
 
@@ -146,7 +147,10 @@ the user commits it, and the refusal or normalisation applies whole at
 That last point differs from plain React. On plain React a corrected value written
 during composition can abort the exchange: in-flight kana vanish, `compositionend`
 never fires, and the next update starts a fresh composition on a half-written
-draft. Hicasso carves the live composition out of that restore on purpose.
+draft. On a *normalising* field it does not merely lose the composition — each
+aborted draft is written back and the IME composes on top of it, so `s`, `sh`,
+commit ends the model at `SSHSH` where Hicasso commits the `SH` that was typed.
+Hicasso carves the live composition out of that restore on purpose.
 
 Scope: controlled **text** entry (same path as the rest of this page). Composition
 behaviour is proven on Chromium; a WebKit IME misbehave is a bug report, not a
