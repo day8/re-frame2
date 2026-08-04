@@ -34,7 +34,8 @@
     2. seeded through the FRAMEWORK'S doors — `:initial-events`, and the
        reserved `:rf/set-db` for a snapshot handed in whole;
     3. rendered as `(provider frame (codec/root-element frame hiccup))`,
-       the same two calls `arm1/mount/render!` makes in the browser;
+       the same two calls `arm1/mount/render!` makes in the browser,
+       **inside an open adoption window** — see below;
     4. the payload built out of the FRAMEWORK'S OWN BYTES —
        `payload-policy/apply-policy` (the fail-closed `:payload`
        contract), `project-app-db-egress`, `build-payload`, and
@@ -42,8 +43,9 @@
        `__rf_payload` script id. Nothing Hicasso-specific touches the
        payload path (R0); this namespace supplies the app-db and gets out
        of the way;
-    5. `destroy-frame!` in a `finally`, so a render that threw leaks no
-       more than one that returned.
+    5. the adoption window closed and `destroy-frame!` run in a
+       `finally`, so a render that threw leaks no more than one that
+       returned.
 
   ## The wire frame-id is nil, deliberately
 
@@ -71,31 +73,39 @@
   **No streaming.** `renderToPipeableStream` is out of scope per the
   adversarial review, and out of scope here means absent, not deferred.
 
-  ## The one thing this entry does not do yet — THE ADOPTION WINDOW
+  ## THE ADOPTION WINDOW IS OPEN AROUND `renderToString` (rf2-2rtt6.94)
 
-  Predicted by the rf2-2rtt6.84 worker and CONFIRMED here by measurement,
-  so it is a named gap rather than a surprise waiting for the spike
-  witness.
+  A server render is the FIRST HALF OF AN ADOPTION, so it runs in the
+  same window the client's hydrating half does
+  (`arm1/runtime.cljs` — [[re-frame.bench.hicasso.arm1.runtime/adopting?]]
+  says as much: *\"A server render entry opens the same window around its
+  own `renderToString`, so the two halves of an SSR route answer this
+  identically\"*).
 
-  Presence starts a child at `:mounting` (`arm1/presence.cljs` —
-  `(react/useState presence/initial)`) and applies that child's
-  `::h/mounting` attribute overrides while it is in that phase. A server
-  render therefore ships the ENTER appearance — the class an animation is
-  about to move off. rf2-2rtt6.84 makes the hydrating client's first pass
-  render those same children `:present` instead (born-present under an
-  open adoption window), so the server's markup and the client's first
-  pass disagree, and React reports a hydration mismatch on every
-  presence-managed node. Measured on the corpus's `presence-mounting`
-  row, which bakes `toast--enter` today and is pinned red-when-fixed by
-  `the-server-render-ships-presences-mounting-overrides`.
+  Without it the two halves disagree. Presence starts a child at
+  `:mounting` (`arm1/presence.cljs` — `(react/useState
+  presence/initial)`) and applies that child's `::h/mounting` attribute
+  overrides while it is in that phase, so a windowless server render
+  ships the ENTER appearance — the class (and, in the shapes that use
+  one, the `opacity: 0` style) an animation is about to move off. The
+  hydrating client's first pass renders those same children `:present`
+  (born-present, rf2-2rtt6.84), and React then reports a hydration
+  mismatch on every presence-managed node. Measured on the corpus's
+  `presence-mounting` row, which baked `toast--enter` twice before this
+  window existed and is now pinned the other way by
+  `the-server-render-ships-no-mounting-overrides`.
 
-  **The repair is one line, and it is not writable yet**:
-  `renderToString` below must run between `rt/open-adoption-window!` and
-  `rt/close-adoption-window!`, and neither function exists on main — they
-  are in rf2-2rtt6.84's still-open PR #7469. Wiring it is rf2-2rtt6.94,
-  which is blocked on that merge. Nothing here is edited to anticipate
-  it: a call to a var that does not exist does not compile, and guessing
-  at a var that does is how two beads race one file.
+  The window is one flag and exactly one thing reads it — presence's
+  born-present seeding. Opening it changes no transform, adds no fiber
+  and installs no effect; the ordinary render path is untouched.
+
+  **It closes in the `finally`, beside `destroy-frame!`, and that
+  placement is the point**: the flag is module-level, so a render that
+  threw with the window still open would leave the whole PROCESS
+  adopting and every later request born-present — which is what
+  [[re-frame.bench.hicasso.arm1.runtime/close-adoption-window!]]'s own
+  docstring warns about. A per-request window is a per-request window
+  for the same reason a per-request frame is.
 
   ## What this is NOT
 
@@ -106,6 +116,7 @@
   shape closely enough to be recognisable and is a BENCH-LANE page, priced
   and ruled elsewhere."
   (:require [re-frame.bench.hicasso.arm1.mount :as mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.ssr.host-policy :as host-policy]
             [re-frame.core :as rf]
@@ -232,7 +243,9 @@
       :version         :schema-digest  passed through to `build-payload`.
       :app-element-id  :script-src  :title  the document envelope's.
 
-  The frame is destroyed in a `finally`. `destroy-frame!`'s lifecycle was
+  The adoption window is closed and the frame destroyed in a `finally`,
+  in that order and for the same reason — see the namespace docstring's
+  §The adoption window. `destroy-frame!`'s lifecycle was
   verified sound for this use in the design programme (`frame.cljc` —
   destroy tears down the frame's containers and registrations), so a
   per-request frame is a per-request frame and not a per-request leak."
@@ -243,6 +256,10 @@
       (rf/make-frame (assoc frame-opts
                             :id             frame-id
                             :initial-events (setup-events snapshot initial-events)))
+      ;; The server half of an adoption renders inside the same window as
+      ;; the client half — see the namespace docstring. Closed in the
+      ;; `finally`.
+      (rt/open-adoption-window!)
       (let [;; The server walk consults `defhost`'s `:ssr` policy BEFORE
             ;; anything is turned into an element — see
             ;; `ssr.host-policy` for which hosts it reaches and which
@@ -307,6 +324,11 @@
                                     :script-src     script-src
                                     :title          title})})
       (finally
+        ;; FIRST, and unconditionally: the window is a module-level flag,
+        ;; so a throw here that skipped it would leave the whole process
+        ;; adopting. `destroy-frame!` is the per-request cleanup that may
+        ;; itself throw; the window must already be shut when it runs.
+        (rt/close-adoption-window!)
         (rf/destroy-frame! frame-id)))))
 
 (defn render-twice
