@@ -238,9 +238,9 @@ worktree_dirt() {
 # The one honest discriminator for a HUSK (rf2-k3j2w): a partially failed
 # `git worktree remove` deletes the worktree's `.git` before it deletes the
 # files, so a husk's files survive with nothing behind them. Verified against
-# C:/Users/miket/code/re-frame2-worktrees/procpair on 2026-08-05 — `ls` shows
-# a full checkout, `rev-parse --git-dir` exits 128, `git worktree list` has
-# never heard of it and `git worktree prune` reports nothing to do.
+# two husks found sitting in a worktree parent on 2026-08-05: `ls` shows a full
+# checkout, `rev-parse --git-dir` exits 128, `git worktree list` has never
+# heard of them and `git worktree prune` reports nothing to do.
 #
 # Note this is a READ of git's own state, not a guess about who is using the
 # tree. Whether an AGENT is still alive is not knowable from here and this
