@@ -362,10 +362,13 @@ for (const w of WIRED) {
 // A hand-kept list would also leave the next driver free to be born fail-open.
 //
 // The rule is narrow and mechanical, and deliberately does NOT require
-// `watchPage`: seven drivers in the hicasso tree collect into a local array
-// and refuse, which is sound, and forcing them onto the shared collector is a
-// fleet-wide refactor nobody asked for. What is forbidden is a handler that
-// only PRINTS.
+// `watchPage`: the drivers in the hicasso tree that collect into a local array
+// and refuse are sound, and forcing them onto the shared collector is a fleet-
+// wide refactor nobody asked for. What is forbidden is a handler that only
+// PRINTS — and, since rf2-sib23's second obligation, one whose array is never
+// read, which is the same thing with an extra line. Both halves are checked
+// below, so "every fleet member refuses" is derived on both shapes rather than
+// derived on one and hand-checked on the other.
 
 function walk(dir) {
   const out = [];
@@ -412,18 +415,61 @@ test('the derived roster finds the whole bench fleet, not a subset', () => {
   }
 });
 
+/** The registration itself, spelled the way every other predicate here spells it. */
+const HANDLER = () => /page\.on\(\s*['"]pageerror['"]/g;
+
+/**
+ * Every `pageerror` registration in a driver, with its body generously bounded.
+ *
+ * THIS USED TO BE `s.indexOf("page.on('pageerror'", i)`, AND THAT WAS A FALSE
+ * GREEN. A live `page.on("pageerror", (e) => console.error(e))` — double quotes,
+ * or merely a space after the paren — was walked straight past by the offender
+ * loop; and the "no signal at all" fallback below, being quote-agnostic, saw
+ * that a handler *existed* and so declined to report it either. Reproduced
+ * against these exact predicates: `handlerDetectedByFallback = true`,
+ * `offenders = []`, the class test green over a print-only handler. Nothing in
+ * this repo's ESLint config carries a quote rule for these files, so the other
+ * spelling is one keystroke away rather than an impossible one.
+ *
+ * A check that recognises only one spelling of the thing it hunts stops working
+ * the moment someone writes the other one — which is this whole file's subject
+ * matter, wearing the gate's own clothes.
+ */
+function handlerSites(s) {
+  const sites = [];
+  const re = HANDLER();
+  for (let m; (m = re.exec(s)); ) {
+    // Long enough for an inline arrow body, short enough that an unrelated
+    // `push(` further down the file cannot vouch for this handler.
+    sites.push({ at: m.index, body: s.slice(m.index, m.index + 220) });
+  }
+  return sites;
+}
+
+/**
+ * The array a handler pushes into: the sink whose reader section 3b checks for.
+ *
+ * Inline handlers name it directly. A handler registered BY NAME is followed
+ * once to its declaration — the same single hop the offender loop already
+ * makes — and the sink is read from there.
+ */
+function sinkOf(s, site) {
+  const inline = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(site.body);
+  if (inline) return { name: inline[1], from: site.at, to: site.at + 220 };
+  const named = /page\.on\(\s*['"]pageerror['"]\s*,\s*([A-Za-z_$][\w$]*)\s*\)/.exec(site.body);
+  if (!named) return null;
+  const declAt = s.search(new RegExp(`\\b${named[1]}\\s*=\\s*\\(`));
+  if (declAt === -1) return null;
+  const push = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(s.slice(declAt, declAt + 400));
+  return push ? { name: push[1], from: declAt, to: declAt + 400 } : null;
+}
+
 test('NO bench driver installs a pageerror handler that only prints (rf2-sib23)', () => {
   const offenders = [];
   for (const { file, src: s } of benchDrivers()) {
-    let i = 0;
-    for (;;) {
-      const at = s.indexOf("page.on('pageerror'", i);
-      if (at === -1) break;
-      i = at + 1;
-      // The handler body, generously bounded. A recording handler names a
-      // sink: `push(` into an array, or `record(` — the shared collector's
-      // own verb.
-      const body = s.slice(at, at + 220);
+    for (const { body } of handlerSites(s)) {
+      // A recording handler names a sink: `push(` into an array, or `record(`
+      // — the shared collector's own verb.
       if (/push\(/.test(body) || /record\(/.test(body)) continue;
       // A handler registered by NAME (`page.on('pageerror', onError)`) is
       // sound too — `z3vlz_run.cjs` does exactly that — provided the named
@@ -446,6 +492,54 @@ test('NO bench driver installs a pageerror handler that only prints (rf2-sib23)'
     [],
     'a bench driver that prints a page error and moves on publishes a precise number for a '
       + 'page that is not the page under test — collect it and refuse, as sentinel.cjs says'
+  );
+});
+
+test("every LOCAL collector's sink is READ, not merely pushed into (rf2-sib23)", () => {
+  // THE HALF OF THE CLASS CLAIM THAT WAS MISSING. The offender loop above is
+  // satisfied by any `push(` within 220 characters of the registration — so a
+  // handler that faithfully filled an array NOBODY EVER LOOKS AT passed it,
+  // while the file's headline claim is that no fleet member prints and moves
+  // on. An unread array prints and moves on; it just takes one more line to
+  // say so.
+  //
+  // That is not a hypothetical shape: it is precisely the defect rf2-x6g04
+  // found in `hd8_run.cjs` — the collector armed, the exit consulting nobody —
+  // and the shared half below has had a reader check ever since. The local
+  // half did not, so "every fleet member refuses" rested on seven drivers
+  // being read by hand once. This derives it instead.
+  //
+  // The bar is the shared check's bar, deliberately: the sink must be READ
+  // somewhere that is neither its declaration nor another write. Following it
+  // the rest of the way to a `process.exit` would need real dataflow — three
+  // hops in `jsfb_ours_run.cjs`, which funnels per-arm `errors` into an
+  // aggregate before refusing on it — and a dataflow engine to police twenty-
+  // two operator scripts is the fleet-wide abstraction rf2-jvheq's mayor note
+  // argued against.
+  const offenders = [];
+  for (const { file, src: s } of benchDrivers()) {
+    for (const site of handlerSites(s)) {
+      const sink = sinkOf(s, site);
+      // No sink at all is the offender check's business, not this one's.
+      if (!sink) continue;
+      const ref = new RegExp(`\\b${sink.name}\\b`, 'g');
+      let read = false;
+      for (let m; (m = ref.exec(s)); ) {
+        if (m.index >= sink.from && m.index < sink.to) continue; // the push itself
+        const after = s.slice(m.index + sink.name.length);
+        if (/^\s*\.push\(/.test(after)) continue; // another write
+        if (/^\s*=\s*\[\s*\]/.test(after)) continue; // the declaration
+        read = true;
+        break;
+      }
+      if (!read) offenders.push(`${path.relative(IMPL, file)}: ${sink.name}`);
+    }
+  }
+  assert.deepStrictEqual(
+    offenders,
+    [],
+    'a local pageerror array that nothing reads is the same fail-open as a bare handler with '
+      + 'one extra line — collect it AND refuse on it (sentinel.cjs, rf2-sib23)'
   );
 });
 
@@ -573,9 +667,13 @@ for (const p of PROBES) {
 // The rule is DERIVED and narrow: a driver that installs the shared collector
 // must not then wait on a bare `page.waitForFunction`, because it is holding
 // the very object that already knows. It deliberately says nothing about the
-// drivers that do not use `watchPage` — five in the hicasso tree collect into
-// a local array and wait bare, which is a different (and older) shape, and
-// converting them is not this bead.
+// drivers that do NOT use `watchPage` — the local-array drivers in the hicasso
+// tree wait bare, which is a different (and older) shape, and converting them
+// is not this bead. THAT SCOPE LINE STANDS; only its arithmetic did not. This
+// note first said "five", and the walk above already yielded SIX at the very
+// commit that wrote it (`shapes/census_clock_run.cjs` had landed the day
+// before). A stale hand-count in the one file whose thesis is that hand-kept
+// rosters drift — so the number is gone rather than corrected. Run the walk.
 
 test('no driver holding the shared collector waits on a BARE page.waitForFunction', () => {
   const offenders = [];
