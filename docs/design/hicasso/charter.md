@@ -153,6 +153,19 @@ out of v0** (HD-020: bodies stay `.cljc`-compatible by construction; no JVM/SSR
 render path ships). Deferred past v0: the full buffered/revision input ladder,
 overlay excellence, batteries/library platform, SSR as identity, devtools glass,
 per-keystroke envelopes as a gate.
+**Amended 2026-08-04 (operator ruling):** the "SSR is explicitly out of v0"
+sentence above no longer holds — **SSR + hydration is required scope**. HD-020(d)
+was reopened through its own reopening clause ([decisions.md](decisions.md), dated
+addendum; [EP-0038](../../EP/EP-0038-the-hicasso-view-layer-programme.md),
+"Addendum, 2026-08-04"), on the ground that a view layer claiming to be
+re-frame2's native one has to be usable with re-frame2's SSR story. The sentence
+stands as the record of what this charter pre-registered, and the clause it cites
+is now load-bearing rather than consolation: `.cljc`-compatible bodies are what
+make the server render reachable. Hicasso uses the **existing** mechanism
+(Spec 011, `re-frame.ssr/hydrate!`, `ssr-ring`), never a Hicasso-only one. **"SSR
+as identity" stays deferred** — that is the positioning programme, not the
+capability, and it is a different thing from being able to render on a server.
+**SSR speed is still not a bar input** ([validation.md](validation.md); HD-012).
 
 **A. The everyday SPA spine** (where the bar lives)
 1. Ordinary views — the ~50-element form/list/layout shape.
@@ -199,6 +212,13 @@ as the dogfood demands)
 14. SSR + hydration surviving production posture. 15. Routing (route-link is
 tier-1). 16. Multi-frame isolation. 17. Hot reload with clean remount semantics.
 18. Time travel, including mounted host state.
+
+**Item 14 moved into v0 by operator ruling, 2026-08-04.** It was a post-v0 roster
+item while HD-020(d) held; that clause was reopened and SSR + hydration is now
+**required** scope (see the v0-scope amendment above, and
+[EP-0038](../../EP/EP-0038-the-hicasso-view-layer-programme.md)'s "Addendum,
+2026-08-04" for the `R0`–`R8` requirement set and the named non-goals). The other
+items in this section are unaffected.
 
 **G. Proof and production posture**
 19. Testable without a browser through the public door; structural tests on data

@@ -76,7 +76,16 @@ Reagent was never `[:>]`, it was `r/atom`.
 | Props | shallow camelCase conversion — `:on-change` becomes `onChange` |
 | Children | hiccup children are converted to React elements |
 | Functions | pass through unconverted |
-| SSR | a placeholder (declared policy; inert in v0, since SSR is out of v0 per HD-020) |
+| SSR | a placeholder (declared policy; inert in v0, since SSR is out of v0 per HD-020) — **superseded 2026-08-04; see the note below** |
+
+**The SSR row is out of date, by operator ruling on 2026-08-04.** HD-020(d) was
+reopened through its own reopening clause and **SSR + hydration is required
+Hicasso scope** ([decisions.md](../decisions.md), dated addendum;
+[EP-0038](../../../EP/EP-0038-the-hicasso-view-layer-programme.md), "Addendum,
+2026-08-04"). The `defhost` SSR policy is therefore **activated, not inert** — the
+row's parenthetical is the record of the posture it replaced. Its option spelling
+is being settled as this is written, so nothing here names one; when it lands, the
+HD-011 addendum records it and this row is rewritten to teach it.
 
 Policy overrides live on the declaration rather than at the call site, which is the
 whole point: one place decides how this component is crossed, and every use site
@@ -427,9 +436,9 @@ two or three genuinely hard widgets.
 
 | Question | Status |
 |---|---|
-| Whether `defhost` grows a second option beyond `:callbacks` | **Not addressed.** HD-011 names strong defaults and "policy overrides on the declaration", and `:callbacks` is the only override the landed door carries. Whether the SSR placeholder or the conversion defaults ever become declarable is unstated |
+| Whether `defhost` grows a second option beyond `:callbacks` | **Partly answered, 2026-08-04.** HD-011 names strong defaults and "policy overrides on the declaration", and `:callbacks` was the only override the landed door carried. The operator's SSR ruling activates the SSR policy, so a second option *is* coming and its spelling is being settled; the conversion defaults remain unstated |
 | The migration codemod | **Ruled, unbuilt.** HD-011's rationale leans on it, but nothing has been built and the record names neither a tool nor an invocation |
 | When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** HD-022 rules the refusal and the value-space; the registry, the timings and the commands roster are explicitly out of v0 |
 | Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
-| The SSR placeholder's shape | Declared policy, inert in v0 |
+| The SSR placeholder's shape | Declared policy, inert in v0. **Still unsettled, but for a new reason (2026-08-04):** the placeholder is no longer inert — SSR + hydration is required scope by operator ruling, so the policy is activated and its option spelling is being defined as this is written. When it lands the HD-011 addendum records it |
 | Embedding Hicasso *inside* a React-primary app | Named in the charter's use-case roster (item 11); no surface designed |

@@ -162,6 +162,18 @@ policy for a later phase. If you need SSR now, use a
 [Reagent or UIx adapter](../../../core/views.md), which are first-class and
 supported.
 
+**Superseded 2026-08-04 (operator ruling).** The paragraph above no longer holds:
+HD-020(d) was reopened through its own reopening clause, and **SSR + hydration is
+required Hicasso scope** ([decisions.md](../decisions.md), dated addendum;
+[EP-0038](../../../EP/EP-0038-the-hicasso-view-layer-programme.md), "Addendum,
+2026-08-04"). Two things about it are worth knowing here. First, it is
+re-frame2's **existing** SSR story — Spec 011's payload, `re-frame.ssr/hydrate!`
+and `ssr-ring` — and not a Hicasso-only mechanism, so what you already know about
+SSR in re-frame2 carries over. Second, `defhost`'s SSR policy is no longer inert;
+its option spelling is being settled and this page will teach it once it is.
+Adapters remain first-class and supported, which was never a fallback position.
+Until the SSR path lands, this page is written for the client-only boot.
+
 The same applies to the whole programme, not just this page: adapters continuing to
 be the answer is a *successful* outcome for Hicasso, not a failure mode.
 
