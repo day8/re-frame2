@@ -1838,13 +1838,160 @@ test('PR story-xray-browser job runs the FULL feature-load gate, gated on story_
   );
 });
 
+// rf2-9n2cv — this row USED to pin `test:story-static` out of the PR job too,
+// alongside the non-smoke Xray gate. That was the same forbids-the-fix pin
+// rf2-65ajl hit for `test:story-feature-load`, one gate over: the only command
+// that loads check-story-static.cjs was asserted absent, so the file could
+// never be exercised by the PR that changed it. The story-static half is now
+// present and CONDITIONAL (see the row below); the Xray half STAYS, and stays
+// deliberately — see the comment on it.
 test('PR story-xray-browser job still keeps the rest of the sweep nightly (rf2-wa3oo)', () => {
   const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
-  assert.doesNotMatch(block, /npm run test:story-static/);
   // The non-smoke (full-matrix) Xray gate must not run at PR time. The
   // `:smoke` suffix is intentionally allowed; assert the bare invocation
   // (followed by end-of-line, not `:smoke`) is absent.
+  //
+  // rf2-9n2cv considered lifting this too and deliberately did NOT. It is not
+  // the same defect: `test:xray-feature-gate:smoke` — a command this job
+  // already runs — `require`s the whole of
+  // tools/xray/testbeds/feature_matrix/scenarios.cjs, so the file IS loaded,
+  // parsed and validated at PR time (the launcher even fails loud on an empty
+  // smoke set). What is not EXECUTED at PR time is the non-smoke rows, and
+  // that is the documented two-tier policy in TESTING.md ("everything else is
+  // nightly by default"), not a fail-open hole. Reversing it means running the
+  // all-scenarios/all-surfaces sweep on every scenarios.cjs edit — a policy
+  // call, filed separately rather than smuggled in here.
   assert.doesNotMatch(block, /npm run test:xray-feature-gate(?!:smoke)/);
+});
+
+test('PR story-xray-browser job runs the Story STATIC gate, gated on story_static_gate (rf2-9n2cv)', () => {
+  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  // Same two-part claim as the feature-load row above: the command and its
+  // condition must be in the SAME step, or the gate is either unconditional
+  // (nightly cost on every Story PR) or dead.
+  const step = stepRunning(block, 'npm run test:story-static');
+  assert.ok(
+    step,
+    'the PR job must RUN the one command that loads check-story-static.cjs',
+  );
+  assert.match(
+    step,
+    /if:\s*needs\.detect_changed_surfaces\.outputs\.story_static_gate == 'true'/,
+    'the static-export step must be gated on story_static_gate',
+  );
+});
+
+test('PR story-xray-browser job opens for the static tier too (rf2-9n2cv)', () => {
+  // A static-gate-only change leaves both other outputs false, so a job
+  // condition that did not name this one would skip the job and the new step
+  // with it — the same hole one level up, which is exactly how rf2-65ajl's
+  // never-fires mode would have presented.
+  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  const header = block.slice(0, block.indexOf('steps:'));
+  assert.match(header, /outputs\.story_static_gate == 'true'/);
+  assert.match(header, /\|\|/, 'the tier conditions must be a disjunction');
+});
+
+test('detect_changed_surfaces exports story_static_gate (rf2-9n2cv)', () => {
+  // The never-fires mode. The classifier can emit an output and the workflow
+  // still never see it: a job reads `needs.<job>.outputs.<name>`, which
+  // resolves to the empty string unless the producing job DECLARES it. An
+  // undeclared output makes every `== 'true'` false — a gate that can never
+  // fire, and silently.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'detect_changed_surfaces');
+  assert.match(
+    block,
+    /story_static_gate: \$\{\{ steps\.detect\.outputs\.story_static_gate \}\}/,
+  );
+});
+
+test('the Story static gate arms on its own definition (rf2-9n2cv)', () => {
+  // The classifier half. Before this bead, check-story-static.cjs classified
+  // to cljs_node_test + cljs_browser + cljs_prod + bundle_isolation +
+  // reagent_slim_bundle — five outputs, not one of which schedules a job that
+  // runs `npm run test:story-static`.
+  for (const file of [
+    'implementation/scripts/check-story-static.cjs',
+    'implementation/scripts/story-build.cjs',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — this row pins the routing of a REAL gate file`,
+    );
+    const result = classify(file);
+    assert.equal(result.story_static_gate, 'true', file);
+    // WIDENS, NEVER NARROWS. The arm sits above the generic
+    // implementation/scripts/* case, so it must re-set everything that case
+    // would have set or this bead silently drops five tiers from two files.
+    for (const kept of [
+      'cljs_node_test',
+      'cljs_browser',
+      'cljs_prod',
+      'bundle_isolation',
+      'reagent_slim_bundle',
+    ]) {
+      assert.equal(result[kept], 'true', `${file} must keep ${kept}`);
+    }
+    // And it must not drag either sibling Story tier along: neither the smoke
+    // commands nor test:story-feature-load loads these two files.
+    assert.equal(result.story_xray_browser, 'false', file);
+    assert.equal(result.story_full_gate, 'false', file);
+  }
+});
+
+test('every script the static gate spawns is armed (rf2-9n2cv)', () => {
+  // The teeth. Read the roster off the GATE rather than trusting the list
+  // above: check-story-static.cjs spawns its build step by name, so a second
+  // spawned sibling is armed on arrival rather than on the next audit. Names,
+  // not counts.
+  const gate = path.join(
+    REPO_ROOT,
+    'implementation',
+    'scripts',
+    'check-story-static.cjs',
+  );
+  const source = fs.readFileSync(gate, 'utf8');
+  const spawned = [
+    ...source.matchAll(/path\.join\(__dirname,\s*'([^']+\.cjs)'\)/g),
+  ].map((m) => m[1]);
+  assert.ok(
+    spawned.length > 0,
+    'expected check-story-static.cjs to spawn at least one sibling script — ' +
+      'if the spawn shape changed, this parse has rotted and is no longer teeth',
+  );
+  for (const name of spawned) {
+    const rel = `implementation/scripts/${name}`;
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, rel)),
+      `${rel} is spawned by check-story-static.cjs but does not exist`,
+    );
+    assert.equal(
+      classify(rel).story_static_gate,
+      'true',
+      `${rel} is executed by npm run test:story-static but does not arm story_static_gate`,
+    );
+  }
+});
+
+test('ordinary implementation/scripts changes do NOT arm the static gate (rf2-9n2cv negative control)', () => {
+  // The expensive browser job must stay off scripts that cannot reach the
+  // static export. Real files, not hypotheticals: a negative control pinning a
+  // path nothing produces any more is permanently, silently green.
+  for (const file of [
+    'implementation/scripts/run-browser-tests.cjs',
+    'implementation/scripts/check-examples-compile.cjs',
+    // The two shared harness helpers the gate requires but which are
+    // deliberately out of the roster — each is already exercised by PR-time
+    // gates and carries its own policy test.
+    'implementation/scripts/lib/local-browser-harness.cjs',
+    'implementation/scripts/lib/browser-test-report.cjs',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a negative control on a phantom path is vacuous`,
+    );
+    assert.equal(classify(file).story_static_gate, 'false', file);
+  }
 });
 
 test('PR story-xray-browser job opens for EITHER tier (rf2-65ajl)', () => {

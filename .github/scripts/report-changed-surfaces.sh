@@ -82,6 +82,15 @@ story_xray_browser=false
 # tools/story/test/story_feature_load.cjs would therefore schedule a job that
 # still never executes the changed file. See is_story_full_gate_path below.
 story_full_gate=false
+# rf2-9n2cv — the Story STATIC-EXPORT gate (`npm run test:story-static`), a
+# third tier again distinct from the two above, and for the same reason: it is
+# a different COMMAND. `test:story-static` is `node scripts/check-story-static.cjs`
+# — it builds the static export, serves it under an ownership token and drives
+# Chromium at the published artefact. Neither smoke command runs it and neither
+# does the full feature-load gate, so arming either of those outputs for a
+# change to the static gate's own teeth would schedule a job that never
+# executes the changed file. See the arm on check-story-static.cjs below.
+story_static_gate=false
 tenant_switcher_smoke=false
 skills_structural=false
 playground=false
@@ -110,6 +119,7 @@ mark_all() {
   mcp_live=true
   story_xray_browser=true
   story_full_gate=true
+  story_static_gate=true
   tenant_switcher_smoke=true
   skills_structural=true
   playground=true
@@ -1424,6 +1434,53 @@ else
         reagent_slim_bundle=true
         freehand_reachability=true
         ;;
+      implementation/scripts/check-story-static.cjs|implementation/scripts/story-build.cjs)
+        # rf2-9n2cv — self-protection, the same shape as the two freehand
+        # checkers above and for the same reason. `npm run test:story-static`
+        # IS `node scripts/check-story-static.cjs`: the mounted-shell
+        # assertions, the first-visit-overlay suppression check, the
+        # ownership-token verification and the non-vacuity floor all live in
+        # that one file. The generic `implementation/scripts/*` case below
+        # arms cljs_node_test + cljs_browser + cljs_prod + bundle_isolation +
+        # reagent_slim_bundle, and NOT ONE of those schedules a job that runs
+        # the command the file defines — so a PR could soften an assertion or
+        # drop a check in the static-export gate's own teeth and merge with
+        # the gate unexercised.
+        #
+        # story-build.cjs is in the roster because it is this gate's build
+        # orchestration, the exact analogue of the run/serve launchers
+        # rf2-65ajl armed for the feature-load gate: check-story-static.cjs
+        # spawns it by name (`path.join(__dirname, 'story-build.cjs')`) to
+        # produce the export it then serves and asserts against. It is also
+        # `npm run story:build`, and NO workflow runs that script directly —
+        # grep the tree: its only CI execution path anywhere is through
+        # check-story-static.cjs. So without this arm it is doubly untraced.
+        # A test below reads the spawn list off check-story-static.cjs rather
+        # than trusting this roster, so a second spawned sibling is armed on
+        # arrival rather than on the next audit.
+        #
+        # Deliberately NOT the shared harness helpers this gate requires
+        # (lib/local-browser-harness.cjs, lib/browser-test-report.cjs). Each is
+        # required by run-browser-tests.cjs, run-ui-g8.cjs, run-ui-g13.cjs,
+        # serve-and-run-xray-feature-gate.cjs and serve-and-run-reagent-slim-
+        # smoke.cjs — all PR-time gates — and each carries its own dedicated
+        # policy test in the fast spine. A break in one already reds a job that
+        # runs at PR time, so paying for the static gate on top buys no signal.
+        #
+        # This arm WIDENS and never narrows: it re-sets every output the
+        # generic case below would have set, so there is no fall-through to
+        # worry about and no tier is lost. That is why it can be a plain `case`
+        # arm here, where rf2-65ajl needed a predicate dispatched in the loop
+        # body — its roster straddled two trees that already had arms and could
+        # be shadowed; this roster is two files in one tree, sitting directly
+        # above the only other arm that matches them.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        story_static_gate=true
+        ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
         # adapter_testbed_smokes and story_xray_browser are NOT fired
@@ -1896,6 +1953,7 @@ emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"
 emit story_xray_browser "$story_xray_browser"
 emit story_full_gate "$story_full_gate"
+emit story_static_gate "$story_static_gate"
 emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"

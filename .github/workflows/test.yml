@@ -85,6 +85,7 @@ jobs:
       mcp_live: ${{ steps.detect.outputs.mcp_live }}
       story_xray_browser: ${{ steps.detect.outputs.story_xray_browser }}
       story_full_gate: ${{ steps.detect.outputs.story_full_gate }}
+      story_static_gate: ${{ steps.detect.outputs.story_static_gate }}
       tenant_switcher_smoke: ${{ steps.detect.outputs.tenant_switcher_smoke }}
       skills_structural: ${{ steps.detect.outputs.skills_structural }}
       playground: ${{ steps.detect.outputs.playground }}
@@ -3367,15 +3368,18 @@ jobs:
   story-xray-browser:
     name: Story/Xray browser gates (PR-smoke)
     needs: detect_changed_surfaces
-    # rf2-65ajl — two tiers, two conditions. `story_xray_browser` schedules the
-    # PR-smoke steps; `story_full_gate` schedules the full Story feature-load
-    # step. Either alone must open the job, and each step carries its own tier's
-    # condition, so a change to the full-gate runners does not pay for two smoke
-    # compiles it cannot affect and an ordinary Story/Xray runtime change keeps
-    # exactly the cheap path it had.
+    # rf2-65ajl + rf2-9n2cv — three tiers, three conditions.
+    # `story_xray_browser` schedules the PR-smoke steps; `story_full_gate`
+    # schedules the full Story feature-load step; `story_static_gate` schedules
+    # the Story static-export step. Any one alone must open the job, and each
+    # step carries its own tier's condition, so a change to the full-gate
+    # runners or to the static gate does not pay for two smoke compiles it
+    # cannot affect and an ordinary Story/Xray runtime change keeps exactly the
+    # cheap path it had.
     if: >-
       needs.detect_changed_surfaces.outputs.story_xray_browser == 'true' ||
-      needs.detect_changed_surfaces.outputs.story_full_gate == 'true'
+      needs.detect_changed_surfaces.outputs.story_full_gate == 'true' ||
+      needs.detect_changed_surfaces.outputs.story_static_gate == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -3511,6 +3515,34 @@ jobs:
       - name: Run the FULL Story feature-load gate (direct-runner change, rf2-65ajl)
         if: needs.detect_changed_surfaces.outputs.story_full_gate == 'true'
         run: npm run test:story-feature-load
+
+      # rf2-9n2cv — the job half of the sibling fix, identical in shape to the
+      # step above. `npm run test:story-static` IS
+      # `node scripts/check-story-static.cjs`, and no job in this workflow ran
+      # it: the three steps above are the only commands this job runs, and
+      # none of them loads check-story-static.cjs or story-build.cjs. So a PR
+      # editing the static-export gate's own assertions merged with the gate
+      # unexercised — the classifier armed five outputs for the file and not
+      # one scheduled a job that runs its command.
+      #
+      # Gated on `story_static_gate`, which arms ONLY on the gate script and
+      # the build script it spawns — not on ordinary Story/Xray runtime
+      # changes, and not on the rest of implementation/scripts/. So this adds
+      # nothing to the critical path of a normal PR: it runs on the rare PR
+      # that edits the static gate itself, where it is the only step that
+      # exercises the diff at all.
+      #
+      # It shares this job's keyed .shadow-cljs cache with the steps above, but
+      # note it compiles its OWN build target (:story-static/counter-with-
+      # stories, the static-export entry point) rather than reusing the
+      # play-script step's dev compile — the two are different shadow-cljs
+      # builds of the same testbed, which is precisely the point of the gate.
+      #
+      # The nightly sweep in expensive-tests.yml is unchanged and remains the
+      # system of record for the full matrix.
+      - name: Run the Story static-export gate (direct-gate change, rf2-9n2cv)
+        if: needs.detect_changed_surfaces.outputs.story_static_gate == 'true'
+        run: npm run test:story-static
 
       # rf2-315cf (Option B) — on a RED browser gate, upload the failed-run
       # evidence so the failure is a downloadable, off-CI post-mortem
