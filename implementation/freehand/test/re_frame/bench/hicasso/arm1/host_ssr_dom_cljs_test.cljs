@@ -338,8 +338,10 @@
 
 (defn- hydration-row
   "Bake the page on the server, hydrate that HTML, and answer what React
-  reported. Shared by the two policies because the difference between
-  them is the markup, not the procedure."
+  reported — plus the HTML it hydrated FROM, because a row that only
+  reads the settled DOM cannot tell a policy that worked from a policy
+  that was never applied on either side. Shared by the two policies
+  because the difference between them is the markup, not the procedure."
   [hiccup after]
   (fresh!)
   (reset! !renders 0)
@@ -353,7 +355,7 @@
       (js/setTimeout
         (fn []
           (try
-            (after container @seen)
+            (after container @seen html)
             (finally
               (restore)
               (.unmount root)
@@ -367,12 +369,16 @@
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [client-only-page {}]
-        (fn [container seen]
+        (fn [container seen html]
+          (is (not (re-find #"class=\"chart\"" html))
+              (str "the markup hydrated FROM has no host region in it — the "
+                   "row's own restatement of the policy, so that a gate "
+                   "which stopped gating is red HERE and not only in the "
+                   "server-render row: " html))
           (is (empty? seen)
               (str "REACT FOUND NOTHING TO RECONCILE. The client's first "
                    "pass rendered what the server did — nothing — so there "
-                   "was no mismatch to repair. This is the row that goes "
-                   "red if the gate stops gating: " (pr-str seen)))
+                   "was no mismatch to repair: " (pr-str seen)))
           (is (some? (q container ".chart"))
               "and after adoption the foreign component is mounted")
           (is (= "yes" (.getAttribute (q container ".chart") "data-live"))
@@ -390,7 +396,10 @@
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [fallback-page {}]
-        (fn [container seen]
+        (fn [container seen html]
+          (is (re-find #"chart-skeleton" html)
+              (str "the markup hydrated FROM carries the declared fallback: "
+                   html))
           (is (empty? seen)
               (str "the fallback the server wrote is what the client's "
                    "first pass rendered, so again there was nothing to "
