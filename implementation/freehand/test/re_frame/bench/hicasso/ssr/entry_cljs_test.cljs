@@ -162,9 +162,10 @@
   (testing "rf2-2rtt6.91, and it is Spec 011's own answer rather than a
            concession. §Hydration-mismatch detection tiers detection by
            RENDER-TREE REPRESENTATION: the hash channel is the hiccup
-           tier's, and a root that reaches React as an element — compiled
-           `re-frame.ui`, native UIx, Freehand — verifies by React-native
-           adoption and `deliberately carries no such hash`. This entry is
+           tier's, and a root that reaches React as an element — a compiled
+           root on the donor substrate, a native UIx root, a Freehand root
+           — verifies by React-native adoption and `deliberately carries
+           no such hash`. This entry is
            that tier, so the key is ABSENT from the payload and the marker
            is absent from the document.
 

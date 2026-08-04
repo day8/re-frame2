@@ -96,8 +96,8 @@
   HICCUP tier — Reagent and Reagent-slim, whose views are pure fns
   returning a hashable data tree, so the server hashes its tree and the
   client re-hashes its first render and the two compare. Every root that
-  reaches React as an ELEMENT is in the other tier: a compiled
-  `re-frame.ui` root, a native UIx root, and a Freehand root
+  reaches React as an ELEMENT is in the other tier: a compiled root on the
+  donor substrate, a native UIx root, and a Freehand root
   (§Hydration on the Freehand paved path). Those verify by **React-native
   adoption** — React diffs the client's first render against the server
   DOM and reports what it recovers from through the root's
