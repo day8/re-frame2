@@ -516,6 +516,100 @@
 
 (def ^:dynamic *current-frame* nil)
 
+;; ---- The REFUSAL tier — "no ambient frame is legal here" (rf2-2rtt6.122) --
+;;
+;; The two scope tiers above answer WHICH frame is current. Neither can say
+;; NO FRAME IS LEGAL HERE, and the difference is not academic: tier 1 is
+;; consumed by a bare `or` in every adapter's reader, so any non-nil value a
+;; substrate binds there comes back AS the frame; and tier 2 is the shared
+;; React context, which a substrate mounting a `frame-provider` populates on
+;; purpose — a substrate cannot withdraw it without withdrawing the boundary
+;; its own shell reads.
+;;
+;; A substrate whose render extent has a read/write discipline of its own
+;; needs exactly that missing sentence. Hicasso is the motivating case
+;; (EP-0038 HD-002 clause (a)): inside a boundary body, every read must go
+;; through the boundary's collector so it becomes an edge the boundary
+;; re-renders on. An ambient `rf/subscribe` written in a body RESOLVES —
+;; the Hicasso frame is genuinely in scope through tier 2 — and then
+;; mutates the sub-cache during render, contributes ZERO collector edges,
+;; and leaves a boundary that never re-renders when that subscription
+;; moves. It is a silent correctness failure whose only fence today is
+;; which adapter the host happened to install.
+;;
+;; So: a THIRD tier, at the ONE funnel every adapter already routes through
+;; (`resolve-current-frame`). It is a tier and not a reshape — the readers
+;; are untouched, the hook is untouched, no adapter publishes anything new,
+;; and the ordinary path adds one nil-test on a var read.
+;;
+;; WHAT THE REFUSAL REFUSES, precisely: the AMBIENT (React-context) tier
+;; only. An explicitly CARRIED stamp still carries — `{:frame …}` opts never
+;; reach this resolver at all, and `with-frame` / `bind-fn` / the router's
+;; per-handler binding still answer through `*current-frame*`. That keeps
+;; the two spellings of "I carried a frame" behaving identically inside a
+;; refused extent, per EP-0002 ("frame identity is carried, not found") —
+;; the refusal deletes the FINDING, never the carrying.
+
+(def ^:private default-ambient-refusal-reason
+  "The sentence a refusing substrate is expected to replace with its own —
+  what the author should write INSTEAD, in its vocabulary."
+  "Use the read and dispatch surfaces the enclosing render extent provides.")
+
+(def ^:private default-ambient-refusal
+  "The fail-closed refusal detail used when a substrate establishes the
+  extent without describing it. A fence that silently disarms because its
+  argument was nil is the trap class this tier exists to delete."
+  {:reason default-ambient-refusal-reason})
+
+(def ^:dynamic *ambient-frame-refusal*
+  "The REFUSAL tier of the ambient chain: **nil** — the ordinary state, in
+  every extent of every existing adapter — or a map describing why ambient
+  frame resolution is illegal for this dynamic extent.
+
+  Set only by [[call-with-ambient-frame-refused]]. Read only by
+  [[resolve-current-frame]] (which collapses to the carried tier while it is
+  non-nil) and by [[require-current-frame!]] (which turns the resulting
+  absence into `:rf.error/ambient-frame-refused` rather than the generic
+  `:rf.error/no-frame-context` — a refused ambient read and a genuinely
+  frameless one are different mistakes and must not share a diagnostic).
+
+  The map's keys are the substrate's to supply: `:substrate` (a keyword
+  naming it), `:reason` (one sentence saying what the extent requires
+  INSTEAD — this is what the author reads), `:recovery` (a keyword), and
+  any additional detail, which is merged into the payload."
+  nil)
+
+(defn call-with-ambient-frame-refused
+  "**SUBSTRATE seam.** Run `thunk` with ambient frame resolution REFUSED for
+  its dynamic extent, so a frame-scoped operation that would have FOUND a
+  frame through the React-context tier raises `:rf.error/ambient-frame-refused`
+  instead of silently succeeding. Returns the thunk's value.
+
+  This is the sentence a substrate could not previously say. A substrate
+  whose render extent imposes its own read discipline — a compiled-view
+  boundary that must observe every read to build its dependency edges, a
+  collector that must see every subscription — establishes the extent
+  around the code it owns, and an author who reaches past that discipline
+  meets a loud error naming it instead of a boundary that quietly stops
+  re-rendering.
+
+  `refusal` is the detail map ([[*ambient-frame-refusal*]]); a nil `refusal`
+  still refuses, with the generic detail, because a fence must fail closed.
+
+  SCOPE. Refusal applies to the AMBIENT tier only. An explicitly carried
+  stamp is untouched: `{:frame …}` opts never consult this resolver, and
+  `with-frame` inside the extent still answers through `*current-frame*`.
+  Nesting is not tracked and does not need to be — React renders a child
+  fiber only after the parent's render function has returned, so this
+  binding has already unwound before any child component (an adapter
+  island, a host-interop gate, a deferred render callback) runs. The extent
+  is exactly the substrate's own synchronous render call.
+
+  Costs one push/pop per extent — per BODY, not per element or per read."
+  [refusal thunk]
+  (binding [*ambient-frame-refusal* (or refusal default-ambient-refusal)]
+    (thunk)))
+
 (defn current-frame
   "Return the lexical/dynamic-scope frame, or **nil** when no scope is
   established. A **reader**: it reports what scope is in effect; it does
@@ -564,7 +658,16 @@
   `router/dispatch!`'s frame computation, and `core/current-frame-id`
   delegate here so the React-context tier is single-sourced.
   Public frame-scoped operations that must have a frame call
-  `require-current-frame!`, which is built on this reader."
+  `require-current-frame!`, which is built on this reader.
+
+  A THIRD TIER GATES THE SECOND (rf2-2rtt6.122). While a substrate has
+  established a refusing extent ([[call-with-ambient-frame-refused]]), tier
+  2 is WITHDRAWN and this reader answers from tier 1 alone — so a frame
+  that is genuinely in scope is not *found* here, and
+  `require-current-frame!` turns that into the loud
+  `:rf.error/ambient-frame-refused`. Being a reader, it still returns nil
+  rather than throwing: tooling and frame pickers running inside such an
+  extent read 'no ambient frame', which is the truth."
   []
   ;; Sticky hook — `:adapter/current-frame` is published
   ;; once per loaded React-shaped adapter at ns-load time and routed
@@ -577,11 +680,21 @@
   ;; rings / registries by the frame ID, so the reader yields the id — a
   ;; keyword target passes through unchanged (`frame-value->id` is identity
   ;; on non-values), and a value normalizes to its runnable id.
-  (frame-value->id
-    #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
-               (f)
-               (current-frame))
-       :clj  (current-frame))))
+  ;;
+  ;; THE REFUSAL TIER (rf2-2rtt6.122) is one nil-test on a var read, and it
+  ;; is the whole of what the ordinary path pays. When no extent has refused
+  ;; — every extent of every existing adapter — the expression evaluated is
+  ;; byte-for-byte the one that was here before. When an extent HAS refused,
+  ;; resolution collapses to the CARRIED tier alone, which is exactly the
+  ;; `:clj` branch: the React-context tier is withdrawn, an explicit
+  ;; `with-frame` still answers.
+  (if (nil? *ambient-frame-refusal*)
+    (frame-value->id
+      #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
+                 (f)
+                 (current-frame))
+         :clj  (current-frame)))
+    (frame-value->id (current-frame))))
 
 ;; ---- :rf.error/no-frame-context — the absence-is-the-corollary error ------
 ;;
@@ -682,6 +795,91 @@
     ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
     (trace/emit-error! :rf.error/no-frame-context payload)
     payload))
+
+;; ---- :rf.error/ambient-frame-refused — a frame was found but is not ------
+;; ---- reachable ambiently here (rf2-2rtt6.122) ----------------------------
+;;
+;; The fourth member of the frame-resolution error family, and it is a
+;; DIFFERENT MISTAKE from the other three, which is the whole reason it has
+;; its own id:
+;;
+;;   - absence (no stamp, no scope)     → `:rf.error/no-frame-context`
+;;   - a bad public provider argument   → `:rf.error/bad-frame-provider-arg`
+;;   - a disturbed React-context read   → `:rf.error/frame-context-corrupted`
+;;   - a frame IS in scope, and reaching it AMBIENTLY is illegal in this
+;;     render extent → THIS.
+;;
+;; Reporting the refusal as `no-frame-context` would be actively misleading:
+;; that error's recovery is "establish a scope", and the author has one —
+;; a Hicasso body always sits under a frame boundary. Following the generic
+;; advice (wrap it in another provider, or a `with-frame`) would not fix the
+;; frozen boundary, because the boundary was never the problem. The refusing
+;; substrate supplies the sentence that IS the fix, and this payload carries
+;; it verbatim.
+;;
+;; ALWAYS-ON, on the same ladder as `:rf.error/no-frame-context` and for the
+;; same reason: what it prevents is a boundary that silently stops
+;; re-rendering, which is a correctness failure with no symptom at the point
+;; of the mistake. A dev-gated refusal would also buy nothing — the extent's
+;; own binding is what costs, and the resolver's nil-test cannot be elided
+;; while the var can be bound at all — while introducing the one divergence
+;; worth least: code that throws in development and silently freezes in
+;; production.
+
+(defn ambient-frame-refused-payload
+  "Build the canonical `:rf.error/ambient-frame-refused` payload for a
+  frame-scoped `operation` that resolved AMBIENTLY inside an extent which
+  refused ambient resolution. `refusal` is the substrate's detail map (see
+  [[*ambient-frame-refusal*]]); `extra` (optional) supplies call-site detail
+  (`:where` / `:event-id`) and wins over the defaults.
+
+  The substrate's own keys are merged in AFTER the frame, so `:substrate`,
+  `:recovery` and any extra detail it carries reach the reader; its
+  `:reason` is folded into the composed prose rather than replacing it, so
+  the payload always says both what happened and what to do instead."
+  ([operation refusal] (ambient-frame-refused-payload operation refusal nil))
+  ([operation refusal extra]
+   (merge {:rf.error/id :rf.error/ambient-frame-refused
+           :operation   operation
+           :recovery    :use-the-substrates-own-read-surface
+           :reason      (str "a frame-scoped " (name operation) " resolved its frame "
+                             "AMBIENTLY inside a render extent that refuses ambient "
+                             "frame resolution"
+                             (when-some [s (:substrate refusal)]
+                               (str " (" (name s) ")"))
+                             ". This is NOT an absence: a frame IS in scope here, so "
+                             "adding another frame boundary or a with-frame will not "
+                             "help. The extent refuses the AMBIENT reach specifically — "
+                             "an explicitly carried frame still carries, both as a "
+                             "{:frame <id>} option and through with-frame. "
+                             (:reason refusal default-ambient-refusal-reason))}
+          ;; Capture-site ancestry, exactly as `no-frame-context-payload`
+          ;; threads it — the refused op may sit under a captured callback.
+          (when-let [did (some-> trace/*handler-scope* :dispatch-id)]
+            {:rf.trace/dispatch-id did})
+          (dissoc refusal :reason)
+          extra)))
+
+(defn emit-ambient-frame-refused!
+  "Surface `:rf.error/ambient-frame-refused` through the always-on error axis
+  AND the dev-only trace surface, then return the payload — the same ladder
+  `emit-no-frame-context!` rides, because the failure it replaces (a
+  boundary that silently stops re-rendering) is exactly as invisible in
+  production as a frameless op is.
+
+  This is the EMISSION half; `require-current-frame!` emits then throws."
+  [payload]
+  (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+    (dispatch-on-error!
+      :rf.error/ambient-frame-refused
+      nil                                ;; no event vector — a refused resolution, not a throw on a dispatch
+      (:event-id payload)
+      nil                                ;; no frame — the whole point is that none is legal here
+      nil                                ;; no exception — an illegal operation, not a throw
+      0                                  ;; elapsed-ms
+      (interop/now-ms)))                 ;; time
+  (trace/emit-error! :rf.error/ambient-frame-refused payload)
+  payload)
 
 ;; ---- :rf.error/bad-frame-provider-arg — a bad explicit target -------------
 ;;
@@ -792,13 +990,25 @@
 
   Public frame-scoped operations that resolve ambiently call this; low-
   level detection / pickers / tooling read the nil from the readers
-  directly and never throw."
+  directly and never throw.
+
+  TWO ABSENCES, TWO ERRORS (rf2-2rtt6.122). When the reader returned nil
+  because the enclosing render extent REFUSED the ambient tier
+  ([[call-with-ambient-frame-refused]]), the mistake is not an absence and
+  must not be reported as one: `:rf.error/ambient-frame-refused` is emitted
+  and thrown instead, carrying the refusing substrate's own account of what
+  to write there. The discrimination costs nothing on the ordinary path —
+  it is read only after resolution has already failed."
   ([operation] (require-current-frame! operation nil))
   ([operation extra]
    (or (resolve-current-frame)
-       (let [payload (no-frame-context-payload operation extra)]
-         (emit-no-frame-context! payload)
-         (throw (error/ex-info-from-data payload))))))
+       (if-some [refusal *ambient-frame-refusal*]
+         (let [payload (ambient-frame-refused-payload operation refusal extra)]
+           (emit-ambient-frame-refused! payload)
+           (throw (error/ex-info-from-data payload)))
+         (let [payload (no-frame-context-payload operation extra)]
+           (emit-no-frame-context! payload)
+           (throw (error/ex-info-from-data payload)))))))
 
 (defn require-frame-stamp!
   "Operation-time companion to `require-current-frame!` (EP-0002, Spec 002
