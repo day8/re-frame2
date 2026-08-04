@@ -87,31 +87,29 @@
       [:li {:key i} [fallback-host {:kind "fallback" :i i}]])]])
 
 ;; ---------------------------------------------------------------------------
-;; The presence row — a PINNED DEFECT, not a passing feature
+;; The presence row — the hydration-parity guard
 ;; ---------------------------------------------------------------------------
 
 (def presence-tray
   "A presence tray whose children carry `::h/mounting` attribute
   overrides.
 
-  This row is here to MEASURE a defect the rf2-2rtt6.84 worker predicted
-  and this bead confirmed, not to show something working. Presence's
-  machine starts a child at `:mounting` (`arm1/presence.cljs` —
-  `(react/useState presence/initial)`), and while a child is in that
-  phase the tray applies its `::h/mounting` overrides. A server render
-  therefore ships the ENTER appearance — the `opacity: 0` class an
-  animation is about to move off — into the HTML.
+  This row MEASURED a defect the rf2-2rtt6.84 worker predicted, and now
+  guards its repair. Presence's machine starts a child at `:mounting`
+  (`arm1/presence.cljs` — `(react/useState presence/initial)`), and
+  while a child is in that phase the tray applies its `::h/mounting`
+  overrides. A server render with no adoption window open therefore
+  shipped the ENTER appearance — the `opacity: 0` class an animation is
+  about to move off — into the HTML, while the hydrating client's first
+  pass rendered those same children `:present` (born-present under an
+  open window): a hydration mismatch on every presence-managed node.
 
-  rf2-2rtt6.84 makes the hydrating client's first pass render those same
-  children `:present` instead (born-present under an open adoption
-  window), so the server's overrides and the client's first pass
-  disagree and React reports a hydration mismatch on every
-  presence-managed node. The repair is for this entry to open the same
-  adoption window around `renderToString` — which it CANNOT do yet,
-  because `runtime/open-adoption-window!` does not exist on main; it is
-  in rf2-2rtt6.84's still-open PR. See
-  [[re-frame.bench.hicasso.ssr.entry]] §The one thing this entry does not
-  do yet."
+  rf2-2rtt6.94 opened the same window around `renderToString`, so this
+  row's server bytes are born-present too and carry no `toast--enter` at
+  all. `the-server-render-ships-no-mounting-overrides` asserts exactly
+  that, and this row is the only shape in the corpus that can go red if
+  the window is ever removed. See [[re-frame.bench.hicasso.ssr.entry]]
+  §The adoption window."
   [presence {:timeout-ms 200}
    (for [i (range 2)]
      [:div.toast {:key                          i
@@ -164,11 +162,11 @@
     :script-src "/main.js"}
 
    {:id     "presence-mounting"
-    :why    "PINNED DEFECT — a server render ships presence's ::h/mounting overrides; rf2-2rtt6.94 is the repair"
+    :why    "presence's children are born PRESENT server-side — the adoption window is open around renderToString, so no ::h/mounting override reaches the HTML (rf2-2rtt6.94)"
     :hiccup presence-tray
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
-    :title    "Hicasso SSR — presence (pinned defect)"
+    :title    "Hicasso SSR — presence (born present)"
     :script-src "/main.js"}
 
    {:id     "defhost-ssr-policy"

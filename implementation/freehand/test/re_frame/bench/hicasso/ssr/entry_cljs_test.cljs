@@ -173,24 +173,50 @@
       ;; interpreted root that defeats it.
       (is (not= dogfood markup)))))
 
-(deftest the-server-render-ships-presences-mounting-overrides
-  (testing "PINNED AS A DEFECT (rf2-2rtt6.94). Presence starts a child at
-           `:mounting` and applies its `::h/mounting` overrides while it is
-           there, so a server render — which runs with no adoption window,
-           because this entry cannot open one until rf2-2rtt6.84 lands —
-           emits the ENTER appearance. rf2-2rtt6.84 makes the hydrating
-           client's first pass render those children `:present`, and the two
-           then disagree. This row goes RED when the repair lands, which is
-           the point of writing it."
+(deftest the-server-render-ships-no-mounting-overrides
+  (testing "THE REGRESSION GUARD (rf2-2rtt6.94), and the inversion of the row
+           that measured the defect. Presence starts a child at `:mounting`
+           and applies its `::h/mounting` overrides while it is there, so a
+           server render with no adoption window open emits the ENTER
+           appearance — and the hydrating client's first pass renders those
+           same children `:present` (born-present, rf2-2rtt6.84), which is a
+           hydration mismatch on every presence-managed node. The entry now
+           opens the window around `renderToString`, so the server's bytes
+           are born-present too and the two halves agree by construction.
+           This row goes RED if that window is ever removed, narrowed, or
+           closed before the render."
     (let [{:keys [html]} (entry/render (fixtures/row "presence-mounting"))]
-      (is (str/includes? html "toast--enter")
-          "if this is now absent, the adoption window is being opened around
-           the server render — delete this row and assert the opposite")
-      (is (= 2 (count (re-seq #"toast--enter" html))))
-      ;; The non-vacuity control: the tray DID render its children, so the
-      ;; assertion above is about the override and not about an empty tray.
+      (is (not (str/includes? html "toast--enter"))
+          "the server's bytes carry NO enter override — remove
+           `rt/open-adoption-window!` from ssr/entry.cljs and this is the
+           assertion that goes red")
+      (is (= 0 (count (re-seq #"toast--enter" html))))
+      ;; The non-vacuity control, kept verbatim from the measuring row: the
+      ;; tray DID render its children, so the assertion above is about the
+      ;; override being absent and not about an empty tray.
       (is (str/includes? html "toast 0"))
       (is (str/includes? html "toast 1")))))
+
+(deftest the-adoption-window-does-not-outlive-the-request
+  (testing "shut going in — the window belongs to a render, not to the process"
+    (is (false? (rt/adopting?))))
+
+  (testing "and shut again on the way out of a render that RETURNED"
+    (entry/render (fixtures/row "presence-mounting"))
+    (is (false? (rt/adopting?))))
+
+  (testing "and on the way out of one that THREW, which is why the close is
+           in the `finally`. The flag is module-level, so a render that threw
+           with it still open would leave every LATER request in this process
+           born-present — the failure `close-adoption-window!`'s own
+           docstring names."
+    (is (= :rf.error/ssr-missing-payload-policy
+           (error-id #(entry/render (dissoc dogfood-request :payload))))
+        "the render really did throw, and it threw AFTER renderToString had
+         run — so the window was genuinely open at the moment of the throw;
+         a row where nothing threw would prove nothing")
+    (is (false? (rt/adopting?))
+        "the finally shut it anyway")))
 
 ;; ---------------------------------------------------------------------------
 ;; Clause 2 — determinism
