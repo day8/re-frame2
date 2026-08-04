@@ -32,7 +32,7 @@
   on. It is a guess at rf2-2rtt6.85's spelling made ahead of that bead
   landing, deliberately isolated to ONE constant and ONE reader so
   reconciling the two halves is a one-line change rather than a hunt.
-  rf2-2rtt6.86 files the reconciliation bead.
+  rf2-2rtt6.92 is the reconciliation.
 
   ## What this walk reaches, stated rather than implied
 
@@ -47,7 +47,9 @@
   `renderToString` React takes the server snapshot, so the region renders
   its placeholder without this walk touching it. The two halves meet when
   that bead lands; neither is a substitute for the other, and saying so
-  here is cheaper than a reader discovering it."
+  here is cheaper than a reader discovering it. **That is an argument,
+  not a witness** — rf2-2rtt6.92 is the fixture that turns it into one,
+  and the ruling on whether one policy should have two mechanisms."
   (:require [re-frame.bench.hicasso.front.codec :as codec]))
 
 (def ^:const policy-slot
