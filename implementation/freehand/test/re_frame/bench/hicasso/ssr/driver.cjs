@@ -128,6 +128,19 @@ function renderQuietly(label, fn) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 
+// A FIGURE CLAIMED IN BYTES IS MEASURED IN BYTES (rf2-2rtt6.114).
+//
+// `String.prototype.length` counts UTF-16 code units, which agree with
+// UTF-8 bytes only for ASCII — and this corpus is not ASCII. Every row's
+// title carries an em dash and the `defhost` fallback carries an ellipsis,
+// so the manifest claimed 3101 for a `dogfood-snapshot` document of which
+// 3119 bytes were written, and 485 for a `defhost-ssr-policy` document of
+// which 491 were. An astral-plane character would have doubled the error
+// again. The digest rows were never affected: `sha256` above hashes with
+// an explicit 'utf8' encoding, so this was a metrics defect and not a
+// determinism one.
+const utf8Bytes = (s) => Buffer.byteLength(s, 'utf8');
+
 // ---------------------------------------------------------------------------
 // bake
 // ---------------------------------------------------------------------------
@@ -169,21 +182,49 @@ function bake(api) {
       process.exit(1);
     }
 
-    fs.writeFileSync(path.join(BAKE_DIR, `${id}.html`), r.first.document, 'utf8');
-    fs.writeFileSync(path.join(BAKE_DIR, `${id}.body.html`), r.first.html, 'utf8');
-    fs.writeFileSync(path.join(BAKE_DIR, `${id}.payload.edn`), r.first.payloadEdn, 'utf8');
+    const wrote = [
+      ['documentBytes', `${id}.html`, r.first.document],
+      ['bodyBytes', `${id}.body.html`, r.first.html],
+      ['payloadBytes', `${id}.payload.edn`, r.first.payloadEdn],
+    ].map(([field, name, text]) => {
+      const file = path.join(BAKE_DIR, name);
+      fs.writeFileSync(file, text, 'utf8');
+      return [field, file, utf8Bytes(text)];
+    });
 
+    // THE CLAIM IS CHECKED AGAINST THE FILE IT DESCRIBES. Two independent
+    // derivations of one number — what the encoder says the string weighs,
+    // and what the file system says landed — so a manifest column can no
+    // longer drift from the corpus it names without this refusing. It is
+    // what caught nothing for the whole life of the defect above, because
+    // nothing was comparing.
+    for (const [field, file, claimed] of wrote) {
+      const onDisk = fs.statSync(file).size;
+      if (claimed !== onDisk) {
+        console.error(
+          `\n[${TAG}] REFUSED — ${id}'s ${field} claims ${claimed} but ` +
+            `${path.relative(IMPL, file)} is ${onDisk} bytes on disk.`,
+        );
+        console.error(
+          `[${TAG}] A size figure that disagrees with its own file is the ` +
+            `defect rf2-2rtt6.114 repaired. Fix the accounting; do not bake the manifest.`,
+        );
+        process.exit(1);
+      }
+    }
+
+    const [[, , documentBytes], [, , bodyBytes], [, , payloadBytes]] = wrote;
     rows.push({
       id,
-      documentBytes: r.first.document.length,
-      bodyBytes: r.first.html.length,
-      payloadBytes: r.first.payloadEdn.length,
+      documentBytes,
+      bodyBytes,
+      payloadBytes,
       renderHash: r.first.renderHash,
       sha256: a,
       frames: [r.first.frameId, r.second.frameId],
     });
     console.error(
-      `[${TAG}] ${id.padEnd(24)} ${String(r.first.document.length).padStart(7)} B  sha256 ${a.slice(0, 16)}…`,
+      `[${TAG}] ${id.padEnd(24)} ${String(documentBytes).padStart(7)} B  sha256 ${a.slice(0, 16)}…`,
     );
   }
 
@@ -234,7 +275,7 @@ function serve(api, port) {
 
     console.error(
       `[${TAG}] ${req.method} ${req.url} -> 200, ${n} to-dos, ` +
-        `${out.document.length} B, frame ${out.frameId}, ${ms.toFixed(1)} ms`,
+        `${utf8Bytes(out.document)} B, frame ${out.frameId}, ${ms.toFixed(1)} ms`,
     );
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
@@ -271,4 +312,4 @@ if (require.main === module) {
   else serve(api, port);
 }
 
-module.exports = { sha256, renderQuietly, BAKE_DIR, BUILD_ID, OUTPUT_TO };
+module.exports = { sha256, utf8Bytes, renderQuietly, BAKE_DIR, BUILD_ID, OUTPUT_TO };
