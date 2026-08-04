@@ -10,6 +10,17 @@
 // (`adoption_witness_app.cljs`) carries the method and the reasoning; this
 // file builds it, runs it once, and turns its verdict into an exit code.
 //
+// ## PHASE 3 — THE HYDRATION SCHEDULE (rf2-2rtt6.87, X3)
+//
+// The same question asked of the HYDRATE arm of the same public door,
+// `(render tree mount {:hydrate? true})`, over markup `react-dom/server`
+// produced for the same boundary — plus the row X3 asks for: the hydrated
+// mounts' ref-counts, read after a settle past the reap horizon, against the
+// COLD mounts'. Gap first there too: a hydration mount that cannot bound its
+// render-to-passive-flush gap under the ceiling publishes NO X3 figure and
+// says which trials disqualified it. Phase 3 runs only from an ADOPTED phase
+// 2, so a cold-mount regression is never reported as a hydration one.
+//
 // ## ON DEMAND. NOTHING GATES.
 //
 // No CI workflow invokes this and none should (rf2-2rtt6.80). The hicasso
@@ -24,10 +35,11 @@
 //
 // ## Exit codes
 //
-//   0  ADOPTED      every gap qualified and every cold mount adopted: one
-//                   sub-body run, the render's reaction still the cache's
-//                   tenant at the first post-subscribe instant, one durable
-//                   reference.
+//   0  ADOPTED      every gap qualified and every mount adopted, on BOTH
+//                   schedules: one sub-body run, the render's reaction still
+//                   the cache's tenant at the first post-subscribe instant,
+//                   one durable reference — and the hydrated mounts' settled
+//                   ref-counts equal to the cold mounts' (X3).
 //   1  THE RUN FAILED — build, navigation, a page error, a fatal the page
 //                   recorded, or a page that produced no verdict at all. No
 //                   claim either way.
@@ -94,8 +106,9 @@ const TAG = 'adoptwit';
 
 const SPINE = path.join(IMPL, 'core', 'src', 're_frame', 'substrate', 'spine.cljs');
 
-// Seventeen single-boundary mounts with a 32 ms settle between them is
-// seconds. A minute is generous enough that only a hung page reaches it.
+// Twenty-two single-boundary mounts with a 32 ms settle between them — and a
+// 24 ms horizon-crossing settle inside each of the ten that read integers —
+// is seconds. A minute is generous enough that only a hung page reaches it.
 const SENTINEL_TIMEOUT_MS = 60 * 1000;
 
 /** Half. See the block comment above — the margin is the whole design. */
@@ -285,8 +298,10 @@ async function runPage(browser, horizonMs, ceilingMs) {
     case 'ADOPTED':
       console.error(
         `[${TAG}] ADOPTED — the commit adopted the render-phase build on the public ` +
-          `mount schedule, at a gap comfortably inside the ${horizonMs} ms horizon. ` +
-          `A measured margin on this Chromium today, never a React guarantee.`,
+          `mount schedule AND on its hydrate arm, at gaps comfortably inside the ` +
+          `${horizonMs} ms horizon, with the hydrated mounts' settled ref-counts equal ` +
+          `to the cold mounts' (X3). A measured margin on this Chromium today, never a ` +
+          `React guarantee.`,
       );
       process.exit(0);
     case 'REFUSED':
@@ -301,9 +316,11 @@ async function runPage(browser, horizonMs, ceilingMs) {
     case 'NOT-ADOPTED':
       console.error(
         `[${TAG}] NOT-ADOPTED (exit 4) — every gap qualified, so this page CAN see the race, ` +
-          `and the commit still did not adopt the render's build. On a qualifying page that ` +
+          `and the commit still did not hold what it should. On a qualifying page that ` +
           `is a MECHANISM regression (escrow, identity adoption, cache key, release guard), ` +
-          `not a scheduling one. See the per-trial faults above.`,
+          `not a scheduling one. Read the verdict lines above for WHICH phase failed: a ` +
+          `phase-3 fault is about the hydrate arm and a phase-2 fault is about the ` +
+          `ordinary one. See the per-trial faults above.`,
       );
       process.exit(4);
     default:
