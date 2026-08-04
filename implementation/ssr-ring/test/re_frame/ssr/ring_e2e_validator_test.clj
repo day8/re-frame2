@@ -404,7 +404,11 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/ok]]
-                     :root-view [(rf/view :pages/greeting)]
+                     ;; rf2-q1b96 — the RESOLVING root-view form. The
+                     ;; data-rf-render-hash assertion below is what forces
+                     ;; it: `[(rf/view :pages/greeting)]` renders the same
+                     ;; bytes but carries no hash on either channel.
+                     :root-view (fn [] ((rf/view :pages/greeting)))
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]

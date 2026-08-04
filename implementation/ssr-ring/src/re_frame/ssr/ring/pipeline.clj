@@ -540,13 +540,20 @@
                              :body-attrs nil}
                             (lifecycle/resolve-head frame-id))
                 ;; Compute the body hash once for both emitted marker and payload.
+                ;; nil for an unresolved root form — that root gets NO hash on
+                ;; either channel (rf2-q1b96; see `render-document-hash`).
                 hash-str  (lifecycle/render-document-hash hiccup)
                 ;; Hash the head model on its separate reconstructible channel.
                 head-hash (lifecycle/render-head-hash (:head-model head-bag))
                 body-html (ssr/render-to-string
                             hiccup
+                            ;; `:emit-hash?` must ALSO fall away with the hash:
+                            ;; `render-to-string` treats a true `:emit-hash?`
+                            ;; with no `:render-hash` as "compute it yourself"
+                            ;; (rf2-atmvj), which would re-stamp the very
+                            ;; constant this root is being spared.
                             {:doctype?    false
-                             :emit-hash?  emit-hash?
+                             :emit-hash?  (and emit-hash? (some? hash-str))
                              :render-hash (when emit-hash? hash-str)})
                 ;; Read after rendering and inside the frame scope. Optional
                 ;; resource projection uses the carried frame to apply derived
