@@ -288,9 +288,42 @@ after that reset is zero however badly the teardown went (`rf2-2rtt6.48`).
 non-zero and its `:cell-refs` positive, so the zeros above are a reading of
 something.
 
+## Addendum — the instance-key payload obligation (`rf2-2rtt6.99`)
+
+A later bead added a seventh row to this lane, and it is a PAIR rather than a
+single reading. `h/reg-state` (`rf2-2rtt6.98`) puts a widget's own state at
+`[:ui ::concern ikey]`, which is app-space data, so the ruled obligation is
+that an allowlist must name `:ui` whenever server-side events write
+render-affecting instance state. The corpus therefore carries one page — two
+disclosure panels keyed by authored roster ids, boot events that open the first
+one server-side — under two allowlists that differ by exactly that key, and the
+server bytes of the two are byte-identical, so the allowlist is the only
+variable. With `:ui` named, the client hydrates the open panel and the run
+reads `{:mismatches 0, :warnings 0, :panels 2, :open-after? true}` — no
+`:rf.ssr/hydration-mismatch`, nothing on either console channel, and every
+element on the page still the server's own node. With `:ui` omitted — a
+perfectly well-formed allowlist, which is why the fail-closed policy has
+nothing to refuse — the client boots without the entry, reads `reg-state`'s
+`false` default, and the run reads `{:mismatches 1, :warnings 1, :where
+"re-frame.bench.hicasso.arm1.mount/hydrate-root!", :open-after? false}`: the
+structured diagnostic fires from the arm's own hydrate door, the uncaught
+report is still there beside it (so `rf2-2rtt6.97`'s composing reporter holds
+and `rf2-mwx08` is not softened), and the panel the server rendered open is
+shut on the adopted page. That last figure is the whole teaching — the cost of
+omitting `:ui` is not an error message, it is the server's work thrown away and
+the user shown a default. The red row is red-by-design and asserts the error
+positively; the green row is its control, since a diagnostic that fired on
+every adoption would agree with every page. Neither row leans on
+`:rf/render-hash`, and that is measured rather than promised: both take
+`83b865f8`, the same value the dogfood screen takes, so the instrument
+`rf2-2rtt6.91` describes could not have carried either claim. Repro:
+`cd implementation && npm run test:cljs` for the payload-shape and determinism
+rows, `npm run test:browser` for the two hydration rows.
+
 ## What this page does not say
 
 It does not recommend for or against P2, and it does not weigh SSR against
 anything. Five rows published, one instrument defect reproduced
 (`rf2-2rtt6.91`), one new one filed (`rf2-2rtt6.97`), one vacuous gate repaired.
-The reading is the operator's.
+The reading is the operator's. The addendum above is `rf2-2rtt6.99`'s and
+carries no verdict either.
