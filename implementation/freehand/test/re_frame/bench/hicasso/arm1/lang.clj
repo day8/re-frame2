@@ -27,8 +27,11 @@
   ## Why it is a `.clj` and not a `.cljc`
 
   Macros only. The runtime it names is CLJS-only (it requires React), and
-  a `.cljc` would invite a JVM-side implementation this arm does not have
-  — HD-020(d) puts SSR out of v0 explicitly.")
+  a `.cljc` would invite a JVM-side implementation this arm does not
+  have. SSR becoming required scope (the 2026-08-04 HD-020 addendum) did
+  not change that: the arm renders on **Node**, calling
+  `react-dom/server` from CLJS ([[re-frame.bench.hicasso.ssr.node]]), so
+  there is still no JVM render path for a `.cljc` to imply.")
 
 (defmacro defview
   "Mint a boundary — a real React function component (HD-016).
