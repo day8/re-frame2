@@ -2,15 +2,39 @@
 
 > **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
-Booting a re-frame2 app today takes about thirty lines: create a React root,
-install an adapter, render a `frame-root` inside it, remember the root across
-hot reloads so React doesn't get a second `create-root` for a live node. Every
-app writes the same ceremony and gets one of the lines wrong at least once.
+You already know re-frame's pipeline: events write app-db, subscriptions derive
+values, views paint the screen. What you still choose is *how* those views meet
+React. Today that usually means a Reagent or UIx **adapter** — first-class, and
+still the right production path for many apps. Hicasso is the other bet: a view
+layer **built for re-frame2**, not bolted on beside it.
 
-Hicasso collapses that into one call.
+## Why use it
 
-> **One root associates a DOM node, a frame, and initial events, and returns
-> an idempotent teardown.**
+Three things you feel in the first hour of writing an app, not in a benchmark.
+
+**The tree stays data.** An `:on-click` can be `[:todo/toggle id]` instead of a
+closure. You can `=` a button, a form, a route link. Tests and tools read the
+same tree the user clicked — no "render, click, hope the handler ran." Later
+pages spell that out; the first view below already does it.
+
+**You read where you use the value.** `sub` is an ordinary function call, legal
+inside a `when`, a helper, a loop. You do not invent a second way to read just
+so a child can see the current filter. [Views and reads](02-views-and-reads.md)
+is the full story.
+
+**Boot is one call, not thirty lines of glue.** Adapter mounts still work; they
+also accumulate the same ceremony every app copies wrong once — React root,
+adapter install, `frame-root`, hot-reload root identity. Hicasso collapses that
+to a single root operation with a teardown you can call twice without fear.
+
+> **Use Hicasso when you want views that are re-frame all the way down — data
+> handlers, point-of-use reads, and a root that owns mount and teardown.**
+
+What you are *not* choosing: a second app architecture. Events, app-db, and
+subscriptions stay the same. Only the view layer and how you put it on a DOM
+node change. The rest of this guide is the rest of that surface — intents,
+controlled inputs, interop, presence, SSR. This page gets one view on screen
+and takes it down again.
 
 ## Your first app
 
@@ -73,10 +97,14 @@ And the boot namespace, which is the actual subject of this page:
            [views/todo-app {}]))
 ```
 
-That is the whole boot. `h/root!` **[unfrozen]** takes the DOM node, a config
-map, and one view, and hands back a teardown function. Exact names and arities
-are not frozen; treat the shape — node, config, view → teardown — as the
-contract this guide teaches.
+That is the whole boot — the one call from the open:
+
+> **One root associates a DOM node, a frame, and initial events, and returns
+> an idempotent teardown.**
+
+`h/root!` **[unfrozen]** takes the DOM node, a config map, and one view, and
+hands back a teardown function. Exact names and arities are not frozen; treat
+the shape — node, config, view → teardown — as the contract this guide teaches.
 
 The `{}` on `[views/todo-app {}]` is optional — `[views/todo-app]` renders the
 same thing, and the body receives an empty props map either way. Write whichever
@@ -146,12 +174,20 @@ than `:rf.error/*` ids.
 
 ## When not to use this
 
-**SSR is in scope for Hicasso**, via the framework's Spec 011 path rather than a
-private one. [Server-side rendering](10-server-side-rendering.md) covers the
-Hicasso side. Until there is a product `implementation/hicasso/` package, if you
-need a published production SSR path today, a
-[Reagent or UIx adapter](../../../core/views.md) remains first-class and
-supported.
+**You are happy on Reagent or UIx.** Those adapters are first-class and
+supported. Hicasso is not "Reagent, but shorter boot" — it is a different view
+layer with different spellings (`defview` / `sub`, intent vectors, no `r/atom`).
+If your team already ships on an adapter and nothing hurts, stay there.
+
+**You need a published production SSR path today.** SSR is in scope for Hicasso
+([Server-side rendering](10-server-side-rendering.md)), but there is not yet a
+product package under `implementation/hicasso/`. For production SSR now, use a
+[Reagent or UIx adapter](../../../core/views.md) and the framework's Spec 011
+story.
+
+**You only wanted a thinner mount helper.** If the rest of Hicasso (data
+handlers, point-of-use `sub`, presence, `defhost`) is not the draw, an adapter
+`frame-root` is enough — do not adopt a view layer for one less boot line.
 
 ## Not settled yet
 
