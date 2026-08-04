@@ -22,7 +22,7 @@ narrower question — **what does a programmer actually type?**
 | [Controlled inputs](04-controlled-inputs.md) | Type into a text field whose value round-trips through app-db, and keep your caret |
 | [Interop](05-interop.md) | Use a React component from npm |
 | [Theming](06-theming.md) | Style a component library without a context API |
-| [Ephemeral state](07-ephemeral-state.md) | Decide where "is this dropdown open?" lives, given there is no `local` — and where "it left but is still fading out" lives, given app-db cannot hold it |
+| [Ephemeral state](07-ephemeral-state.md) | Decide where "is this dropdown open?" lives, given there is no `local`; where "it left but is still fading out" lives, given app-db cannot hold it; and where the jobs you wanted `:on-mount` for actually go |
 | [Testing](08-testing.md) | Assert a view's output without a browser, and know when you still need one |
 | [When a view throws](09-when-a-view-throws.md) | Keep one broken view from taking the page down with it |
 | [Server-side rendering](10-server-side-rendering.md) | Serve a page rendered from a db snapshot and adopt it live in the browser — what exists, what is landing, and how to write an app so SSR is free |

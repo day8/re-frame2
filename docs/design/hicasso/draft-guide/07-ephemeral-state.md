@@ -186,10 +186,16 @@ jump to a new slot halfway through its animation. Surviving keys keep the order
 they had and genuinely new keys are appended. A list that re-sorts while items are
 leaving therefore sorts at the data layer, not here.
 
-**Enter is the weak half, and this guide will not pretend otherwise.**
-`::h/mounting` exists, but driving an entrance as a `:mounting` → `:present` class
-flip can lose the race to the browser's first paint, and then nothing animates. For
-enter, use an animation on insertion or `@starting-style`:
+### Enter is the weak half
+
+This guide will not pretend otherwise, so here is the enter side in full.
+
+`::h/mounting` is the mirror of `::h/unmounting`: an attribute-override map that
+presence merges onto the nodes it can see while a child is in its `:mounting`
+phase — on the way in, rather than on the way out. It exists, it ships, and it
+works. But driving an entrance as a `:mounting` → `:present` class flip can lose
+the race to the browser's first paint, and then nothing animates. For enter, use
+an animation on insertion or `@starting-style`:
 
 ```css
 .toast { animation: toast-in 200ms ease-out; }
@@ -200,6 +206,63 @@ enter, use an animation on insertion or `@starting-style`:
 
 Exit is the phase that transitions happily, because the node is already painted.
 
+So `::h/mounting` earns its keep on the attributes that are simply *true during
+entry* rather than on the animation itself. An arriving node that should not take
+focus or be announced until it has settled wants `:inert` and `:aria-hidden`, in
+the same map shape the exit override uses. A class flip is legitimate too, once
+you have looked at the paint race and decided you can live with losing it now and
+then. What it is not is the recommended way to make something fade in.
+
+One thing to know before you lean on mounting-phase attributes for correctness
+rather than for looks. Under the ruled SSR design a presence-managed node
+**hydrates born-present**, so server HTML never carries `:mounting`-phase
+attributes at all ([Server-side rendering](10-server-side-rendering.md)). Nothing
+that arrived with the page replays an entrance over content the user is already
+reading, which is the behaviour you want — but it does mean the first paint of a
+server-rendered page is not a moment when `::h/mounting` has been applied.
+
+## Where is `:on-mount`?
+
+There is no `:on-mount` and no `:on-unmount`, and as with `local`, the absence is
+ruled rather than pending. Hicasso took the *attribute* half of Replicant's
+mechanism — `::h/mounting` and `::h/unmounting` above — and rejected the callback
+half, `:replicant/on-mount` and `:replicant/on-unmount`, as less data-oriented
+than a registered behaviour. Presence is the one mechanism that knows a node
+arrived or left, and it never dispatches anything about either, deliberately. And
+the hook-budget witness holds the tier-1 shapes to a page with no `useEffect` on
+it anywhere.
+
+An absence with nowhere to go would be a gap. Four jobs send people looking for
+`:on-mount`, and each of them has a home.
+
+**Load the data this screen needs.** The route declares it, not the view. A
+route's `:resources` are ensured on entry and its `:on-match` carries activation
+events, which is also what closes the click-away race — a fetch kicked off by a
+mounting component has nothing to suppress the late reply when the user navigates
+away first
+([Routing](../../../routing/concepts.md#loaders-declaring-a-pages-data)).
+
+**Run something once at startup.** `:initial-events` — ordinary events, run in
+order, seeding app-db *before* first paint rather than a beat after it
+([Getting started](01-getting-started.md)).
+
+**Animate an entrance or an exit.** Presence, above. `::h/unmounting` for exit;
+an animation on insertion, or `@starting-style`, for enter.
+
+**Drive a real DOM node or a third-party SDK.** The host edge, which is where
+[the placement rule](#the-placement-rule) says lifecycle honestly lives. A
+callback `:ref` hands you the node on attach and takes your return value as the
+cleanup, and a `defhost` component brings whatever hooks it already had — its own
+`useEffect` included, running inside a Hicasso tree exactly as it ran outside one
+([Interop](05-interop.md)).
+
+The last of those has an open edge, and it is worth naming rather than papering
+over. The *data* spelling of a host behaviour — a registered id and a config map,
+with the imperative code out of your view, as in
+`{:ref [::autosize {:max-rows 8}]}` — is refused today with
+`:rf.error/hicasso-ref-vector-reserved`. That value space is reserved, not
+designed. Until it lands, write the function.
+
 ## Troubleshooting
 
 This table names mechanisms; the one minted id on this surface is named in its
@@ -208,6 +271,7 @@ row.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Reaching for `useState` to hold "is this open?" | That's semantic state | app-db, or CSS if the platform tracks it |
+| Searching for `:on-mount`, `componentDidMount`, or a mount `useEffect` | There is none, and the absence is ruled rather than pending | Name the job: route `:resources` for page data, `:initial-events` for startup, presence for animation, a callback `:ref` or `defhost` at a host edge |
 | A dismissed item disappears instantly with no exit animation | The node left with the data | `h/presence` with a `:timeout-ms` at least as long as the exit transition |
 | A retained node still takes focus or clicks while fading | The exit override does not carry `:inert` / `:aria-hidden` | Put all three in the `::h/unmounting` map |
 | An exit override on a view head raises `:rf.error/hicasso-presence-override-on-a-view` | Presence merges overrides into nodes it can see; a view is opaque to it, and a silently dropped override is the failure class the loud error exists to delete | The view receives `:rf/phase` — branch or style on that |
