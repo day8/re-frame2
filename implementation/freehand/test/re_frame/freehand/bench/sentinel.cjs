@@ -65,6 +65,48 @@
  * `window.*_ERROR`, its own guard verdict and its own control after the wait
  * returns; this only guarantees that the wait RETURNS — promptly, and saying
  * which of the two things happened.
+ *
+ * ...AND IT ONLY HELPS THE DRIVERS THAT USE IT (rf2-jvheq, settled 2026-08-04)
+ * -------------------------------------------------------------------------
+ * Nine drivers do not, and instead install a bare handler that prints:
+ *
+ *     page.on('pageerror', (e) => console.error(`[b8] page error: ${e.message}`))
+ *
+ * with no array and no reference from the exit block. They were filed as an
+ * AUDIT rather than a fault, because the sweep that found them could not show
+ * the gap was reachable: each also waits on `'... || window.X_ERROR'`, which
+ * covers every throw the app itself catches and reports. THE AUDIT IS NOW
+ * SETTLED, BY RUNNING IT RATHER THAN BY READING, AND THE GAP IS REAL:
+ *
+ *   1. Chromium raises `pageerror` for a throw inside `requestAnimationFrame`,
+ *      inside `setTimeout`, and for an unhandled promise rejection, while a
+ *      completion sentinel set elsewhere STILL becomes true. Measured against
+ *      the pinned Playwright (1.59.1); all three cases exit 0 today.
+ *
+ *   2. Worse, and the reason no page-side `try/catch` can close it: React
+ *      19.2.0 — the pin — does NOT rethrow an uncaught render error to the
+ *      caller of `flushSync`/`render`. `defaultOnUncaughtError` hands it to
+ *      `reportGlobalError` -> `reportError`
+ *      (`react-dom-client.production.js` ~5888-5890, ~2307), which raises a
+ *      global error and returns. So a render throw is INVISIBLE to the
+ *      `(catch :default e ...)` in every one of those apps' `-main`, sets no
+ *      `window.*_ERROR`, does not reject the `page.evaluate` that the
+ *      READY-style drivers rely on — and the app carries on and sets its
+ *      sentinel. Every one of the nine mounts through `react-dom/flushSync`.
+ *
+ *   3. `b10_prod_run.cjs` has a second, non-React path: `b10_two_clock.cljs`
+ *      ~670/694/709 drives the run from two `setInterval`s and a live
+ *      `MutationObserver`. A throw in any of those is a detached task — it
+ *      escapes `-main`'s `try` AND the promise chain's `.catch`, and
+ *      `setInterval` keeps firing, so the run still completes and sets
+ *      `B10_DONE`.
+ *
+ * The remedy is the one this file's callers already have — collect into an
+ * array and refuse — never removing the handler and never relaxing a
+ * sentinel. It is not applied here because a gate nobody has watched fire is
+ * not a gate, and each of the nine needs an `:advanced` release build and a
+ * headless Chromium to make it fire; that is tracked separately rather than
+ * shipped unproven.
  */
 
 /**
