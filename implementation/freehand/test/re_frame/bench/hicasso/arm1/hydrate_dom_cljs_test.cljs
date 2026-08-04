@@ -29,10 +29,23 @@
 
   1. **React routes a render or effect exception to `reportError`**, so
      `cljs.test` can read zero failures across a component that threw.
-     Every row runs inside `hydration-support/capture-console!`, which
-     listens on `window`'s `error` event AND spies `console.error` — the
-     two channels React 19 reports a hydration mismatch on — and asserts
-     the capture is empty.
+     Every row runs inside `hydration-support/open-console-capture!`,
+     which listens on `window`'s `error` event AND spies `console.error`
+     — the two channels React 19 reports a hydration mismatch on — and
+     asserts the capture is empty.
+
+     **The window is held open until [[adopted!]] resolves, and it has
+     to be** (rf2-2rtt6.87, measured). `hydrateRoot` is called plain, so
+     it RETURNS BEFORE THE TREE IS ADOPTED: React schedules the
+     hydration render, and the complaint — if there is one — arrives in
+     a later turn. These rows originally closed the window when the call
+     returned, and the SSR spike's mutation proof measured what that
+     window can see: hydrating an eight-row screen against nine-row
+     server bytes reported **1 complaint across the adoption and 0 at
+     the call's return**. A window that shuts on return is open across
+     the call and shut across the render, i.e. shut across the only part
+     that can complain, so every `(is (= [] @captured))` taken through
+     one was vacuous.
   2. **`act` and `flushSync` are not the browser's schedule.** Adoption
      is React's own concurrent business, so `hydration-support/adopted!`
      waits on real timers for the closer's passive effect and never pulls
@@ -49,7 +62,7 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.hydration-support
-             :refer [adopted! capture-console! server-dom! server-node?
+             :refer [adopted! open-console-capture! server-dom! server-node?
                      stamp-server-nodes!]]
             [re-frame.bench.hicasso.arm1.mount :as mount]
             [re-frame.bench.hicasso.arm1.presence :refer [presence]]
@@ -187,8 +200,8 @@
               title     (.querySelector container ".title")]
           (is (server-node? title) "the stamp is on the server's own node")
           (rt/reset-body-runs!)
-          (let [[handle captured]
-                (capture-console! (fn [] (mount/hydrate-root! container frame-id [screen {}])))]
+          (let [{:keys [captured close!]} (open-console-capture!)
+                handle (mount/hydrate-root! container frame-id [screen {}])]
             (is (true? (rt/adopting?))
                 "the window is OPEN the instant `hydrate-root!` returns —
                  `hydrateRoot` was called plain, so this returns before the
@@ -196,6 +209,7 @@
             (-> (adopted!)
                 (.then
                   (fn [ok]
+                    (close!)
                     (try
                       (is (true? ok) "the closer's passive effect ran")
                       (is (false? (rt/adopting?))
@@ -299,12 +313,12 @@
           (let [container (stamp-server-nodes! (server-dom! html))
                 toast     (.querySelector container ".toast")]
             (is (server-node? toast))
-            (let [[handle captured]
-                  (capture-console!
-                    (fn [] (mount/hydrate-root! container frame-id [toast-tray {}])))]
+            (let [{:keys [captured close!]} (open-console-capture!)
+                  handle (mount/hydrate-root! container frame-id [toast-tray {}])]
               (-> (adopted!)
                   (.then
                     (fn [ok]
+                      (close!)
                       (try
                         (is (true? ok) "adoption completed")
                         (is (= [] @captured)
@@ -345,12 +359,12 @@
             (is (= "abc" (.-value before))
                 "the field shows the server's value before any JS ran")
             (rt/reset-body-runs!)
-            (let [[handle captured]
-                  (capture-console!
-                    (fn [] (mount/hydrate-root! container frame-id [field-screen {}])))]
+            (let [{:keys [captured close!]} (open-console-capture!)
+                  handle (mount/hydrate-root! container frame-id [field-screen {}])]
               (-> (adopted!)
                   (.then
                     (fn [ok]
+                      (close!)
                       (try
                         (is (true? ok) "adoption completed")
                         (is (= [] @captured)

@@ -68,25 +68,45 @@
   until [[adopted!]] resolves, and this shape is what lets it.
 
   [[capture-console!]] is the synchronous special case, kept because a
-  claim about one synchronous call wants exactly that window."
-  []
-  (let [captured (atom [])
-        original (.-error js/console)
-        on-error (fn [^js e]
-                   (swap! captured conj (str "window.error: " (.-message e))))
-        closed?  (volatile! false)]
-    (.addEventListener js/window "error" on-error)
-    (set! (.-error js/console)
-          (fn [& args]
-            (swap! captured conj (str "console.error: " (apply str args)))
-            nil))
-    {:captured captured
-     :close!   (fn []
-                 (when-not @closed?
-                   (vreset! closed? true)
-                   (set! (.-error js/console) original)
-                   (.removeEventListener js/window "error" on-error))
-                 @captured)}))
+  claim about one synchronous call wants exactly that window.
+
+  ## `:swallow-uncaught?` — for a row that MANUFACTURES a fault, and
+  ## nowhere else
+
+  React reports a recoverable hydration error through `reportError`,
+  which becomes an UNCAUGHT error, which the browser lane's runner treats
+  as fatal whatever the `cljs.test` tally says (rf2-mwx08 — \"the suite
+  may simply not assert on the regression that threw\"). That rule is
+  right and this option does not soften it: a MUTATION PROOF causes the
+  fault on purpose and DOES assert on it, so the error is not unasserted
+  — it is the row's subject. Setting this calls `preventDefault` on the
+  `error` event, which marks it handled, and the capture still records
+  it, so the signal moves into the row's own assertion instead of being
+  lost.
+
+  It is off by default and it belongs at the ONE call site that
+  deliberately hydrates mismatched markup. Anywhere else it would be
+  exactly the fail-open the runner's rule exists to prevent."
+  ([] (open-console-capture! nil))
+  ([{:keys [swallow-uncaught?]}]
+   (let [captured (atom [])
+         original (.-error js/console)
+         on-error (fn [^js e]
+                    (swap! captured conj (str "window.error: " (.-message e)))
+                    (when swallow-uncaught? (.preventDefault e)))
+         closed?  (volatile! false)]
+     (.addEventListener js/window "error" on-error)
+     (set! (.-error js/console)
+           (fn [& args]
+             (swap! captured conj (str "console.error: " (apply str args)))
+             nil))
+     {:captured captured
+      :close!   (fn []
+                  (when-not @closed?
+                    (vreset! closed? true)
+                    (set! (.-error js/console) original)
+                    (.removeEventListener js/window "error" on-error))
+                  @captured)})))
 
 (defn capture-console!
   "Run `f` with React's two failure channels captured, and answer
