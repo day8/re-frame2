@@ -6,7 +6,9 @@ records what was measured, on what, with what command, and what each row could
 have lied about.
 
 Bead: `rf2-2rtt6.87`. Producing commit: **`952a3f2024`** (branch
-`worker/spike-2rtt6-87`). Every row below was taken at that commit.
+`worker/spike-2rtt6-87`) — the last commit that changes code. Every row below
+was taken at that commit and re-taken at `6f40304011`, which adds this page and
+nothing else; every figure reproduced, including X1(a)'s digest byte-for-byte.
 
 No timing row is published. SSR speed is off the bar (HD-012 /
 `validation.md`), and the one row here that reads a clock — X3's gap — reads it
