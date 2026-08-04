@@ -187,10 +187,7 @@ async function main() {
   // was a bare `page.on('pageerror', ...)` that logged and recorded nothing;
   // the array now reaches `verdict` below, which is the only seat this run's
   // exit code has. `sentinel.cjs`'s header carries the finding, including why
-  // no page-side `try`/`catch` can close it under React 19.2. The sentinel
-  // wait is deliberately NOT converted to `watch.race` — that is rf2-f5roa's
-  // separate "report it promptly" remedy, and the fault here is the page that
-  // throws AND STILL reaches `B8_READY`, which the wait returns from normally.
+  // no page-side `try`/`catch` can close it under React 19.2.
   const watch = watchPage(page, 'b8');
   // `'commit'`, not `'load'` (rf2-p9fa3). `b8-app/-main` is the bundle's
   // `:init-fn`: it mounts all four update arms and installs `window.B8`
@@ -206,8 +203,15 @@ async function main() {
     timeoutMs: NAV_TIMEOUT_MS,
     budget: 'the 5-minute wait for `window.B8_READY`',
   });
-  await page.waitForFunction('window.B8_READY === true || window.B8_ERROR', null, {
-    timeout: 5 * 60 * 1000,
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. `race`
+  // rejects only on a failure `watch` recorded, and `verdict` below already
+  // refuses on exactly that array, so no run that would have passed is
+  // shortened. The rejection folds into `drive`'s existing `failed` slot,
+  // which is this driver's exit 1 — no new code, and the arm-order guard's 2
+  // and the warm-up ceiling's 3 are untouched.
+  await watch.race('window.B8_READY === true || window.B8_ERROR', {
+    timeoutMs: 5 * 60 * 1000,
+    budget: 'the 5-minute wait for `window.B8_READY`',
   });
   const err = await page.evaluate('window.B8_ERROR || null');
   if (err) throw new Error(`page failed to initialise: ${err}`);

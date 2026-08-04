@@ -200,11 +200,11 @@ async function newPage(chromium, query, budget) {
   // watches are collected rather than held in a local: a `pageerror` on
   // EITHER has to reach the one exit. `sentinel.cjs`'s header carries the
   // finding, including why no page-side `try`/`catch` can close it under
-  // React 19.2. The sentinel waits are deliberately NOT converted to
-  // `watch.race` — that is rf2-f5roa's separate "report it promptly" remedy,
-  // and the fault here is the page that throws AND STILL reaches its
-  // sentinel, which the waits return from normally.
-  PAGE_WATCHES.push(watchPage(page, 'b7'));
+  // React 19.2. The watch is also RETURNED, because each caller races its own
+  // sentinel against it (rf2-qv761) — a page that dies at load must not cost
+  // this row's whole budget to say so.
+  const watch = watchPage(page, 'b7');
+  PAGE_WATCHES.push(watch);
   // `'commit'`, not `'load'` (rf2-p9fa3), and this is the SHARPEST instance of
   // the class in the repo. `b7-app/-main` is the bundle's `:init-fn`, and in
   // `?mode=mount-frame` it runs `run-mount-frame!` — the parity pass plus six
@@ -219,7 +219,7 @@ async function newPage(chromium, query, budget) {
     timeoutMs: NAV_TIMEOUT_MS,
     budget,
   });
-  return { browser, page };
+  return { browser, page, watch };
 }
 
 // ---------------------------------------------------------------------------
@@ -334,10 +334,18 @@ function snapshotTotal(cdp) {
 // ---------------------------------------------------------------------------
 
 async function heapRow(chromium) {
-  const { browser, page } = await newPage(
+  const { browser, page, watch } = await newPage(
     chromium, '?mode=heap', 'the 120s wait for `window.B7_READY`'
   );
-  await page.waitForFunction('window.B7_READY === true || window.B7_ERROR', null, { timeout: 120000 });
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. `race`
+  // rejects only on a failure `watch` recorded, and `drive`'s exit already
+  // refuses on exactly those failures, so no run that would have passed is
+  // shortened. The rejection lands in `drive`'s existing `catch`, which sets
+  // `failed` — this driver's exit 1. The arm-order guard keeps its 2.
+  await watch.race('window.B7_READY === true || window.B7_ERROR', {
+    timeoutMs: 120000,
+    budget: 'the 120s wait for `window.B7_READY`',
+  });
   const err = await page.evaluate('window.B7_ERROR || null');
   if (err) {
     await browser.close();
@@ -510,11 +518,17 @@ async function heapRow(chromium) {
 
 async function mountFrameRow(chromium) {
   const q = process.env.B7_MOUNT_QUERY || '';
-  const { browser, page } = await newPage(
+  const { browser, page, watch } = await newPage(
     chromium, `?mode=mount-frame${q}`, 'the 15-minute wait for `window.B7_DONE`'
   );
-  await page.waitForFunction('window.B7_DONE === true || window.B7_ERROR', null, {
-    timeout: 15 * 60 * 1000,
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. This row's
+  // whole run happens inside the `<script>`, so a page that dies at load never
+  // reaches `B7_DONE` and used to cost the full fifteen minutes to report a
+  // fault from the first second. The rejection lands in `drive`'s existing
+  // `catch`, which is this driver's exit 1.
+  await watch.race('window.B7_DONE === true || window.B7_ERROR', {
+    timeoutMs: 15 * 60 * 1000,
+    budget: 'the 15-minute wait for `window.B7_DONE`',
   });
   const err = await page.evaluate('window.B7_ERROR || null');
   const results = await page.evaluate('window.B7_RESULTS || {}');

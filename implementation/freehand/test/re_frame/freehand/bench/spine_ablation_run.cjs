@@ -233,11 +233,10 @@ async function newPage(chromium, query, budget) {
   // are collected rather than held in a local: a `pageerror` on ANY substrate
   // has to reach the one exit. `sentinel.cjs`'s header carries the finding,
   // including why no page-side `try`/`catch` can close it under React 19.2.
-  // The sentinel waits are deliberately NOT converted to `watch.race` — that
-  // is rf2-f5roa's separate "report it promptly" remedy, and the fault here is
-  // the page that throws AND STILL reaches `ABL_READY`, which the waits
-  // return from normally.
-  PAGE_WATCHES.push(watchPage(page, 'abl'));
+  // The watch is also RETURNED, because the caller races its own sentinel
+  // against it (rf2-qv761).
+  const watch = watchPage(page, 'abl');
+  PAGE_WATCHES.push(watch);
   // `'commit'`, not `'load'` (rf2-p9fa3): the bundle's `:init-fn` runs
   // synchronously inside the `<script>`, so the load event is downstream of
   // work this driver budgets separately.
@@ -246,7 +245,7 @@ async function newPage(chromium, query, budget) {
     timeoutMs: NAV_TIMEOUT_MS,
     budget,
   });
-  return { browser, page };
+  return { browser, page, watch };
 }
 
 async function makeReaders(page) {
@@ -352,12 +351,18 @@ const floorFor = (arms) => arms.find((a) => a.variant === 'floor');
 // ---------------------------------------------------------------------------
 
 async function runSubstrate(chromium, substrate) {
-  const { browser, page } = await newPage(
+  const { browser, page, watch } = await newPage(
     chromium, `?adapter=${substrate}`, `the 120s wait for window.ABL_READY (${substrate})`
   );
-  await page.waitForFunction(
-    'window.ABL_READY === true || window.ABL_ERROR', null, { timeout: 120000 }
-  );
+  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. `race`
+  // rejects only on a failure `watch` recorded, and the exit block already
+  // refuses on exactly those failures, so no run that would have passed is
+  // shortened. The rejection propagates into the top-level IIFE's existing
+  // `.catch`, which is this driver's exit 1; the enumerated 2/3/4 stand.
+  await watch.race('window.ABL_READY === true || window.ABL_ERROR', {
+    timeoutMs: 120000,
+    budget: `the 120s wait for window.ABL_READY (${substrate})`,
+  });
   const err = await page.evaluate('window.ABL_ERROR || null');
   if (err) { await browser.close(); throw new Error(`${substrate} page failed to initialise: ${err}`); }
 
