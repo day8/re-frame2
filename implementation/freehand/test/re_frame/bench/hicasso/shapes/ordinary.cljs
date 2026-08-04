@@ -64,8 +64,11 @@
   placeholder for the typed value — are one concept each.
 
   Body forms are `.cljc`-compatible by construction (HD-020(d)): no
-  interop, no JS literal, no React import. SSR is out of v0; the
-  constraint that keeps it reachable is not."
+  interop, no JS literal, no React import. That constraint was held
+  while SSR sat outside v0, and it is now load-bearing: the 2026-08-04
+  HD-020 addendum makes SSR and hydration **required** scope, so a body
+  that reached for `window` would be a body this screen could not render
+  on a server."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
             [re-frame.bench.hicasso.front.route-link :refer [route-link]]
             [re-frame.bench.hicasso.shapes.model :as m])
