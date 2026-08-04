@@ -65,10 +65,16 @@ the source. Keys go in the props map (no Reagent `^{:key}` metadata):
 
 A bare seq of boundary children needs keys. Forget one today and you get React's
 own key warning in development; a Hicasso-minted warning is planned but not
-built. Sugar that would derive the key from a `for` binding is **not yet** —
-you write `:key` yourself. Putting a plain `defn` in head position —
-`[badge {...}]` where `badge` was never minted by `defview` — raises
-`:rf.error/hicasso-bad-head`.
+built. Putting a plain `defn` in head position — `[badge {...}]` where `badge`
+was never minted by `defview` — raises `:rf.error/hicasso-bad-head`.
+
+**You write `:key` yourself, and that is the answer** rather than a gap waiting
+on sugar. A `for`-lowering would have to assume the binding value *is* the
+identity, which stops being true the moment you iterate whole entities: React
+coerces a non-primitive key to a string, so editing a row would quietly change
+its key and remount it. And it could not retire the explicit `:key` anyway, so
+every list would carry two spellings forever in exchange for saving about a dozen
+characters.
 
 ### The component ABI
 
