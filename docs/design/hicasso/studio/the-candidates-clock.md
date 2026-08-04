@@ -379,6 +379,88 @@ dataset above carries `label: null` and `load: null` because `HCLOCK_LABEL` and
 `HCLOCK_LOAD` exist but were not part of the ruled payload, and a window's box
 state ought to be stamped into its own artefact rather than only into prose.
 
+### 3.5 The rebooked window, which refuses in the same two places (`rf2-0qj9w`, 2026-08-04)
+
+[§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04)
+closed with a rebook. The rebook ran, on the same ruled payload and a box held
+idle by the same discipline, and **it publishes no magnitude either.** It is the
+seventh run of this instrument. What it adds is not a number: it is that the two
+refusals are now **reproduced independently, on a different tree and a different
+box state**, which moves them out of the category of things a second attempt
+might have dissolved.
+
+| | |
+|---|---|
+| Tree | `070be81738ca6d071de746d6d73ebbe94b4af5ab`, the code tree of `origin/main` at open |
+| Box at open | occupancy **1.36%**, 24 logical cores, 529 processes, 28.8 GB free |
+| Box at close | occupancy **3.12%**, 534 processes, 28.8 GB free |
+| Occupancy method | summed per-process CPU-time deltas over a 6 s wall interval, divided by core count. **Not** `Win32_Processor.LoadPercentage` |
+| Driver exit code | **1** — the positive control on `M1`, again |
+| Retained dataset | `implementation/freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run2.json`, re-adjudicable with `clock_readjudicate.cjs` |
+
+**`M1`'s positive control refused again, and it refused from the other side.**
+`ctl-2x` measured **1.8567×** [1.6562 – 2.6112] against 2.00× ±25% under the
+strict every-round rule. Run six failed low — a segment-round beneath the 1.5
+floor. This one fails **high**: no round fell below 1.5, and a round read 2.61
+against the 2.5 ceiling. A control that misses its prediction in both directions
+across two idle-box runs is describing a **wide** statistic, not a biased one,
+which is the reading [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)
+already argued from the load ladder. The additive constant re-measured at
+**c(2×) = 0.777 ms**, 15.3% of a floor sample that does not scale with the page
+(run six: 0.83 ms, 17.8%).
+
+Every *whole-run* gate cleared on both rows, as it did last time: no page error,
+arm-order guard **reportable** on both, canonical DOM identical (27,224 B on
+`M1`, 9,320 B on `keystroke`), **0 unverified** of 1,008 and of 756, and the
+segment seam published with its null on both rows (`M1` spread 2.9%, p = 0.874;
+`keystroke` spread 5.2%, p = 0.717).
+
+**The `keystroke` row again cleared every gate it has and again has no band.**
+Both controls passed — `ctl-50ms` produced 49.84 ms [49.36 – 50.45] over 18
+segment-rounds against a predicted ≥ 40 ms, and Event Timing saw its paint at
+duration p50 56.0 ms over n = 180 against a predicted ≥ 48 ms. The repaired
+witness reconciled exactly a second time: **540 keys pressed, 449 interactions
+observed, 91 censored under the 16 ms floor, summing to the keys sent**, with 60
+sent on every one of the nine arms; of 1,913 raised entries, 848 carried
+`interactionId` 0 and were counted rather than made into records. The recompute
+census read `p0/cell ×100, p0/draft ×4` on all three substrate arms and **no
+subscriptions at all** on every floor and control arm — `validation.md`'s 104.
+And all three bars are `UNADJUDICATED` for the reason §3.4 gave: a control that
+burns a fixed 50 ms supplies no band. **Two independent runs now agree that this
+row's blocker is the rig, not the box.**
+
+**The quantisation check separates the two refusals cleanly, and this is worth
+having.** On `M1` the grain was **0.095 ms** over 974 distinct values, and the
+tared per-sample separations are 13 to 19 grid steps — 1.243 ms between the
+candidate and the Reagent donor, 1.776 ms against UIx. `M1` is therefore **not**
+quantisation-limited; its only limiter is the control. On `keystroke` the grain
+was **0.181 ms** over 1,002 distinct values, and the candidate-to-UIx separation
+is **0.043 ms — under a quarter of one grid step**, so that pair is **not
+resolved as to sign** on top of being unadjudicated. The candidate-to-Reagent
+separation there is 0.277 ms, about one and a half steps.
+
+**One instrument finding the window did not go looking for.** The driver's
+row-level control verdict and its bar-level adjudication are computed
+independently, and **only the first reaches the exit code**. Had this window run
+`HCLOCK_ONLY=keystroke` alone, `ctlFailed` would have been empty, the driver
+would have printed `[clock] ok` and **exited 0** — for a row whose every bar it
+had just labelled `UNADJUDICATED`. Even in this run, which exits 1 on `M1`, the
+summary line reads `REPORTABLE: keystroke … Publish those and mark the rest`.
+The exit code is sound for what it claims to gate; it simply does not gate
+adjudication, and the summary line invites exactly the publication the bars
+forbid. That is filed rather than fixed — the window takes measurements, it does
+not repair the rig.
+
+**The rig gap §3.4 named is closed in passing.** `HCLOCK_LABEL` and
+`HCLOCK_LOAD` were part of this invocation, so `run2.json` carries
+`label: "quiet-window-2 rf2-0qj9w 2026-08-04"` and `load: 1.355` rather than two
+nulls. A window's box state is now stamped into its own artefact.
+
+**What this run retires is the scheduling hypothesis.** Two windows, two idle
+boxes, the same two refusals in the same two places. More quiet is not the
+repair for either row, and a third window taken on the rig as it stands should
+be expected to buy the same pair of refusals.
+
 ---
 
 ## 4. The mount row — the one row published as a magnitude
@@ -394,7 +476,12 @@ distinct values.
 [1.3837 – 2.4233] with a round below the 1.5 floor, and published no mount
 magnitude as a result —
 [§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04).
-Nothing in this section moves on that: it is a refusal, not a reading.
+**A seventh refused it again on another idle box**, at 1.8567× [1.6562 – 2.6112]
+— this time with no round below 1.5 and one above 2.5, so the two refusals sit
+on *opposite* sides of the prediction —
+[§3.5](#35-the-rebooked-window-which-refuses-in-the-same-two-places-rf2-0qj9w-2026-08-04).
+Nothing in this section moves on either: they are refusals, not readings. What
+they jointly establish is that this control's failures are not a quiet problem.
 
 Ratio to the floor measured in that round of that segment, tared, 6 rounds:
 
@@ -521,12 +608,15 @@ itself only half an operation.
 > read 104 on a substrate arm and none on a floor arm — each of them a refusal
 > that exits non-zero naming itself.
 >
-> **The re-take exists and is deliberately not published here.** It was taken in
-> the quiet window of [§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04)
-> and cleared every one of those gates, but its bars are `UNADJUDICATED` for
-> want of a band — this row's fixed-50 ms control supplies none — and the
-> window's other row refused, so the ruled posture is to publish no magnitude
-> and rebook. The raw dataset is retained and re-adjudicable. **The figures
+> **Two re-takes exist and neither is published here.** They were taken in the
+> quiet windows of [§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04)
+> and [§3.5](#35-the-rebooked-window-which-refuses-in-the-same-two-places-rf2-0qj9w-2026-08-04),
+> and both cleared every one of those gates — the second reconciling 540 keys
+> pressed against 449 observed and 91 censored, with the census reading 104 on
+> each substrate arm. But the bars of both are `UNADJUDICATED` for want of a
+> band — this row's fixed-50 ms control supplies none — and in both windows the
+> other row refused, so the ruled posture is to publish no magnitude and rebook.
+> Both raw datasets are retained and re-adjudicable. **The figures
 > below therefore stand as the last published reading and not as a current one**;
 > the direction they report survives the correction (`rf2-emvod`), but their `n`
 > and their interaction accounting do not.
