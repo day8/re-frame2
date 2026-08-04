@@ -393,7 +393,7 @@ function Write-Husk([string]$Path) {
       'its build or gate run has already been broken; a partial removal kills a',
       'running gate exactly as a complete one does (rf2-k3j2w).',
       'Retrying this script will not finish the job - there is no registered',
-      'worktree left to remove, and `git worktree prune` has nothing to clear.',
+      "worktree left to remove, and 'git worktree prune' has nothing to clear.",
       'Any node_modules link has been disarmed, so what remains is an ordinary',
       'directory delete, once whatever holds the lock has exited:',
       "  Remove-Item -Recurse -Force $Path")) {
