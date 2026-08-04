@@ -37,6 +37,8 @@
 //   0  measured, and no figure moves with its position in the plan
 //   1  the run failed its own gates (parity, lowering, page error)
 //   2  THE ARM-ORDER GUARD REFUSED — repair the arm, never the guard
+//   3  a write arm's value never reached the DOM (failed read-back)
+//   4  a yield correction was REFUSED and the row's figure is unadjusted
 //
 // Exit 2 is deliberately distinct from exit 1. A refusal is not a broken
 // script: it is the instrument saying that a figure it produced depends on
@@ -44,6 +46,21 @@
 // reported. `rf2-jr76s` published `16.1052` and `8.0027` for the SAME
 // control — a plausible, precise, wrong number — and was caught only
 // because both orders were run and disagreed with each other.
+//
+// 3 and 4 are rf2-x6g04's repair, and they number as `hd8_clock_run.cjs`
+// already numbered the first of them (its exit 3 is the same read-back
+// refusal). Both conditions were COMPUTED AND PRINTED by this driver and
+// neither reached the exit code: it read `hardFail`, `contractFailed` and
+// the arm-order `refused`, then announced `[hd8] ok`. A run could print
+//
+//     ;;     [slim   ] reagent-slim   vs floor   UNPUBLISHED (1/78 unverified)
+//     ;;     [slim   ] YIELD CORRECTION: REFUSED (correction-changes-the-verdict)
+//
+// and exit 0 on both. The figure IS suppressed in the table either way — the
+// marker replaces it and the head-to-head pairs touching the arm are dropped
+// upstream — so no reader could copy a number out. What was missing is the
+// PROCESS's own statement, and a green exit is what a future reader banks.
+// See the note above `verdict` for the shape and for what did not change.
 
 'use strict';
 
@@ -172,6 +189,13 @@ const TOLERANCE = Number(process.env.HD8_TOLERANCE || 0.35);
 // the second it happens instead of twenty minutes later (rf2-f5roa).
 const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
 
+// `--selftest` runs every adjudicator's fixtures and exits, before anything is
+// built or launched. The guard's and the table's already ran at the head of
+// the sweep; this makes them — and the EXIT DECISION's, which is new — usable
+// on their own, so an operator can see the instrument refuse in a second
+// rather than on the far side of an hour (the shape `clock_run.cjs` uses).
+const SELFTEST_ONLY = process.argv.includes('--selftest');
+
 // ---------------------------------------------------------------------------
 // Build + serve
 // ---------------------------------------------------------------------------
@@ -289,10 +313,21 @@ async function runOne(chromium, run) {
       'window.HD8_CORRECTION_SELFTEST === undefined ? null : window.HD8_CORRECTION_SELFTEST'
     );
     const userAgent = await page.evaluate('navigator.userAgent');
+    // THE SENTINEL'S OWN FAILURE LIST, read rather than discarded (rf2-x6g04).
+    // `watch.race` throws on a failure that arrives while it is waiting, so
+    // reaching this line means any failure arrived in the SAME TICK as the
+    // sentinel or after it — which the race cannot order and therefore cannot
+    // refuse. Every sibling that installs this watcher carries the same
+    // backstop (`coldmount_run.cjs` ~193, `p0_converge_run.cjs` ~236,
+    // `ime_run.cjs`, `chrome_run.cjs`, `adoption_witness_run.cjs`); this
+    // driver installed the watcher and then read nobody's failures at all, so
+    // a `pageerror` landing beside `HD8_DONE` was recorded, printed by
+    // `sentinel.cjs` itself, and consulted by nothing.
+    const pageErrors = watch.failures.map((f) => `${f.kind}: ${f.detail}`);
     watch.dispose();
     return {
       id: run.id, why: run.why, err, results, samples, summary,
-      correction, contractSelfTest, userAgent, lines,
+      correction, contractSelfTest, userAgent, lines, pageErrors,
     };
   } finally {
     await browser.close();
@@ -470,10 +505,278 @@ function tableSelfTest() {
 }
 
 // ---------------------------------------------------------------------------
+// The exit decision
+// ---------------------------------------------------------------------------
+
+// THE DRIVER COMPUTED AND PRINTED REFUSALS THAT NEVER REACHED ITS EXIT CODE
+// (rf2-x6g04). The old block read exactly three things — `hardFail`,
+// `contractFailed` and the arm-order `refused` — and then said `[hd8] ok`.
+// Three further conditions were live and unread:
+//
+//   * A FAILED DOM READ-BACK. `hd8_rows.cljs`'s `mask-failed-read-backs`
+//     writes `{:unpublished :failed-dom-read-back ...}` into the row's
+//     summary and the table renders `UNPUBLISHED (1/78 unverified)`. It does
+//     NOT set `HD8_ERROR` — only `hd8_app.cljs`'s `-main` catch does — so
+//     `hardFail` stayed null. Every sibling instrument treats the identical
+//     condition as a hard refusal (`hd8_clock_run.cjs` exit 3,
+//     `shapes/census_clock_run.cjs` exit 3, `clock_run.cjs` exit 1,
+//     `p0_run.cjs`, `b7_run.cjs`, `reads_ladder_run.cjs`,
+//     `spine_ablation_run.cjs`).
+//
+//   * A `:refused` YIELD CORRECTION. The table prints `YIELD CORRECTION:
+//     REFUSED (correction-changes-the-verdict)` and the driver then read the
+//     verdict ONLY for `'corrected'`. On `refused` the UNADJUSTED number was
+//     printed directly beneath a line saying the correction was refused
+//     BECAUSE IT CHANGES THE VERDICT — and with no `[UNADJUSTED]` label,
+//     since that label is attached to the corrected band that a refusal
+//     never produces.
+//
+//   * A `pageerror` ARRIVING BESIDE THE SENTINEL, recorded by `watchPage`
+//     and read by nobody. Handled at its source in `runOne` above.
+//
+// THE REPAIR IS THE ONE THIS TREE HAS MADE BEFORE (rf2-tb345, rf2-rr6do,
+// rf2-y7mw7): the decision moves into ONE pure function over a flat summary,
+// so it is checkable without a release build and a headless Chromium. See
+// `clock_exit_path.test.cjs`.
+//
+// NOTHING THAT USED TO REFUSE NOW REFUSES DIFFERENTLY. Precedence preserves
+// every code this driver already had — a run that exited 1 still exits 1, a
+// run the arm-order guard refused still exits 2 — and the new conditions take
+// the codes below them. Each condition is INDEPENDENT: each refuses on its
+// own, and when several fire every one of them is named.
+//
+// No refusal suppresses output. The tables are printed before this is
+// consulted, and the marked-not-withheld rule the cross-run table follows is
+// unchanged: a refusal is about what may be QUOTED, not about throwing the
+// measurement away.
+
+/** The flat record the exit is decided on. One entry per refusable thing. */
+function summarise({ hardFail, contractFailed, orderRefused, runs } = {}) {
+  const unpublished = [];
+  const refusedCorrections = [];
+  const pageErrors = [];
+  for (const run of runs || []) {
+    for (const d of run.pageErrors || []) pageErrors.push({ run: run.id, detail: d });
+    for (const [row, s] of Object.entries(run.summary || {})) {
+      // Both published surfaces, because both are figures a reader copies:
+      // the ratio-to-floor columns and the within-run head-to-head pairs.
+      const surfaces = [
+        ...Object.entries((s && s.vsFloor) || {}).map(([arm, v]) => [`${arm} vs floor`, v]),
+        ...Object.entries((s && s.headToHead) || {}),
+      ];
+      for (const [figure, v] of surfaces) {
+        if (v && v.unpublished) {
+          unpublished.push({ run: run.id, row, figure, why: String(v.unpublished), unverified: v.unverified, of: v.of });
+        }
+      }
+    }
+    for (const [row, c] of Object.entries(run.correction || {})) {
+      if (c && c.verdict === 'refused') {
+        refusedCorrections.push({ run: run.id, row, reason: c.reason ? String(c.reason) : 'unstated', why: c.why || '' });
+      }
+    }
+  }
+  return {
+    hardFail: hardFail || null,
+    contractFailed: contractFailed || null,
+    orderRefused: Boolean(orderRefused),
+    pageErrors,
+    unpublished,
+    refusedCorrections,
+  };
+}
+
+/** The run's final decision: `{code, lines}`, and the ONLY seat it has. */
+function verdict(summary) {
+  const s = summary || {};
+  const pageErrors = s.pageErrors || [];
+  const unpublished = s.unpublished || [];
+  const refusedCorrections = s.refusedCorrections || [];
+  const lines = [];
+
+  if (s.hardFail) lines.push(`[hd8] FAILED: ${s.hardFail}`);
+  if (pageErrors.length) {
+    lines.push(
+      `[hd8] FAILED: uncaught page error(s) — every figure above was taken on a page that had ` +
+        `already thrown, and a benchmark that threw and kept going publishes a precise number for ` +
+        `a page that is not the page under test:\n  ` +
+        pageErrors.map((e) => `${e.run}: ${e.detail}`).join('\n  ')
+    );
+  }
+  if (s.contractFailed) {
+    lines.push(
+      `[hd8] FAILED: ${s.contractFailed}. The gate that decides whether a write row may be ` +
+        'published does not agree with its recorded fixtures, so no figure above may be reported.'
+    );
+  }
+  if (s.orderRefused) {
+    // Exit 2, and the message says what to do with it. A guard that refused
+    // is reporting a defect in the ARM, not in itself: the remedy is to make
+    // the arm's figure independent of where it was measured, never to widen
+    // the tolerance until the refusal stops.
+    lines.push(
+      '[hd8] ARM-ORDER GUARD REFUSED — at least one figure above depends on where in the ' +
+        'plan it was measured, and may not be reported as measured. Repair the arm, not the ' +
+        'guard (rf2-88pie).'
+    );
+  }
+  if (unpublished.length) {
+    lines.push(
+      '[hd8] REFUSED — a write arm\'s value never reached the DOM (rf2-x6g04). Its clock ' +
+        'readings are real milliseconds spent on a page that never changed, which is the ' +
+        'cheapest possible way to be fast, so the table above carries UNPUBLISHED in place of a ' +
+        'figure and this run may not be reported as a clean measurement of those arms:\n  ' +
+        unpublished
+          .map((u) => `${u.run} / ${u.row} / ${u.figure}: ${u.why} (${u.unverified} of ${u.of} unverified)`)
+          .join('\n  ')
+    );
+  }
+  if (refusedCorrections.length) {
+    lines.push(
+      '[hd8] REFUSED — the harness-microtask yield correction could not be discharged ' +
+        '(rf2-x6g04), so the figure printed for the row above is the UNADJUSTED one and the ' +
+        'correction that would have adjusted it was refused:\n  ' +
+        refusedCorrections.map((c) => `${c.run} / ${c.row}: ${c.reason}${c.why ? ` — ${c.why}` : ''}`).join('\n  ')
+    );
+  }
+
+  const code =
+    s.hardFail || pageErrors.length || s.contractFailed
+      ? 1
+      : s.orderRefused
+        ? 2
+        : unpublished.length
+          ? 3
+          : refusedCorrections.length
+            ? 4
+            : 0;
+  return { code, lines };
+}
+
+/**
+ * THE DECISION'S OWN FIXTURES, in the idiom of `guard.selfTest()` and
+ * `tableSelfTest()` above: the refusals stated as cases rather than as prose,
+ * run by `--selftest` before a browser opens and by `clock_exit_path.test.cjs`
+ * in CI.
+ *
+ * The two cases that matter are the read-back and the refused correction.
+ * Both are the shapes this driver actually produces — the first is the very
+ * export `tableSelfTest`'s fixture replays — and until rf2-x6g04 both printed
+ * their refusal into the table and then exited 0.
+ */
+function verdictSelfTest() {
+  const checks = [];
+  const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail: detail || '' });
+  const run = (over) => ({ id: 'slim', summary: {}, correction: {}, pageErrors: [], ...over });
+  // The reachable read-back shape, exactly as `mask-failed-read-backs` writes it.
+  const readBackRun = () =>
+    run({
+      summary: {
+        'write-narrow': {
+          vsFloor: {
+            floor: { min: 1.0, max: 1.0, straddles1: true },
+            'reagent-slim': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 },
+          },
+          headToHead: {},
+        },
+      },
+    });
+  const cleanRun = () =>
+    run({
+      summary: {
+        'write-narrow': {
+          vsFloor: { floor: { min: 1.0, max: 1.0 }, 'donor-r1': { min: 2.0, max: 2.0 } },
+          headToHead: { 'donor-r1 vs reagent': { min: 1.1, max: 1.2 } },
+        },
+      },
+      correction: { 'write-narrow': { verdict: 'not-owed' } },
+    });
+
+  const green = verdict(summarise({ runs: [cleanRun()] }));
+  check('a run whose every figure published exits 0 and says nothing', green.code === 0 && green.lines.length === 0);
+
+  // --- (a) THE FAILED DOM READ-BACK — the case that used to be green -------
+  const rb = verdict(summarise({ runs: [readBackRun()] }));
+  check('a failed DOM read-back cannot exit 0', rb.code !== 0, `code ${rb.code}`);
+  check('and it exits 3, as hd8_clock_run.cjs already numbered the same refusal', rb.code === 3, `code ${rb.code}`);
+  check(
+    'and the refusal NAMES the run, the row, the figure and the counts',
+    /slim \/ write-narrow \/ reagent-slim vs floor: failed-dom-read-back \(1 of 78 unverified\)/.test(rb.lines.join('\n')),
+    rb.lines.join(' | ')
+  );
+  check(
+    'a head-to-head pair carrying the marker is refused too, not only a vs-floor column',
+    verdict(
+      summarise({
+        runs: [run({ summary: { 'write-bulk': { vsFloor: {}, headToHead: { 'a vs b': { unpublished: 'failed-dom-read-back', unverified: 2, of: 36 } } } } })],
+      })
+    ).code === 3
+  );
+
+  // --- (b) THE REFUSED YIELD CORRECTION — likewise ------------------------
+  const refusedRun = () =>
+    run({
+      summary: { 'write-narrow': { vsFloor: { floor: { min: 1, max: 1 } }, headToHead: {} } },
+      correction: {
+        'write-narrow': { verdict: 'refused', reason: 'correction-changes-the-verdict', why: 'the adjustment reverses the row' },
+      },
+    });
+  const rc = verdict(summarise({ runs: [refusedRun()] }));
+  check('a REFUSED yield correction cannot exit 0', rc.code !== 0, `code ${rc.code}`);
+  check('and it exits 4', rc.code === 4, `code ${rc.code}`);
+  check(
+    'and the refusal carries the adjudicator\'s own reason',
+    /write-narrow: correction-changes-the-verdict/.test(rc.lines.join('\n')),
+    rc.lines.join(' | ')
+  );
+  check(
+    'a `corrected` verdict is NOT a refusal — only `refused` is',
+    verdict(summarise({ runs: [run({ correction: { r: { verdict: 'corrected' } } })] })).code === 0
+  );
+  check(
+    'and neither is `not-owed`, which is the common case',
+    verdict(summarise({ runs: [run({ correction: { r: { verdict: 'not-owed' } } })] })).code === 0
+  );
+
+  // --- (c) A pageerror BESIDE THE SENTINEL --------------------------------
+  const pe = verdict(summarise({ runs: [run({ pageErrors: ['pageerror: Cannot read properties of undefined'] })] }));
+  check('a page error recorded beside the sentinel cannot exit 0', pe.code !== 0, `code ${pe.code}`);
+  check('and it exits 1, the code this driver already documented for a page error', pe.code === 1, `code ${pe.code}`);
+
+  // --- THE GATES THAT ALREADY EXISTED ARE UNCHANGED, which is half the repair
+  const hf = verdict(summarise({ hardFail: 'slim: boom', runs: [] }));
+  check('a hard failure still exits 1, exactly as before', hf.code === 1 && /FAILED: slim: boom/.test(hf.lines[0] || ''), hf.lines.join(' | '));
+  const cf = verdict(summarise({ contractFailed: 'slim: fixtures', runs: [] }));
+  check('a contract self-test failure still exits 1', cf.code === 1, `code ${cf.code}`);
+  const or = verdict(summarise({ orderRefused: true, runs: [] }));
+  check(
+    'the arm-order guard still exits 2, and still says repair the arm',
+    or.code === 2 && /Repair the arm, not the guard/.test(or.lines[0] || ''),
+    or.lines.join(' | ')
+  );
+
+  // --- PRECEDENCE: a stronger refusal never HIDES a weaker one ------------
+  const both = verdict(summarise({ orderRefused: true, runs: [readBackRun()] }));
+  check(
+    'a run that fails several is refused for every one of them — none masks another',
+    both.code === 2 && both.lines.some((l) => l.includes('ARM-ORDER GUARD REFUSED')) && both.lines.some((l) => l.includes('never reached the DOM')),
+    both.lines.join(' | ')
+  );
+  const all = verdict(summarise({ hardFail: 'x', orderRefused: true, runs: [readBackRun(), refusedRun()] }));
+  check('and the hardest code wins the exit while every line is still printed', all.code === 1 && all.lines.length === 4, `code ${all.code}, ${all.lines.length} lines`);
+
+  const empty = verdict(summarise({ runs: [] }));
+  check('a run that took nothing is not a refusal', empty.code === 0 && empty.lines.length === 0);
+  check('and neither is one that never ran', verdict(summarise()).code === 0 && verdict(undefined).code === 0);
+
+  return { ok: checks.every((c) => c.ok), checks };
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-(async () => {
+async function main() {
   // The guard's own self-test FIRST. A guard nobody has watched catch its
   // recorded faults is not a guard, and running it after the measurement
   // would mean discovering a broken instrument on the far side of an hour.
@@ -501,6 +804,30 @@ function tableSelfTest() {
         'read-back unpublished could leave the table as [CORRECTED]; nothing was measured'
     );
     process.exit(1);
+  }
+
+  // AND THE EXIT DECISION ITSELF (rf2-x6g04). Every other self-test here asks
+  // whether an adjudicator can REFUSE; this one asks whether its refusal
+  // reaches the exit code, which is the fault the other two could not have
+  // caught — the table's fixture already proved the marker prints, and the
+  // driver exited 0 beneath it anyway.
+  const vs = verdictSelfTest();
+  console.log(';; ==== HD8 EXIT-DECISION SELF-TEST ====');
+  for (const c of vs.checks) {
+    console.log(`;;   ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.ok || !c.detail ? '' : '  — ' + c.detail}`);
+  }
+  if (!vs.ok) {
+    console.error(
+      '[hd8] the exit decision failed its own fixtures — a refusal this driver prints might not ' +
+        'reach its exit code; nothing was measured'
+    );
+    process.exit(1);
+  }
+
+  if (SELFTEST_ONLY) {
+    const bad = [...st.checks, ...ts.checks, ...vs.checks].filter((c) => !c.ok);
+    console.error(`[hd8] --selftest: ${bad.length === 0 ? 'ALL ADJUDICATORS OK' : 'FAILURES: ' + bad.length}`);
+    process.exit(bad.length === 0 ? 0 : 1);
   }
 
   const sha = revision();
@@ -605,28 +932,20 @@ function tableSelfTest() {
   console.log(';;   clock and retained heap) do not exist yet either. These are');
   console.log(';;   measurements. There is no verdict here and there must not be.');
 
-  if (hardFail) {
-    console.error(`[hd8] FAILED: ${hardFail}`);
-    process.exit(1);
-  }
-  if (contractFailed) {
-    console.error(
-      `[hd8] FAILED: ${contractFailed}. The gate that decides whether a write row may be ` +
-        'published does not agree with its recorded fixtures, so no figure above may be reported.'
-    );
-    process.exit(1);
-  }
-  if (refused) {
-    // Exit 2, and the message says what to do with it. A guard that refused
-    // is reporting a defect in the ARM, not in itself: the remedy is to make
-    // the arm's figure independent of where it was measured, never to widen
-    // the tolerance until the refusal stops.
-    console.error(
-      '[hd8] ARM-ORDER GUARD REFUSED — at least one figure above depends on where in the ' +
-        'plan it was measured, and may not be reported as measured. Repair the arm, not the ' +
-        'guard (rf2-88pie).'
-    );
-    process.exit(2);
-  }
-  console.error('[hd8] ok — measured, and no arm reads differently for its position in the plan');
-})();
+  // THE DECISION HAS ONE SEAT (`verdict`, above). Nothing below reads a
+  // refusal on its own: the summary is built, the function decides, its lines
+  // are printed and its code is the exit code.
+  const decision = verdict(summarise({ hardFail, contractFailed, orderRefused: refused, runs }));
+  for (const line of decision.lines) console.error(line);
+  if (decision.code !== 0) process.exit(decision.code);
+  console.error(
+    '[hd8] ok — measured; no arm reads differently for its position in the plan, every published ' +
+      'figure survived its DOM read-back, and no yield correction was refused'
+  );
+}
+
+module.exports = { summarise, verdict, verdictSelfTest };
+
+if (require.main === module) {
+  main();
+}
