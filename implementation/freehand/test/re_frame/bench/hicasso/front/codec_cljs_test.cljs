@@ -658,6 +658,7 @@
   (testing "and :ref is not an event position, so intent lowering never sees it"
     (is (false? (intent/event-prop? :ref)))))
 
+
 ;; ---------------------------------------------------------------------------
 ;; The codec's one policy call — intent lowering happens inside the walk
 ;; ---------------------------------------------------------------------------
@@ -746,6 +747,80 @@
     (is (= "dark" (prop (codec/as-element [:div {:class :theme/dark}]) "className"))
         "the native crossing, unchanged")))
 
+;; ---------------------------------------------------------------------------
+;; The class slot is a POSITION at the crossing too (rf2-2rtt6.119)
+;; ---------------------------------------------------------------------------
+
+(deftest a-class-collection-crosses-as-a-class-string-at-a-host-and-at-a-tag
+  (testing "THE DEVIATION rf2-2rtt6.119 names. The class slot has a coercion
+            of its own — `class-names` — and it was taken at the native
+            position only, so ONE authored shape got TWO answers. The
+            crossing sent `{:class [\"a\" nil :b]}` through `clj->js` and
+            handed the foreign component a JS array, which React writes to
+            the DOM as \"a,,b\" wherever the component passes it on: nothing
+            threw and the styling was simply wrong."
+    (let [crossed (host-prop :class ["a" nil :b] "className")
+          native  (prop (codec/as-element [:div {:class ["a" nil :b]}]) "className")]
+      (is (string? crossed)
+          "a class string, not the JS array clj->js used to build here")
+      (is (= "a b" crossed))
+      (is (= native crossed)
+          "and it is the SAME answer the native walk gives — which is the
+           rule rf2-vrvv9 already stated for the named value at this slot,
+           applied to the arm a collection takes")))
+  (testing "the coercion is on the SLOT, so it holds in every spelling of it
+            — the discipline `canonical-slot` and the owned-literal law
+            already use, and the reason a rule written against `:class`
+            would be one that `:className`, `\"class\"` and `:x/class` walk
+            past"
+    (doseq [k [:class :className "class" "className" 'class :x/class]]
+      (is (= "a b" (host-prop k ["a" nil :b] "className"))
+          (str "spelled " (pr-str k)))))
+  (testing "a nested collection joins one level down too, exactly as at a tag"
+    (is (= "a b c" (host-prop :class ["a" ["b" nil] :c] "className"))))
+  (testing "and it COMPOSES, for the reason the native position composes:
+            two spellings of one element's class are two map keys and one
+            React slot, so letting the last write win would drop a class
+            silently"
+    (let [e (codec/as-element [a-host {:class "a" :x/class ["b" :c]}])]
+      (is (= "a b c" (prop e "className")))))
+  (testing "nothing else at the slot moves. A string is verbatim, a keyword
+            still stringifies (rf2-vrvv9's rule, unchanged), and a
+            namespaced keyword still drops its namespace HERE and only here"
+    (is (= "primary" (host-prop :class "primary" "className")))
+    (is (= "primary" (host-prop :class :primary "className")))
+    (is (= "dark" (host-prop :class :theme/dark "className")))
+    (is (nil? (host-prop :class nil "className"))))
+  (testing "and the deviation was the class slot ALONE — `id` and `role`
+            hand a collection to `clj->js` at BOTH positions, so there is
+            nothing to reconcile there and nothing here that changed them"
+    (is (array? (host-prop :id ["a" "b"] "id")))
+    (is (array? (prop (codec/as-element [:div {:id ["a" "b"]}]) "id"))
+        "the native walk's own answer, quoted so the claim is not asserted
+         about a function nobody ran")))
+
+(deftest a-declared-contract-still-outranks-the-class-coercion
+  (testing "HD-011's whole point is that a DECLARED position means what the
+            declaration says it means, so the slot coercion sits BELOW the
+            declaration in the cond rather than above it. Nobody sensible
+            declares a contract on `className`; the row exists so the
+            precedence is pinned rather than incidental — and a vector is
+            the value that tells the two orders apart, because
+            `class-names` would quietly answer it \"a b\" where the
+            declaration refuses it."
+    (let [declared (codec/mint-host! "ClassContractHost" a-foreign-component
+                                     {:callbacks {:class :handler}})]
+      (try
+        (codec/as-element [declared {:class ["a" "b"]}])
+        (is false "should have thrown")
+        (catch :default e
+          (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+                 (:rf.error/id (ex-data e)))
+              "the declaration decided, not the slot")))))
+  (testing "and an undeclared host is unaffected — the same value at the
+            same slot is an ordinary class collection"
+    (is (= "a b" (host-prop :class ["a" "b"] "className")))))
+
 (deftest every-other-host-prop-value-crosses-exactly-as-it-did
   (testing "functions by identity — `React.memo` and every downstream
             bail-out that compares handler identity"
@@ -760,6 +835,44 @@
     (is (= 7 (host-prop :count 7 "count")))
     (is (true? (host-prop :open true "open")))
     (is (nil? (host-prop :label nil "label")))))
+
+;; ---------------------------------------------------------------------------
+;; What "callback refs only" actually is (rf2-d03av)
+;; ---------------------------------------------------------------------------
+
+(deftest an-object-ref-crosses-by-identity-at-both-positions
+  (testing "rf2-d03av, settled as a RECORD rather than a refusal. HD-016
+            reads 'callback refs only', and HD-022 — later, and the ruling
+            that is actually about `:ref`'s value space — says the whole of
+            the claim is ONE refusal branch and one error id: the reserved
+            vector. An object ref is neither reserved nor broken. React 19
+            carries `ref` as an ordinary prop, so `(react/createRef)`
+            attaches and detaches exactly as React documents it. It is
+            untaught rather than illegal, and refusing a spelling that
+            works correctly is friction rather than safety.
+
+            This witness is what makes that a decision instead of an
+            oversight: a later refusal cannot land silently, because it has
+            to delete these rows first."
+    (let [r (react/createRef)]
+      (is (identical? r (prop (codec/as-element [:div {:ref r}]) "ref"))
+          "a native tag")
+      (is (identical? r (host-prop :ref r "ref"))
+          "and a defhost crossing — HD-011's conversion parity, which is
+           what makes 'enforced at one crossing and not the other' the
+           outcome design C ruled out")))
+  (testing "and it is one rule at one slot, so an alternate spelling of the
+            ref position answers the same way"
+    (let [r (react/createRef)]
+      (is (identical? r (prop (codec/as-element [:div {"ref" r}]) "ref")))
+      (is (identical? r (host-prop :x/ref r "ref")))))
+  (testing "the reserved VECTOR is still refused at both, which is the rule
+            that IS enforced — so the two questions stay separable"
+    (let [reserved [::autosize {:max-rows 8}]]
+      (is (thrown-with-msg? js/Error #"RESERVED"
+                            (codec/as-element [:div {:ref reserved}])))
+      (is (thrown-with-msg? js/Error #"RESERVED"
+                            (codec/as-element [a-host {:ref reserved}]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What the codec must NOT be

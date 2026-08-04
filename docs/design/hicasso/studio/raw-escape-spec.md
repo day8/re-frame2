@@ -586,10 +586,18 @@ still fails if a body runs twice or a boundary is skipped.
 `[:> Component]` with no props and no children is legal. Bare `[:>]` reaches index 1 as
 `nil` and takes the no-component refusal, whose message covers both misspellings.
 
-**5. `check-ref!` refuses only a vector**, so an object ref passes today (`rf2-d03av`, open).
+**5. `check-ref!` refuses only a vector**, so an object ref passes.
 **Do not add a refusal at `[:>]` that `defhost` does not have** — a rule enforced at one
 crossing and not the other is worse than a rule enforced at neither, and conversion parity is
 the ruling.
+
+> **Settled 2026-08-05 (`rf2-d03av`), and it settles the way this paragraph wanted.** The
+> rule turned out to be narrower than it read, not the check: HD-022 rules that the whole of
+> the `:ref` value-space claim is *"one refusal branch and one error id"*, so an object ref is
+> **untaught rather than illegal** at every position. HD-016 carries a dated note saying so
+> and the guide's interop page teaches the distinction. Nothing changes at `[:>]`, and parity
+> holds for free — which is exactly the outcome this item asked for. Pinned by
+> `front/codec_cljs_test` → `an-object-ref-crosses-by-identity-at-both-positions`.
 
 **6. `host-entry` has no class branch**, so `{:class ["btn" nil "on"]}` at any foreign
 crossing crosses as a `clj->js` array and React renders `class="btn,,on"` — while the codec's
@@ -597,6 +605,15 @@ own slot law says the class slot is a position coerced by `class-names`. This is
 deviation, **inherited, not introduced**, and it is filed as `rf2-2rtt6.119`. Note the trap
 for the witness plan: **edge 3's canonical-parity row cannot catch it**, because both forms
 are identically wrong.
+
+> **Fixed 2026-08-05 (`rf2-2rtt6.119`) — at the DOOR, so the escape inherits it.** `host-entry`
+> now carries a `class?` arm that coerces and composes through `class-names`, exactly as
+> `convert-entry` does at a native tag, and it sits **below** the declared-contract arm so a
+> declaration still decides what a declared position means. Because §3 rules that `[:>]` props
+> take *"the landed unclaimed-slot conduct of `host-entry` … with no branch of its own"*, the
+> escape gets the repair by construction and the parity trap above never arms. The observation
+> that edge 3's canonical-parity row cannot catch it stands and is the reason the witness is
+> written as *native answer* vs *crossing answer* rather than as two spellings of the crossing.
 
 ---
 

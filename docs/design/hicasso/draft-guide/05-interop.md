@@ -57,6 +57,7 @@ of the view tree as data. Friction once; free at every use site. The Reagent
 |---|---|
 | Prop names | shallow camelCase — `:on-change` → `onChange` |
 | Prop values | crossed whole — a keyword stays a keyword. Only `:class`, `:id`, `:role`, `data-*` and `aria-*` stringify, where an HTML attribute is the destination and a string is the only representation there is |
+| `:class` values | the class slot's own coercion, exactly as at a native tag — a collection joins (`["btn" nil :on]` → `"btn on"`) and two spellings of the class compose rather than one overwriting the other |
 | Children | hiccup → React elements |
 | Functions | pass through unconverted |
 | SSR | `:client-only` — nothing server-side until the client adopts. Override with `:ssr`: `:client-only`, or `{:fallback <hiccup>}` for placeholder markup. Bad policy → `:rf.error/hicasso-host-bad-ssr-policy` at mint. Full story: [Server-side rendering](10-server-side-rendering.md) |
@@ -82,6 +83,15 @@ maps yourself when the library wants camelCase inside them. Values inside a
 collection are shallow in the same way: they go through `clj->js`, which takes a
 keyword's name and drops any namespace, so `{:opts {:mode :theme/dark}}` reaches
 the library holding `"dark"`.
+
+**`:class` is the one slot that does not follow that last sentence**, because a
+class list is not data on its way to a library — it is bound for the `class`
+attribute, where the only representation is one space-joined string. So a
+collection there is *joined* rather than `clj->js`'d, nils are dropped, and two
+spellings of the class compose: `{:class ["btn" nil :on] :className "wide"}`
+reaches the library as `"btn on wide"`. That is the same answer a native tag
+gives for the same hiccup, which is the point — one authored shape, one answer,
+whichever side of the crossing it lands on.
 
 ## Callbacks: `:event`, `:handler`, `:render`
 
@@ -252,6 +262,15 @@ what actually doubles.
 
 Hooks in a body take you outside headless testing scope ([Testing](08-testing.md))
 and put React's hook rules on you. Both are fine; both are yours.
+
+**An object ref works too, and is simply untaught.** `(react/createRef)` crosses
+by identity at a native tag and at a `defhost` crossing alike — React 19 carries
+`ref` as an ordinary prop — so a Reagent habit you bring with you will not break.
+The callback form is taught instead because it makes attach and teardown one
+thing, which is the property the four rules above are about. The *one* value
+`:ref` refuses is a **vector**: that spelling is reserved for a later data form,
+and writing it today raises `:rf.error/hicasso-ref-vector-reserved` rather than
+handing React an array it would ignore in silence.
 
 #### If you are not on React 19
 
