@@ -472,7 +472,7 @@ test('every driver that uses the shared collector also READS its failures', () =
 // rf2-sib23 could watch five of the nine refuse and named the four it could
 // not: no pure exported verdict, so no unit test could reach the decision,
 // and no way to make the page throw, so no end-to-end run could either.
-// rf2-va5nm closed half of that — `b7_run.cjs` and `p0_run.cjs` have now BOTH
+// rf2-va5nm took three of those four. `b7_run.cjs` and `p0_run.cjs` have both
 // been watched exiting non-zero in their own processes, against a real
 // `:advanced` build and a real headless Chromium, and both exiting 0 on the
 // same row with the throw removed.
@@ -484,6 +484,22 @@ test('every driver that uses the shared collector also READS its failures', () =
 // that have nothing to do with the gate.* And `--no-build` was refused
 // outright — a knob that serves a stale bundle beside a published figure is a
 // new fail-open in the family this whole line of work exists to close.
+//
+// THE THIRD WAS NOT ARRANGED AT ALL, and it is the better evidence.
+// `reads_ladder_run.cjs` refused a REAL `pageerror` and exited 1 during this
+// work — `Cannot read properties of undefined (reading 'd')` — because `b7`,
+// the ladder and the ablation all merge a different `:init-fn` onto the one
+// `freehand-release` build id and none of them resets its cache the way
+// `p0_run.cjs` does (rf2-t4j7c, and `lane_cache.cjs` for the fault class).
+// A cleared cache and the identical command gave `[ladder] done`. So the
+// refusal fired on exactly the environmental fault `sentinel.cjs`'s header
+// names as the common one — and, because of section 5 below, said so in
+// seconds instead of after the 120s wait.
+//
+// `spine_ablation_run.cjs` alone remains unwatched: it has no `:init-fn`
+// seam, and adding one purely so a test could reach it would be a knob that
+// lets a published figure be measured on an entry nobody built on purpose.
+// rf2-va5nm stays open for it rather than the roster being padded.
 //
 // So the two things worth pinning are that the probe is not a stub, and that
 // nothing ships it.
