@@ -173,6 +173,25 @@
       ;; interpreted root that defeats it.
       (is (not= dogfood markup)))))
 
+(deftest the-server-render-ships-presences-mounting-overrides
+  (testing "PINNED AS A DEFECT (rf2-2rtt6.94). Presence starts a child at
+           `:mounting` and applies its `::h/mounting` overrides while it is
+           there, so a server render — which runs with no adoption window,
+           because this entry cannot open one until rf2-2rtt6.84 lands —
+           emits the ENTER appearance. rf2-2rtt6.84 makes the hydrating
+           client's first pass render those children `:present`, and the two
+           then disagree. This row goes RED when the repair lands, which is
+           the point of writing it."
+    (let [{:keys [html]} (entry/render (fixtures/row "presence-mounting"))]
+      (is (str/includes? html "toast--enter")
+          "if this is now absent, the adoption window is being opened around
+           the server render — delete this row and assert the opposite")
+      (is (= 2 (count (re-seq #"toast--enter" html))))
+      ;; The non-vacuity control: the tray DID render its children, so the
+      ;; assertion above is about the override and not about an empty tray.
+      (is (str/includes? html "toast 0"))
+      (is (str/includes? html "toast 1")))))
+
 ;; ---------------------------------------------------------------------------
 ;; Clause 2 — determinism
 ;; ---------------------------------------------------------------------------

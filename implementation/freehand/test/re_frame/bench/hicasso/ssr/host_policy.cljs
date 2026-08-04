@@ -26,13 +26,35 @@
   client cannot be trusted to adopt. Fail-closed here means render less,
   never render something the client will not agree with.
 
-  ## The seam, named so it is one line to reconcile
+  ## THIS NAMESPACE IS EXPECTED TO BE RETIRED (rf2-2rtt6.92)
 
-  [[policy-slot]] is the own-property the minted head carries the policy
-  on. It is a guess at rf2-2rtt6.85's spelling made ahead of that bead
-  landing, deliberately isolated to ONE constant and ONE reader so
-  reconciling the two halves is a one-line change rather than a hunt.
-  rf2-2rtt6.92 is the reconciliation.
+  Read rf2-2rtt6.85's open PR (#7468) before extending anything here.
+  That bead enforces the policy **at the element's own type**: `defhost`
+  mints a GATE component around the foreign one, whose
+  `useSyncExternalStore(noop, (constantly true), (constantly false))`
+  answers `false` under `renderToString`, so the gate renders the
+  fallback element — or nothing — with no walk involved at all. That
+  mechanism is strictly better than this one: it reaches a host minted
+  inside a boundary BODY, which this walk cannot (see below), and it
+  costs no per-request tree rebuild.
+
+  So the honest disposition is that this file exists because
+  rf2-2rtt6.86 landed while #7468 was still open and clause 6 had to be
+  real on main, and it should go when that PR merges. rf2-2rtt6.92 is
+  that retirement.
+
+  Two things were checked against #7468 rather than assumed, and both
+  hold, which is why merging in either order is safe:
+
+  - **The slot spelling agrees.** That PR stores the policy on the head
+    under the own-property `\"ssr\"` and reads it back with
+    `codec/host-ssr` — the same property [[policy-slot]] names and the
+    same `unchecked-get` [[policy-of]] performs. A fallback host is
+    therefore never mistaken for a `:client-only` one by this reader.
+  - **The two mechanisms agree on markup.** `:client-only` renders
+    nothing either way; `{:fallback hic}` renders `hic` either way. If
+    both are live at once the walk simply gets there first and the gate
+    finds nothing left to do.
 
   ## What this walk reaches, stated rather than implied
 

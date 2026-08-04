@@ -22,16 +22,26 @@
     policy (the ruled `:client-only` default — its component's markup MUST
     be absent from the server HTML) and a host declaring a fallback (whose
     placeholder markup MUST be present).
+  - **Presence's `::h/mounting` overrides** — and that row is a PINNED
+    DEFECT rather than a feature. See [[presence-tray]].
 
   ## Why the host rows stamp the policy slot by hand
 
-  rf2-2rtt6.85 owns `mint-host!`'s `:ssr` option and has not landed. The
-  DEFAULT row needs nothing — a head with no policy already reads
-  `:client-only` — and the FALLBACK row stamps the slot directly, which is
-  the ordinary way to test a reader ahead of its writer. When that bead
-  lands, [[fallback-host]]'s two lines become `defhost … {:ssr {:fallback
-  …}}` and nothing else here moves."
+  rf2-2rtt6.85 owns `mint-host!`'s `:ssr` option and has NOT landed —
+  its PR (#7468) was still open when this file was written. The DEFAULT
+  row needs nothing (a head with no policy already reads `:client-only`)
+  and the FALLBACK row stamps the slot directly, which is the ordinary
+  way to test a reader ahead of its writer.
+
+  Checked against #7468 rather than assumed: that PR stores the policy
+  under the same own-property this stamp writes, and enforces it at the
+  element's own TYPE — so when it lands, [[fallback-host]] becomes
+  `defhost … {:ssr {:fallback …}}`, the two host rows keep asserting
+  exactly what they assert now, and the server WALK they exercise
+  ([[re-frame.bench.hicasso.ssr.host-policy]]) is retired under
+  rf2-2rtt6.92."
   (:require [re-frame.bench.hicasso.arm1.dogfood-collector :as collector]
+            [re-frame.bench.hicasso.arm1.presence :refer [presence]]
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.shapes.large-template :as large-template]
@@ -77,6 +87,40 @@
       [:li {:key i} [fallback-host {:kind "fallback" :i i}]])]])
 
 ;; ---------------------------------------------------------------------------
+;; The presence row — a PINNED DEFECT, not a passing feature
+;; ---------------------------------------------------------------------------
+
+(def presence-tray
+  "A presence tray whose children carry `::h/mounting` attribute
+  overrides.
+
+  This row is here to MEASURE a defect the rf2-2rtt6.84 worker predicted
+  and this bead confirmed, not to show something working. Presence's
+  machine starts a child at `:mounting` (`arm1/presence.cljs` —
+  `(react/useState presence/initial)`), and while a child is in that
+  phase the tray applies its `::h/mounting` overrides. A server render
+  therefore ships the ENTER appearance — the `opacity: 0` class an
+  animation is about to move off — into the HTML.
+
+  rf2-2rtt6.84 makes the hydrating client's first pass render those same
+  children `:present` instead (born-present under an open adoption
+  window), so the server's overrides and the client's first pass
+  disagree and React reports a hydration mismatch on every
+  presence-managed node. The repair is for this entry to open the same
+  adoption window around `renderToString` — which it CANNOT do yet,
+  because `runtime/open-adoption-window!` does not exist on main; it is
+  in rf2-2rtt6.84's still-open PR. See
+  [[re-frame.bench.hicasso.ssr.entry]] §The one thing this entry does not
+  do yet."
+  [presence {:timeout-ms 200}
+   (for [i (range 2)]
+     [:div.toast {:key                          i
+                  :data-id                      i
+                  :re-frame.hicasso/mounting    {:class "toast--enter"}
+                  :re-frame.hicasso/unmounting  {:class "toast--exit"}}
+      (str "toast " i)])])
+
+;; ---------------------------------------------------------------------------
 ;; The roster
 ;; ---------------------------------------------------------------------------
 
@@ -117,6 +161,14 @@
     :frame-opts {:url-strategy routing/hash-url-strategy}
     :payload    [:articles :order :tags :user :page :your-feed?]
     :title      "Hicasso SSR — conduit feed"
+    :script-src "/main.js"}
+
+   {:id     "presence-mounting"
+    :why    "PINNED DEFECT — a server render ships presence's ::h/mounting overrides; rf2-2rtt6.94 is the repair"
+    :hiccup presence-tray
+    :snapshot {}
+    :payload  :rf.ssr.payload/whole-app-db
+    :title    "Hicasso SSR — presence (pinned defect)"
     :script-src "/main.js"}
 
    {:id     "defhost-ssr-policy"
