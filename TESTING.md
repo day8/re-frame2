@@ -146,8 +146,19 @@ distinguish prose from a `:require`, and a cleverer grep would eventually admit 
 dependency. A worker reading that red goes looking for a failing test that does not exist,
 which is why the report names the **check** and prints what it actually runs. The same
 class covers `npm run test:ui-isolation` (a step of the `cljs` job whose node-test build
-the spine *does* run) and the required `python scripts/check_*.py` invariant checkers that
-have no local lane.
+the spine *does* run).
+
+**The invariant checkers used to be the bulk of this report; one of them still is.** The
+first run of the gap map named **thirty-eight** required `python scripts/check_*.py`
+invocations with no local lane at all. rf2-ejm7m timed each one and gave thirty-seven of
+them a lane — twenty-nine in the spine's always-on block (mirroring `verify-skill-mcp-drift`
+and `verify-readme-links`, which CI runs unconditionally) and eight in the documentation
+tier (mirroring `docs.yml`'s `docs_surface`-gated `build`). Together those thirty-seven
+cost **6.4s**. The thirty-eighth, `check_retired_image_keys.py --verbose`, costs **37.7s by
+itself** — more than double the spine's whole documentation tier — so it is CI-only *on
+purpose*, and the report still names it. That is a measured decision rather than an
+oversight (rf2-e1xx0 tracks making it fast enough to join the others, after which it leaves
+this report with no list edited anywhere).
 
 **A local `clj-kondo` pass proves nothing unless it is the pinned build.** CI installs an
 exact version and fails on ERROR level only, warnings staying informational; two versions

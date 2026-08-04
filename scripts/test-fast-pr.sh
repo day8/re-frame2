@@ -47,10 +47,17 @@ set -euo pipefail
 # STEP INSIDE A JOB THIS SPINE RUNS — the EP-0036 donor-boundary `git grep` is
 # the last step of `jvm-freehand`, so it reports as "JVM freehand (clojure
 # -M:test)" and is not a test; `npm run test:ui-isolation` is a step of the same
-# `cljs` job whose node-test build this spine does run; and thirteen of CI's
-# required `python scripts/check_*.py` invariant checkers had no local lane at
-# all.  None of those is a skipped TIER, so nothing above can see them.  Run
-# `python scripts/check_fast_pr_gap.py --list` for the local command for each.
+# `cljs` job whose node-test build this spine does run; and thirty-seven of CI's
+# required `python scripts/check_*.py` invocations had no local lane at all until
+# rf2-ejm7m measured them and gave them one — twenty-nine in the always-on block
+# below, eight in the documentation tier.  None of those is a skipped TIER, so
+# nothing above can see them.  Run `python scripts/check_fast_pr_gap.py --list`
+# for the local command for each of the ones that remain.
+#
+# EXACTLY ONE required checker was measured and DELIBERATELY left out:
+# `check_retired_image_keys.py --verbose`, at 37.7s, is more than double this
+# spine's entire documentation tier.  The report still names it, which is the
+# correct answer rather than a gap in this comment.
 #
 # What it DOES mirror is CI's *tiering* — which tiers run for a given diff —
 # because that decision is delegated wholesale to the classifier CI uses.  Tier
@@ -99,7 +106,12 @@ set -euo pipefail
 #   2. python scripts/check_doc_slugs.py               — docs corpus anchors
 #   3. python scripts/check_ep_status_sync.py          — docs/EP index status-sync
 #   4. python scripts/check_runtime_subsystem_grading.py — EP-0006 grading table
-#   5. mkdocs build --strict (console script, else `python -m mkdocs`)
+#   5. python scripts/check_inject_cofx_residue.py       — retired inject-cofx
+#   6. python scripts/check_failure_corpus_residue.py    — retired failure spellings
+#   7. python scripts/check_retired_composition_vocab.py — retired composition vocab
+#   8. python scripts/check_retired_image_keys.py --self-test only (rf2-ejm7m;
+#      its 37.7s live corpus sweep stays CI-only, and the gap map names it)
+#   9. mkdocs build --strict (console script, else `python -m mkdocs`)
 
 # The spine's own tree (scripts, gate commands, the shared classifier) is
 # always derived from this script's location.  `--repo-root` overrides ONLY
@@ -309,6 +321,19 @@ is_doc_surface_path() {
     scripts/check_readme_links.py|scripts/check_doc_slugs.py) return 0 ;;
     scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
     scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
+    # The residue sweeps added to this tier by rf2-ejm7m, same rule as their
+    # neighbours above: a gate whose own script changed has to run.  The first
+    # three are named IDENTICALLY in docs.yml's `detect` classifier, so this is
+    # mirroring CI, not inventing a local surface.  `check_retired_image_keys.py`
+    # is the one CI does not list — added anyway because this spine now executes
+    # its self-test, and a gate that runs here should arm on its own source; the
+    # direction is the safe one (over-arming a 0.08s check).
+    scripts/check_inject_cofx_residue.py|scripts/check_failure_corpus_residue.py) return 0 ;;
+    scripts/check_retired_composition_vocab.py|scripts/check_retired_image_keys.py) return 0 ;;
+    scripts/_test_fixtures/check_inject_cofx_residue/*) return 0 ;;
+    scripts/_test_fixtures/check_failure_corpus_residue/*) return 0 ;;
+    scripts/_test_fixtures/check_retired_composition_vocab/*) return 0 ;;
+    scripts/_test_fixtures/check_retired_image_keys/*) return 0 ;;
   esac
   # The spine's own tree is on this surface too — delegated rather than
   # re-listed, so the two predicates cannot drift apart.
@@ -890,8 +915,65 @@ if [ "$run_docs" = true ]; then
   run "README link/anchor validator" "python scripts/check_readme_links.py --ci" \
     python "$spine_root/scripts/check_readme_links.py" --ci
 
+  run "docs corpus anchor self-test" "python scripts/check_doc_slugs.py --self-test --verbose" \
+    python "$spine_root/scripts/check_doc_slugs.py" --self-test --verbose
+
   run "docs corpus anchor validator" "python scripts/check_doc_slugs.py" \
     python "$spine_root/scripts/check_doc_slugs.py"
+
+  # CI's docs-tier residue sweeps (rf2-ejm7m).  These four live in docs.yml's
+  # `build` job, which is gated on `docs_surface` — so the documentation tier is
+  # where they belong locally, and a code-only diff pays nothing for them.
+  #
+  # MEASURED: eight of the nine invocations cost 1.93s together, against a docs
+  # tier already ~28s (mkdocs --strict dominates).  The NINTH is excluded and
+  # named below.
+  #
+  # They are not subject to the trap PR #7496 found in the mkdocs build — that
+  # gate reads `docs/`, and docs.yml stages `cp -r spec docs/spec` first, so a
+  # bare local run exits 0 having read nothing of a spec edit.  Each of these
+  # scans the TRACKED `spec/` tree and explicitly excludes the staged
+  # `docs/spec/` mirror (`_EXCLUDE_REL_PREFIXES`), so running them here reads
+  # exactly what CI reads, with no staging step to forget.
+  run "inject-cofx residue self-test" "python scripts/check_inject_cofx_residue.py --self-test --verbose" \
+    python "$spine_root/scripts/check_inject_cofx_residue.py" --self-test --verbose
+
+  run "inject-cofx residue" "python scripts/check_inject_cofx_residue.py --verbose" \
+    python "$spine_root/scripts/check_inject_cofx_residue.py" --verbose
+
+  run "failure-corpus residue self-test" "python scripts/check_failure_corpus_residue.py --self-test --verbose" \
+    python "$spine_root/scripts/check_failure_corpus_residue.py" --self-test --verbose
+
+  run "failure-corpus residue" "python scripts/check_failure_corpus_residue.py --verbose" \
+    python "$spine_root/scripts/check_failure_corpus_residue.py" --verbose
+
+  run "retired composition-vocab self-test" "python scripts/check_retired_composition_vocab.py --self-test --verbose" \
+    python "$spine_root/scripts/check_retired_composition_vocab.py" --self-test --verbose
+
+  run "retired composition vocab" "python scripts/check_retired_composition_vocab.py --verbose" \
+    python "$spine_root/scripts/check_retired_composition_vocab.py" --verbose
+
+  # THE ONE THAT IS NOT CHEAP, and the one exception in this bead (rf2-ejm7m).
+  #
+  # `check_retired_image_keys.py --verbose` is 37.7s cold / ~42s warm on this
+  # checkout — 95% of that job's whole checker batch, and more than the entire
+  # documentation tier it would join.  Folding it in would take the docs tier
+  # from ~28s to ~66s: every worker touching a single `.md` file pays a 2.4x
+  # slowdown, which is a worse trade than the ambush it would prevent.  So the
+  # live scan stays CI-only ON PURPOSE, and `check_fast_pr_gap.py` keeps naming
+  # it — correctly, and derivedly, with no exception list anywhere.
+  #
+  # The cost is real work, not a pathology of this machine: the scan is 9.4M
+  # regex searches plus a per-character Clojure string-masking pass over 3,534
+  # files (`_mask_multiline_clj_strings` alone is 12s of it).  A token pre-filter
+  # would very likely make it a sub-second gate and earn it a lane here; that is
+  # rf2-e1xx0, not this bead.
+  #
+  # Its SELF-TEST arm is 0.08s, so that one is here: the thing that proves the
+  # guard still has teeth is cheap even when the corpus sweep is not.
+  run "retired image-keys self-test" "python scripts/check_retired_image_keys.py --self-test --verbose" \
+    python "$spine_root/scripts/check_retired_image_keys.py" --self-test --verbose
+  note_skipped "check_retired_image_keys.py --verbose (docs.yml, required) — 37.7s measured, 95% of that job's checker batch and >2x this whole tier; self-test arm runs above, live corpus sweep is CI-only by measurement (rf2-ejm7m, perf follow-up rf2-e1xx0)"
 
   # EP index status-sync guard (rf2-8cw3m7): docs/EP/README.md restates each
   # EP's Status: line in its index table; the two drift by hand (EP-0001 sat at
