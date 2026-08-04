@@ -505,16 +505,17 @@ if [ "$SELF_TEST" -eq 1 ]; then
 
   # The HUSK detector (rf2-k3j2w), in a throwaway repo; never touches this one.
   #
-  # TWO fixtures, because worktree_is_intact has two clauses and each catches a
-  # husk the other misses:
-  #   outside — a husk with no repo above it (the shape seen in the wild here).
-  #             `rev-parse` fails; this is the one whose dirt reads EMPTY, i.e.
-  #             identical to a clean tree, which is how a gutted worktree came
-  #             to be reported as a retryable file lock.
-  #   nested  — a husk sitting inside another checkout. `rev-parse` WALKS UP,
-  #             finds the enclosing repo and answers happily; only the missing
-  #             `.git` gives it away. Drop that clause and this fixture is the
-  #             one that fails.
+  # THREE fixtures, because worktree_is_intact has two clauses and each catches
+  # a husk the other cannot see. Drop either clause and one fixture reds:
+  #   outside  — a husk with no repo above it (the shape seen in the wild).
+  #              `rev-parse` fails; this is the one whose dirt reads EMPTY, i.e.
+  #              identical to a clean tree, which is how a gutted worktree came
+  #              to be reported as a retryable file lock.
+  #   nested   — a husk sitting inside another checkout. `rev-parse` WALKS UP,
+  #              finds the enclosing repo and answers happily; only the missing
+  #              `.git` gives it away.
+  #   dangling — `.git` present but naming an admin dir that is gone. The `-e`
+  #              check calls that intact; only `rev-parse` sees through it.
   ST_REPO="$WORK_DIR/husk-repo"
   mkdir -p "$ST_REPO"
   ( cd "$ST_REPO" \
