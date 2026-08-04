@@ -577,6 +577,74 @@ candidate second call site appears. The composition value path reopens on
 
 ## HD-020 — v0 host mechanics: frame plumbing, hook ledger, error boundary, SSR posture
 
+> **Addendum, 2026-08-04 — SSR is required scope; clause (d) is reopened
+> (`rf2-2rtt6.83`).** Clause (d) below reserved its own reopening — *"Reopens at
+> product phase (SSR, richer boundary API) by ordinary ruling"* — and this is
+> that ruling, taken by the operator. **(d)'s "SSR is out of v0" no longer
+> holds.** Clauses (a), (b) and (c) are untouched, and (d)'s text stands below
+> as the record of the posture that was superseded.
+>
+> **Operator ruling (Mike), verbatim:** *"SSR is an important part of re-frame2.
+> If hicasso is to be the re-frame native view layer then it has to be used with
+> SSR"* — and earlier the same day: *"hicasso is useless unless it does SSR"*.
+>
+> **What is ruled.** **SSR + hydration is required Hicasso scope**, not a
+> product-phase deferral. The reasoning is the ruling's own: Hicasso's claim is
+> to be re-frame2's native view layer, and re-frame2 has an SSR story; a view
+> layer that cannot be used with it does not hold the claim. (d)'s standing
+> observation that `defview` bodies are `.cljc`-compatible by construction was
+> written as reassurance that nothing was being painted into a corner — it is
+> now load-bearing, because it is what makes this reachable at all.
+>
+> **R0 — one SSR story, not two.** Hicasso participates in re-frame2's
+> **existing** SSR mechanism and adds no parallel Hicasso-only one: [Spec
+> 011](../../../spec/011-SSR.md)'s payload policy, the `__rf_payload`
+> `application/edn` `<script>` embed, `re-frame.ssr/hydrate!` with the reserved
+> `:rf/hydrate` app-db adoption running **before first render**, the existing
+> mismatch machinery (`:rf.ssr/hydration-mismatch`), and `ssr-ring`
+> (`day8/re-frame2-ssr-ring`) as the HTTP host. A second payload wire, a second
+> hydration entry, or a Hicasso-private mismatch channel is out of bounds by
+> this clause — that is what "the re-frame native view layer" means here.
+>
+> **SSR speed remains off the bar, unchanged.** [HD-012](#hd-012--the-bar-and-uixs-role-in-it)
+> and [validation.md](validation.md)'s "Fast applications are the goal — never
+> SSR or test-lane speed" stand exactly as written. This ruling makes SSR
+> **work**; it does not make it fast, and no SSR clock row is quotable against
+> the bar. The requirement is correctness and adoption, judged structurally.
+>
+> **A correction, because the record would otherwise carry a false blocker.**
+> The 2026-08-04 audits reported that the spine's `useSyncExternalStore` call
+> passes no `getServerSnapshot`, and therefore that hydration *"throws by
+> construction"* and core code must change first. **That was stale, and it is
+> refuted three ways in the tree as it stands.** (1)
+> `implementation/core/src/re_frame/substrate/spine.cljs:3031` passes `get-snap`
+> as both the second **and** the third argument
+> (`(React/useSyncExternalStore subscribe-fn get-snap get-snap)`). (2) The arm-1
+> shells do the same —
+> `implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs:1540`
+> and `:1595` each pass `(.-snapshot entry)` in both positions. (3) The
+> `{:hydrate? true}` adoption-reporter tier is already specified and already
+> shipping with DOM tests
+> (`implementation/ssr/src/re_frame/ssr/boot.cljc:202-213`, exercised by
+> `implementation/core/test/re_frame/adapter/react_shared_suite.cljs`). **No
+> core change is needed for hydration snapshots**, and no bead should be filed
+> against that claim.
+>
+> **What this ruling does not settle.** `defhost`'s SSR policy — (d)'s
+> "declared policy for later phases, inert in v0" — is **activated**, but its
+> option spelling is being defined concurrently on `rf2-2rtt6.85`, described
+> there as the *"defhost `:ssr` policy (`:client-only` default, `:fallback`)"*;
+> that bead's words, not this record's, and `rf2-2rtt6.89` carries the resulting
+> HD-011 addendum. Nothing here pins a spelling. The **production server arm** —
+> a JVM structural walk as the default against a Node sidecar — is not chosen
+> here either.
+>
+> **The sitting linkage.** The SSR spike witness (`rf2-2rtt6.87`, rows X1–X5 on
+> the hydrated dogfood screen) is a **required feasibility input** to the
+> P2/[HD-013](#hd-013--governance) sitting, and the production-server-arm choice
+> is priced and ruled **at that same sitting** (`rf2-2rtt6.88`). **One sitting,
+> no separate SSR gate** — SSR does not acquire a decision point of its own.
+
 **Ruling.** (a) **Frame plumbing**: each boundary reads the frame once via the
 substrate's single internal context, then binds it ambiently for the render's
 dynamic extent so inlined helpers and generated callbacks resolve it without

@@ -248,6 +248,100 @@ HALF"). Design record: `docs/design/hicasso/decisions.md` HD-002 (superseded
 blockquote),
 `docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md` §2.
 
+### Addendum, 2026-08-04 — SSR is required Hicasso scope; HD-020(d) is reopened
+
+**Operator ruling (Mike), verbatim:** *"SSR is an important part of re-frame2.
+If hicasso is to be the re-frame native view layer then it has to be used with
+SSR"* — and earlier the same day, verbatim: *"hicasso is useless unless it does
+SSR"*.
+
+Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
+rule 3 — the Specification's wave text, the Non-goals section and the Resolved
+Decisions summary line for HD-020 are left as written, because they are the
+proposal that was accepted.
+
+**What is ruled.** **SSR + hydration is required Hicasso scope.**
+`docs/design/hicasso/decisions.md` HD-020(d) ruled "SSR is out of v0,
+explicitly", and reserved its own reopening — *"Reopens at product phase (SSR,
+richer boundary API) by ordinary ruling"*. This is that ruling. The argument is
+the operator's and it is short: Hicasso's claim is to be re-frame2's native view
+layer, re-frame2 has an SSR story, and a view layer that cannot be used with it
+does not hold the claim.
+
+**The requirement set.** Nine requirements, `R0`–`R8`:
+
+- **R0 — one SSR story, not two.** Hicasso participates in re-frame2's
+  **existing** SSR mechanism and introduces no parallel Hicasso-only one:
+  Spec 011's payload policy, the `__rf_payload` `application/edn` `<script>`
+  embed, `re-frame.ssr/hydrate!` with the reserved `:rf/hydrate` app-db
+  adoption running **before first render**, the existing mismatch machinery
+  (`:rf.ssr/hydration-mismatch`), and `ssr-ring` (`day8/re-frame2-ssr-ring`)
+  as the HTTP host. A second payload wire, a second hydration entry or a
+  private mismatch channel is out of bounds. This is the requirement the other
+  eight are read against.
+- **R1 — pure server render.** A server render produces HTML from an app-db
+  **snapshot**, with no client globals and no mutation of the snapshot.
+- **R2 — hydration adopts.** Zero hydration mismatches; **node identity
+  preserved** (React reuses the server nodes rather than re-creating them);
+  **one body pass** per boundary, counted rather than asserted.
+- **R3 — reactivity adopted on `hydrateRoot`'s schedule.** Subscriptions are
+  live after adoption settles. The settle horizon is **best-effort spine text,
+  never a caller contract** — no public API may promise it and no gate may
+  depend on it.
+- **R4 — the screen is alive after hydration.** Events and the controlled door
+  behave post-hydration exactly as on a client-only mount, judged to the
+  `rf2-2rtt6.67` equivalence standard — canonical-DOM parity **and** dispatched
+  intent-vector parity captured at the `:events` port, mutation-proved.
+- **R5 — `defhost`'s SSR policy is activated.** HD-011's placeholder — HD-020(d)
+  called it "declared policy for later phases, inert in v0" — becomes live. Its
+  option spelling is being defined concurrently on `rf2-2rtt6.85`, described
+  there as the *"defhost `:ssr` policy (`:client-only` default, `:fallback`)"*;
+  that bead's words. **This addendum pins no spelling**; `rf2-2rtt6.89` carries
+  the resulting HD-011 addendum.
+- **R6 — HD-002's ledger discipline holds server-side.** A server render is an
+  **abandoned render** — it never commits, so nothing may be retained on the
+  expectation that a commit will arrive to reconcile or release it. The
+  collector's standing candidate-ledger tripwire applies to the server walk on
+  the same terms as the client one.
+- **R7 — scope is stated known-losses style.** What Hicasso's SSR does *not* do
+  is written down explicitly and by name, in the register of charter.md's
+  "Known losses coming from Reagent" — not left to silence and not discovered
+  by a consumer.
+- **R8 — witnesses carry a producing SHA and a repro command**, per the
+  programme's standing evidence discipline.
+
+**Non-goals, named so they are not read in.** Streaming SSR; React Server
+Components; islands or partial hydration; no-JS progressive enhancement; SEO
+metadata as a Hicasso concern; and **SSR speed as a bar input** — HD-012 and
+`docs/design/hicasso/validation.md`'s "Fast applications are the goal — never
+SSR or test-lane speed" stand **unchanged**. This ruling makes SSR work; it does
+not make it fast, and no SSR clock row is quotable against the bar.
+
+**A correction the record must carry.** The 2026-08-04 audits reported that the
+spine's `useSyncExternalStore` passes no `getServerSnapshot` and that hydration
+therefore *"throws by construction"*, requiring a core change before any of this
+is reachable. **That was stale.** It is refuted three ways in the tree as it
+stands: `implementation/core/src/re_frame/substrate/spine.cljs:3031` passes
+`get-snap` as both second and third argument; the arm-1 shells at
+`implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs:1540` and
+`:1595` do the same with `(.-snapshot entry)`; and the `{:hydrate? true}`
+adoption-reporter tier is already specified and already shipping with DOM tests
+(`implementation/ssr/src/re_frame/ssr/boot.cljc:202-213`). **No core code change
+is needed for hydration snapshots.**
+
+**What this does not decide, and where it is decided.** The **production server
+arm** — a JVM structural walk as the default against a Node sidecar — is not
+chosen here (`rf2-2rtt6.88`). The SSR spike witness (`rf2-2rtt6.87`, rows X1–X5
+on the hydrated dogfood screen) is a **required feasibility input** to the
+P2/HD-013 sitting, and the server-arm choice is priced and ruled **at that same
+sitting**: **one sitting, no separate SSR gate.** SSR does not acquire a decision
+point of its own, and the arm-versus-null question is unchanged by this ruling.
+
+Evidence and full text on `rf2-2rtt6.83`. Design record:
+`docs/design/hicasso/decisions.md` HD-020 (dated addendum),
+`docs/design/hicasso/charter.md`, and the draft guide's
+`01-getting-started.md` / `05-interop.md`.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
