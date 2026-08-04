@@ -101,14 +101,21 @@ Nothing reads the theme in a view. The event that records the choice also return
 
 ```clojure
 (rf/reg-fx :theme/apply!
-  (fn [theme]
+  {:platforms #{:client}}
+  (fn [_ctx theme]
     (.setAttribute (.-documentElement js/document) "data-theme" (name theme))))
 
 (rf/reg-event :theme/choose
   (fn [{:keys [db]} [_ theme]]
-    {:db           (assoc db :theme/current theme)
-     :theme/apply! theme}))
+    {:db (assoc db :theme/current theme)
+     :fx [[:theme/apply! theme]]}))
 ```
+
+Custom effects are rows under `:fx`. The effect map is closed at the top level, so
+a stray `:theme/apply!` beside `:db` is dropped with `:rf.error/effect-map-shape`
+while the `:db` write still lands — which looks exactly like an unwired bridge.
+`{:platforms #{:client}}` keeps the effect off the server, where there is no
+`document`; [Server-side rendering](10-server-side-rendering.md) has the rule.
 
 **Tradeoff.** Zero React work, literally: no subscription, no boundary, no render. The "one attribute flip, zero React work" claim is exact under this option. What you give up:
 
