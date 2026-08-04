@@ -121,7 +121,24 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   commit to equal the worktree's HEAD, and read the worktree ↔ branch mapping from
   the tool rather than deriving either from the other. Beware that zero commits,
   clean tree, no PR describes both an abandoned worker and one that started a
-  minute ago; the discriminator is freshness, not shape.
+  minute ago — and freshness does not break that tie either, however reasonable
+  it sounds. Nothing observable about the tree does; see the next bullet.
+- *Only a worker's own report says it has finished.* Reap a worktree while its
+  agent is still running and you destroy that run — and the wreckage does not
+  announce itself as infrastructure. Gates die naming real, present files as
+  missing, which twice read as a genuine regression to the worker that received
+  it. Six proxies were adopted in a single session, each plausible when adopted,
+  each wrong: PR state (merged means the WORK landed, not that the worker
+  stopped); elapsed time; worktree mtime, which read 250 minutes stale on a tree
+  being committed to as it was read; worker shape; cleanliness — perversely,
+  because a worker that has pushed everything exactly as briefed shows a clean
+  tree throughout a twenty-minute gate, so the better the discipline the likelier
+  the kill; and finally "clean AND merged" together, which still took two spine
+  runs. The signals that have never lied are reads rather than inferences: the
+  agent's own completion report, and whether the messaging tool finds a live task
+  to deliver to. So wait for the report. A stale directory is the entire cost of
+  waiting. And one worker is not one worktree — it may build a second for its
+  gate run, so an unfamiliar worktree belongs to someone until its agent reports.
 - *Pushed commits are the only durable worker state.* Workers die mid-run for
   reasons unrelated to their work, so put "commit and push as you go, not at the
   end" in every brief, with the reason. The mayor may push a worker's existing
