@@ -33,6 +33,8 @@
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
+            [re-frame.interop :as interop]
+            [re-frame.trace :as trace]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
@@ -135,6 +137,91 @@
 ;; (`runtime/mint-view!`, `codec/memoize-boundary!`) are spelled this way.
 (unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
 
+;; ---------------------------------------------------------------------------
+;; The recoverable-error reporter (rf2-2rtt6.97)
+;; ---------------------------------------------------------------------------
+;;
+;; React reports the adoption divergences it RECOVERS FROM — a text
+;; mismatch, or a missing / extra / wrong-type element — through the root's
+;; `onRecoverableError`. Left with no root options this door got React's
+;; DEFAULT handler, so a mismatch was an uncaught window error and NOTHING
+;; ELSE: Spec 011's `:rf.ssr/hydration-mismatch` never fired, and a mismatch
+;; was invisible to every tool that reads the instrumentation stream.
+;;
+;; The shape below is the spine's (`re-frame.substrate.spine`,
+;; `native-hydration-reporter` / `hydrate-root-options`), because this arm is
+;; a React-element root exactly as a native UIx root is: no hashable client
+;; render-tree, so adoption IS the verification channel. Attribute-only
+;; divergences are outside it by React's own contract and stay outside it
+;; here (Spec 011 §Hydration-mismatch detection).
+
+(defn- report-recoverable-default!
+  "React's own default reporting, replicated.
+
+  Installing ANY `onRecoverableError` takes React's default OFF, so a
+  reporter that only emitted would SWALLOW the error — the fail-open
+  `rf2-mwx08` exists to prevent. This door composes over React's default
+  and never clobbers it: the uncaught error a runner treats as fatal is
+  still uncaught, and the diagnostic is added beside it."
+  [error]
+  (if (fn? (.-reportError js/globalThis))
+    (js/reportError error)
+    (when (exists? js/console) (.error js/console error))))
+
+(defn- emit-hydration-mismatch!
+  "Spec 011's `:rf.ssr/hydration-mismatch`, tier-discriminated by
+  `:where` — this door's own site, the way the spine tags
+  `re-frame.substrate.spine/make-render` and the compiled tier tags
+  `re-frame.ui/hydrate-root`. No hash and no `:root-id`: a React-element
+  root has neither. `:recovery` is `:warned-and-replaced` because React
+  has already patched the DOM by the time this runs — there is no
+  `:hard-error` escalation to make.
+
+  Not an event and it mints no epoch: it fires from a React root-error
+  callback, outside any dispatch scope."
+  [error]
+  (trace/emit! :warning :rf.ssr/hydration-mismatch
+               {:error    (some-> error .-message)
+                :where    're-frame.bench.hicasso.arm1.mount/hydrate-root!
+                :recovery :warned-and-replaced}))
+
+(defn hydration-reporter
+  "The `onRecoverableError` a hydrating root installs. **The callback
+  itself, not a builder** — the spine builds one per root because its
+  adoption window is root-local; this arm's window is module-level
+  (`runtime/adopting?`, and the reason is stated there), so there is
+  nothing to close over.
+
+  Emits the framework diagnostic ONLY while the adoption window is open,
+  then ALWAYS reports. React holds this callback for the root's whole
+  lifetime and fires it for post-hydration recoverable errors too — a
+  concurrent render it retried and recovered — and emitting outside the
+  window would label one of those a hydration mismatch. The window shuts
+  on the hydration commit, from [[adoption-window-closer]]'s passive
+  effect.
+
+  Public because that is what lets a witness drive the REAL callback
+  across the window boundary rather than a copy of it — the spine's own
+  reason for publishing `native-hydration-reporter`."
+  [error _error-info]
+  (when (rt/adopting?)
+    (emit-hydration-mismatch! error))
+  (report-recoverable-default! error))
+
+(defn- hydrate-root-options
+  "The `react-dom/client` root options for a hydrating root, or nil.
+
+  Nil in production, where the emit DCEs behind `interop/debug-enabled?`
+  and the only thing left to install would be a replica of the default
+  React would have run anyway — so the caller passes no options at all
+  and the shipped path is exactly what it was. The spine gates the same
+  way, one clause wider: it also installs for a host-authored
+  `:on-recoverable-error`, and this arm has no host-authored callback to
+  compose with."
+  []
+  (when interop/debug-enabled?
+    #js {:onRecoverableError hydration-reporter}))
+
 (defn hydrate-root!
   "Associate `container`'s **existing server-rendered DOM** with
   `frame-kw` and `hiccup`, by adoption. [[root!]]'s hydrating twin, and
@@ -144,7 +231,7 @@
   :container}` — so [[render!]], [[dispatch!]], [[unmount!]] and
   [[release!]] all take a hydrated handle unchanged.
 
-  ## `hydrateRoot` is called PLAIN
+  ## `hydrateRoot` is not wrapped in `flushSync`
 
   No `flushSync`, and that is a finding rather than an omission: nothing
   in this tree forces hydration synchronously, so a flush here would
@@ -168,6 +255,17 @@
   subscription and needs no frame, and a nil-rendering component with no
   frame dependency is the smallest thing that can carry the effect.
 
+  ## It DOES carry root options, and only these (rf2-2rtt6.97)
+
+  [[hydration-reporter]] rides as the root's `onRecoverableError`, so a
+  divergence React recovers from surfaces as Spec 011's
+  `:rf.ssr/hydration-mismatch` instead of only as an uncaught window
+  error. It is the SPINE's arrangement, and it does not soften
+  `rf2-mwx08`: the reporter always reports, so the uncaught error is
+  still uncaught and the diagnostic is added beside it. In production
+  [[hydrate-root-options]] answers nil and this call is the bare
+  two-argument one it always was.
+
   ## The handle carries `:hydrated?`, and it has to
 
   [[root!]]'s three keys are all here and every door takes this handle
@@ -177,8 +275,12 @@
   decision is made and `:hydrated?` is what it reads."
   [container frame-kw hiccup]
   (rt/open-adoption-window!)
-  (let [handle {:frame frame-kw :container container :hydrated? true}]
-    (assoc handle :root (react-dom-client/hydrateRoot container (tree handle hiccup)))))
+  (let [handle  {:frame frame-kw :container container :hydrated? true}
+        element (tree handle hiccup)
+        opts    (hydrate-root-options)]
+    (assoc handle :root (if opts
+                          (react-dom-client/hydrateRoot container element opts)
+                          (react-dom-client/hydrateRoot container element)))))
 
 (defn unmount!
   "Unmount the root and detach its container, and **touch nothing the

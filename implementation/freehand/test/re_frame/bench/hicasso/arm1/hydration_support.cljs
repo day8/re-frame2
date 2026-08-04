@@ -84,9 +84,15 @@
   it, so the signal moves into the row's own assertion instead of being
   lost.
 
-  It is off by default and it belongs at the ONE call site that
-  deliberately hydrates mismatched markup. Anywhere else it would be
-  exactly the fail-open the runner's rule exists to prevent."
+  **It is off by default and it belongs at a call site that MANUFACTURES
+  a recoverable error and asserts on it — nowhere else.** Anywhere else
+  it would be exactly the fail-open the runner's rule exists to prevent.
+  The uncaught error stays uncaught at the DOOR: `mount/hydrate-root!`'s
+  reporter emits the framework diagnostic and then ALWAYS reports
+  (rf2-2rtt6.97), so composing a diagnostic in did not — and must not —
+  make a mismatch quieter than React left it. Every call site that sets
+  this is therefore a deliberate fault, not a door that stopped
+  complaining."
   ([] (open-console-capture! nil))
   ([{:keys [swallow-uncaught?]}]
    (let [captured (atom [])
