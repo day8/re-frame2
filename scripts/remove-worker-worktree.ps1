@@ -520,6 +520,12 @@ if ($SelfTest) {
     New-Item -ItemType Directory -Force -Path $stRepo | Out-Null
     Push-Location $stRepo
     try {
+      # An inherited GIT_DIR (CI runners and some hook contexts set one) would
+      # point `git init` / `git worktree add` at the CALLER's repository instead
+      # of this throwaway.
+      foreach ($v in @('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE')) {
+        Remove-Item -LiteralPath "Env:$v" -ErrorAction SilentlyContinue
+      }
       $null = Invoke-GitQuiet @('init', '-q', '.')
       $null = Invoke-GitQuiet @('-c', 'user.email=selftest@example.invalid', '-c', 'user.name=selftest',
                                 'commit', '-q', '--allow-empty', '-m', 'init')
@@ -554,7 +560,13 @@ if ($SelfTest) {
       Write-Output "SELF_TEST husk detected=yes for all three shapes (outside a repo, where Get-WorktreeDirt reads EMPTY - the trap; nested inside one, where rev-parse walks up and is fooled; and a dangling .git, where the Test-Path check is fooled)"
     }
     else {
-      Write-Output "SELF_TEST husk=SKIPPED (no throwaway worktrees could be built here)"
+      # NOT a SKIP - see the POSIX primary. The junction fixture above may
+      # legitimately skip on a platform that cannot make one; there is no
+      # platform where git can run this script and yet cannot build a worktree
+      # in a temp directory. A husk fixture that will not build means the
+      # detector went untested, and an untested detector must red.
+      Write-Error "SELF_TEST=FAILED could not build the throwaway husk fixtures under $stRepo, so the husk detector was never exercised."
+      exit 1
     }
 
     Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the canary caught nested-only loss, and a husk is not mistaken for a clean tree."

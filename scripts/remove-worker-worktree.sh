@@ -518,7 +518,11 @@ if [ "$SELF_TEST" -eq 1 ]; then
   #              check calls that intact; only `rev-parse` sees through it.
   ST_REPO="$WORK_DIR/husk-repo"
   mkdir -p "$ST_REPO"
-  ( cd "$ST_REPO" \
+  # GIT_DIR and friends are unset for the subshell: an inherited one (CI runners
+  # and some hook contexts set them) would point `git init` and `git worktree
+  # add` at the CALLER's repository instead of this throwaway.
+  ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+    cd "$ST_REPO" \
       && git init -q . \
       && git -c user.email=selftest@example.invalid -c user.name=selftest \
              commit -q --allow-empty -m init \
@@ -548,7 +552,12 @@ if [ "$SELF_TEST" -eq 1 ]; then
 
     printf 'SELF_TEST husk detected=yes for all three shapes (outside a repo, where worktree_dirt reads EMPTY — the trap; nested inside one, where rev-parse walks up and is fooled; and a dangling .git, where the -e check is fooled)\n'
   else
-    printf 'SELF_TEST husk=SKIPPED (no throwaway worktrees could be built here)\n'
+    # NOT a SKIP. The link fixture above may legitimately skip — some platforms
+    # cannot produce a link to test against. There is no platform where git can
+    # run this script and yet cannot build a worktree in a temp directory, so a
+    # husk fixture that will not build means the detector went untested, and an
+    # untested detector must red rather than certify itself.
+    die "SELF_TEST=FAILED could not build the throwaway husk fixtures under $ST_REPO, so the husk detector was never exercised."
   fi
 
   printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the canary caught nested-only loss, and a husk is not mistaken for a clean tree.\n' "$ST_AFTER"
