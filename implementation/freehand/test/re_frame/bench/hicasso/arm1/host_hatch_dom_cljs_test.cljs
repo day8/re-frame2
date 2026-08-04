@@ -29,13 +29,20 @@
 
   HD-020's ≤2-hook budget is a statement about HICASSO'S OWN boundary
   shells. The hosted component's hooks are its own affair — that
-  distinction is the whole point of the door — and the door itself mints
-  NO wrapper component, no fiber and no hook: the foreign component is
-  the element's own type, lowered at the crossing inside the parent
-  boundary's render window. The dispatcher-level probe below reads the
-  shell's two hooks first, exactly one subscription hook on the whole
-  page, and nothing after the shell that is not the widget's own
-  roster.
+  distinction is the whole point of the door — and the dispatcher-level
+  probe below is what measures the difference rather than asserting it.
+
+  **The door's own cost changed with rf2-2rtt6.85**, and this suite is
+  where the change is visible. Until HD-011's SSR placeholder was
+  activated the door minted no wrapper, no fiber and no hook: the
+  foreign component was the element's own type. Activating the policy
+  gives every declaration ONE gate — the component that renders the
+  placeholder until the markup is adopted and the foreign component
+  afterwards — so a crossing now costs one fiber and one
+  `useSyncExternalStore`. The budget itself is untouched: `shell-hook-
+  ledger` still declares two, the gate holds no subscription and reads
+  no frame, and the probe below counts the shell's two, then the door's
+  one, then nothing that is not the widget's own roster.
 
   ## The gap this suite found, and the half only the door can witness
 
@@ -867,7 +874,7 @@
 ;; 6 — the hook budget distinction, at React's own dispatcher
 ;; ---------------------------------------------------------------------------
 
-(deftest the-door-adds-no-hicasso-hook-and-the-hosted-hooks-are-its-own
+(deftest the-door-spends-one-hook-and-the-hosted-hooks-are-its-own
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
     (if-not (probe/install!)
@@ -885,20 +892,25 @@
           (try
             (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
                 (str "the shell's two hooks come FIRST, with nothing before "
-                     "them — the door minted no wrapper and spent no hook on "
-                     "the way to the foreign component: " (pr-str names)))
-            (is (every? #{"useContext" "useState" "useEffect"} (drop 2 names))
-                (str "and EVERYTHING after them is the widget's own roster — "
+                     "them: " (pr-str names)))
+            (is (= "useSyncExternalStore" (nth names 2 nil))
+                (str "then the door's ONE hook — the SSR gate's adoption "
+                     "read (rf2-2rtt6.85), and the whole of what a crossing "
+                     "costs: " (pr-str names)))
+            (is (every? #{"useContext" "useState" "useEffect"} (drop 3 names))
+                (str "and EVERYTHING after it is the widget's own roster — "
                      "useContext/useState/useEffect, however React's dev "
                      "dispatcher counts its reads of them. No useRef, no "
-                     "useCallback, no useMemo, and no hook of Hicasso's: "
+                     "useCallback, no useMemo, and no further hook of "
+                     "Hicasso's: " (pr-str names)))
+            (is (= 2 (count (filter #{"useSyncExternalStore"} names)))
+                (str "exactly TWO on the whole page — the boundary's "
+                     "subscription and the door's gate, and no third: "
                      (pr-str names)))
-            (is (= 1 (count (filter #{"useSyncExternalStore"} names)))
-                (str "exactly ONE subscription hook on the whole page — the "
-                     "one boundary's. HD-020's ≤2 budget is a statement about "
-                     "Hicasso's boundaries; the hosted component's hooks are "
-                     "its own affair, and that distinction is the door's "
-                     "whole point: " (pr-str names)))
+            (is (= 2 (count rt/shell-hook-ledger))
+                (str "and HD-020(b)'s ≤2 budget is untouched by the gate, "
+                     "which is not a boundary: it holds no subscription and "
+                     "reads no frame. " (pr-str rt/shell-hook-ledger)))
             (finally (mount/release! @handle))))))))
 
 ;; ---------------------------------------------------------------------------
