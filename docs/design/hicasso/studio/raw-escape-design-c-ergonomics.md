@@ -661,20 +661,21 @@ position.** Both are values React accepts, so refusing them goes beyond clause
 
 ---
 
-## Beads this design would file
+## Beads this design filed
 
-1. **`defhost` `:ssr` drops children** — R1 above. P1: it makes the guide's
-   provider example wrong under SSR, and SSR is now required scope.
-2. **`host-prop-value` drops a namespaced keyword's namespace.**
+1. **`rf2-l0wfx` (P1) — `defhost` `:ssr` drops children.** R1 above. P1 because
+   it makes the guide's provider example wrong under SSR, and SSR is now
+   required scope.
+2. **`rf2-vrvv9` (P2) — `host-prop-value` drops a namespaced keyword's namespace.**
    `{:value :theme/dark}` crosses as `"dark"`. This matches stock Reagent, but
    `reagent-slim` deliberately narrowed it after an audit (its own docstring
    names the case: *"a keyword like `:rf/foo` on a React-context Provider's
    `:value` is preserved"*). Hicasso's broad `(name v)` re-opens the seam that
    audit closed, and it lands hardest on providers. A `defhost` question, not the
    escape's.
-3. **HD-016's "callback refs only" is not enforced against object refs** —
-   `check-ref!` refuses a vector only. Either the rule is narrower than it reads,
-   or the check is. §Edge 4.
+3. **`rf2-d03av` (P3) — HD-016's "callback refs only" is not enforced against
+   object refs.** `check-ref!` refuses a vector only. Either the rule is narrower
+   than it reads, or the check is. §Edge 4.
 
 ---
 
