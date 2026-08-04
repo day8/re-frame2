@@ -248,12 +248,78 @@ HALF"). Design record: `docs/design/hicasso/decisions.md` HD-002 (superseded
 blockquote),
 `docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md` §2.
 
+### Addendum, 2026-08-04 — SSR + hydration is required Hicasso scope; the programme rides Spec 011
+
+**Operator ruling (Mike), verbatim:** *"SSR is an important part of re-frame2.
+If hicasso is to be the re-frame native view layer then it has to be used with
+SSR"* — **and, earlier the same day, verbatim:** *"hicasso is useless unless it
+does SSR."*
+
+Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
+rule 3 — the wave text and the Non-goals section below are left as written.
+HD-020(d) ("SSR is out of v0") carried its own reopening clause — "at product
+phase (SSR, richer boundary API) by ordinary ruling" — and this is that ruling,
+taken by the operator. The design record carries the matching HD-020 addendum
+(`docs/design/hicasso/decisions.md`).
+
+- **The requirement set, R0–R8.**
+  - **R0 — one SSR story.** Hicasso participates in re-frame2's *existing*
+    Spec 011 (`spec/011-SSR.md`) mechanism — the payload policy, the
+    `#__rf_payload` EDN embed, the `hydrate!` boot helper and the reserved
+    `:rf/hydrate` db adoption before first render, the hydration-mismatch
+    machinery, `ssr-ring` as the HTTP host — **never a parallel Hicasso-only
+    mechanism**.
+  - **R1 — pure server render.** A server render is produced purely from a db
+    snapshot.
+  - **R2 — hydration adopts.** Zero hydration mismatch, server node identity
+    preserved (React adopts the server DOM, never re-creates it), and exactly
+    one body pass.
+  - **R3 — reactivity adopted on hydrateRoot's schedule.** Subscriptions come
+    live on React's own hydration schedule; the settle horizon is best-effort,
+    never a caller contract.
+  - **R4 — the live page.** Events and the controlled door work
+    post-hydration to the `rf2-2rtt6.67` equivalence standard.
+  - **R5 — the `defhost` SSR policy is activated.** HD-011's declared
+    placeholder becomes the real `:ssr` option.
+  - **R6 — the ledger discipline holds server-side.** HD-002's discipline is
+    unbroken on the server: a server render is an abandoned render, leaving
+    zero durable registration.
+  - **R7 — scope is stated known-losses style.**
+  - **R8 — witnesses carry SHA + repro commands.**
+- **Non-goals, explicitly:** streaming, RSC, islands/partial hydration, no-JS
+  progressive enhancement, SEO metadata, and SSR-speed-as-bar — HD-012 and the
+  Motivation's "fast applications, not fast SSR" line stand unchanged.
+- **The sitting linkage — one sitting, no separate gate.** The X1–X5 spike
+  witness on the hydrated dogfood screen (`rf2-2rtt6.87`) is a **required
+  feasibility input** to the P2/HD-013 sitting, and the production-server-arm
+  choice — JVM structural walk (the default direction to be priced) vs Node
+  sidecar (`rf2-2rtt6.88`) — is priced and ruled **at that same sitting**.
+- **A stale blocker, corrected on the record.** The 2026-08-04 audits' claim
+  that the spine's `useSyncExternalStore` lacks `getServerSnapshot` — so
+  "hydration throws by construction" — was stale, refuted independently three
+  times: the spine passes its snapshot fn as both the 2nd and 3rd arguments
+  (`implementation/core/src/re_frame/substrate/spine.cljs:3031`); the arm-1
+  shells do likewise
+  (`implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs:1540`,
+  `:1595`); and the `{:hydrate? true}` adoption-reporter tier ships with DOM
+  tests (`implementation/ssr/src/re_frame/ssr/boot.cljc:202-213`). **No core
+  code change is needed for hydration snapshots.**
+
+Status is honest tense: the hydration door, the `defhost` `:ssr` policy, the
+Node render entry and the spike witness are dispatched as `rf2-2rtt6.84`–`.87`;
+nothing has landed at the time of this addendum. Evidence and full text on
+`rf2-2rtt6` and `rf2-2rtt6.83`.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
 2. The P2 fork ruling (operator; end of the tournament). **Narrowed 2026-07-31**
    by the addendum above: the choice between the two Hicasso arms is settled, so
-   what remains is the surviving arm against the null.
+   what remains is the surviving arm against the null. **Amended 2026-08-04** by
+   the SSR addendum above: the sitting additionally takes the X1–X5 SSR spike
+   witness (`rf2-2rtt6.87`) as a required feasibility input, and prices + rules
+   the production-server-arm choice (`rf2-2rtt6.88`) at the same sitting — one
+   sitting, no separate gate.
 3. The HD-002 read-mechanism adjudication (resolved by P1 instrumentation).
    **Narrowed 2026-07-31** by the addendum above: the ergonomics half is
    decided — Surface B (the ambient collector) is the only acceptable read

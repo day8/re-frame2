@@ -154,6 +154,15 @@ render path ships). Deferred past v0: the full buffered/revision input ladder,
 overlay excellence, batteries/library platform, SSR as identity, devtools glass,
 per-keystroke envelopes as a gate.
 
+**Amended 2026-08-04 (operator ruling):** the out-of-v0 SSR posture above is
+superseded — **SSR + hydration is required Hicasso scope** ("hicasso is useless
+unless it does SSR"), through the framework's own Spec 011 story, recorded as
+the HD-020 addendum in [decisions.md](decisions.md) and the same-date EP-0038
+addendum. The sentences above stand as the record of what v0 pre-registered.
+SSR *speed* stays off the bar, and "SSR as identity" stays in the deferred
+list — SSR is a required capability, not the product's identity. In progress as
+beads `rf2-2rtt6.84`–`.87`; nothing has landed yet.
+
 **A. The everyday SPA spine** (where the bar lives)
 1. Ordinary views — the ~50-element form/list/layout shape.
 2. Large templates — the ~1,200-element shape.
@@ -199,6 +208,11 @@ as the dogfood demands)
 14. SSR + hydration surviving production posture. 15. Routing (route-link is
 tier-1). 16. Multi-frame isolation. 17. Hot reload with clean remount semantics.
 18. Time travel, including mounted host state.
+
+**Amended 2026-08-04 (operator ruling):** item 14 is no longer waiting past
+v0 — SSR + hydration is required Hicasso scope, per the same-date note under
+the v0 scope paragraph above and the HD-020 addendum in
+[decisions.md](decisions.md).
 
 **G. Proof and production posture**
 19. Testable without a browser through the public door; structural tests on data
