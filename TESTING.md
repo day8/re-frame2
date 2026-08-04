@@ -31,7 +31,7 @@ This table is also the command catalogue: each kind names the command that runs 
 | **MCP conformance, wire** — `test:mcp-conformance` (single entry point; per-suite scripts in `tools/mcp-conformance/`) | medium | Both servers honour the strict `CallToolResultSchema`; exec-safety helpers. |
 | **docs/cljs playground** — `tools-playground` job | medium | The live-CLJS-cell engine: builds both bundles, Chromium-smokes them, byte-diffs the committed esbuild bootstrap, and structurally validates the generated SCI bundle (untracked since rf2-tzy13 — built in-run, so it cannot be stale). `docs.yml` re-runs the build + smoke on deploy, so the shipped artifact is the smoked one. |
 | **MCP conformance, live** — `test:re-frame2-pair-live-hermetic-suite` | expensive | Real re-frame2-pair-mcp against a real shadow-cljs nREPL: eval cap, subscribe lifecycle, redaction, isError, cofx, event metadata. |
-| **Story gates** — `test:story-play-scripts` (PR smoke), `test:story-feature-load` + `test:story-static` (nightly) | expensive | Every variant's `:play-script` runs as a regression test; the full feature-load + static-export sweep runs nightly. |
+| **Story gates** — `test:story-play-scripts` (PR smoke), `test:story-feature-load` (nightly, plus PR when its own runners change), `test:story-static` (nightly) | expensive | Every variant's `:play-script` runs as a regression test; the full feature-load + static-export sweep runs nightly. |
 | **Xray gates** — `test:xray-feature-gate:smoke` (PR), `test:xray-feature-gate` (nightly) | medium / expensive | The Xray feature matrix; smoke = highest-signal scenarios over few staged surfaces, nightly = all scenarios, all surfaces. |
 | **Template emitted-app smoke** — `jvm-tools-template` job | expensive | The emitted app boots and passes its own gates, plus the `re-frame2-setup` day-one scaffold materialise-and-compile drift net. Behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`. |
 
@@ -66,7 +66,9 @@ The classifier maps "what files changed" → "which expensive jobs fire." The fu
 3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/bundle matrix, unconditional all-examples compile, full Story/Xray sweeps, template smoke, live MCP conformance.
 4. **Release** — `.github/workflows/release.yml` plus the latest green expensive run on the release candidate.
 
-**The Story/Xray two-tier split.** The `story-xray-browser` PR job runs `test:xray-feature-gate:smoke` + `test:story-play-scripts`; the full sweep runs nightly. The dominant cost is testbed compilation, so both tiers share a keyed shadow-cljs compile cache that any source change busts. When adding an Xray scenario, tag it `smoke: true` (in `tools/xray/testbeds/feature_matrix/scenarios.cjs`) only if it earns a slot on every PR **and** loads an already-staged smoke surface; everything else is nightly by default. The gate fails loud if the smoke set is ever empty.
+**The Story/Xray two-tier split.** The `story-xray-browser` PR job runs `test:xray-feature-gate:smoke` + `test:story-play-scripts`; the full sweep runs nightly. The dominant cost is testbed compilation, so both tiers share a keyed shadow-cljs compile cache that any source change busts.
+
+One exception, and it is the exception that keeps the split honest (rf2-65ajl): a gate that is nightly-only cannot be *changed* safely, because the PR changing it runs nothing that loads it. `test:story-feature-load` therefore also runs at PR time on the PRs that edit its own two Playwright spec modules (`tools/story/test/story_feature_load.cjs`, `story_browser_scenarios.cjs`) or the run/serve orchestration that stages them — the `story_full_gate` surface. Ordinary Story/Xray runtime changes are untouched and keep the cheap smoke path; the nightly sweep remains the system of record for the full matrix. When adding an Xray scenario, tag it `smoke: true` (in `tools/xray/testbeds/feature_matrix/scenarios.cjs`) only if it earns a slot on every PR **and** loads an already-staged smoke surface; everything else is nightly by default. The gate fails loud if the smoke set is ever empty.
 
 ## Test authoring policy
 
@@ -129,7 +131,8 @@ The classifier is the **source of truth for "which jobs run when"** on a PR: the
 | `template_expensive` | `tools/template/*` changes | the emitted-app smoke |
 | `mcp_conformance` | any MCP server, mcp-base, or mcp-conformance changes | the MCP conformance jobs |
 | `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance change | the live + hermetic MCP job |
-| `story_xray_browser` | runtime-extension files under `tools/{story,xray}/{src,testbeds}` change — specs, JVM tests, deps.edn, READMEs do **not** fire it (they can't affect chrome); core doesn't either | the PR-smoke browser job |
+| `story_xray_browser` | runtime-extension files under `tools/{story,xray}/{src,testbeds}` change — specs, JVM tests, deps.edn, READMEs do **not** fire it (they can't affect chrome); core doesn't either | the PR-smoke steps of the browser job |
+| `story_full_gate` | the full Story feature-load gate's own spec modules (`tools/story/test/story_{feature_load,browser_scenarios}.cjs`) or its run/serve orchestration change | the `test:story-feature-load` step of the browser job |
 | `tenant_switcher_smoke` | `testbeds/tenant_switcher/**` or `implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs` change | the `tenant-switcher-testbed-smoke` browser job |
 | `skills_structural` | `skills/re-frame2-pair/*`, `skills/re-frame2-setup/*`, or `skills/shared/*` change | `skills-structural` |
 | `playground` | the playground tool, the committed esbuild bootstrap bundle, the SCI input-digest script, or a change to any tree baked into the SCI bundle — `implementation/core/*`, `implementation/adapters/reagent-slim/*`, `implementation/machines/*`, `implementation/flows/*` (rf2-tzy13) | `tools-playground` |

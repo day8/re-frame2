@@ -72,9 +72,23 @@ test('Xray spec-only .md changes do NOT trigger story_xray_browser (rf2-k9ekz)',
   assert.equal(result.story_xray_browser, 'false');
 });
 
-test('Story test-only changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
-  const result = classify('tools/story/test/story_feature_load.cjs');
-  assert.equal(result.story_xray_browser, 'false');
+// rf2-65ajl — this row's exemplar USED to be
+// tools/story/test/story_feature_load.cjs, pinned to false. The assertion was
+// correct about the behaviour and wrong about the intent: that file is the
+// FULL Story feature-load gate's own Playwright spec, and pinning it here read
+// as a considered decision that no browser gate needs to run for it. What was
+// actually true is narrower — the PR-SMOKE tier must not run for it, because
+// neither of the smoke's two commands loads it. The full gate must. So the row
+// keeps its claim with an exemplar that really is inert (a JVM unit test), and
+// story_feature_load.cjs is now covered POSITIVELY by the story_full_gate rows
+// further down, where its own gate is asserted to run.
+test('Story test-tree changes do NOT trigger the story_xray_browser PR-smoke tier (rf2-k9ekz)', () => {
+  const exemplar = 'tools/story/test/re_frame/story_decorator_chain_test.clj';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, exemplar)),
+    `${exemplar} must exist — this row's whole claim is "a real JVM unit test"`,
+  );
+  assert.equal(classify(exemplar).story_xray_browser, 'false');
 });
 
 test('Xray test-only changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
@@ -1786,14 +1800,92 @@ test('PR story-xray-browser job keeps the Story :play-script gate (assertion-str
   assert.match(block, /npm run test:story-play-scripts/);
 });
 
-test('PR story-xray-browser job does NOT run the full sweep (moved to nightly, rf2-wa3oo)', () => {
+// rf2-65ajl — this row USED to assert `test:story-feature-load` was absent
+// from the PR job outright. That pin is what made the second half of the
+// false-green permanent: a PR could change the full gate's own runner and no
+// PR-time command would load it, because the only command that does was pinned
+// out. The tier split it was defending is real and is kept — the full sweep
+// does not belong on every Story/Xray PR — but "not on every PR" is not "on no
+// PR". The command is now present and CONDITIONAL, so the claim becomes: it
+// runs only under story_full_gate.
+// Return the step that RUNS `command`: from its `- name:` header through the
+// `run:` line, so the step's own `if:` is inside and a neighbour's is not.
+// Anchored on `run: ` deliberately — every one of these commands is also named
+// in the surrounding prose, and a `.includes()` over a comment would let a
+// step's condition be read off the wrong step (which is how the first draft of
+// this row passed against the smoke step's `if:`).
+function stepRunning(block, command) {
+  const marker = `run: ${command}`;
+  const idx = block.indexOf(marker);
+  if (idx === -1) return null;
+  const start = block.lastIndexOf('\n      - name:', idx);
+  return start === -1 ? null : block.slice(start, idx + marker.length);
+}
+
+test('PR story-xray-browser job runs the FULL feature-load gate, gated on story_full_gate (rf2-65ajl)', () => {
   const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
-  assert.doesNotMatch(block, /npm run test:story-feature-load/);
+  // The command and its condition must be in the SAME step, or the gate is
+  // either unconditional (nightly cost on every Story PR) or dead.
+  const step = stepRunning(block, 'npm run test:story-feature-load');
+  assert.ok(
+    step,
+    'the PR job must RUN the one command that loads the full-gate runners',
+  );
+  assert.match(
+    step,
+    /if:\s*needs\.detect_changed_surfaces\.outputs\.story_full_gate == 'true'/,
+    'the full feature-load step must be gated on story_full_gate',
+  );
+});
+
+test('PR story-xray-browser job still keeps the rest of the sweep nightly (rf2-wa3oo)', () => {
+  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
   assert.doesNotMatch(block, /npm run test:story-static/);
   // The non-smoke (full-matrix) Xray gate must not run at PR time. The
   // `:smoke` suffix is intentionally allowed; assert the bare invocation
   // (followed by end-of-line, not `:smoke`) is absent.
   assert.doesNotMatch(block, /npm run test:xray-feature-gate(?!:smoke)/);
+});
+
+test('PR story-xray-browser job opens for EITHER tier (rf2-65ajl)', () => {
+  // A full-gate-only change leaves story_xray_browser false, so a job condition
+  // reading only that output would skip the job and the new step with it — the
+  // same hole one level up.
+  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  const header = block.slice(0, block.indexOf('steps:'));
+  assert.match(header, /outputs\.story_xray_browser == 'true'/);
+  assert.match(header, /outputs\.story_full_gate == 'true'/);
+  assert.match(header, /\|\|/, 'the two tier conditions must be a disjunction');
+});
+
+test('the two PR-smoke steps are gated on story_xray_browser (rf2-65ajl)', () => {
+  // The converse of the row above: a full-gate-only PR must not pay for two
+  // smoke testbed compiles whose commands its diff cannot reach.
+  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  for (const command of [
+    'npm run test:xray-feature-gate:smoke',
+    'npm run test:story-play-scripts',
+  ]) {
+    const step = stepRunning(block, command);
+    assert.ok(step, `${command} must live in a named step`);
+    assert.match(
+      step,
+      /if:\s*needs\.detect_changed_surfaces\.outputs\.story_xray_browser == 'true'/,
+      `${command} must be gated on story_xray_browser`,
+    );
+  }
+});
+
+test('detect_changed_surfaces exports story_full_gate (rf2-65ajl)', () => {
+  // The classifier can emit an output and the workflow still never see it: a
+  // job reads `needs.<job>.outputs.<name>`, which resolves to the empty string
+  // unless the producing job DECLARES it. An undeclared output makes every
+  // `== 'true'` false — a gate that can never fire, and silently.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'detect_changed_surfaces');
+  assert.match(
+    block,
+    /story_full_gate: \$\{\{ steps\.detect\.outputs\.story_full_gate \}\}/,
+  );
 });
 
 test('Nightly expensive workflow runs the full Story/Xray sweep (rf2-wa3oo)', () => {
@@ -1888,18 +1980,158 @@ for (const file of ADAPTER_SMOKE_GATE_FILES) {
   });
 }
 
-const STORY_GATE_FILES = [
-  'examples/scripts/serve-and-run-story-feature-load-tests.cjs',
-  'examples/scripts/run-story-feature-load-tests.cjs',
+// rf2-65ajl — this roster used to be four files all asserted to fire
+// story_xray_browser. Two of them are not on the PR-smoke tier's path at all:
+// the smoke runs `test:xray-feature-gate:smoke` + `test:story-play-scripts`,
+// and serve-and-run-story-feature-load-tests.cjs / run-story-feature-load-
+// tests.cjs are reachable from `npm run test:story-feature-load` and nothing
+// else. They move to the story_full_gate roster below, where the output
+// schedules the step that actually runs them.
+const STORY_SMOKE_GATE_FILES = [
   'examples/scripts/serve-and-run-story-play-scripts.cjs',
   'examples/scripts/story-feature-load-port.cjs',
 ];
-for (const file of STORY_GATE_FILES) {
+for (const file of STORY_SMOKE_GATE_FILES) {
   test(`${file} fires story_xray_browser (rf2-y9o5e3)`, () => {
     const result = classify(file);
     assert.equal(result.story_xray_browser, 'true');
   });
 }
+
+// rf2-65ajl — the FULL Story feature-load gate. Two independent halves had to
+// close together: the classifier armed nothing for tools/story/test/**, and the
+// job story_xray_browser schedules ran neither command that loads those files.
+// These rows pin the first half; the workflow rows above pin the second.
+
+const STORY_FULL_GATE_FILES = [
+  'tools/story/test/story_feature_load.cjs',
+  'tools/story/test/story_browser_scenarios.cjs',
+  'examples/scripts/serve-and-run-story-feature-load-tests.cjs',
+  'examples/scripts/run-story-feature-load-tests.cjs',
+  'examples/scripts/story-feature-load-port.cjs',
+];
+for (const file of STORY_FULL_GATE_FILES) {
+  test(`${file} fires story_full_gate (rf2-65ajl)`, () => {
+    const result = classify(file);
+    assert.equal(result.story_full_gate, 'true');
+  });
+}
+
+test('the full-gate launchers do not fall through to the generic examples fan-out (rf2-65ajl)', () => {
+  // Moving these two off the story_xray_browser arm left them with no arm of
+  // their own, so a POSIX `case` walked on to the generic `examples/*` case and
+  // silently armed cljs_node_test + cljs_browser — two heavy jobs, on two Node
+  // launchers that compile no CLJS. They have a dedicated no-op arm now whose
+  // only job is to stop the walk; this row is what keeps it there.
+  for (const file of [
+    'examples/scripts/serve-and-run-story-feature-load-tests.cjs',
+    'examples/scripts/run-story-feature-load-tests.cjs',
+  ]) {
+    const result = classify(file);
+    assert.equal(result.story_full_gate, 'true', file);
+    assert.equal(result.cljs_browser, 'false', file);
+    assert.equal(result.cljs_node_test, 'false', file);
+    // The one arm they kept: they are under examples/, so the examples-compile
+    // roster still fires, exactly as it did before this bead.
+    assert.equal(result.examples_compile, 'true', file);
+    // And the smoke tier they were wrongly on: neither smoke command loads
+    // them, so it must not fire.
+    assert.equal(result.story_xray_browser, 'false', file);
+  }
+});
+
+test('the play-script launcher stays on the smoke tier only (rf2-65ajl)', () => {
+  // The converse control. serve-and-run-story-play-scripts.cjs IS the command
+  // the smoke tier runs, so it must keep story_xray_browser and must NOT drag
+  // the full gate along.
+  const result = classify('examples/scripts/serve-and-run-story-play-scripts.cjs');
+  assert.equal(result.story_xray_browser, 'true');
+  assert.equal(result.story_full_gate, 'false');
+});
+
+test('every spec module the full-gate runner loads is armed (rf2-65ajl)', () => {
+  // The teeth. Read the roster off the RUNNER rather than trusting the list
+  // above: `ALL_SPEC_FILES` in run-story-feature-load-tests.cjs is what
+  // `npm run test:story-feature-load` actually executes, so a third spec added
+  // there is armed on arrival rather than on the next audit. Names, not counts.
+  const runner = path.join(
+    REPO_ROOT,
+    'examples',
+    'scripts',
+    'run-story-feature-load-tests.cjs',
+  );
+  const source = fs.readFileSync(runner, 'utf8');
+  const block = source.slice(
+    source.indexOf('const ALL_SPEC_FILES'),
+    source.indexOf('];', source.indexOf('const ALL_SPEC_FILES')),
+  );
+  assert.ok(block, 'ALL_SPEC_FILES not found in the full-gate runner');
+  const specs = [...block.matchAll(/path\.join\(REPO_ROOT,\s*([^)]+)\)/g)].map((m) =>
+    m[1]
+      .split(',')
+      .map((part) => part.trim().replace(/^['"]|['"]$/g, ''))
+      .filter(Boolean)
+      .join('/'),
+  );
+  assert.ok(specs.length > 0, 'expected the runner to declare at least one spec module');
+  for (const spec of specs) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, spec)),
+      `${spec} is listed in ALL_SPEC_FILES but does not exist — the parse has rotted`,
+    );
+    assert.equal(
+      classify(spec).story_full_gate,
+      'true',
+      `${spec} is executed by npm run test:story-feature-load but does not arm story_full_gate`,
+    );
+  }
+});
+
+test('ordinary Story/Xray runtime changes keep the cheap smoke path (rf2-65ajl)', () => {
+  // The bead's second criterion. A src/testbed change must NOT drag the full
+  // sweep onto the critical path — it gets the smoke tier it already had.
+  for (const file of [
+    'tools/story/src/re_frame/story.cljc',
+    'tools/story/testbeds/counter_with_stories/stories.cljs',
+    'tools/xray/src/day8/re_frame2_xray/core.cljs',
+    'tools/xray/testbeds/edn_inspector/core.cljs',
+    // The Xray gate's own scenario roster is the instructive contrast: unlike
+    // the Story runners, `test:xray-feature-gate:smoke` — a command the smoke
+    // tier already runs — reads this file, so the cheap tier really does
+    // exercise it and it needs no second output.
+    'tools/xray/testbeds/feature_matrix/scenarios.cjs',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — this row pins the routing of a REAL runtime file`,
+    );
+    const result = classify(file);
+    assert.equal(result.story_xray_browser, 'true', file);
+    assert.equal(result.story_full_gate, 'false', file);
+  }
+});
+
+test('unrelated JVM / unit-test-only changes arm NEITHER browser tier (rf2-65ajl negative control)', () => {
+  // The bead's fourth criterion. The expensive browser job must stay off
+  // changes that cannot reach a browser at all.
+  for (const file of [
+    // Real files, not hypotheticals: a negative control that pins a path
+    // nothing produces any more is permanently, silently green.
+    'tools/story/test/re_frame/story_decorator_chain_test.clj',
+    'tools/story/test/re_frame/story_cljs_test.cljs',
+    'tools/xray/test/day8/re_frame2_xray/config_test.clj',
+    'implementation/core/src/re_frame/core.cljc',
+    'spec/Conventions.md',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a negative control on a phantom path is vacuous`,
+    );
+    const result = classify(file);
+    assert.equal(result.story_full_gate, 'false', file);
+    assert.equal(result.story_xray_browser, 'false', file);
+  }
+});
 
 test('examples/scripts/port-resolver.cjs (shared resolver) fires BOTH browser gates (rf2-y9o5e3)', () => {
   const result = classify('examples/scripts/port-resolver.cjs');

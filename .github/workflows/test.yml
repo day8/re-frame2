@@ -84,6 +84,7 @@ jobs:
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
       mcp_live: ${{ steps.detect.outputs.mcp_live }}
       story_xray_browser: ${{ steps.detect.outputs.story_xray_browser }}
+      story_full_gate: ${{ steps.detect.outputs.story_full_gate }}
       tenant_switcher_smoke: ${{ steps.detect.outputs.tenant_switcher_smoke }}
       skills_structural: ${{ steps.detect.outputs.skills_structural }}
       playground: ${{ steps.detect.outputs.playground }}
@@ -3366,7 +3367,15 @@ jobs:
   story-xray-browser:
     name: Story/Xray browser gates (PR-smoke)
     needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.story_xray_browser == 'true'
+    # rf2-65ajl — two tiers, two conditions. `story_xray_browser` schedules the
+    # PR-smoke steps; `story_full_gate` schedules the full Story feature-load
+    # step. Either alone must open the job, and each step carries its own tier's
+    # condition, so a change to the full-gate runners does not pay for two smoke
+    # compiles it cannot affect and an ordinary Story/Xray runtime change keeps
+    # exactly the cheap path it had.
+    if: >-
+      needs.detect_changed_surfaces.outputs.story_xray_browser == 'true' ||
+      needs.detect_changed_surfaces.outputs.story_full_gate == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -3456,9 +3465,12 @@ jobs:
       #     assertion-strip :key fix stays covered on the PR critical
       #     path.
       #
-      # The full sweep (test:xray-feature-gate, test:story-feature-load,
-      # test:story-static) runs nightly in expensive-tests.yml.
+      # The rest of the full sweep (test:xray-feature-gate, test:story-static)
+      # still runs nightly in expensive-tests.yml. test:story-feature-load is
+      # the exception, and only for the PRs that change it — see the step at
+      # the end of this job (rf2-65ajl).
       - name: Run Xray feature browser gate (PR-smoke)
+        if: needs.detect_changed_surfaces.outputs.story_xray_browser == 'true'
         run: npm run test:xray-feature-gate:smoke
 
       # rf2-3qcxk — every Story variant whose body carries a
@@ -3469,7 +3481,36 @@ jobs:
       # single-testbed compile and is the live render path that exercises
       # the assertion-strip (rf2-5lw9w).
       - name: Run Story :play-script CI-as-test gate
+        if: needs.detect_changed_surfaces.outputs.story_xray_browser == 'true'
         run: npm run test:story-play-scripts
+
+      # rf2-65ajl — the half of the fix that lives in the job. Arming a
+      # changed-surface output is worthless if the job it schedules does not run
+      # the changed file, and that was the case here: the two steps above are
+      # the only commands this job ran, and NEITHER loads
+      # tools/story/test/story_feature_load.cjs or story_browser_scenarios.cjs.
+      # Only `npm run test:story-feature-load` does — it compiles the two Story
+      # testbeds, serves them, and drives both spec modules through Chromium —
+      # and it was nightly-only. #7472 changed story_feature_load.cjs's
+      # COVERAGE_MATRIX and said in its body that CI would be the first
+      # end-to-end exercise of the demoted row; the job was skipped, and had it
+      # run it would have executed neither command that loads the file.
+      #
+      # Gated on `story_full_gate`, which arms ONLY on the gate's own spec
+      # modules and its run/serve orchestration — not on ordinary Story/Xray
+      # runtime changes, which keep the cheaper smoke path above. So this adds
+      # nothing to the critical path of a normal Story/Xray PR: it runs on the
+      # rare PR that edits the runner itself, where it is the only step that
+      # exercises the diff at all. Cost when it does run is one extra testbed
+      # compile (login-form; counter-with-stories is already compiled by the
+      # play-script step, and both share this job's keyed .shadow-cljs cache)
+      # plus the two Playwright specs.
+      #
+      # The nightly sweep in expensive-tests.yml is unchanged and remains the
+      # system of record for the full matrix.
+      - name: Run the FULL Story feature-load gate (direct-runner change, rf2-65ajl)
+        if: needs.detect_changed_surfaces.outputs.story_full_gate == 'true'
+        run: npm run test:story-feature-load
 
       # rf2-315cf (Option B) — on a RED browser gate, upload the failed-run
       # evidence so the failure is a downloadable, off-CI post-mortem

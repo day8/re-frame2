@@ -74,6 +74,14 @@ template_expensive=false
 mcp_conformance=false
 mcp_live=false
 story_xray_browser=false
+# rf2-65ajl — the FULL Story feature-load gate (`npm run test:story-feature-load`),
+# as distinct from the PR-SMOKE tier `story_xray_browser` gates. Its own output
+# because the two tiers run DIFFERENT COMMANDS: the smoke job runs
+# `test:xray-feature-gate:smoke` + `test:story-play-scripts`, neither of which
+# loads the full-gate runners. Arming `story_xray_browser` for a change to
+# tools/story/test/story_feature_load.cjs would therefore schedule a job that
+# still never executes the changed file. See is_story_full_gate_path below.
+story_full_gate=false
 tenant_switcher_smoke=false
 skills_structural=false
 playground=false
@@ -101,6 +109,7 @@ mark_all() {
   mcp_conformance=true
   mcp_live=true
   story_xray_browser=true
+  story_full_gate=true
   tenant_switcher_smoke=true
   skills_structural=true
   playground=true
@@ -274,6 +283,57 @@ is_story_xray_dom_test_path() {
   esac
 }
 
+# rf2-65ajl — predicate: is `$1` part of the FULL Story feature-load gate
+# itself — the two Playwright spec modules `npm run test:story-feature-load`
+# loads, or the run/serve orchestration that loads them? Returns 0 / 1.
+#
+# WHY IT IS NOT `story_xray_browser`. That output schedules the PR-SMOKE tier
+# (rf2-wa3oo), whose two steps are `test:xray-feature-gate:smoke` and
+# `test:story-play-scripts`. NEITHER command loads
+# tools/story/test/story_feature_load.cjs or story_browser_scenarios.cjs — only
+# `test:story-feature-load` does, and that command was nightly-only. So the gap
+# had two independent halves and closing either alone left the hole open:
+# the classifier did not arm on tools/story/test/** at all, AND the job the
+# output schedules would not have run the changed file if it had. #7472 changed
+# story_feature_load.cjs's COVERAGE_MATRIX, said in its body that CI would be
+# the first end-to-end exercise of the demoted row, and merged with the job
+# skipped (rf2-65ajl).
+#
+# The roster is the runner's own spec list plus the orchestration that stages
+# and serves it:
+#   * the two spec modules — `ALL_SPEC_FILES` in
+#     examples/scripts/run-story-feature-load-tests.cjs. A test in
+#     implementation/scripts/_changed-surfaces.test.cjs reads that array off the
+#     runner and asserts every entry is armed here, so a third spec added to the
+#     runner is armed on arrival rather than on the next audit.
+#   * run-story-feature-load-tests.cjs — the runner: it selects the spec
+#     modules, owns the per-spec timeout and the console/pageerror verdict.
+#   * serve-and-run-story-feature-load-tests.cjs — the orchestrator: it compiles
+#     the two Story testbeds, cleans + stages their HTML and serves them.
+#   * story-feature-load-port.cjs — the dedicated port resolver both launchers
+#     call before anything is compiled or served.
+#
+# Deliberately NOT the SHARED examples/scripts helpers (port-resolver.cjs,
+# examples-staging.cjs, examples-asset-manifest.cjs). Each is already armed for
+# `story_xray_browser`, and the PR-smoke tier RUNS `test:story-play-scripts`,
+# which calls resolveStoryFeatureLoadPort + cleanStageDirs over the same staged
+# output — so a break in a shared helper reds a job that already runs at PR
+# time. Paying for the full gate on top would buy no new signal.
+#
+# Deliberately NOT the rest of tools/story/test/**: an ordinary JVM `.clj` or a
+# CLJS unit suite there cannot change what the Playwright runner executes, and
+# they have their own lanes (tools_jvm, cljs_node_test, cljs_browser).
+is_story_full_gate_path() {
+  case "$1" in
+    tools/story/test/story_feature_load.cjs|tools/story/test/story_browser_scenarios.cjs)
+      return 0 ;;
+    examples/scripts/run-story-feature-load-tests.cjs|examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/story-feature-load-port.cjs)
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
 if [ "$files" = "__ALL__" ]; then
   mark_all
 else
@@ -324,6 +384,19 @@ else
         examples_compile=true
         ;;
     esac
+
+    # rf2-65ajl — its own dispatch rather than an arm of the big `case` below,
+    # for the reason a POSIX `case` takes the FIRST match: the full gate's
+    # roster straddles two trees that already have arms there
+    # (`tools/story/*` and the examples/scripts launcher case), so an arm would
+    # have to be duplicated in both and could be shadowed by a future one added
+    # above it. A predicate consulted for every file cannot be shadowed. It only
+    # ever SETS `story_full_gate`, so it cannot narrow anything; the one
+    # deliberate narrowing this bead makes is in the examples/scripts launcher
+    # arms below, and is spelled out there.
+    if is_story_full_gate_path "$file"; then
+      story_full_gate=true
+    fi
 
     case "$file" in
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
@@ -502,16 +575,47 @@ else
         adapter_testbed_smokes=true
         ui_smoke=true
         ;;
-      examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/run-story-feature-load-tests.cjs|examples/scripts/serve-and-run-story-play-scripts.cjs|examples/scripts/story-feature-load-port.cjs)
+      examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/run-story-feature-load-tests.cjs)
+        # rf2-65ajl — the full gate's own orchestrator + runner. Their gate is
+        # `story_full_gate`, armed by is_story_full_gate_path above for every
+        # file in this arm, so nothing is set here.
+        #
+        # The arm exists to STOP the walk, and that is load-bearing: a POSIX
+        # `case` takes the first match, and with no arm of their own these two
+        # fall through to the generic `examples/*` case below, which arms
+        # cljs_node_test + cljs_browser. Neither compiles a line of CLJS — they
+        # are Node launchers — so the fall-through would put two heavy jobs on
+        # every edit to them, coverage they did not carry before and cannot use.
+        # (`examples_compile` still fires, from the first case block at the top
+        # of the loop, exactly as it did before.)
+        :
+        ;;
+      examples/scripts/serve-and-run-story-play-scripts.cjs|examples/scripts/story-feature-load-port.cjs)
         # rf2-y9o5e3 — the Story CI-as-test launchers + their dedicated
         # port resolver under examples/scripts/ are the executable
         # orchestration for `npm run test:story-feature-load` and
-        # `npm run test:story-play-scripts`, both of which run under the
-        # story-xray-browser PR job. A break in one of these launchers
+        # `npm run test:story-play-scripts`. A break in one of these launchers
         # (compile step, server staging, port resolution, runner spawn)
         # can break the Story browser gate, so editing one must fire that
         # gate — closing the false-green hole where the launcher could
         # break and still avoid the gate it drives.
+        #
+        # rf2-65ajl — the arm was right about the principle and wrong about
+        # which output carries it, for two of the four files it used to list.
+        # `story_xray_browser` schedules the PR-SMOKE tier, whose two steps are
+        # `test:xray-feature-gate:smoke` and `test:story-play-scripts`. These
+        # two files ARE on the play-script path — serve-and-run-story-play-
+        # scripts.cjs is the command, story-feature-load-port.cjs is the port
+        # resolver it calls — so the smoke tier really does execute them and
+        # they stay here. The other two, serve-and-run-story-feature-load-
+        # tests.cjs and run-story-feature-load-tests.cjs, are reachable from
+        # `npm run test:story-feature-load` and from nothing else: arming the
+        # smoke tier for them scheduled a job running two commands that never
+        # load them. They now arm `story_full_gate` (is_story_full_gate_path
+        # above), which schedules the step that DOES run them, and they are off
+        # this arm so a full-gate-only PR does not also pay for two smoke
+        # compiles it cannot affect. story-feature-load-port.cjs arms both,
+        # being on both paths.
         story_xray_browser=true
         ;;
       examples/scripts/port-resolver.cjs)
@@ -1791,6 +1895,7 @@ emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"
 emit story_xray_browser "$story_xray_browser"
+emit story_full_gate "$story_full_gate"
 emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"
