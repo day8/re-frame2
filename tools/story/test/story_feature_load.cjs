@@ -172,14 +172,6 @@ function canvasFor(page, variantKeyword) {
   );
 }
 
-async function assertMainNotContains(page, text, timeoutMs = 3000) {
-  await waitForValue(
-    () => page.getByRole('main').getByText(text, { exact: false }).count(),
-    (count) => count === 0,
-    { timeoutMs, description: `main does not contain ${text}` },
-  );
-}
-
 async function setToolbarMode(page, mode) {
   const toolbar = page.locator('[data-test="story-toolbar"]');
   await toolbar.waitFor({ state: 'visible', timeout: 5000 });
@@ -1233,26 +1225,34 @@ const COVERAGE_MATRIX = [
     why: 'Form B desugaring is a macro/registration shape comparison; the browser shell cannot distinguish Form A from Form B at runtime.',
   },
   { feature: 'reg-workspace layouts', kind: 'probe', probe: assertWorkspaceLayouts },
+  // rf2-kvsm1 — this row was a probe that returned early behind a
+  // `console.warn`, its body held live only by an `eslint-disable
+  // no-unreachable` pair, waiting on a "follow-on bead" that was never
+  // filed. The count-based assertions went brittle when `:play-script`
+  // (rf2-0wrud, PR #1726) shifted runner-event timing — the same break
+  // that skipped the reg-variant row above. The wait is over: every
+  // assertion the dead body held now has a live owner elsewhere, so the
+  // row is demoted per this file's own rule ("never wire a probe whose
+  // body does not exercise the row's feature"). Where each went:
+  //   - 'decorator: story-level' + 'decorator: variant-level' on
+  //     /clicked-three-times → story_browser_scenarios.cjs's
+  //     'substrate-decorator-and-frame-isolation' scenario asserts both
+  //     strings after the same clickVariant + waitForCanvas (live, unskipped).
+  //   - the count-3 baseline → reg_variant_e2e_cljs_test.cljs's
+  //     `clicked-three-times-runs-clean-count-3`, which drives
+  //     `story/run-variant` directly and so has no DOM-count race.
+  //   - story-level applies / variant-level does NOT leak to :loaded →
+  //     render_shell_cljs_test.cljs's `render-variant-and-canvas-resolve-
+  //     same-inherited-decorators` (inherited pack) and
+  //     `render-decorated-view-bare-when-no-decorators` (no spurious wrap).
+  //   - assertDecoratorFailure → still called live by the 'Error projection'
+  //     row below, and by the browser scenario's /decorator-throws leg.
+  // Deleting the body retires the tree's last eslint suppression with it.
   {
     feature: 'reg-decorator composition',
-    kind: 'probe',
-    probe: async (page) => {
-      // SKIP: brittle count-based assertion · :play-script runner-events shifted
-      // timing semantics · CLJS-unit migration in follow-on bead (cf rf2-w1mnq
-      // schema-violation skip + rf2-8awk1 reg-variant skip patterns).
-      console.warn('SKIP: reg-decorator composition scenario · migrating to CLJS unit');
-      return;
-      /* eslint-disable no-unreachable */
-      await assertMatrixVariant(page, '/clicked-three-times', ':story.counter/clicked-three-times', 3);
-      await assertMainContains(page, 'decorator: story-level');
-      await assertMainContains(page, 'decorator: variant-level');
-      await clickVariant(page, '/loaded');
-      await waitForCanvasVariant(page, ':story.counter/loaded');
-      await assertMainContains(page, 'decorator: story-level');
-      await assertMainNotContains(page, 'decorator: variant-level');
-      await assertDecoratorFailure(page);
-      /* eslint-enable no-unreachable */
-    },
+    kind: 'owned-by',
+    gate: 'npm run test:cljs + story_browser_scenarios.cjs',
+    why: 'rf2-kvsm1 — composition/inheritance asserted in CLJS units; the rendered story-level + variant-level decorator text is asserted live by the sibling browser scenario.',
   },
   {
     feature: 'reg-story-panel',
