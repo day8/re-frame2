@@ -29,21 +29,28 @@
 
   1. **React routes a render or effect exception to `reportError`**, so
      `cljs.test` can read zero failures across a component that threw.
-     Every row runs inside [[capture-console!]], which listens on
-     `window`'s `error` event AND spies `console.error` — the two
-     channels React 19 reports a hydration mismatch on — and asserts the
-     capture is empty.
+     Every row runs inside `hydration-support/capture-console!`, which
+     listens on `window`'s `error` event AND spies `console.error` — the
+     two channels React 19 reports a hydration mismatch on — and asserts
+     the capture is empty.
   2. **`act` and `flushSync` are not the browser's schedule.** Adoption
-     is React's own concurrent business, so [[adopted!]] waits on real
-     timers for the closer's passive effect and never pulls it forward.
-     `mount/dispatch!` still flushes, but only in rows whose claim is
-     about the model rather than about the turn.
+     is React's own concurrent business, so `hydration-support/adopted!`
+     waits on real timers for the closer's passive effect and never pulls
+     it forward. `mount/dispatch!` still flushes, but only in rows whose
+     claim is about the model rather than about the turn.
+
+  Both live in `arm1/hydration_support.cljs` — one copy, shared with the
+  SSR spike (rf2-2rtt6.87), because a second copy of a refusal is the
+  copy that quietly weakens.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.bench.hicasso.arm1.hydration-support
+             :refer [adopted! capture-console! server-dom! server-node?
+                     stamp-server-nodes!]]
             [re-frame.bench.hicasso.arm1.mount :as mount]
             [re-frame.bench.hicasso.arm1.presence :refer [presence]]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
@@ -155,81 +162,12 @@
     (mount/release! handle)
     html))
 
-(defn- server-dom!
-  "A container carrying `html`, attached to the document — the page as it
-  arrives, before any JavaScript has adopted it."
-  [html]
-  (let [container (mount/fresh-container!)]
-    (set! (.-innerHTML container) html)
-    container))
-
-(def ^:private server-node-mark
-  "An EXPANDO, not an attribute — it cannot survive being re-serialised,
-  so a node still carrying it after adoption is the very node the server
-  markup produced rather than a replacement that happens to look alike."
-  "hicassoServerNode")
-
-(defn- stamp-server-nodes!
-  "Mark every element in the server DOM, so identity is checkable
-  anywhere in the tree."
-  [container]
-  (doseq [n (array-seq (.querySelectorAll container "*"))]
-    (unchecked-set n server-node-mark true))
-  container)
-
-(defn- server-node? [node]
-  (and (some? node) (true? (unchecked-get node server-node-mark))))
-
-(defn- capture-console!
-  "Run `f` with React's two failure channels captured, and answer
-  `[result captured]`.
-
-  React 19 reports a hydration mismatch by `console.error` in a
-  development build and routes a recoverable error to `reportError`,
-  which surfaces as a `window` `error` event — and an exception React
-  reports that way never reaches `cljs.test`, so a row asserting
-  \"nothing complained\" that watched neither channel would be green over
-  a live failure."
-  [f]
-  (let [captured (atom [])
-        original (.-error js/console)
-        on-error (fn [^js e]
-                   (swap! captured conj (str "window.error: " (.-message e))))]
-    (.addEventListener js/window "error" on-error)
-    (set! (.-error js/console)
-          (fn [& args]
-            (swap! captured conj (str "console.error: " (apply str args)))
-            nil))
-    (try
-      [(f) captured]
-      (finally
-        (set! (.-error js/console) original)
-        (.removeEventListener js/window "error" on-error)))))
-
-(defn- adopted!
-  "Wait for the adoption window to CLOSE — the closer component's passive
-  effect — and then for the entry reap horizon to pass.
-
-  Real timers only: no `act`, no `flushSync`. The claim every row here
-  makes is about React's own turn, and a witness that pulled the commit
-  forward would be a witness about the pull."
-  []
-  (js/Promise.
-    (fn [resolve]
-      (let [deadline (+ (js/Date.now) 3000)]
-        (letfn [(tick []
-                  (cond
-                    (not (rt/adopting?))
-                    ;; Past the closer AND past `entry-reap-horizon-ms`,
-                    ;; so a reading of the entry cache is a reading taken
-                    ;; on the far side of the race.
-                    (js/setTimeout (fn [] (resolve true)) 16)
-
-                    (< deadline (js/Date.now))
-                    (resolve false)
-
-                    :else (js/setTimeout tick 4)))]
-          (tick))))))
+;; `server-dom!`, `stamp-server-nodes!`, `server-node?`, `capture-console!`
+;; and `adopted!` moved to `arm1/hydration_support.cljs` when the SSR spike
+;; (rf2-2rtt6.87) became their second caller. They are the three reasons a
+;; hydration row can answer FALSE, and a second copy of a refusal is the
+;; copy that quietly weakens — so there is one copy, and both callers
+;; take it.
 
 (defn- text-of [container sel]
   (some-> (.querySelector container sel) (.-textContent)))

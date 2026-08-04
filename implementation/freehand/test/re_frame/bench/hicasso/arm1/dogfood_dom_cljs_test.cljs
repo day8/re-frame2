@@ -26,10 +26,10 @@
      script's STATED expectation — including two composing keystrokes
      that must dispatch nothing. The script reaches **every handler site
      on the screen and both branches of both key-maps**; the coverage map
-     is on [[interaction-steps]], which is where a reader checks that the
-     claim and the script are the same size. DOM parity proves the
-     renderings build the same page; this is the half that proves the
-     page MEANS the same thing when a user touches it.
+     is on `dogfood-script/interaction-steps`, which is where a reader
+     checks that the claim and the script are the same size. DOM parity
+     proves the renderings build the same page; this is the half that
+     proves the page MEANS the same thing when a user touches it.
 
      **And the comparator PINS the controlled-input implementation it is
      compared against (rf2-2rtt6.75).** The script types into two UIx
@@ -62,6 +62,7 @@
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.dogfood-collector :as collector]
             [re-frame.bench.hicasso.arm1.dogfood-grouped :as grouped]
+            [re-frame.bench.hicasso.arm1.dogfood-script :as script]
             [re-frame.bench.hicasso.arm1.dogfood-uix :as raw-uix]
             [re-frame.bench.hicasso.arm1.mount :as mount]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
@@ -326,8 +327,9 @@
 ;; The script's SIZE is part of the claim. An equivalence published over
 ;; "eight event positions" while the script drove five of them is a claim
 ;; larger than its evidence, which is what the merged-PR audit of #7395
-;; found. [[interaction-steps]] now carries a site-by-step coverage map
-;; and drives all eight, both key-map branches, and all three filters.
+;; found. `dogfood-script/interaction-steps` now carries a site-by-step
+;; coverage map and drives all eight, both key-map branches, and all
+;; three filters.
 ;;
 ;; Two of the keystrokes are composing — the modern signal (`isComposing`,
 ;; which React's synthetic keyboard event DROPS, so a gate that reads the
@@ -337,115 +339,11 @@
 ;; key-map's central one on the collector, the hand-written one on raw
 ;; UIx.
 
-(defn- q1 [handle sel] (.querySelector (:container handle) sel))
-
-(defn- set-native-value!
-  "Write `v` through `HTMLInputElement.prototype`'s OWN value setter,
-  bypassing React's per-instance change tracker — the same door
-  `arm1_controlled_grid_dom_cljs_test` documents. Assigning through the
-  instance property updates the tracker too, and React then dedupes the
-  `input` event as a no-change echo."
-  [node v]
-  (let [d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
-    (.call (.-set d) node v)))
-
-(defn- type-into!
-  "Append `text` and fire the `input` event, the way a browser orders the
-  two: field first, event second."
-  [node text]
-  (set-native-value! node (str (.-value node) text))
-  (.dispatchEvent node (js/Event. "input" #js {:bubbles true}))
-  nil)
-
-(defn- keydown!
-  "Fire a real `keydown`. `:composing?` and `:key-code` ride the NATIVE
-  event, which is where both renderings' gates read them."
-  [node {:keys [key composing? key-code]}]
-  (.dispatchEvent node (js/KeyboardEvent. "keydown"
-                                          #js {:key         key
-                                               :bubbles     true
-                                               :isComposing (boolean composing?)
-                                               :keyCode     (or key-code 0)}))
-  nil)
-
-(def ^:private interaction-intents
-  "What the script is EXPECTED to dispatch, written out rather than
-  computed from either rendering. The two composing keystrokes appear
-  nowhere in it — their expectation is silence."
-  [[:dogfood/toggle 1]
-   [:dogfood/set-filter :done]
-   [:dogfood/set-filter :active]
-   [:dogfood/set-filter :all]
-   [:dogfood/edit-draft dogfood/new-draft-key "milk"]
-   [:dogfood/cancel dogfood/new-draft-key]
-   [:dogfood/edit-draft dogfood/new-draft-key "milk"]
-   [:dogfood/create]
-   [:dogfood/edit-draft 0 "x"]
-   [:dogfood/cancel 0]
-   [:dogfood/edit-draft 3 "renamed"]
-   [:dogfood/commit 3]
-   [:dogfood/remove 2]
-   [:dogfood/edit-draft dogfood/new-draft-key "bread"]
-   [:dogfood/create]])
-
-(defn- interaction-steps
-  "The one script, as thunks over `handle`'s container. Steps are run one
-  per macrotask ([[run-steps!]]) because the comparator's `dispatch` is
-  the router's asynchronous door — the drain is a next-turn task — while
-  the collector's is HD-019's synchronous one. The script must not care
-  which it is driving, and a step's target can be a node the previous
-  step's drain revealed.
-
-  **Every handler site the screen has, and every branch of both key-maps,
-  is driven here** (rf2-2rtt6.67, merged-PR audit of #7395 — the first
-  cut left three unexercised while the page claimed equivalence over all
-  of them). The eight sites against the steps that reach them:
-
-  | Handler site | Steps |
-  |---|---|
-  | toggle click | 1 |
-  | filter click | 2, 3, 4 — all three filters, so no branch of `visible-ids` is untaken |
-  | new-item `:on-input` | 5, 9, 16 |
-  | new-item keys | 6, 7 (composing, silent), 8 (Escape), 10 (Enter) |
-  | row `:on-input` | 11, 13 |
-  | row keys | 12 (Escape), 14 (Enter) |
-  | remove click | 15 |
-  | form submit | 17 |
-
-  `:dogfood/move` has no affordance in the markup, so it is correctly
-  absent rather than missing."
-  [handle]
-  [#(.click (q1 handle "[data-id=\"1\"] .toggle"))         ; 1  the narrow write
-   #(.click (q1 handle ".filter[data-filter=\"done\"]"))   ; 2  the broad write…
-   #(.click (q1 handle ".filter[data-filter=\"active\"]")) ; 3  …its other branch…
-   #(.click (q1 handle ".filter[data-filter=\"all\"]"))    ; 4  …and back
-   #(type-into! (q1 handle ".new-input") "milk")           ; 5
-   ;; 6, 7 — the two composing keystrokes: the law is that NEITHER commits.
-   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? true  :key-code 13})
-   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? false :key-code 229})
-   ;; 8 — the new-item field's OTHER key branch: Escape discards the draft,
-   ;; which is why step 9 can retype it from empty.
-   #(keydown! (q1 handle ".new-input") {:key "Escape" :composing? false :key-code 27})
-   #(type-into! (q1 handle ".new-input") "milk")           ; 9
-   #(keydown! (q1 handle ".new-input") {:key "Enter" :composing? false :key-code 13}) ; 10
-   #(type-into! (q1 handle "[data-id=\"0\"] .draft") "x")  ; 11
-   #(keydown! (q1 handle "[data-id=\"0\"] .draft") {:key "Escape" :composing? false :key-code 27}) ; 12
-   ;; 13, 14 — a row draft taken all the way to a COMMIT, the row key-map's
-   ;; branch the first cut never drove.
-   #(type-into! (q1 handle "[data-id=\"3\"] .draft") "renamed")
-   #(keydown! (q1 handle "[data-id=\"3\"] .draft") {:key "Enter" :composing? false :key-code 13})
-   #(.click (q1 handle "[data-id=\"2\"] .remove"))         ; 15
-   #(type-into! (q1 handle ".new-input") "bread")          ; 16
-   #(.click (q1 handle ".add"))])                          ; 17 a real form submission
-
-(defn- run-steps!
-  "Run each thunk, then yield a macrotask — room for the router's drain —
-  and settle React's sync lane before the next step reads the page."
-  [steps k]
-  (if (empty? steps)
-    (k)
-    (do ((first steps))
-        (js/setTimeout (fn [] (mount/settle!) (run-steps! (rest steps) k)) 8))))
+;; The script, its stated expectation and the three DOM-event doors moved
+;; to `arm1/dogfood_script.cljs` when the SSR spike (rf2-2rtt6.87, X4)
+;; became their second driver. The script's SIZE is part of every claim
+;; made with it — that is what the #7395 audit found — so there is one
+;; copy and every driver takes it.
 
 (defn- capture-run!
   "Mount via `mount-fn`, run the script with the `:events` listener
@@ -461,8 +359,8 @@
                            (fn [record]
                              (when (= frame-id (:frame record))
                                (swap! log conj (:event record)))))
-    (run-steps!
-      (interaction-steps handle)
+    (script/run-steps!
+      (script/interaction-steps handle)
       (fn []
         (let [result {:intents @log :dom (lane/canonical (:container handle))}]
           (rf/unregister-listener! :events ::intent-parity)
@@ -481,10 +379,10 @@
           (capture-run!
             (fn [] (hicasso-mount! collector/screen)) mount/release!
             (fn [collector-run]
-              (is (= interaction-intents (:intents uix-run))
+              (is (= script/interaction-intents (:intents uix-run))
                   "raw UIx dispatches exactly the stated intents — and
                    nothing for the two composing keystrokes")
-              (is (= interaction-intents (:intents collector-run))
+              (is (= script/interaction-intents (:intents collector-run))
                   "and so does the collector, so the two renderings mean
                    the same page as well as building it")
               (is (= (:dom uix-run) (:dom collector-run))
