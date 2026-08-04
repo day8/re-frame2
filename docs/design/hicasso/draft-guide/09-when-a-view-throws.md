@@ -1,10 +1,7 @@
 # When a view throws
 
-> **Draft ahead of the product artefact.** This page teaches the landed surface —
-> ruled in [decisions.md](../decisions.md) (HD-001…HD-028), witnessed by the bench
-> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
-> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
-> stay provisional until the API freeze.
+> **Draft ahead of the product artefact.** No `implementation/hicasso/` artefact
+> ships yet. Spellings marked **[unfrozen]** stay provisional until the API freeze.
 
 A view body throws — a `nil` where a map was expected, a key that moved, a
 subscription returning a shape last week's code doesn't handle. React's answer is
@@ -128,6 +125,6 @@ flow, which is a worse version of a `:status` key.
 
 | Question | Status |
 |---|---|
-| `h/boundary`'s name and its three key names | Semantics pinned by HD-020(c); the spellings are unfrozen like every other declaration spelling |
-| Whether `:on-error` should reach an application-wide handler as well | **Not addressed.** The record ships the per-boundary door and stops there; how an app aggregates failures is its own business today |
-| A richer boundary API | **Post-v0**, explicitly. HD-020 reopens it at product phase by ordinary ruling |
+| `h/boundary`'s name and its three key names | Semantics pinned; the spellings are unfrozen like every other declaration spelling |
+| Whether `:on-error` should reach an application-wide handler as well | **Not addressed.** The per-boundary door ships; how an app aggregates failures is its own business today |
+| A richer boundary API | **Post-v0** |

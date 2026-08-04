@@ -1,10 +1,7 @@
 # Controlled inputs
 
-> **Draft ahead of the product artefact.** This page teaches the landed surface —
-> ruled in [decisions.md](../decisions.md) (HD-001…HD-028), witnessed by the bench
-> arm's tests under `implementation/freehand/test/re_frame/bench/hicasso/` — but no
-> `implementation/hicasso/` artefact ships yet, and spellings marked **[unfrozen]**
-> stay provisional until the API freeze.
+> **Draft ahead of the product artefact.** No `implementation/hicasso/` artefact
+> ships yet. Spellings marked **[unfrozen]** stay provisional until the API freeze.
 
 A controlled text input is the hardest correctness problem a view layer has, and
 almost none of the difficulty is visible in the code you write.
@@ -25,6 +22,10 @@ converges after whichever of the two runs last for a keystroke, and takes
 machinery underneath, because you need to know what it guarantees and where it
 stops.
 
+For checkboxes and other non-text controls, the same intent-vector style applies —
+see [`::h/checked`](03-events-as-data.md#the-value-placeholders) on
+[Events as data](03-events-as-data.md).
+
 ## Why this is hard
 
 The value shown on screen lives in app-db, which means every keystroke makes a round
@@ -33,15 +34,12 @@ re-render → DOM value.
 
 If any part of that is asynchronous, you get the classic failure set. Fast typists
 drop characters. The caret jumps to the end of the field on every edit. IME
-composition breaks mid-word. Reagent pays for this with a dedicated caret-heuristic
-module that tracks the last DOM value and repositions the cursor — the comment in
-its source says the alternative "gives the user a jarring experience," which is
-generous.
+composition breaks mid-word. Frameworks that leave this to taste end up with ad-hoc
+caret heuristics — track the last DOM value, reposition the cursor, hope composition
+survives. The comment in one such module says the alternative "gives the user a
+jarring experience," which is generous.
 
 ## The synchronous door
-
-HD-019 names the mechanism instead of leaving it to taste, because the first
-controlled-input commit cannot stall on an undecided design.
 
 A controlled element's intent **dispatches synchronously inside the discrete
 browser event**, and the subscription layer's store notification runs
@@ -63,7 +61,7 @@ detail.
 
 ## What the door guarantees
 
-Two requirements from the fitness harness, and they are v0's acceptance bar:
+Two operational guarantees, and they are v0's acceptance bar:
 
 **R-A1 — same-tick echo.** A keystroke flows event → commit → re-render such that
 the DOM value never lags the accepted keystroke. No dropped characters, no
@@ -76,15 +74,11 @@ what was typed. Reject, transform, reformat: mid-string edits included.
 **Remount-as-reset is disqualified** — it destroys focus, selection, and
 composition state, so "just change the key" is not an available answer here.
 
-Six browser witnesses stand behind the door. Five prove it outright, all on a
-100-cell editing grid: same-turn echo, mid-string caret, selection,
-unchanged-model rejection, and async normalisation. K4 in
-[validation.md](../validation.md) kills the whole programme if controlled text
-fails same-tick echo or IME on Chromium and WebKit for a simple form. This is
-not a polish item.
+Browser witnesses stand behind the door on a 100-cell editing grid: same-turn echo,
+mid-string caret, selection, unchanged-model rejection, and async normalisation.
 
-The sixth is IME, and it is the one place where this runtime deliberately does
-something plain React does not, so it is worth stating exactly.
+The IME path is the one place where this runtime deliberately does something plain
+React does not, so it is worth stating exactly.
 
 **A composing Enter commits nothing.** Mid-composition, Enter picks an
 IME candidate; it is not a submit. The runtime's key-map gates on the native
@@ -133,10 +127,9 @@ The rejected path leans on **React's own end-of-discrete-event restore** for the
 *value*: the DOM node briefly holds the typed character, the model doesn't change,
 and React reasserts the model value when the discrete event ends. The **caret**,
 though, React's restore throws away — so the runtime takes it itself, in the
-element path, which is what the converge above is for. The gap was measured
-before it was closed (HD-019 records both beads), and R-A2 is why closing it was
-not optional. Either way, none of this is your code: return `nil` from the
-handler and the field shows the model, caret intact.
+element path, which is what the converge above is for. Either way, none of this is
+your code: return `nil` from the handler and the field shows the model, caret
+intact. R-A2 is why that path is not optional.
 
 ## Forwarding attributes onto a controlled input
 
@@ -159,11 +152,9 @@ merge form" — always. So a caller who forwards a whole props map, a theme that
 supplies part attributes, or a genuinely hostile remainder carrying `:value` and
 `:on-input` all reach nothing that matters. Your `:value` is your `:value`.
 
-That is the whole design, and it exists because of the thing it deletes. In the
-predecessor there are **three** merge forms and the wrong one is silent: pick the
-general spread on a controlled input and caret and IME protection stop, with no
-error raised anywhere. Correctness by choice of syntax is the worst kind, because
-the code looks fine.
+That is the whole design, and it exists because of the thing it deletes: merge forms
+where the wrong choice silently drops caret and IME protection. Correctness by
+choice of syntax is the worst kind, because the code looks fine.
 
 Two consequences worth knowing.
 
@@ -195,8 +186,8 @@ from under them, and a rejected same-value reassertion becomes invisible. Explic
 revision means the reset fires exactly when the caller says so: zero stale paints,
 loop-impossible, correct on retry.
 
-This is the predecessor's ruled reset law, kept deliberately. The prop that carries
-the revision does not have a Hicasso spelling yet; see **Not settled yet**.
+The prop that carries the revision does not have a Hicasso spelling yet; see
+**Not settled yet**.
 
 ## Troubleshooting
 
@@ -209,17 +200,14 @@ This table names mechanisms; the door's failures are behavioural, not error ids.
 | Enter commits half-typed text mid-composition | A hand-written key handler that bypasses the intent path | Use the data key-map — the commit fence lives there, on both composition signals |
 | An IME composition dies when the model refuses or normalises it | Value reassertion during composition, which the browser treats as an abort | Not this runtime: the converge is carved out of a live composition and React's restore is held off with it. On plain React and the UIx port it is theirs, and not yours to fix |
 | Typing the "reset" value clears the field | Reset keyed on value equality somewhere | Reset on explicit revision |
-| Field goes read-only after an async normalise | The model round-trip didn't complete | Async normalisation is one of the six door witnesses; check the handler returns a `:db` write |
+| Field goes read-only after an async normalise | The model round-trip didn't complete | Async normalisation is one of the door witnesses; check the handler returns a `:db` write |
 | Focus lost after a validation failure | Something remounted the node | Remount-as-reset is disqualified precisely for this |
 
 ## When not to control an input
 
-Controlled means every keystroke writes to app-db. On a 100-cell grid that is 100
-event dispatches and 100 commits per pass, which is why the predecessor's grid
-example deliberately went uncontrolled. Price it before you reach for it: the
-per-keystroke budget in [validation.md](../validation.md) demands a stated path for
-both a 4-field form and a 100-cell grid, and "which subs recompute" matters as much
-as "which boundaries re-render."
+Controlled means every keystroke writes to app-db. On a dense editing grid that is
+one dispatch and one commit per cell per keystroke — price it before you reach for
+it. Which subs recompute matters as much as which boundaries re-render.
 
 If a field's intermediate values are nobody's business — a search box whose only
 consumer is a debounced query, a scratch field in a modal — an uncontrolled input
@@ -229,7 +217,7 @@ with a commit on blur is not a compromise. It is the right shape.
 
 | Question | Status |
 |---|---|
-| The revision prop's spelling on a controlled element | **Not addressed.** The reset law is ruled; the attribute that carries the revision is unnamed |
-| The buffered / draft-and-commit input ladder | **Post-v0, explicitly.** The charter defers "the full buffered/revision input ladder"; v0 ships R-A1/R-A2 and no more |
-| The controls kit that owns drafts and revisions | **Post-v0.** HD-009 leans on it for ephemeral state, and it does not exist in v0 — so in v0 a draft is app-db state you write yourself |
-| Whether `:on-input` or `:on-change` is the taught attribute | Both work, and the runtime takes whichever runs last. The landed screens write `:on-input` for text and `:on-change` for checkboxes; which one the guide should teach is convention, not ruling |
+| The revision prop's spelling on a controlled element | **Not addressed.** The reset law is fixed; the attribute that carries the revision is unnamed |
+| The buffered / draft-and-commit input ladder | **Post-v0.** v0 ships R-A1/R-A2 and no more |
+| The controls kit that owns drafts and revisions | **Post-v0.** In v0 a draft is app-db state you write yourself |
+| Whether `:on-input` or `:on-change` is the taught attribute | Both work, and the runtime takes whichever runs last. Landed screens write `:on-input` for text and `:on-change` for checkboxes; which one the guide should teach is convention, not a hard law |
