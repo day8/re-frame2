@@ -71,6 +71,32 @@
   **No streaming.** `renderToPipeableStream` is out of scope per the
   adversarial review, and out of scope here means absent, not deferred.
 
+  ## The one thing this entry does not do yet — THE ADOPTION WINDOW
+
+  Predicted by the rf2-2rtt6.84 worker and CONFIRMED here by measurement,
+  so it is a named gap rather than a surprise waiting for the spike
+  witness.
+
+  Presence starts a child at `:mounting` (`arm1/presence.cljs` —
+  `(react/useState presence/initial)`) and applies that child's
+  `::h/mounting` attribute overrides while it is in that phase. A server
+  render therefore ships the ENTER appearance — the class an animation is
+  about to move off. rf2-2rtt6.84 makes the hydrating client's first pass
+  render those same children `:present` instead (born-present under an
+  open adoption window), so the server's markup and the client's first
+  pass disagree, and React reports a hydration mismatch on every
+  presence-managed node. Measured on the corpus's `presence-mounting`
+  row, which bakes `toast--enter` today and is pinned red-when-fixed by
+  `the-server-render-ships-presences-mounting-overrides`.
+
+  **The repair is one line, and it is not writable yet**:
+  `renderToString` below must run between `rt/open-adoption-window!` and
+  `rt/close-adoption-window!`, and neither function exists on main — they
+  are in rf2-2rtt6.84's still-open PR #7469. Wiring it is rf2-2rtt6.94,
+  which is blocked on that merge. Nothing here is edited to anticipate
+  it: a call to a var that does not exist does not compile, and guessing
+  at a var that does is how two beads race one file.
+
   ## What this is NOT
 
   Not a production host. Spec 011's HTTP response contract — the response
