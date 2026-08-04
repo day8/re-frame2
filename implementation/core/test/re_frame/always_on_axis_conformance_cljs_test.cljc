@@ -85,6 +85,13 @@
     ;; fan-out; the JVM companion keeps the literal == the catalogue's
     ;; always-on set.
     :rf.error/bad-frame-provider-arg
+    ;; rf2-2rtt6.122: the ambient-frame REFUSAL, catalogued `always-on` in
+    ;; Spec 009 for the same reason `no-frame-context` is — what it prevents
+    ;; is a boundary that silently stops re-rendering, which has no symptom
+    ;; at the point of the mistake and so must survive production elision.
+    ;; Emitted by `frame/emit-ambient-frame-refused!` -> `dispatch-on-error!`;
+    ;; driven here through the `:else` per-event axis like its sibling above.
+    :rf.error/ambient-frame-refused
     :rf.error/override-fallthrough
     :rf.error/reserved-fx-override
     :rf.error/no-such-fx
