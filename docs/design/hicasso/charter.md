@@ -287,3 +287,8 @@ where Reagent is proven. The three design debts this record resolves explicitly:
 ephemeral-state ceremony (HD-009), per-keystroke economics (the named
 instrumentation in [validation.md](validation.md)), and the reusable-widget
 instance-key convention (post-v0, named in HD-009's sugar).
+**Amended 2026-08-04 (operator ruling):** the third debt is no longer post-v0.
+The instance-key convention and HD-009's sugar were ruled **into v0** — designed
+as `h/reg-state` plus the explicit-key rules, recorded in HD-009's dated
+addendum in [decisions.md](decisions.md). The sentence above stands as the
+record of what this charter deferred; the deferral itself is over.
