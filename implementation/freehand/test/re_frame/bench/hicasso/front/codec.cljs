@@ -1520,22 +1520,85 @@
       (unchecked-set js-props "rfFrame" intent/*frame*))
     (react/createElement (element-type head) js-props)))
 
+(def ^:private html-attr-slots
+  "The emitted slots at a FOREIGN crossing whose value is bound for an
+  HTML attribute wherever the component passes it on, and which therefore
+  has no representation but a string. `className`, `id` and `role` named
+  as SLOTS rather than as keys — `:class`, `:className` and `\"class\"`
+  are one position ([[canonical-slot]]), and a rule written against the
+  spelling is a rule the other spellings walk past. The `data-*` /
+  `aria-*` families join them by prefix; [[prop-name]] leaves those two
+  uncamelCased, so the slot still carries the prefix to test.
+
+  The roster is this repo's own, not a guess: the `reagent-slim` adapter
+  narrowed exactly this seam after an audit and shipped this same set
+  (`adapters/reagent-slim/IMPL-SPEC.md` §7.2, `DESIGN-RATIONALE.md` §5)."
+  #{"className" "id" "role"})
+
+(defn- ^boolean html-attr-slot?
+  "Is `slot` one of the HTML-attribute positions? A non-string slot — the
+  key was neither keyword, symbol nor string, so [[cached-prop-name]]
+  answered it verbatim — is never one."
+  [slot]
+  (and (string? slot)
+       (or (contains? html-attr-slots slot)
+           (str/starts-with? slot "data-")
+           (str/starts-with? slot "aria-"))))
+
 (defn host-prop-value
-  "A host prop value, converted SHALLOWLY — HD-011's default. The
-  top-level KEY is camelCased (that is [[cached-prop-name]], applied by
-  [[host-element]]'s walk); the VALUE crosses with no renaming inside
-  it: functions by identity (so `React.memo` and every downstream
-  bail-out that compares handler identity keep working), keywords and
-  symbols by name, collections through `clj->js` — whose nested map keys
-  keep the spelling the author wrote. A library expecting camelCase
-  inside a nested option map is handed exactly what the author typed,
-  and the guide's answer is to convert that one map yourself: deep
-  conversion guessing at which nested maps are options and which are
-  data is the documented support burden the shallow default deletes."
-  [v]
+  "A host prop value, converted SHALLOWLY — HD-011's default — for the
+  emitted `slot` it is bound for. The top-level KEY is camelCased (that
+  is [[cached-prop-name]], applied by [[host-element]]'s walk); the VALUE
+  crosses with no renaming inside it: functions by identity (so
+  `React.memo` and every downstream bail-out that compares handler
+  identity keep working), collections through `clj->js` — whose nested
+  map keys keep the spelling the author wrote — and **a keyword or symbol
+  by identity, not by name**. A library expecting camelCase inside a
+  nested option map is handed exactly what the author typed, and the
+  guide's answer is to convert that one map yourself: deep conversion
+  guessing at which nested maps are options and which are data is the
+  documented support burden the shallow default deletes.
+
+  ## The named value crosses whole (rf2-vrvv9)
+
+  This branch read `(name v)` for every named value at every host prop,
+  which is stock Reagent's rule — and it silently deleted half of a
+  namespaced keyword's identity at the one crossing where that identity
+  is most often the point. `[provider {:value :theme/dark}]` handed the
+  provider `\"dark\"`, `:other/dark` handed it `\"dark\"` too, and every
+  consumer below read a plausible string that two distinct values now
+  share. Nothing threw. A crossing that answers two inputs with one
+  output is not a conversion, it is a collision.
+
+  **The rule is the shallow default's own rule, applied one level up.**
+  The paragraph above already refuses to guess that a nested map was
+  meant as options; `(name v)` is the same guess about a keyword — that
+  the author meant a string — made silently, on the value the author
+  most often meant literally. The honest answer is the one the nested map
+  already gets: hand the library exactly what was typed. An author who
+  wants `\"contained\"` writes `\"contained\"`, or `(name :contained)`,
+  at the call site where the intent is legible.
+
+  **[[html-attr-slots]] is the one exception, and it is not a roster of
+  taste.** At `className`, `id`, `role`, `data-*` and `aria-*` the value
+  is bound for an HTML attribute, whose only representation is a string —
+  there is nothing to preserve it AS. So those keep `(name v)`, which is
+  also the answer the NATIVE walk gives at the same names
+  ([[convert-prop-value]]) and the answer the server serializer gives, so
+  the two crossings agree on every attribute both can carry.
+
+  **No dev warning accompanies this**, and the omission is deliberate.
+  `reagent-slim` warns once per non-HTML keyword prop because it narrowed
+  the rule underneath an installed Reagent codebase and the warning is
+  that migration's safety-net (DESIGN-RATIONALE §5: \"the warning exists
+  for the case we did not audit\"). Hicasso has no such codebase to
+  protect, and after this change a keyword at a host prop is the CORRECT
+  and taught spelling of HD-011's flagship case — warning on the happy
+  path is a nag, not a diagnostic. The guide teaches the rule instead."
+  [slot v]
   (cond
     (fn? v)                       v
-    (or (keyword? v) (symbol? v)) (name v)
+    (or (keyword? v) (symbol? v)) (if (html-attr-slot? slot) (name v) v)
     (coll? v)                     (clj->js v)
     :else                         v))
 
@@ -1609,7 +1672,10 @@
             :else
             (do (when (and event? (or (vector? v) (map? v)))
                   (refuse-undeclared-host-event! head k v))
-                (host-prop-value v)))))
+                ;; The SLOT, never the key: `:class` and `:className` are
+                ;; one position, and the named-value rule is written
+                ;; against where the value lands (rf2-vrvv9).
+                (host-prop-value slot v)))))
       o)))
 
 (defn- host-element
