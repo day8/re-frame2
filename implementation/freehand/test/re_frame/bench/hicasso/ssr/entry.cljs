@@ -85,6 +85,70 @@
   `:client-frame-id` or is omitted. An absent `:rf/frame-id` is no
   conflict, which is precisely the anonymous-server-frame shape.
 
+  ## THE RENDER HASH: THIS ROOT DOES NOT GET ONE (rf2-2rtt6.91)
+
+  The payload carries NO `:rf/render-hash` and the document stamps NO
+  `data-rf-render-hash`, and that is Spec 011's own answer for this tier
+  rather than a gap.
+
+  §Hydration-mismatch detection tiers detection **by render-tree
+  representation, not by adapter brand**. The hash channel belongs to the
+  HICCUP tier — Reagent and Reagent-slim, whose views are pure fns
+  returning a hashable data tree, so the server hashes its tree and the
+  client re-hashes its first render and the two compare. Every root that
+  reaches React as an ELEMENT is in the other tier: a compiled
+  `re-frame.ui` root, a native UIx root, and a Freehand root
+  (§Hydration on the Freehand paved path). Those verify by **React-native
+  adoption** — React diffs the client's first render against the server
+  DOM and reports what it recovers from through the root's
+  `onRecoverableError`, which the framework surfaces as the same
+  `:rf.ssr/hydration-mismatch` diagnostic. 011 says of that tier, in as
+  many words, that it \"deliberately carries **no** such hash\".
+
+  This entry is that tier. `codec/root-element` hands React an element
+  and the tree is walked INSIDE `renderToString`, so at no point does a
+  data tree describing the page exist for anything to hash.
+
+  **What it used to emit, and why a degenerate hash is worse than none.**
+  This entry did ship one: `render-tree-hash` over the root hiccup as
+  handed in. That form is `[<minted head> {props}]` — ONE vector whose
+  head is a function — and `canonical-edn` renders every function as the
+  identity-free token `#fn[]` (a RULED requirement, rf2-jsa2ml: no fn
+  `.toString` is stable across JVM and CLJS, so dropping the identity is
+  the only thing that keeps a hiccup-tier hash from firing a spurious
+  mismatch on every page). So the whole canonical form was `[#fn[] {}]`,
+  and MEASURED: the dogfood screen and the ~1,200-element Conduit feed
+  page both hashed `83b865f8`, while a root whose hiccup is ordinary
+  markup hashed differently. The value was a function of the root's
+  SHAPE and carried no information about the page.
+
+  Shipping that is strictly worse than shipping nothing. An absent key
+  cannot be mistaken for evidence; a present one that always agrees is a
+  fail-open gate wearing the shape of a check — the client would have
+  compared two different pages and found them equal. Absence is also the
+  shape the wire contract already wants: `:rf/render-hash` is
+  `{:optional true} :string` in Spec-Schemas, and
+  `payload-policy/build-payload` omits the key on a nil hash, so nothing
+  Hicasso-specific touches the payload path (R0 holds — this namespace
+  supplies the app-db and gets out of the way).
+
+  **Why not a better hash.** The two candidates rf2-2rtt6.91 named both
+  fail on the same fact. Normalising the minted head to its displayName
+  reverses rf2-jsa2ml's ruling for one substrate and still only says WHICH
+  screen rendered — every divergence WITHIN a screen, which is the entire
+  class hydration mismatch exists to catch, would still compare equal.
+  Accumulating the walked tree server-side would need the client to
+  reproduce the same accumulation byte-for-byte, which is re-deriving the
+  hiccup tier under a substrate built not to have one — and 011 already
+  routes this tier to the adoption channel that rf2-2rtt6.97 wired.
+
+  The exclusion is pinned by `the-interpreted-root-ships-no-render-hash`
+  in `ssr/entry_cljs_test`, and the measurement above is kept live (over
+  `ssr-hash/render-tree-hash` directly, where it is a fact about the hash
+  fn rather than about this entry) by the witness rows in
+  `ssr/spike_cljs_test` and `ssr/instance_key_payload_dom_cljs_test` that
+  chose byte digests over it.
+
   ## Determinism
 
   Same bundle + same snapshot ⇒ byte-identical HTML. There is no `useId`
@@ -146,7 +210,6 @@
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as ssr-constants]
-            [re-frame.ssr.hash :as ssr-hash]
             [re-frame.ssr.html-helpers :as ssr-html]
             [re-frame.ssr.payload-policy :as payload-policy]
             ["react-dom/server" :as rdom-server]))
@@ -200,16 +263,23 @@
        "</script>"))
 
 (defn document
-  "One page. The app root carries the body-only structural hash as
-  `data-rf-render-hash`, the payload script follows the root's close, and
-  the bootstrap `<script src>` is last — the order `ssr-ring`'s
-  non-streaming shell writes, so a fixture baked here is recognisable to
-  anyone who has read that one.
+  "One page. The payload script follows the app root's close and the
+  bootstrap `<script src>` is last — the order `ssr-ring`'s non-streaming
+  shell writes, so a fixture baked here is recognisable to anyone who has
+  read that one.
+
+  **No `data-rf-render-hash` on the app root** (rf2-2rtt6.91). That marker
+  is the hiccup tier's, and this is an adoption-tier root — see [[render]]'s
+  §The render hash. `ssr-ring`'s shell stamps it because a Reagent root
+  hands the server the same data tree the client will re-hash; a root React
+  walks hands it no such tree, so the marker here could only ever carry the
+  constant, and a constant on the root element is a fail-open check wearing
+  the shape of a real one.
 
   Deliberately minimal: no head model, no `:html-attrs`/`:body-attrs`
   bags, no `:body-end` hook. Those are the production host's surface and
   the production host is not this bead."
-  [{:keys  [html app-element-id script-src render-hash title]
+  [{:keys  [html app-element-id script-src title]
     script :payload-script}]
   ;; `or`, not `:or` — a caller who threads `nil` through for an option it
   ;; did not set (which is every caller with one options map) supplies the
@@ -221,8 +291,7 @@
        "<head><meta charset=\"utf-8\"><title>"
        (ssr-html/escape-html (or title "Hicasso SSR")) "</title></head>"
        "<body>"
-       "<div id=\"" (ssr-html/escape-attr (or app-element-id "app")) "\""
-       " data-rf-render-hash=\"" (ssr-html/escape-attr (str render-hash)) "\">"
+       "<div id=\"" (ssr-html/escape-attr (or app-element-id "app")) "\">"
        html
        "</div>"
        script
@@ -240,7 +309,6 @@
       {:frame-id      the per-request gensym (destroyed by the time you
                       read it — it is here to be asserted on, not used)
        :html          the app root's INNER markup
-       :render-hash   the body-only structural hash of the render tree
        :payload       the `:rf/hydration-payload` map
        :payload-edn   that map, `pr-str`'d
        :payload-script the `__rf_payload` <script> element
@@ -292,32 +360,6 @@
             ;; docstring's §`defhost`'s `:ssr` policy needs nothing here.
             html        (rdom-server/renderToString
                           (mount/provider frame-id (codec/root-element frame-id hiccup)))
-            ;; The hash is therefore of the tree BOTH ENDS SHARE by
-            ;; construction, which is what the instrument wants: a
-            ;; `:client-only` region is a deliberate server/client
-            ;; difference in the MARKUP, while the render tree's
-            ;; structural identity is the same on both sides.
-            ;;
-            ;; FINDING, WITNESSED AND FILED rather than papered over: this
-            ;; hash is DEGENERATE for an interpreted root. Spec 011's
-            ;; hydration-mismatch instrument hashes the RENDER TREE, and a
-            ;; substrate that renders hiccup→hiccup hands it the whole
-            ;; tree. Hicasso's root hiccup is `[<minted head> {props}]`
-            ;; and the tree is walked INSIDE React, so what reaches the
-            ;; hash is one vector whose head is a function —
-            ;; `canonical-edn` renders every function identically, so two
-            ;; DIFFERENT screens hash the same (measured: the dogfood
-            ;; screen and the 1,200-element Conduit feed both hash
-            ;; `83b865f8`). The instrument is therefore fail-open here.
-            ;; It is left as the framework's own call (R0 — this bead does
-            ;; not invent a payload byte) and pinned by
-            ;; `the-render-hash-is-degenerate-for-an-interpreted-root` so
-            ;; nobody can start relying on it by accident. The repair is
-            ;; rf2-2rtt6.91, and it is the SSR programme's rather than
-            ;; this bead's, because a real fix is a server AND client
-            ;; contract: a normalisation invented here alone would make
-            ;; every page a MISMATCH instead of a non-check.
-            render-hash (ssr-hash/render-tree-hash hiccup)
             policy-opts (cond-> {:payload payload}
                           (some? client-frame-id) (assoc :client-frame-id client-frame-id)
                           (some? version)         (assoc :version version)
@@ -330,19 +372,19 @@
                             (payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
                             ;; PROJECTION frame — the real per-request one.
                             frame-id)
-                          render-hash
+                          ;; NO RENDER HASH — nil, and `build-payload` omits the
+                          ;; key. See the namespace docstring's §The render hash.
+                          nil
                           policy-opts)
             payload-edn (pr-str payload-map)
             script      (payload-script payload-edn)]
         {:frame-id       frame-id
          :html           html
-         :render-hash    render-hash
          :payload        payload-map
          :payload-edn    payload-edn
          :payload-script script
          :document       (document {:html           html
                                     :payload-script script
-                                    :render-hash    render-hash
                                     :app-element-id app-element-id
                                     :script-src     script-src
                                     :title          title})})

@@ -709,8 +709,8 @@
 
 (defn build-payload
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
-  hydration payload — the three always-present keys (`:rf/version`,
-  `:rf/app-db`, `:rf/render-hash`) plus the optional `:rf/frame-id`,
+  hydration payload — the two always-present keys (`:rf/version`,
+  `:rf/app-db`) plus the optional `:rf/render-hash`, `:rf/frame-id`,
   `:rf/runtime-db`, `:rf/schema-digest`, and `:rf/head-hash`.
 
   **The first arg `wire-frame-id` is the WIRE `:rf/frame-id`, decoupled
@@ -734,8 +734,21 @@
   `resolve-version` (caller's `:version` opt → the SSR-owned
   `pattern-protocol-version` constant). `render-hash` is the BODY-ONLY structural hash
   (rf2-1oxjxk Option B) — see `re-frame.ssr.ring.lifecycle/render-document-
-  hash`. Schema-digest is supplied by the caller when their app
+  hash` — and is OPTIONAL: nil omits the key (rf2-2rtt6.91, below).
+  Schema-digest is supplied by the caller when their app
   participates in the schema-digest check; nil otherwise.
+
+  rf2-2rtt6.91 — a nil `render-hash` OMITS `:rf/render-hash` rather than
+  stamping a nil-valued key. The slot is `{:optional true} :string` in
+  [Spec-Schemas §`:rf/hydration-payload`], not `[:maybe :string]`, so a
+  present-and-nil key is not a legal spelling of absence; and absence is
+  the shape an ADOPTION-TIER root needs. Per Spec 011 §Hydration-mismatch
+  detection the hash channel applies only to the HICCUP tier: a compiled
+  `re-frame.ui` root, a native UIx root and a Freehand root all verify by
+  React-native adoption and carry no hash at either end. Forcing such a
+  caller to supply one would make it invent a value over the only tree it
+  has — an unresolved `[<component> {props}]` root, whose canonical EDN is
+  `[#fn[] {props}]` — which is a constant, not a fingerprint.
 
   EP-0001 (rf2-30kzz2): the optional `:runtime-db` opt carries the
   already-projected SERIALIZABLE runtime-db slice (callers run
@@ -756,9 +769,12 @@
   `re-frame.ssr.streaming/build-final-payload`, which differ only in how
   they source `app-db` + runtime-db before projecting them."
   [wire-frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
-  (cond-> {:rf/version     (resolve-version version)
-           :rf/app-db      db-slice
-           :rf/render-hash render-hash}
+  (cond-> {:rf/version (resolve-version version)
+           :rf/app-db  db-slice}
+    ;; rf2-2rtt6.91 — the hash channel is HICCUP-TIER-ONLY, so a nil
+    ;; `render-hash` omits the key instead of stamping a nil-valued one that
+    ;; the `:string` schema slot does not admit. See the docstring.
+    (some? render-hash)   (assoc :rf/render-hash render-hash)
     ;; rf2-lm2yzy — stamp `:rf/frame-id` ONLY for a stable, ahead-of-time
     ;; agreed wire id; a nil wire id omits it (anonymous per-request server
     ;; frame → the documented no-conflict shape). Never a per-request gensym.
