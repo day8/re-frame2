@@ -128,13 +128,26 @@ for (const rowId of rowIds) {
     if (!task.some(Number.isFinite)) continue;
 
     // The REPORTABLE subset, beside the whole ensemble and never instead of
-    // it. A run is reportable on this row when its control held AND its band
-    // stayed under the ceiling — the ceiling is a whole-run refusal that
-    // fires before any control is consulted, so a run that breached it
-    // contributes no magnitude even if its control passed.
+    // it. A run is reportable on this row when its control held, its band
+    // stayed under the ceiling, AND the row has an adjudicated bar at all —
+    // the ceiling is a whole-run refusal that fires before any control is
+    // consulted, so a run that breached it contributes no magnitude even if
+    // its control passed.
+    //
+    // THE THIRD TERM IS rf2-y7mw7's, and it was missing here for the same
+    // reason it was missing from the driver's exit code: a row whose bars are
+    // all UNADJUDICATED has a magnitude and no band to tell it from parity,
+    // and this function prints its ensemble mean under the label
+    // "control-passing subset". A dataset that stored no bar verdict at all
+    // is not adjudicated either — absent is not clean.
+    const adjudicated = (row) => {
+      const bars = (row.seamTask && row.seamTask.rows) || {};
+      const names = Object.keys(bars);
+      return names.length > 0 && names.some((n) => !bars[n].unadjudicated);
+    };
     const reportable = ({ row }) =>
       row.ctlTask && row.ctlTask.ok && !(row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) &&
-      !(row.seamTask && row.seamTask.ceilingBreached);
+      !(row.seamTask && row.seamTask.ceilingBreached) && adjudicated(row);
     const passIdx = runs.map((r, i) => (reportable(r) ? i : -1)).filter((i) => i >= 0);
     const taskPass = passIdx.map((i) => task[i]);
 
