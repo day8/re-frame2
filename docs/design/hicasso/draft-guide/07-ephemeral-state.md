@@ -23,7 +23,7 @@ pixel offset is arithmetic, so it is mechanics.
 A `defview` body is a real React function component. Hooks physically work in it.
 There is no lint police, and if you use one you take on React's hook rules
 yourself — including the loss of headless testability for that body
-([Testing](08-testing.md)). When hooks are for a measured hot path rather than placement, see [Below Hiccup](11-below-hiccup.md).
+([Testing](08-testing.md)). When hooks are for a measured hot path rather than placement, see [Performance](11-performance.md).
 
 ## The order to try
 
