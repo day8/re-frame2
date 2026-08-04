@@ -44,11 +44,14 @@
   "HICASSO_SSR")
 
 (defn- result->js
-  [{:keys [html document payload-edn render-hash frame-id]}]
+  [{:keys [html document payload-edn frame-id]}]
   #js {"html"       html
        "document"   document
        "payloadEdn" payload-edn
-       "renderHash" (str render-hash)
+       ;; NO `renderHash` (rf2-2rtt6.91). An adoption-tier root carries no
+       ;; structural hash — Spec 011 §Hydration-mismatch detection — and a
+       ;; column that was always the same value for every fixture is the
+       ;; kind of number a manifest is worse for carrying.
        ;; The per-request gensym, as a string, so a driver can SHOW that
        ;; two requests took two frames. It is already destroyed.
        "frameId"    (str frame-id)})

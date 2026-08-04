@@ -76,11 +76,15 @@
 
   ## `:rf/render-hash` is not load-bearing anywhere in this file
 
-  It cannot be. The hash is degenerate for an interpreted root — the
-  dogfood screen and the ~1,200-element Conduit feed take the same value
-  (rf2-2rtt6.91, pinned by `ssr/entry-cljs-test`) — and
-  [[the-instance-key-rows-cannot-lean-on-the-render-hash]] takes the
-  measurement on THESE rows so the exclusion is a reading rather than a
+  It cannot be, and as of rf2-2rtt6.91 it is not even present: an
+  adoption-tier root carries no hash at either end (Spec 011
+  §Hydration-mismatch detection), so the entry emits none. It never could
+  have carried a claim anyway — the hash it used to ship was over an
+  unresolved `[<minted head> {props}]` root, and `canonical-edn` renders
+  every fn identically, so these rows took the same value as the dogfood
+  screen, a different page entirely.
+  [[the-instance-key-rows-cannot-lean-on-the-render-hash]] keeps that
+  measurement on THESE rows so the exclusion stays a reading rather than a
   promise. Every determinism claim below is over the DOCUMENT BYTES.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
@@ -99,6 +103,9 @@
             [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
             [re-frame.bench.hicasso.ssr.instance-key :as instance-key]
             [re-frame.core :as rf]
+            ;; rf2-2rtt6.91 — the entry emits no hash, so the exclusion row
+            ;; takes the measurement it excludes directly.
+            [re-frame.ssr.hash :as ssr-hash]
             [re-frame.test-support :as test-support]
             [re-frame.trace.tooling :as trace-tooling]))
 
@@ -300,20 +307,26 @@
               "and so is the roster entry it was taken from"))))))
 
 (deftest the-instance-key-rows-cannot-lean-on-the-render-hash
-  (testing "**the exclusion, measured.** Spec 011's `:rf/render-hash` is
-           degenerate for an interpreted root — the hash is over a root
-           hiccup whose head is a function, and `canonical-edn` renders
-           every function identically (rf2-2rtt6.91). These rows take the
-           SAME hash as the dogfood screen, which is a different page
-           entirely, so no claim in this file is entitled to rest on it
-           and none does. If this row has gone red, rf2-2rtt6.91 has
-           landed and this file's premise needs re-reading"
-    (let [dogfood (:render-hash (entry/render (fixtures/row "dogfood-snapshot")))
-          green   (:render-hash (entry/render (fixtures/row green-id)))
-          red     (:render-hash (entry/render (fixtures/row red-id)))]
+  (testing "**the exclusion, measured.** rf2-2rtt6.91 removed
+           `:rf/render-hash` from this tier's wire — an adoption-tier root
+           carries none — and the first assertion holds the entry to that.
+           The second keeps the reason live: the hash this root WOULD have
+           taken is over an unresolved hiccup whose head is a function, and
+           `canonical-edn` renders every function identically, so these
+           rows and the dogfood screen — a different page entirely — take
+           one shared constant. Neither an absent value nor a constant one
+           can carry a claim, so no claim in this file rests on it"
+    (let [payload (:payload (entry/render (fixtures/row green-id)))
+          hash-of #(ssr-hash/render-tree-hash (:hiccup (fixtures/row %)))
+          dogfood (hash-of "dogfood-snapshot")
+          green   (hash-of green-id)
+          red     (hash-of red-id)]
+      (is (not (contains? payload :rf/render-hash))
+          "the wire carries no hash for an adoption-tier root")
       (is (= dogfood green red)
-          (str "still degenerate: " (pr-str [dogfood green red])))
-      (report! "render-hash" {:shared (str green)}))))
+          (str "and the one it would have carried is a constant: "
+               (pr-str [dogfood green red])))
+      (report! "render-hash" {:would-have-been (str green) :on-the-wire "absent"}))))
 
 ;; ===========================================================================
 ;; ROW 1 — GREEN. The obligation met.

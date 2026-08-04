@@ -181,7 +181,9 @@
   "The bytes an SSR route would deliver for the dogfood screen, from
   `ssr/entry/render` — `react-dom/server` over the real request path.
 
-  Answers `{:html … :body-runs … :render-hash …}`. `:body-runs` is the
+  Answers `{:html … :body-runs …}`. There is no `:render-hash` — an
+  adoption-tier root carries none (rf2-2rtt6.91), and nothing here ever
+  read it. `:body-runs` is the
   server's OWN boundary-body count, read before the runtime is reset:
   `renderToString` runs every body exactly once too, so a row that
   asserts it is a row that would notice the server rendering a different
@@ -193,14 +195,14 @@
   ([opts]
    (rt/reset-runtime!)
    (rt/reset-body-runs!)
-   (let [{:keys [html render-hash]} (entry/render (merge (fixtures/row "dogfood-snapshot") opts))
+   (let [{:keys [html]} (entry/render (merge (fixtures/row "dogfood-snapshot") opts))
          runs (rt/body-runs)]
      ;; The server render is over before anything is hydrated, so its
      ;; counter is read here and the runtime the hydration is measured on
      ;; starts empty.
      (rt/reset-runtime!)
      (rt/reset-body-runs!)
-     {:html html :body-runs runs :render-hash render-hash})))
+     {:html html :body-runs runs})))
 
 (defn- hydrate-and-adopt!
   "Put `html` on the page, stamp every node, adopt it, and answer a
