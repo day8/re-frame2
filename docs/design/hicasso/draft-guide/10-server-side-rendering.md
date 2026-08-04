@@ -92,6 +92,6 @@ Hicasso's hydration path, `:ssr` host policy, Node render entry, and end-to-end 
 
 | Question | Status |
 |---|---|
-| Production host shape | Not decided: JVM structural walk (in-process with `ssr-ring`) vs a Node sidecar behind an EDN render contract. `ssr-ring` keeps Spec 011's HTTP contract either way. Do not design a deployment against either yet. |
+| Production host shape | Not decided: JVM structural walk (in-process with `ssr-ring`) vs a Node sidecar behind an EDN render contract. `ssr-ring` keeps Spec 011's HTTP contract either way. Do not design a deployment against either yet. Both arms are priced, with no verdict, in [the production-server-arm dossier](../production-server-arm.md). |
 | How boot composes once there is a product package | Open. Today the experimental path associates a container, a frame, and a view; framework `hydrate!` seeds and verifies state before first render. Whether the product offers one operation or two — and where `:initial-events` sits on a hydrating load — is unstated. |
 | Spellings | `hydrate-root!` and every other name on this page are **[unfrozen]** until the API freeze. |
