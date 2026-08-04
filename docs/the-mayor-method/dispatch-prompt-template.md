@@ -77,7 +77,18 @@ Two hard-won rules:
   how to discover consumers live in the project's `TESTING.md`/`CLAUDE.md`.)
 - **Local-green ≠ CI.** "Green locally" usually means the subset the worker ran;
   the red gate is one it skipped (integration/live, a linter, a drift-check). The
-  merge decision is CI's, not the worker's hand-off.
+  merge decision is CI's, not the worker's hand-off. So the brief must be able to
+  say *which* required checks the local spine omits — and say it by citing one
+  path, not by re-listing them, because the required set moves. Make the project
+  derive that list rather than document it: in this repo it is
+  `python scripts/check_fast_pr_gap.py --list`, catalogued under
+  `TESTING.md` § *Required checks the fast-PR spine does not run*, and the spine
+  prints the digest on its own PASS line. Two shapes make a hand-written list
+  wrong within a week — a **second or third required status context** the local
+  runner has no lane in at all (linters, docs builds), and a required check that
+  is a **step inside a job the runner does run**, which no skipped-tier
+  enumeration can see and which reports under that job's name however little it
+  resembles what the step does.
 - **Never nominate a gate that does not cover the surface being edited.** Site
   builds, linters and test runners all carry exclusion lists, and a gate run over
   an excluded path exits green having verified nothing — the same fail-open defect

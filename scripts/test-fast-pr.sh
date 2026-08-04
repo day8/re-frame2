@@ -41,6 +41,17 @@ set -euo pipefail
 # so the gap is visible rather than assumed.  `TESTING.md` carries the canonical
 # PR/nightly/release matrix.
 #
+# The paragraph above DESCRIBES the gap in families; the PASS line also NAMES it,
+# check by check, from `scripts/check_fast_pr_gap.py --brief` (rf2-13zre).  Prose
+# could not carry the whole truth here, and did not: a required check can be a
+# STEP INSIDE A JOB THIS SPINE RUNS — the EP-0036 donor-boundary `git grep` is
+# the last step of `jvm-freehand`, so it reports as "JVM freehand (clojure
+# -M:test)" and is not a test; `npm run test:ui-isolation` is a step of the same
+# `cljs` job whose node-test build this spine does run; and thirteen of CI's
+# required `python scripts/check_*.py` invariant checkers had no local lane at
+# all.  None of those is a skipped TIER, so nothing above can see them.  Run
+# `python scripts/check_fast_pr_gap.py --list` for the local command for each.
+#
 # What it DOES mirror is CI's *tiering* — which tiers run for a given diff —
 # because that decision is delegated wholesale to the classifier CI uses.  Tier
 # SELECTION is faithful; tier CONTENTS are the spine's own, narrower set above.
@@ -686,6 +697,29 @@ run "JVM roster/CI bijection self-test" "python scripts/check_jvm_lane_rosters.p
 run "JVM roster <-> CI bijection (rf2-as6bg)" "python scripts/check_jvm_lane_rosters.py" \
   python "$spine_root/scripts/check_jvm_lane_rosters.py"
 
+# Fast-PR gap map (rf2-13zre).  The two gates above assert that a JVM lane
+# exists in both places; NOTHING asserted anything about the required checks that
+# have no local lane at all — and on 2026-08-04 three workers in a row shipped a
+# green spine into a red required check, each a different one.  The nastiest was
+# not a job this spine skips but a STEP INSIDE a job it runs: the EP-0036
+# donor-boundary `git grep`, which is the last step of `jvm-freehand` and so
+# reports under the display name "JVM freehand (clojure -M:test)" — a test-suite
+# name for something that is not a test.  The skipped-tier enumeration at the
+# bottom of this script cannot see that class by construction: the tier is not
+# skipped and the step is not a suite.
+#
+# `check_fast_pr_gap.py` derives the required set from the three aggregator jobs
+# whose display names ARE the branch ruleset's required contexts, derives each
+# one's gate steps, and reports every step no lane of this spine runs — with the
+# local command read from the step itself.  Self-test first (proves the
+# step-granularity class fires and that a stale lane signature goes red), then
+# the live audit.  The `--brief` digest is printed with the PASS line below.
+run "fast-PR gap map self-test" "python scripts/check_fast_pr_gap.py --self-test" \
+  python "$spine_root/scripts/check_fast_pr_gap.py" --self-test
+
+run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose" \
+  python "$spine_root/scripts/check_fast_pr_gap.py" --check
+
 # ---------------------------------------------------------------------------
 # The spine's OWN self-test — armed only when the spine's own tree changed
 # (rf2-fhdd3).  Every other gate above pairs a self-test with a live scan; the
@@ -871,3 +905,11 @@ if [ "${#skipped[@]}" -gt 0 ]; then
     printf '  - %s\n' "$item"
   done
 fi
+
+# ...and, NAMED rather than described, the required checks no tier of this spine
+# runs at any classification (rf2-13zre).  The list above is about what THIS RUN
+# skipped; this one is about what this script never runs at all — including the
+# steps buried inside jobs it does run, which is the class that ambushed three
+# workers in a day.  Derived at print time from the workflows, so it cannot go
+# stale; `--list` swaps the digest for a local command per check.
+python "$spine_root/scripts/check_fast_pr_gap.py" --brief || true
