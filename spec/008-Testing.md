@@ -767,10 +767,15 @@ that proves a law there.
 - **structural tree → 011** — the structural tree is the *input* server rendering
   consumes; the runner proves the tree, and [011](011-SSR.md) owns emission and
   hydration.
-- **qualified host** — a foreign boundary is opaque to the structural render (the v1
-  node set carries no host variant), so a qualified-host law is proven by connecting
-  the real behaviour or wrapper in a browser under its own host-boundary slice, never
-  by the structural surface.
+- **qualified host** — what the foreign component *renders* is opaque to the structural
+  render: a host node's `:children` are the declared SSR projection, never the registered
+  component's own output. So a law about that behaviour is proven by connecting the real
+  behaviour or wrapper in a browser under its own host-boundary slice. The **crossing
+  itself is not opaque** — the v1 node set carries a `host` variant
+  ([004B](004B-UI-Tree-and-Conversion.md#the-node-schema--version-1)), so its identity
+  (`:rf.ui/host`), its declared SSR policy (`:rf.ui/host-ssr`) and its `:props` are
+  ordinary headless reads in the `jvm` and `browser` structural cells. A view declaring
+  the crossing it should needs no browser to prove it.
 
 No cell claims structural coverage the runner cannot execute: the four `structural`
 cells (both modes × {jvm, browser}) are exactly what `t/render` renders headlessly on
