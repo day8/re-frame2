@@ -275,7 +275,7 @@ and simpler. Reach for a boundary when you want something to update
 independently, not because the markup got long.
 
 When a measured island is in the **~2%** (cost, host edge, foreign component) —
-not the default 98% — see [Below Hiccup](11-below-hiccup.md).
+not the default 98% — see [Performance](11-performance.md).
 
 ## Advanced
 

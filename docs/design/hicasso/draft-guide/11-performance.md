@@ -1,4 +1,4 @@
-# Below Hiccup
+# Performance
 
 > **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
@@ -17,7 +17,7 @@ where the pathological witness sat nearer **~1.5×**. So when you *do* optimise,
 you start with **where and how you read**, not with abandoning Hiccup.
 
 **For the other ~2%** — a measured hot path, a third-party React widget, an
-imperative SDK — you *can* go lower. There is **no second mode** that turns
+imperative SDK — you *can* go **below Hiccup**: closer to React, past the pure tier-1 walk, into a foreign component. There is **no second mode** that turns
 interpretation off for the whole app. There **are** deliberate steps down the
 stack. This page is the map for that minority.
 
@@ -41,7 +41,7 @@ You do not need Hicasso-private tooling.
 Name the boundary, the sub, or the event **before** changing architecture.
 "The app is slow" is still the 98% problem in disguise.
 
-## What "lower" is not
+## What "below Hiccup" is not
 
 | Wish | Reality |
 |---|---|
@@ -249,7 +249,7 @@ obviously a foreign/SDK boundary you never expected Hiccup to own.
 | SDK mounts twice / leaks | Ref attach without paired teardown | One attach, one cleanup (React 19 return-from-ref) — [Interop](05-interop.md) |
 | Still slow after dropping to React | Wrong layer | Measure again — often read shape or event volume, not Hiccup |
 
-## When not to go lower
+## When not to go below Hiccup
 
 - You are still in the **98%** — no profile, only a feeling, or a fear of
   interpretation.

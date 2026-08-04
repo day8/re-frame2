@@ -36,7 +36,7 @@ another view's child.
 
 This page is the **foreign component** door. For the full ladder — still-Hiccup
 perf levers, host-edge hooks/refs, and what is not an escape — see
-[Below Hiccup](11-below-hiccup.md).
+[Performance](11-performance.md).
 
 ## Why declare
 
