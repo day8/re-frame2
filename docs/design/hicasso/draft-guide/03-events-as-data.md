@@ -1,26 +1,24 @@
 # Events as data
 
-> **Draft ahead of the product artefact.** No `implementation/hicasso/` artefact
-> ships yet. Spellings marked **[unfrozen]** stay provisional until the API freeze.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Behaviour matches the experimental arm under `implementation/freehand/test/re_frame/bench/hicasso/`.
 
-Handler attributes are where a data-oriented view layer usually gives up. You have
-been writing pure data all the way down the tree, and then `:on-click` needs a
-function, so you write `#(rf/dispatch [:todo/toggle id])` and the node stops being
+Handler attributes are where a data-oriented view layer usually gives up. You
+write pure data all the way down the tree, then `:on-click` needs a function, so
+you write `#(rf/dispatch [:todo/toggle id])` and the node stops being
 inspectable, comparable, or assertable by equality.
 
-Hicasso's answer: **put the event vector in the attribute.** The runtime builds the
-callback.
+> **Put the event vector in the attribute.** The runtime builds the callback.
 
 ```clojure
 [:button {:on-click [:todo/toggle id]} "✓"]
 ```
 
-That is not sugar for a closure you could have written. The tree still holds data at
-that node, which means a test can assert it with `=` and a tool can read it.
+That is not sugar for a closure you could have written. The tree still holds
+data at that node, so a test can assert it with `=` and a tool can read it.
 
-Lowering is by shape, not by roster: any prop whose name reads `on-` plus a letter
-(or camelCase `onClick`, for the migrating author) is an event position, so there is
-no list of blessed event names to keep in step with the DOM.
+Lowering is by shape, not by roster: any prop whose name reads `on-` plus a
+letter (or camelCase `onClick`, for the migrating author) is an event position.
+There is no list of blessed event names to keep in step with the DOM.
 
 ## The value placeholders
 
@@ -39,15 +37,15 @@ target's `.value` and `.checked`:
          :on-change [:todo/set-done id ::h/checked]}]
 ```
 
-At dispatch, the placeholder is replaced by the input's value or checked state, so
-the handler receives `[:todo.ui/edit 7 "milk"]` or `[:todo/set-done 7 true]` —
-ordinary event vectors, indistinguishable from ones you dispatched by hand.
-Substitution happens at the intent vector's top level only, which is the shape you
-write; a marker buried in nested structure is not looked for.
+At dispatch, the placeholder is replaced by the input's value or checked state,
+so the handler receives `[:todo.ui/edit 7 "milk"]` or `[:todo/set-done 7 true]`
+— ordinary event vectors, indistinguishable from ones you dispatched by hand.
+Substitution happens at the intent vector's top level only; a marker buried in
+nested structure is not looked for.
 
 Those two markers cover almost every handler site that only needs the target's
-value or checked state. For the full controlled-input round-trip — value in from a
-subscription, intent out, caret and same-tick echo — see
+value or checked state. For the full controlled-input round-trip — value in from
+a subscription, intent out, caret and same-tick echo — see
 [Controlled inputs](04-controlled-inputs.md).
 
 ## Functions still work
@@ -64,9 +62,9 @@ everything, not because functions are forbidden.
 
 ## When you need the event *and* an intent: `h/fn`
 
-Sometimes the event has to be read before you know what to dispatch — a file list,
-a drag delta, a filtered key. For that there is **one** callback form, and it is an
-ordinary function:
+Sometimes the event has to be read before you know what to dispatch — a file
+list, a drag delta, a filtered key. For that there is **one** callback form, and
+it is an ordinary function:
 
 ```clojure
 [:input {:type "file"
@@ -92,23 +90,23 @@ conditional dispatch is an ordinary `when`:
 | `:ref` | React's own contract — the node on attach, your return as the cleanup |
 | a raw `#js` prop you built yourself | nothing at all. It is a function; it runs |
 
-That last row is worth knowing about. `h/fn` is a real function everywhere. Put it
-somewhere the runtime does not walk and you lose the contract, not the call — the
-library gets a callable, not a marker object that blows up as a `TypeError` naming
-nothing you wrote.
+That last row is worth knowing. `h/fn` is a real function everywhere. Put it
+somewhere the runtime does not walk and you lose the contract, not the call —
+the library gets a callable, not a marker object that blows up as a `TypeError`
+naming nothing you wrote.
 
 You never pick a form. There is one, and where you put it is the decision.
 
-**Write the parameter vector the caller actually calls with.** A DOM event position
-hands you one argument, so `(h/fn [e] …)` is what you will write almost every time
-— but at a `defhost` callback the declaration named `:event`, the arguments are the
-foreign component's, and it may pass two or three. Take them all: they arrive
-exactly as that library sends them.
+**Write the parameter vector the caller actually calls with.** A DOM event
+position hands you one argument, so `(h/fn [e] …)` is what you will write almost
+every time — but at a `defhost` callback the declaration named `:event`, the
+arguments are the foreign component's, and it may pass two or three. Take them
+all: they arrive exactly as that library sends them.
 
-One thing the policy defaults above do *not* do: **`h/fn` at `:on-submit` does not
-auto-prevent.** That default exists because an intent vector never sees the event,
-so the runtime has to decide for it. A callback is handed the event, so the event
-is yours — call `.preventDefault` in the body. Whoever holds the event owns it.
+One thing the policy defaults below do *not* do: **`h/fn` at `:on-submit` does
+not auto-prevent.** That default exists because an intent vector never sees the
+event, so the runtime has to decide for it. A callback is handed the event, so
+the event is yours — call `.preventDefault` in the body.
 
 ## Policy defaults the runtime owns
 
@@ -124,9 +122,9 @@ An intent vector at `:on-submit` prevents the browser's default navigation:
  [:button {:type :submit} "Sign up"]]
 ```
 
-No `(.preventDefault e)`. Forms almost always want it, so the runtime does it. For
-the rare form that wants a real submission, write the handler as `h/fn`: a callback
-is handed the event, so the runtime leaves it alone and the event is yours.
+No `(.preventDefault e)`. Forms almost always want it, so the runtime does it.
+For the rare form that wants a real submission, write the handler as `h/fn`: a
+callback is handed the event, so the runtime leaves it alone.
 
 ### Everywhere else, prevention is one head
 
@@ -138,19 +136,21 @@ the pagination link — opts in, and the opt-in is part of the intent:
 [:a.nav-link {:href "#" :on-click [::h/prevent [:conduit/show-your-feed]]}]
 ```
 
-`[::h/prevent INTENT]` and nothing else: exactly one inner intent vector, which is
-what gets dispatched. Write it wrong — two payloads, a keyword instead of a vector,
-a decorator inside a decorator — and you get `:rf.error/hicasso-malformed-prevent`
-naming the attribute you wrote it at, at render time rather than at the click.
+`[::h/prevent INTENT]` and nothing else: exactly one inner intent vector, which
+is what gets dispatched. Write it wrong — two payloads, a keyword instead of a
+vector, a decorator inside a decorator — and you get
+`:rf.error/hicasso-malformed-prevent` naming the attribute you wrote it at, at
+render time rather than at the click.
 
-It is a head rather than metadata on the vector for a reason worth knowing, because
-it is the reason you can test it: **metadata does not participate in `=`**.
+It is a head rather than metadata on the vector for a reason: **metadata does
+not participate in `=`**.
 `(= [:app/go] ^{::h/prevent? true} [:app/go])` is `true`, so an annotation is
 invisible to a structural test that compares the tree — and to `pr-str`, and to
 anything hashing the intent. A head is visible to all three.
 
-Markers still work inside it: `[::h/prevent [:filter/set ::h/value]]` prevents and
-materializes, because the decorator is unwrapped before the markers are looked for.
+Markers still work inside it: `[::h/prevent [:filter/set ::h/value]]` prevents
+and materializes, because the decorator is unwrapped before the markers are
+looked for.
 
 ### The key map
 
@@ -167,22 +167,14 @@ A map from key name to intent. The names are strings, matched against the DOM
 event's own `.key` value; keys you don't list are ignored, and there is no
 modifier language.
 
-The reason this belongs in the runtime rather than in your view is the composition
-law: **a composing Enter commits nothing.** Mid-IME, Enter selects a candidate — it
-is not a submit, and treating it as one is how a Japanese or Chinese user loses a
-sentence. The runtime centralises that check, including the legacy keyCode-229
-signal that some browsers still use to say "this keystroke belongs to the IME" —
-and it reads both signals off the *native* event, because React's synthetic
-keyboard event drops `isComposing`, which is exactly the trap a hand-written
-handler falls into.
-
-Get this wrong in your own handler and it fails silently for every user who
-composes. Which is a good argument for it not being your handler.
+The runtime owns composition: mid-IME, Enter selects a candidate — it is not a
+submit. Hand-write that check wrong and every user who composes loses a sentence.
+See **Advanced** for the IME detail.
 
 ## Links: `route-link` and the navigate head
 
-Most of an application's anchors are navigations. Spell the link as `route-link`, a
-plain function over the routing artefact's link seam:
+Most of an application's anchors are navigations. Spell the link as
+`route-link`, a plain function over the routing artefact:
 
 ```clojure
 (ns conduit.views.profile
@@ -196,33 +188,32 @@ plain function over the routing artefact's link seam:
 
 You name a route and its params and never see a URL. What comes back is one real
 `<a>` whose `:href` is routing's own synthesis and whose `:on-click` carries the
-click decision **as data**, under the second reserved head, `[::h/navigate {…}]` —
-so two renders of one link are equal under `=`, and a structural test reads the
-click decision off the tree. Because it is a plain function, not a boundary, it
-inlines: no hook, no subscription read, no row in any boundary count. An author
-byline is not a unit of re-render.
+click decision **as data**, under the second reserved head, `[::h/navigate {…}]`
+— so two renders of one link are equal under `=`, and a structural test reads
+the click decision off the tree. Because it is a plain function, not a boundary,
+it inlines: no hook, no subscription read, no row in any boundary count.
 
-The click law is routing's, stated once: a modifier-click or auxiliary click stays
-the browser's (a new tab opens), a `:target` or `:download` anchor stays native,
-and everything else is `preventDefault` plus a dispatch of the routing intent to
-the frame that was captured at render. Rendering a `route-link` with the routing
-artefact absent fails at render with `:rf.error/routing-artefact-missing`, naming
-the `:to` — never a dead anchor.
+The click law is routing's, stated once: a modifier-click or auxiliary click
+stays the browser's (a new tab opens), a `:target` or `:download` anchor stays
+native, and everything else is `preventDefault` plus a dispatch of the routing
+intent to the frame that was captured at render. Rendering a `route-link` with
+the routing artefact absent fails at render with
+`:rf.error/routing-artefact-missing`, naming the `:to` — never a dead anchor.
 
-**The `:on-click` you pass is the pre-navigation veto**, and its roster is closed:
-`nil`, `[::h/prevent [:app/event]]`, `h/fn`, or a plain function. The prevent form
-is the declarative veto — the navigation is cancelled and your intent dispatched
-instead. A **bare** intent vector there is refused loudly: the click already
-produces the one routing intent, and one user action must not yield two semantic
-events.
+**The `:on-click` you pass is the pre-navigation veto**, and its roster is
+closed: `nil`, `[::h/prevent [:app/event]]`, `h/fn`, or a plain function. The
+prevent form is the declarative veto — the navigation is cancelled and your
+intent dispatched instead. A **bare** intent vector there is refused loudly: the
+click already produces the one routing intent, and one user action must not yield
+two semantic events.
 
-Routing also publishes a `:prefetch` opt-in, and Hicasso declines it for v0 — out
-loud, rather than by ignoring it. A `route-link` carrying `:prefetch` in any form,
-`nil` and `false` included, fails at render with
+Routing also publishes a `:prefetch` opt-in; Hicasso declines it today — out
+loud, rather than by ignoring it. A `route-link` carrying `:prefetch` in any
+form, `nil` and `false` included, fails at render with
 `:rf.error/hicasso-route-link-prefetch-declined`. A key that merely fell through
 would leave you with a link that prefetches nothing, reports it nowhere, and
-carries a stray attribute on the anchor. If you want prefetching today, write it as
-an ordinary intent at `:on-mouse-enter`.
+carries a stray attribute on the anchor. If you want prefetching today, write it
+as an ordinary intent at `:on-mouse-enter`.
 
 ## Callbacks carry their frame
 
@@ -232,36 +223,50 @@ from the substrate's single internal context.
 That matters because the browser invokes the callback long after the render that
 created it, when the render's dynamic extent is gone. A hand-written
 `#(rf/dispatch …)` from an async context raises `:rf.error/no-frame-context` for
-exactly this reason. Intent vectors don't, because the frame was captured when the
-callback was built.
+exactly this reason. Intent vectors don't, because the frame was captured when
+the callback was built.
 
 The rule of thumb: **intents are always safe; hand-written async needs the frame
 explicitly.**
 
 ## Troubleshooting
 
-This table names mechanisms rather than error ids; the ids the page does mint are
-named in the sections above.
+This table names mechanisms rather than error ids; the ids the page does mint
+are named in the sections above.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Page navigates and reloads on form submit | Something bypassed the intent path — a hand-written `:on-submit` function | Use an intent vector, or call `.preventDefault` yourself in the function |
-| Handler receives the placeholder keyword instead of a value | The placeholder was used at an event position with no value to substitute | `::h/value` is for value-bearing events; `::h/checked` for checkboxes; read the event object with a function elsewhere |
-| Enter commits half-typed Japanese text | Composition handling was written by hand | Use the `:on-key-down` key map — the composition law is centralised there |
-| A `route-link` refuses your `:on-click` intent vector | The click already produces the one routing intent — a bare second intent is one action, two events | Wrap it: `[::h/prevent [:app/event]]` cancels the navigation and dispatches yours instead |
-| `:rf.error/routing-artefact-missing` when rendering a `route-link` | Routing is not on the classpath / not required at boot | Require `re-frame.routing` (and the rest of your routing setup) so the artefact is present before the link renders |
-| `:rf.error/no-frame-context` from a timeout | A bare `dispatch` in async code | Capture the frame at the call site, or dispatch an event that owns the async work through `:fx` |
+| Page navigates and reloads on form submit | Hand-written `:on-submit` function bypassed the intent path | Use an intent vector, or call `.preventDefault` yourself |
+| Handler receives the placeholder keyword instead of a value | Placeholder used where there is no value to substitute | `::h/value` for value-bearing events; `::h/checked` for checkboxes; read the event with a function elsewhere |
+| Enter commits half-typed Japanese text | Composition handling written by hand | Use the `:on-key-down` key map — composition is centralised there |
+| A `route-link` refuses your `:on-click` intent vector | Click already produces the routing intent — bare second intent is one action, two events | Wrap it: `[::h/prevent [:app/event]]` |
+| `:rf.error/routing-artefact-missing` when rendering a `route-link` | Routing not on the classpath / not required at boot | Require `re-frame.routing` (and the rest of your routing setup) before the link renders |
+| `:rf.error/no-frame-context` from a timeout | Bare `dispatch` in async code | Capture the frame at the call site, or own the async work through `:fx` |
 | An intent fires but no handler runs | Unregistered event id | Registration happens on namespace load; check the boot namespace requires it |
 
 ## When not to use an intent
 
 When you need the event object itself. Pointer coordinates, `dataTransfer`,
-`stopPropagation`, anything measuring the DOM — those are functions, and reaching
-for one is not a failure. Reach for `h/fn` when you want to read the event *and*
-dispatch, and a plain `(fn …)` when you want to read it and do something else.
+`stopPropagation`, anything measuring the DOM — those are functions, and
+reaching for one is not a failure. Reach for `h/fn` when you want to read the
+event *and* dispatch, and a plain `(fn …)` when you want to read it and do
+something else.
+
+## Advanced
+
+### IME and the key map
+
+The reason the key map belongs in the runtime rather than in your view is
+composition: **a composing Enter commits nothing.** Mid-IME, Enter selects a
+candidate — it is not a submit. The runtime centralises that check, including
+the legacy keyCode-229 signal that some browsers still use to say "this
+keystroke belongs to the IME" — and it reads both signals off the *native*
+event, because React's synthetic keyboard event drops `isComposing`. That is the
+trap a hand-written handler falls into: silent failure for every user who
+composes.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| `h/fn`'s spelling | Working name; unfrozen like every declaration spelling |
+| `h/fn`'s spelling | Working name; **[unfrozen]** like every declaration spelling |

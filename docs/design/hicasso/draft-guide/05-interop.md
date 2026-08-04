@@ -1,16 +1,11 @@
 # Interop
 
-> **Draft ahead of the product artefact.** Spellings marked **[unfrozen]** stay
-> provisional until the API freeze. `defhost` is witnessed end-to-end by the bench
-> arm under `implementation/freehand/test/re_frame/bench/hicasso/` — one foreign
-> React component with its own state, effects, context read, and three invoker
-> styles on its callbacks. No `implementation/hicasso/` artefact ships yet. The
-> `[:>]` raw escape and the migration codemod are **not built**. Deep prop
-> conversion is deliberately not offered. The `defhost` `:ssr` policy is landed;
-> [Server-side rendering](10-server-side-rendering.md) owns the SSR story.
+> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]**
+> may change. Behaviour matches the experimental arm under
+> `implementation/freehand/test/re_frame/bench/hicasso/`.
 
-You want a date picker from npm. In Reagent you write `[:> DatePicker {...}]` and
-move on. Hicasso asks you to write one line first:
+You want a date picker from npm. Declare it once, then use it anywhere a view is
+legal:
 
 ```clojure
 (ns app.hosts.date-picker
@@ -21,9 +16,6 @@ move on. Hicasso asks you to write one line first:
   {:callbacks {:on-change :event}})     ;; defhost is [unfrozen]
 ```
 
-Then use it anywhere a view is legal — including as another view's child, since
-children cross as ordinary hiccup and are lowered by whoever renders them:
-
 ```clojure
 (ns app.views
   (:require [re-frame.hicasso :as h :refer [defview sub]]
@@ -31,71 +23,55 @@ children cross as ordinary hiccup and are lowered by whoever renders them:
 
 (defview due-field [_]
   [date-picker {:selected  (sub [:task/due-date])
-                ;; react-datepicker calls onChange(date) — the date first, and
-                ;; no event at argument one. An intent vector refuses there;
-                ;; h/fn takes the library's own arguments, in order.
+                ;; react-datepicker calls onChange(date) — value first, no DOM
+                ;; event at argument one. An intent vector refuses there; h/fn
+                ;; takes the library's arguments in order.
                 :on-change (h/fn [date & _] [:task/set-due date])}])
 ```
 
-## Why a declaration
+Children cross as ordinary hiccup and lower where they render — including as
+another view's child.
 
-`defhost` is the door, and the only form taught. A raw escape exists as design for
-cases a static declaration cannot express, but it is secondary and **not built**
-yet — see [The escape](#the-escape--is-legal-unbuilt).
+## Why declare
 
-`[:> DatePicker {...}]` puts a raw JavaScript value inside your data tree. Three
-things break at that node, all of them quietly:
+Putting a raw JS component in the tree breaks three things at once:
 
-- **`.cljc` purity.** The namespace can no longer load on the JVM, so it can no
-  longer be tested headlessly.
-- **Structural testing.** The node holds an opaque JS object, so you can't assert
-  the tree with `=`.
-- **Tooling identity.** There is nothing for a tool to name — the crossing has no
-  identity, just a value.
+- **JVM / `.cljc`.** A JS require in a shared namespace means the ns no longer loads
+  on the JVM, so headless tests die with it.
+- **`=` tests.** The node holds an opaque JS object; structural equality stops
+  working at that point.
+- **Named crossing.** Tools and readers get an identity — a declaration — instead
+  of a bare value.
 
-`defhost` gives the crossing a name, keeps the JS require quarantined in one `.cljs`
-host namespace, and leaves the rest of your view tree pure data.
+`defhost` quarantines the require in one `.cljs` host namespace and leaves the rest
+of the view tree as data. Friction once; free at every use site. The Reagent
+`[:> …]` escape is secondary, **not built** yet, and covered briefly below.
 
-A declaration is friction once. It amortizes to zero over every use site. Today the
-conversion from Reagent is by hand; a codemod is planned and not built. It is a
-small hand: the expensive part of leaving Reagent was never `[:>]`, it was
-`r/atom`.
+## Defaults
 
-## The defaults
-
-`defhost` with no options gives you:
+`defhost` with no options:
 
 | Default | Behaviour |
 |---|---|
-| Props | shallow camelCase conversion — `:on-change` becomes `onChange` |
-| Children | hiccup children are converted to React elements |
+| Props | shallow camelCase — `:on-change` → `onChange` |
+| Children | hiccup → React elements |
 | Functions | pass through unconverted |
-| SSR | `:client-only` — the host region renders nothing server-side until the client has adopted the page. Declarable as the `:ssr` option: `:client-only` (the default), or `{:fallback <hiccup>}` for placeholder markup, with an unrecognised policy refused at mint (`:rf.error/hicasso-host-bad-ssr-policy`). [Server-side rendering](10-server-side-rendering.md) tells the story |
+| SSR | `:client-only` — nothing server-side until the client adopts. Override with `:ssr`: `:client-only`, or `{:fallback <hiccup>}` for placeholder markup. Bad policy → `:rf.error/hicasso-host-bad-ssr-policy` at mint. Full story: [Server-side rendering](10-server-side-rendering.md) |
 
-Policy overrides live on the declaration rather than at the call site, which is the
-whole point: one place decides how this component is crossed, and every use site
-inherits it. There are exactly two options today — `:callbacks`, a finite map
-from prop name to `:event`, `:handler` or `:render`, and the subject of the next
-section; and `:ssr`, the server policy in the table above. An option the door does
-not know is refused at mint rather than ignored
-(`:rf.error/hicasso-host-unknown-option`).
+Two options today: `:callbacks` (next section) and `:ssr`. An unknown option is
+refused at mint (`:rf.error/hicasso-host-unknown-option`), not ignored. Bad
+contracts, contracts on `:key`/`:ref`, duplicate prop spellings, and a component
+that resolved to `nil` (classic `:default` against a library with no default
+export) also fail at the declaration — where your stack points at the line you
+wrote.
 
-Everything a declaration can get wrong, it gets wrong *at the declaration*, where
-your stack trace points at the line you wrote: a contract that is not one of the
-three, a contract on `:key` or `:ref` (React's, not positions), two spellings of
-one prop declared twice, and a component that resolved to `nil` — the classic
-`:default` against a library that has no default export, which React would
-otherwise report from somewhere else entirely.
+**No deep conversion.** Nested option maps are not camelCased for you. Guessing
+which nested maps are options and which are data is a support trap; convert those
+maps yourself when the library wants camelCase inside them.
 
-Deep conversion — camelCasing keys *inside* a nested option map — is deliberately
-not offered at any level. Guessing which nested maps are options and which are data
-is the support burden the shallow default exists to delete; convert the map yourself
-when a library wants camelCase inside it.
+## Callbacks: `:event`, `:handler`, `:render`
 
-## Callbacks: `:event`, `:handler` and `:render`
-
-A declared slot in `:callbacks` carries a contract, never inferred from an `on*`
-spelling:
+A declared slot carries a contract — never inferred from an `on*` name:
 
 ```clojure
 (h/defhost picker Widget
@@ -104,194 +80,124 @@ spelling:
                :on-render-row :render}})
 ```
 
-**`:event`** is the door's version of an ordinary `:on-*` position — an intent
-vector, or an `h/fn` when you need to read what the library handed you. The proof
-pins the detail a native position doesn't have to: a foreign invoker calls with
-*its own* arguments, not a lone DOM event — `onPick(value, event)`,
-`onDraft(event)` — and **every argument the invoker passed reaches the `h/fn`
-body**, in the order the library sent them.
+**`:event`** — like a native `:on-*`: intent vector, or `h/fn` when you need the
+library's arguments. Foreign invokers pass *their* arguments (`onPick(value,
+event)`, `onDraft(event)`), and **every argument reaches the `h/fn` body** in
+library order.
 
-**`:handler`** crosses the function by identity rather than wrapping it: the
-library gets exactly the function you wrote — so a library that memoises on
-callback identity is not defeated — and whatever the library's own call returns
-goes back to *that caller*; Hicasso never sees the return and never dispatches
-from it. This is the shape for a library's imperative surface (`open()`,
-`scrollTo()`): `defhost` doesn't know what an arbitrary imperative call means, so
-`:handler` stays out of its way entirely.
+**`:handler`** — function by identity, no wrap. The library gets exactly the
+function you wrote (memoisation on callback identity still works), and the
+library's return goes back to that caller. Use this for imperative APIs
+(`open()`, `scrollTo()`): Hicasso does not invent meaning for those calls.
 
-**`:render`** is the third contract, for a library that calls you back *during its
-own render* — `renderRow`, `renderItem`, a render prop. The body must be pure: its
-return is what the library puts in its tree, and dispatching from inside it raises
-`:rf.error/hicasso-dispatch-in-render-position`, naming the position.
+**`:render`** — library calls you *during its own render* (`renderRow`,
+`renderItem`). The body must be pure: its return is what the library puts in its
+tree. Dispatching *while that call runs* raises
+`:rf.error/hicasso-dispatch-in-render-position`, naming the position. The row you
+build may still carry ordinary intents — `[:li {:on-click [:row/pick id]} title]`
+is fine; those fire later, on the user's click, under the frame of the boundary
+that supplied the callback.
 
-Read "from inside it" exactly. **The row you build may carry ordinary intents.** A
-`renderRow` that returns `[:li {:on-click [:row/pick id]} title]` is the whole
-point of a render prop, and that handler fires later, at the user's click, into
-the frame of the boundary that supplied the callback — the only frame that could
-own it, since the foreign component has none. What is forbidden is dispatching
-*while the call is running*, whether directly or by lowering a handler and firing
-it synchronously in the same body. The distinction is the law's own: pure while
-you are building the row, ordinary once you have handed it over.
+### The declaration wins
 
-### The declaration decides; the value never overrules it
+The contract governs **every** carrier at that slot, not only `h/fn`. An intent
+vector or key-map is accepted at `:event` and **refused** at `:handler` and
+`:render` with `:rf.error/hicasso-intent-at-a-non-event-contract`. An ordinary
+unmarked function crosses untouched at all three.
 
-The contract you declared governs **every** carrier at that position, not just the
-`h/fn`. An intent vector and a key-map are each a dispatch and nothing else, so
-they are accepted at `:event` — where dispatching is what the contract means — and
-**refused** at `:handler` and `:render` with
-`:rf.error/hicasso-intent-at-a-non-event-contract`. There is no reading of a bare
-vector that a `:handler` could honour, and a `:render` position that dispatched
-would be dispatching mid-render. If what happens at that slot is an event, declare
-it `:event`; otherwise write an `h/fn` that does the work. An ordinary unmarked
-function crosses untouched at all three.
+### Intent vectors are event-first
 
-### The vector spelling is event-first
+`::h/prevent`, `::h/value`, `::h/checked`, and key-map lookups all read the DOM
+event from **argument one**. Value-first invokers — `onPick(value, event)`,
+`onChange(date)` — have no event there, so you get
+`:rf.error/hicasso-intent-needs-the-event` (naming the position and what arrived)
+instead of `value.preventDefault is not a function`. **`h/fn` is the spelling for
+those slots.**
 
-`::h/prevent`, `::h/value`, `::h/checked` and a key-map's key lookup all read the
-DOM event, and they all read it from **argument one**. That is what every native
-position hands them, and what an event-first foreign contract (`onDraft(event)`)
-hands them too.
+An intent with neither a marker nor `::h/prevent` never touches its arguments, so
+`{:on-pick [:city/picked "paris"]}` is fine under any invoker shape.
 
-A value-first invoker — `onPick(value, event)`, or the date picker's
-`onChange(date)` — has no event at argument one, and nothing can guess which of a
-library's arguments is one. Hicasso says so rather than letting the engine say it:
-you get `:rf.error/hicasso-intent-needs-the-event`, naming the position and the
-argument that actually arrived, instead of `value.preventDefault is not a
-function`. **`h/fn` is the spelling for those positions** — it receives every
-argument the invoker passed, in order, which is exactly what the opening example
-does.
+## Providers
 
-Both halves are witnessed at a real crossing. The host-hatch suite drives
-`::h/value` through a widget's event-first `onChange` and the model updates; it
-then drives `::h/prevent`, `::h/value` and a key-map through the *same* widget's
-value-first `onPick` and gets the refusal instead, naming `:on-pick` and the
-string that actually arrived.
-
-An intent carrying neither a marker nor `::h/prevent` never touches its argument,
-so `{:on-pick [:city/picked "paris"]}` is correct under any invoker contract at
-all.
-
-## Providers cross the door too
-
-A provider an ecosystem library hands you is hosted like anything else — it's a
-component, not a special case:
+A library provider is just a component:
 
 ```clojure
 (h/defhost themed (.-Provider some-context))
 ```
 
-A consumer reading the same context below the crossing reads it correctly: the
-crossing is a real React element, so React's own context plumbing runs through
-the Hicasso tree exactly as it would through any other one.
+Consumers below the crossing read context correctly — the node is a real React
+element, so React's plumbing runs through.
 
-## When a boundary bails out, the host inside it does too
+## Memo and hosted components
 
-Every Hicasso boundary is a `React.memo` comparing its props by value, and that
-bail-out reaches a hosted component exactly as it reaches a native one:
+Every Hicasso boundary is a `React.memo` that compares props by value. That
+bail-out reaches a hosted component the same way it reaches a native one:
 
 ```clojure
 (defview chrome-page [_]
   [:div
    [:span.chrome (str (sub [:hatch/label]))]   ;; re-renders on every write
-   [hosted-row {:label "fixed"}]])             ;; value-equal props — bails out
+   [hosted-row {:label "fixed"}]])             ;; equal props → bail out
 ```
 
-A write that only moves `:hatch/label` re-renders `.chrome` and stops there.
-`hosted-row`'s boundary receives the same `{:label "fixed"}` it always does, the
-comparator holds, the boundary bails out, and the foreign component inside it is
-not re-rendered at all — not once, not with stale props, simply never re-entered.
-That is the memo working exactly as designed: nothing in `hosted-row`'s own props
-moved. It is also exactly the shape that sends someone hunting a bug in the
-third-party library they are hosting, when the library never got a render to be
-wrong in. If a host should react to a subscription, that subscription's value has
-to reach *its own* boundary's props — reading it one component further up and
-stopping there is indistinguishable, from the host's side, from the value never
-having changed.
+A write that only moves `:hatch/label` re-renders `.chrome` and stops.
+`hosted-row` never re-enters the foreign component. If a host should react to a
+subscription, that value has to reach **its own** props — reading one boundary up
+and stopping looks identical, from the host's side, to the value never changing.
 
-## The escape: `[:>]` is legal, unbuilt
+## The escape: `[:>]` (unbuilt)
 
-`[:> Component props & children]` is the explicitly secondary form — legal for
-the cases a static declaration cannot express. It stays **unbuilt**, so there is
-nothing to call today. When it lands, the design is that it lowers through the
-same foreign path with the same default conversions, `.cljs`-only at that node,
-with reduced structural identity — exactly the costs listed under
-[Why a declaration](#why-a-declaration), accepted knowingly.
+`[:> Component props & children]` is the secondary form for cases a static
+declaration cannot express. It is **not built** — there is nothing to call today.
+When it exists, it will use the same foreign path and accept the costs in
+[Why declare](#why-declare).
 
-Reach for it, once it exists, when a static declaration genuinely cannot express
-the case:
+Reach for it (once it exists) when the component is selected at runtime, is a
+`memo`/`lazy` value, arrives from a render prop, or is a one-off migration site.
+**Declare what you use twice.** First use, escape if faster; second use, `defhost`.
 
-- the component is **selected at runtime** from a map or a prop;
-- it is a `memo` or `lazy` value;
-- it arrives from a **render prop**;
-- it is a **one-off migration site** you have not got to yet.
+**Bare-head auto-hosting stays illegal.** `[DatePicker {…}]` with a raw JS
+component in head position is not a shortcut. One sentinel when the escape ships —
+not two ways to smuggle JS into the tree.
 
-**The rule, once it exists, is: declare what you use twice.** First use, take the
-escape if it's faster. Second use, write the `defhost`. That is not a moral
-position; it is where the amortization crosses over.
-
-One thing stays rejected: **bare-head auto-hosting**. Putting a raw JS component in
-head position — `[DatePicker {...}]` — and having the runtime identity-key it is
-*not* legal. One sentinel, not two shortcuts. If `[:>]` and a bare head both worked,
-every codebase would have both, and the reader would have to know which node is
-which by looking somewhere else.
-
-## Migrating from Reagent
-
-A codemod for the mechanical part — collect the `[:> X …]` sites, emit the
-`defhost` block, rewrite the call sites — is planned and **not built**. Nothing
-names a tool or an invocation. By hand it is the same three moves, and it goes a
-namespace at a time, so a large app never needs one big commit.
+A hand migration from Reagent is three moves per namespace: collect `[:> X …]`,
+emit `defhost`, rewrite call sites. A codemod is planned and not built.
 
 ## Troubleshooting
 
-This table names mechanisms; the minted ids on this surface —
-`:rf.error/hicasso-ref-vector-reserved`,
-`:rf.error/hicasso-intent-at-a-non-event-contract`,
-`:rf.error/hicasso-intent-needs-the-event`,
-`:rf.error/hicasso-host-bad-ssr-policy` and
-`:rf.error/hicasso-host-unknown-option` — are covered above and under Advanced.
-
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Prop arrives as `on-change` and the library ignores it | Nested keys expected in camelCase; deep conversion is deliberately not offered | Convert the nested map yourself before it crosses |
-| An intent vector or key-map at a declared slot raises `:rf.error/hicasso-intent-at-a-non-event-contract` | The slot is declared `:handler` or `:render`, and neither contract dispatches — the declaration governs the carrier, so the value cannot overrule it | Declare the slot `:event` if what happens there is an event, or write an `h/fn` that does the `:handler`/`:render` work |
-| `:rf.error/hicasso-intent-needs-the-event`, naming a slot whose library hands a value first | The vector spelling reads the DOM event from argument one, and this invoker put something else there | Write an `h/fn` at that slot — it gets every argument the library passed, in order |
-| A namespace stops loading on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host namespace |
-| Structural test can't match a node | A `[:>]` node, once the escape is built — reduced structural identity, by design | Declare it with `defhost`, or assert around it |
-| Provider from a library needs to wrap the tree | Hosted like anything else | `defhost` the provider; it is a component |
-| A hosted component doesn't update when the page clearly changed | The boundary above it bailed out on value-equal props — it was never re-entered, so the host was never asked to render | Trace the value to the host's *own* boundary's props, not a parent's |
-| The SDK mounts twice in dev and you end with two live handles | StrictMode double-invoke, plus a handle stored outside the attach's closure — so the second attach overwrote the first instead of replacing it | One attach, one handle, one cleanup, all in one closure; return the cleanup from the ref |
-| The SDK is destroyed and rebuilt on every unrelated render | The ref function has a fresh identity each render, so React detaches and re-attaches | `useCallback` with `#js []` — a stable ref identity |
-| A `nil`-node branch in a ref never runs | The callback returns a cleanup, so React calls that instead of re-invoking with `nil` | Pick one contract; with React 19, pick the return |
-| A listener or observer survives unmount | The cleanup tears down less than the attach built | The cleanup returns the world to the state the attach found it in — nothing checks this for you |
+| Prop arrives as `on-change` and the library ignores it | Nested keys expected camelCase; deep conversion is not offered | Convert the nested map yourself before it crosses |
+| `:rf.error/hicasso-intent-at-a-non-event-contract` | Slot is `:handler` or `:render`; neither dispatches | Declare `:event`, or write an `h/fn` for the real work |
+| `:rf.error/hicasso-intent-needs-the-event` | Vector spelling needs the DOM event at arg one; library put something else there | Use `h/fn` — full argument list, library order |
+| Namespace won't load on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host ns |
+| Structural test can't match a node | A `[:>]` node (once built) has reduced structural identity | Prefer `defhost`, or assert around the node |
+| Hosted component doesn't update when the page did | Boundary above bailed out on equal props — host never re-entered | Put the changing value on the host's *own* props |
+| SDK mounts twice in dev | StrictMode double-invoke plus a handle stored outside the attach closure | One attach, one handle, one cleanup, all in one closure |
+| SDK rebuilt on every unrelated render | Ref function has a fresh identity each render | `useCallback` with `#js []` |
+| `nil` branch in a ref never runs | Callback returns a cleanup; React calls that instead of re-invoking with `nil` | Pick one contract (React 19: prefer the return) |
+| Listener/observer survives unmount | Cleanup tears down less than attach built | Cleanup restores the world attach found |
 
-## When not to reach for the door
+## When not to host
 
-If the library is a thin wrapper over DOM you could write yourself in twenty lines
-of hiccup, write the twenty lines. Every hosted component is a node your tools can
-see less of and your tests can assert less about. Most applications never need the
-door, and the ones that do need it for two or three genuinely hard widgets.
+If the library is a thin wrapper over DOM you can write in twenty lines of hiccup,
+write the twenty lines. A hosted component is a node your tools see less of and
+your tests assert less about. Most apps need this rarely — usually two or three
+genuinely hard widgets.
 
 ## Advanced
 
 ### Imperative SDKs
 
-A mapping SDK, a chart library that wants a DOM node, anything that hands you a
-handle and expects you to feed it — that is **not** an interop-door problem. It is
-ordinary host-edge React: a callback ref, written in a `.cljs` namespace at the
-edge of your app.
+A map SDK, a chart that wants a DOM node, anything that hands you a handle — that
+is ordinary host-edge React, not a second interop API. Write a callback ref in a
+`.cljs` namespace at the edge of the app.
 
-There is no Hicasso concept for this, deliberately — no "behaviors" tier and no
-second ownership model. The v0 answer is React, used honestly, at the edge.
-
-Used honestly means **the attach and the teardown are written as one thing.** An SDK
-that mounts and never tears down is the most common bug at this edge, and it is not
-subtle — you get two maps, two resize observers, and a leak per remount. React 19's
-callback ref makes the pairing structural: **whatever the ref function returns is its
-cleanup**, so you cannot write the attach without deciding what undoes it.
+**Attach and teardown are one thing.** React 19's callback ref makes the pairing
+structural: whatever the ref function returns is its cleanup.
 
 ```clojure
-;; Sketch only — host-edge React inside a defview body, in a .cljs namespace.
+;; Sketch — host-edge React inside a defview body, in a .cljs namespace.
 (ns app.hosts.map-panel
   (:require [re-frame.hicasso :as h :refer [defview]]
             ["react" :as react]
@@ -300,66 +206,42 @@ cleanup**, so you cannot write the attach without deciding what undoes it.
 (defview map-panel [_]
   (let [attach (react/useCallback
                  (fn [node]
-                   ;; One attach, one handle, one teardown. The handle lives in
-                   ;; this closure and nowhere else.
                    (let [handle (sdk/mount node)
                          done?  (volatile! false)]
                      (fn cleanup []
                        (when-not @done?
                          (vreset! done? true)
                          (sdk/destroy handle)))))
-                 #js [])]                    ;; stable identity — see below
+                 #js [])]
     [:div.map {:ref attach}]))
 ```
 
-Four properties, and dropping any one of them breaks something specific.
+Four properties that each break something specific if dropped:
 
-**The handle is per-attach, not per-namespace.** It is created by the attach and
-captured by the cleanup that attach returned. Two attaches produce two handles and
-two cleanups, correctly paired. The moment you hoist that handle into a `defonce`
-atom or a module-level var, a second attach overwrites the first and the first
-instance leaks — which is the actual mechanism behind every "it mounted twice" report
-at this edge.
+1. **Handle is per-attach**, captured by the cleanup that attach returned — not a
+   module-level `defonce`. A hoisted handle lets the second attach overwrite the
+   first and leak it (the usual "it mounted twice" mechanism).
+2. **Teardown is idempotent.** The `done?` latch is cheap insurance against SDK
+   `destroy` methods that throw on a dead handle.
+3. **Cleanup return and `nil`-node handling are exclusive.** If the ref returns a
+   function, React calls that on detach *instead of* invoking the callback with
+   `nil`. Write both and the `nil` branch is dead.
+4. **`useCallback` with `#js []` keeps the ref identity stable.** A fresh function
+   every render detaches and re-attaches every time, so the SDK rebuilds on every
+   keystroke elsewhere in the tree.
 
-**The teardown is idempotent.** The `done?` latch makes a second call a no-op. React
-calls each cleanup exactly once, so strictly this is belt and braces — but SDK
-`destroy` methods that throw on a dead handle are common enough that the three lines
-are worth it, and the alternative is finding out in production. This is the same
-idempotence the root teardown has ([Getting started](01-getting-started.md)); the
-discipline does not change because the object is foreign.
+Under StrictMode (dev), React does attach → cleanup → attach. The shape above
+survives because the first handle dies with the cleanup that created it. A handle
+stored outside the closure, or a cleanup that leaves a listener on `window`, is
+what actually doubles.
 
-**Returning a cleanup and handling a `nil` node are exclusive.** When a ref callback
-returns a function, React calls that function on detach *instead of* invoking the
-callback again with `nil`. Write both and you will have written a `nil` branch that
-never runs — a dead path that reads like a teardown and is not one. Pick the return.
+Hooks in a body take you outside headless testing scope ([Testing](08-testing.md))
+and put React's hook rules on you. Both are fine; both are yours.
 
-**`useCallback` with an empty dependency array is what makes any of this
-deterministic.** A ref function with a fresh identity every render is detached and
-re-attached on every render, so the SDK is destroyed and rebuilt on every keystroke
-elsewhere in the tree. The stable identity is the difference between one mount and
-one mount per render.
+#### If you are not on React 19
 
-#### Under StrictMode
-
-StrictMode double-invokes the mount in development: attach, cleanup, attach. The
-shape above survives it, and the reason is the first property, not the second. The
-first attach's handle is destroyed by the cleanup that attach returned, and the
-second attach builds a fresh one. You end with exactly one live handle, which is what
-you would have had in production.
-
-What does *not* survive is a handle stored outside the closure, or a cleanup that
-tears down less than the attach built — a listener left on `window`, an observer left
-connected. Then the second attach genuinely doubles, and the symptom is two of
-everything in dev and one leak per remount in production. **The rule is that the
-cleanup returns the world to the state the attach found it in**; there is no runtime
-that can check that for you.
-
-#### If the runtime does not target React 19
-
-The cleanup-returning ref is a React 19 contract. Hicasso does not pin a React
-version in the product surface (see **Not settled yet**), so the older shape is
-worth knowing: the callback is invoked with the node on attach and with `nil` on
-detach, and the handle needs a home that outlives one invocation.
+Cleanup-returning refs are a React 19 contract. Older shape: callback with the node
+on attach and `nil` on detach, handle in a ref that outlives one invocation:
 
 ```clojure
 (let [handle (react/useRef nil)
@@ -368,62 +250,40 @@ detach, and the handle needs a home that outlives one invocation.
                  (if node
                    (set! (.-current handle) (sdk/mount node))
                    (when-let [h (.-current handle)]
-                     (set! (.-current handle) nil)   ;; clear first — idempotent
+                     (set! (.-current handle) nil)
                      (sdk/destroy h))))
                #js [])]
   [:div.map {:ref attach}])
 ```
 
-Same discipline, one more moving part. That the handle now needs a home outside the
-closure is exactly what the React 19 contract removes, which is why it is the shape
-taught above.
-
-Note the two consequences of putting hooks in a body at all: it is outside the
-headless testing scope ([Testing](08-testing.md)), and you have taken on React's hook
-rules yourself. Both are fine. Both are on you.
-
 ### The reserved vector, and the gap it does not close
-
-One thing about `:ref` is worth knowing before you write your first one, because it
-changes what you should put in the closure.
 
 **A vector at `:ref` is refused.** `{:ref [::autosize {:max-rows 8}]}` raises
 `:rf.error/hicasso-ref-vector-reserved`. That value-space is reserved for a later
-data spelling of exactly the pattern above — a registered id and a config map,
-with the imperative code in a registry instead of in your view — and v0 claims it
-now so that landing it later is not a breaking change. Today, write the function.
+data spelling (registered id + config); claiming it now keeps the later landing
+non-breaking. Today, write the function. The refusal is on the **slot**, so
+`{"ref" […]}` and `{:x/ref […]}` are refused too. An unrefused array would have
+been worse: React ignores an array at `ref` in silence.
 
-The refusal is on the ref **slot**, so it holds however you spell the key —
-`{"ref" […]}` and `{:x/ref […]}` are refused too, and name the spelling you wrote.
-An unrefused one would have been the worst of both: React ignores an array at
-`ref`, in silence, so you would be debugging a ref that never fires.
+**Limit that later spelling cannot erase.** A ref callback fires on **attach** and
+**detach** only — not on config change. Passing a different callback is the only
+way to re-invoke it, and that detaches and re-attaches the node (rebuilds your
+map). So:
 
-**And the honest limit on what that later spelling could ever be.** A React ref
-callback fires on **attach** and on **detach**. It does **not** fire on **config
-change**. There is no third call, and no amount of design gets one: passing a
-*different* callback is the only way to make React invoke it again, and doing that
-detaches and re-attaches the node — which destroys and rebuilds your map instance,
-which is precisely the thing you were trying to avoid.
+- attach and detach only, in one closure;
+- config fixed for the connection's life;
+- steady-state change through an ordinary event / effect
+  (`{:map/fly-to {:instance id :center [lat lng]}}`).
 
-So the shape to write, now and later, is:
-
-- **attach and detach only**, in one closure, as above;
-- **config immutable for the connection's life** — whatever the SDK needs at
-  `mount` time is decided once;
-- **steady-state change routed through an effect**, dispatched as an ordinary
-  event: `{:map/fly-to {:instance id :center [lat lng]}}`. That is already data,
-  it is already in the event log, and it is already testable.
-
-If you find yourself wanting the ref to notice that a prop changed, that is the
-signal to move the change onto the effect path. Nothing in the reserved vector
-will rescue it later.
+If you want the ref to "notice" a prop change, move the change onto the effect
+path. Nothing in the reserved vector will rescue that later.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| Whether conversion defaults ever become declarable on `defhost` | **Open.** `:callbacks` and `:ssr` are the two options today; prop-conversion knobs are unstated |
-| The migration codemod | **Planned, unbuilt.** Nothing names a tool or an invocation |
-| When the reserved `{:ref [id config]}` spelling lands, and what registers an id | **Reserved, not designed.** The refusal and the value-space exist; the registry, timings and commands roster are out of v0 |
-| Which React version the runtime targets | **Not pinned by the product surface.** The cleanup-returning callback ref taught above is a React 19 contract; this repo currently pins React 19.2, which is a fact about today's tree. If v0 lands on 18, the fallback shape above is the one to teach |
-| Embedding Hicasso *inside* a React-primary app | Named as a use case; no surface designed |
+| Declarable conversion defaults on `defhost` | Open — `:callbacks` and `:ssr` are the two options today |
+| Migration codemod | Planned, unbuilt |
+| When `{:ref [id config]}` lands, and what registers an id | Reserved, not designed |
+| Which React version the product pins | Not pinned by the product; cleanup-returning refs need React 19; this repo currently pins 19.2 |
+| Embedding Hicasso inside a React-primary app | Named as a use case; no API designed |
