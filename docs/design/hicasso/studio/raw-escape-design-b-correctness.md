@@ -507,7 +507,8 @@ Four items this design will not settle for the operator.
 one shared branch in `host-entry`, derived from `mint-host!`'s own "a policy could be
 written and never applied". It closes a silent-dead-handler class. It is escalated
 because it **changes `defhost`**, where today the value is accepted. The fallback is to
-accept and document.
+accept and document. Filed independently of the escape as **`rf2-2rtt6.116`**, because it
+is true on `main` today with no `[:>]` anywhere.
 
 **R2 — should the escape's gate announce itself in DevTools?** Recommended: yes, as
 `[:> Foo]`. Naming it `Foo` alone gives the escape the declared door's tooling identity,
@@ -522,9 +523,13 @@ counter must be unconditional, as `bodyRuns` deliberately is.
 
 **R4 — the X2 body-run restatement.** Not a new ruling so much as a correction that should
 be recorded before the escape lands: post-adoption body-run counts diverge from the
-server's at any `:client-only` crossing, by design. If a gate anywhere asserts that
-equality *after* adoption settles, it will go red on correct code, and it wants finding
-first. This applies to `defhost` `:client-only` today.
+server's at any `:client-only` crossing, by design. The row this reaches is concrete —
+`arm1/hydrate_dom_cljs_test.cljs:414`, `(is (= boundary-count (rt/body-runs)))`, read after
+the adoption resolves. It is green today because no page it drives carries a `:client-only`
+crossing, and it goes red the moment one is added — whether through `[:>]` or through a
+`defhost` declared `:client-only`. Nothing on `main` is broken; what is needed is that
+whoever adds the first such crossing to that fixture knows the count is *supposed* to move,
+and by exactly the number of boundaries inside the crossing.
 
 ## Costs, stated rather than claimed away
 
