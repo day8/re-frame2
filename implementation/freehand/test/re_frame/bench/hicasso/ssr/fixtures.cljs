@@ -18,73 +18,98 @@
   - **A tier-1 bulk shape** — the ~1,200-element Conduit feed page, which
     is the size the charter's bar rows are taken at and the only row here
     whose markup is a port of a real application's.
-  - **`defhost`'s `:ssr` policy**, both meanings: a host with no declared
-    policy (the ruled `:client-only` default — its component's markup MUST
-    be absent from the server HTML) and a host declaring a fallback (whose
-    placeholder markup MUST be present).
+  - **`defhost`'s `:ssr` policy**, both meanings and both USE-SITE
+    positions: a host with no declared policy (the ruled `:client-only`
+    default — its component's markup MUST be absent from the server HTML)
+    and a host declaring a fallback (whose placeholder markup MUST be
+    present), each rendered once from the hiccup the entry is handed and
+    once from inside a `defview` body. See [[host-screen]] and
+    [[nested-host-screen]].
   - **Presence's `::h/mounting` overrides** — and that row is a PINNED
     DEFECT rather than a feature. See [[presence-tray]].
 
-  ## Why the host rows stamp the policy slot by hand
+  ## The host rows are REAL DECLARATIONS (rf2-2rtt6.92)
 
-  rf2-2rtt6.85 owns `mint-host!`'s `:ssr` option and has NOT landed —
-  its PR (#7468) was still open when this file was written. The DEFAULT
-  row needs nothing (a head with no policy already reads `:client-only`)
-  and the FALLBACK row stamps the slot directly, which is the ordinary
-  way to test a reader ahead of its writer.
-
-  Checked against #7468 rather than assumed: that PR stores the policy
-  under the same own-property this stamp writes, and enforces it at the
-  element's own TYPE — so when it lands, [[fallback-host]] becomes
-  `defhost … {:ssr {:fallback …}}`, the two host rows keep asserting
-  exactly what they assert now, and the server WALK they exercise
-  ([[re-frame.bench.hicasso.ssr.host-policy]]) is retired under
-  rf2-2rtt6.92."
+  They were not always. rf2-2rtt6.86 wrote this corpus while
+  rf2-2rtt6.85 — which owns `mint-host!`'s `:ssr` option — was still an
+  open PR, so the fallback row stamped the policy slot onto a minted
+  head by hand. A hand-stamped slot proves a READER, never the door: the
+  two halves could have disagreed about the spelling forever and this
+  corpus would have gone on passing. Both halves are on main now, so
+  both rows are written the way an author writes them —
+  `(defhost … {:ssr …})` — and the server HTML they assert on is
+  therefore evidence about the public declaration."
   (:require [re-frame.bench.hicasso.arm1.dogfood-collector :as collector]
             [re-frame.bench.hicasso.arm1.presence :refer [presence]]
-            [re-frame.bench.hicasso.front.codec :as codec]
+            ;; `defview` and `defhost` are not compilers — they expand to
+            ;; `runtime/mint-view!` and `codec/mint-host!` calls, so the
+            ;; two namespaces they name are ordinary runtime requires of
+            ;; this one even though no alias is spelled below.
+            [re-frame.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
             [re-frame.bench.hicasso.shapes.large-template :as large-template]
             [re-frame.bench.hicasso.shapes.model :as model]
-            [re-frame.bench.hicasso.ssr.host-policy :as host-policy]
             [re-frame.routing :as routing]
-            ["react" :as react]))
+            ["react" :as react])
+  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defhost defview]]))
 
 ;; ---------------------------------------------------------------------------
-;; The two host rows
+;; The host rows
 ;; ---------------------------------------------------------------------------
 
 (defn- client-widget
-  "A foreign component whose markup is the tell. Both host rows render
+  "A foreign component whose markup is the tell. Every host row renders
   THIS, so a fixture's verdict is a substring test on one distinctive
   string rather than a structural argument."
   [_js-props]
   (react/createElement "em" #js {"className" "client-widget"} "CLIENT-ONLY-WIDGET"))
 
-(def default-host
-  "A host declaring no `:ssr` policy at all — which is the ruled
-  `:client-only` default, reached with no stamping because
-  `host-policy/policy-of` answers it for an absent slot."
-  (codec/mint-host! "ssr-fixture/default" client-widget))
+(defhost default-host
+  "A declaration that writes no `:ssr` at all, which is how most authors
+  will write one — so the policy under test is the ruled `:client-only`
+  DEFAULT, taken from the door rather than named here."
+  client-widget)
 
-(def fallback-host
-  "A host declaring `{:fallback …}`. The stamp is rf2-2rtt6.85's to
-  replace; see the namespace docstring."
-  (let [head (codec/mint-host! "ssr-fixture/fallback" client-widget)]
-    (unchecked-set head host-policy/policy-slot
-                   {:fallback [:span.host-fallback "loading…"]})
-    head))
+(defhost fallback-host
+  "A declaration whose policy is markup: `{:fallback …}` renders that
+  hiccup where the host sits until the client has adopted the page."
+  client-widget
+  {:ssr {:fallback [:span.host-fallback "loading…"]}})
 
 (def host-screen
-  "One page carrying both hosts, nested inside ordinary markup and inside
-  a `for` — the lazy position, because a walk that stopped at a seq would
-  pass a root-level test and miss every row."
+  "One page carrying both hosts at HANDED-IN positions — nested inside
+  ordinary markup and inside a `for`, the lazy position."
   [:div.hosts
    [:h1 "hosts"]
    [default-host {:kind "default"}]
    [:ul
     (for [i (range 2)]
       [:li {:key i} [fallback-host {:kind "fallback" :i i}]])]])
+
+(defview nested-host-panel
+  "THE POSITION NO PRE-WALK CAN REACH. Both hosts are used inside a
+  BOUNDARY BODY, so their elements do not exist when the render entry is
+  handed its hiccup: this body runs inside `renderToString`, and the
+  codec's own crossing creates them there.
+
+  The `:ssr` policy is honoured all the same, because it is enforced at
+  the element's TYPE — `mint-host!` mints a gate whose
+  `useSyncExternalStore` answers `false` from its server snapshot. That
+  is the argument; [[nested-host-screen]] rendered through the entry is
+  the witness."
+  [_]
+  [:div.nested-hosts
+   [:h2 "nested"]
+   [default-host {:kind "nested-default"}]
+   [fallback-host {:kind "nested-fallback"}]])
+
+(def nested-host-screen
+  "[[nested-host-panel]] under an ordinary root, so \"the host region is
+  absent\" stays distinguishable from \"the page rendered nothing\"."
+  [:div.nested-page
+   [:h1 "nested hosts"]
+   [nested-host-panel {}]])
 
 ;; ---------------------------------------------------------------------------
 ;; The presence row — the hydration-parity guard
@@ -175,6 +200,14 @@
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
     :title    "Hicasso SSR — defhost :ssr policy"
+    :script-src "/main.js"}
+
+   {:id     "defhost-ssr-nested"
+    :why    "the SAME two declarations used INSIDE a defview body — the position no walk over the handed-in hiccup could reach, honoured because the policy is the element's own type"
+    :hiccup nested-host-screen
+    :snapshot {}
+    :payload  :rf.ssr.payload/whole-app-db
+    :title    "Hicasso SSR — defhost :ssr policy, nested"
     :script-src "/main.js"}])
 
 (defn ids
