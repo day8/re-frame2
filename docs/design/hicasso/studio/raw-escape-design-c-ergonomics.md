@@ -525,7 +525,7 @@ is written about the escape.
 Every entry follows the house shape exactly: prose first, the error id as a
 bracketed suffix, `:recovery` an imperative kebab keyword, `:where` the
 attributed position. New ids are marked **new**; the rest are inherited unchanged
-and are listed so a reviewer can see the escape adds five ids, not fifteen.
+and are listed so a reviewer can see the escape adds three ids, not fifteen.
 
 | # | Trigger | Id | What it tells them to do |
 |---|---|---|---|
@@ -544,9 +544,11 @@ and are listed so a reviewer can see the escape adds five ids, not fifteen.
 | — | Non-map at `:&` | `:rf.error/hicasso-merge-not-a-map` | inherited |
 | — | Unforced `delay` reachable from props | `:rf.error/hicasso-deferred-read-at-boundary` | inherited |
 
-**Five new ids, three of them sharing two names.** Every one names the value that
-arrived and the spelling to use instead; none names an internal var and none
-prints a schema.
+**Three new ids across six triggers** — `hicasso-raw-no-component`,
+`hicasso-raw-not-a-component`, `hicasso-raw-hicasso-head` — plus four
+troubleshooting rows that need no id because nothing throws. Every id names the
+value that arrived and the spelling to use instead; none names an internal var
+and none prints a schema.
 
 One inherited message wants a sentence added, and it is cheap: `merge-caller`'s
 `:rf.error/hicasso-merge-not-a-map` says *"Forward a map, or drop the key"*, and
