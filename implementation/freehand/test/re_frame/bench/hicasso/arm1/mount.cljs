@@ -127,7 +127,13 @@
                    #js [])
   nil)
 
-(aset adoption-window-closer "displayName" "hicasso/adoption-window-closer")
+;; `unchecked-set`, not `aset`: `aset` is cljs.core's ARRAY writer and a
+;; component is a function, so the write was a type error the compiler
+;; happens not to enforce. Both emit the same `(x["displayName"] = ...)`,
+;; and it is the STRING key that keeps the property off Closure's renamer
+;; under `:advanced` — the reason the arm's other stamps
+;; (`runtime/mint-view!`, `codec/memoize-boundary!`) are spelled this way.
+(unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
 
 (defn hydrate-root!
   "Associate `container`'s **existing server-rendered DOM** with
