@@ -274,8 +274,8 @@ own and always re-renders with its parent anyway, a plain function is cheaper
 and simpler. Reach for a boundary when you want something to update
 independently, not because the markup got long.
 
-When the issue is **cost**, not only structure — host-edge React, foreign
-components, what is *not* an escape — see [Below Hiccup](11-below-hiccup.md).
+When a measured island is in the **~2%** (cost, host edge, foreign component) —
+not the default 98% — see [Below Hiccup](11-below-hiccup.md).
 
 ## Advanced
 

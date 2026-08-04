@@ -2,17 +2,25 @@
 
 > **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
-Hicasso is **Hiccup-first and interpreted**. Most of the app should stay that
-way: vectors and maps, `sub` at the point of use, intents as data. That is the
-product.
+> **For about 98% of view code, performance is not an issue.** Write ordinary
+> Hiccup: `defview`, `sub` at the point of use, intents as data. Do not
+> pre-optimise. Do not invent a second architecture "just in case."
 
-Sometimes a path is hot and you want to go **lower** — closer to React, past the
-interpreter, or into a third-party component. You can. There is **no second mode**
-that turns interpretation off for the whole app. There **are** deliberate steps
-down the stack. This page is the map.
+Hicasso is **Hiccup-first and interpreted**. That is the product for almost
+everything you ship. The interpreter is not free, but it is rarely the bill you
+are paying — re-render granularity, read placement, and how often you write
+app-db dominate more often than "we walked vectors into elements."
 
-> **Stay in Hiccup until you have a measured reason not to. Then isolate the
-> escape — do not rewrite the product.**
+**For the other ~2%** — a measured hot path, a third-party React widget, an
+imperative SDK — you *can* go lower. There is **no second mode** that turns
+interpretation off for the whole app. There **are** deliberate steps down the
+stack. This page is the map for that minority.
+
+> **Ninety-eight percent stays Hiccup. For the two percent: measure, then isolate
+> the escape — do not rewrite the product.**
+
+The percentages are a **product assertion**, not a lab result: write as if they
+were true until a profile proves a specific island is the exception.
 
 ## What "lower" is not
 
@@ -21,10 +29,11 @@ down the stack. This page is the map.
 | "Compile this view off the interpreter" | **No.** No dual mode, no analyzer, no ViewCell product path |
 | "Bare JS component in head position" | **Refused** — one door: `defhost` / `[:>]`, not silent auto-host |
 | "Drop to Reagent/UIx for one page" | Only as **another root / adapter**, not a Hicasso mode |
-| "Interpretation is the main perf problem" | Usually **not**. The charter prices interpretation as a small factor; re-render granularity and read placement dominate more often |
+| "I'll use hooks everywhere so we're ready for the 2%" | That *is* rewriting the product. The 2% is an island, not a lifestyle |
 
-If you have not measured, start with [step 1](#1-still-hiccup--spend-less) before
-any host-edge React.
+If you have not measured, you are still in the 98%. Stay on tier-1 Hiccup
+([Views and reads](02-views-and-reads.md)). When a profile names an island, start
+with [step 1](#1-still-hiccup--spend-less) before any host-edge React.
 
 ## The ladder (top → bottom)
 
@@ -130,12 +139,15 @@ on one page is the multi-app pattern ([Getting started](01-getting-started.md));
 mixing substrates is an architecture choice, not a spelling inside one
 `defview`.
 
-## Order of operations (when something feels slow)
+## Order of operations (the 2%)
 
-1. **Measure** — which boundary, which sub, which event. Guessing "the
-   interpreter" is usually wrong.
+You only enter this list after something is **measured** (or is obviously a
+foreign/SDK boundary you never expected Hiccup to own).
+
+1. **Name the island** — which boundary, which sub, which event, which widget.
+   "The app is slow" is still the 98% problem in disguise.
 2. **Still Hiccup** — fewer boundaries, reads at point of use, no high-rate
-   writes to app-db.
+   writes to app-db. Most "2%" cases die here and return to the 98%.
 3. **Host-edge island** — one measured widget, hooks/refs, frame captured for any
    async dispatch.
 4. **`defhost`** — if the cost is a third-party React component, not your markup.
@@ -164,10 +176,11 @@ mixing substrates is an architecture choice, not a spelling inside one
 
 ## When not to go lower
 
-- You have **no profile**, only a feeling.
+- You are still in the **98%** — no profile, only a feeling, or a fear of
+  interpretation.
 - The fix is really **event volume** (e.g. controlling every keystroke on a 100-cell
   grid) — see [Controlled inputs](04-controlled-inputs.md) when-not.
-- You are about to reimplement the app in hooks "for flexibility" — that is a
+- You are about to reimplement the app in hooks "for the 2%" — that is a
   substrate change, not a Hicasso escape.
 
 ## Not settled yet
