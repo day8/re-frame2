@@ -932,6 +932,12 @@ test('every driver that uses the shared collector also READS its failures', () =
 // names as the common one — and, because of section 5 below, said so in
 // seconds instead of after the 120s wait.
 //
+// SINCE FIXED, and the count was higher than it looked: rf2-t4j7c found SEVEN
+// drivers riding `freehand-release` with their own `:init-fn`, not three, and
+// gave each of them `resetLaneBuildCache`. `lane_cache_wiring.test.cjs` now
+// discovers the riders and fails if one lands without the call, so the
+// paragraph above is history rather than current state.
+//
 // `spine_ablation_run.cjs` alone remains unwatched: it has no `:init-fn`
 // seam, and adding one purely so a test could reach it would be a knob that
 // lets a published figure be measured on an entry nobody built on purpose.
