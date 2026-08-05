@@ -437,7 +437,18 @@ jobs:
       # distinguishes a new failure from a known one, a shrinking failure set
       # from a growing one, and a genuine recovery from a flake — every night,
       # before it is trusted to decide anything.
+      #
+      # `continue-on-error` + the re-raise step at the bottom, rather than a
+      # plain failing step, and the reason is this job's own fail-open: a
+      # self-test step that ABORTS the job takes the notification down with it,
+      # so a broken alerter would be reported by nothing — the exact circularity
+      # rf2-6sg25 is about. Ordering it this way means a red self-test still
+      # lets the live arm try (a signature is derived from data, not from the
+      # arithmetic under test), and the job still ends red so the failure is on
+      # the record.
       - name: Alerting self-test (the alert can still fire, and still go quiet)
+        id: alert_self_test
+        continue-on-error: true
         run: python3 .github/scripts/nightly_failure_alert.py --self-test --verbose
 
       - name: Open, edit or close the nightly tracking issue
@@ -448,3 +459,11 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" \
             --assignee mike-thompson-day8
+
+      - name: Fail the job if the alerting self-test failed
+        if: ${{ steps.alert_self_test.outcome == 'failure' }}
+        run: |
+          echo "The nightly alerting self-test FAILED — the issue this run"
+          echo "opened or edited may be wrong. Reproduce with:"
+          echo "  python3 .github/scripts/nightly_failure_alert.py --self-test --verbose"
+          exit 1
