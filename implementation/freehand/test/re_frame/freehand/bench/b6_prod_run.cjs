@@ -21,8 +21,14 @@ const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
 const { watchPage } = require('./sentinel.cjs');
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
+// The donor build id, hoisted out of the `spawnSync` argv it used to be a
+// literal in, so the cache clear and the build cannot name different ids
+// (rf2-t4j7c).
+const BUILD = 'freehand-release';
 // `B6_INIT_FN` / `B6_OUT_DIR` point this driver at a different entry —
 // the seam an ABLATION LADDER rides so that it reuses this window rather
 // than growing a second one. With both unset the file is byte-for-byte
@@ -42,6 +48,13 @@ const CONFIG_MERGE =
   `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
+  // The lane's cache rule, before anything reads the cache: this driver merges
+  // its own `:init-fn` onto `BUILD`, so `BUILD`'s cache entry was written by a
+  // different program. `lane_cache.cjs` carries the measured fault and the
+  // rejected alternatives (rf2-2rtt6.20).
+  if (resetLaneBuildCache(IMPL, BUILD)) {
+    console.error(`[b6] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error('[b6] building :advanced bundle ...');
   // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
   // Windows needs `shell: true`, and a shell concatenates argv, which is
@@ -49,7 +62,7 @@ function build() {
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(
     process.execPath,
-    [runner, 'release', 'freehand-release', '--config-merge', CONFIG_MERGE],
+    [runner, 'release', BUILD, '--config-merge', CONFIG_MERGE],
     { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {
