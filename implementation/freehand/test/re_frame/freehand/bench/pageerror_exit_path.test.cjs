@@ -460,11 +460,14 @@ function handlerSites(s) {
  * the right scrub for finding registrations but leaves both of those standing.
  *
  * THE ONE THING IT DOES NOT LEX IS A REGEX LITERAL, and the omission is bounded
- * rather than hoped about: a `'` or `"` that finds no partner before the newline
- * is put back as a lone character, so a character class like `/^"|"$/` (three
- * drivers parse CSV with exactly that) can blank at most a few characters of its
- * own line and can never run on into the next. It hides no identifier, and the
- * fixtures below pin the behaviour rather than assuming it.
+ * two ways rather than hoped about. It cannot run away: a `'` or `"` that finds
+ * no partner before the newline is put back as a lone character, so a character
+ * class like `/^"|"$/` — which three drivers use to parse CSV a few lines from
+ * their handler — blanks at most a few characters of its own line and never
+ * reaches the next. And it cannot fail QUIETLY: masking only ever DELETES
+ * candidate reads, so its worst case is `sinkIsRead` saying UNREAD about a
+ * driver that does read its sink — a loud red naming the file, never a silent
+ * pass. The fixtures below pin the behaviour rather than assuming it.
  */
 function maskLiterals(s) {
   const out = s.split('');
@@ -532,14 +535,17 @@ const scan = (s) => ({ s, masked: maskLiterals(s) });
  * handler and its refusal fit inside 220 characters comfortably; that is how
  * they are usually written.
  */
-function sinkOf({ s }, site) {
-  const inline = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(site.body);
+function sinkOf({ masked }, site) {
+  // The PUSH is looked for in the masked text and the REGISTRATION in the raw:
+  // a push written inside a comment must not nominate a sink, and `'pageerror'`
+  // is a string literal, so the mask has eaten it.
+  const inline = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(masked.slice(site.at, site.at + 220));
   if (inline) return { name: inline[1], pushAt: site.at + inline.index };
   const named = /page\.on\(\s*['"]pageerror['"]\s*,\s*([A-Za-z_$][\w$]*)\s*\)/.exec(site.body);
   if (!named) return null;
-  const declAt = s.search(new RegExp(`\\b${named[1]}\\s*=\\s*\\(`));
+  const declAt = masked.search(new RegExp(`\\b${named[1]}\\s*=\\s*\\(`));
   if (declAt === -1) return null;
-  const push = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(s.slice(declAt, declAt + 400));
+  const push = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(masked.slice(declAt, declAt + 400));
   return push ? { name: push[1], pushAt: declAt + push.index } : null;
 }
 
