@@ -539,7 +539,13 @@
    [:rf/app-db          :any]
    [:rf/runtime-db      {:optional true} [:maybe :map]]
    [:rf/ssr-rendered-at {:optional true} :int]
-   [:rf/render-hash     {:optional true} [:maybe :string]]
+   ;; rf2-2rtt6.91 — `:string`, NOT `[:maybe :string]`. Spec-Schemas types the
+   ;; slot `{:optional true} :string`, so a present-and-nil `:rf/render-hash`
+   ;; is not a legal spelling of absence: an ADOPTION-TIER root (compiled
+   ;; `re-frame.ui`, native UIx, Freehand) carries no hash at either end and
+   ;; needs the key OMITTED. A `[:maybe :string]` slot admitted the forbidden
+   ;; shape, so this schema could not prove the contract it calls canonical.
+   [:rf/render-hash     {:optional true} :string]
    [:rf/schema-digest   {:optional true} [:maybe :string]]])
 
 (deftest build-payload-conforms-to-hydration-payload-schema
@@ -572,3 +578,42 @@
           (is (m/validate HydrationPayload payload)
               (str "minimal payload must conform; explain: "
                    (pr-str (m/explain HydrationPayload payload)))))))))
+
+;; ---- the hash channel is OPTIONAL at the shared builder (rf2-2rtt6.91) ----
+;;
+;; `build-payload` is shared verbatim by the non-streaming and streaming SSR
+;; paths, so the adoption-tier contract belongs here and not only at the one
+;; Hicasso caller that exercises it today. Per Spec 011 §Hydration-mismatch
+;; detection the hash channel is the HICCUP tier's: a hiccup-tier host hands a
+;; real hash and it rides the wire, while a compiled `re-frame.ui`, native UIx
+;; or Freehand root verifies by React adoption and hands nil. Nil must leave
+;; the key ABSENT — a present-and-nil key is a degenerate value wearing the
+;; shape of evidence, and the `:string` slot does not admit it.
+
+(deftest build-payload-render-hash-is-optional
+  (testing "a real hash is preserved verbatim (hiccup tier)"
+    (let [payload (payload-policy/build-payload
+                    :rf/default {:public/page :dashboard} "deadbeef" {})]
+      (is (= "deadbeef" (:rf/render-hash payload))
+          "a supplied hash rides the payload unchanged")
+      (is (m/validate HydrationPayload payload)
+          (str "a hashed payload conforms; explain: "
+               (pr-str (m/explain HydrationPayload payload))))))
+
+  (testing "a nil hash OMITS the key rather than stamping nil (adoption tier)"
+    (let [payload (payload-policy/build-payload
+                    :rf/default {:public/page :dashboard} nil {})]
+      (is (not (contains? payload :rf/render-hash))
+          "a nil render-hash omits :rf/render-hash entirely")
+      (is (= {:public/page :dashboard} (:rf/app-db payload))
+          "the rest of the payload is unaffected by the omission")
+      (is (m/validate HydrationPayload payload)
+          (str "a hashless adoption-tier payload conforms; explain: "
+               (pr-str (m/explain HydrationPayload payload))))))
+
+  (testing "a present-and-nil :rf/render-hash is REJECTED by the schema — what
+            makes the omission load-bearing rather than cosmetic"
+    (is (not (m/validate HydrationPayload
+                         (assoc (payload-policy/build-payload :rf/default {} nil {})
+                                :rf/render-hash nil)))
+        "a hand-stamped nil :rf/render-hash must not validate")))
