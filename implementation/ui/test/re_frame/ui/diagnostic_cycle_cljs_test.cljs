@@ -22,9 +22,12 @@
 
   A `RangeError` raised inside a diagnostic is an ordinary synchronous JS
   throw. Every row calls through [[outcome]], which returns a MAP —
-  `{:returned …}` or `{:threw <name> :error-id … :message …
+  `{:returned? true}` or `{:threw <name> :error-id … :message …
   :ex-data-printable? …}` — and asserts on that map, so a regression fails
   with `\"RangeError\"` in its own failure text rather than aborting the var.
+  The map records THAT a call returned, never WHAT it returned, so the
+  failure text is itself safe to `pr-str` — see [[outcome]] for why that is
+  load-bearing rather than tidiness.
 
   ## The two halves, at every site
 
@@ -98,7 +101,8 @@
   failure text stays trustworthy under precisely the conditions it exists for."
   [f]
   (try
-    (do (f) {:returned? true})
+    (f)
+    {:returned? true}
     (catch :default e
       (let [data (ex-data e)]
         {:threw    (.-name e)
