@@ -1082,7 +1082,7 @@ cost is **unmeasured** and is named here rather than claimed away.
 > "No auto-conversion" means the return crosses UNCONVERTED — `render-callback`
 > ends in a bare `(apply f args)`, so a string renders and a vector reaches React
 > and is refused there. The author therefore has to make the element, and
-> `codec/as-element` is the conversion that would: it is INTERNAL, and nothing on
+> `codec/as-element` is the conversion that would do it — but it is INTERNAL, and nothing on
 > the taught `h/` roster reaches it. **So the recovery has no spelling an author
 > can write today.** That is an open gap, not a missing sentence, and it is what
 > `rf2-2rtt6.120` holds. In particular **there is no `h/as-element`** — this
