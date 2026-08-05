@@ -655,8 +655,14 @@ test("every LOCAL collector's sink is READ, not merely pushed into (rf2-sib23)",
 // classes that were misjudged plus the neighbours that must keep working. These
 // are executable: each string goes through the real `handlerSites`, the real
 // `sinkOf` and the real `sinkIsRead`, so a regression in any of the three shows
-// up here even when every driver on disk stays sound. THE FIRST TWO FAIL ON THE
-// PREDICATE THIS COMMIT REPLACED — that is why they are here rather than a note.
+// up here even when every driver on disk stays sound.
+//
+// FIVE OF THE NINE FAIL ON THE PREDICATE THIS REPLACED — the two the audit
+// named, and three nobody was looking for: a handler registered by name whose
+// array IS read (the by-name path had a 400-character window with the same
+// defect), a double-quoted registration, and the regex-class case. They were
+// found by writing the neighbours down. That is why they are fixtures and not
+// a note.
 
 const READER_FIXTURES = [
   {
