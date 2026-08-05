@@ -1732,8 +1732,12 @@ function report(out) {
  *   rowId             the row's id, as printed
  *   ctlOk             its positive control saw the change its arithmetic predicts
  *   ctlNote           the parenthetical a control refusal prints, if any
- *   adjudicable       at least one PUBLISHED bar carries a band
- *   unadjudicatedWhy  why it does not, in the adjudicator's own words
+ *   adjudicable       EVERY published bar carries a band, and there is at least
+ *                     one — derived by `rowAdjudication`, below, which is where
+ *                     the rule can be driven
+ *   barCount          how many bars the row published
+ *   unadjudicatedBars the ones carrying no band, by name
+ *   unadjudicatedWhy  why they do not, in the adjudicator's own words
  *
  * EXIT 1 HERE IS PER-ROW, AND THE ROWS THAT PASSED ARE STILL ROWS. Reaching
  * this point means every whole-run gate cleared on every row; these two are
@@ -1761,7 +1765,7 @@ function reportability(rows, opts) {
       );
     }
   }
-  // AND A ROW MAY HAVE NO ADJUDICABLE BAR AT ALL (rf2-y7mw7). This is a
+  // AND A ROW MAY HAVE A BAR IT CANNOT ADJUDICATE (rf2-y7mw7). This is a
   // different claim from the control's and it used to reach nothing: the
   // driver labelled every bar on such a row UNADJUDICATED four hundred lines
   // above, then exited 0 because the control had passed. A control that
@@ -1769,14 +1773,28 @@ function reportability(rows, opts) {
   // magnitude is adjudicated AGAINST, and a driver that cannot adjudicate a
   // figure may not announce it. Refused after the control and never instead
   // of it — a row can fail both, and both are said.
+  //
+  // ONE unadjudicated bar is enough, and #7489's audit is why that is spelled
+  // out here: the first repair refused only a row on which NO bar carried a
+  // band, so a row publishing three bars of which one had none was reportable
+  // and the run exited 0 saying "every published bar adjudicated". The
+  // sentence below is the contract; `rowAdjudication` is now the only place
+  // that decides whether a row meets it.
   if (unadjudicated.length > 0) {
     lines.push(
-      `[clock] FAILED: no published bar can be ADJUDICATED on: ` +
-        `${unadjudicated.map((r) => r.rowId).join(', ')}. The row has a magnitude and nothing to tell it ` +
-        `from parity, so no figure from it is reportable — a passing control is not a band:`
+      `[clock] FAILED: not every published bar can be ADJUDICATED on: ` +
+        `${unadjudicated.map((r) => r.rowId).join(', ')}. The row publishes a bar with nothing to tell it ` +
+        `from parity, so no figure from that row is reportable — a passing control is not a band:`
     );
     for (const r of unadjudicated) {
-      lines.push(`[clock]   ${r.rowId}: ${r.unadjudicatedWhy || 'no proportional control on this row'}`);
+      // Which bars, when the caller knows: on a row whose bars disagree, the
+      // first one's `why` printed alone reads as though it were the row's.
+      const which =
+        r.unadjudicatedBars && r.unadjudicatedBars.length > 0
+          ? `${r.unadjudicatedBars.length} of ${r.barCount} published bars carry no band ` +
+            `(${r.unadjudicatedBars.join(', ')}) — `
+          : '';
+      lines.push(`[clock]   ${r.rowId}: ${which}${r.unadjudicatedWhy || 'no proportional control on this row'}`);
     }
   }
   if (ctlFailed.length === 0 && unadjudicated.length === 0) return { code: 0, lines };
@@ -1788,6 +1806,47 @@ function reportability(rows, opts) {
       : `[clock] REPORTABLE: none.`
   );
   return { code: 1, lines };
+}
+
+/**
+ * THE ROW'S HALF OF THE DECISION, derived where it can be driven.
+ *
+ * `reportability` takes `adjudicable` as a boolean, so until this function
+ * existed the rule that PRODUCED that boolean lived inline in `main` — the one
+ * place in this driver a unit test cannot reach, because getting there needs
+ * an `:advanced` build and a headless Chromium. The only thing holding it was
+ * a regex over the source, and #7489's merged-PR audit found that what the
+ * regex was holding was wrong: `unadj.length < names.length` made ONE
+ * adjudicated bar carry a row whose other bars had no band at all, and the run
+ * then exited 0 announcing "every published bar adjudicated".
+ *
+ * The rule is the strict one that sentence has always claimed — a nonempty bar
+ * set, and NO bar without a band. It matters even though nothing generates a
+ * mixed row today: `seam.assess` sets `unadjudicated` from a single row-wide
+ * `unavailable`, so every bar set this driver currently produces is uniform and
+ * the strict rule and the loose one agree. That agreement is incidental. The
+ * datasets outlive the assessor that wrote them, `clock_readjudicate.cjs` reads
+ * them back years later, and a fail-closed contract that holds only by
+ * coincidence of an unrelated function is not a contract.
+ *
+ * `bars` is `seamTask.rows` — `{barName: {unadjudicated, why, ...}}`, the same
+ * object the report printed and the dataset stored, never a recomputation.
+ */
+function rowAdjudication(bars) {
+  const src = bars || {};
+  const names = Object.keys(src);
+  const unadjudicatedBars = names.filter((n) => src[n].unadjudicated);
+  return {
+    // Fail closed on a row that adjudicated no bar at all, too: an empty
+    // verdict is an absent one, not a clean one.
+    adjudicable: names.length > 0 && unadjudicatedBars.length === 0,
+    barCount: names.length,
+    unadjudicatedBars,
+    unadjudicatedWhy:
+      unadjudicatedBars.length > 0
+        ? src[unadjudicatedBars[0]].why
+        : 'the run adjudicated no bar on this row at all',
+  };
 }
 
 /**
@@ -1818,7 +1877,7 @@ function reportabilitySelfTest() {
   );
   check(
     'and the refusal NAMES the row and the adjudicator\'s own reason',
-    /no published bar can be ADJUDICATED on: keystroke/.test(unadj.lines[0] || '') &&
+    /not every published bar can be ADJUDICATED on: keystroke/.test(unadj.lines[0] || '') &&
       unadj.lines.some((l) => l.includes(KEYSTROKE_WHY)),
     unadj.lines.join(' | ')
   );
@@ -1861,13 +1920,84 @@ function reportabilitySelfTest() {
     'a row that fails BOTH is refused for both — neither verdict masks the other',
     both.code === 1 &&
       both.lines.some((l) => l.includes('the positive control did not see the change')) &&
-      both.lines.some((l) => l.includes('no published bar can be ADJUDICATED')),
+      both.lines.some((l) => l.includes('not every published bar can be ADJUDICATED')),
     both.lines.join(' | ')
   );
 
   const empty = reportability([]);
   check('a run that took no rows is not a refusal', empty.code === 0 && empty.lines.length === 0);
   check('and neither is one that never ran', reportability(undefined).code === 0);
+
+  // THE RULE THAT PRODUCES `adjudicable`, which #7489's audit found was the
+  // loose one while the sentence above it claimed the strict one. Driven here
+  // over the bar object `seam.assess` actually writes, because the fault was
+  // never in `reportability` — it was in what `main` handed it.
+  const bar = (unadjudicated, why) => ({ unadjudicated, why: why || null });
+  const ADJ = bar(false);
+  const UNADJ = bar(true, KEYSTROKE_WHY);
+
+  const allAdj = rowAdjudication({ 'hicasso / reagent-subs': ADJ, 'hicasso / uix-subs': ADJ });
+  check(
+    'a row whose every bar carries a band is adjudicable',
+    allAdj.adjudicable === true && allAdj.barCount === 2 && allAdj.unadjudicatedBars.length === 0,
+    JSON.stringify(allAdj)
+  );
+
+  const mixedBars = rowAdjudication({
+    'hicasso / reagent-subs': ADJ,
+    'hicasso / uix-subs': UNADJ,
+    'uix-subs / reagent-subs': ADJ,
+  });
+  check(
+    'THE REMAINDER: ONE unadjudicated bar makes the whole row unadjudicable, ' +
+      'even with two adjudicated beside it',
+    mixedBars.adjudicable === false,
+    JSON.stringify(mixedBars)
+  );
+  check(
+    'and the mixed row names WHICH bar has no band, rather than the first reason alone',
+    mixedBars.barCount === 3 &&
+      mixedBars.unadjudicatedBars.length === 1 &&
+      mixedBars.unadjudicatedBars[0] === 'hicasso / uix-subs' &&
+      mixedBars.unadjudicatedWhy === KEYSTROKE_WHY,
+    JSON.stringify(mixedBars)
+  );
+  const mixedLines = reportability([
+    row({}),
+    row({ rowId: 'keystroke', ...mixedBars }),
+  ]);
+  check(
+    'a mixed row refuses the run, and the refusal counts the bars it is about',
+    mixedLines.code !== 0 &&
+      mixedLines.lines.some((l) => l.includes('1 of 3 published bars carry no band (hicasso / uix-subs)')),
+    mixedLines.lines.join(' | ')
+  );
+  check(
+    'and the mixed row never appears in REPORTABLE while the clean row still does',
+    /REPORTABLE: M1 —/.test(mixedLines.lines[mixedLines.lines.length - 1]) &&
+      !/keystroke/.test(mixedLines.lines[mixedLines.lines.length - 1]),
+    mixedLines.lines[mixedLines.lines.length - 1]
+  );
+
+  const allUnadj = rowAdjudication({ 'hicasso / reagent-subs': UNADJ, 'hicasso / uix-subs': UNADJ });
+  check(
+    'a row whose every bar is UNADJUDICATED is still unadjudicable — the strict rule ' +
+      'did not lose the case the loose one caught',
+    allUnadj.adjudicable === false && allUnadj.unadjudicatedBars.length === 2,
+    JSON.stringify(allUnadj)
+  );
+  const noBars = rowAdjudication({});
+  check(
+    'a row that published no bar at all fails closed, and says so in its own words',
+    noBars.adjudicable === false &&
+      noBars.barCount === 0 &&
+      noBars.unadjudicatedWhy === 'the run adjudicated no bar on this row at all',
+    JSON.stringify(noBars)
+  );
+  check(
+    'and a verdict that went missing entirely is absent, not clean',
+    rowAdjudication(undefined).adjudicable === false && rowAdjudication(null).adjudicable === false
+  );
 
   return { checks };
 }
@@ -2277,19 +2407,16 @@ async function main() {
       // THE ADJUDICATION OF THE PUBLISHED CLOCK, read off the same object the
       // report printed and the dataset stored — not recomputed here, because a
       // second computation is a second decision.
-      const bars = (o.verdict.seamTask && o.verdict.seamTask.rows) || {};
-      const names = Object.keys(bars);
-      const unadj = names.filter((n) => bars[n].unadjudicated);
       return {
         rowId: o.out.rowId,
         ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
         ctlNote: o.verdict.ctl3
           ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)`
           : '',
-        // Fail closed on a row that adjudicated no bar at all: an empty
-        // verdict is an absent one, not a clean one.
-        adjudicable: names.length > 0 && unadj.length < names.length,
-        unadjudicatedWhy: unadj.length > 0 ? bars[unadj[0]].why : 'the run adjudicated no bar on this row at all',
+        // THE BAR-LEVEL RULE HAS ONE SEAT TOO (`rowAdjudication`, above), for
+        // the reason the run-level one does: a rule written out here is a rule
+        // no test can drive.
+        ...rowAdjudication(o.verdict.seamTask && o.verdict.seamTask.rows),
       };
     }),
     { sabotage: CTL3_SABOTAGE }
@@ -2299,7 +2426,7 @@ async function main() {
   console.error('[clock] ok');
 }
 
-module.exports = { reportability, reportabilitySelfTest };
+module.exports = { reportability, rowAdjudication, reportabilitySelfTest };
 
 if (require.main === module) {
   main();

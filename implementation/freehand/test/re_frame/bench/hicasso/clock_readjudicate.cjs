@@ -48,12 +48,6 @@
 
 const fs = require('node:fs');
 
-const files = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-if (files.length === 0) {
-  console.error('usage: clock_readjudicate.cjs <run1.json> [run2.json ...]');
-  process.exit(1);
-}
-
 const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
@@ -70,266 +64,332 @@ function ens(xs) {
   return { n: v.length, mean: mean(v), min: Math.min(...v), max: Math.max(...v) };
 }
 
-const datasets = files.map((f) => ({ file: f, data: JSON.parse(fs.readFileSync(f, 'utf8')) }));
-
-// Row ids in the order the first dataset produced them, so the report reads
-// in run order rather than in whatever order Object.keys happens to give.
-const rowIds = [];
-for (const { data } of datasets) {
-  for (const r of data.rows) if (!rowIds.includes(r.rowId)) rowIds.push(r.rowId);
-}
-
 const PAIRS = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
 const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
 
-console.log(';; ==== ENSEMBLE RE-ADJUDICATION (rf2-emvod) ====');
-console.log(`;; datasets ${datasets.length}`);
-for (const { file, data } of datasets) {
-  console.log(
-    `;;   ${file}  label=${data.label || '-'}  when=${data.when}  chromium=${data.chromium}  ` +
-      `design=${data.design.rounds}x(${data.design.warmup}+${data.design.samples}) tare=${data.design.tare}`
+/**
+ * IS EVERY BAR THIS RUN PUBLISHED ON THIS ROW ADJUDICATED?
+ *
+ * rf2-y7mw7's term, and the one this file was missing entirely: a row whose
+ * bars have no band has a magnitude and nothing to tell it from parity, and
+ * this program prints its ensemble mean under the label "control-passing
+ * subset". A dataset that stored no bar verdict at all is not adjudicated
+ * either — absent is not clean.
+ *
+ * EVERY bar, not one of them. #7489's merged-PR audit found this predicate
+ * asking `some`, which admitted a run into the reportable subset — for every
+ * pair, including the unadjudicated one — on the strength of a single
+ * adjudicated bar elsewhere on the row. The driver that wrote these datasets
+ * sets `unadjudicated` from a row-wide flag, so no dataset in the tree today
+ * contains a mixed row; but this program's whole reason for existing is that
+ * datasets are re-read long after the driver that produced them, and a
+ * predicate that is correct only for the files that happen to exist now is a
+ * fail-open waiting for the first file that does not.
+ *
+ * `row` is one entry of a dataset's `rows`, as `clock_run.cjs` wrote it.
+ */
+function adjudicated(row) {
+  const bars = (row && row.seamTask && row.seamTask.rows) || {};
+  const names = Object.keys(bars);
+  return names.length > 0 && names.every((n) => !bars[n].unadjudicated);
+}
+
+/**
+ * MAY THIS RUN'S MAGNITUDE ON THIS ROW BE POOLED INTO THE REPORTABLE SUBSET?
+ *
+ * Its control held, its band stayed under the ceiling — the ceiling is a
+ * whole-run refusal that fires before any control is consulted, so a run that
+ * breached it contributes no magnitude even if its control passed — AND every
+ * bar it published carries a band.
+ *
+ * This selects nothing away from the TABLE. Every dataset handed to this
+ * program appears in the per-run table whatever this returns; the subset is
+ * printed beside the whole ensemble and never instead of it.
+ */
+function reportable(row) {
+  return !!(
+    row &&
+    row.ctlTask &&
+    row.ctlTask.ok &&
+    !(row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) &&
+    !(row.seamTask && row.seamTask.ceilingBreached) &&
+    adjudicated(row)
   );
 }
 
-for (const rowId of rowIds) {
-  const runs = datasets
-    .map(({ file, data }) => ({ file, row: data.rows.find((r) => r.rowId === rowId) }))
-    .filter((x) => x.row);
-  if (runs.length === 0) continue;
+function main(argv) {
+  const files = argv.filter((a) => !a.startsWith('--'));
+  if (files.length === 0) {
+    console.error('usage: clock_readjudicate.cjs <run1.json> [run2.json ...]');
+    return 1;
+  }
 
-  console.log('');
-  console.log(`;; ======== ROW ${rowId} — ${runs.length} runs ========`);
+  const datasets = files.map((f) => ({ file: f, data: JSON.parse(fs.readFileSync(f, 'utf8')) }));
 
-  // --- gates, per run -------------------------------------------------------
-  console.log(';; run  guard(net/task)  ctl-2x task   ctlPASS  band(task)  band(net)  floor abs ms');
-  for (const { file, row } of runs) {
-    const floorAbs = p50(
-      SEGMENTS.map((s) => {
-        const d = row.decomposition[`${s}/floor`];
-        return d ? d.task / d.n : NaN;
-      }).filter(Number.isFinite)
-    );
+  // Row ids in the order the first dataset produced them, so the report reads
+  // in run order rather than in whatever order Object.keys happens to give.
+  const rowIds = [];
+  for (const { data } of datasets) {
+    for (const r of data.rows) if (!rowIds.includes(r.rowId)) rowIds.push(r.rowId);
+  }
+
+  console.log(';; ==== ENSEMBLE RE-ADJUDICATION (rf2-emvod) ====');
+  console.log(`;; datasets ${datasets.length}`);
+  for (const { file, data } of datasets) {
     console.log(
-      `;;  ${shortName(file).padEnd(6)} ${(row.guardRefuse ? 'REFUSE' : 'ok').padEnd(7)}` +
-        `${(row.guardRefuseTask ? 'REFUSE' : 'ok').padEnd(8)}` +
-        `${row.ctlTask ? fmt(row.ctlTask.measured.mean, 3).padStart(10) : '       n/a'}` +
-        `${row.ctlTask ? (row.ctlTask.ok ? '   PASS' : '   FAIL') : '    n/a'}` +
-        `${row.bandTask === null || row.bandTask === undefined ? '       n/a' : (fmt(row.bandTask * 100, 1) + '%').padStart(10)}` +
-        `${row.seam && row.seam.band !== null ? (fmt(row.seam.band * 100, 1) + '%').padStart(11) : '        n/a'}` +
-        `${fmt(floorAbs, 3).padStart(13)}`
+      `;;   ${file}  label=${data.label || '-'}  when=${data.when}  chromium=${data.chromium}  ` +
+        `design=${data.design.rounds}x(${data.design.warmup}+${data.design.samples}) tare=${data.design.tare}`
     );
   }
 
-  // --- the three clocks, per pair -------------------------------------------
-  for (const pair of PAIRS) {
-    const inPage = runs.map(({ row }) => (row.inPageBar && row.inPageBar[pair] ? row.inPageBar[pair].mean : NaN));
-    const net = runs.map(({ row }) => (row.bar && row.bar[pair] ? row.bar[pair].tared.mean : NaN));
-    const task = runs.map(({ row }) => (row.barTask && row.barTask[pair] ? row.barTask[pair].mean : NaN));
-    if (!task.some(Number.isFinite)) continue;
+  for (const rowId of rowIds) {
+    const runs = datasets
+      .map(({ file, data }) => ({ file, row: data.rows.find((r) => r.rowId === rowId) }))
+      .filter((x) => x.row);
+    if (runs.length === 0) continue;
 
-    // The REPORTABLE subset, beside the whole ensemble and never instead of
-    // it. A run is reportable on this row when its control held, its band
-    // stayed under the ceiling, AND the row has an adjudicated bar at all —
-    // the ceiling is a whole-run refusal that fires before any control is
-    // consulted, so a run that breached it contributes no magnitude even if
-    // its control passed.
-    //
-    // THE THIRD TERM IS rf2-y7mw7's, and it was missing here for the same
-    // reason it was missing from the driver's exit code: a row whose bars are
-    // all UNADJUDICATED has a magnitude and no band to tell it from parity,
-    // and this function prints its ensemble mean under the label
-    // "control-passing subset". A dataset that stored no bar verdict at all
-    // is not adjudicated either — absent is not clean.
-    const adjudicated = (row) => {
-      const bars = (row.seamTask && row.seamTask.rows) || {};
-      const names = Object.keys(bars);
-      return names.length > 0 && names.some((n) => !bars[n].unadjudicated);
-    };
-    const reportable = ({ row }) =>
-      row.ctlTask && row.ctlTask.ok && !(row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) &&
-      !(row.seamTask && row.seamTask.ceilingBreached) && adjudicated(row);
-    const passIdx = runs.map((r, i) => (reportable(r) ? i : -1)).filter((i) => i >= 0);
-    const taskPass = passIdx.map((i) => task[i]);
-
-    const e = ens(task);
-    const en = ens(net);
-    const ei = ens(inPage);
     console.log('');
-    console.log(`;;   PAIR ${pair}`);
-    console.log(
-      `;;     raw TaskDuration (PUBLISHED)  ${fmt(e.mean)}x  [${fmt(e.min)} – ${fmt(e.max)}]  n=${e.n}` +
-        (taskPass.length
-          ? `   control-passing subset ${fmt(ens(taskPass).mean)}x n=${taskPass.length}`
-          : '   control-passing subset: NONE')
-    );
-    console.log(`;;     taskNet (frame-only, superseded) ${fmt(en.mean)}x  [${fmt(en.min)} – ${fmt(en.max)}]`);
-    console.log(`;;     in-page performance.now()        ${fmt(ei.mean)}x  [${fmt(ei.min)} – ${fmt(ei.max)}]`);
-    console.log(';;     run   in-page   taskNet   TaskDuration   band   margin   verdict');
-    runs.forEach(({ file, row }, i) => {
-      const b = row.bandTask;
-      const margin = Math.abs(task[i] - 1) * 100;
-      const bandPct = Number.isFinite(b) ? b * 100 : NaN;
-      const breached =
-        (row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) ||
-        (row.seamTask && row.seamTask.ceilingBreached);
-      const verdict = breached
-        ? `BAND CEILING BREACHED — whole run refused before any control is consulted`
-        : !Number.isFinite(bandPct)
-          ? 'UNADJUDICATED — no proportional control on this row'
-          : !(row.ctlTask && row.ctlTask.ok)
-            ? `control FAILED — no magnitude reportable`
-            : margin > bandPct
-              ? `clears its ${fmt(bandPct, 1)}% band`
-              : `INSIDE the band — instrument-limited`;
-      console.log(
-        `;;     ${shortName(file).padEnd(5)} ${fmt(inPage[i]).padStart(8)} ${fmt(net[i]).padStart(9)}` +
-          `${fmt(task[i]).padStart(14)} ${(Number.isFinite(bandPct) ? fmt(bandPct, 1) + '%' : 'n/a').padStart(7)}` +
-          ` ${(fmt(margin, 1) + '%').padStart(7)}   ${verdict}`
+    console.log(`;; ======== ROW ${rowId} — ${runs.length} runs ========`);
+
+    // --- gates, per run -------------------------------------------------------
+    console.log(';; run  guard(net/task)  ctl-2x task   ctlPASS  band(task)  band(net)  floor abs ms');
+    for (const { file, row } of runs) {
+      const floorAbs = p50(
+        SEGMENTS.map((s) => {
+          const d = row.decomposition[`${s}/floor`];
+          return d ? d.task / d.n : NaN;
+        }).filter(Number.isFinite)
       );
-    });
-  }
-
-  // --- absolutes, pooled over the ensemble ----------------------------------
-  //
-  // PRINTED FOR EVERY ROW, because both of this instrument's defects were
-  // visible here and in no ratio anywhere.
-  console.log('');
-  console.log(';;   ABSOLUTES — mean ms per sample, pooled over the ensemble');
-  console.log(';;     arm                          task   taskNet   in-page  devtools    script    layout');
-  const armKeys = [];
-  for (const { row } of runs) for (const k of Object.keys(row.decomposition)) if (!armKeys.includes(k)) armKeys.push(k);
-  for (const k of armKeys) {
-    const acc = { task: [], taskNet: [], devtools: [], script: [], layout: [], inPage: [] };
-    for (const { row } of runs) {
-      const d = row.decomposition[k];
-      if (!d || !d.n) continue;
-      acc.task.push(d.task / d.n);
-      acc.taskNet.push(d.taskNet / d.n);
-      acc.devtools.push(d.devtools / d.n);
-      acc.script.push(d.script / d.n);
-      acc.layout.push(d.layout / d.n);
+      console.log(
+        `;;  ${shortName(file).padEnd(6)} ${(row.guardRefuse ? 'REFUSE' : 'ok').padEnd(7)}` +
+          `${(row.guardRefuseTask ? 'REFUSE' : 'ok').padEnd(8)}` +
+          `${row.ctlTask ? fmt(row.ctlTask.measured.mean, 3).padStart(10) : '       n/a'}` +
+          `${row.ctlTask ? (row.ctlTask.ok ? '   PASS' : '   FAIL') : '    n/a'}` +
+          `${row.bandTask === null || row.bandTask === undefined ? '       n/a' : (fmt(row.bandTask * 100, 1) + '%').padStart(10)}` +
+          `${row.seam && row.seam.band !== null ? (fmt(row.seam.band * 100, 1) + '%').padStart(11) : '        n/a'}` +
+          `${fmt(floorAbs, 3).padStart(13)}`
+      );
     }
-    // The in-page window is not in `decomposition`; it is in the raw
-    // per-sample readings, which is where it has to be read from.
-    for (const { row } of runs) {
-      if (!row.inPageRounds) continue;
-      const [seg, arm] = k.split('/');
-      const xs = row.inPageRounds.flatMap((rd) => (rd[seg] && rd[seg][arm]) || []);
-      if (xs.length) acc.inPage.push(p50(xs));
-    }
-    if (acc.task.length === 0) continue;
-    console.log(
-      `;;     ${k.padEnd(28)} ${fmt(mean(acc.task), 3).padStart(6)} ${fmt(mean(acc.taskNet), 3).padStart(9)}` +
-        ` ${(acc.inPage.length ? fmt(mean(acc.inPage), 3) : 'n/a').padStart(9)} ${fmt(mean(acc.devtools), 3).padStart(9)}` +
-        ` ${fmt(mean(acc.script), 3).padStart(9)} ${fmt(mean(acc.layout), 3).padStart(9)}`
-    );
-  }
 
-  // --- THE DOOR -------------------------------------------------------------
-  //
-  // `DevToolsCommandDuration` absorbs page script that runs INSIDE a protocol
-  // command. Which door the driver uses therefore decides whether `taskNet`
-  // is a frame-only reading or an honest one, and the rows here disagree
-  // about the door: `M1`, `bulk300`, `bulk100` and `narrow` drive the
-  // operation through `page.evaluate` (`Runtime.callFunctionOn`), while
-  // `keystroke` drives it through `page.keyboard.press` (the Input domain).
-  //
-  // Two numbers settle it per row, and neither needs the other harness:
-  //
-  //   * whether `devtools` TRACKS the arm. If it carries the arm's script it
-  //     must move with the arm; if it is only the protocol's round trip it is
-  //     roughly constant across arms that differ by milliseconds of work.
-  //   * what `ScriptDuration` reads. The renderer's own script counter does
-  //     not see script run through a protocol command either, so a row whose
-  //     script is being absorbed reports a mount of 901 elements as costing
-  //     hundredths of a millisecond of script.
-  {
-    const armsIn = (row) => Object.keys(row.decomposition).filter((k) => !k.endsWith('/plumb'));
-    const per = (sel) =>
-      mean(
+    // --- the three clocks, per pair -------------------------------------------
+    for (const pair of PAIRS) {
+      const inPage = runs.map(({ row }) => (row.inPageBar && row.inPageBar[pair] ? row.inPageBar[pair].mean : NaN));
+      const net = runs.map(({ row }) => (row.bar && row.bar[pair] ? row.bar[pair].tared.mean : NaN));
+      const task = runs.map(({ row }) => (row.barTask && row.barTask[pair] ? row.barTask[pair].mean : NaN));
+      if (!task.some(Number.isFinite)) continue;
+
+      // The REPORTABLE subset, beside the whole ensemble and never instead of
+      // it. `reportable` is at module scope (above) so it can be driven by a
+      // test. rf2-y7mw7's third term landed here wrong, and it took a merged-PR
+      // audit rather than a gate to find it, precisely because nothing could
+      // reach it.
+      const passIdx = runs.map(({ row }, i) => (reportable(row) ? i : -1)).filter((i) => i >= 0);
+      const taskPass = passIdx.map((i) => task[i]);
+
+      const e = ens(task);
+      const en = ens(net);
+      const ei = ens(inPage);
+      console.log('');
+      console.log(`;;   PAIR ${pair}`);
+      console.log(
+        `;;     raw TaskDuration (PUBLISHED)  ${fmt(e.mean)}x  [${fmt(e.min)} – ${fmt(e.max)}]  n=${e.n}` +
+          (taskPass.length
+            ? `   control-passing subset ${fmt(ens(taskPass).mean)}x n=${taskPass.length}`
+            : '   control-passing subset: NONE')
+      );
+      console.log(`;;     taskNet (frame-only, superseded) ${fmt(en.mean)}x  [${fmt(en.min)} – ${fmt(en.max)}]`);
+      console.log(`;;     in-page performance.now()        ${fmt(ei.mean)}x  [${fmt(ei.min)} – ${fmt(ei.max)}]`);
+      console.log(';;     run   in-page   taskNet   TaskDuration   band   margin   verdict');
+      runs.forEach(({ file, row }, i) => {
+        const b = row.bandTask;
+        const margin = Math.abs(task[i] - 1) * 100;
+        const bandPct = Number.isFinite(b) ? b * 100 : NaN;
+        const breached =
+          (row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) ||
+          (row.seamTask && row.seamTask.ceilingBreached);
+        // WHETHER THIS BAR IS ADJUDICATED IS READ PER BAR, not off the row's
+        // `bandTask`. `bandTask` is row-wide, and a row-wide reading here
+        // would print "clears its 21.4% band" for the very bar the subset
+        // above has just refused for carrying no band — the same disagreement
+        // between a printed column and a decision that rf2-y7mw7 is about,
+        // pointing the other way. They agree on every dataset in the tree,
+        // and that agreement is `seam.assess`'s to withdraw, not this
+        // program's to depend on. The sentence is left row-phrased because no
+        // dataset yet exists in which a row's bars disagree; the bar's own
+        // `why` is in the dataset for the day one does.
+        const barRec = (row.seamTask && row.seamTask.rows && row.seamTask.rows[pair]) || null;
+        const barUnadjudicated = barRec ? !!barRec.unadjudicated : !Number.isFinite(bandPct);
+        const verdict = breached
+          ? `BAND CEILING BREACHED — whole run refused before any control is consulted`
+          : barUnadjudicated
+            ? 'UNADJUDICATED — no proportional control on this row'
+            : !(row.ctlTask && row.ctlTask.ok)
+              ? `control FAILED — no magnitude reportable`
+              : margin > bandPct
+                ? `clears its ${fmt(bandPct, 1)}% band`
+                : `INSIDE the band — instrument-limited`;
+        console.log(
+          `;;     ${shortName(file).padEnd(5)} ${fmt(inPage[i]).padStart(8)} ${fmt(net[i]).padStart(9)}` +
+            `${fmt(task[i]).padStart(14)} ${(Number.isFinite(bandPct) ? fmt(bandPct, 1) + '%' : 'n/a').padStart(7)}` +
+            ` ${(fmt(margin, 1) + '%').padStart(7)}   ${verdict}`
+        );
+      });
+    }
+
+    // --- absolutes, pooled over the ensemble ----------------------------------
+    //
+    // PRINTED FOR EVERY ROW, because both of this instrument's defects were
+    // visible here and in no ratio anywhere.
+    console.log('');
+    console.log(';;   ABSOLUTES — mean ms per sample, pooled over the ensemble');
+    console.log(';;     arm                          task   taskNet   in-page  devtools    script    layout');
+    const armKeys = [];
+    for (const { row } of runs) for (const k of Object.keys(row.decomposition)) if (!armKeys.includes(k)) armKeys.push(k);
+    for (const k of armKeys) {
+      const acc = { task: [], taskNet: [], devtools: [], script: [], layout: [], inPage: [] };
+      for (const { row } of runs) {
+        const d = row.decomposition[k];
+        if (!d || !d.n) continue;
+        acc.task.push(d.task / d.n);
+        acc.taskNet.push(d.taskNet / d.n);
+        acc.devtools.push(d.devtools / d.n);
+        acc.script.push(d.script / d.n);
+        acc.layout.push(d.layout / d.n);
+      }
+      // The in-page window is not in `decomposition`; it is in the raw
+      // per-sample readings, which is where it has to be read from.
+      for (const { row } of runs) {
+        if (!row.inPageRounds) continue;
+        const [seg, arm] = k.split('/');
+        const xs = row.inPageRounds.flatMap((rd) => (rd[seg] && rd[seg][arm]) || []);
+        if (xs.length) acc.inPage.push(p50(xs));
+      }
+      if (acc.task.length === 0) continue;
+      console.log(
+        `;;     ${k.padEnd(28)} ${fmt(mean(acc.task), 3).padStart(6)} ${fmt(mean(acc.taskNet), 3).padStart(9)}` +
+          ` ${(acc.inPage.length ? fmt(mean(acc.inPage), 3) : 'n/a').padStart(9)} ${fmt(mean(acc.devtools), 3).padStart(9)}` +
+          ` ${fmt(mean(acc.script), 3).padStart(9)} ${fmt(mean(acc.layout), 3).padStart(9)}`
+      );
+    }
+
+    // --- THE DOOR -------------------------------------------------------------
+    //
+    // `DevToolsCommandDuration` absorbs page script that runs INSIDE a protocol
+    // command. Which door the driver uses therefore decides whether `taskNet`
+    // is a frame-only reading or an honest one, and the rows here disagree
+    // about the door: `M1`, `bulk300`, `bulk100` and `narrow` drive the
+    // operation through `page.evaluate` (`Runtime.callFunctionOn`), while
+    // `keystroke` drives it through `page.keyboard.press` (the Input domain).
+    //
+    // Two numbers settle it per row, and neither needs the other harness:
+    //
+    //   * whether `devtools` TRACKS the arm. If it carries the arm's script it
+    //     must move with the arm; if it is only the protocol's round trip it is
+    //     roughly constant across arms that differ by milliseconds of work.
+    //   * what `ScriptDuration` reads. The renderer's own script counter does
+    //     not see script run through a protocol command either, so a row whose
+    //     script is being absorbed reports a mount of 901 elements as costing
+    //     hundredths of a millisecond of script.
+    {
+      const armsIn = (row) => Object.keys(row.decomposition).filter((k) => !k.endsWith('/plumb'));
+      const per = (sel) =>
+        mean(
+          runs.map(({ row }) => {
+            const vals = armsIn(row).map((k) => sel(row.decomposition[k]));
+            return Math.max(...vals) - Math.min(...vals);
+          })
+        );
+      const scriptMax = mean(
+        runs.map(({ row }) => Math.max(...armsIn(row).map((k) => row.decomposition[k].script / row.decomposition[k].n)))
+      );
+      const dvSpread = per((d) => d.devtools / d.n);
+      const ipSpread = per((d) => d.taskNet / d.n); // stand-in scale for "how much arms differ"
+      console.log('');
+      console.log(
+        `;;   THE DOOR — devtools spread across arms ${fmt(dvSpread, 3)} ms; largest ScriptDuration on any arm ` +
+          `${fmt(scriptMax, 4)} ms. ` +
+          (scriptMax < 0.2
+            ? `ScriptDuration sees essentially NOTHING, so the operation ran inside a protocol command and ` +
+              `taskNet on this row is FRAME-ONLY.`
+            : `ScriptDuration SEES the arms' work, so the operation did not run inside a protocol command and ` +
+              `taskNet on this row was never corrupted.`) +
+          `  (taskNet spread ${fmt(ipSpread, 3)} ms, for scale)`
+      );
+    }
+
+    // --- THE ADDITIVE RESIDUAL ------------------------------------------------
+    const ctlMeans = runs.map(({ row }) => (row.ctlTask ? row.ctlTask.measured.mean : NaN)).filter(Number.isFinite);
+    if (ctlMeans.length) {
+      const r = mean(ctlMeans);
+      const cOverW = (2 - r) / (r - 1);
+      const floorTared = mean(
         runs.map(({ row }) => {
-          const vals = armsIn(row).map((k) => sel(row.decomposition[k]));
-          return Math.max(...vals) - Math.min(...vals);
+          const f = p50(
+            SEGMENTS.map((s) => {
+              const d = row.decomposition[`${s}/floor`];
+              return d ? d.task / d.n : NaN;
+            }).filter(Number.isFinite)
+          );
+          const pl = p50(
+            SEGMENTS.map((s) => {
+              const d = row.decomposition[`${s}/plumb`];
+              return d ? d.task / d.n : NaN;
+            }).filter(Number.isFinite)
+          );
+          return f - pl;
         })
       );
-    const scriptMax = mean(
-      runs.map(({ row }) => Math.max(...armsIn(row).map((k) => row.decomposition[k].script / row.decomposition[k].n)))
-    );
-    const dvSpread = per((d) => d.devtools / d.n);
-    const ipSpread = per((d) => d.taskNet / d.n); // stand-in scale for "how much arms differ"
-    console.log('');
-    console.log(
-      `;;   THE DOOR — devtools spread across arms ${fmt(dvSpread, 3)} ms; largest ScriptDuration on any arm ` +
-        `${fmt(scriptMax, 4)} ms. ` +
-        (scriptMax < 0.2
-          ? `ScriptDuration sees essentially NOTHING, so the operation ran inside a protocol command and ` +
-            `taskNet on this row is FRAME-ONLY.`
-          : `ScriptDuration SEES the arms' work, so the operation did not run inside a protocol command and ` +
-            `taskNet on this row was never corrupted.`) +
-        `  (taskNet spread ${fmt(ipSpread, 3)} ms, for scale)`
-    );
+      // floorTared = W + c, so W = floorTared / (1 + c/W) and c = W * (c/W).
+      const W = floorTared / (1 + cOverW);
+      console.log('');
+      console.log(
+        `;;   ADDITIVE RESIDUAL — ctl-2x reads ${fmt(r, 4)}x where the page it builds is exactly 2.00x. ` +
+          `Inverting (2W+c)/(W+c): c/W = ${fmt(cOverW, 3)}, and with the floor's tared absolute at ` +
+          `${fmt(floorTared, 3)} ms that is W = ${fmt(W, 3)} ms of page-proportional work and ` +
+          `c = ${fmt(floorTared - W, 3)} ms that the plumb tare does not remove.`
+      );
+    }
   }
 
-  // --- THE ADDITIVE RESIDUAL ------------------------------------------------
-  const ctlMeans = runs.map(({ row }) => (row.ctlTask ? row.ctlTask.measured.mean : NaN)).filter(Number.isFinite);
-  if (ctlMeans.length) {
+  console.log('');
+  console.log(';; ==== CROSS-ROW: is the residual the same constant everywhere? ====');
+  console.log(';; row        ctl-2x(task)   implied c/W   implied c ms   floor tared ms');
+  for (const rowId of rowIds) {
+    const runs = datasets.map(({ data }) => data.rows.find((r) => r.rowId === rowId)).filter(Boolean);
+    const ctlMeans = runs.map((row) => (row.ctlTask ? row.ctlTask.measured.mean : NaN)).filter(Number.isFinite);
+    if (!ctlMeans.length) {
+      console.log(`;; ${rowId.padEnd(11)} (no proportional control on this row)`);
+      continue;
+    }
     const r = mean(ctlMeans);
     const cOverW = (2 - r) / (r - 1);
     const floorTared = mean(
-      runs.map(({ row }) => {
-        const f = p50(
-          SEGMENTS.map((s) => {
-            const d = row.decomposition[`${s}/floor`];
-            return d ? d.task / d.n : NaN;
-          }).filter(Number.isFinite)
-        );
-        const pl = p50(
-          SEGMENTS.map((s) => {
-            const d = row.decomposition[`${s}/plumb`];
-            return d ? d.task / d.n : NaN;
-          }).filter(Number.isFinite)
-        );
+      runs.map((row) => {
+        const f = p50(SEGMENTS.map((s) => (row.decomposition[`${s}/floor`] ? row.decomposition[`${s}/floor`].task / row.decomposition[`${s}/floor`].n : NaN)).filter(Number.isFinite));
+        const pl = p50(SEGMENTS.map((s) => (row.decomposition[`${s}/plumb`] ? row.decomposition[`${s}/plumb`].task / row.decomposition[`${s}/plumb`].n : NaN)).filter(Number.isFinite));
         return f - pl;
       })
     );
-    // floorTared = W + c, so W = floorTared / (1 + c/W) and c = W * (c/W).
     const W = floorTared / (1 + cOverW);
-    console.log('');
     console.log(
-      `;;   ADDITIVE RESIDUAL — ctl-2x reads ${fmt(r, 4)}x where the page it builds is exactly 2.00x. ` +
-        `Inverting (2W+c)/(W+c): c/W = ${fmt(cOverW, 3)}, and with the floor's tared absolute at ` +
-        `${fmt(floorTared, 3)} ms that is W = ${fmt(W, 3)} ms of page-proportional work and ` +
-        `c = ${fmt(floorTared - W, 3)} ms that the plumb tare does not remove.`
+      `;; ${rowId.padEnd(11)} ${fmt(r, 4).padStart(11)} ${fmt(cOverW, 3).padStart(13)} ${fmt(floorTared - W, 3).padStart(14)} ${fmt(floorTared, 3).padStart(16)}`
     );
   }
-}
 
-console.log('');
-console.log(';; ==== CROSS-ROW: is the residual the same constant everywhere? ====');
-console.log(';; row        ctl-2x(task)   implied c/W   implied c ms   floor tared ms');
-for (const rowId of rowIds) {
-  const runs = datasets.map(({ data }) => data.rows.find((r) => r.rowId === rowId)).filter(Boolean);
-  const ctlMeans = runs.map((row) => (row.ctlTask ? row.ctlTask.measured.mean : NaN)).filter(Number.isFinite);
-  if (!ctlMeans.length) {
-    console.log(`;; ${rowId.padEnd(11)} (no proportional control on this row)`);
-    continue;
-  }
-  const r = mean(ctlMeans);
-  const cOverW = (2 - r) / (r - 1);
-  const floorTared = mean(
-    runs.map((row) => {
-      const f = p50(SEGMENTS.map((s) => (row.decomposition[`${s}/floor`] ? row.decomposition[`${s}/floor`].task / row.decomposition[`${s}/floor`].n : NaN)).filter(Number.isFinite));
-      const pl = p50(SEGMENTS.map((s) => (row.decomposition[`${s}/plumb`] ? row.decomposition[`${s}/plumb`].task / row.decomposition[`${s}/plumb`].n : NaN)).filter(Number.isFinite));
-      return f - pl;
-    })
-  );
-  const W = floorTared / (1 + cOverW);
-  console.log(
-    `;; ${rowId.padEnd(11)} ${fmt(r, 4).padStart(11)} ${fmt(cOverW, 3).padStart(13)} ${fmt(floorTared - W, 3).padStart(14)} ${fmt(floorTared, 3).padStart(16)}`
-  );
+  return 0;
 }
 
 function shortName(f) {
   const m = /([^/\\]+)\.json$/.exec(f);
   return m ? m[1] : f;
+}
+
+module.exports = { adjudicated, reportable };
+
+// Requiring this file must not run it: `clock_exit_path.test.cjs` drives the
+// two predicates above directly, which it cannot do if the module body reads
+// argv and exits.
+if (require.main === module) {
+  const code = main(process.argv.slice(2));
+  if (code !== 0) process.exit(code);
 }
