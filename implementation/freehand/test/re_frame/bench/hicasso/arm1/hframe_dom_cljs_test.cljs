@@ -52,6 +52,14 @@
      ;; would answer — so an isolation miss could read as a rendering
      ;; difference rather than as the failure it is.
      :ambient-frame nil
+     ;; The MAP shape, because W2 is `async`: the whole point of that row
+     ;; is a closure firing from a real macrotask, long after the render's
+     ;; dynamic extent has unwound, and `cljs.test` refuses an async test
+     ;; under a fn-form fixture outright — "Async tests require fixtures to
+     ;; be specified as maps. Testing aborted." — which aborts the WHOLE
+     ;; browser run at this namespace, not just this file. Same reason
+     ;; `arm1/generation_fence_dom_cljs_test` takes the map shape.
+     :async?        true
      :init-fn       (fn [] (rt/reset-runtime!))}))
 
 (def ^:private frame-a ::hframe-dom-a)
