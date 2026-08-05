@@ -3141,6 +3141,96 @@ jobs:
       - name: Perf-flag bundle isolation (perf-off bundle + perf-on control)
         run: npm run test:perf-bundle
 
+  cljs-schemas-bundle:
+    name: CLJS schemas bundle cost (Spec 010 §Bundle cost, bead rf2-v4o7e)
+    # rf2-kybsf / rf2-v4o7e — `npm run test:schemas-bundle` was the last
+    # declared hole in `scripts/check_gate_scheduling.py`: a real gate, with a
+    # real checker (`implementation/scripts/check-schemas-bundle.cjs`), that
+    # nothing in the repo invoked. It had run NOWHERE since it was authored on
+    # 2026-05-14, and when rf2-a9oic finally ran it cold before scheduling it,
+    # it came back RED — which is why it was declared rather than wired, and
+    # why it is only being wired now that the gate asserts a claim that holds.
+    #
+    # THE RED WAS NOT A REGRESSION, and that is the whole reason this job could
+    # not simply have been added three months ago with a bigger constant. The
+    # gate asserted an ABSOLUTE gzipped ceiling while Spec 010 §Bundle cost
+    # budgets a MARGINAL one. `cljs.core` alone is ~186 KB of the probe's ~494
+    # KB optimized bytes, so the number moved with every unrelated framework
+    # change: the probe grew 44.8 KB between 2026-05-14 and 2026-08-05, of
+    # which the schemas surface was 1.0 KB and `cljs.core` + `re-frame.core`
+    # were 43.8 KB. Spec 010's normative claim was CONFIRMED by measurement the
+    # whole time; only the gate's quantity was wrong. Any re-baselined absolute
+    # would have been wrong again within a quarter, so the gate now has none.
+    #
+    # WHAT IT RUNS: two `:advanced` + `goog.DEBUG=false` browser builds
+    # differing by EXACTLY ONE require — `schemas-bundle-control`
+    # (`[re-frame.core]` only) and `schemas-bundle-probe` (`[re-frame.core]` +
+    # `[re-frame.schemas]`) — then asserts the gzipped MARGIN between them,
+    # two-sided, against Spec 010's marginal budget. The ceiling catches a
+    # namespace off the spec's restrict-to-dev/test list reaching the
+    # production path; the FLOOR catches the margin collapsing, which is not a
+    # saving but a vacuous probe — and specifically catches a revert of the
+    # rf2-v96fh facade require, whose behavioural owner is the JVM test
+    # `schemas/test/re_frame/schemas_implies_validation_test.clj` in the
+    # `jvm-schemas` lane. Both directions were made to fire before wiring.
+    #
+    # NOT a duplicate of `cljs-bundle-isolation` or `cljs-perf-bundle`. Those
+    # two grep emitted bundles for symbols that must be absent; this one
+    # measures bytes and owns ONE quantity — what requiring the schemas
+    # artefact costs. Its own job so a schemas-margin failure stays
+    # distinguishable from an isolation failure in the checks UI.
+    #
+    # No browser and no Clojure CLI: two shadow-cljs releases plus a gzip of
+    # the emitted bytes, and shadow-cljs.edn resolves through `:dependencies`
+    # rather than `:deps`, so the JDK/Node/Maven trio is enough — the same step
+    # list as `cljs-perf-bundle` above. Measured cold at 47s (rf2-a9oic),
+    # against that sibling's 75s, which is why this is per-PR and not nightly.
+    #
+    # Surface-gated on `cljs_prod`, like its sibling. All four producers that
+    # can move this gate's number arm it: `implementation/schemas/*` (the
+    # artefact under measurement), `implementation/shadow-cljs.edn` (both
+    # builds), `implementation/package.json` (the script) and
+    # `implementation/scripts/*` (the checker itself — so the gate's teeth
+    # cannot be softened while avoiding the job that runs them).
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: Schemas bundle cost (core-only control + schemas probe, two-sided margin)
+        run: npm run test:schemas-bundle
+
   cljs-freehand-evidence-elision:
     name: Freehand evidence production isolation (F4g control-build probe, rf2-drpa3.166)
     # rf2-xwa4n — PR #6880 shipped the probe as `npm run
@@ -5382,6 +5472,11 @@ jobs:
       # enforcement while nothing ran the gate at all, and a job absent from
       # this list is advisory whatever its own gate says.
       - cljs-perf-bundle
+      # rf2-v4o7e — required. This gate spent 83 days running nowhere, which is
+      # exactly how its ceiling stayed wrong that long: nothing contradicted it.
+      # Advisory would put it back in the same position by a different route — a
+      # job absent from this list is advisory whatever its own gate says.
+      - cljs-schemas-bundle
       # rf2-xwa4n — required, so the F4g production-isolation proof cannot be
       # invalidated by a merge that never ran it.
       - cljs-freehand-evidence-elision

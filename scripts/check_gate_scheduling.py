@@ -135,42 +135,31 @@ DISPOSITIONS: dict[str, dict] = {
                "DOES yield a verdict, which is why that one is scheduled "
                "(freehand-bench.yml) and pinned into the local rigorous sweep",
     },
-    # THE LAST HOLE (rf2-a9oic).  Three of the four this checker found on
-    # arrival now have homes: `test:perf-bundle` went per-PR as
-    # `cljs-perf-bundle` (rf2-eegpw / #7530), and `test:ui-warm-watch` +
-    # `test:cljs-perf-emit-nightly` went into the nightly browser/bundle sweep.
-    # Their entries are deleted, which is what a closed hole looks like.
+    # NO DECLARED HOLES REMAIN (rf2-a9oic, closed out by rf2-v4o7e).  All four
+    # this checker found on arrival now have homes: `test:perf-bundle` went
+    # per-PR as `cljs-perf-bundle` (rf2-eegpw / #7530), `test:ui-warm-watch` +
+    # `test:cljs-perf-emit-nightly` went into the nightly browser/bundle sweep,
+    # and `test:schemas-bundle` went per-PR as `cljs-schemas-bundle`.  Their
+    # entries are deleted, which is what a closed hole looks like.
     #
-    # This one could not be wired, for the best possible reason: rf2-a9oic ran
-    # it before scheduling it, per the rule that a gate wired without a green
-    # run hands the new nightly alerting a false positive on its debut — and it
-    # came back RED.  Both probes measure 124.9 KB gzipped against a 100 KB
-    # ceiling, 24.9 KB over.  A gate that has run nowhere for three months had
-    # accumulated a real regression, which is the exact class this checker
-    # exists to surface; finding it is the checker working, not failing.
+    # The schemas one is worth remembering, because it is the only one that was
+    # red rather than merely unrun, and because of what the red turned out to
+    # be.  rf2-a9oic ran it before scheduling it — per the rule that a gate
+    # wired without a green run hands the alerting a false positive on its
+    # debut — and it came back RED at 124.9 KB against a 100 KB ceiling.  That
+    # looked like a 25% bundle regression.  It was not one: measurement
+    # (rf2-kybsf) showed the schemas surface had grown 1.0 KB in three months
+    # and `cljs.core` + `re-frame.core` 43.8 KB, and that the ceiling had never
+    # been derived from the probe it guarded.  The gate was asserting an
+    # ABSOLUTE size while Spec 010 §Bundle cost budgets a MARGINAL one, so it
+    # fired at the schemas artefact for growth outside it.
     #
-    # It is declared rather than wired, and NOT threshold-bumped, because Spec
-    # 010 §Bundle cost's budget table is normative: the checker's own failure
-    # text says update the spec section first and the threshold in lockstep.
-    # That is a ruling, not a wiring change.  Narrowing a gate to make it pass
-    # is the one move this audit exists to prevent, so the honest output is
-    # this entry — a real gate, running nowhere, red when run, tracked.
-    "test:schemas-bundle": {
-        "kind": "unscheduled",
-        "bead": "rf2-kybsf",
-        "why": "releases `schemas-bundle-probe` + `schemas-bundle-probe-malli` "
-               "and runs check-schemas-bundle.cjs — a checker referenced by "
-               "this npm script and by nothing else in the repo. rf2-a9oic ran "
-               "it cold on main (47s): BOTH probes measure 124.9 KB gzipped "
-               "against the 100 KB ceiling, 24.9 KB over, while Spec 010 "
-               "§Bundle cost still catalogues ~91 KB. The schema-implies-"
-               "validation equality guard is still green (12-byte delta), so "
-               "the structural claim holds and only the absolute budget has "
-               "regressed. Scheduling it today would red the tier it landed "
-               "in; bumping the threshold would weaken the gate. rf2-kybsf "
-               "carries the attribution and the spec ruling — wire it and "
-               "delete this entry when that lands",
-    },
+    # It was NOT threshold-bumped — narrowing a gate to make it pass is the one
+    # move this audit exists to prevent — and it was not wired red either.  It
+    # was left declared until rf2-v4o7e made it assert the quantity the spec
+    # actually budgets: the two-sided gzipped margin between a core-only
+    # control build and the schemas probe.  A gate earns a schedule by
+    # asserting something true, not by being given a number it can clear.
 }
 
 KINDS = {"covered-by", "ci-runs-it-directly", "not-a-gate", "unscheduled"}
