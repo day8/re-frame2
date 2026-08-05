@@ -307,8 +307,11 @@ Two shapes: `:client-only` renders children when the crossing has any (C1), or
 
 **Costs the programmer** nothing — there is nothing to write. **Costs the
 implementation** the least of any candidate: one branch, no new value, no new
-refusal, no new doc row. Nothing currently green goes red, because the shipping
-`:client-only` witness has no children on its host.
+refusal, no new doc row. And nothing currently green goes red: no host in the
+`arm1` server-render rows carries children, and no host in the `ssr/` fixture
+corpus does either — so not even the pinned byte budgets move. **C is the
+cheapest candidate on every axis a gate can measure**, which is exactly why the
+objections below have to be the ones that decide it.
 
 **How it could be wrong** — and this is the strongest objection on the page:
 
