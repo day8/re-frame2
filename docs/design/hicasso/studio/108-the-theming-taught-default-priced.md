@@ -48,8 +48,8 @@ independent, and saying so is the cheapest thing this page does.
 **Option A entails per-root.** A view renders its own element and nothing above
 it: `theme-scope` can put an attribute on the `div` it returns and on no other
 node in the document. There is no declarative channel from a running client to
-`<html>` at all — Spec 011's head contract states it outright under
-§*Mismatch detection — head*: *"there is no DOM-head reconciler, so an SPA that
+`<html>` at all — Spec 011 states it outright in `spec/011-SSR.md`
+§*Head/meta contract*: *"there is no DOM-head reconciler, so an SPA that
 routes after load keeps the server-rendered `<title>` / `<meta>` until an app- or
 host-level head manager refreshes them."* Document-level state is imperative on
 the client by construction, so an A-shaped per-document bridge is not a design
@@ -165,8 +165,8 @@ That is A, and it is A on foreclosure grounds even before the cost argument runs
 ## 6 · Does either option assume away multi-frame or SSR?
 
 **Per-document assumes away multi-frame. Decisively, and it is not a corner case.**
-Frames are isolated contexts by doctrine — `spec/002-Frames.md` §*Per-instance
-frames*, pinned by
+Frames are isolated contexts by doctrine — `spec/002-Frames.md`
+§*Per-instance frames*, pinned by
 `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs`, which
 ports the `parallel_frames` testbed's contract: the same app in two frames on one
 page, each with its own app-db and sub cache, cross-frame sub computation
