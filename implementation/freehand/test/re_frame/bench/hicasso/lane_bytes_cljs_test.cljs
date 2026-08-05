@@ -206,4 +206,7 @@
            pin and no way to silently switch the ruler."
     (let [ln (src "lane.cljs")]
       (is (str/includes? ln "(js/TextEncoder.)"))
-      (is (not (str/includes? ln "Buffer.byteLength"))))))
+      ;; The CALL and not the word: `utf8-bytes`' own docstring names
+      ;; `Buffer.byteLength` to say why it is NOT used, so a bare substring
+      ;; search would red on the explanation.
+      (is (not (str/includes? ln "(.byteLength"))))))
