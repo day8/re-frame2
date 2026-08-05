@@ -26,6 +26,29 @@ storms, buffer caps, and panel rendering budgets. Default CI should
 continue to run the lightweight unit/helper/view gates plus the normal
 smokes.
 
+**When a `covered` row is proved, and by which tier.** The owning
+command in the matrix below — the Xray browser feature gate — runs in
+two tiers, and the column does not distinguish them. `npm run
+test:xray-feature-gate:smoke` runs on every PR that touches a Story or
+Xray surface; it executes only the scenarios tagged `smoke: true` in
+`tools/xray/testbeds/feature_matrix/scenarios.cjs` and compiles only the
+surfaces those scenarios load. `npm run test:xray-feature-gate` — every
+scenario over every staged surface — runs nightly in
+`.github/workflows/expensive-tests.yml`, and that nightly sweep is the
+system of record. At the time of writing the split is 5 scenarios over
+4 surfaces on the PR path against 17 over 12 nightly, so **most
+`covered` rows in this matrix are proved once a day rather than on the
+change that could break them**, and a newly added non-smoke scenario
+merges without ever having run (rf2-rliq7 records the policy call and
+its costings). That is the deliberate cost decision in `TESTING.md`, not
+an accident — but read `covered` in that light: it means the row has a
+browser-level feature path, not that the path guards the PR that breaks
+it. Per `TESTING.md`, tag a scenario `smoke: true` only if it earns a
+slot on every PR **and** loads an already-staged smoke surface;
+everything else is nightly by default, and the author is expected to run
+the full gate locally (`scripts/test-rigorous-local.sh`) before merging
+a scenario the PR tier will not execute.
+
 ## Required shared testbed
 
 The feature gate should prefer one deterministic Xray feature testbed
