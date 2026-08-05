@@ -1045,10 +1045,41 @@
   not hiccup fails with the author's own stack rather than one render
   into a server response. It is walked ONCE and the element is reused
   at every site of the host: React elements are immutable values, and a
-  placeholder that differs per site is not a placeholder. The corollary
-  is the rule the guide states: **a fallback is inert markup** — it is
-  not a body, so a subscription or an intent written there is the same
-  loud error it would be anywhere outside a boundary.
+  placeholder that differs per site is not a placeholder.
+
+  ## What that refuses is what the WALK CAN SEE — and no more (rf2-nv07k)
+
+  This docstring used to draw the corollary the guide teaches — *\"a
+  fallback is inert markup\"* — and half of it is enforced. The walk
+  runs outside any frame, so an intent vector written here raises
+  `:rf.error/hicasso-intent-outside-boundary` and a `sub` call in the
+  form raises `:rf.error/hicasso-sub-outside-render`, exactly as the
+  sentence says.
+
+  A BOUNDARY HEAD IS NEITHER. `[some-view {}]` is an element whose body
+  runs later, inside that boundary's own `with-frame`; the walk never
+  looks inside it, so it mints, and the \"placeholder\" is then a live
+  boundary that reads subscriptions in the server response. One
+  declaration renders a different document per frame and per write,
+  which is the justification above falsified by what it permits. A
+  `defhost` head crosses the same way, so the hole is deferral and not
+  `defview`.
+
+  **This is UNRULED, not a feature.** It is currently the only recovery
+  for `rf2-l0wfx` — a provider crossing deletes its subtree from the
+  server render, and writing that subtree a second time as the
+  declaration's fallback is the one thing that puts it back. It is also
+  variant-fragile: a frame-fed boundary head (`mark-frame-prop!`,
+  rf2-2rtt6.39) reads `intent/*frame*` at ELEMENT-creation time, which
+  here is mint time, where the var is nil — so it bakes nil in and
+  throws `:rf.error/no-frame-prop` one render into the server response.
+  Whether a boundary head in a fallback works is therefore a property
+  of which mint the head came from.
+
+  Every arm of this is pinned by
+  `arm1/fallback_contents_cljs_test`, which records today's behaviour
+  rather than asserting a contract, so that the ruling is an edit there
+  and never a silence.
 
   The gate hands its own props straight through to the foreign
   component, so the crossing's props object is exactly the one
