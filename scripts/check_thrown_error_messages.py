@@ -261,8 +261,14 @@ _STR_LITERAL_KW_RE = re.compile(
 #     helper clones bind the keyword as `error-kw` / `error-id` /
 #     `error-keyword`. Scoped to those exact names so a `(str some-human-var)`
 #     never fires.
+#     The accepted spellings are a NAMED roster so the self-test can hold each
+#     to owning a fixture (rf2-n6ijg) — three of the five had none, and the
+#     alternation is built from it, so the pattern is unchanged.
+_STR_ERR_VAR_NAMES: tuple[str, ...] = (
+    "error-kw", "error-id", "error-keyword", "err-kw", "err-id",
+)
 _STR_ERR_VAR_RE = re.compile(
-    r"\(\s*ex-info\s+\(\s*str\s+(error-kw|error-id|error-keyword|err-kw|err-id)\s*\)"
+    r"\(\s*ex-info\s+\(\s*str\s+(" + "|".join(_STR_ERR_VAR_NAMES) + r")\s*\)"
 )
 
 # (d) (str (:rf.error/id <map>)) as the message — pull the discriminator off a
@@ -1196,54 +1202,138 @@ _SELF_TEST_FIXTURE_ROOT = (
 )
 
 
+# A planted site NAMES ITSELF in its ex-data. Every fixture already wrote a
+# distinct `:rf.error/id` on its `ex-info` line, which is the line a finding is
+# reported at — so the witness name was sitting there unread while two fixtures
+# aggregated seventeen sites under two counts (rf2-n6ijg).
+_WITNESS_ID_RE = re.compile(r":rf\.error/id\s+(:[\w.*+!?<>=/-]+)")
+
+
+def _witness_of(lines: list[str], fixture: str, line_no: int) -> str:
+    """The name of the site reported at `line_no`: its own `:rf.error/id` when
+    the ex-data opens on that line, else the fixture itself.
+
+    The fallback is what makes single-site fixtures need no ceremony — the file
+    IS the witness. It is also self-policing: two unnamed sites in one file
+    collapse onto the same name, and the distinctness check below reds.
+    """
+    raw = lines[line_no - 1] if 0 <= line_no - 1 < len(lines) else ""
+    m = _WITNESS_ID_RE.search(raw)
+    return m.group(1) if m else f"<{fixture}>"
+
+
+# Which fixture proves each roster, and (for the negative direction, where there
+# is no finding to read a name off) which entries it is claimed to cross.
+_BINDER_HEAD_FIXTURE = "negative/binder_heads_crossed_cleanly.cljc"
+_TRANSPARENT_HEAD_FIXTURE = "negative/transparent_heads_crossed.cljc"
+
+
 def _run_self_tests(verbose: bool = False) -> int:
-    cases: list[tuple[str, int]] = [
-        # (fixture-file relative to fixture-root, expected finding count)
+    """Scan each fixture and assert the EXACT set of sites that fired.
+
+    Counts were already exact. The hole was that a count cannot NAME a witness
+    (rf2-n6ijg): `bypass_let_bound_shadowed.cljc` plants eleven distinct binder-
+    family sites and `bypass_let_bound_no_token.cljc` six, and the whole proof
+    was the pair `(file, 11)` and `(file, 6)`. A dead site red anonymously —
+    "expected 11, got 10", with no way to say which — and any edit that made a
+    neighbouring site fire twice restored the count and greened it.
+
+    Each site is now asserted by NAME, read from the `:rf.error/id` it already
+    carried. Plus the two structural assertions:
+
+      * every `_VECTOR_BINDER_HEADS` and `_TRANSPARENT_HEADS` entry is crossed
+        by the negative fixture that owns its roster. This is the direction that
+        proves those rosters — a SHADOWING fixture cannot, because an
+        unrecognised head fails closed and refuses for the same reason a
+        recognised-but-shadowing one does, so deleting a head changed nothing.
+      * every `_STR_ERR_VAR_NAMES` spelling appears in a positive fixture.
+    """
+    _NO_TOKEN = "positive/bypass_let_bound_no_token.cljc"
+    cases: list[tuple[str, frozenset[str]]] = [
+        # (fixture-file relative to fixture-root, exact set of site names)
         # --- positives: each bare-keyword message shape must FIRE ---
-        ("positive/literal_keyword_string.cljc",     1),
-        ("positive/literal_keyword_multiline.cljc",  1),
-        ("positive/str_literal_keyword.cljc",        1),
-        ("positive/str_error_kw_var.cljc",           1),
-        ("positive/str_error_id_var.cljc",           1),
-        ("positive/str_id_of_payload.cljc",          1),
+        ("positive/literal_keyword_string.cljc",
+         frozenset({"<positive/literal_keyword_string.cljc>"})),
+        ("positive/literal_keyword_multiline.cljc",
+         frozenset({"<positive/literal_keyword_multiline.cljc>"})),
+        ("positive/str_literal_keyword.cljc",
+         frozenset({"<positive/str_literal_keyword.cljc>"})),
+        ("positive/str_error_kw_var.cljc",
+         frozenset({"<positive/str_error_kw_var.cljc>"})),
+        ("positive/str_error_id_var.cljc",
+         frozenset({"<positive/str_error_id_var.cljc>"})),
+        # The three `_STR_ERR_VAR_NAMES` spellings that had no fixture.
+        ("positive/str_remaining_err_var_names.cljc", frozenset({
+            ":rf.error/str-error-keyword-var",
+            ":rf.error/str-err-kw-var",
+            ":rf.error/str-err-id-var",
+        })),
+        ("positive/str_id_of_payload.cljc",
+         frozenset({"<positive/str_id_of_payload.cljc>"})),
         # --- positives for the WIDENED builder-bypass rule (rf2-krrv87) ---
-        ("positive/bypass_str_concat_no_token.cljc",     1),
-        ("positive/bypass_plain_string_no_token.cljc",   1),
+        ("positive/bypass_str_concat_no_token.cljc",
+         frozenset({"<positive/bypass_str_concat_no_token.cljc>"})),
+        ("positive/bypass_plain_string_no_token.cljc",
+         frozenset({"<positive/bypass_plain_string_no_token.cljc>"})),
         # --- positives for the let-binding resolution (rf2-u3otj): resolving a
         #     local must not become a way to PASS. A bound form with no token,
         #     an unresolvable parameter, the computed discriminator, a sibling
         #     (non-enclosing) scope, an inner binding that shadows a
         #     token-bearing outer one, and a destructured name all still fire.
-        ("positive/bypass_let_bound_no_token.cljc",      6),
+        #     The computed-discriminator site builds its id across lines, so it
+        #     is the one that answers to the file rather than to an id.
+        (_NO_TOKEN, frozenset({
+            ":rf.error/bound-but-bare",
+            ":rf.error/param-message",
+            f"<{_NO_TOKEN}>",
+            ":rf.error/sibling-scope",
+            ":rf.error/shadowed-away",
+            ":rf.error/destructured",
+        })),
         # --- positives for the SCOPE PROOF (rf2-u3otj / the #7045 and #7064
         #     audits): a binder between the conformant outer `let` and the
         #     `ex-info` shadows the name, and every binder family must still
         #     fire — the #7045 nested-`fn`-parameter witness first, the #7064
         #     `fn` SELF-REFERENCE NAME (single- and multi-arity) last.
-        ("positive/bypass_let_bound_shadowed.cljc",      11),
+        ("positive/bypass_let_bound_shadowed.cljc", frozenset({
+            ":rf.error/fn-param-shadow",
+            ":rf.error/loop-shadow",
+            ":rf.error/if-let-shadow",
+            ":rf.error/doseq-shadow",
+            ":rf.error/catch-shadow",
+            ":rf.error/destructured-shadow",
+            ":rf.error/letfn-shadow",
+            ":rf.error/as-shadow",
+            ":rf.error/arity-shadow",
+            ":rf.error/fn-name-shadow",
+            ":rf.error/fn-name-arity-shadow",
+        })),
         # --- negatives: every conformant counterpart must stay GREEN ---
-        ("negative/human_message_builder.cljc",      0),
-        ("negative/throw_error_bang.cljc",           0),
-        ("negative/str_concat_human_text.cljc",      0),
-        ("negative/keyword_as_reason_value.cljc",    0),
-        ("negative/keyword_in_exdata.cljc",          0),
-        ("negative/keyword_in_comment.cljc",         0),
-        ("negative/keyword_in_docstring.cljc",       0),
-        ("negative/inline_human_token_slim.cljc",    0),
+        ("negative/human_message_builder.cljc",      frozenset()),
+        ("negative/throw_error_bang.cljc",           frozenset()),
+        ("negative/str_concat_human_text.cljc",      frozenset()),
+        ("negative/keyword_as_reason_value.cljc",    frozenset()),
+        ("negative/keyword_in_exdata.cljc",          frozenset()),
+        ("negative/keyword_in_comment.cljc",         frozenset()),
+        ("negative/keyword_in_docstring.cljc",       frozenset()),
+        ("negative/inline_human_token_slim.cljc",    frozenset()),
         # --- negatives for the WIDENED builder-bypass rule (rf2-krrv87) ---
-        ("negative/bypass_inline_token_str_concat.cljc", 0),
-        ("negative/bypass_human_message_with_id.cljc",   0),
-        ("negative/bypass_marker_exempt.cljc",           0),
-        ("negative/bypass_no_error_id.cljc",             0),
+        ("negative/bypass_inline_token_str_concat.cljc", frozenset()),
+        ("negative/bypass_human_message_with_id.cljc",   frozenset()),
+        ("negative/bypass_marker_exempt.cljc",           frozenset()),
+        ("negative/bypass_no_error_id.cljc",             frozenset()),
         # --- negative for the let-binding resolution (rf2-u3otj): a conformant
         #     message bound one hop from the `ex-info` must stay GREEN.
-        ("negative/bypass_let_bound_token.cljc",         0),
+        ("negative/bypass_let_bound_token.cljc",         frozenset()),
         # --- negative for the SCOPE PROOF: crossing ordinary control flow (the
         #     `when` guard `re-frame.story/configure!` writes, an if/do/cond
         #     chain, a nested `let` binding another name, an `fn` self-named
         #     something else, a reader conditional) introduces nothing, so the
         #     resolution still holds.
-        ("negative/bypass_let_bound_guarded.cljc",       0),
+        ("negative/bypass_let_bound_guarded.cljc",       frozenset()),
+        # --- negatives that OWN a roster: one crossing per entry (rf2-n6ijg) ---
+        (_BINDER_HEAD_FIXTURE,      frozenset()),
+        (_TRANSPARENT_HEAD_FIXTURE, frozenset()),
     ]
 
     failures = 0
@@ -1255,17 +1345,41 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
             continue
-        got = len(scan(path, include_tests=True))
-        if got == expected:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} expected findings={expected}, "
-                f"got {got}\n"
-            )
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        findings = scan(path, include_tests=True)
+        actual = frozenset(
+            _witness_of(lines, fixture, f.line) for f in findings
+        )
+        if actual != expected:
             failures += 1
+            sys.stderr.write(f"self-test FAIL: {fixture}\n")
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            if missing:
+                sys.stderr.write(
+                    "      SITE DEAD — this fixture plants "
+                    f"{', '.join(missing)} and the gate did not flag it\n"
+                )
+            if extra:
+                sys.stderr.write(
+                    f"      UNEXPECTED site(s): {', '.join(extra)}\n"
+                )
+            continue
+        if len(findings) != len(actual):
+            failures += 1
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} has {len(findings)} findings for "
+                f"{len(actual)} distinct site name(s) — a site that cannot be "
+                "told from its neighbour can die unseen. Give each planted "
+                "`ex-info` its own `:rf.error/id` on the `ex-info` line.\n"
+            )
+        elif verbose:
+            sys.stderr.write(
+                f"self-test PASS: {fixture} "
+                f"({', '.join(sorted(actual)) or 'green'})\n"
+            )
 
+    failures += _run_roster_self_tests(verbose=verbose)
     failures += _run_cli_self_tests(verbose=verbose)
 
     if failures:
@@ -1274,6 +1388,68 @@ def _run_self_tests(verbose: bool = False) -> int:
     if verbose:
         sys.stderr.write(f"all {len(cases)} fixture self-tests passed.\n")
     return 0
+
+
+def _crosses_head(text: str, head: str) -> bool:
+    """Does `text` open a `(<head> …)` form? The trailing class keeps `cond`
+    from answering for `condp` and `->` from answering for `->>`."""
+    return bool(re.search(r"\(" + re.escape(head) + r"[\s\[]", text))
+
+
+def _run_roster_self_tests(verbose: bool = False) -> int:
+    """Hold every roster entry to owning a case. Returns the failure count.
+
+    This is the assertion the fixtures could not make for themselves. Ten of the
+    sixteen `_VECTOR_BINDER_HEADS`, thirteen of the nineteen `_TRANSPARENT_HEADS`
+    and three of the five `_STR_ERR_VAR_NAMES` had no case at all, so each could
+    be deleted from its roster — or arrive misspelled — with the whole self-test
+    still green (rf2-n6ijg).
+    """
+    failures = 0
+    rosters: tuple[tuple[str, tuple[str, ...], tuple[str, ...], str], ...] = (
+        ("_VECTOR_BINDER_HEADS", tuple(sorted(_VECTOR_BINDER_HEADS)),
+         (_BINDER_HEAD_FIXTURE,),
+         "cross it with a clean binding vector; deleting the head must make "
+         "that case fire"),
+        ("_TRANSPARENT_HEADS", tuple(sorted(_TRANSPARENT_HEADS)),
+         (_TRANSPARENT_HEAD_FIXTURE,),
+         "nest a throw inside it; deleting the head must make that case fire"),
+        ("_STR_ERR_VAR_NAMES", _STR_ERR_VAR_NAMES,
+         ("positive/str_error_kw_var.cljc",
+          "positive/str_error_id_var.cljc",
+          "positive/str_remaining_err_var_names.cljc"),
+         "plant `(ex-info (str <name>) …)` in a positive fixture"),
+    )
+    for roster_name, entries, fixtures, remedy in rosters:
+        texts = []
+        for fixture in fixtures:
+            path = _SELF_TEST_FIXTURE_ROOT / fixture
+            if not path.is_file():
+                sys.stderr.write(
+                    f"self-test FAIL: {roster_name}'s fixture {fixture!r} is "
+                    f"missing at {path}\n"
+                )
+                failures += 1
+                continue
+            texts.append(path.read_text(encoding="utf-8", errors="replace"))
+        joined = "\n".join(texts)
+        if roster_name == "_STR_ERR_VAR_NAMES":
+            uncovered = [e for e in entries if f"(str {e})" not in joined]
+        else:
+            uncovered = [e for e in entries if not _crosses_head(joined, e)]
+        if uncovered:
+            failures += 1
+            sys.stderr.write(
+                f"self-test FAIL: {roster_name} entr(y/ies) no fixture "
+                f"exercises: {', '.join(uncovered)}\n"
+                f"      In {', '.join(fixtures)}: {remedy}.\n"
+            )
+        elif verbose:
+            sys.stderr.write(
+                f"self-test PASS: all {len(entries)} {roster_name} "
+                "entries have a case\n"
+            )
+    return failures
 
 
 # --------------------------------------------------------------------------
