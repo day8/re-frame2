@@ -453,7 +453,11 @@ def _run_self_tests(verbose: bool = False) -> int:
     """Scan each fixture file and assert the expected finding count.
 
     Positive fixtures plant a LIVE retired spelling inside a code fence on a
-    non-allowlisted-shaped page (expected >= 1). Negative fixtures exercise the
+    non-allowlisted-shaped page, and the assertion is EXACT — the count must be
+    the one declared, not merely non-zero. (Third instance of the same stale
+    prose, found in the rf2-57vnc sweep: `>= 1` is the fail-open shape
+    rf2-e1xx0 removed, and a docstring still advertising it is an invitation to
+    re-implement it from the comment.) Negative fixtures exercise the
     counterparts that MUST stay green: removed-context prose, an inline code
     span, a masked `;` comment in a fence, and the rewritten `:rf.cofx/requires`
     teaching. Allowlist behaviour is covered by a dedicated case that scans a

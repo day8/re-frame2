@@ -411,7 +411,11 @@ def _run_self_tests(verbose: bool = False) -> int:
     """Scan each fixture file and assert the expected finding count.
 
     Positive fixtures plant a LIVE `:where :cofx` inside a markdown code fence
-    or in live testbed source (expected >= 1). Negative fixtures exercise the
+    or in live testbed source, and the assertion is EXACT — the count must be
+    the one declared, not merely non-zero. (The docstring advertised `>= 1`
+    long after the code stopped doing it; `>= 1` is the fail-open shape
+    rf2-e1xx0 removed, and prose describing it is an invitation to put it
+    back — rf2-57vnc.) Negative fixtures exercise the
     counterparts that MUST stay green: removed-context prose, an inline code
     span, a `;` comment in a fence, a source docstring / `;` comment mention,
     the bare `:cofx` data-key (no `:where` head), and the rewritten
