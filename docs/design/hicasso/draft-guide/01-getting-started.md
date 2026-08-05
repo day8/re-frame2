@@ -44,8 +44,8 @@ interpretation, not a better Reagent.*
 **Vs Reagent**
 
 1. **The tree stays data, including clicks.** `{:on-click [:todo/toggle id]}`
-   instead of `#(rf/dispatch …)`. Tests and tools can `=` the tree; you do not
-   mount-and-click to learn what a button means.
+   instead of `#(rf/dispatch …)`. Tests and tools read the handler as a value; you
+   do not mount-and-click to learn what a button means.
 2. **Reads at the point of use, without a second local-state system.** `sub` is
    an ordinary call — legal in a `when`, a helper, a loop. Semantic UI state goes
    to app-db; no product `r/atom` for "is this open?"
@@ -210,7 +210,7 @@ No boot-path error ids are minted yet; this table names mechanisms.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| `sub` throws outside a view | `sub` is render-scoped; there is no `@`-anywhere | `rf/subscribe-once` in handlers and utilities |
+| `sub` throws outside a view | `sub` is render-scoped; there is no `@`-anywhere | Declare `:rf.cofx/requires` in an event handler; `rf/subscribe-once` with an explicit `{:frame …}` everywhere else |
 | Async callback dispatches and nothing happens | Bare `dispatch` from a timeout has no frame | Intent callbacks carry their [boundary](02-views-and-reads.md#boundaries-and-inlining)'s frame; hand-written async needs the frame explicitly |
 | First paint empty, then flickers | Seed raced first render | Seed through `:initial-events`, not a post-mount dispatch |
 | View renders twice on mount in dev | StrictMode double-invokes bodies | Expected — bodies are pure and re-runnable |
