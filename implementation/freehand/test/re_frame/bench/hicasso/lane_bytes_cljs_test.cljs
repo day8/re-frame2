@@ -30,19 +30,17 @@
   that reached for `(count (seq s))` — codepoints — would be caught too. The
   BMP fixtures cannot catch that one; each is 1 codepoint and 1 code unit.
 
-  ## The wiring half
+  ## Where the WIRING half lives, and why it is not here
 
-  A correct helper nobody calls repairs nothing, so the second half of this
-  file reads the repaired sources and asserts each site now goes through it.
-  Node-only (`fs`), which is where this namespace runs: the `:node-test`
-  build's `cljs-test$` selects it and the `:browser-test` build's
-  `-dom-cljs-test$` does not. Paths are relative to `implementation/`, where
-  `npm run test:cljs` runs — the arrangement
-  [[re-frame.freehand.bench.b5-matched-builds-cljs-test]] already uses — and
-  every one is asserted to EXIST, so a moved file fails loudly instead of
-  passing over an empty string."
-  (:require ["fs" :as fs]
-            [cljs.test :refer-macros [deftest is testing]]
+  In `bench_bytes.test.cjs`, a Node harness, because it reads the repaired
+  sources off disk and **a lane namespace may not require `fs`**. Every
+  namespace in this directory is also compiled by `npm run
+  test:hicasso-compile`, which rides `:hicasso-bench` — a BROWSER build — so a
+  Node module here refuses the whole lane (`ssr/node.cljs` states the rule;
+  `ssr/spike_cljs_test/sha256-hex` is why that entry reaches for
+  `crypto.subtle` rather than `node:crypto`). This file therefore holds only
+  what a browser can run: the behaviour of the helper itself."
+  (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.bench.hicasso.lane :as lane]))
 
@@ -65,7 +63,7 @@
   two this bead is about and is here so a repair cannot land on it by
   mistake."
   [s]
-  (count (seq (.from js/Array s))))
+  (alength (.from js/Array s)))
 
 ;; ---------------------------------------------------------------------------
 ;; The helper
@@ -104,12 +102,11 @@
            A thousand em dashes is two thousand bytes of understatement, and
            an instrument understating by a growing margin reads plausible for
            ever."
-    (let [one   (lane/utf8-bytes "\u2014")
-          many  (lane/utf8-bytes (str/join (repeat 1000 "\u2014")))]
-      (is (= 3 one))
-      (is (= 3000 many))
-      (is (= 1000 (count (str/join (repeat 1000 "\u2014")))))
-      (is (= 2000 (- many (count (str/join (repeat 1000 "\u2014")))))
+    (let [dashes (str/join (repeat 1000 "\u2014"))]
+      (is (= 3 (lane/utf8-bytes "\u2014")))
+      (is (= 1000 (count dashes)))
+      (is (= 3000 (lane/utf8-bytes dashes)))
+      (is (= 2000 (- (lane/utf8-bytes dashes) (count dashes)))
           "the understatement is 2 bytes per em dash and there are a thousand"))))
 
 (deftest utf8-bytes-is-total-over-the-degenerate-inputs
@@ -119,94 +116,20 @@
            substitutes U+FFFD, three bytes, which is what a UTF-8 encoder
            writing that string to a socket would also do."
     (is (= 0 (lane/utf8-bytes "")))
-    (is (= 3 (lane/utf8-bytes "\ud834")) "an unpaired high surrogate encodes as U+FFFD")))
+    (is (= 3 (lane/utf8-bytes "\uD834")) "an unpaired high surrogate encodes as U+FFFD")))
 
-;; ---------------------------------------------------------------------------
-;; The wiring — `utf8-bytes` is load-bearing, not decorative
-;; ---------------------------------------------------------------------------
-
-(def ^:private hicasso
-  "The lane's source directory, relative to `implementation/`."
-  "freehand/test/re_frame/bench/hicasso")
-
-(defn- src [rel]
-  (let [p (str hicasso "/" rel)]
-    (is (.existsSync fs p)
-        (str "the repaired source must be at " p
-             " — this lane runs from implementation/ (cwd " (.cwd js/process) ")"))
-    (.readFileSync fs p "utf8")))
-
-(def ^:private converted
-  "The sites whose figure is a SIZE, and which therefore had to be converted
-  rather than relabelled — file, and the expression that must now be there."
-  {"clock_app.cljs"                              ":bytes (lane/utf8-bytes s)"
-   "hd8_clock_app.cljs"                          ":bytes   (lane/utf8-bytes s)"
-   "shapes/census_clock_app.cljs"                ":bytes   (lane/utf8-bytes s)"
-   "walk_profile_app.cljs"                       ":bytes (lane/utf8-bytes canon-real)"
-   "walk_vs_reagent_app.cljs"                    ":bytes    (lane/utf8-bytes canon)"
-   "ssr/spike_cljs_test.cljs"                    ":bytes        (lane/utf8-bytes (:document a))"
-   "ssr/spike_dom_cljs_test.cljs"                ":canonical-bytes  (lane/utf8-bytes hydrated-dom)"
-   "ssr/instance_key_payload_dom_cljs_test.cljs" ":green-edn-bytes (lane/utf8-bytes (:payload-edn green))"})
-
-(deftest every-published-byte-figure-goes-through-utf8-bytes
-  (testing "Each site that publishes a figure under a bytes label now counts
-           bytes. Asserted on the source text rather than on behaviour
-           because most of these sites need a browser to reach, and a
-           behavioural pin that only runs in Chromium is a pin that a Node
-           gate cannot hold."
-    (doseq [[file expr] converted]
-      (is (str/includes? (src file) expr)
-          (str file " must read `" expr "`")))))
-
-(deftest no-published-byte-figure-still-reads-count
-  (testing "**the other direction.** The expressions above could be added
-           beside the old ones rather than in place of them, so this asserts
-           the absence: no line in these files pairs a `bytes` key with a
-           bare `count`. Line-scoped on purpose — `count` is everywhere in
-           this lane and legitimately so; what is banned is `count` sitting
-           under a byte label."
-    (doseq [file (keys converted)]
-      (doseq [line (str/split-lines (src file))]
-        (when (and (re-find #"(?i)bytes" line) (re-find #"\(count\b" line))
-          (is false (str file ": a bytes label over `count` — " (str/trim line))))))))
-
-(deftest the-two-relabelled-diagnostics-no-longer-claim-bytes
-  (testing "Two sites were RELABELLED rather than converted, because code
-           units are genuinely what they wanted: `parity_probe_app` prints
-           its lengths beside a `.charAt` offset, and `inpage_ladder_app`
-           reports ours-against-reference on one refusal. A true value under
-           a true name is a repair; what must not survive is the word
-           `bytes` over either of them."
-    (let [probe  (src "parity_probe_app.cljs")
-          ladder (src "inpage_ladder_app.cljs")]
-      (is (str/includes? probe "uix-code-units"))
-      (is (str/includes? probe "hicasso-code-units"))
-      (is (not (str/includes? probe "uix-bytes")))
-      (is (not (str/includes? probe "hicasso-bytes")))
-      (is (str/includes? ladder ":code-units-ours"))
-      (is (str/includes? ladder ":code-units-reference"))
-      (is (not (str/includes? ladder ":bytes-ours")))
-      (is (not (str/includes? ladder ":bytes-reference"))))))
-
-(deftest the-driver-side-bundle-size-asks-the-file-system
-  (testing "`keywarn_elision_run.cjs` is Node, not the page, and the string
-           it was measuring had just been read from a file — so the honest
-           answer is the file's own size and not a re-derivation from the
-           decoded string."
-    (let [run (src "keywarn_elision_run.cjs")]
-      (is (str/includes? run "${fs.statSync(bundle).size} bytes"))
-      (is (not (str/includes? run "${blob.length} bytes"))))))
-
-(deftest the-helper-is-utf8-by-construction
-  (testing "`TextEncoder` and not a call carrying an encoding argument. The
-           SSR driver's `utf8Bytes` has to name `'utf8'` explicitly and its
-           witness pins that spelling, because `Buffer.byteLength` takes an
-           encoding a later edit could drop. `TextEncoder` cannot be given
-           one: it is UTF-8 or it is nothing, so there is no argument here to
-           pin and no way to silently switch the ruler."
-    (let [ln (src "lane.cljs")]
-      (is (str/includes? ln "(js/TextEncoder.)"))
-      ;; The CALL and not the word: `utf8-bytes`' own docstring names
-      ;; `Buffer.byteLength` to say why it is NOT used, so a bare substring
-      ;; search would red on the explanation.
-      (is (not (str/includes? ln "(.byteLength"))))))
+(deftest utf8-bytes-agrees-with-the-encoder-the-lane-already-trusts
+  (testing "**a second derivation, not a second call to the same function.**
+           `ssr/spike_cljs_test/sha256-hex` has been feeding
+           `(.encode (js/TextEncoder.) s)` to `crypto.subtle` since that
+           witness was written, so the lane already stakes a published SHA-256
+           on this encoder's output. Deriving the length from a
+           `Uint8Array` built the same way — and comparing it against
+           `utf8-bytes` on every fixture — ties the new helper to the one the
+           lane was already trusting, rather than to itself."
+    (doseq [{:keys [what s bytes]} cases]
+      (let [^js buf (.encode (js/TextEncoder.) s)]
+        (is (= bytes (.-byteLength buf))
+            (str what ": the encoder the digest rows use agrees"))
+        (is (= (lane/utf8-bytes s) (.-byteLength buf))
+            (str what ": and utf8-bytes agrees with it"))))))
