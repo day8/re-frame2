@@ -326,9 +326,13 @@ HD-011's conversions convert *children*, not prop values, so `{:fallback [:div "
 at a `[:> react/Suspense …]` becomes a JS array and React throws. This is existing
 `defhost` behaviour, but the escape is where authors will meet it, because
 `Suspense`-with-a-`:fallback` is one of the shapes the escape newly makes reachable.
-The remedy is `h/as-element` at the call site, whose product is a JS object that
-`host-prop-value` crosses raw. **This owes a guide troubleshooting row**; it does not
-owe a mechanism.
+The remedy would be a hiccup→element conversion at the call site, whose product is a
+JS object that `host-prop-value` crosses raw — and **there is no such conversion an
+author can call.** `codec/as-element` is the mechanism and it is internal; nothing on
+the taught `h/` roster reaches it, and there is no `h/as-element` (an earlier revision
+of this section named one; see `rf2-2rtt6.120`). So this owes **a ruling** — export a
+spelling, or say in the guide that the position has no recovery — before it can owe a
+troubleshooting row. What it does not owe is a mechanism: the conversion exists.
 
 ### What it costs
 
