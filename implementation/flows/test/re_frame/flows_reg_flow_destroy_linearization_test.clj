@@ -21,7 +21,7 @@
       token INSIDE the serialized mutation, under the frame's `:drain-lock`.
 
     - `destroy-frame!` flips liveness (`mark-frame-destroyed!`) under the SAME
-      `:drain-lock` (`frame/call-with-drain-lock-on-record!`, keyed on the
+      `:drain-lock` (`frame/call-serialized-with-drain!`, keyed on the
       captured record so it still serializes after the record is dissoc'd).
 
   Registration and destruction therefore linearize on one reentrant gate:
