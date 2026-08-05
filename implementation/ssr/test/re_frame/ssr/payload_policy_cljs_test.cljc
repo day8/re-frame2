@@ -30,10 +30,14 @@
 
   ## Posture split (rf2-lwtlk)
 
-  This namespace guards `project-routing-egress` — what leaves the server
-  inside a hydration payload — so its exclusion from
-  `scripts/test-ssr-prod-gate.sh` was checked rather than assumed. The one
-  assertion that was red under `-Dre-frame.debug=false` is the
+  This namespace RUNS in `scripts/test-ssr-prod-gate.sh` and is green
+  there: rf2-lwtlk's known-red roster reached zero, the `-n` selector went
+  with it, and the lane is now the whole suite with no exclusions. The
+  split below is what let this namespace join, and because it guards
+  `project-routing-egress` — what leaves the server inside a hydration
+  payload — which assertion moved behind the posture guard was checked
+  rather than assumed. The one assertion that was red under
+  `-Dre-frame.debug=false` is the
   `:rf.ssr/invalid-version` WARNING trace in
   `resolve-version-coerces-and-rejects-to-integer`: the dev half. The
   REJECTION it accompanies — a semver string never reaches `:rf/version`,

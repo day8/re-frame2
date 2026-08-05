@@ -46,8 +46,8 @@ browser-level feature path, not that the path guards the PR that breaks
 it. Per `TESTING.md`, tag a scenario `smoke: true` only if it earns a
 slot on every PR **and** loads an already-staged smoke surface;
 everything else is nightly by default, and the author is expected to run
-the full gate locally (`scripts/test-rigorous-local.sh`) before merging
-a scenario the PR tier will not execute.
+the full gate locally (`cd implementation && npm run test:xray-feature-gate`)
+before merging a scenario the PR tier will not execute.
 
 ## Required shared testbed
 
