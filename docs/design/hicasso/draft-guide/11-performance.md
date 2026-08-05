@@ -93,8 +93,8 @@ you commit ([Ephemeral state](07-ephemeral-state.md)).
 
 One event that touches state **many** row boundaries care about — a big table or
 feed — is the shape where cost **can** bite. Outside measurements have shown
-about **1.4–1.6×** on broad bulk for candidate arms; that axis is **not fully
-priced on our own instrument yet**. Big-list bulk is a known risk, not a solved
+about **1.4–1.6×** on broad bulk in outside measurements; we have not finished
+pricing that shape on our side yet. Big-list bulk is a known risk, not a solved
 win.
 
 Work it in this order:
@@ -223,5 +223,5 @@ Multi-frame isolation: [Getting started](01-getting-started.md).
 | Compile / dual-mode path | **Not planned** — one interpreted Hiccup product |
 | `[:>]` availability | Ruled; may lag `defhost` — [Interop](05-interop.md) |
 | `h/frame` shipping | Shape fixed; spelling **[unfrozen]**; may still be landing |
-| Big-list bulk on our own instrument | Outside numbers show risk; full own pricing still open |
+| Big-list bulk magnitudes on our side | Outside numbers show risk; full own pricing still open |
 | Perf-island scaffold / macro | **None** — plain React + `defview` |
