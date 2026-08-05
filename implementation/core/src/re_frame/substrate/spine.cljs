@@ -1259,7 +1259,7 @@
 ;;
 ;; `:adapter/after-render` for React-only substrates (UIx) per
 ;; rf2-334d9 (Mike decision rf2-neiqf 2026-05-19: publish via
-;; useLayoutEffect) — without this `(rf/after-render f)` under those
+;; useLayoutEffect) — without this `(interop/after-render f)` under those
 ;; adapters would be a silent no-op.
 ;;
 ;; Architecture. Per-adapter queue cell + a sentinel function component
@@ -1277,7 +1277,7 @@
 ;; root`, Helix's `(.render root …)`), which bypasses `make-render` —
 ;; so a natively-mounted UIx app NEVER has a sentinel in its tree.
 ;; Reagent's `r/after-render` is a global post-flush hook that works
-;; regardless of mount path; without parity, the SAME `(rf/after-render
+;; regardless of mount path; without parity, the SAME `(interop/after-render
 ;; f)` call has correct post-commit timing on Reagent but degraded
 ;; microtask timing on natively-mounted UIx — a silent substrate
 ;; divergence in a public primitive.
@@ -1389,7 +1389,7 @@
             (compare-and-set! set-tick-ref set-tick nil)))
         #js [set-tick])
       ;; No deps array — fires every commit, which is the contract
-      ;; (rf/after-render bumps the tick to force a commit, so the
+      ;; (interop/after-render bumps the tick to force a commit, so the
       ;; useLayoutEffect fires and drains).
       (React/useLayoutEffect
         (fn layout-effect []
@@ -3170,7 +3170,7 @@
 ;;     lifecycle question (when does the next commit complete?), not a
 ;;     reactive-atom one — so the "no reactive primitive" rationale that
 ;;     excludes the four hooks above does NOT apply. Without this hook
-;;     `(rf/after-render f)` under these adapters would be a silent
+;;     `(interop/after-render f)` under these adapters would be a silent
 ;;     no-op.
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord injection
 ;;     via React.cloneElement (the views.cljs inline hiccup-walk would
