@@ -29,7 +29,8 @@
   ## What is parameterised vs fixed
 
   - The base64 codec, the tagged-literal-rejecting EDN reader, the
-    1 KB size cap, and the `::malformed` sentinel are FIXED here.
+    1,024-CHARACTER size cap, and the `::malformed` sentinel are FIXED
+    here.
   - The cursor SHAPE is the consumer's — `decode-cursor` takes a
     `valid?` predicate so each server validates its own payload map
     while sharing the codec + recovery flow.
@@ -55,11 +56,33 @@
   #?(:cljs (:require [cljs.reader]))
   #?(:clj (:import (java.util Base64))))
 
-(def ^:const max-cursor-bytes
-  "Hard ceiling on a cursor token's character length. Cursors are short
-  opaque tokens (a base64'd EDN map of a handful of scalar slots);
-  anything longer is rejected before parsing as a cheap DoS / malformed
-  guard. 1 KB is far past any legitimate cursor."
+(def ^:const max-cursor-chars
+  "Hard ceiling on a cursor token's CHARACTER length — UTF-16 code units,
+  which is what `count` answers on both hosts. Cursors are short opaque
+  tokens (a base64'd EDN map of a handful of scalar slots); anything
+  longer is rejected before parsing as a cheap DoS / malformed guard.
+  1,024 characters is far past any legitimate cursor.
+
+  CHARACTERS, deliberately, and the name says so since rf2-2rtt6.132 — it
+  read `max-cursor-bytes` while the guard was, and remains, `(> (count s)
+  …)`. Renaming it rather than converting it to UTF-8 bytes is the
+  correct repair for three reasons that were already true and one that
+  settles it:
+
+    - the guard runs BEFORE any decode, to bound PARSE cost, and parse
+      cost scales with the characters the reader walks, not with the
+      bytes the token occupied on some wire this process never saw;
+    - a well-formed cursor is `b64-encode`d, hence pure ASCII, where code
+      units and UTF-8 bytes agree exactly;
+    - so the two rulers can only diverge on a NON-ASCII token — and every
+      non-ASCII token is `::malformed` anyway, rejected by
+      `decode-canonical-b64` for a reason wholly independent of this cap.
+
+  That last point is decisive: the cap's UNIT is not observable through
+  `decode-cursor`, because the only inputs that could tell the two units
+  apart are refused either way. Converting would move no behaviour and
+  buy no honesty; the NAME was the only thing that could be wrong, and it
+  was."
   1024)
 
 ;; ---------------------------------------------------------------------------
@@ -298,7 +321,7 @@
                       `b64-encode` would emit), carried a tagged literal,
                       decoded to MORE THAN ONE EDN form (a trailing
                       object after the payload map),
-                      exceeded `max-cursor-bytes`, or its payload map
+                      exceeded `max-cursor-chars`, or its payload map
                       failed the consumer's `valid?` predicate. Callers
                       treat `::malformed` exactly like a STALE cursor —
                       drop it and restart.
@@ -322,7 +345,9 @@
     (not (string? s))
     ::malformed
 
-    (> (count s) max-cursor-bytes)
+    ;; CHARACTERS (UTF-16 code units — what `count` answers on both
+    ;; hosts), not UTF-8 bytes. See `max-cursor-chars`.
+    (> (count s) max-cursor-chars)
     ::malformed
 
     :else

@@ -73,7 +73,7 @@
      [:map
       {:closed true}
       [:type [:= :map]]
-      [:bytes :int]                                           ;; pr-str char count
+      [:bytes :int]                                           ;; pr-str UTF-8 byte estimate (rf2-2rtt6.132)
       [:keys [:sequential :any]]                              ;; required for maps
       [:keys-truncated? {:optional true} :boolean]            ;; only when clamped
       [:count  {:optional true} :int]                         ;; cardinality (scalar form)

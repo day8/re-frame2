@@ -120,8 +120,54 @@
         (is (= ::cursor/malformed (cursor/decode-cursor alias pair?)))))))
 
 (deftest decode-cursor-oversize-is-malformed-before-parse
-  (let [oversize (apply str (repeat (inc cursor/max-cursor-bytes) "a"))]
+  (let [oversize (apply str (repeat (inc cursor/max-cursor-chars) "a"))]
     (is (= ::cursor/malformed (cursor/decode-cursor oversize offset-cursor?)))))
+
+(deftest decode-cursor-cap-is-characters-and-the-unit-is-unobservable
+  ;; rf2-2rtt6.132 - the cap was named `max-cursor-bytes` while the guard
+  ;; was `(> (count s) ...)`, i.e. UTF-16 CODE UNITS on both hosts. It was
+  ;; RELABELLED rather than converted, and this pins the reasoning so a
+  ;; later author does not "fix" it into UTF-8 bytes.
+  ;;
+  ;; The two rulers agree exactly on ASCII, so they can only diverge on a
+  ;; NON-ASCII token - and a non-ASCII token is `::malformed` regardless,
+  ;; because `decode-canonical-b64` refuses anything outside the base64
+  ;; alphabet. The cap's unit is therefore NOT observable through
+  ;; `decode-cursor`: both units answer `::malformed` on every input that
+  ;; could tell them apart. Converting would move no behaviour at all.
+  ;;
+  ;; Fixtures are \uXXXX escapes so the source stays pure ASCII, and are
+  ;; asserted DISCRIMINATING before they are used: U+2014 EM DASH is 1
+  ;; code unit / 1 code point / 3 UTF-8 bytes, and the ASTRAL U+1D11E is
+  ;; 2 code units / 1 code point / 4 UTF-8 bytes.
+  (let [utf8-len #(alength (.getBytes ^String % "UTF-8"))
+        dashes   (apply str (repeat 400 "\u2014"))
+        astral   (apply str (repeat 400 "\uD834\uDD1E"))]
+    (testing "the fixtures make code units, code points and bytes three different numbers"
+      (is (= 400 (count dashes)))
+      (is (= 400 (.codePointCount ^String dashes 0 (count dashes))))
+      (is (= 1200 (utf8-len dashes)))
+      (is (= 800 (count astral)) "the astral fixture is 2 code units per code point")
+      (is (= 400 (.codePointCount ^String astral 0 (count astral))))
+      (is (= 1600 (utf8-len astral))))
+    (testing "under the CHARACTER cap but over a hypothetical BYTE cap - still ::malformed"
+      ;; Both sit under 1,024 code units and over 1,024 UTF-8 bytes, so a
+      ;; byte cap would refuse them AT THE GUARD while the character cap
+      ;; lets them through to the decoder. Same verdict either way, which
+      ;; is exactly why the relabel is a complete fix.
+      (is (<= (count dashes) cursor/max-cursor-chars))
+      (is (> (utf8-len dashes) cursor/max-cursor-chars))
+      (is (= ::cursor/malformed (cursor/decode-cursor dashes offset-cursor?))
+          "non-base64 => ::malformed for a reason independent of the cap")
+      (is (<= (count astral) cursor/max-cursor-chars))
+      (is (> (utf8-len astral) cursor/max-cursor-chars))
+      (is (= ::cursor/malformed (cursor/decode-cursor astral offset-cursor?))))
+    (testing "every legitimate cursor is base64, where the two rulers agree exactly"
+      (let [token (cursor/encode-cursor {:v 1 :offset 25 :total 137
+                                         :sig "abc\u2014123\uD834\uDD1E"})]
+        (is (= (count token) (utf8-len token))
+            "a cursor whose PAYLOAD carries an em-dash and an astral glyph still encodes to a pure-ASCII token")
+        (is (<= (count token) cursor/max-cursor-chars))))))
 
 (deftest decode-cursor-failing-payload-predicate-is-malformed
   ;; Valid base64+EDN map, but the consumer's shape predicate rejects it.
@@ -156,15 +202,15 @@
 
 (deftest decode-cursor-at-inclusive-size-boundary-is-not-rejected
   ;; The size guard is a STRICT `>`
-  ;; (`(> (count s) max-cursor-bytes)` ⇒ ::malformed). This pins the
+  ;; (`(> (count s) max-cursor-chars)` ⇒ ::malformed). This pins the
   ;; INCLUSIVE side (a real cursor whose token length is
-  ;; `<= max-cursor-bytes`), complementing the oversize test that feeds
-  ;; `(inc max-cursor-bytes)` chars. A regression that flipped the guard
+  ;; `<= max-cursor-chars`), complementing the oversize test that feeds
+  ;; `(inc max-cursor-chars)` chars. A regression that flipped the guard
   ;; to `>=` would reject a legitimate at-or-near-cap cursor; this test
   ;; trips on that flip.
   ;;
   ;; Build the largest real, decodable cursor whose token length is
-  ;; still `<= max-cursor-bytes` (grow the payload's `:sig` to the cap).
+  ;; still `<= max-cursor-chars` (grow the payload's `:sig` to the cap).
   ;; Under strict `>` it round-trips; under `>=` (if the token landed
   ;; exactly on the cap) it would size-reject. The round-trip is the
   ;; load-bearing assertion.
@@ -173,21 +219,21 @@
         token-len (fn [n] (count (cursor/encode-cursor (grow n))))
         ;; largest sig length whose token is still within the cap.
         max-n     (loop [n 0]
-                    (if (> (token-len (inc n)) cursor/max-cursor-bytes)
+                    (if (> (token-len (inc n)) cursor/max-cursor-chars)
                       n
                       (recur (inc n))))
         payload   (grow max-n)
         token     (cursor/encode-cursor payload)]
-    (is (<= (count token) cursor/max-cursor-bytes)
+    (is (<= (count token) cursor/max-cursor-chars)
         "constructed cursor sits AT or just under the inclusive boundary")
-    (is (> (token-len (inc max-n)) cursor/max-cursor-bytes)
+    (is (> (token-len (inc max-n)) cursor/max-cursor-chars)
         "one more sig char would push the token over the cap — boundary is tight")
     (is (= payload (cursor/decode-cursor token offset-cursor?))
         "a cursor at the inclusive size boundary is NOT size-rejected (strict >)"))
   ;; Unconditional companion: a realistic small cursor is well under cap.
   (let [payload {:v 1 :offset 25 :total 137 :sig "abc123"}
         token   (cursor/encode-cursor payload)]
-    (is (< (count token) cursor/max-cursor-bytes)
+    (is (< (count token) cursor/max-cursor-chars)
         "a realistic cursor is well under the byte cap")
     (is (= payload (cursor/decode-cursor token offset-cursor?)))))
 

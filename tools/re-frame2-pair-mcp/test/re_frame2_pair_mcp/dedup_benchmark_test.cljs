@@ -53,7 +53,7 @@
     variance dominates): **1.4-1.5× compression** (28-31%
     reduction). Only the shared `:rf.trace/trigger-handler`
     subtree and `:dispatch-id` backbone collapse; per-event
-    uniqueness dominates the wire bytes.
+    uniqueness dominates the serialised payload.
   - **High-share replays** (the lazy-summary projection strips
     `:id` / `:time` envelope fields, leaving structurally-
     identical event subtrees across replays of a recurring
@@ -191,26 +191,42 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- measure
-  "Apply `base-dedup/dedup-value` to `payload`, count `pr-str` bytes before
-  and after, and return a measurement map for logging + assertion.
+  "Apply `base-dedup/dedup-value` to `payload`, count `pr-str` CHARACTERS
+  before and after, and return a measurement map for logging + assertion.
 
-  Returns `{:label .. :events .. :raw-bytes .. :deduped-bytes ..
+  Returns `{:label .. :events .. :raw-chars .. :deduped-chars ..
   :reduction-pct .. :ratio ..}` where `:ratio` is `raw/deduped`
-  (the 'Nx compression' the spec quotes)."
+  (the 'Nx compression' the spec quotes).
+
+  ## Characters, and why that is the honest name (rf2-2rtt6.132)
+
+  `(count (pr-str …))` answers UTF-16 CODE UNITS, on both hosts. These
+  two slots were called `:raw-bytes` / `:deduped-bytes` and printed with
+  a literal `B` suffix, which was untrue of the expression that produced
+  them — the same fail-open shape rf2-2rtt6.121 and rf2-2rtt6.131 swept.
+
+  They are RELABELLED rather than converted. Nothing here needs bytes:
+  the figures the spec quotes are `:ratio` and `:reduction-pct`, both
+  same-vs-same quotients in which the unit cancels exactly, so no
+  measured number in this file's ns docstring moves. The corpus is
+  machine-generated keywords, integers and ASCII strings, so a UTF-8
+  count would print the identical absolutes today — and would start
+  lying again the moment someone widened the corpus. A true value under
+  a true name is the fix that stays true."
   [label events payload]
-  (let [raw-bytes     (count (pr-str payload))
+  (let [raw-chars     (count (pr-str payload))
         wrapped       (base-dedup/dedup-value payload true)
-        deduped-bytes (count (pr-str wrapped))
-        ratio         (if (pos? deduped-bytes)
-                        (/ raw-bytes deduped-bytes 1.0)
+        deduped-chars (count (pr-str wrapped))
+        ratio         (if (pos? deduped-chars)
+                        (/ raw-chars deduped-chars 1.0)
                         0.0)
-        reduction-pct (if (pos? raw-bytes)
-                        (- 100.0 (* 100.0 (/ deduped-bytes raw-bytes 1.0)))
+        reduction-pct (if (pos? raw-chars)
+                        (- 100.0 (* 100.0 (/ deduped-chars raw-chars 1.0)))
                         0.0)]
     {:label         label
      :events        events
-     :raw-bytes     raw-bytes
-     :deduped-bytes deduped-bytes
+     :raw-chars     raw-chars
+     :deduped-chars deduped-chars
      :ratio         ratio
      :reduction-pct reduction-pct
      :wrapped       wrapped}))
@@ -219,8 +235,8 @@
   (str "[rf2-li2cw]"
        " " (:label m)
        "  events=" (:events m)
-       "  raw=" (:raw-bytes m) "B"
-       "  deduped=" (:deduped-bytes m) "B"
+       "  raw=" (:raw-chars m) " chars"
+       "  deduped=" (:deduped-chars m) " chars"
        "  ratio=" (.toFixed (:ratio m) 2) "×"
        "  reduction=" (.toFixed (:reduction-pct m) 1) "%"))
 
@@ -246,7 +262,7 @@
   width = lower shared-subtree density; wide cascade width = higher
   density). These represent the **raw trace-burst regime** — events
   with per-event unique `:id`, `:time`, and per-tag variance dominate
-  the wire bytes. The deduper's win is the shared
+  the serialised payload. The deduper's win is the shared
   `:rf.trace/trigger-handler` subtree and `:dispatch-id` backbone
   across same-cascade events."
   [{:label "100ev / cascade=8 / variety=8"   :events 100   :cascade-width 8  :variety 8}

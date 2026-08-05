@@ -11,7 +11,7 @@ Per `spec/Principles.md` §Pagination and `spec/Tool-Pair.md` §Cursor paginatio
 
 `cursor` owns:
 
-- `max-cursor-bytes` const (**1024**) — hard ceiling on a cursor token's character length.
+- `max-cursor-chars` const (**1024**) — hard ceiling on a cursor token's character length.
 - `b64-encode` / `b64-decode` — the base64 codec, resolving to `java.util.Base64` (JVM) / `js/Buffer` (CLJS) via reader-conditional.
 - `parse-limit-arg` — the `:limit` clamp (`default` and `max` per-consumer).
 - `encode-cursor` / `decode-cursor` — opaque codec around the consumer's payload map.
@@ -26,9 +26,11 @@ Per `spec/Principles.md` §Pagination and `spec/Tool-Pair.md` §Cursor paginatio
 
 ## Surface
 
-### `max-cursor-bytes` — const, 1024
+### `max-cursor-chars` — const, 1024
 
-Hard ceiling on the cursor token's character length. Cursors are short opaque tokens (a base64'd EDN map of a handful of scalar slots); anything longer is rejected before parsing as a cheap DoS / malformed guard. 1 KB is far past any legitimate cursor.
+Hard ceiling on the cursor token's character length — UTF-16 code units, which is what `count` answers on both hosts. Cursors are short opaque tokens (a base64'd EDN map of a handful of scalar slots); anything longer is rejected before parsing as a cheap DoS / malformed guard. 1,024 characters is far past any legitimate cursor.
+
+**Characters, deliberately** (rf2-2rtt6.132). This const was named `max-cursor-bytes` until that bead, while its guard was — and remains — `(> (count s) …)`. It was relabelled rather than converted to UTF-8 bytes: the guard runs *before* any decode, to bound **parse** cost, which scales with the characters the reader walks rather than with the bytes the token occupied on a wire this process never saw; and a well-formed cursor is `b64-encode`d, hence pure ASCII, where the two rulers agree exactly. So the units can only diverge on a non-ASCII token, and every non-ASCII token is `::malformed` regardless — refused by `decode-canonical-b64` for a reason wholly independent of this cap. The cap's *unit* is therefore not observable through `decode-cursor`; the name was the only thing that could be wrong. Pinned by `cursor_test/decode-cursor-cap-is-characters-and-the-unit-is-unobservable`.
 
 ### `b64-encode s` — string → base64 string
 
@@ -55,7 +57,7 @@ Decode an opaque base64 cursor back to its EDN payload map.
 Returns:
 
 - `nil` — the cursor arg is absent (nil / undefined) or blank. The caller treats this as "start from the beginning" (offset 0 / head).
-- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, was a **noncanonical Base64 alias** (see [§Canonical Base64 enforcement](#canonical-base64-enforcement)), carried a tagged literal, decoded to more than one EDN form, exceeded `max-cursor-bytes`, or failed the consumer's `valid?` predicate. Callers treat `::malformed` like a stale cursor — drop it and restart.
+- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, was a **noncanonical Base64 alias** (see [§Canonical Base64 enforcement](#canonical-base64-enforcement)), carried a tagged literal, decoded to more than one EDN form, exceeded `max-cursor-chars`, or failed the consumer's `valid?` predicate. Callers treat `::malformed` like a stale cursor — drop it and restart.
 
 `valid?` is the consumer's payload-shape predicate. Story validates `:v`, natural `:offset`/`:total`, and a string `:sig`. Pair requires a present, non-nil `:after-id` of any EDN-printable type because epoch ids are opaque.
 
@@ -88,7 +90,7 @@ The raw host decoders do not enforce this, and they diverge:
 - `js/Buffer.from … "base64"` (CLJS) **silently drops** characters outside the standard alphabet — `ez!!p2…` decodes as if the `!!` were absent — whereas `java.util.Base64/getDecoder` (JVM) **throws** on them. So the alphabet-alias case alone was host-dependent: the same corrupted token was `::malformed` on story-mcp (JVM) but accepted on pair-mcp (CLJS).
 - **Both** hosts ignore non-zero **trailing pad bits**, so alternate pad-bit spellings (`Zg==`, `Zh==`, `Zi==` all decode to `"f"`) alias one logical token on both runtimes.
 
-`decode-canonical-b64` normalises this with **one shared rule**: decode with the raw `b64-decode`, then require the token to equal `b64-encode` of the decoded bytes — a round-trip against the local encoder, which is the sole source of every legitimate cursor spelling. Any inserted/appended non-alphabet character, extra/invalid padding, or alternate pad-bit spelling re-encodes to a **different** token and is rejected as `::malformed` **before** EDN parsing, **identically on CLJ and CLJS**. The round-trip is strictly stronger than a lexical alphabet/padding regex, which would still admit the alternate pad-bit spellings. The pre-decode `max-cursor-bytes` cap still runs first, and the `nil`/blank, tagged-literal, one-form, `map?`, and consumer `valid?` behaviours are unchanged. Pinned in `cursor_test/decode-cursor-rejects-noncanonical-base64-aliases` and its CLJS mirror `cursor-rejects-noncanonical-base64-aliases-cljs`.
+`decode-canonical-b64` normalises this with **one shared rule**: decode with the raw `b64-decode`, then require the token to equal `b64-encode` of the decoded bytes — a round-trip against the local encoder, which is the sole source of every legitimate cursor spelling. Any inserted/appended non-alphabet character, extra/invalid padding, or alternate pad-bit spelling re-encodes to a **different** token and is rejected as `::malformed` **before** EDN parsing, **identically on CLJ and CLJS**. The round-trip is strictly stronger than a lexical alphabet/padding regex, which would still admit the alternate pad-bit spellings. The pre-decode `max-cursor-chars` cap still runs first, and the `nil`/blank, tagged-literal, one-form, `map?`, and consumer `valid?` behaviours are unchanged. Pinned in `cursor_test/decode-cursor-rejects-noncanonical-base64-aliases` and its CLJS mirror `cursor-rejects-noncanonical-base64-aliases-cljs`.
 
 ## Tagged-literal rejection
 
