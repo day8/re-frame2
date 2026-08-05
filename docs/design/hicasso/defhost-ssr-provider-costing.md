@@ -173,6 +173,23 @@ context — so it is frame-correct, and it is the mechanism the workaround above
 rides on. Nobody has ruled whether that is a feature or a hole. Filed
 separately as `rf2-nv07k`; it is not part of this proposal.
 
+> **Addendum, 2026-08-05 (`rf2-nv07k`, PR #7525).** Two measurements taken since
+> make the workaround **worse than priced above**, and both bear on which
+> candidate wins here. First, the workaround's placeholder **is not a value**:
+> one declaration, walked once into one element, renders `ALPHA` in one frame,
+> `BRAVO` in another and `ALPHA-TWO` after a write — so `mint-host-gate!`'s own
+> justification for walking once (*"a placeholder that differs per site is not a
+> placeholder"*) is falsified by what it permits. Second, it **does not survive
+> this arm's other boundary variant**: a frame-fed head (`mark-frame-prop!`,
+> `rf2-2rtt6.39`) reads `intent/*frame*` at element-creation time, which in a
+> fallback is mint time, where the var is `nil` — so it bakes `nil` in and throws
+> `:rf.error/no-frame-prop` one render into the server response. Whether the
+> workaround works at all is therefore a property of which mint the head came
+> from. Every row is pinned in
+> `arm1/fallback_contents_cljs_test`. **Candidate D's cost rises accordingly** —
+> what D would document is this workaround, and it is variant-fragile rather than
+> merely ugly.
+
 ### 3. The guide citation is stale
 
 The provider example is at **`draft-guide/05-interop.md:153`**, under
