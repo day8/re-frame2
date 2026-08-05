@@ -188,7 +188,7 @@ This is not the escape's fault and the escape cannot fix it. `defhost` has the
 same hole: `mint-host-gate!` returns a single pre-walked `placeholder` element
 when unadopted and never consults `props.children`, so `:ssr {:fallback …}`
 *replaces* the subtree rather than passing it through. **The guide's own
-provider example** (`05-interop.md:120`, `(h/defhost themed (.-Provider
+provider example** (under `05-interop.md`'s `## Providers`, `(h/defhost themed (.-Provider
 some-context))`) loses its subtree server-side today. See §Needs a ruling, R1.
 
 ### 5. A one-off migration site
@@ -668,7 +668,7 @@ down from 2,633 to 1,875 lines. This design's whole additional teaching surface:
 declaration" is *for*: it is a compression claim, not a slogan.
 
 The existing guide sites need only tense flips plus these, and one of them
-already says the right thing: `05-interop.md:174`'s troubleshooting row
+already says the right thing: `05-interop.md`'s `## Troubleshooting` row
 (*"A `[:>]` node (once built) has reduced structural identity | Prefer `defhost`,
 or assert around the node"*) is correct as written and needs the parenthetical
 removed, nothing more.
@@ -681,7 +681,7 @@ removed, nothing more.
 `mint-host-gate!` returns a single pre-walked `placeholder` and never consults
 `props.children`, so an unadopted crossing drops its subtree. For a leaf widget
 that is right; for a **provider** — one of HD-011's five named use cases, and the
-guide's own example at `05-interop.md:120` — it deletes the application from the
+guide's own example under `05-interop.md`'s `## Providers` — it deletes the application from the
 server response. The `:ssr` ruling says *"there is no third value."* Either a
 third value exists (`:ssr :children` / `:transparent`, meaning "render the
 children in place of the component"), or providers are ruled out of SSR and the

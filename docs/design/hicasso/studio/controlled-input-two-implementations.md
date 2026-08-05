@@ -75,7 +75,7 @@ pins it explicitly, which is why the ruling did not move a single figure.
 The probe that found it read the props React had committed to the DOM node.
 Where the view had written `:value`, the node carried `defaultValue "12"` and
 a `ref` whose source was `function (el){ return (this$.inputEl = el); }` —
-`uix/compiler/input.cljs:110-127`.
+`uix/compiler/input.cljs`'s `input-render-setup`.
 
 ## What each implementation does
 
@@ -105,11 +105,12 @@ the end of the field.
 ### `:uix-reagent-input` — the element is made uncontrolled
 
 `value` is deleted from the props, `defaultValue` is set and a `ref` is
-installed (`uix/compiler/input.cljs:124-127`). React's restore now has
+installed (`uix/compiler/input.cljs`'s `input-render-setup`). React's restore now has
 nothing to restore — `updateInput` skips the write entirely when the `value`
 prop is absent. UIx drives the value itself, and schedules that work on
 `reagent.impl.batching/do-after-render`, a queue drained from
-`requestAnimationFrame` (`reagent/impl/batching.cljs:16-25`, `:57-59`).
+`requestAnimationFrame` (`reagent/impl/batching.cljs`'s `next-tick`, drained by
+`run-funs`).
 Value and caret both come back correct, by offset from the end of the
 string — Arm 2's algorithm, and Reagent's before it — but **one animation
 frame later, never inside the discrete event.**
@@ -172,7 +173,8 @@ Arm 2 restored both ends of a selection by distance from the end of the
 string and required `[2 5]`. Neither shipped implementation does, and neither
 is close: React resets the cursor to the end of the value it wrote, and the
 port writes one offset into both `selectionStart` and `selectionEnd`
-(`uix/compiler/input.cljs:68-69`), so a range collapses **by construction**.
+(`uix/compiler/input.cljs`'s `input-node-set-value`), so a range collapses **by
+construction**.
 `[2 2]`, the value the bead recorded, is the port's — correct as a cursor,
 never a range. This is not a defect to be fixed in passing; restoring a range
 means restoring two offsets, which is a different algorithm from the one both
@@ -319,7 +321,7 @@ an ordinary `:value`/`:on-change` pair, with no ref, no effect and no escape
 hatch. No hook in the boundary shell, so the ≤2-hook budget (HD-020) is
 untouched, and `arm1_hook_ledger_dom_cljs_test` reads the same ledger it did
 before. UIx's own answer to the same problem costs a wrapper *component* per
-input with three hooks in it (`uix/compiler/input.cljs:132-143`); this one
+input with three hooks in it (`uix/compiler/input.cljs`'s `reagent-input`); this one
 costs none, because it lives in the element path rather than in a component.
 `grid.cljs` — the 100-cell witness's view — did not change by a character.
 

@@ -49,7 +49,7 @@ rather than lucky.**
 `page.evaluate` compiles to — owns the whole callback, so a harness that drives
 its operations that way subtracts them away. This harness drives every operation
 with `page.click`
-([`jsfb_ours_run.cjs:211`](../../../../implementation/freehand/test/re_frame/bench/hicasso/jsfb_ours_run.cjs)),
+([`jsfb_ours_run.cjs`'s `click`](../../../../implementation/freehand/test/re_frame/bench/hicasso/jsfb_ours_run.cjs)),
 an **Input-domain** command: `Input.dispatchMouseEvent` delivers an event and
 returns, and the page's handler runs afterwards in an input task the command does
 not own.

@@ -1135,7 +1135,7 @@ forfeited by a merge at all, because a merge cannot reach an owned literal. The
 case where a caller override *should* win is spelled by **not writing the literal**,
 which is the honest way round — the dangerous default is the other one. Spelling
 precedent: UIx already uses `:&` for exactly this in this repo
-(`examples/substrates/uix/login/core.cljs:148`).
+(`examples/substrates/uix/login/core.cljs` — `mount!`'s `frame-root` props).
 **Class composition needs no exception.** An element's own classes are written on
 the **tag** (`[:input.form-control {:& caller}]`), which is not a literal attribute
 key, so the shorthand merge composes them with whatever the remainder brought —
@@ -1143,7 +1143,8 @@ however the remainder spelled it (c″). A literal `:class` still wins outright,
 because it is a literal, and what composes is what SURVIVED the merge: an alias at a
 slot an owned literal claims never gets that far.
 **Demonstrated, not asserted.** The RealWorld article editor's four form fields
-(`examples/real-apps/realworld_resources/article_editor.cljs:496-522`) are ported
+(`examples/real-apps/realworld_resources/article_editor.cljs` — `editor-page`'s four
+`fieldset.form-group` blocks) are ported
 both ways in `front/census_article_editor_cljs_test`, with the produced elements
 and the dispatched intents asserted identical between the renderings. The
 authoring result: four repeated attribute maps become one `field` helper and four

@@ -84,17 +84,17 @@ that looks past `flushSync`, and replaced by a direction rather than a number.
 Read from the harnesses, not from the prose around them. The lane defines one
 clock and every published row reaches it:
 
-| producer | clock, at file:line | window closes | class |
+| producer | clock, at file and symbol | window closes | class |
 |---|---|---|---|
-| `lane.cljs` — the shared clock | [`lane.cljs:86-92`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) `now-ms` → `js/performance.now()` | — | in-page |
-| `lane/mount-arm!` — every single mount row | [`lane.cljs:185-187`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) `t0 (now-ms)` · `flushSync` · `{:ms (- (now-ms) t0)}` | when `flushSync` returns | in-page |
-| `lane/mount-batch!` — every batched mount row | [`lane.cljs:208-213`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) same shape, `k` mounts inside one window | when `flushSync` returns | in-page |
-| `p0_converge_app` — M1, M2, broad, narrow | [`p0_converge_app.cljs:750`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
-| `coldmount_app` — the `1.0054×` witness | [`coldmount_app.cljs:425`](../../../../implementation/freehand/test/re_frame/bench/hicasso/coldmount_app.cljs) `(lane/mount-batch! arm props 1)` | via the lane | in-page |
-| `hd8_rows` — the HD-008 donor rows | [`hd8_rows.cljs:416`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) `(lane/mount-arm! arm props)`; own windows at [`665-678`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) and [`1005-1008`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) | when the drain returns | in-page |
-| `p0_reagent_app` — the first author's baseline | [`p0_reagent_app.cljs:373`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
-| `p0_harness` — the UIx frontier arm's rows, in a **different tree** | [`p0_harness.cljs:64-69, 220-221`](../../../../implementation/core/test/re_frame/bench/p0_harness.cljs) its own `now-ms` → `js/performance.now()`, `t0` then `flushSync` | when `flushSync` returns | in-page |
-| `hicasso_narrow` — the ratom-spine narrow write, in a **third tree** | [`hicasso_narrow.cljs:179`](../../../../implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
+| `lane.cljs` — the shared clock | [`lane.cljs`'s `now-ms`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) → `js/performance.now()` | — | in-page |
+| `lane/mount-arm!` — every single mount row | [`lane.cljs`'s `mount-arm!`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) `t0 (now-ms)` · `flushSync` · `{:ms (- (now-ms) t0)}` | when `flushSync` returns | in-page |
+| `lane/mount-batch!` — every batched mount row | [`lane.cljs`'s `mount-batch!`](../../../../implementation/freehand/test/re_frame/bench/hicasso/lane.cljs) same shape, `k` mounts inside one window | when `flushSync` returns | in-page |
+| `p0_converge_app` — M1, M2, broad, narrow | [`p0_converge_app.cljs`'s `mount-round!`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
+| `coldmount_app` — the `1.0054×` witness | [`coldmount_app.cljs`'s `mount-round!`](../../../../implementation/freehand/test/re_frame/bench/hicasso/coldmount_app.cljs) `(lane/mount-batch! arm props 1)` | via the lane | in-page |
+| `hd8_rows` — the HD-008 donor rows | [`hd8_rows.cljs`'s `mount-round!`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) `(lane/mount-arm! arm props)`; own windows in [`window-of`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) and [`yield-window!`](../../../../implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs) | when the drain returns | in-page |
+| `p0_reagent_app` — the first author's baseline | [`p0_reagent_app.cljs`'s `measure-mount!`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
+| `p0_harness` — the UIx frontier arm's rows, in a **different tree** | [`p0_harness.cljs`'s `now-ms` and `mount-arm!`](../../../../implementation/core/test/re_frame/bench/p0_harness.cljs) its own `now-ms` → `js/performance.now()`, `t0` then `flushSync` | when `flushSync` returns | in-page |
+| `hicasso_narrow` — the ratom-spine narrow write, in a **third tree** | [`hicasso_narrow.cljs`'s `now`](../../../../implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
 
 **The roster is closed and the answer is uniform — across all three producer
 trees.** A sweep of the whole `bench/hicasso` tree finds no
@@ -120,9 +120,9 @@ only; `arm1-lean-react-dogfood-judgement` and
 ## 2. Why the floor normalisation does not protect the ratio
 
 The published bar figure is not a raw quotient. It is a **double ratio** —
-[`p0_converge_app.cljs:1091-1092`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs),
-with `:numerator :uix-subs` and `:denominator :reagent-subs` declared at
-`1128-1129`:
+[`p0_converge_app.cljs`'s `row-record`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs),
+with `:numerator :uix-subs` and `:denominator :reagent-subs` declared in the same
+function's `:red-zone` map:
 
 ```clojure
 rz (mapv (fn [m] (/ (get-in m [:uix-subs      :ratio :uix-subs])
@@ -169,7 +169,7 @@ operation — see the box at the top. Every figure in this section is therefore
 `reagent-subs`, `uix-subs` and `floor` arms mount **the same components with the
 same props as the published M1 witness** — `v/subs-root v/m1-subs`,
 `ux/subs-root ux/m1` and `v/m1-floor` at `v/cells-n`
-([`clock_app.cljs:191, 233, 241`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_app.cljs)) — and it computes the same
+([`clock_app.cljs`'s `m1-arms` and `floor-mount-arm`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_app.cljs)) — and it computes the same
 floor-normalised, per-segment statistic, so dividing its two legs reproduces the
 published quantity on the second clock.
 
@@ -278,7 +278,7 @@ same quantity here. On those same samples ~~the frame-inclusive clock reads
 script removed and is superseded by the corrected clock's `0.8602×`**. The
 published verdict is *"UIx faster. All 60 rounds below 1.0; all
 20 strata wholly below it"*
-([p0-converged-witness-set.md:347](p0-converged-witness-set.md)); no reading past
+([p0-converged-witness-set.md — the RED-ZONE table's `bulk broad` row](p0-converged-witness-set.md)); no reading past
 the `flushSync` boundary is anywhere near it. A 37% margin measured
 on a window that closes before the frame is a margin in the fraction of the work
 that happens to land inside `flushSync`, and the two substrates divide that
@@ -399,8 +399,8 @@ definition and Chromium source — not from the summaries in this tree:
   because the number invites a mistake.** `clock_run.cjs` says `duration` is
   rounded to the nearest 8 ms and that **the minimum `durationThreshold` an
   observer may ask for is 16 ms** — both accurate — and it passes
-  `durationThreshold: 16` explicitly at
-  [`clock_run.cjs:293`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs).
+  `durationThreshold: 16` explicitly in
+  [`clock_run.cjs`'s `EVENT_TIMING_INIT`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs).
   The trap nearby is that the *default* threshold, absent that argument, is
   **104 ms** (W3C *Event Timing* §3.4: "let minDuration be 104"), not 16. The
   instrument does not rely on the default and does not claim it does. **No

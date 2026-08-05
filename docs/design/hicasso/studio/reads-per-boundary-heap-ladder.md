@@ -1108,8 +1108,8 @@ bead was filed from that sentence.
 
 #### Design: both arms in one session, and a third run to catch drift
 
-The two arms differ by **one line** at
-`arm1/runtime.cljs:1261` — `mint-view!` returning
+The two arms differ by **one line** in
+`arm1/runtime.cljs`'s `mint-view!` — it returns
 `(codec/memoize-boundary! (codec/mark-boundary! component))` against
 `(codec/mark-boundary! component)`. That is the wrapper's only call site in the
 repository, so removing it removes the wrapper and nothing else; the rest of the
