@@ -50,7 +50,7 @@ compared byte-for-byte and then hashed.
 
 | Quantity | Value |
 |---|---|
-| `dogfood-snapshot` document | 3,101 bytes |
+| `dogfood-snapshot` document | 3,060 bytes |
 | SHA-256, render #1 and #2 | `a510149b92f08901f83b516e0f644d348fa5ee6ecafccca3b5ad80ebb53fa681` |
 | Two different per-request frame ids | yes (asserted) |
 
@@ -96,6 +96,36 @@ and the §X5 passage below that reports both pages taking `83b865f8`:
 
 The sentence above stands as written: this page was not the repair of the
 instrument. The repair was `rf2-2rtt6.91`'s, and it has landed.
+
+**Addendum, 2026-08-06 — the X1(a) size row now reads 3,060 bytes; it read
+3,101, and that figure was not wrong when it was written (`rf2-8smbe`).** Two
+independent things moved it, and separating them is the point of this note.
+
+- **The ruler changed, by +18.** `rf2-2rtt6.121` repaired this witness's
+  `report!` to publish `lane/utf8-bytes` where it had published `count`, which
+  answers UTF-16 code units rather than bytes. Every corpus title on this screen
+  carries an em dash, so the same document is **3,042 code units and 3,060
+  bytes**. That +18 is exactly the gap `rf2-2rtt6.114` derived on this same
+  document from the other side of the wire — `Buffer.byteLength` in the bake,
+  cross-checked against `fs.statSync` of the file it wrote — so two unrelated
+  instruments agree on the size of the error.
+- **The document changed, by −59.** `3,101` was the honest `count` of the
+  document as it stood at the producing commit, and `rf2-2rtt6.114` read the
+  same document at 3,101 code units / 3,119 bytes. `861ac3a059` (`rf2-2rtt6.91`)
+  then removed the ` data-rf-render-hash="…"` attribute from the app root and
+  the `:render-hash` key from the payload, and five further commits have touched
+  the render path since `952a3f2024`. So the row was superseded by a real change
+  to what is being measured, not corrected for an error in the measuring.
+
+**What this means for the digests in this section, which are NOT re-published
+here.** A document whose byte length moved is a different document, so the
+SHA-256 rows above and below — and X1(b)'s canonical-DOM size — were taken on
+the pre-drift document and no longer reproduce at HEAD. The size row is repaired
+here because `rf2-2rtt6.121` ruled it a units defect and named the replacement.
+Re-taking the digests is a different job: every row on this page is pinned to
+`952a3f2024`, so new digests would need a new producing commit and a re-run of
+the browser rows beside them. That is carried on `rf2-zn7pj`, and until it lands
+the size row is the only quantity here measured at HEAD.
 
 ## X1(b) — canonical-DOM parity
 
