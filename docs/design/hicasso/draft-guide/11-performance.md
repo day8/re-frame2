@@ -2,39 +2,47 @@
 
 > **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
-Most Hicasso screens do not need a performance strategy. Write ordinary Hiccup —
-`defview`, `sub` where you use the value, intent vectors — and ship.
+**98% of the time, Hiccup is completely fine.**
 
-> **For about 98% of view code, performance is not an issue.** Do not pre-optimise.
-> Do not invent a second architecture "just in case."
+Write ordinary `defview`, `sub` at the point of use, intents as data. Ship it.
+Do not pre-optimise. Do not invent a second architecture "just in case."
 
-The interpreter is not free, but it is rarely what hurts you. Against Reagent,
-the Hiccup walk itself is about **parity (~0.96×)**. On the worst mounts we have
-seen, roughly **~70% of the extra cost was read shape** — many fine per-row
-subscriptions instead of a few coarse ones — not time turning vectors into
-elements. Coarser, more natural reads land nearer **~1.2×** where the bad case
-sat nearer **~1.5×**. So when something *is* slow, you fix **where and how you
-read** (and who re-renders) long before you abandon Hiccup.
+**About 2% of the view code is on the hot path** — a cell that re-renders
+constantly, a large table under a broad write, a foreign React widget, an SDK
+that wants a DOM node. When a profile names that island, **do this** (top →
+bottom; stop as soon as the island is fixed):
 
-**The other ~2%** is a measured island: a hot cell, a third-party React widget,
-an SDK that wants a DOM node.
+1. **Still Hiccup** — keys, bail-out, fewer boundaries, reads at point of use  
+2. **Host-edge React** — one measured island, hooks/refs for mechanics only  
+3. **`defhost` / `[:>]`** — someone else's React component  
+4. **Another root** — a whole screen on Reagent/UIx by product choice, not a
+   Hicasso mode  
 
-So the job of this page is simple: **how to stay in the 98%**, and **what to do
-for the ~2%** when a profile names a real island.
-
-> **Ninety-eight percent stays Hiccup. For the two percent: fix that island —
-> do not rewrite the product.**
-
-The 98/2 split is how you should write, not a lab certificate. There is no dual
-mode that turns interpretation off. There is a ladder **below Hiccup** for the
-minority of cases that need it.
+There is no dual mode that turns interpretation off for the app. The 2% is an
+island, not a lifestyle.
 
 ---
 
-## The default path
+## Why Hiccup is usually enough
 
-Stay here until a profile says otherwise. Full mechanics live in
-[Views and reads](02-views-and-reads.md); the performance rules of thumb are:
+The interpreter is not free, but it is rarely the bill. Against Reagent, the
+Hiccup walk itself is about **parity (~0.96×)**. On the worst mounts we have
+seen, roughly **~70% of the extra cost was read shape** — many fine per-row
+subscriptions instead of a few coarse ones — not time turning vectors into
+elements. Coarser, more natural reads land nearer **~1.2×** where the bad case
+sat nearer **~1.5×**.
+
+So when something *is* slow, you fix **where and how you read** (and who
+re-renders) long before you abandon Hiccup. The 98/2 split is how you should
+write until a profile names a specific exception — not a lab certificate that
+every screen has been timed.
+
+---
+
+## The default path (the 98%)
+
+Stay here. Full mechanics live in [Views and reads](02-views-and-reads.md); the
+performance rules of thumb are:
 
 **1. Boundaries only where re-render granularity matters.**
 
@@ -67,7 +75,10 @@ If you only do this, you are done for most apps.
 
 ---
 
-## When something feels slow
+## The hot path (the 2%) — do this
+
+You only enter this section after something is **named** (Profiler / Xray) or is
+obviously a foreign/SDK boundary you never expected Hiccup to own.
 
 ### Name the island first
 
@@ -81,15 +92,12 @@ You do not need Hicasso-private tooling.
 Name the boundary, the sub, or the event **before** changing architecture.
 "The app is slow" is still the 98% problem wearing a costume.
 
-### Then climb only as far as you must
-
-Work **top to bottom**. Most hot cases die on step 1 and return to the default path.
-
-#### Step 1 — Still Hiccup
+### Step 1 — Still Hiccup
 
 Re-check the default path on the named island: fewer boundaries, reads at point
-of use, stable keys, no high-rate `:db` writes. That step is first because
-**that is where the cost usually lives**, not interpretation.
+of use, stable keys, no high-rate `:db` writes. Most hot-path cases die here and
+return to the 98%. That step is first because **that is where the cost usually
+lives**, not interpretation.
 
 **Big lists (honest).** One event that many row boundaries care about — a large
 table or feed — is the shape where cost **can** bite. Outside measurements have
@@ -105,7 +113,7 @@ Order for a big table:
 
 Do not jump to hooks on a 300-row table before keys, bail-out, and read shape.
 
-#### Step 2 — Host-edge React (one island)
+### Step 2 — Host-edge React (one island)
 
 A `defview` body is a real React function component. Hooks and refs are fine for
 **mechanics**: measure, SDK handles, animation clocks that are not app state.
@@ -148,7 +156,7 @@ landing.
 
 Keep the island **small**. Callback refs: [Interop](05-interop.md) Advanced.
 
-#### Step 3 — Foreign React (`defhost` / `[:>]`)
+### Step 3 — Foreign React (`defhost` / `[:>]`)
 
 Someone else's component — date picker, chart, **virtualized list**:
 
@@ -167,7 +175,7 @@ Someone else's component — date picker, chart, **virtualized list**:
 Existing React elements are legal children (pass-through). Keep JS requires in
 `.cljs` host namespaces.
 
-#### Step 4 — Another view layer
+### Step 4 — Another view layer
 
 A whole screen in UIx or Reagent is **another adapter root**, not a Hicasso
 mode. Multi-frame: [Getting started](01-getting-started.md).
@@ -187,7 +195,7 @@ mode. Multi-frame: [Getting started](01-getting-started.md).
 
 | Level | Data intents | Ambient `sub` | Headless-friendly | Lever |
 |---|---|---|---|---|
-| Default Hiccup | Yes | Yes | Intents today; full render later | Boundaries, reads, keys, bail-out |
+| Default Hiccup (98%) | Yes | Yes | Intents today; full render later | Boundaries, reads, keys, bail-out |
 | Host-edge hooks | Partial | Yes in that body | **No** for that body | React |
 | `defhost` | Opaque at the crossing | Via props / parents | Foreign region out | Leave work in the library |
 | Other adapter | That root's rules | That root's rules | That root's rules | Full switch |
@@ -206,9 +214,9 @@ mode. Multi-frame: [Getting started](01-getting-started.md).
 | SDK mounts twice / leaks | Ref without paired teardown | Attach + cleanup as one ref (React 19) — [Interop](05-interop.md) |
 | Still slow after dropping to React | Wrong layer | Profile again — often reads or event volume |
 
-## When not to go below Hiccup
+## When not to leave the 98%
 
-- Still the **98%** — no profile, only fear of the interpreter.
+- No profile — only a feeling, or a fear of the interpreter.
 - The real issue is **event volume** ([Controlled inputs](04-controlled-inputs.md)).
 - You are about to reimplement the app in hooks "for the 2%." That is a
   substrate change, not an escape hatch.

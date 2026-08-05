@@ -60,8 +60,8 @@ interpretation, not a better Reagent.*
 
 **Not the pitch:** "stellar performance." The programme bar is competitive with
 Reagent on the important rows — good enough to ship, not a speed-marketing
-product. **For about 98% of view code, performance is not an issue**; for the
-rest, there is a ladder down, not a dual mode
+product. **98% of the time, Hiccup is completely fine**; about 2% of the view
+code is on the hot path, and for that there is a ladder — not a dual mode
 ([Performance](11-performance.md)). Prefer Hicasso for **authoring, testing
 shape, and re-frame integration**, not for winning a microbenchmark war.
 
@@ -89,7 +89,7 @@ finished product package.
 | **SSR participation** | Same pure bodies + framework hydration; experimental doors exist; production package still open | [Server-side rendering](10-server-side-rendering.md) |
 | **Xray-friendly UI** | UI state in app-db + named events shows up in app-db diffs and time-travel; not a special Hicasso Xray tab | framework Xray + this design |
 | **Performance** | Good / competitive goal vs Reagent; not "fastest UI library" | programme bar, not a guide claim |
-| **Going lower** | ~98% of view code needs nothing special; for the ~2%, a ladder (not a dual mode) | [Performance](11-performance.md) |
+| **Going lower** | 98% of the time Hiccup is completely fine; for the ~2% hot path, do the ladder (not a dual mode) | [Performance](11-performance.md) |
 
 ## Your first app
 
