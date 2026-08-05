@@ -3019,6 +3019,97 @@ jobs:
       - name: Verify production elision (advanced compile + grep)
         run: npm run test:elision
 
+  cljs-perf-bundle:
+    name: CLJS perf-flag bundle isolation (Spec 009 §Performance instrumentation, bead rf2-du3i)
+    # rf2-eegpw — Spec 009 §Production-elision verification states that "the
+    # bundle-isolation contract is enforced in CI by `npm run test:perf-bundle`
+    # (the dual of `npm run test:elision`)". It was not. The npm script, the
+    # checker (`scripts/check-perf-bundle.cjs`) and both builds all existed and
+    # NOTHING invoked any of them — no workflow, no TESTING.md row, not the
+    # fast-PR spine. A spec that promises enforcement no job delivers is worse
+    # than an absent gate: the promise is what stops the next person looking.
+    # Third instance of this class in this file, after rf2-xwa4n and rf2-zl8ao
+    # below.
+    #
+    # NOT a duplicate of `cljs-elision` above, which is why this is a job and
+    # not a step folded into that one. That pair moves `goog.DEBUG` across the
+    # SAME entry (`re-frame.elision-probe/run`) and greps dev-only strings;
+    # this pair moves `re-frame.performance/enabled?` — a SEPARATE goog-define
+    # — across `counter.core/run` and greps `performance.measure` /
+    # `clearMeasures` / `"rf:`. The two sentinel sets are disjoint
+    # (check-elision.cjs contains neither perf string), so neither gate can red
+    # for the other's reason — and folding them into one job would have made
+    # one failure indistinguishable from the other in the checks UI.
+    #
+    # The gate builds TWO `:advanced` bundles of the SAME entry differing only
+    # in the perf goog-define, then greps both:
+    #   - `:examples/counter`      (`enabled?` at its goog-define default,
+    #     false): the three sentinels ABSENT — the `mark-and-measure` bracket
+    #     folded to `(do body)` and Closure DCE'd the User-Timing calls, so a
+    #     shipped binary with the flag off carries zero instrumentation. This
+    #     is the claim the perf channel's entire safety argument rests on; it
+    #     is compile-time, so only a bundle grep can check it.
+    #   - `:examples/counter-perf` (`enabled? true`): the SAME three PRESENT —
+    #     the positive control, so a refactor that MOVED the strings out of the
+    #     gated branch reds here instead of turning the negative grep into a
+    #     vacuous pass.
+    #
+    # No browser and no Clojure CLI: two shadow-cljs releases plus a string
+    # inspection over the emitted bytes, and shadow-cljs.edn resolves through
+    # `:dependencies` rather than `:deps`, so the JDK/Node/Maven trio is enough
+    # — same step list as cljs-freehand-evidence-elision below. Measured cold
+    # at 75s end to end (30.0s + 13.6s of `:advanced` compile plus dependency
+    # resolution), which is why this is per-PR and not nightly.
+    #
+    # Surface-gated on `cljs_prod`, the SAME output as its dual: the macro
+    # under test and its bracket call sites live in `implementation/`, and
+    # `shadow-cljs.edn` / `package.json` / `implementation/scripts/*` all arm
+    # it — the last of those is where `check-perf-bundle.cjs` lives, so the
+    # checker's own teeth cannot be softened while avoiding the job that runs
+    # them. The one producer `cljs_prod` does NOT arm is `examples/counter`,
+    # which is the entry both bundles compile; the sibling `cljs-bundle-
+    # isolation` job has the identical blind spot for the identical reason, so
+    # widening it is one classifier change for both gates, not this one's to
+    # make (rf2-6ckzl).
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: Perf-flag bundle isolation (perf-off bundle + perf-on control)
+        run: npm run test:perf-bundle
+
   cljs-freehand-evidence-elision:
     name: Freehand evidence production isolation (F4g control-build probe, rf2-drpa3.166)
     # rf2-xwa4n — PR #6880 shipped the probe as `npm run
@@ -5254,6 +5345,12 @@ jobs:
       - cljs-browser-schemas-boundary-prod
       - cljs-browser-prod-elision
       - cljs-elision
+      # rf2-eegpw — required, so the perf-flag bundle-isolation proof cannot be
+      # invalidated by a merge that never ran it. Advisory would reproduce the
+      # hole this bead closed in a new shape: Spec 009 already CLAIMED CI
+      # enforcement while nothing ran the gate at all, and a job absent from
+      # this list is advisory whatever its own gate says.
+      - cljs-perf-bundle
       # rf2-xwa4n — required, so the F4g production-isolation proof cannot be
       # invalidated by a merge that never ran it.
       - cljs-freehand-evidence-elision
