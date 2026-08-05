@@ -122,12 +122,19 @@
                        {:row          dogfood-row-id
                         :sha256       ha
                         ;; `lane/utf8-bytes` and not `count` (rf2-2rtt6.121).
-                        ;; THIS FIGURE MOVED: 3,101 -> 3,119 on the same
-                        ;; document, because every corpus title carries an em
-                        ;; dash. `rf2-2rtt6.114` derived 3,119 independently —
+                        ;; THIS FIGURE MOVES, and it is the one published
+                        ;; figure in this repair that does: measured
+                        ;; 2026-08-06, the same document is 3,042 code units
+                        ;; and 3,060 bytes, because every corpus title carries
+                        ;; an em dash. The +18 is exactly the gap
+                        ;; `rf2-2rtt6.114` derived independently on this same
+                        ;; document from the other side of the wire —
                         ;; `Buffer.byteLength` in the bake, cross-checked
                         ;; against `fs.statSync` of the file it wrote — so two
-                        ;; unrelated instruments now agree on it.
+                        ;; unrelated instruments agree on the size of the
+                        ;; error. The DOCUMENT itself has since shrunk (that
+                        ;; bead saw 3,101/3,119), which is corpus drift and
+                        ;; nothing to do with the ruler.
                         :bytes        (lane/utf8-bytes (:document a))
                         ;; rf2-2rtt6.91 — the published column, taken where
                         ;; the fact lives now that the entry emits none.
