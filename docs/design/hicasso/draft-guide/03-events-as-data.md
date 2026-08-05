@@ -235,11 +235,43 @@ from the substrate's single internal context.
 That matters because the browser invokes the callback long after the render that
 created it, when the render's dynamic extent is gone. A hand-written
 `#(rf/dispatch …)` from an async context raises `:rf.error/no-frame-context` for
-exactly this reason. Intent vectors don't, because the frame was captured when
+exactly this reason; intent vectors don't, because the frame was captured when
 the callback was built.
 
-The rule of thumb: **intents are always safe; hand-written async needs the frame
-explicitly.**
+**Async work belongs in the event layer, which already has the frame.** A view
+that sets a timeout and dispatches when it fires is a mis-layered effect: an fx
+handler receives the frame id in its context, and `:dispatch-later` says the
+delay as data. Move the work and the carrying question goes with it.
+
+What survives the move is **a dispatching closure handed to a caller you do not
+control**: an SDK attached through a ref, a `defhost` slot declared `:handler`, a
+library that calls back with a value instead of an event. The frame is knowable
+during the render and nowhere else, so read it there.
+
+```clojure
+(defview map-panel [{:keys [id]}]
+  (let [{:keys [dispatch]} (rf/capture-frame (h/frame))]   ;; h/frame is [unfrozen]
+    [:div.map
+     {:ref (fn [node]                          ;; refs run after commit, not in render
+             (when node
+               (sdk/on-select node #(dispatch [:map/marker-selected id %]))))}]))
+```
+
+`(h/frame)` answers the frame id of the boundary currently rendering, and raises
+`:rf.error/hicasso-frame-outside-boundary` anywhere else. `rf/capture-frame` is
+core's one carry primitive; hand it an id and you get back
+`{:frame :dispatch :dispatch-sync :subscribe}` locked to that frame.
+
+The adapters spell this `(rf/capture-frame)`, in one step. Hicasso needs two
+because **ambient frame lookup is what its stricter body discipline withdraws**:
+inside a body an ambient `rf/subscribe` or `rf/dispatch` refuses rather than
+resolving. `rf/with-frame` and an explicit `{:frame …}` still carry — the
+discipline withdraws the ambient *find*, never the carrying — but both make you
+name the frame, which a reusable view mounted under several frames cannot do.
+That id is what `h/frame` supplies.
+
+The rule of thumb: **intents are always safe; async work goes through `:fx`; a
+closure crossing into foreign code carries `(rf/capture-frame (h/frame))`.**
 
 ## Troubleshooting
 
@@ -253,7 +285,8 @@ are named in the sections above.
 | Enter commits half-typed Japanese text | Composition handling written by hand | Use the `:on-key-down` key map — composition is centralised there |
 | A `route-link` refuses your `:on-click` intent vector | Click already produces the routing intent — bare second intent is one action, two events | Wrap it: `[::h/prevent [:app/event]]` |
 | `:rf.error/routing-artefact-missing` when rendering a `route-link` | Routing not on the classpath / not required at boot | Require `re-frame.routing` (and the rest of your routing setup) before the link renders |
-| `:rf.error/no-frame-context` from a timeout | Bare `dispatch` in async code | Capture the frame at the call site, or own the async work through `:fx` |
+| `:rf.error/no-frame-context` from a timeout | Bare `dispatch` in async code | Own the async work through `:fx`; a closure you hand to foreign code carries `(rf/capture-frame (h/frame))` |
+| `rf/subscribe` or `rf/dispatch` refuses inside a view body | Ambient frame lookup is withdrawn there, so neither resolves | Read with `sub`, dispatch through an intent at a handler position, carry with `(rf/capture-frame (h/frame))` |
 | An intent fires but no handler runs | Unregistered event id | Registration happens on namespace load; check the boot namespace requires it |
 
 ## When not to use an intent

@@ -211,7 +211,7 @@ No boot-path error ids are minted yet; this table names mechanisms.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | `sub` throws outside a view | `sub` is render-scoped; there is no `@`-anywhere | Declare `:rf.cofx/requires` in an event handler; `rf/subscribe-once` with an explicit `{:frame …}` everywhere else |
-| Async callback dispatches and nothing happens | Bare `dispatch` from a timeout has no frame | Intent callbacks carry their [boundary](02-views-and-reads.md#boundaries-and-inlining)'s frame; hand-written async needs the frame explicitly |
+| Async callback dispatches and nothing happens | Bare `dispatch` from a timeout has no frame | Own the async work through `:fx` — an fx handler receives the frame id in its context. Intent callbacks carry their [boundary](02-views-and-reads.md#boundaries-and-inlining)'s frame; only a closure crossing to foreign code needs [the explicit carry](03-events-as-data.md#callbacks-carry-their-frame) |
 | First paint empty, then flickers | Seed raced first render | Seed through `:initial-events`, not a post-mount dispatch |
 | View renders twice on mount in dev | StrictMode double-invokes bodies | Expected — bodies are pure and re-runnable |
 | Second `h/root!` on the same node | Live root already owns the node | `defonce` the teardown; call it before re-rooting |
