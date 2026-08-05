@@ -523,12 +523,12 @@ every refusal message and guide row names what the arm actually exposes. Filed a
 > existed. **The implementation named a nonexistent function to explain itself**, and every
 > downstream document inherited it. Nothing gates the prose in a docstring against what its
 > module exports, which is how this reached four design records and one guide page before
-> anyone checked.
+> anyone checked — `rf2-2rtt6.128` asks whether that is worth a ratchet.
 >
-> Since corrected: the docstring (this PR), the guide's `05-interop.md` (PR #7523, which
+> Since corrected: the docstring (PR #7543), the guide's `05-interop.md` (PR #7523, which
 > also removed a `:render` hiccup return the page called "fine" — `render-callback` ends in
 > a bare `(apply f args)`, so the return crosses **unconverted** and a vector is refused by
-> React), and A, B, C and `decisions.md` above (this PR). **The arm ruling this clause asks
+> React), and A, B, C and `decisions.md` above (PR #7543). **The arm ruling this clause asks
 > for — export a spelling, or rule a different one — is still unmade**, so the records now
 > name the gap rather than a function; none of them invents a replacement. The parity
 > design is local-only and outside the tracked tree.
