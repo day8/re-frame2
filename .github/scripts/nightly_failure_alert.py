@@ -270,13 +270,56 @@ def fetch_jobs(repo: str, run_id: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
-def fetch_open_issue(repo: str) -> dict | None:
-    out = gh(["api", f"repos/{repo}/issues?state=open&labels={LABEL}&per_page=100",
+def fetch_open_issues(repo: str) -> list[dict]:
+    """Every open tracking issue, oldest first.
+
+    Deliberately NOT `?labels=nightly-red`. That index is EVENTUALLY
+    CONSISTENT, and the first live exercise of this script found out how: two
+    invocations three seconds apart both read "no tracking issue" and both
+    opened one (#7537 and #7538), because the label-filtered list had not
+    caught up with the first create. The consequence is not cosmetic — two
+    issues, and the streak and signature state on them diverges — so the
+    unfiltered list is the read and the label is matched here.
+
+    Measured honestly: the unfiltered list lags too, by a comparable few
+    seconds, so this narrows the window rather than closing it. Two runs of
+    this workflow are a day apart (cron) or minutes apart at the very closest
+    (the post-merge canary), both orders of magnitude beyond that window, so a
+    lock is not worth building. `collapse_duplicates` below is the net for
+    whatever does slip through, and it is self-healing rather than merely
+    diagnostic.
+    """
+    out = gh(["api", f"repos/{repo}/issues?state=open&per_page=100", "--paginate",
               "-q", ".[] | @json"])
     issues = [json.loads(line) for line in out.splitlines() if line.strip()]
-    issues = [i for i in issues if "pull_request" not in i]
+    issues = [
+        i for i in issues
+        if "pull_request" not in i
+        and any(lbl.get("name") == LABEL for lbl in (i.get("labels") or []))
+    ]
     issues.sort(key=lambda i: i["number"])
-    return issues[0] if issues else None
+    return issues
+
+
+def collapse_duplicates(repo: str, issues: list[dict]) -> dict | None:
+    """Adopt the oldest tracking issue and close any others.
+
+    Belt to the braces above: whatever produced a second issue — the index lag,
+    a hand-filed duplicate, two runs racing — the state must not split across
+    two of them, and a stray one must not sit open forever contradicting the
+    real one.
+    """
+    if not issues:
+        return None
+    keep, extras = issues[0], issues[1:]
+    for extra in extras:
+        gh(["api", "-X", "POST", f"repos/{repo}/issues/{extra['number']}/comments",
+            "-f", f"body=Duplicate nightly tracking issue — #{keep['number']} is "
+                  f"the one this workflow maintains. Closing this one so the "
+                  f"failure history stays in one place."])
+        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/{extra['number']}",
+            "-f", "state=closed"])
+    return keep
 
 
 def ensure_label(repo: str) -> None:
@@ -325,7 +368,8 @@ def apply_action(repo: str, action: str, detail: dict, signature: list[str],
 def run_live(repo: str, run_id: str, assignee: str | None, dry_run: bool,
              close_after: int) -> int:
     signature = derive_signature(fetch_jobs(repo, run_id))
-    issue = fetch_open_issue(repo)
+    open_issues = fetch_open_issues(repo)
+    issue = open_issues[0] if open_issues else None
     action, detail = decide(signature, issue, close_after)
     run_url = f"https://github.com/{repo}/actions/runs/{run_id}"
 
@@ -334,10 +378,13 @@ def run_live(repo: str, run_id: str, assignee: str | None, dry_run: bool,
     for entry in signature:
         print(f"  RED  {entry}")
     if issue:
-        print(f"  tracking issue: #{issue['number']}")
+        print(f"  tracking issue: #{issue['number']}"
+              + (f" (+{len(open_issues) - 1} duplicate(s) to close)"
+                 if len(open_issues) > 1 else ""))
     if dry_run:
         print("  (--dry-run: nothing was created, edited or closed)")
         return 0
+    collapse_duplicates(repo, open_issues)
     apply_action(repo, action, detail, signature, issue, run_url, assignee, close_after)
     return 0
 
@@ -490,6 +537,24 @@ def self_test(verbose: bool) -> int:
         loud += 1 if a[1]["notifies"] else 0
         iss3 = None if a[0] == "close" else issue_after(a, sig if red_night else [])
     check("a six-run 50% flake == 1 notification (not six)", loud == 1, f"got {loud}")
+
+    # --- the duplicate hazard the first live run exposed ----------------------
+    labelled = {"labels": [{"name": LABEL}]}
+    unlabelled = {"labels": [{"name": "bug"}]}
+    listing = [
+        {"number": 9, **unlabelled},
+        {"number": 11, **labelled},
+        {"number": 12, "pull_request": {}, **labelled},
+        {"number": 10, **labelled},
+    ]
+    kept = [i for i in listing
+            if "pull_request" not in i
+            and any(l["name"] == LABEL for l in i["labels"])]
+    kept.sort(key=lambda i: i["number"])
+    check("the tracking-issue read matches on the label and skips PRs",
+          [i["number"] for i in kept] == [10, 11], repr(kept))
+    check("...and the OLDEST is the one adopted, so duplicates cannot split state",
+          kept[0]["number"] == 10)
 
     # --- marker round-trip ----------------------------------------------------
     body = render_body(sig, {"sig_hash": signature_hash(sig), "reds": 7, "greens": 0},

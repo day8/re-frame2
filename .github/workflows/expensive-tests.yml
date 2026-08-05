@@ -362,3 +362,89 @@ jobs:
         env:
           RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
         run: clojure -M:slow-test
+
+  # rf2-6ckzl remedy clause 4 / rf2-eegpw — the gate that watches for gates
+  # with no scheduled home. `npm run test:perf-bundle` existed, did real work,
+  # and appeared in NO workflow: its positive control had never once been
+  # executed by CI, and it was found only because somebody went looking. The
+  # checker asserts that every `test:*` / `bench:*` command in
+  # implementation/package.json is either reachable from a workflow or carries
+  # a declared, machine-CHECKED disposition saying why it is not.
+  #
+  # It runs here rather than at PR time only because .github/workflows/test.yml
+  # is under an open PR as this lands (rf2-eegpw / #7530); a static ~0.1s check
+  # belongs on the PR critical path and should be promoted to the always-on
+  # repo-invariant job (rf2-6ckzl follow-up). Nightly is not nothing in the
+  # meantime — as of this same PR the nightly finally tells somebody when it
+  # reds.
+  gate-scheduling:
+    name: Every gate command has a scheduled home
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # Self-test first, live scan second — the idiom every checker in this
+      # repo uses, and the reason a green here means the guard still has teeth
+      # rather than merely that it ran.
+      - name: Gate-scheduling guard self-test
+        run: python3 .github/scripts/check-gate-scheduling.py --self-test
+
+      - name: Gate-scheduling audit
+        run: python3 .github/scripts/check-gate-scheduling.py --verbose
+
+  # rf2-6sg25 — until this job existed, a red nightly told NOBODY. Of the
+  # thirty runs ending 2026-08-04, eighteen failed and 2026-07-09..07-21 was
+  # thirteen consecutive red nights; the only way to find out was to open the
+  # Actions tab. Multiple gates are deliberately nightly-only BECAUSE this
+  # workflow is treated as the system of record (TESTING.md), so a system of
+  # record that can be red for a fortnight unseen is an instrument that reports
+  # nothing and is believed anyway.
+  #
+  # It alerts on a CHANGE OF FAILURE SIGNATURE, not on failure: at an 18-in-30
+  # failure rate a per-run alert would have been muted inside a week, and a
+  # muted alert is the original fail-open in a new suit. The thresholds were
+  # measured against that real history rather than guessed — see the module
+  # docstring of .github/scripts/nightly_failure_alert.py, and reproduce the
+  # measurement with its `--replay 30` mode. Over those thirty runs: eighteen
+  # red nights, EIGHT notifications, none of them a restatement.
+  nightly-result:
+    name: Nightly result -> tracking issue
+    # ALWAYS, and on green as well as red. `if: failure()` was the obvious
+    # shape and is wrong twice over: closing the tracking issue when the
+    # nightly recovers is half the contract, and a run cancelled or skipped
+    # part-way still has a verdict worth recording.
+    #
+    # Restricted to the DEFAULT BRANCH so that a `workflow_dispatch` of this
+    # workflow from a worker branch — which is exactly how a worker verifies a
+    # change to it — cannot file an issue about that branch's own breakage.
+    if: ${{ always() && github.ref_name == github.event.repository.default_branch }}
+    needs:
+      - browser-bundle-and-story-gates
+      - template-emitted-app
+      - mcp-live
+      - jvm-slow-tests
+      - gate-scheduling
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write     # open / edit / close the single tracking issue
+      actions: read     # read this run's per-step conclusions
+      contents: read    # checkout
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # A wired alert nobody has ever seen fire is the arming-not-catching
+      # pattern one tier up. This arm proves the decision layer still
+      # distinguishes a new failure from a known one, a shrinking failure set
+      # from a growing one, and a genuine recovery from a flake — every night,
+      # before it is trusted to decide anything.
+      - name: Alerting self-test (the alert can still fire, and still go quiet)
+        run: python3 .github/scripts/nightly_failure_alert.py --self-test --verbose
+
+      - name: Open, edit or close the nightly tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/nightly_failure_alert.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --assignee mike-thompson-day8
