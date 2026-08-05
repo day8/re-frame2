@@ -925,7 +925,9 @@
         ;; first sample meets the same app-db every other one does.
         (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
         (swap! state assoc :cells (zeros v/cells-n))
-        #js {:arm (name arm-id) :hash (str-hash s) :bytes (count s)
+        ;; `lane/utf8-bytes` and not `count`: the driver prints this under a
+        ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
+        #js {:arm (name arm-id) :hash (str-hash s) :bytes (lane/utf8-bytes s)
              :control (boolean (:control? arm))}))))
 
 ;; ---------------------------------------------------------------------------

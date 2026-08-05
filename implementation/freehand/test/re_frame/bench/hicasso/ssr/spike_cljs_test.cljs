@@ -50,6 +50,11 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
+            ;; rf2-2rtt6.121 — for `utf8-bytes` alone. The lane is already on
+            ;; the `:node-test` classpath (its `*_dom_cljs_test` siblings
+            ;; require it and `cljs-test$` matches them too), so this adds no
+            ;; dependency the build did not already carry.
+            [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.hicasso.ssr.entry :as entry]
             [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
             ;; rf2-2rtt6.91 — the entry ships no render hash, so the control
@@ -116,7 +121,14 @@
               (report! "X1a"
                        {:row          dogfood-row-id
                         :sha256       ha
-                        :bytes        (count (:document a))
+                        ;; `lane/utf8-bytes` and not `count` (rf2-2rtt6.121).
+                        ;; THIS FIGURE MOVED: 3,101 -> 3,119 on the same
+                        ;; document, because every corpus title carries an em
+                        ;; dash. `rf2-2rtt6.114` derived 3,119 independently —
+                        ;; `Buffer.byteLength` in the bake, cross-checked
+                        ;; against `fs.statSync` of the file it wrote — so two
+                        ;; unrelated instruments now agree on it.
+                        :bytes        (lane/utf8-bytes (:document a))
                         ;; rf2-2rtt6.91 — the published column, taken where
                         ;; the fact lives now that the entry emits none.
                         :render-hash  (str (ssr-hash/render-tree-hash

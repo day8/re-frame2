@@ -38,10 +38,15 @@
                   cu   (get (:canon p) :uix)
                   ch   (get (:canon p) :hicasso)]
               (doseq [m (:mounts p)] (lane/release! m))
+              ;; RELABELLED, not converted (rf2-2rtt6.121). These two
+              ;; numbers exist to be read beside `first diff at i`, and `i`
+              ;; is a `.charAt` index — a code-unit offset. Stating them in
+              ;; bytes would put the length and the offset it locates on
+              ;; two different rulers, which is worse than either alone.
               (js/console.log (str ";; ROW " (name row)
                                    " agree? " (:agree? p)
-                                   " uix-bytes " (count cu)
-                                   " hicasso-bytes " (count ch)))
+                                   " uix-code-units " (count cu)
+                                   " hicasso-code-units " (count ch)))
               (when-not (:agree? p)
                 (let [i (first-diff cu ch)]
                   (js/console.log (str ";; first diff at " i))

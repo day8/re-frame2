@@ -1063,8 +1063,12 @@
                   ref-canon (first (get canons :hicasso))
                   parity  (into {}
                                 (map (fn [[id [canon n]]]
+                                       ;; `lane/utf8-bytes` and not `count`:
+                                       ;; printed below as "canonical bytes",
+                                       ;; and `count` answers UTF-16 code
+                                       ;; units (rf2-2rtt6.121).
                                        [id {:elements n
-                                            :bytes    (count canon)
+                                            :bytes    (lane/utf8-bytes canon)
                                             :same?    (= canon ref-canon)
                                             :diverges (when-not (= canon ref-canon)
                                                         (first-divergence ref-canon canon))}]))
