@@ -6,6 +6,25 @@ as HD-nnn are normative in [decisions.md](decisions.md).
 
 ## The bar (HD-012)
 
+> **Amended, 2026-08-05 — the ship bar is PER-AXIS, and the first bullet below
+> is superseded on the mount axis (`rf2-hyd50`).** "Mount AND bulk view-work ≤
+> 1.0× Reagent" is no longer the mount bar. The operative pair, clock only:
+>
+> - **Ship bar (clock), mount**: **≤ 1.10× direct UIx-on-subs**, canonical `M1`,
+>   floor-normalised, clock of record raw `TaskDuration` (script **and** frame).
+>   The only ship *number* on this axis. Reagent-on-subs is co-instrumented and
+>   **reported beside the mount row, not gating it**.
+> - **Ship bar (clock), bulk**: **≤ 1.0× Reagent-on-subs, like-for-like** — both
+>   sides reading re-frame2 subscriptions — on the witness shapes. The only ship
+>   *number* on this axis. **Unchanged.**
+>
+> Every other bullet in this section stands as written: memory through the kill
+> rules, the UIx comparator and its red-zone ratios, and the 1.5× bulk
+> architecture-kill tripwire. Provenance: the operator's **2026-08-01**
+> relaxation of "as fast as Reagent on mount" and the **2026-08-02** mount-gate
+> amendment, both on `rf2-2rtt6.1`, adjudicated on **2026-08-05** by `rf2-hyd50`
+> — delegated and operator-overturnable, so this note reverts with that ruling.
+
 - **Ship bar (clock)**: mount AND bulk view-work **≤ 1.0× Reagent,
   like-for-like** — both sides reading re-frame2 subscriptions — on the witness
   shapes. The only ship *number*.
@@ -263,8 +282,9 @@ verdict's direction stands; its published magnitude was a property of the stale
 spine and the demoted clock. Full tables and provenance:
 [the re-take on the current tree](studio/hd8-composed-donor-arm.md#the-re-take-on-the-current-tree-rf2-2rtt631).
 
-Given continuation, the win conditions are (1) mount ≤ 1.0× Reagent-on-subs, same
-run and same instrument, with the codec inside 1.10× of direct UIx `$` on `M1`;
+Given continuation, the win conditions are (1) mount ≤ 1.10× direct UIx `$` on
+canonical `M1`, floor-normalised, on the clock of record — with Reagent-on-subs
+co-instrumented and reported beside that row rather than gating it;
 (2) bulk broad ≤ 1.0× Reagent, red below UIx's measured broad ratio, K2 at 1.5×;
 (3) narrow as a **law** rather than a ratio — commit-side dirty-set flat in `B`
 across 300/600/1,200/2,400 mounted subscribing boundaries, and ≤ 1.0× Reagent,
@@ -272,6 +292,15 @@ materially below UIx's measured narrow ratio; (4) grouped per-read retained heap
 ≤ ≈2,000 B/read on the bench instrument, with a named paper path toward 943 B;
 and (5) a measured ergonomic preference over **Adapter-Prime**, never over the
 floor. The nine pre-registered kill signals are on `rf2-2rtt6.7`.
+
+**Win condition (1) was amended on 2026-08-05 (`rf2-hyd50`); the pair it
+replaced is retired, not restated.** The clause read, verbatim: `mount ≤ 1.0×
+Reagent-on-subs, same run and same instrument, with the codec inside 1.10× of
+direct UIx $ on M1`. Those two halves are arithmetically unsatisfiable
+post-parity — 1.0243 × 1.10 = 1.127, so **they cannot both be met** (2026-07-31
+provisional, `rf2-2rtt6.1`) — and the operator's 2026-08-01 relaxation resolved
+it by dropping the Reagent half, not by tightening the UIx one. Conditions
+(2)–(5) are untouched and stay Reagent-denominated where written.
 
 **The advisory named one precondition, and it is now met.** The clock gate lines
 carried no post-landing restatement when the advisory was issued — the M1 mount
@@ -554,7 +583,7 @@ comparison this section schedules was originally written as
 
 | # | Kill if |
 |---|---|
-| K1 | Mount > Reagent on the reference list+form after two serious runtime iterations |
+| K1 | Mount above the amended mount gate (1.10× direct UIx on the clock of record) after two serious runtime iterations |
 | K2 | Bulk (≥ ~100 boundaries, one commit) > 1.5× Reagent view work after those iterations |
 | K3 | Per-boundary heap worse than Reagent with no paper path to the floor |
 | K4 | Controlled text fails same-tick echo / IME on Chromium and WebKit for a simple form |
@@ -562,6 +591,18 @@ comparison this section schedules was originally written as
 | K7 | Six weeks (HD-014) with no path that is both preferable and ≤ Reagent on K1–K2 |
 
 Red gates shrink scope; they never expand features.
+
+**K1's denominator was amended — mount-gate amendment 2026-08-02, consistency
+edit 2026-08-05 (`rf2-hyd50`).** Its row read, verbatim: `Mount > Reagent on the
+reference list+form after two serious runtime iterations`. That is the same
+stale Reagent denominator the operator relaxed on 2026-08-01, and **there is no
+second mount condition in play**: the mount gate is one line, and
+Reagent-on-subs is co-instrumented and reported beside the mount row rather than
+gating it. **K1 itself stands** — only its trigger is restated, and it still
+bites, on the amended denominator. A Reagent-denominated mount kill, if one is
+ever wanted, must be stated **as a kill** in this table; the 2026-08-02
+amendment rejected carrying one implicitly, on the ground that it would undo the
+operator's explicit relaxation. K2, K3, K4, K6 and K7 are untouched.
 
 **K5 was removed as an operative kill criterion — operator ruling, 2026-08-04.**
 Its row read, verbatim: `> ~8 public concepts or > ~8 guide pages to ship CRUD`.
