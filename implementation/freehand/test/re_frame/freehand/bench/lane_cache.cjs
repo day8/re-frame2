@@ -110,6 +110,15 @@
 // Both are inside the instruments' own round-to-round ranges, so a renaming
 // delta is not something a retained-heap row can see.
 //
+// THE SAME A/B ON THE CLOCK IS NOT EVIDENCE EITHER WAY, and is reported rather
+// than dropped. `b6_prod_run.cjs` over its two bundles exits 0 both times and
+// passes its parity gate both times, but two bundles mean two runs and this
+// studio's clock method interleaves arms WITHIN a round precisely because a
+// loaded box drifts between them. It duly did: the second run's interpreted W1
+// reads `[2.68-10.21]` against the first's `[2.75-4.32]`, so the means part
+// company while every range overlaps. A clock A/B across runs cannot separate
+// an artefact from the box, and nothing above rests on one.
+//
 // AND THE CONTROL THAT MAKES THAT LEGIBLE: a build warm over ITSELF is
 // byte-identical — the ladder built twice with no clear between compiles 0 the
 // second time and emits the same sha256. "Warm" is not the fault; "warm over a
