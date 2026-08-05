@@ -20,6 +20,12 @@
   has adopted the markup. `{:fallback <hiccup>}` renders that markup
   there instead. There is no third value.
 
+  WHAT MAY BE WRITTEN IN THAT FALLBACK is a separate and currently
+  UNRULED question — a boundary head written there is refused by
+  nothing and renders live in the server response. Measured in
+  [[re-frame.bench.hicasso.arm1.fallback-contents-cljs-test]]
+  (rf2-nv07k); nothing in this suite depends on the answer.
+
   ## The three places, and why ONE mechanism covers them
 
   A declaration mints one gate — a component whose single
