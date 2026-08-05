@@ -135,15 +135,39 @@
   512)
 
 (defn- pr-str-bytes
-  "UTF-8 byte count of `v`'s `pr-str` form — the same size metric the
+  "UTF-8 BYTE count of `v`'s `pr-str` form — the same size metric the
   framework's `re-frame.elision` walker uses for its `:bytes` slot, so a
-  tool-side chip reports the same figure a schema-driven one would. Cheap
-  estimate (`count` of the string) on CLJS where byte-exactness isn't
-  available; exact on the JVM test path."
+  tool-side chip reports the same figure a schema-driven one would.
+
+  Bytes on BOTH hosts, and that is load-bearing twice over: the figure is
+  PUBLISHED (the edn-inspector's `● large · N bytes` chip) and it is
+  ENFORCED (`render-args-byte-budget` decides whether an arg is elided at
+  all). Until rf2-2rtt6.131 the CLJS arm was `(count s)` — UTF-16 CODE
+  UNITS — beneath a docstring claiming byte-exactness 'isn't available' on
+  CLJS. That premise was FALSE, and the false premise is why the defect
+  survived: `TextEncoder` is UTF-8 by definition, is present in every
+  browser and in Node, and carries no encoding argument a later edit could
+  silently drop. While it stood, one budget had two rulers — the same
+  render arg could ride through inline in the browser panel and elide under
+  the JVM test.
+
+  Code units agree with UTF-8 bytes only for ASCII, which is what makes the
+  mistake fail open: on an ASCII payload the wrong expression prints the
+  right number and nothing notices, until a prop grows an em-dash, an
+  ellipsis or an emoji. An ASCII-only test cannot see it — hence the
+  non-ASCII + ASTRAL fixtures pinning this in
+  `panels/epoch/projection_cljs_test.cljc`.
+
+  `TextEncoder` and not `Buffer.byteLength`: this ns compiles into the
+  BROWSER panel bundle (and under `:advanced`), where `Buffer` is not
+  there. Same helper shape as `re-frame.ssr.hash` and the hicasso lane's
+  `utf8-bytes` (rf2-2rtt6.121)."
   [v]
   (let [s (pr-str v)]
-    #?(:clj  (count (.getBytes ^String s "UTF-8"))
-       :cljs (count s))))
+    #?(:clj  (alength (.getBytes ^String s "UTF-8"))
+       :cljs (let [^js enc (js/TextEncoder.)
+                   ^js buf (.encode enc s)]
+               (.-length buf)))))
 
 (defn- render-arg-value-type
   "Coarse value-type tag for the size-marker body — mirrors the
