@@ -131,6 +131,10 @@
         "and so does a real React 19 context provider")
     (is (= "RangeError" (:threw (outcome #(pr-str [provider {:value "dark"}]))))
         "and so does an ordinary hiccup vector holding one")
+    (is (= "RangeError" (:threw (outcome #(pr-str #js {"held" [:p provider]}))))
+        "and so does a MIXED chain — foreign object, persistent vector,
+         foreign object — because the printer crosses between the two
+         freely, which is why the detector has to as well")
     (is (identical? provider (.-Provider provider))
         "because React 19's ctx.Provider IS the context object, and that
          object carries a Provider key pointing back at itself — the cycle
@@ -188,7 +192,28 @@
     (let [shared #js {"k" "v"}
           form   [:div {:a shared :b shared}]]
       (is (identical? form (diagnostic/safe-form form)))
+      (is (= (pr-str form) (diagnostic/pr-form form)))))
+  (testing "and a persistent collection nested INSIDE a foreign value is
+           crossed, not treated as the end of the graph — acyclic here, so
+           it must come back untouched."
+    (let [form [:div #js {"held" [:p "x"]}]]
+      (is (identical? form (diagnostic/safe-form form)))
       (is (= (pr-str form) (diagnostic/pr-form form))))))
+
+(deftest a-cycle-through-a-mixed-chain-is-found
+  (testing "`pr-str` alternates between foreign values and persistent
+           collections as it descends, so the detector must too. A walk that
+           stopped at the first persistent collection would report this form
+           acyclic and hand `pr-str` the overflow — which is exactly what
+           the control row above proves happens."
+    (is (= "[:div #js {…cyclic…}]"
+           (diagnostic/pr-form [:div #js {"held" [:p provider]}])))
+    (is (= "#js {…cyclic…}"
+           (diagnostic/pr-form #js {"held" #js [[:p provider]]}))
+        "two collections deep and through an array as well")
+    (rejected-with :rf.error/invalid-hiccup-head
+                   "a mixed-chain cycle in head position"
+                   #(emit/emit-element [#js {"held" [:p provider]} {}]))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.ssr.emit — four throw sites

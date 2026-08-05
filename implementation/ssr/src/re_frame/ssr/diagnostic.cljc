@@ -100,26 +100,39 @@
 
 #?(:cljs
    (defn- reaches-self?
-     "Depth-first over the descend-able foreign graph rooted at `x`,
-     carrying the ancestors on the CURRENT path. True as soon as a value
-     already on that path is reached again — which is precisely the
+     "Depth-first over everything `cljs.core`'s printer descends into,
+     carrying the FOREIGN ancestors on the CURRENT path. True as soon as a
+     value already on that path is reached again — which is precisely the
      condition under which `pr-str` would not terminate.
 
-     Path-scoped, not global: a value reachable twice by DIFFERENT paths
-     (a shared subtree) is not a cycle, and `pr-str` prints it twice and
+     IT DESCENDS PERSISTENT COLLECTIONS TOO, because the printer does: the
+     `object?` branch hands each value to `pr-writer`, which recurses into a
+     vector or map like any other, so a cycle can be reached by a MIXED
+     chain — `#js {\"held\" [:p ctx.Provider]}`. A walk that stopped at the
+     first persistent collection would call that value acyclic and hand
+     `pr-str` the overflow anyway. Only foreign values go ON the path: a
+     cycle cannot be built out of persistent collections, so nothing else
+     can close one.
+
+     Path-scoped, not global: a value reachable twice by DIFFERENT paths (a
+     shared subtree) is not a cycle, and `pr-str` prints it twice and
      terminates. Cost tracks `pr-str`'s own — it visits the same graph the
-     printer would — so a graph this is slow on is a graph `pr-str` was
-     already slow on. Failure path only."
+     printer would — so a graph this is slow on is one `pr-str` was already
+     slow on. Failure path only."
      [x path]
      (cond
-       (not (descends? x))            false
-       (some #(identical? % x) path)  true
-       :else
-       (let [path (conj path x)]
-         (boolean
-           (if (array? x)
-             (some #(reaches-self? % path) (array-seq x))
-             (some #(reaches-self? (unchecked-get x %) path) (js-keys x))))))))
+       (descends? x)
+       (or (boolean (some #(identical? % x) path))
+           (let [path (conj path x)]
+             (boolean
+               (if (array? x)
+                 (some #(reaches-self? % path) (array-seq x))
+                 (some #(reaches-self? (unchecked-get x %) path) (js-keys x))))))
+
+       (coll? x)
+       (boolean (some #(reaches-self? % path) (seq x)))
+
+       :else false)))
 
 #?(:cljs
    (defn- cyclic-foreign?
@@ -138,15 +151,15 @@
 
 #?(:cljs
    (defn- reaches-cycle?
-     "Does any value anywhere in `form` carry a foreign cycle? Walks the
-     persistent structure (`tree-seq` over `coll?`), which is where a
-     hiccup element / tree node keeps its foreign leaves.
+     "Is there a foreign cycle anywhere in `form`? One `reaches-self?` from
+     the root covers it, because that walk already crosses freely between
+     persistent collections and foreign values.
 
      This scan is what buys the byte-identity guarantee: when it says no,
      `safe-form` returns the input object itself and cannot have perturbed
      anything."
      [form]
-     (boolean (some cyclic-foreign? (tree-seq coll? seq form)))))
+     (reaches-self? form [])))
 
 ;; ---------------------------------------------------------------------------
 ;; Public surface.
