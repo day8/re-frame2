@@ -459,6 +459,11 @@ function handlerSites(s) {
  * time hiding in the gate. `code()` above blanks comment-ONLY lines, which is
  * the right scrub for finding registrations but leaves both of those standing.
  *
+ * A TEMPLATE'S `${...}` IS THE OTHER HALF OF THAT SENTENCE. Its text is a
+ * string, but its substitutions are code — `` `${errors.length} page errors` ``
+ * genuinely reads the sink — so the runs of text are blanked and the
+ * substitutions are left standing.
+ *
  * THE ONE THING IT DOES NOT LEX IS A REGEX LITERAL, and the omission is bounded
  * two ways rather than hoped about. It cannot run away: a `'` or `"` that finds
  * no partner before the newline is put back as a lone character, so a character
@@ -488,7 +493,40 @@ function maskLiterals(s) {
       const end = close === -1 ? s.length : close + 2;
       blank(i, end);
       i = end;
-    } else if (c === "'" || c === '"' || c === '`') {
+    } else if (c === '`') {
+      // A TEMPLATE'S TEXT IS A STRING; ITS `${...}` SUBSTITUTIONS ARE CODE.
+      // `console.error(`${errors.length} page errors`)` reads the sink, and
+      // blanking the whole literal would lose that read. Text runs are blanked,
+      // substitutions are left standing, and nothing is written until the
+      // closing backtick is actually found.
+      const runs = [];
+      let j = i + 1;
+      let runFrom = i;
+      let closed = false;
+      while (j < s.length) {
+        if (s[j] === '\\') {
+          j += 2;
+        } else if (s[j] === '`') {
+          closed = true;
+          break;
+        } else if (s[j] === '$' && s[j + 1] === '{') {
+          const close = s.indexOf('}', j + 2);
+          if (close === -1) break;
+          runs.push([runFrom, j + 2], [close, close + 1]);
+          j = close + 1;
+          runFrom = j;
+        } else {
+          j += 1;
+        }
+      }
+      if (!closed) {
+        i += 1; // a lone backtick consumes nothing
+      } else {
+        runs.push([runFrom, j + 1]);
+        for (const [from, to] of runs) blank(from, to);
+        i = j + 1;
+      }
+    } else if (c === "'" || c === '"') {
       let j = i + 1;
       let closed = false;
       while (j < s.length) {
@@ -500,7 +538,7 @@ function maskLiterals(s) {
           closed = true;
           break;
         }
-        if (s[j] === '\n' && c !== '`') break; // not a string: `'` and `"` cannot span lines
+        if (s[j] === '\n') break; // not a string: `'` and `"` cannot span lines
         j += 1;
       }
       if (!closed) {
@@ -763,6 +801,30 @@ const READER_FIXTURES = [
     ].join('\n'),
   },
   {
+    id: 'the only read is inside a template substitution',
+    read: true,
+    // `${errors.length}` is code wearing a string's clothes. Blanking the whole
+    // literal would lose the read and report a refusing driver as an offender.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'if (done) {',
+      '  console.error(`[x] ${errors.length} page error(s) — the run is not reportable`);',
+      '  process.exit(1);',
+      '}',
+    ].join('\n'),
+  },
+  {
+    id: 'a template TEXT naming the array is still not a read',
+    read: false,
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] errors are recorded, ${count} of them`);',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
     id: "a regex character class full of quotes does not blind the reader",
     read: true,
     // The masker's documented limit, pinned rather than assumed. `b7_run.cjs`,
@@ -802,6 +864,7 @@ test('the mask blanks comments and strings, and preserves every index', () => {
     '/* three */ const b = `four',
     'five`;',
     "const re = /^\"|\"$/g;",
+    'const c = `six ${seven} eight`;',
   ].join('\n');
   const m = maskLiterals(s);
   assert.strictEqual(m.length, s.length, 'the mask must preserve length');
@@ -810,16 +873,16 @@ test('the mask blanks comments and strings, and preserves every index', () => {
     s.split('\n').length,
     'the mask must preserve line count'
   );
-  for (const gone of ['one', 'two', 'three', 'four', 'five']) {
+  for (const gone of ['one', 'two', 'three', 'four', 'five', 'six', 'eight']) {
     assert.ok(!m.includes(gone), `\`${gone}\` is inside a comment or string and must be blanked`);
   }
-  for (const kept of ['const a', 'const b', 'const re']) {
+  for (const kept of ['const a', 'const b', 'const re', 'const c', 'seven']) {
     assert.ok(m.includes(kept), `\`${kept}\` is code and must survive the mask`);
   }
   // The documented limit: a lone quote inside a regex class blanks a little of
   // its OWN line and never runs on. `const re` above survives, and so does the
   // line after it.
-  assert.strictEqual(m.split('\n').length, 4);
+  assert.strictEqual(m.split('\n').length, 5);
 });
 
 test('every driver that uses the shared collector also READS its failures', () => {
