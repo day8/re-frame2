@@ -1226,6 +1226,21 @@ The contract is authored as the appendix argues — *one carried invariant*, the
   single-frame apps" is **refined, not wholesale**: plurality stays invisible
   *inside a frame's scope*; only the absence of **any** scope is made loud.
 
+> **Erratum — 2026-08-06 (rf2-f7j00, recording the rf2-j4bg3 spec correction).**
+> Read R6's "through the … correlation graph" strictly. The frameless payload
+> carries the single `:rf.trace/dispatch-id` stamp; the parent link is *walked*
+> from it, never copied onto it. `re-frame.frame/no-frame-context-payload` and
+> `re-frame.frame/ambient-frame-refused-payload` each merge only
+> `:rf.trace/dispatch-id`, `re-frame.trace/HandlerScope` has no parent slot to
+> thread one from, and `:rf.trace/parent-dispatch-id` is scoped to
+> `:rf.event/dispatched` per
+> [009 §Dispatch correlation](../../spec/009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id),
+> so it never rides a frameless payload. Spec 009, Spec-Schemas and 002 had
+> listed it on that payload and were corrected; the identical two-key phrasing
+> in the
+> [appendix §G](#g-make-the-rationale-the-detection-and-the-error-more-re-frame2)
+> bullet R6 adopts is covered by this erratum.
+
 ### Open-Issue resolutions
 
 The seven Open Issues are resolved against their Recommendations (Mike accepted
