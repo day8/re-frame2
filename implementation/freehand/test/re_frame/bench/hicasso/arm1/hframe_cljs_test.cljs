@@ -164,6 +164,11 @@
 
       (testing "invoked from outside any extent at all — the foreign
                component's own render"
+        (is (not (rt/rendering?))
+            "the premise, asserted rather than described: the arm's own
+             render slot is EMPTY at the moment the callback runs, so a
+             `h/frame` built on `rstate.frame` would answer nothing here.
+             This is design §3's load-bearing sentence, made measurable")
         (@callback)
         (is (= frame-a @seen)))
 
