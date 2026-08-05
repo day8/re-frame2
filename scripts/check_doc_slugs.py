@@ -22,6 +22,18 @@ Exit code:
     2  invocation / setup error
 
 Notes on what is and isn't checked:
+    * REPO-ROOT MARKDOWN IS NOT THIS GATE'S (rf2-znup0). The roster is
+      DEFAULT_ROOTS plus tools/*/spec (see `_iter_markdown`), so `TESTING.md`,
+      `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `AGENTS.md` and
+      `SKILL-REDIRECT.md` are never opened here — this gate exits 0 on a broken
+      link in any of them. Several dispatch briefs have nominated it as the gate
+      for a root-markdown edit and got a green exit code that verified nothing.
+      Root markdown appears nowhere in `mkdocs.yml`, so GitHub renders it and
+      `scripts/check_readme_links.py` owns it: that gate models GitHub's `-N`
+      duplicate-heading suffix where this one models MkDocs' `_N`, and it runs
+      on every PR. Widening THIS roster to the repo root was considered and
+      rejected — it would double-cover the root `README.md` under two
+      conflicting duplicate-suffix rules.
     * Only intra-repo links are validated. External http(s) URLs are skipped.
     * Only links to .md files are validated. Code, image, and asset links
       are skipped (their existence is mkdocs' concern, not the slug index's).
