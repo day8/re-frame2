@@ -20,7 +20,7 @@ box around the broken component.
 If `article-body` throws, the header and footer stay up and the paragraph takes
 its place. Nothing else in the tree notices. `h/boundary` is a component you
 write; it is not the [rendering boundary](02-views-and-reads.md#boundaries-and-inlining)
-every vector child mints. Same word, different thing, and only this one catches.
+a `defview` mints. Same word, different thing, and only this one catches.
 
 ## The three keys
 
