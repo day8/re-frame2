@@ -85,10 +85,20 @@
   "Run `f` and describe what happened as DATA. On a throw the map carries the
   host error NAME (so a stack overflow shows up as `\"RangeError\"` in the
   failure text), the framework error id, the message, and whether the ex-data
-  survives `pr-str` — which is the ex-data half of the defect."
+  survives `pr-str` — which is the ex-data half of the defect.
+
+  THE RETURN VALUE IS RECORDED AS A BOOLEAN, NEVER AS ITSELF, and that is
+  load-bearing rather than tidiness. Several sites here RETURN their input
+  (`check-key!` does; a guard that stopped firing would too), so a `:returned`
+  slot would hold the cyclic fixture — and every failure message below
+  `pr-str`s the outcome map. A regression would then raise the very
+  `RangeError` under test FROM THE ASSERTION, producing a red that looks
+  exactly like the product defect while the product is fine. Keeping only
+  `:returned?` makes the outcome map safe to print by construction, so the
+  failure text stays trustworthy under precisely the conditions it exists for."
   [f]
   (try
-    {:returned (f)}
+    (do (f) {:returned? true})
     (catch :default e
       (let [data (ex-data e)]
         {:threw    (.-name e)
@@ -256,11 +266,17 @@
                       (runtime/check-key! seen k)
                       (runtime/check-key! seen k))))]
       (is (nil? (:threw o))
-          (str "the duplicate-key warning must not overflow; got " (pr-str (dissoc o :warned))))
+          (str "the duplicate-key warning must not overflow; got "
+               (pr-str (dissoc o :warned))))
+      (is (true? (:returned? o))
+          "and `check-key!` still returns its key, warning being a side effect")
       (is (= 1 (count (:warned o)))
           (str "exactly one duplicate warning fires; got " (pr-str (:warned o))))
       (is (str/includes? (first (:warned o)) "duplicate key")
-          (str "and it is the duplicate-key warning; got " (pr-str (:warned o)))))))
+          (str "and it is the duplicate-key warning; got " (pr-str (:warned o))))
+      (is (str/includes? (first (:warned o)) "#js {…cyclic…}")
+          (str "with the cyclic key replaced by the fixed token; got "
+               (pr-str (:warned o)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.ui.tree — the JVM-emitter substrate, measured on its CLJS arm
