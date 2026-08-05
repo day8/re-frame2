@@ -1454,7 +1454,9 @@ The reference runtime brackets four hot-path call sites. Each runs inside a `(pe
 | `:event`  | Event handler invocation (router's `process-event*` step that runs the interceptor chain) | `rf:event:<event-id>` |
 | `:sub`    | Subscription recompute (the body fn inside `compute-and-cache!`'s reaction) | `rf:sub:<sub-id>` |
 | `:fx`     | Per-fx walk-step (every entry processed by `handle-one-fx`, including reserved fx-ids `:dispatch` / `:dispatch-later` / `:rf.fx/reg-flow` / `:rf.fx/clear-flow` and user-registered fx) | `rf:fx:<fx-id>` |
-| `:render` | Per-`reg-view` render (the wrapper emitted by `reg-view*`) | `rf:render:<view-id>` |
+| `:render` | Per view-boundary render — the wrapper the **view substrate** emits around a registered view's body (`reg-view*`'s frame-aware wrapper on the adapter path; the equivalent minted component fn on a compiled-view substrate) | `rf:render:<view-id>` |
+
+**The `:render` bucket is keyed on the representation, not on the registration API.** One entry means *one view boundary's body ran, once, because the host asked for it* — so any substrate that mints view boundaries owns this bucket on the same terms, and a substrate that mints them by more than one route (e.g. a second wrapper taking its frame as a prop rather than from context) brackets every route or reports half a page. Three consequences follow rather than being separately specified: a render the host **skipped** (a memoization bail-out, where the substrate's comparator sits above the bracketed fn) emits nothing, because no body ran; a host that **invokes the body twice** for one logical render (React StrictMode's dev double-invoke) correctly emits twice, because two bodies ran; and a substrate that **re-runs a body internally** for one host render — a consistency fence, a retry loop — emits **one** entry spanning the retries, because the host asked once and the duration a consumer wants is the wall-clock the host paid. Plain helper functions inlined into a body are not view boundaries and are not separately bracketed; their cost lands inside the enclosing boundary's entry.
 
 The bracket shape (when the flag is on at compile time):
 
@@ -1488,6 +1490,8 @@ rf:render:my.app/page-header
 ```
 
 Tools that want a per-bucket view split on the second `:`. The shape is **stable**: new buckets adopt the `rf:<bucket>:<id>` convention and are additive.
+
+**`<id>` is the id the thing was registered under, rendered verbatim** — `build-name` preserves a keyword's namespace and stringifies a symbol or string as written. A view substrate whose views are named with strings rather than keywords (a macro that mints `"<ns>/<view>"`) therefore produces the same `rf:render:my.app/page-header` shape with nothing to reconcile; the rule is that the `<view-id>` in the measure name and the id the substrate publishes to the developer (React `displayName`, the registrar key) are **one identifier**, so a name read off the User-Timing stream is directly jumpable in the tooling.
 
 ### Consumer access
 
