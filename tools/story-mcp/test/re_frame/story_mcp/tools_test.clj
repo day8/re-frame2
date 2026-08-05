@@ -1574,6 +1574,81 @@
       (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))
           "oversize payload routes through the EDN-error message"))))
 
+;; rf2-2rtt6.131 -- the 64KB ceiling is a UTF-8 BYTE budget, and the test
+;; above cannot see whether it is. Its fixture is `xxxx...`: on ASCII, UTF-16
+;; code units and UTF-8 bytes are the same number, so a code-unit ruler and a
+;; byte ruler agree and both go green. `read-edn-body` used to carry
+;; `#?(:clj (count (.getBytes body "UTF-8")) :cljs (count body))` -- one
+;; refusal with two rulers -- and the ASCII fixture is exactly why nobody
+;; noticed.
+;;
+;; A DISCRIMINATING fixture is one whose code-unit count sits comfortably
+;; UNDER the cap while its wire-byte count sits comfortably OVER it, so a
+;; code-unit ruler ADMITS the payload and a byte ruler REFUSES it. Written as
+;; `\uXXXX` escapes (pure-ASCII source, no encoding surprise in transit),
+;; matching the frame-cap fixtures further down this file.
+
+(def ^:private em-dash-3byte
+  "U+2014 EM DASH -- 1 UTF-16 code unit, 1 code point, 3 UTF-8 bytes."
+  "\u2014")
+
+(def ^:private gclef-4byte
+  "U+1D11E MUSICAL SYMBOL G CLEF -- 1 code point, 2 UTF-16 code units (a
+  surrogate pair), 4 UTF-8 bytes. Code units, code points and bytes are
+  three different numbers here, so nothing can be accidentally right."
+  "\uD834\uDD1E")
+
+(defn- edn-doc-body
+  "An EDN variant body `{:doc \"<n copies of ch>\"}`. The wrapper is 9 ASCII
+  characters, so the body's code-unit and byte counts differ only by `ch`."
+  [ch n]
+  (str "{:doc " (pr-str (apply str (repeat n ch))) "}"))
+
+(defn- utf8-byte-len
+  "UTF-8 byte length of `s` -- the unit `max-body-bytes` is denominated in."
+  [^String s]
+  (alength (.getBytes s "UTF-8")))
+
+(deftest register-variant-rejects-oversize-multibyte-edn-body
+  (testing "a body UNDER the cap in code units but OVER it in UTF-8 BYTES is
+            rejected (rf2-2rtt6.131) -- the ceiling counts wire bytes"
+    (config/set-allow-writes! true)
+    (doseq [[what ch n code-units bytes]
+            [["3-byte BMP (em-dash)"   em-dash-3byte 30000 30009 90009]
+             ["4-byte astral (G clef)" gclef-4byte   20000 40009 80009]]]
+      (let [body (edn-doc-body ch n)]
+        (is (= code-units (count body))
+            (str what ": the fixture is genuinely UNDER the cap in code units"))
+        (is (< (count body) (* 64 1024))
+            (str what ": so a code-unit ruler would have ADMITTED it"))
+        (is (= bytes (utf8-byte-len body))
+            (str what ": and genuinely OVER it in UTF-8 bytes"))
+        (is (> (utf8-byte-len body) (* 64 1024))
+            (str what ": so a byte ruler must REFUSE it"))
+        (let [r (invoke "register-variant"
+                        {:variant-id "story.button/oversize-multibyte"
+                         :body       body})]
+          (is (error? r) (str what ": refused"))
+          (is (re-find #"(?i)must be a map or a valid EDN string"
+                       (-> r :content first :text))
+              (str what ": through the size gate, not the registrar")))))))
+
+(deftest register-variant-admits-ascii-body-of-the-same-code-unit-length
+  (testing "the correction only ever TIGHTENS -- UTF-8 bytes are never fewer
+            than UTF-16 code units, so an ASCII body of the SAME code-unit
+            length as the rejected multibyte one still clears the size gate
+            (rf2-2rtt6.131). Nothing that used to pass the cap now refuses."
+    (config/set-allow-writes! true)
+    (let [body (edn-doc-body "x" 30000)
+          r    (invoke "register-variant"
+                       {:variant-id "story.button/ascii-under-cap"
+                        :body       body})]
+      (is (= (count body) (utf8-byte-len body))
+          "on ASCII the two rulers agree exactly -- which is the blind spot")
+      (is (not (re-find #"(?i)must be a map or a valid EDN string"
+                        (-> r :content first :text)))
+          "the size gate does not fire on an under-cap ASCII body"))))
+
 (deftest register-variant-rejects-over-deep-edn-body
   (testing "EDN body exceeding the 64-level depth ceiling is rejected (rf2-g9fje)"
     (config/set-allow-writes! true)
@@ -2664,7 +2739,9 @@
 ;; Wire-boundary token-budget cap.
 ;;
 ;; The cap is applied at `invoke-tool` egress — the cumulative
-;; `:text`-slot byte count is compared against `:max-tokens` (default
+;; `:text`-slot TOKEN ESTIMATE (`overflow/token-estimate` -- a CHARACTER
+;; count divided by four, not a byte count) is compared against
+;; `:max-tokens` (default
 ;; `overflow/default-max-tokens`; `0` disables). Over-budget responses
 ;; are replaced with `{:rf.mcp/overflow {...}}` per the cross-MCP shape
 ;; pinned in `re-frame.mcp-base.overflow/overflow-payload`.

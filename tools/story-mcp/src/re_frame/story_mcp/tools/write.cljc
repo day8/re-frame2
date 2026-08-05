@@ -58,9 +58,11 @@
 ;;      silently swallow unknown tags via `*default-data-reader-fn*`,
 ;;      which is a footgun on agent-supplied input.
 ;;
-;;   2. Cap payload size at 64KB. A 64KB EDN map is generous for a
-;;      variant body (`:doc` + `:args` + a few `:tags`); abusive payloads
-;;      get a clean reject rather than allocating a megabyte.
+;;   2. Cap payload size at 64KB of UTF-8 BYTES — the unit the wire
+;;      actually charges, not `count`'s UTF-16 code units (rf2-2rtt6.131;
+;;      see `read-edn-body`). A 64KB EDN map is generous for a variant body
+;;      (`:doc` + `:args` + a few `:tags`); abusive payloads get a clean
+;;      reject rather than allocating a megabyte.
 ;;
 ;;   3. Cap nesting depth at 64 levels. The registrar's body shape is at
 ;;      most 3-4 levels deep (variant → `:args` → user-supplied map →
@@ -149,11 +151,23 @@
   `#<tag> ...` form in the input lands in the `:default` handler,
   which throws, which the outer try/catch maps to `::edn-error`.
   Size and depth are checked OUT-OF-BAND (before / after the read)
-  so the reader sees only sanitised inputs."
+  so the reader sees only sanitised inputs.
+
+  The size check counts UTF-8 BYTES, matching `max-body-bytes`' declared
+  unit. It used to carry a `#?(:clj … :cljs (count body))` arm whose CLJS
+  half counted UTF-16 CODE UNITS, so a non-ASCII body could be refused
+  under one ruler and admitted under the other (rf2-2rtt6.131). That arm
+  was also unreachable: this ns requires `clojure.edn` and catches
+  `Throwable` unconditionally, and story-mcp is a JVM-only artefact by
+  declaration (`tools/story-mcp/deps.edn` §JVM-only; `tools/shadow-cljs.edn`
+  lists it among the JVM-only tools). A phantom second host publishing a
+  WRONG number is worse than no second host, so the conditional is gone and
+  the one ruler that runs is the correct one. Code units equal UTF-8 bytes
+  only for ASCII — which is exactly why an ASCII-only oversize fixture
+  could never see the defect."
   [^String body]
   (try
-    (let [byte-count #?(:clj  (count (.getBytes body "UTF-8"))
-                        :cljs (count body))]
+    (let [byte-count (alength (.getBytes body "UTF-8"))]
       (if (> byte-count max-body-bytes)
         ::edn-error
         (let [parsed (edn/read-string

@@ -523,9 +523,13 @@ When `:body` is a string, it's parsed as EDN under a hardened policy
   any other `#<tag> ...` form is rejected. The `#=(...)` read-eval form
   is rejected by `clojure.edn` at the dispatch-macro level (never
   evaluated).
-- **64 KB payload ceiling.** A legitimate variant body is well under 1 KB;
-  abusive payloads return an `isError: true` `"must be a map or a valid
-  EDN string"` result before `edn/read-string` walks the input.
+- **64 KB payload ceiling, measured in UTF-8 BYTES.** A legitimate variant
+  body is well under 1 KB; abusive payloads return an `isError: true`
+  `"must be a map or a valid EDN string"` result before `edn/read-string`
+  walks the input. The unit is bytes and not `count`'s UTF-16 code units,
+  so a body of multibyte characters is charged what it costs on the wire —
+  30,000 em-dashes are 90,000 bytes and are refused, even though they are
+  only 30,000 code units (rf2-2rtt6.131).
 - **64-level depth ceiling.** Variant bodies top out at 3-4 levels;
   deeper inputs short-circuit cleanly.
 

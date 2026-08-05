@@ -3628,6 +3628,70 @@
         (is (nil? (fmt/elide-large-render-args nil)))
         (is (= :not-a-vec (fmt/elide-large-render-args :not-a-vec)))))))
 
+;; ---- rf2-2rtt6.131 -- the budget is BYTES, on both hosts ----------------
+;;
+;; `render-args-byte-budget` is not a label, it is a REFUSAL: an element over
+;; it is replaced by the size marker, and the marker's `:bytes` slot is then
+;; PUBLISHED as the chip's figure. Until this bead the CLJS arm of
+;; `pr-str-bytes` was `(count s)` -- UTF-16 CODE UNITS -- so one budget had
+;; two rulers: the same render arg could ride through inline in the browser
+;; panel and elide under the JVM test.
+;;
+;; An ASCII-only fixture CANNOT see that. Code units and UTF-8 bytes agree
+;; exactly on ASCII, which is why the defect survived a green suite. The
+;; fixtures below are picked so code units, code POINTS and bytes are three
+;; different numbers, and they are written as `\uXXXX` escapes so the source
+;; file stays pure ASCII and no encoding hop can perturb them (the convention
+;; `story-mcp`'s frame-cap fixtures already use).
+;;
+;; This file runs under BOTH the cognitect JVM runner and shadow's
+;; `:node-test` build (see the ns docstring), so a green run here IS the
+;; two-host agreement -- not a CLJS-only half-proof.
+
+(deftest render-args-budget-counts-utf8-bytes-not-code-units-test
+  (let [;; U+2014 EM DASH -- 1 UTF-16 code unit, 1 code point, 3 UTF-8 bytes.
+        dashes (apply str (repeat 200 "\u2014"))
+        ;; U+1D11E MUSICAL SYMBOL G CLEF -- 1 code POINT, 2 code units (a
+        ;; surrogate pair), 4 UTF-8 bytes. Three different numbers, so
+        ;; nothing below can be accidentally right.
+        score  (apply str (repeat 130 "\uD834\uDD1E"))
+        ;; The ASCII control, where the two rulers agree and always did.
+        ascii  (apply str (repeat 200 "x"))
+        marker (fn [v]
+                 (:rf.size/large-elided
+                  (first (fmt/elide-large-render-args [v]))))]
+
+    (testing "the fixtures are DISCRIMINATING -- a code-unit ruler and a byte
+              ruler must disagree about them, or this test proves nothing"
+      (is (= 202 (count (pr-str dashes)))
+          "200 em-dashes pr-str to 202 code units -- UNDER the 512 budget")
+      (is (= 262 (count (pr-str score)))
+          "130 astral code points pr-str to 262 code units -- also under it")
+      (is (= 202 (count (pr-str ascii)))
+          "the ASCII control matches the em-dash fixture in code units")
+      (is (<= (count (pr-str dashes)) fmt/render-args-byte-budget))
+      (is (<= (count (pr-str score))  fmt/render-args-byte-budget)))
+
+    (testing "a non-ASCII arg UNDER the budget in code units but OVER it in
+              UTF-8 bytes IS elided -- the refusal turns on bytes"
+      (is (some? (marker dashes))
+          "602 bytes > the 512 budget, so the em-dash arg elides")
+      (is (some? (marker score))
+          "522 bytes > the 512 budget, so the astral arg elides"))
+
+    (testing "and the PUBLISHED figure is the byte count, not the code units"
+      (is (= 602 (:bytes (marker dashes)))
+          "200 * 3 bytes + the 2 quote chars -- a code-unit ruler said 202")
+      (is (= 522 (:bytes (marker score)))
+          "130 * 4 bytes + the 2 quote chars -- a code-unit ruler said 262"))
+
+    (testing "the ASCII control at the SAME code-unit length still passes --
+              the correction only ever TIGHTENS (UTF-8 bytes are never fewer
+              than UTF-16 code units), so nothing that used to be refused can
+              now slip through"
+      (is (nil? (marker ascii))
+          "202 bytes == 202 code units, still well under the 512 budget"))))
+
 (deftest phase-label-test
   (testing "phase labels render every closed-set member"
     (is (= "exit"            (fmt/phase-label :exit)))
