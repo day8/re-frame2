@@ -130,6 +130,7 @@ Dependency-light — Python stdlib only.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -925,15 +926,36 @@ def _iter_source_files(scan_root: Path, include_tests: bool) -> Iterable[Path]:
     (`scan(<one .cljc fixture>)`). It is deliberately NOT reachable from the
     CLI: `main` requires every `--scan-dir` to be a directory (rf2-un9fk), so
     a file passed there is rejected with rc=2 rather than quietly scanning
-    one file — or, before that fix, zero."""
+    one file — or, before that fix, zero.
+
+    PRUNED, not filtered-after (rf2-76c76; method proven by rf2-e1xx0 in
+    `check_retired_image_keys.py`). `_EXCLUDE_DIR_NAMES` is dropped from
+    `os.walk`'s dirnames IN PLACE, so a built checkout never descends into
+    `implementation/.shadow-cljs` (34.8k entries), `out` (9.7k) or
+    `node_modules` (3.4k). `rglob("*")` enumerated all 51.6k entries under
+    `implementation/` — the whole scan root — and discarded them one at a
+    time: 3.2s of this gate's 3.4s wall clock on a built tree.
+
+    The surviving sequence is IDENTICAL, set and order: pruning drops only
+    what the `_EXCLUDE_DIR_NAMES` test below already dropped, and the
+    collected matches go through ONE GLOBAL `sorted()`, reproducing
+    `sorted(rglob("*"))`'s whole-subtree ordering rather than os.walk's
+    directory-grouped order."""
     if scan_root.is_file():
         if scan_root.suffix in _SOURCE_SUFFIXES:
             yield scan_root
         return
-    for path in sorted(scan_root.rglob("*")):
-        if path.suffix not in _SOURCE_SUFFIXES:
-            continue
-        parts = set(path.relative_to(scan_root).parts)
+    scan_prefix_len = len(scan_root.as_posix()) + 1
+    matches: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(scan_root):
+        dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
+        for name in filenames:
+            if os.path.splitext(name)[1] in _SOURCE_SUFFIXES:
+                matches.append(Path(dirpath) / name)
+    for path in sorted(matches):
+        # Kept as the belt to the pruning's braces, and now on string ops:
+        # `Path.relative_to` was pure pathlib object churn for a prefix strip.
+        parts = set(path.as_posix()[scan_prefix_len:].split("/"))
         if parts & _EXCLUDE_DIR_NAMES:
             continue
         if not include_tests and (parts & _TEST_DIR_NAMES):
