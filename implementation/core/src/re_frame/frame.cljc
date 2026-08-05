@@ -711,9 +711,11 @@
 ;; The frameless error is itself frameless: it rides the ALWAYS-ON error
 ;; axis (`re-frame.error-emit/dispatch-on-error!`, surface #4 — survives
 ;; `:advanced` + `goog.DEBUG=false`), not per-frame epoch capture. It
-;; carries capture-site ancestry through the `:rf.trace/dispatch-id` /
-;; `:rf.trace/parent-dispatch-id` correlation graph (read off the in-scope
-;; `trace/*handler-scope*`), so the hardest case — a callback captured at
+;; carries capture-site ancestry through the `:rf.trace/dispatch-id`
+;; correlation graph (read off the in-scope `trace/*handler-scope*`, whose
+;; five slots carry no parent — per Spec 009 §Dispatch correlation,
+;; `:rf.trace/parent-dispatch-id` is scoped to `:rf.event/dispatched` only and
+;; is walked FROM this dispatch), so the hardest case — a callback captured at
 ;; handler X in frame Y whose continuation fires with no stamp after the
 ;; cascade ended — is fully attributed even though the error has no frame
 ;; of its own.
@@ -736,9 +738,13 @@
      :event-id    <kw>        ;; the in-flight op's id, when known
      :recovery    :supply-frame}
 
-  `extra` (optional) merges additional context-site ancestry slots —
-  `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (capture-site
-  correlation) — and any caller-supplied `:where` / `:event-id`. Caller-
+  `:reason` is always composed, and `:rf.trace/dispatch-id` (the capture-site
+  correlation key) is merged whenever a handler scope is in effect. There is
+  no `:rf.trace/parent-dispatch-id` on this payload: per Spec 009 §Dispatch
+  correlation that key is scoped to `:rf.event/dispatched` only, and the
+  parent is walked from the dispatch-id through the correlation graph.
+
+  `extra` (optional) merges caller-supplied `:where` / `:event-id`. Caller-
   supplied keys win over the defaults so a call site can name itself
   precisely."
   ([operation] (no-frame-context-payload operation nil))

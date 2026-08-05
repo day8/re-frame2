@@ -1311,23 +1311,36 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:rf.sub/query-v {:optional true} [:vector :any]]])
 
 (def NoFrameContextTags
-  ;; `:rf.error/no-frame-context` — a frame-scoped op (`subscribe` / `dispatch`)
-  ;; carried no frame stamp and ran under no established scope (EP-0002 strict
-  ;; embedded-app absent-target case). The error is itself FRAMELESS (no
-  ;; `:frame` tag): it rides the always-on error axis and is correlated to its
-  ;; capture site through the `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id`
-  ;; ancestry graph instead. Per the 009 error catalogue row, [002 §Frame target
-  ;; resolution], and [004 §The footgun is now `:rf.error/no-frame-context`].
+  ;; `:rf.error/no-frame-context` — a frame-scoped op carried no frame stamp and
+  ;; ran under no established scope (EP-0002 strict embedded-app absent-target
+  ;; case). The error is itself FRAMELESS (no `:frame` tag): it rides the
+  ;; always-on error axis and is correlated to its capture site through the
+  ;; `:rf.trace/dispatch-id` ancestry graph instead. Per the 009 error catalogue
+  ;; row, [002 §Frame target resolution], and [004 §The footgun is now
+  ;; `:rf.error/no-frame-context`].
+  ;;
+  ;; `:operation` is an OPEN set, never a closed pair: the category is defined by
+  ;; the ABSENCE, so whatever the requiring call site named reaches this payload —
+  ;; core's bare ops (`:subscribe` / `:subscribe-once` / `:unsubscribe` /
+  ;; `:dispatch` / `:capture-frame` / `:current-frame-id` / `:frame-provider` / …),
+  ;; the carried-stamp seam's namespaced ids (`:rf.http/managed`,
+  ;; `:rf.route/navigate`, `:rf.ssr/hydrate`, …), and whatever a pass-through
+  ;; caller supplies (`re-frame.schemas.storage` forwards its own caller's).
+  ;; `:where` is a SYMBOL naming the resolving call site (`'re-frame.subs/subscribe`,
+  ;; `'re-frame.router/build-envelope`), not a keyword.
   [:map
    [:category    :keyword]                         ;; [:= :rf.error/no-frame-context] in a closed schema
-   [:operation   [:enum :dispatch :subscribe]]      ;; the failing frame-scoped op
-   [:where       :keyword]                          ;; :re-frame.router/dispatch! | :re-frame.subs/subscribe
+   [:operation   :keyword]                          ;; the failing frame-scoped op — open set (above)
+   [:where       {:optional true} :any]             ;; the resolving call site, a symbol; the 1-arity requiring forms omit it
    [:event-id    {:optional true} :keyword]         ;; the query-id / event-id the op carried
+   [:reason      :string]                           ;; the composed "establish a scope one of three ways" sentence
    [:recovery    {:optional true} :keyword]         ;; :supply-frame
-   ;; capture-site ancestry (frameless correlation) — present when the op fired
-   ;; inside a continuation captured during a known run
-   [:rf.trace/dispatch-id        {:optional true} :any]
-   [:rf.trace/parent-dispatch-id {:optional true} :any]])
+   ;; capture-site ancestry (frameless correlation) — the in-scope handler
+   ;; scope's dispatch-id, present when the op fired inside a continuation
+   ;; captured during a known run. There is no parent key here: per
+   ;; [009 §Dispatch correlation] `:rf.trace/parent-dispatch-id` is scoped to
+   ;; `:rf.event/dispatched` only, and the parent is walked from this dispatch.
+   [:rf.trace/dispatch-id {:optional true} :any]])
 
 (def BadFrameProviderArgTags
   ;; `:rf.error/bad-frame-provider-arg` — a public `frame-provider`'s `:frame`

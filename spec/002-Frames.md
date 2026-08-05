@@ -172,7 +172,9 @@ The frameless error is itself frameless: it is emitted through the **always-on e
 axis** (the production-survivable error-emit listener, surface #4 per
 [009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)),
 not per-frame epoch capture. It carries **capture-site ancestry** through the
-existing `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` correlation graph,
+existing `:rf.trace/dispatch-id` correlation graph (that one key — the parent link
+is scoped to `:rf.event/dispatched` and is walked from this dispatch, not restated
+on this payload, per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id)),
 so the hardest case — a callback captured at handler X in frame Y whose continuation
 fires with no stamp after the run ended — is fully attributed even though the
 error has no frame of its own.
@@ -181,8 +183,8 @@ A representative payload:
 
 ```clojure
 {:rf.error/id :rf.error/no-frame-context
- :operation   :dispatch
- :where       :re-frame.router/dispatch!
+ :operation   :dispatch                        ;; an OPEN set — whatever the requiring call site named
+ :where       're-frame.router/build-envelope  ;; a symbol naming the resolving call site
  :event-id    :todo/add
  :recovery    :supply-frame}
 ```
