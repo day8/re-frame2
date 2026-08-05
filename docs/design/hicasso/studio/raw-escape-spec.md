@@ -345,9 +345,9 @@ asserted on and never serialised into a golden.
 
 **4. The forward obligation, recorded and not built.** Design A alone establishes the two
 facts that reframe this edge, and both come from the guide's own testing chapter: Hicasso's
-headless structural render **does not exist** (`08-testing.md:16` calls it a sketch — "nothing
-in the tree implements this yet"), and **the foreign region is already out of its scope for
-both forms** (`08-testing.md`'s `### Full headless render (not built)` — *"Hooks, `defhost`, and
+headless structural render **does not exist** (`08-testing.md`'s `### Full headless render
+(not built)` calls it a sketch — *"Nothing implements that yet"*), and **the foreign region
+is already out of its scope for both forms** (the same section — *"Hooks, `defhost`, and
 host edges stay mounted tests"*). So what `defhost` buys structurally is the crossing node's
 identity, not visibility into what the component renders — *neither form gives you that*. The
 cost today is therefore close to zero, and saying so honestly matters more than sounding
