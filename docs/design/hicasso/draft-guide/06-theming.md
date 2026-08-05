@@ -228,7 +228,7 @@ structural tests can see less of. Honest trade, stated once.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | The theme keyword changes in app-db and nothing on screen changes | No bridge is wired — app-db holds the choice; the cascade keys off a DOM attribute | Wire option A or B above; the event alone does nothing to the document |
-| Theme switch re-renders the whole app | Option A, with the themed content spliced in as a plain call rather than a `[boundary …]` vector | Put the content behind a boundary (children or a direct `[app {}]`), or use option B |
+| Theme switch re-renders the whole app | Option A, with the themed content spliced in as a plain call rather than an `[app {}]` vector | Put the content behind a boundary (children or a direct `[app {}]`), or use option B |
 | A time-travel rewind shows the old theme | Option B — the attribute was asserted by an effect, so it is not derived from the state you rewound | Expected under B; it is the price named above |
 | A controlled input's value gets clobbered by a theme | Should be impossible — law (a) | A runtime bug, not a usage error |
 | A part override doesn't take effect | Merge order: instance props beat app theme beat base | Check which layer you set it in |

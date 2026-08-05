@@ -40,13 +40,14 @@ syntax:
 (todo-row {:id id})           ;; a call — INLINED into the enclosing boundary
 ```
 
-A **vector** in head position mints a React element, and that element is a
-**boundary** — Hicasso's unit of independent re-rendering. A boundary owns four
+A **view in head position** mints a **boundary** — Hicasso's unit of independent
+re-rendering, and the thing `defview` exists to make. A boundary owns four
 things: React's identity for it, the `sub` reads its body makes, its
 [value-equality bail-out](#boundaries-memoize-by-default), and the frame the
-intents in its hiccup dispatch to.
+intents in its hiccup dispatch to. Native tags, fragments and `defhost` heads are
+elements in vector position too, and none of them is a boundary.
 
-A **plain call** is just a function call, and owns none of them. Its hiccup is
+A **plain call** is just a function call, and owns none of the four. Its hiccup is
 spliced into the caller's tree, and any `sub` it performs donates that read
 *upward* to the enclosing boundary. Helpers cost nothing at runtime and buy no
 re-render granularity. Because reads are ordinary calls, **helpers can read**: a
