@@ -66,10 +66,24 @@ the source. Keys go in the props map (no Reagent `^{:key}` metadata):
      [todo-row {:key id :id id}])])
 ```
 
-A bare seq of boundary children needs keys. Forget one today and you get React's
-own key warning in development; a Hicasso-minted warning is planned but not
-built. Putting a plain `defn` in head position — `[badge {...}]` where `badge`
-was never minted by `defview` — raises `:rf.error/hicasso-bad-head`.
+A bare seq of children needs keys whatever the head. Forget one on a boundary
+child and development gives you two warnings: React's own, and
+`:rf.warning/hicasso-missing-key`, which names the enclosing view, the child
+head, the index of the first offender, and the `:key` spelling that fixes it.
+Neither suppresses the other, and the second earns its keep because React dedupes
+its key warning per parent tag name for the life of the page — under a `:ul`,
+every list after the first is silent. Hicasso's fires once per site instead:
+enclosing view, child head, hazard. A `^{:key id}` carried over from Reagent is
+the commonest way to trip it, because the metadata is not read here.
+
+It fires at a crossing too — `[a-view {…} (for …)]`, where the seq becomes the
+view's children. Flattening one level turns those members into direct children,
+which React marks validated and never warns about, so there the Hicasso line is
+the only signal that shape gets. Both call sites are development-only: the check
+and its message strings are absent from a production build.
+
+Putting a plain `defn` in head position — `[badge {...}]` where `badge` was never
+minted by `defview` — raises `:rf.error/hicasso-bad-head`.
 
 **You write `:key` yourself, and that is the answer** rather than a gap waiting
 on sugar. A `for`-lowering would have to assume the binding value *is* the
@@ -77,7 +91,9 @@ identity, which stops being true the moment you iterate whole entities: React
 coerces a non-primitive key to a string, so editing a row would quietly change
 its key and remount it. And it could not retire the explicit `:key` anyway, so
 every list would carry two spellings forever in exchange for saving about a dozen
-characters.
+characters. Write a whole entity at `:key` yourself and you get
+`:rf.warning/hicasso-entity-key` for that same coercion, naming the child and
+pointing you at a stable identifier.
 
 ### The component ABI
 
@@ -275,6 +291,8 @@ the collector mechanics.
 | A read after the render throws, naming the query | A handler closure, stashed lazy seq, or `delay` deferred a `sub` past the render | Read during the render and close over the value |
 | Index thrash, subscriptions constantly re-created | Query args not *value*-stable (timestamp, real sort-order change, or JS/fn identity) | Make the args equal under `=` between renders; allocation of equal persistent values is fine |
 | A body's side effect fires twice | StrictMode double-invoke | Bodies are pure; move the effect out |
+| `:rf.warning/hicasso-missing-key` names a view and a child head | A seq of boundary children has no `:key` — absent, or an expression that computed `nil` | Put a `:key` in each member's props map. A Reagent `^{:key}` on the form is not read |
+| `:rf.warning/hicasso-entity-key`, and a row remounts when you edit it | `:key` holds a collection, which React coerces to a string — the key moves with the content | Key on a stable identifier: `{:key (:id todo)}` |
 
 ## When not to use a boundary
 
@@ -318,4 +336,3 @@ not a surgical add/remove of one key. That is the cost of legal dynamic reads.
 |---|---|
 | `sub` and `defview` spellings | Working names; **[unfrozen]** until API freeze |
 | Whether value-equality bail-out stays the **default** | **Open.** Runtime implements memo-by-default today; explicit opt-in is still on the table |
-| Dev warning for an unkeyed seq — id and whether dev-only | **Open.** Today you see React's own key warning |
