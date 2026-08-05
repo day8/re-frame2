@@ -187,20 +187,34 @@ head written into one is refused at the declaration
 
 ## Memo and hosted components
 
-Every Hicasso boundary is a `React.memo` that compares props by value. That
-bail-out reaches a hosted component the same way it reaches a native one:
+A [boundary](02-views-and-reads.md#boundaries-memoize-by-default) carries a
+`React.memo` wrapper that compares props by value. A `defhost` crossing carries
+none, so it re-renders whenever the boundary that *wrote* it re-renders, and the
+foreign component runs again — unless the library exported a `memo`, which is
+its choice and not something the declaration arranges.
 
 ```clojure
 (defview chrome-page [_]
   [:div
-   [:span.chrome (str (sub [:hatch/label]))]   ;; re-renders on every write
-   [hosted-row {:label "fixed"}]])             ;; equal props → bail out
+   [:span.chrome (str (sub [:hatch/label]))]
+   [hosted-row {:label "fixed"}]])   ;; re-entered anyway — props are never compared
 ```
 
-A write that only moves `:hatch/label` re-renders `.chrome` and stops.
-`hosted-row` never re-enters the foreign component. If a host should react to a
-subscription, that value has to reach **its own** props — reading one boundary up
-and stopping looks identical, from the host's side, to the value never changing.
+A write that moves `:hatch/label` invalidates `chrome-page`, so its body runs
+again and rebuilds `hosted-row` with a fresh props object. Those props are equal
+by value; nothing on that head compares them.
+
+The bail-out you want is the enclosing boundary's — put the crossing behind a
+`defview` of its own and it is not re-entered while that view's props hold still:
+
+```clojure
+(defview labelled-row [{:keys [label]}]
+  [hosted-row {:label label}])
+```
+
+If a host should react to a subscription, that value has to reach **its own**
+props — reading one boundary up and stopping looks identical, from the host's
+side, to the value never changing.
 
 ## The escape: `[:>]` (unbuilt)
 

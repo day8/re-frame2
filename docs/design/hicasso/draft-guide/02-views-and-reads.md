@@ -133,10 +133,11 @@ captured atom, kicking off a fetch, counting renders) does not belong in a body.
 
 ### Boundaries memoize by default
 
-A value-equality bail-out is the boundary **default**: every minted head carries
-one stable internal memo wrapper comparing the whole props map with CLJS `=`. If
-a boundary's props compare equal to last render, its body does not run — even
-though its parent's did.
+A value-equality bail-out is the boundary **default**: every head `defview` mints
+carries one stable internal memo wrapper comparing the whole props map with CLJS
+`=`. If a boundary's props compare equal to last render, its body does not run —
+even though its parent's did. Heads that are not boundaries do not carry one, and
+a `defhost` crossing is the case you will meet ([Interop](05-interop.md#memo-and-hosted-components)).
 
 Two things still outrank the bail-out, and both are the boundary's **own**
 invalidation. A subscription or context read that boundary made itself always
