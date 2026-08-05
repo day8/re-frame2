@@ -390,7 +390,7 @@ value" clause, and the operator's first choice is whether they stay in step.
 | `decisions.md` | a **new dated addendum** under HD-011 (the existing one is a dated record and stands as written); optionally the stale HD-020(d) "inert in v0" line |
 | `draft-guide/05-interop.md` | the Defaults table's SSR cell, the Providers section, the "Not settled" row |
 | `draft-guide/10-server-side-rendering.md` | the three-line policy block, the prose under it, the troubleshooting row |
-| `draft-guide/11-below-hiccup.md` | the `:ssr` code sample |
+| `draft-guide/11-performance.md` | the `:ssr` code sample |
 | `studio/raw-escape-spec.md` | the comparison table and R2 |
 | `production-server-arm.md` | the pieces table, and a line-range citation into `codec.cljs` that moves |
 | `EP-0038` | R5's status line |
