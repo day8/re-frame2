@@ -341,6 +341,102 @@ instance props can express.
 
 ## HD-011 — The interop door
 
+> **Addendum, 2026-08-05 — there is a THIRD `:ssr` value, `:render`, and a
+> declared fallback is inert markup by enforcement (`rf2-l0wfx`, `rf2-nv07k`,
+> ruled together).** This amends the 2026-08-04 addendum immediately below,
+> which stands as the dated record it is; what it got wrong it got wrong for a
+> reason worth keeping, which is that the provider witness did not yet exist.
+>
+> **What the two-value ruling could not express.** Both of its values answer
+> *"what stands in for this component until the client takes over"*, and both
+> return something that is not the component — so `props.children` is dropped
+> on that arm. For a leaf widget that is correct; there are no children. For a
+> **transparent wrapper** it deletes the application. A context provider —
+> *"providers an ecosystem library hands you"*, one of this decision's five
+> named use cases — contributes no markup of its own and exists solely to carry
+> a subtree, so a provider at a crossing takes every descendant out of the
+> server response. Measured through `renderToString` on the arm1 bench: the
+> page's `<h1>` sibling present, `<p class="body">` and the whole subtree under
+> it simply gone. And **silent by construction** — the gate's server snapshot
+> is what hydration's first client pass reads too, so the two agree, no
+> mismatch is reported and nothing reaches the diagnostic bus.
+>
+> **The third value is `:ssr :render`, and it is an assertion**: *this
+> component is safe to render on the server*. For that policy `mint-host!`
+> mints **no gate** — the head's `gate` slot carries the foreign component
+> itself, which is this decision's original zero-wrapper, zero-fiber, zero-hook
+> shape restored for the hosts that can take it. Same component, same props,
+> same children, on the server, on hydration's first pass and on a fresh
+> `createRoot` mount: **one tree everywhere**, so zero mismatch by identity
+> rather than by a snapshot pair agreeing, no adoption event, and no remount.
+> For the case that filed it the assertion is trivially true — a
+> `Context.Provider` is React's own component and the server renderer supports
+> context fully, so consumers below read the **declared** value in the server
+> HTML.
+>
+> **Why not `:ssr :children`** — render `props.children` in place of the
+> component — which is the reading most authors reach for and what the design
+> record recommended. Three defects, the first measured: it restores the markup
+> and **not the value**, so every consumer below reads the context DEFAULT
+> server-side (`unset` against the provider's `dark`) and silent-absent becomes
+> silent-wrong; it **remounts at adoption**, because React reconciles a
+> position by element type and the position's type goes from the children to
+> the Provider, destroying and rebuilding the subtree it just hydrated; and on
+> a non-transparent wrapper it emits HTML structurally unlike the client render
+> while both passes agree, so nothing reports it. `:children`, `:transparent`,
+> `:passthrough` and `:server` all stay refused. The spelling `:render` names
+> both the conduct (the component renders) and the assertion (it is safe to).
+>
+> **`:client-only` remains the DEFAULT** and the conservative reason below
+> stands unamended: a foreign React component is exactly the node whose render
+> may reach for `window`, and the door cannot know. `:render` is the author
+> saying, which is a different thing from the door guessing — a policy that
+> inferred the answer from whether a call site passed children was rejected on
+> exactly that law.
+>
+> **The fallback half (`rf2-nv07k`).** The addendum below says a fallback is
+> walked once at the declaration; the corollary the guide teaches from that —
+> *a fallback is inert markup* — was **stated and not enforced**. What the walk
+> refused was what it could EVALUATE: an intent vector, a `sub` call in the
+> form, hiccup that is not hiccup. A boundary head is none of those — it is an
+> element whose body runs later — so the walk never looked inside it, and the
+> "placeholder" was a live boundary reading subscriptions in the server
+> response. Two measurements made that a defect rather than a narrow rule:
+> **the declared placeholder was not a value** (one declaration rendering
+> `ALPHA`, `BRAVO` and `ALPHA-TWO` — the walk-once law's own justification
+> falsified by what it permitted), and **it did not survive this arm's other
+> boundary variant** (a frame-fed head bakes a `nil` frame at mint and throws
+> mid-server-render, so whether it worked at all depended on which mint the
+> head came from). The mint now walks a declared fallback **structurally** and
+> refuses a `defview` or `defhost` head at any position —
+> `:rf.error/hicasso-host-fallback-boundary-head`, naming the host, the head's
+> `displayName` and its index route into the form. Walk-scoped, so it covers
+> the frame-fed variant without knowing it exists.
+>
+> The workaround this deletes — writing a provider's subtree a second time as
+> the declaration's fallback, which was `rf2-l0wfx`'s only recovery — is
+> **superseded**, not merely removed: `:render` renders the real subtree, with
+> the real context value, once.
+>
+> **What `:render` does NOT solve, recorded rather than glossed.** A provider
+> whose *value* is genuinely client-only — `window`-derived — still has no
+> server story: that value is computed in the caller's body, so such a host
+> stays `:client-only` and everything below it is client-only too. No candidate
+> solved that case, and `:children` would have solved it wrongly by rendering
+> the subtree under the default value.
+>
+> **`[:>]` is unchanged.** The escape carries no declaration, so it carries no
+> server-safety assertion either: it renders nothing server-side, and it must
+> never grow an `:ssr` spelling of its own. The answer to *"my provider
+> vanished server-side"* is now "declare it, with `{:ssr :render}`" — which
+> finally works.
+>
+> Witnessed in `arm1/host_ssr_dom_cljs_test` (the refusal roster, the
+> server-render children and context rows, and the hydration row that counts
+> mounts), `arm1/fallback_contents_cljs_test` (the refusal, both directions,
+> with every legitimate fallback position proven individually) and
+> `ssr/entry_cljs_test` (the corpus row, at a handed-in and a nested position).
+
 > **Addendum, 2026-08-04 — the SSR placeholder listed among the defaults below
 > is BUILT, and it is a declaration option with two values (`rf2-2rtt6.85`).**
 > HD-020(d) held this default "declared policy for later phases, inert in v0";
@@ -826,7 +922,10 @@ boundary**: the runtime ships one internal class-based boundary exposed as
 "real error boundary". (d) **SSR is out of v0**, explicitly: `defview` bodies
 are `.cljc`-compatible by construction (no JS in tier-1 forms), but no JVM/SSR
 render path ships in v0; `defhost`'s SSR-placeholder default is declared policy
-for later phases, inert in v0.
+for later phases, inert in v0. *(Superseded 2026-08-04: the operator's SSR
+ruling makes SSR required scope, and `defhost`'s `:ssr` is built — see HD-011's
+2026-08-04 addendum, and its 2026-08-05 one for the third value. The clause is
+kept as the dated record of what v0 was scoped to.)*
 **Rationale.** Each is a decision a v0 implementer would otherwise have to make
 ad hoc mid-spike; none is reversible for free once witnesses pin behaviour.
 **(a) reaches further than a boundary shell, and (c) is what proved it**

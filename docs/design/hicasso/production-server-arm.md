@@ -62,7 +62,7 @@ under-count from the bead text alone.
 | Structural tree → HTML, react-dom 19.2.0-pinned | `implementation/ssr/src/re_frame/ssr/ui_tree.cljc` (1,040 lines) | shipped; pure, deterministic, JVM-runnable |
 | A live two-sided emitter parity apparatus | `implementation/ui/test/re_frame/ui/parity_fixtures.cljc` (643 lines, 66 cases) + `parity_corpus_cljs_test.cljs` + `parity_html.cljc` | shipped and running |
 | An interpreted structural walk that runs on the JVM | `implementation/freehand/src/re_frame/freehand/tree.cljc` (678) + `node.cljc` (1,438) + `conversion.cljc` (906) | shipped, cross-host |
-| Hicasso's hydration door, `defhost` `:ssr` policy, Node render entry | `rf2-2rtt6.84` / `.85` / `.86` | shipped in the bench lane |
+| Hicasso's hydration door, `defhost` `:ssr` policy (three values, incl. `:render`), Node render entry | `rf2-2rtt6.84` / `.85` / `.86` / `rf2-l0wfx` | shipped in the bench lane |
 | Five hydration correctness rows on the dogfood screen | `rf2-2rtt6.87` | published |
 
 Two entries in that table carry more weight than their line counts suggest.
@@ -198,8 +198,11 @@ the one-slot-per-spelling family `canonical-slot`/`structural-slot?`/
 (HD-023's `:&` owned-literal law, 571–618), `check-ref!` (HD-022's vector
 reservation, 624–654), `convert-entry`/`convert-props` (656–791), the head
 marks (797–845), `boundary-props=`/`memoize-boundary!` (847–945),
-`mint-host!`/`declared-ssr`/`mint-host-gate!` (HD-011 plus `rf2-2rtt6.85`'s
-`:ssr` policy, 1039–1173), the lazy-seq forcing walk
+`mint-host!`/`declared-ssr`/`mint-host-gate!`/
+`refuse-deferring-heads-in-fallback!` (HD-011 plus `rf2-2rtt6.85`'s `:ssr`
+policy and `rf2-l0wfx`/`rf2-nv07k`'s third value and fallback refusal — cited
+by symbol rather than by line, because this block has moved twice since it was
+written), the lazy-seq forcing walk
 `realize-children`/`realize-deep`/`refuse-deferred!` (1201–1414), the emission
 dispatch `expand-seq`/`native-element`/`boundary-element`/`host-element`/
 `fragment-element` (1420–1673), `vec->element` (1677–1706), `as-element`'s

@@ -1,5 +1,23 @@
 # Pricing the provider SSR hole (`rf2-l0wfx`)
 
+> **RULED 2026-08-05 — candidate B won, and the page below is now the dated
+> record of how it was priced rather than a live question.** The operator ruled
+> `rf2-l0wfx` and `rf2-nv07k` together: `defhost`'s `:ssr` gains a third value,
+> **`:ssr :render`** (this page's candidate B), and a declared fallback becomes
+> inert markup by enforcement. **A was refused** on the two defects measured
+> below — the wrong context value server-side and the remount at adoption — and
+> **C** on the door-does-not-guess law, exactly as this page recommended
+> against; **D** contradicts the required-scope SSR ruling. The full ruling and
+> its conduct are the 2026-08-05 addendum under HD-011 in
+> [`decisions.md`](decisions.md); the implementation is `front/codec.cljs`'s
+> `declared-ssr` / `mint-host!` / `refuse-deferring-heads-in-fallback!`.
+>
+> Two things below are now stale and are left as written rather than patched,
+> because a dated pricing that has been edited is no longer evidence: the
+> workaround in §"A workaround exists" is **deleted** by the fallback refusal,
+> and the bill's Freehand roster stands — `v/defhost` did not move, and the
+> two doors diverge for the reason the bill gives.
+
 > **A costed proposal. No contract changed, no ruling taken.** `defhost`'s `:ssr`
 > is public surface on a shipped declaration form, so the choice below is the
 > operator's. This page exists to make it cheap and safe to take: what actually

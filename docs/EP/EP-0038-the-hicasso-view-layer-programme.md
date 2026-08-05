@@ -280,7 +280,12 @@ taken by the operator. The design record carries the matching HD-020 addendum
   - **R4 — the live page.** Events and the controlled door work
     post-hydration to the `rf2-2rtt6.67` equivalence standard.
   - **R5 — the `defhost` SSR policy is activated.** HD-011's declared
-    placeholder becomes the real `:ssr` option.
+    placeholder becomes the real `:ssr` option — **three values as of
+    2026-08-05** (`rf2-l0wfx`): `:client-only` (the default), a
+    `{:fallback …}`, and `:render`, which is the author asserting the
+    component is server-safe and is the only policy under which a crossing's
+    children reach the server response. A declared fallback is inert markup by
+    enforcement (`rf2-nv07k`).
   - **R6 — the ledger discipline holds server-side.** HD-002's discipline is
     unbroken on the server: a server render is an abandoned render, leaving
     zero durable registration.

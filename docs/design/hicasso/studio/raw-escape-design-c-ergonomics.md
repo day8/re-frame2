@@ -690,6 +690,20 @@ reading of what a transparent wrapper *is*, it costs one row in a table that
 exists, and without it the escape's provider use case has no recovery at all.
 This is `defhost`'s question; the escape only inherits the answer.
 
+> **Addendum, 2026-08-05 — ruled, and not the way this recommendation went.**
+> A third value exists and it is **`:ssr :render`**, not `:children` /
+> `:transparent`. `:children` was refuted on measurement: rendering the children
+> with no provider above them puts every consumer on the context **default**
+> server-side (silent-absent becoming silent-wrong), and swapping the position's
+> element type at adoption destroys and rebuilds the subtree React just
+> hydrated. `:render` runs the component itself server-side on the author's
+> assertion, so the context value is right and the type never changes. Priced in
+> [`../defhost-ssr-provider-costing.md`](../defhost-ssr-provider-costing.md)
+> (candidate B); ruled in the 2026-08-05 addendum under HD-011. The escape still
+> only inherits the answer, which this paragraph got right. Also stale above:
+> the guide's provider example is under `05-interop.md`'s `## Providers`, not at
+> `:120`.
+
 **R2 — does the escape read the carrier, or only the declaration?**
 §Edge 2 recommends `lower-prop` (position selects the contract) and gives the
 argument. The literal reading of "the same foreign path as `defhost`" gives the

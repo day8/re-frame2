@@ -157,6 +157,7 @@ page replays an entrance.
 (h/defhost chart Chart)                                 ;; :client-only — the default
 (h/defhost chart Chart {:ssr :client-only})             ;; the same, said out loud
 (h/defhost chart Chart {:ssr {:fallback [:div.skel]}})  ;; that markup until adoption
+(h/defhost themed (.-Provider ctx) {:ssr :render})      ;; run it on the server
 ```
 
 `:client-only` renders nothing in that slot until the client has adopted;
@@ -165,6 +166,39 @@ declaration (`:rf.error/hicasso-host-bad-ssr-policy`); unknown options fail too
 (`:rf.error/hicasso-host-unknown-option`). One declaration covers server render,
 the first client pass after hydration, and a fresh client-only mount (which mounts
 the foreign component immediately, with no placeholder flash).
+
+### `:render` — when the region has to be in the response
+
+The first two policies both answer "what stands in for this component until the
+client takes over", and both of them drop the crossing's **children**. For a leaf
+widget — a chart, a date picker — that is right; there are no children. For a
+*transparent wrapper* it deletes the page. A context provider contributes no
+markup of its own and exists solely to carry a subtree, so a provider at a
+crossing takes every descendant out of the server response with it, and nothing
+reports it: the server HTML and hydration's first client pass agree by
+construction, so there is no mismatch to warn about.
+
+`:ssr :render` is the third policy, and it is an **assertion**: this component is
+safe to run on a server. Write it and the declaration mints no gate at all — the
+component *is* the element's type — so the server render, hydration's first pass
+and a fresh mount are one tree with the same props, the same context and the same
+children. Consumers below a `:render` provider read the value you declared rather
+than the context default, the first paint is the real thing rather than a
+stand-in, and because the element type never changes there is no swap at adoption
+and therefore no remount of the subtree you just hydrated.
+
+The default stays `:client-only`, and deliberately: a foreign React component is
+exactly the node whose render may reach for `window`, and the door cannot know.
+`:render` is you saying, not the door guessing. If the assertion is false you find
+out loudly — see the troubleshooting rows below.
+
+**A fallback is inert markup, and that is enforced.** It is walked into a single
+element at the declaration, outside any frame, and that one element is reused at
+every use site — so a `defview` or `defhost` head written into a fallback (an
+element whose body runs *later*, and would therefore render differently per frame
+and per write) is refused at the declaration with
+`:rf.error/hicasso-host-fallback-boundary-head`. Write plain hiccup there, or use
+`:render` and render the real subtree.
 
 Do all of that — write idiomatic Hicasso — and SSR is not a rewrite waiting to
 happen. The app that is easiest to write is also the app that serves.
@@ -185,6 +219,9 @@ snapshot, adopted whole by the client.
 | `:rf.ssr/hydration-mismatch` from the framework, with a `:where` and an `:error` | The same React adoption divergence, surfaced onto the diagnostic bus. It carries no hashes — this tier has none | Read the `:error`; the cause is the row above. Hydrate before anything renders, so the first client render is against the server's state |
 | A divergence React never reported at all | It was **attribute-only** — a stale `class`, `style` or ARIA value under a matching tag and text. React makes no guarantee to patch those and calls no production callback | Not traceable on this tier by construction. Find it the way you would any other stale value: the attribute came from state the two sides disagreed on |
 | A foreign component throws `window is not defined` on the server | Its render reached for the browser, and a bare component name says nothing about that | Declare `:ssr :client-only` (default) or `{:fallback …}` on `defhost` |
+| A foreign component throws `window is not defined` **under `:ssr :render`** | The assertion that declaration makes is false: the component is not server-safe | Drop back to `:client-only`, or give it a `{:fallback …}`. This is the loud failure mode `:render` was chosen for — the alternative candidates failed silently |
+| A `defhost` region's **children** are missing from the server HTML | The crossing is `:client-only` or has a `{:fallback …}`, and both render *instead of* the component — a transparent wrapper such as a provider takes its whole subtree with it | Declare `{:ssr :render}` if the component is server-safe. A fallback cannot recover this: it replaces the subtree, it does not wrap it |
+| `:rf.error/hicasso-host-fallback-boundary-head` at a declaration | A `defview` or `defhost` head was written into an `:ssr` fallback. A fallback is walked once, at the declaration, and reused everywhere — so a head whose body runs later is not a placeholder | Write plain hiccup in the fallback, or declare `{:ssr :render}` and render the real subtree |
 | A controlled input's text jumps just after adoption | Not this design: hydration does not converge controlled text | If you see it under another stack, the server markup and the model disagreed — fix the shared state |
 | Frames accumulate on a long-running server | A request path skipped teardown | Destroy the per-request frame in a `finally`, throw path included — copy the reference example |
 

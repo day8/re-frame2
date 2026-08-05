@@ -78,7 +78,7 @@ which is the only way "declare what you use twice" has teeth.
 |---|---|---|
 | An author-chosen crossing name | yes, on the gate's `displayName` | no — one constant, `"[:>]"` |
 | `:callbacks` contracts | yes, exact, per slot | none — every prop is unclaimed |
-| An `:ssr` policy | yes, author's choice | fixed `:client-only`, unspellable |
+| An `:ssr` policy | yes, author's choice of three — `:client-only`, `{:fallback …}`, `:render` | fixed `:client-only`, unspellable |
 | A mint-time site for refusals | yes — the author's stack, once | render-time, every render |
 | A crossing identity for tooling | minted once, per crossing | one generic marker for all crossings |
 | A `.cljc` quarantine for the JS require | yes, in one host namespace | no — the require lands in the view ns |
@@ -187,7 +187,9 @@ minimal design found *in that design's favour*:
 `mint-host!` accepts any non-nil component; the wrapper's gate renders the declared fallback
 while unadopted and the children after adoption. Policy stays on a declaration, which is the
 whole argument. **Say precisely what it buys**: a *placeholder*, not server-rendered content.
-Server-rendered content under a crossing is `rf2-l0wfx`'s question (§7).
+Server-rendered content under a crossing was `rf2-l0wfx`'s question and is now `{:ssr :render}`
+(§7 R2) — which this wrapper cannot borrow, because the thing it wraps is `[:>]`, and the
+escape carries no declaration to assert server-safety with.
 
 ---
 
@@ -555,19 +557,31 @@ leaving:* a silent dead return on the guide's own taught path for value-first in
 posture. **The escape works under all three.**
 
 **R2 — `defhost`'s `:ssr` has no value that renders children (`rf2-l0wfx`, P1).**
-`mint-host-gate!` returns a single pre-walked placeholder when unadopted and never consults
-`props.children`, so an unadopted crossing **drops its subtree**. For a leaf widget that is
-right; for a **provider** — one of HD-011's five named use cases, and the guide's own example
-at `05-interop.md:120` — it deletes the application from the server response. *Recommendation
-(Design C's):* a third `:ssr` value meaning "render the children in place of the component",
-because it is the honest reading of what a transparent wrapper is, it costs one row in a
-table that exists, and without it the provider use case has no recovery at all. *A second
-route, from the attack on the local minimal design:* a **Context-head carve-out** — a React 19
-Context is detectable at the crossing by `$$typeof`, and its server render is React's own
-context machinery, deterministic and with no `window` risk, so the "nobody can vouch for the
-server render" defence is **false for providers specifically**. *Cost of neither:* providers
-are ruled out of SSR and the guide must say so. **This is the door's question and the escape
-only inherits the answer — the escape must never grow an `:ssr` spelling of its own.**
+**RULED 2026-08-05, and the escape is unchanged.** `mint-host-gate!` returned a single
+pre-walked placeholder when unadopted and never consulted `props.children`, so an unadopted
+crossing **dropped its subtree**. For a leaf widget that is right; for a **provider** — one of
+HD-011's five named use cases, and the guide's own example under `05-interop.md`'s `##
+Providers` — it deleted the application from the server response, silently.
+
+The ruling is a third `:ssr` value, **`:render`**, and *not* Design C's `:children`. `:render`
+is an assertion that the component is server-safe; the declaration then mints no gate, so the
+component is the element's own type and the server render, hydration's first pass and a fresh
+mount are one tree — the children reach the response, consumers below read the **declared**
+context value, and there is no adoption swap and therefore no remount. `:children` was refuted
+on the repo's own measured record: it would have restored the markup under the context
+DEFAULT (silent-absent becoming silent-wrong) and remounted the just-hydrated subtree at
+adoption. The **Context-head carve-out** was refused for the same reason `:client-only` stays
+the default — it is the door guessing, where `:render` is the author saying.
+
+Paired with it, `rf2-nv07k` was ruled `(b')`: a declared fallback is inert markup by
+enforcement, and a `defview`/`defhost` head written into one is refused at the declaration
+(`:rf.error/hicasso-host-fallback-boundary-head`). That deletes the "write your subtree twice"
+workaround, which `:render` supersedes.
+
+**The escape is untouched: it carries no declaration, so it carries no server-safety assertion
+either — it renders nothing server-side, and it must never grow an `:ssr` spelling of its
+own.** Clause 6 is unchanged. The answer to "my provider vanished server-side" is now
+"declare it: `(h/defhost themed (.-Provider ctx) {:ssr :render})`".
 
 **R3 — refusing a Hicasso view or host head in Component position exceeds clause 5's
 letter.** Both are values React accepts. *Recommendation:* refuse. A `defview` head is
