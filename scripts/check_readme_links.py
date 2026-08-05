@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate links in every README.md in the repo.
+"""Validate links in every README.md — and in every repo-root markdown file.
 
 Companion gate to `scripts/check_doc_slugs.py` (rf2-br5u7).  Where
 `check_doc_slugs.py` covers the published docs corpus (docs/, spec/,
@@ -9,7 +9,38 @@ testbeds/, tools/, etc.  These READMEs are read on GitHub and in the
 local working tree but are **not** copied into the MkDocs site, so
 they need their own anchor-correctness gate.
 
-What this validates per README:
+REPO-ROOT MARKDOWN IS THE SAME SURFACE (rf2-znup0).  `AGENTS.md`,
+`CHANGELOG.md`, `CLAUDE.md`, `SKILL-REDIRECT.md` and `TESTING.md` sit
+beside the root `README.md` this gate has always walked, appear nowhere
+in `mkdocs.yml`, and are therefore rendered by GitHub exactly as the
+READMEs are — yet `check_doc_slugs.py`'s roster (DEFAULT_ROOTS +
+`tools/*/spec`) never opened them, so they had no link gate of any kind.
+A mutation carrying a broken relative link AND a broken in-page anchor
+was appended to `TESTING.md` and the docs gate still exited 0.
+
+They belong HERE rather than in the docs gate for three reasons, and the
+choice changes no finding on today's tree — it is decided on renderer
+authority and scheduling, not on findings:
+
+    * RENDERER.  The docs gate models MkDocs' `_N` duplicate-heading
+      suffix; this one models GitHub's `-N`, and the two deliberately
+      disagree because their renderers do (rf2-zzt2r).  Root markdown
+      renders on GitHub, so `-N` is the rule that actually resolves in a
+      browser.
+    * NO DOUBLE-COVERAGE.  The root `README.md` is already in this gate's
+      roster.  Adding root markdown to the docs gate instead would cover
+      that one file twice, under two conflicting duplicate-suffix rules.
+    * SCHEDULING.  `verify-readme-links` runs `--ci` on EVERY pull request
+      (test.yml's trigger is unfiltered and the job carries no surface
+      guard), where the docs gate is documentation-surface-gated.  Root
+      markdown gets the stronger of the two lanes for free.
+
+The root roster is GIT-TRACKED and NON-RECURSIVE (see `_iter_root_markdown`),
+so it cannot grow into `implementation/`, `tools/`, `node_modules` or any
+generated tree, and an untracked scratch file dropped at the repo root
+cannot red the gate on an author's machine (the rf2-k30r7 lesson).
+
+What this validates per file:
 
     * BROKEN TARGET   — internal link points at a .md file (or any
                         repo-internal path) that does not exist.
@@ -53,6 +84,9 @@ What this skips (deliberate scope cuts):
     * READMEs that live under directories check_doc_slugs.py already
       walks (docs/, spec/, migration/, skills/, tools/*/spec/) — those
       are covered by the docs gate.  No double-coverage.
+    * Markdown BELOW the repo root that is not a README.md.  The root
+      roster is deliberately non-recursive; everything deeper is either
+      the docs gate's or a README this gate already walks.
 
 CLI:
     --verbose       print progress + per-finding detail
@@ -71,6 +105,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -214,6 +249,74 @@ def _iter_readmes(repo_root: Path) -> Iterable[Path]:
         yield path
 
 
+def _iter_root_markdown(repo_root: Path) -> Iterable[Path]:
+    """Yield every GIT-TRACKED markdown file sitting AT the repo root (rf2-znup0).
+
+    Two properties make this roster safe to add, and both are structural
+    rather than a list somebody has to maintain:
+
+    NON-RECURSIVE.  `git ls-files` pathspecs use fnmatch without
+    FNM_PATHNAME, so `*` matches `/` and a bare `*.md` pathspec would
+    return markdown at every depth — the whole of `docs/`, `implementation/`,
+    `tools/` and every generated tree.  Entries containing a separator are
+    therefore dropped, leaving exactly the files a reader sees when they open
+    the repository on GitHub.  The roster cannot grow silently: a new
+    directory is invisible to it by construction, while a genuinely new root
+    document (the next `TESTING.md`) is picked up the moment it is tracked —
+    which is the failure this closes, so an explicit six-name list would just
+    re-open it one file later.
+
+    GIT-TRACKED, NOT A FILESYSTEM WALK.  A `.glob("*.md")` would scan an
+    author's untracked scratch notes, so a stray root `PLAN.md` with a
+    speculative link could red the gate on one machine while CI — which runs
+    on a clean clone — stayed green.  That is the rf2-k30r7 defect, recorded
+    against this gate's sibling; the roster is Git tracking so it cannot
+    recur here.
+
+    `git ls-files` is scoped to (and reports relative to) `repo_root`, so the
+    self-tests point this at a fixture subtree unchanged.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.md"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git ls-files failed in {repo_root}: {result.stderr.strip()}"
+        )
+    for rel in sorted(entry for entry in result.stdout.split("\0") if entry):
+        if "/" in rel:
+            continue
+        path = repo_root / rel
+        # A tracked path can be absent from the working tree mid-rename; the
+        # index still lists it. Skip rather than crash the whole scan.
+        if path.is_file():
+            yield path
+
+
+def _iter_scanned(repo_root: Path) -> Iterable[Path]:
+    """Yield every file this gate validates: the README corpus plus root markdown.
+
+    Deduplicated by resolved path, because the repo-root `README.md` is a
+    member of both rosters.
+    """
+    seen: set[Path] = set()
+    for path in _iter_readmes(repo_root):
+        ap = path.resolve()
+        if ap in seen:
+            continue
+        seen.add(ap)
+        yield path
+    for path in _iter_root_markdown(repo_root):
+        ap = path.resolve()
+        if ap in seen:
+            continue
+        seen.add(ap)
+        yield path
+
+
 def _github_dedupe(slug: str, occurrences: dict[str, int]) -> str:
     """Return `slug` disambiguated per GitHub's duplicate-heading rule.
 
@@ -347,7 +450,7 @@ def check(
     verbose: bool = False,
     check_external: bool = False,
 ) -> int:
-    """Validate every README.md in the repo.  Return finding count.
+    """Validate every README.md plus every repo-root markdown file.  Return finding count.
 
     Findings:
         * BROKEN TARGET   — internal link to a missing file.
@@ -355,9 +458,11 @@ def check(
         * BROKEN EXTERNAL — only when check_external=True; HEAD-probe
                             failed or returned non-2xx/3xx.
     """
-    files = list(_iter_readmes(repo_root))
+    files = list(_iter_scanned(repo_root))
     if verbose:
-        sys.stderr.write(f"scanning {len(files)} README.md files...\n")
+        sys.stderr.write(
+            f"scanning {len(files)} file(s) (README corpus + repo-root markdown)...\n"
+        )
 
     slug_cache: dict[Path, set[str]] = {}
 
@@ -425,7 +530,8 @@ def check(
 
     if broken_target:
         sys.stderr.write(
-            f"\n{len(broken_target)} broken target file(s) in README links:\n\n"
+            f"\n{len(broken_target)} broken target file(s) in README / "
+            "repo-root markdown links:\n\n"
         )
         for src, line_no, dest, target_rel in broken_target:
             rel = src.relative_to(repo_root)
@@ -436,7 +542,8 @@ def check(
 
     if broken_anchor:
         sys.stderr.write(
-            f"\n{len(broken_anchor)} broken anchor link(s) in READMEs:\n\n"
+            f"\n{len(broken_anchor)} broken anchor link(s) in READMEs / "
+            "repo-root markdown:\n\n"
         )
         for src, line_no, dest, target_rel in broken_anchor:
             rel = src.relative_to(repo_root)
@@ -446,8 +553,8 @@ def check(
             )
         sys.stderr.write(
             "\nFix: confirm the heading still exists in the target file and "
-            "update the link, or rename the heading and re-link.  These "
-            "READMEs render on GitHub, so anchors follow GitHub's heading "
+            "update the link, or rename the heading and re-link.  These files "
+            "render on GitHub, so anchors follow GitHub's heading "
             "slugger: the visible title cased down with punctuation dropped "
             "and spaces hyphenated, and repeated headings disambiguated with "
             "`-1`, `-2`, ... on the second and later occurrences.  GitHub's "
@@ -457,7 +564,8 @@ def check(
 
     if broken_external:
         sys.stderr.write(
-            f"\n{len(broken_external)} broken external URL(s) in READMEs:\n\n"
+            f"\n{len(broken_external)} broken external URL(s) in READMEs / "
+            "repo-root markdown:\n\n"
         )
         for src, line_no, dest, reason in broken_external:
             rel = src.relative_to(repo_root)
@@ -467,7 +575,7 @@ def check(
             )
 
     if total == 0 and verbose:
-        sys.stderr.write("no broken README links.\n")
+        sys.stderr.write("no broken README / repo-root markdown links.\n")
 
     return total
 
@@ -519,6 +627,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("external_link_skipped_by_default", 0),  # off without --check-external
         ("explicit_id_full_title_ok",        0),  # `{#id}` is heading TEXT (rf2-w6ltl)
         ("explicit_id_brace_not_a_target",   1),  # ...so the brace id resolves nowhere
+        # rf2-znup0 — repo-root markdown that is NOT a README. Neither fixture
+        # contains a README.md at all, so every finding (and every non-finding)
+        # comes from the root roster and nothing else. Both directions:
+        ("root_markdown_ok",                 0),  # correct root links stay silent
+        ("root_markdown_broken_link",        2),  # broken target + broken anchor
     ]
 
     failures = 0
@@ -547,11 +660,100 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # rf2-znup0 — the root roster's two structural properties, asserted
+    # directly rather than only through a fixture's aggregate count.
+    #
+    # NON-RECURSIVE. `git ls-files -- '*.md'` matches at EVERY depth (git
+    # pathspecs are fnmatch without FNM_PATHNAME, so `*` crosses `/`), which is
+    # the naive addition that would drag `docs/`, `implementation/` and every
+    # generated tree into this gate. `root_markdown_ok/sub/other.md` is a
+    # tracked markdown file one level down: it must resolve as a link TARGET
+    # while never entering the roster itself.
+    #
+    # GIT-TRACKED. An untracked scratch document at the repo root must be
+    # invisible. The tooth is causal in both directions, mirroring rf2-k30r7:
+    # the same file is first proven poisonous when the roster does reach it,
+    # then proven absent from the tracked roster — a filesystem walk passes the
+    # first half and fails the second.
+    ok_root = _SELF_TEST_FIXTURE_ROOT / "root_markdown_ok"
+    root_roster = {
+        p.relative_to(ok_root).as_posix() for p in _iter_root_markdown(ok_root)
+    }
+    if root_roster != {"CHANGELOG.md", "TESTING.md"}:
+        sys.stderr.write(
+            "self-test FAIL: root roster is not exactly the tracked root markdown "
+            f"(got {sorted(root_roster)})\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: root roster is non-recursive — tracked markdown one "
+            "level down resolves as a target but is not scanned\n"
+        )
+
+    scratch = ok_root / "znup0_untracked_scratch.md"
+    try:
+        scratch.write_text(
+            "# Untracked scratch\n\n"
+            "[a link nobody tracked](znup0-no-such-file.md)\n",
+            encoding="utf-8",
+        )
+        # The POISON half: the scratch carries a genuinely broken target, and a
+        # filesystem-walk roster would take it. If either stopped being true the
+        # green result below would prove nothing.
+        scratch_is_poisonous = not (ok_root / "znup0-no-such-file.md").exists()
+        walk_roster = {p.name for p in ok_root.glob("*.md")}
+        saved_stderr = sys.stderr
+        sys.stderr = _DevNull()
+        try:
+            findings_with_scratch = check(
+                ok_root, verbose=False, check_external=False
+            )
+        finally:
+            sys.stderr = saved_stderr
+        tracked_roster = {
+            p.relative_to(ok_root).as_posix() for p in _iter_root_markdown(ok_root)
+        }
+    finally:
+        scratch.unlink(missing_ok=True)
+
+    if not (scratch_is_poisonous and scratch.name in walk_roster):
+        sys.stderr.write(
+            "self-test FAIL: the untracked-scratch fixture is not actually "
+            "poisonous to a walk-based roster, so the tracking tooth proves "
+            f"nothing (broken-target={scratch_is_poisonous}, "
+            f"walk-roster={sorted(walk_roster)})\n"
+        )
+        failures += 1
+    elif scratch.name in tracked_roster:
+        sys.stderr.write(
+            "self-test FAIL: an untracked scratch document at the repo root "
+            f"reached the roster (got {sorted(tracked_roster)})\n"
+        )
+        failures += 1
+    elif findings_with_scratch != 0:
+        sys.stderr.write(
+            "self-test FAIL: the untracked scratch reded the gate anyway, so the "
+            f"tracked roster is not what is consulted (got {findings_with_scratch})\n"
+        )
+        failures += 1
+    elif "TESTING.md" not in tracked_roster:
+        sys.stderr.write(
+            "self-test FAIL: the roster lost a tracked root document while "
+            f"excluding the untracked one (got {sorted(tracked_roster)})\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: an untracked root scratch document cannot red the "
+            "gate while tracked root markdown stays covered\n"
+        )
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
+        sys.stderr.write(f"all {len(cases) + 2} self-tests passed.\n")
     return 0
 
 
