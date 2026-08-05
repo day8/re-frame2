@@ -371,6 +371,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.live-frame :as live-frame]
+            [re-frame.performance :as performance :include-macros true]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
             ["react" :as react]))
@@ -1807,9 +1808,74 @@
   fiber above the component's own. That is React's retention rather than
   this arm's, and it is recorded in [[retained-inventory]] under
   `:react/memo-fiber` instead of being left for a heap ladder to
-  discover."
+  discover.
+
+  ## Spec 009's `:render` bucket, and why the bracket is HERE
+  (rf2-2rtt6.125)
+
+  Spec 009 §What gets bracketed names four hot paths; three of them
+  (`:event`, `:sub`, `:fx`) are core's and are already live for a
+  Hicasso app, because they sit in the router, the subs layer and the fx
+  layer this arm consumes unchanged. The fourth — `:render` — is the
+  **view substrate's**, and until this bead a Hicasso app was the only
+  re-frame2 app whose per-view render was absent from the User-Timing
+  stream. It is a `:render` in the spec's own terms: the bucket is keyed
+  on the *representation* of the work — one view boundary's body run,
+  once per render pass the host actually performs — not on which
+  registration API minted the head. `reg-view*` mints its wrapper with a
+  `defn`; `defview` mints its wrapper here; both are \"the wrapper the
+  substrate emits around a registered view body\", which is exactly what
+  the spec's `Where` column describes.
+
+  **The bracket is the component fn and not [[render-body]]**, and the
+  reason is a cost that would survive elision. [[render-body]] does not
+  know the view's name — threading one in would add a parameter passed on
+  every render of every boundary, present in the OFF bundle as well as
+  the on one, which is the thing Spec 009's whole design is arranged to
+  avoid (and which [[hydrate-cljs-test]] would have to be edited to
+  accommodate). `view-name` is already closed over at this exact point,
+  so under `:advanced` + `re-frame.performance/enabled? false` the macro
+  constant-folds to `(shell body-fn js-props)` — byte-for-byte the call
+  that was here before, with nothing added anywhere.
+
+  Placing it at the component fn also makes four behaviours fall out
+  rather than be arranged:
+
+  - **A memo bail-out emits nothing.** React consults the comparator
+    ABOVE this fn; a bailed-out boundary never enters it. HD-028's rider
+    holds on the measure stream for the same reason it holds on
+    [[body-runs]] — a boundary React skipped and a boundary React ran are
+    two different numbers.
+  - **StrictMode's double-invoke emits twice**, which is correct: React
+    ran the body twice and the measure stream should say so.
+  - **The generation fence emits once.** [[render-body]] may run a body
+    up to four times for ONE React render; the bracket spans the whole
+    retry loop, so the entry count stays one-per-render-pass and its
+    duration is the wall-clock React actually paid — the honest RUM
+    number rather than a count inflated by an internal retry.
+  - **A throwing body still emits**, via the macro's own `try/finally`,
+    and an abandoned render (a suspended subtree, an SSR pass React
+    discards) emits the time it genuinely spent. Nothing durable is left
+    behind either way: the bracket writes one measure and clears it by
+    name unless the consumer flipped `retain-entries?`.
+
+  **Boundaries only.** A plain inlined helper called from a body is not a
+  React component and is not a `reg-view` peer, so it is not separately
+  bracketed — its cost lands inside the enclosing boundary's measure,
+  which is the same place its reads land (see the render-context comment
+  above).
+
+  **The id rule, pinned:** the entry is `rf:render:<view-name>`, where
+  `view-name` is the string this fn was given and the string stamped as
+  `displayName` on the line below — so a consumer reading a measure name
+  and a developer reading React DevTools are looking at the same
+  identifier, and `defview` makes it `\"<ns>/<sym>\"`. Witnessed in
+  `arm1.render-measure-cljs-test` (the OFF half) and
+  `arm1.render-measure-emit-nightly-test` (the ON half)."
   [view-name body-fn]
-  (let [component (fn hicasso-boundary [js-props] (shell body-fn js-props))]
+  (let [component (fn hicasso-boundary [js-props]
+                    (performance/mark-and-measure :render view-name
+                      (shell body-fn js-props)))]
     (unchecked-set component "displayName" view-name)
     (codec/memoize-boundary! (codec/mark-boundary! component))))
 
@@ -1823,10 +1889,18 @@
   unchanged, with one addition it names there: the frame reaches this
   boundary through PROPS rather than through context, so the comparator
   compares it — see
-  [[re-frame.bench.hicasso.front.codec/boundary-props=]]."
+  [[re-frame.bench.hicasso.front.codec/boundary-props=]].
+
+  Everything it says about Spec 009's `:render` bucket holds unchanged
+  too, and the bracket is here for the same reason it is there: this is
+  the wrapper the substrate emits, `view-name` is already closed over, so
+  the OFF bundle is byte-for-byte the call that preceded it. The two mint
+  fns are the arm's two view-substrate wrappers, and a `:render` bucket
+  wired to one of them and not the other would report half a page."
   [view-name body-fn]
   (let [component (fn hicasso-frame-prop-boundary [js-props]
-                    (frame-prop-shell body-fn js-props))]
+                    (performance/mark-and-measure :render view-name
+                      (frame-prop-shell body-fn js-props)))]
     (unchecked-set component "displayName" view-name)
     (codec/memoize-boundary!
       (codec/mark-frame-prop! (codec/mark-boundary! component)))))
