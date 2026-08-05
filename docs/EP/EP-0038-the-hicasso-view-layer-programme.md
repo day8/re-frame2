@@ -310,6 +310,33 @@ Node render entry and the spike witness are dispatched as `rf2-2rtt6.84`–`.87`
 nothing has landed at the time of this addendum. Evidence and full text on
 `rf2-2rtt6` and `rf2-2rtt6.83`.
 
+### Addendum, 2026-08-04 — K5, the ergonomics kill, is withdrawn; nothing replaces it and no identifier is renumbered
+
+**Operator ruling (Mike), 2026-08-04.** K5 — the criterion whose row read
+`> ~8 public concepts or > ~8 guide pages to ship CRUD` — is removed as an
+operative kill criterion. No verbatim text of the ruling is on the record; its
+authoritative statement is the dated note beside the kill-criteria table in
+`docs/design/hicasso/validation.md`.
+
+Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
+rule 3 — the wave-0 line above ("the budgets, kill criteria K1–K7") is left as
+written, and stays true on its own terms: it is a historical statement of what
+wave 0 pre-registered, and nothing was renumbered.
+
+- **What is withdrawn.** The one criterion that could stop this programme on
+  ergonomics rather than on measurement. **No criterion replaces it**, and K6
+  and K7 keep their identifiers, so every citation of them elsewhere resolves.
+- **What is not.** Consumer code from day one, the diff judgement and the
+  public-door-only witness tests all stand (`charter.md` item 4, which restated
+  the criterion inline without naming it, is superseded in place with its
+  sentence kept). Every by-name "against K5" argument in the design record is
+  left intact and reads as historical — it says why a shape was chosen while the
+  criterion stood.
+
+Design record: `docs/design/hicasso/validation.md` (the dated note),
+`charter.md` item 4, and the note heading the HD-022 … HD-026 block in
+`decisions.md`. This addendum answers `rf2-825ft`.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
