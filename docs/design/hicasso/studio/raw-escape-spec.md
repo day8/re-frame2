@@ -96,9 +96,9 @@ any kind — not an option, not a prop, not a metadata key.**
 
 The gate is a function component whose single `useSyncExternalStore` reuses the landed
 module-level snapshot triple `gate-no-subscribe` / `gate-adopted` / `gate-unadopted`
-(`front/codec.cljs:1035-1037`) — the same three `mint-host-gate!` uses, with `placeholder`
+(`front/codec.cljs`) — the same three `mint-host-gate!` uses, with `placeholder`
 fixed at `nil`, which is what `:client-only` already compiles to at the door
-(`codec.cljs:1059`).
+(`mint-host-gate!`'s `placeholder` binding).
 
 **Why this discharges the hard half by construction.** The operator note's binding clause is
 that a server-absent node must *also* be absent from the client's hydration first pass, or
@@ -347,7 +347,8 @@ asserted on and never serialised into a golden.
 facts that reframe this edge, and both come from the guide's own testing chapter: Hicasso's
 headless structural render **does not exist** (`08-testing.md:16` calls it a sketch — "nothing
 in the tree implements this yet"), and **the foreign region is already out of its scope for
-both forms** (`08-testing.md:44`). So what `defhost` buys structurally is the crossing node's
+both forms** (`08-testing.md`'s `### Full headless render (not built)` — *"Hooks, `defhost`, and
+host edges stay mounted tests"*). So what `defhost` buys structurally is the crossing node's
 identity, not visibility into what the component renders — *neither form gives you that*. The
 cost today is therefore close to zero, and saying so honestly matters more than sounding
 careful. When that render lands, a `defhost` crossing has a declared name to project and a
@@ -592,8 +593,8 @@ crossing render, and a refusal of something React would have accepted. **Removab
 touching the mechanism** — it is a predicate and two message flavours.
 
 **R4 — `rf2-2rtt6.115`'s record correction must land before or with the escape.** Three
-independent adjudications concur that the **code** side is authoritative: HD-024's row 3 at
-`decisions.md:1015` over-records, and the door's unclaimed-slot identity crossing was
+independent adjudications concur that the **code** side is authoritative: HD-024's row 3 in
+`decisions.md` over-records, and the door's unclaimed-slot identity crossing was
 deliberate. The repair is a dated scope-note on row 3 plus the currently-missing witness
 pinning a *marked* `h/fn` at an unclaimed door slot (today only a *plain* fn is pinned). Edge
 2 rests on that resolution; it is `decisions.md`, outside this page's fence, and it is named
@@ -605,8 +606,8 @@ here so the implementation PR carries it rather than discovering it.
 
 Six facts that will bite, each verified against `main` on 2026-08-04.
 
-**1. `:>` is not currently an error.** `hiccup-tag?` (`codec.cljs:1673-1675`) accepts any
-keyword that is not `:<>`, and `vec->element` (`:1689`) routes it to `native-element` — so
+**1. `:>` is not currently an error.** `hiccup-tag?` (in `codec.cljs`) accepts any
+keyword that is not `:<>`, and `vec->element` routes it to `native-element` — so
 `[:> Foo {}]` today asks React for an element literally named `<>`. The new branch must
 **precede** `hiccup-tag?` and compare with **`=`, never `identical?`**, for the reason
 `fragment-head?`'s own docstring gives: keyword literals are shared constants only when the
@@ -620,7 +621,8 @@ fallback is not "it is only one `=`": it is to measure the walk on the census pa
 roster before and after and publish the delta in the PR body.
 
 **3. X2's body-run equality is deliberately broken by any `:client-only` crossing.**
-`arm1/hydrate_dom_cljs_test.cljs:414` asserts `(= boundary-count (rt/body-runs))`, read after
+`arm1/hydrate_dom_cljs_test`'s `the-body-run-count-across-adoption-is-counted-and-not-inferred`
+asserts `(= boundary-count (rt/body-runs))`, read after
 adoption resolves. It is green today **only** because no page it drives carries a client-only
 crossing, and it goes **red on correct code** the moment the first one is added — via `[:>]`
 **or** via a `defhost` `:ssr :client-only`, so this is not specific to the escape. The two
@@ -702,6 +704,8 @@ each names what would make it vacuous.
   `as-element`. **Cited by name, not by line.** This bullet carried line numbers until
   2026-08-05 and three of the five were wrong by then, including the `as-element` citation
   that clause (e) turns on; the file moves faster than a record of it can be trued up.
-- `arm1/hydrate_dom_cljs_test.cljs:414`; `arm1/lang.clj`; `docs/design/hicasso/draft-guide/`.
+- `arm1/hydrate_dom_cljs_test` →
+  `the-body-run-count-across-adoption-is-counted-and-not-inferred`; `arm1/lang.clj`;
+  `docs/design/hicasso/draft-guide/`.
 - Beads: `rf2-2rtt6.106`, `.109`, `.115`, `.116`, `.117`, `.118`, `.119`, `.120`,
   `rf2-l0wfx`, `rf2-d03av`, `rf2-vrvv9`.

@@ -550,7 +550,8 @@ counter must be unconditional, as `bodyRuns` deliberately is.
 **R4 — the X2 body-run restatement.** Not a new ruling so much as a correction that should
 be recorded before the escape lands: post-adoption body-run counts diverge from the
 server's at any `:client-only` crossing, by design. The row this reaches is concrete —
-`arm1/hydrate_dom_cljs_test.cljs:414`, `(is (= boundary-count (rt/body-runs)))`, read after
+`arm1/hydrate_dom_cljs_test`'s `the-body-run-count-across-adoption-is-counted-and-not-inferred`,
+`(is (= boundary-count (rt/body-runs)))`, read after
 the adoption resolves. It is green today because no page it drives carries a `:client-only`
 crossing, and it goes red the moment one is added — whether through `[:>]` or through a
 `defhost` declared `:client-only`. Nothing on `main` is broken; what is needed is that
