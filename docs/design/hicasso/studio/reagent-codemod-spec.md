@@ -357,7 +357,7 @@ Sampled against `5a08b14a29`:
 | `mint-host!` nil refusal at codec.cljs:1114-1121 | `mint-host!` at :1256 | +142 |
 | `host-entry` at codec.cljs:1568-1613 | `host-entry` at :2077 | +509 |
 | guide 05 *"A codemod is planned and not built"* at :164 | :235 | +71 |
-| guide 05 *"Migration codemod \| Planned, unbuilt"* at :286 | :371 | +85 |
+| guide 05's *"Migration codemod"* status row at :286 | :371 | +85 |
 
 *(3 columns; 5 body rows; hand-counted.)*
 
