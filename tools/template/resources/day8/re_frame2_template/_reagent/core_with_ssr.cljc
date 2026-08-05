@@ -102,13 +102,28 @@
   must resolve AFTER the view is registered — a top-level `def` would
   capture the lookup at namespace-load time.
 
-  Note the head is the looked-up FN, not the keyword `:app/root`. A
-  keyword head in a render tree is an HTML element on every host, never a
-  view (Conventions §Render-tree shape vs runtime lookup): `[:app/root]`
-  would paint an empty `<root>` element. Views are referenced by the Var
-  `reg-view` defs, or by `(rf/view :id)` as here."
+  NOTE THE OUTER CALL: this INVOKES the view, returning the DOM-rooted
+  tree, where the tempting `[(rf/view :app/root)]` would return a
+  *reference* to it. Both spellings emit byte-identical HTML, and only
+  this one is hashable. `render-tree-hash` is a pure structural walk that
+  never expands a callable head, and every fn canonicalises to the same
+  identity-free `#fn[]` token, so a callable-headed root hashes to one
+  constant for every application on earth — ssr-ring therefore omits the
+  render hash entirely for that shape (rf2-q1b96), and the page ships with
+  no hydration tripwire. The outer call is also what makes this symmetric
+  with the client's `:render-tree-fn` below, which calls the view the same
+  way: the two ends must hash the SAME tree or every page reports a
+  hydration mismatch.
+
+  The React mount tree further down keeps the `[(rf/view :app/root)]`
+  reference form — that one is a component boundary React owns, not a tree
+  anyone hashes.
+
+  A keyword head would be worse still: it is an HTML element on every host,
+  never a view (Conventions §Render-tree shape vs runtime lookup), so
+  `[:app/root]` paints an empty `<root>` element."
   []
-  [(rf/view :app/root)])
+  ((rf/view :app/root)))
 
 ;; ============================================================================
 ;; CLIENT ENTRY POINT
