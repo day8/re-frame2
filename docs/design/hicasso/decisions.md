@@ -519,6 +519,34 @@ adapter *registry*; overruled for the one-declaration-one-identity grain.
 
 ## HD-012 — The bar, and UIx's role in it
 
+> **Addendum, 2026-08-05 — the bar is PER-AXIS: the mount denominator moved to
+> UIx, the bulk denominator did not (`rf2-hyd50`).** The ruling below states
+> mount and bulk under a single Reagent-denominated number. That is superseded
+> **on the mount axis only**. The operative bar, as the operator-owned standard
+> `rf2-2rtt6.1` carries it:
+>
+> - **Mount** — **≤ 1.10× direct UIx-on-subs**, canonical `M1`,
+>   floor-normalised, on the clock of record (raw `TaskDuration`, script **and**
+>   frame). Reagent-on-subs stays co-instrumented and is **reported beside the
+>   mount row, not gating it**.
+> - **Bulk** — **≤ 1.0× Reagent-on-subs, like-for-like** — unchanged.
+>
+> **What stands, so the conflict cannot be re-derived.** Everything else in the
+> ruling below: the clock-only ship *number*, browser-only figures, memory
+> governing through the kill rules rather than the ship number, UIx as the
+> mandatory co-instrumented comparator, the 1.5× bulk architecture-kill
+> tripwire, K3, the heap gates and the red-zone ratios. Only the mount
+> denominator moved; every other number stands as written, Reagent-denominated
+> where written.
+>
+> **Provenance.** The operator relaxed "as fast as Reagent on mount" on
+> **2026-08-01** (`rf2-2rtt6.1`): "`mount M1 ≤ 1.0× Reagent-on-subs` is no
+> longer the bar". The **2026-08-02** mount-gate amendment set the replacement
+> as one line and **retired** the old pair rather than restating it. `rf2-hyd50`
+> adjudicated the two texts on **2026-08-05** — delegated and
+> **operator-overturnable**; if that ruling is overturned, this addendum reverts
+> with it.
+
 **Ruling.** Ship bar: mount and bulk view-work **≤ 1.0× Reagent on the clock**,
 like-for-like on re-frame2 subscriptions — the ship *number* is clock only,
 matching the locked ruling. **Every bar and kill number is a browser number** —
