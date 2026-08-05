@@ -372,10 +372,10 @@ table ("a `[:>]` node has reduced structural identity — prefer `defhost`, or a
 around the node"). It has never been cashed out, and cashing it out needs one fact
 stated first, because it reframes the whole edge:
 
-> **Hicasso's headless structural render does not exist.** `draft-guide/08-testing.md`
-> line 16 calls the `h/render` block a sketch — *"Nothing in the tree implements this
-> yet"* — and its names are marked `[unfrozen]`. The built structural surface in this
-> repo is Freehand's (`re-frame.freehand.test`), whose node schema
+> **Hicasso's headless structural render does not exist.** `draft-guide/08-testing.md`'s
+> `### Full headless render (not built)` calls the `h/render` block a sketch — *"Nothing
+> implements that yet"* — and its names are marked `[unfrozen]`. The built structural
+> surface in this repo is Freehand's (`re-frame.freehand.test`), whose node schema
 > (`spec/004B-UI-Tree-and-Conversion.md`) carries a `:rf.ui/host` variant. Hicasso's is
 > designed, not built.
 
@@ -383,10 +383,13 @@ And one more, which is the sharpest thing on this edge and cuts *against* the ph
 apparent weight:
 
 > **The foreign region is already out of headless scope for both forms.**
-> `08-testing.md` line 44: *"If a body renders a foreign component through `defhost`
-> (or the `[:>]` escape, once it is built), the foreign region is out."* So what
-> `defhost` buys over `[:>]` structurally is **the crossing node's identity**, not
-> visibility into what the component renders. Neither form gives you that.
+> `08-testing.md`, as it read before `aa9ea1b698`: *"If a body renders a foreign
+> component through `defhost` (or the `[:>]` escape, once it is built), the foreign
+> region is out."* That sentence is gone; today's `### Full headless render (not built)`
+> states the same scope without naming the escape — *"Hooks, `defhost`, and host edges
+> stay mounted tests."* So what `defhost` buys over `[:>]` structurally is **the crossing
+> node's identity**, not visibility into what the component renders. Neither form gives
+> you that.
 
 ### Decision
 
@@ -813,9 +816,10 @@ up clause 5's named refusal for the plain-object case.
   `lower-declared-prop`.
 - `implementation/freehand/test/re_frame/bench/hicasso/arm1/host_ssr_dom_cljs_test.cljs`
   — the declared form's first-pass hydration row, whose shape edge 1 borrows.
-- `docs/design/hicasso/draft-guide/08-testing.md` — lines 16 and 44, which establish
-  that Hicasso's headless render is a sketch and that the foreign region is out of its
-  scope for both forms.
+- `docs/design/hicasso/draft-guide/08-testing.md` — its `### Full headless render (not
+  built)` section, which establishes that Hicasso's headless render is a sketch and (as
+  the file read before `aa9ea1b698`) that the foreign region is out of its scope for both
+  forms.
 - `spec/004B-UI-Tree-and-Conversion.md` — the shipped node schema's `:rf.ui/host`
   variant, and the silent-fragment-arm warning edge 3 borrows.
 - Beads `rf2-2rtt6.85` (the `:ssr` policy and its merged-PR audit), `rf2-2rtt6.86` (the
