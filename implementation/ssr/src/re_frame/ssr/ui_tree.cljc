@@ -58,7 +58,6 @@
   the conversion-table rows the seam needs ships here."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
-            [re-frame.ssr.diagnostic :as diagnostic]
             [re-frame.ssr.hash :as hash]
             [re-frame.ssr.html-helpers :as html]))
 
@@ -88,7 +87,7 @@
         :rf.error/ssr-ui-tree-version-unsupported
         'rf.ssr/emit-ui-tree
         (str "re-frame.ssr/emit-ui-tree requires a root :rf.ui/tree-version in "
-             (pr-str supported-tree-versions) " — got " (diagnostic/pr-form v)
+             (pr-str supported-tree-versions) " — got " (error/pr-form v)
              ". The serialiser validates the version FIRST, before any emission, so "
              "a future-version or corrupt tree never emits plausible markup. This is "
              "an OPERATIONAL deploy-skew condition (the server is too old for the tree "
@@ -98,9 +97,9 @@
              "the view code.")
         {:recovery :no-recovery
          ;; rf2-9s68n — `v` is read straight off a caller-supplied tree, so
-         ;; it crosses `diagnostic/safe-form` on the ex-data side exactly as
-         ;; it crosses `diagnostic/pr-form` on the message side above.
-         :extra    {:got (diagnostic/safe-form v)
+         ;; it crosses `error/safe-form` on the ex-data side exactly as
+         ;; it crosses `error/pr-form` on the message side above.
+         :extra    {:got (error/safe-form v)
                     :supported supported-tree-versions}}))))
 
 ;; ---------------------------------------------------------------------------
@@ -718,12 +717,12 @@
   tree consumer throws (004B §The node schema). `path` is the root-relative
   `get-in` position that LOCATES the offending node.
 
-  rf2-9s68n — `extra` crosses `diagnostic/safe-form` HERE, once, for every
+  rf2-9s68n — `extra` crosses `error/safe-form` HERE, once, for every
   arm: its slots (`:value`, `:got`) carry runtime tree values, and a cyclic
   foreign value riding out in ex-data explodes at a DOWNSTREAM logger /
   error projector / trace sink that `pr-str`s it, which is someone else's
   boundary and strictly harder to diagnose than this one. The callers own
-  the MESSAGE half of the same crossing (`diagnostic/pr-form`) because the
+  the MESSAGE half of the same crossing (`error/pr-form`) because the
   string is built before it arrives here. `path` is framework-built —
   `:children` keywords and integers — so it needs no crossing."
   [reason path extra]
@@ -731,7 +730,7 @@
     :rf.error/ui-tree-malformed
     'rf.ssr/emit-ui-tree
     (str reason " (at tree path " (pr-str path) ")")
-    {:extra (assoc (diagnostic/safe-form extra) :path path)}))
+    {:extra (assoc (error/safe-form extra) :path path)}))
 
 (declare emit-node mark-selected selected-values)
 
@@ -779,7 +778,7 @@
       (str "a <" tag-lc "> raw-text element takes EITHER string content OR a "
            "single trusted-markup (:html) child — never a structural, mixed, or "
            "multi-child body (which the raw-text fast path would otherwise "
-           "stringify into the element): " (diagnostic/pr-form children))
+           "stringify into the element): " (error/pr-form children))
       path {:value children})))
 
 (defn- transparent-wrapper?
@@ -837,7 +836,7 @@
           (str "a <textarea> takes its content from EITHER :value / "
                ":default-value OR a single text child, never both — "
                "react-dom/server 19.2 rejects a textarea given a value AND a "
-               "child: " (diagnostic/pr-form c))
+               "child: " (error/pr-form c))
           p {:value raw-children}))
 
       (> (count eff) 1)
@@ -845,7 +844,7 @@
         (malformed-node!
           (str "a <textarea> takes at most ONE child, but " (count eff)
                " reached it after splicing — react-dom/server 19.2 rejects a "
-               "textarea with more than one child: " (diagnostic/pr-form (mapv first eff)))
+               "textarea with more than one child: " (error/pr-form (mapv first eff)))
           p {:value raw-children}))
 
       (= 1 (count eff))
@@ -856,7 +855,7 @@
             (str "a <textarea> cannot carry a trusted-markup (:html) child — "
                  "react-dom/server 19.2 rejects dangerouslySetInnerHTML on a "
                  "textarea (its content is value/defaultValue or a text child); "
-                 "supply the text via :value or a string child: " (diagnostic/pr-form c))
+                 "supply the text via :value or a string child: " (error/pr-form c))
             p {:value raw-children})
 
           (and (map? c) (contains? c :tag))
@@ -864,7 +863,7 @@
             (str "a <textarea> takes a single TEXT child, not a structural "
                  "element — react-dom/server 19.2 renders an element child as "
                  "\"[object Object]\"; supply the text via :value or a string "
-                 "child: " (diagnostic/pr-form c))
+                 "child: " (error/pr-form c))
             p {:value raw-children}))))))
 
 (defn- emit-element
@@ -994,7 +993,7 @@
                " — every map node is EXACTLY ONE of :tag (element), :view-id "
                "(view boundary), :html (trusted markup), or a fragment (none of "
                "these, splicing its :children); an ambiguous map must not be "
-               "interpreted by branch order: " (diagnostic/pr-form node))
+               "interpreted by branch order: " (error/pr-form node))
           path {:value node :got ds})
 
         (= 1 (count ds))
@@ -1006,7 +1005,7 @@
                        h
                        (malformed-node!
                          (str "a trusted-HTML node's :html is not a string: "
-                              (diagnostic/pr-form node))
+                              (error/pr-form node))
                          path {:value node})))
           ;; view boundary erases — its children splice into the stream.
           :view-id (emit-children (:children node) path))
@@ -1021,12 +1020,12 @@
           (str "a tree node carries no node discriminator — every map node is "
                "an element (:tag), a view boundary (:view-id), trusted markup "
                "(:html), or a fragment (:children); a map with none is not a "
-               "renderable tree node: " (diagnostic/pr-form node))
+               "renderable tree node: " (error/pr-form node))
           path {:value node :got []})))
 
     :else
     (malformed-node!
-      (str "malformed tree node in re-frame.ssr/emit-ui-tree: " (diagnostic/pr-form node))
+      (str "malformed tree node in re-frame.ssr/emit-ui-tree: " (error/pr-form node))
       path {:value node})))
 
 ;; ---------------------------------------------------------------------------
