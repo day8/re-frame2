@@ -28,7 +28,9 @@ Hicasso's answer is a view that is a function from a props map to hiccup, and
 > **`sub` is legal anywhere in the body** — inside a `let`, a `when`, a helper
 > call. Read where you need the value.
 
-`sub` is the only read form. There is no second spelling for helpers.
+`sub` is the only read form. There is no second spelling for helpers, and a bare
+`rf/subscribe` in a body is not a fallback: it refuses, under every adapter,
+naming the collector it went around.
 
 ## Boundaries and inlining
 
