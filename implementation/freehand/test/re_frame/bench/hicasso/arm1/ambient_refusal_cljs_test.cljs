@@ -334,8 +334,17 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {}))]
-            (is (= (refusal-id f) (:rf.error/id data))
+          (let [data   (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
+                anchor (refusal-id f)]
+            ;; The `some?` is not padding. Comparing two ids without it is
+            ;; green when NEITHER refuses — measured: with the fence
+            ;; removed from `intent/with-frame`, every other assertion in
+            ;; this row went red and the comparison alone stayed green,
+            ;; both sides nil.
+            (is (some? anchor)
+                "precondition: an ambient READ refuses here, and its id is
+                 what this row compares against")
+            (is (= anchor (:rf.error/id data))
                 (str "a carry must refuse with the SAME id a read does; got "
                      (pr-str data)))
             (is (= :capture-frame (:operation data))
