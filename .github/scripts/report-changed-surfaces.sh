@@ -1606,8 +1606,42 @@ else
         # helpers are matched by their own earlier cases and stay scoped to
         # the browser gates — they are not CLJS source any node-test
         # `:require`s.)
+        #
+        # rf2-6ckzl — the SAME false-green, one tier out, for the two gates whose
+        # bundles are compiled FROM this tree. `cljs_prod` and `bundle_isolation`
+        # were both left false here, and both gate jobs that build `:examples/*`
+        # entries:
+        #
+        #   * cljs-bundle-isolation (bundle_isolation) releases
+        #     :examples/counter, :examples/counter-uix, :examples/login,
+        #     :examples/login-uix and :examples/realworld-resources, then greps
+        #     the five bundles for tools/* symbols.
+        #   * cljs-perf-bundle (cljs_prod, rf2-eegpw) releases :examples/counter
+        #     and :examples/counter-perf — both counter.core/run — and greps the
+        #     perf-OFF bundle for the ABSENCE and the perf-ON twin for the
+        #     PRESENCE of the mark-and-measure call sites.
+        #
+        # So a PR touching only examples/counter/** recompiled the exact entry
+        # both gates read and ran NEITHER. The isolation gate would not have
+        # noticed a counter change that pulled in a tools/* symbol; the perf gate
+        # would not have noticed one that stopped reaching a mark-and-measure
+        # call site, which is what makes its perf-ON positive control non-vacuous.
+        #
+        # Armed for the WHOLE tree rather than for the seven example directories
+        # those two commands name today. Both rosters are npm-script argument
+        # lists in implementation/package.json, free to gain an entry without
+        # touching this file, and a narrow list here would go stale in silence —
+        # the failure mode this case already carries a paragraph about (rf2-8ckcf2
+        # widened it to cljs_node_test on exactly that reasoning). The cost was
+        # measured rather than assumed: a docs-only PR pays NOTHING (it never
+        # reaches this case), and an examples-only PR pays four extra jobs —
+        # 161s + 127s + 91s + 90s of runner time on run 30980305020 — which run
+        # in PARALLEL beside the 778s `:node-test` and 644s examples-compile jobs
+        # such a PR already queues, so its wall clock does not move.
         cljs_browser=true
         cljs_node_test=true
+        cljs_prod=true
+        bundle_isolation=true
         ;;
       testbeds/tenant_switcher/*)
         # rf2-h5e3v7 — the tenant-switcher testbed is the ONE top-level
