@@ -88,6 +88,81 @@
     (is (nil? (r/redact-context {} {})))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-2rtt6.132 - TWO units, side by side, each honest about what it bounds.
+;;
+;; The marker's `:bytes` slot is the framework's wire vocabulary and now
+;; carries UTF-8 BYTES; the large heuristic's `large-char-cap` is what the
+;; band would PAINT and stays in CHARACTERS. Before this bead both were
+;; `(count (pr-str v))` - UTF-16 code units - so the published figure lied
+;; by up to 3x (4x on astral code points) while the cap was fine.
+;;
+;; ASCII is the fail-open condition: the two rulers agree there EXACTLY,
+;; so every ASCII fixture above measured the right number by accident.
+;; The fixture here is DISCRIMINATING - code units, code points and bytes
+;; are three different numbers - and is asserted so BEFORE it is used.
+;; Written as \uXXXX escapes so the source stays pure ASCII, and as a
+;; `.cljc` so BOTH hosts are proven: the JVM arm is `String.getBytes`,
+;; the CLJS arm is `TextEncoder`.
+
+(def ^:private utf8-discriminating-value
+  "Twenty U+2014 EM DASH (1 code unit / 1 code point / 3 UTF-8 bytes each)
+  followed by one ASTRAL U+1D11E (2 code units / 1 code point / 4 bytes)."
+  (str (apply str (repeat 20 "\u2014")) "\uD834\uDD1E"))
+
+(def ^:private ascii-control-value
+  "Same CODE-UNIT length as `utf8-discriminating-value`, pure ASCII."
+  (apply str (repeat 22 "x")))
+
+(defn- utf8-len [s]
+  #?(:clj  (alength (.getBytes ^String s "UTF-8"))
+     :cljs (let [^js enc (js/TextEncoder.)]
+             (.-length (.encode enc s)))))
+
+(defn- code-points [s]
+  #?(:clj  (.codePointCount ^String s 0 (count s))
+     :cljs (count (js/Array.from s))))
+
+(deftest redaction-byte-fixture-is-discriminating
+  (testing "code units, code points and UTF-8 bytes are three different numbers"
+    (is (= 22 (count utf8-discriminating-value)))
+    (is (= 21 (code-points utf8-discriminating-value)))
+    (is (= 64 (utf8-len utf8-discriminating-value))))
+  (testing "the ASCII control's two rulers agree exactly - the fail-open condition"
+    (is (= 22 (count ascii-control-value)))
+    (is (= 22 (utf8-len ascii-control-value)))))
+
+(deftest large-marker-bytes-counts-utf8-bytes-not-code-units
+  (testing "a schema-marked large value publishes UTF-8 bytes"
+    ;; `pr-str` wraps the string in two quote characters, so the printed
+    ;; form is 24 code units / 66 UTF-8 bytes. The old expression
+    ;; published 24; the slot means bytes, so it must publish 66.
+    (let [body (-> (r/redact-value :blob utf8-discriminating-value {:large #{:blob}})
+                   :rf.size/large-elided)]
+      (is (= 66 (:bytes body)) "UTF-8 bytes of the pr-str form")
+      (is (not= 24 (:bytes body)) "NOT the 24 UTF-16 code units of the same form")))
+  (testing "an ASCII value of the same code-unit length is unchanged by the correction"
+    (let [body (-> (r/redact-value :blob ascii-control-value {:large #{:blob}})
+                   :rf.size/large-elided)]
+      (is (= 24 (:bytes body)) "both rulers agree on ASCII, so this number never moved"))))
+
+(deftest large-char-cap-is-characters-and-did-not-move
+  ;; The correction is to the PUBLISHED figure only. Had the cap been
+  ;; converted too, this 400-character value (1,200 UTF-8 bytes) would
+  ;; have started eliding where it used to render inline - a live
+  ;; behaviour change on non-ASCII context. It does not.
+  (let [four-hundred-dashes (apply str (repeat 400 "\u2014"))]
+    (is (= 400 (count four-hundred-dashes)))
+    (is (= 1200 (utf8-len four-hundred-dashes)) "well over the 512 cap in BYTES")
+    (is (= four-hundred-dashes (r/redact-value :ctx four-hundred-dashes {}))
+        "under the 512-CHARACTER cap, so it still renders inline"))
+  (testing "the cap still fires on a genuinely long value"
+    (let [six-hundred (apply str (repeat 600 "x"))
+          out         (r/redact-value :ctx six-hundred {})]
+      (is (contains? out :rf.size/large-elided))
+      (is (= 602 (:bytes (:rf.size/large-elided out)))
+          "602 = 600 + two pr-str quotes, identical under either ruler on ASCII"))))
+
+;; ---------------------------------------------------------------------------
 ;; display-string — the content-FREE export-safe text
 
 (deftest display-string-redacted-is-content-free

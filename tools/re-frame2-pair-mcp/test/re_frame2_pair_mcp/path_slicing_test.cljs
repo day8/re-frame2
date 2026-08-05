@@ -142,6 +142,85 @@
   (is (= :set (-> (summary/tree-summary #{1 2 3}) :rf.mcp/summary :type)))
   (is (= :seq (-> (summary/tree-summary (list 1 2 3)) :rf.mcp/summary :type))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-2rtt6.132 - the marker's `:bytes` slot counts UTF-8 BYTES.
+;;
+;; `sample-entry-bytes` was `(count (pr-str sample))` - UTF-16 CODE UNITS -
+;; multiplied up into a slot the cross-MCP wire vocabulary names `:bytes`,
+;; the same slot `{:rf.size/large-elided ...}` carries. The two rulers agree
+;; EXACTLY on ASCII, which is why the defect survived a green suite: every
+;; fixture above is ASCII, so the wrong expression printed the right number.
+;;
+;; The fixture below is DISCRIMINATING by construction - code units, code
+;; points and UTF-8 bytes are three different numbers - and is asserted so
+;; BEFORE it is used, so a future editor that ASCII-fies the source reds the
+;; anti-vacuity assertions rather than silently neutering the pin. It is
+;; written as \uXXXX escapes so this file stays pure ASCII.
+;;
+;; Both directions are pinned: the non-ASCII entry DIVERGES (the estimate
+;; nearly doubles), and an ASCII entry of the SAME code-unit length AGREES
+;; with what the old expression produced.
+;; ---------------------------------------------------------------------------
+
+(def ^:private utf8-discriminating-entry
+  "Three U+2014 EM DASH (1 code unit / 1 code point / 3 UTF-8 bytes each)
+  followed by one ASTRAL U+1D11E (2 code units / 1 code point / 4 bytes)."
+  "\u2014\u2014\u2014\uD834\uDD1E")
+
+(def ^:private ascii-control-entry
+  "Same CODE-UNIT length as `utf8-discriminating-entry`, pure ASCII - so
+  the two rulers must agree on it exactly."
+  "aaaaa")
+
+(defn- utf8-len [s]
+  (let [^js enc (js/TextEncoder.)]
+    (.-length (.encode enc s))))
+
+(deftest tree-summary-bytes-fixture-is-discriminating
+  ;; Anti-vacuity FIRST: if these stop holding, every assertion in
+  ;; `tree-summary-bytes-counts-utf8-bytes-not-code-units` measures nothing.
+  (let [e utf8-discriminating-entry]
+    (is (= 5 (count e)) "5 UTF-16 code units")
+    (is (= 4 (count (js/Array.from e))) "4 code points")
+    (is (= 13 (utf8-len e)) "13 UTF-8 bytes - three different numbers")
+    (is (= 5 (count ascii-control-entry)))
+    (is (= 5 (utf8-len ascii-control-entry))
+        "the ASCII control's rulers agree exactly - that is the fail-open condition"))
+  ;; And the printed form the estimator actually samples (quotes included).
+  (is (= 7 (count (pr-str utf8-discriminating-entry))))
+  (is (= 15 (utf8-len (pr-str utf8-discriminating-entry))))
+  (is (= 7 (count (pr-str ascii-control-entry))))
+  (is (= 7 (utf8-len (pr-str ascii-control-entry)))))
+
+(deftest tree-summary-bytes-counts-utf8-bytes-not-code-units
+  ;; All FOUR emit sites in `summary.cljs` - map / vector / set / seq.
+  ;;
+  ;; Sampled per-entry size is `(max 8 (utf8-bytes (pr-str sample)))`:
+  ;;   non-ASCII entry -> max(8, 15) = 15   (code units gave max(8, 7) = 8)
+  ;;   ASCII control   -> max(8,  7) =  8   (identical under either ruler)
+  ;; Maps add the 16-byte key overhead on top.
+  (let [bytes-of #(-> % summary/tree-summary :rf.mcp/summary :bytes)
+        e        utf8-discriminating-entry
+        a        ascii-control-entry]
+    (testing "vector"
+      (is (= 60 (bytes-of [e e e e])) "4 x 15 UTF-8 bytes")
+      (is (= 32 (bytes-of [a a a a])) "4 x the 8-byte floor - ASCII agrees"))
+    (testing "set"
+      (is (= 15 (bytes-of #{e})))
+      (is (= 8  (bytes-of #{a}))))
+    (testing "seq"
+      (is (= 15 (bytes-of (list e))))
+      (is (= 8  (bytes-of (list a)))))
+    (testing "map - the 16-byte key overhead plus the sampled value"
+      (is (= 31 (bytes-of {:k e})) "16 + 15")
+      (is (= 24 (bytes-of {:k a})) "16 + 8"))
+    (testing "the correction can only ever RAISE the estimate"
+      ;; UTF-8 bytes are never fewer than UTF-16 code units, so no slice
+      ;; that read as small before reads as smaller now. Nothing in this
+      ;; server gates on the figure, so no budget's direction moves.
+      (is (> (bytes-of [e e e e]) (bytes-of [a a a a]))
+          "same code-unit length, larger byte estimate"))))
+
 (deftest tree-summary-map-truncates-huge-key-lists
   ;; A 5k-entry map's key list alone would blow the cap. The summary
   ;; marker MUST stay bounded.

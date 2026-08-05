@@ -406,6 +406,39 @@
     (let [token (cursor/encode-cursor {:v 1 :after-id "x"})]
       (is (= :re-frame.mcp-base.cursor/malformed
              (cursor/decode-cursor token (fn [_] false))))))
+  (testing "the size cap is CHARACTERS on CLJS too - the same ruler the JVM applies"
+    ;; rf2-2rtt6.132 - this const was named `max-cursor-bytes` while its
+    ;; guard was, and remains, `(> (count s) ...)`: UTF-16 CODE UNITS on
+    ;; BOTH hosts. It was RELABELLED rather than converted, and this is
+    ;; the CLJS half of the cross-host pin (`cursor_test/decode-cursor-
+    ;; cap-is-characters-and-the-unit-is-unobservable` carries the JVM
+    ;; half). Fixtures are \uXXXX escapes so the source stays pure ASCII:
+    ;; U+2014 EM DASH is 1 code unit / 3 UTF-8 bytes, and the ASTRAL
+    ;; U+1D11E is 2 code units / 1 code point / 4 UTF-8 bytes.
+    (let [utf8-len (fn [s]
+                     (let [^js enc (js/TextEncoder.)]
+                       (.-length (.encode enc s))))
+          dashes   (apply str (repeat 400 "\u2014"))
+          astral   (apply str (repeat 400 "\uD834\uDD1E"))]
+      (is (= 400 (count dashes)))
+      (is (= 1200 (utf8-len dashes)) "the fixture discriminates: bytes /= code units")
+      (is (= 800 (count astral)) "the astral fixture is 2 code units per code point")
+      (is (= 1600 (utf8-len astral)))
+      ;; Both sit UNDER the 1,024-CHARACTER cap and OVER 1,024 UTF-8
+      ;; bytes, so a byte cap would refuse them at the guard where the
+      ;; character cap lets them through. Both are `::malformed` anyway -
+      ;; refused by `decode-canonical-b64` for a reason independent of the
+      ;; cap. The unit is therefore unobservable and the relabel complete.
+      (is (<= (count dashes) cursor/max-cursor-chars))
+      (is (> (utf8-len dashes) cursor/max-cursor-chars))
+      (is (= :re-frame.mcp-base.cursor/malformed (cursor/decode-cursor dashes any?)))
+      (is (<= (count astral) cursor/max-cursor-chars))
+      (is (> (utf8-len astral) cursor/max-cursor-chars))
+      (is (= :re-frame.mcp-base.cursor/malformed (cursor/decode-cursor astral any?)))
+      ;; And the boundary itself, in characters, on this host.
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor (apply str (repeat (inc cursor/max-cursor-chars) "a")) any?))
+          "one CHARACTER over the cap => ::malformed, same 1,024 as the JVM")))
   (testing "tagged literals in the cursor are rejected"
     (let [evil (cursor/b64-encode "#js {:a 1}")]
       (is (= :re-frame.mcp-base.cursor/malformed

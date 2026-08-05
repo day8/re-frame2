@@ -98,17 +98,57 @@
 ;; Large-value heuristic
 
 (def ^:private default-large-char-cap
-  "A printed value longer than this many chars is elided as large even
-  when the schema did not mark it `:large?`. A defensive size guard so a
-  big unmarked slot cannot bloat (and leak its content into) the export.
-  Conservative — ordinary context values render well under this."
+  "A printed value longer than this many CHARACTERS is elided as large
+  even when the schema did not mark it `:large?`. A defensive size guard
+  so a big unmarked slot cannot bloat (and leak its content into) the
+  export. Conservative — ordinary context values render well under this.
+
+  Two units live side by side here, on purpose: this CAP is characters
+  (what the band paints), while the `:rf.size/large-elided` marker's
+  `:bytes` slot is UTF-8 bytes (the framework's wire vocabulary). The
+  cap's threshold therefore does not move under rf2-2rtt6.132 — nothing
+  that rendered inline before is elided now, and nothing that was elided
+  is admitted."
   512)
 
 (defn- printed-size
-  "The char length of `(pr-str v)` — the size the band would otherwise
-  render — used both for the large heuristic and the `:bytes` diagnostic."
+  "The CHARACTER length of `(pr-str v)` — UTF-16 code units, which is what
+  `count` answers on both hosts — i.e. how much TEXT the band would
+  otherwise render. This is the ruler the large heuristic uses, and
+  `default-large-char-cap` is named for it.
+
+  Characters, deliberately: the cap guards how much a chart band paints,
+  which is a count of glyphs on screen, not of octets on a wire. It is
+  the `:bytes` MARKER slot that must speak the framework's unit — see
+  `utf8-bytes` below (rf2-2rtt6.132)."
   [v]
   (count (pr-str v)))
+
+(defn- utf8-bytes
+  "UTF-8 BYTE length of `(pr-str v)` — the figure the `:rf.size/large-elided`
+  marker publishes, matching what `re-frame.elision`'s walker means by
+  `:bytes` so a machines-viz chip and a framework one report the same
+  quantity.
+
+  Until rf2-2rtt6.132 the marker's `:bytes` slot carried `printed-size`,
+  i.e. UTF-16 CODE UNITS under a byte name. That fails OPEN: the two
+  rulers agree exactly on ASCII, so the wrong expression printed the
+  right number and a green suite never noticed — until a context value
+  grew an em-dash or an emoji, at which point the published figure
+  under-reported by up to 3x (4x for astral code points).
+
+  `TextEncoder` and not `Buffer.byteLength`: this ns compiles into the
+  BROWSER viewer bundle (`:machines-viz-viewer`, and under `:advanced`),
+  where `Buffer` is not there; `^js` hints so `:advanced` cannot rename
+  the call. TextEncoder is UTF-8 BY DEFINITION and carries no encoding
+  argument a later edit could silently drop. Same helper shape as
+  `day8.re-frame2-xray.panels.epoch.format/pr-str-bytes` (rf2-2rtt6.131)."
+  [v]
+  (let [s (pr-str v)]
+    #?(:clj  (alength (.getBytes ^String s "UTF-8"))
+       :cljs (let [^js enc (js/TextEncoder.)
+                   ^js buf (.encode enc s)]
+               (.-length buf)))))
 
 (defn- value-type
   "Coarse type tag for the `:rf.size/large-elided` marker payload.
@@ -134,11 +174,17 @@
 
   Content-free: carries only the size diagnostic (`:bytes`/`:type`) and
   provenance (`:path`/`:reason`), never a content head, preserving the
-  export-safety property."
+  export-safety property.
+
+  `:bytes` is UTF-8 bytes (`utf8-bytes`), NOT the `printed-size`
+  characters the cap is measured in — the slot is the framework's wire
+  vocabulary and must mean what the framework means by it
+  (rf2-2rtt6.132). The two agree on ASCII and diverge on everything
+  else, which is precisely why the mismatch went unnoticed."
   [k v]
   {:rf.size/large-elided
    {:path   [k]
-    :bytes  (printed-size v)
+    :bytes  (utf8-bytes v)
     :type   (value-type v)
     :reason :schema}})
 
