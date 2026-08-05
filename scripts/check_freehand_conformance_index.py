@@ -3351,38 +3351,59 @@ def _run_extent_self_tests(verbose: bool = False) -> int:
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    cases: list[tuple[str, int]] = [
-        ("clean", 0),
-        ("empty", 0),
-        ("clean_planned", 0),
-        ("clean_qualified_host", 0),
-        ("duplicate_id", 1),
-        ("ill_formed_id", 1),
-        ("unknown_area_in_id", 1),
-        ("area_mismatch", 1),
-        ("out_of_order_id", 1),
-        ("gap_in_area", 1),
-        ("citation_not_a_link", 1),
-        ("citation_no_anchor", 1),
-        ("citation_missing_file", 1),
-        ("citation_missing_anchor", 1),
-        ("citation_outside_spec", 1),
-        ("fixture_missing", 1),
-        ("fixture_absent_on_active", 1),
-        ("fixture_on_planned", 1),
-        ("applicability_unknown_token", 1),
-        ("applicability_two_modes", 1),
-        ("applicability_no_host", 1),
-        ("applicability_no_mode", 1),
-        ("bad_status", 1),
-        ("bad_row_shape", 1),
-        ("empty_law", 1),
-        ("missing_area_section", 1),
-        ("unknown_area_section", 1),
-        ("duplicate_area_section", 1),
-        ("bad_table_header", 1),
-        # A block before the first section orphans both its header and its row.
-        ("orphan_row", 2),
+    # Both arms pin the defect a case must red WITH, not merely how many.  The
+    # census arm below said why first, and the reasoning is not census-specific:
+    # a case that reds for a NEIGHBOUR reason is a detector proven by its
+    # neighbour.  Several of these 26 do exactly that when their own rule is
+    # deleted — `unknown_area_in_id` falls through to AREA MISMATCH and
+    # `citation_no_anchor` to the missing-anchor lookup, both still at one
+    # defect (rf2-m147k).  Each entry names substrings unique to ITS rule's
+    # diagnostic, so the case cannot be answered by the rule next door.
+    cases: list[tuple[str, int, tuple[str, ...] | None]] = [
+        ("clean", 0, None),
+        ("empty", 0, None),
+        ("clean_planned", 0, None),
+        ("clean_qualified_host", 0, None),
+        ("duplicate_id", 1, ("DUPLICATE ID", "already allocated at line")),
+        ("ill_formed_id", 1,
+         ("ILL-FORMED ID", "expected FH-<AREA>-<NNN> with a roster AREA")),
+        ("unknown_area_in_id", 1,
+         ("ILL-FORMED ID", "is not in the area roster")),
+        ("area_mismatch", 1, ("AREA MISMATCH", "filed under the FH-")),
+        ("out_of_order_id", 1, ("OUT-OF-ORDER ID", "ids ascend within an area")),
+        ("gap_in_area", 1, ("GAP IN AREA", "ordinals are DENSE within an area")),
+        ("citation_not_a_link", 1,
+         ("MISSING CITATION", "not a markdown link")),
+        ("citation_no_anchor", 1, ("BROKEN CITATION", "has no #anchor")),
+        ("citation_missing_file", 1, ("BROKEN CITATION", "- no such file (")),
+        ("citation_missing_anchor", 1, ("BROKEN CITATION", "has no anchor #")),
+        ("citation_outside_spec", 1,
+         ("BROKEN CITATION", "a canonical paragraph lives under spec/")),
+        ("fixture_missing", 1, ("MISSING FIXTURE", "- no such file")),
+        ("fixture_absent_on_active", 1,
+         ("MISSING FIXTURE", "must name the fixture that proves it")),
+        ("fixture_on_planned", 1,
+         ("MISPLACED FIXTURE", "must leave the fixture cell as")),
+        ("applicability_unknown_token", 1,
+         ("BAD APPLICABILITY", "unknown token(s)")),
+        ("applicability_two_modes", 1,
+         ("BAD APPLICABILITY", "2 mode token(s)")),
+        ("applicability_no_host", 1, ("BAD APPLICABILITY", "no host token")),
+        ("applicability_no_mode", 1,
+         ("BAD APPLICABILITY", "0 mode token(s)")),
+        ("bad_status", 1, ("BAD STATUS", "expected one of")),
+        ("bad_row_shape", 1, ("BAD ROW", "column(s), expected")),
+        ("empty_law", 1, ("BAD ROW", "empty Law cell")),
+        ("missing_area_section", 1, ("MISSING AREA SECTION",)),
+        ("unknown_area_section", 1, ("UNKNOWN AREA SECTION",)),
+        ("duplicate_area_section", 1, ("DUPLICATE AREA SECTION",)),
+        ("bad_table_header", 1, ("BAD TABLE HEADER", "expected | Id | Law |")),
+        # A block before the first section orphans both its header and its row,
+        # and the two are named separately — an aggregate 2 is equally satisfied
+        # by either one firing twice.
+        ("orphan_row", 2,
+         ("[Id] table row before the first area section",
+          "[`FH-CALL-001`] table row before the first area section")),
     ]
     # The census cases pin the defect KIND as well as the count, because this
     # guard exists to stop a green being read off the wrong evidence and a
@@ -3506,16 +3527,32 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_retired_row_answers_a_citation", 0, None),
     ]
     failures = _run_extent_self_tests(verbose)
+    # A case that expects a RED must say what it expects to red WITH.  Without
+    # this, the next case added to either arm can arrive kind-less and be back
+    # to proof-by-count on the day it lands — which is how all 26 check-arm
+    # cases got there (rf2-m147k).
+    undeclared = [
+        name for name, expected, kind in (*cases, *census_cases)
+        if expected and not kind
+    ]
+    if undeclared:
+        sys.stderr.write(
+            "self-test FAIL: case(s) expecting a defect but naming none: "
+            f"{', '.join(undeclared)}\n"
+            "      Name substring(s) unique to the rule's own diagnostic; a "
+            "bare count is answered by the rule next door.\n"
+        )
+        failures += 1
     with tempfile.TemporaryDirectory(prefix="fh_index_selftest_") as tmp:
         base = Path(tmp)
         _build_self_test_fixtures(base)
         _build_census_fixtures(base)
-        both: tuple[tuple, ...] = (
-            (check, [(name, n, None) for name, n in cases]),
-            (census, census_cases),
-        )
+        both: tuple[tuple, ...] = ((check, cases), (census, census_cases))
         for guard, guard_cases in both:
             for fixture, expected, kind in guard_cases:
+                # The census arm writes one string, the check arm a tuple of
+                # them; both mean "every one of these must appear".
+                wanted = (kind,) if isinstance(kind, str) else tuple(kind or ())
                 root = base / fixture
                 saved_stderr = sys.stderr
                 sys.stderr = captured = _Captured()
@@ -3523,13 +3560,14 @@ def _run_self_tests(verbose: bool = False) -> int:
                     got = guard(root, verbose=False)
                 finally:
                     sys.stderr = saved_stderr
+                absent = [k for k in wanted if k not in captured.text]
                 if got != expected:
                     sys.stderr.write(
                         f"self-test FAIL: {fixture} expected defects={expected}, "
                         f"got {got}\n"
                     )
                     failures += 1
-                elif kind and kind not in captured.text:
+                elif absent:
                     # The case red, but not for the reason it was written for —
                     # which is the same mistake the guard itself exists to catch.
                     fired = next(
@@ -3539,13 +3577,14 @@ def _run_self_tests(verbose: bool = False) -> int:
                     )
                     sys.stderr.write(
                         f"self-test FAIL: {fixture} red with the right COUNT and "
-                        f"the wrong defect: expected {kind}, got {fired!r}\n"
+                        f"the wrong defect: expected {'; '.join(absent)}, got "
+                        f"{fired!r}\n"
                     )
                     failures += 1
                 elif verbose:
                     sys.stderr.write(
                         f"self-test PASS: {fixture} (defects={got}"
-                        f"{', ' + kind if kind else ''})\n"
+                        f"{'; ' + '; '.join(wanted) if wanted else ''})\n"
                     )
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
