@@ -629,6 +629,37 @@ jobs:
         continue-on-error: true
         run: python scripts/check_fast_pr_gap.py --check
 
+      # Gate-scheduling audit (rf2-6ckzl remedy clause 4, promoted here by
+      # rf2-k78o2). A gate is DEFINED in implementation/package.json and RUNS in
+      # a workflow, and nothing held those two in step: `npm run
+      # test:perf-bundle` existed, did real work, appeared in NO workflow, and
+      # its positive control had therefore never once been executed by CI. It
+      # was found only because somebody went looking. This checker closes the
+      # CLASS — every `test:*` / `bench:*` command must be reachable from a `npm
+      # run` in some workflow (the closure is walked through script bodies, so a
+      # chaining script counts for everything it chains) or carry a DISPOSITIONS
+      # entry whose premise the checker then verifies: `covered-by` names a
+      # script that must itself still be scheduled, `ci-runs-it-directly` names
+      # a literal the workflow corpus must still contain. A gate that is neither
+      # is a hard failure, so the next unscheduled gate reds on arrival.
+      #
+      # It ran in expensive-tests.yml until now, for one reason only: this
+      # workflow was fenced off by an open PR the day it was written. A ~0.3s
+      # pure-Python static check belongs on the PR critical path, and this job
+      # is where it belongs specifically — a workflow edit is exactly the change
+      # that unschedules a gate while touching no surface the classifier tiers
+      # on, so an always-on home is the only one that cannot be skipped past.
+      # Self-test first, then the live audit.
+      - name: Self-test the gate-scheduling audit
+        id: check_gate_scheduling_selftest
+        continue-on-error: true
+        run: python scripts/check_gate_scheduling.py --self-test --verbose
+
+      - name: Verify every gate command has a scheduled home (rf2-6ckzl)
+        id: check_gate_scheduling
+        continue-on-error: true
+        run: python scripts/check_gate_scheduling.py --verbose
+
       # The verdict. Every checker above carries `continue-on-error: true`, so
       # the job never short-circuits and its RESULT is decided only here.
       # `toJSON(steps)` is the map of every step that declared an `id`. Each

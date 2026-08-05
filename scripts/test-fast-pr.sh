@@ -758,13 +758,19 @@ run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose
 # here is therefore the faithful mirror, not a local choice.
 #
 # MEASURED BEFORE ADDING, because "cheap" was an assumption worth checking
-# (rf2-ejm7m ruling).  All 29 invocations below, timed individually from a clean
-# checkout: 4.46s cold / 4.58s warm as a batch.  The largest single one is
+# (rf2-ejm7m ruling).  The first 29 invocations below, timed individually from a
+# clean checkout: 4.46s cold / 4.58s warm as a batch.  The largest single one is
 # `check_keyword_catalogue_drift --verbose` at ~1.0s; twenty-five of the
 # remaining twenty-eight are under 0.15s, which is barely more than the ~0.02s
 # interpreter start each one pays.  Against a 14.3s always-on block that is
 # ~30%, for thirteen live scans and sixteen self-test arms that previously had
 # NO way to be run locally at all.
+#
+# The `check_gate_scheduling` pair at the end was measured the same way before
+# being added (rf2-k78o2): 0.75s / 0.86s / 0.93s for the pair over three warm
+# runs on Windows, the two arms within ~50ms of each other.  Both read the same
+# two inputs — implementation/package.json and every file in
+# .github/workflows/ — so neither can grow with the size of the tree.
 #
 # WRITTEN OUT ONE PER LINE, deliberately.  A loop over a script-name variable
 # would be shorter and would BREAK THE RATCHET: `check_fast_pr_gap.py` derives
@@ -853,6 +859,12 @@ run "CI reproduce-commands self-test" "python scripts/check_ci_reproduce_command
 
 run "CI reproduce-commands" "python scripts/check_ci_reproduce_commands.py --check --verbose" \
   python "$spine_root/scripts/check_ci_reproduce_commands.py" --check --verbose
+
+run "gate-scheduling audit self-test" "python scripts/check_gate_scheduling.py --self-test --verbose" \
+  python "$spine_root/scripts/check_gate_scheduling.py" --self-test --verbose
+
+run "gate-scheduling audit (rf2-6ckzl)" "python scripts/check_gate_scheduling.py --verbose" \
+  python "$spine_root/scripts/check_gate_scheduling.py" --verbose
 
 # The last three are `verify-readme-links`', not the invariant job's.  Note that
 # CI runs `check_readme_links --ci` ALWAYS-ON while this spine runs it in the

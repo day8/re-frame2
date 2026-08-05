@@ -165,6 +165,51 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:story-static
 
+      # rf2-a9oic — a build NAMED for the nightly that was in no nightly.
+      # `:node-test-perf-nightly` selects `-emit-nightly-test$`, which the
+      # consolidated `:node-test` build's `cljs-test$` does not match, so the
+      # two `*_emit_nightly_test.cljs` namespaces (core's
+      # performance_emit_nightly_test, freehand's
+      # render_measure_emit_nightly_test) run in this lane ALONE — and the lane
+      # ran nowhere. `check_test_lane_bijection.py` could not see it: the lane
+      # has a selector and the selector reaches files, so the bijection holds.
+      # What nothing asserted until rf2-6ckzl's audit is that the lane is ever
+      # RUN.
+      #
+      # NIGHTLY rather than per-PR on the build's own documented grounds, not
+      # on cost: shadow-cljs.edn says these User-Timing assertions are "noisy
+      # under per-PR CI runners; nightly cadence reduces false negatives from
+      # runner load". The defect was the missing schedule, not the tier. Cost
+      # is not the constraint either way — measured cold at 32s (10.8s of
+      # compile), 12 tests / 37 assertions green.
+      - name: Gate — perf User-Timing emission, nightly lane (test:cljs-perf-emit-nightly)
+        if: ${{ !cancelled() }}
+        run: npm run test:cljs-perf-emit-nightly
+
+      # rf2-a9oic — `check-ui-warm-watch.cjs` was referenced by its npm script
+      # and by nothing else in the repo, so the whole re-frame.ui warm-edit
+      # proof ran nowhere.
+      #
+      # Despite the name this is NOT a watch-mode developer command: it DRIVES
+      # a real Shadow warm watch and one live emitted runtime through eight
+      # scripted passes (cold accept, zero-declaration, declaration-shrink,
+      # same-namespace file move, rename, delete, failed-compile, retry) plus a
+      # daemon restart proving disk-cache reuse, then terminates with a verdict.
+      # It is the only gate that exercises real file delete/rename/move against
+      # the `:build-sources` graph delta and the live runtime ledger; the JVM
+      # fixtures beside it hand-build build state and cannot.
+      #
+      # NIGHTLY rather than per-PR: measured cold at 48s, so cost would allow
+      # either, but it spawns two Shadow watch daemons and a live node child,
+      # edits tracked fixture sources in place, and drives everything through
+      # 50ms polling loops under a 120s internal timeout. That is the
+      # process-orchestration class every other gate in this job belongs to,
+      # and the class most prone to false negatives under per-PR runner load.
+      # Green cold on 2026-08-05: all eight passes + WARM-CACHE REUSE PROVEN.
+      - name: Gate — re-frame.ui warm-watch harvest topology (test:ui-warm-watch)
+        if: ${{ !cancelled() }}
+        run: npm run test:ui-warm-watch
+
   template-emitted-app:
     name: Template emitted-app smoke
     runs-on: ubuntu-latest
@@ -363,34 +408,21 @@ jobs:
           RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
         run: clojure -M:slow-test
 
-  # rf2-6ckzl remedy clause 4 / rf2-eegpw — the gate that watches for gates
-  # with no scheduled home. `npm run test:perf-bundle` existed, did real work,
-  # and appeared in NO workflow: its positive control had never once been
-  # executed by CI, and it was found only because somebody went looking. The
-  # checker asserts that every `test:*` / `bench:*` command in
-  # implementation/package.json is either reachable from a workflow or carries
-  # a declared, machine-CHECKED disposition saying why it is not.
+  # THE GATE-SCHEDULING AUDIT USED TO LIVE HERE, AND NO LONGER DOES (rf2-k78o2).
+  # It asserts that every `test:*` / `bench:*` command in
+  # implementation/package.json is either reachable from a workflow or carries a
+  # declared, machine-CHECKED disposition saying why not. It landed in this
+  # nightly for one reason only: .github/workflows/test.yml was fenced off by an
+  # open PR (rf2-eegpw / #7530) the day it was written. That fence is gone, the
+  # check measures ~0.3s including interpreter start, and a PR that adds an
+  # unscheduled gate should learn so in three minutes rather than twenty-four
+  # hours — so it is now `scripts/check_gate_scheduling.py`, running always-on
+  # in test.yml's `verify-skill-mcp-drift` repo-invariant job and in
+  # scripts/test-fast-pr.sh.
   #
-  # It runs here rather than at PR time only because .github/workflows/test.yml
-  # is under an open PR as this lands (rf2-eegpw / #7530); a static ~0.1s check
-  # belongs on the PR critical path and should be promoted to the always-on
-  # repo-invariant job (rf2-6ckzl follow-up). Nightly is not nothing in the
-  # meantime — as of this same PR the nightly finally tells somebody when it
-  # reds.
-  gate-scheduling:
-    name: Every gate command has a scheduled home
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      # Self-test first, live scan second — the idiom every checker in this
-      # repo uses, and the reason a green here means the guard still has teeth
-      # rather than merely that it ran.
-      - name: Gate-scheduling guard self-test
-        run: python3 .github/scripts/check-gate-scheduling.py --self-test
-
-      - name: Gate-scheduling audit
-        run: python3 .github/scripts/check-gate-scheduling.py --verbose
+  # It is NOT also kept here. A per-PR always-on gate means main cannot carry a
+  # violation for a night, so a nightly arm would re-prove a property already
+  # proven on every merge — and a second copy is a second thing to keep in step.
 
   # rf2-6sg25 — until this job existed, a red nightly told NOBODY. Of the
   # thirty runs ending 2026-08-04, eighteen failed and 2026-07-09..07-21 was
@@ -423,7 +455,6 @@ jobs:
       - template-emitted-app
       - mcp-live
       - jvm-slow-tests
-      - gate-scheduling
     runs-on: ubuntu-latest
     permissions:
       issues: write     # open / edit / close the single tracking issue

@@ -66,6 +66,15 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # labels its records unattributable; this script consumes the verdict and
 # ignores the distributions.
 #
+# The last two are not browser gates and are here on the same derivation
+# (rf2-a9oic).  `test:cljs-perf-emit-nightly` runs the `:node-test-perf-nightly`
+# lane, whose `-emit-nightly-test$` selector the consolidated `:node-test`
+# build's `cljs-test$` does not match, so its namespaces run in that lane alone;
+# `test:ui-warm-watch` drives a real Shadow warm watch and one live emitted
+# runtime through eight scripted edit passes plus a disk-cache restart.  Both
+# yield a VERDICT and both are nightly-only, so both satisfy (a) and (b) — and
+# until this change neither ran anywhere at all.
+#
 # Keep these commands in lockstep with that workflow's implementation
 # browser/bundle list — the `test:script-policy` gate pins the inventory (see
 # implementation/scripts/_rigorous-local-inventory.test.cjs).
@@ -84,6 +93,8 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:story-feature-load && \
   npm run test:story-play-scripts && \
   npm run test:xray-feature-gate && \
-  npm run test:story-static)
+  npm run test:story-static && \
+  npm run test:cljs-perf-emit-nightly && \
+  npm run test:ui-warm-watch)
 
 printf 'PASS rigorous local suite\n'
