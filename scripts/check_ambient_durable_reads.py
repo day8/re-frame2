@@ -675,12 +675,25 @@ _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
         frozenset({"temp-id<-rand", "temp-id<-rand-nth"}),
     "positive/durable_write_near_debug_probe.cljc":
         frozenset({"updated-at<-now-ms"}),
-    "positive/every_durable_timestamp_key.cljc": frozenset(
-        f"{k}<-now-ms" for k in _DURABLE_TIMESTAMP_KEYS
-    ),
-    "positive/every_durable_id_key.cljc": frozenset(
-        f"{k}<-random-uuid" for k in _DURABLE_ID_KEYS
-    ),
+    # Written out, NOT derived from `_DURABLE_TIMESTAMP_KEYS`. A comprehension
+    # over the roster shrinks in lockstep when a roster entry is deleted, so the
+    # fixture would keep passing having stopped testing that entry — the exact
+    # self-blindness this bead is about. Verified by deleting `deadline-at`:
+    # derived expectations stayed green, these red naming it.
+    "positive/every_durable_timestamp_key.cljc": frozenset({
+        "started-at<-now-ms", "deadline-at<-now-ms", "loaded-at<-now-ms",
+        "stale-at<-now-ms", "invalidated-at<-now-ms", "settled-at<-now-ms",
+        "created-at<-now-ms", "completed-at<-now-ms", "errored-at<-now-ms",
+        "restored-at<-now-ms", "installed-at<-now-ms", "registered-at<-now-ms",
+        "updated-at<-now-ms", "detected-at<-now-ms", "fetched-at<-now-ms",
+        "cached-at<-now-ms", "expires-at<-now-ms", "refreshed-at<-now-ms",
+    }),
+    "positive/every_durable_id_key.cljc": frozenset({
+        "id<-random-uuid", "entry-id<-random-uuid", "request-id<-random-uuid",
+        "instance-id<-random-uuid", "mutation-id<-random-uuid",
+        "temp-id<-random-uuid", "correlation-id<-random-uuid",
+        "resource-id<-random-uuid",
+    }),
     "positive/every_ambient_read_form.cljc": frozenset({
         "instance-id<-now-ms",
         "instance-id<-js/Date.now",
