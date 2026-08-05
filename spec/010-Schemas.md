@@ -707,7 +707,7 @@ For the bundle-cost tradeoffs of the CLJS reference's Malli default and how to o
 
 ### Bundle cost
 
-The CLJS reference's Malli mandate adds a bounded gzipped cost to a typical re-frame2 production bundle. Schema implies validation: **requiring `re-frame.schemas` pulls Malli automatically** — the facade `:require`s the `re-frame.schemas.malli` adapter, so there is no "schemas required, no Malli" posture: any schemas consumer pays the Malli surface. The figures below come from a representative-scenario harness compiled `:advanced` with `:closure-defines {goog.DEBUG false}`:
+The CLJS reference's Malli mandate adds a bounded gzipped cost to a typical re-frame2 production bundle. Schema implies validation: **requiring `re-frame.schemas` pulls Malli automatically** — the facade `:require`s the `re-frame.schemas.malli` adapter, so there is no "schemas required, no Malli" posture: any schemas consumer pays the Malli surface. The scenario figures come from a representative-scenario harness — a Reagent/React counter app — compiled `:advanced` with `:closure-defines {goog.DEBUG false}`:
 
 | Scenario | gzipped | Δ vs baseline |
 |---|---:|---:|
@@ -715,11 +715,24 @@ The CLJS reference's Malli mandate adds a bounded gzipped cost to a typical re-f
 | `[re-frame.schemas]` required ⇒ Malli wired | 120.8 KB | +29.1 KB |
 | Heavy: validate + explain + decode + transform + generator | 156.1 KB | +64.5 KB |
 
-The schemas-with-Malli delta is bounded by `malli.core`'s reachable body (~24 KB gzipped headline). **The budget governs the marginal cost, not an absolute bundle size.** Measured against the same probe built with the facade's adapter require absent, requiring `re-frame.schemas` costs **+30.8 KB gzipped** — `malli.core` and its reachable Malli siblings, plus the schemas artefact's own surface. A probe's *absolute* size additionally carries `cljs.core` and the whole of `re-frame.core`, which grow with unrelated framework work and which this budget does not govern; compare deltas between two builds of the same probe, never one probe's absolute figure against a representative-app row. Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the strict-elision contract). The cost is `malli.core`'s **library code**, not validation activity.
+**The budget governs the marginal cost, not an absolute bundle size.** The gate measures that margin as a matched A/B — a control build requiring `[re-frame.core]` alone against a probe requiring `[re-frame.core]` plus `[re-frame.schemas]`, compiled identically, so everything the two share cancels:
 
-> **The schemas-bundle gate** (`scripts/check-schemas-bundle.cjs`, run by `npm run test:schemas-bundle`) builds two probes: `schemas-bundle-probe` requires only `re-frame.schemas`, `schemas-bundle-probe-malli` requires the adapter explicitly on top. Under Ruling A the explicit require is redundant, so the two bundles are the same size — the gate asserts that equality as the schema-implies-validation regression guard (a revert of the facade require would drop the first probe back to its Malli-free figure — ~31 KB lower — and break the equality).
+| Matched A/B build | gzipped | Δ |
+|---|---:|---:|
+| `schemas-bundle-control` — `[re-frame.core]` only | 84.3 KB | — |
+| `schemas-bundle-probe` — plus `[re-frame.schemas]` ⇒ Malli wired | 124.9 KB | **+40.6 KB** |
 
-**Inter-namespace DCE works; intra-namespace DCE does not.** Closure prunes `malli.error`, `malli.transform`, `malli.generator`, etc. from a typical bundle because the user code doesn't require them — only `malli.core` survives. Inside `malli.core`, Closure cannot prove the data-driven dispatch internals dead, so the full namespace stays. The practical rule is: **require what you need at the namespace boundary; nothing more.**
+`malli.core` dominates that margin but does not exhaust it: by post-Closure optimized bytes it is Malli's 121.5 KB (`malli.core` 88.6, `malli.impl.regex` 16.9, `malli.error` 12.0, `malli.registry` 2.0, `malli.sci` 1.3, `malli.impl.util` 0.7) plus `borkdude.dynaload` 6.6 KB, the schemas artefact's own 14.3 KB, and ~43 KB of `re-frame.core` / `goog` that the schemas path roots and a bare control DCEs away. That last term makes **+40.6 KB an upper bound**: an app that already roots those core paths pays them once, not twice.
+
+**The two tables above measure different things, and their numbers must never be swapped.** The harness rows price schemas inside a whole Reagent/React app; the A/B rows price it against a bare core control. Transcribing one table's figures onto the other's builds is precisely how this gate acquired a threshold it had never measured, and kept it for 83 days. A probe's *absolute* size is dominated by `cljs.core` and `re-frame.core`, which grow with unrelated framework work and which this budget does not govern — so compare a build against its matched control, never one build's absolute figure against a representative-app row.
+
+Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the strict-elision contract). The cost is Malli's **library code**, not validation activity.
+
+> **The schemas-bundle gate** (`scripts/check-schemas-bundle.cjs`, run by `npm run test:schemas-bundle`) builds the two A/B arms above and asserts their gzipped margin **two-sided**: at most 45 KB, at least 20 KB. The ceiling catches a namespace off the restrict-to-dev/test list below reaching the production path. The floor is the non-vacuity guard, and the bundle-shaped echo of schema implies validation: revert the facade's adapter require and Malli leaves the probe, dropping the margin to 9.7 KB. There is no absolute ceiling — a probe's absolute size is mostly `cljs.core` and `re-frame.core`, which the perf-bundle and bundle-isolation gates own. The invariant's primary owner remains the behavioural test `schemas/test/re_frame/schemas_implies_validation_test.clj`.
+
+**Inter-namespace DCE works; intra-namespace DCE does not.** Closure prunes `malli.transform`, `malli.generator`, `malli.util` etc. from a typical bundle because nothing reaches them — a bare `:require` alone is not enough to retain a namespace, and adding one to the probe moves its margin by 0.2 KB. Inside `malli.core`, Closure cannot prove the data-driven dispatch internals dead, so the full namespace stays. The practical rule is: **require what you need at the namespace boundary; nothing more.**
+
+`malli.error` is the measured exception. The adapter reaches it for `:schemas/humanize-explain!`, so it is on the production path at 12.0 KB optimized despite sitting on the restrict-to-dev/test list below — recorded here rather than silently tolerated (rf2-kybsf), and inside the +40.6 KB the gate prices.
 
 **Safe-in-production list** — namespaces it is OK to require directly from production code paths:
 
