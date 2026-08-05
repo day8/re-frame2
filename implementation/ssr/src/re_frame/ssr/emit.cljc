@@ -40,7 +40,6 @@
   (:require [clojure.string]
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
-            [re-frame.ssr.diagnostic :as diagnostic]
             [re-frame.ssr.hash :as hash]
             [re-frame.ssr.html-helpers :as html]
             #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
@@ -314,11 +313,12 @@
   precisely what that id names. The message and `:recovery` distinguish
   the arm.
 
-  `el` crosses `diagnostic/safe-form` FIRST (rf2-9s68n) — see
-  `re-frame.ssr.diagnostic`. `head` needs no such crossing: this arm is
+  `el` crosses `error/safe-form` FIRST (rf2-9s68n) — see
+  `re-frame.error` §cycle-safe diagnostic printing. `head` needs no such
+  crossing: this arm is
   reached only for a keyword in the reserved `:rf/*` namespace."
   [el head]
-  (let [el (diagnostic/safe-form el)]
+  (let [el (error/safe-form el)]
     (error/throw-error!
       :rf.error/invalid-hiccup-head
       'rf.ssr/emit
@@ -358,10 +358,10 @@
   `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and `pr-str` of
   a self-referential JS object blew the stack — `RangeError` instead of the
   message this function exists to produce. `el` crosses
-  `diagnostic/safe-form` first; `(first el)` is read from the crossed value,
+  `error/safe-form` first; `(first el)` is read from the crossed value,
   so the head is covered by the same one crossing."
   [el]
-  (let [el (diagnostic/safe-form el)]
+  (let [el (error/safe-form el)]
     (error/throw-error!
       :rf.error/invalid-hiccup-head
       'rf.ssr/emit
@@ -511,13 +511,13 @@
          ;; resolves an id here; the CALLABLE head is what the emitter
          ;; invokes, which is why the spelling has to be in the message.
          ;;
-         ;; rf2-9s68n — `el` crosses `diagnostic/safe-form` before it is
+         ;; rf2-9s68n — `el` crosses `error/safe-form` before it is
          ;; printed OR put in ex-data. This arm is the one where a foreign
          ;; JS value is not merely possible but EXPECTED: `[:> ctx.Provider
          ;; …]` is what `:>` interop is FOR, and a React 19 provider is a
          ;; cyclic object graph.
          (= :> head)
-         (let [el (diagnostic/safe-form el)]
+         (let [el (error/safe-form el)]
            (error/throw-error!
              :rf.error/ssr-reagent-native-head
              'rf.ssr/emit
@@ -547,11 +547,11 @@
          ;; streaming tree) surfaces a structured error rather than
          ;; silently producing malformed markup. Per Conventions §`:rf/*`
          ;; reserved hiccup heads + Spec 011 §Streaming SSR.
-         ;; rf2-9s68n — `el` crosses `diagnostic/safe-form` first: a
+         ;; rf2-9s68n — `el` crosses `error/safe-form` first: a
          ;; boundary's `:fallback` is ordinary hiccup and can carry a
          ;; foreign JS value anywhere inside it.
          (= :rf/suspense-boundary head)
-         (let [el (diagnostic/safe-form el)]
+         (let [el (error/safe-form el)]
            (error/throw-error!
              :rf.error/ssr-suspense-boundary-outside-stream
              'rf.ssr/emit

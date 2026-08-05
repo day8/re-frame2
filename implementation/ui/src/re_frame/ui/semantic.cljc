@@ -230,12 +230,20 @@
   can find the node) and the `:path` ex-data slot (so a tool can
   `(get-in tree path)` straight to it), and DISAMBIGUATES two equal-looking
   malformed nodes at different positions. `extra` carries the arm-specific
-  slots (`:value`, `:got`)."
+  slots (`:value`, `:got`).
+
+  rf2-1aj9s — `extra` crosses `error/safe-form` HERE, once, for every arm,
+  because a cyclic value riding out in ex-data explodes at a downstream
+  logger / error projector / trace sink that `pr-str`s it, which is someone
+  else's boundary rather than this one. Callers do the MESSAGE half of the
+  same crossing (`error/pr-form`) because the reason string is composed
+  before it arrives. `path` is framework-built (`:children` keywords and
+  ints) and needs no crossing."
   [reason path extra]
   (error/throw-error!
    :rf.error/ui-tree-malformed 're-frame.ui.semantic/normalize
    (str reason " (at tree path " (pr-str path) ")")
-   {:extra (assoc extra :path path)}))
+   {:extra (assoc (error/safe-form extra) :path path)}))
 
 (defn- norm-node
   "-> vector of semantic nodes/strings this tree node contributes. `path`
@@ -262,7 +270,7 @@
               "(element), :view-id (view boundary), :html (trusted "
               "markup), or a fragment (none of these, splicing its "
               ":children); an ambiguous map must not be interpreted by "
-              "branch order: " (pr-str node))
+              "branch order: " (error/pr-form node))
          path {:value node :got ds})
 
         (= 1 (count ds))
@@ -283,11 +291,11 @@
          (str "a tree node carries no node discriminator — every map node "
               "is an element (:tag), a view boundary (:view-id), trusted "
               "markup (:html), or a fragment (:children); a map with none "
-              "is not a renderable tree node: " (pr-str node))
+              "is not a renderable tree node: " (error/pr-form node))
          path {:value node :got []})))
     :else
     (malformed-node!
-     (str "malformed tree node in normalization N: " (pr-str node))
+     (str "malformed tree node in normalization N: " (error/pr-form node))
      path {:value node})))
 
 (defn- norm-nodes*
@@ -336,11 +344,17 @@
       (error/throw-error!
        :rf.error/ui-tree-malformed 're-frame.ui.semantic/normalize
        (str "normalization N requires a root :rf.ui/tree-version in "
-            (pr-str supported-tree-versions) " — got " (pr-str v)
+            (pr-str supported-tree-versions) " — got " (error/pr-form v)
             "; an absent or unsupported schema version is never coerced "
             "to v1 (that would make the version field meaningless and let "
             "a future-version tree be misread under today's rules)")
-       {:extra {:got v :supported supported-tree-versions}}))))
+       ;; rf2-1aj9s — `v` is read straight off a caller-supplied tree, so it
+       ;; crosses `error/safe-form` on the ex-data side exactly as it crosses
+       ;; `error/pr-form` on the message side above. The SSR sibling
+       ;; (`re-frame.ssr.ui-tree/validate-tree-version!`) crosses the same
+       ;; two halves at the same two places; `supported-tree-versions` is a
+       ;; compile-time constant and needs no crossing.
+       {:extra {:got (error/safe-form v) :supported supported-tree-versions}}))))
 
 (defn normalize
   "`N(tree)` — the semantic-node projection of a version-1 structural

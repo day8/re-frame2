@@ -33,11 +33,21 @@
      the expectation, not by eyeballing a literal.
 
   [[the-fixtures-are-genuinely-cyclic]] is the non-vacuity control. Without
-  it every row below could pass on an acyclic fixture and prove nothing."
+  it every row below could pass on an acyclic fixture and prove nothing.
+
+  ## Where the helper lives (rf2-1aj9s)
+
+  `safe-form` / `pr-form` were `re-frame.ssr.diagnostic` when this file was
+  written; they now live in `re-frame.error`, in core, because the THIRD
+  site of the same defect is `re-frame.ui.semantic` and `re-frame.ui` /
+  `re-frame.ssr` are SIBLING artefacts — both depend on core, neither may
+  `:require` the other. The helper's own unit rows stay here (this is where
+  the contract was established); the ui call sites are pinned by the
+  sibling `re-frame.ui.semantic-cycle-cljs-test`."
   (:require ["react" :as react]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.ssr.diagnostic :as diagnostic]
+            [re-frame.error :as error]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.ui-tree :as ui-tree]))
 
@@ -159,10 +169,10 @@
                        ["a nested acyclic obj" [:div {} [:span {:ctx acyclic-object}]]]
                        ["a string"             "text"]
                        ["nil"                  nil]]]
-      (is (identical? v (diagnostic/safe-form v))
+      (is (identical? v (error/safe-form v))
           (str label " must come back identical")))
     (is (= (pr-str [acyclic-object {:value "dark"}])
-           (diagnostic/pr-form [acyclic-object {:value "dark"}]))
+           (error/pr-form [acyclic-object {:value "dark"}]))
         "so pr-form IS pr-str wherever pr-str terminates — including on a
          foreign object, whose contents stay in the diagnostic")))
 
@@ -170,17 +180,17 @@
   (testing "The elision is the strict minimum: the token replaces the value
            `pr-str` cannot survive and nothing else, so the props and
            children around it go on discriminating the diagnostic."
-    (is (= "#js {…cyclic…}" (diagnostic/pr-form (self-referential-object))))
-    (is (= "#js […cyclic…]" (diagnostic/pr-form (self-referential-array))))
-    (is (= "#js {…cyclic…}" (diagnostic/pr-form provider)))
+    (is (= "#js {…cyclic…}" (error/pr-form (self-referential-object))))
+    (is (= "#js […cyclic…]" (error/pr-form (self-referential-array))))
+    (is (= "#js {…cyclic…}" (error/pr-form provider)))
     (is (= "[#js {…cyclic…} {:value \"dark\"} [:p \"x\"]]"
-           (diagnostic/pr-form [provider {:value "dark"} [:p "x"]])))
+           (error/pr-form [provider {:value "dark"} [:p "x"]])))
     (is (= "[:div {:ctx #js {…cyclic…}} \"x\"]"
-           (diagnostic/pr-form [:div {:ctx provider} "x"]))
+           (error/pr-form [:div {:ctx provider} "x"]))
         "a cycle nested in an attrs map is elided in place, leaving the map
          around it intact")
     (is (= "[:div #js […cyclic…]]"
-           (diagnostic/pr-form [:div #js [(self-referential-object)]]))
+           (error/pr-form [:div #js [(self-referential-object)]]))
         "a foreign value from which a cycle is REACHABLE is elided whole —
          the array holding the cycle is itself unprintable")))
 
@@ -191,14 +201,14 @@
            regression dressed up as a fix."
     (let [shared #js {"k" "v"}
           form   [:div {:a shared :b shared}]]
-      (is (identical? form (diagnostic/safe-form form)))
-      (is (= (pr-str form) (diagnostic/pr-form form)))))
+      (is (identical? form (error/safe-form form)))
+      (is (= (pr-str form) (error/pr-form form)))))
   (testing "and a persistent collection nested INSIDE a foreign value is
            crossed, not treated as the end of the graph — acyclic here, so
            it must come back untouched."
     (let [form [:div #js {"held" [:p "x"]}]]
-      (is (identical? form (diagnostic/safe-form form)))
-      (is (= (pr-str form) (diagnostic/pr-form form))))))
+      (is (identical? form (error/safe-form form)))
+      (is (= (pr-str form) (error/pr-form form))))))
 
 (deftest a-cycle-through-a-mixed-chain-is-found
   (testing "`pr-str` alternates between foreign values and persistent
@@ -207,9 +217,9 @@
            acyclic and hand `pr-str` the overflow — which is exactly what
            the control row above proves happens."
     (is (= "[:div #js {…cyclic…}]"
-           (diagnostic/pr-form [:div #js {"held" [:p provider]}])))
+           (error/pr-form [:div #js {"held" [:p provider]}])))
     (is (= "#js {…cyclic…}"
-           (diagnostic/pr-form #js {"held" #js [[:p provider]]}))
+           (error/pr-form #js {"held" #js [[:p provider]]}))
         "two collections deep and through an array as well")
     (rejected-with :rf.error/invalid-hiccup-head
                    "a mixed-chain cycle in head position"
@@ -223,7 +233,7 @@
   (testing "THE REPORTED DEFECT. A React provider is neither `keyword?` nor
            `ifn?`, so it falls to `reject-invalid-hiccup-head!` — which
            raised RangeError from its own message instead of the error it
-           exists to produce. Reverting `diagnostic/safe-form` in that
+           exists to produce. Reverting `error/safe-form` in that
            function reds every row here with `{:threw \"RangeError\"}`."
     (doseq [[label el] [["a provider in head position"  [provider {:value "dark"}]]
                         ["a hand-built cycle as head"   [(self-referential-object) {}]]
@@ -267,7 +277,7 @@
 
 (deftest ui-tree-rejects-a-cyclic-malformed-node-with-its-own-error
   (testing "Every `malformed-node!` arm prints the offending node or child.
-           Reverting `diagnostic/pr-form` at any one of them reds its row
+           Reverting `error/pr-form` at any one of them reds its row
            here with `{:threw \"RangeError\"}`."
     (doseq [[label t]
             [["a foreign node in child position"
