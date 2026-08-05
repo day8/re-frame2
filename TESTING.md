@@ -81,7 +81,7 @@ One exception, and it is the exception that keeps the split honest (rf2-65ajl, r
 
 Ordinary Story/Xray runtime changes are untouched and keep the cheap smoke path; the nightly sweep remains the system of record for the full matrix.
 
-The Xray full matrix is deliberately **not** a third such exception. `test:xray-feature-gate:smoke` — a command the PR job already runs — loads and validates the whole of `tools/xray/testbeds/feature_matrix/scenarios.cjs`, so the file cannot merge unparsed; what runs nightly is the non-smoke *rows*, which is this policy working as designed rather than a hole in it. When adding an Xray scenario, tag it `smoke: true` only if it earns a slot on every PR **and** loads an already-staged smoke surface; everything else is nightly by default. The gate fails loud if the smoke set is ever empty.
+The Xray full matrix is deliberately **not** a third such exception. `test:xray-feature-gate:smoke` — a command the PR job already runs — loads and validates the whole of `tools/xray/testbeds/feature_matrix/scenarios.cjs`, so the file cannot merge unparsed; what runs nightly is the non-smoke *rows*, which is this policy working as designed rather than a hole in it. When adding an Xray scenario, tag it `smoke: true` only if it earns a slot on every PR **and** loads an already-staged smoke surface; everything else is nightly by default. A non-smoke scenario does not run again until that night, so before merging one that is new or materially changed, run the full gate locally with `cd implementation && npm run test:xray-feature-gate` and note the result in the PR. The gate fails loud if the smoke set is ever empty.
 
 ## Test authoring policy
 
