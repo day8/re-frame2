@@ -7,7 +7,8 @@ legal:
 
 ```clojure
 ;; cf. implementation/freehand/test/re_frame/bench/hicasso/arm1/
-;;     host_hatch_dom_cljs_test.cljs — the witness for every claim on this page.
+;;     host_hatch_dom_cljs_test.cljs — the witness for the declaration and the
+;;     callback behaviour this example shows.
 (ns app.hosts.date-picker
   (:require [re-frame.hicasso :as h]
             ["react-datepicker" :default DatePicker]))
@@ -119,12 +120,16 @@ library's return goes back to that caller. Use this for imperative APIs
 (`open()`, `scrollTo()`): Hicasso does not invent meaning for those calls.
 
 **`:render`** — library calls you *during its own render* (`renderRow`,
-`renderItem`). The body must be pure: its return is what the library puts in its
-tree. Dispatching *while that call runs* raises
-`:rf.error/hicasso-dispatch-in-render-position`, naming the position. The row you
-build may still carry ordinary intents — `[:li {:on-click [:row/pick id]} title]`
-is fine; those fire later, on the user's click, under the frame of the boundary
-that supplied the callback.
+`renderItem`). The body must be pure, and its return goes into the library's tree
+**unconverted**: a string renders, hiccup does not. A returned vector reaches
+React as a vector and is refused there, and nothing on the taught `h/` roster
+converts one at this position — see [Not settled yet](#not-settled-yet).
+Dispatching *while the call runs* raises
+`:rf.error/hicasso-dispatch-in-render-position`, naming the position.
+
+Intents still work, which is most of what the position is for: a row built in the
+body carries them, and they fire later, on the user's click, under the frame of
+the boundary that *supplied* the callback rather than the one that invoked it.
 
 ### The declaration wins
 
@@ -197,6 +202,8 @@ emit `defhost`, rewrite call sites. A codemod is planned and not built.
 |---|---|---|
 | Prop arrives as `on-change` and the library ignores it | Nested keys expected camelCase; deep conversion is not offered | Convert the nested map yourself before it crosses |
 | The library ignored a keyword prop value | A keyword crosses a host prop unchanged; only HTML-attribute names stringify | Write the string at the call site — `"compact"`, or `(name :compact)` |
+| Hiccup passed *in a prop* renders as its own tag name and text | Only children lower; a prop value crosses as data, so `[:h2 "Tasks"]` arrives as the array `["h2" "Tasks"]` — silently, with no error | Pass the subtree as a child where the library takes one; at a prop there is nothing to reach for yet |
+| React refuses an object as a child, from a `:render` body | The body returned hiccup; a `:render` return crosses unconverted | Return a string, or keep the subtree on the Hicasso side of the crossing |
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | Slot is `:handler` or `:render`; neither dispatches | Declare `:event`, or write an `h/fn` for the real work |
 | `:rf.error/hicasso-intent-needs-the-event` | Vector spelling needs the DOM event at arg one; library put something else there | Use `h/fn` — full argument list, library order |
 | Namespace won't load on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host ns |
@@ -320,6 +327,7 @@ path. Nothing in the reserved vector will rescue that later.
 
 | Question | Status |
 |---|---|
+| Turning hiccup into an element at a prop or a `:render` return | **Open, and a real gap.** The mechanism exists inside the codec; nothing on the taught `h/` roster reaches it, so today the answer is to write the subtree where children lower — or to write it twice |
 | Declarable conversion defaults on `defhost` | Open — `:callbacks` and `:ssr` are the two options today |
 | Migration codemod | Planned, unbuilt |
 | When `{:ref [id config]}` lands, and what registers an id | Reserved, not designed |

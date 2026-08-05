@@ -234,15 +234,20 @@ the collector mechanics.
 
 ## Rules every read obeys
 
-- **Reading outside a render is an error.** There is no `@`-anywhere. Handler
-  and utility code uses `rf/subscribe-once` — a one-shot read that retains no
-  reactive handle:
+- **Reading outside a render is an error.** There is no `@`-anywhere. In an event
+  handler, declare the read as a coeffect with `:rf.cofx/requires`, so it belongs
+  to the handler's contract rather than happening as a side effect in its body.
+  Free-standing code — a utility, an effect body — uses `rf/subscribe-once`, a
+  one-shot read that retains no reactive handle, and names the frame it wants:
 
   ```clojure
-  ;; Outside a render — e.g. a utility, or an effect body:
-  (let [rows (rf/subscribe-once [:report/rows])]
+  ;; Outside a render and outside any frame scope, so the frame is explicit.
+  (let [rows (rf/subscribe-once [:report/rows] {:frame :main})]
     (export/write! rows))
   ```
+
+  The one-argument form resolves an ambient frame instead, which is what a test
+  or a REPL session sitting inside a scope already has.
 - **Framework subscriptions read identically to your own** — machine tags,
   resource and mutation state, route identity. They are first-class in the
   index, not a special case.

@@ -15,20 +15,27 @@ lifecycle. A full headless *render* of a view body is designed but **not built**
 
 ## Assert as data (today)
 
+A helper that takes its data as arguments and reads nothing is an ordinary
+function. Call it, and assert on what it returned:
+
 ```clojure
-;; Intent on a button — pure data, no DOM.
-(is (= [:button {:on-click [:todo/toggle 7]} "✓"]
-       (some-lowered-or-hand-built-node)))
+(defn todo-row [{:keys [id title]}]
+  [:li [:span title]
+       [:button {:on-click [:todo/toggle id]} "✓"]])
 
-;; Prevent head is visible to `=` (metadata would not be).
-(is (= [::h/prevent [:conduit/show-your-feed]]
-       (-> anchor second :on-click)))
-
-;; route-link's click decision — closed navigate map (see Events as data).
-(let [click (:on-click attrs)]
-  (is (vector? click))
-  (is (= :re-frame.hicasso/navigate (first click))))
+(deftest todo-row-carries-the-intent
+  (is (= [:li [:span "Buy milk"]
+              [:button {:on-click [:todo/toggle 7]} "✓"]]
+         (todo-row {:id 7 :title "Buy milk"}))))
 ```
+
+The same move reaches the other data spellings, because each is a value sitting in
+the attrs map the helper returned: a `::h/prevent` head, a `route-link`'s closed
+navigate vector, a presence child's exit attrs. `=` is the whole assertion.
+
+A `defview` body is not callable this way. It is a React function component, and a
+body that calls `sub` needs a render extent to read in — which is what the unbuilt
+headless render under Advanced is for.
 
 Events and subscriptions stay ordinary: handlers are functions of coeffects →
 effects map, subs are functions of app-db — test those without any view layer.
