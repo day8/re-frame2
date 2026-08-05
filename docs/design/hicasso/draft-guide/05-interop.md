@@ -65,7 +65,7 @@ of the view tree as data. Friction once; free at every use site. The Reagent
 | `:class` values | the class slot's own coercion, exactly as at a native tag — a collection joins (`["btn" nil :on]` → `"btn on"`) and two spellings of the class compose rather than one overwriting the other |
 | Children | hiccup → React elements |
 | Functions | pass through unconverted |
-| SSR | `:client-only` — nothing server-side until the client adopts. Override with `:ssr`: `:client-only`, or `{:fallback <hiccup>}` for placeholder markup. Bad policy → `:rf.error/hicasso-host-bad-ssr-policy` at mint. Full story: [Server-side rendering](10-server-side-rendering.md) |
+| SSR | `:client-only` — nothing server-side until the client adopts. Override with `:ssr`: `:client-only`, `{:fallback <hiccup>}` for placeholder markup, or `:render` to assert the component is server-safe and let it render there with its children. Bad policy → `:rf.error/hicasso-host-bad-ssr-policy` at mint. Full story: [Server-side rendering](10-server-side-rendering.md) |
 
 Two options today: `:callbacks` (next section) and `:ssr`. An unknown option is
 refused at mint (`:rf.error/hicasso-host-unknown-option`), not ignored. Bad
@@ -155,11 +155,35 @@ An intent with neither a marker nor `::h/prevent` never touches its arguments, s
 A library provider is just a component:
 
 ```clojure
-(h/defhost themed (.-Provider some-context))
+(h/defhost themed (.-Provider some-context) {:ssr :render})
 ```
 
 Consumers below the crossing read context correctly — the node is a real React
 element, so React's plumbing runs through.
+
+**Write the `{:ssr :render}`.** A provider is a *transparent wrapper*: it
+contributes no markup of its own and exists solely to carry a subtree. Under the
+default `:client-only` policy a crossing renders nothing until the client adopts
+it — and "nothing" includes the children, so on a server-rendered page the
+provider takes the whole subtree beneath it out of the response. Nothing reports
+that: the server HTML and hydration's first client pass agree, so there is no
+mismatch and no warning, and the page simply appears after hydration.
+
+`:ssr :render` is you asserting that this component is safe to run on a server,
+and a context provider is the case where that is trivially true — it is React's
+own component, and React's server renderer supports context fully. The
+declaration then mints no gate at all: the component *is* the element, so the
+server render, hydration's first pass and a fresh mount are all one tree, and
+consumers below read the value you declared rather than the context default.
+
+If the provider's *value* is genuinely client-only — derived from `window`, say
+— `:render` cannot help you, because that value is computed in the caller's body.
+Keep such a provider `:client-only` and accept that everything below it is too.
+
+A fallback is not the way out of this. `{:fallback …}` renders *instead of* the
+crossing rather than around it, and it is inert markup: a `defview` or `defhost`
+head written into one is refused at the declaration
+(`:rf.error/hicasso-host-fallback-boundary-head`).
 
 ## Memo and hosted components
 
@@ -329,6 +353,7 @@ path. Nothing in the reserved vector will rescue that later.
 |---|---|
 | Turning hiccup into an element at a prop or a `:render` return | **Open, and a real gap.** The mechanism exists inside the codec; nothing on the taught `h/` roster reaches it, so today the answer is to write the subtree where children lower — or to write it twice |
 | Declarable conversion defaults on `defhost` | Open — `:callbacks` and `:ssr` are the two options today |
+| A provider whose *value* is client-only | Open, and named rather than solved. `:ssr :render` renders the component server-side, but the value it carries is computed in the caller's body — so a `window`-derived value has no server story and the host stays `:client-only` |
 | Migration codemod | Planned, unbuilt |
 | When `{:ref [id config]}` lands, and what registers an id | Reserved, not designed |
 | Which React version the product pins | Not pinned by the product; cleanup-returning refs need React 19; this repo currently pins 19.2 |
