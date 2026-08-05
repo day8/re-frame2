@@ -118,6 +118,14 @@ so adding a durable-write namespace is a conscious one-line edit here. `.clj` /
 deliberately exercising the violating shape is correct, not drift);
 `--include-tests` lifts that for the self-test fixtures.
 
+The gate scans SOURCE trees. Generated and vendored copies are out of scope —
+a durable-write source file copied into a build cache (`out/`, `.shadow-cljs/`,
+`node_modules/`, `target/`, `.cpcache/`) is not a durable-write namespace, it is
+an artefact OF one, and the genuine violation is still flagged at its real
+authored path. That is the ruling on rf2-mjfj9, and it is what the eight
+sibling shared-walk checkers already assume; `_EXCLUDE_DIR_NAMES` below makes
+it explicit here rather than leaving it to the `endswith` accident.
+
 Exit code:
     0  no ambient durable read in any durable-write namespace
     1  at least one ambient durable read (results printed file:line)
@@ -129,8 +137,10 @@ Dependency-light — Python stdlib only.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable, NamedTuple
 
@@ -181,6 +191,20 @@ DURABLE_WRITE_SUFFIXES: tuple[str, ...] = (
 )
 
 _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
+
+# Directory names whose contents are generated or vendored, never authored
+# durable-write source. Matches the roster the eight sibling shared-walk
+# checkers carry. See the module docstring's SCAN SURFACE note for the scope
+# ruling (rf2-mjfj9) that put it here.
+_EXCLUDE_DIR_NAMES = frozenset({
+    "node_modules",
+    "target",
+    "out",
+    ".shadow-cljs",
+    ".git",
+    ".beads",
+    ".cpcache",
+})
 
 _TEST_DIR_NAMES = frozenset({"test", "tests"})
 
@@ -428,15 +452,41 @@ def _iter_durable_write_files(
     Direct-file mode (scan_root.is_file()) bypasses the suffix allow-list — the
     self-test fixtures ARE the durable-write surface for the purposes of the
     test, so a fixture file is scanned regardless of its path.
+
+    PRUNED, not filtered-after (rf2-mjfj9; method proven by rf2-76c76 in the
+    three sibling gates it shipped). `_EXCLUDE_DIR_NAMES` is dropped from
+    `os.walk`'s dirnames IN PLACE, so a built checkout never descends into
+    `.shadow-cljs` (35.4k entries), `node_modules` (3.4k), `out` or `target`.
+    This gate scans the WHOLE repo root — `rglob("*")` enumerated ~48k entries
+    to reach 18 allow-listed files, 7.0s of its 8.4s wall clock on a built
+    tree.
+
+    Unlike the three gates rf2-76c76 shipped, the prune here is NOT a pure
+    no-op: this gate had no exclusion roster, so it reached a durable-write
+    source file COPIED into a build cache (the suffix allow-list is matched
+    with `endswith`, which matches the tail of a nested path). Dropping those
+    is a deliberate scope decision, ruled on rf2-mjfj9 — see the module
+    docstring. On the real tree it drops 0 of 18 files.
+
+    The surviving sequence is ordered IDENTICALLY: the collected matches go
+    through ONE GLOBAL `sorted()`, reproducing `sorted(rglob("*"))`'s whole-
+    subtree ordering rather than os.walk's directory-grouped order.
     """
     if scan_root.is_file():
         if scan_root.suffix in _SOURCE_SUFFIXES:
             yield scan_root
         return
-    for path in sorted(scan_root.rglob("*")):
-        if path.suffix not in _SOURCE_SUFFIXES:
+    scan_prefix_len = len(scan_root.as_posix()) + 1
+    matches: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(scan_root):
+        dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
+        for name in filenames:
+            if os.path.splitext(name)[1] in _SOURCE_SUFFIXES:
+                matches.append(Path(dirpath) / name)
+    for path in sorted(matches):
+        parts = set(path.as_posix()[scan_prefix_len:].split("/"))
+        if parts & _EXCLUDE_DIR_NAMES:
             continue
-        parts = set(path.relative_to(scan_root).parts)
         if not include_tests and (parts & _TEST_DIR_NAMES):
             continue
         if _is_durable_write_file(path, repo_root):
@@ -732,6 +782,60 @@ _NEGATIVE_FIXTURES: tuple[str, ...] = (
 )
 
 
+_SCOPE_FIXTURE_TEXT = (
+    "(ns fixtures.scope\n"
+    '  "Cache-copy scope fixture — see _run_scope_self_test."\n'
+    "  (:require [re-frame.interop :as interop]))\n"
+    "\n"
+    "(defn install [entry] (assoc entry :loaded-at (interop/now-ms)))\n"
+)
+
+
+def _run_scope_self_test(verbose: bool = False) -> int:
+    """Prove BOTH halves of the rf2-mjfj9 scope ruling, per roster entry.
+
+    The authored durable-write path is scanned; a byte-identical copy of it
+    nested in a build cache is not. Both halves matter: dropping the first
+    would make the gate toothless, and the second is the scope narrowing the
+    prune introduced, so it is asserted rather than assumed.
+
+    Built in a temp tree because the real repo contains no cache-nested copy to
+    assert against — which is precisely why the old `endswith`-only reach went
+    unnoticed for so long. Every `_EXCLUDE_DIR_NAMES` entry is exercised, so a
+    roster entry can never be added without a witness (the hole rf2-g1xpb
+    closed for the key rosters, held here for the directory roster).
+    """
+    suffix = DURABLE_WRITE_SUFFIXES[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()
+        authored = root / suffix
+        authored.parent.mkdir(parents=True, exist_ok=True)
+        authored.write_text(_SCOPE_FIXTURE_TEXT, encoding="utf-8")
+        for cache_dir in sorted(_EXCLUDE_DIR_NAMES):
+            nested = root / "implementation" / cache_dir / suffix
+            nested.parent.mkdir(parents=True, exist_ok=True)
+            nested.write_text(_SCOPE_FIXTURE_TEXT, encoding="utf-8")
+
+        findings = scan(root, root)
+        flagged = sorted({f.path.resolve() for f in findings})
+
+    if flagged != [authored]:
+        sys.stderr.write(
+            "self-test FAIL: scope — the gate must flag the AUTHORED durable-"
+            "write path and no cache-nested copy of it (rf2-mjfj9).\n"
+            f"      expected exactly: {authored}\n"
+            f"      got {len(flagged)} path(s): "
+            f"{', '.join(str(p) for p in flagged) or '(none)'}\n"
+        )
+        return 1
+    if verbose:
+        sys.stderr.write(
+            "self-test PASS: scope (authored path flagged; a copy nested in "
+            f"each of the {len(_EXCLUDE_DIR_NAMES)} excluded dir(s) is not)\n"
+        )
+    return 0
+
+
 def _run_self_tests(verbose: bool = False) -> int:
     """Scan each fixture and assert the EXACT set of witnesses it yields.
 
@@ -740,7 +844,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     finding. Direct-file scan mode is used so the suffix allow-list does not
     hide the fixtures (the fixture IS the durable-write surface under test).
 
-    Four assertions, each closing a different way for the gate to go quietly
+    Five assertions, each closing a different way for the gate to go quietly
     toothless (the shape `check_retired_image_keys` arrived at, rf2-e1xx0):
 
       1. Per positive fixture, the witness set must match EXACTLY, and the
@@ -754,6 +858,8 @@ def _run_self_tests(verbose: bool = False) -> int:
       4. Every read form in `_AMBIENT_READ_FORMS` owns a witness, except the
          declared-unexercisable pair — and a declared entry that DOES get
          covered fails too, so the exemption cannot go stale.
+      5. SCOPE (rf2-mjfj9): the authored durable-write path is scanned and a
+         cache-nested copy of it is not — see `_run_scope_self_test`.
     """
     failures = 0
     checked = 0
@@ -869,6 +975,8 @@ def _run_self_tests(verbose: bool = False) -> int:
             "self-test FAIL: _UNEXERCISABLE_READ_FORMS names form(s) that are "
             f"not in the roster at all: {', '.join(unknown)}\n"
         )
+
+    failures += _run_scope_self_test(verbose=verbose)
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
