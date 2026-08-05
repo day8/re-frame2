@@ -69,6 +69,53 @@
 // 4,075 bytes. A reproduction command a studio page publishes should not emit
 // a different bundle depending on what the reader ran an hour ago.
 //
+// ## What the rows published BEFORE the clear are worth — rf2-t84ee
+//
+// The `hicasso-bench` lane got this call on 2026-07-31. The seven
+// `freehand-release` riders did not get it until `448d368bb9` on 2026-08-06,
+// so every row those seven have published was measured without it. Whether any
+// one run was warm over a SIBLING is operator shell history and cannot be
+// recovered. Whether the fault could have reached that row CAN be, and was:
+// each arm built once from a cleared cache and once with a sibling warm ahead
+// of it, at `5a08b14a29`, then loaded in headless Chromium.
+//
+//   arm             cold           warm over a sibling            loads?
+//   reads_ladder     649,251 B      649,251 B  (spine_ablation)    yes
+//                                   649,140 B  (b6_prod, b7)       NO
+//   spine_ablation   655,896 B      655,896 B  (reads_ladder)      yes
+//                                   655,770 B  (b6_prod, b7, …)    NO
+//   b7               824,837 B      824,837 B  (b6_prod)           yes
+//   b6_prod          841,215 B      841,215 B  (b7)                yes
+//   b8               813,777 B      813,572 B                      yes
+//   b10_prod         786,778 B      786,591 B                      yes
+//   b6_profile     3,413,752 B    3,411,573 B                      yes
+//
+// EVERY arm's bundle changes, and BOTH cases are real — which one you get
+// depends on what ran before, not on which arm you are. The loud one is
+// self-limiting BY CONSTRUCTION rather than by luck: every driver in this lane
+// waits on its own `*_READY`/`*_DONE` global raced against `sentinel.cjs`, and
+// a bundle that raises `Cannot read properties of undefined (reading 'd')`
+// before its entry runs sets no global at all, so it cannot reach a table.
+//
+// The quiet one is Closure renaming and nothing else — `b7`'s two bundles are
+// the same LENGTH, 4.03% of their bytes differ, and the first divergence is a
+// variable name in the `closure_uid_` preamble. **It does not move a reading.**
+// `reads_ladder_run.cjs` and `b7_run.cjs --only heap`, each run unchanged over
+// both of its own bundles, same arms, same rounds, same controls, exit 0 and
+// zero unverified mounts on all four:
+//
+//   ladder, Reagent      B/read 947 -> 948   R=0 shell 431 -> 430
+//   b7, reader A         worst arm moves 1 B/boundary of 244..4,303 (0.15%)
+//
+// Both are inside the instruments' own round-to-round ranges, so a renaming
+// delta is not something a retained-heap row can see.
+//
+// AND THE CONTROL THAT MAKES THAT LEGIBLE: a build warm over ITSELF is
+// byte-identical — the ladder built twice with no clear between compiles 0 the
+// second time and emits the same sha256. "Warm" is not the fault; "warm over a
+// SIBLING" is. A driver invoked twice in a row — which is how the ladder took
+// its two substrate pages — was never at risk.
+//
 // Rejected, with reasons, so the next reader does not re-litigate them:
 //
 //   * A build id per arm. Six hot-zone, sequenced edits to
