@@ -562,12 +562,26 @@
   two different things, because lowering captures the same var the poison
   replaced. The row a `renderRow` prop exists to build —
 
-      (h/as-element [:li {:on-click [:row/pick (:id row)]} (:title row)])
+      [:li {:on-click [:row/pick (:id row)]} (:title row)]
 
   — closes over the poison and raises at the USER'S CLICK, for a click:
   a legitimate event position that merely happened to be LOWERED during a
   render (rf2-2rtt6.74). The law is \"dispatching from inside the call\",
   and a closure that will dispatch later is not that.
+
+  **The row above is written as hiccup, and hiccup is not what this
+  position returns.** This function ends in a bare `(apply f args)`, so a
+  `:render` return crosses UNCONVERTED: a string renders, a vector reaches
+  React and is refused there. Something has to turn the row into an
+  element, and the something is
+  [[re-frame.bench.hicasso.front.codec/as-element]] — which is INTERNAL.
+  Nothing on the authoring surface reaches it, so **the recovery this
+  paragraph describes has no spelling an author can write today**; that
+  gap is `rf2-2rtt6.120`, and it is a real gap rather than a missing
+  sentence. In particular there is **no `h/as-element`**: an earlier
+  revision of this docstring illustrated the row with one, and four design
+  documents copied the spelling out of here before anyone checked that it
+  resolved.
 
   So the wrapper captures the ambient dispatch AND frame at LOWERING
   time — the supplying boundary's, because the wrapper is minted during

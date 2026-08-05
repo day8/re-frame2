@@ -501,18 +501,37 @@ neither made** — §3, the per-lowering wrapper destroying memo-bail-out identi
 **(d) The 12:06 comment ships a fork at the one edge whose argument is zero-fork**, while
 the same programme files `rf2-2rtt6.117` asking whether that fork should exist — §3.
 
-**(e) `h/as-element` is named as the recovery for the two sharpest silent traps at this
+**(e) `h/as-element` was named as the recovery for the two sharpest silent traps at this
 crossing, and it does not exist in the taught surface.** Designs A (hiccup in a prop), C
 (diagnostics rows 8 and 9, *and its entire render-prop worked example*), B (an edge-5
-witness) and the parity design (E5) all name it. Verified: **zero occurrences of
+witness) and the parity design (E5) all named it. Verified: **zero occurrences of
 `as-element` anywhere under `docs/design/hicasso/draft-guide/`**; the guide's taught `h/`
 roster is `h/hicasso`, `h/root`, `h/fn`, `h/render`, `h/defhost`, `h/presence`,
 `h/child-key` and `h/boundary`; `arm1/lang.clj` exports three macros — `defview`, `hfn`,
-`defhost` — and no `as-element`. The *mechanism* is public as `codec/as-element`
-(`codec.cljs:1708`); the *taught name* is not. **An error message naming a spelling the
-reader cannot call is worse than no message.** Either the arm exports the taught spelling in
-the same PR — one line — or every refusal message and guide row names what the arm actually
-exposes. Filed as `rf2-2rtt6.120`; the escape's PR must not be where this is discovered.
+`defhost` — and no `as-element`. The *mechanism* is public as `codec/as-element`; the
+*taught name* is not. **An error message naming a spelling the reader cannot call is worse
+than no message.** Either the arm exports the taught spelling in the same PR — one line — or
+every refusal message and guide row names what the arm actually exposes. Filed as
+`rf2-2rtt6.120`; the escape's PR must not be where this is discovered.
+
+> **Where it came from, and what has been done about it (2026-08-05, `rf2-2rtt6.120`).**
+> Four independent designs converging on a function that does not exist is not four
+> coincidences. The source is `front/intent/render-callback`'s **own docstring**, which
+> illustrated the row a `renderRow` prop exists to build with
+> `(h/as-element [:li {:on-click [:row/pick (:id row)]} (:title row)])` — so a designer
+> reading the function to understand the crossing reasonably concluded the spelling
+> existed. **The implementation named a nonexistent function to explain itself**, and every
+> downstream document inherited it. Nothing gates the prose in a docstring against what its
+> module exports, which is how this reached four design records and one guide page before
+> anyone checked.
+>
+> Since corrected: the docstring (this PR), the guide's `05-interop.md` (PR #7523, which
+> also removed a `:render` hiccup return the page called "fine" — `render-callback` ends in
+> a bare `(apply f args)`, so the return crosses **unconverted** and a vector is refused by
+> React), and A, B, C and `decisions.md` above (this PR). **The arm ruling this clause asks
+> for — export a spelling, or rule a different one — is still unmade**, so the records now
+> name the gap rather than a function; none of them invents a replacement. The parity
+> design is local-only and outside the tracked tree.
 
 **(f) The 12:06 comment drops two load-bearing carries**, both restored above: the X2
 body-run restatement (§8) and the `intent-outside-boundary` message repair (§5). A dispatcher
@@ -665,8 +684,10 @@ each names what would make it vacuous.
   HD-023(d), HD-024 and its Rationale.
 - [The SSR spike witness](ssr-spike-witness.md) — X1–X5 and X2's zero-mismatch obligation.
 - `implementation/freehand/test/re_frame/bench/hicasso/front/codec.cljs` — the snapshot
-  triple and `mint-host-gate!` (:1035–1066), `host-entry` (:1568–1613), `check-ref!`
-  (:624–654), `hiccup-tag?` / `vec->element` (:1664–1706), `as-element` (:1708).
+  triple and `mint-host-gate!`, `host-entry`, `check-ref!`, `hiccup-tag?`, `vec->element`,
+  `as-element`. **Cited by name, not by line.** This bullet carried line numbers until
+  2026-08-05 and three of the five were wrong by then, including the `as-element` citation
+  that clause (e) turns on; the file moves faster than a record of it can be trued up.
 - `arm1/hydrate_dom_cljs_test.cljs:414`; `arm1/lang.clj`; `docs/design/hicasso/draft-guide/`.
 - Beads: `rf2-2rtt6.106`, `.109`, `.115`, `.116`, `.117`, `.118`, `.119`, `.120`,
   `rf2-l0wfx`, `rf2-d03av`, `rf2-vrvv9`.

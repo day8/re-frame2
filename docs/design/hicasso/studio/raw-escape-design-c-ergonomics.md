@@ -88,13 +88,15 @@ the entire subtree rather than bail out of it"* (`front/codec.cljs`, on
 (def Chart (react/lazy #(js/import "./chart.js")))
 
 (defview panel [_]
-  [:> react/Suspense {:fallback (h/as-element [:div.skeleton])}
+  [:> react/Suspense {:fallback [:div.skeleton]}   ; silently wrong — see below
    [:> Chart {:data (sub [:report/rows])}]])
 ```
 
 **What works.** `lazy` and `memo` products are JS objects React accepts as
 element types; the Component position passes them through (edge 4). `:data` is
-a collection, so it crosses via `clj->js`.
+a collection, so it crosses via `clj->js`. **`:fallback` does not**, and it is
+written above exactly as an author would write it, because the spelling that
+would have fixed it here does not exist — see below.
 
 **What goes wrong.** `{:fallback [:div.skeleton]}` — hiccup written in a **prop**
 — is the sharpest silent failure available at any foreign crossing. Hiccup
@@ -106,8 +108,17 @@ This is not new to `[:>]` — it is HD-011's shallow-conversion default and it
 bites identically at `defhost`. But `[:>]` is where a person meets an
 *unfamiliar* component, so it is where they are most likely to guess at a prop's
 shape. **Decision: no new machinery; one troubleshooting row** (§Diagnostics,
-row 9) and `h/as-element` named in it. Refusing "a vector at a non-event prop"
-is not available — a vector is legal data at a foreign prop and always will be.
+row 9). Refusing "a vector at a non-event prop" is not available — a vector is
+legal data at a foreign prop and always will be.
+
+**What that row can name is the gap, not a recovery (`rf2-2rtt6.120`).** The fix
+would be a hiccup→element conversion written at the call site. `codec/as-element`
+is that conversion, and it is INTERNAL: nothing on the taught `h/` roster reaches
+it, and **there is no `h/as-element`** — this section named one until 2026-08-05,
+a spelling copied from `front/intent/render-callback`'s docstring rather than
+resolved against the arm. Until the ruling lands, the row tells an author what
+went wrong and cannot tell them what to type, which is a weaker row than this
+design assumed when it priced the decision at "one troubleshooting row".
 
 ### 3. A component supplied through a render prop
 
@@ -115,20 +126,35 @@ is not available — a vector is legal data at a foreign prop and always will be
 (defview grid-panel [_]
   [:> DataGrid {:rows       (sub [:report/rows])
                 :renderRow  (h/fn [row]
-                              (h/as-element
-                                [:li {:on-click [:row/pick (:id row)]}
-                                 (:title row)]))}])
+                              ;; the return crosses UNCONVERTED, and this row is
+                              ;; a vector — see the incomplete note below
+                              [:li {:on-click [:row/pick (:id row)]}
+                               (:title row)])}])
 ```
 
-**What works — and this is the design's load-bearing claim.** `renderRow` is not
-event-spelled, so an `h/fn` there takes the **render contract**: `render-callback`
-captures both `*frame*` and `*dispatch*` at lowering time and rebinds them for
-each invocation, so the `:on-click` inside the row dispatches into *the boundary
-that supplied the callback*, however much later the grid calls it. That is
-`rf2-2rtt6.74`'s repair (PR #7449), and the escape inherits it **for free** —
-but only under edge 2's decision. Under the alternative (§Edge 2), an `h/fn`
-here would cross as a bare function with no contract at all, and the returned
-intent would silently never dispatch.
+**This example is INCOMPLETE, and it is the sharpest thing on the page
+(`rf2-2rtt6.120`).** `render-callback` ends in a bare `(apply f args)`, so a
+`:render` return crosses unconverted: a string renders, and the vector above
+reaches React and is refused with *"Objects are not valid as a React child"*.
+Something has to make an element of the row, and the only something is
+`codec/as-element`, which is internal — **there is no `h/as-element`**. This
+example was written with one until 2026-08-05, a spelling copied from
+`front/intent/render-callback`'s own docstring rather than resolved against
+`arm1/lang.clj` (which exports `defview`, `hfn` and `defhost`, and nothing else).
+The example is left in the shape an author would actually reach for, with the
+hole visible, rather than repaired with a call no reader can make.
+
+**What works — and this is the design's load-bearing claim — is orthogonal to
+that hole.** `renderRow` is not event-spelled, so an `h/fn` there takes the
+**render contract**: `render-callback` captures both `*frame*` and `*dispatch*`
+at lowering time and rebinds them for each invocation, so an `:on-click` inside
+the row dispatches into *the boundary that supplied the callback*, however much
+later the grid calls it. That is `rf2-2rtt6.74`'s repair (PR #7449), and the
+escape inherits it **for free** — but only under edge 2's decision. Under the
+alternative (§Edge 2), an `h/fn` here would cross as a bare function with no
+contract at all, and the returned intent would silently never dispatch. The claim
+is about *which frame the row's intent captures*, and it holds however the row
+comes to be an element.
 
 **What goes wrong.** The library spells its render prop `onRenderRow`. That
 matches `^on[A-Z]`, so the position is an *event* position, the `h/fn` takes the
@@ -521,9 +547,11 @@ lowering and throws when it is nil).
 A function child — `[:> Ctx.Consumer (fn [v] …)]`, the React context-consumer and
 headless-UI shape — passes through `as-element`'s `:else` branch and reaches the
 library as a function, which is correct. But the function's **return** is not
-walked: it must be an element, so the body writes `(h/as-element …)`. Getting
-that wrong hands React a ClojureScript vector as a child and React says
-*"Objects are not valid as a React child"*. §Diagnostics row 8.
+walked: it must already be an element. A body that returns hiccup hands React a
+ClojureScript vector as a child and React says *"Objects are not valid as a React
+child"* — and **the authoring surface has no conversion to reach for**, which is
+the same gap edges 2 and 3 hit and is tracked as `rf2-2rtt6.120`. §Diagnostics
+row 8.
 
 ### Reader cost
 
@@ -548,8 +576,8 @@ and are listed so a reviewer can see the escape adds three ids, not fifteen.
 | 5 | A `defhost` declaration in Component position | `:rf.error/hicasso-raw-hicasso-head` **new** | "`X` is a declaration — write `[X {…}]`" |
 | 6 | Empty `[:>]` — no component at all | `:rf.error/hicasso-raw-no-component` **new** | "`[:> Component props & children]` — the component is the second element" |
 | 7 | `h/fn` at an event-spelled prop the library treats as a render prop | *no new id* | Troubleshooting row: "a returned vector dispatches at an event position; `onRenderRow` is event-spelled. Declare the prop `:render` with `defhost`" |
-| 8 | A function child returning hiccup | React's own | Troubleshooting row: wrap with `h/as-element` |
-| 9 | Hiccup written in a **prop** | *none — silent* | Troubleshooting row: hiccup becomes elements in child position only; wrap the prop's value with `h/as-element` |
+| 8 | A function child returning hiccup | React's own | Troubleshooting row: the return is not walked and must already be an element — **and no taught spelling makes one** (`rf2-2rtt6.120`) |
+| 9 | Hiccup written in a **prop** | *none — silent* | Troubleshooting row: hiccup becomes elements in child position only — **and no taught spelling converts one here** (`rf2-2rtt6.120`) |
 | 10 | Node missing from server HTML | *none — by design* | Troubleshooting row: foreign regions are `:client-only`; `[:>]` has no declaration to say otherwise, so declare with `defhost` and set `:ssr` |
 | — | Intent vector outside a boundary | `:rf.error/hicasso-intent-outside-boundary` | inherited |
 | — | Vector at `:ref` | `:rf.error/hicasso-ref-vector-reserved` | inherited |

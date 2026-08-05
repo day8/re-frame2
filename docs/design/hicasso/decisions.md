@@ -1042,8 +1042,8 @@ cost is **unmeasured** and is named here rather than claimed away.
 > sentence stays below as the record of what was ruled first.
 >
 > **The defect.** Lowering captures the same var the poison replaced, so the row a
-> `renderRow` prop exists to build — `(h/as-element [:li {:on-click [:row/pick
-> id]} …])` — closed over the poison and raised at the USER'S click, for a click:
+> `renderRow` prop exists to build — `[:li {:on-click [:row/pick id]} …]` — closed
+> over the poison and raised at the USER'S click, for a click:
 > a legitimate event position that merely happened to be lowered during a render.
 > A render prop producing a non-interactive row worked; one producing an
 > interactive row did not — which is most of what render props are for — and the
@@ -1077,6 +1077,19 @@ cost is **unmeasured** and is named here rather than claimed away.
 > (`arm1/host_hatch_dom_cljs_test`), by its closure-level twin and the no-owner
 > edge (`front/intent_cljs_test`); the two purity edges — a direct dispatch inside
 > the call, and a synchronous lower-and-fire — are unmodified and still raise.
+>
+> **What the fence leaves open, stated rather than implied (`rf2-2rtt6.120`).**
+> "No auto-conversion" means the return crosses UNCONVERTED — `render-callback`
+> ends in a bare `(apply f args)`, so a string renders and a vector reaches React
+> and is refused there. The author therefore has to make the element, and
+> `codec/as-element` is the conversion that would: it is INTERNAL, and nothing on
+> the taught `h/` roster reaches it. **So the recovery has no spelling an author
+> can write today.** That is an open gap, not a missing sentence, and it is what
+> `rf2-2rtt6.120` holds. In particular **there is no `h/as-element`** — this
+> addendum illustrated the row with one until 2026-08-05, copied from
+> `front/intent/render-callback`'s own docstring, and so did four of the `[:>]`
+> design records under `studio/`. The docstring is corrected; the spelling was
+> never real.
 
 **Ruling.** Hicasso ships **one** callback form — `h/fn` (spelling unfrozen) — and
 it is **an ordinary function**. The contract comes from the **position**, because

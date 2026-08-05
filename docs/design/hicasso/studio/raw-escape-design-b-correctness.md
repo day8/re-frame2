@@ -464,9 +464,9 @@ exists for:
    the arming gate set in a `finally` and ownership resolved to the supplying boundary's
    frame — but that machinery is installed by `render-callback`, which is installed by a
    **declared** `:render` contract. `[:>]` declares nothing, so no wrapper is installed,
-   so the gate is never armed. A function prop supplied through `[:>]` that calls
-   `h/as-element` to build an interactive row is therefore lowering with **no ambient
-   frame**, and raises `:rf.error/hicasso-intent-outside-boundary`.
+   so the gate is never armed. A function prop supplied through `[:>]` that converts an
+   interactive row to an element is therefore lowering with **no ambient frame**, and
+   raises `:rf.error/hicasso-intent-outside-boundary`.
 
 That fourth fact is loud, not silent, and it lands at the library's call rather than at a
 user's click — which is the fail-closed side of the .74 defect rather than a return of it.
@@ -488,8 +488,18 @@ belongs in the guide's troubleshooting row beside the error id.
 
 **Witness.** Two rows. First, a **two-frame** page — the shape `rf2-2rtt6.74` used — where
 an intent inside a `[:>]` child dispatches into the writing boundary's frame and **not**
-into the other. Second, an `h/as-element` inside a function prop at a `[:>]` crossing
-raising `:rf.error/hicasso-intent-outside-boundary`, asserted by id.
+into the other. Second, a hiccup→element conversion inside a function prop at a `[:>]`
+crossing raising `:rf.error/hicasso-intent-outside-boundary`, asserted by id.
+
+**The second row cannot be written from the authoring surface today, and that is a
+finding rather than a fixture detail (`rf2-2rtt6.120`).** What raises is the *lowering*,
+and lowering only happens if something converts the row. The only conversion is
+`codec/as-element`, which is internal — there is no `h/as-element` (this section named one
+until 2026-08-05). A fixture may reach for the internal var and the row is then honest
+about what it proves; what it must not do is assert an author-facing recovery, because
+without the conversion the body returns a bare vector, nothing lowers, and the failure is
+React's *"Objects are not valid as a React child"* rather than this design's error id — a
+different row entirely.
 
 **What would make it vacuous.** A single-frame page cannot distinguish "the right frame"
 from "any frame" — that is why the first row needs two, and why it must assert the negative
