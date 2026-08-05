@@ -130,7 +130,12 @@ function build(leg, debug, outputDir) {
   }
   const bundle = path.join(IMPL, outputDir, 'main.js');
   const blob = fs.readFileSync(bundle, 'utf8');
-  console.log(`[${TAG}]   ${bundle} — ${blob.length} bytes`);
+  // The FILE's size and not `blob.length` (rf2-2rtt6.121). `blob` is a
+  // decoded string, so `.length` counts UTF-16 code units — and an
+  // `:advanced` bundle carries non-ASCII in its string literals, so the two
+  // differ. The bytes are already on disk; ask the file system rather than
+  // re-derive them from the decoding.
+  console.log(`[${TAG}]   ${bundle} — ${fs.statSync(bundle).size} bytes`);
   return blob;
 }
 

@@ -157,6 +157,34 @@
       (doseq [c (array-seq (.-childNodes node))] (walk c)))
     (.join out "")))
 
+(defn utf8-bytes
+  "How many BYTES `s` occupies as UTF-8 — the lane's ONE answer to a
+  question asked under a byte label (rf2-2rtt6.121).
+
+  `count` answers UTF-16 CODE UNITS, which agree with UTF-8 bytes only
+  for ASCII. That is what makes the mistake fail open: on an ASCII page
+  the wrong expression prints the right number, so nothing ever notices,
+  and the error appears later as content grows a dash, an ellipsis or an
+  emoji. `rf2-2rtt6.114` found the same defect in the SSR bake manifest,
+  where the `dogfood-snapshot` document claimed 3,101 for a file of which
+  3,119 bytes were written.
+
+  `TextEncoder` and not `Buffer.byteLength`: these arms compile to
+  `:browser` and `:advanced`, so `Buffer` is not there. It is not the
+  driver's `utf8Bytes` either — the driver sits on the far side of the
+  DevTools protocol and these strings are deliberately never sent across
+  it (`str-hash` exists so an 18 KB page need not be), so the count has
+  to happen in the page. `TextEncoder` is UTF-8 by definition and carries
+  no encoding argument a later edit could drop.
+
+  A fresh encoder per call: it is stateless, every caller is outside a
+  timed window, and a namespace that builds a global at load time is a
+  hazard this one has no reason to take."
+  [s]
+  (let [^js enc (js/TextEncoder.)
+        ^js buf (.encode enc s)]
+    (.-length buf)))
+
 (defn element-count [node] (.-length (.querySelectorAll node "*")))
 
 (defn text-at

@@ -273,8 +273,12 @@
       (report! "payload"
                {:green-keys (vec (sort-by str (keys gdb)))
                 :red-keys   (vec (sort-by str (keys rdb)))
-                :green-edn-bytes (count (:payload-edn green))
-                :red-edn-bytes   (count (:payload-edn red))
+                ;; `lane/utf8-bytes` and not `count`, which answers UTF-16
+                ;; code units (rf2-2rtt6.121). These two are a claim about
+                ;; the WIRE — the testing block above says so in as many
+                ;; words — and the wire carries bytes.
+                :green-edn-bytes (lane/utf8-bytes (:payload-edn green))
+                :red-edn-bytes   (lane/utf8-bytes (:payload-edn red))
                 :html-identical? (= (:html green) (:html red))}))))
 
 ;; ===========================================================================

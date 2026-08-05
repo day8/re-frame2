@@ -515,9 +515,15 @@
                         (let [{:keys [canonical elements]} (canon-of arm)]
                           (cond
                             (not= (:canonical reference) canonical)
+                            ;; RELABELLED, not converted (rf2-2rtt6.121).
+                            ;; This pair is only ever read as ours-vs-theirs
+                            ;; on one refusal — a same-against-same
+                            ;; comparison of two strings, for which code
+                            ;; units are the honest unit. Nothing publishes
+                            ;; it as a size.
                             {:arm (:id arm) :problem :canonical-dom-disagreement
-                             :bytes-ours (count canonical)
-                             :bytes-reference (count (:canonical reference))}
+                             :code-units-ours (count canonical)
+                             :code-units-reference (count (:canonical reference))}
                             (not= expected elements)
                             {:arm (:id arm) :problem :element-count
                              :predicted expected :measured elements})))))

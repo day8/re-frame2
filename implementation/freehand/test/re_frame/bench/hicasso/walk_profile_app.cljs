@@ -194,7 +194,9 @@
                            " expected " expected " canonical "
                            (if (= canon-real canon-twin) "agrees" "DISAGREES") ")")
                       {:expected expected :real n-real :twin n-twin})))
-    {:elements n-real :bytes (count canon-real)}))
+    ;; `lane/utf8-bytes` and not `count`: `-main` prints this as "canonical
+    ;; bytes", and `count` answers UTF-16 code units (rf2-2rtt6.121).
+    {:elements n-real :bytes (lane/utf8-bytes canon-real)}))
 
 ;; ---------------------------------------------------------------------------
 ;; The body-context door

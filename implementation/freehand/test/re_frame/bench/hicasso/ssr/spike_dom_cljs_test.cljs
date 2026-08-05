@@ -287,7 +287,9 @@
                              above is an equality of something")
                         (is (= todo-count
                                (.-length (.querySelectorAll container ".row"))))
-                        (report! "X1b" {:canonical-bytes  (count hydrated-dom)
+                        ;; `lane/utf8-bytes` and not `count`, which answers
+                        ;; UTF-16 code units (rf2-2rtt6.121).
+                        (report! "X1b" {:canonical-bytes  (lane/utf8-bytes hydrated-dom)
                                         :rows             todo-count
                                         :server-body-runs body-runs
                                         :cold-body-runs   cold-runs}))
