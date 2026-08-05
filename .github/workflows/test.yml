@@ -3686,17 +3686,22 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # PR-smoke tier (rf2-wa3oo + rf2-og36y). The full feature-load +
-      # full Xray matrix + Story static-export sweep is on the critical
-      # path of every Story/Xray PR at ~700s, and the identical sweep
-      # already runs nightly in expensive-tests.yml — so PR time ran the
-      # full matrix twice over. PR time now runs only the high-signal
-      # subset:
+      # full Xray matrix + Story static-export sweep sat on the critical
+      # path of every Story/Xray PR at ~700s for the THREE GATES
+      # TOGETHER — never the Xray matrix alone, which is 154–171s of a
+      # 509–564s three-gate nightly total (measured 2026-08-01..05).
+      # The identical sweep already runs nightly in expensive-tests.yml,
+      # so PR time ran the full matrix twice over. PR time now runs only
+      # the high-signal subset:
       #
-      #   - Xray feature gate in --smoke mode: the 3 highest-signal
-      #     scenarios (6-tab shell handoff, deterministic-exception →
-      #     Issues/Trace surfacing, Cmd-K palette) over just 2 staged
-      #     surfaces (counter + deliberate-throw), compiling 2 testbed
-      #     bundles instead of 13.
+      #   - Xray feature gate in --smoke mode: every scenario tagged
+      #     `smoke: true` in tools/xray/testbeds/feature_matrix/
+      #     scenarios.cjs, a set the gate counts and prints on each run.
+      #     As at 2026-08-06 that is 5 scenarios (9-tab shell handoff,
+      #     freehand-views Views roster, deterministic exceptions →
+      #     inline/Trace surfacing, Cmd-K palette, panel-gallery theme
+      #     tokens) over 4 staged surfaces, compiling 4 testbed bundles
+      #     instead of 12 — ~80s warm (rf2-ano54).
       #   - Story :play-script CI-as-test gate (rf2-3qcxk): drives the
       #     live Story shell over the single counter-with-stories
       #     testbed and runs every variant's :play-script. This is the

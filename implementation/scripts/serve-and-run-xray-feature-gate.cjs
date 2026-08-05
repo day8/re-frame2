@@ -58,11 +58,14 @@ const VERBOSE_TESTS = isVerboseTests();
 // rf2-wa3oo: PR-smoke vs nightly-full split. With `--smoke` (or
 // RF2_GATE_SMOKE=1) the gate runs only the scenarios tagged
 // `smoke: true` and compiles only the testbed surfaces those scenarios
-// actually load — cutting the 13-surface / 14-scenario nightly sweep
-// down to the 2-surface high-signal subset on the PR critical path.
-// The full sweep keeps running nightly in expensive-tests.yml. The CLI
-// flag is the cross-platform entry point (no cross-env dependency); the
-// env var stays supported for harness composition.
+// actually load — cutting the nightly sweep down to the high-signal
+// subset on the PR critical path. Both counts are DERIVED from
+// scenarios.cjs and main() prints the live pair every run, so read that
+// rather than a number frozen here (rf2-ano54). As at 2026-08-06 the
+// split is 5 scenarios over 4 surfaces against 17 over 12 nightly. The
+// full sweep keeps running nightly in expensive-tests.yml. The CLI flag
+// is the cross-platform entry point (no cross-env dependency); the env
+// var stays supported for harness composition.
 const SMOKE =
   process.env.RF2_GATE_SMOKE === '1' || process.argv.includes('--smoke');
 
