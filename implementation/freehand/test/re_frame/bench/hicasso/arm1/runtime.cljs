@@ -1534,7 +1534,16 @@
   "One body run. The scratch and both provenance flags are reset
   **unconditionally** — a reset guarded by \"if empty\" would concatenate
   two renders' reads, which is precisely what makes StrictMode's
-  double-invoke correct here rather than additive."
+  double-invoke correct here rather than additive.
+
+  The two `goog.DEBUG` lines around the lowering are the codec's key
+  warnings asking who is lowering (rf2-2rtt6.104). This is the arm's sole
+  body-lowering site — `render-body` is its only caller, and the fence's
+  re-runs are idempotent set/clear pairs — so the clear rides the
+  `finally` the frame reset already needed, and a throwing body, a thrown
+  Suspense promise and StrictMode's double-invoke all leave the slot nil
+  rather than stale. In production both lines fold away and
+  `set-lowering-owner!` folds to a return."
   [frame-kw body-fn props]
   (set! (.-length scratch) 0)
   (set! (.-collector rstate) false)
@@ -1546,10 +1555,14 @@
   ;; generation fence can run a body twice for one render, and a real
   ;; count is the one that says so.
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
+  (when ^boolean js/goog.DEBUG
+    (codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
   (try
     (intent/with-frame frame-kw (frame-dispatch frame-kw)
       (fn [] (codec/as-element (body-fn props))))
-    (finally (set! (.-frame rstate) nil))))
+    (finally
+      (set! (.-frame rstate) nil)
+      (when ^boolean js/goog.DEBUG (codec/set-lowering-owner! nil)))))
 
 (defn render-body
   "Run a boundary body under the generation fence and return its element;
@@ -1873,6 +1886,7 @@
   `arm1.render-measure-cljs-test` (the OFF half) and
   `arm1.render-measure-emit-nightly-test` (the ON half)."
   [view-name body-fn]
+  (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
   (let [component (fn hicasso-boundary [js-props]
                     (performance/mark-and-measure :render view-name
                       (shell body-fn js-props)))]
@@ -1898,6 +1912,7 @@
   fns are the arm's two view-substrate wrappers, and a `:render` bucket
   wired to one of them and not the other would report half a page."
   [view-name body-fn]
+  (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
   (let [component (fn hicasso-frame-prop-boundary [js-props]
                     (performance/mark-and-measure :render view-name
                       (frame-prop-shell body-fn js-props)))]

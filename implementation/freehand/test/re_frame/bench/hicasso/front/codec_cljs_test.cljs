@@ -897,3 +897,233 @@
     (is (= {:tags 1 :props 3} (codec/cache-sizes))
         "one tag literal; `:class` is one of the three seeded prop names, so
          twenty renders with twenty distinct class VALUES add nothing")))
+
+;; ---------------------------------------------------------------------------
+;; The minted key warnings — development only (rf2-2rtt6.104)
+;; ---------------------------------------------------------------------------
+;;
+;; Every row below owns its own view and member NAMES, because the dedupe
+;; Set is deliberately page-lifetime and has no reset hook: "once per site"
+;; is the contract, and a fixture that reset it would be testing a
+;; different one. Distinct names are the cheaper discipline and they also
+;; make each row's site visible in its own source.
+
+(defn- named-view
+  "A distinct marked boundary head, stamped the way an arm's mint stamps
+  one, so the warning has a name to say."
+  [nm]
+  (let [f (fn [_js-props] nil)]
+    (unchecked-set f "displayName" nm)
+    (codec/mark-boundary! f)))
+
+(defn- warnings-during
+  "Everything the codec said on `console.warn` while `f` ran. The channel
+  matters: React's own key warning is a `console.error`, so a spy on the
+  wrong one would read a Hicasso row green off React's line."
+  [f]
+  (let [seen     (atom [])
+        original (.-warn js/console)]
+    (set! (.-warn js/console) (fn [& args] (swap! seen conj (apply str args))))
+    (try (f) (finally (set! (.-warn js/console) original)))
+    @seen))
+
+(defn- lowering-as
+  "Lower `hiccup` with `owner` recorded as the enclosing view, the way the
+  arm's `run-once` records it — and clear it afterwards, the way `run-once`
+  clears it in its `finally`."
+  [owner hiccup]
+  (codec/set-lowering-owner! owner)
+  (try (codec/as-element hiccup)
+       (finally (codec/set-lowering-owner! nil))))
+
+(deftest an-unkeyed-boundary-seq-warns-once-naming-the-view-the-child-and-the-index
+  (let [row  (named-view "w1.ns/row")
+        out  (warnings-during
+               #(lowering-as "w1.ns/list" [:ul (for [i (range 3)] [row {:id i}])]))
+        line (first out)]
+    (is (= 1 (count out)) "one line, not one per member")
+    (is (re-find #"w1\.ns/list" line) "the enclosing view — the fact React cannot name")
+    (is (re-find #"w1\.ns/row" line) "the member head")
+    (is (re-find #"first at index 0" line))
+    (is (re-find #":key in its props map" line) "the fix spelling, not just the complaint")
+    (is (re-find #":rf\.warning/hicasso-missing-key" line))))
+
+(deftest a-keyed-boundary-seq-is-silent-and-so-is-every-legitimate-key-shape
+  (testing "the canonical keyed list says nothing at all"
+    (let [row (named-view "w2.ns/row")]
+      (is (= [] (warnings-during
+                  #(lowering-as "w2.ns/list"
+                                [:ul (for [i (range 300)] [row {:key i}])]))))))
+  (testing "each primitive key shape individually — a warning that fired on
+            valid code would be worse than no warning"
+    (doseq [[label k] [["number" 1] ["string" "a"] ["keyword" :a]
+                       ["namespaced-keyword" :ns/a] ["negative-number" -1]
+                       ["zero" 0] ["empty-string" ""]]]
+      (let [row (named-view (str "w2b.ns/" label))]
+        (is (= [] (warnings-during
+                    #(lowering-as "w2b.ns/list" [:ul (list [row {:key k}])])))
+            (str "a " label " key is a legitimate key"))))))
+
+(deftest the-site-warns-exactly-once-however-many-renders-it-takes
+  (let [row     (named-view "w3.ns/row")
+        hiccup  [:ul (list [row {}] [row {}])]
+        first-r (warnings-during #(lowering-as "w3.ns/list" hiccup))
+        again   (warnings-during #(lowering-as "w3.ns/list" hiccup))]
+    (is (= 1 (count first-r)) "two unkeyed members of one head are one site")
+    (is (= [] again) "a second render of the same site re-fires nothing")))
+
+(deftest a-site-is-the-pair-of-the-enclosing-view-and-the-member-head
+  (testing "one view, two member heads — two sites"
+    (let [a   (named-view "w4.ns/a")
+          b   (named-view "w4.ns/b")
+          out (warnings-during
+                #(lowering-as "w4.ns/list" [:ul (list [a {}] [b {}])]))]
+      (is (= 2 (count out)) "scanning past the first offender is what finds the second")))
+  (testing "one member head, two views — two sites"
+    (let [row (named-view "w5.ns/row")
+          out (warnings-during
+                (fn []
+                  (lowering-as "w5.ns/one" [:ul (list [row {}])])
+                  (lowering-as "w5.ns/two" [:ul (list [row {}])])))]
+      (is (= 2 (count out))))))
+
+(deftest a-key-that-computed-nil-warns-because-the-emitted-element-is-keyless
+  (testing "`:key nil` and an absent `:key` mint the same keyless element, so
+            the check and the emission gate cannot disagree"
+    (let [row (named-view "w6.ns/row")
+          out (warnings-during
+                #(lowering-as "w6.ns/list" [:ul (list [row {:key nil :id 1}])]))]
+      (is (= 1 (count out)))
+      (is (re-find #"absent or nil" (first out))
+          "the author who DID write :key is pointed at the value")))
+  (testing "the conditional-key idiom that yields no key at all"
+    (let [row (named-view "w7.ns/row")
+          out (warnings-during
+                #(lowering-as "w7.ns/list"
+                              [:ul (list [row (when false {:key 1})])]))]
+      (is (= 1 (count out))))))
+
+(deftest a-mixed-seq-names-the-first-unkeyed-member
+  (let [row (named-view "w8.ns/row")
+        out (warnings-during
+              #(lowering-as "w8.ns/list"
+                            [:ul (list [row {:key 0}] [row {:key 1}]
+                                       [row {}] [row {:key 3}])]))]
+    (is (= 1 (count out)))
+    (is (re-find #"first at index 2" (first out))
+        "keyed members are scanned past and never named")))
+
+(deftest an-entity-valued-key-warns-about-the-coercion-hazard
+  (testing "a map at :key — React string-coerces it, so the child is keyed by
+            its own CONTENT and an edit silently remounts the row"
+    (let [row  (named-view "w9.ns/row")
+          out  (warnings-during
+                 #(lowering-as "w9.ns/list"
+                               [:ul (list [row {:key {:id 1 :label "a"}}])]))
+          line (first out)]
+      (is (= 1 (count out)))
+      (is (re-find #"w9\.ns/list" line))
+      (is (re-find #"carries a map at :key" line))
+      (is (re-find #"first at index 0" line))
+      (is (re-find #":rf\.warning/hicasso-entity-key" line))
+      (is (nil? (re-find #":label" line))
+          "the VALUE never reaches the console — a cyclic or throwing foreign
+           value would blow pr-str inside a diagnostic")))
+  (testing "a vector and a set are the same hazard, and two distinct sites"
+    (let [row (named-view "w10.ns/row")
+          out (warnings-during
+                #(lowering-as "w10.ns/list"
+                              [:ul (list [row {:key [1 2]}] [row {:key #{1}}])]))]
+      (is (= 2 (count out)))
+      (is (re-find #"carries a vector at :key" (first out)))
+      (is (re-find #"carries a set at :key" (second out))))))
+
+(deftest the-scope-line-holds-in-both-directions
+  (testing "native-tag members are React's beat — there is no boundary head to name"
+    (is (= [] (warnings-during
+                #(lowering-as "w11.ns/list" [:ul (for [i (range 3)] [:li i])])))))
+  (testing "host-headed members are silent in v1"
+    (is (= [] (warnings-during
+                #(lowering-as "w12.ns/list" [:ul (list [a-host {}])])))))
+  (testing "strings, numbers and nils in a seq are not elements"
+    (is (= [] (warnings-during
+                #(lowering-as "w13.ns/list" [:ul (list "a" 1 nil false)])))))
+  (testing "a headless vector is somebody else's refusal — the check tolerates
+            it silently and leaves `vec->element`'s loud error to speak"
+    (is (= [] (warnings-during
+                #(try (lowering-as "w14.ns/list" [:ul (list [])])
+                      (catch :default _ nil)))))))
+
+(deftest every-parent-class-reaches-the-check-through-the-one-site
+  (testing "a fragment parent"
+    (let [row (named-view "w15.ns/row")]
+      (is (= 1 (count (warnings-during
+                        #(lowering-as "w15.ns/list" [:<> (list [row {}])])))))))
+  (testing "a host parent — this is what the [:>] crossing will inherit"
+    (let [row (named-view "w16.ns/row")]
+      (is (= 1 (count (warnings-during
+                        #(lowering-as "w16.ns/list" [a-host {} (list [row {}])])))))))
+  (testing "a nested seq is checked at its own level, one level at a time"
+    (let [row (named-view "w17.ns/row")]
+      (is (= 1 (count (warnings-during
+                        #(lowering-as "w17.ns/list"
+                                      [:ul (list (list [row {}]))]))))))))
+
+(deftest the-crossing-into-a-boundary-warns-where-nothing-else-can
+  (testing "`[a-view {} (for …)]` — realize-children flattens the seq into
+            direct arguments, which React marks validated and never warns
+            about, so this call site is the only signal there is"
+    (let [outer (named-view "w18.ns/outer")
+          row   (named-view "w18.ns/row")
+          out   (warnings-during
+                  #(lowering-as "w18.ns/page"
+                                [outer {} (for [_ (range 3)] [row {}])]))]
+      (is (= 1 (count out)))
+      (is (re-find #"w18\.ns/page" (first out))
+          "the owner slot is the body that WROTE the crossing seq")
+      (is (re-find #"w18\.ns/row" (first out)))))
+  (testing "a keyed crossing seq is silent"
+    (let [outer (named-view "w19.ns/outer")
+          row   (named-view "w19.ns/row")]
+      (is (= [] (warnings-during
+                  #(lowering-as "w19.ns/page"
+                                [outer {} (for [i (range 3)] [row {:key i}])]))))))
+  (testing "a crossing seq of native members is silent — the presence fixture's
+            own shape, and every `[presence {…} (for … [:div.toast {:key id}])]`
+            the guide teaches"
+    (let [tray (named-view "w20.ns/tray")]
+      (is (= [] (warnings-during
+                  #(lowering-as "w20.ns/page"
+                                [tray {:timeout-ms 300}
+                                 (for [i (range 3)]
+                                   [:div.toast {:key i} "x"])])))))))
+
+(deftest the-owner-clause-is-dropped-rather-than-guessed-when-no-body-is-lowering
+  (let [row  (named-view "w21.ns/row")
+        out  (warnings-during
+               (fn []
+                 (codec/set-lowering-owner! nil)
+                 (codec/as-element [:ul (list [row {}])])))
+        line (first out)]
+    (is (= 1 (count out)))
+    (is (re-find #"^\[hicasso\] Unkeyed boundary children: " line)
+        "no owner clause at all, rather than a stale or invented one")
+    (is (re-find #"w21\.ns/row" line) "the member head still names itself")))
+
+(deftest an-unbalanced-owner-pair-is-pinned-on-the-console
+  (testing "setting a non-nil owner over a non-nil one says the pair is unbalanced"
+    (let [out (warnings-during
+                (fn []
+                  (codec/set-lowering-owner! "w22.ns/first")
+                  (codec/set-lowering-owner! "w22.ns/second")
+                  (codec/set-lowering-owner! nil)))]
+      (is (= 1 (count out)))
+      (is (re-find #"w22\.ns/first" (first out)))
+      (is (re-find #"unbalanced" (first out)))))
+  (testing "the set/clear/set the arm actually performs is silent"
+    (is (= [] (warnings-during
+                (fn []
+                  (codec/set-lowering-owner! "w23.ns/a")
+                  (codec/set-lowering-owner! nil)
+                  (codec/set-lowering-owner! "w23.ns/b")
+                  (codec/set-lowering-owner! nil)))))))
