@@ -135,6 +135,11 @@
   A vector at an event position with no ambient frame is a loud error,
   never a silently inert handler.
 
+  [[hframe]] (`h/frame` in the authoring surface) is the AUTHOR-facing
+  half of the same binding — the one door an author has to the frame
+  identity the lowering reads implicitly. See its docstring; the design
+  record is `docs/design/hicasso/studio/hframe-design.md` (rf2-841vn).
+
   A RENDER callback ([[render-callback]]) re-establishes that ambient
   context for its own invocation, out of what it captured when it was
   lowered, so a row built inside a foreign `renderRow` belongs to the
@@ -274,7 +279,18 @@
   point of the tier is that the generic `:rf.error/no-frame-context` advice
   — establish a scope — is WRONG here: a body always sits under a frame
   boundary, so following it would change nothing and the boundary would go
-  on quietly not re-rendering."
+  on quietly not re-rendering.
+
+  IT HAS TO ADDRESS THREE DOORS, NOT TWO (rf2-hnrww). The ambient scope is
+  one door with three consumers — a read, a dispatch, and a CARRY — and
+  this text was written for the first two. An author who trips the refusal
+  through `rf/capture-frame` is doing neither: `capture-frame` is Spec
+  002's *one public carry primitive*, and the reason its 0-arity resolves
+  ambiently is to CAPTURE, not to read and not to dispatch. Advice that
+  says \"read through the collector, dispatch through an intent\" names
+  nothing they can write. So the carry gets its own sentence, and it is a
+  different sentence — not the collector and not an intent, but the
+  1-arity, which never consults the resolver at all."
   {:substrate :hicasso
    :extent    'hicasso/boundary-render
    :recovery  :read-through-the-boundary-collector
@@ -288,7 +304,14 @@
                    "never re-renders when that subscription moves, which is HD-002 "
                    "clause (a)'s forbidden class. It used to succeed silently under "
                    "some adapters and throw under others; now it refuses under all "
-                   "of them.")})
+                   "of them. "
+                   "CARRYING a frame out of the render is a THIRD thing, and its "
+                   "recovery is neither of the above: `(rf/capture-frame)` resolves "
+                   "ambiently, so it refuses here, but `(rf/capture-frame <frame-id>)` "
+                   "never consults the resolver at all. Write "
+                   "`(rf/capture-frame (h/frame))` — h/frame is this substrate's own "
+                   "deterministic read of the rendering boundary's frame id, and the "
+                   "composition is refusal-immune by construction.")})
 
 (defn with-frame
   "Run `body-fn` with the boundary's render context bound ambiently. Two
@@ -339,6 +362,111 @@
                        :reason      "No frame-locked dispatch is bound for this render."
                        :recovery    :lower-intents-inside-a-boundary-render
                        :intent      intent}))))
+
+;; ---------------------------------------------------------------------------
+;; The author-facing frame read — `h/frame` (rf2-841vn)
+;; ---------------------------------------------------------------------------
+
+(defn hframe
+  "**`h/frame` in the authoring surface.** The frame id KEYWORD of the
+  boundary currently rendering. A plain function call, legal anywhere in
+  a body, and a loud error outside a render extent.
+
+  Spelled `hframe` here for exactly the reason
+  [[re-frame.bench.hicasso.arm1.lang/hfn]] is spelled `hfn`: the product
+  name is qualified (`h/frame`), and a bare `frame` would shadow the
+  `re-frame.frame` alias that this namespace — and every other namespace
+  in the arm — already carries.
+
+  ## What it is FOR, and the honest layering (design §6)
+
+  It serves ONE author: someone at a foreign edge who must hand a
+  dispatching closure to a caller they do not control — an SDK attach
+  ref, a value-first callback on a foreign component, a `defhost`
+  callback slot. What that author captures is not time; it is **frame
+  identity at the one moment it is knowable**.
+
+  Hand-written async *work* is a different problem and this is not its
+  answer. An fx handler already receives the frame id in its ctx and
+  `:dispatch-later` already expresses delay as data; a `setTimeout` in a
+  view that dispatches is mis-layered, and no primitive here is designed
+  for it. `h/frame` does make that spelling *work* where it used to fail
+  — that softening is stated on the design record rather than argued
+  away, and the compensation is that every guide row putting `h/frame` on
+  the page puts `:fx` first.
+
+  ## The carry spelling is COMPOSITION, not a second primitive
+
+      (rf/capture-frame (h/frame))
+
+  Hicasso contributes the deterministic frame READ; core keeps
+  `capture-frame` as what Spec 002 calls *the ONE public carry
+  primitive*. The two-step spelling, against the adapters' one-step
+  `(rf/capture-frame)`, is the taught asymmetry, and it has a one-
+  sentence reason: **ambient frame lookup is what Hicasso's stricter body
+  discipline withdraws** (rf2-2rtt6.122 — see [[ambient-frame-refusal]]).
+
+  THE LOAD-BEARING FACT is narrower than it looks. The refusal deletes
+  the ambient FIND, never the carrying, so `rf/with-frame` and
+  `{:frame <id>}` both still answer inside a body — but neither is the
+  author-facing answer, because both *presuppose knowing the frame id*,
+  which is exactly what a reusable view mounted under N frames cannot
+  know. What makes the composition work is that **`capture-frame`'s
+  1-arity never consults the resolver at all**, so
+  `(rf/capture-frame (h/frame))` is refusal-immune by construction, and
+  `h/frame` supplies the id the carrying spellings presuppose.
+
+  ## Why it reads [[*frame*]] and not the runtime's render slot
+
+  Load-bearing, and the difference is visible in one position. The
+  rf2-2rtt6.74 render-position work rebinds [[*frame*]] to the
+  **supplying** boundary while a foreign component invokes a render
+  callback ([[render-callback]]), where the runtime's own `rstate.frame`
+  is nil — the foreign render runs outside the arm's render pass. So
+  reading the binding answers the OWNER's frame inside a render callback
+  for free, and answers it immune to tree position, adapter, renderer and
+  timing. [[re-frame.bench.hicasso.front.route-link/route-link]] is the
+  internal consumer already doing exactly this.
+
+  ## NOT a tracked read, and it must not become one
+
+  Reads become collector edges because they are sub-KEYS. The frame is
+  not one: it is render-constant per boundary, resolved once by the shell
+  and bound ambiently. This is one dynamic-var read. It appends nothing
+  to the collector scratch, registers no edge and takes no React hook —
+  so the ≤2-hook shell ledger is untouched, and the frame-prop shell
+  variant answers identically because the same ambient is bound either
+  way. Reactivity needs no edge: a frame change is a context change or a
+  remount, and React propagates context to consumers ahead of the memo
+  comparator.
+
+  ## SSR
+
+  Server frames are per-request gensyms destroyed in the render's
+  `finally`, and the body runs on Node through this same path — so this
+  answers the per-request frame id and per-request isolation holds by
+  construction. **The value is process-local identity, carried in
+  closures, and must never be placed in markup**: two same-process
+  renders take two gensyms, so rendering it would break the render-twice
+  determinism the SSR witnesses assert."
+  []
+  (or *frame*
+      (fail! :rf.error/hicasso-frame-outside-boundary
+             'front.intent/hframe
+             (str "h/frame was called with no Hicasso render extent in scope. It "
+                  "answers the frame of the boundary currently rendering, so it is "
+                  "legal only during a boundary body — or inside a render callback "
+                  "that boundary supplied, where it answers the SUPPLYING "
+                  "boundary's frame. Where the call came from decides the fix. "
+                  "Hand-written async work belongs in the EVENT layer, which "
+                  "already has the frame: an fx handler receives it in its ctx, and "
+                  ":dispatch-later expresses the delay as data. An event handler is "
+                  "already running under its own frame and should take it from "
+                  "there rather than read it here. And code that already knows "
+                  "which frame it means should say so: (rf/capture-frame <frame-id>) "
+                  "needs no scope at all.")
+             :read-the-frame-inside-a-boundary-render
+             {})))
 
 ;; ---------------------------------------------------------------------------
 ;; The one callback form (HD-024)
