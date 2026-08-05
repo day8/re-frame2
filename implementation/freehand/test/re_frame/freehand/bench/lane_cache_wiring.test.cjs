@@ -96,7 +96,7 @@ for (const { file, src } of RIDERS) {
   test(`${file} requires lane_cache.cjs`, () => {
     assert.match(
       src,
-      /require\('\.\/lane_cache\.cjs'\)/,
+      /require\(\s*['"]\.\/lane_cache\.cjs['"]\s*\)/,
       `${file} spawns a shared-build-id release and must require ./lane_cache.cjs`
     );
   });
