@@ -1,81 +1,80 @@
 (ns re-frame.bench.hicasso.arm1.fallback-contents-cljs-test
-  "WHAT A `defhost` `:ssr` FALLBACK MAY CONTAIN — MEASURED, AND **UNRULED**
-  (rf2-nv07k).
+  "WHAT A `defhost` `:ssr` FALLBACK MAY CONTAIN — **THE CONTRACT**
+  (rf2-nv07k, ruled 2026-08-05).
 
-  [[re-frame.bench.hicasso.front.codec/mint-host-gate!]] used to state the
-  rule the guide teaches: *\"a fallback is inert markup — it is not a body,
-  so a subscription or an intent written there is the same loud error it
-  would be anywhere outside a boundary.\"* Both named cases hold, and
-  [[a-fallback-refuses-what-the-mint-time-walk-can-see]] pins them. The
-  CONCLUSION does not: a `defview` head written in a fallback is refused by
-  nothing, and it renders a live boundary in the server response.
+  [[re-frame.bench.hicasso.front.codec/mint-host-gate!]] states the rule
+  the guide teaches: *\"a fallback is inert markup — it is not a body, so
+  a subscription or an intent written there is the same loud error it
+  would be anywhere outside a boundary.\"* This namespace used to record
+  that half of it was enforced and half was not. It is now enforced, and
+  these rows are what enforces it.
 
-  ## The rule that is actually enforced is about the WALK, not the content
+  ## What was wrong, and it was the ABSENCE of a rule rather than a narrow one
 
-  The fallback is walked into an element ONCE, at the declaration, outside
-  any frame. So what is refused is exactly *what that walk can evaluate*:
+  The fallback is walked into an element ONCE, at the declaration,
+  outside any frame. So what was refused was exactly *what that walk
+  could evaluate* — an intent vector, a `sub` call in the form, hiccup
+  that is not hiccup. A boundary head is none of those: it is a React
+  element whose body runs LATER, so the walk never looked inside it and
+  every refusal it carried was deferred past the declaration, which is
+  the one thing a mint-time walk exists to prevent. It was not a rule
+  about content at all; it was a property of the walk.
 
-  | Written in a fallback | At the declaration | In the server render |
-  |---|---|---|
-  | an intent vector | refused — `:rf.error/hicasso-intent-outside-boundary` | — |
-  | a `sub` call in the form | refused — `:rf.error/hicasso-sub-outside-render` | — |
-  | a `defview` head | **mints** | a LIVE boundary, subscription read included |
-  | a `defhost` head | **mints** | that host's own gate, and its own fallback |
-  | a FRAME-FED `defview` head | **mints** | throws `:rf.error/no-frame-prop` |
+  ## Two measurements decided it, and both are kept below
 
-  A boundary head is neither an intent nor a subscription: it is a React
-  element whose body runs later. The walk never looks inside it, so every
-  refusal it carries is deferred past the declaration — which is the one
-  thing the mint-time walk exists to prevent. The asymmetry is therefore
-  not a narrow rule and not a documented middle ground; it is the ABSENCE
-  of a rule, and rf2-nv07k is where it gets one.
-
-  ## Two facts that decide it, and neither was on the record
-
-  1. **The declared placeholder is not a value.**
-     [[the-declared-placeholder-is-therefore-not-one]] renders ONE
-     declaration in two isolated frames and again after a write, and gets
-     three different documents. `mint-host-gate!`'s own justification for
-     walking once — *\"a placeholder that differs per site is not a
-     placeholder\"* — is falsified by what it permits. The ELEMENT is
-     immutable; what it renders is not.
-
-  2. **It does not survive the arm's own other boundary variant.** This arm
-     ships two: [[re-frame.bench.hicasso.arm1.runtime/mint-view!]] (context-fed,
+  1. **The declared placeholder was not a value.** `mint-host-gate!`
+     walks once and reuses the element everywhere, and its stated reason
+     is *\"a placeholder that differs per site is not a placeholder\"*.
+     One declaration carrying a boundary head rendered `ALPHA` in one
+     frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
+     justification falsified by what it permitted.
+     [[a-declared-placeholder-is-a-placeholder-again]] keeps that
+     measurement, taken now against an INERT fallback, where all three
+     documents are the same one.
+  2. **It did not survive the arm's own other boundary variant.** This
+     arm ships two mints:
+     [[re-frame.bench.hicasso.arm1.runtime/mint-view!]] (context-fed,
      what `defview` mints) and
      [[re-frame.bench.hicasso.arm1.runtime/mint-frame-prop-view!]]
-     (rf2-2rtt6.39, which frees a hook slot in a ≤2 budget that is fully
-     spent). A frame-fed head reads `intent/*frame*` when its ELEMENT is
-     created — which in a fallback is mint time, where the var is `nil` —
-     so it bakes `nil` in and throws one render into the server response
-     ([[a-frame-fed-boundary-head-fails-inside-the-server-response]]).
-     Whether a boundary head in a fallback works at all is therefore a
-     property of which mint the head came from, which is not a rule an
-     author can hold.
+     (rf2-2rtt6.39). A frame-fed head reads `intent/*frame*` when its
+     ELEMENT is created — which in a fallback is mint time, where the
+     var is `nil` — so it baked `nil` in, minted happily, and threw
+     `:rf.error/no-frame-prop` one render into the server response.
+     Whether a boundary head in a fallback worked at all was therefore a
+     property of which mint it came from, which is not a rule an author
+     can hold. The refusal is walk-scoped and asks the MARKER, so it
+     catches that variant for free —
+     [[the-frame-fed-variant-is-caught-by-the-same-refusal]].
 
-  ## What this namespace is NOT
+  ## The ruling, and the recovery it points at
 
-  It is not a contract. Every row here that is not a refusal is written as
-  a record of TODAY, so that whichever way rf2-nv07k is ruled the change is
-  visible as an edit here rather than as a silence. `rf2-l0wfx` (P1, open)
-  currently has no recovery but the workaround these rows describe — write
-  the subtree a second time as the declaration's fallback — so the ruling
-  is not this namespace's to take.
+  `:rf.error/hicasso-host-fallback-boundary-head`, at the declaration,
+  naming the host, the offending head and its position in the declared
+  form. The workaround this deletes — writing a provider's subtree a
+  second time as the declaration's fallback, which was `rf2-l0wfx`'s only
+  recovery — is SUPERSEDED rather than merely removed: `:ssr :render` now
+  renders the real subtree on the server, with the real context value and
+  no duplication ([[re-frame.bench.hicasso.arm1.host-ssr-dom-cljs-test]]).
 
-  ## The mutation witnesses
+  ## The mutation witnesses — both directions
 
-  Bind a dispatch around `mint-host-gate!`'s `as-element` call — a fallback
-  as a LIVE region, the shape rf2-nv07k's option (a) implies — and
-  [[a-fallback-refuses-what-the-mint-time-walk-can-see]] goes red on the
-  intent that is no longer refused. Force that function's `placeholder` to
-  `nil` and both boundary-head rows go red on markup missing from the
-  server HTML. Make `boundary-element` refuse a frame-fed head minted with
-  no ambient frame — the repair option (b) implies — and
-  [[a-frame-fed-boundary-head-fails-inside-the-server-response]] goes red
-  because the throw moved to the declaration. Each was run.
+  **Remove the refusal** (delete `mint-host-gate!`'s call to
+  `refuse-deferring-heads-in-fallback!`) and every row in §2 and §3 goes
+  red: the heads mint again, and the frame-fed one goes back to throwing
+  mid-render rather than at the declaration.
 
-  Runtime: `-cljs-test`, not `-dom-`. Every claim is a `renderToString`, so
-  there is nothing here a DOM would add."
+  **Over-refuse** (make `deferring-head-kind` answer a kind for anything
+  non-nil, the shape a walk that confused \"an element\" with \"a
+  deferring head\" would have) and every row in §4 goes red — one row per
+  legitimate fallback position, so the failure names which position was
+  taken away. §1 stays green under BOTH mutations, which is why it is
+  separate: it is about the walk's own evaluation and not about this
+  refusal at all.
+
+  Both were run, `codec.cljs` restored from a byte copy after each.
+
+  Runtime: `-cljs-test`, not `-dom-`. Every claim is a declaration or a
+  `renderToString`, so there is nothing here a DOM would add."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.mount :as mount]
@@ -135,7 +134,8 @@
   "The SAME body, minted through the arm's other boundary variant
   (rf2-2rtt6.39). Minted directly rather than through `defview` because
   `lang.clj`'s macro mints the context-fed one — which is exactly the
-  point: the two are indistinguishable in hiccup and disagree here."
+  point: the two are indistinguishable in hiccup and used to disagree
+  here."
   (rt/mint-frame-prop-view!
     "fallback-contents/frame-fed-view"
     (fn frame-fed-view-body [_]
@@ -146,7 +146,7 @@
 
 (defhost inner-host
   "A `defhost` head written into a fallback — a second deferring head, so
-  the hole is not a `defview` fact."
+  the rule is not a `defview` fact."
   inner-component
   {:ssr {:fallback [:em.inner-fallback "INNER-FALLBACK"]}})
 
@@ -156,6 +156,9 @@
 
 (defn- error-id [f]
   (try (f) ::did-not-throw (catch :default e (:rf.error/id (ex-data e)))))
+
+(defn- error-data [f]
+  (try (f) {::did-not-throw true} (catch :default e (ex-data e))))
 
 (defn- host-with-fallback
   "One declaration, made HERE rather than at the top level, so a row that
@@ -169,7 +172,12 @@
     (mount/provider frame (codec/root-element frame hiccup))))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — what the mint-time walk CAN see, it refuses
+;; 1 — what the mint-time WALK can see, it refuses (unchanged by the ruling)
+;;
+;; These three rows are about `as-element`'s own evaluation and not about
+;; the structural refusal beside it. They were green before rf2-nv07k was
+;; ruled and they are green after, under both mutations named in the ns
+;; docstring — which is why they are a separate deftest.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fallback-refuses-what-the-mint-time-walk-can-see
@@ -191,69 +199,178 @@
            (error-id #(host-with-fallback "fb/empty" []))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — what it cannot see, it does not refuse — AND THIS IS UNRULED
+;; 2 — and what it CANNOT see is now refused structurally, ahead of it
 ;; ---------------------------------------------------------------------------
 
-(deftest a-boundary-head-in-a-fallback-is-refused-by-nothing
+(deftest a-deferring-head-in-a-fallback-is-refused-at-the-declaration
   (fresh!)
-  (testing "a `defview` head mints — it is neither an intent nor a
-            subscription, it is an element whose body runs later, and the
-            walk does not look inside it"
-    (let [head (host-with-fallback "fb/view" [fallback-view {}])
-          html (server-html frame-a [:div.page [head {:value "dark"}]])]
-      (is (re-find #"class=\"fb-view\"" html)
-          (str "UNRULED (rf2-nv07k): the fallback rendered a LIVE boundary "
-               "in the server response: " html))
-      (is (re-find #"ALPHA" html)
-          (str "and its subscription READ — this is a body, not markup: "
-               html))))
-  (testing "and so does a `defhost` head, so the hole is about DEFERRAL and
+  (testing "a `defview` head — an element whose body runs later, so the
+            evaluating walk never looks inside it. The structural walk
+            does, and refuses it where the author's stack is"
+    (is (= :rf.error/hicasso-host-fallback-boundary-head
+           (error-id #(host-with-fallback "fb/view" [fallback-view {}])))))
+  (testing "and so does a `defhost` head, so the rule is about DEFERRAL and
             not about `defview` — any head whose content the walk cannot
-            reach crosses the same way"
-    (let [head (host-with-fallback "fb/host" [inner-host {}])
-          html (server-html frame-a [:div.page [head {:value "dark"}]])]
-      (is (re-find #"INNER-FALLBACK" html)
-          (str "a gate inside a placeholder, rendering its own placeholder: "
-               html)))))
+            reach is refused the same way"
+    (is (= :rf.error/hicasso-host-fallback-boundary-head
+           (error-id #(host-with-fallback "fb/host" [inner-host {}])))))
+  (testing "a bare head, with no vector around it at all — a fallback is a
+            hiccup FORM, so the refusal is written against the form and
+            not against head position"
+    (is (= :rf.error/hicasso-host-fallback-boundary-head
+           (error-id #(host-with-fallback "fb/bare" fallback-view)))))
+  (testing "and a head nested arbitrarily deep, because \"inert markup\"
+            is a claim about the whole form"
+    (is (= :rf.error/hicasso-host-fallback-boundary-head
+           (error-id #(host-with-fallback
+                        "fb/deep"
+                        [:div.skeleton
+                         [:p "loading"]
+                         [:section [:span [fallback-view {}]]]]))))
+    (is (= :rf.error/hicasso-host-fallback-boundary-head
+           (error-id #(host-with-fallback
+                        "fb/seq"
+                        [:ul (for [i (range 2)]
+                               [:li {:key i} [fallback-view {}]])]))))))
 
-(deftest the-declared-placeholder-is-therefore-not-one
+(deftest the-refusal-names-the-host-the-head-and-the-position
   (fresh!)
-  (testing "ONE declaration, walked ONCE into ONE element — and three
-            different server documents. `mint-host-gate!` walks once
-            because \"a placeholder that differs per site is not a
-            placeholder\"; a boundary head makes it differ per site and per
-            write, which is the reason the asymmetry is a defect and not a
-            feature nobody wrote down"
-    (let [head (host-with-fallback "fb/live" [fallback-view {}])
+  (testing "a message that says only \"a boundary head\" leaves an author
+            grepping a fallback they wrote three screens ago. All three
+            facts are in the ex-data and all three are in the message"
+    (let [data (error-data #(host-with-fallback
+                              "fb/named"
+                              [:div.skeleton [:span [fallback-view {}]]]))]
+      (is (= :rf.error/hicasso-host-fallback-boundary-head (:rf.error/id data)))
+      (is (= "fb/named" (:host data)) "the host whose declaration is at fault")
+      (is (= "re-frame.bench.hicasso.arm1.fallback-contents-cljs-test/fallback-view"
+             (:head data))
+          "the offending head, by the displayName its mint stamped")
+      (is (= "defview" (:kind data)) "and which door minted it")
+      (is (= [1 1 0] (:position data))
+          "the index route into the DECLARED form — the div's child 1 is the
+           span, whose child 1 is the offending vector, whose head is at 0")
+      (is (= :write-inert-hiccup-or-declare-ssr-render (:recovery data))
+          "and the recovery names the supersession, not just the ban")
+      (is (re-find #"fb/named" (ex-message (try (host-with-fallback
+                                                  "fb/named"
+                                                  [:div.skeleton
+                                                   [:span [fallback-view {}]]])
+                                                (catch :default e e))))
+          "and the MESSAGE carries them too — ex-data is for a test, the
+           message is for the author")))
+  (testing "the `defhost` case names its own door"
+    (let [data (error-data #(host-with-fallback "fb/named-host" [inner-host {}]))]
+      (is (= "defhost" (:kind data)))
+      (is (= "re-frame.bench.hicasso.arm1.fallback-contents-cljs-test/inner-host"
+             (:head data)))
+      (is (= [0] (:position data)) "head position of the fallback itself"))))
+
+(deftest a-declared-placeholder-is-a-placeholder-again
+  (fresh!)
+  (testing "THE MEASUREMENT THAT DECIDED IT, kept and inverted. One
+            declaration is walked ONCE into ONE element and reused at
+            every site, and `mint-host-gate!`'s reason for that is \"a
+            placeholder that differs per site is not a placeholder\". A
+            boundary head made it differ per site AND per write — three
+            different documents from one declaration. With the head
+            refused, the reason holds: the SAME document in two isolated
+            frames and again after a write"
+    (let [head (host-with-fallback "fb/inert" [:section.fb-inert "SKELETON"])
           in-a (server-html frame-a [:div.page [head {:value "dark"}]])
           in-b (server-html frame-b [:div.page [head {:value "dark"}]])]
-      (is (re-find #"ALPHA" in-a) (str "frame A's value: " in-a))
-      (is (re-find #"BRAVO" in-b)
-          (str "the SAME declared placeholder in frame B — frame-correct, "
-               "and not a constant: " in-b))
+      (is (re-find #"SKELETON" in-a) (str "the placeholder rendered: " in-a))
+      (is (= in-a in-b)
+          (str "the SAME declared placeholder in a frame holding a different "
+               "value — identical bytes, which is what a placeholder is: "
+               in-a " vs " in-b))
       (rf/with-frame frame-a (rf/dispatch-sync [:fb/seed "ALPHA-TWO"]))
       (let [after (server-html frame-a [:div.page [head {:value "dark"}]])]
-        (is (re-find #"ALPHA-TWO" after)
-            (str "and a write moved it, with nothing re-declared: " after))))))
+        (is (= in-a after)
+            (str "and a write moved nothing, because there is nothing there "
+                 "to read a frame: " after)))
+      ;; The non-vacuity control: those frames really do differ, so the
+      ;; equality above is a fact about the placeholder and not about a
+      ;; fixture that never varied.
+      (is (not= (server-html frame-a [:div.page [fallback-view {}]])
+                (server-html frame-b [:div.page [fallback-view {}]]))
+          "the same body in an ordinary POSITION still differs per frame —
+           the two frames are genuinely distinguishable"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — and it does not survive the arm's other boundary variant
+;; 3 — the frame-fed variant, caught by the same refusal
 ;; ---------------------------------------------------------------------------
 
-(deftest a-frame-fed-boundary-head-fails-inside-the-server-response
+(deftest the-frame-fed-variant-is-caught-by-the-same-refusal
   (fresh!)
   (testing "the frame-fed variant reads `intent/*frame*` when its ELEMENT is
             created. Everywhere else that is inside an ancestor body or
             `root-element`; in a fallback it is MINT TIME, where the var is
-            nil — so the declaration mints happily"
-    (is (some? (host-with-fallback "fb/frame-fed" [frame-fed-view {}]))
-        "no refusal at the declaration, which is where the author's stack is"))
-  (testing "and then throws one render into the server response — the exact
-            failure the mint-time walk exists to prevent"
-    (let [head (host-with-fallback "fb/frame-fed-render" [frame-fed-view {}])]
-      (is (= :rf.error/no-frame-prop
-             (error-id #(server-html frame-a [:div.page [head {:value "dark"}]]))))))
-  (testing "while the SAME view inside an ordinary body renders — so this is
-            a property of the fallback position, not of the view"
+            nil — so it used to bake nil in, mint happily, and throw
+            `:rf.error/no-frame-prop` one render into the server response.
+            The refusal is walk-scoped and asks the boundary MARKER, so it
+            covers this variant without knowing it exists"
+    (is (= :rf.error/hicasso-host-fallback-boundary-head
+           (error-id #(host-with-fallback "fb/frame-fed" [frame-fed-view {}])))))
+  (testing "and the throw has MOVED to the declaration, which is the whole
+            point — an author's stack now names the line they wrote"
+    (is (not= :rf.error/no-frame-prop
+              (error-id #(host-with-fallback "fb/frame-fed-2"
+                                             [frame-fed-view {}])))))
+  (testing "while the SAME view inside an ordinary body still renders — so
+            the refusal is about the fallback POSITION and not about the
+            view, and the variant is not collateral damage"
     (let [html (server-html frame-a [:div.page [frame-fed-view {}]])]
       (is (re-find #"ALPHA" html) (str "control: " html)))))
+
+;; ---------------------------------------------------------------------------
+;; 4 — every legitimate fallback position, proven ONE AT A TIME
+;;
+;; A refusal is only as good as what it leaves alone. One row per shape a
+;; real placeholder is written in, so an over-broad walk fails by NAME
+;; rather than as a wall of red.
+;; ---------------------------------------------------------------------------
+
+(deftest inert-hiccup-in-every-position-still-mints
+  (fresh!)
+  (testing "a bare tag"
+    (is (some? (host-with-fallback "ok/tag" [:div.skel]))))
+  (testing "a tag with a props map"
+    (is (some? (host-with-fallback "ok/props" [:div.skel {:data-live "no"} "loading"]))))
+  (testing "nested vectors, arbitrarily deep"
+    (is (some? (host-with-fallback "ok/nested"
+                                   [:div.skel [:p [:span [:em "loading"]]]]))))
+  (testing "a seq child — the lazy position, which the walk has to descend
+            into by hand because a seq is not a vector"
+    (is (some? (host-with-fallback "ok/seq"
+                                   [:ul (for [i (range 3)] [:li {:key i} i])]))))
+  (testing "a fragment"
+    (is (some? (host-with-fallback "ok/fragment" [:<> [:span "a"] [:span "b"]]))))
+  (testing "string, number, nil and false children — every scalar
+            `as-element` accepts, none of which is a head"
+    (is (some? (host-with-fallback "ok/scalars" [:div "text" 42 nil false]))))
+  (testing "a bare string, which is legal hiccup and is not a vector at all"
+    (is (some? (host-with-fallback "ok/string" "loading"))))
+  (testing "an already-built React element, which the walk must pass over
+            rather than descend into"
+    (is (some? (host-with-fallback
+                 "ok/element"
+                 (react/createElement "div" #js {:className "skel"} "loading")))))
+  (testing "a props map whose VALUES are collections — the walk descends
+            through renderable positions, and a props map is not one"
+    (is (some? (host-with-fallback "ok/prop-values"
+                                   [:div.skel {:class ["a" "b"] :data-n 3}])))))
+
+(deftest an-inert-fallback-still-renders-what-it-always-rendered
+  (fresh!)
+  (testing "the refusal is a declaration-time check and changes nothing
+            about what a legal fallback puts in the server response"
+    (let [head (host-with-fallback "ok/render"
+                                   [:div.skel {:data-live "no"}
+                                    [:span.a "loading"]
+                                    (for [i (range 2)] [:i.dot {:key i} "."])])
+          html (server-html frame-a [:div.page [head {:value "dark"}]])]
+      (is (re-find #"class=\"skel\"" html) (str "the fallback is there: " html))
+      (is (re-find #"loading" html))
+      (is (= 2 (count (re-seq #"class=\"dot\"" html)))
+          (str "including both rows of the seq: " html)))))
