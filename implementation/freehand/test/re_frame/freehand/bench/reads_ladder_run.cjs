@@ -100,8 +100,14 @@ const path = require('node:path');
 const guard = require('./order_guard.cjs');
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
 const { watchPage } = require('./sentinel.cjs');
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
+// The donor build id, hoisted out of the `spawnSync` argv it used to be a
+// literal in, so the cache clear and the build cannot name different ids
+// (rf2-t4j7c).
+const BUILD = 'freehand-release';
 // FORWARD SLASHES, and not by accident. `:output-dir` is spliced into the
 // `--config-merge` EDN string below, and on Windows `path.join('out',
 // 'reads-ladder')` yields `out\reads-ladder` whose `\r` the EDN reader takes
@@ -152,11 +158,21 @@ const CONFIG_MERGE =
   `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
+  // The lane's cache rule, before anything reads the cache: this driver merges
+  // its own `:init-fn` onto `BUILD`, so `BUILD`'s cache entry was written by a
+  // different program. `lane_cache.cjs` carries the measured fault and the
+  // rejected alternatives (rf2-2rtt6.20). MEASURED HERE (rf2-t4j7c): a b7
+  // build then this one over its cache compiled 11 of 160 files and exited 0,
+  // against 105 of 160 from cold, and the bundle died on load with `Cannot
+  // read properties of undefined (reading 'd')`.
+  if (resetLaneBuildCache(IMPL, BUILD)) {
+    console.error(`[ladder] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error('[ladder] building :advanced bundle ...');
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(
     process.execPath,
-    [runner, 'release', 'freehand-release', '--config-merge', CONFIG_MERGE],
+    [runner, 'release', BUILD, '--config-merge', CONFIG_MERGE],
     { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {

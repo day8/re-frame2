@@ -25,8 +25,14 @@ const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
 const { watchPage } = require('./sentinel.cjs');
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
+// The donor build id, hoisted out of the `spawnSync` argv it used to be a
+// literal in, so the cache clear and the build cannot name different ids
+// (rf2-t4j7c).
+const BUILD = 'freehand-release';
 const OUT = path.join(IMPL, 'out', 'b6-profile');
 const PORT = Number(process.env.B6_PORT || 8129);
 
@@ -49,11 +55,19 @@ const CONFIG_MERGE =
   ':modules {:main {:init-fn re-frame.freehand.bench.b6-profile-app/-main}}}';
 
 function build() {
+  // The lane's cache rule, before anything reads the cache: this driver merges
+  // its own `:init-fn` onto `BUILD`, so `BUILD`'s cache entry was written by a
+  // different program — and this one also merges `:pseudo-names`, so its entry
+  // is renamed differently again. `lane_cache.cjs` carries the measured fault
+  // and the rejected alternatives (rf2-2rtt6.20).
+  if (resetLaneBuildCache(IMPL, BUILD)) {
+    console.error(`[b6p] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error('[b6p] building :advanced + :pseudo-names bundle ...');
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(
     process.execPath,
-    [runner, 'release', 'freehand-release', '--config-merge', CONFIG_MERGE],
+    [runner, 'release', BUILD, '--config-merge', CONFIG_MERGE],
     { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {
