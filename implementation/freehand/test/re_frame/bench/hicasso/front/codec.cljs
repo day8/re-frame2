@@ -1401,7 +1401,7 @@
 (def ^:private keywarn
   "The warning's whole state: who is lowering, and which sites have
   already spoken. `nil` in production — every reader below sits behind
-  `goog.DEBUG`, so under `:advanced` the object, the `Set` and every
+  `goog.DEBUG`, so under `:advanced` the object, the tables and every
   message string fold away with the branches that reach them.
 
   Plain `def` rather than `defonce`: an app-code edit never re-mints it
@@ -1409,9 +1409,19 @@
   it), while a framework-dev edit of THIS file does — which is the
   behaviour a codec author wants and an app author cannot observe. A full
   page reload resets it either way, which is React's own semantics for
-  the same dedupe."
+  the same dedupe.
+
+  `warned` is a `Map` of owner-name -> `Map` of member head -> the kinds
+  that head has already reported there, rather than the flat `Set` of
+  joined site strings the design proposed. The reason is a clocked one:
+  an ALREADY-WARNED site is re-encountered on every render of a list the
+  author has not fixed yet, and building `(str owner \"|\" member \"|\"
+  kind)` to look it up allocated a string per member per render — 420
+  ns/member, a third of dev lowering, on precisely the list the author is
+  sitting in front of. These lookups key on the owner string and the head
+  object as they already are, so the repeat path allocates nothing."
   (when ^boolean js/goog.DEBUG
-    #js {"owner" nil "warned" (js/Set.)}))
+    #js {"owner" nil "warned" (js/Map.)}))
 
 (defn set-lowering-owner!
   "Dev-only seam: name the view whose body is being lowered, or `nil` to
@@ -1475,78 +1485,124 @@
   head, which hazard)*. Built only on detection, never on the render
   path."
   [head kind i]
-  (let [owner  (unchecked-get keywarn "owner")
-        member (head-name head)
-        seen   (unchecked-get keywarn "warned")
-        site   (str owner "|" member "|" kind)]
-    (when-not (.has seen site)
-      (.add seen site)
+  (let [owner (unchecked-get keywarn "owner")
+        heads (let [by-owner (unchecked-get keywarn "warned")]
+                (or (.get by-owner owner)
+                    (let [m (js/Map.)] (.set by-owner owner m) m)))
+        kinds (or (.get heads head)
+                  (let [o #js {}] (.set heads head o) o))]
+    (when-not (unchecked-get kinds kind)
+      (unchecked-set kinds kind true)
       (when (exists? js/console)
-        (.warn js/console
-               (if (= kind "missing")
-                 (str "[hicasso] Unkeyed boundary children"
-                      (if owner (str " in the body of " owner) "")
-                      ": a seq of " member " members has no :key (absent or "
-                      "nil; first at index " i ")."
-                      " Give each one a :key in its props map —"
-                      " [child {:key id, …}] — so the list keeps identity"
-                      " across reorder and removal; a key written as Reagent"
-                      " metadata is not read here. React's own warning names"
-                      " the component stack and fires once per parent tag"
-                      " name; this one names the authoring site and fires"
-                      " once per site, in development builds only."
-                      " [:rf.warning/hicasso-missing-key]")
-                 (str "[hicasso] Entity-valued :key on boundary children"
-                      (if owner (str " in the body of " owner) "")
-                      ": a seq of " member " members carries " kind
-                      " at :key (first at index " i ")."
-                      " React coerces a key to a string, so a collection keys"
-                      " the child by its CONTENT — edit the entity and the"
-                      " child silently remounts, losing focus, scroll position"
-                      " and any presence retention. Key on a stable identifier"
-                      " instead — [child {:key (:id entity), …}]. Warned once"
-                      " per site, in development builds only."
-                      " [:rf.warning/hicasso-entity-key]"))))))
+        (let [member (head-name head)]
+          (.warn js/console
+                 (if (= kind "missing")
+                   (str "[hicasso] Unkeyed boundary children"
+                        (if owner (str " in the body of " owner) "")
+                        ": a seq of " member " members has no :key (absent or "
+                        "nil; first at index " i ")."
+                        " Give each one a :key in its props map —"
+                        " [child {:key id, …}] — so the list keeps identity"
+                        " across reorder and removal; a key written as Reagent"
+                        " metadata is not read here. React's own warning names"
+                        " the component stack and fires once per parent tag"
+                        " name; this one names the authoring site and fires"
+                        " once per site, in development builds only."
+                        " [:rf.warning/hicasso-missing-key]")
+                   (str "[hicasso] Entity-valued :key on boundary children"
+                        (if owner (str " in the body of " owner) "")
+                        ": a seq of " member " members carries " kind
+                        " at :key (first at index " i ")."
+                        " React coerces a key to a string, so a collection keys"
+                        " the child by its CONTENT — edit the entity and the"
+                        " child silently remounts, losing focus, scroll position"
+                        " and any presence retention. Key on a stable identifier"
+                        " instead — [child {:key (:id entity), …}]. Warned once"
+                        " per site, in development builds only."
+                        " [:rf.warning/hicasso-entity-key]")))))))
+  nil)
+
+(defn- check-member-key!
+  "One member of a lowered child seq, at index `i`. Warns when it is a
+  boundary-headed vector React will reconcile by position — no `:key`, or
+  a `:key` whose value is a collection.
+
+  ## What it costs, clocked rather than asserted
+
+  `keywarn_clock_run.cjs`, dev build, 300 boundary members, 200 walks per
+  round, 11 interleaved rounds, median-of-rounds, ns per member:
+
+  | population | shipping | check ablated | the check | share of dev lowering |
+  |---|---|---|---|---|
+  | keyed (the steady state) | 1523.7 | 1367.2 | **156.5** | 10.3% |
+  | unkeyed, site already warned | 936.7 | 789.0 | **147.8** | 15.8% |
+
+  ~150 ns per member on both populations; the share differs only because
+  an unkeyed boundary element is cheaper to mint than a keyed one, so the
+  same absolute cost is a larger fraction of a smaller number.
+
+  That is **4x the 15-40 ns/member the design derived analytically**, and
+  the reason is that this is a DEV build: `vector?`, `nth` and the `:key`
+  lookup are protocol dispatches through real function calls here, where
+  the analytic estimate priced them as the inlined shapes `:advanced`
+  produces — and under `:advanced` the check does not exist at all. The
+  figure is recorded rather than argued with; rf2-2rtt6.32 is this lane's
+  standing reminder of what an unclocked micro-claim is worth.
+
+  Two shapes were measured and rejected on the way to this one:
+
+  - **A pre-pass over the seq before the expansion loop** (the design's
+    proposal, chosen there to leave the shipping loop untouched):
+    316 ns/member, 18% of dev lowering. It TRAVERSES THE SPINE TWICE, and
+    `first`/`next` over the chunked seq a `for` produces allocates per
+    step. Riding the loop that is already walking costs the predicates
+    and nothing else — and costs production nothing either, because the
+    call site is gated and `(.-length a)` supplies the index without a
+    loop variable (see [[expand-seq]]).
+  - **A flat `Set` of joined site strings** for the dedupe (also the
+    design's): 420 ns/member on an already-warned list, because looking a
+    site up meant building its string on every member of every render of
+    the list the author had not fixed yet. The nested tables in
+    [[keywarn]] key on the owner string and the head object as they
+    already are.
+
+  The predicate order is the rest of the cost: `vector?` first, then the
+  props-map `:key` read, then [[plain-key?]] — which is where a keyed
+  member leaves, on a `typeof`. [[boundary-head?]]'s own-property read is
+  asked LAST, so an unkeyed `[:li …]` costs one `fn?` and no more, and
+  `coll?` — the dearest predicate on this path — is reached only by a
+  member that is already unkeyed or already odd.
+
+  Every member is checked every time, uniform with the keyed steady
+  state. Stopping at the first offender would save work only on the
+  broken list the author is about to fix, and would hide a second unkeyed
+  head until the first was repaired. The dedupe is on the SITE, so
+  console volume is one line per site per page load either way. Nested
+  seqs need no code: a seq member is not a vector, and its own expansion
+  checks its own members — HD-016's one level at a time."
+  [m i]
+  (when (vector? m)
+    (let [p (nth m 1 nil)
+          k (when (map? p) (:key p))]
+      (when-not (plain-key? k)
+        (let [h (nth m 0 nil)]
+          (when (boundary-head? h)
+            (cond
+              (nil? k)  (warn-member-key! h "missing" i)
+              (coll? k) (warn-member-key! h (key-shape k) i)))))))
   nil)
 
 (defn- check-seq-keys!
-  "Scan one lowered child seq for boundary members React will reconcile
-  by position. Called from the two places a bare seq of children exists
-  as a value: [[expand-seq]], which every native, fragment and host
-  parent reaches through `make-element`; and [[realize-children]]'s
-  one-level flatten, which is the crossing INTO a boundary — a shape
-  whose array-ness the flatten erases before React can see it, so
-  without this call site nothing would warn at all.
-
-  Every member is scanned every time, uniform with the keyed steady
-  state that pays the full walk anyway. Stopping at the first offender
-  would save work only on the broken list the author is about to fix,
-  and would hide a second unkeyed head until the first was repaired.
-  The dedupe is on the SITE, so console volume stays at one line per
-  site per page load either way.
-
-  The predicate order is the cost: `vector?` first, then the props-map
-  `:key` read, then [[plain-key?]] — which is where a keyed member
-  leaves, on a `typeof`. [[boundary-head?]]'s own-property read is asked
-  LAST, so an unkeyed `[:li …]` costs one `fn?` and no more. Nested seqs
-  need no code: a seq member is not a vector, and its own expansion
-  checks its own members — HD-016's one level at a time.
-
-  Priced in a dev build rather than asserted (this file's standing rule):
-  see the pre-pass row in the PR that landed rf2-2rtt6.104."
+  "[[check-member-key!]] over a whole seq, for the one caller that has no
+  loop of its own to ride: [[realize-children]]'s one-level flatten, the
+  crossing INTO a boundary. `into` walks the seq there rather than
+  stepping it, so a traversal is unavoidable — and it is the rare path,
+  taken only by a seq-valued trailing form of a boundary element."
   [s]
   (loop [items (seq s)
          i     0]
     (when items
-      (let [m (first items)]
-        (when (vector? m)
-          (let [p (nth m 1 nil)
-                k (when (map? p) (:key p))]
-            (when-not (plain-key? k)
-              (when (boundary-head? (nth m 0 nil))
-                (cond
-                  (nil? k)  (warn-member-key! (nth m 0 nil) "missing" i)
-                  (coll? k) (warn-member-key! (nth m 0 nil) (key-shape k) i)))))))
+      (check-member-key! (first items) i)
       (recur (next items) (inc i))))
   nil)
 
@@ -1787,18 +1843,26 @@
   interior `nil` — the `(for [x xs] (when pred [:li …]))` shape — does not
   truncate the list.
 
-  The dev-only [[check-seq-keys!]] pre-pass is a separate walk rather
-  than a test inside the loop below, so the shipping loop is byte-identical
-  to what it was: under `:advanced` the gate folds to `false` and the call
-  goes with it. A `LazySeq` caches, so the expansion re-reads cached cells;
-  anything the pre-pass forces is forced inside the same body-render window
-  it would have been forced in anyway, so attribution does not move
-  (rf2-2rtt6.104)."
+  The dev-only [[check-member-key!]] call RIDES this loop rather than
+  pre-scanning the seq, which costs the predicates and no second spine
+  traversal (rf2-2rtt6.104 clocked the difference; the fn's docstring
+  carries the numbers).
+
+  **The index it reports is `(.-length a)`, not a loop variable**, and
+  that is the reason the loop still has exactly the shape it had: one
+  element is pushed per member, so the array's length IS the index of the
+  member about to be pushed. Threading an `i` would have put an increment
+  per child on the production path for a dev message's benefit. As
+  written, `goog.DEBUG` folds to `false` under `:advanced`, the whole line
+  goes, and what is left is character for character the loop that was here
+  before the warning existed. `(first items)` is read twice in a dev build
+  and once in production for the same reason — it is a field read on a seq
+  the loop has already forced, while `next` is the step that allocates."
   [s]
-  (when ^boolean js/goog.DEBUG (check-seq-keys! s))
   (let [a #js []]
     (loop [items (seq s)]
       (when items
+        (when ^boolean js/goog.DEBUG (check-member-key! (first items) (.-length a)))
         (.push a (as-element (first items)))
         (recur (next items))))
     a))

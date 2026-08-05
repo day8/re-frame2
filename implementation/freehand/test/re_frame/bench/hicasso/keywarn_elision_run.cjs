@@ -108,11 +108,13 @@ function clearBuildCache() {
 
 function build(leg, debug, outputDir) {
   clearBuildCache();
-  const merge = JSON.stringify({
-    'output-dir': outputDir,
-    'compiler-options': { 'closure-defines': { 'goog.DEBUG': debug } },
-    modules: { main: { 'init-fn': INIT_FN } },
-  });
+  // EDN, and ONE LINE: shadow-cljs's CLI re-splits `--config-merge` on
+  // whitespace once the data contains a newline, then reports `EOF while
+  // reading` from a fragment. JSON is not accepted at all.
+  const merge =
+    `{:output-dir "${outputDir}" :asset-path "." ` +
+    `:compiler-options {:closure-defines {goog.DEBUG ${debug}}} ` +
+    `:modules {:main {:init-fn ${INIT_FN}}}}`;
   console.log(`[${TAG}] building ${leg} (goog.DEBUG=${debug}) -> ${outputDir}`);
   const verdict = shadowBuildVerdict({
     impl: IMPL, mode: 'release', buildId: BUILD_ID, configMerge: merge,
