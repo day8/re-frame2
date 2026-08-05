@@ -49,9 +49,22 @@ deliberately NOT stale-checked when the gate later gains a scheduled home:
 that transition is the hole CLOSING, and reddening main for it would punish the
 fix.  Deleting the entry afterwards is tidy-up, not an obligation.
 
+WHY IT LIVES IN `scripts/` AND RUNS PER-PR (rf2-k78o2)
+------------------------------------------------------
+It landed in `expensive-tests.yml` only because `test.yml` was fenced off by an
+open PR at the time.  A ~0.3s pure-Python static check belongs on the PR
+critical path: a PR that adds an unscheduled gate should learn so in three
+minutes, not in twenty-four hours.  The move to `scripts/` (and to an
+underscore name) is not cosmetic — `check_ci_reproduce_commands.py` and
+`check_fast_pr_gap.py` both discover checkers by the literal
+`python scripts/check_<name>.py` run shape, so a `.github/scripts/` script with
+a hyphenated name is invisible to both: its failure would be reported with a
+reproduce command that does not exist, and the fast-PR gap map would never
+count it.
+
 Usage:
-  check-gate-scheduling.py [--repo-root DIR] [--verbose]
-  check-gate-scheduling.py --self-test [--verbose]
+  check_gate_scheduling.py [--repo-root DIR] [--verbose]
+  check_gate_scheduling.py --self-test [--verbose]
 """
 
 from __future__ import annotations
@@ -122,38 +135,41 @@ DISPOSITIONS: dict[str, dict] = {
                "DOES yield a verdict, which is why that one is scheduled "
                "(freehand-bench.yml) and pinned into the local rigorous sweep",
     },
-    "test:perf-bundle": {
-        "kind": "unscheduled",
-        "bead": "rf2-eegpw",
-        "why": "THE GATE THAT RAISED THIS CHECKER. It releases "
-               ":examples/counter and :examples/counter-perf and greps the "
-               "perf-OFF bundle for the absence, and the perf-ON twin for the "
-               "presence, of the mark-and-measure call sites — and it has "
-               "never run in CI. rf2-eegpw wires it into test.yml as "
-               "`cljs-perf-bundle`; delete this entry when that lands",
-    },
+    # THE LAST HOLE (rf2-a9oic).  Three of the four this checker found on
+    # arrival now have homes: `test:perf-bundle` went per-PR as
+    # `cljs-perf-bundle` (rf2-eegpw / #7530), and `test:ui-warm-watch` +
+    # `test:cljs-perf-emit-nightly` went into the nightly browser/bundle sweep.
+    # Their entries are deleted, which is what a closed hole looks like.
+    #
+    # This one could not be wired, for the best possible reason: rf2-a9oic ran
+    # it before scheduling it, per the rule that a gate wired without a green
+    # run hands the new nightly alerting a false positive on its debut — and it
+    # came back RED.  Both probes measure 124.9 KB gzipped against a 100 KB
+    # ceiling, 24.9 KB over.  A gate that has run nowhere for three months had
+    # accumulated a real regression, which is the exact class this checker
+    # exists to surface; finding it is the checker working, not failing.
+    #
+    # It is declared rather than wired, and NOT threshold-bumped, because Spec
+    # 010 §Bundle cost's budget table is normative: the checker's own failure
+    # text says update the spec section first and the threshold in lockstep.
+    # That is a ruling, not a wiring change.  Narrowing a gate to make it pass
+    # is the one move this audit exists to prevent, so the honest output is
+    # this entry — a real gate, running nowhere, red when run, tracked.
     "test:schemas-bundle": {
         "kind": "unscheduled",
-        "bead": "rf2-6ckzl",
+        "bead": "rf2-kybsf",
         "why": "releases `schemas-bundle-probe` + `schemas-bundle-probe-malli` "
-               "and runs check-schemas-bundle.cjs. That checker is referenced "
-               "by this npm script and by nothing else in the repo, so the "
-               "malli-boundary bundle claim it asserts has no scheduled home",
-    },
-    "test:ui-warm-watch": {
-        "kind": "unscheduled",
-        "bead": "rf2-6ckzl",
-        "why": "runs check-ui-warm-watch.cjs, which likewise is referenced by "
-               "this npm script and by nothing else in the repo",
-    },
-    "test:cljs-perf-emit-nightly": {
-        "kind": "unscheduled",
-        "bead": "rf2-6ckzl",
-        "why": "the sharpest instance: a build named for the nightly that is "
-               "in no nightly. `:node-test-perf-nightly` selects "
-               "`-emit-nightly-test$`, which `cljs-test$` does NOT match, so "
-               "the `*_emit_nightly_test.cljs` namespaces run in this lane "
-               "alone — and this lane runs nowhere",
+               "and runs check-schemas-bundle.cjs — a checker referenced by "
+               "this npm script and by nothing else in the repo. rf2-a9oic ran "
+               "it cold on main (47s): BOTH probes measure 124.9 KB gzipped "
+               "against the 100 KB ceiling, 24.9 KB over, while Spec 010 "
+               "§Bundle cost still catalogues ~91 KB. The schema-implies-"
+               "validation equality guard is still green (12-byte delta), so "
+               "the structural claim holds and only the absolute budget has "
+               "regressed. Scheduling it today would red the tier it landed "
+               "in; bumping the threshold would weaken the gate. rf2-kybsf "
+               "carries the attribution and the spec ruling — wire it and "
+               "delete this entry when that lands",
     },
 }
 
@@ -222,7 +238,7 @@ def audit(scripts: dict[str, str], workflow_text: str,
             f"{gate}: defined in implementation/package.json, invoked by no "
             f"workflow, and carrying no DISPOSITIONS entry. Either schedule it "
             f"or declare why it needs no schedule "
-            f"(.github/scripts/check-gate-scheduling.py)")
+            f"(scripts/check_gate_scheduling.py)")
     return problems
 
 
@@ -352,10 +368,10 @@ def self_test(verbose: bool) -> int:
           closed == [], repr(closed))
 
     if failures:
-        print(f"\ncheck-gate-scheduling self-test: {len(failures)} failed "
+        print(f"\ncheck_gate_scheduling self-test: {len(failures)} failed "
               f"({', '.join(failures)}).")
         return 1
-    print("check-gate-scheduling self-test: all checks passed.")
+    print("check_gate_scheduling self-test: all checks passed.")
     return 0
 
 
@@ -368,7 +384,7 @@ def main() -> int:
     if args.self_test:
         return self_test(args.verbose)
     root = (pathlib.Path(args.repo_root) if args.repo_root
-            else pathlib.Path(__file__).resolve().parents[2])
+            else pathlib.Path(__file__).resolve().parents[1])
     return run_check(root, args.verbose)
 
 
