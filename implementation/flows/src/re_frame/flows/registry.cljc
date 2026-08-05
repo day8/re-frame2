@@ -595,7 +595,7 @@
      ;; instead of trusting a bare nil-check, capture the live incarnation TOKEN
      ;; here and REVALIDATE it INSIDE the serialized mutation (below), under the
      ;; frame's `:drain-lock` — the SAME lock `destroy-frame!` flips liveness
-     ;; under (`frame/call-with-drain-lock-on-record!`). Registration and
+     ;; under (`frame/call-serialized-with-drain!`). Registration and
      ;; destruction therefore linearize on one frame-owned gate: a destroy that
      ;; wins makes the revalidation observe a nil / different token and refuse
      ;; (no ghost row); a registration that wins publishes its row, which the
