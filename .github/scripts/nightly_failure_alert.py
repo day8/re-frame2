@@ -90,7 +90,6 @@ MARKER_RE = re.compile(
 )
 
 FAILED = ("failure", "timed_out")
-LOUD = ("open", "change", "close")
 
 
 # ---------------------------------------------------------------------------
