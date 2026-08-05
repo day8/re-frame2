@@ -72,7 +72,17 @@
               "render-tree-hash is an 8-char lowercase-hex FNV-1a digest")
           (is (string/includes? html "data-rf-render-hash")
               "the root element carries the render-hash tripwire for the
-               client-side hydration-mismatch check"))))))
+               client-side hydration-mismatch check")
+          ;; The pairing this tripwire depends on. `render-tree-hash` never
+          ;; expands a callable head, so the reference form
+          ;; `[(rf/view :app/root)]` hashes one constant for every app on
+          ;; earth — ssr-ring omits the hash entirely for it (rf2-q1b96).
+          ;; `root-view` must therefore resolve to the same DOM-rooted tree
+          ;; the client's `:render-tree-fn` hashes, or the two ends compare
+          ;; different trees and every page reports a mismatch.
+          (is (= render-hash (rf/render-tree-hash (app/root-view)))
+              "the server's :root-view hashes the SAME tree the client's
+               :render-tree-fn does — note the outer call in both"))))))
 
 (deftest ssr-handler-renders-through-the-real-production-path
   (testing "server.clj's OWN make-handler (the composite Ring handler
