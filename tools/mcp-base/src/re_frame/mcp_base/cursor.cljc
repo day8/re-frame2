@@ -66,8 +66,8 @@
   CHARACTERS, deliberately, and the name says so since rf2-2rtt6.132 — it
   read `max-cursor-bytes` while the guard was, and remains, `(> (count s)
   …)`. Renaming it rather than converting it to UTF-8 bytes is the
-  correct repair for three reasons that were already true and one that
-  settles it:
+  correct repair, for two reasons that were already true and a third
+  that settles it:
 
     - the guard runs BEFORE any decode, to bound PARSE cost, and parse
       cost scales with the characters the reader walks, not with the
