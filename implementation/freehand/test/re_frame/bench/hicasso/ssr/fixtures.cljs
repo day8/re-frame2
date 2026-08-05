@@ -18,13 +18,16 @@
   - **A tier-1 bulk shape** — the ~1,200-element Conduit feed page, which
     is the size the charter's bar rows are taken at and the only row here
     whose markup is a port of a real application's.
-  - **`defhost`'s `:ssr` policy**, both meanings and both USE-SITE
+  - **`defhost`'s `:ssr` policy**, all three meanings and both USE-SITE
     positions: a host with no declared policy (the ruled `:client-only`
-    default — its component's markup MUST be absent from the server HTML)
-    and a host declaring a fallback (whose placeholder markup MUST be
-    present), each rendered once from the hiccup the entry is handed and
-    once from inside a `defview` body. See [[host-screen]] and
-    [[nested-host-screen]].
+    default — its component's markup MUST be absent from the server
+    HTML), a host declaring a fallback (whose placeholder markup MUST be
+    present), and a host declaring `:render` (whose component, CHILDREN
+    and declared context value MUST all be present — rf2-l0wfx), each
+    rendered once from the hiccup the entry is handed and once from
+    inside a `defview` body. See [[host-screen]],
+    [[render-host-screen]] — separate for the reason its docstring
+    gives — and [[nested-host-screen]], which carries all three.
   - **Presence's `::h/mounting` overrides** — and that row is a PINNED
     DEFECT rather than a feature. See [[presence-tray]].
   - **The instance-key payload obligation, TWICE** — one page whose boot
@@ -84,9 +87,37 @@
   client-widget
   {:ssr {:fallback [:span.host-fallback "loading…"]}})
 
+(def ^:private corpus-context
+  "A React context, so the `:render` row can carry the shape that filed
+  rf2-l0wfx — a transparent wrapper whose whole job is a subtree."
+  (react/createContext "unset"))
+
+(defn- context-reader
+  "A consumer BELOW the provider. Its text is the corpus's evidence that
+  `:ssr :render` puts the DECLARED context value in the server bytes and
+  not the default — the one property that separated the ruled policy
+  from the rejected `:ssr :children`."
+  [_js-props]
+  (react/createElement "em" #js {"className" "context-reader"}
+                       (react/useContext corpus-context)))
+
+(defhost render-host
+  "A declaration whose policy is `:render`: the author asserts the
+  component is safe on the server, so the declaration mints no gate and
+  the component IS the element's type. A context provider is the case
+  where that assertion is trivially true."
+  (.-Provider corpus-context)
+  {:ssr :render})
+
+(defhost render-reader-host
+  "The consumer, also `:render`, because a consumer that did not render
+  server-side could not witness the value."
+  context-reader
+  {:ssr :render})
+
 (def host-screen
-  "One page carrying both hosts at HANDED-IN positions — nested inside
-  ordinary markup and inside a `for`, the lazy position."
+  "One page carrying both GATED hosts at HANDED-IN positions — nested
+  inside ordinary markup and inside a `for`, the lazy position."
   [:div.hosts
    [:h1 "hosts"]
    [default-host {:kind "default"}]
@@ -94,22 +125,46 @@
     (for [i (range 2)]
       [:li {:key i} [fallback-host {:kind "fallback" :i i}]])]])
 
+(def render-host-screen
+  "The `:render` policy's own row, and it is separate from
+  [[host-screen]] for a reason that is a fact about React rather than a
+  taste. React 19's `ctx.Provider` **is the context object**, and that
+  object carries a `Provider` key pointing back at itself — a cycle. Any
+  walk that descends into a hiccup form's JS values therefore recurses
+  forever on this head, and
+  `re-frame.ssr.hash/render-tree-hash` is one such walk
+  (`entry_cljs_test` → `the-hash-this-root-would-have-had-is-a-constant`
+  takes it over [[host-screen]] as its non-vacuity control). Nothing on
+  a live path hashes an interpreted root — this tier deliberately ships
+  no `:rf/render-hash` at either end (rf2-2rtt6.91) — so the cycle is
+  filed rather than worked around, and this row keeps the measurement
+  row's input free of it."
+  [:div.render-hosts
+   [:h1 "render"]
+   [render-host {:value "dark"}
+    [:p.render-subtree "RENDER-SUBTREE"]
+    [render-reader-host {}]]])
+
 (defview nested-host-panel
-  "THE POSITION NO PRE-WALK CAN REACH. Both hosts are used inside a
+  "THE POSITION NO PRE-WALK CAN REACH. All three hosts are used inside a
   BOUNDARY BODY, so their elements do not exist when the render entry is
   handed its hiccup: this body runs inside `renderToString`, and the
   codec's own crossing creates them there.
 
   The `:ssr` policy is honoured all the same, because it is enforced at
-  the element's TYPE — `mint-host!` mints a gate whose
-  `useSyncExternalStore` answers `false` from its server snapshot. That
-  is the argument; [[nested-host-screen]] rendered through the entry is
-  the witness."
+  the element's TYPE — for the two gated policies `mint-host!` mints a
+  gate whose `useSyncExternalStore` answers `false` from its server
+  snapshot, and for `:render` it mints no gate at all and the component
+  is the type. That is the argument; [[nested-host-screen]] rendered
+  through the entry is the witness."
   [_]
   [:div.nested-hosts
    [:h2 "nested"]
    [default-host {:kind "nested-default"}]
-   [fallback-host {:kind "nested-fallback"}]])
+   [fallback-host {:kind "nested-fallback"}]
+   [render-host {:value "dark"}
+    [:p.nested-render-subtree "NESTED-RENDER-SUBTREE"]
+    [render-reader-host {}]]])
 
 (def nested-host-screen
   "[[nested-host-panel]] under an ordinary root, so \"the host region is
@@ -202,15 +257,23 @@
     :script-src "/main.js"}
 
    {:id     "defhost-ssr-policy"
-    :why    "defhost regions honour the :ssr policy server-side — default :client-only renders nothing, {:fallback} renders the fallback"
+    :why    "defhost regions honour the :ssr policy server-side — default :client-only renders nothing, {:fallback} renders the fallback, :render renders the component with its children under the declared context value"
     :hiccup host-screen
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
     :title    "Hicasso SSR — defhost :ssr policy"
     :script-src "/main.js"}
 
+   {:id     "defhost-ssr-render"
+    :why    "the third policy (rf2-l0wfx) — :render mints no gate, so the component, its CHILDREN and the declared context value are all in the server bytes; the only policy under which a crossing's subtree reaches the response at all"
+    :hiccup render-host-screen
+    :snapshot {}
+    :payload  :rf.ssr.payload/whole-app-db
+    :title    "Hicasso SSR — defhost :ssr :render"
+    :script-src "/main.js"}
+
    {:id     "defhost-ssr-nested"
-    :why    "the SAME two declarations used INSIDE a defview body — the position no walk over the handed-in hiccup could reach, honoured because the policy is the element's own type"
+    :why    "the SAME declarations used INSIDE a defview body — the position no walk over the handed-in hiccup could reach, honoured because the policy is the element's own type"
     :hiccup nested-host-screen
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db

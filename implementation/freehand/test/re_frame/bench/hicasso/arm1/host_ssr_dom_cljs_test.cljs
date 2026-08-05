@@ -15,24 +15,30 @@
       (defhost chart Chart)                                ; :client-only
       (defhost chart Chart {:ssr :client-only})            ; the same, said
       (defhost chart Chart {:ssr {:fallback [:div.skel]}}) ; markup instead
+      (defhost themed (.-Provider ctx) {:ssr :render})     ; run it, server-side
 
   `:client-only` renders nothing where the host sits until the client
   has adopted the markup. `{:fallback <hiccup>}` renders that markup
-  there instead. There is no third value.
+  there instead. `:render` is the author asserting that the component
+  is safe to run on the server, and it is the ONLY policy under which a
+  crossing's CHILDREN reach the server response — §3 below. There is no
+  fourth value.
 
-  WHAT MAY BE WRITTEN IN THAT FALLBACK is a separate and currently
-  UNRULED question — a boundary head written there is refused by
-  nothing and renders live in the server response. Measured in
-  [[re-frame.bench.hicasso.arm1.fallback-contents-cljs-test]]
-  (rf2-nv07k); nothing in this suite depends on the answer.
+  WHAT MAY BE WRITTEN IN THAT FALLBACK is settled (rf2-nv07k, ruled
+  2026-08-05): a fallback is inert markup, enforced — a `defview` or
+  `defhost` head written there is refused at the declaration with
+  `:rf.error/hicasso-host-fallback-boundary-head`. The contract is
+  [[re-frame.bench.hicasso.arm1.fallback-contents-cljs-test]]; nothing
+  in this suite depends on it beyond the one refusal row below.
 
-  ## The three places, and why ONE mechanism covers them
+  ## The three places, and why ONE mechanism covers the first two policies
 
-  A declaration mints one gate — a component whose single
-  `useSyncExternalStore` answers `false` from its SERVER snapshot and
-  `true` from its client one. React reads the server snapshot under
-  `renderToString` AND again on hydration's first client pass, then
-  re-renders with the client snapshot once adoption completes. So:
+  A `:client-only` or `{:fallback …}` declaration mints one gate — a
+  component whose single `useSyncExternalStore` answers `false` from its
+  SERVER snapshot and `true` from its client one. React reads the server
+  snapshot under `renderToString` AND again on hydration's first client
+  pass, then re-renders with the client snapshot once adoption
+  completes. So:
 
   1. **The server render** honours the policy without a server walk
      that knows anything about it — it honours it by rendering.
@@ -47,6 +53,23 @@
      the placeholder never flashes. Asserted on the line after
      `root!` returns, which is inside its own `flushSync`.
 
+  ## And why `:render` needs NO mechanism at all (rf2-l0wfx)
+
+  Under `:render` the declaration mints no gate: the head's type IS the
+  foreign component. So all three places above render the SAME element
+  type with the same props, the same context and the same children —
+  one tree everywhere. There is no snapshot pair, so no mismatch by
+  identity; no adoption event, so nothing to wait for; and no type swap,
+  so NO REMOUNT.
+
+  That last one is the law that priced every rejected candidate. React
+  reconciles a position by element type, and under a gate the gate is
+  the type — so any policy whose unadopted branch returns something
+  other than the component pays a full subtree destroy-and-rebuild the
+  moment adoption swaps it. Free for a skeleton; not free for the
+  application. [[a-render-crossing-hydrates-once-and-never-remounts]] is
+  where that is measured rather than argued.
+
   ## The mutation witnesses
 
   Make `:client-only` render something — `gate-unadopted` answering
@@ -55,8 +78,14 @@
   goes red on React's own mismatch report. Make `{:fallback …}` render
   nothing — `mint-host-gate!`'s `placeholder` forced to `nil` — and
   [[the-server-render-honours-the-policy]] goes red on the fallback
-  markup missing from the server HTML. Neither mutation is visible to
-  the other row, which is why there are two.
+  markup missing from the server HTML. Route `:render` through
+  `mint-host-gate!` like the other two — `mint-host!`'s
+  `keyword-identical?` branch removed — and
+  [[the-server-render-honours-the-policy]] goes red on the subtree
+  missing from the server HTML, while
+  [[a-render-crossing-hydrates-once-and-never-remounts]] goes red on the
+  second child mount the adoption swap causes. No mutation is visible to
+  more than one row, which is why there are four.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM. The declaration rows and the `renderToString` rows need no
@@ -138,6 +167,53 @@
 (defhost fallback-chart chart
   {:ssr {:fallback [:div.chart-skeleton {:data-live "no"} "loading"]}})
 
+;; --- the `:render` fixtures: a provider, and something that reads it -------
+;;
+;; A context PROVIDER is the shape that filed rf2-l0wfx, and it is the
+;; shape that makes the policy legible: it contributes no markup of its
+;; own, so under a gate its unadopted arm returns something that is not
+;; the component and the ENTIRE subtree leaves the server response with
+;; it. It is also the case where the author's assertion is trivially
+;; true — a Provider is React's own component and React's server
+;; renderer supports context fully.
+
+(def ^:private theme-context (react/createContext "unset"))
+
+(def ^:private !child-mounts
+  "How many times the counted child's mount effect ran. One is an
+  adoption; two is the destroy-and-rebuild that the type swap under a
+  gate would cause. `useEffect` never runs on the server, so a server
+  render leaves this alone and the count is purely about the client."
+  (atom 0))
+
+(defn- theme-reader
+  "A consumer BELOW the provider. The whole discriminator between
+  `:ssr :render` and the rejected `:ssr :children`: with the provider
+  above it this reads `dark`, and with only the children rendered it
+  reads the context DEFAULT."
+  [_props]
+  (react/createElement "span" #js {:className "theme-reader"}
+                       (react/useContext theme-context)))
+
+(defn- counted-reader [props]
+  (react/useEffect (fn [] (swap! !child-mounts inc) js/undefined) #js [])
+  (theme-reader props))
+
+(defhost themed
+  "The guide's own provider example, declared the way the ruling says to
+  declare it."
+  (.-Provider theme-context)
+  {:ssr :render})
+
+(defhost themed-client-only
+  "The SAME provider under the default policy — the control that keeps
+  the row below a fact about the policy rather than about the page."
+  (.-Provider theme-context))
+
+(defhost reader-host theme-reader {:ssr :render})
+
+(defhost counted-reader-host counted-reader {:ssr :render})
+
 ;; ---------------------------------------------------------------------------
 ;; The pages
 ;; ---------------------------------------------------------------------------
@@ -164,6 +240,45 @@
   [:div.page
    [fallback-chart {:label (rt/sub [:ssr/title])}
     [:span.kid "slotted"]]])
+
+(defview provider-page
+  "THE PAGE THAT FILED rf2-l0wfx, under the policy that answers it. A
+  native sibling above the crossing so \"the subtree is absent\" stays
+  distinguishable from \"nothing rendered\", markup inside it so the
+  subtree is visible, and a consumer inside it so the context VALUE is
+  visible too."
+  [_]
+  [:div.page
+   [:h1.title (rt/sub [:ssr/title])]
+   [themed {:value "dark"}
+    [:p.body "THE ENTIRE APPLICATION"]
+    [reader-host {}]]])
+
+(defview provider-page-client-only
+  "The same page under the default policy — the defect, kept live."
+  [_]
+  [:div.page
+   [:h1.title (rt/sub [:ssr/title])]
+   [themed-client-only {:value "dark"}
+    [:p.body "THE ENTIRE APPLICATION"]
+    [reader-host {}]]])
+
+(defview unprovided-page
+  "The consumer with NO provider above it — what a policy that rendered
+  the children alone would have emitted, so the `dark` below is a
+  measured contrast and not an assumed one."
+  [_]
+  [:div.page [reader-host {}]])
+
+(defview counted-provider-page
+  "[[provider-page]] with a mount-counting consumer, for the hydration
+  row. Same shape, one extra effect."
+  [_]
+  [:div.page
+   [:h1.title (rt/sub [:ssr/title])]
+   [themed {:value "dark"}
+    [:p.body "THE ENTIRE APPLICATION"]
+    [counted-reader-host {}]]])
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -226,12 +341,41 @@
     (is (= {:fallback [:div.chart-skeleton {:data-live "no"} "loading"]}
            (codec/host-ssr fallback-chart)))))
 
+(deftest the-third-policy-is-render-and-it-is-an-assertion
+  (testing "rf2-l0wfx. `:render` is accepted as a bare keyword, alongside
+            the two — the author asserting that this component is safe to
+            run on the server"
+    (is (= :render (codec/host-ssr themed)))
+    (is (= :render (codec/host-ssr reader-host))))
+  (testing "and it reads back as data like every other policy, so a server
+            walk that wants to state what it is honouring still can"
+    (is (= :client-only (codec/host-ssr themed-client-only)))
+    (is (some? (codec/mint-host! "ssr/render-plus-callbacks" chart
+                                 {:callbacks {:on-pick :event} :ssr :render}))
+        "and it composes with :callbacks, which is the other option")))
+
 (deftest the-declaration-refuses-a-policy-it-cannot-honour
-  (testing "a third value is refused at the declaration, naming the two"
+  (testing "a fourth value is refused at the declaration, naming the three"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
            (error-id #(codec/mint-host! "ssr/server" chart {:ssr :server}))))
     (is (= :rf.error/hicasso-host-bad-ssr-policy
            (error-id #(codec/mint-host! "ssr/true" chart {:ssr true})))))
+  (testing "and the three spellings an author reaches for INSTEAD of
+            `:render` stay refused, every one of them (rf2-l0wfx). They
+            assert a structural property nobody can check — that the
+            component is transparent — and they deliver the subtree under
+            the WRONG context value, which turns a silent absence into a
+            silent wrongness"
+    (doseq [v [:children :transparent :passthrough]]
+      (is (= :rf.error/hicasso-host-bad-ssr-policy
+             (error-id #(codec/mint-host! (str "ssr/" (name v)) chart {:ssr v})))
+          (str (pr-str v) " must stay refused"))))
+  (testing "a fallback MAP spelling of it is not a spelling of it either —
+            `:render` is a bare keyword, and a policy that admitted both
+            would be two ways to say one thing"
+    (is (= :rf.error/hicasso-host-bad-ssr-policy
+           (error-id #(codec/mint-host! "ssr/render-map" chart
+                                        {:ssr {:render true}})))))
   (testing "an explicit nil is a value, not an absence — `:client-only` is
             the default of an ABSENT key, and inferring it from nil is how
             a typo becomes a policy"
@@ -249,7 +393,16 @@
             declaration, rather than one render into a server response —
             it is walked once at mint, where the author's stack is"
     (is (= :rf.error/hicasso-empty-vector
-           (error-id #(codec/mint-host! "ssr/bad-fb" chart {:ssr {:fallback []}}))))))
+           (error-id #(codec/mint-host! "ssr/bad-fb" chart {:ssr {:fallback []}})))))
+  (testing "as does a `defview` head written into a fallback — a fallback
+            is inert markup and that is enforced (rf2-nv07k). The full
+            contract, both directions, is
+            `arm1/fallback_contents_cljs_test`; this row is here because
+            the two halves were ruled together and the refusal is one of
+            this declaration's own"
+    (is (= :rf.error/hicasso-host-fallback-boundary-head
+           (error-id #(codec/mint-host! "ssr/live-fb" chart
+                                        {:ssr {:fallback [client-only-page {}]}}))))))
 
 (deftest the-declaration-refuses-an-option-it-does-not-know
   (testing "`mint-host!` read :callbacks and IGNORED the rest, so a
@@ -295,7 +448,67 @@
           "nor did its body run"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — a fresh mount: no placeholder, ever
+;; 3 — `:ssr :render`: the component runs, and so do its CHILDREN
+;;
+;; The defect rf2-l0wfx filed and the ruling that answers it, in one
+;; place. Every row here is a `renderToString`, so they run under
+;; `:node-test` as well.
+;; ---------------------------------------------------------------------------
+
+(deftest a-client-only-provider-deletes-its-subtree-from-the-server-render
+  (fresh!)
+  (testing "THE DEFECT, kept live (rf2-l0wfx). A provider contributes no
+            markup of its own, so under a gate its unadopted arm returns
+            something that is not the component and the whole subtree
+            leaves the server response with it — silently, because the
+            server snapshot and hydration's first client pass agree by
+            construction. This row is what `:ssr :render` exists to make
+            unnecessary, and it stays green because the DEFAULT is
+            unchanged: the door still does not guess"
+    (let [html (server-html [provider-page-client-only {}])]
+      (is (re-find #"quarterly" html)
+          (str "the page DID render — the sibling above the crossing is
+                there, so an absent subtree is an absent subtree: " html))
+      (is (not (re-find #"THE ENTIRE APPLICATION" html))
+          (str "and the provider took its children with it: " html))
+      (is (not (re-find #"theme-reader" html))
+          (str "including the consumer below it: " html)))))
+
+(deftest a-render-crossing-puts-the-component-and-its-children-on-the-server
+  (fresh!)
+  (testing "the component itself renders server-side — the assertion the
+            declaration makes, honoured"
+    (let [html (server-html [provider-page {}])]
+      (is (re-find #"quarterly" html) (str "sanity — the page rendered: " html))
+      (is (re-find #"THE ENTIRE APPLICATION" html)
+          (str "THE SUBTREE IS IN THE SERVER RESPONSE. This is the whole of
+                rf2-l0wfx: " html))
+      (is (re-find #"class=\"body\"" html)
+          (str "as markup, not as stray text: " html))))
+  (testing "AND THE CONTEXT VALUE IS THE DECLARED ONE, which is what
+            separates this policy from `:ssr :children`. A consumer under
+            the provider reads `dark`; the same consumer with no provider
+            above it reads the context DEFAULT, and a policy that rendered
+            only the children would have emitted exactly that"
+    (let [provided   (server-html [provider-page {}])
+          unprovided (server-html [unprovided-page {}])]
+      (is (re-find #"<span class=\"theme-reader\">dark</span>" provided)
+          (str "the consumer read the DECLARED value: " provided))
+      (is (re-find #"<span class=\"theme-reader\">unset</span>" unprovided)
+          (str "the contrast, measured rather than assumed — with no
+                provider above it the same consumer reads the default: "
+               unprovided))
+      (is (not= provided unprovided)
+          "so the two are genuinely distinguishable in the bytes")))
+  (testing "and a `:render` host with no children of its own is not a
+            special case — the policy is about the TYPE, not about arity"
+    (let [html (server-html [unprovided-page {}])]
+      (is (re-find #"class=\"theme-reader\"" html)
+          (str "a childless `:render` crossing rendered its component: "
+               html)))))
+
+;; ---------------------------------------------------------------------------
+;; 4 — a fresh mount: no placeholder, ever
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fresh-mount-renders-the-component-on-its-first-pass
@@ -339,7 +552,7 @@
             (finally (mount/release! h))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — hydration: the first client pass matches, and adoption swaps
+;; 5 — hydration: the first client pass matches, and adoption swaps
 ;; ---------------------------------------------------------------------------
 
 (defn- hydration-row
@@ -415,3 +628,43 @@
           (is (some? (q container ".chart"))
               "replaced by the foreign component")
           (done))))))
+
+(deftest a-render-crossing-hydrates-once-and-never-remounts
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (reset! !child-mounts 0)
+        (hydration-row
+          [counted-provider-page {}]
+          (fn [container seen html]
+            (is (re-find #"THE ENTIRE APPLICATION" html)
+                (str "the markup hydrated FROM carries the provider's whole
+                      subtree — the row's own restatement of the policy, so
+                      a `:render` that stopped rendering is red HERE and not
+                      only in the server-render row: " html))
+            (is (re-find #"<span class=\"theme-reader\">dark</span>" html)
+                (str "under the DECLARED context value: " html))
+            (is (empty? seen)
+                (str "REACT FOUND NOTHING TO RECONCILE. Server render,
+                      hydration's first pass and a fresh mount are one tree
+                      under this policy — the same element type, the same
+                      props, the same children — so there is zero mismatch
+                      by identity rather than by a snapshot pair agreeing: "
+                     (pr-str seen)))
+            (is (some? (q container ".theme-reader"))
+                "the consumer is mounted after hydration")
+            (is (= "dark" (.-textContent (q container ".theme-reader")))
+                "still reading the declared value on the client")
+            (is (some? (q container ".body"))
+                "and the subtree around it is the SERVER'S markup, adopted")
+            (is (= 1 @!child-mounts)
+                (str "**ONE MOUNT.** This is the closing measurement
+                      (rf2-l0wfx): the child's effect ran exactly once, so
+                      the adopted subtree was never destroyed and rebuilt.
+                      Any policy whose unadopted branch returns something
+                      other than the component swaps the position's element
+                      TYPE at adoption, and React reconciles a position by
+                      type — so it would read 2 here. Read "
+                     @!child-mounts))
+            (done)))))))

@@ -84,19 +84,41 @@
 
   `opts` is optional and carries `:callbacks` — a FINITE map from exact
   prop names to `:event`, `:handler` or `:render`, never inferred from an
-  `on*` spelling — and `:ssr`, the placeholder policy:
+  `on*` spelling — and `:ssr`, the server policy:
 
       (defhost chart Chart
         {:ssr {:fallback [:div.chart-skeleton]}})
+
+      (defhost themed (.-Provider theme-context)
+        {:ssr :render})
 
   `:ssr :client-only` is the DEFAULT and needs no writing: the host
   region renders nothing on the server and nothing on hydration's first
   client pass, and the foreign component mounts once the markup is
   adopted. `{:fallback <hiccup>}` renders that markup there instead.
   A fresh (non-hydrated) mount renders the foreign component on its
-  first pass under either policy — the placeholder never flashes. There
-  is no third value, and an option `defhost` does not know is refused
-  rather than ignored.
+  first pass under either policy — the placeholder never flashes.
+
+  `:ssr :render` is the third value and it is an ASSERTION: *this
+  component is safe to render on the server*. The declaration then mints
+  no gate at all — the component is the element's own type — so the same
+  component, the same props, the same context and the same CHILDREN
+  render on the server, on hydration's first pass and on a fresh mount.
+  One tree everywhere: no mismatch, no adoption swap, no remount. It is
+  the only policy under which a crossing's children reach the server
+  response, which is what a transparent wrapper such as a context
+  provider needs. If the assertion is false the server render throws —
+  `window is not defined` — loudly and at the crossing.
+
+  There is no fourth value, and an option `defhost` does not know is
+  refused rather than ignored.
+
+  **A declared fallback is INERT MARKUP, and that is enforced.** It is
+  walked into one element at the declaration and reused at every use
+  site, so a `defview` or `defhost` head written there — an element
+  whose body runs later — is refused with
+  `:rf.error/hicasso-host-fallback-boundary-head`. Write plain hiccup,
+  or declare `:ssr :render` and render the real subtree.
 
   Policy lives on the declaration, so every use site inherits it; the
   defaults, the refusals and the crossing itself are

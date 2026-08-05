@@ -312,6 +312,27 @@
       ;; regions rather than pruning the tree.
       (is (str/includes? html "<h1>hosts</h1>")))))
 
+(deftest a-host-declaring-render-renders-the-component-and-its-children
+  (testing ":ssr :render (rf2-l0wfx) — the third policy, through the same
+           entry as the other two. It is the ONLY one under which a
+           crossing's children reach the server response at all: under a
+           gate the unadopted arm returns something that is not the
+           component, so a transparent wrapper such as a context provider
+           takes its whole subtree out of the HTML with it"
+    (is (= :render (codec/host-ssr fixtures/render-host))
+        "read back from the declaration, like every other policy")
+    (let [{:keys [html]} (entry/render (fixtures/row "defhost-ssr-render"))]
+      (is (str/includes? html "RENDER-SUBTREE")
+          "the crossing's CHILDREN are in the server HTML")
+      (is (str/includes? html "class=\"render-subtree\"")
+          "as markup, not as stray text")
+      (is (str/includes? html "<em class=\"context-reader\">dark</em>")
+          "and a consumer below the provider read the DECLARED context
+           value — the property that separates :render from the rejected
+           :children, which would have emitted the context DEFAULT")
+      (is (not (str/includes? html "<em class=\"context-reader\">unset</em>"))
+          "so the default is nowhere in the bytes"))))
+
 (defn- walk-reachable-host-heads
   "Every minted host head reachable from `form` through vectors and seqs
   — which is exactly what the retired `ssr.host-policy/apply-policy`
@@ -373,7 +394,15 @@
             "the declared placeholder is what the server wrote there")
         (is (= 1 (count (re-seq #"loading" html)))
             "exactly one — this row has one fallback host, so a count is a
-             real assertion and not a presence check in disguise")))))
+             real assertion and not a presence check in disguise"))
+
+      (testing ":render, at a nested use site (rf2-l0wfx)"
+        (is (str/includes? html "NESTED-RENDER-SUBTREE")
+            "the crossing's children reached the server response from
+             inside a boundary body too")
+        (is (str/includes? html "<em class=\"context-reader\">dark</em>")
+            "with the declared context value, which is a claim about
+             React's own server renderer and not about this codec")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The corpus renders at all — the bake's own precondition

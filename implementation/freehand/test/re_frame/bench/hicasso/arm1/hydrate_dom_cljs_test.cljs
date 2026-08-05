@@ -137,7 +137,30 @@
    [:h1.title (rt/sub [:hyd/title])]
    [:ul.rows (for [i (range 3)] [row {:key i :i i}])]])
 
-(def ^:private boundary-count 4)
+(def ^:private boundary-count
+  "Four: [[screen]] and its three [[row]]s.
+
+  **WHAT THIS CONSTANT IS AND IS NOT** (`studio/raw-escape-spec.md` §8.3,
+  restated here rather than loosened). It is the number of boundary
+  BODIES on the page, read by
+  [[the-body-run-count-across-adoption-is-counted-and-not-inferred]]
+  after adoption resolves. It is green because [[screen]] carries no
+  foreign crossing — and it goes red **on correct code** the moment one
+  is added under a policy that renders nothing on the server, because
+  such a crossing legitimately runs a body the server never ran. The two
+  obvious readings when that happens — \"my change is wrong\" and \"this
+  test is wrong\" — are both wrong. Do not delete the assertion and do
+  not loosen it to a range: restate it as this count PLUS the number of
+  crossings on the page that the server did not render, so it still
+  fails if a body runs twice or a boundary is skipped.
+
+  `:ssr :render` is the policy that does NOT move it (rf2-l0wfx). Under
+  `:render` the declaration mints no gate, the component is the
+  element's own type, and the same tree renders on the server and on
+  hydration's first pass — so the crossing adds no body run to adopt and
+  no adoption swap afterwards. The arithmetic above applies to
+  `:client-only` and `{:fallback …}` crossings only."
+  4)
 
 (defview toast-tray
   "A presence tray whose children carry BOTH override maps, so a child

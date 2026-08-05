@@ -44,9 +44,12 @@
   head is the fourth element class, §Host heads below (rf2-2rtt6.65).
   Neither is HD-011's SSR placeholder, which HD-020(d) left inert until
   the operator ruled SSR into scope: `:ssr` is a declaration option
-  with two values, and [[mint-host-gate!]] is the one mechanism that
-  serves the server render, hydration's first client pass and a fresh
-  `createRoot` mount alike (rf2-2rtt6.85).
+  with three values (rf2-2rtt6.85, rf2-l0wfx). For the two gated ones
+  [[mint-host-gate!]] is the one mechanism that serves the server
+  render, hydration's first client pass and a fresh `createRoot` mount
+  alike; `:ssr :render` mints no gate and renders the component itself
+  server-side, which is the only policy under which a crossing's
+  CHILDREN reach the server response at all.
 
   ## Codec-work caching only (HD-004)
 
@@ -974,39 +977,83 @@
 ;;
 ;; HD-011 listed "SSR placeholder" among `defhost`'s strong defaults and
 ;; HD-020(d) left it inert; the operator's 2026-08-04 ruling makes SSR
-;; required scope, so the placeholder is now real. TWO VALUES, and the
+;; required scope, so the placeholder is now real. THREE VALUES, and the
 ;; author writes at most one of them:
 ;;
 ;;     :ssr :client-only        ; THE DEFAULT — omit :ssr and this is it
 ;;     :ssr {:fallback <hiccup>}
+;;     :ssr :render             ; "this component is safe on the server"
 ;;
 ;; `:client-only` renders NOTHING where the host sits until the client
 ;; has adopted the markup; `{:fallback …}` renders that hiccup there
-;; instead. Anything else is refused at the declaration. The default is
-;; the conservative one because a foreign React component is exactly the
-;; node whose render may reach for `window` — the door cannot know, so it
-;; does not guess.
+;; instead; `:render` runs the component itself, server-side, with its
+;; real props and its real children. Anything else is refused at the
+;; declaration. The DEFAULT is the conservative one because a foreign
+;; React component is exactly the node whose render may reach for
+;; `window` — the door cannot know, so it does not guess. `:render` is
+;; the AUTHOR saying, which is a different thing from the door guessing.
 ;;
-;; **ONE mechanism serves the server, the hydration pass and the fresh
-;; mount**, and it is [[mint-host-gate!]]: a one-hook component whose
-;; `useSyncExternalStore` answers `false` from its SERVER snapshot and
-;; `true` from its client one. React reads the server snapshot under
-;; `renderToString` and again on hydration's first client pass, then
-;; re-renders with the client snapshot once adoption completes — so the
-;; server HTML and the first client pass agree BY CONSTRUCTION (no
-;; mismatch to reconcile), and a `createRoot` mount, which never consults
-;; a server snapshot at all, renders the foreign component on its very
-;; first pass with no placeholder flash. A server walk therefore does not
-;; have to consult the policy separately; it consults it by rendering.
+;; **The third value is rf2-l0wfx's ruling** (2026-08-05), and the case
+;; that filed it is a context PROVIDER: a transparent wrapper that
+;; contributes no markup of its own and exists solely to carry a
+;; subtree. Under either of the first two policies the unadopted arm
+;; returns something that is not the component, so the crossing's
+;; CHILDREN are dropped and the provider deletes the whole application
+;; from the server response — silently, because the server snapshot and
+;; hydration's first client pass agree by construction. `:render` is the
+;; one policy under which the children reach the server at all.
+;;
+;; ## Two shapes, and which one a declaration mints
+;;
+;; For `:client-only` and `{:fallback …}` **ONE mechanism serves the
+;; server, the hydration pass and the fresh mount**, and it is
+;; [[mint-host-gate!]]: a one-hook component whose `useSyncExternalStore`
+;; answers `false` from its SERVER snapshot and `true` from its client
+;; one. React reads the server snapshot under `renderToString` and again
+;; on hydration's first client pass, then re-renders with the client
+;; snapshot once adoption completes — so the server HTML and the first
+;; client pass agree BY CONSTRUCTION (no mismatch to reconcile), and a
+;; `createRoot` mount, which never consults a server snapshot at all,
+;; renders the foreign component on its very first pass with no
+;; placeholder flash. A server walk therefore does not have to consult
+;; the policy separately; it consults it by rendering.
+;;
+;; For `:render` there is NO GATE — the head's `gate` slot carries the
+;; foreign component itself, which is HD-011's original zero-wrapper,
+;; zero-fiber, zero-hook shape restored for the hosts that can take it.
+;; One tree everywhere: the server render, hydration's first pass and a
+;; fresh `createRoot` mount all render the SAME element type with the
+;; same props, the same context and the same children. So there is zero
+;; mismatch by identity, no snapshot pair, no adoption event to wait
+;; for, and — the fact that separates this policy from every rejected
+;; candidate — NO REMOUNT.
+;;
+;; **Why a remount is the law and not a detail.** React reconciles a
+;; position by element TYPE, and under a gate the gate IS the type. Any
+;; policy whose unadopted branch returns something other than the
+;; component therefore pays a full subtree destroy-and-rebuild the moment
+;; adoption swaps the type. That is free when the thing torn down is an
+;; inert skeleton; it is not free when it is the application, and it is
+;; why `:ssr :children` — "render `props.children` in place of the
+;; component" — was refused rather than adopted: it restores the markup
+;; without the provider above it, so every consumer below reads the
+;; context DEFAULT server-side (silent-absent becomes silent-wrong), and
+;; then remounts the whole just-hydrated subtree at adoption.
 ;;
 ;; **The price, stated because it changed** (rf2-2rtt6.85): the door used
 ;; to mint no wrapper, no fiber and no hook — the foreign component was
-;; the element's own type. It now mints ONE gate per declaration, so a
-;; crossing costs one fiber and one hook. HD-020(b)'s ≤2 budget is a
-;; statement about Hicasso's BOUNDARY shells and is untouched: the gate
+;; the element's own type. A gated declaration mints ONE gate, so a
+;; crossing under the first two policies costs one fiber and one hook; a
+;; `:render` crossing costs neither. HD-020(b)'s ≤2 budget is a statement
+;; about Hicasso's BOUNDARY shells and is untouched either way: the gate
 ;; is not a boundary, holds no subscription, and reads no frame.
 
 (def ^:private host-marker "hicassoHost")
+
+;; [[host-head?]] is the predicate over that marker and reads naturally
+;; beside [[host-ssr]], at the end of this section. The fallback walk
+;; below needs it three definitions earlier.
+(declare host-head?)
 
 (def ^:private callback-contracts
   "The three contracts a declaration may name — the position table's
@@ -1036,9 +1083,107 @@
 (def ^:private gate-adopted (fn [] true))
 (def ^:private gate-unadopted (fn [] false))
 
+(defn- deferring-head-kind
+  "Which DEFERRING head `x` is — the door that minted it, named the way
+  an author wrote it — or `nil` if it is not one.
+
+  A deferring head is one whose body does not run when its element is
+  created: `defview`'s product runs inside its own boundary's
+  `with-frame`, and `defhost`'s runs behind its own gate. Those are
+  exactly the two heads a hiccup walk cannot see through, which is why
+  they are the two heads a fallback may not contain."
+  [x]
+  (cond
+    (boundary-head? x) "defview"
+    (host-head? x)     "defhost"
+    :else              nil))
+
+(defn- head-name
+  "The `displayName` both mints stamp on their product, for a message
+  that has to name the offending head. Never assumed present."
+  [x]
+  (or (unchecked-get x "displayName") "<unnamed>"))
+
+(defn- refuse-deferring-heads-in-fallback!
+  "A DECLARED FALLBACK IS INERT MARKUP, ENFORCED (rf2-nv07k). Walks
+  `form` structurally and refuses a `defview` or `defhost` head at any
+  position, naming the host, the head and where it sits.
+
+  Structural rather than evaluating, and that is the whole repair. The
+  fallback's other refusals are what [[as-element]] happens to evaluate
+  on its way to an element — an intent vector raises
+  `:rf.error/hicasso-intent-outside-boundary` because there is no
+  frame-locked dispatch to lower it against, a `sub` call in the form
+  raises `:rf.error/hicasso-sub-outside-render` because it is evaluated
+  where the declaration is. A boundary head is neither: it is an element
+  whose body runs LATER, so that walk never looks inside it and every
+  refusal it carries is deferred past the declaration, which is the one
+  thing a mint-time walk exists to prevent. What was enforced was
+  therefore never a rule about content; it was a property of the walk.
+
+  Two facts made the absence a defect rather than a narrow rule
+  (measured, `arm1/fallback_contents_cljs_test`):
+
+  1. **The declared placeholder is not a value.** [[mint-host-gate!]]
+     walks once and reuses the element everywhere, and its stated reason
+     is *\"a placeholder that differs per site is not a placeholder\"*.
+     One declaration carrying a boundary head renders `ALPHA` in one
+     frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
+     justification falsified by what it permitted.
+  2. **It did not survive the arm's other boundary variant.** A
+     frame-fed head ([[mark-frame-prop!]]) reads `intent/*frame*` at
+     ELEMENT-creation time, which in a fallback is mint time, where the
+     var is `nil` — so it baked `nil` in, minted happily, and threw
+     `:rf.error/no-frame-prop` one render into the server response.
+     Whether a boundary head in a fallback worked at all was a property
+     of which mint it came from, which is not a rule an author can hold.
+
+  The refusal is walk-scoped, so it catches that frame-fed variant for
+  free: a frame-fed head is a boundary head, and the walk asks the
+  marker rather than the mint.
+
+  **The workaround it deletes is superseded, not merely removed.**
+  Writing a provider's subtree a second time as the declaration's
+  fallback was `rf2-l0wfx`'s only recovery; `:ssr :render` is now the
+  honest one, and it renders the real subtree with the real context
+  value and no duplication.
+
+  `path` is the index route into the declared form — `[]` is the
+  fallback itself, `[0]` its head position, `[2 0]` the head of its
+  third element."
+  [host-name path form]
+  (if-some [kind (deferring-head-kind form)]
+    (fail! :rf.error/hicasso-host-fallback-boundary-head
+           'front.codec/mint-host!
+           (str "defhost " host-name " declares an :ssr fallback carrying the "
+                kind " head " (head-name form) " at position " (pr-str path)
+                ". A fallback is INERT MARKUP: it is walked into ONE element "
+                "at the declaration, outside any frame, and that element is "
+                "reused at every site of the host — so a head whose body runs "
+                "later makes one declared placeholder render a different "
+                "document per frame and per write, which is not a "
+                "placeholder. Write plain hiccup there, or declare "
+                ":ssr :render and render the real subtree on the server.")
+           :write-inert-hiccup-or-declare-ssr-render
+           {:host host-name :head (head-name form) :position path :kind kind})
+    (cond
+      (vector? form)
+      (dotimes [i (count form)]
+        (refuse-deferring-heads-in-fallback! host-name (conj path i) (nth form i)))
+
+      (seq? form)
+      (loop [i 0 s (seq form)]
+        (when s
+          (refuse-deferring-heads-in-fallback! host-name (conj path i) (first s))
+          (recur (inc i) (next s))))
+
+      :else nil)))
+
 (defn- mint-host-gate!
-  "The one component a declaration mints: the foreign component behind
-  its `:ssr` policy.
+  "The one component a GATED declaration mints: the foreign component
+  behind its `:ssr` policy. `:client-only` and `{:fallback …}` mint one
+  of these; `:ssr :render` mints none, and the head's `gate` slot
+  carries the foreign component itself.
 
   `fallback` is walked into an element HERE, at the declaration —
   which is where every other host refusal fires, so a fallback that is
@@ -1047,39 +1192,16 @@
   at every site of the host: React elements are immutable values, and a
   placeholder that differs per site is not a placeholder.
 
-  ## What that refuses is what the WALK CAN SEE — and no more (rf2-nv07k)
+  ## And that is now ENFORCED rather than merely stated (rf2-nv07k)
 
   This docstring used to draw the corollary the guide teaches — *\"a
-  fallback is inert markup\"* — and half of it is enforced. The walk
-  runs outside any frame, so an intent vector written here raises
-  `:rf.error/hicasso-intent-outside-boundary` and a `sub` call in the
-  form raises `:rf.error/hicasso-sub-outside-render`, exactly as the
-  sentence says.
-
-  A BOUNDARY HEAD IS NEITHER. `[some-view {}]` is an element whose body
-  runs later, inside that boundary's own `with-frame`; the walk never
-  looks inside it, so it mints, and the \"placeholder\" is then a live
-  boundary that reads subscriptions in the server response. One
-  declaration renders a different document per frame and per write,
-  which is the justification above falsified by what it permits. A
-  `defhost` head crosses the same way, so the hole is deferral and not
-  `defview`.
-
-  **This is UNRULED, not a feature.** It is currently the only recovery
-  for `rf2-l0wfx` — a provider crossing deletes its subtree from the
-  server render, and writing that subtree a second time as the
-  declaration's fallback is the one thing that puts it back. It is also
-  variant-fragile: a frame-fed boundary head (`mark-frame-prop!`,
-  rf2-2rtt6.39) reads `intent/*frame*` at ELEMENT-creation time, which
-  here is mint time, where the var is nil — so it bakes nil in and
-  throws `:rf.error/no-frame-prop` one render into the server response.
-  Whether a boundary head in a fallback works is therefore a property
-  of which mint the head came from.
-
-  Every arm of this is pinned by
-  `arm1/fallback_contents_cljs_test`, which records today's behaviour
-  rather than asserting a contract, so that the ruling is an edit there
-  and never a silence.
+  fallback is inert markup\"* — while only half of it held: the walk
+  refused what it could EVALUATE (an intent vector, a `sub` call in the
+  form, hiccup that is not hiccup) and never looked inside a head whose
+  body runs later. [[refuse-deferring-heads-in-fallback!]] closes that,
+  structurally and ahead of the walk, so the sentence is true as
+  written. Its docstring carries the two measurements that decided it;
+  `arm1/fallback_contents_cljs_test` is the contract.
 
   The gate hands its own props straight through to the foreign
   component, so the crossing's props object is exactly the one
@@ -1087,6 +1209,8 @@
   ordinary prop — and `:key` never reaches here, because
   `createElement` took it off the gate's own element."
   [host-name component fallback]
+  (when (some? fallback)
+    (refuse-deferring-heads-in-fallback! host-name [] fallback))
   (let [placeholder (when (some? fallback) (as-element fallback))
         gate        (fn [props]
                       (if (react/useSyncExternalStore
@@ -1100,10 +1224,19 @@
   "The `:ssr` policy this declaration carries, validated. Absent means
   `:client-only` — the ruled default, so an author who writes nothing
   gets the conservative answer and an author who writes the default
-  explicitly gets the same one."
+  explicitly gets the same one.
+
+  `:render` is the third value (rf2-l0wfx, 2026-08-05) and it is an
+  ASSERTION: *this component is safe to render on the server*. The two
+  spellings an author reaches for instead — `:children` and
+  `:transparent` — stay refused, and so do `:passthrough` and `:server`.
+  They assert a structural property nobody can check and deliver the
+  subtree under the WRONG context value; `:render` names both the
+  conduct (the component renders) and the claim (it is safe to)."
   [host-name opts]
   (let [policy (get opts :ssr :client-only)]
     (if (or (keyword-identical? :client-only policy)
+            (keyword-identical? :render policy)
             (and (map? policy)
                  (= 1 (count policy))
                  (some? (:fallback policy))))
@@ -1114,8 +1247,10 @@
                   ". The policy is :client-only — the default, meaning the "
                   "host region renders nothing until the client adopts it — "
                   "or {:fallback <hiccup>}, meaning that markup renders "
-                  "there instead. There is no third value.")
-             :declare-client-only-or-a-fallback
+                  "there instead, or :render, meaning the component itself "
+                  "is safe to run on the server and does. There is no "
+                  "fourth value.")
+             :declare-client-only-a-fallback-or-render
              {:host host-name :ssr policy}))))
 
 (defn mint-host!
@@ -1132,14 +1267,28 @@
   nothing the author wrote.
 
   `opts` carries `:callbacks` — the finite contract map above — and
-  `:ssr`, the placeholder policy (`:client-only` by default, or
-  `{:fallback <hiccup>}`). Each callback key is normalized to its
-  canonical slot at MINT time, so the lookup the crossing performs per
-  prop is one `get`; a contract outside the roster, a declaration on a
-  structural slot (`key`/`ref` are React's, not positions), two
-  spellings landing on one slot, an `:ssr` value outside the two, and
+  `:ssr`, the server policy (`:client-only` by default,
+  `{:fallback <hiccup>}`, or `:render`). Each callback key is normalized
+  to its canonical slot at MINT time, so the lookup the crossing
+  performs per prop is one `get`; a contract outside the roster, a
+  declaration on a structural slot (`key`/`ref` are React's, not
+  positions), two spellings landing on one slot, an `:ssr` value outside
+  the three, a `defview` or `defhost` head written into a fallback, and
   an option key outside `#{:callbacks :ssr}` are all refused at the
-  declaration, where the author's stack is the declaration site."
+  declaration, where the author's stack is the declaration site.
+
+  ## What the `gate` slot holds, and why it is not always a gate
+
+  The head's `gate` slot is the React TYPE [[host-element]] creates
+  every crossing from, and the `:ssr` policy is expressed by choosing
+  it. Under `:client-only` and `{:fallback …}` it is
+  [[mint-host-gate!]]'s product — one fiber, one hook, and the foreign
+  component behind it. Under `:render` it is the foreign component
+  ITSELF: HD-011's original zero-wrapper, zero-fiber, zero-hook shape,
+  and the reason that policy has no adoption event, no snapshot pair and
+  no remount. `displayName` is not stamped onto the foreign object in
+  that case — it belongs to somebody else's component, and the head map
+  already carries the crossing's name."
   ([host-name component] (mint-host! host-name component {}))
   ([host-name component opts]
    (when (nil? component)
@@ -1194,9 +1343,15 @@
                (assoc m slot contract)))
            {}
            (or (:callbacks opts) {}))
+         ;; The policy IS the type. `:render` mints no gate at all —
+         ;; the foreign component is the element's own type, so the
+         ;; server render, hydration's first pass and a fresh mount are
+         ;; one tree and there is nothing to swap at adoption.
          ^js head #js {"component"   component
-                       "gate"        (mint-host-gate! host-name component
-                                                      (:fallback ssr))
+                       "gate"        (if (keyword-identical? :render ssr)
+                                       component
+                                       (mint-host-gate! host-name component
+                                                        (:fallback ssr)))
                        "callbacks"   declared
                        "ssr"         ssr
                        "displayName" host-name}]
@@ -1210,12 +1365,13 @@
   (and (some? v) (true? (unchecked-get v host-marker))))
 
 (defn host-ssr
-  "The `:ssr` policy `head` was declared with — `:client-only` or
-  `{:fallback <hiccup>}`. The declaration read back as data, for a
-  server walk that wants to state the policy it is honouring
-  (rf2-2rtt6.86) and for the witnesses that assert on it. Nothing on
-  the render path reads it: the policy is enforced by the gate, which
-  is the element's type."
+  "The `:ssr` policy `head` was declared with — `:client-only`,
+  `{:fallback <hiccup>}` or `:render`. The declaration read back as
+  data, for a server walk that wants to state the policy it is
+  honouring (rf2-2rtt6.86) and for the witnesses that assert on it.
+  Nothing on the render path reads it: the policy is enforced by WHICH
+  TYPE the declaration mints — a gate for the first two, the foreign
+  component itself for `:render`."
   [^js head]
   (unchecked-get head "ssr"))
 
@@ -1779,16 +1935,19 @@
   Children are trailing forms converted hiccup→element and handed to the
   foreign component as ordinary React children — HD-011's third default.
 
-  The element's TYPE is the declaration's gate ([[mint-host-gate!]]),
-  which is one fiber and one hook, and the foreign component is what
-  the gate renders once the markup is adopted. Everything else is
-  unchanged by that: the props object built here is the object the
-  foreign component receives, `:key` is React's on the gate's element
-  where it always was, and the component's hooks, state and refs stay
-  React's affair under React's rules — which is the whole point of the
-  door, and what keeps HD-020's ≤2-hook budget a statement about
-  Hicasso's BOUNDARIES. The gate is not one: no frame, no subscription,
-  no body."
+  The element's TYPE is whatever the declaration put in its `gate`
+  slot, and that is where the `:ssr` policy lives: under `:client-only`
+  and `{:fallback …}` it is the gate ([[mint-host-gate!]]), one fiber
+  and one hook, with the foreign component behind it once the markup is
+  adopted; under `:ssr :render` it is the foreign component itself and
+  the crossing costs neither. Everything else is unchanged by that
+  choice: the props object built here is the object the foreign
+  component receives either way, `:key` is React's on the crossing's
+  element where it always was, and the component's hooks, state and
+  refs stay React's affair under React's rules — which is the whole
+  point of the door, and what keeps HD-020's ≤2-hook budget a statement
+  about Hicasso's BOUNDARIES. A gate is not one: no frame, no
+  subscription, no body."
   [argv]
   (let [^js head   (nth argv 0)
         declared   (unchecked-get head "callbacks")
