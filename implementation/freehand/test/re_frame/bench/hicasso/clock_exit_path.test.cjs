@@ -49,6 +49,25 @@
 // Its decision now has one seat too, and the last section of this file is
 // that seat's fixtures plus the wiring that makes them load-bearing.
 //
+// AND THEN THE REPAIR'S OWN REMAINDER, which #7489's merged-PR audit found.
+// The bar-level term reached the exit code but was derived one notch too
+// loose, in BOTH places that carry it: `clock_run.cjs` asked
+// `unadj.length < names.length` and `clock_readjudicate.cjs` asked
+// `names.some(...)`, so ONE adjudicated bar carried a row whose other
+// published bars had no band at all — the driver exiting 0 under a sentence
+// reading "every published bar adjudicated", the readjudicator pooling that
+// run into the published mean for every pair including the unadjudicated one.
+//
+// The reason it survived a landing is the lesson: both rules lived where no
+// test could reach them — inline in the driver's `main`, and in a file that
+// read `process.argv` at module scope so requiring it ran it — and the only
+// thing holding the driver's was a regex over its own source, which matched
+// the wrong rule as faithfully as it would have matched the right one. A rule
+// a test cannot drive is not a checked rule however exactly it is quoted.
+// Both are pure exported functions now (`rowAdjudication`, `adjudicated`),
+// both require every published bar to carry a band, and both are driven below
+// on the mixed-bar case that neither used to have.
+//
 // Wired into implementation/package.json via `test:script-helpers`.
 
 const assert = require('node:assert');
@@ -325,11 +344,14 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
 {
   const CLOCK = path.join(__dirname, 'clock_run.cjs');
-  const { reportability, reportabilitySelfTest } = require('./clock_run.cjs');
+  const { reportability, rowAdjudication, reportabilitySelfTest } = require('./clock_run.cjs');
   const SRC = fs.readFileSync(CLOCK, 'utf8');
   const t = (what, fn) => test(`clock_run.cjs: ${what}`, fn);
   const KEYSTROKE_WHY = "UNADJUDICATED — this row's control burns a fixed 50 ms rather than doubling the page";
   const clockRow = (over) => ({ rowId: 'M1', ctlOk: true, ctlNote: '', adjudicable: true, ...over });
+  // A bar as `seam.assess` writes it into `seamTask.rows`.
+  const ADJ = { unadjudicated: false, why: 'margin 34.8% clears the band 21.4%' };
+  const UNADJ = { unadjudicated: true, why: KEYSTROKE_WHY };
 
   // --- the driver's own fixtures, which `--selftest` also runs --------------
 
@@ -348,7 +370,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     ]);
     assert.notStrictEqual(v.code, 0, 'a run with no adjudicable bar must not exit 0');
     assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /no published bar can be ADJUDICATED on: keystroke/);
+    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
     assert.match(v.lines[1], /keystroke: UNADJUDICATED/);
     assert.strictEqual(v.lines[2], '[clock] REPORTABLE: none.');
   });
@@ -401,8 +423,82 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     ]);
     assert.strictEqual(v.code, 1);
     assert.match(v.lines[0], /positive control/);
-    assert.match(v.lines[1], /no published bar can be ADJUDICATED/);
+    assert.match(v.lines[1], /not every published bar can be ADJUDICATED/);
     assert.strictEqual(v.lines[3], '[clock] REPORTABLE: none.');
+  });
+
+  // --- THE REMAINDER: a row whose bars DISAGREE (#7489's merged-PR audit) ---
+  //
+  // The first repair put the bar-level verdict into the exit code but derived
+  // it with `unadj.length < names.length` — "at least one bar carries a band"
+  // — while the REPORTABLE line it printed claimed "every published bar
+  // adjudicated". A row publishing three bars of which one had no band
+  // therefore satisfied the code and contradicted the sentence, and the run
+  // exited 0. Nothing caught it because the rule lived inline in `main`, which
+  // needs an `:advanced` build and a headless Chromium to reach; the only
+  // check on it was a regex over the source, and the regex matched the wrong
+  // rule faithfully. It is a pure function now, and these drive it.
+
+  t('THE REMAINDER: ONE unadjudicated bar makes the row unadjudicable', () => {
+    const a = rowAdjudication({
+      'hicasso / reagent-subs': ADJ,
+      'hicasso / uix-subs': UNADJ,
+      'uix-subs / reagent-subs': ADJ,
+    });
+    assert.strictEqual(a.adjudicable, false, 'two adjudicated bars may not carry a third that has no band');
+    assert.strictEqual(a.barCount, 3);
+    assert.deepStrictEqual(a.unadjudicatedBars, ['hicasso / uix-subs']);
+    assert.strictEqual(a.unadjudicatedWhy, KEYSTROKE_WHY);
+  });
+
+  t('and that row cannot exit 0 — the refusal reaches the code, naming the bar', () => {
+    const mixed = rowAdjudication({ 'h / r': ADJ, 'h / u': UNADJ, 'u / r': ADJ });
+    const v = reportability([clockRow({}), clockRow({ rowId: 'keystroke', ...mixed })]);
+    assert.notStrictEqual(v.code, 0, 'a row with a bar it cannot adjudicate must not exit 0');
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
+    assert.match(v.lines[1], /1 of 3 published bars carry no band \(h \/ u\)/);
+    assert.match(v.lines[1], new RegExp(KEYSTROKE_WHY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  });
+
+  t('the clean rows beside it are still reportable — the refusal stays per-row', () => {
+    const mixed = rowAdjudication({ 'h / r': ADJ, 'h / u': UNADJ });
+    const v = reportability([clockRow({}), clockRow({ rowId: 'keystroke', ...mixed })]);
+    const last = v.lines[v.lines.length - 1];
+    assert.match(last, /^\[clock\] REPORTABLE: M1 —/);
+    assert.doesNotMatch(last, /keystroke/, 'a row with an unadjudicated bar must never appear in REPORTABLE');
+  });
+
+  t('a row whose every bar carries a band is adjudicable — the gate is not vacuous', () => {
+    // Without this, every assertion above would still pass if `rowAdjudication`
+    // simply always returned false.
+    const a = rowAdjudication({ 'h / r': ADJ, 'h / u': ADJ, 'u / r': ADJ });
+    assert.strictEqual(a.adjudicable, true);
+    assert.strictEqual(a.barCount, 3);
+    assert.deepStrictEqual(a.unadjudicatedBars, []);
+    assert.strictEqual(reportability([clockRow({ ...a })]).code, 0);
+  });
+
+  t('the case #7489 DID catch is still caught — the rule was tightened, not swapped', () => {
+    const a = rowAdjudication({ 'h / r': UNADJ, 'h / u': UNADJ });
+    assert.strictEqual(a.adjudicable, false);
+    assert.deepStrictEqual(a.unadjudicatedBars, ['h / r', 'h / u']);
+    assert.strictEqual(reportability([clockRow({ rowId: 'keystroke', ...a })]).code, 1);
+  });
+
+  t('an empty or missing bar set fails CLOSED — absent is not clean', () => {
+    for (const bars of [{}, undefined, null]) {
+      const a = rowAdjudication(bars);
+      assert.strictEqual(a.adjudicable, false, `bars=${JSON.stringify(bars)} must not be adjudicable`);
+      assert.strictEqual(a.barCount, 0);
+      assert.strictEqual(a.unadjudicatedWhy, 'the run adjudicated no bar on this row at all');
+    }
+    // And with no bar names to print, the refusal falls back to the row's own
+    // reason rather than printing "0 of 0 published bars".
+    const v = reportability([clockRow({ ...rowAdjudication({}) })]);
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[1], /M1: the run adjudicated no bar on this row at all/);
+    assert.doesNotMatch(v.lines[1], /0 of 0/);
   });
 
   // --- and the sentence that invited the publication -----------------------
@@ -420,15 +516,22 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t('the driver exposes its decision and does not drive itself on require', () => {
     assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
-    assert.match(SRC, /module\.exports = \{ reportability, reportabilitySelfTest \};/);
+    assert.match(SRC, /module\.exports = \{ reportability, rowAdjudication, reportabilitySelfTest \};/);
     assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
   });
 
   t('the summary reads the adjudication the report printed, rather than recomputing it', () => {
     // A second computation is a second decision, and a second decision is
     // this whole file's subject.
-    assert.match(MAIN, /o\.verdict\.seamTask && o\.verdict\.seamTask\.rows/);
-    assert.match(MAIN, /adjudicable: names\.length > 0 && unadj\.length < names\.length,/);
+    assert.match(MAIN, /rowAdjudication\(o\.verdict\.seamTask && o\.verdict\.seamTask\.rows\)/);
+    // And the rule itself is NOT written out here. It used to be, and the only
+    // thing checking it was a regex on this line — which held the loose rule
+    // happily for as long as the regex agreed with it. The behavioural cases
+    // are below; this asserts the inline copy has not grown back.
+    assert.ok(
+      !/unadj\.length|Object\.keys\(bars\)/.test(MAIN),
+      'the bar-level rule must live in `rowAdjudication`, not inline in `main` where no test can drive it'
+    );
   });
 
   t('the exit code comes from `reportability` and from nothing else', () => {
@@ -450,6 +553,124 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('if (!NO_BUILD)'));
     assert.match(block, /reportabilitySelfTest\(\)/);
     assert.match(block, /\[\.\.\.g\.checks, \.\.\.s\.checks, \.\.\.x\.checks\]\.filter/);
+  });
+}
+
+// --- clock_readjudicate.cjs: the SAME term, on the persisted datasets --------
+//
+// rf2-y7mw7's second place. The driver adjudicates one run; the readjudicator
+// pools an ENSEMBLE of the driver's stored datasets and prints the figure that
+// gets published, so the same fail-open has two homes and the second one
+// outlives the first — a dataset is re-read long after the `seam.assess` that
+// wrote it.
+//
+// #7489 added the adjudication term here as `names.some((n) => !unadjudicated)`
+// and its audit found that wrong for the reason the driver's was: ONE
+// adjudicated bar admitted the whole run into the "control-passing subset",
+// FOR EVERY PAIR — including the pair whose own bar had no band. The predicate
+// was also unreachable, because the file read `process.argv` at module scope
+// and exited, so requiring it ran it. Both are repaired below.
+
+{
+  const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
+  const { adjudicated, reportable } = require('./clock_readjudicate.cjs');
+  const RJSRC = fs.readFileSync(RJ, 'utf8');
+  const t = (what, fn) => test(`clock_readjudicate.cjs: ${what}`, fn);
+  const ADJ = { unadjudicated: false, band: 0.21, why: 'margin 34.8% clears the band 21.4%' };
+  const UNADJ = { unadjudicated: true, band: null, why: 'UNADJUDICATED — no proportional control on this row' };
+  // A dataset row as `clock_run.cjs` writes it, reduced to the fields this
+  // predicate reads.
+  const dsRow = (bars, over) => ({
+    rowId: 'M1',
+    ctlTask: { ok: true },
+    seam: { verdict: { ceilingBreached: false } },
+    seamTask: { ceilingBreached: false, rows: bars },
+    ...over,
+  });
+
+  t('THE REMAINDER: one unadjudicated bar keeps the whole run OUT of the subset', () => {
+    const row = dsRow({ 'h / r': ADJ, 'h / u': UNADJ, 'u / r': ADJ });
+    assert.strictEqual(adjudicated(row), false, 'two adjudicated bars may not carry a third with no band');
+    assert.strictEqual(reportable(row), false, 'and the run may not be pooled into the published mean');
+  });
+
+  t('a run whose every bar carries a band IS pooled — the predicate is not vacuous', () => {
+    const row = dsRow({ 'h / r': ADJ, 'h / u': ADJ, 'u / r': ADJ });
+    assert.strictEqual(adjudicated(row), true);
+    assert.strictEqual(reportable(row), true, 'a clean run must still reach the reportable subset');
+  });
+
+  t('a run whose every bar is UNADJUDICATED is still out — the term was tightened, not swapped', () => {
+    assert.strictEqual(adjudicated(dsRow({ 'h / r': UNADJ, 'h / u': UNADJ })), false);
+  });
+
+  t('a dataset that stored no bar verdict at all fails closed', () => {
+    assert.strictEqual(adjudicated(dsRow({})), false, 'an empty bar set is absent, not clean');
+    assert.strictEqual(adjudicated({ rowId: 'M1' }), false, 'a row with no seamTask at all is absent, not clean');
+    assert.strictEqual(adjudicated(undefined), false);
+    assert.strictEqual(reportable(undefined), false);
+  });
+
+  t('the OTHER two terms are unchanged — adjudication was ADDED, never substituted', () => {
+    const bars = { 'h / r': ADJ, 'h / u': ADJ };
+    // A failed control still excludes a fully adjudicated run ...
+    assert.strictEqual(reportable(dsRow(bars, { ctlTask: { ok: false } })), false);
+    assert.strictEqual(reportable(dsRow(bars, { ctlTask: null })), false);
+    // ... and so does either ceiling, which fires before any control.
+    assert.strictEqual(
+      reportable(dsRow(bars, { seam: { verdict: { ceilingBreached: true } } })),
+      false,
+      'a breached net-band ceiling still excludes the run'
+    );
+    assert.strictEqual(
+      reportable(dsRow(bars, { seamTask: { ceilingBreached: true, rows: bars } })),
+      false,
+      'a breached task-band ceiling still excludes the run'
+    );
+  });
+
+  t('requiring the readjudicator does not RUN it, which is what made this reachable', () => {
+    assert.match(RJSRC, /module\.exports = \{ adjudicated, reportable \};/);
+    assert.match(RJSRC, /if \(require\.main === module\) \{/);
+    assert.match(RJSRC, /main\(process\.argv\.slice\(2\)\)/);
+  });
+
+  t('the subset is chosen by `reportable` alone, not by a second predicate inline', () => {
+    const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
+    assert.match(body, /runs\.map\(\(\{ row \}, i\) => \(reportable\(row\) \? i : -1\)\)/);
+    assert.ok(
+      !/\.some\(\(n\) => !bars\[n\]\.unadjudicated\)/.test(RJSRC),
+      'the loose `some` rule must not survive anywhere in this file'
+    );
+    // `main` may still READ a bar verdict to print it — the per-run table is
+    // a description, not a decision. What it may not do is quantify over the
+    // bars, because that is the predicate above being written a second time.
+    assert.ok(
+      !/(names|Object\.keys)[^\n]*\.(some|every)\(/.test(body),
+      'quantifying over a row\'s bars inside `main` is the subset predicate written twice'
+    );
+  });
+
+  t('the printed verdict column reads the SAME per-bar record the subset does', () => {
+    // The column used to be derived from row-wide `bandTask` while the subset
+    // was derived per bar, so a row whose bars disagreed would print "clears
+    // its band" for a bar the subset had just refused. That is this bead's own
+    // complaint — a column and a decision disagreeing about the same run —
+    // pointing the other way.
+    const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
+    assert.match(body, /const barRec = \(row\.seamTask && row\.seamTask\.rows && row\.seamTask\.rows\[pair\]\)/);
+    assert.match(body, /const barUnadjudicated = barRec \? !!barRec\.unadjudicated/);
+    // and the column's UNADJUDICATED branch is taken from THAT, not from the
+    // row-wide band.
+    assert.match(body, /: barUnadjudicated\s*\r?\n\s*\? 'UNADJUDICATED/);
+  });
+
+  t('it still SELECTS no run away from the table — only from the subset', () => {
+    // The file's own stated refusal, and the reason the predicate above may
+    // never be used to drop a row from the per-run listing.
+    assert.match(RJSRC, /It does not select runs\./);
+    const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
+    assert.match(body, /runs\.forEach\(\(\{ file, row \}, i\) => \{/);
   });
 }
 
