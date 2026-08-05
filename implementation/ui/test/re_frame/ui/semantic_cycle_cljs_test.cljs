@@ -49,7 +49,6 @@
   (:require ["react" :as react]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.error :as error]
             [re-frame.ui.semantic :as semantic]))
 
 ;; ---------------------------------------------------------------------------
