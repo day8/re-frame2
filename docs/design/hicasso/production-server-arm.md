@@ -687,15 +687,22 @@ note. All five sites now measure `Buffer.byteLength(s, 'utf8')`, and the bake
 checks each manifest column against `fs.statSync` of the file it just wrote, so
 a column that disagrees with its own fixture now refuses instead of baking.
 
-Two things are deliberately unchanged. The SHA-256 never needed repair — it is
-computed with an explicit `'utf8'` encoding in `driver.cjs`'s `sha256`, so every
-digest row here was always a function of bytes. And the one byte count quoted from the
-corpus — X1(a)'s **3,101** — does **not** come from the manifest: it comes from
-the spike witness's own `report!` payload, which `rf2-2rtt6.114` left alone. It
-therefore still carries the UTF-16 caveat, and is still used here only as an
-identity claim (render #1 equals render #2), never as a size. Repairing it would
-move a published figure and is a decision rather than a chore; it is carried on
-the follow-up bead with the rest of the lane's `(count s)` byte claims.
+One thing never needed repair. The SHA-256 is computed with an explicit `'utf8'`
+encoding in `driver.cjs`'s `sha256`, so every digest row here was always a
+function of bytes.
+
+The one byte count quoted from the corpus — X1(a)'s **3,060** — does **not**
+come from the manifest: it comes from the spike witness's own `report!` payload,
+which `rf2-2rtt6.114` left alone. **`rf2-2rtt6.121` has since repaired that
+payload as well, so the UTF-16 caveat on this figure is discharged rather than
+outstanding** (2026-08-06, `rf2-8smbe`). The witness now publishes
+`lane/utf8-bytes`, a shared `TextEncoder` helper rather than a second
+`Buffer.byteLength` site — those arms also compile to a browser build, where
+`Buffer` is not reachable — with `fs.statSync` used at the sites that really are
+Node. The figure moved **3,101 → 3,060** as it did so, and both halves of that
+move are separated in the witness's own dated addendum: `+18` from the ruler, and
+`−59` because the document itself drifted after `952a3f2024`. It is still used
+here only as an identity claim (render #1 equals render #2), never as a size.
 
 ## 7. What the spike corpus licenses, and what it does not
 

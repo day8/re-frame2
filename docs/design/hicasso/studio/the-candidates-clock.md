@@ -186,7 +186,12 @@ magnitude must clear to be one.
   and the canonical-DOM gate (attribute names sorted) proves it rather than this
   sentence: **6 non-control arms across 3 segments, byte-identical, 27,224
   bytes.** The keystroke witness is a controlled field over 100 boundaries,
-  9,117 bytes, identical across all six.
+  **9,320 bytes**, identical across all six. *(2026-08-06, `rf2-8smbe`: this
+  read `9,117` — the figure the published run measured, when the form had **one**
+  field. `rf2-0qj9w` later took it to four, and the rebooked window in
+  [§3.5](#35-the-rebooked-window-which-refuses-in-the-same-two-places-rf2-0qj9w-2026-08-04)
+  reports the four-field form's canonical DOM at 9,320 B. The `M1` figure beside
+  it is unaffected — that page carries no form — and is unchanged at 27,224.)*
 - **B/E/Q stamp**: `B = 300` boundaries, `E = 300` boundary-query edges (one
   read each), `Q = 300` unique live query keys — so **Q = E**, fan-out 1, the
   mandatory distinct-query regime. The keystroke witness is `B = 101`,
