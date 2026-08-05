@@ -82,10 +82,15 @@ const DEV_ONLY = [
   { source: 'front.codec/warn-member-key! (the entity-key coercion clause)',
     sentinel: ' React coerces a key to a string, so a collection keys' },
   // `front.codec/set-lowering-owner!` — the staleness pin. A THIRD independent
-  // gated branch, and the one in a PUBLIC fn: `set-lowering-owner!` itself
-  // survives :advanced (the arm calls it), so this sentinel proves the gate
-  // inside a surviving fn folds, not merely that an unreferenced private fn
-  // was dropped.
+  // gated branch, and the WEAKEST of the three: it is protected twice over,
+  // because the fn's only callers (`arm1.runtime/run-once`, the two mint
+  // stamps) are themselves inside `goog.DEBUG` branches, so under :advanced
+  // the fn is unreachable and Closure drops it whole regardless of its own
+  // gate. Measured, not assumed — a mutation run that replaced this fn's
+  // internal gate with `(when true …)` still came back ABSENT here, and only
+  // the mutation at `expand-seq`'s CALL SITE went red. Kept because a third
+  // independent string is still evidence the whole feature is gone rather
+  // than one line of it, but the load-bearing sentinels are the two above.
   { source: 'front.codec/set-lowering-owner! (the unbalanced-pair pin)',
     sentinel: '[hicasso] A boundary body began lowering while `' },
 ];
