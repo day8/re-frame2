@@ -56,7 +56,7 @@
     "clean:freehand-matched": "node -e \"const fs=require('fs'); for (const b of ['freehand-release','freehand-release-interpreted','freehand-release-compiled']) { fs.rmSync('out/'+b,{recursive:true,force:true,maxRetries:3,retryDelay:100}); fs.rmSync('.shadow-cljs/builds/'+b,{recursive:true,force:true,maxRetries:3,retryDelay:100}); }\"",
     "build:freehand-matched": "npm run --silent clean:freehand-matched && shadow-cljs release freehand-release freehand-release-interpreted freehand-release-compiled",
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
-    "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
+    "test:schemas-bundle": "shadow-cljs release schemas-bundle-control schemas-bundle-probe && node scripts/check-schemas-bundle.cjs",
     "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/login examples/login-uix examples/realworld-resources bundle-isolation-positive-control && node scripts/check-bundle-isolation.test.cjs && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",
     "test:examples-compile": "node scripts/check-examples-compile.cjs",
     "test:hicasso-compile": "node freehand/test/re_frame/bench/hicasso/compile_gate.cjs",

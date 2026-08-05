@@ -1,45 +1,89 @@
 #!/usr/bin/env node
 /*
- * Schemas-artefact bundle-cost gate (Spec 010 §Bundle cost, bead rf2-fqbcy).
+ * Schemas-artefact bundle-cost gate (Spec 010 §Bundle cost; beads
+ * rf2-fqbcy, rf2-kybsf, rf2-v4o7e).
  *
- * Spec 010 §Bundle cost catalogues the gzipped cost of requiring
- * `re-frame.schemas`. Per rf2-v96fh (schema implies validation) the
- * `re-frame.schemas` facade now `:require`s `re-frame.schemas.malli`
- * itself, so REQUIRING THE SCHEMAS ARTEFACT IMPLIES MALLI — there is no
- * longer a 'schemas required, no Malli' bundle posture. A registered
- * schema therefore always validates rather than soft-passing into a
- * silent no-op. The only Malli-free posture is not requiring the
- * schemas artefact at all (the no-feature counter app, pinned by the
- * counter bundle-isolation gate — NOT this gate).
+ * WHAT THIS GATE ASSERTS, AND WHY IT IS A MARGIN AND NOT A CEILING.
  *
- * This gate uses two probe builds:
+ * Spec 010 §Bundle cost budgets a MARGINAL quantity: what requiring
+ * `re-frame.schemas` adds on top of an app that already uses re-frame2.
+ * Until rf2-v4o7e this gate asserted an ABSOLUTE gzipped ceiling on a
+ * probe bundle instead — a number dominated by things the budget is not
+ * about. `cljs.core` alone is ~186 KB of the probe's ~494 KB optimized
+ * bytes, and `re-frame.core` is most of the rest, so every unrelated
+ * framework change moved this gate's number.
  *
- *   schemas-bundle-probe        — requires ONLY `re-frame.schemas`.
- *                                 Under Ruling A the facade pulls the
- *                                 Malli adapter, so this is the
- *                                 canonical 'schemas surface (Malli
- *                                 wired)' cost. Asserts ≤ 100 KB gzipped.
- *   schemas-bundle-probe-malli  — requires `re-frame.schemas` AND the
- *                                 adapter EXPLICITLY. Under Ruling A the
- *                                 explicit require is redundant (the
- *                                 facade already loaded it), so this
- *                                 bundle is the SAME size. Asserts
- *                                 ≤ 100 KB gzipped.
+ * It duly went wrong. Measured, gzipped:
  *
- * Schema-implies-validation regression guard (replaces the pre-rf2-v96fh
- * 'Malli strictly larger' delta guard): the two bundles MUST be
- * APPROXIMATELY EQUAL. Ruling A made Malli mandatory for any schemas
- * consumer, so the explicit-require delta collapsed to ~0 by design. If
- * a future change reverts the facade's adapter require, `schemas-bundle-
- * probe` (no explicit adapter require) would drop back to its ~59 KB
- * Malli-free figure while `schemas-bundle-probe-malli` stayed at ~91 KB
- * — the equality assertion then fails, catching the regression and
- * proving the facade still auto-wires Malli (i.e. schema still implies
- * validation).
+ *   2026-05-14 (rf2-fqbcy, gate authored)   probe  80.1 KB, Malli marginal 29.8 KB
+ *   2026-08-05 (rf2-kybsf, first-ever run)  probe 124.9 KB, Malli marginal 30.8 KB
  *
- * Strategy: gzip every .js file under the bundle's output-dir and
- * sum the compressed sizes. Mirrors the methodology used by the
- * external bundle audit findings/malli-bundle-cost-audit.md.
+ * The probe grew 44.8 KB in three months; the schemas surface accounted
+ * for 1.0 KB of it and `cljs.core` + `re-frame.core` for 43.8 KB. The
+ * gate fired at the schemas artefact for growth that happened entirely
+ * outside it — and its ceiling had never been derived from these probes
+ * in the first place (rf2-fqbcy lifted 100/125 KB from Spec 010's
+ * Reagent/React harness rows and parked them next to a bare probe
+ * measuring 50.3 KB; rf2-v96fh then made both probes Malli-bearing and
+ * LOWERED the Malli-bearing arm to the Malli-FREE 100 KB figure). No
+ * absolute constant would have survived a quarter, so this gate no
+ * longer has one. Absolute bundle size is owned by the perf-bundle and
+ * bundle-isolation gates; this one owns the schemas margin.
+ *
+ * THE A/B. Two `:advanced` + `goog.DEBUG=false` browser builds that
+ * differ by EXACTLY ONE require:
+ *
+ *   schemas-bundle-control  `[re-frame.core]` only.
+ *   schemas-bundle-probe    `[re-frame.core]` + `[re-frame.schemas]`.
+ *
+ * `probe - control` is therefore the schemas opt-in and nothing else.
+ * Per rf2-v96fh the `re-frame.schemas` facade `:require`s the
+ * `re-frame.schemas.malli` adapter in its own ns-form, so the probe's
+ * posture is the ONLY schemas posture a consumer can buy — which is why
+ * the control is core-only rather than a facade-with-the-adapter-
+ * stripped counterfactual. That counterfactual remains a useful
+ * ATTRIBUTION technique (rf2-kybsf used it once, to split "Malli grew"
+ * from "core grew"); it is not a posture, so it is not the control.
+ *
+ * FIRST MATCHED RUN (2026-08-05, cold, Windows, node 24, malli 0.20.1 —
+ * the run these thresholds are set from):
+ *
+ *   schemas-bundle-control      86356 B gzipped (84.3 KB)
+ *   schemas-bundle-probe       127926 B gzipped (124.9 KB)
+ *   margin                      41570 B gzipped (40.6 KB)
+ *
+ * Composition of that margin, from `shadow.cljs.build-report` optimized
+ * bytes (post-Closure, uncompressed): Malli 121.5 KB (`malli.core` 88.6,
+ * `malli.impl.regex` 16.9, `malli.error` 12.0, `malli.registry` 2.0,
+ * `malli.sci` 1.3, `malli.impl.util` 0.7) + `borkdude.dynaload` 6.6 KB +
+ * the `re-frame.schemas` artefact 14.3 KB + ~43 KB of `re-frame.core` /
+ * `goog` that the schemas path roots and the bare control DCEs away
+ * (`goog.crypt.sha256` behind `re-frame.schemas.digest`, and so on).
+ *
+ * That last term is why the margin is an UPPER BOUND on what a real
+ * consumer pays: an app that already roots those core paths pays them
+ * once, not twice. Erring high is the conservative direction for a
+ * budget, and it is the price of a control that is a control — anything
+ * the control rooted that the probe does not would make the margin
+ * UNDERSTATE the cost, and that is the direction that loosens a gate.
+ *
+ * WHY IT IS TWO-SIDED. A margin that COLLAPSES is not good news — it
+ * means the A/B stopped measuring what it measures, which is exactly how
+ * a probe goes vacuous. The floor is also the in-gate structural echo of
+ * schema-implies-validation (rf2-v96fh), and that was measured rather
+ * than assumed: with `[re-frame.schemas.malli]` deleted from the facade's
+ * ns-form the probe rebuilds at 96332 B (94.1 KB) and the margin falls to
+ * 9976 B (9.7 KB) — 10.3 KB below the floor, exit 1. The invariant's
+ * PRIMARY owner is the behavioural test
+ * `implementation/schemas/test/re_frame/schemas_implies_validation_test.clj`
+ * (the `:schemas/malli-validate` hook is bound by requiring the facade
+ * alone, and a bad write to a registered slot fires
+ * `:rf.error/schema-validation-failure`); this gate is the bundle-shaped
+ * corroboration, which is why the old byte-equality guard between two
+ * near-identical probes retired with the `-malli` probe it compared.
+ *
+ * Strategy: gzip every top-level .js file under each bundle's output-dir
+ * and sum the compressed sizes.
  *
  * Exit 0 on PASS, 1 on FAIL.
  */
@@ -58,55 +102,61 @@ const {
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
 
-// ----- the schemas bundle-cost contract -------------------------------------
+// ----- the A/B ---------------------------------------------------------------
 
-// Per rf2-v96fh both probes pull Malli (the facade requires the
-// adapter), so both sit at the schemas-surface-with-Malli cost.
-//
-// THE CEILINGS BELOW ARE KNOWN-WRONG AND ARE AWAITING A RULING
-// (rf2-kybsf). Do not "fix" this gate by raising them; the number is
-// not the problem. Measured history, all figures gzipped:
-//
-//   2026-05-14 (rf2-fqbcy, gate authored)  probe 50.3 KB  probe-malli 80.1 KB
-//   2026-08-05 (rf2-kybsf, first-ever run) probe 124.9 KB probe-malli 124.9 KB
-//
-// The 100/125 KB ceilings were never derived from these probes. They
-// were lifted verbatim from Spec 010's representative-scenario harness
-// (a Reagent/React counter app: 97.2 KB schemas-no-Malli, 120.8 KB
-// schemas-plus-Malli) and parked next to a bare probe that measured
-// 50.3 KB — ~50 KB of unexamined slack, as rf2-fqbcy's own commit
-// message says outright. rf2-v96fh then made both probes Malli-bearing
-// and, instead of adopting the Malli-bearing 125 KB ceiling already in
-// this file, LOWERED the Malli-bearing probe to the Malli-FREE 100 KB
-// one, citing a "~91 KB empirical" figure no run ever produced. The
-// gate had no scheduled home, so nothing contradicted it for 83 days.
-//
-// What actually grew is NOT the schemas surface. Malli's marginal cost
-// is flat: 29.8 KB in May, 30.8 KB now (measured 2026-08-05 by building
-// this probe with the facade's adapter require removed: 94.1 KB, vs
-// 124.9 KB with it). metosin/malli was already pinned at 0.20.1 when
-// the 80.1 KB baseline was taken, so the 0.13.0 -> 0.20.1 bump is
-// excluded by date. The +43.8 KB is cljs.core + re-frame.core over
-// three months of framework work — a quantity this gate does not exist
-// to police, and which will keep moving these absolute numbers.
-//
-// The fix is therefore a delta gate against a Malli-free control build,
-// not a bigger constant (rf2-v4o7e). Until that is ruled, this gate
-// stays red and honest.
+const CONTROL = 'schemas-bundle-control';
+const PROBE   = 'schemas-bundle-probe';
+
 const BUNDLES = [
   {
-    name:            'schemas-bundle-probe',
-    bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe'),
-    specRow:         '[re-frame.schemas] required ⇒ Malli wired (rf2-v96fh)',
-    gzippedMaxBytes: 100 * 1024,   // 100 KB — UNRULED, see the block above
+    name:      CONTROL,
+    bundleDir: path.join(ROOT, 'out', CONTROL),
+    role:      '`[re-frame.core]` only — the subtrahend',
   },
   {
-    name:            'schemas-bundle-probe-malli',
-    bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe-malli'),
-    specRow:         '[re-frame.schemas] + explicit [malli] (redundant, rf2-v96fh)',
-    gzippedMaxBytes: 100 * 1024,   // 100 KB — UNRULED, same surface as sibling
+    name:      PROBE,
+    bundleDir: path.join(ROOT, 'out', PROBE),
+    role:      '`[re-frame.core]` + `[re-frame.schemas]` ⇒ Malli wired (rf2-v96fh)',
   },
 ];
+
+// ----- the margin contract ---------------------------------------------------
+
+// Both bounds are set from the first matched A/B run recorded in the
+// header (41570 B / 40.6 KB), per the rf2-kybsf ruling: numbers from the
+// measurement, never inherited from a prior constant.
+//
+// CEILING — 45 KB, i.e. the measured margin plus ~4.4 KB (~11 %) of
+// stated headroom. The headroom absorbs a Malli patch bump and small
+// additions to the schemas artefact's own surface; for scale, Malli's
+// marginal cost moved 29.8 -> 30.8 KB across the three months and the
+// version bump between rf2-fqbcy and rf2-kybsf.
+//
+// It was calibrated against the failure it exists to catch — a namespace
+// off Spec 010's restrict-to-dev/test list reaching the production path —
+// by MEASURING one rather than trusting the list's headline figures. Add
+// a `malli.transform` require to the probe and NOTHING HAPPENS (+0.2 KB):
+// Closure DCEs a merely-required namespace, which is Spec 010's own
+// "inter-namespace DCE works" claim holding. Add a call to
+// `malli.transform/json-transformer` and the namespace becomes reachable:
+// +5.5 KB gzipped on top of the already-present `malli.core`, margin
+// 47201 B (46.1 KB), 1.1 KB over this ceiling, exit 1. So the headroom is
+// tight enough for the smallest of the two heavy restrict-list
+// namespaces, and `malli.generator` (heavier still, carries test.check)
+// reds by more. Note the list's per-namespace figures are STANDALONE
+// weights — the incremental cost when `malli.core` is already in the
+// bundle is smaller, and the incremental one is what this gate sees.
+// The headroom is a tolerance, not a licence to grow into.
+//
+// FLOOR — 20 KB, a little under half the measured margin. It restores the
+// "Malli arm strictly larger" methodology guard rf2-fqbcy originally had,
+// in the shape the A/B allows: a reverted facade adapter require drops
+// the margin to the measured 9.7 KB, and a control that accidentally
+// became Malli-bearing or a probe that stopped rooting the schemas
+// surface drops it toward 0. Both are FAILURES of the measurement rather
+// than good news about the bundle.
+const MARGIN_MAX_BYTES = 45 * 1024;
+const MARGIN_MIN_BYTES = 20 * 1024;
 
 // ----- helpers ---------------------------------------------------------------
 
@@ -134,7 +184,7 @@ function fmtKb(bytes) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Schemas bundle-cost gate (Spec 010 §Bundle cost, rf2-fqbcy) ===');
+  report.detail('=== Schemas bundle-cost gate (Spec 010 §Bundle cost, rf2-v4o7e) ===');
   report.detail('');
 
   const sizes = {};
@@ -142,13 +192,13 @@ function main() {
 
   for (const bundle of BUNDLES) {
     // Non-vacuous floor (rf2-utvst): a present-but-empty output dir sums
-    // to 0 gzipped bytes and would pass the `<= ceiling` size assertion
-    // (and the equality guard) vacuously. Reject it before measuring.
+    // to 0 gzipped bytes. Reject it before measuring — a margin computed
+    // from a zero-byte arm measures nothing.
     const cls = classifyReleaseBundle(bundle.bundleDir);
     if (cls.status === 'empty') {
       console.error(`[schemas-bundle] ${bundle.name}: bundle present but empty (zero top-level JS) — ${bundle.bundleDir}`);
-      console.error('              The release emitted no bundle; a zero-byte bundle would');
-      console.error('              pass the size ceiling vacuously. Rebuild with "shadow-cljs');
+      console.error('              The release emitted no bundle; a zero-byte arm would');
+      console.error('              make the margin meaningless. Rebuild with "shadow-cljs');
       console.error(`              release ${bundle.name}" or clear the stale dir.`);
       bundlesOk = false;
       continue;
@@ -162,93 +212,105 @@ function main() {
       continue;
     }
     sizes[bundle.name] = total;
-    const ok = total <= bundle.gzippedMaxBytes;
-    const tag = ok ? 'OK' : 'FAIL';
-    report.detail(`  [${tag}] ${bundle.name}`);
-    report.detail(`        spec:      ${bundle.specRow}`);
-    report.detail(`        bundle:    ${fmtKb(total)} gzipped (${total} bytes)`);
-    report.detail(`        threshold: ${fmtKb(bundle.gzippedMaxBytes)} (${bundle.gzippedMaxBytes} bytes)`);
-    if (!ok) {
-      bundlesOk = false;
-      report.detail(`        REGRESSION: bundle exceeds threshold by ${fmtKb(total - bundle.gzippedMaxBytes)}`);
-    }
+    report.detail(`  [measured] ${bundle.name}`);
+    report.detail(`        role:   ${bundle.role}`);
+    report.detail(`        bundle: ${fmtKb(total)} gzipped (${total} bytes)`);
   }
 
-  // Schema-implies-validation regression guard (rf2-v96fh) — replaces
-  // the pre-rf2-v96fh 'Malli-on strictly larger' delta guard. Under
-  // Ruling A the `re-frame.schemas` facade requires the Malli adapter
-  // itself, so the explicit `[re-frame.schemas.malli]` require in the
-  // `-malli` probe is redundant and both bundles carry the SAME Malli
-  // surface. They MUST therefore be APPROXIMATELY EQUAL.
-  //
-  // If a future change reverts the facade's adapter require,
-  // `schemas-bundle-probe` (no explicit adapter require) drops back to
-  // its ~59 KB Malli-free figure while `schemas-bundle-probe-malli`
-  // (explicit require) stays at ~91 KB — a ~32 KB gap that trips this
-  // guard, proving the facade no longer auto-wires Malli (i.e. schema
-  // no longer implies validation). The tolerance absorbs the few bytes
-  // of init-fn-name difference between the two probe namespaces.
-  let methodologyOk = true;
-  if (sizes['schemas-bundle-probe'] != null &&
-      sizes['schemas-bundle-probe-malli'] != null) {
-    const probe      = sizes['schemas-bundle-probe'];
-    const probeMalli = sizes['schemas-bundle-probe-malli'];
-    const delta      = Math.abs(probeMalli - probe);
-    // Equality tolerance. The two probes differ only by their init-fn
-    // names; the Malli surface is identical. 2 KB comfortably absorbs
-    // symbol-name noise while still catching the ~32 KB regression a
-    // reverted facade require would produce.
-    const maxDelta = 2 * 1024;
-    const ok = delta <= maxDelta;
-    const tag = ok ? 'OK' : 'FAIL';
-    report.detail('');
-    report.detail(`  [${tag}] schema-implies-validation guard — both probes carry Malli (equal)`);
-    report.detail(`        |delta|: ${fmtKb(delta)} (${delta} bytes)`);
-    report.detail(`        tolerance: ≤ ${fmtKb(maxDelta)} (Ruling A: facade auto-wires Malli)`);
-    if (!ok) {
-      methodologyOk = false;
-      report.detail('        FAIL — the two probes diverged. Most likely the');
-      report.detail('        `re-frame.schemas` facade no longer requires');
-      report.detail('        `re-frame.schemas.malli`, so requiring schemas no');
-      report.detail('        longer implies validation (rf2-v96fh regression).');
-    }
-  }
-
-  report.detail('');
-  if (bundlesOk && methodologyOk) {
-    const probe = sizes['schemas-bundle-probe'];
-    const probeMalli = sizes['schemas-bundle-probe-malli'];
-    report.pass(
-      'schemas-bundle',
-      `schemas-bundle-probe=${fmtKb(probe)}/${fmtKb(BUNDLES[0].gzippedMaxBytes)}; ` +
-        `schemas-bundle-probe-malli=${fmtKb(probeMalli)}/${fmtKb(BUNDLES[1].gzippedMaxBytes)}; ` +
-        `delta=${fmtKb(probeMalli - probe)}`
-    );
-    process.exit(0);
-  } else {
+  if (!bundlesOk) {
     report.flushDetails();
     console.error('=== FAIL ===');
     console.error('');
-    console.error('Per Spec 010 §Bundle cost the schemas-artefact bundle cost');
-    console.error('budgets are normative. A size failure most likely means:');
-    console.error('  - A transitive require dragged a heavy ns into the schemas');
-    console.error('    surface; check `re-frame.schemas` ns-form and downstream.');
-    console.error('  - The Malli adapter\'s ns-load body grew unexpectedly.');
-    console.error('  - cljs.core / re-frame.core grew. This gate cannot tell');
-    console.error('    that apart from the two causes above, because it asserts');
-    console.error('    an ABSOLUTE size while Spec 010 budgets a MARGINAL one.');
-    console.error('    That is the known defect tracked by rf2-v4o7e.');
-    console.error('');
-    console.error('BEFORE YOU RAISE A THRESHOLD, read the comment block above');
-    console.error('BUNDLES. The ceilings are unruled (rf2-kybsf) and were never');
-    console.error('derived from these probes. Raising them to match whatever');
-    console.error('shipped is how a budget stops meaning anything. To attribute');
-    console.error('a rise, rebuild this probe with the `re-frame.schemas.malli`');
-    console.error('require removed from the `re-frame.schemas` ns-form and diff');
-    console.error('the two figures — that isolates the schemas surface from the');
-    console.error('framework growth underneath it.');
+    console.error('An arm of the A/B is missing or empty, so no margin could be');
+    console.error('measured. Rebuild both arms:');
+    console.error(`  shadow-cljs release ${CONTROL} ${PROBE}`);
     process.exit(1);
   }
+
+  // ----- the assertion -------------------------------------------------------
+  //
+  // `probe - control` is the schemas opt-in: `re-frame.schemas`, the
+  // `re-frame.schemas.malli` adapter its ns-form pulls, Malli's reachable
+  // body, and the core/goog surface the schemas path roots. Asserted
+  // TWO-SIDED — see the header for why a collapsed margin is a failure.
+  const control = sizes[CONTROL];
+  const probe   = sizes[PROBE];
+  const margin  = probe - control;
+
+  const overCeiling = margin > MARGIN_MAX_BYTES;
+  const underFloor  = margin < MARGIN_MIN_BYTES;
+  const marginOk    = !overCeiling && !underFloor;
+
+  report.detail('');
+  report.detail(`  [${marginOk ? 'OK' : 'FAIL'}] schemas margin (Spec 010 §Bundle cost — the MARGINAL budget)`);
+  report.detail(`        margin: ${fmtKb(margin)} gzipped (${margin} bytes)`);
+  report.detail(`        band:   ${fmtKb(MARGIN_MIN_BYTES)} … ${fmtKb(MARGIN_MAX_BYTES)} ` +
+                `(${MARGIN_MIN_BYTES} … ${MARGIN_MAX_BYTES} bytes)`);
+
+  if (overCeiling) {
+    report.detail(`        REGRESSION: margin exceeds the ceiling by ${fmtKb(margin - MARGIN_MAX_BYTES)}`);
+  }
+  if (underFloor) {
+    report.detail(`        COLLAPSE: margin is ${fmtKb(MARGIN_MIN_BYTES - margin)} below the floor`);
+  }
+
+  report.detail('');
+  if (marginOk) {
+    report.pass(
+      'schemas-bundle',
+      `${CONTROL}=${fmtKb(control)}; ${PROBE}=${fmtKb(probe)}; ` +
+        `margin=${fmtKb(margin)} within ${fmtKb(MARGIN_MIN_BYTES)}…${fmtKb(MARGIN_MAX_BYTES)}`
+    );
+    process.exit(0);
+  }
+
+  report.flushDetails();
+  console.error('=== FAIL ===');
+  console.error('');
+  if (overCeiling) {
+    console.error('THE MARGIN GREW. Requiring `re-frame.schemas` now costs more');
+    console.error('than Spec 010 §Bundle cost budgets. Likely causes, in the');
+    console.error('order worth checking:');
+    console.error('  - A transitive require dragged a namespace off Spec 010\'s');
+    console.error('    restrict-to-dev/test list onto the production path, and');
+    console.error('    something REACHED it (a bare require is DCE\'d) —');
+    console.error('    `malli.transform` (+5.5 KB gzipped when rooted, measured),');
+    console.error('    `malli.generator` (heavier; carries test.check),');
+    console.error('    `malli.util`. Check the `re-frame.schemas` ns-form, the');
+    console.error('    adapter\'s, and what the probe\'s init-fn now reaches.');
+    console.error('  - Malli\'s own reachable body grew across a version bump.');
+    console.error('  - The schemas artefact grew a genuinely new surface.');
+    console.error('');
+    console.error('To attribute it, build both arms with a build report and diff');
+    console.error('the per-source optimized bytes:');
+    console.error(`  shadow-cljs run shadow.cljs.build-report ${PROBE} probe.html`);
+    console.error(`  shadow-cljs run shadow.cljs.build-report ${CONTROL} control.html`);
+    console.error('');
+    console.error('Note what this gate CANNOT be failing for: `cljs.core` and');
+    console.error('`re-frame.core` growth cancels between the two arms. If the');
+    console.error('cause turns out to be core, the margin is not where it shows');
+    console.error('up, and the answer is not a bigger number here — that is the');
+    console.error('mistake rf2-kybsf documents. Update Spec 010 §Bundle cost');
+    console.error('first, with the measurement, and move this band in lockstep.');
+  }
+  if (underFloor) {
+    console.error('THE MARGIN COLLAPSED, which is a measurement failure and not');
+    console.error('a saving. Requiring `re-frame.schemas` is supposed to cost');
+    console.error('what Spec 010 §Bundle cost says it costs; a margin this small');
+    console.error('means one of the two arms stopped being what it claims:');
+    console.error('  - The `re-frame.schemas` facade no longer `:require`s');
+    console.error('    `re-frame.schemas.malli`, so requiring schemas no longer');
+    console.error('    implies validation (the rf2-v96fh regression). The');
+    console.error('    behavioural owner of that invariant is');
+    console.error('    schemas/test/re_frame/schemas_implies_validation_test.clj');
+    console.error('    — run it; it will red too, and it says why in words.');
+    console.error(`  - \`${CONTROL}\` picked up a schemas or Malli require and`);
+    console.error('    stopped being a control. Its ns-form must require');
+    console.error('    `re-frame.core` and nothing else.');
+    console.error(`  - \`${PROBE}\`'s init-fn stopped rooting the schemas surface,`);
+    console.error('    so Closure DCE\'d the artefact the gate exists to measure.');
+  }
+  process.exit(1);
 }
 
 main();
