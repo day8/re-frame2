@@ -217,7 +217,7 @@ Nine rows, re-grounded on the post-`rf2-2rtt6.122` tree.
 | W4 | Inside a `defhost` `:render` callback invocation → answers the **supplying** boundary's frame, not the invoker's | the `rf2-2rtt6.74` owner rule |
 | W5 | Not a tracked read: a body reading `(h/frame)` alone registers zero edges; adding it to a reading body changes no read set; the hook ledger still counts 2 (and 1 on the frame-prop shell) | |
 | W6 | StrictMode double-invoke: same value both runs, no additive effect | |
-| W7 | The `[:>]` value-first door dispatches through a plain closure over the capture | pairs with the `rf2-2rtt6.103` dev-warning row |
+| W7 | The `[:>]` value-first door dispatches through a plain closure over the capture | pairs with the `rf2-2rtt6.103` dev-warning row. **NOT BUILT** — the raw escape is unbuilt, so there is no door to drive; see §8a and `rf2-zllp8` |
 | W8 | SSR: the server body answers the per-request id; render-twice stays byte-identical while the id stays out of markup, and goes red when a witness deliberately renders it | |
 | W9 | An event-time read is not silently wrong: `(h/frame)` inside a `reg-event` handler body raises | the router binds core scope, not the arm's |
 
@@ -303,6 +303,8 @@ is blocked on `[:>]` in any case (`rf2-zllp8`).
 ---
 
 ## 9. What is NOT settled here — flagged for a ruling
+
+*Written before the implementation. §8a resolves (1) and (4); (2) and (3) stand.*
 
 1. **The error id.** The design pass proposed
    `:rf.error/hicasso-frame-outside-boundary`; the synthesis comment wrote
