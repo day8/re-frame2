@@ -8,9 +8,16 @@ is absent, the row says *that*, because an honest gap is worth more at a sitting
 than a confident guess.
 
 Written 2026-08-04 against `origin/main` at `a40da23a51`. Every fact below is
-either a file:line in this tree or a figure from the X1–X5 spike witness
+either a named symbol in this tree or a figure from the X1–X5 spike witness
 (`rf2-2rtt6.87`, [studio/ssr-spike-witness.md](studio/ssr-spike-witness.md));
 nothing is estimated except the two clearly-labelled pricing tables at the end.
+
+**Amended 2026-08-05 at `a9aa3e43cb`**, from the merged-PR audit that reopened
+`rf2-2rtt6.88` against PR #7488. Three things moved and each is marked where it
+lands: §4's census (two counts of one thing, neither stating its rule), §5's
+render contract and topology arrows (the sidecar was priced against a crossing
+the shipped Node entry does not have), and §10's Arm B table (repriced from that
+contract). Nothing else changed, and the page still draws no conclusion.
 
 ## What this document deliberately does not contain, and the tension that produced it
 
@@ -49,6 +56,11 @@ payload is Spec 011's, the mismatch machinery is Spec 011's, and neither arm may
 mint a parallel Hicasso-only mechanism. **So the arms are a choice about job one
 only** — and the interesting costs are what job one drags behind it.
 
+Job one's two inputs are not equally available to both arms. A db snapshot and a
+root form are both in hand where a JVM walk would run; only one of them is, and
+neither in the shape the sentence implies, where a sidecar would. That is where
+the sidecar's real contract lives — §5.
+
 ## 2. The floor both arms stand on — what is already built
 
 Neither arm is priced from zero, and the amount already shipped is easy to
@@ -78,11 +90,11 @@ arm is therefore not a thing to be built; it is a thing to be called.
 `re-frame.freehand.tree`'s own docstring describes it as "the INTERPRETED
 structural walk — unrestricted Hiccup from a view body in, the versioned
 semantic structural tree out … On the JVM it is the whole render." It reaches
-`emit-ui-tree` through `emit-static-html` (`tree.cljc:632-654`), late-resolved
-so the Independence wall holds, and the shipped `v/render-static` macro drives
-it. `implementation/freehand/deps.edn:9-12` records that this was deliberate
-from F1: *"The entry namespace is `.cljc` FROM THE OUTSET because the F1 spine
-needs both emitters."*
+`emit-ui-tree` through `tree.cljc`'s `emit-static-html` (via
+`resolve-ssr-emitter`), late-resolved so the Independence wall holds, and the
+shipped `v/render-static` macro drives it. `implementation/freehand/deps.edn`'s
+header comment records that this was deliberate from F1: *"The entry namespace
+is `.cljc` FROM THE OUTSET because the F1 spine needs both emitters."*
 
 It is worth being precise about what that proves and what it does not. It proves
 a `.cljc` interpreted walk to the v1 tree is buildable, shippable and
@@ -101,7 +113,8 @@ that has no precedent in this tree.**
 `ssr-ring`'s render call is a single hard-wired line:
 
 ```clojure
-;; implementation/ssr-ring/src/re_frame/ssr/ring/pipeline.clj:546
+;; implementation/ssr-ring/src/re_frame/ssr/ring/pipeline.clj
+;; — inside `build-full-response*`
 body-html (ssr/render-to-string
             hiccup
             {:doctype?    false
@@ -143,10 +156,10 @@ the payload script tag, the head model, cookies, redirects, the response
 accumulator. None of it is reachable from Node, which is precisely why the
 spike's Node entry hand-writes its own:
 
-- `entry.cljs:184-200` re-spells the `#__rf_payload` script tag rather than
-  calling `re-frame.ssr.ring.shell/payload-script-tag`, with a docstring
+- the entry's `payload-script` re-spells the `#__rf_payload` script tag rather
+  than calling `re-frame.ssr.ring.shell/payload-script-tag`, with a docstring
   obliging it to stay byte-identical to that function's output;
-- `entry.cljs:202-231` hand-assembles the whole `<!DOCTYPE html>…` envelope,
+- the entry's `document` hand-assembles the whole `<!DOCTYPE html>…` envelope,
   explicitly modelled on `ssr-ring`'s non-streaming shell and explicitly not it.
 
 The entry's own namespace docstring says so plainly — *"Not a production host …
@@ -163,17 +176,17 @@ single largest unmeasured thing on this page.
 
 A `.cljc` twin of the Hicasso codec's pure analysis rules, emitting the 004B v1
 structural tree, with reads resolving through `re-frame.subs/compute-sub`
-(`implementation/core/src/re_frame/subs.cljc:2183` — already `.cljc`, already
+(`implementation/core/src/re_frame/subs.cljc` — already `.cljc`, already
 public, `[query-v db]`, needing no frame and no reactive runtime, and accepting
 either a bare app-db map or a whole frame-state value so a mixed `:db` /
 runtime-db graph computes coherently in one call). A walk-scoped memo is already
-reachable too: `compute-sub-with-memo` (`subs.cljc:2236`, `^:no-doc`) takes a
+reachable too: the same namespace's `^:no-doc compute-sub-with-memo` takes a
 caller-supplied memo atom, so sharing one across a page's reads is a wiring
 question rather than a new mechanism.
 
 The codec is `implementation/freehand/test/re_frame/bench/hicasso/front/codec.cljs`
-— **1,789 lines, 75 top-level forms, `.cljs` only**. It is not the only file
-with a server answer to give:
+— **1,789 lines, 77 top-level definitions, `.cljs` only**, measured at this
+page's base commit. It is not the only file with a server answer to give:
 
 | File | Lines | The server question it raises |
 |---|---|---|
@@ -185,31 +198,47 @@ with a server answer to give:
 | `front/state.cljc` | 309 | **already `.cljc`** — `h/reg-state`'s instance keys |
 | `arm1/runtime.cljs` | 1,985 | the reactive runtime, which a JVM walk replaces rather than ports |
 
-**On the bead's "~35-40 rule-bearing sites" — enumerated, and it holds.**
-`codec.cljs` carries 77 top-level `def*` forms, 57 of them `defn`/`defn-`.
+**On the bead's "~35–40 rule-bearing sites" — enumerated, and it holds.**
+`codec.cljs` carries **77 top-level definitions**: 18 `def`, 26 `defn`, 31
+`defn-`, and 2 `deftype` (`ParsedTag`, `PropSlot`).
+
+**The two counts, reconciled (2026-08-05).** An earlier draft of this section
+said "75 top-level forms" in one sentence and "77 top-level `def*` forms" in the
+next. Both were arithmetically right and neither stated its rule: 75 counts
+`def`/`defn`/`defn-`, and 77 adds the two `deftype`s. **77 is the figure this
+page uses**, under the rule *every top-level definition*, because a `deftype` in
+this file is a rule-bearing thing and not scaffolding — `PropSlot` is the
+one-slot-per-spelling decision made concrete. The `defn`/`defn-` subtotal is 57
+under either rule.
+
 Separating the rules from the scaffolding (the caches, `fail!`, the slot
-minters, `make-element`'s three `createElement` arms) leaves **35–40 sites that
-encode a normalization or classification decision**, among them: `reserved-name?`
-(180–202), `parse-tag` (`#id.class` shorthand, 241–245), `prop-name`
-(kebab→camel with the `aria`/`data`/`--custom-property` exemptions, 274–308),
-the one-slot-per-spelling family `canonical-slot`/`structural-slot?`/
-`without-slots`/`denied-slots` (405–465), `class-names` (471–486),
-`fold-shorthand!` (488–524), `convert-prop-value` (539–558), `merge-caller`
-(HD-023's `:&` owned-literal law, 571–618), `check-ref!` (HD-022's vector
-reservation, 624–654), `convert-entry`/`convert-props` (656–791), the head
-marks (797–845), `boundary-props=`/`memoize-boundary!` (847–945),
-`mint-host!`/`declared-ssr`/`mint-host-gate!`/
-`refuse-deferring-heads-in-fallback!` (HD-011 plus `rf2-2rtt6.85`'s `:ssr`
-policy and `rf2-l0wfx`/`rf2-nv07k`'s third value and fallback refusal — cited
-by symbol rather than by line, because this block has moved twice since it was
-written), the lazy-seq forcing walk
-`realize-children`/`realize-deep`/`refuse-deferred!` (1201–1414), the emission
-dispatch `expand-seq`/`native-element`/`boundary-element`/`host-element`/
-`fragment-element` (1420–1673), `vec->element` (1677–1706), `as-element`'s
-ten-way value classification (1708–1749), and `root-element` (1751–1770).
+minters, `make-element`'s three `createElement` arms) leaves **35–40 definitions
+that encode a normalization or classification decision**, among them:
+`reserved-name?`; `parse-tag` (the `#id.class` shorthand); `prop-name`
+(kebab→camel with the `aria`/`data`/`--custom-property` exemptions); the
+one-slot-per-spelling family `canonical-slot` / `structural-slot?` /
+`without-slots` / `denied-slots`; `class-names`; `fold-shorthand!`;
+`convert-prop-value`; `merge-caller` (HD-023's `:&` owned-literal law);
+`check-ref!` (HD-022's vector reservation); `convert-entry` / `convert-props`;
+the head marks `mark-boundary!` / `mark-frame-prop!`; `boundary-props=` /
+`memoize-boundary!`; `mint-host!` / `declared-ssr` / `mint-host-gate!` /
+`refuse-deferring-heads-in-fallback!` (HD-011, plus `rf2-2rtt6.85`'s `:ssr`
+policy and `rf2-l0wfx` / `rf2-nv07k`'s third value and fallback refusal); the
+lazy-seq forcing walk `realize-children` / `realize-deep` / `refuse-deferred!`;
+the emission dispatch `expand-seq` / `native-element` / `boundary-element` /
+`host-element` / `fragment-element`; `vec->element`; `as-element`'s ten-way
+value classification; and `root-element`.
+
+**Cited by symbol, deliberately.** An earlier draft gave a line range for every
+entry in that roster. Line numbers in this file rot faster than a design page
+can be re-read — `root-element` moved 144 lines in the day after this page's
+base commit, and the `mint-host!` block above moved twice while the page was
+being written — so the roster names symbols instead, and
+`grep -n '^(def' codec.cljs` places every one of them in whatever the file is
+today. The same rule is applied to the rest of this page.
 
 **The bead's number is right and its framing matters**: this is a grammar, not a
-handful of rules, and every one of those sites is a place two emitters can
+handful of rules, and every one of those definitions is a place two emitters can
 disagree.
 
 ### The churn risk row, measured
@@ -234,6 +263,16 @@ semantic amendments in four days.** That is a scheduling fact rather than an
 architectural one — it argues about *when*, not *whether* — but it is the
 sharpest number on this page and it is the one a sitting can act on immediately.
 
+**Re-measured twice while this page was being amended, and the rate held both
+times.** `codec.cljs` was 1,789 lines and 77 definitions at this page's base
+commit; **1,933 and 79** twenty-four hours later; and **2,092 lines and 82
+definitions** at `ca072f852d` a few hours after that, when `rf2-l0wfx`'s third
+`:ssr` value and `rf2-nv07k`'s fallback refusal landed in it. **That is +303
+lines and +5 rule-bearing definitions in two days**, and the second of those
+landings changed the authoring surface rather than tidying it — see §11. The
+census above is pinned to the base commit for internal consistency; this is why
+it is dated rather than standing.
+
 ### The text-separator row, and why the spike does not close it
 
 Spec 004B's conversion table (`spec/004B-UI-Tree-and-Conversion.md`, the
@@ -252,14 +291,15 @@ separated by a comment.
 **Where the coalescing actually is, because it is easy to look in the wrong
 place.** It is not in the serialiser. `emit-ui-tree` receives children that are
 *already* coalesced and only joins them — `ui_tree.cljc`'s `emit-children` is a
-`str/join` over `map-indexed`, and the file's own docstring at line 541 says
-"already text-coalesced". Coalescing happens at **tree-build** time, in three
+`str/join` over `map-indexed`, and `sole-newline-content`'s own docstring says
+its single content entry arrives "already text-coalesced". Coalescing happens at
+**tree-build** time, in three
 independent `.cljc` implementations of one algorithm: `re-frame.ui.tree/children`
-(`implementation/ui/src/re_frame/ui/tree.cljc:110-116`),
+(`implementation/ui/src/re_frame/ui/tree.cljc`),
 `re-frame.ui.semantic/coalesce`
-(`implementation/ui/src/re_frame/ui/semantic.cljc:208-219`), and
+(`implementation/ui/src/re_frame/ui/semantic.cljc`), and
 `re-frame.freehand.node/conj-text`
-(`implementation/freehand/src/re_frame/freehand/node.cljc:359-374`). **A Hicasso
+(`implementation/freehand/src/re_frame/freehand/node.cljc`). **A Hicasso
 JVM twin would need a fourth**, because the CLJS codec has none at all — it
 hands children to `createElement` as authored, which is exactly why React's own
 render is separator-correct and a structural tree's is not.
@@ -278,8 +318,9 @@ reconciler is not that comparator. X1(b) was also judging bytes that
 Neither fact transfers to a JVM emitter that has not written any.
 
 Worse for the apparatus: the existing parity corpus renders its React side with
-`renderToStaticMarkup` (`parity_corpus_cljs_test.cljs:36`), which by React's own
-behaviour emits no separators. **The gate that exists cannot see this row.**
+`renderToStaticMarkup` (`parity_corpus_cljs_test.cljs`'s `render-case`), which by
+React's own behaviour emits no separators. **The gate that exists cannot see this
+row.**
 Closing it means a `renderToString`-authored hydration fixture, which is new
 apparatus rather than an extension of the old.
 
@@ -380,25 +421,117 @@ The render exists and is witnessed. What does not exist is everything around it.
 
 | Piece | State today |
 |---|---|
-| The render itself | **built** — `ssr/entry.cljs:237-355`, `renderToString` over the same runtime/mount/codec the browser uses |
+| The render itself | **built** — the entry's `render`, `renderToString` over the same runtime/mount/codec the browser uses |
+| A root the JVM can name | **no** — `render` takes `:hiccup`, and a Hicasso root is `[<minted head> {props}]` whose head is a JavaScript function with no JVM referent. See below |
 | A JVM↔Node contract | **does not exist** — the spike is Node-only end to end |
 | A callable Node process | **no** — the build is a `:node-script` publishing on `globalThis.HICASSO_SSR`; the driver `require`s the bundle in-process, and there is no module export and no IPC |
-| A production host in front of it | **explicitly not** — `driver.cjs:210-214` disclaims the response accumulator, cookies, redirects and CRLF fail-fast, and `/main.js` returns a stub |
+| A production host in front of it | **explicitly not** — `driver.cjs`'s `serve` disclaims the response accumulator, cookies, redirects and CRLF fail-fast, and `/main.js` returns a stub |
 | Payload/shell written by the JVM | **no** — the spike writes both in Node, re-spelling `ssr-ring`'s shapes by hand |
 | Process supervision, pooling, restart | **not started** |
 
-The compliant shape is therefore: `ssr-ring` drains the events and holds the
-frame; the JVM serialises the request's db snapshot plus the root form as EDN;
-Node walks it through the shipped runtime under `react-dom/server` and returns
-the body markup; the JVM assembles the page, writes the payload script, and
-returns the Ring response. Every one of those arrows is new.
+### The contract the entry actually has
 
-Two of them have costs nobody has measured. **The snapshot has to cross the
-wire** — it is arbitrary application data, and EDN-serialising it per request is
-a real per-request cost that no row in the corpus touches. And **the alternative
-is worse and is already rejected**: having Node drain the events itself forks the
-event drain, which is the host-fork finding the adversarial review rejected on
-the record.
+**Corrected 2026-08-05, from the merged-PR audit on `rf2-2rtt6.88`.** The first
+version of this section wrote the crossing as *"the JVM serialises the request's
+db snapshot plus the root form as EDN"*, and §10 priced B1 as an *"EDN render
+contract — snapshot + root form out"*. **Neither half survives contact with the
+shipped entry**, and §6 of this page already contained the refutation of one of
+them. What follows replaces that sentence; the repricing it forces is in §10.
+
+**The root form is not an EDN value and has no JVM referent.**
+`re-frame.bench.hicasso.ssr.entry/render` takes `:hiccup` — its own docstring
+says *"REQUIRED. The root hiccup form"* — and hands it straight to
+`codec/root-element`. A Hicasso root form is `[<minted head> {props}]`:
+`defview` expands to a `def` of `(runtime/mint-view! "<ns>/<sym>" (fn …))`, and
+`mint-view!`'s docstring is explicit that **the returned value is still the
+function**. So the head is a JavaScript function created at namespace load,
+inside the CLJS bundle. `arm1/lang.clj` states the JVM half in as many words —
+it is a `.clj` and not a `.cljc` because *"the runtime it names is CLJS-only …
+and a `.cljc` would invite a JVM-side implementation this arm does not have"*.
+§6 depends on exactly this fact from the other side: canonical EDN renders every
+function as the identity-free `#fn[]`, which is why `[#fn[] {}]` hashed one
+constant for every page in the lane.
+
+**A reference is not a tree, and neither crosses a process boundary as itself.**
+The framework already carries the milder version of this. `ssr-ring`'s
+`resolve-root-view` documents that a `:root-view` resolving to
+`[(rf/view :app/root)]` renders identically to the outer-call form but hands the
+hash channel *"a reference to the page rather than the page"*. That reference at
+least **resolves**, because the JVM can call the Var in-process. The sidecar's
+case is the harder one: the head is not a reference the JVM can resolve — on the
+JVM it does not exist at all. (The consequence *there* was a lost hash channel,
+and that consequence does **not** transfer here: `rf2-q1b96` and `rf2-2rtt6.91`
+have since settled that this tier carries no `:rf/render-hash` at either end —
+see §6. The transferable part is only the first clause.)
+
+**So the contract is a name, not a form.** A viable sidecar needs an
+**application-defined stable entry identifier** that both hosts agree on ahead of
+time — opaque to the JVM, **resolved inside the per-app Node bundle** against a
+table that bundle publishes — plus **root arguments in a stated serialization
+domain**. The shape is not an invention: core already registers views under
+stable ids and looks them up with `rf/view` (`registrar/lookup :view id`), which
+is the *"other explicit cross-host registry"* the audit allows for. What is
+absent is Hicasso participating in any such registry. `defview` mints a `def`,
+and the name it does capture at expansion — `"<ns>/<sym>"`, stamped by
+`mint-view!` as `displayName` — is carried **on** the head and is not a key **to**
+it. The inverse map exists in neither host.
+
+**And the snapshot needs a domain that is not the payload's.** The other half of
+the retracted sentence assumed arbitrary app state crosses EDN. Two facts
+against it:
+
+- **The tree states a portable domain, but for a smaller thing.**
+  Spec-Schemas states the round-trip rule for machine snapshots —
+  `(read-string (pr-str x))` returns an `=`-equal value, *"no functions, atoms,
+  JS objects"*. That is the right rule in the right shape. It has never been
+  stated for `app-db` at large, and nothing validates it there.
+- **The projection that exists runs a different errand and is deliberately too
+  narrow.** `payload-policy/apply-policy`, `project-app-db-egress` and
+  `project-runtime-db` are the framework's serialization projection, and they
+  exist *because* deciding which app-db keys leave the process is a security
+  decision — fail-closed, allowlist-shaped, `:sensitive` paths redacted. The
+  sidecar cannot reuse them. The payload is what the **client** may see; the
+  snapshot is what the **views must read**, and the second is a superset of the
+  first by construction — a server that renders from state it does not ship is
+  the entire point of an allowlist. A render projection is therefore a
+  **second, larger egress with no policy written for it**. And the failure modes
+  are not symmetric: a payload allowlist that is too narrow costs the client a
+  recompute, while **a render projection that is too narrow is a silently wrong
+  page** — the view reads a key that did not cross and renders as though it were
+  nil.
+
+**One more arrow the retracted sentence hid.** In the compliant topology
+`ssr-ring` drains the boot events on the JVM; Node draining them itself is the
+host fork the adversarial review rejected. So the Node side must **not** run
+`:initial-events`, and everything the views read has to arrive as `:snapshot`.
+The entry's snapshot door is `:rf/set-db`, which per Spec 002 seeds **app-db
+only** — the frame's *runtime-db*, the route slice and machine snapshots that
+Spec 011 carries as its own payload partition, has **no inbound door on this
+path at all**. The framework's one existing "install a whole frame-state from
+serialised EDN" event is `:rf/hydrate`, and it is the client's.
+
+**The compliant topology, restated arrow by arrow.** Every arrow is new; the
+ones the retracted sentence did not have are marked.
+
+1. `ssr-ring` drains the boot events and holds the request frame — JVM.
+2. The JVM sends **a stable entry identifier** (**new** — this read "the root
+   form"), **root arguments in the stated serialization domain** (**new**), and
+   **an EDN projection of the post-drain frame-state under a render-visibility
+   policy that does not exist** (**restated** — this read "the request's db
+   snapshot").
+3. Node **resolves the identifier against the table its own per-app bundle
+   publishes** (**new**), rebuilds the root form *there*, seeds a per-request
+   frame from the projection, and renders under `react-dom/server`.
+4. Node returns the body markup, and nothing else — or the rejected host fork
+   has arrived by increments (§11).
+5. The JVM assembles the page, writes the payload script from **its own**
+   app-db, and returns the Ring response.
+
+Nothing in that list has been built or measured, and two of the arrows are
+contract design rather than plumbing. **The alternative to arrow 1 is worse and
+is already rejected**: having Node drain the events itself forks the event
+drain, which is the host-fork finding the adversarial review rejected on the
+record.
 
 ### What the arm buys
 
@@ -430,8 +563,21 @@ the record.
 - **A build step the programmer owns.** The sidecar bundle is per-application:
   the app's own shadow-cljs build has to produce a server bundle. The spike's is
   a `:node-script` produced by `--config-merge` over `:freehand-bench-node`,
-  which is a bench convenience and not a shape an application can copy.
-- **A per-request serialisation cost, unmeasured.**
+  which is a bench convenience and not a shape an application can copy. **And it
+  is not only a build**: the bundle has to publish the entry table the JVM's
+  identifiers resolve against, so the artefact has a named public surface rather
+  than just a `main`.
+- **A named entry surface kept honest in two places.** The identifiers the JVM
+  is configured with and the table the bundle publishes are two artefacts that
+  have to agree. This is the one place the corrected contract makes the arm
+  *cheaper* rather than dearer: an identifier the bundle does not have is a
+  concrete, detectable disagreement, where "the two bundles were built from
+  different views" previously had nothing to compare (§10, B5).
+- **A per-request serialisation cost, unmeasured — and a projection rather than
+  a `pr-str`.** The post-drain frame-state crosses in a domain and under a
+  policy that must be designed first (above), so the per-request cost is not
+  wire bytes alone; it is a policy-bearing walk on the model of
+  `project-app-db-egress`, once per request, over whatever the render can see.
 
 ### What would have to be true for it to be wrong
 
@@ -439,6 +585,11 @@ the record.
   pays it and no measurement currently exists to say whether that matters.
   (SSR speed is off the bar — see §7 — so nobody is obliged to measure it, which
   is a reason the number will not appear on its own.)
+- If the render-visibility projection cannot be made narrower than "the whole
+  app-db", then every request ships the whole of the application's server state
+  to a second process. That is precisely the decision `payload-policy` exists to
+  make explicit and fail-closed for the client wire, and the sidecar wire would
+  have no equivalent contract.
 - If a second runtime is unacceptable to the audience Hicasso is for, the arm is
   disqualified on deployment rather than on engineering, and no amount of parity
   saving buys it back.
@@ -464,8 +615,9 @@ sitting will want them:
    could hash, but a server hash the client cannot reproduce turns every page
    into a mismatch, which is exactly why `rf2-2rtt6.86` declined to invent one.
 2. **The production call site takes the hash from the root hiccup, before the
-   render** — `lifecycle/render-document-hash hiccup` at `pipeline.clj:543`,
-   which is `rf/render-tree-hash` over the same degenerate form. So the
+   render** — `lifecycle/render-document-hash` in `pipeline.clj`'s
+   `build-full-response*`, which is `rf/render-tree-hash` over the same
+   degenerate form. So the
    degeneracy reaches production identically whichever arm renders.
 3. **Spec 011 already has a stated posture for this case.** Its
    hydration-mismatch section is tiered by *client render-tree representation*,
@@ -511,7 +663,7 @@ leaned on the hash. Three corrections, none of which move a figure:
 
 **Observation 2 is unchanged and still live.** The production call site still
 takes the hash from the root hiccup *before* the render
-(`lifecycle/render-document-hash` at `pipeline.clj:543`, which is
+(`lifecycle/render-document-hash`, which is
 `rf/render-tree-hash` over the same unresolved form), and the tier ruling did
 not touch it; it remains a question for the production pipeline, tracked on its
 own bead. So the degeneracy still reaches production identically whichever arm
@@ -536,8 +688,8 @@ checks each manifest column against `fs.statSync` of the file it just wrote, so
 a column that disagrees with its own fixture now refuses instead of baking.
 
 Two things are deliberately unchanged. The SHA-256 never needed repair — it is
-computed with an explicit `'utf8'` encoding at `driver.cjs:129`, so every digest
-row here was always a function of bytes. And the one byte count quoted from the
+computed with an explicit `'utf8'` encoding in `driver.cjs`'s `sha256`, so every
+digest row here was always a function of bytes. And the one byte count quoted from the
 corpus — X1(a)'s **3,101** — does **not** come from the manifest: it comes from
 the spike witness's own `report!` payload, which `rf2-2rtt6.114` left alone. It
 therefore still carries the UTF-16 caveat, and is still used here only as an
@@ -582,7 +734,11 @@ Named explicitly, because at a sitting an honest gap outranks a guess.
    byte comparison, and no idea how many of the 66 existing corpus cases would
    need Hicasso siblings.
 2. **No JVM↔Node render contract exists**, so the sidecar has no latency,
-   throughput, snapshot-serialisation or process-supervision figure.
+   throughput, snapshot-serialisation or process-supervision figure. Since
+   2026-08-05 this row is sharper than "unmeasured": per §5 there is no stable
+   entry identifier, no entry table and no render-visibility projection either,
+   and those three are **contract design rather than measurement**, so they are
+   not gaps a further spike could close. §10's Arm B band is priced around them.
 3. **Neither arm has a clock row, and neither is owed one.** SSR speed is off
    the bar by HD-012 and by `validation.md`'s "never SSR or test-lane speed"
    line. A sitting that asks for a speed comparison is asking for something the
@@ -620,11 +776,13 @@ One row per axis, and no column is a score.
 | Text-separator row | must be settled first, with new apparatus | does not arise |
 | Attribute-only divergence | possible, and unreportable by React | impossible by construction |
 | Codec churn exposure | a twin to keep in step; 3–19 commits/day into `front/` this week | none |
-| Deploy lockstep | none | two artefacts must ship together, with no skew detector |
-| Per-request wire cost | none | a db snapshot serialised per request, unmeasured |
+| How the host names the root | a Var the JVM calls in-process, as `ssr-ring` already does | a stable identifier resolved against a table the app's Node bundle publishes — neither the identifier nor the table exists (§5) |
+| `defhost` `:ssr :render` (rf2-l0wfx, 2026-08-05) | not reachable — no React on the JVM; such a host must be written `:client-only` or `{:fallback …}`, so the arm constrains the authoring surface rather than failing | reachable — it is the same React that renders it in the browser |
+| What crosses per request | nothing — one process | a render-visibility projection of the post-drain frame-state, in a domain and under a policy not yet written (§5); unmeasured |
+| Deploy lockstep | none | two artefacts must ship together; the entry table is the one thing that would make the skew detectable at all |
 | HD-021(a) headless door | co-discharged | untouched |
 | Server render as data | yes — tree before string | no — a string |
-| Spike evidence for its server half | none | X1(a), X1(b), X2 |
+| Spike evidence for its server half | none | X1(a), X1(b), X2 — all of the render, none of the topology |
 
 ## 10. Pricing — estimates, labelled as such
 
@@ -650,22 +808,49 @@ Two things widen that band rather than sit inside it: A4 may turn into a spec
 change with its own review, and A1 rebases on every codec landing until the codec
 settles.
 
-**Arm B — Node sidecar.**
+**Arm B — Node sidecar. Repriced 2026-08-05** against the contract §5 restates.
+The first version of this table priced B1 as one row — *"the EDN render contract
+— snapshot + root form out"* — and that row was one line hiding three contracts,
+none of which the shipped entry supports as written. It is split here rather
+than inflated, because a sitting is better served by seeing what the audit found
+than by a bigger number with the same shape. **Rows that moved are marked.**
 
 | Bead | What it lands | Estimate |
 |---|---|---|
-| B1 | the EDN render contract — snapshot + root form out, body markup back | 0.5–1 week |
-| B2 | a callable Node process — a real module/IPC surface replacing `globalThis`, with supervision and restart | 1–2 weeks |
-| B3 | the JVM side — `ssr-ring` calls the sidecar, keeps payload/shell/head/response | 0.5–1 week |
-| B4 | the application build story — how an app produces its own server bundle | 1–1.5 weeks |
-| B5 | the skew detector — the host refuses a sidecar built from different views | 0.5 week |
-| B6 | the end-to-end witness in the compliant topology | 0.5 week |
-| | **total** | **4–6.5 weeks, 6 beads** |
+| B1a | **the entry identifier** — an application-defined stable id, and the resolver inside the per-app bundle that turns it back into a root form (**new row**; the mechanism has a shape in core's `reg-view` / `rf/view`, so this is wiring, not invention) | 0.5–1 week |
+| B1b | **the serialization domain** — what a root's arguments and a frame-state snapshot may contain, and the render-visibility policy governing what crosses (**new row**; the machine-snapshot round-trip rule is the precedent, the payload allowlist is explicitly *not* reusable) | 1–2 weeks, **and it may reach the spec** |
+| B2 | a callable Node process — a real module/IPC surface replacing `globalThis`, with supervision and restart | 1–2 weeks (unchanged) |
+| B3 | the JVM side — `ssr-ring` calls the sidecar, keeps payload/shell/head/response | 0.5–1 week (unchanged) |
+| B4 | the application build story — how an app produces its own server bundle **and publishes the entry table the JVM's ids resolve against** (**raised** from 1–1.5) | 1.5–2.5 weeks |
+| B5 | the skew detector — a deploy-time build-identity check **plus a per-request refusal of an id the bundle does not carry** (**raised** from 0.5, and the cheapest of the raises: the entry table is what gives skew something concrete to compare) | 0.5–1 week |
+| B6 | the end-to-end witness in the compliant topology | 0.5 week (unchanged) |
+| | **total** | **5.5–10 weeks, 7 beads** |
 
-The bands overlap, and that is the honest reading: **on build cost these arms are
-not far apart, and the choice is not a schedule choice.** The durable
-differences are the ones in §9 — one runtime against two, and one emitter against
-two — and both of those are permanent where the build costs are paid once.
+**What the reprice did and did not do.** It did not discover new work in the
+render — the render is built and witnessed, and none of X1–X5 is disturbed. It
+discovered that the *contract around* the render was priced against a crossing
+that does not exist. Four rows carry that correction: B1a and B1b are new, B4
+and B5 are raised. The one that widens the band most is B1b, and it does so
+because it is **design with a security dimension** rather than plumbing — it
+carries the same *"may reach the spec"* annotation as Arm A's A4, for a
+comparable reason: naming the domain in which application state crosses a
+process boundary is not obviously a bench-lane decision.
+
+**How the two bands now read.** Arm A is 5–8.5 weeks over 6 beads; Arm B is
+5.5–10 over 7. They still overlap across most of their range, so the earlier
+reading survives in substance — **on build cost these arms are not far apart, and
+the choice is still not a schedule choice.** What changed is the top of the
+sidecar's band, which now sits above the walk's rather than below it.
+
+Two observations about *why* the numbers moved, offered as a pair because each
+one alone would lean. The sidecar's new uncertainty is *what contract to write*,
+which further measurement would not shrink — a spike can witness a render but it
+cannot decide a serialization domain. Against that: a contract is written once,
+where the walk's band sits on top of a parity obligation that is re-opened at
+every react-dom bump for as long as the arm exists (§4). Neither observation is
+a recommendation, and the durable differences remain the ones in §9 — one
+runtime against two, one emitter against two — both permanent where a build cost
+is paid once.
 
 ## 11. Tripwires, for whichever arm is chosen
 
@@ -682,7 +867,20 @@ Named now so that neither arm gets to fail quietly later.
   local to Hicasso.
 - A rule that cannot be twinned because it needs a live React value at render
   time. The walk cannot reach that case, and a walk that cannot reach a case
-  ships an application a hole.
+  ships an application a hole. **This tripwire stopped being hypothetical on
+  2026-08-05, while this page was being amended.** `rf2-l0wfx` landed `:ssr
+  :render` as `defhost`'s third policy value — `declared-ssr`'s own words, *"the
+  component itself is safe to run on the server and does"* — so a declared host
+  can now render a **foreign React component** under `renderToString`. A JVM
+  structural twin cannot: there is no React on the JVM, and the component is a
+  library's, not the codec's. Stated precisely, because the size of this matters
+  and it is easy to overstate: the walk arm does not *break* on such an
+  application, it **constrains the authoring surface** — a `:render` host would
+  have to be written `:client-only` or `{:fallback …}` instead, both of which a
+  JVM twin can serve, and both of which were the only two values available the
+  day before. What the walk arm cannot do is offer the third. That is a real
+  asymmetry, it arrived by an ordinary week's ruling rather than by anything
+  either arm did, and it is exactly the shape this tripwire was written to catch.
 - A third emitter appearing for any reason. Two is the contract; three is a
   maintenance surface nobody signed up for.
 
@@ -697,6 +895,13 @@ Named now so that neither arm gets to fail quietly later.
   applications answering one request.
 - Snapshot serialisation appearing in a profile at real app-db sizes. Off the
   bar is not the same as free.
+- **The entry table growing past one identifier per server-rendered root.** A
+  table with per-route or per-component entries is the render contract turning
+  into an RPC surface, and the host fork above arrives that way too.
+- **A key that a view reads on the server and the render projection does not
+  carry.** This is the one sidecar failure that is silent by construction — a
+  wrong page rather than an error — so it needs a test rather than a guard, and
+  the test has to be authored per application rather than provided.
 
 ## 12. What this page does not say
 
