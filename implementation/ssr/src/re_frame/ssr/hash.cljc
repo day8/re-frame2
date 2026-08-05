@@ -185,6 +185,10 @@
   the parent (this fn no-ops on nil; callers walking a collection use
   `append-children!` which skips nil children).
 
+  A foreign JS value — a plain object or a JS array — is NOT descended
+  into: it appends one fixed token (`#js{}` / `#js[]`). See the branch
+  comment below (rf2-56iys) for why those two predicates and no others.
+
   Output is byte-identical to (the now-thin) `canonical-edn`; the
   parity-pinned literals at `re-frame.ssr.hash-parity-fixtures` are
   the cross-runtime contract."
@@ -243,6 +247,59 @@
            :cljs (.push sb (canonical-number x)))
         sb)
 
+    ;; ---- the foreign crossing (rf2-56iys) ---------------------------------
+    ;;
+    ;; A FOREIGN JS VALUE IS OPAQUE TO THIS WALK: it serialises to one
+    ;; fixed identity-free token and is not descended into. Two branches,
+    ;; CLJS-only, spliced away entirely on the JVM — where a foreign value
+    ;; reaches `:else` as a Java object whose `pr-str` is its bounded
+    ;; `.toString`, and where no cyclic value can be built from the
+    ;; persistent collections this walk otherwise sees.
+    ;;
+    ;; WHY IT IS THESE TWO PREDICATES AND NO OTHERS. Without them a foreign
+    ;; value falls to `:else` → `pr-str`, and `cljs.core`'s printer has
+    ;; exactly two branches that DESCEND: `object?` (prints `#js {…}` by
+    ;; walking `js-keys`) and `array?` (prints `#js […]` by walking
+    ;; elements). Every other branch a foreign value can take — `#inst`,
+    ;; `#"regex"`, `#object[Symbol(x)]`, the terminal `#object[Ctor]` —
+    ;; emits bounded output and recurses into nothing. So stopping at
+    ;; `object?`/`array?` stops the descent precisely where `pr-str` would
+    ;; have started it, and `#inst`/regex/symbol keep the print forms they
+    ;; have today.
+    ;;
+    ;; WHY STOP AT ALL. Two reasons, and the second is why this is not
+    ;; merely defensive:
+    ;;
+    ;;   1. A FOREIGN OBJECT GRAPH CAN BE CYCLIC, and `pr-str` has no
+    ;;      seen-set. React 19's `createContext` returns an object carrying
+    ;;      a `Provider` key that points back AT THE CONTEXT ITSELF, so a
+    ;;      render tree holding a provider — `[ctx.Provider {:value …} …]`,
+    ;;      the ordinary way to write one — made this walk recur until the
+    ;;      stack blew (`RangeError: Maximum call stack size exceeded`)
+    ;;      rather than return a hash. That is the reported defect; the
+    ;;      cycle is a property of the object graph, not of React, and a
+    ;;      hand-built `(unchecked-set o "self" o)` reproduces it exactly.
+    ;;
+    ;;   2. A FOREIGN OBJECT'S PRINT FORM CARRIES FUNCTION IDENTITY, which
+    ;;      is the very leak the `fn?` branch above exists to close
+    ;;      (rf2-jsa2ml). `#js {"component" f}` printed
+    ;;      `#js {:component #object[f]}` — the JS function's `.name`, which
+    ;;      the `:advanced` compiler renames, so one render tree hashed
+    ;;      differently in dev and in release and could never agree with a
+    ;;      JVM-side hash of the same tree. Collapsing the object to a token
+    ;;      applies the rule the fn branch already states, at the one place
+    ;;      the value could smuggle a fn back in.
+    ;;
+    ;; The token discriminates object from array because that costs nothing
+    ;; and keeps two distinguishable shapes distinguishable; neither form
+    ;; carries identity.
+    #?@(:cljs
+        [(object? x)
+         (do (.push sb "#js{}") sb)
+
+         (array? x)
+         (do (.push sb "#js[]") sb)])
+
     :else
     (do #?(:clj  (.append ^StringBuilder sb ^String (pr-str x))
            :cljs (.push sb (pr-str x)))
@@ -255,7 +312,12 @@
   free token (`#fn[]`) — its `.toString` is not cross-runtime stable
   (rf2-jsa2ml); a Var reference keeps its `#'ns/name` print form (stable
   both runtimes). Numeric leaves are canonicalised via `canonical-number`
-  so whole-valued doubles / ratios agree cross-runtime (rf2-0ypnnk).
+  so whole-valued doubles / ratios agree cross-runtime (rf2-0ypnnk). A
+  foreign JS value (a plain object or a JS array) serialises to a fixed
+  token — `#js{}` / `#js[]` — rather than being descended into, for the
+  two reasons `canonical-edn-into`'s foreign branch gives (rf2-56iys):
+  the graph can be cyclic, and its print form leaks `:advanced`-munged
+  function names into the hash.
 
   Per Spec 011 §Hydration-mismatch detection: **nil pruned**. Two render
   trees that differ only by absent-key vs nil-value are structurally
