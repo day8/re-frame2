@@ -180,11 +180,62 @@ const STAGED_SURFACES = [
   },
 ];
 
+// How long `openXray` waits for the preload's auto-open to reach a
+// terminal state before it touches the toggle chord — see the race note
+// in `openXray` (rf2-7jevo). This is `mount/auto-open-inline!`'s OWN
+// retry budget (120 attempts × 50ms), not a guess: after it elapses the
+// tick has either mounted the shell or reported `:no-substrate-adapter`
+// and stopped for good, so at that point auto-open provably cannot fire
+// again. Any smaller number would only make the race rarer.
+const AUTO_OPEN_SETTLE_MS = 120 * 50;
+
+// Ensure the Xray shell is OPEN, leaving it open for the caller.
+//
+// ## Why this settles before pressing the chord (rf2-7jevo)
+//
+// `Ctrl+Shift+C` is a TOGGLE (`mount/toggle!`), and Xray's preload runs
+// a second, concurrent opener: `mount/auto-open-inline!` polls every
+// 50ms until the host's `rf/init!` has installed the substrate adapter,
+// then calls `open!`. Sampling the shell once and pressing the chord on
+// a miss races that tick — when auto-open lands in the gap between the
+// sample and the keydown, the chord arrives at an ALREADY-OPEN shell
+// and `toggle!` takes its `close!` branch. `close!` hides the container
+// and leaves the React tree mounted, so the wait below then burns its
+// whole budget on a shell this helper hid itself.
+//
+// That is not a hypothesis. The 2026-07-31 nightly (run 30645068521)
+// failed here with `15 × locator resolved to hidden <div ...
+// data-testid="rf-xray-shell">` and diagnostics reading
+// `mounted=true visible=none` — the shell present, inline-mounted by
+// auto-open, and hidden for the full 5000ms. A longer timeout could
+// never have gone green: nothing was ever going to un-hide it.
+//
+// The fix is one ordering guarantee, not a longer wait. Presence is the
+// right thing to settle on because `mount-state` is a monotone latch:
+// once the shell is mounted, auto-open's tick short-circuits on
+// `@mount-state` forever, so after this wait nothing but us can move
+// the shell. Presence is NOT a proxy for open, though — `close!` keeps
+// the node — so the decision below reads VISIBILITY, the same condition
+// the assertion uses. (Pre-fix those two disagreed: a mounted-but-
+// hidden shell read as "already open", skipped the chord, and then
+// failed the visible-wait with no way to recover.)
 async function openXray(page) {
-  if ((await page.locator('[data-testid="rf-xray-shell"]').count()) === 0) {
+  const shell = page.locator('[data-testid="rf-xray-shell"]');
+
+  try {
+    await shell.waitFor({ state: 'attached', timeout: AUTO_OPEN_SETTLE_MS });
+  } catch (_) {
+    // Auto-open never landed — it is disabled on this surface, or no
+    // substrate adapter ever appeared. Not an error here: the chord
+    // below is then the genuine open path, and the assertion that the
+    // shell really did open is the `expectVisible` at the end, which
+    // still has to hold.
+  }
+
+  if (!(await shell.isVisible())) {
     await page.keyboard.press('Control+Shift+C');
   }
-  await expectVisible(page.locator('[data-testid="rf-xray-shell"]'), 5000);
+  await expectVisible(shell, 5000);
 }
 
 // The L3 tab bar's tabs expose `data-testid="rf-xray-tab-<id>"` for the
