@@ -528,6 +528,20 @@
 ;; that drifts from the published schema (e.g. a non-integer :rf/version,
 ;; a missing required key) turns this test red. The schema is an OPEN map
 ;; (additive optional keys are tolerated per the v1 contract).
+;;
+;; rf2-cc7c6 — this def is the ONLY place in the corpus that types the
+;; payload's slots: `build-payload`'s emitted shape is otherwise unvalidated
+;; (the spec section's `> Conformance:` pointer, `ssr_hydration_test.clj`,
+;; exercises the CONSUMER — `:rf/hydrate` installing / failing closed — never
+;; the producer's slot types). Calling it canonical is therefore a claim worth
+;; keeping true, and every slot below is spelled exactly as Spec-Schemas
+;; spells it, with ONE documented deviation: Spec-Schemas types
+;; `:rf/runtime-db` as the registry ref `:rf/runtime-db` (resolving to
+;; `RuntimeDb`, a map of optional `:rf.runtime/*` sub-containers), and
+;; resolving a registry ref here would need a malli registry in this test ns
+;; — the payload-schema rewrite rf2-2rtt6.91's audit fenced. The base type
+;; `:map` is carried instead: weaker than the ref, but it holds the
+;; cardinality the ref holds, which is what the fail-open below was about.
 
 (def HydrationPayload
   [:map
@@ -537,7 +551,14 @@
    ;; when the deployment names a stable wire id.
    [:rf/frame-id        {:optional true} :keyword]
    [:rf/app-db          :any]
-   [:rf/runtime-db      {:optional true} [:maybe :map]]
+   ;; rf2-cc7c6 — `:map`, NOT `[:maybe :map]` (see the deviation note above for
+   ;; why the base type rather than the `:rf/runtime-db` ref). `build-payload`
+   ;; guards this arm with `(some? runtime-db)`, so a frame that hydrates no
+   ;; framework runtime state OMITS the key — the shape Spec-Schemas describes
+   ;; as "absent on a frame that hydrates no framework runtime state". A
+   ;; `[:maybe :map]` slot also admitted a present-and-nil key, which is a
+   ;; second spelling of absence the canonical schema does not have.
+   [:rf/runtime-db      {:optional true} :map]
    [:rf/ssr-rendered-at {:optional true} :int]
    ;; rf2-2rtt6.91 — `:string`, NOT `[:maybe :string]`. Spec-Schemas types the
    ;; slot `{:optional true} :string`, so a present-and-nil `:rf/render-hash`
@@ -546,7 +567,18 @@
    ;; needs the key OMITTED. A `[:maybe :string]` slot admitted the forbidden
    ;; shape, so this schema could not prove the contract it calls canonical.
    [:rf/render-hash     {:optional true} :string]
-   [:rf/schema-digest   {:optional true} [:maybe :string]]])
+   ;; rf2-cc7c6 — `:rf/head-hash` was ABSENT from this def while `build-payload`
+   ;; emits it. The map is OPEN, so the emitted key validated by never being
+   ;; looked at: not loose, SILENT. It is the SEPARATE head-model channel
+   ;; (rf2-1oxjxk) — `:string` like its `:rf/render-hash` sibling, and omitted
+   ;; on nil for the explicit-`:head`-STRING shape where the server knows the
+   ;; head is not client-reconstructible.
+   [:rf/head-hash       {:optional true} :string]
+   ;; rf2-cc7c6 — `:string`, NOT `[:maybe :string]`, for the same reason as
+   ;; `:rf/render-hash`: `build-payload` omits the key when the caller's app
+   ;; does not participate in the schema-digest check, so present-and-nil is
+   ;; not a shape the builder can produce and not one Spec-Schemas admits.
+   [:rf/schema-digest   {:optional true} :string]])
 
 (deftest build-payload-conforms-to-hydration-payload-schema
   (testing "rf2-g00l2t — build-payload output validates against the canonical
@@ -617,3 +649,112 @@
                          (assoc (payload-policy/build-payload :rf/default {} nil {})
                                 :rf/render-hash nil)))
         "a hand-stamped nil :rf/render-hash must not validate")))
+
+;; ---- the other three optional slots, same contract (rf2-cc7c6) ------------
+;;
+;; `:rf/render-hash` above was one of four optional slots `build-payload`
+;; assembles through `cond->` arms, and it was the only one this schema could
+;; prove anything about. The three below each get the same three-part case the
+;; hash channel gets — real value preserved, nil OMITS the key, hand-stamped
+;; nil REJECTED — because a tightened slot with no assertion against it is a
+;; claim, not a guard.
+
+(deftest build-payload-head-hash-is-optional
+  ;; The slot the schema did not carry at all. `build-payload` emits
+  ;; `:rf/head-hash` (rf2-1oxjxk — the SEPARATE client-reconstructible
+  ;; head-model channel, not covered by `:rf/render-hash`), and because the
+  ;; schema is an OPEN map the emitted key validated by never being examined:
+  ;; any value — nil, an int, a map — rode through. These are the first
+  ;; assertions in the corpus that look at it.
+  (testing "a real head hash is preserved verbatim"
+    (let [payload (payload-policy/build-payload
+                    :rf/default {:public/page :dashboard} "body-h"
+                    {:head-hash "head-h"})]
+      (is (= "head-h" (:rf/head-hash payload))
+          "a supplied head hash rides the payload unchanged")
+      (is (= "body-h" (:rf/render-hash payload))
+          "the head channel is SEPARATE from the body render-hash channel")
+      (is (m/validate HydrationPayload payload)
+          (str "a head-hashed payload conforms; explain: "
+               (pr-str (m/explain HydrationPayload payload))))))
+
+  (testing "a nil head hash OMITS the key (the explicit-:head-STRING shape,
+            where the head is not client-reconstructible)"
+    (let [payload (payload-policy/build-payload
+                    :rf/default {:public/page :dashboard} "body-h"
+                    {:head-hash nil})]
+      (is (not (contains? payload :rf/head-hash))
+          "a nil head-hash omits :rf/head-hash entirely")
+      (is (= "body-h" (:rf/render-hash payload))
+          "omitting the head channel leaves the body channel intact")
+      (is (m/validate HydrationPayload payload)
+          (str "a head-hashless payload conforms; explain: "
+               (pr-str (m/explain HydrationPayload payload))))))
+
+  (testing "a present-and-nil :rf/head-hash is REJECTED by the schema"
+    (is (not (m/validate HydrationPayload
+                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                                :rf/head-hash nil)))
+        "a hand-stamped nil :rf/head-hash must not validate"))
+
+  (testing "a non-string :rf/head-hash is REJECTED — the point of typing a slot
+            the OPEN map previously let through unexamined"
+    (is (not (m/validate HydrationPayload
+                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                                :rf/head-hash 42)))
+        "an integer head hash must not validate")))
+
+(deftest build-payload-schema-digest-is-optional
+  (testing "a real digest is preserved verbatim"
+    (let [payload (payload-policy/build-payload
+                    :rf/default {:public/page :dashboard} "h"
+                    {:schema-digest "digest-abc"})]
+      (is (= "digest-abc" (:rf/schema-digest payload))
+          "a supplied digest rides the payload unchanged")
+      (is (m/validate HydrationPayload payload)
+          (str "a digest-bearing payload conforms; explain: "
+               (pr-str (m/explain HydrationPayload payload))))))
+
+  (testing "a nil digest OMITS the key (the app does not participate in the
+            schema-digest check)"
+    (let [payload (payload-policy/build-payload
+                    :rf/default {:public/page :dashboard} "h"
+                    {:schema-digest nil})]
+      (is (not (contains? payload :rf/schema-digest))
+          "a nil schema-digest omits :rf/schema-digest entirely")
+      (is (m/validate HydrationPayload payload)
+          (str "a digestless payload conforms; explain: "
+               (pr-str (m/explain HydrationPayload payload))))))
+
+  (testing "a present-and-nil :rf/schema-digest is REJECTED by the schema"
+    (is (not (m/validate HydrationPayload
+                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                                :rf/schema-digest nil)))
+        "a hand-stamped nil :rf/schema-digest must not validate")))
+
+(deftest build-payload-runtime-db-slot-is-typed
+  ;; `build-payload-emits-runtime-db-when-present` above already pins the VALUE
+  ;; contract (the projected slice rides; nil omits the key). What it could not
+  ;; pin, while the slot read `[:maybe :map]`, is that the omission is the only
+  ;; legal spelling of absence — so these are the schema-side arms.
+  (testing "a projected slice conforms under the tightened :map slot"
+    (let [payload (payload-policy/build-payload
+                    :rf/default {:public/page :dashboard} "h"
+                    {:runtime-db (payload-policy/project-runtime-db sample-runtime-db)})]
+      (is (map? (:rf/runtime-db payload)))
+      (is (m/validate HydrationPayload payload)
+          (str "a runtime-db-bearing payload conforms; explain: "
+               (pr-str (m/explain HydrationPayload payload))))))
+
+  (testing "a present-and-nil :rf/runtime-db is REJECTED by the schema — the
+            fail-open `[:maybe :map]` admitted a second spelling of absence"
+    (is (not (m/validate HydrationPayload
+                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                                :rf/runtime-db nil)))
+        "a hand-stamped nil :rf/runtime-db must not validate"))
+
+  (testing "a non-map :rf/runtime-db is REJECTED"
+    (is (not (m/validate HydrationPayload
+                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                                :rf/runtime-db "not-a-map")))
+        "a string runtime-db must not validate")))
