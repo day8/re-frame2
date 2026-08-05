@@ -61,24 +61,50 @@ const report = createGateReporter();
 // ----- the schemas bundle-cost contract -------------------------------------
 
 // Per rf2-v96fh both probes pull Malli (the facade requires the
-// adapter), so both sit at the schemas-surface-with-Malli cost
-// (~91 KB gzipped empirically; the spec's older 120.8 KB row was a
-// conservative pre-Closure-tuning estimate). The ≤ 100 KB ceiling
-// leaves ~9 KB headroom over the empirical figure so non-deterministic
-// compression variations (zlib version, OS) don't trigger spurious
-// fails. Tighten over time as the figures stabilise.
+// adapter), so both sit at the schemas-surface-with-Malli cost.
+//
+// THE CEILINGS BELOW ARE KNOWN-WRONG AND ARE AWAITING A RULING
+// (rf2-kybsf). Do not "fix" this gate by raising them; the number is
+// not the problem. Measured history, all figures gzipped:
+//
+//   2026-05-14 (rf2-fqbcy, gate authored)  probe 50.3 KB  probe-malli 80.1 KB
+//   2026-08-05 (rf2-kybsf, first-ever run) probe 124.9 KB probe-malli 124.9 KB
+//
+// The 100/125 KB ceilings were never derived from these probes. They
+// were lifted verbatim from Spec 010's representative-scenario harness
+// (a Reagent/React counter app: 97.2 KB schemas-no-Malli, 120.8 KB
+// schemas-plus-Malli) and parked next to a bare probe that measured
+// 50.3 KB — ~50 KB of unexamined slack, as rf2-fqbcy's own commit
+// message says outright. rf2-v96fh then made both probes Malli-bearing
+// and, instead of adopting the Malli-bearing 125 KB ceiling already in
+// this file, LOWERED the Malli-bearing probe to the Malli-FREE 100 KB
+// one, citing a "~91 KB empirical" figure no run ever produced. The
+// gate had no scheduled home, so nothing contradicted it for 83 days.
+//
+// What actually grew is NOT the schemas surface. Malli's marginal cost
+// is flat: 29.8 KB in May, 30.8 KB now (measured 2026-08-05 by building
+// this probe with the facade's adapter require removed: 94.1 KB, vs
+// 124.9 KB with it). metosin/malli was already pinned at 0.20.1 when
+// the 80.1 KB baseline was taken, so the 0.13.0 -> 0.20.1 bump is
+// excluded by date. The +43.8 KB is cljs.core + re-frame.core over
+// three months of framework work — a quantity this gate does not exist
+// to police, and which will keep moving these absolute numbers.
+//
+// The fix is therefore a delta gate against a Malli-free control build,
+// not a bigger constant (rf2-v4o7e). Until that is ruled, this gate
+// stays red and honest.
 const BUNDLES = [
   {
     name:            'schemas-bundle-probe',
     bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe'),
     specRow:         '[re-frame.schemas] required ⇒ Malli wired (rf2-v96fh)',
-    gzippedMaxBytes: 100 * 1024,   // 100 KB (empirical ~91 KB + ~9 KB headroom)
+    gzippedMaxBytes: 100 * 1024,   // 100 KB — UNRULED, see the block above
   },
   {
     name:            'schemas-bundle-probe-malli',
     bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe-malli'),
     specRow:         '[re-frame.schemas] + explicit [malli] (redundant, rf2-v96fh)',
-    gzippedMaxBytes: 100 * 1024,   // 100 KB (same surface as the sibling probe)
+    gzippedMaxBytes: 100 * 1024,   // 100 KB — UNRULED, same surface as sibling
   },
 ];
 
@@ -204,14 +230,23 @@ function main() {
     console.error('=== FAIL ===');
     console.error('');
     console.error('Per Spec 010 §Bundle cost the schemas-artefact bundle cost');
-    console.error('budgets are normative. A regression most likely means:');
+    console.error('budgets are normative. A size failure most likely means:');
     console.error('  - A transitive require dragged a heavy ns into the schemas');
     console.error('    surface; check `re-frame.schemas` ns-form and downstream.');
     console.error('  - The Malli adapter\'s ns-load body grew unexpectedly.');
-    console.error('  - shadow-cljs / Closure compiler upgraded; if the new');
-    console.error('    figures reflect a deliberate substrate change, update');
-    console.error('    the spec § first, then bump the thresholds here in');
-    console.error('    lockstep.');
+    console.error('  - cljs.core / re-frame.core grew. This gate cannot tell');
+    console.error('    that apart from the two causes above, because it asserts');
+    console.error('    an ABSOLUTE size while Spec 010 budgets a MARGINAL one.');
+    console.error('    That is the known defect tracked by rf2-v4o7e.');
+    console.error('');
+    console.error('BEFORE YOU RAISE A THRESHOLD, read the comment block above');
+    console.error('BUNDLES. The ceilings are unruled (rf2-kybsf) and were never');
+    console.error('derived from these probes. Raising them to match whatever');
+    console.error('shipped is how a budget stops meaning anything. To attribute');
+    console.error('a rise, rebuild this probe with the `re-frame.schemas.malli`');
+    console.error('require removed from the `re-frame.schemas` ns-form and diff');
+    console.error('the two figures — that isolates the schemas surface from the');
+    console.error('framework growth underneath it.');
     process.exit(1);
   }
 }
