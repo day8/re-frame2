@@ -2,65 +2,63 @@
 
 > **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
 
-> **For about 98% of view code, performance is not an issue.** Write ordinary
-> Hiccup: `defview`, `sub` at the point of use, intents as data. Do not
-> pre-optimise. Do not invent a second architecture "just in case."
+Most Hicasso screens do not need a performance strategy. Write ordinary Hiccup —
+`defview`, `sub` where you use the value, intent vectors — and ship.
 
-Hicasso is **Hiccup-first and interpreted**. That is the product for almost
-everything you ship. The interpreter is not free, but measured work says it is
-**rarely the bill**: the Hiccup walk itself sits at about **parity with Reagent's
-own walk (~0.96×)** on the programme's comparisons. On the worst-case mount
-witnesses, about **~70% of the deficit was read shape** — many fine-grained
-per-instance reads versus a handful of coarse ones — not "we spent time turning
-vectors into elements." Coarsened, census-shaped screens land nearer **~1.2×**
-where the pathological witness sat nearer **~1.5×**. So when you *do* optimise,
-you start with **where and how you read**, not with abandoning Hiccup.
+> **For about 98% of view code, performance is not an issue.** Do not pre-optimise.
+> Do not invent a second architecture "just in case."
 
-**For the other ~2%** — a measured hot path, a third-party React widget, an
-imperative SDK — you *can* go **below Hiccup**: closer to React, past the pure tier-1 walk, into a foreign component. There is **no second mode** that turns
-interpretation off for the whole app. There **are** deliberate steps down the
-stack. This page is the map for that minority.
+Hicasso is Hiccup-first and interpreted. The walk is not free, but it is rarely
+what hurts you. Measured against Reagent, the Hiccup walk itself is about
+**parity (~0.96×)**. On the worst mounts we have seen, roughly **~70% of the
+extra cost was read shape** — many fine per-row subscriptions instead of a few
+coarse ones — not time spent turning vectors into elements. Screens that use
+coarser, more natural reads land nearer **~1.2×** where the pathological case
+sat nearer **~1.5×**. So when something *is* slow, you fix **where and how you
+read** (and who re-renders) long before you abandon Hiccup.
 
-> **Ninety-eight percent stays Hiccup. For the two percent: measure, then isolate
-> the escape — do not rewrite the product.**
+**The other ~2%** is a measured island: a hot cell, a third-party React widget,
+an SDK that wants a DOM node. You can step **below Hiccup** for that island —
+closer to React, into a foreign component — without rewriting the app. There is
+no dual mode that "turns the interpreter off." There is a ladder.
 
-The percentages are a **product assertion**, not a lab result: write as if they
-were true until a profile proves a specific island is the exception. The
-magnitudes above are the measured reason step 1 is "fix the reads" first.
+> **Ninety-eight percent stays Hiccup. For the two percent: find the island, then
+> fix that island — do not rewrite the product.**
 
-## How to name the island
+The 98/2 split is how you should write, not a lab certificate. Stay on the happy
+path until a profile names something specific.
+
+## Find the island first
 
 You do not need Hicasso-private tooling.
 
-- **React DevTools Profiler** works as-is — every Hicasso boundary is a real
-  React function component. See which components commit and how often.
-- **Xray** (or any consumer of Spec 009) shows which **subscriptions** recomputed
-  for the focused event — often the island is a high, coarse read, not a slow
+- **React DevTools Profiler** — every Hicasso boundary is a real React function
+  component. See which components commit and how often.
+- **Xray** (or any Spec 009 consumer) — which **subscriptions** recomputed for
+  the event you care about. Often the problem is a high, coarse read, not a slow
   walk.
 
 Name the boundary, the sub, or the event **before** changing architecture.
-"The app is slow" is still the 98% problem in disguise.
+"The app is slow" is still the 98% problem wearing a costume.
 
-## What "below Hiccup" is not
+## What is not an escape
 
 | Wish | Reality |
 |---|---|
-| "Compile this view off the interpreter" | **No.** No dual mode, no analyzer, no ViewCell product path |
-| "Bare JS component in head position" | **Refused** — one door: `defhost` / `[:>]`, not silent auto-host |
-| "Drop to Reagent/UIx for one page" | Only as **another root / adapter**, not a Hicasso mode |
-| "I'll use hooks everywhere so we're ready for the 2%" | That *is* rewriting the product. The 2% is an island, not a lifestyle |
+| "Compile this view off the interpreter" | **No.** No dual mode, no second compiler product |
+| "Bare JS component in head position" | **Refused** — use `defhost` or `[:>]`, not silent auto-host |
+| "I'll switch this page to Reagent/UIx" | Only as **another root**, not a spelling inside one `defview` |
+| "Hooks everywhere so we're ready for the 2%" | That *is* rewriting the product. The 2% is an island |
 
-If you have not measured, you are still in the 98%. Stay on tier-1 Hiccup
-([Views and reads](02-views-and-reads.md)). When a profile names an island, start
-with [step 1](#1-still-hiccup--spend-less) before any host-edge React.
+No profile yet? You are still in the 98%. Stay on tier-1 Hiccup
+([Views and reads](02-views-and-reads.md)).
 
-## The ladder (top → bottom)
+## The ladder
 
-### 1. Still Hiccup — spend less
+### 1. Still Hiccup — fix reads and re-renders
 
-Same language, less cost. This is the first lever and the one that preserves
-testing and data trees. **It is first because that is where the measured cost
-lives**, not by taste: read shape and re-render fan-out, not interpretation.
+Same language, less cost. This step comes first **because that is where the cost
+usually lives** — not interpretation.
 
 **Boundaries only where re-render granularity matters.**
 
@@ -69,75 +67,60 @@ lives**, not by taste: read shape and re-render fan-out, not interpretation.
 (row-chrome {:id id})         ;; plain call — inlined; free at runtime
 ```
 
-A **vector** head is a boundary (React identity, its own `sub` reads, default
-value-equality bail-out). A **plain call** splices hiccup into the parent and
-donates reads upward. Helpers that always re-render with their parent should be
-calls, not `defview`s.
+A **vector** head is a boundary: React identity, its own `sub` reads, default
+value-equality bail-out. A **plain call** splices into the parent and donates
+reads upward. Markup that always re-renders with its parent should be a helper,
+not a `defview`.
 
-**Push reads down — this is where the money measurably is.** A `sub` high in the
-tree invalidates that boundary and everything the value is threaded through.
-Worst-case mount witnesses spent most of their deficit on **too many fine
-per-instance reads** versus a few coarse ones; coarsening the read shape is what
-moved numbers. Read at the point of use
-([Views and reads](02-views-and-reads.md)).
+**Push reads down.** A `sub` high in the tree invalidates that boundary and
+everything the value is threaded through. The expensive mounts we measured spent
+most of their deficit on **too many fine per-instance reads**. Read at the point
+of use ([Views and reads](02-views-and-reads.md)).
 
-**Keys and the default bail-out.** Every boundary list needs a stable `:key` in
-the props map (Hicasso-minted missing-key warnings are ruled; until they land you
-still get React's own). The default **value-equality bail-out** is what makes a
-parent re-render cheap: if a child's props still `=`, its body does not run. A
-page-wide write that leaves card props equal measurably re-ran **0 of hundreds**
-of card bodies when keys and props were stable. What **defeats** the bail-out:
-threading a changing value down as a prop instead of reading it in the child;
-fresh function / JS identity on every parent render; unstable keys that force
-remounts.
+**Stable keys and the default bail-out.** Every list of boundaries needs a
+stable `:key` in the props map (a Hicasso-minted missing-key warning is planned;
+until then you still get React's). If a child's props still `=` after a parent
+re-render, the body does not run. That is what makes a page-wide write cheap for
+unchanged cards — when keys and props are stable, **hundreds of bodies can skip**.
+What defeats the bail-out: threading a changing value as a prop instead of
+reading in the child; a fresh function or JS object every parent render;
+unstable keys that force remounts.
 
-**Do not invent a second state system for motion.** High-rate drag/scroll belongs
-at a host edge or off app-db until commit
-([Ephemeral state](07-ephemeral-state.md)).
+**Keep high-rate motion out of app-db.** Drag and scroll are host mechanics until
+you commit ([Ephemeral state](07-ephemeral-state.md)).
 
-### Bulk honesty (the 2% you will actually hit)
+### Big lists and broad commits (honest)
 
-**Broad commits over hundreds of boundaries** — a big table or feed where one
-event touches state that many rows care about — is the shape where the measured
-record says cost **can be material**. Outside instruments have read about
-**1.4–1.6×** on broad bulk for candidate arms; that axis is **not yet fully
-priced on our own converged instrument**. State it: big-list bulk is a known
-risk, not a polished win.
+One event that touches state **many** row boundaries care about — a big table or
+feed — is the shape where cost **can** bite. Outside measurements have shown
+about **1.4–1.6×** on broad bulk for candidate arms; that axis is **not fully
+priced on our own instrument yet**. Big-list bulk is a known risk, not a solved
+win.
 
-Levers, in order:
+Work it in this order:
 
-1. **Keys + default bail-out** (above) — so a write that does not change a row's
-   props skips that body.
-2. **Coarser / better-placed reads** — so fewer boundaries invalidate.
-3. **Step 3** — a virtualized foreign list via `defhost` when the list itself is
-   the product of a virtualizing React library.
-4. **Step 4** — another substrate only if the product direction is React-first
-   for that surface.
+1. Keys + bail-out (above).
+2. Better-placed / coarser reads.
+3. A virtualized list via `defhost` when the list is really a React virtualizer.
+4. Another substrate only if that surface is React-first by design.
 
-Do not skip to hooks for a 300-row table before keys, bail-out, and read shape
-have been checked.
+Do not jump to hooks on a 300-row table before keys, bail-out, and read shape.
 
-### 2. Real React inside a boundary (host edge)
+### 2. Host-edge React (one island)
 
-A `defview` body **is** an honest React function component. Hooks and refs are
-**legal** for host mechanics — geometry, measure-before-paint, SDK handles,
-animation clocks that are not app state.
+A `defview` body is a real React function component. Hooks and refs are fine for
+**mechanics**: measure, SDK handles, animation clocks that are not app state.
+Semantic state still belongs in app-db.
 
-The rule is taught, not runtime-policed:
-
-> Semantic application state → app-db.  
-> Component mechanics → ordinary React at the edge.
-
-**Ambient `rf/*` forms are non-contractual in Hicasso bodies.** They may work,
-throw, or answer the wrong frame depending on adapter, renderer, and timing —
-never rely on them. Intent vectors carry the frame for free. For **hand-written**
-async (timeouts, SDK callbacks, value-first foreign handlers that need a plain
-closure), the ruled door is **`h/frame`** **[unfrozen]** — read the current
-frame id inside a render (or a runtime-armed render callback), then compose with
-the platform carry: `(rf/capture-frame (h/frame))`. Honest tense: the shape is
-**ruled**; product shipping of `h/frame` may still be landing. Prefer putting
-async work in the **event layer** (`:fx` with frame on the ctx, `:dispatch-later`)
-when you can; use `h/frame` at foreign edges when you cannot.
+**Do not use ambient `rf/dispatch` or ambient `rf/capture-frame` from a
+timeout and hope.** In a Hicasso body those ambient forms are **not a contract**
+— they may work, throw, or pick the wrong frame depending on adapter, renderer,
+and timing. Intent vectors already carry the frame. For hand-written async (SDK
+callbacks, value-first foreign handlers), prefer the **event layer** (`:fx` on
+the ctx, `:dispatch-later`). When you must close over a frame at the edge, the
+intended spelling is **`h/frame`** **[unfrozen]** composed with the platform
+carry: `(rf/capture-frame (h/frame))`. The shape is fixed; the product spelling
+may still be landing — check before you depend on it.
 
 ```clojure
 ;; .cljs host-edge namespace — not the whole app.
@@ -147,124 +130,98 @@ when you can; use `h/frame` at foreign edges when you cannot.
             ["react" :as react]))
 
 (defview measure-box [{:keys [children]}]
-  (let [;; Ruled door — frame id for later async; do NOT use bare rf/dispatch
-        ;; or ambient rf/capture-frame from a timeout and hope.
-        frame (h/frame)                           ;; [unfrozen]; may still be landing
+  (let [frame (h/frame)   ;; [unfrozen] — may still be landing; not ambient rf/*
         ref   (react/useRef nil)]
     (react/useLayoutEffect
       (fn []
         (when-let [node (.-current ref)]
-          ;; Later, off the render: (rf/capture-frame frame) then work/dispatch.
+          ;; Later, off the render: (rf/capture-frame frame) then work.
           js/undefined))
       #js [])
     (into [:div {:ref ref}] children)))
 ```
 
-**What you pay**
-
 | You gain | You give up |
 |---|---|
-| Full React toolkit for that island | Headless / data-tree testing for that body ([Testing](08-testing.md)) |
-| Fine control of layout/measure/SDK lifecycle | You own hook rules and StrictMode yourself |
-| Rest of the app stays Hicasso | That node is no longer "pure data markup" |
+| Full React toolkit for that island | Headless / data-tree tests for that body ([Testing](08-testing.md)) |
+| Layout / SDK lifecycle control | Hook rules and StrictMode are yours |
+| Rest of the app stays Hicasso | That node is no longer pure data markup |
 
-Keep the island **small**. The win is isolation, not "half the app in hooks."
+Keep the island small. Callback refs for attach/teardown: [Interop](05-interop.md)
+Advanced.
 
-Callback **refs** (attach + teardown in one function) are the taught form for
-imperative DOM ownership; details live under [Interop](05-interop.md) Advanced.
+### 3. Foreign React (`defhost` / `[:>]`)
 
-### 3. Foreign React components (`defhost` / `[:>]`)
+When the lower level is **someone else's** component (date picker, chart,
+virtualized list):
 
-When the lower level is **someone else's** React component (npm date picker,
-chart, design-system primitive, **virtualized list**):
-
-- **`defhost`** — declare once, use as a view head; props conversion and callback
-  contracts at the declaration ([Interop](05-interop.md)).
-- **`[:> Component …]`** — secondary raw escape for cases a static declaration
-  cannot express; same conversion path, less identity for tools. Build status may
-  lag the ruling — check the interop page.
+- **`defhost`** — declare once; policies at the declaration ([Interop](05-interop.md)).
+- **`[:> Component …]`** — secondary raw escape; may lag `defhost` in the arm.
 
 ```clojure
 (h/defhost chart Chart
-  {:ssr :client-only})   ;; or {:fallback […]}
+  {:ssr :client-only})
 
 (defview dashboard [_]
   [:div
    [chart {:series (sub [:metrics/series])}]])
 ```
 
-An **existing React element** is a legal child anywhere (pass-through). Something
-that already produced `createElement` output can sit under Hiccup without being
-re-interpreted as tags.
+An existing React element is a legal child (pass-through). Keep JS requires in
+`.cljs` host namespaces.
 
-**What you pay:** less structural `=` at that node, JS quarantined in `.cljs`,
-SSR policy explicit (`:client-only` / fallback). Do not smuggle a raw JS require
-into a `.cljc` view ns.
+### 4. Another view layer
 
-### 4. A different view layer entirely
+A whole screen in UIx or Reagent is **another adapter root**, not a Hicasso mode.
+Multi-frame isolation: [Getting started](01-getting-started.md).
 
-If a whole screen wants UIx or Reagent authoring, that is **another adapter
-root**, not a Hiccup escape hatch. Hicasso does not embed "UIx mode." Two frames
-on one page is the multi-app pattern ([Getting started](01-getting-started.md));
-mixing substrates is an architecture choice, not a spelling inside one
-`defview`.
+## Order of operations (only for the 2%)
 
-## Order of operations (the 2%)
+1. **Name the island** — Profiler and Xray ([above](#find-the-island-first)).
+2. **Still Hiccup** — keys, bail-out, fewer boundaries, reads at point of use.
+   Most "hot" cases die here.
+3. **Host-edge island** — one widget; async via event `:fx` or
+   `(rf/capture-frame (h/frame))`, never ambient hope.
+4. **`defhost`** — third-party / virtualized React.
+5. **Different substrate** — only if that is the product direction.
 
-You only enter this list after something is **named** (Profiler / Xray) or is
-obviously a foreign/SDK boundary you never expected Hiccup to own.
+## What you keep
 
-1. **Name the island** — which boundary, which sub, which event, which widget
-   ([How to name the island](#how-to-name-the-island)).
-2. **Still Hiccup** — keys, bail-out, fewer boundaries, reads at point of use,
-   no high-rate writes to app-db. Most "2%" cases die here and return to the 98%.
-3. **Host-edge island** — one measured widget, hooks/refs; async via
-   `(rf/capture-frame (h/frame))` or event-layer `:fx` — never ambient `rf/*`
-   hope.
-4. **`defhost`** — third-party React (including virtualized lists), not your
-   markup.
-5. **Different substrate** — only if the product direction is React-first for that
-   surface.
-
-## What you keep / what you lose
-
-| Level | Data tree / `=` intents | `sub` ambient | Headless-friendly | Perf lever |
+| Level | Data intents | Ambient `sub` | Headless-friendly | Lever |
 |---|---|---|---|---|
-| Tier-1 Hiccup | Yes | Yes | Yes (when headless lands; intents today) | Boundaries + read placement + keys/bail-out |
-| Host-edge hooks in a view | Partial (surrounding tree yes) | Yes in that body | **No** for that body | React tools |
-| `defhost` / foreign | Crossing is opaque JS | Via props / parent reads | Foreign region out | Leave heavy work in the library |
-| Other adapter root | That root's rules | That root's rules | That root's rules | Full switch |
+| Tier-1 Hiccup | Yes | Yes | Intents today; full render later | Boundaries, reads, keys, bail-out |
+| Host-edge hooks | Partial | Yes in that body | **No** for that body | React |
+| `defhost` | Opaque at the crossing | Via props / parents | Foreign region out | Leave work in the library |
+| Other adapter | That root's rules | That root's rules | That root's rules | Full switch |
 
 ## Troubleshooting
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Everything re-renders when one cell changes | Read too high, or everything is one boundary | Push `sub` down; split boundaries |
-| Page-wide write re-runs every card body | Props not `=` or keys unstable | Stable `:key`; stop threading changing values; use intent data not fresh fns |
-| Bulk table feels 1.5× | Broad commit fan-out — a known hard shape | Keys + bail-out + read shape first; then virtualized `defhost` list |
-| Bare `rf/dispatch` / `rf/capture-frame` from a timeout "sometimes works" | Ambient `rf/*` is non-contractual in Hicasso bodies | Event-layer `:fx`, or `(rf/capture-frame (h/frame))` once `h/frame` ships |
-| "I'll just use hooks everywhere for speed" | Second architecture | Isolate one island; keep app-db for semantic state |
-| Headless / structural test dies after a "perf fix" | Hooks or foreign JS entered a `.cljc` body | Quarantine host code in `.cljs`; keep semantic half pure |
-| Bare `[DatePicker …]` or raw JS head | Not legal | `defhost` (or `[:>]` once available) |
-| SDK mounts twice / leaks | Ref attach without paired teardown | One attach, one cleanup (React 19 return-from-ref) — [Interop](05-interop.md) |
-| Still slow after dropping to React | Wrong layer | Measure again — often read shape or event volume, not Hiccup |
+| One cell change re-renders everything | Read too high, or one giant boundary | Push `sub` down; split boundaries |
+| Page-wide write re-runs every card | Props not `=` or keys unstable | Stable `:key`; read in the child; intent data not fresh fns |
+| Big table feels ~1.5× | Broad commit fan-out — known hard shape | Keys + bail-out + read shape; then virtualized `defhost` |
+| Bare `rf/dispatch` from a timeout "sometimes works" | Ambient `rf/*` is not a contract in Hicasso bodies | Event `:fx`, or `(rf/capture-frame (h/frame))` when available |
+| Hooks in every cell "for speed" | Second architecture | One island; app-db for semantic state |
+| Structural test dies after a "perf fix" | Hooks or JS in a `.cljc` body | Quarantine host code in `.cljs` |
+| `[DatePicker …]` bare head | Not legal | `defhost` (or `[:>]` when available) |
+| SDK mounts twice / leaks | Ref without paired teardown | Attach + cleanup as one ref (React 19) — [Interop](05-interop.md) |
+| Still slow after dropping to React | Wrong layer | Profile again — often reads or event volume |
 
 ## When not to go below Hiccup
 
-- You are still in the **98%** — no profile, only a feeling, or a fear of
-  interpretation.
-- The fix is really **event volume** (e.g. controlling every keystroke on a 100-cell
-  grid) — see [Controlled inputs](04-controlled-inputs.md) when-not.
-- You are about to reimplement the app in hooks "for the 2%" — that is a
-  substrate change, not a Hicasso escape.
+- Still the **98%** — no profile, only anxiety about the interpreter.
+- The real issue is **event volume** (e.g. controlling every keystroke on a dense
+  grid) — [Controlled inputs](04-controlled-inputs.md).
+- You are about to reimplement the app in hooks "for the 2%." That is a
+  substrate change, not an escape hatch.
 
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| Whether product ever grows a compile / dual-mode path | **Not planned for v0** — single interpreted Hiccup product |
-| `[:>]` availability | Ruled; may lag `defhost` in the experimental arm — [Interop](05-interop.md) |
-| `h/frame` product shipping | **Ruled** (`(h/frame)` + `(rf/capture-frame (h/frame))`); implementation may still be landing — spelling **[unfrozen]** |
-| Bulk broad-commit magnitudes on the converged instrument | **Not fully priced** — outside instruments already show material cost |
-| Official "perf island" macro or scaffold | **None** — host edge is plain React + `defview` |
-| How aggressively the guide should show host-edge examples | Open — this page stays the map; depth stays on interop / ephemeral |
+| Compile / dual-mode path | **Not planned** — one interpreted Hiccup product |
+| `[:>]` availability | Ruled; may lag `defhost` — [Interop](05-interop.md) |
+| `h/frame` shipping | Shape fixed; spelling **[unfrozen]**; may still be landing |
+| Big-list bulk on our own instrument | Outside numbers show risk; full own pricing still open |
+| Perf-island scaffold / macro | **None** — plain React + `defview` |
