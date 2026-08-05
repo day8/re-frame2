@@ -40,6 +40,7 @@
   (:require [clojure.string]
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
+            [re-frame.ssr.diagnostic :as diagnostic]
             [re-frame.ssr.hash :as hash]
             [re-frame.ssr.html-helpers :as html]
             #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
@@ -311,24 +312,29 @@
   Reuses `:rf.error/invalid-hiccup-head` rather than minting a near-
   duplicate id: the head genuinely has no HTML interpretation, which is
   precisely what that id names. The message and `:recovery` distinguish
-  the arm."
+  the arm.
+
+  `el` crosses `diagnostic/safe-form` FIRST (rf2-9s68n) — see
+  `re-frame.ssr.diagnostic`. `head` needs no such crossing: this arm is
+  reached only for a keyword in the reserved `:rf/*` namespace."
   [el head]
-  (error/throw-error!
-    :rf.error/invalid-hiccup-head
-    'rf.ssr/emit
-    (str "hiccup vector head " (pr-str head)
-         " (in element " (pr-str el) ") is in the framework-reserved"
-         " :rf/* namespace but is not a hiccup head this emitter"
-         " recognises. The recognised reserved heads are :<> (fragment),"
-         " :> (Reagent-native interop) and :rf/suspense-boundary"
-         " (streaming, shell walker only). The :rf/* scheme is framework-"
-         "owned (Conventions §Reserved namespaces), so this cannot be an"
-         " author DOM element — emitting it would paint a phantom <"
-         (name head) "> element silently. Check the spelling, or use an"
-         " unreserved keyword if you meant a custom element.")
-    {:recovery :use-a-recognised-reserved-head-or-an-unreserved-keyword
-     :extra    {:head    head
-                :element el}}))
+  (let [el (diagnostic/safe-form el)]
+    (error/throw-error!
+      :rf.error/invalid-hiccup-head
+      'rf.ssr/emit
+      (str "hiccup vector head " (pr-str head)
+           " (in element " (pr-str el) ") is in the framework-reserved"
+           " :rf/* namespace but is not a hiccup head this emitter"
+           " recognises. The recognised reserved heads are :<> (fragment),"
+           " :> (Reagent-native interop) and :rf/suspense-boundary"
+           " (streaming, shell walker only). The :rf/* scheme is framework-"
+           "owned (Conventions §Reserved namespaces), so this cannot be an"
+           " author DOM element — emitting it would paint a phantom <"
+           (name head) "> element silently. Check the spelling, or use an"
+           " unreserved keyword if you meant a custom element.")
+      {:recovery :use-a-recognised-reserved-head-or-an-unreserved-keyword
+       :extra    {:head    head
+                  :element el}})))
 
 (defn reject-invalid-hiccup-head!
   "Throw `:rf.error/invalid-hiccup-head` for a hiccup vector whose head is
@@ -345,21 +351,30 @@
   mirroring `validate-tag-name!` and the `:>` / `:rf/suspense-boundary`
   throws — never stringify an unescaped hiccup form to the wire. Shared by
   the sync emitter and the streaming shell walker so both paths reject the
-  same malformed shape identically."
+  same malformed shape identically.
+
+  rf2-9s68n — THIS ARM IS WHERE A FOREIGN HEAD LANDS, and it is the arm the
+  defect was reported against: a React context provider is neither
+  `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and `pr-str` of
+  a self-referential JS object blew the stack — `RangeError` instead of the
+  message this function exists to produce. `el` crosses
+  `diagnostic/safe-form` first; `(first el)` is read from the crossed value,
+  so the head is covered by the same one crossing."
   [el]
-  (error/throw-error!
-    :rf.error/invalid-hiccup-head
-    'rf.ssr/emit
-    (str "hiccup vector head " (pr-str (first el))
-         " (in element " (pr-str el) ") is not a valid hiccup head — a head"
-         " must be a keyword (DOM tag / :<> / :> /"
-         " :rf/suspense-boundary) or a callable component (fn / Var). A"
-         " string / nil / number / boolean / collection head has no HTML"
-         " interpretation; emitting its EDN form raw would bypass output"
-         " escaping (XSS). Produce a valid hiccup head.")
-    {:recovery :use-a-keyword-or-callable-hiccup-head
-     :extra    {:head    (first el)
-                :element el}}))
+  (let [el (diagnostic/safe-form el)]
+    (error/throw-error!
+      :rf.error/invalid-hiccup-head
+      'rf.ssr/emit
+      (str "hiccup vector head " (pr-str (first el))
+           " (in element " (pr-str el) ") is not a valid hiccup head — a head"
+           " must be a keyword (DOM tag / :<> / :> /"
+           " :rf/suspense-boundary) or a callable component (fn / Var). A"
+           " string / nil / number / boolean / collection head has no HTML"
+           " interpretation; emitting its EDN form raw would bypass output"
+           " escaping (XSS). Produce a valid hiccup head.")
+      {:recovery :use-a-keyword-or-callable-hiccup-head
+       :extra    {:head    (first el)
+                  :element el}})))
 
 (defn- invoke-form-2-render-fn
   "Invoke a Form-2 inner render fn with `args`, tolerating an inner that
@@ -495,23 +510,30 @@
          ;; hiccup → HTML function with no registry lookup. Nothing
          ;; resolves an id here; the CALLABLE head is what the emitter
          ;; invokes, which is why the spelling has to be in the message.
+         ;;
+         ;; rf2-9s68n — `el` crosses `diagnostic/safe-form` before it is
+         ;; printed OR put in ex-data. This arm is the one where a foreign
+         ;; JS value is not merely possible but EXPECTED: `[:> ctx.Provider
+         ;; …]` is what `:>` interop is FOR, and a React 19 provider is a
+         ;; cyclic object graph.
          (= :> head)
-         (error/throw-error!
-           :rf.error/ssr-reagent-native-head
-           'rf.ssr/emit
-           (str "Reagent-native interop head `:>` "
-                "(element " (pr-str el) ") cannot be "
-                "rendered server-side — it targets a "
-                "React component and there is no React "
-                "on the JVM. Wrap the component in a "
-                "reg-view and reference that view by its "
-                "CALLABLE head — the Var reg-view defs "
-                "(`[my-view …]`) or `[(rf/view :my/id) …]` "
-                "— or render it client-only. A bare "
-                "keyword head is an HTML element, not a "
-                "view reference.")
-           {:recovery :wrap-in-reg-view-or-render-client-only
-            :extra    {:element el}})
+         (let [el (diagnostic/safe-form el)]
+           (error/throw-error!
+             :rf.error/ssr-reagent-native-head
+             'rf.ssr/emit
+             (str "Reagent-native interop head `:>` "
+                  "(element " (pr-str el) ") cannot be "
+                  "rendered server-side — it targets a "
+                  "React component and there is no React "
+                  "on the JVM. Wrap the component in a "
+                  "reg-view and reference that view by its "
+                  "CALLABLE head — the Var reg-view defs "
+                  "(`[my-view …]`) or `[(rf/view :my/id) …]` "
+                  "— or render it client-only. A bare "
+                  "keyword head is an HTML element, not a "
+                  "view reference.")
+             {:recovery :wrap-in-reg-view-or-render-client-only
+              :extra    {:element el}}))
 
          ;; Reserved streaming marker `:rf/suspense-boundary` — recognised
          ;; ONLY by the streaming shell walker (`re-frame.ssr.streaming`).
@@ -525,24 +547,28 @@
          ;; streaming tree) surfaces a structured error rather than
          ;; silently producing malformed markup. Per Conventions §`:rf/*`
          ;; reserved hiccup heads + Spec 011 §Streaming SSR.
+         ;; rf2-9s68n — `el` crosses `diagnostic/safe-form` first: a
+         ;; boundary's `:fallback` is ordinary hiccup and can carry a
+         ;; foreign JS value anywhere inside it.
          (= :rf/suspense-boundary head)
-         (error/throw-error!
-           :rf.error/ssr-suspense-boundary-outside-stream
-           'rf.ssr/emit
-           (str ":rf/suspense-boundary (element "
-                (pr-str el) ") is a streaming-only "
-                "marker recognised by the streaming "
-                "shell walker (re-frame.ssr.ring/"
-                "stream-handler), not the standard "
-                "emitter. It reached render-to-string "
-                "outside a stream — that path cannot "
-                "resolve the boundary's continuation, "
-                "so it would emit a phantom "
-                "<suspense-boundary> DOM element. Use "
-                "stream-handler to render trees "
-                "containing :rf/suspense-boundary.")
-           {:recovery :render-via-stream-handler
-            :extra    {:element el}})
+         (let [el (diagnostic/safe-form el)]
+           (error/throw-error!
+             :rf.error/ssr-suspense-boundary-outside-stream
+             'rf.ssr/emit
+             (str ":rf/suspense-boundary (element "
+                  (pr-str el) ") is a streaming-only "
+                  "marker recognised by the streaming "
+                  "shell walker (re-frame.ssr.ring/"
+                  "stream-handler), not the standard "
+                  "emitter. It reached render-to-string "
+                  "outside a stream — that path cannot "
+                  "resolve the boundary's continuation, "
+                  "so it would emit a phantom "
+                  "<suspense-boundary> DOM element. Use "
+                  "stream-handler to render trees "
+                  "containing :rf/suspense-boundary.")
+             {:recovery :render-via-stream-handler
+              :extra    {:element el}}))
 
          ;; An unrecognised head in the framework-reserved `:rf/*` scheme.
          ;; The recognised reserved heads are consumed above (`:<>`, `:>`,
