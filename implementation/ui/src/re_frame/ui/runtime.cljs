@@ -228,7 +228,12 @@
     (let [ks (rules/js-string-coerce k)]
       (if (unchecked-get seen ks)
         (js/console.warn
-         "[:rf.error/ui-duplicate-key] duplicate key in keyed list:" (pr-str k)
+         ;; rf2-q9q9y — `k` is a caller-supplied `:key` and reaches here only
+         ;; AFTER `js-string-coerce` (which is `(str v)`, bounded on a foreign
+         ;; value), so two cyclic keys collide at the same coerced string and
+         ;; arrive RAW at this warning. `error/pr-form` keeps the crossing
+         ;; total; a bare `pr-str` overflowed on the way into `console.warn`.
+         "[:rf.error/ui-duplicate-key] duplicate key in keyed list:" (error/pr-form k)
          "(keys compare after React string coercion)")
         (unchecked-set seen ks true))))
   k)
@@ -255,11 +260,15 @@
     (when (or (seq? x) (coll? x) (keyword? x) (symbol? x))
       (error/throw-error!
        :rf.error/ui-tree-malformed 're-frame.ui/render
-       (str "a dynamic child produced " (pr-str x) " — a runtime value "
+       ;; rf2-q9q9y — the guard admits only CLJS collections/seqs/keywords/
+       ;; symbols, so a raw foreign object never lands here; a collection
+       ;; HOLDING one does, and `[:p ctx.Provider]` is exactly that mixed
+       ;; chain. Message half `error/pr-form`, ex-data half `error/safe-form`.
+       (str "a dynamic child produced " (error/pr-form x) " — a runtime value "
             "cannot be a template. Strings/numbers/nil/false render; markup "
             "needs a view (or ui/raw for a host element); lists need "
             "(for ...) with :key")
-       {:extra {:value x}})))
+       {:extra (error/safe-form {:value x})})))
   x)
 
 ;; ---------------------------------------------------------------------------
@@ -298,11 +307,15 @@
   [x]
   (error/throw-error!
    :rf.error/ui-tree-malformed 're-frame.ui/slot
-   (str "a ui/slot received " (pr-str x) " — a slot accepts only a "
+   ;; rf2-q9q9y — `slot-ready?` routes EVERYTHING that is neither nil nor a
+   ;; marked render-fn here, so a React context provider (an ordinary
+   ;; authoring slip) arrives raw. Message half `error/pr-form`, ex-data half
+   ;; `error/safe-form`.
+   (str "a ui/slot received " (error/pr-form x) " — a slot accepts only a "
         "ui/render-fn value (author it as (ui/render-fn [args…] template)) "
         "or nil (renders nothing). Ordinary function props are opaque "
         "identity-compared values and are never invoked as slots")
-   {:extra {:value x}}))
+   {:extra (error/safe-form {:value x})}))
 
 (defn slot-ready?
   "Gate a `ui/slot` value: `nil` renders nothing (false); a `ui/render-fn`
@@ -936,11 +949,16 @@
   (when-not (or (fn? view) (object? view))
     (error/throw-error!
      :rf.error/ui-tree-malformed 're-frame.ui/->react
+     ;; rf2-q9q9y — the guard passes any `object?`, so a BARE provider never
+     ;; reaches this throw (measured). What does reach it: a hiccup vector,
+     ;; which the message itself anticipates, and a JS ARRAY, whose
+     ;; constructor is `js/Array` so `object?` is false. Both can carry a
+     ;; cycle. Message half `error/pr-form`, ex-data half `error/safe-form`.
      (str "(ui/->react view) needs a compiled re-frame.ui view (a `defview` "
-          "value — a React component), but received " (pr-str view)
+          "value — a React component), but received " (error/pr-form view)
           ". Pass the view itself, e.g. (def CartRow (ui/->react cart-row)); "
           "not its id keyword and not a rendered form")
-     {:extra {:value view}}))
+     {:extra (error/safe-form {:value view})}))
   (or (.get exported-component-cache view)
       (let [exported
             (fn rf-ui->react [props]

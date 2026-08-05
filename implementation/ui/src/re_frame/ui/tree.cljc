@@ -135,15 +135,25 @@
             (error/throw-error!
              :rf.error/ui-tree-malformed 're-frame.ui/render
              "a list row lost its :key — compiled keyed runs must carry keys"
-             {:extra {:row row}}))
+             ;; rf2-q9q9y — the EX-DATA-ONLY half of the crossing: this
+             ;; message prints nothing, so nothing overflowed at the thrower
+             ;; and a cyclic `row` rode out intact to explode at a downstream
+             ;; logger / projector / trace sink instead. `error/safe-form`
+             ;; closes it at the boundary that owns the value.
+             {:extra (error/safe-form {:row row})}))
           (let [ks (rules/js-string-coerce (:key row))]
             (if-let [prev (get seen ks)]
               (error/throw-error!
                :rf.error/ui-duplicate-key 're-frame.ui/render
-               (str "duplicate key " (pr-str (:key row)) " in a keyed list "
+               ;; rf2-q9q9y — `:key` is caller-supplied and reaches here only
+               ;; after `js-string-coerce` (`(str v)`, bounded on a foreign
+               ;; value), so two cyclic keys COLLIDE and arrive raw. `prev` is
+               ;; a previously-seen key and is equally caller-supplied, so the
+               ;; whole `:extra` crosses rather than the `:key` slot alone.
+               (str "duplicate key " (error/pr-form (:key row)) " in a keyed list "
                     "(keys compare after React's string coercion: key 1 "
                     "collides with key \"1\"). Keys must be unique per list site")
-               {:extra {:key (:key row) :collides-with prev}})
+               {:extra (error/safe-form {:key (:key row) :collides-with prev})})
               (recur (assoc! seen ks (:key row)) (inc i)))))
         nil))
     (with-meta rows {:rf.ui.tree/run true})))
@@ -401,10 +411,12 @@
   [x]
   (error/throw-error!
    :rf.error/ui-tree-malformed 're-frame.ui/slot
-   (str "a ui/slot received " (pr-str x) " — a slot accepts only a "
+   ;; rf2-q9q9y — the `tree` twin of `runtime/invalid-slot!`, crossed at the
+   ;; same two halves so the two host arms cannot drift.
+   (str "a ui/slot received " (error/pr-form x) " — a slot accepts only a "
         "ui/render-fn value (author it as (ui/render-fn [args…] template)) "
         "or nil (renders nothing)")
-   {:extra {:value x}}))
+   {:extra (error/safe-form {:value x})}))
 
 (defn slot-ready?
   "Gate a `ui/slot` value: nil renders nothing (false); a `ui/render-fn`
@@ -457,10 +469,14 @@
     (fn? v)     opaque-fn
     :else (error/throw-error!
            :rf.error/ui-tree-malformed 're-frame.ui/render
-           (str "a dynamic handler expression produced " (pr-str v)
+           ;; rf2-q9q9y — the throw is reached exactly when `v` is not
+           ;; nil/vector/map/fn, i.e. when it IS a foreign object. Message
+           ;; text is shared verbatim with `events/dynamic-handler`'s `:else`
+           ;; arm, so both crossed in the same change.
+           (str "a dynamic handler expression produced " (error/pr-form v)
                 " — handlers classify by type: event vector, options map,"
                 " handler fn, or nil")
-           {:extra {:value v}})))
+           {:extra (error/safe-form {:value v})})))
 
 (defn jvm-host-op!
   "Raise the typed host-op error for host-bearing features hit on the JVM

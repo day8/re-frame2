@@ -313,10 +313,14 @@
                 :else
                 (error/throw-error!
                  :rf.error/ui-tree-malformed 're-frame.ui/event
-                 (str "a (ui/event …) body produced " (pr-str result)
+                 ;; rf2-q9q9y — `result` is whatever the AUTHOR's committed
+                 ;; `ui/event` body returned, so a foreign value lands here
+                 ;; verbatim. Message half `error/pr-form`, ex-data half
+                 ;; `error/safe-form`.
+                 (str "a (ui/event …) body produced " (error/pr-form result)
                       " — a committed ui/event handler must return an event "
                       "vector to dispatch, or nil to dispatch nothing")
-                 {:extra {:value result}})))
+                 {:extra (error/safe-form {:value result})})))
 
             :fn
             ((.-value desc) native-event)
@@ -611,17 +615,25 @@
       (when (or (seq unknown) (not (vector? event)))
         (error/throw-error!
          :rf.error/ui-tree-malformed 're-frame.ui/render
+         ;; rf2-q9q9y — `v` is the author's options map and a cycle is
+         ;; reachable through any of its values. `unknown` holds its KEYS,
+         ;; which are equally author-supplied, so the whole `:extra` crosses
+         ;; rather than the `:value` slot alone.
          (str "a dynamic handler options map needs a vector :event and only "
-              "the closed handler-option keys; got " (pr-str v))
-         {:extra {:value v :unknown-keys (vec unknown)}}))
+              "the closed handler-option keys; got " (error/pr-form v))
+         {:extra (error/safe-form {:value v :unknown-keys (vec unknown)})}))
       (when (or capture passive)
         (error/throw-error!
          :rf.error/ui-tree-malformed 're-frame.ui/render
          (str "dynamic :capture/:passive listener options cannot change the "
               "native listener phase after compilation; write this options "
               "map literally at the element site")
-         {:extra {:value v :unsupported-dynamic-options
-                  (cond-> [] capture (conj :capture) passive (conj :passive))}}))
+         ;; rf2-q9q9y — the EX-DATA-ONLY half: this message never prints `v`,
+         ;; so nothing overflowed at the thrower and a cyclic `:event` inside
+         ;; the options map rode out to explode at a downstream sink instead.
+         {:extra (error/safe-form
+                  {:value v :unsupported-dynamic-options
+                   (cond-> [] capture (conj :capture) passive (conj :passive))})}))
       (when interop/debug-enabled?
         (warn-dynamic-placeholder! event debug-site)
         (warn-unregistered! event (.-frameId ^js (capture-or-throw!)) debug-site))
@@ -642,6 +654,10 @@
     :else
     (error/throw-error!
      :rf.error/ui-tree-malformed 're-frame.ui/render
-     (str "a dynamic handler expression produced " (pr-str v) " — handlers "
+     ;; rf2-q9q9y — reached exactly when `v` is not nil/vector/map/fn, i.e.
+     ;; when it IS a foreign object: `:on-click ctx.Provider` is the shape.
+     ;; The CLJS twin of `tree/classify-event`, same message text, crossed in
+     ;; the same change so the two host arms cannot drift.
+     (str "a dynamic handler expression produced " (error/pr-form v) " — handlers "
           "classify by type: event vector, options map, handler fn, or nil")
-     {:extra {:value v}})))
+     {:extra (error/safe-form {:value v})})))
