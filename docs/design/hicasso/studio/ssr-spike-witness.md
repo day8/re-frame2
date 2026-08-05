@@ -105,10 +105,11 @@ independent things moved it, and separating them is the point of this note.
   `report!` to publish `lane/utf8-bytes` where it had published `count`, which
   answers UTF-16 code units rather than bytes. Every corpus title on this screen
   carries an em dash, so the same document is **3,042 code units and 3,060
-  bytes**. That +18 is exactly the gap `rf2-2rtt6.114` derived on this same
-  document from the other side of the wire — `Buffer.byteLength` in the bake,
+  bytes**. That +18 is exactly the gap `rf2-2rtt6.114` derived on this document
+  from the other side of the wire — `Buffer.byteLength` in the bake,
   cross-checked against `fs.statSync` of the file it wrote — so two unrelated
-  instruments agree on the size of the error.
+  instruments agree on the size of the error. The gap survived the drift below
+  because the drift removed no em dash.
 - **The document changed, by −59.** `3,101` was the honest `count` of the
   document as it stood at the producing commit, and `rf2-2rtt6.114` read the
   same document at 3,101 code units / 3,119 bytes. `861ac3a059` (`rf2-2rtt6.91`)
