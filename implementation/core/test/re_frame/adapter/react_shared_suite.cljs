@@ -2933,7 +2933,7 @@
   The defect this pins: the Fragment-wrap after-render sentinel only
   enters the tree on the `:render`-slot path. The documented idiom mounts
   natively (createRoot + .render), bypassing `make-render`, so a natively-
-  mounted UIx app had NO sentinel — `(rf/after-render f)` degraded
+  mounted UIx app had NO sentinel — `(interop/after-render f)` degraded
   to a bare microtask FOREVER, defeating the post-commit-timing contract
   Reagent's global `r/after-render` honours regardless of mount path. The
   fix arms a per-adapter SINGLETON DRIVER ROOT the first time after-render
