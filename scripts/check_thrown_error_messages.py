@@ -1249,32 +1249,33 @@ def _run_self_tests(verbose: bool = False) -> int:
       * every `_STR_ERR_VAR_NAMES` spelling appears in a positive fixture.
     """
     _NO_TOKEN = "positive/bypass_let_bound_no_token.cljc"
+    BYPASS = "builder-bypass-message|"
     cases: list[tuple[str, frozenset[str]]] = [
         # (fixture-file relative to fixture-root, exact set of site names)
         # --- positives: each bare-keyword message shape must FIRE ---
         ("positive/literal_keyword_string.cljc",
-         frozenset({"<positive/literal_keyword_string.cljc>"})),
+         frozenset({"literal-keyword-string|<positive/literal_keyword_string.cljc>"})),
         ("positive/literal_keyword_multiline.cljc",
-         frozenset({"<positive/literal_keyword_multiline.cljc>"})),
+         frozenset({"literal-keyword-string|<positive/literal_keyword_multiline.cljc>"})),
         ("positive/str_literal_keyword.cljc",
-         frozenset({"<positive/str_literal_keyword.cljc>"})),
+         frozenset({"str-literal-keyword|<positive/str_literal_keyword.cljc>"})),
         ("positive/str_error_kw_var.cljc",
-         frozenset({"<positive/str_error_kw_var.cljc>"})),
+         frozenset({"str-error-keyword-var|<positive/str_error_kw_var.cljc>"})),
         ("positive/str_error_id_var.cljc",
-         frozenset({"<positive/str_error_id_var.cljc>"})),
+         frozenset({"str-error-keyword-var|<positive/str_error_id_var.cljc>"})),
         # The three `_STR_ERR_VAR_NAMES` spellings that had no fixture.
         ("positive/str_remaining_err_var_names.cljc", frozenset({
-            ":rf.error/str-error-keyword-var",
-            ":rf.error/str-err-kw-var",
-            ":rf.error/str-err-id-var",
+            "str-error-keyword-var|:rf.error/str-error-keyword-var",
+            "str-error-keyword-var|:rf.error/str-err-kw-var",
+            "str-error-keyword-var|:rf.error/str-err-id-var",
         })),
         ("positive/str_id_of_payload.cljc",
-         frozenset({"<positive/str_id_of_payload.cljc>"})),
+         frozenset({"str-id-of-payload|<positive/str_id_of_payload.cljc>"})),
         # --- positives for the WIDENED builder-bypass rule (rf2-krrv87) ---
         ("positive/bypass_str_concat_no_token.cljc",
-         frozenset({"<positive/bypass_str_concat_no_token.cljc>"})),
+         frozenset({"builder-bypass-message|<positive/bypass_str_concat_no_token.cljc>"})),
         ("positive/bypass_plain_string_no_token.cljc",
-         frozenset({"<positive/bypass_plain_string_no_token.cljc>"})),
+         frozenset({"builder-bypass-message|<positive/bypass_plain_string_no_token.cljc>"})),
         # --- positives for the let-binding resolution (rf2-u3otj): resolving a
         #     local must not become a way to PASS. A bound form with no token,
         #     an unresolvable parameter, the computed discriminator, a sibling
@@ -1283,12 +1284,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         #     The computed-discriminator site builds its id across lines, so it
         #     is the one that answers to the file rather than to an id.
         (_NO_TOKEN, frozenset({
-            ":rf.error/bound-but-bare",
-            ":rf.error/param-message",
-            f"<{_NO_TOKEN}>",
-            ":rf.error/sibling-scope",
-            ":rf.error/shadowed-away",
-            ":rf.error/destructured",
+            BYPASS + ":rf.error/bound-but-bare",
+            BYPASS + ":rf.error/param-message",
+            BYPASS + f"<{_NO_TOKEN}>",
+            BYPASS + ":rf.error/sibling-scope",
+            BYPASS + ":rf.error/shadowed-away",
+            BYPASS + ":rf.error/destructured",
         })),
         # --- positives for the SCOPE PROOF (rf2-u3otj / the #7045 and #7064
         #     audits): a binder between the conformant outer `let` and the
@@ -1296,17 +1297,17 @@ def _run_self_tests(verbose: bool = False) -> int:
         #     fire — the #7045 nested-`fn`-parameter witness first, the #7064
         #     `fn` SELF-REFERENCE NAME (single- and multi-arity) last.
         ("positive/bypass_let_bound_shadowed.cljc", frozenset({
-            ":rf.error/fn-param-shadow",
-            ":rf.error/loop-shadow",
-            ":rf.error/if-let-shadow",
-            ":rf.error/doseq-shadow",
-            ":rf.error/catch-shadow",
-            ":rf.error/destructured-shadow",
-            ":rf.error/letfn-shadow",
-            ":rf.error/as-shadow",
-            ":rf.error/arity-shadow",
-            ":rf.error/fn-name-shadow",
-            ":rf.error/fn-name-arity-shadow",
+            BYPASS + ":rf.error/fn-param-shadow",
+            BYPASS + ":rf.error/loop-shadow",
+            BYPASS + ":rf.error/if-let-shadow",
+            BYPASS + ":rf.error/doseq-shadow",
+            BYPASS + ":rf.error/catch-shadow",
+            BYPASS + ":rf.error/destructured-shadow",
+            BYPASS + ":rf.error/letfn-shadow",
+            BYPASS + ":rf.error/as-shadow",
+            BYPASS + ":rf.error/arity-shadow",
+            BYPASS + ":rf.error/fn-name-shadow",
+            BYPASS + ":rf.error/fn-name-arity-shadow",
         })),
         # --- negatives: every conformant counterpart must stay GREEN ---
         ("negative/human_message_builder.cljc",      frozenset()),
@@ -1347,8 +1348,15 @@ def _run_self_tests(verbose: bool = False) -> int:
             continue
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         findings = scan(path, include_tests=True)
+        # The KIND is half the witness. A site names WHERE the gate looked; the
+        # kind names WHICH RULE answered, and the two are independent: deleting
+        # three names from `_STR_ERR_VAR_NAMES` left every site in
+        # `str_remaining_err_var_names.cljc` still firing — as
+        # `builder-bypass-message` instead, since a bare `(str err-kw)` message
+        # carries no token either. Same lines, same count, same site names, a
+        # detector dead. Only the kind tells them apart.
         actual = frozenset(
-            _witness_of(lines, fixture, f.line) for f in findings
+            f"{f.kind}|{_witness_of(lines, fixture, f.line)}" for f in findings
         )
         if actual != expected:
             failures += 1
