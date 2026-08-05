@@ -1385,14 +1385,191 @@
   [argv i]
   (map? (nth argv i nil)))
 
+;; ---------------------------------------------------------------------------
+;; The minted key warnings — DEVELOPMENT ONLY (rf2-2rtt6.104)
+;; ---------------------------------------------------------------------------
+;;
+;; React already warns about an unkeyed list, and this does not replace it
+;; or suppress it. What React cannot say is the AUTHORING fact: its message
+;; names a component stack and its dedupe is keyed on the parent TAG name
+;; (`ownerHasKeyUseWarning` in react-dom-client's development build), so
+;; after the first unkeyed list under any `:ul` on the page, every later
+;; `:ul` site is silent for the life of that page. At those later sites this
+;; warning is the only signal on the console — which is why it names the
+;; enclosing view rather than leaning on React's owner clause.
+
+(def ^:private keywarn
+  "The warning's whole state: who is lowering, and which sites have
+  already spoken. `nil` in production — every reader below sits behind
+  `goog.DEBUG`, so under `:advanced` the object, the `Set` and every
+  message string fold away with the branches that reach them.
+
+  Plain `def` rather than `defonce`: an app-code edit never re-mints it
+  (the codec requires no app code, so shadow-cljs's reload does not reach
+  it), while a framework-dev edit of THIS file does — which is the
+  behaviour a codec author wants and an app author cannot observe. A full
+  page reload resets it either way, which is React's own semantics for
+  the same dedupe."
+  (when ^boolean js/goog.DEBUG
+    #js {"owner" nil "warned" (js/Set.)}))
+
+(defn set-lowering-owner!
+  "Dev-only seam: name the view whose body is being lowered, or `nil` to
+  clear. A no-op in production builds.
+
+  **For the arm's runtime shell and for the tests, never for authors** —
+  the same class as [[reset-caches!]]. The arm's `run-once` sets it before
+  a body's hiccup is lowered and clears it in the `finally` it already
+  has, so an `as-element` reached outside a body run — the root, an
+  outward bridge, a deferred lowering inside `presence` or an error
+  boundary, a direct call from a test — observes `nil` and the warnings
+  below drop their owner clause rather than naming a stale view.
+
+  ## Two halves, one pinnable
+
+  *Forgetting to CLEAR* would mis-attribute, and is pinned: setting a
+  non-nil owner over a non-nil one is an unbalanced pair and says so on
+  the console. Any future lowering entry point that skips its `finally`
+  is caught deterministically at the next boundary render in dev.
+
+  *Forgetting to SET* is *not* pinnable, and this docstring is the
+  declaration the design owes: a test cannot cover an entry point that
+  does not exist yet. A future lowering entry point that adds no set/clear
+  pair degrades the warnings to their ownerless wording — never to a wrong
+  name, because the clear-in-`finally` guarantees `nil` rather than
+  staleness. The obligation is on the entry point: add the pair."
+  [view-name]
+  (when ^boolean js/goog.DEBUG
+    (let [prior (unchecked-get keywarn "owner")]
+      (when (and (some? view-name) (some? prior) (exists? js/console))
+        (.warn js/console
+               (str "[hicasso] A boundary body began lowering while `" prior
+                    "` was still recorded as the enclosing view. The "
+                    "set/clear pair around a body run is unbalanced, so a "
+                    "key warning may name the wrong view. The lowering entry "
+                    "point that set the owner must clear it in a `finally`.")))
+      (unchecked-set keywarn "owner" view-name)))
+  nil)
+
+(defn- ^boolean plain-key?
+  "Is this `:key` value one React can coerce to a stable string without
+  reading anything the author will edit? Asked FIRST of every member of
+  every seq in a dev build, so it is three `typeof`-class tests and
+  nothing dearer — deliberately not `coll?`, which for anything without
+  the `ICollection` marker falls through to `native-satisfies?` and is
+  the dearest predicate on this path (the same accounting as
+  [[realize-entry]]'s `keyword?` short-circuit)."
+  [k]
+  (or (string? k) (number? k) (keyword? k)))
+
+(defn- key-shape
+  "What the author put at `:key`, named rather than printed. The VALUE
+  never reaches the console: a foreign or cyclic value would blow
+  `pr-str` inside a diagnostic, and the author already knows what they
+  wrote — what they need is the view, the child and the hazard."
+  [k]
+  (cond (map? k) "a map" (vector? k) "a vector" (set? k) "a set" :else "a collection"))
+
+(defn- warn-member-key!
+  "One console line per site, where a site is *(enclosing view, member
+  head, which hazard)*. Built only on detection, never on the render
+  path."
+  [head kind i]
+  (let [owner  (unchecked-get keywarn "owner")
+        member (head-name head)
+        seen   (unchecked-get keywarn "warned")
+        site   (str owner "|" member "|" kind)]
+    (when-not (.has seen site)
+      (.add seen site)
+      (when (exists? js/console)
+        (.warn js/console
+               (if (= kind "missing")
+                 (str "[hicasso] Unkeyed boundary children"
+                      (if owner (str " in the body of " owner) "")
+                      ": a seq of " member " members has no :key (absent or "
+                      "nil; first at index " i ")."
+                      " Give each one a :key in its props map —"
+                      " [child {:key id, …}] — so the list keeps identity"
+                      " across reorder and removal; a key written as Reagent"
+                      " metadata is not read here. React's own warning names"
+                      " the component stack and fires once per parent tag"
+                      " name; this one names the authoring site and fires"
+                      " once per site, in development builds only."
+                      " [:rf.warning/hicasso-missing-key]")
+                 (str "[hicasso] Entity-valued :key on boundary children"
+                      (if owner (str " in the body of " owner) "")
+                      ": a seq of " member " members carries " kind
+                      " at :key (first at index " i ")."
+                      " React coerces a key to a string, so a collection keys"
+                      " the child by its CONTENT — edit the entity and the"
+                      " child silently remounts, losing focus, scroll position"
+                      " and any presence retention. Key on a stable identifier"
+                      " instead — [child {:key (:id entity), …}]. Warned once"
+                      " per site, in development builds only."
+                      " [:rf.warning/hicasso-entity-key]"))))))
+  nil)
+
+(defn- check-seq-keys!
+  "Scan one lowered child seq for boundary members React will reconcile
+  by position. Called from the two places a bare seq of children exists
+  as a value: [[expand-seq]], which every native, fragment and host
+  parent reaches through `make-element`; and [[realize-children]]'s
+  one-level flatten, which is the crossing INTO a boundary — a shape
+  whose array-ness the flatten erases before React can see it, so
+  without this call site nothing would warn at all.
+
+  Every member is scanned every time, uniform with the keyed steady
+  state that pays the full walk anyway. Stopping at the first offender
+  would save work only on the broken list the author is about to fix,
+  and would hide a second unkeyed head until the first was repaired.
+  The dedupe is on the SITE, so console volume stays at one line per
+  site per page load either way.
+
+  The predicate order is the cost: `vector?` first, then the props-map
+  `:key` read, then [[plain-key?]] — which is where a keyed member
+  leaves, on a `typeof`. [[boundary-head?]]'s own-property read is asked
+  LAST, so an unkeyed `[:li …]` costs one `fn?` and no more. Nested seqs
+  need no code: a seq member is not a vector, and its own expansion
+  checks its own members — HD-016's one level at a time.
+
+  Priced in a dev build rather than asserted (this file's standing rule):
+  see the pre-pass row in the PR that landed rf2-2rtt6.104."
+  [s]
+  (loop [items (seq s)
+         i     0]
+    (when items
+      (let [m (first items)]
+        (when (vector? m)
+          (let [p (nth m 1 nil)
+                k (when (map? p) (:key p))]
+            (when-not (plain-key? k)
+              (when (boundary-head? (nth m 0 nil))
+                (cond
+                  (nil? k)  (warn-member-key! (nth m 0 nil) "missing" i)
+                  (coll? k) (warn-member-key! (nth m 0 nil) (key-shape k) i)))))))
+      (recur (next items) (inc i))))
+  nil)
+
 (defn realize-children
   "The trailing forms of `argv` from `first-child`, realized once into a
   vector and flattened exactly one level — a nested seq splices, a nested
   *vector* does not, because a vector is hiccup. Returns nil when there
-  are none, so `(:children props)` is absent rather than empty."
+  are none, so `(:children props)` is absent rather than empty.
+
+  The dev-only [[check-seq-keys!]] call in the `seq?` branch is the one
+  place the CROSSING shape is visible. `[a-view {…} (for …)]` hands a
+  dynamic list to a view that will splice it, and the flatten below turns
+  those members into direct arguments — which React marks validated and
+  therefore never warns about. This branch, where the seq is still in hand
+  and the enclosing body's owner slot is still set, is the only chance
+  anything has to say so (rf2-2rtt6.104)."
   [argv first-child]
   (when (< first-child (count argv))
-    (let [flat (reduce (fn [acc c] (if (seq? c) (into acc c) (conj acc c)))
+    (let [flat (reduce (fn [acc c]
+                         (if (seq? c)
+                           (do (when ^boolean js/goog.DEBUG (check-seq-keys! c))
+                               (into acc c))
+                           (conj acc c)))
                        []
                        (subvec argv first-child))]
       (when (seq flat) flat))))
@@ -1608,8 +1785,17 @@
   "A seq of children as a JS array of elements. One pass, driven by the
   seq's own exhaustion rather than by each child's truthiness, so an
   interior `nil` — the `(for [x xs] (when pred [:li …]))` shape — does not
-  truncate the list."
+  truncate the list.
+
+  The dev-only [[check-seq-keys!]] pre-pass is a separate walk rather
+  than a test inside the loop below, so the shipping loop is byte-identical
+  to what it was: under `:advanced` the gate folds to `false` and the call
+  goes with it. A `LazySeq` caches, so the expansion re-reads cached cells;
+  anything the pre-pass forces is forced inside the same body-render window
+  it would have been forced in anyway, so attribution does not move
+  (rf2-2rtt6.104)."
   [s]
+  (when ^boolean js/goog.DEBUG (check-seq-keys! s))
   (let [a #js []]
     (loop [items (seq s)]
       (when items
