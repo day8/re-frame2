@@ -447,21 +447,122 @@ function handlerSites(s) {
 }
 
 /**
- * The array a handler pushes into: the sink whose reader section 3b checks for.
+ * The source with every comment and string/template literal blanked to spaces,
+ * LENGTH AND EVERY INDEX PRESERVED, so it can be compared against positions
+ * taken from the unmasked text.
+ *
+ * WHY A READER CHECK NEEDS THIS. `sinkIsRead` below asks whether an identifier
+ * occurs anywhere that is not a write. A mention of the array in a trailing
+ * comment (`const errors = []; // errors collector only`) or inside a printed
+ * message is not a read of it, and counting one as a read passes a driver whose
+ * array nobody consults — the exact fail-open this file exists to forbid, this
+ * time hiding in the gate. `code()` above blanks comment-ONLY lines, which is
+ * the right scrub for finding registrations but leaves both of those standing.
+ *
+ * THE ONE THING IT DOES NOT LEX IS A REGEX LITERAL, and the omission is bounded
+ * rather than hoped about: a `'` or `"` that finds no partner before the newline
+ * is put back as a lone character, so a character class like `/^"|"$/` (three
+ * drivers parse CSV with exactly that) can blank at most a few characters of its
+ * own line and can never run on into the next. It hides no identifier, and the
+ * fixtures below pin the behaviour rather than assuming it.
+ */
+function maskLiterals(s) {
+  const out = s.split('');
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < out.length; k += 1) if (out[k] !== '\n') out[k] = ' ';
+  };
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    const d = s[i + 1];
+    if (c === '/' && d === '/') {
+      const nl = s.indexOf('\n', i);
+      const end = nl === -1 ? s.length : nl;
+      blank(i, end);
+      i = end;
+    } else if (c === '/' && d === '*') {
+      const close = s.indexOf('*/', i + 2);
+      const end = close === -1 ? s.length : close + 2;
+      blank(i, end);
+      i = end;
+    } else if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      let closed = false;
+      while (j < s.length) {
+        if (s[j] === '\\') {
+          j += 2;
+          continue;
+        }
+        if (s[j] === c) {
+          closed = true;
+          break;
+        }
+        if (s[j] === '\n' && c !== '`') break; // not a string: `'` and `"` cannot span lines
+        j += 1;
+      }
+      if (!closed) {
+        i += 1; // a lone quote — a regex class, an apostrophe — consumes nothing
+      } else {
+        blank(i, j + 1);
+        i = j + 1;
+      }
+    } else {
+      i += 1;
+    }
+  }
+  return out.join('');
+}
+
+/** A driver read once: its code-only text, and the same text with literals gone. */
+const scan = (s) => ({ s, masked: maskLiterals(s) });
+
+/**
+ * The array a handler pushes into: the sink whose reader is checked below.
  *
  * Inline handlers name it directly. A handler registered BY NAME is followed
  * once to its declaration — the same single hop the offender loop already
  * makes — and the sink is read from there.
+ *
+ * `pushAt` IS THE EXACT SPAN OF THE PUSH THIS FOLLOWED, not the window it was
+ * found in. The two used to be the same thing — `{from: site.at, to: site.at +
+ * 220}` — and that is the defect this replaces: the reader below excluded every
+ * occurrence in those 220 characters as "the push itself", so a genuine
+ * `if (errors.length) process.exit(1)` sitting one line under the registration
+ * was thrown away with it and the driver reported UNREAD. Both halves of a
+ * handler and its refusal fit inside 220 characters comfortably; that is how
+ * they are usually written.
  */
-function sinkOf(s, site) {
+function sinkOf({ s }, site) {
   const inline = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(site.body);
-  if (inline) return { name: inline[1], from: site.at, to: site.at + 220 };
+  if (inline) return { name: inline[1], pushAt: site.at + inline.index };
   const named = /page\.on\(\s*['"]pageerror['"]\s*,\s*([A-Za-z_$][\w$]*)\s*\)/.exec(site.body);
   if (!named) return null;
   const declAt = s.search(new RegExp(`\\b${named[1]}\\s*=\\s*\\(`));
   if (declAt === -1) return null;
   const push = /([A-Za-z_$][\w$]*)\s*\.push\(/.exec(s.slice(declAt, declAt + 400));
-  return push ? { name: push[1], from: declAt, to: declAt + 400 } : null;
+  return push ? { name: push[1], pushAt: declAt + push.index } : null;
+}
+
+/**
+ * Is the sink consulted anywhere that is neither a write nor its declaration?
+ *
+ * Every exclusion is an EXACT test on one occurrence — the span of the push
+ * this sink was followed from, an occurrence written into by another `.push(`,
+ * an occurrence being declared or reset with `= []` — so nothing is discarded
+ * for the crime of being near the handler. Occurrences are taken from the
+ * masked text, so a comment or a message that happens to spell the array's name
+ * is not mistaken for a use of it.
+ */
+function sinkIsRead({ masked }, sink) {
+  const ref = new RegExp(`\\b${sink.name}\\b`, 'g');
+  for (let m; (m = ref.exec(masked)); ) {
+    if (m.index === sink.pushAt) continue; // the push this sink was found by
+    const after = masked.slice(m.index + sink.name.length);
+    if (/^\s*\.push\(/.test(after)) continue; // another write
+    if (/^\s*=\s*\[\s*\]/.test(after)) continue; // the declaration, or a reset
+    return { read: true, at: m.index };
+  }
+  return { read: false, at: -1 };
 }
 
 test('NO bench driver installs a pageerror handler that only prints (rf2-sib23)', () => {
@@ -518,21 +619,12 @@ test("every LOCAL collector's sink is READ, not merely pushed into (rf2-sib23)",
   // argued against.
   const offenders = [];
   for (const { file, src: s } of benchDrivers()) {
+    const sc = scan(s);
     for (const site of handlerSites(s)) {
-      const sink = sinkOf(s, site);
+      const sink = sinkOf(sc, site);
       // No sink at all is the offender check's business, not this one's.
       if (!sink) continue;
-      const ref = new RegExp(`\\b${sink.name}\\b`, 'g');
-      let read = false;
-      for (let m; (m = ref.exec(s)); ) {
-        if (m.index >= sink.from && m.index < sink.to) continue; // the push itself
-        const after = s.slice(m.index + sink.name.length);
-        if (/^\s*\.push\(/.test(after)) continue; // another write
-        if (/^\s*=\s*\[\s*\]/.test(after)) continue; // the declaration
-        read = true;
-        break;
-      }
-      if (!read) offenders.push(`${path.relative(IMPL, file)}: ${sink.name}`);
+      if (!sinkIsRead(sc, sink).read) offenders.push(`${path.relative(IMPL, file)}: ${sink.name}`);
     }
   }
   assert.deepStrictEqual(
@@ -541,6 +633,181 @@ test("every LOCAL collector's sink is READ, not merely pushed into (rf2-sib23)",
     'a local pageerror array that nothing reads is the same fail-open as a bare handler with '
       + 'one extra line — collect it AND refuse on it (sentinel.cjs, rf2-sib23)'
   );
+});
+
+// ---------------------------------------------------------------------------
+// 3c. THE READER CHECK, CHECKED — fixtures the fleet cannot supply.
+// ---------------------------------------------------------------------------
+//
+// A green fleet says nothing about whether the reader check WORKS. The whole
+// fleet passed while both of its answers were wrong in opposite directions, and
+// it passed for the ordinary reason a derived check passes: no driver in the
+// tree happened to wear either shape. That is luck, and luck expires the next
+// time somebody writes a driver.
+//
+// So the predicate is driven directly, on sources written to be exactly the two
+// classes that were misjudged plus the neighbours that must keep working. These
+// are executable: each string goes through the real `handlerSites`, the real
+// `sinkOf` and the real `sinkIsRead`, so a regression in any of the three shows
+// up here even when every driver on disk stays sound. THE FIRST TWO FAIL ON THE
+// PREDICATE THIS COMMIT REPLACED — that is why they are here rather than a note.
+
+const READER_FIXTURES = [
+  {
+    id: 'the refusal sits one line under the registration',
+    read: true,
+    // #7517's first misjudgement: within 220 characters of `page.on`, so the
+    // old window swallowed it and called a refusing driver an offender.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'if (errors.length) {',
+      "  console.error('[x] the page threw and kept going');",
+      '  process.exit(1);',
+      '}',
+    ].join('\n'),
+  },
+  {
+    id: 'a trailing comment names the array and nothing else does',
+    read: false,
+    // #7517's second misjudgement, and the dangerous direction: the comment's
+    // `errors` fell outside the excluded window, so it counted as a read and
+    // an unread collector passed the class check.
+    src: [
+      'const errors = []; // errors collector only',
+      "page.on('pageerror', (e) => errors.push(e));",
+      "console.error('[x] ok');",
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'a printed message names the array and nothing else does',
+    read: false,
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      "console.error('[x] errors are recorded');",
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'the refusal is far below the registration',
+    read: true,
+    // The shape the old predicate got right, kept so the repair cannot be a
+    // swap of one blind spot for another.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      // Real statements, not comments: `code()` would blank comment lines and
+      // the read would land back inside 220 characters, testing nothing.
+      'const filler = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];\n'.repeat(8),
+      'if (errors.length) process.exit(1);',
+    ].join('\n'),
+  },
+  {
+    id: 'a second handler writing the same array is not a read',
+    read: false,
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      "page.on('console', (m) => errors.push(m.text()));",
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'a handler registered BY NAME whose array is read',
+    read: true,
+    // `z3vlz_run.cjs`'s shape: the sink is reached by following the name once.
+    src: [
+      'const pageErrors = [];',
+      'const onError = (e) => {',
+      '  pageErrors.push(e.message);',
+      '};',
+      "page.on('pageerror', onError);",
+      'if (pageErrors.length) process.exit(1);',
+    ].join('\n'),
+  },
+  {
+    id: 'a handler registered BY NAME whose array is never read',
+    read: false,
+    src: [
+      'const pageErrors = [];',
+      'const onError = (e) => {',
+      '  pageErrors.push(e.message);',
+      '};',
+      "page.on('pageerror', onError);",
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'a DOUBLE-QUOTED registration is judged the same as a single-quoted one',
+    read: true,
+    // The quote-agnostic repair reaches the sink path too, not just the
+    // offender loop it was written for.
+    src: [
+      'const errors = [];',
+      'page.on( "pageerror", (e) => errors.push(e));',
+      'if (errors.length) process.exit(1);',
+    ].join('\n'),
+  },
+  {
+    id: "a regex character class full of quotes does not blind the reader",
+    read: true,
+    // The masker's documented limit, pinned rather than assumed. `b7_run.cjs`,
+    // `reads_ladder_run.cjs` and `spine_ablation_run.cjs` all parse CSV with
+    // this exact expression a few lines from their handler.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'const fields = line.split(\',\').map((s) => s.trim().replace(/^"|"$/g, \'\'));',
+      'if (errors.length) process.exit(1);',
+    ].join('\n'),
+  },
+];
+
+test('the local-sink reader check answers the two shapes that fooled it (rf2-sib23)', () => {
+  for (const f of READER_FIXTURES) {
+    const sc = scan(code(f.src));
+    const sites = handlerSites(sc.s);
+    assert.strictEqual(sites.length, 1, `fixture "${f.id}": expected one handler site`);
+    const sink = sinkOf(sc, sites[0]);
+    assert.ok(sink, `fixture "${f.id}": expected a sink to be found`);
+    assert.strictEqual(
+      sinkIsRead(sc, sink).read,
+      f.read,
+      `fixture "${f.id}": the sink \`${sink.name}\` is ${f.read ? 'READ' : 'UNREAD'}, `
+        + `and the check said otherwise`
+    );
+  }
+});
+
+test('the mask blanks comments and strings, and preserves every index', () => {
+  // `sinkIsRead` compares positions taken from the unmasked text against the
+  // masked text. If the mask ever changed a length the comparison would be
+  // silently wrong rather than loudly broken, so the property is pinned.
+  const s = [
+    "const a = 'one'; // two",
+    '/* three */ const b = `four',
+    'five`;',
+    "const re = /^\"|\"$/g;",
+  ].join('\n');
+  const m = maskLiterals(s);
+  assert.strictEqual(m.length, s.length, 'the mask must preserve length');
+  assert.strictEqual(
+    m.split('\n').length,
+    s.split('\n').length,
+    'the mask must preserve line count'
+  );
+  for (const gone of ['one', 'two', 'three', 'four', 'five']) {
+    assert.ok(!m.includes(gone), `\`${gone}\` is inside a comment or string and must be blanked`);
+  }
+  for (const kept of ['const a', 'const b', 'const re']) {
+    assert.ok(m.includes(kept), `\`${kept}\` is code and must survive the mask`);
+  }
+  // The documented limit: a lone quote inside a regex class blanks a little of
+  // its OWN line and never runs on. `const re` above survives, and so does the
+  // line after it.
+  assert.strictEqual(m.split('\n').length, 4);
 });
 
 test('every driver that uses the shared collector also READS its failures', () => {
