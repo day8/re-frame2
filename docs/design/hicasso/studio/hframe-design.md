@@ -235,6 +235,73 @@ The contrast still holds; its explanation changed.
 
 ---
 
+## 8a. What was actually built (`rf2-841vn`)
+
+`(h/frame)` is `intent/hframe` in `front/intent.cljs` — the var's own namespace,
+the first home §10 offers. Spelled `hframe` for the reason `lang/hfn` is spelled
+`hfn`: the product name is qualified, and a bare `frame` would shadow the
+`re-frame.frame` alias every namespace in this arm carries. No core edits, no
+codec/shell/collector changes, no new React hook.
+
+**W10 was inverted, and here is what the row now asserts.** `(rf/capture-frame)`
+0-arity inside a body refuses, with `:operation :capture-frame`,
+`:substrate :hicasso` and `:extent 'hicasso/boundary-render`. The *"under every
+adapter"* half is settled **structurally rather than by trying adapters** — Spec
+006 allows one substrate per process, so a row that tried three would still not
+be the claim. Instead the `:adapter/current-frame` hook is wrapped with a counter:
+inside a refused body it is reached **zero** times, and a control one call outside
+the body proves it is reached there. The only part of the resolution chain that
+differs between adapters is the tier that is withdrawn, so no adapter can change
+the answer. The rows live with their siblings in `arm1/ambient_refusal_cljs_test`,
+because a carry refusing is a fact about the refusal (`rf2-hnrww`) rather than
+about this primitive.
+
+**The error id is `:rf.error/hicasso-frame-outside-boundary`** — §9's
+recommendation, matching the arm's `:rf.error/hicasso-intent-outside-boundary`.
+Confirming it against Spec 009 was the instruction, and the answer is that **no
+Hicasso arm error id is catalogued there**: `git grep 'rf.error/hicasso' -- spec/`
+is empty, which is what HD-017's bench-lane residence implies. So no catalogue
+row is owed, and the question reopens if and when the arm graduates.
+
+**The provisional id did not leak.** `:rf.error/ambient-frame-refused` is written
+in exactly one place in the new work — nowhere. The carry rows pin *"the same id
+an ambient read gets"*, taken live from a sibling row, so `rf2-k0rbk`'s rename
+touches the one pre-existing anchor rather than five new sites.
+
+**W7 could not be built, and it is not a shortfall.** The row needs the `[:>]`
+value-first door; `front/codec.cljs` says at the site that the raw escape *"stays
+unbuilt here, deliberately"*, so a witness would have had to mint its own
+`[:>]`-shaped thing and would then be witnessing the test's construction.
+Filed as `rf2-zllp8` against whichever bead ships the escape. Everything W7
+depends on is pinned elsewhere — the composition firing after the extent unwinds,
+and `(h/frame)` answering the supplying boundary inside a render callback, which
+is the closest live analogue of a foreign value-first invoker.
+
+**One new finding, pinned but not endorsed.** The refusal withdraws the ambient
+find and never the carrying — so an enclosing `rf/with-frame` still answers
+inside a body, and `(rf/capture-frame)` there captures the **outer scope's**
+frame while the boundary renders a different one. Core is correct per EP-0002:
+that stamp *was* carried. But the same body's collector reads and lowered intents
+all target the boundary's frame, so one body ends up with two frames selected by
+which spelling the author reached for. `(rf/capture-frame (h/frame))` is immune,
+which is the sharpest available statement of what §2(3) buys. The design question
+is `rf2-nqj22`. It is also how the SSR rows were grounded: the shared test fixture
+root-binds `*current-frame*` to `:rf/default`, so the SSR witnesses opt out with
+`:ambient-frame nil` rather than measure the fixture.
+
+**Spec 009's catalogue row for the refusal is behind the code** — it enumerates
+`:operation` as `(:dispatch / :subscribe)`, and at least `:capture-frame` and
+`:current-frame-id` also reach `require-current-frame!`. Filed as `rf2-e28wl`,
+to sequence with `rf2-k0rbk`.
+
+**The guide half is still owed.** §10's guide bullet was fenced out of the
+implementation PR — a rename was landing in `draft-guide/` at the time — so the
+fx-first troubleshooting row, the contract-force sentence, and the `[:>]`
+dev-warning's "plain closure" spelling have not been written. The last of those
+is blocked on `[:>]` in any case (`rf2-zllp8`).
+
+---
+
 ## 9. What is NOT settled here — flagged for a ruling
 
 1. **The error id.** The design pass proposed
