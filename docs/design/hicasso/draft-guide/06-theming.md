@@ -81,7 +81,7 @@ visibility come free.
 
 ```clojure
 (rf/reg-sub :theme/current
-  (fn [db _query] (:theme/current db)))
+  (fn [db _query] (:theme/current db :light)))   ;; unset reads as :light
 
 (rf/reg-event :theme/choose
   (fn [{:keys [db]} [_ theme]] {:db (assoc db :theme/current theme)}))
@@ -89,6 +89,19 @@ visibility come free.
 
 App-db holds the *choice*. It does not hold the tokens, and it does not hold the
 part maps.
+
+**The default belongs in the sub, not in each reader.** A fresh app-db has made no
+choice, so a bare `(:theme/current db)` reads `nil`, and `nil` is then what every
+bridge below has to survive — starting with `name`, which throws on it and
+[takes the page down from a root view](09-when-a-view-throws.md). One extra
+argument makes the read total and states the fallback once. `:light` needs no rule
+of its own: `:root` in layer 1 *is* the light theme, so a `[data-theme="light"]`
+that matches nothing leaves it in force.
+
+An app that restores a remembered choice dispatches `:theme/choose` from
+[`:initial-events`](01-getting-started.md), which lands before first paint — so the
+default paints only when nobody has chosen, never as a flash in front of a late
+choice.
 
 ## Bridging the choice to the DOM
 
@@ -227,6 +240,7 @@ structural tests can see less of. Honest trade, stated once.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
+| Blank page on first load, console shows `Doesn't support name:` | Nobody had chosen a theme, the sub read `nil`, and `(name nil)` threw at the root | Give the sub a default, as layer 3 does |
 | The theme keyword changes in app-db and nothing on screen changes | No bridge is wired — app-db holds the choice; the cascade keys off a DOM attribute | Wire option A or B above; the event alone does nothing to the document |
 | Theme switch re-renders the whole app | Option A, with the themed content spliced in as a plain call rather than an `[app {}]` vector | Put the content behind a boundary (children or a direct `[app {}]`), or use option B |
 | A time-travel rewind shows the old theme | Option B — the attribute was asserted by an effect, so it is not derived from the state you rewound | Expected under B; it is the price named above |
