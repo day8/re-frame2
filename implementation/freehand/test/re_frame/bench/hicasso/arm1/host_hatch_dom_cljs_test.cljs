@@ -815,6 +815,100 @@
           (is (= [:hatch/closed] (:value d)))
           (is (re-find #":on-imperative" (ex-message e))))))))
 
+;; ---------------------------------------------------------------------------
+;; 5c — and what the declaration does NOT govern, an `h/fn` may not ask
+;;      (rf2-2rtt6.116)
+;; ---------------------------------------------------------------------------
+;;
+;; The complement of 5b, and the same law read from the other side.  5b
+;; says the CONTRACT the declaration named governs every carrier at that
+;; position.  At a slot the declaration named NOTHING there is no
+;; contract to govern with — so the marked form, whose entire content is
+;; a request that the position impose one, is asking a position that
+;; cannot answer.
+;;
+;; Before this it crossed by identity and simply ran, which is fine for
+;; a plain function and is a SILENTLY DEAD HANDLER for the marked one:
+;; the `:event` convenience means an `h/fn` returning `[:row/pick x]` at
+;; an unclaimed slot is called by the library, returns the intent, has
+;; the return discarded, and dispatches nothing.  The user's click does
+;; nothing, in production, with no diagnostic — the same class the
+;; sibling refusal on an undeclared intent VECTOR exists to delete, one
+;; level of indirection down.
+;;
+;; The rows below are a pair by construction, because a refusal that
+;; also rejected legitimate usage would be strictly worse than the
+;; silence it replaces: the RED row asserts the id, the `:where` and the
+;; roster, and the GREEN rows re-assert that every CLAIMED slot — a
+;; declared `:event`, a declared `:handler`, a declared `:render`,
+;; React's own `:ref` — still takes the marked form, and that a PLAIN
+;; function is untouched at the very slot the red row refuses.
+
+(deftest an-hfn-at-a-slot-nothing-claimed-is-refused
+  (testing "the mark asks the POSITION for a contract, and an unclaimed
+            slot has none to give — so the request is refused where the
+            author wrote it, rather than answered by silence a phase and
+            a component away"
+    (try
+      (crossed render-picker {:on-value-change (hfn [city] [:hatch/picked city "dead"])})
+      (is false "should have thrown")
+      (catch :default e
+        (let [d (ex-data e)]
+          (is (= :rf.error/hicasso-host-unclaimed-callback (:rf.error/id d))
+              "its own id, distinct from the sibling's: that one is intent
+               DATA at an event-SPELLED undeclared slot, this one is the
+               marked form at ANY unclaimed slot")
+          (is (= 'front.codec/host-element (:where d)))
+          (is (= :on-value-change (:position d)))
+          (is (re-find #"/render-picker$" (:host d))
+              "the host names ITSELF, so the message points at the
+               declaration the author would have to change")
+          (is (= #{"onPick" "onImperative" "onRenderRow"} (:declared d))
+              "the roster is the DECLARED slots as a set, so the message can
+               say what the author could have claimed instead")
+          (is (= :declare-the-slot-or-hand-a-plain-function (:recovery d)))
+          (is (re-find #":on-value-change" (ex-message e)))
+          (is (re-find #"or hand a plain function" (ex-message e))
+              "and it states the recovery in the message, not only in the
+               data — the author reads the message")))))
+
+  (testing "an on*-SPELLED unclaimed slot is the same refusal and not the
+            sibling's: the spelling never selected anything here either"
+    (is (= :rf.error/hicasso-host-unclaimed-callback
+           (error-id #(crossed render-picker {:on-nope (hfn [_] [:hatch/closed])})))))
+
+  (testing "and a slot with no on* spelling at all is refused just the same —
+            the mark is the trigger, never the name"
+    (is (= :rf.error/hicasso-host-unclaimed-callback
+           (error-id #(crossed render-picker {:row-formatter (hfn [x] (str x))})))))
+
+  (testing "GREEN — a PLAIN function at the very slot the rows above refuse
+            still crosses by identity. This is the fence: the refusal is on
+            the unanswered REQUEST, never on functions at the crossing"
+    (let [[el _] (crossed render-picker {:on-value-change identity})]
+      (is (identical? identity (prop el "onValueChange")))))
+
+  (testing "GREEN — every CLAIMED slot still takes the marked form, so the
+            refusal is not a blanket ban on h/fn at a host"
+    (let [[el !seen] (crossed render-picker
+                              {:on-pick (hfn [city e] [:hatch/picked city (.-type e)])})]
+      ((prop el "onPick") "lisbon" #js {:type "click"})
+      (is (= [[:hatch/picked "lisbon" "click"]] @!seen)
+          "declared :event — still wrapped, and the returned intent still
+           dispatches"))
+    (let [[el _] (crossed render-picker {:on-imperative stable-imperative})]
+      (is (identical? stable-imperative (prop el "onImperative"))
+          "declared :handler — still the function itself, by identity"))
+    (let [[el _] (crossed render-picker {:on-render-row (hfn [label] (str "row:" label))})]
+      (is (= "row:x" ((prop el "onRenderRow") "x"))
+          "declared :render — still the render wrapper"))
+    (let [f (hfn [node] (swap! !instr assoc :hfn-ref node) nil)]
+      (is (some? (first (crossed render-picker {:ref f})))
+          ":ref is CLAIMED — by React's own contract rather than by the
+           declaration (HD-016) — and it is read BEFORE the unclaimed arm,
+           so a callback ref written as an h/fn crosses rather than
+           refusing"))))
+
 (deftest a-dispatch-from-a-declared-render-position-names-the-position
   (testing "HD-024's core law at the door: the CONTRACT the declaration named
             decides, and a :render contract poisons the ambient frame-locked

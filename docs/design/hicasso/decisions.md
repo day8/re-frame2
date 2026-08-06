@@ -418,6 +418,66 @@ instance props can express.
 
 ## HD-011 — The interop door
 
+> **Addendum, 2026-08-06 — an `h/fn` at a prop slot NOTHING CLAIMED is refused
+> at the crossing (`rf2-2rtt6.116`).** The door already refuses an intent
+> *vector* at an event-spelled slot the declaration does not name, on the stated
+> ground that the alternative is the author's intent crossing as inert data —
+> *"the silently dead handler class every loud error in this codec exists to
+> delete"*. This extends that refusal to the same defect one level of
+> indirection down, and it changes a shipped ACCEPT, which is why it was
+> escalated rather than simply fixed.
+>
+> **What was accepted, and why it was a hole.** `host-entry` routes a prop four
+> ways — the `ref` slot, the class slot, a slot the declaration NAMES, and
+> everything else — and the last of those passed `fn?` through by identity.
+> `h/fn` marks a function and returns *that function* (HD-024's whole deletion),
+> so a marked callback at a slot no position claimed crossed as an ordinary
+> function. It is callable, so nothing threw. But the author wrote `h/fn` to
+> ASK FOR A CONTRACT and nothing selected one, and the `:event` contract's own
+> convenience makes that concrete: `[my-host {:on-pick (h/fn [x] [:row/pick
+> x])}]`, with `:on-pick` absent from `:callbacks`, is called by the library,
+> returns the intent, has the return discarded, and dispatches nothing. The
+> user's click does nothing, in production, with no diagnostic at all.
+>
+> **It is derived, not new policy.** `mint-host!` refuses an option it does not
+> know (`:rf.error/hicasso-host-unknown-option`) on exactly this reasoning,
+> recorded in this decision's addendum below: a policy could be written and
+> never applied, and *the silent-ignore was its own defect*. An `h/fn` whose
+> contract is never selected **is** a policy written and never applied.
+> `spec/Conventions.md` states the same law repo-wide: a recognised input that
+> cannot be honoured is signalled, never swallowed.
+>
+> **A dev-only WARNING was the other live arm, and it loses on its own terms.**
+> A warning fires under `goog.DEBUG` and is gone in production, which is exactly
+> where the dead click happens — it converts a silent production failure into a
+> silent production failure with a development courtesy. There is no `[:>]`
+> warning to be at parity with, either: the synthesized `[:>]` spec retracted
+> that grant and pins the escape's conduct to the door's. Against the refusal,
+> the counter-case — an author who writes `h/fn` from habit at a prop that needs
+> no contract — costs a five-second loud fix at their own stack, and `h/fn` is
+> taught as the ONE callback form, i.e. the form you write when the position
+> should impose a contract.
+>
+> **The shape.** One branch in `host-entry`'s `:else` arm, beside the
+> event-shaped-data refusal and ahead of `host-prop-value`:
+> `:rf.error/hicasso-host-unclaimed-callback`, naming the host, the position,
+> the declared roster and the recovery (*declare the slot in `:callbacks`, or
+> hand a plain function*). The id is deliberately a PAIR with the sibling's —
+> `undeclared-callback` is intent DATA at an event-spelled slot,
+> `unclaimed-callback` is the marked form at any unclaimed slot. Cost is a
+> `fn?` test plus one own-property read, in the host walk's `:else` arm only;
+> no claimed slot pays it, and the native walk is not on that path.
+>
+> **The fence.** A PLAIN function at an unclaimed slot is untouched and stays
+> legal — it is a value handed to a foreign API rather than a position, and it
+> asked for nothing. The marked form stays legal at every CLAIMED slot: a
+> declared `:event`, `:handler` or `:render`, and React's own `:ref`. No warning
+> tier, no dedup, no config knob, no invocation-time wrapper, and no inference
+> from an `on*` name — the mark is the trigger, never the spelling. **`[:>]`,
+> when it is built, flows through this same branch**: its roster is empty, so
+> every slot at that crossing is unclaimed, and the escape inherits the door's
+> conduct with no fork of its own.
+
 > **Addendum, 2026-08-05 — there is a THIRD `:ssr` value, `:render`, and a
 > declared fallback is inert markup by enforcement (`rf2-l0wfx`, `rf2-nv07k`,
 > ruled together).** This amends the 2026-08-04 addendum immediately below,
@@ -1237,6 +1297,45 @@ cost is **unmeasured** and is named here rather than claimed away.
 
 ## HD-024 — One callback form; the position selects the contract
 
+> **Addendum, 2026-08-06 — the position table's row 3 OVER-RECORDS: it never
+> covered a `defhost` slot the declaration left unclaimed, and that slot now
+> REFUSES the marked form (`rf2-2rtt6.115`, `rf2-2rtt6.116`).** Two beads, one
+> row, and they must be read together or the row goes on being wrong.
+>
+> **The scope correction (`rf2-2rtt6.115`).** Row 3 reads *"any other walked
+> prop position (**a slot**, a foreign render prop) → render"*. The parenthesis
+> over-reaches by one position. A **native** non-event prop does render-wrap the
+> marked form, and a slot a `defhost` declaration gave the `:render` contract
+> does too — those are the row. But an **unclaimed `defhost` slot** never
+> did: `host-entry`'s `:else` arm handed it to `host-prop-value`, which passes
+> `fn?` through by identity. Three independent adjudications concur that the
+> CODE side was authoritative and the crossing deliberate — both tables landed
+> in one commit, and the walk that implemented identity the next day carried a
+> reasoned docstring saying so. The row is a record of what was ruled and stays
+> below unedited; this is its scope, which it never stated. **The "align
+> `defhost` with row 3" repair direction is struck as adverse** — it would have
+> installed the render-position purity gate at a foreign crossing and broken the
+> `React.memo` identity that `host-prop-value` preserves on purpose.
+>
+> **What the position does now (`rf2-2rtt6.116`, ruled 2026-08-06).** Identity
+> was the right answer to *"is this render-wrapped?"* and the wrong answer to
+> *"is a marked callback nothing reads acceptable?"*. It is not: at an unclaimed
+> slot the mark asks for a contract no position selected, so the crossing now
+> **refuses** — `:rf.error/hicasso-host-unclaimed-callback`. HD-011's dated
+> addendum carries the full ruling, its grounds, and its fence, because the DOOR
+> owns crossing conduct. A **plain** function at that slot is untouched and
+> still crosses by identity, which is the part of the row's deletion clause that
+> was always true of it.
+>
+> **So the record correction `rf2-2rtt6.115` was holding is discharged here,
+> and its recorded repair is superseded in one half.** That repair was *"a dated
+> scope-note on row 3 plus the witness pinning a marked `h/fn` at an unclaimed
+> door slot"* (carried as R4 of the synthesized `[:>]` spec). The scope-note is
+> above. The witness cannot pin identity for a marked `h/fn` any more, because
+> the marked form no longer crosses there — it is the RED refusal row in
+> `arm1/host_hatch_dom_cljs_test`, and the identity witness it names is the
+> PLAIN-function row beside it.
+
 > **Addendum, 2026-08-03 — render-position enforcement is INVOCATION-scoped, and
 > the owner forwards (`rf2-2rtt6.74`).** Both laws below stand: a `:render`
 > position is pure, and dispatching from inside the call is
@@ -1304,7 +1403,7 @@ the runtime already knows every position it walks:
 |---|---|
 | a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
 | a `defhost` `:callbacks` entry | as **declared** (`:event`, `:handler` or `:render`), never inferred from an `on*` name |
-| any other walked prop position (a slot, a foreign render prop) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/hicasso-dispatch-in-render-position`, **naming the position** |
+| any other walked prop position (a slot, a foreign render prop — but NOT an unclaimed `defhost` slot, which refuses; see the 2026-08-06 addendum) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/hicasso-dispatch-in-render-position`, **naming the position** |
 | `:ref` | React's own: commit phase, node in, cleanup out. Excluded from lowering |
 | anywhere Hicasso does not walk (a raw `#js` prop) | it is a plain function; it runs, and its return is ignored |
 
