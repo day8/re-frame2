@@ -71,6 +71,15 @@
 // directory only, and they are read as TEXT and never executed; the `require`
 // path in them is part of the source shape under test, not a live path.
 //
+// The fixtures stay IN the ESLint path rather than being ignored out of it, and
+// are held to the same rules as real driver source, because being faithful
+// driver source is the whole of their value — an ignore would let them drift
+// into shapes no driver could take. That constrains the comment-only fixture in
+// a way worth knowing: it requires `lane_cache.cjs` and binds nothing, because
+// a deleted clear that LEAVES its import binding behind is already caught one
+// gate earlier by `no-unused-vars`. The variant that binds nothing is the one
+// no linter can see, so it is the one this gate has to own.
+//
 // Wired into implementation/package.json via `test:script-helpers`.
 
 const assert = require('node:assert');
