@@ -279,9 +279,8 @@ four-row sweep against the revived driver and every row reproduces — see
 process), so each round runs two segments — destroy the adapter, install the
 other, re-register, re-seed — with the floor in both. The floor holds no
 re-frame state and is untouched by which adapter is installed, so a
-UIx-over-Reagent figure is a ratio of two floor-normalised ratios, and the seam
-cancels provided the segment drift is common-mode. **That cancellation is
-published, not assumed:**
+UIx-over-Reagent figure is a ratio of two floor-normalised ratios and the seam
+cancels. **That cancellation is published, not assumed:**
 
 | row | floor(UIx segment) ÷ floor(Reagent segment), run 1 per round | over the ten runs | verdict |
 |---|---|---|---|
