@@ -447,9 +447,21 @@ function handlerSites(s) {
 }
 
 /**
- * The source with every comment and string/template literal blanked to spaces,
- * LENGTH AND EVERY INDEX PRESERVED, so it can be compared against positions
- * taken from the unmasked text.
+ * The keywords after which a `/` still opens a regex literal.
+ *
+ * They matter because the regex-or-division test below is a test on the previous
+ * CHARACTER, and these all end in one an identifier could end in: `return /x/`
+ * would otherwise be read as dividing by something called `return`.
+ */
+const REGEX_KEYWORDS = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete',
+  'void', 'throw', 'case', 'do', 'else', 'yield', 'await',
+]);
+
+/**
+ * The source with every comment and string/template/regex literal blanked to
+ * spaces, LENGTH AND EVERY INDEX PRESERVED, so it can be compared against
+ * positions taken from the unmasked text.
  *
  * WHY A READER CHECK NEEDS THIS. `sinkIsRead` below asks whether an identifier
  * occurs anywhere that is not a write. A mention of the array in a trailing
@@ -461,25 +473,43 @@ function handlerSites(s) {
  *
  * A TEMPLATE'S `${...}` IS THE OTHER HALF OF THAT SENTENCE. Its text is a
  * string, but its substitutions are code — `` `${errors.length} page errors` ``
- * genuinely reads the sink — so the runs of text are blanked and the
- * substitutions are left standing.
+ * genuinely reads the sink — so the runs of text are blanked and each
+ * substitution is masked AS CODE, recursively. Recursively is the load-bearing
+ * word: a substitution is code, and code contains literals, so `` `${"errors"}` ``
+ * — and the same with a block comment in place of the string — is literal text
+ * sitting inside a span that used to be handed back verbatim.
  *
- * THE ONE THING IT DOES NOT LEX IS A REGEX LITERAL, and the omission is bounded
- * two ways rather than hoped about. It cannot run away: a `'` or `"` that finds
- * no partner before the newline is put back as a lone character, so a character
- * class like `/^"|"$/` — which three drivers use to parse CSV a few lines from
- * their handler — blanks at most a few characters of its own line and never
- * reaches the next. And it cannot fail QUIETLY: masking only ever DELETES
- * candidate reads, so its worst case is `sinkIsRead` saying UNREAD about a
- * driver that does read its sink — a loud red naming the file, never a silent
- * pass. The fixtures below pin the behaviour rather than assuming it.
+ * THE SAFETY PROPERTY, AND THE WAY IT WAS ONCE STATED BACKWARDS. This file used
+ * to say that not lexing regex literals was tolerable because "masking only ever
+ * DELETES candidate reads", so the worst case was a loud UNREAD. That is true of
+ * masking, and it is the wrong half of the ledger: the danger is text the mask
+ * FAILS to blank. An unmasked literal ADDS a candidate read, and adding one is
+ * the silent pass — `const label = /errors/;` made an array nobody consults look
+ * consulted, which is precisely the fail-open this file exists to forbid, hiding
+ * in the gate (rf2-sib23, audit follow-up to #7546, reproduced before repair).
+ * So every literal form a driver can write is now lexed: comments, strings,
+ * templates, substitutions, and regex literals.
+ *
+ * WHAT REMAINS A JUDGEMENT CALL is `/` itself — regex or division — and it is
+ * settled by the one-character rule every lightweight scanner uses: a regex may
+ * only begin where an expression may begin, so it cannot follow a token that
+ * ENDS one (an identifier, a number, `)`, `]`, a literal), with the handful of
+ * keywords that look like identifiers but are not (`return /re/`) named. When
+ * that call is wrong it blanks code — which lands on the DELETING side, the loud
+ * UNREAD, exactly as the old note claimed for the whole mechanism. That is the
+ * bound this stays inside; it is not, and must not become, a JS parser.
  */
 function maskLiterals(s) {
   const out = s.split('');
   const blank = (from, to) => {
     for (let k = from; k < to && k < out.length; k += 1) if (out[k] !== '\n') out[k] = ' ';
   };
+  // Does a `/` here OPEN a regex literal, or divide? Comments and literals leave
+  // both of these alone, so they always describe the last real code token.
+  let endsExpr = false; // did that token end an expression?
+  let word = ''; // and if it was an identifier, which one
   let i = 0;
+  const mayStartRegex = () => !endsExpr || REGEX_KEYWORDS.has(word);
   while (i < s.length) {
     const c = s[i];
     const d = s[i + 1];
@@ -493,13 +523,50 @@ function maskLiterals(s) {
       const end = close === -1 ? s.length : close + 2;
       blank(i, end);
       i = end;
+    } else if (c === '/' && mayStartRegex()) {
+      // A REGEX LITERAL IS TEXT, and leaving it standing is the one failure mode
+      // that ADDS a read. Character classes are tracked so `/[/]/` and the CSV
+      // `/^"|"$/` three drivers write near their handler close where they end,
+      // and a run to end-of-line means this was division after all — a regex
+      // literal cannot span lines, so nothing is blanked.
+      let j = i + 1;
+      let closed = false;
+      let inClass = false;
+      while (j < s.length) {
+        const k = s[j];
+        if (k === '\\') {
+          j += 2;
+          continue;
+        }
+        if (k === '\n') break;
+        if (inClass) {
+          if (k === ']') inClass = false;
+        } else if (k === '[') {
+          inClass = true;
+        } else if (k === '/') {
+          closed = true;
+          break;
+        }
+        j += 1;
+      }
+      if (!closed) {
+        endsExpr = false;
+        word = '';
+        i += 1;
+      } else {
+        blank(i, j + 1); // the flags after it are ordinary identifier characters
+        endsExpr = true;
+        word = '';
+        i = j + 1;
+      }
     } else if (c === '`') {
       // A TEMPLATE'S TEXT IS A STRING; ITS `${...}` SUBSTITUTIONS ARE CODE.
       // `console.error(`${errors.length} page errors`)` reads the sink, and
       // blanking the whole literal would lose that read. Text runs are blanked,
-      // substitutions are left standing, and nothing is written until the
-      // closing backtick is actually found.
+      // each substitution is re-masked as the code it is, and nothing is written
+      // until the closing backtick is actually found.
       const runs = [];
+      const subs = [];
       let j = i + 1;
       let runFrom = i;
       let closed = false;
@@ -513,6 +580,7 @@ function maskLiterals(s) {
           const close = s.indexOf('}', j + 2);
           if (close === -1) break;
           runs.push([runFrom, j + 2], [close, close + 1]);
+          subs.push([j + 2, close]);
           j = close + 1;
           runFrom = j;
         } else {
@@ -524,8 +592,18 @@ function maskLiterals(s) {
       } else {
         runs.push([runFrom, j + 1]);
         for (const [from, to] of runs) blank(from, to);
+        // The substitutions survived the blanking above; now they are masked as
+        // code, so a string or a comment written INSIDE one cannot vouch for a
+        // sink. The recursion is length-preserving, so every index still lines
+        // up with the unmasked text.
+        for (const [from, to] of subs) {
+          const inner = maskLiterals(s.slice(from, to));
+          for (let k = 0; k < inner.length; k += 1) out[from + k] = inner[k];
+        }
         i = j + 1;
       }
+      endsExpr = true;
+      word = '';
     } else if (c === "'" || c === '"') {
       let j = i + 1;
       let closed = false;
@@ -542,12 +620,25 @@ function maskLiterals(s) {
         j += 1;
       }
       if (!closed) {
-        i += 1; // a lone quote — a regex class, an apostrophe — consumes nothing
+        i += 1; // a lone quote — an apostrophe in prose — consumes nothing
+        endsExpr = false;
+        word = '';
       } else {
         blank(i, j + 1);
         i = j + 1;
+        endsExpr = true;
+        word = '';
       }
     } else {
+      if (/[\w$]/.test(c)) {
+        word += c;
+        endsExpr = true;
+      } else if (!/\s/.test(c)) {
+        // Whitespace is deliberately NOT reset: `return /re/` must still see the
+        // keyword that licenses the literal.
+        word = '';
+        endsExpr = c === ')' || c === ']';
+      }
       i += 1;
     }
   }
@@ -701,6 +792,18 @@ test("every LOCAL collector's sink is READ, not merely pushed into (rf2-sib23)",
 // defect), a double-quoted registration, and the regex-class case. They were
 // found by writing the neighbours down. That is why they are fixtures and not
 // a note.
+//
+// AND FOUR MORE FAIL ON THE ONE AFTER IT (rf2-sib23, audit follow-up to #7546).
+// The fixture set at #7546 was still asking whether the mask deleted too much;
+// the live defect was that it deleted too little. `const label = /errors/;` and
+// `` `${"errors"}` `` both came back READ against the landed predicates, lifted
+// verbatim and run before anything was touched — an array nobody consults,
+// vouched for by text. Those two plus a `${...}` comment and a regex after
+// `return` are below, and so are the three that guard the OPPOSITE direction:
+// dividing BY the sink, a regex sharing a line with the only read, and the
+// `${errors.length}` that must stay green. A repair that stopped counting
+// literals by refusing to count anything would pass the first four and fail
+// those three, which is the point of writing them down together.
 
 const READER_FIXTURES = [
   {
@@ -827,9 +930,12 @@ const READER_FIXTURES = [
   {
     id: "a regex character class full of quotes does not blind the reader",
     read: true,
-    // The masker's documented limit, pinned rather than assumed. `b7_run.cjs`,
-    // `reads_ladder_run.cjs` and `spine_ablation_run.cjs` all parse CSV with
-    // this exact expression a few lines from their handler.
+    // `b7_run.cjs`, `reads_ladder_run.cjs` and `spine_ablation_run.cjs` all
+    // parse CSV with this exact expression a few lines from their handler. It
+    // used to be the masker's documented LIMIT — the quotes inside the class
+    // were unmatched and put back as lone characters — and is now simply a
+    // regex literal, blanked whole. Kept either way: the read below it must
+    // survive whatever the mask does to the line above.
     src: [
       'const errors = [];',
       "page.on('pageerror', (e) => errors.push(e));",
@@ -837,10 +943,94 @@ const READER_FIXTURES = [
       'if (errors.length) process.exit(1);',
     ].join('\n'),
   },
+  {
+    id: 'a REGEX LITERAL spelling the array is not a read',
+    read: false,
+    // rf2-sib23's audit follow-up to #7546, verbatim, and the direction the
+    // file's old safety note said could not happen: an UNMASKED literal does
+    // not delete a read, it INVENTS one. Reproduced against the landed
+    // predicates before repair — `read: true`, at the token inside `/errors/`,
+    // for an array that is never consulted.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'const label = /errors/;',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'a regex after `return` — the keyword case — is not a read either',
+    read: false,
+    // The regex-or-division call is a test on the previous character, and
+    // `return` ends in one an identifier could end in. Without the keyword set
+    // this literal would be taken for a division and left standing, which is
+    // the same invented read one keyword further along.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'const names = (x) => { return /errors/.test(x); };',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'a STRING inside a template substitution is not a read',
+    read: false,
+    // The same direction, one syntax along: `${...}` is code, so it was handed
+    // back verbatim — including the literals inside it. Reproduced before
+    // repair as `read: true` at the token inside `"errors"`.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${"errors"} recorded`);',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'a COMMENT inside a template substitution is not a read',
+    read: false,
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${count /* errors */} of them`);',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'DIVIDING BY the sink is still a read',
+    read: true,
+    // The direction the repair could break, and the reason it is a one-
+    // character test rather than "blank everything between two slashes": a mask
+    // that stops counting literals by refusing to count anything is strictly
+    // worse than the bug it closes.
+    //
+    // TWO divisions on ONE line, deliberately. A single `/` with no partner
+    // before the newline is un-mis-lexable by construction — the scanner finds
+    // no closing delimiter and blanks nothing — so a one-division fixture would
+    // be green under every mutation, which is a fixture that proves nothing.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'if (total / errors.length > 1 && ratio / 2 > 0) process.exit(1);',
+    ].join('\n'),
+  },
+  {
+    id: 'a regex on the SAME LINE as the only read does not swallow it',
+    read: true,
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'const fields = line.split(/[,;]/); if (errors.length) process.exit(1);',
+    ].join('\n'),
+  },
 ];
 
-test('the local-sink reader check answers the two shapes that fooled it (rf2-sib23)', () => {
-  for (const f of READER_FIXTURES) {
+// EACH FIXTURE IS ITS OWN CHECK. They used to share one, and a single assertion
+// aborts at the first fixture it fails — so a regression in the eighth would be
+// reported as a regression in the first, and one mutation reddening the check
+// would certify nothing about the other seventeen. One check per fixture makes
+// each provable on its own.
+for (const f of READER_FIXTURES) {
+  test(`reader fixture — ${f.id} (rf2-sib23)`, () => {
     const sc = scan(code(f.src));
     const sites = handlerSites(sc.s);
     assert.strictEqual(sites.length, 1, `fixture "${f.id}": expected one handler site`);
@@ -852,10 +1042,10 @@ test('the local-sink reader check answers the two shapes that fooled it (rf2-sib
       `fixture "${f.id}": the sink \`${sink.name}\` is ${f.read ? 'READ' : 'UNREAD'}, `
         + `and the check said otherwise`
     );
-  }
-});
+  });
+}
 
-test('the mask blanks comments and strings, and preserves every index', () => {
+test('the mask blanks every literal form, and preserves every index', () => {
   // `sinkIsRead` compares positions taken from the unmasked text against the
   // masked text. If the mask ever changed a length the comparison would be
   // silently wrong rather than loudly broken, so the property is pinned.
@@ -865,6 +1055,9 @@ test('the mask blanks comments and strings, and preserves every index', () => {
     'five`;',
     "const re = /^\"|\"$/g;",
     'const c = `six ${seven} eight`;',
+    'const d = /nine/.test(ten);',
+    'const e = `${"eleven"} ${twelve /* thirteen */}`;',
+    'const f = alpha / beta;',
   ].join('\n');
   const m = maskLiterals(s);
   assert.strictEqual(m.length, s.length, 'the mask must preserve length');
@@ -873,16 +1066,22 @@ test('the mask blanks comments and strings, and preserves every index', () => {
     s.split('\n').length,
     'the mask must preserve line count'
   );
-  for (const gone of ['one', 'two', 'three', 'four', 'five', 'six', 'eight']) {
-    assert.ok(!m.includes(gone), `\`${gone}\` is inside a comment or string and must be blanked`);
+  const GONE = ['one', 'two', 'three', 'four', 'five', 'six', 'eight', 'nine', 'eleven', 'thirteen'];
+  for (const gone of GONE) {
+    assert.ok(!m.includes(gone), `\`${gone}\` is inside a literal or a comment and must be blanked`);
   }
-  for (const kept of ['const a', 'const b', 'const re', 'const c', 'seven']) {
+  const KEPT = ['const a', 'const b', 'const re', 'const c', 'seven',
+    'const d', 'ten', 'twelve', 'const f', 'alpha', 'beta'];
+  for (const kept of KEPT) {
     assert.ok(m.includes(kept), `\`${kept}\` is code and must survive the mask`);
   }
-  // The documented limit: a lone quote inside a regex class blanks a little of
-  // its OWN line and never runs on. `const re` above survives, and so does the
-  // line after it.
-  assert.strictEqual(m.split('\n').length, 5);
+  // NOT ONE QUOTE SURVIVES, which is the regex literal being lexed rather than
+  // endured: `/^"|"$/` used to leave its two `"` standing as unpartnered
+  // characters, and everything between them standing with them.
+  assert.ok(!m.includes('"') && !m.includes("'"), 'every quote belonged to a literal');
+  // And a blanked regex stops at its own delimiter — `.test(ten)` is code on the
+  // same line and must survive, as must every line after it.
+  assert.strictEqual(m.split('\n').length, 8);
 });
 
 test('every driver that uses the shared collector also READS its failures', () => {
