@@ -1080,6 +1080,39 @@
        (sort-by :category)
        vec))
 
+(defn tags-column-recovery-listings
+  "`[category …]` — every ACTIVE catalogue row whose `:tags` cell LISTS
+  `:recovery`. The other direction of `envelope-only-tag-keys`' first slot, and
+  the reason the drift it retires reached 134 rows unseen (rf2-mb8yp).
+
+  That exempt set stops a SCHEMA declaring `:recovery` from convicting its row,
+  correctly: `re-frame.trace/build-event` strips the slot and hoists it to the
+  envelope top level on every branch, so no schema's declaration is evidence of
+  a row defect. But subtracting the slot exempted BOTH sides of the diff — a
+  row was equally free to LIST a key no consumer can read under `:tags`, with
+  no mechanical consequence either way. 009 §Reading the two right-hand columns
+  has always called that 'a row defect, not a counterexample', and the
+  `Default :recovery` column is where a row states its disposition; the listing
+  is now caught rather than tolerated.
+
+  MENTION IS NOT LISTING, and the rule applied is 009's own — §'The `:tags`
+  column is pinned, not documentary': a key must be LISTED, not merely
+  mentioned. So `cell-tag-keys` is the reading, and a multi-token back-ticked
+  span survives: the closed record slot sets
+  (`` `#{:frame :recovery :reason :scheme-class}` `` on the three safe-redirect
+  rows, `status-defect-record-slots`' set on
+  `:rf.error/ssr-ring-response-status-invalid`) and the axis-asymmetry
+  sentences (`` `:recovery :no-scroll` ``). Those cells STATE a contract about
+  the slot instead of restating a universal, and a mention-wide rule would
+  delete a security surface's own allow-list to enforce a formatting one."
+  [rows]
+  (->> rows
+       (keep (fn [{:keys [category tags-cell]}]
+               (when (contains? (cell-tag-keys tags-cell) :recovery)
+                 category)))
+       sort
+       vec))
+
 (defn tags-column-ambiguities
   "`[{:schema … :categories [… …]} …]` — every canonical schema whose name is
   claimed by MORE THAN ONE active catalogue row. Such a schema identifies no
@@ -1384,6 +1417,58 @@
              (tags-column-findings rows pre-wsopx-schemas))
           "`:category` and `:recovery` are absent from the missing set; every
            other undocumented key is present"))))
+
+(deftest tags-column-never-lists-the-envelope-level-recovery-slot
+  (testing "Per rf2-mb8yp: no catalogue row's `:tags` cell may LIST `:recovery`.
+            `build-event` strips the slot and hoists it to the envelope top
+            level on every branch, so the cell would name a key no consumer can
+            read there — and the row's disposition already has a column of its
+            own. The arm above exempts the slot on the SCHEMA side, which is
+            why nothing noticed 134 rows listing it; this is the other side."
+    (let [listed (tags-column-recovery-listings (parse-catalogue-tag-rows))]
+      (is (empty? listed)
+          (str "catalogue rows whose `:tags` cell LISTS `:recovery` "
+               "(rf2-mb8yp). `re-frame.trace/build-event` hoists the slot to "
+               "the envelope top level on every branch, so no consumer reads "
+               "it under `:tags`; state the disposition in the "
+               "`Default :recovery` column instead and strike it from the "
+               "cell. Offending rows: " (pr-str listed))))))
+
+(deftest tags-column-recovery-arm-reds-by-name-and-greens-on-the-strike
+  (testing "The non-vacuity proof for the arm above, and the reason it is worth
+            having: a gate wired but never made to fire is not a gate. The
+            fixture is `:rf.error/frame-context-corrupted` as it stood before
+            the rf2-mb8yp sweep — the corpus's cleanest case, a trace-ONLY row
+            (its site emits and returns nil, never throwing) that listed
+            `:recovery` with a parenthetical disposition its `Default
+            :recovery` column already carried."
+    (let [row (fn [tags]
+                (parse-catalogue-tag-rows
+                  (catalogue-fixture
+                    (str "| `:rf.error/frame-context-corrupted` | `:error` "
+                         "| diagnostic | The ambient frame context was a "
+                         "non-frame value. | `:no-frame-context` | "
+                         tags " |"))))]
+      (is (= [:rf.error/frame-context-corrupted]
+             (tags-column-recovery-listings
+               (row "`:received`, `:recovery` (`:no-frame-context`), `:reason`")))
+          "the arm reds on the pre-sweep cell, and NAMES the offending row")
+      (is (empty? (tags-column-recovery-listings
+                    (row "`:received`, `:reason`")))
+          "…and greens on the struck cell, so the red is the defect not the arm")
+      (is (empty? (tags-column-recovery-listings
+                    (row (str "`:received`, `:reason` — the always-on record is "
+                              "the closed set `#{:frame :recovery :reason}`"))))
+          "…while a multi-token span naming the slot inside a record's closed
+           set is prose ABOUT it, not the row listing it (009's
+           listed-not-merely-mentioned rule). Five live cells depend on this,
+           three of them the safe-redirect security surface's own allow-list")
+      (is (empty? (tags-column-recovery-listings
+                    (row (str "`:received`, `:reason` (see "
+                              "[`:recovery`](#error-event-catalogue))"))))
+          "…and a key named inside a cross-reference link's TEXT is prose about
+           it too — the same `markdown-link-re` strip the documented-keys arm
+           relies on, so the two readings of a cell cannot disagree"))))
 
 (deftest tags-column-pairing-keys-off-the-whole-operation
   (testing "Two operations sharing a name half derive one schema name and so
