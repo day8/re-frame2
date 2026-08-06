@@ -1694,6 +1694,18 @@ inside the other's band. That is the shape a per-key array term predicts and a
 per-boundary one does not — at R=0 there are no cells, so there are no arrays
 to remove.
 
+> **The shell row this section owed, added 2026-08-06 (`rf2-2rtt6.82`).** The
+> sentence above is true of the *ablation*, and was read for a while as though
+> it were true of the *fusion*. It is not. The ablation removes the reader
+> array, which is per key and therefore invisible at R=0 — but the fusion made a
+> second elimination, the `:b->subs` entry `mount` installed per boundary
+> **whether or not it read**, and that one is nothing but a shell term.
+> Bisected on the landing itself, the fusion is worth **−77 B on both segments**
+> at R=0, with disjoint per-round bands. The ablation could not have seen it: by
+> the time it ran, that entry was already gone from the main arm and the ablated
+> arm alike. The rows above stand; what they do not price is
+> [priced below](#the-shells-lost-154-and-147-b-bisected-and-attributed-rf2-2rtt682).
+
 The ablation run **exits 1, by construction and only by construction**: with
 no slot ever pushed, `stats` derives `:boundaries` and `:edges` from an
 always-empty array and reads 0. That is 96 structural failures — exactly
@@ -1928,6 +1940,14 @@ landing. **It is left unattributed rather than guessed at**, and filed as
 `rf2-2rtt6.82`. Nothing in this subsection depends on the answer: A and B were
 taken hours apart from nothing, in one session, on one tree.
 
+**Since attributed**, by the bisect in
+[the section below](#the-shells-lost-154-and-147-b-bisected-and-attributed-rf2-2rtt682):
+two commits on the sub-index line, `rf2-ixb92` (−75 / −68 B) and `rf2-dabt3`'s
+fusion (−77 / −77 B), both removing per-boundary index structure and neither
+ever priced on this axis. The suspicion above was half right — the fusion is one
+of the two — and the reason the fusion section could not convict itself is that
+its ablation removed the one part of the fusion that cannot appear at R = 0.
+
 #### What this settles, and what it hands the operator
 
 **Settles.** On the tree that ships, the wrapper costs **+105 B — +10.6%** — on
@@ -2007,6 +2027,243 @@ deliberately not used: it reads 15–20% on this box when the true occupancy is
 under 2%. Throughout: 15 node processes (idle MCP servers), 56 chrome, **zero
 java**, ~500 processes, ~30.7 GB free, no other worker and no open PR. The box
 did not change across the window, so the three runs are same-load.
+
+---
+
+### The shell's lost 154 and 147 B, bisected and attributed (rf2-2rtt6.82)
+
+**Measured 2026-08-06.** The subsection above left a hole and named it: the R=0
+shell fell by ~145 / ~139 B between `rf2-aqgr2`'s session and the fusion's, and
+no section on this page said why. On a quantity the paper line is stated
+against, and whose named shape sensitivity is ~75 B, that is an unexplained
+move of about twice the resolution of the line it supports. This section closes
+it by bisection rather than by argument.
+
+**The answer, first: two commits, both on the sub-index line, and neither was
+ever priced on this axis.** `27f846cf5a` (`rf2-ixb92`) is worth −75 / −68 B and
+`383ba2d645` (`rf2-dabt3`, the fusion) is worth −77 / −77 B. Everything else in
+the window — six further arm landings — is worth −2 / −1 B, which is the
+round-to-round floor. **The drop is a saving, not a boundary that stopped doing
+something**, and the last part of this section is the evidence for that clause
+rather than an assurance about it.
+
+**Read these as DELTAS, not as replacement gate rows.** Every run below was
+taken on a box carrying other workers and 78 chrome processes, which is not the
+quiet box `validation.md` requires of a published absolute. What makes the
+differences quotable is that both donors ride every run as the negative control
+and do not move while the candidate moves 154 B, the positive control is `ok` in
+all five, the arm-order guard is reportable in all five, the structural witness
+is fully answered in all five, and — the load-bearing one — **the two ends of
+the bisect reproduce the two published sessions they are being used to explain**.
+
+#### The bisect
+
+Five runs, `p0_run.cjs --only ladder`, `P0_LADDER_RUNGS=0,1`,
+`P0_LADDER_ROUNDS=4`, B = 1,200, Q = E. `shell` is the driver's own **directly
+measured R=0 rung**, never the fitted intercept; bands are min–max across the
+four rounds. Only the R=0 rung is at issue, so the ladder is run short — the R=1
+rung is carried because a fit needs two points, and the slope it yields is
+correctly reported `UNIDENTIFIED` and is not used here.
+
+| point | tree | position in the window | Hicasso, Rg seg. | Hicasso, UIx seg. |
+|---|---|---|---:|---:|
+| **T1** | `abfc2e5ce4` | `27f846cf5a^` — after `rf2-aqgr2`'s landing | **1,237** [1,224–1,255] | **1,232** [1,218–1,249] |
+| **T2** | `27f846cf5a` | that tree + `rf2-ixb92` | **1,162** [1,146–1,168] | **1,164** [1,154–1,175] |
+| **T3** | `9d89cb21c6` | `383ba2d645^` — six arm landings later | **1,160** [1,146–1,169] | **1,163** [1,155–1,182] |
+| **T4** | `23d60a1fe9` | the fusion, on the tree `rf2-zei9w` measured | **1,082** [1,077–1,088] | **1,085** [1,076–1,098] |
+| **T4′** | `23d60a1fe9` | T4 re-taken last, to close the bracket | **1,084** [1,079–1,095] | **1,086** [1,077–1,102] |
+
+**Both ends reproduce their published session.** T1 reads 1,237 / 1,232 against
+the 1,244–1,246 / 1,236–1,237 `rf2-aqgr2` published for A″/B″ — 7–9 B and 4–5 B
+apart. T4 and T4′ read 1,083 / 1,085.5 paired against the 1,103 / 1,097
+`rf2-zei9w` published **on that same tree** — 20 B and 11.5 B apart, this box
+reading low at both ends by about the same offset. So the bisect is measuring
+the quantity those two sessions measured, and the offset is a box constant that
+differencing removes.
+
+#### What each step is worth
+
+| step | what lands in it | Reagent seg. | UIx seg. | bands |
+|---|---|---:|---:|---|
+| T1 → T2 | `27f846cf5a` — `rf2-ixb92`, **the only arm commit in the span** | **−75 B** | **−68 B** | **disjoint** — 56 B and 43 B of clear air |
+| T2 → T3 | six arm landings: `rf2-digtt` ×4, `rf2-e3i6y`, `rf2-2rtt6.54` | −2 B | −1 B | fully overlapping — indistinguishable |
+| T3 → T4 | `383ba2d645` — `rf2-dabt3`, the fusion (and `rf2-2rtt6.74`, which touches `front/intent.cljs` only) | **−77 B** | **−77 B** | **disjoint** — 58 B and 57 B of clear air |
+| **total** | T1 → T4 paired | **−154 B** | **−146.5 B** | — |
+
+The two convicted steps separate with clear air between the per-round bands;
+the six-landing step does not separate at either end — its Reagent bands are
+[1,146–1,168] against [1,146–1,169], identical to the byte at both ends. That
+is the shape of a real attribution rather than a residual: the movement is
+concentrated in two named landings, and the span that contains the most commits
+contributes nothing.
+
+**T1 → T2 is a single-commit span**, so `rf2-ixb92`'s −75 / −68 B is attributed
+rather than bracketed. T3 → T4 contains two arm landings, but only the fusion
+touches the runtime's per-boundary retention; `rf2-2rtt6.74` is an
+invocation-scoped render-position enforcement in `front/intent.cljs`.
+
+#### Why it moved, in objects rather than in bytes
+
+Before the fusion the sub-index held **two structures per MOUNTED boundary**,
+independently of whether that boundary ever read anything:
+
+- `:live`, a `PersistentHashSet` membership — deleted by `rf2-ixb92`, which
+  observed that it was exactly `(set (keys (:b->subs idx)))` at every reachable
+  index value;
+- `:b->subs`, a `PersistentHashMap` entry that `mount` installed as `b → #{}`
+  **whether or not the boundary read** — retired with the whole index by the
+  fusion.
+
+At R = 0 a boundary reads nothing, so those two memberships were the *entire*
+per-boundary index cost, and the shell rung is precisely the rung that prices
+them. The two eliminations are therefore not merely correlated with the drop;
+they are the only per-boundary terms the window removes.
+
+**The ladder counts this rather than inferring it.** Its structural witness
+asserts `boundaries` at every rung and exits on it. At T3 the expectation is
+R-independent `boundaries = B` and the run passes with **1,200** at R = 0; at T4
+it is `R === 0 ? 0 : B` and the run passes with **0**. Twelve hundred
+per-boundary registrations became none, counted on both sides, in the same
+instrument. That is also why `rf2-xzg3b` had to land at `23d60a1fe9` before
+`rf2-zei9w` could publish: the old expectation encoded the pre-fusion reading
+and refused the fused arm at R = 0.
+
+#### Why the record had a hole where this belongs
+
+Neither elimination was hidden; both were simply never priced on this axis, for
+two different and individually reasonable causes.
+
+`rf2-ixb92` **said so itself**, in its own commit message:
+
+> This is a per-BOUNDARY term on the shell axis, not a per-read one, so no byte
+> figure is claimed for it and none was measured.
+
+That was the honest thing to write, and nothing ever came back to measure it.
+This section is what comes back.
+
+`rf2-zei9w` did look at the fusion on the shell axis, and reported the shell
+**unmoved** — correctly. Its ablation removes the fused **reader array**, which
+is per *key*: at R = 0 there are no cells, so there are no arrays, so the shell
+cannot move. But the fusion made **two** eliminations, and the ablation could
+not see the other one, because by the time the ablation ran the per-boundary
+registration was already gone from the main arm *and* from the ablated arm
+alike. **The section ablated the only part of the fusion that cannot appear on
+the rung it was reading.** Its conclusion is sound about the array and was never
+about the registration; the gap is one of scope, not of arithmetic.
+
+#### Saving, or work that stopped happening?
+
+**A saving.** The question is worth asking — 140 B leaving a boundary shell is
+equally consistent with a boundary that quietly stopped doing something — so it
+is answered from three directions rather than asserted.
+
+**The information survives both eliminations.** `:live` was a second encoding of
+a set the index already held, and `rf2-ixb92` derives `live?` from
+`(contains? (:b->subs idx) b)` and lands a law that walks the reachable index
+values — mount, read, second mount, narrowing re-run, a run that read nothing,
+StrictMode's remount, unmount, an abandoned render's reads — asserting at each
+step that the forward edges' key set *is* the mounted set. The fusion then moves
+the reverse edge onto the key cell that already existed, and ports the six laws
+to the fused doors.
+
+**The one thing genuinely no longer retained is consumed by nothing.** That is
+the record that an *edgeless* boundary is mounted. A boundary that reads nothing
+holds no cell, so there is nothing that can dirty it and nothing to notify; when
+it later reads, it acquires a cell and is recorded at that moment. The fusion
+pinned exactly this as a positive claim rather than leaving it as an absence —
+`rf2-dabt3` landed a witness that an edgeless boundary retains no membership,
+and the ladder's R = 0 zero is now an assertion whose *violation* is read as a
+retention bug.
+
+**Nothing leaked in the other direction.** The complementary failure — heap
+saved on the shell by dropping a reference something still needs — would show as
+residue after teardown. Every structural field reads zero after teardown on
+every arm of every round of all five runs, and the residue column stays at its
+usual few-byte floor.
+
+**The one narrowing worth naming** is diagnostic, not behavioural: `stats`'
+`:boundaries` no longer means "boundaries mounted", it means "boundaries
+retained by at least one cell". The instrument absorbed that at `23d60a1fe9`,
+and the replacement expectation is **strictly stronger** than the one it
+replaced — the old R-independent form could not have detected a boundary
+retained at R = 0, and the new one exits on it.
+
+#### What this hands the programme
+
+The shell's current position is now accounted for rather than drifted into. The
+~1,100 B the wrapper arm reads is 1,237 B minus two deliberate, separately
+attributed eliminations of per-boundary index structure — so the number
+[HD-028's disposition turns on](#the-memo-wrapper-re-taken-on-the-tree-that-ships-rf2-2rtt658-re-take)
+has a provenance, and the wrapper's +105 B is being weighed against a base that
+moved for a reason the page can now name.
+
+It also explains the shape the re-take found and could not account for: the drop
+is present in the wrapper arm and the no-wrapper arm alike (1,247 → 1,099.5 and
+1,141 → 994, −147.5 and −147), which is exactly what a per-boundary *index* term
+predicts and what a wrapper-coupled term does not. The wrapper measurement was
+never in question; only its base was, and the base moved here.
+
+**No gate row is restated and no absolute is republished.** These are same-box
+deltas on a box that was not certified quiet. The published absolutes remain
+`rf2-zei9w`'s and the wrapper re-take's.
+
+#### Provenance
+
+Whole-tree anchors, all five **ancestors of `origin/main`**, verified with
+`git merge-base --is-ancestor` before use: `abfc2e5ce4`, `27f846cf5a`,
+`9d89cb21c6`, `23d60a1fe9` (twice). No working-tree edit was made in any run —
+each point is a clean `git checkout --detach` of a landed commit, so there is no
+probe to revert and no blob to reconcile. `implementation/package-lock.json`,
+`implementation/shadow-cljs.edn` and `implementation/deps.edn` are **unmoved
+across the whole window**, so one `npm ci` serves every point and the toolchain
+is not a variable.
+
+One pin quoted by an earlier section on this page does **not** resolve:
+`4a33c61e1c`, the 2026-08-02 wrapper tree, is not an ancestor of `origin/main` —
+it was authored on `worker/cascade-2rtt6-52` and stranded by the rebase merge.
+That is already recorded in the re-take's opening paragraph as the reason the
+re-take exists, and it is noted rather than re-pinned: re-pinning would restore
+the patch and not the tree.
+
+**Run order was deliberately not monotone in tree age** — T4, T3, T1, T2, T4′ —
+so that box drift could not masquerade as the bisect. The oldest and
+highest-reading tree ran third while the newest and lowest-reading tree ran
+first *and* last, which means any monotone drift over the session would have
+**shrunk** the measured drop rather than manufactured it. T4′ closes the
+bracket at 2 B and 1 B from T4: the box did not move.
+
+**Controls, all five runs.** The donors are the same-run negative controls and
+neither goes anywhere near the sub-index:
+
+| control | T4 | T3 | T1 | T2 | T4′ |
+|---|---:|---:|---:|---:|---:|
+| Reagent donor shell | 513 | 520 | 519 | 518 | 516 |
+| UIx donor shell | 224 | 222 | 224 | 224 | 224 |
+| Reagent floor (calibrator) | 251 | 248 | 249 | 249 | 249 |
+| UIx floor (calibrator) | 250 | 251 | 250 | 251 | 251 |
+
+Seven bytes of total spread on the donors across a session in which the
+candidate moved 154 B. **Positive control**: the same dense array of unboxed
+doubles, predicted 4,700,000 B, measured 4,700,412 B [4,699,074–4,700,974],
+ratio **1.0001**, `ok` under `lane/control-verdict` at ±25% — identical in all
+five runs. **`0 unverified of 50 mounts`**, structural read-back **every field
+answered**, arm-order guard **reportable**, ladder-fit self-test **3 of 3**, and
+**exit 0** on all five, no gate waived and none widened.
+
+Reproduce, at any of the four trees:
+
+```
+P0_LADDER_RUNGS=0,1 P0_LADDER_ROUNDS=4 \
+  node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+```
+
+**Conditions.** 2026-08-06 23:06–23:24 +1000, five runs of ~1.5 minutes plus a
+~30 s `:advanced` compile each, React 19.2.0, Reagent 2.0.1, UIx 1.4.4,
+`goog.DEBUG false`, headless Chromium via Playwright, Windows 11, 24 logical
+cores, 32 GB. **Box NOT verified quiet** — 8–10 node, 78 chrome, 1–2 java,
+572–581 processes, 25.3 → 24.7 GB free, with other workers compiling
+throughout. The box is stable across the window rather than quiet, which is what
+licenses the differences and not any absolute.
 
 ---
 
