@@ -1014,7 +1014,14 @@
             unchanged"
     (let [e (codec/as-element [:> a-foreign-component {:key "k7" :label "x"}])]
       (is (= "k7" (el-key e)))
-      (is (nil? (aget (raw-carrier e) "key")))
+      ;; `Object.keys` rather than a read of `.key`: React 19 defines a
+      ;; DEV warning getter at that name on any props object it built
+      ;; from a config carrying a key, so reading it would put React's
+      ;; "`key` is not a prop" line in the shared test log — an assertion
+      ;; whose own mechanism is a console warning. The getter is
+      ;; non-enumerable, so this sees the truth without touching it.
+      (is (= ["c" "p"] (vec (sort (js/Object.keys (raw-carrier e)))))
+          "the key is React's on the element and is not a carrier slot")
       (is (= ["label"] (vec (sort (js/Object.keys (raw-props e))))))))
   (testing "a childless crossing does not write `children` onto the props
             the component receives — which is what makes the parity row
