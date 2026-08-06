@@ -422,6 +422,24 @@ assert "AB an ordinary scripts/ change does NOT arm the docs tier" \
 assert "AB1 an ordinary scripts/ change does NOT arm the spine self-test" \
   "PLAN-SELFTEST skip" "$(plan_selftest "$r")"
 
+# AB2 — rf2-kqac1.  The provenance-pin gate runs in the documentation tier and
+# reads `docs/design/hicasso/**`, so a change to the CHECKER has to arm that
+# tier — otherwise the one diff most likely to break the gate is the one diff
+# that never runs it.  Sits beside its neighbours above rather than being
+# swept in by a `scripts/*` widening, which case AB pins against.
+#
+# `docs=true jvm=false node=false` is the RECOGNISED-doc-script plan, and it is
+# what `scripts/check_doc_slugs.py` produces here too — verified by running
+# this same case against that path.  AB's `jvm=true node=true` above is the
+# different thing it looks like: an UNrecognised script falls back to arming
+# everything, so matching AB's numbers would have meant the classifier had
+# never learnt this path at all.
+r="$tmp_root/provenance-pins"; mkrepo "$r"
+mkdir -p "$r/scripts"; printf 'x\n' > "$r/scripts/check_provenance_pins.py"
+git -C "$r" add -A; git -C "$r" commit -q -m provenance
+assert "AB2 the provenance-pin checker arms the docs tier only" \
+  "PLAN docs=true jvm=false node=false" "$(plan "$r")"
+
 # ---------------------------------------------------------------------------
 # HERMETIC mkdocs RESOLUTION (rf2-03298).  Case X above consults the HOST, and
 # on the host that matters most — GitHub CI, which installs requirements.txt —
