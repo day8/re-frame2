@@ -544,13 +544,50 @@
   nil)
 
 (defn ^:no-doc pr-str-bytes
-  "Return a byte-count for a value's printed representation. Used by the
+  "UTF-8 BYTE count of `v`'s printed representation, on BOTH hosts. Used by the
   `:rf.size/large-elided` marker payload. `^:no-doc` public so
   `re-frame.classification` reuses it rather than re-inlining the same `pr-str`
-  byte-count a second time."
+  byte-count a second time.
+
+  The figure is PUBLISHED — the marker's `:bytes` slot, which
+  Spec-Schemas §`:rf/elision-marker` types as the `pr-str` BYTE count and
+  009 §Size elision makes a MUST (\"lets an agent decide fetch-anyway vs
+  skip\") — and it is READ as a threshold, against
+  `:rf.size/threshold-bytes`, to decide whether a string leaf at an undeclared
+  path fires `:rf.warning/large-value-unschema'd`.
+
+  Until rf2-2rtt6.135 the `:cljs` arm was `(count (pr-str v))` — UTF-16 CODE
+  UNITS, since `count` on a CLJS string is `.-length`. The `:clj` arm has always
+  counted bytes, so one figure had two rulers: the same app-db leaf could warn
+  on the JVM and pass silently in the browser, and every marker CLJS published
+  under-reported `:bytes` by up to 3x (4x on astral). Code units agree with
+  UTF-8 bytes only for ASCII, which is what makes the mistake fail OPEN — on an
+  ASCII payload the wrong expression prints the right number and a green suite
+  never notices, until a value grows an em-dash, an ellipsis or an emoji. An
+  ASCII-only test cannot see it, hence the non-ASCII + ASTRAL fixtures in
+  `elision_pr_str_bytes_cljs_test.cljc`.
+
+  The correction can only ever TIGHTEN: UTF-8 bytes are never fewer than UTF-16
+  code units, so no leaf that warned before falls silent now. Nothing is dropped
+  or refused either way — per Privacy.md the threshold is **advisory, not a
+  cap**, and 009 records the recovery as `:warned-and-replaced`: the
+  over-threshold unschema'd value ships UNCHANGED. Only declared / schema-marked
+  paths elide, and that decision never consults this number.
+
+  `TextEncoder` and not `Buffer.byteLength`: this ns is `re-frame.core`
+  framework code and compiles into the BROWSER bundle (and under `:advanced`),
+  where `Buffer` is not there. `TextEncoder` is UTF-8 BY DEFINITION — no
+  encoding argument a later edit can silently drop — and is present in every
+  browser and in Node. The `^js` hints keep `:advanced` from renaming the
+  interop call. Same helper shape as `re-frame.ssr.hash`, the hicasso lane's
+  `utf8-bytes` (rf2-2rtt6.121) and xray's `format/pr-str-bytes`
+  (rf2-2rtt6.131)."
   [v]
-  #?(:clj  (count (.getBytes ^String (pr-str v) "UTF-8"))
-     :cljs (count (pr-str v))))
+  (let [s (pr-str v)]
+    #?(:clj  (alength (.getBytes ^String s "UTF-8"))
+       :cljs (let [^js enc (js/TextEncoder.)
+                   ^js buf (.encode enc s)]
+               (.-length buf)))))
 
 (defn ^:no-doc value-type
   "Coarse value-type tag for the `:rf.size/large-elided` marker payload.
