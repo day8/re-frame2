@@ -396,9 +396,30 @@ and the two instrument repairs a refusing control forced:
 > agree to 0.3%. Full re-adjudication:
 > [the corrected clock's page](studio/rows-re-adjudicated-on-the-corrected-clock.md).
 
+> **Amended, 2026-08-06 — the `M1` mount row publishes a REGIME, not a
+> magnitude (`rf2-jcm3p`).** The figure the note above substitutes in is itself
+> **withdrawn as a magnitude**: `1.4896×` [1.3488 – 1.5989] against
+> Reagent-on-subs and `1.5001×` against UIx-on-subs no longer publish as
+> numbers. What the row publishes is the regime — *hicasso mounts materially
+> slower than both adapters*; every corroborated reading sits above the amended
+> `≤ 1.10×` UIx gate; the direction is triple-corroborated (worst-case
+> witnesses, census rows, outside benchmark); and **`≤ 1.10×` has NOT been
+> demonstrated**. **Why no magnitude:** the row's positive control fails —
+> `ctl-2x` reads 1.8173× against a predicted 2.00×, reproduced at 1.8443× and
+> 1.8567× on two verifiably idle boxes, with the additive constant `c ≈ 1.04 ms`
+> explaining the undershoot arithmetically — and **no changed-set control can
+> reach a mount**, since a mount row's operation *is* the mount. **The figures
+> stay visible below and are annotated, never erased**: each is a historical
+> observation *stated under a failing `ctl-2x`; withdrawn as a magnitude
+> 2026-08-06*. The kill criterion **K1 is untouched** — the gate is `≤ 1.10×`
+> direct UIx and the row sits above it on every corroborated reading, which is
+> the comparison K1 needs and the one the regime still supports. Full statement:
+> [the clock page's §4](studio/the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude).
+> Delegated ruling, operator-overturnable.
+
 | row | candidate | disposition |
 |---|---|---|
-| **M1 mount** | ~~1.2107× Reagent-on-subs~~ *(frame-only)* → **1.4896×** [1.3488 – 1.5989] on script-and-frame | above the `≤ 1.0×` win condition and above the `1.0150×` red zone on either clock. The frame-only range straddled 1.0 so a deficit was not *established* at n = 6; the corrected clock's interval does **not** straddle it, and the deficit is larger. The deficit is the runtime hiccup **codec**, not the spine: the candidate pays +1.06 ms over its own floor where `uix-subs` — same spine, same adapter, same 300 reads, byte-identical DOM — pays +0.38 ms |
+| **M1 mount** | ~~1.2107× Reagent-on-subs~~ *(frame-only)* → ~~**1.4896×** [1.3488 – 1.5989] on script-and-frame~~ **REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)* — reads `1.4896×` [1.3488 – 1.5989] on script-and-frame, **stated under a failing `ctl-2x` and therefore a historical observation rather than a published magnitude** | above the `≤ 1.0×` win condition and above the `1.0150×` red zone on either clock, and above the amended `≤ 1.10×` UIx gate on every corroborated reading — **the direction is what publishes; the size is not** (`rf2-jcm3p`). The frame-only range straddled 1.0 so a deficit was not *established* at n = 6; the corrected clock's interval does **not** straddle it, and the deficit is larger — but an interval missing 1.0 establishes a *magnitude* only against a control that can adjudicate it, and this row's cannot. The deficit is the runtime hiccup **codec**, not the spine: the candidate pays +1.06 ms over its own floor where `uix-subs` — same spine, same adapter, same 300 reads, byte-identical DOM — pays +0.38 ms |
 | **per-keystroke** | one frame, as are both donors | Event Timing puts every arm at its 16 ms reporting floor; the finer clock reads 2.0–2.3 ms of main-thread work inside a 16.7 ms budget. Indistinguishable, and a pass for all three |
 | bulk K=100/300, narrow | **refused** | the doubling control failed the strict rule in every run, and the rows move more between runs (0.87 → 1.38 on one) than the effect they report. The page names three repairs, one of which is that `ctl-2x` is mis-specified for an *update* row — it doubles the page, and on an update the work does not follow |
 
@@ -406,8 +427,11 @@ and the two instrument repairs a refusing control forced:
 samples, an in-page `performance.now()` window and `taskNet` **split** a
 substrate arm 300–610% apart, **and by a different factor per arm** — on M1 the
 in-page window puts the candidate at 1.56× Reagent where `taskNet` reads 1.21×
-and the clock holding both halves reads 1.4896×. It is not a scale error that
-cancels in a ratio. The pure-React control arms differ by only 6–13%, which is
+and the clock holding both halves reads 1.4896× (three *readings* of one row on
+three clocks — none of them a published magnitude since `rf2-jcm3p`, above; the
+finding here is the split between them, which the withdrawal does not touch). It
+is not a scale error that cancels in a ratio. The pure-React control arms differ
+by only 6–13%, which is
 how a lane that checks only its controls in-page would never see it — and,
 because those arms behave alike under either half, is equally why the controls
 could not catch that the second clock was frame-only. When this row was
@@ -433,7 +457,7 @@ ours.
 
 | row | outside instrument | our published figure | disposition |
 |---|---|---|---|
-| **candidate mount** | `1.1756×` on create-1,000 | ~~`1.2107×`~~ **`1.4896×`** on M1 | **corroborated in direction, and the span was across two clocks** (`rf2-emvod`). `1.2107×` is a frame-**only** figure and the outside instrument's is script-and-frame, so "1.18–1.28" compared unlike things. On one clock the gap is **workload (~7–17%)** plus an **instrument-window 8.8%** with a named mechanism — and the leg that was previously invisible, the clock definition, is eliminated rather than estimated. The mount deficit is not a harness artefact and is **larger on our own witness** than this row read |
+| **candidate mount** | `1.1756×` on create-1,000 | ~~`1.2107×`~~ `1.4896×` on M1 — **no longer a published figure**, the row states a regime *(2026-08-06, `rf2-jcm3p`)* | **corroborated in direction, which is what now publishes** (`rf2-emvod`; `rf2-jcm3p` for the regime). `1.2107×` is a frame-**only** figure and the outside instrument's is script-and-frame, so "1.18–1.28" compared unlike things. On one clock the gap is **workload (~7–17%)** plus an **instrument-window 8.8%** with a named mechanism — and the leg that was previously invisible, the clock definition, is eliminated rather than estimated. The mount deficit is not a harness artefact and is **larger on our own witness** than this row read |
 | **donor bulk broad** | `0.9740×` on replace-all, `1.1419×` on swap | ~~`0.6291×`~~ **withdrawn** | **refused a third time, and now [re-taken](studio/bulk-broad-re-taken.md).** No instrument that sees the whole operation reproduces the 37% win; the re-take reads `0.8602×`, keeps the direction and publishes no magnitude. It expected parity and did not find it either — the row is a real but much smaller win, at the edge of the instrument's resolution |
 | candidate bulk | `1.6216×` theirs / `1.4260×` ours on replace-all | **refused** by the clock page | the candidate's **worst** row, agreed by both instruments and materially worse than its mount |
 | candidate narrow | `0.7203×` theirs / `0.7583×` ours on partial-update | **refused** by the clock page | a **win** — 24–28% faster than Reagent-on-subs. UIx wins it slightly harder |
