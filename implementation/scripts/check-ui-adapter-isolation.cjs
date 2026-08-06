@@ -415,9 +415,27 @@ function classifyArm2(tree, expectedLocalRoot = requiredCoordinateLocalRoot) {
 // Read the focused loader's SHADOW_IMPORT closure. Split out (and injectable
 // via main's io seam) so the self-test can drive main() end-to-end with a
 // synthetic closure — no shadow-cljs build artefact required.
+// The existence probe and the read are two syscalls, and the gap between them
+// is the one place a moved bundle can still reach this gate (rf2-1wyyb).
+// `npm run test:ui-isolation` compiles through `compile-node-test.cjs`, which
+// UNLINKS `:output-to` before every compile so a failed one leaves nothing
+// stale (rf2-6t03c) — so a second compile of `node-test-ui` starting in that
+// gap deletes the loader after `existsSync` said it was there. An ENOENT
+// escaping here would be an UNCAUGHT throw, and node exits 1 for that: the
+// code this gate reserves for a real wrapper leak. That is the sibling gate's
+// three-causes-one-verdict defect in miniature (rf2-v8561, PR #7608) — an
+// ENVIRONMENT cause wearing the ISOLATION verdict's exit code. The bundle
+// vanishing is the `missing` case however late it is noticed, so route it
+// there and let main() report it as the setup error (exit 2) it is. Any OTHER
+// read error (EACCES, EISDIR) is not this class and still throws.
 function readFocusedLoaderImports() {
   if (!fs.existsSync(loaderPath)) return { missing: true };
-  return { imports: importsFrom(fs.readFileSync(loaderPath, 'utf8')) };
+  try {
+    return { imports: importsFrom(fs.readFileSync(loaderPath, 'utf8')) };
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { missing: true };
+    throw err;
+  }
 }
 
 // --- self-test (hermetic; no build artefacts, no JVM, no shell) ------------
@@ -736,6 +754,59 @@ function selfTest() {
     }
   }
 
+  // --- Loader read under a mid-flight unlink (rf2-1wyyb) -------------------
+  // The bundle moving underneath the gate is an ENVIRONMENT cause and must
+  // never wear the ISOLATION verdict's exit code. Every other way that can
+  // happen already lands on exit 2 (absent loader, zero SHADOW_IMPORT rows,
+  // positive control missing); the ENOENT thrown by a `readFileSync` whose
+  // file was unlinked after `existsSync` did not, because an uncaught throw
+  // exits 1. Drive the interleaving directly — `existsSync` true, the file
+  // gone one syscall later, which is exactly what a concurrent
+  // `compile-node-test.cjs node-test-ui` produces (rf2-6t03c).
+  const withStubbedLoaderRead = (readImpl, fn) => {
+    const saved = { existsSync: fs.existsSync, readFileSync: fs.readFileSync };
+    fs.existsSync = () => true;
+    fs.readFileSync = readImpl;
+    try {
+      return fn();
+    } finally {
+      Object.assign(fs, saved);
+    }
+  };
+  const throwing = (code) => () => {
+    throw Object.assign(new Error(`${code}: synthetic loader read failure`), { code });
+  };
+
+  const unlinkedRead = withStubbedLoaderRead(throwing('ENOENT'), () => {
+    try {
+      return readFocusedLoaderImports();
+    } catch (err) {
+      return { threw: err };
+    }
+  });
+  if (unlinkedRead.threw) {
+    return fail(
+      'a loader unlinked between existsSync and readFileSync must be reported as missing, not thrown ' +
+        '(an uncaught ENOENT exits 1 — the wrapper-leak code — for an environment cause)'
+    );
+  }
+  if (!unlinkedRead.missing) {
+    return fail('a loader unlinked mid-read must classify as missing');
+  }
+
+  // Only THIS class is routed. A read error that does not mean "the bundle
+  // moved" (EACCES, EISDIR) is not silently converted into a setup error.
+  const otherRead = withStubbedLoaderRead(throwing('EACCES'), () => {
+    try {
+      return { value: readFocusedLoaderImports() };
+    } catch (err) {
+      return { threw: err };
+    }
+  });
+  if (!otherRead.threw || otherRead.threw.code !== 'EACCES') {
+    return fail('a non-ENOENT loader read error must still propagate, not be swallowed as missing');
+  }
+
   // --- End-to-end gate decisions (main() with injected IO) -----------------
   // Prove the previously-false-green conditions now go RED, and that genuinely
   // passing conditions stay green. Console is silenced for the intentional
@@ -745,6 +816,19 @@ function selfTest() {
   // configured root injected (POSIX-shaped by default; overridden per case).
   const runMain = (argv, io) =>
     withSilencedConsole(() => main(argv, { coreLocalRoot: POSIX_ROOT, ...io }));
+
+  // rf2-1wyyb, end-to-end: a loader unlinked between `existsSync` and
+  // `readFileSync` reaches main() as the setup error (exit 2) it is, NOT as a
+  // leak accusation. `readLoaderImports` is deliberately NOT injected here —
+  // this drives the real reader, which is where the ENOENT arises. Removing
+  // that routing makes the throw uncaught, and node's exit 1 for an uncaught
+  // throw is the code this gate reserves for a real wrapper leak.
+  const unlinkedExit = withStubbedLoaderRead(throwing('ENOENT'), () =>
+    runMain([], { resolveTree: () => ({ status: 0, stdout: cleanTree }) })
+  );
+  if (unlinkedExit !== 2) {
+    return fail(`a loader unlinked mid-read must fail closed (exit 2), got exit ${unlinkedExit}`);
+  }
 
   // MUTATION 1 — a direct `reagent2.core` import in the focused first-party UI
   // closure reds the gate (exit 1) EVEN WHEN no forbidden coordinate is
@@ -876,7 +960,8 @@ function selfTest() {
       'separator-bearing prose / plausible-shape WRONG-ROOT evidence all fail closed; missing / ' +
       'untrusted clojure fails closed; the positive control requires day8/re-frame2 to have ' +
       'resolved to the local root ui/deps.edn configures, and the real implementation/ui graph ' +
-      'still passes on Windows- and POSIX-shaped roots; --modules-only is explicit)'
+      'still passes on Windows- and POSIX-shaped roots; a loader unlinked mid-read is the setup ' +
+      'error it is, never a leak; --modules-only is explicit)'
   );
   return 0;
 }
