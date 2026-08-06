@@ -902,15 +902,22 @@
   "The navigate map's key set, and it is CLOSED: `:frame`, `:payload`,
   `:native?`, `:veto` — those four, no fewer and no more (HD-027).
 
-  Held as a SET the map's own keys must EQUAL, rather than as four
-  presence tests, because a grammar that checks only the keys it knows is
-  fail-open by construction. Under presence tests a map missing `:veto`
-  passes — and `:veto` is the slot that decides whether the click can be
-  cancelled, so its absence is the difference between an uncancelable
-  navigation and a promised one. So does a map carrying a fifth key,
-  which the lowering then silently drops: the author wrote something and
-  nothing happened, which is the failure class every loud error in this
-  namespace exists to delete."
+  CLOSED means a COUNT and not just presence. A grammar that checks only
+  the keys it knows is fail-open by construction: under four bare
+  presence tests a map missing `:veto` passes — and `:veto` is the slot
+  that decides whether the click can be cancelled, so its absence is the
+  difference between an uncancelable navigation and a promised one — and
+  so does a map carrying a fifth key, which the lowering then silently
+  drops: the author wrote something and nothing happened, which is the
+  failure class every loud error in this namespace exists to delete.
+
+  `(== 4 (count m))` AND four `contains?` admit exactly the maps
+  `(= navigate-keys (set (keys m)))` admits, and allocate nothing to do
+  it, so that is what [[unwrap-navigate]] asks on the hot path. This set
+  is read by the REFUSAL, which runs once, at the error: building it per
+  call was ~156 ns/element of the census page's walk, one
+  `PersistentHashSet` per link per render (`rf2-jr0tg`, costed on
+  `walk_vs_reagent_app`)."
   #{:frame :payload :native? :veto})
 
 (defn- unwrap-navigate
@@ -918,43 +925,54 @@
   exactly two forms, the second a map whose keys are EXACTLY
   [[navigate-keys]]: `:frame` (a keyword), `:payload` (a non-empty
   vector), `:native?` (a boolean), and `:veto` (the [[lower-veto]]
-  roster, `nil` included — which is why its presence is asked of the key
-  set and never of its value). Everything else is
+  roster, `nil` included — which is why its presence is asked and its
+  value never is). Everything else is
   `:rf.error/hicasso-malformed-navigate`, named at the position. Answers
   the validated map; like [[unwrap-prevent]] it is not a walker — the
-  payload stays ordinary data all the way to routing."
+  payload stays ordinary data all the way to routing.
+
+  The key check RUNS ONCE PER LINK PER RENDER, so it allocates nothing:
+  the count closes the roster that the four `contains?` open, admitting
+  exactly what [[navigate-keys]] as a set admits. The set itself is built
+  only in the failure branch, where it names what the author actually
+  wrote."
   [k v]
   (let [m  (nth v 1 nil)
-        {:keys [frame payload native?]} m
-        ks (when (map? m) (set (keys m)))]
+        {:keys [frame payload native?]} m]
     (when-not (and (= 2 (count v))
-                   (= navigate-keys ks)
+                   (map? m)
+                   (== 4 (count m))
+                   (contains? m :frame)
+                   (contains? m :payload)
+                   (contains? m :native?)
+                   (contains? m :veto)
                    (keyword? frame)
                    (vector? payload)
                    (seq payload)
                    (boolean? native?))
-      (fail! :rf.error/hicasso-malformed-navigate
-             'front.intent/lower-prop
-             (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
-                  " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
-                  "(a non-empty event vector), :native? (a boolean) and :veto — "
-                  "those four keys and no others; this one "
-                  (cond
-                    (not= 2 (count v))  (str "carries " (dec (count v)) " forms after the head")
-                    (not (map? m))      (str "wraps " (pr-str m) ", which is not a map")
-                    (not= navigate-keys ks)
-                    (str "carries " (pr-str (vec (sort ks)))
-                         (when-some [missing (seq (sort (remove ks navigate-keys)))]
-                           (str ", so it is missing " (pr-str (vec missing))))
-                         (when-some [extra (seq (sort (remove navigate-keys ks)))]
-                           (str ", and nothing reads " (pr-str (vec extra)))))
-                    (not (keyword? frame))  "names no :frame keyword"
-                    (not (and (vector? payload) (seq payload))) "carries no :payload event vector"
-                    :else               "answers no boolean at :native?")
-                  ". route-link mints this form; hand-written ones must carry all "
-                  "four slots and nothing else.")
-             :carry-frame-payload-native-and-veto
-             {:position k :form v}))
+      (let [ks (when (map? m) (set (keys m)))]
+        (fail! :rf.error/hicasso-malformed-navigate
+               'front.intent/lower-prop
+               (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
+                    " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
+                    "(a non-empty event vector), :native? (a boolean) and :veto — "
+                    "those four keys and no others; this one "
+                    (cond
+                      (not= 2 (count v))  (str "carries " (dec (count v)) " forms after the head")
+                      (not (map? m))      (str "wraps " (pr-str m) ", which is not a map")
+                      (not= navigate-keys ks)
+                      (str "carries " (pr-str (vec (sort ks)))
+                           (when-some [missing (seq (sort (remove ks navigate-keys)))]
+                             (str ", so it is missing " (pr-str (vec missing))))
+                           (when-some [extra (seq (sort (remove navigate-keys ks)))]
+                             (str ", and nothing reads " (pr-str (vec extra)))))
+                      (not (keyword? frame))  "names no :frame keyword"
+                      (not (and (vector? payload) (seq payload))) "carries no :payload event vector"
+                      :else               "answers no boolean at :native?")
+                    ". route-link mints this form; hand-written ones must carry all "
+                    "four slots and nothing else.")
+               :carry-frame-payload-native-and-veto
+               {:position k :form v})))
     m))
 
 (defn- navigate-handler
