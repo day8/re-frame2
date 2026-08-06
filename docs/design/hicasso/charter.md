@@ -152,13 +152,13 @@ canonical.
 
 The full roster is the product's definition of done — the existing witness corpus
 re-pointed at Hicasso, green. **v0 is deliberately narrower**: the five tier-1
-shapes beautiful; controlled input R-A1/R-A2; mount + bulk ≤ Reagent on the witness
-shapes; one host hatch proven; a dogfood list+form screen preferred over raw UIx by
-its authors; the event/sub loop not regressed; a short guide. **SSR is explicitly
-out of v0** (HD-020: bodies stay `.cljc`-compatible by construction; no JVM/SSR
-render path ships). Deferred past v0: the full buffered/revision input ladder,
-overlay excellence, batteries/library platform, SSR as identity, devtools glass,
-per-keystroke envelopes as a gate.
+shapes beautiful; controlled input R-A1/R-A2; mount inside the mount gate and bulk
+≤ Reagent on the witness shapes; one host hatch proven; a dogfood list+form screen
+preferred over raw UIx by its authors; the event/sub loop not regressed; a short
+guide. **SSR is explicitly out of v0** (HD-020: bodies stay `.cljc`-compatible by
+construction; no JVM/SSR render path ships). Deferred past v0: the full
+buffered/revision input ladder, overlay excellence, batteries/library platform,
+SSR as identity, devtools glass, per-keystroke envelopes as a gate.
 
 **Amended 2026-08-04 (operator ruling):** the out-of-v0 SSR posture above is
 superseded — **SSR + hydration is required Hicasso scope** ("hicasso is useless
@@ -169,6 +169,18 @@ SSR *speed* stays off the bar, and "SSR as identity" stays in the deferred
 list — SSR is a required capability, not the product's identity. Four pieces have
 since landed on the now-closed beads `rf2-2rtt6.84`–`.87`: the hydration door,
 the `defhost` `:ssr` policy, the Node render entry, and the X1–X5 spike witness.
+
+**Amended 2026-08-05 (`rf2-hyd50`, operator-acked 2026-08-07):** the v0 bar
+clause above is restated per-axis. It read, verbatim: `mount + bulk ≤ Reagent on
+the witness shapes`. The mount gate it now names is **≤ 1.10× direct
+UIx-on-subs** — canonical `M1`, floor-normalised, on the clock of record — with
+Reagent-on-subs co-instrumented and **reported beside the mount row rather than
+gating it**; bulk stays **≤ 1.0× Reagent-on-subs, like-for-like**, unchanged.
+This is consistency propagation of a ruling already carried by
+[validation.md](validation.md) and HD-012's addendum in
+[decisions.md](decisions.md), not a new one. That ruling is delegated and
+**operator-overturnable**: if it is overturned, this note reverts with it and the
+frozen clause is the live bar again.
 
 **A. The everyday SPA spine** (where the bar lives)
 1. Ordinary views — the ~50-element form/list/layout shape.
