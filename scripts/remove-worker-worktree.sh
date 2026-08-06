@@ -759,8 +759,12 @@ if [ "$SELF_TEST" -eq 1 ]; then
              commit -q -m init \
       && git worktree add -q "$ST_G_HUSK" -b guard-probe-husk \
       && git worktree add -q "$ST_G_LIVE" -b guard-probe-live ) >/dev/null 2>&1 || true
-  [ -e "$ST_G_HUSK/probe.txt" ] && [ -e "$ST_G_LIVE/.git" ] \
-    || die "SELF_TEST=FAILED could not build the later-invocation fixtures under $ST_G_REPO, so the guard went untested."
+  # An `if`, not `A && B || die`: with two conditions that is SC2015's trap —
+  # the `||` binds to the whole conjunction, so the message runs when A alone
+  # is false, and shellcheck rightly refuses to guess which was meant.
+  if [ ! -e "$ST_G_HUSK/probe.txt" ] || [ ! -e "$ST_G_LIVE/.git" ]; then
+    die "SELF_TEST=FAILED could not build the later-invocation fixtures under $ST_G_REPO, so the guard went untested."
+  fi
   [ "$(wc -c < "$ST_G_HUSK/probe.txt" | tr -d ' ')" -gt "$HUSK_PROVENANCE_MIN_BYTES" ] \
     || die "SELF_TEST=FAILED the positive fixture does not clear the provenance byte floor, so it proves nothing."
   # Precisely what a partial removal leaves behind, in BOTH of its parts: the
