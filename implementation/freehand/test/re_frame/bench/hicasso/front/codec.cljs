@@ -124,18 +124,21 @@
   calling convention, and a plain function in head position is a loud
   error.
 
-  ## Two reserved attribute keys, and nothing else
+  ## Three reserved attribute keys, and nothing else
 
   | Key | Meaning |
   |---|---|
   | `:&` | the caller's remainder map. One merge, one law: **the literal keys written in the map always win** (HD-023, [[merge-caller]]) |
   | `:ref` | a callback ref in v0; a **vector** is the reserved data spelling and is refused loudly (HD-022, [[check-ref!]]) |
+  | `:re-frame.hicasso/revision` | authoring.md's `::h/revision` — a controlled text element's reset trigger. Read off the author's own PRE-MERGE map in [[native-element]], never emitted as an attribute, never reachable from a `:&` remainder ([[revision-key]]) |
 
-  Both are attribute *keys*, not forms — so the merge survives into a
-  structural test and into tooling, and neither adds a public concept in
-  the K5 sense. (K5 — the ergonomics kill criterion — was removed by
-  operator ruling on 2026-08-04; this records the reason the shape was
-  chosen, not a live gate.)
+  *Two columns; three body rows; hand-counted.*
+
+  All three are attribute *keys*, not forms — so the merge survives into a
+  structural test and into tooling, and none adds a public concept in the
+  K5 sense. (K5 — the ergonomics kill criterion — was removed by operator
+  ruling on 2026-08-04; this records the reason the shape was chosen, not
+  a live gate.)
 
   ## One canonical slot, and every rule asks it
 
@@ -155,7 +158,42 @@
   therefore beats `#tag` in every spelling, and a declared class composes
   with `.foo` in every spelling — including a spelling a `:&` remainder
   forwarded, which is the one door where the author of the element never
-  sees the key at all."
+  sees the key at all.
+
+  ### The two exceptions, argued rather than assumed
+
+  `:key` and [[revision-key]] are matched as the EXACT keyword and are
+  never slot-claimed, which is the doctrine's own inverse. Both take the
+  exception for the same reason and it is not convenience: they are
+  **triggers rather than attributes**. Claiming the slot `key` for
+  React's identity contract would be harmless, but claiming the slot
+  `revision` for a reset would make bare `:revision`, `\"revision\"` and
+  `:x/revision` all mean *reset this field* in some positions and an
+  ordinary DOM attribute in others — a worse outcome than the exception,
+  and the reason the collision argument settles the spelling.
+
+  The reasoning is recorded here because the doctrine has since been
+  reinforced by name twice — rf2-vrvv9 (\"a rule written against the
+  spelling is a rule the other spellings walk past\") and rf2-2rtt6.119
+  (the class slot is a position at the crossing too) — so the next reader
+  arrives with that fresh and should find the exception argued. Note also
+  that `:key` has BOTH halves, an exact match in the walk *and* a
+  canonical-slot denial in [[structural-slots]]; the revision takes only
+  the first, and closes the same gap from the other end — its read is
+  PRE-merge, so a remainder cannot reach it, and [[convert-props]]
+  refuses a remainder that carries it rather than letting it pass
+  silently. **If a third exception ever arrives, restate the doctrine
+  with its exceptions enumerated rather than accumulating them one commit
+  at a time.**
+
+  One consequence of leaving the slot unclaimed is worth stating because
+  it is a surprise if undocumented: an element that writes a literal
+  `:re-frame.hicasso/revision` thereby claims the canonical slot
+  `revision` as an OWNED literal, so a `:&` remainder's ordinary bare
+  `revision` attribute is denied by [[merge-caller]]'s owned-literal law.
+  That is correct conduct — the law is on the slot — but the element's
+  author never wrote an attribute named `revision`, so nothing on the
+  page explains the denial except this paragraph."
   (:require [clojure.string :as str]
             [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.front.intent :as intent]
@@ -621,6 +659,61 @@
                {:value caller})))))
 
 ;; ---------------------------------------------------------------------------
+;; `::h/revision` — the controlled element's reset trigger (rf2-zq8kh)
+;; ---------------------------------------------------------------------------
+
+(def revision-key
+  "`:re-frame.hicasso/revision` — authoring.md's `::h/revision`, the third
+  and last reserved attribute key.
+
+  **A trigger, not an attribute.** A change to its value (CLJS `=`)
+  re-baselines a controlled text field to the model WITHOUT remounting
+  it: the node is kept, the focus is kept, and the caret lands at
+  end-of-model on the commit that carries the reset. Resets are by
+  explicit caller revision and NEVER by value equality — the reset law
+  HD-019 keeps from D016 — so a `:value` that changes under an unchanged
+  revision continues the draft, and a revision that changes while the
+  value stays equal still resets.
+
+  ## Matched as the EXACT keyword, and never slot-claimed
+
+  The `:key` precedent, and the codec docstring argues why the doctrine
+  exception is right here rather than assumed. Every other spelling —
+  bare `:revision`, `\"revision\"`, `:x/revision` — flows on as an
+  ordinary DOM attribute, which is the honest loss the guide's
+  troubleshooting line describes: post-rf2-vrvv9 the NATIVE walk still
+  answers `(name v)` for a keyword ([[convert-prop-value]]), so a
+  misspelled bare `:revision` carrying the most natural revision value
+  there is — a namespaced keyword — emits `revision=\"rev-3\"` with the
+  namespace deleted, collapsing two distinct revisions into one attribute
+  value. Silent, and lossy.
+
+  ## Zero new machinery, and no third `flushSync` site
+
+  There is no transport to build. The codec mints a fresh props object
+  per element per render (HD-004 refuses prop-object caching), React
+  marks a host update on props IDENTITY rather than value, and the commit
+  runs `updateInput` unconditionally, which assigns only when the DOM
+  disagrees. So the whole delivery is: the revision is a value the body
+  reads, its change re-runs the body, the re-run re-commits the element,
+  and the commit re-asserts the model against the DOM. No hook, no ref,
+  no comparison record, no keyed re-render.
+
+  **Those three React behaviours are not public contracts** — the same
+  class as the `defaultValue` mirror
+  [[re-frame.bench.hicasso.front.controlled/last-rendered]] depends on —
+  and this promotes HD-004's no-caching posture from a
+  measurement-honesty stance to a CORRECTNESS DEPENDENCY of the reset
+  transport. Any future prop-object memoization must exclude controlled
+  text elements or re-design this delivery.
+
+  The authored-data rule is the instance key's, transplanted: *if it
+  would be a good instance key, it is a good revision value* — a domain
+  fact written by events, never a render-order index, never a counter
+  minted in render, never `random-uuid`."
+  :re-frame.hicasso/revision)
+
+;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022)
 ;; ---------------------------------------------------------------------------
 
@@ -663,7 +756,14 @@
 
   The literal `:key` is skipped here — the in-loop form of the `dissoc`
   the walk used to pay a map copy for; every other spelling flows
-  through, exactly as it survived the `dissoc`. A keyword or symbol key
+  through, exactly as it survived the `dissoc`. The literal
+  [[revision-key]] is skipped beside it, for the same reason and at the
+  same price: [[native-element]] has already read it off the author's own
+  PRE-MERGE map, so by the time the walk sees it there is nothing left to
+  do but keep it out of the emitted object — a reset trigger is not a DOM
+  attribute. The skip is unconditional because the walk cannot tell a
+  literal from a remainder's copy; the provenance question is asked once,
+  in [[convert-props]], where the answer is still available. A keyword or symbol key
   is answered by its [[prop-slot]] — name and classification in one
   lookup, `event?` gated on `keyword?` because a symbol is never an
   event position — and a value that nothing claims (not a ref, not a
@@ -688,7 +788,7 @@
   exists to delete. Composing drops nothing, and it is what the slot
   means."
   [o k v]
-  (if (keyword-identical? :key k)
+  (if (or (keyword-identical? :key k) (keyword-identical? revision-key k))
     o
     (if (or (keyword? k) (symbol? k))
       (let [^PropSlot s (prop-slot k (name k))]
@@ -783,15 +883,52 @@
   [[re-frame.bench.hicasso.front.intent/lower-prop]] at all. The slot's
   `event?` flag is gated on `keyword?` at the call site — a symbol shares
   the cache entry but is not an event position — and a string-keyed prop
-  takes the donor's uncached path unchanged."
+  takes the donor's uncached path unchanged.
+
+  ## The `:&` door is shut on the revision, loudly
+
+  [[revision-key]] is read PRE-merge, in [[native-element]], so a
+  remainder's copy arms nothing by construction. Left there it would be
+  merely inert, and inert is the wrong posture for this lane: a
+  remainder that writes a reset trigger the element's author never wrote
+  is asking for a behaviour it cannot be given, and it should learn that
+  from a diagnostic rather than from a field that never resets. So the
+  provenance question is asked exactly once, here, where both maps are
+  still in hand — present after the merge and absent from the author's
+  own literals means it came through `:&`, and that is refused.
+
+  **When the element writes the literal too, the literal simply wins and
+  nothing is refused**: [[merge-caller]]'s owned-literal law has already
+  denied the remainder's copy on the canonical slot `revision`, so the
+  key that survives to be tested is the author's own. Order matters, and
+  this is downstream of the merge for exactly that reason.
+
+  The cost on the ordinary path is one `identical?`. [[merge-caller]]
+  returns its argument by identity when there is no `:&` at all, so the
+  two `contains?` calls are reached only by an element that actually
+  merged a remainder."
   [props ^ParsedTag parsed]
   (if (nil? props)
     (let [o #js {}]
       (when-some [id (.-id parsed)] (unchecked-set o id-slot id))
       (when-some [c (.-className parsed)] (unchecked-set o class-slot c))
       o)
-    (fold-shorthand! (reduce-kv convert-entry #js {} (merge-caller props))
-                     parsed)))
+    (let [merged (merge-caller props)]
+      (when-not (identical? merged props)
+        (when (and (contains? merged revision-key)
+                   (not (contains? props revision-key)))
+          (fail! :rf.error/hicasso-revision-from-remainder
+                 'front.codec/convert-props
+                 (str (pr-str revision-key) " is a RESET TRIGGER the element's own "
+                      "author writes, and a `:&` remainder may not arm one. It "
+                      "re-baselines a controlled field to the model, discarding "
+                      "the draft in it — conduct a caller forwarding attributes "
+                      "cannot be given. Write the revision as a literal on the "
+                      "element, driving it from whatever the caller sent through "
+                      "an ordinary prop.")
+                 :write-the-revision-as-a-literal-on-the-element
+                 {:revision (get merged revision-key)})))
+      (fold-shorthand! (reduce-kv convert-entry #js {} merged) parsed))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boundary heads (HD-016 / HD-004)
@@ -1993,7 +2130,28 @@
   is the tag for everything except a controlled `input`/`textarea` —
   those get the composition shadow's component, and the tag it renders
   is the tag parsed here. The codec asks one question and takes one
-  answer; which of the two it is belongs entirely to that namespace."
+  answer; which of the two it is belongs entirely to that namespace.
+
+  ## The revision is read here, and it is read PRE-MERGE
+
+  [[revision-key]] is taken off `props` — the author's OWN attribute map,
+  before [[convert-props]] folds any `:&` remainder into it — with the
+  same expression shape the `:key` read below uses, and for the same
+  reason. `key` and the revision are the two positions a remainder must
+  never reach: [[merge-caller]] denies a remainder only the structural
+  slots plus the slots owned by literals the element wrote, so
+  `{:& {:re-frame.hicasso/revision r}}` on an element that writes no
+  literal survives the merge. Reading pre-merge is what makes arming it
+  from that door impossible rather than merely unlikely — the hostile
+  remainder cannot force a field re-baseline the element's author never
+  wrote. [[convert-props]] refuses such a remainder in the same pass, so
+  the door is shut loudly as well as shut.
+
+  What lands on the emitted object is a marker under a private slot, and
+  [[re-frame.bench.hicasso.front.controlled/install!]] deletes it as it
+  reads it — so nothing named `revision` survives to React, to the DOM,
+  or to the server bytes, by construction rather than by a special case
+  at each of the three."
   [argv]
   (let [parsed      (cached-parse (nth argv 0))
         has-props?  (props-map? argv 1)
@@ -2002,6 +2160,8 @@
         ;; [[convert-props]]'s first lane, and wrapping it in an empty
         ;; map was the whole cost of telling it so (rf2-y1jkm).
         js-props    (convert-props props parsed)
+        _           (when-some [r (get props revision-key)]
+                      (unchecked-set js-props controlled/revision-slot r))
         component   (controlled/install! (.-tag parsed) js-props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element component js-props argv (if has-props? 2 1))))
