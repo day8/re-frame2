@@ -158,8 +158,11 @@
 (def default-max-buffered-events 500)
 
 (def default-max-buffered-bytes
-  ;; ~5 MB — sized to the MCP egress wire-cap posture scaled by the per-tick
-  ;; batching ratio. See runtime.cljs §Streaming subscriptions for the sizing.
+  ;; ~5 MB of TRUE UTF-8 bytes — sized to the MCP egress wire-cap posture
+  ;; scaled by the per-tick batching ratio. See runtime.cljs §Streaming
+  ;; subscriptions for the sizing. The value is UNCHANGED by rf2-2rtt6.135:
+  ;; 5 MB was always the chosen BYTE budget, and only the ruler underneath it
+  ;; (`event-byte-size`) was wrong.
   5000000)
 
 (defn streaming-drop?
@@ -225,12 +228,41 @@
                                       (<= t0 (:time ev) t1)))))))
 
 (defn event-byte-size
-  "Cheap, monotonic estimate of an event's on-wire byte cost — the same
-   `pr-str`-char-count discipline as the wire-cap helper, so the runtime
-   queue's budget stays in the same units as the egress cap. `pr-str` failure
-   falls back to 0 rather than blowing up enqueue."
+  "UTF-8 BYTE cost of `event`'s `pr-str` form — the figure `evict-oldest`
+   enforces `:max-buffered-bytes` against, and the one `:queue-bytes` /
+   `:dropped-bytes` publish to the agent.
+
+   BYTES, not `count`'s UTF-16 code units (rf2-2rtt6.135). The sum used to be
+   `(count (pr-str event))`, which agrees with UTF-8 only on ASCII — so the
+   budget failed OPEN: an em-dash-heavy payload held up to 3x the intended
+   5 MB before eviction began, and the published figures under-reported by the
+   same margin. This is the one site in that class where honesty TIGHTENS a
+   LIVE gate — heavy non-ASCII now evicts sooner, which is the intended
+   conduct arriving late. ASCII traffic is unchanged, byte for byte.
+
+   The name was right and the ruler was wrong, so `max-buffered-bytes` /
+   `:queue-bytes` / `:dropped-bytes` keep their names and
+   `default-max-buffered-bytes` keeps its 5,000,000: the cap bounds MEMORY,
+   and the bug under-delivered eviction rather than the intent. The old
+   docstring's \"same units as the wire-cap helper\" claim is TRUE again —
+   `re-frame2-pair-mcp.tools.summary/utf8-bytes` has counted UTF-8 since
+   rf2-2rtt6.132.
+
+   `TextEncoder` and not `Buffer.byteLength`: this ns ships as a browser
+   PRELOAD and compiles under `:advanced`, where `Buffer` is absent.
+   `TextEncoder` is UTF-8 BY DEFINITION — no encoding argument a later edit
+   can silently drop — and is a global in every browser and in Node; the `^js`
+   hints keep `:advanced` from renaming the interop call. Same shape as
+   `re-frame.elision/pr-str-bytes`, which this figure must not drift from.
+
+   `pr-str` (or encode) failure still falls back to 0 rather than blowing up
+   enqueue."
   [event]
-  (try (count (pr-str event))
+  (try (let [s (pr-str event)]
+         #?(:clj  (alength (.getBytes ^String s "UTF-8"))
+            :cljs (let [^js enc (js/TextEncoder.)
+                        ^js buf (.encode enc s)]
+                    (.-length buf))))
        (catch #?(:cljs :default :clj Throwable) _ 0)))
 
 (defn evict-oldest

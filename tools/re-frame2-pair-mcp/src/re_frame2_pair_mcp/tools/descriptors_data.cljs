@@ -1692,7 +1692,7 @@
                                                     :description "Runtime-side queue cap in EVENTS. Positive integer (>= 1); a non-positive value is rejected with :reason :invalid-numeric-arg. Default 500. On overflow the OLDEST events are evicted (drop-oldest FIFO) and reported as `:dropped-events` / `:overflow-reason :max-buffered-events` on the next progress tick. OR-combined with :max-buffered-bytes — whichever trips first evicts."}
                               :max-buffered-bytes  {:type "integer"
                                                     :minimum 1
-                                                    :description "Runtime-side queue cap in BYTES (pr-str char count). Positive integer (>= 1); a non-positive value is rejected with :reason :invalid-numeric-arg. Default 5_000_000 (~5 MB). Same drop-oldest policy; reports `:dropped-bytes` / `:overflow-reason :max-buffered-bytes`. Sized to fit the 5,000-token wire-cap posture across a normal poll cadence."}
+                                                    :description "Runtime-side queue cap in UTF-8 BYTES of each event's pr-str form. Positive integer (>= 1); a non-positive value is rejected with :reason :invalid-numeric-arg. Default 5_000_000 (~5 MB). Same drop-oldest policy; reports `:dropped-bytes` / `:overflow-reason :max-buffered-bytes` in the same unit. Sized to fit the 5,000-token wire-cap posture across a normal poll cadence."}
                               :poll-ms {:type "integer"
                                         :minimum 1
                                         :description "Server poll cadence in ms. Positive integer (>= 1); a non-positive value is rejected with :reason :invalid-numeric-arg. Default 100."}

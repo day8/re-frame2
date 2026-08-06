@@ -3198,8 +3198,9 @@ vocab `watch-epochs` already accepts):
   surface on the next progress tick as `:dropped-events` and
   `:overflow-reason :max-buffered-events`.
 - `max-buffered-bytes` (integer, default `5_000_000` ≈ 5 MB) —
-  runtime-side queue cap in BYTES (pr-str char count, the same
-  unit as the wire-boundary cap). Same drop-oldest policy; reports
+  runtime-side queue cap in UTF-8 BYTES of each event's `pr-str`
+  form, the same unit as the wire-boundary cap. Same drop-oldest
+  policy; reports
   `:dropped-bytes` and `:overflow-reason :max-buffered-bytes`. This
   exists (rf2-ho4ve) because an event-count-only budget can't bound
   memory pressure under large payloads — 500 small events fit in a
@@ -3254,7 +3255,7 @@ While the subscription is open, each non-empty batch tick emits
     "_meta": {
       "data": {
         "dropped-events": 0,                    // events evicted this tick
-        "dropped-bytes":  0,                    // bytes evicted this tick (pr-str)
+        "dropped-bytes":  0,                    // UTF-8 bytes of pr-str evicted this tick
         "overflow-reason": null                 // ":max-buffered-events" | ":max-buffered-bytes" | null
       }
     }
@@ -3528,7 +3529,7 @@ returns the sub only if it matches on both axes.
          :topic           :trace | :epoch | :fx | :error | :frameless
          :filter          <filter-map-as-supplied-to-subscribe>
          :queue-depth     <integer>       ; events buffered server-side
-         :queue-bytes     <integer>       ; pr-str chars buffered server-side
+         :queue-bytes     <integer>       ; UTF-8 bytes of pr-str buffered server-side
          :dropped-events  <integer>       ; cumulative drops by event-budget
          :dropped-bytes   <integer>       ; cumulative drops by byte-budget
          :overflow-reason :max-buffered-events | :max-buffered-bytes | nil
