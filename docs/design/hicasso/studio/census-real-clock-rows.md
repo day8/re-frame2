@@ -117,8 +117,10 @@ together:
 `large_template.cljs` seeds `{:articles 69 :tags 10}` and `feed.cljs` seeds
 `{:articles 300 :tags 10}`, through the **same** element arithmetic
 (`19 + 10 + 17·articles`). So the step from the one-boundary row to the
-301-boundary row is simultaneously a step to **4.35× the cards, elements and
-subscription reads**. A shared `card.cljs` and the one-card canonical equality
+301-boundary row is simultaneously a step to **4.35× the cards** — and with
+them 4.27× the elements and 4.28× the subscription reads, the two lagging
+slightly because the 29-element page chrome does not scale. The boundary count
+meanwhile steps by 301×. A shared `card.cljs` and the one-card canonical equality
 gate establish that the two pages are built from **byte-identical markup** —
 that is markup parity, and it is real. It is not matched workload, and no
 timing difference between these two rows can be attributed to boundary

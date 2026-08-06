@@ -50,8 +50,10 @@
 // large-template and feed rows were once described as one screen at two
 // boundary decompositions, from which shell cost and interpreter cost
 // separate. They are not: they seed 69 and 300 articles through the SAME
-// element arithmetic, so cards, elements, per-instance reads and
-// boundaries all move together by 4.35x. Shared `card.cljs` and one-card
+// element arithmetic, so cards (4.35x), elements (4.27x) and per-instance
+// reads (4.28x) all move at once, against a 301x step in boundaries — the
+// two middle terms lag only because the 29-element page chrome does not
+// scale with the seed. Shared `card.cljs` and one-card
 // canonical equality buy MARKUP PARITY, not matched workload. What this
 // driver establishes is per row: within a row every arm mounts the
 // identical page (canon-gated before any clock), so hicasso/uix on THAT

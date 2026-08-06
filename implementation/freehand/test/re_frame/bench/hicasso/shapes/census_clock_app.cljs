@@ -22,8 +22,9 @@
   (rf2-2rtt6.62, merged-PR audit of #7372/#7379). An earlier wording here
   called shapes 2 and 3 the same screen at two boundary decompositions
   and claimed the pair separates the two costs on one page. Byte-identical
-  cards prove markup parity, not matched workload: the two rows carry 4.35x
-  apart in cards, elements and per-instance reads, so a cross-row timing
+  cards prove markup parity, not matched workload: the two rows stand 4.35x
+  apart in cards (4.27x in elements, 4.28x in reads — the 29-element chrome
+  does not scale) while boundaries step 1 -> 301, so a cross-row timing
   difference confounds decomposition with size and attributes nothing.
   Each row is valid WITHIN itself — every arm mounts the identical page,
   canon-gated before any clock — and that is the whole of what this
