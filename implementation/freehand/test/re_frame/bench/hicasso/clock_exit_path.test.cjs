@@ -344,7 +344,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
 {
   const CLOCK = path.join(__dirname, 'clock_run.cjs');
-  const { reportability, rowAdjudication, reportabilitySelfTest } = require('./clock_run.cjs');
+  const { reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest } = require('./clock_run.cjs');
   const SRC = fs.readFileSync(CLOCK, 'utf8');
   const t = (what, fn) => test(`clock_run.cjs: ${what}`, fn);
   const KEYSTROKE_WHY = "UNADJUDICATED — this row's control burns a fixed 50 ms rather than doubling the page";
@@ -510,13 +510,162 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.doesNotMatch(line, /keystroke/, 'an unadjudicated row must never appear in REPORTABLE');
   });
 
+  // --- THE REGIMES: what a row publishes, declared (rf2-jcm3p, rf2-swwud) ---
+  //
+  // Two rows had spent months refusing for reasons no amount of measuring
+  // could move — `M1`'s positive control undershoots 2.00x by an additive
+  // constant and no changed-set control can reach a mount; `keystroke`'s
+  // control burns a fixed 50 ms and therefore supplies no band. Both rulings
+  // NARROW THE CLAIM rather than build a better instrument: the rows publish
+  // regimes, not magnitudes.
+  //
+  // THE THING THESE CASES EXIST TO PIN is that the narrowing did not soften
+  // anything. rf2-y7mw7 had just made `HCLOCK_ONLY=keystroke` exit 1, and a
+  // "relabelling" that let it exit 0 again would be that repair undone under
+  // a nicer name. Every case below asserts the code as well as the sentence.
+
+  const mountRow = (over) => clockRow({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
+  const respRow = (over) =>
+    clockRow({
+      rowId: 'keystroke',
+      regime: 'responsiveness-regime',
+      adjudicable: false,
+      unadjudicatedWhy: KEYSTROKE_WHY,
+      ...over,
+    });
+
+  t('THE ROSTER: M1 is a mount regime, keystroke a responsiveness regime', () => {
+    assert.strictEqual(rowRegime('M1'), 'mount-regime');
+    assert.strictEqual(rowRegime('keystroke'), 'responsiveness-regime');
+    assert.deepStrictEqual(ROW_REGIME, {
+      M1: 'mount-regime',
+      bulk300: 'magnitude',
+      bulk100: 'magnitude',
+      narrow: 'magnitude',
+      keystroke: 'responsiveness-regime',
+    });
+  });
+
+  t('a regime is granted by ruling and never by default — an unknown row is a magnitude row', () => {
+    assert.strictEqual(rowRegime('bulk300'), 'magnitude');
+    assert.strictEqual(rowRegime('some-row-nobody-ruled-on'), 'magnitude');
+    assert.strictEqual(rowRegime(undefined), 'magnitude');
+  });
+
+  t('THE EXIT DID NOT MOVE: a keystroke-only run exits 1 exactly as rf2-y7mw7 made it', () => {
+    const v = reportability([respRow()]);
+    assert.strictEqual(v.code, 1, 'a regime row publishes no magnitude, so it cannot exit 0');
+    assert.strictEqual(v.lines[v.lines.length - 1], '[clock] REPORTABLE: none.');
+  });
+
+  t('and an M1-only run exits 1 exactly as its failing control made it', () => {
+    assert.strictEqual(reportability([mountRow()]).code, 1);
+  });
+
+  t('the keystroke refusal now states a REGIME rather than an unadjudicated magnitude', () => {
+    const v = reportability([respRow()]);
+    const all = v.lines.join('\n');
+    assert.match(all, /REGIME: these rows publish a regime and never a magnitude/);
+    assert.match(all, /keystroke \[responsiveness-regime, rf2-swwud\] STATED/);
+    assert.match(all, /DIAGNOSTIC, never magnitudes/);
+    assert.doesNotMatch(
+      all,
+      /not every published bar can be ADJUDICATED/,
+      "a bandless bar on a regime row is a diagnostic, not a magnitude the run failed to adjudicate"
+    );
+  });
+
+  t('the M1 refusal now states a REGIME rather than a control that went wrong', () => {
+    const v = reportability([mountRow({ ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]);
+    const all = v.lines.join('\n');
+    assert.match(all, /M1 \[mount-regime, rf2-jcm3p\] STATED/);
+    assert.match(all, /DIRECTION ONLY/);
+    assert.match(all, /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — expected, and the reason no magnitude/);
+    assert.doesNotMatch(all, /the positive control did not see the change/);
+  });
+
+  // --- MUTATION, BOTH DIRECTIONS -------------------------------------------
+  //
+  // A label that cannot be got wrong is a label nothing depends on. These two
+  // revert each row's regime and assert the run reads differently — the first
+  // is the relabelling's forward proof, the second its reverse.
+
+  t('MUTATION: relabel M1 back to a magnitude row and it reads as a fault again', () => {
+    const v = reportability([mountRow({ regime: 'magnitude', ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]);
+    assert.strictEqual(v.code, 1, 'the exit is the same either way — only the sentence differs');
+    assert.match(v.lines[0], /the positive control did not see the change its own arithmetic predicts on: M1/);
+    assert.doesNotMatch(v.lines.join('\n'), /mount-regime/);
+  });
+
+  t('MUTATION: relabel keystroke back to a magnitude row and its bars read as unadjudicated', () => {
+    const v = reportability([respRow({ regime: 'magnitude' })]);
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
+    assert.doesNotMatch(v.lines.join('\n'), /responsiveness-regime/);
+  });
+
+  // --- the one condition rf2-swwud puts on the responsiveness regime --------
+
+  t('a responsiveness regime is WITHHELD when its fixed-work controls did not pass', () => {
+    const v = reportability([respRow({ ctlOk: false })]);
+    assert.strictEqual(v.code, 1);
+    assert.match(v.lines.join('\n'), /keystroke \[responsiveness-regime, rf2-swwud\] WITHHELD/);
+    assert.match(v.lines.join('\n'), /prove the instrument moves when the work moves/);
+  });
+
+  t('a mount regime is NOT withheld by a failing control — the two regimes differ deliberately', () => {
+    // rf2-jcm3p's premise IS that ctl-2x fails, so a mount regime that waited
+    // on it could never be stated at all.
+    const v = reportability([mountRow()]);
+    assert.match(v.lines.join('\n'), /M1 \[mount-regime, rf2-jcm3p\] STATED/);
+    assert.doesNotMatch(v.lines.join('\n'), /M1 .* WITHHELD/);
+  });
+
+  // --- the magnitude rows are untouched, which is the other half ------------
+
+  t('a magnitude row beside the regimes is still reportable, and no regime joins it', () => {
+    const v = reportability([clockRow({ rowId: 'bulk300' }), mountRow(), respRow()]);
+    assert.strictEqual(v.code, 1);
+    const last = v.lines[v.lines.length - 1];
+    assert.match(last, /^\[clock\] REPORTABLE: bulk300 —/);
+    assert.doesNotMatch(last, /M1|keystroke/, 'a regime row may never be announced as reportable');
+  });
+
+  t("a magnitude row's own gates still refuse it, beside the regimes", () => {
+    const v = reportability([clockRow({ rowId: 'bulk300', ctlOk: false }), mountRow()]);
+    assert.strictEqual(v.code, 1);
+    const all = v.lines.join('\n');
+    assert.match(all, /the positive control did not see the change.*bulk300/);
+    assert.match(all, /REGIME:/);
+    assert.doesNotMatch(
+      all,
+      /predicts on: bulk300, M1|predicts on: M1/,
+      'a regime row must not be listed among the control failures'
+    );
+  });
+
+  t('and a clean all-magnitude run still exits 0 — the regimes did not make the gate vacuous', () => {
+    assert.deepStrictEqual(reportability([clockRow({ rowId: 'bulk300' }), clockRow({ rowId: 'narrow' })]), {
+      code: 0,
+      lines: [],
+    });
+  });
+
+  t('the driver hands the DECLARED regime to the decision, not one it inferred from its numbers', () => {
+    const M = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
+    assert.match(M, /regime: rowRegime\(o\.out\.rowId\)/);
+  });
+
   // --- the wiring: `reportability` is load-bearing, not decorative ----------
 
   const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
 
   t('the driver exposes its decision and does not drive itself on require', () => {
     assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
-    assert.match(SRC, /module\.exports = \{ reportability, rowAdjudication, reportabilitySelfTest \};/);
+    assert.match(
+      SRC,
+      /module\.exports = \{ reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest \};/
+    );
     assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
   });
 
@@ -573,7 +722,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
 {
   const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
-  const { adjudicated, reportable } = require('./clock_readjudicate.cjs');
+  const { adjudicated, reportable, responsivenessRegime } = require('./clock_readjudicate.cjs');
   const RJSRC = fs.readFileSync(RJ, 'utf8');
   const t = (what, fn) => test(`clock_readjudicate.cjs: ${what}`, fn);
   const ADJ = { unadjudicated: false, band: 0.21, why: 'margin 34.8% clears the band 21.4%' };
@@ -630,7 +779,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 
   t('requiring the readjudicator does not RUN it, which is what made this reachable', () => {
-    assert.match(RJSRC, /module\.exports = \{ adjudicated, reportable \};/);
+    assert.match(RJSRC, /module\.exports = \{ adjudicated, reportable, responsivenessRegime \};/);
     assert.match(RJSRC, /if \(require\.main === module\) \{/);
     assert.match(RJSRC, /main\(process\.argv\.slice\(2\)\)/);
   });
@@ -663,6 +812,131 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // and the column's UNADJUDICATED branch is taken from THAT, not from the
     // row-wide band.
     assert.match(body, /: barUnadjudicated\s*\r?\n\s*\? 'UNADJUDICATED/);
+  });
+
+  // --- THE RESPONSIVENESS REGIME, off the retained datasets (rf2-swwud) -----
+  //
+  // The ruling re-adjudicates the per-keystroke row from the two runs already
+  // on disk — no new window, and none needed. These drive the predicate on
+  // synthetic rows and then on the real ones, because "re-adjudicated from
+  // disk" is a claim about files that must be checkable against those files.
+
+  const etArm = (durations, over) => ({
+    sent: 60,
+    observed: durations.length,
+    censored: 60 - durations.length,
+    durations,
+    ...over,
+  });
+  const frames = (n) => Array(n).fill(16);
+  const kbRow = (over) => ({
+    rowId: 'keystroke',
+    granularity: [0.146, 0.2, 0.3],
+    barTask: {
+      'hicasso / reagent-subs': { mean: 0.9491, min: 0.7328, max: 1.1596 },
+      'hicasso / uix-subs': { mean: 0.9968, min: 0.8059, max: 1.2172 },
+      'uix-subs / reagent-subs': { mean: 0.9548, min: 0.771, max: 1.0546 },
+    },
+    kbWitness: {
+      totals: { sent: 180, observed: 140, censored: 40 },
+      perArm: {
+        'hicasso/hicasso': etArm(frames(49)),
+        'reagent-subs/reagent-subs': etArm(frames(46)),
+        'uix-subs/uix-subs': etArm(frames(45)),
+        'hicasso/ctl-50ms': etArm(Array(60).fill(48)),
+      },
+    },
+    ...over,
+  });
+
+  t('every other row is not a responsiveness regime, and says so by returning nothing', () => {
+    assert.strictEqual(responsivenessRegime({ rowId: 'M1' }), null);
+    assert.strictEqual(responsivenessRegime(undefined), null);
+    assert.strictEqual(responsivenessRegime({ rowId: 'M1', kbWitness: {} }), null);
+  });
+
+  t('one bucket across every observed arm IS the verdict, and the control must have moved', () => {
+    const r = responsivenessRegime(kbRow());
+    assert.strictEqual(r.indistinguishable, true);
+    assert.strictEqual(r.frame, 16);
+    assert.strictEqual(r.controlP50, 48);
+    assert.strictEqual(r.controlMoved, true, 'a control that did not move is an instrument nobody saw respond');
+  });
+
+  t('THE GATE IS NOT VACUOUS: an arm in a second bucket refuses the frame statement', () => {
+    // If it always said "indistinguishable", it would be an assertion rather
+    // than a reading. Move one arm a bucket and the verdict must withdraw.
+    const r = responsivenessRegime(
+      kbRow({
+        kbWitness: {
+          totals: { sent: 180, observed: 140, censored: 40 },
+          perArm: {
+            'hicasso/hicasso': etArm(Array(49).fill(24)),
+            'reagent-subs/reagent-subs': etArm(frames(46)),
+            'hicasso/ctl-50ms': etArm(Array(60).fill(48)),
+          },
+        },
+      })
+    );
+    assert.strictEqual(r.indistinguishable, false, 'arms in two buckets are not indistinguishable');
+  });
+
+  t('a control that did not clear the arms is FAIL — the sensitivity claim is checked, not assumed', () => {
+    const r = responsivenessRegime(
+      kbRow({
+        kbWitness: {
+          totals: null,
+          perArm: { 'hicasso/hicasso': etArm(frames(49)), 'hicasso/ctl-50ms': etArm(frames(60)) },
+        },
+      })
+    );
+    assert.strictEqual(r.controlMoved, false);
+  });
+
+  t('THE RIDER is carried, not optional: the grain and the straddling bars come back with it', () => {
+    const r = responsivenessRegime(kbRow());
+    assert.strictEqual(r.grain, 0.146, "the run's own finest per-sample step, as the driver stored it");
+    assert.strictEqual(r.diagnosticBars.length, 3);
+    assert.ok(
+      r.diagnosticBars.every((b) => b.straddles1),
+      'every diagnostic bar straddles 1.0, which is why no magnitude is published'
+    );
+  });
+
+  t('it reads the WITNESS the driver stored rather than regrouping raw entries', () => {
+    // The witness owns what forms an interaction and what a censored key is.
+    // A second grouping here would be a second adjudicator, which is this
+    // whole file's subject.
+    const body = RJSRC.slice(RJSRC.indexOf('function responsivenessRegime('));
+    assert.match(body, /row && row\.kbWitness/);
+    assert.ok(
+      !/interactionId/.test(body.slice(0, body.indexOf('function main('))),
+      'grouping entries by interactionId here would be the witness written a second time'
+    );
+  });
+
+  // --- and against the retained runs themselves ----------------------------
+
+  t('THE RULING RE-ADJUDICATED FROM DISK, and the datasets still say what it said', () => {
+    const dir = path.join(__dirname, 'data', 'clock-0qj9w');
+    if (!fs.existsSync(dir)) return; // datasets are retained, not required to build
+    const expected = { 'run1.json': { observed: 466, censored: 74, ctl: 48 }, 'run2.json': { observed: 449, censored: 91, ctl: 56 } };
+    for (const [file, want] of Object.entries(expected)) {
+      const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+      const row = data.rows.find((r) => r.rowId === 'keystroke');
+      assert.ok(row, `${file} must retain its keystroke row`);
+      const r = responsivenessRegime(row);
+      assert.strictEqual(r.indistinguishable, true, `${file}: every observed interaction must be one frame`);
+      assert.strictEqual(r.frame, 16, `${file}: and that frame is 16 ms`);
+      assert.strictEqual(r.controlP50, want.ctl, `${file}: ctl-50ms median`);
+      assert.strictEqual(r.totals.observed, want.observed, `${file}: observed keys`);
+      assert.strictEqual(r.totals.censored, want.censored, `${file}: censored keys`);
+      assert.strictEqual(r.totals.sent, 540, `${file}: keys sent`);
+      assert.ok(
+        r.diagnosticBars.every((b) => b.straddles1),
+        `${file}: every diagnostic bar must straddle 1.0 — no magnitude may be published from this row`
+      );
+    }
   });
 
   t('it still SELECTS no run away from the table — only from the subset', () => {
