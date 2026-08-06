@@ -30,10 +30,13 @@ while the pure-React control arms standing in the same rounds divide it by
 **−12.5% to +7.9%** — because `floor` and `ctl-2x` are the two arms whose script
 is small and roughly proportional to their frame. That separation is real and it
 reproduces; the mechanism first attached to it does not. And it does not land
-evenly across the record. **`M1 mount 1.0150×` is robust**: `taskNet` puts the
+evenly across the record. **`M1 mount 1.0150×` survives**: `taskNet` puts the
 same components at `1.0110×` and raw `TaskDuration` at `1.0011×` — both inside
-the published interval, the second 0.2% off the point estimate. **`bulk broad
-0.6291×` is not**: the in-page window reproduces the published figure at
+the published interval, the second 0.2% off the point estimate. Read that as
+corroboration of the row's *parity verdict* and not of the row: no harness has
+read `p0_converge_app`'s own schedule past `flushSync`, and §4 says what that
+does and does not license. **`bulk broad 0.6291×` does not survive**: the in-page
+window reproduces the published figure at
 `0.6924×` on the same samples, and ~~`1.0509×` — parity~~ is a **frame-only**
 figure, superseded by the re-take's **`0.8602×`** [0.7709 – 0.9058] on raw
 `TaskDuration` ([bulk broad, re-taken](bulk-broad-re-taken.md)). The row's
@@ -134,13 +137,60 @@ round. That normalisation is load-bearing for a different fault — the segment
 seam, which this audit's runs read at **31.9%** in one round (`floor` at 3.348 ms
 in the Reagent segment against 4.406 ms in the UIx segment) — and it is exactly
 why `rf2-cvvb7` matters. But it gives no protection at all against the window
-boundary, because the floor divides out of both legs:
+boundary.
 
-> `(U/F) ÷ (R/F) = U/R` under either clock.
+> ### THIS SECTION FIRST PUBLISHED THE WRONG IDENTITY, AND IT MATTERED
+>
+> It said the floor *divides out of both legs* — `(U/F) ÷ (R/F) = U/R` under
+> either clock — and drew the conclusion that the published number is the
+> substrate arms' quotient. **The two floors are not one value.** The numerator
+> is normalised in the UIx segment and the denominator in the Reagent segment
+> ([`p0_converge_app.cljs`'s `ratios-of`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs),
+> whose own docstring says *every ratio against the floor measured in THAT
+> segment of THAT round*; the same shape in this audit's driver, whose
+> `crossSegment` takes a numerator segment and a denominator segment and
+> normalises inside each). So the identity is
+>
+> > `(U/F_U) ÷ (R/F_R) = (U/R) × (F_R/F_U)`
+>
+> and the seam this section measured at 31.9% **enters the published statistic
+> instead of dividing out of it**. The floor is not the arm that cancels; it is
+> the arm that contributes a second term.
+>
+> The identity travelled: [the candidate's clock §6.1](the-candidates-clock.md#61-the-seam-measured-against-load)
+> quotes it back and carves out an exception for "the converged witness, whose
+> arms share one segment". That witness has two segments and two floors, so the
+> exception is empty. `rf2-es04f` owns correcting it there.
 
-So the published number is the substrate arms' quotient, and it inherits their
-error in full. The one arm whose reading is nearly instrument-independent — the
-pure-React floor — is the one arm that cancels.
+**The conclusion survives the correction and the reasoning does not, so both are
+stated.** What the section set out to establish — that floor normalisation is no
+defence against the window boundary — still holds, and now holds for a reason it
+can point at: the substrate arms' quotient `U/R` is carried whole, and a seam
+factor is carried beside it. The window-boundary *comparison* between this page's
+two clocks is also largely undisturbed, because `F_R/F_U` is formed from the floor
+arm — pure React, the class §3 measures splitting by under 13% between the clocks
+where the substrate arms split by hundreds of points — so the factor is of similar
+size under either clock and mostly cancels *between* them. It does not cancel
+*within* either clock's magnitude, and that is the part the original text got
+backwards. That much is an inference from the class's measured behaviour and not
+a measurement of `F_R/F_U` itself, which needs the datasets §7 says are gone.
+
+**What can be said about the size of that term, and what cannot.** The estimator
+that touches neither floor — `uix-subs` p50 over `reagent-subs` p50 in the same
+round — is already published beside the normalised one for the in-page rows on
+[the converged page](p0-converged-witness-set.md#two-estimators-published-together):
+`bulk broad` 0.5939 against 0.6291, `bulk narrow` 1.1761 against 1.1754. The two
+agree on the verdict of every row and sit 5.6% and 0.06% apart on the mean, which
+bounds what the normalisation is doing to those published means — on the in-page
+clock, on those rows. **No such raw counterpart exists for this audit's two
+clocks and this page does not manufacture one.** Forming it needs the per-sample
+readings, and §7 records that no dataset from this ensemble survives; the driver's
+second estimator is un-tared rather than un-normalised, so it is not the quantity
+either. That is a run on the box, `rf2-w3yxd` owns it, and it is left as one
+rather than approximated from the absolutes quoted in the box at the top of this
+page — a single round of one row is not an ensemble. Raw readings for all three
+windows have been written since blob `84aa25d9…`, so the ensemble that closes
+this can publish both estimators off its own file.
 
 This is the mechanism the pure-React controls were never able to catch. A lane
 that certifies its instrument on `ctl-2x` alone is certifying the arm least
@@ -223,6 +273,24 @@ whose whole content is how two substrates divide script against frame, which is
 the one thing that column cannot see. It is kept rather than deleted because the
 gap between it and the in-page column *is* the measurement of the door.
 
+**The `M1` and `bulk300` ensemble means in the first two columns are
+DIRECTIONAL, by this page's own rule.** §7 states it: a run whose positive
+control refuses is directional only. `ctl-2x` passed strictly on **2 of 6** `M1`
+runs and **1 of 6** `bulk300` runs (**Controls**, below), so `0.8474×`,
+`0.6924×`, `1.0110×` and `1.0509×` each aggregate a majority of refused runs and
+none of the four is a reportable magnitude. What they carry is a direction, and a
+direction is the whole of what §4 reads off them: the in-page window puts
+`uix ÷ reagent` below parity on both rows, and every clock that looks past
+`flushSync` moves it up. The only control-valid figures either ensemble has are
+`taskNet`'s control-passing subsets — `M1` `0.9992×` over two runs, `bulk300`
+`1.0078×` over one — and a frame-only reading from one or two runs is not a bar
+row either. (`narrow` is the one row whose controls mostly held, 3 of 4, and it
+is the row that is not comparable to its published figure at all.) **A
+control-valid ensemble on the corrected clock is a run on the box, and it is left
+as one** — `rf2-w3yxd`, which would settle §2's missing raw estimator in the same
+sitting. Every magnitude this page now quotes comes from `rf2-yd52q`'s and
+`rf2-emvod`'s raw-`TaskDuration` ensembles instead, named where it appears.
+
 **`narrow` has no corrected-clock donor bar, and this page does not manufacture
 one.** `rf2-yd52q`'s ensemble ran `M1` and `bulk300` only. `rf2-emvod`'s
 seven-run ensemble does cover `narrow` on raw `TaskDuration`, but publishes
@@ -261,12 +329,15 @@ near the floor, an additive constant barely touches their quotient.
 sentence are frame-only readings, and the conclusion is unaffected: the corrected
 clock reaches `0.8602×`, which is likewise not `0.63×`.
 
-The refused runs are excluded from no conclusion drawn here because they point
-the same way as the passing ones on every row; where a magnitude is quoted the
-control-passing subset agrees with the full set (`bulk300` on `taskNet`
-`1.0078×` passing vs `1.0509×` all; `M1` `0.9992×` passing vs `1.0110×` all —
-four frame-only figures, kept because they show the refused runs are not the
-source of any conclusion).
+The refused runs are excluded from no *direction* drawn here, because they point
+the same way as the passing ones on every row, and the control-passing subset
+agrees with the full set wherever both exist (`bulk300` on `taskNet` `1.0078×`
+passing vs `1.0509×` all; `M1` `0.9992×` passing vs `1.0110×` all — four
+frame-only figures, kept because they show the refused runs are not the source of
+any conclusion). **Agreement is not standing.** It says the refusals did not
+manufacture the result; it does not make the result reportable, and the paragraph
+after the ensemble table above says which of these figures may be quoted as
+magnitudes. None of them may.
 
 ## 4. Which rows change
 
@@ -292,31 +363,47 @@ clock that sees the operation's script as well as its frame it reads `0.8602×`
 `1.0509×` above is a frame-only figure, for the reason in the box at the top of
 this page.
 
-**`M1 mount 1.0150×` [0.9820 – 1.0480] — ROBUST, and STRENGTHENED by the
-correction.** `taskNet` puts the same components at `1.0110×`, inside the
-published interval; the control-passing subset reads `0.9992×`, also inside it.
-**And the corrected clock lands closer still**: raw `TaskDuration` reads
-`1.0011×` [0.9464 – 1.0763] over `rf2-yd52q`'s eight runs, 0.2% off the
-published point estimate. The published verdict — *the interval contains 1.0, the
-mount line sits at parity, the red zone has closed* — is what a clock that sees
-the whole operation independently says, and it was already what the frame-only
-half said. Note the honest asymmetry: the cross-check's *in-page* reading for
-mount is `0.8474×`, which does **not** reproduce the published `1.0150×`, so the
-two pages are not measuring an identical quantity on this row (`clock_app`
-settles a frame between samples, which flushes Reagent's macrotask-scheduled
-disposals that `p0_converge_app` lets accumulate across a whole row). The claim
-here is therefore the weaker and safer one: **a clock that looks past `flushSync`
-lands on the published value, so the row's verdict does not depend on the window
-boundary.**
+**`M1 mount 1.0150×` [0.9820 – 1.0480] — the PARITY VERDICT is corroborated on
+three clocks; the ROW has had no comparable check.** Every reading past
+`flushSync` lands where the row does: `taskNet` puts the same components at
+`1.0110×`, inside the published interval (its control-passing subset reads
+`0.9992×`, also inside it — both directional, per §3, and both frame-only), and
+raw `TaskDuration` reads `1.0011×` [0.9464 – 1.0763] over `rf2-yd52q`'s eight
+runs, 0.2% off the published point estimate. The published verdict — *the interval
+contains 1.0, the mount line sits at parity, the red zone has closed* — is what a
+clock that sees the whole operation independently says.
 
-**`coldmount 1.0054×` [0.917 – 1.143] — ROBUST, by the same argument.** It is
-the same 901-element / 300-boundary witness at parity, taken on a second
-instrument by a second author. ~~`1.011×` is where a frame-inclusive clock puts
-that witness~~ — that figure is this page's frame-only `M1` reading rounded, and
-on the corrected clock the same witness reads `1.0011×`. Both are parity, which
-is what the row claims. Its verdict is *"strata overlap, magnitude resolved,
+**This page previously called that ROBUST and STRENGTHENED, and the inference
+does not carry.** The asymmetry it recorded is fatal to the stronger claim rather
+than a footnote on it: the cross-check's *in-page* reading for mount is
+`0.8474×`, which does **not** reproduce the published `1.0150×`. On the one clock
+where the two harnesses can be compared like for like, they disagree by sixteen
+points, because they are not measuring an identical quantity — `clock_app` settles
+a frame between samples, which flushes Reagent's macrotask-scheduled disposals
+that `p0_converge_app` lets accumulate across a whole row. A *different* protocol
+then landing at `1.0110×` and `1.0011×` past the boundary is agreement between
+two quantities, not a controlled measurement of one; it cannot show that the
+published row is independent of its own window boundary, because nothing here
+varies that boundary while holding the schedule fixed. Both frame-past readings
+come from the *same* harness, `clock_app`, so they are two clocks and not two
+witnesses of the schedule question. **What is established is the verdict and not
+the row: every instrument that has read this witness past `flushSync` puts it at
+parity, and parity is the whole of what the row claims.** The check that would
+license the stronger word is a frame-past reading on `p0_converge_app`'s own
+schedule, and §5 explains why that harness cannot be made to take one in place.
+
+**`coldmount 1.0054×` [0.917 – 1.143] — the same standing, reached by a longer
+chain and therefore held more loosely.** It is the same 901-element /
+300-boundary witness at parity, taken on a *third* instrument by a second author.
+~~`1.011×` is where a frame-inclusive clock puts that witness~~ — that figure is
+this page's frame-only `M1` reading rounded, and on the corrected clock the same
+witness reads `1.0011×`. Its verdict is *"strata overlap, magnitude resolved,
 excess mean 0.00 ms"* — a parity claim, and parity is what survives on every
-clock that has looked at it.
+clock that has looked at it. **But no clock has looked at `coldmount_app`.**
+Every frame-past figure quoted for this row is an `M1` figure carried across on
+the strength of a shared witness, so the chain is one link longer than the mount
+row's and inherits its gap: this is corroboration of a *parity verdict* by
+analogy, not a check of this harness at all.
 
 **`bulk narrow 1.1754×` — EXPOSED, NOT ADJUDICATED.** The cross-check's `narrow`
 row writes one commit per window (`k=1`) where the published row batches ten
