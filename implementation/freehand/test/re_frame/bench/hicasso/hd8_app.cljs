@@ -132,10 +132,14 @@
                ;; correction's verdict on this channel. A reader who copies a
                ;; ratio out of the table gets the resolution of its
                ;; denominator on the line above it (rf2-d2tzk).
+               ;; The WORST round per arm and the grain it is measured
+               ;; against — the two numbers the table prints. The per-round
+               ;; series stays in the EDN record: exporting a figure nothing
+               ;; reads is how a driver ends up with three refusals it
+               ;; computes and never consults (rf2-rr6do).
                "grain" (when-let [g (:grain r)]
                          (clj->js {"tick"  (:tick g)
-                                   "worst" (into {} (map (fn [[k v]] [(name k) v])) (:worst g))
-                                   "quanta" (into {} (map (fn [[k v]] [(name k) v])) (:quanta g))}))})
+                                   "worst" (into {} (map (fn [[k v]] [(name k) v])) (:worst g))}))})
     (set! (.-HD8_SUMMARY js/window) acc)
     nil))
 

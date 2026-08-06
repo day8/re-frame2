@@ -1001,10 +1001,6 @@
     {:tick        tick
      :quanta      quanta
      :worst       worst
-     ;; What fraction of the WORST round's reading is the grain rather than
-     ;; the arm — the number the mask's rule is about, stated so a reader of
-     ;; a published band never has to divide it out.
-     :grain-share (into {} (map (fn [[id q]] [id (when (number? q) (round4 (/ 1.0 q)))])) worst)
      :below-grain below}))
 
 (defn- mask-below-grain
