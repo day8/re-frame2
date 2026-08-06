@@ -32,6 +32,44 @@
  * gate fails at the SOURCE: the self-incomplete fixture, not a victim
  * downstream.
  *
+ * WHAT A STANDALONE RED MEANS — AND WHAT IT DOES NOT (rf2-v8561)
+ * --------------------------------------------------------------
+ * A non-zero exit from one standalone run has THREE possible causes, and
+ * for most of this gate's life it reported all three as the first one:
+ *
+ *   1. ISOLATION — the namespace ran its tests and they failed. This is
+ *      the defect the gate exists to find, and the fixture remedy applies.
+ *   2. ROSTER — the selector matched nothing, because the namespace below
+ *      was renamed or deleted and this list was not updated. The runner
+ *      says so ("no tests matched --test= selector(s)") and exits 1. Twice
+ *      already the gate answered that with the fixture remedy and a human
+ *      had to work out what it really meant (`9dd9633d0b`, `d3969eb67b`).
+ *   3. ENVIRONMENT — `out/node-test.js` moved underneath the sweep. The
+ *      sweep spawns one node process per namespace over tens of seconds
+ *      against a bundle a CONCURRENT compile may delete and rewrite at any
+ *      moment; `compile-node-test.cjs` unlinks `:output-to` before every
+ *      compile precisely so a failed one leaves nothing stale (rf2-6t03c),
+ *      which means a compile starting mid-sweep pulls the bundle out from
+ *      under every run still to come. Nothing about a fixture is under
+ *      test at that point.
+ *
+ * The three are told apart by ONE structural fact: `--test=<ns>` is a
+ * RUNTIME selector over a bundle that links EVERY test namespace, so every
+ * run loads the whole graph no matter which namespace it selects. A crash
+ * at module load therefore cannot single out a namespace — it hits all of
+ * them equally. So a red carrying cljs.test's `Ran N tests containing M
+ * assertions.` summary got far enough to be a verdict about the namespace,
+ * and a red WITHOUT one never did. Cause 3's signature is a red suffix:
+ * the sweep is green until the compile lands, and everything after it
+ * fails identically. That is what was reported here — the last three
+ * roster entries, consecutively, in a worktree building other things.
+ *
+ * A sweep whose bundle moved is INDETERMINATE, not red: its green runs are
+ * worth no more than its red ones, so the gate reports exit 2 and asks for
+ * a rerun rather than naming namespaces it cannot vouch for. Refusing to
+ * convert an unobserved cause into a confident accusation is the same
+ * discipline the roster's own entries were written under.
+ *
  * WHAT THIS GATE IS NOT
  * ---------------------
  * This gate detects ONE direction only: deterministic "red alone, green in
@@ -63,8 +101,9 @@
  * whose fixtures MUST self-install an adapter. Adding such a namespace is a
  * conscious one-line edit here (and the gate then guards it).
  *
- * Exit 0 on PASS (every listed ns green standalone), 1 on FAIL, 2 on a
- * setup error.
+ * Exit 0 on PASS (every listed ns green standalone, each having run a
+ * non-zero number of tests), 1 on a real isolation FAIL, 2 on a setup
+ * error — which now includes a stale roster and an indeterminate sweep.
  */
 
 'use strict';
@@ -160,7 +199,101 @@ function runNamespaceAlone(implDir, ns) {
     cwd: implDir,
     encoding: 'utf8',
   });
-  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+  return {
+    status: r.status,
+    // A spawn that never produced a process (ENOENT — the bundle was
+    // unlinked between the sweep's existence check and this run) leaves
+    // `status` null and reports through `error` instead.
+    spawnError: r.error ? String(r.error.message || r.error) : null,
+    stdout: r.stdout || '',
+    stderr: r.stderr || '',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Classification (rf2-v8561). Pure, so `--self-test` can pin it without a
+// compile: everything it needs is in the run's own output plus whether the
+// bundle moved. See WHAT A STANDALONE RED MEANS in the header.
+// ---------------------------------------------------------------------------
+
+// cljs.test's canonical closing summary, printed by re-frame.test-quiet on
+// every run that reaches the end — green or red. Its PRESENCE is the proof
+// that the process got past module load and actually executed tests; its
+// numbers are the proof that the selector matched something real.
+const SUMMARY_RE = /^Ran (\d+) tests? containing (\d+) assertions?\./m;
+
+// The runner's unmatched-selector refusal (shadow_node.cljs `execute-cli`):
+// a `--test=` that matches no test var must never report a 0-test success,
+// so it prints this and exits 1 before running anything.
+const UNMATCHED_SELECTOR_RE = /^ERROR: no tests matched --test= selector/m;
+
+function parseSummary(text) {
+  const m = SUMMARY_RE.exec(text);
+  if (!m) return null;
+  return { tests: Number(m[1]), assertions: Number(m[2]) };
+}
+
+/**
+ * Classify one standalone run. `bundleMoved` is true once `out/node-test.js`
+ * has been seen to differ from the fingerprint taken before the sweep began.
+ *
+ * Returns { kind, summary, reason } where kind is one of:
+ *   'green'       — ran tests, all passed
+ *   'isolation'   — ran tests, they failed: the defect this gate hunts
+ *   'roster'      — the selector matched nothing (this list is stale)
+ *   'environment' — the run never became a verdict about the namespace
+ */
+function classifyRun(run, { bundleMoved } = {}) {
+  const text = run.stdout + run.stderr;
+  const summary = parseSummary(text);
+
+  // The substrate moved: no run in this sweep — red OR green — is evidence
+  // about a fixture, so do not let one masquerade as either.
+  if (bundleMoved) {
+    return { kind: 'environment', summary, reason: 'the bundle changed on disk during the sweep' };
+  }
+  if (run.spawnError) {
+    return { kind: 'environment', summary, reason: `the bundle could not be spawned (${run.spawnError})` };
+  }
+  if (run.status === null) {
+    return { kind: 'environment', summary, reason: 'the process was killed before it could report' };
+  }
+  if (UNMATCHED_SELECTOR_RE.test(text)) {
+    return { kind: 'roster', summary, reason: 'the selector matched no test var — renamed or deleted namespace' };
+  }
+  if (summary === null) {
+    // Module load links EVERY test namespace, so a crash before the summary
+    // cannot be specific to the selected one — see the header.
+    return { kind: 'environment', summary, reason: 'the run produced no cljs.test summary — it died before running tests' };
+  }
+  if (run.status === 0) {
+    if (summary.tests === 0) {
+      // Belt to the runner's own braces: a green that ran nothing certifies
+      // nothing, and this gate must not report it as coverage.
+      return { kind: 'environment', summary, reason: 'exited green having run 0 tests' };
+    }
+    return { kind: 'green', summary, reason: null };
+  }
+  return { kind: 'isolation', summary, reason: null };
+}
+
+/**
+ * Size + mtime of the consolidated bundle, or null when it is absent. Cheap
+ * enough to take after every run, which is what catches a compile landing
+ * between two of them.
+ */
+function bundleFingerprint(bundlePath) {
+  try {
+    const st = fs.statSync(bundlePath);
+    return { size: st.size, mtimeMs: st.mtimeMs };
+  } catch (e) {
+    return null;
+  }
+}
+
+function sameBundle(a, b) {
+  if (a === null || b === null) return a === b;
+  return a.size === b.size && a.mtimeMs === b.mtimeMs;
 }
 
 function main(argv) {
@@ -196,7 +329,8 @@ function main(argv) {
   }
 
   const bundlePath = path.join(implDir, NODE_TEST_BUNDLE);
-  if (!fs.existsSync(bundlePath)) {
+  const baseline = bundleFingerprint(bundlePath);
+  if (baseline === null) {
     process.stderr.write(
       `error: ${NODE_TEST_BUNDLE} not found. Run \`npm run test:cljs\` (or pass ` +
         '--compile) first so the consolidated bundle exists.\n'
@@ -204,51 +338,122 @@ function main(argv) {
     return 2;
   }
 
-  const reds = [];
+  const results = [];
+  let bundleMoved = false;
   for (const ns of ISOLATION_NAMESPACES) {
     process.stderr.write(`  isolating ${ns} ... `);
-    const r = runNamespaceAlone(implDir, ns);
-    if (r.status === 0) {
-      process.stderr.write('ok\n');
-    } else {
-      process.stderr.write('RED\n');
-      reds.push({ ns, ...r });
-    }
+    const run = runNamespaceAlone(implDir, ns);
+    // Re-stat after EVERY run, not only the red ones: the move that
+    // invalidates the sweep can land between two greens just as easily.
+    if (!sameBundle(baseline, bundleFingerprint(bundlePath))) bundleMoved = true;
+    const verdict = classifyRun(run, { bundleMoved });
+    const counts = verdict.summary
+      ? ` (${verdict.summary.tests} tests, ${verdict.summary.assertions} assertions)`
+      : '';
+    process.stderr.write(
+      verdict.kind === 'green' ? `ok${counts}\n` : `${verdict.kind.toUpperCase()}\n`
+    );
+    results.push({ ns, run, verdict });
   }
 
-  if (reds.length === 0) {
+  const of = (kind) => results.filter((r) => r.verdict.kind === kind);
+  const environment = of('environment');
+  const roster = of('roster');
+  const isolation = of('isolation');
+
+  if (environment.length === 0 && roster.length === 0 && isolation.length === 0) {
+    const totals = results.reduce(
+      (acc, r) => ({
+        tests: acc.tests + r.verdict.summary.tests,
+        assertions: acc.assertions + r.verdict.summary.assertions,
+      }),
+      { tests: 0, assertions: 0 }
+    );
     process.stderr.write(
       `\nper-ns isolation: all ${ISOLATION_NAMESPACES.length} namespace(s) ` +
-        'pass standalone.\n'
+        `pass standalone (${totals.tests} tests, ${totals.assertions} ` +
+        'assertions in total).\n'
     );
     return 0;
   }
 
-  process.stderr.write(
-    `\n${reds.length} namespace(s) FAILED when run in isolation (they pass in ` +
-      'the consolidated bundle ONLY because a sibling left runtime state — ' +
-      'e.g. an installed adapter — behind):\n\n'
-  );
-  for (const red of reds) {
-    process.stderr.write(`  RED: ${red.ns} (exit=${red.status})\n`);
+  const detail = (entry) => {
+    const { ns, run, verdict } = entry;
+    process.stderr.write(`  ${verdict.kind.toUpperCase()}: ${ns} (exit=${run.status})\n`);
+    if (verdict.reason) process.stderr.write(`      ${verdict.reason}\n`);
     // Surface the tail of the diagnostic (the adapter / fixture error).
-    const tail = (red.stdout + red.stderr)
+    const tail = (run.stdout + run.stderr)
       .split('\n')
       .filter((l) => l.trim() !== '')
       .slice(-6)
       .map((l) => '      ' + l)
       .join('\n');
     if (tail) process.stderr.write(tail + '\n');
+  };
+
+  if (environment.length > 0) {
+    process.stderr.write(
+      `\nper-ns isolation: INDETERMINATE — ${environment.length} of ` +
+        `${ISOLATION_NAMESPACES.length} run(s) never became a verdict about ` +
+        'their namespace:\n\n'
+    );
+    environment.forEach(detail);
+    process.stderr.write(
+      '\nThis is NOT a finding about these namespaces, and the sweep\'s green ' +
+        'runs are no more trustworthy than its red ones.\n' +
+        `A ${NODE_TEST_BUNDLE} that is missing, half-written, or rebuilt ` +
+        'underneath the sweep fails every run still to come, which is why the ' +
+        'reds tend to arrive as a contiguous tail.\n' +
+        'What to do:\n' +
+        '  * Let any concurrent build finish — a compile of a :node-test-family ' +
+        'build UNLINKS out/node-test.js before it starts (rf2-6t03c), so one ' +
+        'starting mid-sweep pulls the bundle out from under this gate.\n' +
+        '  * Then rerun: `npm run test:cljs-isolation` (compile + sweep, ' +
+        'nothing else building).\n' +
+        '  * A red that survives a quiet rerun is real — report it with the ' +
+        'per-namespace output above.\n'
+    );
+    return 2;
   }
+
+  if (isolation.length > 0) {
+    process.stderr.write(
+      `\n${isolation.length} namespace(s) FAILED when run in isolation (they ` +
+        'pass in the consolidated bundle ONLY because a sibling left runtime ' +
+        'state — e.g. an installed adapter — behind):\n\n'
+    );
+    isolation.forEach(detail);
+    process.stderr.write(
+      '\nFix:\n  * Give the failing namespace a fixture that installs its OWN ' +
+        'substrate adapter and resets runtime state — e.g.\n' +
+        '    (use-fixtures :each\n' +
+        '      (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))\n' +
+        '  Do NOT rely on a sibling test having installed one (consolidated-bundle ' +
+        'ordering is not a contract).\n'
+    );
+    if (roster.length > 0) {
+      process.stderr.write(
+        `\nAlso: ${roster.length} roster entry/entries below match no test var ` +
+          '— see the ROSTER section policy in the next paragraph.\n'
+      );
+      roster.forEach(detail);
+    }
+    return 1;
+  }
+
   process.stderr.write(
-    '\nFix:\n  * Give the failing namespace a fixture that installs its OWN ' +
-      'substrate adapter and resets runtime state — e.g.\n' +
-      '    (use-fixtures :each\n' +
-      '      (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))\n' +
-      '  Do NOT rely on a sibling test having installed one (consolidated-bundle ' +
-      'ordering is not a contract).\n'
+    `\n${roster.length} roster entry/entries name a namespace that no longer ` +
+      'exists, so this gate silently stopped checking it:\n\n'
   );
-  return 1;
+  roster.forEach(detail);
+  process.stderr.write(
+    '\nFix:\n  * Update ISOLATION_NAMESPACES in this file — the namespace was ' +
+      'renamed or deleted.\n' +
+      '  * If it was RENAMED, carry the entry over rather than dropping it: the ' +
+      'fixture it guards is unchanged, and an unguarded fixture can silently ' +
+      're-acquire the dependency this gate exists to forbid.\n'
+  );
+  return 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,24 +473,86 @@ function runSelfTest() {
     }
   };
 
-  // Classify a set of synthetic {ns -> exit} runs the way main() does.
-  const classify = (runs) =>
-    Object.entries(runs)
-      .filter(([, status]) => status !== 0)
-      .map(([ns, status]) => ({ ns, status }));
+  const run = (over) => ({ status: 1, spawnError: null, stdout: '', stderr: '', ...over });
+  const kindOf = (over, opts) => classifyRun(run(over), opts || {}).kind;
 
-  // Green: every namespace exits 0 → no reds.
-  const green = classify({ a: 0, b: 0, c: 0 });
-  assert(green.length === 0, 'all-green isolation run yields zero reds (PASS)');
+  // --- Output shapes below are TRANSCRIBED from real runs of this bundle,
+  // --- not invented, so the classifier is pinned against what the runner
+  // --- actually emits (rf2-v8561).
 
-  // Red: a self-incomplete fixture exits non-zero standalone → flagged.
-  const red = classify({ a: 0, b: 1, c: 0 });
-  assert(red.length === 1 && red[0].ns === 'b',
-    'a single standalone failure is flagged as the red namespace (FAIL path)');
+  // 1. GREEN — the cljs.test summary re-frame.test-quiet closes every
+  //    completed run with.
+  const GREEN_OUT = '\nRan 3 tests containing 4 assertions.\n0 failures, 0 errors.\n';
+  assert(kindOf({ status: 0, stdout: GREEN_OUT }) === 'green',
+    'a zero exit carrying a non-zero test summary is GREEN');
+  const greenSummary = classifyRun(run({ status: 0, stdout: GREEN_OUT }), {}).summary;
+  assert(greenSummary && greenSummary.tests === 3 && greenSummary.assertions === 4,
+    'the summary counts are parsed off the run (3 tests, 4 assertions)');
 
-  // Multiple reds are all surfaced.
-  const reds = classify({ a: 1, b: 0, c: 1 });
-  assert(reds.length === 2, 'every standalone failure is surfaced, not just the first');
+  // 2. ISOLATION — tests RAN and failed. This is the only shape that earns
+  //    the fixture remedy, and rf2-oslyz's no-adapter errors are its
+  //    archetype.
+  const ISOLATION_OUT =
+    '\nTesting re-frame.story.open-in-editor-ownership-cljs-test\n' +
+    'ERROR in (open-in-editor-ownership) :rf.error/no-adapter-installed\n' +
+    '\nRan 5 tests containing 5 assertions.\n0 failures, 5 errors.\n';
+  assert(kindOf({ status: 1, stdout: ISOLATION_OUT }) === 'isolation',
+    'a non-zero exit that still reported a test summary is a real ISOLATION red');
+
+  // 3. ROSTER — the runner refused an unmatched selector. Verbatim from
+  //    `node out/node-test.js --test=re-frame.this-ns-does-not-exist-cljs-test`.
+  const ROSTER_OUT =
+    'ERROR: no tests matched --test= selector(s): re-frame.nope-cljs-test\n' +
+    'Use --list to see known test names.\n';
+  assert(kindOf({ status: 1, stdout: ROSTER_OUT }) === 'roster',
+    'an unmatched selector is a stale ROSTER entry, not a fixture defect');
+
+  // 4. ENVIRONMENT — the bundle was gone. Verbatim from a run against a
+  //    deleted `:output-to`, which is exactly what a concurrent
+  //    `compile-node-test.cjs` leaves behind while it works (rf2-6t03c).
+  const MISSING_BUNDLE_OUT =
+    'node:internal/modules/cjs/loader:1424\n  throw err;\n  ^\n\n' +
+    "Error: Cannot find module 'C:\\...\\implementation\\out\\node-test.js'\n";
+  assert(kindOf({ status: 1, stderr: MISSING_BUNDLE_OUT }) === 'environment',
+    'a module-load crash with no test summary is ENVIRONMENT, not isolation');
+
+  // 5. THE DISCRIMINATION THE GATE EXISTS TO MAKE (rf2-v8561): the same
+  //    non-zero exit is a fixture accusation ONLY when the run got far
+  //    enough to be one. Module load links EVERY test namespace, so a crash
+  //    before the summary cannot single one out.
+  assert(kindOf({ status: 1, stdout: ISOLATION_OUT }) !== kindOf({ status: 1, stderr: MISSING_BUNDLE_OUT }),
+    'summary-present and summary-absent reds classify DIFFERENTLY (the whole point)');
+
+  // 6. A moved bundle invalidates the sweep wholesale — a run that LOOKS
+  //    green is no more trustworthy than one that looks red.
+  assert(kindOf({ status: 0, stdout: GREEN_OUT }, { bundleMoved: true }) === 'environment',
+    'once the bundle moves, even a green run is ENVIRONMENT (sweep indeterminate)');
+  assert(kindOf({ status: 1, stdout: ISOLATION_OUT }, { bundleMoved: true }) === 'environment',
+    'once the bundle moves, a summary-bearing red is no longer a fixture verdict');
+
+  // 7. A spawn that never produced a process, and one killed before it could
+  //    report, are both ENVIRONMENT.
+  assert(kindOf({ status: null, spawnError: 'ENOENT' }) === 'environment',
+    'a failed spawn is ENVIRONMENT');
+  assert(kindOf({ status: null }) === 'environment',
+    'a killed process (null exit) is ENVIRONMENT, never a silent pass');
+
+  // 8. A green that ran nothing certifies nothing.
+  const EMPTY_GREEN = 'Ran 0 tests containing 0 assertions.\n0 failures, 0 errors.\n';
+  assert(kindOf({ status: 0, stdout: EMPTY_GREEN }) === 'environment',
+    'a zero-test green is refused, not counted as coverage');
+  assert(kindOf({ status: 0, stdout: 'no summary here\n' }) === 'environment',
+    'a zero exit with no summary at all is refused');
+
+  // 9. Bundle fingerprinting: identity, difference, and absence.
+  assert(sameBundle({ size: 1, mtimeMs: 2 }, { size: 1, mtimeMs: 2 }),
+    'identical size+mtime is the same bundle');
+  assert(!sameBundle({ size: 1, mtimeMs: 2 }, { size: 1, mtimeMs: 3 }),
+    'a rewritten bundle (same size, new mtime) is detected as moved');
+  assert(!sameBundle({ size: 1, mtimeMs: 2 }, null),
+    'a bundle that vanished mid-sweep is detected as moved');
+  assert(bundleFingerprint(path.join(implementationDir(), 'no-such-file.js')) === null,
+    'fingerprinting an absent file yields null rather than throwing');
 
   // The curated list is non-empty and dedup'd (a typo'd duplicate would run
   // twice and silently weaken the signal).
