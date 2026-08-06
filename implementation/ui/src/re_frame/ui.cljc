@@ -332,12 +332,16 @@
   into helpers, or make the helper a defview. Explicit headless probing belongs
   to the test/observation seam."
   [query]
+  ;; `error/pr-form` / `error/safe-form`, not bare `pr-str`: the whole body is
+  ;; the throw, so `query` is whatever the author passed — including a foreign
+  ;; JS value, and a cyclic one (a React context) would make `pr-str` blow the
+  ;; stack instead of producing this error (rf2-30dc7).
   (error/throw-error!
    :rf.error/ui-tree-malformed 're-frame.ui/sub
-   (str "(ui/sub " (pr-str query) ") executed outside compiler lowering — "
+   (str "(ui/sub " (error/pr-form query) ") executed outside compiler lowering — "
         "ui/sub is a lexical defview form, not a callable subscription helper. "
         "Pass the read value into the helper or extract a defview")
-   {:extra {:query query}}))
+   {:extra {:query (error/safe-form query)}}))
 
 (defn frame
   "(frame) is the compiler-owned ops-bundle body form: inside a compiled

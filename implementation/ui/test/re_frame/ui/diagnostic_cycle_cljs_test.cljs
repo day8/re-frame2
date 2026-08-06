@@ -36,12 +36,31 @@
   `{:extra {:value v}}` explodes at a DOWNSTREAM logger / error projector /
   trace sink — someone else's boundary rather than the thrower's.
 
+  ## The AUTHORING-FORM tier (rf2-30dc7)
+
+  Two more sites join the file, and they are one tier UP from the client
+  runtime: the two ungated, both-host guards on the AUTHORING forms
+  themselves. `re-frame.ui.rules/assert-safe-caller!`'s nil-slot branch —
+  reached when a `ui/spread-safe` caller map carries a key that is not a
+  keyword, string or symbol, i.e. a foreign object used as a map key — and
+  `re-frame.ui/sub`'s body, which IS a throw and so prints whatever an
+  author passed a direct `(ui/sub …)` call. Neither is `goog.DEBUG`-gated,
+  so both reach a production page through the thrown error; both now print
+  through the same pair as every site above.
+
+  The seven remaining `pr-str` crossings under `implementation/ui/src` are
+  recorded triaged-out on rf2-30dc7 — debug-gated warn, test surface, or
+  tool-author — and the compile/macro tier is unreachable by construction (a
+  form read by the Clojure reader cannot be a cyclic foreign object).
+
   [[the-fixtures-are-genuinely-cyclic]] is the non-vacuity control. Without
   it every row below could pass on an acyclic fixture and prove nothing."
   (:require ["react" :as react]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.ui :as ui]
             [re-frame.ui.events :as events]
+            [re-frame.ui.rules :as rules]
             [re-frame.ui.runtime :as runtime]
             [re-frame.ui.tree :as tree]))
 
@@ -188,6 +207,12 @@
          crosses between the two freely, which is why the detector has to")
     (is (= "RangeError" (:threw (outcome #(pr-str {:event [:x provider]}))))
         "and so does a handler options map holding one inside its :event")
+    (is (= "RangeError" (:threw (outcome #(pr-str [:q provider]))))
+        "and so does a SUBSCRIPTION VECTOR holding one — the exact value the
+         `ui/sub` misuse diagnostic prints (rf2-30dc7)")
+    (is (= "RangeError" (:threw (outcome #(pr-str [:q #js {"held" [:page provider]}]))))
+        "and so does the deeper mixed chain through a query vector — vector,
+         foreign object, vector, foreign object")
     (is (identical? provider (.-Provider provider))
         "because React 19's ctx.Provider IS the context object, and that
          object carries a Provider key pointing back at itself — the cycle
@@ -357,6 +382,85 @@
                      "site-0" {:event [:x provider] :capture true} nil))))
 
 ;; ---------------------------------------------------------------------------
+;; re-frame.ui.rules — the ui/spread-safe caller guard (rf2-30dc7)
+;;
+;; `assert-safe-caller!` is NOT `goog.DEBUG`-gated (that is the whole point of
+;; the owned-key deny law, and `spread-safe-deny-elision-prod-test` pins it in
+;; an :advanced build), so this crossing is production-reachable on both hosts.
+;;
+;; THE EMITTED PATH, not a hand-call: `(ui/spread-safe owned caller)` is a
+;; template form whose var throws `:rf.error/ui-spread-outside-template` when
+;; invoked directly, so an author reaches the guard through the compiler's
+;; lowering — `runtime/spread-safe->props` on the CLJS arm. These rows drive
+;; that function, and the direct `rules/assert-safe-caller!` row beside it is
+;; the host-agnostic guard the JVM tree builder calls at tree.cljc as well.
+;; ---------------------------------------------------------------------------
+
+(deftest spread-safe-caller-rejects-a-cyclic-key-with-its-own-error
+  (testing "`caller-key-slot` returns nil for a key that is not a keyword,
+           string or symbol — so a foreign JS object used as a caller attr
+           key lands on the nil-slot branch, which prints the key. That is
+           the ONE branch of this guard whose `k` is not provably nameable:
+           the two denied-slot arms below it are gated on a NON-nil slot and
+           stay bare `pr-str` by construction."
+    (doseq [[label k] [["a provider as a caller attr key"    provider]
+                       ["a hand-built cyclic object as one"  (self-referential-object)]
+                       ["a cyclic array as one"              (self-referential-array)]
+                       ["a mixed chain as one"               #js {"held" [:p provider]}]]]
+      (rejected-with :rf.error/ui-tree-malformed
+                     (str label " (through the emitted spread-safe lowering)")
+                     #(runtime/spread-safe->props "div" {k "x"} #{} nil nil))
+      (rejected-with :rf.error/ui-tree-malformed
+                     (str label " (through the both-host guard directly)")
+                     #(rules/assert-safe-caller! {k "x"} #{})))))
+
+(deftest spread-safe-caller-nameable-keys-are-unaffected
+  (testing "The counterpart measurement. A NAMEABLE key never reaches the
+           nil-slot branch, so the denied-slot arms keep printing through
+           bare `pr-str` — and the cleared sites stay cleared."
+    (let [o (outcome #(rules/assert-safe-caller! {:value "hijack"} #{}))]
+      (is (= :rf.error/ui-tree-malformed (:error-id o))
+          (str "a denied structural key still throws; got " (pr-str o))))
+    (is (= {:aria-label "x"} (rules/assert-safe-caller! {:aria-label "x"} #{}))
+        "and an allowed caller still canonicalizes and passes")))
+
+;; ---------------------------------------------------------------------------
+;; re-frame.ui/sub — the direct-call misuse diagnostic (rf2-30dc7)
+;;
+;; `ui/sub` is the TAUGHT spelling of a reactive read, and its var body IS the
+;; throw: no guard, no `goog.DEBUG` gate, both hosts. Any `(ui/sub …)` the view
+;; compiler did not lower — the documented case being a call from a plain
+;; helper fn — prints whatever the author passed. A React context passed into
+;; such a helper is an ordinary authoring mistake on an EXPERIMENTAL substrate,
+;; which is exactly the author this diagnostic is written for.
+;; ---------------------------------------------------------------------------
+
+(defn- helper-that-calls-sub
+  "A plain fn — not a `defview` body — so the view compiler cannot inspect it
+  and `(ui/sub …)` stays an ordinary call. This is the misuse the diagnostic
+  names, spelled the way the docstring names it."
+  [x]
+  (ui/sub [:q x]))
+
+(deftest ui-sub-direct-call-rejects-a-cyclic-query-with-its-own-error
+  (testing "The whole body is the throw, so every direct call reaches it and
+           the query is whatever the author built. A subscription vector
+           holding a provider is the mixed chain — persistent vector, foreign
+           object — that a walk stopping at the first CLJS collection would
+           wrongly call acyclic."
+    (doseq [[label x] [["a provider in the query"        provider]
+                       ["a cyclic object in the query"   (self-referential-object)]
+                       ["a cyclic array in the query"    (self-referential-array)]
+                       ["a mixed chain in the query"     #js {"held" [:p provider]}]]]
+      (rejected-with :rf.error/ui-tree-malformed
+                     (str label " (through the documented helper misuse)")
+                     #(helper-that-calls-sub x)))
+
+    (rejected-with :rf.error/ui-tree-malformed
+                   "a BARE foreign object as the whole query"
+                   #(ui/sub provider))))
+
+;; ---------------------------------------------------------------------------
 ;; The acyclic path, byte for byte
 ;; ---------------------------------------------------------------------------
 
@@ -442,6 +546,22 @@
       (is (= :rf.error/ui-tree-malformed (:error-id o)))
       (is (str/includes? (:message o) (str "got " (pr-str v)))
           (str "options map printed byte-identically to pr-str; got "
+               (pr-str (:message o)))))
+
+    ;; rules/assert-safe-caller!, the nil-slot branch (rf2-30dc7)
+    (let [o (outcome #(rules/assert-safe-caller! {acyclic-object "x"} #{}))]
+      (is (= :rf.error/ui-tree-malformed (:error-id o)))
+      (is (str/includes? (:message o)
+                         (str "the caller attr key " (pr-str acyclic-object)))
+          (str "caller key printed byte-identically to pr-str; got "
+               (pr-str (:message o)))))
+
+    ;; ui/sub, the direct-call misuse diagnostic (rf2-30dc7)
+    (let [q [:q acyclic-object]
+          o (outcome #(ui/sub q))]
+      (is (= :rf.error/ui-tree-malformed (:error-id o)))
+      (is (str/includes? (:message o) (str "(ui/sub " (pr-str q) ")"))
+          (str "query printed byte-identically to pr-str; got "
                (pr-str (:message o)))))))
 
 (deftest the-ex-data-value-slot-survives-a-downstream-sink
@@ -482,7 +602,35 @@
                     (catch :default e (ex-data e)))]
       (is (string? (pr-str data))
           "and so does the capture/passive arm, whose message never printed
-           the value at all"))))
+           the value at all"))
+
+    ;; rf2-30dc7 — the two authoring-form sites, both halves each.
+    (let [data (try (rules/assert-safe-caller! {acyclic-object "x"} #{}) nil
+                    (catch :default e (ex-data e)))]
+      (is (identical? acyclic-object (:key data))
+          "an acyclic caller key rides out IDENTICAL in `:key`"))
+
+    (let [data (try (rules/assert-safe-caller! {provider "x"} #{}) nil
+                    (catch :default e (ex-data e)))]
+      (is (string? (pr-str data))
+          "a cyclic caller key's ex-data is printable at a downstream sink")
+      (is (str/includes? (pr-str (:key data)) "#js {…cyclic…}")
+          "with the cycle replaced by the fixed token"))
+
+    (let [q [:q acyclic-object]
+          data (try (ui/sub q) nil (catch :default e (ex-data e)))]
+      (is (identical? q (:query data))
+          "an acyclic query rides out IDENTICAL in `:query` — safe-form
+           returned its input, so a tool still sees the author's own value"))
+
+    (let [q [:q provider]
+          data (try (ui/sub q) nil (catch :default e (ex-data e)))]
+      (is (string? (pr-str data))
+          "a cyclic query's ex-data is printable at a downstream sink")
+      (is (str/includes? (pr-str (:query data)) "#js {…cyclic…}")
+          "with the cycle elided INSIDE the surviving query vector")
+      (is (str/includes? (pr-str (:query data)) ":q")
+          "and the acyclic part of the query still readable"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The success paths are untouched
@@ -501,4 +649,8 @@
     (is (nil? (tree/classify-event nil)))
     (is (= 2 (count (tree/keyed-run [{:key "a"} {:key "b"}]))))
     (is (fn? (committed-event-callback nil))
-        "a body returning nil is the no-dispatch case, not a diagnostic")))
+        "a body returning nil is the no-dispatch case, not a diagnostic")
+    (is (= {:aria-label "x" :class "c"}
+           (rules/assert-safe-caller! {:aria-label "x" "class" "c"} #{:on-change}))
+        "an allowed spread-safe caller still canonicalizes and passes")
+    (is (nil? (rules/assert-safe-caller! nil #{})))))
