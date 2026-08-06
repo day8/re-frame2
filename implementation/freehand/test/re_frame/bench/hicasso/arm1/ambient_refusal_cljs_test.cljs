@@ -44,6 +44,7 @@
   the refusal rather than a contract; the closing section below makes it
   one, together with each legitimate carry spelling proved individually."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
@@ -447,3 +448,143 @@
       (is (= f (:frame @held)))
       ((:dispatch-sync @held) [:rt122/bump])
       (is (= 8 @(rf/subscribe [:rt122/v] {:frame f}))))))
+
+;; ---------------------------------------------------------------------------
+;; THE MISMATCH — a body has ONE frame, by construction (rf2-nqj22)
+;; ---------------------------------------------------------------------------
+;;
+;; The one configuration the refusal did not reach, and it is the silent
+;; wrong-frame class the whole tier exists to delete, surviving in a corner.
+;; `[[a-carried-with-frame-still-carries-inside-a-body]]` above stays green
+;; and must: that witness carries the SAME frame the boundary renders under,
+;; so there is only ever one frame in play and EP-0002 answers it. These rows
+;; are about the other case — an enclosing scope naming a DIFFERENT frame,
+;; where the body would read and dispatch against `:b` while the collector's
+;; reads, the lowered intents and the presence tray target `:a`.
+;;
+;; Reachable from any host that renders a Hicasso tree inside a scope: a
+;; `flushSync` mount under an `rf/with-frame`, an SSR host wrapping
+;; `renderToString`, a test fixture that root-binds an ambient frame. The SSR
+;; case is not hypothetical — `test-support`'s `:ambient-frame` default
+;; root-binds `*current-frame*` to `:rf/default`, so every witness in
+;; `ssr/entry-cljs-test` renders its per-request frame under a `:rf/default`
+;; stamp, and before this change a `(rf/capture-frame)` in one of those
+;; bodies answered `:rf/default`.
+
+(def ^:private other-frame-id ::rt122-other)
+
+(defn- make-other-frame!
+  "A SECOND live frame, so 'the carried stamp names a different frame' is a
+  real frame rather than a keyword nobody registered."
+  []
+  (live-frame/make-frame {:id other-frame-id})
+  (frame/replace-app-db! other-frame-id {:v 99})
+  other-frame-id)
+
+(deftest a-mismatched-carried-stamp-is-refused-inside-a-body
+  (testing "an enclosing `rf/with-frame` naming a frame the boundary is NOT
+           rendering. Core was behaving exactly as EP-0002 specifies — that
+           stamp WAS carried — but the body would then have two frames in it,
+           selected by which spelling the author reached for and with no
+           signal. Frames are ISOLATED contexts, so that is an ambiguity, not
+           a carried-stamp win"
+    (let [f     (make-frame!)
+          other (make-other-frame!)]
+      (with-context-frame f
+        (fn []
+          (let [data   (rf/with-frame other
+                         (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {})))
+                anchor (refusal-id f)]
+            (is (some? anchor)
+                "precondition: an ambient read refuses here at all, so the
+                 comparison below is not two nils agreeing")
+            (is (= anchor (:rf.error/id data))
+                (str "the mismatch is the SAME refusal, not a new id; got "
+                     (pr-str data)))
+            (is (= :capture-frame (:operation data)))
+            (is (= other (:carried-frame data))
+                "the payload names the stamp that was carried")
+            (is (= f (:extent-frame data))
+                "and the frame the boundary is actually rendering — a
+                 diagnostic that named only one of them would send the author
+                 looking for the wrong frame")))))))
+
+(deftest the-mismatch-refusal-reaches-every-ambient-door
+  (testing "it is the resolver's own funnel that refuses, so a read and a
+           dispatch meet it exactly as the carry does — there is no per-op
+           list to keep in step"
+    (let [f     (make-frame!)
+          other (make-other-frame!)]
+      (with-context-frame f
+        (fn []
+          (rf/with-frame other
+            (let [read     (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
+                  dispatch (outcome #(rt/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
+              (is (= :subscribe (:operation read)))
+              (is (= other (:carried-frame read))
+                  (str "an ambient read under a mismatched scope refuses; got "
+                       (pr-str read)))
+              (is (= :dispatch (:operation dispatch)))
+              (is (= other (:carried-frame dispatch))
+                  (str "and so does an ambient dispatch; got " (pr-str dispatch))))))))))
+
+(deftest the-mismatch-refusal-says-which-two-frames-collided
+  (testing "the sentence has to be a DIFFERENT sentence. The refusal's
+           standing prose closes with `an explicitly carried frame still
+           carries` — which is precisely the thing that did not happen here,
+           so reusing it would tell the author the opposite of what occurred"
+    (let [f     (make-frame!)
+          other (make-other-frame!)]
+      (with-context-frame f
+        (fn []
+          (let [reason (:reason (rf/with-frame other
+                                  (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {}))))]
+            (is (string? reason))
+            (is (str/includes? reason (pr-str other)) "it names the carried stamp")
+            (is (str/includes? reason (pr-str f)) "and the extent's own frame")
+            (is (str/includes? reason "ISOLATED contexts")
+                "with the reason a carried stamp lost for once")
+            (is (not (str/includes? reason "an explicitly carried frame still carries"))
+                "and NOT the absence sentence's closing promise")
+            (is (str/includes? reason "(rf/capture-frame (h/frame))")
+                "the substrate's own advice is still carried verbatim")))))))
+
+(deftest a-matched-carried-stamp-is-what-makes-the-mismatch-row-mean-anything
+  (testing "the control. `[[a-carried-with-frame-still-carries-inside-a-body]]`
+           pins the matched carry through a subscription; this pins it through
+           the CARRY, one line away from the mismatch row above, so 'the
+           refusal is about the mismatch' is asserted rather than assumed. A
+           fix that refused a MATCHED stamp would make `with-frame` and
+           `{:frame id}` disagree inside a body — strictly worse than the
+           silence it replaces"
+    (let [f    (make-frame!)
+          held (volatile! nil)]
+      (with-context-frame f
+        (fn []
+          (rf/with-frame f
+            (rt/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
+      (is (= f (:frame @held))
+          "the ambient carry still answers when the stamp IS the extent's frame")
+      ((:dispatch-sync @held) [:rt122/bump])
+      (is (= 8 @(rf/subscribe [:rt122/v] {:frame f}))
+          "and it carries all the way to a dispatch that lands"))))
+
+(deftest the-frames-are-compared-by-value-not-by-reference
+  (testing "THE CLJS HALF of the comparison contract. Keywords are interned
+           on the JVM and are NOT guaranteed reference-equal in
+           ClojureScript, so a comparison written as `identical?` would be
+           green in `frame-resolver-test` and silently never match here —
+           refusing every carried stamp, matched ones included. Pinned on the
+           host where it bites"
+    (let [f     (make-frame!)
+          built (keyword (namespace frame-id) (name frame-id))
+          held  (volatile! nil)]
+      (is (= built f) "precondition: equal as values")
+      (is (not (identical? built f))
+          "and NOT the same object — which is what makes this row a test")
+      (with-context-frame f
+        (fn []
+          (rf/with-frame built
+            (rt/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
+      (is (= f (:frame @held))
+          "a stamp equal to the extent's frame is the extent's frame"))))
