@@ -43,6 +43,10 @@
 #                   force-remove ONLY when every untracked path is build or
 #                   gate output; refuse the tree otherwise. This is the flag a
 #                   bulk hygiene sweep wants.
+#   ... -Husk       the paths given are HUSKS of worktrees of this repository -
+#                   git already gutted them and left the files. Only then will
+#                   an unregistered path be disarmed and classified; see below.
+#                   Pass it alone, with the paths you have identified.
 #   ... -SelfTest   prove the disarm against a throwaway junction in a temp dir
 #   -MayorRoot <path> / RF2_MAYOR_ROOT   override mayor-root derivation
 #
@@ -92,15 +96,47 @@
 #   unaffected". Both entry points report it: a removal that fails this way,
 #   and a later invocation handed a path that is already a husk.
 #
+#   AND WHAT A HUSK IS *NOT*: MERELY AN UNREGISTERED DIRECTORY (rf2-k3j2w,
+#   second pass). "git does not list it and it has no `.git`" is true of a
+#   husk - and equally true of an ordinary project, a mistyped argument, and a
+#   directory that has never been anything else. The first version of the
+#   later-invocation path read that negative as proof. Handed a temp directory
+#   created seconds earlier it unlinked any node_modules inside it, declared it
+#   a DESTROYED TREE and recommended Remove-Item -Recurse -Force: a destructive
+#   script confidently recommending the destruction of something it had
+#   misidentified. Reproduced on demand, -DryRun against a fresh ordinary
+#   directory, exit 3.
+#
+#   So the two entry points are no longer symmetric, because their EVIDENCE is
+#   not symmetric:
+#     - SAME INVOCATION - we called `git worktree remove` on a REGISTERED
+#       worktree and watched it fail. Provenance is known first-hand, so the
+#       classification stays automatic.
+#     - LATER INVOCATION - a path handed to us cold. Refused unless the caller
+#       says -Husk AND the directory still holds a KILOBYTE of content this
+#       repository recognises as its own. Both are required. An acknowledgement
+#       is carried by a mistyped path exactly as willingly as by the right one,
+#       so the flag alone does not license the delete; and the content test is
+#       a read of git's own object database rather than a guess about names,
+#       shapes or locations. Bytes rather than a file count, because tiny files
+#       coincide - a throwaway package.json reading `{}` matched a blob of ours
+#       on the first run. HUSK_PROVENANCE= prints what was established.
+#   A REFUSAL TOUCHES NOTHING - no disarm, no advice, no delete. Every one of
+#   those acts presumes the identification that has just failed.
+#
 #   Exit codes split on WHAT THE CALLER SHOULD DO NEXT:
 #     0  done.
-#     1  refused or failed, worktree INTACT - this script is still the right
-#        tool (retry when the lock clears; -ForceDisposable for build output;
-#        a human for [KEEP] paths).
+#     1  refused or failed, and NOTHING was destroyed - this script is either
+#        still the right tool (retry when the lock clears; -ForceDisposable for
+#        build output; a human for [KEEP] paths) or the wrong one for a path it
+#        declines to identify.
 #     2  usage error.
 #     3  PARTIAL - already gutted and deregistered; this script can do nothing
 #        more with it. 3 wins over 1 when both occur in one run, because it is
-#        the outcome needing a different remedy.
+#        the outcome needing a different remedy. Exit 3 is a CLAIM ABOUT
+#        PROVENANCE and is only ever reached when that provenance is
+#        established - never from a predicate that merely failed to recognise
+#        something.
 param(
   # Position = 0 is load-bearing: ValueFromRemainingArguments alone does NOT
   # make a parameter positional, so an unnamed path would otherwise bind to
@@ -110,6 +146,7 @@ param(
   [string[]]$Worktree = @(),
   [switch]$Force,
   [switch]$ForceDisposable,
+  [switch]$Husk,
   [switch]$DryRun,
   [switch]$SelfTest,
   [string]$MayorRoot = $env:RF2_MAYOR_ROOT
@@ -142,6 +179,25 @@ function Normalize-Path([string]$Path) {
 function Invoke-GitQuiet([string[]]$GitArgs) {
   $ErrorActionPreference = 'Continue'
   $out = & git @GitArgs 2>&1
+  return [pscustomobject]@{
+    Output   = @($out | ForEach-Object { [string]$_ })
+    ExitCode = $LASTEXITCODE
+  }
+}
+
+# -SelfTest ONLY: run THIS script as a subprocess and hand back its output and
+# exit code. The later-invocation guard is a property of the main loop, not of
+# any one predicate, so proving it means invoking the whole thing.
+#
+# Same $ErrorActionPreference dance as Invoke-GitQuiet, for the same reason: a
+# refusal writes warnings, and a native child writing to stderr under "Stop"
+# raises a terminating NativeCommandError instead of returning a code. The host
+# executable is read off the current process rather than assumed to be
+# `powershell`, so a pwsh 7 run does not silently re-enter under 5.1.
+function Invoke-SelfQuiet([string[]]$ScriptArgs) {
+  $ErrorActionPreference = 'Continue'
+  $exe = try { [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName } catch { 'powershell' }
+  $out = & $exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @ScriptArgs 2>&1
   return [pscustomobject]@{
     Output   = @($out | ForEach-Object { [string]$_ })
     ExitCode = $LASTEXITCODE
@@ -222,6 +278,66 @@ function Test-WorktreeIsIntact([string]$Path) {
   # Via Invoke-GitQuiet: the dangling-`.git` case reaches this line with git
   # about to write a fatal to stderr.
   return ((Invoke-GitQuiet @('-C', $Path, 'rev-parse', '--git-dir')).ExitCode -eq 0)
+}
+
+# Does this directory hold content that belongs to THIS repository?
+#
+# THE POSITIVE HALF of husk identification (rf2-k3j2w). "Unregistered, and no
+# `.git`" is a pair of NEGATIVES, and every ordinary directory on the machine
+# satisfies both. What actually distinguishes a husk is what it still CONTAINS:
+# the files git had checked out and did not get to delete.
+#
+# So this is a read of the repository's own object database, not a guess about
+# names, shapes or locations. Each top-level tracked FILE of the mayor's HEAD
+# that also exists in the candidate is hashed with the attributes git itself
+# would apply (`hash-object --path`, which is why a CRLF checkout still
+# matches), and the blob is offered back to `cat-file -e`. A hit means this
+# repository has, at some commit, stored exactly those bytes under exactly that
+# name. `cat-file -e` rather than a compare against HEAD's blob is deliberate:
+# a husk was checked out at whatever commit its worker was on, and ANY
+# historical version counts.
+#
+# A MATCH COUNT IS NOT THE MEASURE; MATCHED BYTES ARE. Tiny files coincide: the
+# first version counted files, and a throwaway directory holding a three-byte
+# `package.json` reading `{}` scored a hit against this repository. So the
+# criterion is a VOLUME of recognised content - see $script:HuskProvenanceMinBytes.
+$script:HuskProvenanceMinBytes = 1024
+
+function Get-RepoContentMatch([string]$Path) {
+  $hits = 0
+  $total = 0
+  $bytes = 0
+  $first = ''
+  $r = Invoke-GitQuiet @('-C', $script:mayorRootPath, 'ls-tree', 'HEAD')
+  if ($r.ExitCode -eq 0) {
+    foreach ($line in $r.Output) {
+      # "<mode> <type> <object>`t<name>"
+      $parts = $line -split "`t", 2
+      if ($parts.Count -ne 2) { continue }
+      if (($parts[0] -split ' ')[1] -ne 'blob') { continue }
+      $name = $parts[1]
+      $total += 1
+      $candidate = Join-Path $Path $name
+      if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+      $size = (Get-Item -LiteralPath $candidate -Force).Length
+      if ($size -le 0) { continue }   # the empty blob is in every repository
+      $h = Invoke-GitQuiet @('-C', $script:mayorRootPath, 'hash-object', '--path', $name, '--', $candidate)
+      if ($h.ExitCode -ne 0 -or $h.Output.Count -eq 0) { continue }
+      $blob = ([string]$h.Output[0]).Trim()
+      if ([string]::IsNullOrWhiteSpace($blob)) { continue }
+      if ((Invoke-GitQuiet @('-C', $script:mayorRootPath, 'cat-file', '-e', $blob)).ExitCode -ne 0) { continue }
+      $hits += 1
+      $bytes += $size
+      if ($first -eq '') { $first = $name }
+    }
+  }
+  return [pscustomobject]@{
+    Hits    = $hits
+    Total   = $total
+    Bytes   = $bytes
+    First   = $first
+    Summary = "$hits of $total top-level tracked files match a blob this repository knows, $bytes bytes (floor $($script:HuskProvenanceMinBytes))"
+  }
 }
 
 # Is one `git status --porcelain` line safe to delete unreviewed?
@@ -401,6 +517,38 @@ function Write-Husk([string]$Path) {
   }
 }
 
+# The refusals for a path this script declines to IDENTIFY (rf2-k3j2w, second
+# pass). Each says what was established and what was not, and each is followed
+# by nothing at all: no disarm, no classification, no delete advice.
+function Write-RefusedUnidentified([string]$Path, [string]$Provenance) {
+  Write-Warning "REFUSED_UNREGISTERED=$Path"
+  foreach ($line in @(
+      '  registered as a worktree : no',
+      '  .git present             : no',
+      "  content from this repo   : $Provenance",
+      'The first two are true of a husk and equally true of an ordinary directory, a',
+      'mistyped path and an unrelated project, so they identify nothing on their own.',
+      'NOTHING HERE WAS TOUCHED.',
+      'If you know this is the husk of a worktree of this repository - git gutted it',
+      'and left the files standing - say so, and it will be disarmed and classified:',
+      "  powershell -ExecutionPolicy Bypass -File scripts/remove-worker-worktree.ps1 -Husk $Path")) {
+    Write-Warning $line
+  }
+}
+
+function Write-RefusedNotAHusk([string]$Path, [string]$Provenance) {
+  Write-Warning "REFUSED_NOT_A_HUSK=$Path"
+  foreach ($line in @(
+      '-Husk claims this is the husk of a worktree of this repository, but its',
+      "contents do not come from one: $Provenance.",
+      'A mistyped path carries the flag exactly as willingly as the right one, so the',
+      'acknowledgement does not overrule the evidence. NOTHING HERE WAS TOUCHED.',
+      'If it really is a gutted worktree with nothing recognisable left in it, then it',
+      'is an ordinary directory now and needs no special tool to delete.')) {
+    Write-Warning $line
+  }
+}
+
 function Write-RemoveFailure([string]$Path) {
   # A husk reads as CLEAN below - the git call fails and prints nothing - so
   # it has to be ruled out before the dirty/locked split runs (rf2-k3j2w).
@@ -448,8 +596,12 @@ function Write-RemoveFailure([string]$Path) {
 #   2. Proves the canary SEES the damage the old immediate-entry count was
 #      blind to: files vanish from under every package while each package
 #      directory stays standing.
+#   3. Proves the husk DETECTOR against three husk shapes.
+#   4. Proves the later-invocation GUARD by invoking this script, for real,
+#      against fixtures a wrong answer would destroy - the negative direction
+#      first, because refusing is the behaviour that was missing.
 #
-# Never touches a real node_modules.
+# Never touches a real node_modules, and never this repository.
 # ---------------------------------------------------------------------------
 if ($SelfTest) {
   $stRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("rf2-disarm-" + [System.Guid]::NewGuid().ToString('N'))
@@ -558,6 +710,177 @@ if ($SelfTest) {
         exit 1
       }
       Write-Output "SELF_TEST husk detected=yes for all three shapes (outside a repo, where Get-WorktreeDirt reads EMPTY - the trap; nested inside one, where rev-parse walks up and is fooled; and a dangling .git, where the Test-Path check is fooled)"
+
+      # ---- THE LATER-INVOCATION GUARD (rf2-k3j2w, second pass), END TO END ----
+      #
+      # Helper-level assertions cannot reach this one. What failed was not a
+      # predicate but what the MAIN LOOP did with it: unlink a stranger's
+      # junction and recommend a recursive delete on a directory it had never
+      # seen. So these fixtures go through REAL invocations of this script,
+      # against a throwaway repository, and the assertions are on exit codes
+      # and output - including, for the negatives, that the fixture is still
+      # standing afterwards.
+      $gRepo = Join-Path $stRoot 'guard-repo'
+      $gHusk = Join-Path $stRoot 'guard-husk'
+      $gLive = Join-Path $stRoot 'guard-live'
+      $gPlain = Join-Path $stRoot 'guard-plain'
+      $gTiny = Join-Path $stRoot 'guard-tiny'
+      $gTarget = Join-Path $stRoot 'guard-target'
+      $gLink = Join-Path $gPlain 'implementation\node_modules'
+      New-Item -ItemType Directory -Force -Path $gRepo | Out-Null
+      New-Item -ItemType Directory -Force -Path (Join-Path $gPlain 'implementation') | Out-Null
+      New-Item -ItemType Directory -Force -Path $gTiny | Out-Null
+      New-Item -ItemType Directory -Force -Path $gTarget | Out-Null
+      1..5 | ForEach-Object { Set-Content -LiteralPath (Join-Path $gTarget "f$_.txt") -Value 'canary' }
+      # A populated ordinary directory: real files, real names, none of them ours.
+      Set-Content -LiteralPath (Join-Path $gPlain 'README.md') -Value 'from no repository at all'
+      Set-Content -LiteralPath (Join-Path $gPlain 'package.json') -Value '{ "name": "somebody-elses-project" }'
+      # And the NEAR MISS a match COUNT could not see: an ordinary directory
+      # holding one three-byte file that genuinely does match a blob of ours,
+      # because `{}` is a blob half the projects on the machine have committed.
+      Set-Content -LiteralPath (Join-Path $gTiny 'tiny.json') -Value '{}'
+      $gTargetBefore = Get-NodeModulesSignature $gTarget
+
+      # probe.txt is deliberately over the byte floor and unique to this run,
+      # so the positive case has to earn its provenance rather than inherit it
+      # from a file every repository holds; tiny.json is deliberately under it.
+      $probe = (1..64 | ForEach-Object { "provenance probe $PID line $_" }) -join "`n"
+      Push-Location $gRepo
+      try {
+        foreach ($v in @('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE')) {
+          Remove-Item -LiteralPath "Env:$v" -ErrorAction SilentlyContinue
+        }
+        $null = Invoke-GitQuiet @('init', '-q', '.')
+        Set-Content -LiteralPath (Join-Path $gRepo 'probe.txt') -Value $probe
+        Set-Content -LiteralPath (Join-Path $gRepo 'tiny.json') -Value '{}'
+        $null = Invoke-GitQuiet @('add', 'probe.txt', 'tiny.json')
+        $null = Invoke-GitQuiet @('-c', 'user.email=selftest@example.invalid', '-c', 'user.name=selftest',
+                                  'commit', '-q', '-m', 'init')
+        $null = Invoke-GitQuiet @('worktree', 'add', '-q', $gHusk, '-b', 'guard-probe-husk')
+        $null = Invoke-GitQuiet @('worktree', 'add', '-q', $gLive, '-b', 'guard-probe-live')
+      }
+      finally { Pop-Location }
+
+      if (-not ((Test-Path -LiteralPath (Join-Path $gHusk 'probe.txt')) -and
+                (Test-Path -LiteralPath (Join-Path $gLive '.git')))) {
+        Write-Error "SELF_TEST=FAILED could not build the later-invocation fixtures under $gRepo, so the guard went untested."
+        exit 1
+      }
+      if ((Get-Item -LiteralPath (Join-Path $gHusk 'probe.txt')).Length -le $script:HuskProvenanceMinBytes) {
+        Write-Error "SELF_TEST=FAILED the positive fixture does not clear the provenance byte floor, so it proves nothing."
+        exit 1
+      }
+      # Precisely what a partial removal leaves behind, in BOTH of its parts:
+      # the `.git` file gone AND the worktree deregistered. Deleting the `.git`
+      # alone leaves git still listing the path (as `prunable`), which is NOT
+      # the state seen in the wild and would let this fixture pass against a
+      # roster check it never really faced. `prune` is git's own
+      # deregistration and it leaves every other file standing.
+      Remove-Item -LiteralPath (Join-Path $gHusk '.git') -Force
+      $null = Invoke-GitQuiet @('-C', $gRepo, 'worktree', 'prune')
+      New-Item -ItemType Junction -Path $gLink -Target $gTarget | Out-Null
+
+      # NEGATIVE 1 - an ordinary directory, unacknowledged. This is the case
+      # reproduced against main: exit 3, "DESTROYED TREE", a recursive delete.
+      $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, $gPlain)
+      $gText = ($g.Output -join "`n")
+      if ($g.ExitCode -ne 1) {
+        Write-Error "SELF_TEST=FAILED an ordinary directory exited $($g.ExitCode), want 1 (a refusal). Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'REFUSED_UNREGISTERED=') {
+        Write-Error "SELF_TEST=FAILED an ordinary directory was not refused by name. Output: $gText"
+        exit 1
+      }
+      if ($gText -match 'REMOVE_PARTIAL=|DESTROYED TREE|Remove-Item -Recurse -Force ') {
+        Write-Error "SELF_TEST=FAILED an ordinary directory was called a destroyed tree or handed a recursive delete. Output: $gText"
+        exit 1
+      }
+      if ($gText -match 'DISARMED=') {
+        Write-Error "SELF_TEST=FAILED a refused directory had a link disarmed anyway. Output: $gText"
+        exit 1
+      }
+      if (-not (Test-Path -LiteralPath $gLink)) {
+        Write-Error "SELF_TEST=FAILED a refused directory's junction was removed: $gLink"
+        exit 1
+      }
+      if ((Get-NodeModulesSignature $gTarget) -ne $gTargetBefore) {
+        Write-Error "SELF_TEST=FAILED a refused directory's junction target lost entries."
+        exit 1
+      }
+
+      # NEGATIVE 2 - the same directory WITH the acknowledgement. The flag is
+      # what a mistyped path carries too, so it must not be sufficient alone.
+      $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, '-Husk', $gPlain)
+      $gText = ($g.Output -join "`n")
+      if ($g.ExitCode -ne 1) {
+        Write-Error "SELF_TEST=FAILED -Husk on an ordinary directory exited $($g.ExitCode), want 1. Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'REFUSED_NOT_A_HUSK=') {
+        Write-Error "SELF_TEST=FAILED -Husk on an ordinary directory was not refused on the evidence. Output: $gText"
+        exit 1
+      }
+      if ($gText -match 'DISARMED=|Remove-Item -Recurse -Force ') {
+        Write-Error "SELF_TEST=FAILED -Husk alone was enough to disarm or condemn an ordinary directory. Output: $gText"
+        exit 1
+      }
+      if (-not (Test-Path -LiteralPath $gLink)) {
+        Write-Error "SELF_TEST=FAILED -Husk removed a refused directory's junction."
+        exit 1
+      }
+      if ((Get-NodeModulesSignature $gTarget) -ne $gTargetBefore) {
+        Write-Error "SELF_TEST=FAILED -Husk deleted through a refused directory's junction."
+        exit 1
+      }
+
+      # NEGATIVE 3 - an ordinary directory whose one tiny file DOES match a
+      # blob of ours. This is the case a match count called provenance.
+      $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, '-Husk', $gTiny)
+      $gText = ($g.Output -join "`n")
+      if ($g.ExitCode -ne 1) {
+        Write-Error "SELF_TEST=FAILED a lone tiny coincidental blob bought a husk classification (exit $($g.ExitCode), want 1). Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'REFUSED_NOT_A_HUSK=') {
+        Write-Error "SELF_TEST=FAILED the byte floor did not refuse a tiny coincidental match. Output: $gText"
+        exit 1
+      }
+
+      # NEGATIVE 4 - -Husk sprayed at a LIVE registered worktree.
+      $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, '-Husk', $gLive)
+      $gText = ($g.Output -join "`n")
+      if ($g.ExitCode -ne 1) {
+        Write-Error "SELF_TEST=FAILED -Husk on a registered worktree exited $($g.ExitCode), want 1. Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'REFUSED_HUSK_IS_REGISTERED=') {
+        Write-Error "SELF_TEST=FAILED -Husk on a registered worktree was not refused. Output: $gText"
+        exit 1
+      }
+      if (-not (Test-Path -LiteralPath (Join-Path $gLive '.git'))) {
+        Write-Error "SELF_TEST=FAILED a live worktree was gutted by a -Husk claim."
+        exit 1
+      }
+
+      # POSITIVE - a REAL husk, acknowledged. The guard must not have cost the
+      # one case the husk path exists for.
+      $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, '-Husk', $gHusk)
+      $gText = ($g.Output -join "`n")
+      if ($g.ExitCode -ne 3) {
+        Write-Error "SELF_TEST=FAILED an acknowledged husk exited $($g.ExitCode), want 3. Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'HUSK_PROVENANCE=') {
+        Write-Error "SELF_TEST=FAILED a husk was classified without naming what identified it. Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'REMOVE_PARTIAL=') {
+        Write-Error "SELF_TEST=FAILED an acknowledged husk was not reported as a partial removal. Output: $gText"
+        exit 1
+      }
+
+      Write-Output "SELF_TEST later_invocation guard=yes (ordinary dir REFUSED untouched; -Husk alone REFUSED on the evidence; a lone tiny coincidental blob REFUSED by the byte floor; -Husk on a live worktree REFUSED; a real husk still classified exit 3 with provenance named)"
     }
     else {
       # NOT a SKIP - see the POSIX primary. The junction fixture above may
@@ -569,7 +892,7 @@ if ($SelfTest) {
       exit 1
     }
 
-    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the canary caught nested-only loss, and a husk is not mistaken for a clean tree."
+    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the canary caught nested-only loss, a husk is not mistaken for a clean tree, and an unidentified directory is refused rather than condemned."
     exit 0
   }
   finally {
@@ -643,23 +966,61 @@ foreach ($rawTarget in $Worktree) {
     exit 1
   }
 
+  # -Husk is a claim about a path git has ALREADY let go of. Applied to a
+  # registered worktree it is simply false, and the likeliest way for it to
+  # become false is a caller spraying the flag across a whole sweep list. So
+  # the contradiction is refused rather than quietly ignored.
+  if ($Husk -and ($roster -contains $wt.ToLowerInvariant())) {
+    Write-Warning "REFUSED_HUSK_IS_REGISTERED=$wt"
+    foreach ($line in @(
+        'git still lists this as a worktree, so it is not a husk. NOTHING WAS TOUCHED -',
+        're-run without -Husk to remove it normally. -Husk is for paths git has already',
+        'let go of; pass it alone, with the husks you have identified.')) {
+      Write-Warning $line
+    }
+    $failed = $true
+    continue
+  }
+
   # Refuse anything git does not know as a linked worktree. This script never
   # deletes a directory itself; if git will not remove it, neither will we.
   #
-  # One unregistered path is NOT a mistyped argument, and saying so is the
-  # difference between an actionable message and a wild goose chase: a HUSK
-  # left by an earlier partial removal is deregistered BY DEFINITION, so the
-  # old advice here ("run 'git worktree prune'") sent the caller after an
-  # entry that had already been cleared (rf2-k3j2w). Disarm it and name it.
+  # AND REFUSING IS THE DEFAULT HERE, because "git does not list it" is a fact
+  # about git, not about the directory (rf2-k3j2w, second pass). A husk is
+  # deregistered by definition - and so is every directory that was never a
+  # worktree. The version that inferred a husk from that negative alone
+  # disarmed and condemned an ordinary temp directory. Identification now needs
+  # a positive: the caller's -Husk AND content this repository recognises.
   if ($roster -notcontains $wt.ToLowerInvariant()) {
-    if ((Test-Path -LiteralPath $wt -PathType Container) -and (-not (Test-WorktreeIsIntact $wt))) {
-      Disarm-WorktreeLinks $wt
-      Write-Husk $wt
-      $script:partial = $true
+    if (-not (Test-Path -LiteralPath $wt -PathType Container)) {
+      Write-Warning "REFUSED_UNREGISTERED=$wt (no such directory)"
+      Write-Warning "Nothing was touched. Check the path; 'git worktree list' shows what is registered."
+      $failed = $true
       continue
     }
-    Write-Error "Not a registered worktree of ${mayorRootPath}: $wt (run 'git worktree list'; 'git worktree prune' clears stale entries)."
-    exit 1
+    if (Test-WorktreeIsIntact $wt) {
+      Write-Warning "REFUSED_UNREGISTERED=$wt"
+      Write-Warning 'It has a working .git and git answers for it, so it is some OTHER checkout -'
+      Write-Warning "neither a worktree of ${mayorRootPath} nor a husk. Nothing was touched."
+      $failed = $true
+      continue
+    }
+    $prov = Get-RepoContentMatch $wt
+    if (-not $Husk) {
+      Write-RefusedUnidentified $wt $prov.Summary
+      $failed = $true
+      continue
+    }
+    if ($prov.Bytes -lt $script:HuskProvenanceMinBytes) {
+      Write-RefusedNotAHusk $wt $prov.Summary
+      $failed = $true
+      continue
+    }
+    Write-Output "HUSK_PROVENANCE=$wt $($prov.Summary) (e.g. $($prov.First))"
+    Disarm-WorktreeLinks $wt
+    Write-Husk $wt
+    $script:partial = $true
+    continue
   }
 
   # 1. Disarm every link, before anything recursive runs over the tree.
