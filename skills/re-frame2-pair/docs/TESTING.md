@@ -41,11 +41,20 @@ npm install          # one-time (shadow-cljs)
 npm run test:pure    # shadow-cljs compile pure-test && node target/pure-test.js
 ```
 
-> **CI note (rf2-etsj8p):** the `skills-structural` job currently runs only the
-> Babashka `tests/runtime/*_test.clj` loop. Wiring the `:pure-test` build into
-> CI needs a new step (JDK + Node + shadow-cljs, `cd skills/re-frame2-pair/tests/fixture
-> && npm ci && npm run test:pure`) in `.github/workflows/test.yml` — a HOT-ZONE
-> file, sequenced by the mayor rather than edited here.
+> **CI note (rf2-etsj8p):** this build now has its own required job,
+> `re-frame2-pair-fixture-pure`, gated on the same `skills_structural`
+> changed-surface flag as the Babashka loop. The earlier note here — that
+> wiring it up still needed a hot-zone edit — is superseded.
+
+The `:pure-test` build is where `event-byte-size`'s **UTF-8 byte** discipline
+is pinned (rf2-2rtt6.135): `event-byte-size-counts-utf8-bytes-not-code-units`
+and `byte-budget-evicts-sooner-on-multi-byte-payload` use fixtures that share
+one `pr-str` code-unit length across three different byte lengths, so the
+`(count (pr-str ev))` that used to sit under the `max-buffered-bytes` gate
+answers the same number for all three and reds only on the non-ASCII rows.
+Note this file is `.cljc` and the `:clj` arm is genuinely loadable — but only
+the `:cljs` arm has a CI lane, since the fixture's sole harness is the
+node-test build.
 
 ### 1b. Structural (AST) pins (`tests/runtime/*.clj`, Babashka)
 
