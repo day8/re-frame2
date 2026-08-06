@@ -224,7 +224,17 @@ between the two, and `the-residue-reading-can-answer-false` mounts two roots and
 unmounts one to show the repaired reading is live at the point the gates take it.
 
 **The steady-state allocation slope across warm 1/3/7/20 reads** needs the bench
-and is not taken here.
+and is not taken here. It has since been *attempted* on the bench, and the
+attempt is worth reading before the next one is made:
+[the survival metric's allocation half](the-survival-metrics-allocation-half.md)
+builds the allocation row the P0 rig lacked, validates its arithmetic against a
+positive control it has to hit — and then **refuses the series**, on two counts.
+All four fits fall under the r² floor the reads ladder publishes under, and the
+candidate **does not re-render at all under the Reagent adapter** on that bench,
+which its warm-write read-back caught. **No slope is published.** What the page
+does establish is the instrument, its measured ceiling (~600 KB of garbage per
+window, which the published B = 1,200 witness exceeds in a single write), and
+the repair that does *not* work.
 
 ### The tripwire did not fire
 
