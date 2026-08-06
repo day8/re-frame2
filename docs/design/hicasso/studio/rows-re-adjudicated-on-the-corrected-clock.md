@@ -1,10 +1,14 @@
 # The candidate's rows, re-adjudicated on the corrected clock
 
-**The mount deficit is worse than published and the other three rows are still
+**The mount deficit ~~is worse than published~~ reads larger on the corrected
+clock than on the clock it replaced, and the other three rows are still
 refused.** On raw `TaskDuration` — the arm's own JavaScript *and* the frame it
 causes — `hicasso / reagent-subs` on `M1` reads **1.4896×** [1.3488 – 1.5989] on
 ~~the ensemble that has standing~~ the ensemble this page was written against,
-compared with the **1.2107×** the candidate's clock publishes. This page's own
+against the **1.2107×** ~~the candidate's clock publishes~~ the candidate's
+clock read before the correction *(2026-08-06, `rf2-jcm3p`: that page publishes
+no mount magnitude either — both readings are annotated there as historical
+observations stated under a failing `ctl-2x`)*. This page's own
 seven runs, taken at a heavier load regime, read **1.3737×** [1.3289 – 1.4331]
 and are published as a second regime rather than as the magnitude, because the
 corroboration control they were pre-registered against **failed**
