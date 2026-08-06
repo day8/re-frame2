@@ -96,9 +96,20 @@
     (into {} (map (fn [[k v]]
                     [(name k)
                      (if (:unpublished v)
-                       {"unpublished" (name (:unpublished v))
-                        "unverified"  (:unverified v)
-                        "of"          (:of v)}
+                       ;; ONE marker shape for both publication masks, so the
+                       ;; driver reads them with one reader and cannot end up
+                       ;; printing a number for either. The fields a mask does
+                       ;; not set are absent rather than zero: a failed
+                       ;; read-back carries its counts, a window beneath the
+                       ;; clock's grain carries the arms, the measured tick
+                       ;; and how many ticks the worst of them was worth
+                       ;; (rf2-d2tzk).
+                       (cond-> {"unpublished" (name (:unpublished v))}
+                         (:unverified v)   (assoc "unverified" (:unverified v))
+                         (:of v)           (assoc "of" (:of v))
+                         (:arms v)         (assoc "arms" (mapv name (:arms v)))
+                         (:tick v)         (assoc "tick" (:tick v))
+                         (:worst-quanta v) (assoc "quanta" (:worst-quanta v)))
                        {"min" (:min v) "max" (:max v)
                         "straddles1" (boolean (:straddles-1? v))})]))
           m)))
@@ -114,7 +125,17 @@
   (let [acc (or (.-HD8_SUMMARY js/window) #js {})]
     (aset acc (name row-name)
           #js {"vsFloor" (pack-bands (:summary r))
-               "headToHead" (pack-bands (:head-to-head r))})
+               "headToHead" (pack-bands (:head-to-head r))
+               ;; HOW MANY OF THE CLOCK'S OWN TICKS EACH ARM'S WINDOW IS
+               ;; WORTH, beside the figures it governs rather than in an EDN
+               ;; blob nobody parses — the same argument that put the yield
+               ;; correction's verdict on this channel. A reader who copies a
+               ;; ratio out of the table gets the resolution of its
+               ;; denominator on the line above it (rf2-d2tzk).
+               "grain" (when-let [g (:grain r)]
+                         (clj->js {"tick"  (:tick g)
+                                   "worst" (into {} (map (fn [[k v]] [(name k) v])) (:worst g))
+                                   "quanta" (into {} (map (fn [[k v]] [(name k) v])) (:quanta g))}))})
     (set! (.-HD8_SUMMARY js/window) acc)
     nil))
 
@@ -329,11 +350,11 @@
                                   (.then (fn [yc]
                                            (record! :yield-cost yc)
                                            (vreset! yc* yc)
-                                           (rows/measure-write! write-ids which :narrow rounds write-sampling)))
+                                           (rows/measure-write! write-ids which :narrow rounds write-sampling clock)))
                                   (.then (fn [r]
                                            (record-row! :write-narrow r)
                                            (rows/assert-teardown-clean! "write-narrow")
-                                           (-> (rows/measure-write! write-ids which :bulk rounds write-sampling)
+                                           (-> (rows/measure-write! write-ids which :bulk rounds write-sampling clock)
                                                (.then (fn [b] #js [r b])))))
                                   (.then
                                     (fn [pair]
