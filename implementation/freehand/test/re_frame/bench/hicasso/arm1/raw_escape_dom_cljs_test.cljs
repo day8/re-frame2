@@ -103,6 +103,16 @@
   widget that touches `window`."
   (atom 0))
 
+(def ^:private !own-props
+  "The OWN property names of the props object the foreign component was
+  last handed. Read by the childless row, which is the only place the
+  gate's `undefined?` branch is observable: `createElement(type, props,
+  undefined)` sets `children` to `undefined` rather than leaving it
+  absent, so a gate that forwarded unconditionally would hand the
+  component a key `defhost` never gives it — and conversion parity is a
+  claim about the object the component RECEIVES."
+  (atom nil))
+
 (defn- widget
   "A stand-in for the library's component. It renders REAL markup with
   real attributes so that a canonical comparison has something to
@@ -110,6 +120,7 @@
   visible in the DOM."
   [^js props]
   (swap! !renders inc)
+  (reset! !own-props (set (js/Object.keys props)))
   (react/createElement "div"
     #js {:className "widget" :data-live "yes" :data-variant (.-variant props)}
     (react/createElement "span" #js {:className "widget-label"} (.-label props))
@@ -142,6 +153,18 @@
    [:h1.title (rt/sub [:raw/title])]
    [declared-widget {:label (rt/sub [:raw/title]) :variant "compact"}
     [:span.kid "slotted"]]])
+
+(defview childless-escape-page
+  "A crossing with no children at all — the branch the gate takes when
+  `props.children` is absent."
+  [_]
+  [:div.page [:> widget {:label "bare" :variant "solo"}]])
+
+(defview childless-door-page
+  "Its control at the door, so the parity claim is measured rather than
+  assumed."
+  [_]
+  [:div.page [declared-widget {:label "bare" :variant "solo"}]])
 
 (defview intent-child-page
   "A crossing whose CHILD carries an intent. The child's handler is
@@ -238,6 +261,28 @@
                 "and the children, in the component's own slot — forwarded
                  by the gate as createElement's third argument")
             (finally (mount/release! h))))))))
+
+(deftest a-childless-crossing-hands-the-component-the-doors-own-props-object
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (testing "the gate forwards `props.children` as `createElement`'s
+                third argument, and forwarding it UNCONDITIONALLY would
+                write `children: undefined` onto a childless crossing —
+                a key the door never gives the component. Read off what
+                the component was actually handed, at both crossings"
+        (let [a (mount/root! (mount/fresh-container!) frame-id [childless-escape-page {}])
+              via-escape (do (mount/settle!) @!own-props)]
+          (mount/release! a)
+          (let [b (mount/root! (mount/fresh-container!) frame-id [childless-door-page {}])
+                via-door (do (mount/settle!) @!own-props)]
+            (mount/release! b)
+            (is (= #{"label" "variant"} via-escape)
+                (str "no `children` key at the escape: " (pr-str via-escape)))
+            (is (= via-door via-escape)
+                (str "and the same set the door hands it — escape: "
+                     (pr-str via-escape) " / door: " (pr-str via-door)))))))))
 
 (deftest the-escape-and-the-door-produce-the-same-dom
   (if-not (mount/browser?)
