@@ -17,8 +17,9 @@
 
   - **CSS TOKENS.** Visual values travel by the CSS cascade. An ancestor
     scope selects a named token bundle (`data-theme`) and inheritance
-    reaches every descendant, so a theme switch re-renders nothing — no
-    token subscription per leaf, no remount. The one value a stylesheet
+    reaches every descendant, so a theme switch re-renders one boundary,
+    and nothing behind a memoized view immediately below it — no token
+    subscription per leaf, no remount. The one value a stylesheet
     cannot know — a genuinely dynamic colour the caller supplies at the
     call site — rides as an inline namespaced custom property (`:accent`
     -> `--acme-chip-accent`). That is the whole token contract.

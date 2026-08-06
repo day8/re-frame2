@@ -18,7 +18,7 @@
   - **An inline token reaches a part.** The dynamic-residue accent, carried
     as an inline `--acme-chip-accent` custom property, resolves through a
     `var()` on the dot's computed background.
-  - **A theme switch re-renders nothing.** With the token bundle selected
+  - **Restyling costs no React work.** With the token bundle selected
     by an ancestor `data-theme`, flipping that one attribute — never
     re-rendering the chip — recolours the chip through inheritance, and the
     chip's DOM node is the SAME object across the switch. No token
