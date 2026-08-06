@@ -329,16 +329,52 @@ and neither is the corrected clock**, which has no donor bar for this row (see
 §3). A published row sitting 17.5% off parity, on a witness whose two halves
 split this far apart, is not safe to quote without the check.
 
+**The outstanding check is a ten-commits-per-window narrow row on raw
+`TaskDuration`, and naming the clock is not pedantry.** `rf2-ph85f` was filed
+asking for that row on "the frame-inclusive instrument", which is the label this
+page then wore for `taskNet` — the clock that reads the frame with the row's own
+script billed away, and the clock that produced the `1.0062×` struck above.
+Taking the check on it would re-run the error rather than close it. The row needs
+the box either way (§3: no dataset survives, and the corrected clock has no
+`uix-subs ÷ reagent-subs` donor bar for `narrow`), so nothing here is a
+recomputation and nothing here manufactures one.
+
 **`M2 mount 1.0601×` *(diagnostic)* — unchanged in status.** It sits on the
 100 µs clamp and was never quotable against the bar.
 
-**The HD-008 donor rows — EXPOSED, UNMEASURED.** They are in-page by §1 and they
-publish margins (`donor-r1/reagent` 1.333–1.473, `donor-fh/uix` 1.358–1.746).
-Their comparisons are mostly *between* arms on the same React-hook spine, which
-plausibly split their work across the frame boundary more alike than Reagent and
-UIx do — but *plausibly* is not measured. The bounded check is to add the donor
-arms to the corrected clock's harness and re-read the `M` and `U` mount rows on
-raw `TaskDuration`: about one run per row per arm-set at the cost recorded in §6.
+**The HD-008 donor rows — the mount half is now MEASURED, and this section's
+conjecture held.** They were in-page by §1 and they published margins
+(`donor-r1/reagent` 1.333–1.473, `donor-fh/uix` 1.358–1.746). This page asked for
+a bounded check — add the donor arms to a harness reading raw `TaskDuration` and
+re-read the `M` and `U` mount rows — and reasoned that these comparisons are
+mostly *between* arms on the same React-hook spine, so they plausibly split their
+work across the frame boundary more alike than Reagent and UIx do. **`rf2-2rtt6.31`
+took that check** on a purpose-built instrument pair (`hd8_clock_app.cljs` /
+`hd8_clock_run.cjs`), landed on `main` as `1ac48c4a0b`, and published it at
+[the HD-008 donor page's re-take](hd8-composed-donor-arm.md#the-re-take-on-the-current-tree-rf2-2rtt631).
+Three things came back.
+
+- **The conjecture is upheld, with a number on it.** On the same samples the
+  in-page window overstates the donor-vs-UIx margin by **~8–12%** and overstates
+  UIx's advantage over Reagent — real, and one to two orders of magnitude short
+  of the hundreds of points the Reagent-against-UIx rows split by. Same-spine
+  arms do divide script against frame alike; that is now measured rather than
+  assumed.
+- **The published deficit against stock Reagent does not reproduce.** Every
+  `donor / Reagent-path` range on the clock of record straddles 1.0, so the
+  1.333–1.473× (`M`) and 1.448–1.542× (`U`) margins are withdrawn as magnitudes
+  on that clock. It is a *thinner* result than it looks: replaying the driver's
+  current `verdict()` over the committed datasets exits `5`, five of the six
+  clock-of-record rows missed their positive control, and only `reagent-U`
+  carries the non-reproduction unaided.
+- **The write half is refused, not taken.** No bulk or narrow magnitude is
+  published on the clock of record for these rows (`rf2-d2tzk`, `rf2-7iqb5`).
+
+**What remains in-page here is `donor-fh`.** That arm was deliberately left out
+of the re-take — it is `rf2-2rtt6.29`'s subject, and including it would have
+changed `k` for a comparison that bead does not make — so `donor-fh/uix`
+1.358–1.746 is still a `flushSync`-window margin and is the one HD-008 family
+this audit's finding still reaches.
 
 ## 5. What could not be re-taken, and why
 
@@ -438,7 +474,7 @@ in this programme:
 | what | reading | door | class |
 |---|---|---|---|
 | the in-page column | `performance.now()` around the arm's drain | in-page | script, to where `flushSync` returns |
-| the second column | `TaskDuration − DevToolsCommandDuration` (`taskNet`) | `page.evaluate` → `Runtime.callFunctionOn`, `22b53abe9e…:433` | **frame only** — the command billed the arm's script away |
+| the second column | `TaskDuration − DevToolsCommandDuration` (`taskNet`) | `page.evaluate` → `Runtime.callFunctionOn`, at the `clock_run.cjs` blob `22b53abe9e…:433` | **frame only** — the command billed the arm's script away |
 | what supersedes it | raw `TaskDuration` | same door; the subtraction is simply not performed | script **and** frame |
 
 The door is read from the driver at the blob above, not from the prose around
