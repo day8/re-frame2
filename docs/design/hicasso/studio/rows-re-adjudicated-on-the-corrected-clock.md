@@ -190,7 +190,12 @@ Seven runs, `6 × (4 warm-up + 10 samples)` per arm per segment — the publishe
 run 5 design, unchanged, so the two are comparable. Whole-run gates on all seven:
 **arm-order guard reportable on both clocks**, canonical DOM **identical**
 (27,224 bytes, 6 non-control arms, 3 segments), **0 unverified of 1,008** per row
-(756 on `keystroke`), residue zero on every counter, **0 page errors**.
+(756 on `keystroke`), residue back to baseline on every counter, **0 page
+errors**. `body-children` reads **2** throughout — the page's own `#app` and its
+script tag, constant, not residue — and every other counter is zero; a row
+reading 3 would be a container that survived its unmount *(2026-08-06,
+`rf2-moe9a`: this said ~~zero~~ on every counter, the same wrong baseline
+[the clock page](the-candidates-clock.md#3-the-design) carried)*.
 
 | row | `hicasso / reagent-subs`, raw `TaskDuration` | on `taskNet` | reportable runs | disposition |
 |---|---:|---:|---:|---|
