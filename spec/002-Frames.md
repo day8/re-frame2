@@ -100,6 +100,12 @@ chain, and no `:rf/default` floor: absence is `:rf.error/no-frame-context`.
 | **hold** | `capture-frame`, the dispatch envelope threaded through a run, a captured frame stamp on any deferred callback | the frame **reified as a value** and carried across boundaries — async hops, tool sessions, fx closures. |
 | **override** | the per-call `{:frame …}` opt | the frame named **explicitly at the call site**. Always wins; the right shape for callbacks, tools, tests, SSR. |
 
+A substrate may **withdraw the ambient find** inside the render extent it owns,
+which qualifies every ambient resolution — the **scope** row, and the no-arg
+`capture-frame` that starts a *hold* — but never the **override** row, since a
+`{:frame …}` opt does not consult the resolver at all. See
+[§The refusal tier](#the-refusal-tier--a-substrate-may-withdraw-the-ambient-find).
+
 At a boundary the three collapse to the only distinction that matters:
 
 - **carried as a value** — *hold* + *override*. Survives any boundary by
@@ -167,6 +173,11 @@ shape to validate, one thing for tools to render.
 - **Bad explicit target.** A caller supplies `{:frame :ghost}` explicitly.
   Resolution has *succeeded* (a stamp was carried); the registry lookup then reports
   `:rf.error/frame-destroyed` or another no-such-frame shape per [§Destroy](#destroy).
+- **Refused ambient target.** A frame *is* in scope, but the enclosing render extent
+  has withdrawn ambient resolution. This is neither of the above, and it gets its own
+  error — `:rf.error/ambient-frame-refused` — because reporting it as absence would
+  send the author to establish a second scope, which cannot fix it. See
+  [§The refusal tier](#the-refusal-tier--a-substrate-may-withdraw-the-ambient-find).
 
 The frameless error is itself frameless: it is emitted through the **always-on error
 axis** (the production-survivable error-emit listener, surface #4 per
@@ -280,6 +291,55 @@ captured default. The full migration of each call site — router envelope
 construction, the subscription/read surfaces, the React-context default, the
 framework-fx defaults, SSR, trace/elision projection, and the tool layer — is the
 EP-0002 implementation chain (see [EP-0002 §Bead Structure](../docs/EP/EP-0002-frame-target-resolution.md#bead-structure)).
+
+### The refusal tier — a substrate may withdraw the ambient find
+
+The two scope tiers a reader consults — the dynamic binding, then the enclosing
+render boundary — answer *which* frame is current. Neither can say **no ambient
+frame is legal here**, and a substrate whose render phase imposes a read discipline
+of its own needs exactly that sentence. The motivating case is a compiled-view
+boundary that must observe every read to build its dependency edges
+([EP-0038 HD-002 clause (a)](../docs/EP/EP-0038-the-hicasso-view-layer-programme.md)):
+an ambient `rf/subscribe` written in such a body *resolves* — the frame is genuinely
+in scope through the render boundary — and then contributes zero edges, leaving a
+boundary that silently never re-renders again.
+
+So a substrate may establish a **refusing extent** around the code it owns
+(`re-frame.frame/call-with-ambient-frame-refused`), and inside it the ambient
+**find** is withdrawn. This is the carried invariant enforced strictly, not an
+exception to it: **the refusal deletes the finding, never the carrying.** A frame
+reached through the enclosing render boundary is no longer found; a frame carried as
+a value still arrives — `{:frame …}`, which never consults the resolver, and
+`with-frame`, which answers through the dynamic tier — because the two spellings of
+"I carried a frame" must not disagree inside a body.
+
+**The condition is what this contracts, not a list of operations.** Any operation
+that resolves its frame ambiently and requires one meets the refusal — the ambient
+surfaces named above, and every later addition to them; an operation that
+*tolerates* a nil resolution takes its own frameless branch instead. The check
+therefore belongs to the **reader**, which withholds the answer, rather than to
+`require-current-frame!`, which is the caller that turns a withheld answer into the
+error: the per-read `subscribe` path inlines the reader-then-require pair to keep
+its error payload off the fast path, so the requiring primitive is not the one door
+every ambient resolution passes through. A reader is still a reader inside a
+refusing extent — it returns `nil` rather than throwing, so frame pickers and
+tooling read "no ambient frame", which is the truth.
+
+**One exception, opt-in and substrate-declared.** The paragraph above is the rule
+wherever a carried stamp is the only frame in play. It stops being the rule when the
+extent **has a frame of its own** and the stamp names a different one. A substrate
+declares that frame as `:extent-frame` on the refusal detail, and a carried stamp
+naming some **other** frame is then refused too — because the body would read and
+dispatch against `:b` while its own reads, lowered intents and children target `:a`,
+chosen by nothing but which spelling the author reached for. Frames are **isolated
+contexts**, so that is an ambiguity rather than a carried-stamp win. A **matched**
+stamp still carries, and a refusal naming no `:extent-frame` admits every carried
+stamp — the right answer for an extent with no frame of its own to be mismatched
+against. This is the **only** documented exception to a carried stamp winning, and
+it reaches the ambient spellings alone: the `{:frame …}` override never consults the
+resolver, on either arm. The error's payload, recovery and keys — including the
+`:extent-frame` / `:carried-frame` pair that names both sides of a mismatch — are
+catalogued at [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
 ## What lives in a frame
 
@@ -2653,7 +2713,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 |---|---|
 | Unified frame identity & lifecycle (EP-0024, accepted 2026-06-18) — **one live frame value backed by one registry** (it owns the id, both partitions, runtime subsystems, queue/drain, caches, lifecycle hooks, and the **resolved image generation** — no second backing-record registry); the **frame id is the public routing address** (`{:frame id}` / `with-frame`), the frame value is a lifecycle token with a hidden representation; **scope vs ensure vs own vs carry** are separate jobs — `with-frame` (lexical) / `frame-provider {:frame …}` (into a React subtree) scope to an *existing* frame (no lifecycle; **amended** — fails loud if absent), `frame-root {:id …}` is the **ENSURE** boundary (create-if-absent / reuse-no-reseed / provide id / **no destroy-on-unmount** — **amended twice**: owned destroy-on-unmount retired, then the ENSURE verb split out of the merged provider into `frame-root`, rf2-nyea0r), explicit `make-frame` + `destroy-frame!` owns teardown, `capture-frame` carries across async; **one `make-frame`** over image-selection + record-config opts (the old two-constructor split + `:rf.error/make-frame-record-only-key` redirect are gone); **duplicate-id is idempotent replacement** (behaviour change from blanket fail-loud — preserves durable state on re-mount, irreconcilable conflicts still fail loud); `make-capture-frame`/`subscribe*`/frame-first arities retiered to internal at the time (`subscribe*` itself was later fully retired, not just demoted — API-shrink #2, rf2-m90brg); **one teardown ownership path** | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor), [§`frame-provider` — the SCOPE-only component](#frame-provider--the-scope-only-component-cljs-reference), [§`frame-root` — the ENSURE component](#frame-root--the-ensure-component-cljs-reference), [§Destroy](#destroy), [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) |
 | API-shrink #1 — frame-targeting collapsed to exactly THREE intents (rf2-csbbwu) — scope (ambient) / override (`{:frame …}`) / hold (`capture-frame`, the ONE public carry primitive); the frame-FIRST positional runtime shape-discrimination EP-0024 had retained as internal plumbing (the then-`dispatch*`/`dispatch-sync*`/`subscribe`/`subscribe-once`'s `vector?`-punned 2-arity — `dispatch*`/`dispatch-sync*` are themselves since fully retired, API-shrink #2 rf2-m90brg) is DELETED entirely — every sig is `[payload]` / `[payload opts]`; `frame-bound-fn` (macro) / `frame-bound-fn*` (fn) are DELETED from the facade (the dynamic-rebinding semantics survive internally as `re-frame.frame/bind-fn`); `frame-provider`'s `:frame` is NORMALIZED to accept a frame value (not just a keyword id), so `frame-value->id` is DELETED from the facade — the routing operations accept a frame value or its id interchangeably (they normalize a value to its id), while `destroy-frame!` accepts either but reads the value's exact-incarnation lifecycle authority (rf2-moftbs — a stale value no-ops against a same-id successor; a keyword is address-directed) | [§`capture-frame` is the ONE carry primitive](#capture-frame-is-the-one-carry-primitive--no-frame-bound-fn-cljs-reference), [§The multi-frame surface](#the-multi-frame-surface--choose-by-intent), [§`frame-provider` — the SCOPE-only component](#frame-provider--the-scope-only-component-cljs-reference) |
-| Frame target resolution — the carried invariant (EP-0002) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is an ordinary id the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism** | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
+| Frame target resolution — the carried invariant (EP-0002) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is an ordinary id the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism**. **Amended by the refusal tier** (rf2-2rtt6.122, extended by rf2-nqj22) — a substrate may withdraw the ambient FIND for the render extent it owns (`call-with-ambient-frame-refused`), applied in the READER so every ambient door is covered; the finding is deleted, never the carrying, **except** where the extent declares its own `:extent-frame`, when a MISMATCHED carried stamp is refused too (`:rf.error/ambient-frame-refused`) — the one documented exception to a carried stamp winning, and one the `{:frame …}` override never meets | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [§The refusal tier](#the-refusal-tier--a-substrate-may-withdraw-the-ambient-find), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
 | Two-partition frame contract (EP-0001, 14 rulings) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); a full reset (`destroy-frame!` + `make-frame`) resets the whole frame; accessors `app-db-value`/`frame-state-value` (former `runtime-db-value` retired, see API-shrink #3 below), mutator `replace-frame-state!` (former `replace-app-db!`/`replace-runtime-db!` retired, see API-shrink #3 below) | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
 | API-shrink #3 — frame-state I/O collapsed to ONE partial-map write (rf2-t3lftq, adopted 2026-07-07) — the former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` four-mutator family (identical machinery, differing only in which partition keys they touched) is consolidated into **`replace-frame-state!`** taking a PARTIAL frame-state map: a present key replaces that partition, an absent key is preserved; a map with no recognized partition key, or an unrecognized key, is rejected as `:rf.error/replace-frame-state-bad-keys` (checked before frame resolution); `snapshot-of` (an empirically zero-caller convenience over `(get-in (app-db-value frame-id) path)`) and `runtime-db-value` (superseded by `(:rf.db/runtime (frame-state-value frame-id))`) are DELETED from the facade | [§Frame-state value accessors and mutators](#frame-state-value-accessors-and-mutators) |
 | Frame presets — closed v1 set `:default` / `:test` / `:story` / `:ssr-server`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fifth preset is a Spec-change-only operation; `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise) considered and not adopted in v1 | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |
