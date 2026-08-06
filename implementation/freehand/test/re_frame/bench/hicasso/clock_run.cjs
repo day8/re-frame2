@@ -335,6 +335,13 @@ function controlVerdict(predicted, perRound, slack) {
 //
 //     R3 = (T(d2) - T(d0)) / (T(d1) - T(d0))  ->  (d2 - d0) / (d1 - d0)
 //
+// AND THE RATIO IS ADJUDICATED ONLY ON A BLOCK WHOSE TWO DIFFERENCES ARE BOTH
+// FINITE AND POSITIVE. Cancelling the constant costs the statistic its sign:
+// flipping BOTH differences leaves the quotient alone, so `T(d) = 10 - 0.006d`
+// — a page where more dirty work reads FASTER — reads the predicted 2.0101x.
+// The band is a necessary condition; the monotonicity the control's premise
+// asserts is the other half, and it is checked per block (rf2-7iqb5).
+//
 // Both perturbations this lane has measured die in it:
 //
 //   * an ADDITIVE per-sample constant cancels in each difference;
@@ -425,10 +432,14 @@ function ctl3Verdict(rounds, plan, slack) {
   if (arms.length < 3) return null;
   const [a0, a1, a2] = arms;
   const [d0, d1, d2] = arms.map((a) => dirty[a]);
-  // The witness is a fourth point BELOW the control's range and is never a
-  // term in the statistic. It exists to re-measure, every run, the
-  // saturating paint term that refuted the first build of this control —
-  // see `clock-app/ctl3-witness-dirty`.
+  // The witness would be a fourth point BELOW the control's range, and it is
+  // never a term in the statistic: it exists to re-measure, every run, the
+  // saturating paint term that refuted the first build of this control.
+  // NO SHIPPED ARM DECLARES ITSELF ONE — `clock-app/ctl3-arms` emits the
+  // three control points and nothing else — so `wArm` is null on every run
+  // and the witness column of the regime table reads null. Read here rather
+  // than deleted because the page can declare one without the driver
+  // changing; a reader of a null witness column is reading its absence.
   const wArm = witness.length ? witness[0].id : null;
   const wD = witness.length ? witness[0].dirty : null;
   const predicted = (d2 - d0) / (d1 - d0);
@@ -465,10 +476,42 @@ function ctl3Verdict(rounds, plan, slack) {
       });
     }
   }
+  // THE BAND IS NECESSARY AND NOT SUFFICIENT: the quotient cannot see its own
+  // sign. `(T(d2) - T(d0)) / (T(d1) - T(d0))` is unchanged when BOTH
+  // differences flip, so a page on which MORE dirty work reads FASTER lands
+  // on exactly the same number as one on which it reads slower. It is not a
+  // corner: for `T(d) = 10 - 0.006d` the three times are 9.994 / 9.400 /
+  // 8.800 ms, the numerator is -1.194 ms, the denominator -0.594 ms, and the
+  // quotient is 2.0101x — the prediction, to four places. A band alone
+  // admits it.
+  //
+  // So each block must also carry the MONOTONICITY the control's own premise
+  // asserts — `T` rising with `d` — and it is checked as the two differences
+  // being finite and STRICTLY POSITIVE, which is that premise restated on
+  // the terms the statistic is actually built from. Fail closed: a block
+  // whose signal is absent (0), backwards (< 0) or unreadable (NaN) is
+  // refused before its ratio is looked at, and the per-block rule stays
+  // strict — one inverted block refuses the row exactly as one out-of-band
+  // block does. An empty block set is refused for the same reason: a
+  // vacuous `every` is not a control holding.
+  const signBad = blocks.filter(
+    (b) => !(Number.isFinite(b.num) && Number.isFinite(b.den) && b.num > 0 && b.den > 0)
+  );
+  const sign = {
+    ok: signBad.length === 0 && blocks.length > 0,
+    bad: signBad.length,
+    of: blocks.length,
+    blocks: signBad.map((b) => ({ seg: b.seg, round: b.round, num: b.num, den: b.den })),
+  };
   const v = controlVerdict(predicted, per, slack);
   const marg = (k) => band(blocks.map((b) => b.marginalUs[k]).filter(Number.isFinite));
   return {
     ...v,
+    ok: v.ok && sign.ok,
+    rule:
+      'strict — EVERY block inside the band, AND every block\'s numerator and denominator ' +
+      'finite and strictly positive',
+    sign,
     arms: { eps: a0, d: a1, twoD: a2, witness: wArm },
     dirty: { [a0]: d0, [a1]: d1, [a2]: d2 },
     witnessDirty: wD,
@@ -669,6 +712,92 @@ function ctl3SelfTest() {
     name: 'additiveConstant recovers c from a doubling ratio (rf2-emvod M1: 5.695 ms, 1.8173x -> 1.040 ms)',
     ok: Math.abs(additiveConstant(5.695, 1.8173) - 1.0405) < 0.001 &&
       Math.abs(additiveConstant(Wf + cf, ctl2xOnSameWorld) - cf) < 1e-9,
+  });
+
+  // 9. THE SIGN-INVERTED WORLD, which the band alone cannot refuse. `T(d) =
+  //    10 - 0.006d` is a page on which MORE dirty work reads FASTER — the
+  //    control's premise inverted, and the strongest possible statement that
+  //    the instrument is not measuring what it thinks it is. The quotient is
+  //    blind to it, because flipping BOTH differences leaves their ratio
+  //    alone: 8.800 - 9.994 = -1.194 over 9.400 - 9.994 = -0.594, which is
+  //    2.0101x to four places and lands dead centre of the band.
+  //
+  //    So the fixture asserts BOTH halves. Under the band-only rule — which
+  //    is `controlVerdict` on the same per-block readings, i.e. the exact
+  //    rule this driver shipped with — it PASSES. Under the shipped rule it
+  //    REFUSES, and refuses on the sign rather than on the number.
+  const decreasing = ctl3Verdict(synth((d) => 10 - A * d), plan, CONTROL_SLACK);
+  const bandOnlyOnDecreasing = controlVerdict(predicted, decreasing.perRound, CONTROL_SLACK);
+  checks.push({
+    name: 'a DECREASING linear page (more dirty work reads FASTER) REFUSES — though the band alone admits it',
+    ok:
+      // the band alone admits it, and admits it exactly: this is the defect,
+      // asserted rather than described.
+      bandOnlyOnDecreasing.ok &&
+      exact(decreasing.measured.mean) &&
+      // both differences are negative, which is the thing the ratio hid
+      decreasing.blocks.every((b) => b.num < 0 && b.den < 0) &&
+      // and the shipped rule refuses every one of the nine blocks
+      !decreasing.ok &&
+      !decreasing.sign.ok &&
+      decreasing.sign.bad === 9 &&
+      decreasing.sign.of === 9,
+  });
+
+  // 9b. THE SIGN-DEGENERATE BOUNDARIES, one per way a difference can fail to
+  //     be a positive reading. Each is otherwise unremarkable — three of the
+  //     four land a finite ratio, and the first two land one inside the band
+  //     — so each is a case the band alone would have waved through.
+  //
+  //     `>= 0` would not do for the threshold. A difference of exactly zero
+  //     is a denominator that has gone to noise (case 6's failure mode with
+  //     a numerator still attached) or a numerator saying the top two points
+  //     are indistinguishable; neither is a reading, and a control admitting
+  //     one is admitting an arm it cannot see.
+  const at = (m) => (d) => (d in m ? m[d] : 0); // an explicit three-point table
+  const negNum = ctl3Verdict(synth(at({ 1: 5.0, 100: 5.6, 200: 3.8 })), plan, CONTROL_SLACK);
+  const negDen = ctl3Verdict(synth(at({ 1: 5.0, 100: 4.7, 200: 4.4 })), plan, CONTROL_SLACK);
+  const zeroNum = ctl3Verdict(synth(at({ 1: 5.0, 100: 5.6, 200: 5.0 })), plan, CONTROL_SLACK);
+  const zeroDen = ctl3Verdict(synth(at({ 1: 5.0, 100: 5.0, 200: 6.2 })), plan, CONTROL_SLACK);
+  const nanArm = ctl3Verdict(synth((d) => (d === 100 ? NaN : A * d + C)), plan, CONTROL_SLACK);
+  checks.push({
+    name: 'sign-degenerate blocks REFUSE: negative numerator, negative denominator, either exactly zero, or unreadable',
+    ok:
+      // numerator negative, denominator positive: T rises then falls back
+      // below T(eps). The ratio is finite and NEGATIVE.
+      !negNum.ok && negNum.sign.bad === 9 && negNum.blocks.every((b) => b.num < 0 && b.den > 0) &&
+      // denominator negative, numerator negative-but-larger: a finite ratio
+      // INSIDE the band, which is the sign-inverted defect in another shape.
+      !negDen.ok && negDen.sign.bad === 9 &&
+      Math.abs(negDen.measured.mean - r4(0.6 / 0.3)) < 5e-5 &&
+      // numerator exactly zero: T(2D) indistinguishable from T(eps)
+      !zeroNum.ok && zeroNum.sign.bad === 9 && zeroNum.blocks.every((b) => b.num === 0) &&
+      // denominator exactly zero: the ratio is not a number at all
+      !zeroDen.ok && zeroDen.sign.bad === 9 && zeroDen.blocks.every((b) => b.den === 0) &&
+      // an arm that read nothing at all
+      !nanArm.ok && nanArm.sign.bad === 9,
+  });
+
+  // 9c. AND THE GATE IS NOT A BLANKET REFUSAL. A rule that fails closed is
+  //     worth nothing if it also refuses the healthy world — the whole
+  //     failure mode this lane keeps finding is a gate that no longer
+  //     discriminates. Every fixture above that PASSES must still pass, and
+  //     must pass with its sign check clean; and the vacuous case — no
+  //     blocks at all, where `every` returns true over an empty list — must
+  //     not read as a control holding.
+  const noBlocks = ctl3Verdict([], plan, CONTROL_SLACK);
+  checks.push({
+    name: 'the sign gate does not refuse a healthy world, and an EMPTY block set is not a pass',
+    ok:
+      lin.ok && lin.sign.ok && lin.sign.bad === 0 &&
+      mult.ok && mult.sign.ok &&
+      widerV.ok && widerV.sign.ok &&
+      // and the refusals above are still refusals FOR THEIR OWN REASON: the
+      // superlinear and sabotage worlds rise monotonically and are refused
+      // by the band, not swept up by the new rule.
+      sup.sign.ok && !sup.ok &&
+      sab.sign.ok && !sab.ok &&
+      !noBlocks.ok && noBlocks.sign.of === 0,
   });
 
   return { checks };
@@ -1550,12 +1679,14 @@ function report(out) {
   const ctl3 = ctl3Verdict(roundsTask, armPlan, CONTROL_SLACK);
   const ctl3Net = ctl3 ? ctl3Verdict(rounds, armPlan, CONTROL_SLACK) : null;
   const ctl3Layout = ctl3 ? ctl3Verdict(roundsLayout, armPlan, CONTROL_SLACK) : null;
-  // THE CONTROL'S ARMS MUST BUILD ONE PAGE AS EACH OTHER. They are exempt
-  // from the cross-arm canonical-DOM gate because their page is not the
-  // floor's — that is the price of the page size the signal needed — so the
-  // guarantee is re-established where it still means something: four arms
-  // compared only with one another have to be four renderings of the same
-  // page, and a row whose control arms disagree is refused.
+  // THE CONTROL'S ARMS MUST BUILD ONE PAGE AS EACH OTHER, and this checks it
+  // directly rather than by inference. They build the FLOOR's own page — the
+  // 3,000-boundary page of their own was tried, lost, and is recorded in
+  // `clock-app/ctl3-dirty` — so they are ALSO inside the cross-arm
+  // canonical-DOM gate above, and this is a second, tighter check rather
+  // than the only one: arms compared only with one another have to be
+  // renderings of the same page whatever the cross-arm gate says, and a row
+  // whose control arms disagree is refused.
   let ctl3Parity = null;
   if (ctl3) {
     const ids = new Set([...Object.keys(ctl3.dirty), ctl3.arms.witness].filter(Boolean));
@@ -1630,10 +1761,12 @@ function report(out) {
       const ordered = ctl3.signal.interceptMs.mean > constants.c2x.mean;
       console.log(
         `;;   c ORDER  c(3pt) ${ctl3.signal.interceptMs.mean.toFixed(4)} ms vs c(2x) ` +
-          `${constants.c2x.mean.toFixed(4)} ms, both tared — and they are constants of DIFFERENT PAGES, so ` +
-          `this is the weak form of the check and is labelled as such: c(3pt) carries React's whole-tree ` +
-          `walk over 3,000 elements and c(2x) carries only what survives doubling a 300-element page, so ` +
-          `c(3pt) > c(2x) is expected and its failure would be a real signal while its success proves little. ` +
+          `${constants.c2x.mean.toFixed(4)} ms, both tared — and they are recovered by DIFFERENT ` +
+          `CONSTRUCTIONS, so this is the weak form of the check and is labelled as such: c(3pt) is the ` +
+          `intercept of a fit along the DIRTY-SET axis on the floor's own ${cells}-boundary page, so it ` +
+          `carries React's whole-tree reconciliation walk in full, while c(2x) is recovered by inverting a ` +
+          `PAGE doubling and the walk scales with the page, so it is excluded there. c(3pt) > c(2x) is ` +
+          `expected on that reasoning and its failure would be a real signal while its success proves little. ` +
           (usable
             ? `${ordered ? 'AS PREDICTED.' : 'NOT AS PREDICTED — worth chasing.'}`
             : `WITHHELD: c(2x) ranges to ${constants.c2x.min.toFixed(4)} ms, and a negative recovered constant ` +
@@ -1665,6 +1798,28 @@ function report(out) {
         `;;            layout is the half of a commit that MUST scale with the dirty set; paint is the half ` +
           `that stops scaling once the damage region covers the viewport. A control that holds on layout and ` +
           `refuses on task is reporting the PAGE, not the clock.`
+      );
+    }
+    // THE SIGN, BEFORE THE NUMBER. The quotient is unchanged when both
+    // differences flip, so a band alone would admit a page on which MORE
+    // dirty work reads FASTER at exactly the predicted ratio. A block whose
+    // numerator or denominator is not a finite positive reading is refused
+    // here, and a report that did not say so would print a FAIL beside an
+    // in-band number with no reason attached.
+    if (!ctl3.sign.ok) {
+      const eg = ctl3.sign.blocks
+        .slice(0, 3)
+        .map((b) => `${b.seg} r${b.round} num ${b.num} ms / den ${b.den} ms`)
+        .join('; ');
+      console.log(
+        `;;   SIGN     REFUSED ${ctl3.sign.bad} of ${ctl3.sign.of} blocks — a numerator or denominator ` +
+          `that is not finite and strictly positive is not a reading of a rising cost` +
+          (eg ? `: ${eg}` : ` (no blocks at all)`)
+      );
+      console.log(
+        `;;            the quotient cannot see this by itself — flipping BOTH differences leaves their ` +
+          `ratio alone, so a page where more dirty work reads FASTER lands on the prediction. The band is ` +
+          `a necessary condition, never a sufficient one.`
       );
     }
     console.log(
@@ -2277,8 +2432,9 @@ async function main() {
   // launched. `ctl3SelfTest` is the one that matters for this driver's new
   // control: its cases are the REFUSALS — superlinear work, an arm that does
   // not do what it declares, a degenerate denominator, one bad block out of
-  // nine — stated as fixtures, plus the case that shows the doubling control
-  // failing on a world the three-point one passes.
+  // nine, and a page on which more dirty work reads FASTER at exactly the
+  // predicted ratio — stated as fixtures, plus the case that shows the
+  // doubling control failing on a world the three-point one passes.
   const c3st = ctl3SelfTest();
   const badCtl3 = c3st.checks.filter((c) => !c.ok);
   for (const c of c3st.checks) console.error(`[clock] ctl3 self-test  ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
@@ -2547,9 +2703,10 @@ async function main() {
   if (badCtl3Parity.length > 0) {
     console.error(
       `[clock] FAILED: the three-point control's own arms built DIFFERENT PAGES on: ` +
-        `${badCtl3Parity.map((o) => o.out.rowId).join(', ')}. These arms are exempt from the cross-arm ` +
-        `canonical-DOM gate because their page is not the floor's, so this is the only thing checking ` +
-        `them, and a difference of differences between two different pages is not a difference.`
+        `${badCtl3Parity.map((o) => o.out.rowId).join(', ')}. These arms build the floor's own page and ` +
+        `are inside the cross-arm canonical-DOM gate as well, so a disagreement here that the cross-arm ` +
+        `gate did not raise means the control's own arms differ from each other — and a difference of ` +
+        `differences between two different pages is not a difference.`
     );
     process.exit(1);
   }
