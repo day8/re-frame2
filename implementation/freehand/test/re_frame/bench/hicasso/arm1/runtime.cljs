@@ -720,11 +720,29 @@
 (declare invalidate-cell!)
 
 (defn- wire-cell!
-  "Give `cell` a live subscription: subscribe, establish the baseline,
-  arm the value-change watch, and arm the **disposal** hook. The whole of
-  a cell's attachment to the substrate, in one place, because it is
+  "Give `cell` a live subscription: subscribe, **activate**, establish the
+  baseline, arm the value-change watch, and arm the **disposal** hook. The
+  whole of a cell's attachment to the substrate, in one place, because it is
   performed twice — once when the cell is born and once when the
   substrate disposes the reaction out from under it.
+
+  **Activation comes first, and it is not optional** (rf2-2kshh; the same
+  defect the observation port carried as rf2-8cnxg, and repaired at
+  `substrate/observation.cljc` — \"ACTIVATE, then watch, then observe\").
+  A subscription under the ratom family IS a bare `reagent.ratom/Reaction`,
+  built deliberately without `:auto-run`, and a Reaction learns its sources
+  only through `deref-capture`: a plain deref taken outside `*ratom-context*`
+  runs the body raw and leaves `watching` nil. The reaction is then not in
+  app-db's watcher set, so the watch below never fires, [[mark-dirty!]] never
+  fires — that watch is its only caller — and no write after the mount ever
+  becomes re-render work. Measured: the arm painted once and was deaf
+  thereafter. `interop/activate-derived-value!` is the substrate's own op for
+  this and is a routed no-op on the React-hook spine, which wires one watch
+  per source at construction.
+
+  It runs BEFORE the watch so the activating run cannot fan a priming
+  notification, and before the baseline deref so that deref reads a settled
+  node — the activation left it clean, so the baseline recomputes nothing.
 
   The disposal hook is the arm's counterpart to the two axes
   `commit-basis` cannot see (rf2-2rtt6.44), and it is deliberately an
@@ -740,6 +758,8 @@
         reaction (subs/subscribe query-v {:frame frame-kw})]
     (set! (.-reaction cell) reaction)
     (when (some? reaction)
+      ;; On the substrate's PUSH path, before anything observes or watches it.
+      (interop/activate-derived-value! reaction)
       ;; ONE baseline deref, before the watch — see `acquire-cell!`.
       @reaction
       (add-watch reaction cell-watch-key
