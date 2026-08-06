@@ -3,11 +3,26 @@
 **The mount deficit is worse than published and the other three rows are still
 refused.** On raw `TaskDuration` — the arm's own JavaScript *and* the frame it
 causes — `hicasso / reagent-subs` on `M1` reads **1.4896×** [1.3488 – 1.5989] on
-the ensemble that has standing, against the **1.2107×** the candidate's clock
-publishes. This page's own seven runs, taken at a heavier load regime, read
-**1.3737×** [1.3289 – 1.4331] and are published as a second regime rather than
-as the magnitude, because the corroboration control they were pre-registered
-against **failed** ([§5](#5-what-this-ensemble-may-not-say)).
+~~the ensemble that has standing~~ the ensemble this page was written against,
+compared with the **1.2107×** the candidate's clock publishes. This page's own
+seven runs, taken at a heavier load regime, read **1.3737×** [1.3289 – 1.4331]
+and are published as a second regime rather than as the magnitude, because the
+corroboration control they were pre-registered against **failed**
+([§5](#5-what-this-ensemble-may-not-say)).
+
+**AND NEITHER MOUNT FIGURE IS A MAGNITUDE ANY LONGER (`rf2-jcm3p`, ruled
+2026-08-06).** `M1`'s own positive control fails — `ctl-2x` at ~~standing at
+2.00×~~ **1.8173×** against a predicted 2.00× on this very ensemble
+([§4.2](#42-ctl-2x-undershoots-on-the-mount-row-too-and-that-changes-its-diagnosis)),
+reproduced at 1.8443× and 1.8567× on two verifiably idle boxes — and a mount row
+has no changed-set axis a control could be linear in, so no control can
+adjudicate it. The strict rule that refuses `bulk300` and `bulk100` below binds
+on `M1` too, and the row is restated as a **regime**: *Hicasso mounts materially
+slower than both adapters, every corroborated reading is above the amended
+`≤ 1.10×` UIx gate, and `≤ 1.10×` has not been demonstrated.* Both figures stay
+on this page as historical observations, annotated with the control status they
+were taken under. The full restatement is on
+[the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude).
 
 **And the correction has a boundary nobody had drawn.** `rf2-yd52q` established
 that `DevToolsCommandDuration` carries the page script a protocol command
@@ -199,11 +214,11 @@ reading 3 would be a container that survived its unmount *(2026-08-06,
 
 | row | `hicasso / reagent-subs`, raw `TaskDuration` | on `taskNet` | reportable runs | disposition |
 |---|---:|---:|---:|---|
-| **`M1` mount** | **1.3737×** [1.3289 – 1.4331] | 1.1143× | **7 of 7** | every run clears its own band (margins 32.9–43.3% against bands 4.9–10.8%) — but see [§5](#5-what-this-ensemble-may-not-say) |
+| **`M1` mount** | **1.3737×** [1.3289 – 1.4331] | 1.1143× | **7 of 7** | ~~every run clears its own band (margins 32.9–43.3% against bands 4.9–10.8%)~~ **REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)* — every run does clear its own band, and a band is not a control: `ctl-2x` reads 1.8173× against 2.00× on this ensemble, and no changed-set control can reach a mount. Direction only. See also [§5](#5-what-this-ensemble-may-not-say) |
 | `bulk300` | 1.1494× [1.1102 – 1.2032] | 1.0703× | 3 of 7 | **refused** — control failed on 4, ceiling breached on 1 |
 | `bulk100` | 1.1089× [1.0649 – 1.1545] | 0.9859× | 2 of 7 | **refused** — control failed on 5 |
 | `narrow` | 1.0236× [0.9855 – 1.0900] | 1.0352× | 4 of 7 | **parity, instrument-limited** — every reportable run's margin is inside its band |
-| `keystroke` | 1.0049× [0.9235 – 1.1192] | 1.0078× | — | **unadjudicated** — no proportional control; and the row needed no correction |
+| `keystroke` | 1.0049× [0.9235 – 1.1192] | 1.0078× | — | ~~**unadjudicated** — no proportional control~~ **DIAGNOSTIC — UNADJUDICATED, never a magnitude** *(2026-08-06, `rf2-swwud`: the row is adjudicated by Event Timing instead — indistinguishable at one frame, on the two retained runs)*; and the row needed no correction |
 
 **The two update rows change sign.** `bulk100` reads 0.9859× on the frame-only
 clock and **1.1089×** on the corrected one; `bulk300` goes 1.0703 → 1.1494. A
@@ -310,8 +325,13 @@ gates passing.
 
 Therefore:
 
-- **The published `M1` magnitude is `rf2-yd52q`'s `1.4896×`** [1.3488 – 1.5989],
-  whose corroboration control passed at `1.0011×` on a quiet box.
+- ~~**The published `M1` magnitude is `rf2-yd52q`'s `1.4896×`** [1.3488 – 1.5989],
+  whose corroboration control passed at `1.0011×` on a quiet box.~~ **There is no
+  published `M1` magnitude** *(2026-08-06, `rf2-jcm3p`)*. `rf2-yd52q`'s `1.4896×`
+  [1.3488 – 1.5989] remains the best-corroborated reading and its corroboration
+  control did pass at `1.0011×` on a quiet box — but the row's own **positive**
+  control fails there too, at `ctl-2x` `1.8173×` against `2.00×`, so the figure
+  is a historical observation and the row publishes a regime.
 - **This ensemble's `1.3737×` is published as a second regime**, not as the
   magnitude, and its agreement with `1.4896×` in direction and rough size is
   what it contributes.
@@ -347,7 +367,18 @@ any control was consulted.
 ## 6. What is refused, and what is not
 
 **Refused as magnitudes:** `bulk300`, `bulk100`, `narrow`, `keystroke`, and —
-on this ensemble — `M1`.
+~~on this ensemble —~~ `M1` *(2026-08-06, `rf2-jcm3p`: the qualifier is spent.
+`M1` is refused as a magnitude on every ensemble, this one and the two landed
+ones, because its control cannot adjudicate it anywhere. It publishes a
+mount **regime**.)*
+
+**What each refused row publishes instead** *(2026-08-06, `rf2-jcm3p`,
+`rf2-swwud`)*: `M1` a **mount regime** — direction only, materially slower than
+both adapters, `≤ 1.10×` not demonstrated. `keystroke` a **responsiveness
+regime** — indistinguishable from both donors at Event Timing's resolution,
+every observed interaction one frame, with the rider that the instrument
+resolves 8 ms buckets above a 16 ms floor and states no tie below it. The three
+bulk rows publish direction and no magnitude, as below.
 
 **Not refused, because they do not depend on a magnitude or on this box:**
 
