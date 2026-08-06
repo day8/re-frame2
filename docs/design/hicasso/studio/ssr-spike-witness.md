@@ -5,10 +5,32 @@ implied.** The sitting's decider is the operator (`rf2-2rtt6.1`); this page
 records what was measured, on what, with what command, and what each row could
 have lied about.
 
-Bead: `rf2-2rtt6.87`. Producing commit: **`952a3f2024`** (branch
-`worker/spike-2rtt6-87`) — the last commit that changes code. Every row below
-was taken at that commit and re-taken at `6f40304011`, which adds this page and
-nothing else; every figure reproduced, including X1(a)'s digest byte-for-byte.
+Bead: `rf2-2rtt6.87`, re-measured in full for `rf2-zn7pj`. Producing commit:
+**`b557ed71f4`** — a commit already on `main`. Every row below was taken at that
+commit, on one box, on 2026-08-06.
+
+**Why the pin is a landed commit and not this page's own.** The pin this page
+carried until now, `952a3f2024` on `worker/spike-2rtt6-87`, is **not an ancestor
+of `main`** — `git merge-base --is-ancestor 952a3f2024 origin/main` answers no,
+and so does the same question about `6f40304011`. The branch was rebase-merged,
+which mints a different landed SHA and strands the authored one. So the page was
+pinned to a commit its reader could not resolve, which is the hazard
+[the-candidates-clock.md](the-candidates-clock.md) names and answers with a blob
+table. Pinning instead to a commit that was already on `main` *before* this page
+was edited closes it at the source: nothing this page's own merge does can move
+what was measured, because the measurement happened upstream of it. `main` did
+move during the re-take — eight commits, none touching `implementation/` — and
+the pin did not need to.
+
+**So this page gets no blob table, and that is a consequence rather than a
+preference.** A blob table pins the instrument when the anchor cannot be pinned;
+here the anchor can be, and a resolvable whole-tree SHA pins strictly more than a
+list of files. It would also pin *less than it appears to*: the clock's
+magnitudes are a function of three driver files, whereas these figures are a
+SHA-256 over a whole rendered document and a census of boundary bodies — a
+function of the corpus, the entry, the substrate, the adapter and the exact
+pinned `react-dom`. A short table of test-file blobs would advertise a closure it
+does not have, which is the failure mode this page exists to avoid.
 
 No timing row is published. SSR speed is off the bar (HD-012 /
 `validation.md`), and the one row here that reads a clock — X3's gap — reads it
@@ -18,12 +40,12 @@ only to decide whether it is *entitled* to read anything else.
 
 | Row | Result | Producing SHA | Repro |
 |---|---|---|---|
-| **X1(a)** determinism | **PUBLISHES** | `952a3f2024` | `cd implementation && npm run test:cljs` |
-| **X1(b)** canonical-DOM parity | **PUBLISHES** | `952a3f2024` | `cd implementation && npm run test:browser` |
-| **X2** adoption is real | **PUBLISHES** | `952a3f2024` | `cd implementation && npm run test:browser` |
-| **X3** reactivity adopted | **PUBLISHES** | `952a3f2024` | `node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs` |
-| **X4** the screen is alive | **PUBLISHES** | `952a3f2024` | `cd implementation && npm run test:browser` |
-| **X5** teardown clean | **PUBLISHES** | `952a3f2024` | `cd implementation && npm run test:browser` |
+| **X1(a)** determinism | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:cljs` |
+| **X1(b)** canonical-DOM parity | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
+| **X2** adoption is real | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
+| **X3** reactivity adopted | **PUBLISHES** | `b557ed71f4` | `node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs` |
+| **X4** the screen is alive | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
+| **X5** teardown clean | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
 
 The browser rows print their records to the console; add `RF2_VERBOSE_TESTS=1`
 to see them on a green run (the runner buffers diagnostics and flushes them
@@ -51,12 +73,12 @@ compared byte-for-byte and then hashed.
 | Quantity | Value |
 |---|---|
 | `dogfood-snapshot` document | 3,060 bytes |
-| SHA-256, render #1 and #2 | `a510149b92f08901f83b516e0f644d348fa5ee6ecafccca3b5ad80ebb53fa681` |
+| SHA-256, render #1 and #2 | `23734116d91b2a717ff8d00ce2934c14b6a89088325b089168e1006cfda251dd` |
 | Two different per-request frame ids | yes (asserted) |
 
 **Mutation proof.** Byte-identity is a claim two renders of nothing also
 satisfy. Move one input — eight seeded to-dos become nine — and the digest must
-move: `d7097b5dda5d7e93ea1e3e1b2ec3a5eb9c91f7c6d5ff649ad6db985cd7c2203e`.
+move: `50797b1e938f01bf9f27f72dced79f315b21a9df343d7a3118e97464d73b019c`.
 
 **Why the digest is over bytes and not over `:rf/render-hash`.** Because that
 instrument cannot do this job here, and it is measured rather than suspected.
@@ -65,8 +87,8 @@ and this witness reproduces it against the same pair:
 
 | Page | `:rf/render-hash` | SHA-256 of the document |
 |---|---|---|
-| dogfood screen | `83b865f8` | `a510149b…` |
-| Conduit feed (~1,200 elements) | `83b865f8` | `4308c288…` |
+| dogfood screen | `83b865f8` | `23734116…` |
+| Conduit feed (~1,200 elements) | `83b865f8` | `2ae24c07…` |
 
 The framework's hash gives two entirely different pages the same value; the
 byte digest separates them. **This is not a repair of the instrument** — the
@@ -82,8 +104,11 @@ credits with keeping the figures live is the one that changed the document being
 hashed. Rewiring where the render hash is *read* keeps the hash column live and
 does nothing for a SHA-256 taken over bytes the markup no longer carries. Its
 first two bullets are unaffected and stand as written; the third does not, and
-carries its own note. Which quantities here are pre-drift, and why the digests
-cannot simply be recomputed, is the 2026-08-06 addendum further below.
+carries its own note. **The condition this erratum reported is now cleared:** no
+quantity on this page is pre-drift any longer — every row was re-taken at
+`b557ed71f4`, and the digests above are the re-taken ones. What the erratum
+records is why they had to be, and it is kept for that. The 2026-08-06 addendum
+below sets out which figures moved when they were.
 
 **Addendum, 2026-08-05 — `rf2-2rtt6.91` has closed (PR #7510); every figure on
 this page is unchanged and still reproduces.** The repair deliberately kept the
@@ -144,6 +169,23 @@ Re-taking the digests is a different job: every row on this page is pinned to
 the browser rows beside them. That is carried on `rf2-zn7pj`, and until it lands
 the size row is the only quantity here measured at HEAD.
 
+**Discharged, 2026-08-06 — `rf2-zn7pj` has run, and the paragraph above is spent
+rather than wrong.** Its wording stands because it states the constraint that
+governed the re-take: the digests could not move under the old pin, so the pin
+moved first and every row moved with it. What it describes as pending is now
+done — the whole page is measured at `b557ed71f4`, the digests in this section
+are the re-taken ones, and the size row is no longer the only quantity here read
+at a current commit.
+
+And the re-take is worth stating as a result in its own right, because it is
+narrower than the drift suggested. **What moved:** all three SHA-256 digests,
+and X1(b)'s canonical-DOM size, from 2,422 to 2,438. **What did not move at
+all:** every integer in X2, X4 and X5 — the 13/13/12/13 census, the three
+mutation proofs, 17 steps and 15 intents, the five zeros — together with X1(a)'s
+3,060 bytes and the shared `83b865f8`. So the drift changed the document's bytes
+and nothing about what the page claims those bytes prove, which is the outcome a
+reader should want and is not one this page was entitled to assume.
+
 ## X1(b) — canonical-DOM parity
 
 The hydrated-from-server DOM against a cold client-only mount of the same
@@ -153,7 +195,7 @@ an emitter.
 
 | Quantity | Value |
 |---|---|
-| canonical DOM, hydrated vs client-only | **identical**, 2,422 bytes |
+| canonical DOM, hydrated vs client-only | **identical**, 2,438 bytes |
 | rows rendered | 8 |
 | boundary bodies run, server render | 13 |
 | boundary bodies run, cold client mount | 13 |
@@ -161,6 +203,19 @@ an emitter.
 
 React's SSR text separators are a non-issue here rather than a tolerance the
 row had to be given: the comparator skips comment nodes by construction.
+
+**The size cell read 2,422 and now reads 2,438, and this page does not claim to
+know why.** Two things changed under it between the readings, exactly as they did
+for X1(a): `rf2-2rtt6.121` moved this row's ruler too — `3f0eb88fc3` replaced
+`count` with `lane/utf8-bytes`, so 2,422 was UTF-16 code units and 2,438 is bytes
+— and the document itself drifted. X1(a) can separate its two contributions
+because `rf2-2rtt6.114` measured that document from the other side of the wire
+and supplies the ruler's share independently. **No such second instrument exists
+for the canonical DOM**, so the +16 here is a sum this page cannot decompose, and
+it is stated as one rather than apportioned. The parity claim is untouched by
+that: the cell's load-bearing word is **identical**, which is a comparison of two
+DOMs measured with one ruler, and the byte count beside it is a statement of what
+was compared.
 
 **Mutation proof.** One toggle on the hydrated screen and the same comparator,
 on the same container, answers *different*.
@@ -273,9 +328,9 @@ Verdict: **ADOPTED**, exit 0.
 
 | Phase | n | min | p50 | max | Horizon | Ceiling |
 |---|---|---|---|---|---|---|
-| 1 — schedule | 12/12 | 0.1 ms | 0.2 ms | 0.2 ms | 4 ms | 2 ms |
-| 2 — cold adoption mounts | 5/5 | 0.0 ms | 0.1 ms | 0.2 ms | 4 ms | 2 ms |
-| 3 — **hydration mounts** | 5/5 | 0.1 ms | 0.2 ms | 0.4 ms | 4 ms | 2 ms |
+| 1 — schedule | 12/12 | 0.0 ms | 0.1 ms | 0.2 ms | 4 ms | 2 ms |
+| 2 — cold adoption mounts | 5/5 | 0.0 ms | 0.1 ms | 0.1 ms | 4 ms | 2 ms |
+| 3 — **hydration mounts** | 5/5 | 0.0 ms | 0.1 ms | 0.6 ms | 4 ms | 2 ms |
 
 Integers, all five hydration trials: cold cache, **1** sub-body run, the
 render's reaction still the cache's tenant at the first post-subscribe instant,
@@ -289,23 +344,60 @@ render's reaction still the cache's tenant at the first post-subscribe instant,
 | cold mounts | `[1 1 1 1 1]` |
 | hydration mounts | `[1 1 1 1 1]` |
 
-**A margin, not a contract.** React documents no maximum render-to-subscribe
-interval, so this is a measurement of React 19.2 on this box on this day.
-Re-run when the `react` / `react-dom` / `playwright` pins move.
+**A margin, not a contract, and the table above is one sample of it.** React
+documents no maximum render-to-subscribe interval, so this is a measurement of
+React 19.2 on this box on this day. Re-run when the `react` / `react-dom` /
+`playwright` pins move.
+
+**How much one sample is worth here, measured rather than asserted.** The run
+above was taken on a box with other work on it, so a second run was taken at the
+same commit to find out what that costs. Both verdicts were ADOPTED, both exited
+0, and both settled at `[1 1 1 1 1]` on both schedules — but the gap figures are
+not stable to the tenth of a millisecond the table prints. The second run read
+phase 1 at max **0.5 ms**, phase 2 at max **0.3 ms**, phase 3 at max **0.3 ms**;
+its phase-3 maximum is half the published one and its phase-1 maximum is more
+than double. **The table above is the first run, published unchosen** — taking
+whichever run flattered the margin is precisely the error the two runs exist to
+expose. What the pair licenses is the shape of the claim, not its third digit:
+every trial of both runs cleared a 2 ms ceiling with room, and no gap in either
+approached the 4 ms horizon. Read the table as evidence of that, and never as a
+quantity to diff a future run against.
 
 **The refusal path was exercised, not assumed.** With the documented lowering
 knob at `ADOPTWIT_CEILING_MS=0.3` — the knob may only lower the ceiling, never
-raise it — phases 1 and 2 qualified and phase 3 did not:
+raise it — the run declines, discards the integers unread, and prints the gap
+that disqualified it:
 
 ```
 ;; ==== ADOPTION WITNESS VERDICT: REFUSED ====
-;;   phases 1 and 2 qualified but a HYDRATION mount did not, so its
-;;   integers were discarded unread. No X3 figure is published.
-;;   1 of 5 trial(s) exceeded the qualifying ceiling of 0.3 ms: gaps [0.6] ms
+;;   phase 1 qualified but an adoption mount did not, so its
+;;   integers were discarded unread.
+;;   2 of 5 trial(s) exceeded the qualifying ceiling of 0.3 ms: gaps [0.7 0.4] ms
 ```
 
-Exit 2. No figure published, the measured gap printed. Repro:
-`ADOPTWIT_CEILING_MS=0.3 node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`.
+Exit 2. No figure published, the measured gaps printed.
+
+**This transcript declines at phase 2, where the one it replaces declined at
+phase 3, and the difference is the box rather than the code.** At the old pin
+this knob produced `phases 1 and 2 qualified but a HYDRATION mount did not`; here
+an adoption mount went first. That is worth stating plainly rather than re-running
+until the old shape came back, because a second run at this same commit and this
+same knob **qualified throughout and exited 0** — its three phase maxima reading
+0.3, 0.2 and 0.3 ms against a 0.3 ms ceiling, which is to say it cleared the bar
+by nothing at all. So at 0.3 ms the knob is inside this box's own noise, and
+*which* phase declines — or whether any does — is not a property of the commit.
+**What the control still establishes is the only thing it was ever offered
+for**: that the ceiling is live, that a run which cannot clear it refuses
+instead of publishing, that the refusal names the trials and their gaps, and that
+exit 2 is distinct from both 0 and 1. The structural claim beside it — phase 3
+runs only from an ADOPTED phase 2 — is a property of the driver's control flow,
+and this pair of runs neither shows nor needs to show it. The 2 ms production
+ceiling is nowhere near this regime, which is why the published verdict above is
+unaffected.
+
+Repro:
+`ADOPTWIT_CEILING_MS=0.3 node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`
+— and expect either outcome.
 
 ## X4 — the screen is alive
 
