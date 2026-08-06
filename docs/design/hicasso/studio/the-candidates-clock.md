@@ -213,9 +213,18 @@ magnitude must clear to be one.
   arithmetic; every write is read back at both ends of the range it claims to
   have changed. **0 unverified of 1,008** on every row (756 on the keystroke
   row).
-- **Residue**: zero on both censuses after every row — the lane's
+- **Residue**: back to baseline on both censuses after every row — the lane's
   (`body-children`, `sub-entries`, `sub-ref-count`) and the candidate runtime's
-  own (`cells`, `cell-refs`, `boundaries`, `edges`, `entries`).
+  own (`cells`, `cell-refs`, `boundaries`, `edges`, `entries`). Every counter
+  reads zero except `body-children`, whose baseline is **2**: `lane/residue`
+  reads `document.body`'s attached element children, and the harness page has
+  two of its own — the `<div id="app">` and the `<script>`. **The criterion is
+  therefore 2, and a row that reads 3 is a container that survived its
+  unmount**, left standing as a page the next row would be measured on top of.
+  *(2026-08-06, `rf2-moe9a`: this read "zero on both censuses". `body-children`
+  is not zero on any row and cannot be — a reader holding zero as the criterion
+  reads a healthy run as already failing, which is the way round that explains a
+  real leak away.)*
 
 ### 3.1 Two instrument repairs, both forced by a control that refused
 
