@@ -82,6 +82,7 @@
             [re-frame.bench.p0-reagent :as rg]
             [re-frame.bench.p0-uix :as ux]
             [re-frame.frame :as frame]
+            [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [uix.dom :as uix-dom]))
 
@@ -864,6 +865,161 @@
     {:ok? (every? :ok chk) :checks chk}))
 
 ;; ---------------------------------------------------------------------------
+;; THE ALLOCATION WINDOW — the survival metric's OTHER half (rf2-2rtt6.76)
+;; ---------------------------------------------------------------------------
+;;
+;; Everything above this line measures RETENTION, and says so in its own
+;; docstring: "Nothing here counts allocations." That is correct and it is
+;; also why the survival metric has been half-witnessed since HD-002 was
+;; written. validation.md prices the tier-3 per-read budget as "steady-state
+;; allocation slope across warm 1/3/7/20 reads, zero retained per-occurrence
+;; objects after commit/teardown". The second clause is witnessed — in bytes
+;; by the ladder's residue column and in objects by the structural stamp
+;; above (rf2-2rtt6.9). **The first clause is a different quantity measured
+;; with a different instrument**, and the reads ladder does not answer it:
+;; a boundary's retained bytes per read and its steady-state allocation per
+;; read are not the same number and need not even have the same sign.
+;;
+;; ## What HD-002 actually predicted, so it can fail
+;;
+;; `hd-002-adjudication.md` states the cost law as "allocation is
+;; proportional to the CHANGE, not to the read count. The unchanged case
+;; allocates nothing", and H1's pre-registered prediction is that "the
+;; allocation slope across warm 1/3/7/20 reads is FLAT AT ZERO",
+;; **falsified by** a non-flat slope. The mechanism is [[entry-matches?]]
+;; in `arm1/runtime.cljs` — an ordered pairwise compare of the cached
+;; entry's key array against the scratch, which allocates nothing, so a
+;; warm re-render whose read set did not change re-uses `subscribe`'s
+;; identity and the commit does no work.
+;;
+;; That is a claim about EDGE MAINTENANCE and not about the whole render.
+;; A warm re-render at R reads also allocates R query vectors in the arm's
+;; own body, R subscription recomputations, and a React element tree — all
+;; of which every substrate pays and all of which grow with R. So the
+;; quantity that answers HD-002 is the candidate's slope **less the
+;; same-run donor's**, which is why this row carries the donors beside the
+;; candidate exactly as the ladder does. A candidate slope quoted alone
+;; would be mostly other people's allocation.
+;;
+;; ## The instrument, and why it is not the one above
+;;
+;; If no collection runs between two readings of V8's used-heap counter,
+;; their difference is the bytes allocated in between — INCLUDING the bytes
+;; already unreachable, because nothing has reclaimed them yet. Garbage is
+;; visible precisely because it has not been collected. So a window is:
+;; collect, then read the counter at every leg boundary of every iteration,
+;; and accumulate the RISING steps and the FALLING steps separately. The
+;; published figure is the sum of the rising steps, which is an allocation
+;; total whether or not a collection intervened, because a collection is
+;; excluded from it rather than netted against it.
+;;
+;; This is `b8-alloc`'s method, and the two instruments it rules out are
+;; ruled out here for the same reasons: V8's CDP **sampling** heap profiler
+;; drops the samples of collected objects, so it reports retention wearing
+;; an allocation instrument's name; and a heap SNAPSHOT collects before it
+;; walks, destroying the very bytes in question. B8 demonstrates the first
+;; with a negative control rather than asserting it, and this row cites
+;; that finding rather than re-running it.
+;;
+;; ## Nothing inside the window may allocate on the instrument's behalf
+;;
+;; The samples land in a PREALLOCATED `Float64Array` sized before the
+;; window opens. A `.push` onto a growable array would allocate inside the
+;; measured region, which is the one thing an allocation instrument may
+;; not do — the counter cannot tell the arm's bytes from the sampler's.
+
+(defonce ^:private alloc-template (volatile! nil))
+(defonce ^:private alloc-sink (volatile! 0.0))
+(defonce ^:private alloc-samples (volatile! nil))
+
+(defn- mem
+  "V8's used-heap counter, read from inside the page.
+
+  Requires `--enable-precise-memory-info`, which `p0_run.cjs` launches
+  Chromium with; without it Chrome quantises this to 100 KB buckets and
+  every figure here would be noise. The driver proves the flag took rather
+  than trusting it. This is the same counter CDP's `Runtime.getHeapUsage`
+  returns — the retention row above establishes that they agree — and it
+  is read here rather than over CDP because a CDP round trip costs about a
+  millisecond and there are two readings per iteration, which would cost
+  more than the window being measured."
+  []
+  (if-some [m (.-memory js/performance)] (.-usedJSHeapSize m) -1))
+
+(defn alloc-prepare!
+  "Build the control template and the sample buffer ONCE, outside every
+  window.
+
+  `js/Array` + `fill` transitions the elements kind and allocates twice;
+  doing it here means the `.slice` taken inside the window is a single
+  clean `FixedDoubleArray` of `d` unboxed 8-byte slots, so the copy costs
+  a **predicted 8d bytes**. That prediction is the whole point of a
+  control — a figure the instrument has to hit, not one it gets to
+  report."
+  [d n]
+  (vreset! alloc-template (when (pos? d) (.fill (js/Array. d) 0.5)))
+  (vreset! alloc-sink 0.0)
+  (vreset! alloc-samples (js/Float64Array. (+ 1 (* 2 (long n)))))
+  nil)
+
+(defn- alloc-control!
+  "One control allocation: a `.slice` of the template, dropped on the next
+  statement. One element is summed into a volatile that outlives the call,
+  because Closure is entitled to delete an expression whose value nothing
+  reads — this lane has already published a `layout-ms` of exactly 0.000
+  because a property read was dropped."
+  []
+  (when-some [t @alloc-template]
+    (let [c (.slice t)]
+      (vreset! alloc-sink (+ @alloc-sink (aget c 0)))))
+  nil)
+
+(defn alloc-window!
+  "Run `n` iterations of one work unit with the counter sampled at every
+  leg boundary, and answer the raw samples.
+
+  `kind` is `\"write\"` — a warm bulk re-render of the arm that is ALREADY
+  MOUNTED, through the same `:p0/write-all` event the bulk clock arms
+  drive — or `\"control\"` (a dropped `.slice` of predicted size) or
+  `\"idle\"` (nothing at all, which prices the sampler's own footprint as
+  a constant sitting inside every other figure).
+
+  `drain` is `\"reagent\"` for Reagent's own documented synchronous render
+  drain, and anything else for the empty `flushSync` a
+  `useSyncExternalStore` spine needs to commit in this window — the same
+  split `p0-arms/subs-bulk-arm` makes, so the write is like-for-like.
+
+  Nothing here collects, logs, or crosses CDP. The driver collects before
+  the window and reads the counter on both sides of it, and those two
+  readings are what the in-page rising-step sum is checked against."
+  [n kind drain]
+  (let [n       (long n)
+        ^js buf @alloc-samples
+        write?  (= kind "write")
+        ctl?    (= kind "control")
+        reagent? (= drain "reagent")]
+    (aset buf 0 (mem))
+    (dotimes [i n]
+      (aset buf (inc (* 2 i)) (mem))
+      (cond
+        write? (do (arms/write-all! (inc i))
+                   (if reagent?
+                     (react-dom/flushSync (fn [] (r/flush)))
+                     (react-dom/flushSync (fn [] nil))))
+        ctl?   (alloc-control!)
+        :else  nil)
+      (aset buf (+ 2 (* 2 i)) (mem)))
+    ;; The read-back, OUTSIDE the window: the text of one boundary, which
+    ;; at R reads of a page written to `v` is `(str (* R v))`. A row whose
+    ;; writes never reached the page is the cheapest row in any table, and
+    ;; this is the same class of gate as the mount read-back above.
+    (let [cell (.querySelector js/document ".cell")]
+      #js {:samples (js/Array.from buf)
+           :n       n
+           :kind    kind
+           :text    (when cell (.-textContent cell))})))
+
+;; ---------------------------------------------------------------------------
 ;; The page-side door
 ;; ---------------------------------------------------------------------------
 
@@ -1004,5 +1160,12 @@
                                       :boundaries (:boundaries r)
                                       :edges      (:edges r)
                                       :entries    (:entries r)}))
+             ;; The allocation row's two doors (rf2-2rtt6.76). The window
+             ;; itself is page-side because it must contain no CDP round
+             ;; trip — the whole method is that nothing collects and
+             ;; nothing else runs between two readings of the counter —
+             ;; and the driver owns everything on either side of it.
+             :allocPrepare   (fn [d n] (alloc-prepare! d n))
+             :allocWindow    (fn [n kind drain] (alloc-window! n kind drain))
              :boundariesPerRoot #js {:list rows-per-root :grid per-root}})
   nil)
