@@ -1748,13 +1748,13 @@ roster. The ruling is
 **Tokens ride the cascade.** Colour, spacing, radius, typography and motion travel
 as CSS custom properties, selected by an ancestor scope the application renders
 once — conventionally a `data-theme` attribute or a class. Inheritance reaches every
-descendant, so switching themes changes that one attribute and **re-renders
-nothing**: no token subscription per leaf, no remount, and no reactive fan-out
-proportional to the tree. The residue is the value a stylesheet cannot know — a
-genuinely dynamic colour or measure supplied at a call site — and it rides as an
-inline namespaced custom property on the node that needs it. That is the escape,
-not the default path: a component given no dynamic value emits no inline style at
-all and takes everything from the cascade.
+descendant, so switching themes changes that one attribute and
+**re-renders one boundary, nothing after the flip**: no token subscription per
+leaf, no remount, and no reactive fan-out proportional to the tree. The residue is
+the value a stylesheet cannot know — a genuinely dynamic colour or measure supplied
+at a call site — and it rides as an inline namespaced custom property on the node
+that needs it. That is the escape, not the default path: a component given no
+dynamic value emits no inline style at all and takes everything from the cascade.
 
 **A part is a stable semantic address.** A component declares a finite roster of
 public part ids and emits each as a literal `data-part` value under a
