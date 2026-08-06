@@ -45,12 +45,22 @@ changing any of the three.
 
 WHAT IT CANNOT SILENTLY DROP
 ----------------------------
+An empty signature is read as GREEN, so every way of reaching one without
+having actually observed a pass is a fail-open, and there are two.
+
 A job that failed but reports no failed STEP — infrastructure failure, runner
 loss, a job-level timeout that kills the run before a step records a conclusion
-— would otherwise produce an empty signature and be classified GREEN.  That is
-the exact fail-open this exercise is about, so such a job is synthesised into
-the signature as `<job> -> (job <conclusion>, no failing step)` and alerted on
-like any other.  `--self-test` pins it.
+— is synthesised into the signature as `<job> -> (job <conclusion>, no failing
+step)` and alerted on like any other.
+
+A job that never reached a verdict at all — `cancelled`, `startup_failure` —
+is the same fail-open by a different door, and worse, because it is silent in
+BOTH directions: three cancelled nights in a row would have advanced the green
+streak and CLOSED an open tracking issue, marking a system of record recovered
+that was never observed to recover.  Such a job contributes `<job> -> (job
+<conclusion>, no verdict)`.  The classification is `FAILED` and `ABORTED`
+below; the exclusion of `skipped` from both is as deliberate as the inclusions
+and is argued there.  `--self-test` pins every clause, in both directions.
 
 THE CHANNEL IS ONE FUNCTION
 ---------------------------
@@ -89,7 +99,24 @@ MARKER_RE = re.compile(
     r"\s+reds=(?P<reds>\d+)\s+greens=(?P<greens>\d+)\s*-->"
 )
 
+# A gate RAN and did not pass.  Applies to steps and to jobs.
 FAILED = ("failure", "timed_out")
+
+# A gate did NOT run to a verdict, because something stopped it.  Terminal, so
+# there is nothing further to wait for, and NOT a pass — which is the whole
+# point: everything absent from both tuples is read as green, so a conclusion
+# that means "we never found out" has to be named here or it silently becomes
+# "we found out it was fine".  `cancelled` and `startup_failure` are the two
+# that occur here; the list is a statement of the rule, not a patch for the
+# first one that bit.
+#
+# `skipped` is deliberately NOT in either tuple, and that is the load-bearing
+# exclusion.  A skipped job is the ordinary consequence of a `needs:`
+# dependency that did not succeed, and a skipped STEP is what every remaining
+# step of a cancelled job reports.  Counting `skipped` would red the nightly on
+# runs that are behaving exactly as designed, and an alert that fires on
+# ordinary nights gets muted — which is the original fail-open in a new suit.
+ABORTED = ("cancelled", "startup_failure")
 
 
 # ---------------------------------------------------------------------------
@@ -108,14 +135,25 @@ def derive_signature(jobs: list[dict]) -> list[str]:
     for job in jobs:
         if job.get("status") != "completed":
             continue
-        if job.get("conclusion") not in FAILED:
+        conclusion = job.get("conclusion")
+        if conclusion in ABORTED:
+            # No verdict at all.  Its steps are deliberately NOT read: the
+            # remaining steps of a cancelled job all report `skipped`, and the
+            # cheapest way to guarantee `skipped` can never leak into a
+            # signature is to never look at them.  One entry per aborted job,
+            # naming the abort — distinct from any failing-step entry, so a
+            # night the run was killed cannot masquerade as the same failure as
+            # the night before and be edited in silently.
+            entries.add(f"{job['name']}{SEP}(job {conclusion}, no verdict)")
+            continue
+        if conclusion not in FAILED:
             continue
         steps = [s for s in (job.get("steps") or []) if s.get("conclusion") in FAILED]
         if steps:
             for step in steps:
                 entries.add(f"{job['name']}{SEP}{step['name']}")
         else:
-            entries.add(f"{job['name']}{SEP}(job {job.get('conclusion')}, no failing step)")
+            entries.add(f"{job['name']}{SEP}(job {conclusion}, no failing step)")
     return sorted(entries)
 
 
@@ -461,6 +499,37 @@ def self_test(verbose: bool) -> int:
     headless = derive_signature([job("mcp-live", "failure", [("install", "success")])])
     check("a failed job with NO failed step is still red",
           headless == [f"mcp-live{SEP}(job failure, no failing step)"], repr(headless))
+
+    # THE SAME FAIL-OPEN BY THE OTHER DOOR: a job that reached no verdict.
+    cancelled = derive_signature([job("Gates", "cancelled",
+                                      [("Gate x", "cancelled"), ("Gate y", "skipped")])])
+    check("a CANCELLED job is red, and names the abort rather than a step",
+          cancelled == [f"Gates{SEP}(job cancelled, no verdict)"], repr(cancelled))
+    check("...so the `skipped` steps a cancellation leaves behind cannot leak in",
+          not any("Gate y" in e for e in cancelled), repr(cancelled))
+    startup = derive_signature([job("Gates", "startup_failure", [])])
+    check("a STARTUP_FAILURE job is red too (the rule is not cancellation-specific)",
+          startup == [f"Gates{SEP}(job startup_failure, no verdict)"], repr(startup))
+
+    # THE DIRECTION THAT IS NOT THE BUG, and the more expensive mistake of the
+    # two: classifying `skipped` would red the nightly on ordinary nights and
+    # get the whole alert muted.  A skipped job is the normal consequence of a
+    # `needs:` dependency that did not succeed — already reported by the job
+    # that actually failed.
+    # Both shapes at once: the STEPS after a failing step skip, and a whole
+    # dependent JOB skips.  Neither is news.
+    with_skipped = derive_signature([
+        job("Gates", "failure", [("Gate x", "success"), ("Gate y", "failure"),
+                                 ("Gate z", "skipped")]),
+        job("downstream", "skipped", [("Publish", "skipped")]),
+    ])
+    check("a benign SKIPPED dependent is NOT red (only the job that failed is)",
+          with_skipped == [f"Gates{SEP}Gate y"], repr(with_skipped))
+    all_green = derive_signature([job("A", "success", [("one", "success")]),
+                                  job("downstream", "skipped", [("Publish", "skipped")])])
+    check("...and a green run with a skipped dependent stays wholly green",
+          all_green == [], repr(all_green))
+
     check("an in-progress job (this script's own) is ignored",
           derive_signature([job("notify", None, [], status="in_progress")]) == [])
     check("the signature is order-independent",
@@ -516,6 +585,42 @@ def self_test(verbose: bool) -> int:
     back = decide(sig, issue_after(g2, []))
     check("a flake that reds on green-3 night reuses the SAME issue, silently",
           back[0] == "touch" and not back[1]["notifies"], repr(back))
+
+    # --- a cancelled night is not a green night ------------------------------
+    # Before this rule existed, `derive_signature` returned [] for a cancelled
+    # run and `decide([])` read that as green.  Two consequences, and they are
+    # asserted SEPARATELY because they fail independently: a cancelled run
+    # recorded no incident at all, and — the dangerous one — three of them in a
+    # row closed an open tracking issue, marking a system of record recovered
+    # that was never observed to recover.
+    cancelled_sig = derive_signature(
+        [job("Gates", "cancelled", [("Gate x", "cancelled"), ("Gate y", "skipped")])])
+    check("a cancelled run has a signature at all (it is not green)",
+          cancelled_sig != [], repr(cancelled_sig))
+
+    from_scratch = decide(cancelled_sig, None)
+    check("cancelled + no issue              -> open, LOUD (never `none`)",
+          from_scratch[0] == "open" and from_scratch[1]["notifies"], repr(from_scratch))
+
+    # DIRECTION 1: it cannot count toward recovery.
+    after_cancel = decide(cancelled_sig, iss)
+    check("a CANCELLED night does not advance the green streak",
+          after_cancel[1]["greens"] == 0, repr(after_cancel))
+    check("...it reads as a changed failure, LOUD (the run never gave a verdict)",
+          after_cancel[0] == "change" and after_cancel[1]["notifies"], repr(after_cancel))
+
+    # DIRECTION 2: it cannot close an open nightly-red issue.  The exact
+    # sequence that closed it before: one real red, then `close_after`
+    # cancellations.
+    iss_c, actions = issue_after(decide(sig, None), sig), []
+    for _ in range(CLOSE_AFTER_DEFAULT + 1):
+        a = decide(cancelled_sig, iss_c)
+        actions.append(a[0])
+        iss_c = issue_after(a, cancelled_sig)
+    check(f"{CLOSE_AFTER_DEFAULT + 1} CANCELLED nights running NEVER close the issue",
+          "close" not in actions, repr(actions))
+    check("...and only the first is loud; the rest are silent restatements",
+          actions == ["change"] + ["touch"] * CLOSE_AFTER_DEFAULT, repr(actions))
 
     # --- the two measured claims, as assertions ------------------------------
     iss2, loud = None, 0
