@@ -52,7 +52,7 @@ Putting a raw JS component in the tree breaks three things at once:
 
 `defhost` quarantines the require in one `.cljs` host namespace and leaves the rest
 of the view tree as data. Friction once; free at every use site. The Reagent
-`[:> …]` escape is built and explicitly secondary — covered briefly below.
+`[:> …]` escape is built and explicitly secondary — [covered below](#the-escape-).
 
 ## Defaults
 
@@ -218,40 +218,194 @@ side, to the value never changing.
 
 ## The escape: `[:>]`
 
-`[:> Component props & children]` is the secondary form for cases a static
-declaration cannot express. It uses the same foreign path as `defhost` with the
-same default conversions, and it accepts the costs in
-[Why declare](#why-declare).
+`[:> Component props & children]` is the secondary form, for the cases a static
+declaration cannot express: the component is **selected at runtime**, it is a
+`memo` or `lazy` value, it **arrives from a render prop**, an **ecosystem
+provider** hands it to you, or the site is a **one-off migration** you have no
+intention of keeping. It takes the same foreign path as `defhost` with the same
+default conversions, and it accepts the costs in [Why declare](#why-declare).
 
-Reach for it when the component is selected at runtime, is a `memo`/`lazy`
-value, arrives from a render prop, or is a one-off migration site.
-**Declare what you use twice.** First use, escape if faster; second use, `defhost`.
+**Declare what you use twice.** First use, escape if that is faster; second use,
+`defhost`. That is not a style preference. The escape is strictly weaker than the
+door by construction, and every remedy in this section is the same word.
 
 ```clojure
-[:> Chart {:series data} [:span.legend "revenue"]]
+;; the component is chosen by data, so there is nothing to declare
+(def widgets {:chart Chart :table Table :map MapView})
+
+(defview panel [{:keys [kind]}]
+  [:> (get widgets kind) {:series (sub [:panel/series kind])}
+   [:span.legend "revenue"]])
 ```
 
-**It is `defhost` with the declaration erased, and what erasing the declaration
-costs you is exactly what the declaration carried.** No crossing name for your
-tools; no `:callbacks`, so every prop here is unclaimed and an intent vector at
-an `on*` slot or an `h/fn` anywhere is a loud refusal; no `:ssr` policy, so a
-`[:>]` renders **nothing** server-side and there is no spelling to change that
-— wrap it in a `defhost` if you want a placeholder there. The JS require lands
-in the view namespace rather than a `.cljc`-quarantined host one, which is the
-cost you meet first: not "my structural test cannot match a node", but "my test
-namespace will not load."
+One gate serves every `[:>]` on the page and its type is constant, so moving
+`kind` keeps that gate's own fiber and remounts only the subtree beneath it —
+the right grain when the component is the thing that changed.
 
-The Component position takes what React accepts as an element type — a function
-or class component, one of React's built-in wrappers, a `memo` / `lazy` /
-`forwardRef` / context value. A tag string, a keyword, a `defview` head and a
-`defhost` head are all refused, each naming the spelling to write instead.
+**It is `defhost` with the declaration erased, and what erasing the declaration
+costs you is exactly what the declaration carried.**
+
+| What a declaration carries | `defhost` | `[:>]` |
+|---|---|---|
+| A crossing name for your tools | authored, on the crossing's `displayName` | one constant, `"[:>]"` |
+| `:callbacks` contracts | exact, per slot | none — every prop is unclaimed |
+| An `:ssr` policy | `:client-only`, `{:fallback …}` or `:render` | fixed `:client-only`, and unspellable |
+| An early site for refusals | the component, the options and the contracts, checked once at the declaration | nothing to check early — every refusal fires at the crossing |
+| A `.cljc` quarantine for the JS require | one host namespace | the require lands in the view namespace |
+
+Every remedy for every row is `defhost`. That is the design rather than a
+coincidence, and the rest of this section is those rows in detail.
+
+### Every prop is unclaimed
+
+`:callbacks` is what turns a prop into a *position*. The escape has none, so
+every prop at a `[:>]` is unclaimed — and the conduct is exactly the door's for
+an undeclared slot, through the same code, not a second rule:
+
+| Written at a `[:>]` prop | What happens |
+|---|---|
+| An intent vector or key-map at an `on*`-spelled slot | **Refused** — `:rf.error/hicasso-host-undeclared-callback`. A contract is never inferred from a name, and the alternative is `clj->js` shipping your intent to the library as an inert array |
+| An intent vector or key-map anywhere else | Data, through the position's own conversion, like any other collection |
+| An `h/fn`, at any slot | **Refused** — `:rf.error/hicasso-host-unclaimed-callback`. The marked form *asks* the position for a contract, and there is no position here to answer |
+| A plain function | Crosses by identity and runs. It never asked for anything, so nothing is left unanswered — memoisation on callback identity keeps working |
+| `:ref` | The crossing's own check: a callback ref crosses untouched, the reserved vector is refused |
+| `:key` | React's, on the crossing's element, exactly as at a `defhost` |
+
+Both refusals name `defhost`'s `:callbacks` as the recovery, and at the escape
+that means writing the declaration you do not have. **The refusals are the
+point.** An `h/fn` that crossed unclaimed would be called by the library, would
+return an intent, and the library would discard the return — a handler that does
+nothing, in production, with no diagnostic anywhere.
+
+### On the server, nothing
+
+A `[:>]` is hard `:client-only` and there is no spelling for anything else. The
+server emits nothing at the crossing, hydration's first client pass emits
+nothing, and the component appears once adoption completes. Those are not two
+facts kept in step: React reads the same snapshot for the server render and for
+hydration's first pass, so server-absent and first-pass-absent cannot disagree
+and no mismatch is possible. A fresh client-only mount never consults the server
+snapshot at all, so it renders the component immediately with no placeholder
+flash.
+
+**"Nothing" includes the children.** If the crossing is a transparent wrapper —
+an ecosystem provider is the case you will meet — every descendant leaves the
+response with it, silently, because the server HTML and the first client pass
+agree by construction. Answering that is `{:ssr :render}`'s job at the door
+([Server-side rendering](10-server-side-rendering.md#render--when-the-region-has-to-be-in-the-response)),
+and the escape has nothing to assert it with.
+
+A per-site *placeholder* is still reachable with no new escape surface, by
+putting the policy back on a declaration:
+
+```clojure
+(h/defhost skeleton-slot (fn [p] (.-children p)) {:ssr {:fallback [:div.skeleton]}})
+
+;; then at any site, dynamic head included:
+[skeleton-slot {} [:> (get widgets kind) {:series data}]]
+```
+
+Say precisely what that buys: a placeholder, not server-rendered content. The
+wrapper cannot borrow `{:ssr :render}`, because the thing it wraps is a `[:>]`,
+which carries no declaration to assert server-safety with.
+
+### The Component position
+
+The slot takes what React accepts as an element type — a function or class
+component, one of React's built-in wrappers (`Fragment`, `Suspense`,
+`StrictMode`, `Profiler`, …), and a `memo` / `lazy` / `forwardRef` / context
+value. Everything else is refused **at the crossing, in the owner's render and
+on the server too**, with your stack pointing at the line you wrote.
+
+That refusal is Hicasso's rather than React's on purpose. React's own *Element
+type is invalid* is minted at fiber creation, which behind the adoption gate is
+post-adoption and client-only — never on the server, never at first paint — and
+it names `typeof type`, so a keyword, a map, a vector and a record all read
+*"got: object"*, naming nothing you wrote.
+
+| What you wrote | Why it is refused |
+|---|---|
+| `nil`, or `[:>]` with nothing after it | Its own id, `:rf.error/hicasso-raw-no-component`, and the door's diagnosis: an import that resolved nothing — `:default` against a library with no default export |
+| A string or a keyword | The grammar owns tags. Write the tag, or a computed **keyword** head for a runtime one, which keeps the parse and the controlled-input door that `[:> "input" …]` would silently drop |
+| A `defview` head | A head in its own right: write `[my-view …]`. Mounted raw it would read its props slot, get `undefined`, and receive `nil` props — silently |
+| A `defhost` head | Also a head: `[my-host …]`. The escape is for what a declaration cannot express, and this one already is a declaration |
+| A React **element** | An element is a legal child, never a type. Put it in child position, or hand `[:>]` the component it was built from |
+
+Each carries its own recovery sentence; everything but the `nil` case shares
+`:rf.error/hicasso-raw-not-a-component`, with the shape in `ex-data`.
 
 **Bare-head auto-hosting stays illegal.** `[DatePicker {…}]` with a raw JS
-component in head position is not a shortcut. One sentinel, not two ways to
-smuggle JS into the tree.
+component in head position is not a shortcut, and it is not going to become one.
+One sentinel, not two ways to smuggle JS into the tree.
+
+### Reduced structural identity, exactly
+
+Four statements, and the useful one is first.
+
+**The DOM is not reduced at all.** A `[:>]` and a `defhost` on the same component
+with the same props produce the same DOM in every phase — nothing before
+adoption, the component's own markup after — because the gate contributes no node
+of its own. Anything asserting on rendered markup sees no difference between the
+two forms.
+
+**The hiccup lane is reduced at exactly one slot.** `[:> C {…}]` is an ordinary
+vector: `:>` is a plain keyword and `=` compares it structurally. The one
+reduction is that slot 1 holds a JS value compared by *identity*, so
+`(= [:> C {:a 1}] [:> C {:a 1}])` is true and the same props under a different
+component are not equal. Everything else in the vector is total. That is the
+whole of the phrase.
+
+**The fiber carries a constant name.** `displayName` is the literal `"[:>]"`, and
+no name is derived from the component — deliberately. React resolves a type's
+name as `displayName || name || null`, Closure renames `.name` under `:advanced`,
+and foreign production bundles routinely ship without a `displayName`, so a
+derived name would be *build-dependent*: it would look authored and would not be.
+`defhost` has no such problem because its name is data you wrote. Little is lost
+in the tree anyway, because the component's own fiber sits directly beneath the
+gate and React names it there: a `defhost` reads `<my.ns/date-picker>` →
+`<DatePicker>`, and the escape reads `<[:>]>` → `<DatePicker>`.
+
+**And the loss you meet first is none of the above.** It is the `.cljc`
+quarantine. `defhost` puts the JS require in one host namespace; `[:>]` names the
+component at the call site, so the require lands in the *view* namespace and that
+namespace stops loading on the JVM. The symptom is not "my structural test cannot
+match a node" — it is "my test namespace will not load." Today that is close to
+the whole cost, because the
+[headless structural render](08-testing.md#full-headless-render-not-built) does
+not exist yet, and the foreign region is out of its scope for both forms in any
+case. When it lands, a declared crossing has a name to project and a `[:>]` node
+has none.
+
+### Children lower where you wrote them
+
+Children of a `[:>]` lower **eagerly, inside the render window of the boundary
+that wrote the crossing**, along the same path a `defhost`'s children take. That
+is what makes intents in them work: a child's intent closure captures the owner's
+frame-locked dispatch at lowering time, so it fires into the right frame however
+much later the foreign component renders it — inside a portal, in a virtualised
+window, in a `Suspense` fallback. A Hicasso boundary *beneath* a crossing gets its
+frame from React context, which ignores the JS call stack, so a foreign component
+in the middle is transparent.
+
+A **function prop on the crossing itself** is the other case, and the one worth
+knowing. It gets no wrapper, because no position claimed it, so a body that lowers
+an intent there runs with no ambient frame and raises
+`:rf.error/hicasso-intent-outside-boundary` at the library's call — loud and late,
+never silently inert. The message offers both readings, because from where you sit
+you *are* inside a boundary's render (you wrote the crossing in a body), and it
+names the repair: `defhost` with `:callbacks {<the prop> :render}` is the position
+that owns the frame. A `[:>]` written inside a *declared* `:render` body inherits
+that position's frame, which is the composition intended — but a `:render` return
+still crosses unconverted, so today the subtree has to be written where children
+lower ([Not settled yet](#not-settled-yet)).
+
+### Migrating off it
 
 A hand migration from Reagent is three moves per namespace: collect `[:> X …]`,
-emit `defhost`, rewrite call sites. A codemod is planned and not built.
+emit `defhost`, rewrite call sites. `[:> X props]` → `(defhost x X {})` is
+behaviour-preserving by construction, because the escape's prop walk *is* the
+door's with an empty roster — whatever is ruled at the door, the escape does the
+same thing. A codemod is planned and not built.
 
 ## Troubleshooting
 
