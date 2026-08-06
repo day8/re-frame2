@@ -38,9 +38,11 @@ you dispatch, and do not build a throttle.**
 **One figure in the first two editions was wrong and is corrected here.** The
 settlement tail was read off a clock started at settle time rather than at the
 last offer; what it published was largely the polling delay that stood in for
-it. Section 6 states the correction, section 2's C3 is the control that now
-guards the anchor, and the corrected number turns out to strengthen the
-recommendation rather than soften it.
+it. Section 6 states the correction, section 2's C3 and C4 are the controls
+that now guard the anchor and the arithmetic, and the corrected number turns
+out to strengthen the recommendation rather than soften it. **No figure below
+changed when C4 landed** — the instrument's numbers were already right; what
+was missing was a gate that could fail if they stopped being.
 
 ---
 
@@ -95,7 +97,7 @@ the instrumentation seam costs, and it is worth publishing once.
 
 ---
 
-## 2. The instrument, and the three controls that make it readable
+## 2. The instrument, and the four controls that make it readable
 
 A crossing is timed across `react-dom/flushSync` with the dispatch inside it,
 and split at the instant the dispatch returns:
@@ -208,10 +210,49 @@ at the 30 Hz rung, where one interval is 33 ms, so the worst cell is within
 The control is also a **gate**, not only a table. `:tail-anchored?` fails a run
 whose gap is under half a requested period — a floor `setInterval` cannot
 violate, since it cannot fire faster than its period however far behind the
-browser has fallen. A tail read off a settle-time clock has no last-offer
-timestamp and cannot produce the gap at all, so it fails rather than
-publishing. It is asserted in the browser row and in the production entry's
-coherence filter, beside "applied cannot exceed offered".
+browser has fallen. It is asserted in the browser row and in the production
+entry's coherence filter, beside "applied cannot exceed offered".
+
+### C4 — a control of the tail's arithmetic
+
+C3 was introduced as the assertion that would fail if the tail clock were
+restarted at settle time. **It was not, and a merged-PR audit on
+`rf2-drpa3.182.12` said so.** C3 is derived from the last offer against the
+*settle decision*; the tail runs from the last offer to the *observer*. Two of
+the three instants differ, so `:tail-ms` could be re-anchored anywhere at all
+and C3 would not move — nor would the numeric and nonnegative checks beside it.
+Every control the third edition shipped could stay green while the published
+field measured the wrong interval again. A gate nobody has watched fail is not
+known to be a gate, and this surface had already shipped one that wasn't.
+
+Two changes close it. First, `:tail-ms` is no longer *computed* at publication
+time: the `MutationObserver` calculates each generation's latency once, and the
+final generation's is **retained and published verbatim**. The tail is lifted
+out of the `:latency` distribution rather than recomputed from it, so there is
+no start instant at the publication site left to get wrong. Second, the two
+readings it is the difference of are published beside it — `:tail-offer-at-ms`
+and `:tail-observed-at-ms` — and C4 asserts that exact identity. The comparison
+carries no tolerance and needs none: both operands are readings on one clock
+and the tail is their retained difference, so the check is a double subtraction
+reproduced rather than a rounded chain of them.
+
+The two controls are kept **separate**, and neither subsumes the other. C3 says
+*where the retained offer reading sits* — one interval before the settle
+decision. C4 says *the published tail was computed from that reading and the
+observer's, and from nothing else*. Re-anchoring the tail at settle time keeps
+C3 green and turns C4 red by a whole interval; re-anchoring the published offer
+reading to keep C4 green collapses the gap and turns C3 red. There is no
+remaining way to move the tail's start that leaves both standing.
+
+That is asserted rather than argued. `c4-a-settle-anchored-tail-cannot-pass-both-controls`
+performs the mutation on a synthetic record — one 30 Hz rung, one thing changed
+and one only — and checks that the three pre-C4 gates all stay green on it
+before checking that C4 does not. The mutation was also performed on the
+instrument itself and run: restoring the first two editions' settle-time clock
+turns the `bench:freehand-browser` gate red with **eight failures, all of them
+C4**, publishing 4.1–6.0 ms against true tails of 6.4–68.8 ms — the same
+poll-delay band the old field published, and under the third edition's gates
+that run would have been green.
 
 ---
 
@@ -457,8 +498,11 @@ the poll. The correction reads the tail from the last offer's retained
 timestamp to the `MutationObserver`'s sighting of the last generation — the
 same clock the latency distribution comes from, so the poll's 4 ms resolution
 no longer quantises a quantity that is often smaller than 4 ms. The poll and
-its 2 s ceiling remain, as the `settled?` detector they always were. C3 in
-section 2 is the control that now stands where the fault was.
+its 2 s ceiling remain, as the `settled?` detector they always were. C3 and C4
+in section 2 are the controls that now stand where the fault was — C3 on where
+the tail's anchor sits, C4 on the tail actually having been measured from it,
+the second added because a merged-PR audit showed the first could not fail on
+the value it existed to protect.
 
 | k | rate | **tail, production** | tail, dev | *what the old field published (the poll delay)* |
 |---:|---:|---|---|---|
@@ -834,6 +878,21 @@ every rung of both bundles. **What this cost is worth recording**: the wrong
 number was quoted in a durable recommendation for four days, and only reading
 the code found it. No clock caught it, because a clock cannot tell you where it
 was started.
+
+**~~The control that guarded that correction.~~** *Closed by the fourth
+edition.* C3 shipped described as the assertion that would fail if the tail
+clock were restarted at settle time, and a merged-PR audit found that it would
+not: C3 is derived from the settle decision, the tail from the observer, and no
+gate compared `:tail-ms` to anything. The repair is in section 2 — the tail is
+retained from the observer rather than recomputed, the two readings it is the
+difference of are published, and C4 asserts the identity, with C3 left standing
+separately so the one escape from C4 lands on it. **The lesson is the sharper
+half of the one above**: the wrong number was found by reading the code, and so
+was the fact that the control added to stop it recurring could not fire. Both
+times the instrument's own output looked fine. A control is worth what its
+demonstrated failure is worth, which is why the mutation is now performed in
+the suite and was performed once on the instrument itself, red, before this was
+written.
 
 **Real pointer streams.** The driver is a `setInterval`. A browser delivering
 coalesced `pointermove`, or `pointerrawupdate` bursts, can hand several events
