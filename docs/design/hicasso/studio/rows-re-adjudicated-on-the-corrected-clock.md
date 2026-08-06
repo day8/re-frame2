@@ -11,8 +11,8 @@ corroboration control they were pre-registered against **failed**
 ([§5](#5-what-this-ensemble-may-not-say)).
 
 **AND NEITHER MOUNT FIGURE IS A MAGNITUDE ANY LONGER (`rf2-jcm3p`, ruled
-2026-08-06).** `M1`'s own positive control fails — `ctl-2x` at ~~standing at
-2.00×~~ **1.8173×** against a predicted 2.00× on this very ensemble
+2026-08-06).** `M1`'s own positive control fails — `ctl-2x` reads **1.8173×**
+against a predicted 2.00× on this very ensemble
 ([§4.2](#42-ctl-2x-undershoots-on-the-mount-row-too-and-that-changes-its-diagnosis)),
 reproduced at 1.8443× and 1.8567× on two verifiably idle boxes — and a mount row
 has no changed-set axis a control could be linear in, so no control can
