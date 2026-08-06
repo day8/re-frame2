@@ -984,19 +984,32 @@ explicitly: relabel the three segments *within* each round — keeping every
 round's three blocks together and destroying only which segment owned which —
 and recompute the same statistic.
 
-| the seam's own null, pooled over 19 runs × 2,000 relabellings | |
+| the seam's own null — **Monte Carlo**, pooled over 19 runs × 2,000 sampled relabellings | |
 |---|---:|
 | median | 5.5% |
 | q95 | 14.1% |
 | q99 | 17.6% |
 | q99.9 | 23.9% |
-| largest of 38,000 draws | 26.8% |
+| largest of the 38,000 draws | 26.8% |
+
+**That null is SAMPLED and its draw count is not pinned** *(2026-08-06,
+`rf2-cvvb7`)*. `seamNull()` in `seam.cjs` takes seeded random within-round
+relabellings — one of the six permutations of three segments per round, so
+6⁶ = 46,656 assignments over a six-round run — and does not enumerate them. So
+*"beyond all draws"* below means beyond every draw **taken**, not beyond every
+relabelling possible; the two are not the same claim and this section used to
+read as though they were. Nor is the 2,000 checkable from the tree:
+`NULL_DRAWS` is **4,000** both at this study's `seam.cjs` blob (`a6789197…`,
+[§7.1](#71-the-seam-study-rf2-cvvb7)) and at HEAD, and no landed caller passes
+2,000. The finite null is small enough to enumerate exactly — but that is a
+re-run rather than a prose repair, and these nineteen runs cannot be re-analysed
+at all, because their datasets do not survive.
 
 Every observed seam sat at or below that null's median, and **not one of the
 nineteen runs reached p < 0.2**. The published 22% is a 1-in-400 draw from it.
-The published 34% is beyond all 38,000 draws — which is the honest shape of the
-finding: it is not noise of this kind either, and nothing this study could
-produce reproduced it.
+The published 34% is beyond every one of those 38,000 draws — which is the
+honest shape of the finding: it is not noise of this kind either, and nothing
+this study could produce reproduced it.
 
 Where the floor's variation actually lives is the **round**, not the segment.
 The rotation makes segment, round and position-in-round mutually orthogonal
@@ -1199,10 +1212,13 @@ Filed rather than attempted here, because each is a different instrument:
     `(T(2D) − T(ε)) / (T(D) − T(ε))`. Carried by `rf2-7iqb5`.
 - ~~**The segment seam, measured rather than assumed to cancel.**~~ **Done —
   [§6.1](#61-the-seam-measured-against-load), `rf2-cvvb7`.** A nineteen-run load
-  ladder and an exact within-round relabelling null answered it without needing
-  a second floor arm: the variation is on the **round**, the perturbation is
-  multiplicative and cancels exactly, and the seam is not attributable to the
-  segment. The band in [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)
+  ladder and a **Monte Carlo** within-round relabelling null answered it without
+  needing a second floor arm: the variation is on the **round**, ~~the
+  perturbation is multiplicative and cancels exactly,~~ and the seam is not
+  attributable to the segment. *(2026-08-06, `rf2-cvvb7`: the multiplicativity
+  clause is **withdrawn** — [§6.1](#61-the-seam-measured-against-load)'s banner
+  records the re-take that refuted it. The null was never an enumeration
+  either.)* The band in [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)
   replaces it as the gate.
 - **More rounds.** The strict rule bites on round-level variance, and 6 × 10 is
   what the mount row needed rather than what these rows need.
@@ -1277,12 +1293,21 @@ and `clock_views.cljs` are at the blobs in the table above, unchanged.
 | Load windows | two, 23:10–23:17 and 23:18–23:23 AUSEST 2026-08-01, each rung a single ~40 s run with the load released between runs |
 | Reproduction | `node freehand/test/re_frame/bench/hicasso/seam_ladder.cjs --load 12 --label x --json out/x.json`, and `node freehand/test/re_frame/bench/hicasso/seam.cjs` for the adjudicator's own self-test |
 | Discarded | none. Every run that started finished; the driver writes no dataset for a run that died part-way, so a partial one cannot be analysed by mistake |
+| Producing commit | **`362b883285726adf1458e43be4f897d770545a33`** — on `main`, so it resolves. `seam.cjs` and `seam_ladder.cjs` are at the blobs above there; `clock_run.cjs` is not, since at that commit `clock_run.cjs` is `ede7bf73…` and the driver had moved on before the page landed |
+| Driver blob, unlanded | the blob the runs executed, `f5bb751d…`, is on **no** commit reachable from `main` — thirty commits touch `clock_run.cjs` there and not one carries it. It is annotated rather than re-pinned, because recovering a landed SHA restores the patch and not the tree |
+| Analysis inputs | **none survive** — the nineteen runs' datasets went to a gitignored `out/`, as the paragraphs below record. `NULL_DRAWS` is `4,000` at the adjudicator blob above, against the 2,000 a run that [§6.1](#61-the-seam-measured-against-load)'s null table states, and no landed caller settles which was used |
 
 The 19 ladder runs were taken with the seam adjudicator **not yet wired in**, so
 nothing they measured was influenced by the gate they calibrate; the ladder
-figures in [§6.1](#61-the-seam-measured-against-load) are recomputed from their
-stored raw readings using the shipped `seam.cjs`, so the published figures and
-the instrument's figures are the same figures.
+figures in [§6.1](#61-the-seam-measured-against-load) ~~are recomputed from
+their stored raw readings using the shipped `seam.cjs`, so the published figures
+and the instrument's figures are the same figures~~ **were computed from raw
+readings that were then thrown away** *(2026-08-06, `rf2-cvvb7`)*. They did come
+out of the shipped `seam.cjs`, so the published figures and the instrument's
+figures were the same figures *when they were taken* — but nothing in the landed
+tree recomputes them now, as the paragraph below and
+[§6.1](#61-the-seam-measured-against-load)'s banner both record. The durable
+answer was a **re-run**, not a restatement.
 
 **The clock and the door for the whole study (`rf2-ymi6j`).** `seam_ladder.cjs`
 does not measure anything itself: it forks its spinners, spawns
@@ -1303,6 +1328,19 @@ failure mode can recur: `ladder_band.cjs` recomputes every figure from the
 driver's own datasets using `seam.cjs`'s exported adjudicators, and the compact
 per-block dataset it emits is **committed** at
 `implementation/freehand/test/re_frame/bench/hicasso/data/ladder-ymi6j.json`.
+That is the one command this section's own audit asked for, and it runs from a
+clean clone against a file the clone already has:
+
+```bash
+cd implementation
+node freehand/test/re_frame/bench/hicasso/ladder_band.cjs \
+  --from freehand/test/re_frame/bench/hicasso/data/ladder-ymi6j.json
+```
+
+It regenerates every published aggregate of the re-taken ladder — every band,
+every `ctl-2x / floor`, every bar row — and `--selftest` fails closed on the
+resampling model. What it cannot do is restore **these** nineteen runs, whose
+inputs are gone; the durable path starts at the re-run and not before it.
 
 ---
 
