@@ -194,7 +194,7 @@ at all, and were verified byte-identical afterwards.
 
 | | |
 |---|---|
-| **Producing commit** | `ec30ae12ef` on `worker/bench-tail-cluster`. **If that SHA does not resolve, a rebase moved it and the blobs above are what to trust.** |
+| **Producing commit** | `ec30ae12ef` on `worker/bench-tail-cluster` — an authored head the rebase merge stranded, so it is in no fresh clone; it landed on `main` as `1912fc849c`, established by identical `git patch-id --stable` rather than by matching subjects. Here the landed anchor costs this section nothing: all five blobs above are byte-identical at both. **If a SHA does not resolve, a rebase moved it and the blobs above are what to trust.** |
 | **Reproduction** | `HICASSO_ONLY=narrow node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **run twice at this instrument, exit 0 both times** |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, 24 logical CPUs |
 | **Schedule** | unchanged — 5 rounds × 2 segments × (8 warm-up + 12 samples), three arms interleaved, **10 writes per timed window** |
@@ -279,8 +279,9 @@ four-row sweep against the revived driver and every row reproduces — see
 process), so each round runs two segments — destroy the adapter, install the
 other, re-register, re-seed — with the floor in both. The floor holds no
 re-frame state and is untouched by which adapter is installed, so a
-UIx-over-Reagent figure is a ratio of two floor-normalised ratios and the seam
-cancels. **That cancellation is published, not assumed:**
+UIx-over-Reagent figure is a ratio of two floor-normalised ratios, and the seam
+cancels provided the segment drift is common-mode. **That cancellation is
+published, not assumed:**
 
 | row | floor(UIx segment) ÷ floor(Reagent segment), run 1 per round | over the ten runs | verdict |
 |---|---|---|---|
@@ -581,7 +582,7 @@ round and per segment before averaging, not from the two means. **So the
 precisely the failure mode a cross-author bridge could not have excluded, and the
 reason the ruling required a same-instrument re-take.
 
-#### The restated lines — INSTRUMENT STAMP: converged `p0_converge_app` instrument, `rf2-2rtt6.2` witness family, post-`.25` spine `8d20218fd1`
+#### The restated lines — INSTRUMENT STAMP: converged `p0_converge_app` instrument, `rf2-2rtt6.2` witness family, post-`.25` spine blob `8d20218fd1`
 
 **Five independently launched six-round runs**, every one launched into a
 measured-quiet window, every one clearing every validity gate. Across the four
@@ -970,7 +971,9 @@ was taken, so the 840-mount page is what these figures were measured on.
 
 ### Predicted before the run, in the commit that added the arm
 
-`bcf80f1979` carries all five, written down before a sample existed:
+`bcf80f1979` — an authored head the rebase merge stranded, which landed on
+`main` as `129a9f3df7`, the same patch by identical `git patch-id --stable` —
+carries all five, written down before a sample existed:
 
 | prediction | outcome |
 |---|---|
@@ -1182,7 +1185,11 @@ publishes its own reactive leg on the same two rows.
   looking for, and it would belong to rf2-2rtt6.2's page rather than to this one.
 
 That paragraph was committed in `93062c77d5` **before the control was run**, so
-neither branch of it could be chosen after the numbers were in.
+neither branch of it could be chosen after the numbers were in. That head is
+stranded by the rebase merge; it landed on `main` as `f143952fab`, the same
+patch by identical `git patch-id --stable`. What this line claims is *when the
+text was written*, not a tree it was measured on, and the patch is the whole of
+that claim — so here the landed commit carries it entire.
 
 **The control was then run twice, `npm run bench:hicasso`, exit 0 both times,
 guard clean, `0 unverified of 1,220` on each, residue back to
@@ -1229,7 +1236,7 @@ git rev-parse <candidate>:$P   # must print a5177d3f0bf764917075d2a247af0ddc4684
 
 | | |
 |---|---|
-| **Authoring commit** | `bcf80f1979170d4d16d6e7679051de0018d410c5` on `worker/ratom2-2rtt6-21` — *the converged witness gets a reagent-ratom arm*. **A rebase-merge will mint a new landed SHA**; the blobs above are what identify the instrument, and a rebase cannot move a blob. The commit is also where the five predictions are written down, before the first sample existed |
+| **Authoring commit** | `bcf80f1979170d4d16d6e7679051de0018d410c5` on `worker/ratom2-2rtt6-21` — *the converged witness gets a reagent-ratom arm*. **The rebase-merge did mint a new SHA, and it landed as `129a9f3df7`** — established by identical `git patch-id --stable`, not by matching subjects. It anchors the **patch** and not this **tree**, and the difference is real here: two of the blobs above are not byte-identical at it, because the rebase carried a sibling landing (`rf2-9smjn`) that moved `lane_cache.cjs` into the shared bench-helper directory — `p0_converge_run.cjs` differs by that one `require` path, and `lane_cache.cjs` by one comment line. Neither is on a measured path, and the instrument blob `a5177d3f0b…` is byte-identical at both; but the two are not interchangeable, so the blobs above remain what identify the instrument, and a rebase cannot move a blob. The commit is also where the five predictions are written down, before the first sample existed |
 | **Reproduction** | `HICASSO_RATOM=on HICASSO_ONLY=M1,broad HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — and the same with `HICASSO_START=uix`. **Six invocations, exit 0 on all six**, launched one at a time, none re-run and none discarded |
 | **The control** | `cd implementation && npm run bench:hicasso` — the first author's instrument, unmodified, on this tree. **Two invocations, exit 0 both**, guard `refuse? false / contaminated? false / unchecked? false`, `0 unverified of 1,220` each, residue back to `{:body-children 2, :sub-entries 0, :sub-ref-count 0, :ratom-watches 0}` after both the parity phase and the bulk row |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, sibling agents live on the box |
@@ -2151,7 +2158,7 @@ from the repository rather than merely stated by it.
 
 | | |
 |---|---|
-| **Authored anchor** | `2a97274c0fd50dd3145ba60a33f73f663bec94b9` on `worker/balance-6i0i2` — the last commit that touches the instrument. **A rebase-merge will mint a new landed SHA for it**, and this line is deliberately not rewritten to that SHA later: the blobs below are what identify the instrument, and a rebase cannot move a blob. An audit mapping this page to `main` should expect the anchor to resolve to a commit that is *not* an ancestor of `main`, and should check the blobs |
+| **Authored anchor** | `2a97274c0fd50dd3145ba60a33f73f663bec94b9` on `worker/balance-6i0i2` — the last commit that touches the instrument. **The rebase-merge did mint a new SHA, and it landed as `4e4a68fa1f`** — established by identical `git patch-id --stable`, not by matching subjects, and it is the same landed SHA the re-take table above already names for this ensemble. Here the landed anchor costs the section nothing: all six blobs below are byte-identical at both. This line is still not rewritten to it, because the authored head is the true provenance of the run: the blobs below are what identify the instrument, and a rebase cannot move a blob. An audit mapping this page to `main` should expect the authored anchor to resolve to a commit that is *not* an ancestor of `main`, and should check the blobs |
 | **Reproduction** | `HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — and the same with `HICASSO_START=uix`. **Ten invocations, exit 0 on all ten** |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, 24 logical CPUs, sibling agents live on the box |
 | **Schedule** | **6 rounds** × 2 segments × 3 arms interleaved, **one row per page**, start counterbalanced 5/5 across the ten launches. Sampling 8 warm-up + 12 samples on M1, broad and narrow; **4 + 10 on M2** ([why](#3-the-sixth-round-broke-the-m2-row-and-the-lever-was-the-mount-budget)) |
@@ -2183,7 +2190,7 @@ left to ambush a reader.** rf2-2rtt6.21 added the `:reagent-ratom` arm (its own
 provenance block names the blob it landed), and rf2-6i0i2's follow-up then added
 the `:in-an-ensemble` line to the red-zone record — a constant string published
 *after* every sample of a row is taken, on no measured path. So a checkout at
-HEAD no longer answers `5a727706fc`, and will not again. The hash above
+HEAD no longer answers the blob `5a727706fc`, and will not again. The hash above
 identifies the instrument **as it stood when the ten runs ran**, which is the
 whole point of pinning it; it was never a claim that the file would stop
 changing. Reproduce against the blob, not against HEAD.
