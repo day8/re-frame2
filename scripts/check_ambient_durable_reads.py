@@ -13,7 +13,12 @@ write durable frame-state:
   - random:  `rand`, `rand-int`, `rand-nth`, `random-uuid`,
              `js/crypto.getRandomValues`;
   - browser: `js/location`, `navigator`, `localStorage`, `sessionStorage`,
-             media-query (`matchMedia`).
+             media-query (`matchMedia`) — each in BOTH the bare-symbol
+             spelling and the getter / property / callable spelling that is
+             how the fact is actually read: `(.getItem js/localStorage …)`,
+             `(.-href js/location)`, `(.-language js/navigator)`,
+             `(js/matchMedia …)`, and this repo's own authoring idiom
+             `(some-> (.-localStorage js/globalThis) (.getItem …))`.
 
 The durable-write code paths the spec enumerates are: resource reducers,
 work-ledger writers, reply handlers, mutation handlers, restore/hydration
@@ -240,10 +245,33 @@ _DURABLE_ID_KEYS = (
 #           js/crypto.getRandomValues  (.getRandomValues js/crypto)
 #   browser: js/location  js/navigator  navigator.  js/localStorage
 #            js/sessionStorage  (.matchMedia ...)  js/matchMedia
+#            (.getItem js/localStorage ...)  (.getItem js/sessionStorage ...)
+#            (.-prop js/location)  (.-prop js/navigator)  (js/matchMedia ...)
+#            (some-> (.-localStorage js/globalThis) (.getItem ...))  + twin
 # Each entry is NAMED so a finding can say which read form produced it and the
 # self-test can hold the roster to owning a fixture (rf2-g1xpb). The names are
-# the roster's identity; the joined alternation below is byte-for-byte the
-# union that was here before, so the gate matches exactly what it always did.
+# the roster's identity.
+#
+# WHY THE CALL-WRAPPED BROWSER FORMS ARE ENUMERATED (rf2-vcjpx)
+#
+# `_VIOLATION_RE` anchors the read at the START of the durable key's value, so
+# only a read sitting IMMEDIATELY in value position matches. The clock and
+# random families already carry a roster entry per call spelling — `(.now
+# js/Date …)`, `(.getRandomValues js/crypto …)`, `(.matchMedia …)` — but the six
+# browser host-fact entries carried only their bare-symbol spelling. That made
+# them reachable only as `:restored-at js/localStorage`, which nobody writes;
+# the getter form `:restored-at (.getItem js/localStorage "session")` — which is
+# how the fact is actually read, and the same EP-0010 defect — produced ZERO
+# findings. A roster naming `localStorage` while missing `.getItem` is the
+# advertised-but-hollow class (rf2-rr6do / rf2-bml5u), so the getter, property
+# and callable spellings are enumerated here as their own entries, each ANCHORED
+# at value-form start exactly like `.now js/Date`.
+#
+# ENUMERATED, deliberately — NOT "an ambient read anywhere inside the value
+# form". Free-form value matching was REJECTED (this bead's own false-positive
+# caution): it would fire on a legitimately threaded value that merely mentions
+# a host symbol somewhere in its form. Each pattern below names a complete read
+# whose result IS the host fact, so there is no threading it can mistake.
 _AMBIENT_READ_FORMS: tuple[tuple[str, str], ...] = (
     # clock
     ("now-ms",       r"\(\s*(?:interop/)?(?:epoch-)?now-ms\b[^)]*\)"),
@@ -256,7 +284,7 @@ _AMBIENT_READ_FORMS: tuple[tuple[str, str], ...] = (
     ("random-uuid",  r"\(\s*random-uuid\b[^)]*\)"),
     ("js/crypto.getRandomValues",   r"js/crypto\.getRandomValues\b"),
     (".getRandomValues js/crypto",  r"\(\s*\.getRandomValues\s+js/crypto\b"),
-    # browser / host facts
+    # browser / host facts — the BARE symbol standing in the value position
     ("js/location",       r"js/location\b"),
     ("js/navigator",      r"js/navigator\b"),
     ("navigator.",        r"navigator\.\w"),
@@ -264,6 +292,27 @@ _AMBIENT_READ_FORMS: tuple[tuple[str, str], ...] = (
     ("js/sessionStorage", r"js/sessionStorage\b"),
     (".matchMedia",       r"\(\s*\.matchMedia\b"),
     ("js/matchMedia",     r"js/matchMedia\b"),
+    # browser / host facts — the CALL-WRAPPED spellings that actually read them
+    # (rf2-vcjpx). A line matching one of these also matches the bare entry it
+    # wraps, so it honestly witnesses BOTH — the same double attribution
+    # `(rand-nth …)` has against `rand`.
+    (".getItem js/localStorage",
+     r"\(\s*\.getItem\s+js/localStorage\b"),
+    (".getItem js/sessionStorage",
+     r"\(\s*\.getItem\s+js/sessionStorage\b"),
+    (".-prop js/location",   r"\(\s*\.-\w+\s+js/location\b"),
+    (".-prop js/navigator",  r"\(\s*\.-\w+\s+js/navigator\b"),
+    ("(js/matchMedia ...)",  r"\(\s*js/matchMedia\b"),
+    # This repo's own authoring idiom for a storage read — established at
+    # implementation/core/src/re_frame/cofx.cljc and examples/core/todomvc/db.cljs
+    # (both correctly OUTSIDE the scan surface: an ambient cofx supplier and an
+    # example, neither a durable-write namespace). Anchored from `(some->` so it
+    # matches whether the `(.getItem …)` step follows on the same line or the
+    # next — the value is the storage read either way.
+    ("some-> .-localStorage js/globalThis",
+     r"\(\s*some->\s+\(\s*\.-localStorage\s+js/globalThis\b"),
+    ("some-> .-sessionStorage js/globalThis",
+     r"\(\s*some->\s+\(\s*\.-sessionStorage\s+js/globalThis\b"),
 )
 _AMBIENT_READ_ALT = "|".join(pattern for _name, pattern in _AMBIENT_READ_FORMS)
 
@@ -752,6 +801,7 @@ _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
         "instance-id<-rand-int",
         "instance-id<-rand-nth",
         "instance-id<-random-uuid",
+        # browser host facts, bare symbol in the value position
         "instance-id<-js/location",
         "instance-id<-js/navigator",
         "instance-id<-navigator.",
@@ -759,6 +809,17 @@ _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
         "instance-id<-js/sessionStorage",
         "instance-id<-.matchMedia",
         "instance-id<-js/matchMedia",
+        # browser host facts, call-wrapped (rf2-vcjpx). Each of these lines
+        # ALSO witnesses the bare entry whose text it contains — listed above,
+        # and named again here so deleting either roster entry reds this
+        # fixture by name (the rand/rand-nth double-attribution precedent).
+        "instance-id<-.getItem js/localStorage",
+        "instance-id<-.getItem js/sessionStorage",
+        "instance-id<-.-prop js/location",
+        "instance-id<-.-prop js/navigator",
+        "instance-id<-(js/matchMedia ...)",
+        "instance-id<-some-> .-localStorage js/globalThis",
+        "instance-id<-some-> .-sessionStorage js/globalThis",
     }),
 }
 
@@ -773,8 +834,14 @@ _NEGATIVE_FIXTURES: tuple[str, ...] = (
     # durable key; the durable :updated-at threads the causal token) — green on
     # its own merits, NOT via a debug-proximity allowlist (rf2-nftz2s §3)
     "negative/debug_enabled_perf_probe.cljc",
+    # the browser-host-fact counterpart: storage / location / navigator /
+    # media-query facts threaded off the token's :rf.cofx, with the getter
+    # spellings confined to ambient cofx suppliers (rf2-vcjpx)
+    "negative/threaded_host_fact.cljc",
     # the conscious #_:rf.world/ambient-ok escape
     "negative/ambient_ok_escape.cljc",
+    # ... and the same escape over a call-wrapped getter read (rf2-vcjpx)
+    "negative/ambient_ok_getter_escape.cljc",
     # the symbol in a docstring / `;;` comment
     "negative/now_ms_in_docstring.cljc",
     # a freshness DECISION read (compared, not written durably)
