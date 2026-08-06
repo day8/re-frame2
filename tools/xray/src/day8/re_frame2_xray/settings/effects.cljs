@@ -68,6 +68,7 @@
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
@@ -617,16 +618,43 @@
                            ;; would revert a hidden overlay to inline. See
                            ;; `reopen-preserving-surface!`'s docstring.
                            (reopen-preserving-surface!))))]
+        ;; ACTIVATE, then seed, then watch — and the activation is the
+        ;; whole fix for rf2-lynzk (the same defect shape as rf2-8cnxg,
+        ;; repaired in `re-frame.substrate.observation/build-node-handle!`
+        ;; — see its comment for the canonical statement of this order).
+        ;;
+        ;; This call used to be absent, on the stated premise that "a
+        ;; reagent/re-frame reaction is already live the instant
+        ;; `subscribe` returns". That premise is FALSE on the ratom
+        ;; family, and silently so. Under those adapters the subscription
+        ;; IS a bare `reagent.ratom/Reaction`, built deliberately WITHOUT
+        ;; `:auto-run`, and a Reaction learns its sources ONLY through
+        ;; `deref-capture`. The plain `@reaction` below is taken outside
+        ;; `*ratom-context*`, so it runs the body raw and leaves
+        ;; `watching` nil — the node is in nobody's watcher set, the
+        ;; `add-watch` records a callback that can never fire, and
+        ;; auto-open-on-error never fires at all. Watchable, watched,
+        ;; silent. A Reagent COMPONENT never hits this because its render
+        ;; IS the capture context; `:rf.xray/issues-ribbon` is a SIGNAL
+        ;; with no rendered consumer anywhere (panels.cljs §Issues), so
+        ;; nothing but this call supplies one.
+        ;;
+        ;; `interop/activate-derived-value!` is the substrate's own "put
+        ;; this derived value on your push path" op: a no-op on hosts that
+        ;; are push-based from birth (the React-hook spine — UIx, Helix,
+        ;; re-frame.ui, Freehand) and on plain-atom, and idempotent on an
+        ;; already-capturing reaction. It runs FIRST so the seed below
+        ;; reads a settled node.
+        (interop/activate-derived-value! reaction)
         ;; Seed the baseline from the reaction's CURRENT value before
-        ;; `add-watch` — a reagent/re-frame reaction is already live the
-        ;; instant `subscribe` returns (it may have run against issues
-        ;; that predate this install, e.g. re-install after a focus nav
-        ;; that already landed on an issue-carrying epoch). `add-watch`
-        ;; only fires on the NEXT change, so leaving `last-issue-count`
-        ;; at its `defonce` 0 misclassifies that pre-existing non-empty
-        ;; state as the empty->non-empty edge on the first subsequent
-        ;; change, spuriously auto-opening Xray. Seeding here makes the
-        ;; watcher's edge detection start from the true "now", matching
+        ;; `add-watch` — the reaction may hold issues that predate this
+        ;; install (e.g. re-install after a focus nav that already landed
+        ;; on an issue-carrying epoch). `add-watch` only fires on the NEXT
+        ;; change, so leaving `last-issue-count` at its `defonce` 0
+        ;; misclassifies that pre-existing non-empty state as the
+        ;; empty->non-empty edge on the first subsequent change,
+        ;; spuriously auto-opening Xray. Seeding here makes the watcher's
+        ;; edge detection start from the true "now", matching
         ;; xray/016-Auxiliary-Panels §Auto-open-on-error (first
         ;; empty->non-empty only).
         (reset! last-issue-count (count (:issues @reaction)))
