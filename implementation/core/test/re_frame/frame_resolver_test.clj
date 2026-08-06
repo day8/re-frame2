@@ -237,6 +237,146 @@
           (is (= :rf/default (frame/require-current-frame! :subscribe))
               "and requiring it does not throw"))))))
 
+;; ---- the MISMATCH — a body has ONE frame, by construction (rf2-nqj22) -----
+;;
+;; The row above is the rule and stays the rule: a carried stamp wins inside
+;; a refused extent. These rows are its one exception, and it is opt-in — an
+;; extent that declares `:extent-frame` is saying "a body of mine has ONE
+;; frame", and core then refuses a carried stamp naming a DIFFERENT one.
+;; Without it, an `rf/with-frame :b` enclosing a boundary that renders `:a`
+;; leaves the body reading and dispatching against `:b` while its own reads,
+;; lowered intents and children target `:a` — two frames in one body, with no
+;; signal, which is the class the whole tier exists to delete.
+;;
+;; BOTH DIRECTIONS MATTER EQUALLY. A fix that refused a MATCHED carried stamp
+;; would make `with-frame` and `{:frame …}` disagree inside a body and would
+;; be strictly worse than the bug, so the matched case is asserted here as
+;; hard as the mismatched one.
+
+(deftest a-matched-carried-stamp-still-answers-inside-an-extent-that-names-its-frame
+  (testing "the EP-0002 behaviour, unchanged: the stamp names the frame the
+           extent is rendering, so there is no second frame and nothing to
+           be ambiguous about"
+    (frame/call-with-ambient-frame-refused
+      {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
+      (fn []
+        (binding [frame/*current-frame* :app]
+          (is (= :app (frame/resolve-current-frame)))
+          (is (= :app (frame/require-current-frame! :subscribe))
+              "a matched carry is the one thing this change must not break"))))))
+
+(deftest a-mismatched-carried-stamp-is-refused
+  (testing "the stamp names a frame OTHER than the one the extent renders, so
+           the body would have two frames in it — an ambiguity, not a
+           carried-stamp win"
+    (is (= :rf.error/ambient-frame-refused
+           (refused-id #(frame/call-with-ambient-frame-refused
+                          {:substrate :probe :extent-frame :app
+                           :reason "Use the probe's own reader."}
+                          (fn []
+                            (binding [frame/*current-frame* :other]
+                              (frame/require-current-frame! :subscribe))))))
+        "the same id an ambient read gets — one refusal, two sentences")))
+
+(deftest the-mismatch-payload-names-both-frames
+  (testing "a diagnostic that cannot say WHICH two frames collided sends the
+           author looking for the wrong one"
+    (let [data (try (frame/call-with-ambient-frame-refused
+                      {:substrate :probe :extent-frame :app
+                       :reason "Use the probe's own reader."}
+                      (fn []
+                        (binding [frame/*current-frame* :other]
+                          (frame/require-current-frame! :capture-frame {:where 'probe/carry}))))
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/ambient-frame-refused (:rf.error/id data)))
+      (is (= :other (:carried-frame data)) "the stamp that was carried")
+      (is (= :app (:extent-frame data)) "the frame the extent is rendering")
+      (is (= 'probe/carry (:where data)) "call-site detail still threads through")
+      (is (.contains ^String (:reason data) ":other"))
+      (is (.contains ^String (:reason data) ":app"))
+      (is (.contains ^String (:reason data) "ISOLATED contexts"))
+      (is (not (.contains ^String (:reason data) "an explicitly carried frame still carries"))
+          "the absence sentence's closing promise is precisely what did NOT
+           happen here; a payload that said it would be worse than none")
+      (is (.contains ^String (:reason data) "Use the probe's own reader.")
+          "and the substrate's own sentence is still carried verbatim"))))
+
+(deftest an-extent-that-names-no-frame-refuses-no-carried-stamp
+  (testing "the check is a declaration, not a policy core imposes: an extent
+           with no frame of its own has nothing to be mismatched against, so
+           the pre-rf2-nqj22 contract is exactly what it still gets"
+    (frame/call-with-ambient-frame-refused
+      {:substrate :probe :reason "Use the probe's own reader."}
+      (fn []
+        (binding [frame/*current-frame* :other]
+          (is (= :other (frame/require-current-frame! :subscribe))))))))
+
+(deftest the-reader-itself-answers-nil-for-a-mismatched-stamp
+  (testing "the check lives in `resolve-current-frame`, not only in
+           `require-current-frame!`, and that placement is load-bearing.
+           `require-current-frame!` is NOT the single funnel the catalogue
+           describes: `subs/subscribe`'s 1-arity — the framework's per-read
+           path, and the very op HD-002 clause (a) is about — inlines
+           `(or (resolve-current-frame) (require-current-frame! …))` to keep
+           its error payload off the fast path (rf2-a8bw0), so a check living
+           only in the requiring primitive would have let every ambient
+           subscribe through. Measured: it did"
+    (frame/call-with-ambient-frame-refused
+      {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
+      (fn []
+        (binding [frame/*current-frame* :other]
+          (is (nil? (frame/resolve-current-frame))
+              "a stamp this extent will not accept is not an ambient answer"))
+        (binding [frame/*current-frame* :app]
+          (is (= :app (frame/resolve-current-frame))
+              "and the extent's own frame still is"))))))
+
+(deftest the-reader-first-subscribe-path-refuses-a-mismatched-stamp
+  (testing "the end-to-end consequence of the row above, taken through the
+           public surface that does the inlining rather than through the
+           primitive it inlines"
+    (rf/make-frame {:id :app})
+    (rf/reg-sub :probe/v (fn [db _] (:v db)))
+    (frame/replace-app-db! :app {:v 7})
+    (binding [frame/*current-frame* :app]
+      (is (= 7 @(rf/subscribe [:probe/v]))
+          "precondition: the ambient read works outside any refusal"))
+    (frame/call-with-ambient-frame-refused
+      {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
+      (fn []
+        (binding [frame/*current-frame* :app]
+          (is (= 7 @(rf/subscribe [:probe/v]))
+              "a MATCHED carried stamp still reads inside the extent"))
+        (binding [frame/*current-frame* :other]
+          (is (= :rf.error/ambient-frame-refused
+                 (refused-id #(rf/subscribe [:probe/v])))
+              "and a mismatched one refuses instead of reading :other's db"))))
+    (rf/destroy-frame! :app)))
+
+(deftest the-mismatch-is-compared-by-value-not-by-reference
+  (testing "the two sides of the comparison need not be spelled the same way:
+           an extent may declare a frame VALUE (`make-frame`'s token) where
+           the reader has already normalized to an id, so both sides go
+           through `frame-value->id` first. A comparison written as a
+           reference test would pass here on the JVM — keywords are interned
+           — and silently never match on CLJS, so the CLJS half of this is
+           `arm1/ambient-refusal-cljs-test`"
+    (let [f (rf/make-frame {:id :valued})]
+      (frame/call-with-ambient-frame-refused
+        {:substrate :probe :extent-frame f :reason "Use the probe's own reader."}
+        (fn []
+          (binding [frame/*current-frame* :valued]
+            (is (= :valued (frame/require-current-frame! :subscribe))
+                "a declared frame VALUE normalizes to its id before comparing"))))
+      (frame/call-with-ambient-frame-refused
+        {:substrate :probe :extent-frame f :reason "Use the probe's own reader."}
+        (fn []
+          (binding [frame/*current-frame* :other]
+            (is (= :rf.error/ambient-frame-refused
+                   (refused-id #(frame/require-current-frame! :subscribe)))
+                "and a genuine mismatch against a declared VALUE still refuses"))))
+      (rf/destroy-frame! :valued))))
+
 (deftest the-refusal-is-fail-closed-and-unwinds
   (testing "a nil detail map still refuses — a fence that disarms because
            its argument was nil is the trap class the tier deletes"

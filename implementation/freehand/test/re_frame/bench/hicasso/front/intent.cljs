@@ -273,7 +273,11 @@
 
 (def ^:private ambient-frame-refusal
   "The detail this arm hands core's refusal tier (rf2-2rtt6.122). One
-  module-level constant, so establishing the extent allocates nothing.
+  module-level constant, so the prose — which is nearly all of it — is
+  built once at load and never per body. [[with-frame]] stamps the
+  rendering boundary's own frame onto a copy of it (rf2-nqj22); that
+  `assoc` is the whole per-extent cost, and it buys the one property a
+  shared constant cannot express: which frame THIS body has.
 
   The sentence has to be the one an author can act on, because the whole
   point of the tier is that the generic `:rf.error/no-frame-context` advice
@@ -337,13 +341,30 @@
 
   An explicitly carried frame is untouched, in this extent as everywhere:
   `{:frame <id>}` never consults the ambient resolver, and `rf/with-frame`
-  inside a body still answers. The refusal deletes the ambient FIND, not
-  the carrying."
+  naming THIS boundary's frame still answers inside a body. The refusal
+  deletes the ambient FIND, not the carrying.
+
+  A BODY HAS ONE FRAME, AND NOW BY CONSTRUCTION (rf2-nqj22). The one thing
+  the sentence above did not cover: an `rf/with-frame :b` ENCLOSING a
+  boundary that renders `:a`. Core was behaving exactly as EP-0002 says —
+  `:b` was carried, so `:b` answered — but the boundary is rendering `:a`,
+  and the collector's reads, the lowered intents and the presence tray all
+  target `:a`. One body, two frames, chosen by which spelling the author
+  reached for, and silent. It is reachable from any host that renders a
+  Hicasso tree inside a scope: a `flushSync` mount under a `with-frame`, an
+  SSR host wrapping `renderToString`, a test fixture that root-binds an
+  ambient frame. So this extent tells core WHICH frame it is rendering
+  (`:extent-frame`) and core refuses a carried stamp that names another —
+  the only carry that stops working is the one that was already wrong.
+  The 2-arity names no frame, so it declares none and nothing is refused
+  there: an extent with no frame of its own has nothing to be mismatched
+  against."
   ([dispatch body-fn] (with-frame nil dispatch body-fn))
   ([frame-kw dispatch body-fn]
    (binding [*frame*                       frame-kw
              *dispatch*                    dispatch
-             frame/*ambient-frame-refusal* ambient-frame-refusal]
+             frame/*ambient-frame-refusal* (cond-> ambient-frame-refusal
+                                             frame-kw (assoc :extent-frame frame-kw))]
      (body-fn))))
 
 (defn- fail! [id where reason recovery extra]

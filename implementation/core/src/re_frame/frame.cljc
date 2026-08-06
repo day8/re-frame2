@@ -549,6 +549,21 @@
 ;; the two spellings of "I carried a frame" behaving identically inside a
 ;; refused extent, per EP-0002 ("frame identity is carried, not found") —
 ;; the refusal deletes the FINDING, never the carrying.
+;;
+;; WITH ONE EXCEPTION, WHICH IS OPT-IN AND SUBSTRATE-DECLARED (rf2-nqj22).
+;; The sentence above is the rule wherever a carried stamp is the only frame
+;; in play. It stops being the rule when the extent HAS a frame of its own
+;; and the stamp names a different one: the body then reads and dispatches
+;; against `:b` while its own reads, lowered intents, presence tray and
+;; children target `:a`, chosen by which spelling the author reached for and
+;; with no signal at all. Frames are ISOLATED contexts, so that is not a
+;; carried-stamp win but an ambiguity, and blessing it would leave exactly
+;; the silently-wrong-frame class this tier exists to delete alive in one
+;; configuration. A substrate declares its extent's frame as `:extent-frame`
+;; on the refusal detail and `require-current-frame!` refuses the mismatch;
+;; a substrate that names none is untouched, and a MATCHED stamp still
+;; carries — refusing that would make `with-frame` and `{:frame …}` disagree,
+;; which is worse than the bug.
 
 (def ^:private default-ambient-refusal-reason
   "The sentence a refusing substrate is expected to replace with its own —
@@ -575,8 +590,20 @@
 
   The map's keys are the substrate's to supply: `:substrate` (a keyword
   naming it), `:reason` (one sentence saying what the extent requires
-  INSTEAD — this is what the author reads), `:recovery` (a keyword), and
-  any additional detail, which is merged into the payload."
+  INSTEAD — this is what the author reads), `:recovery` (a keyword),
+  `:extent-frame` (below), and any additional detail, which is merged into
+  the payload.
+
+  `:extent-frame` — THE FRAME THIS EXTENT IS RENDERING (rf2-nqj22). The one
+  key core READS rather than passes through, and the only one that changes
+  what the tier does. A substrate that names it declares \"a body of mine has
+  ONE frame\", and [[require-current-frame!]] then refuses a carried stamp
+  that names a DIFFERENT one — because a body whose ambient ops target `:b`
+  while its own reads, lowered intents and children target `:a` is two frames
+  in one body, and frames are ISOLATED contexts. Omit it (or leave it nil)
+  and the tier behaves exactly as it did before: the ambient FIND is refused
+  and any carried stamp wins, which is right for an extent that has no frame
+  of its own to be mismatched against."
   nil)
 
 (defn call-with-ambient-frame-refused
@@ -598,7 +625,10 @@
 
   SCOPE. Refusal applies to the AMBIENT tier only. An explicitly carried
   stamp is untouched: `{:frame …}` opts never consult this resolver, and
-  `with-frame` inside the extent still answers through `*current-frame*`.
+  `with-frame` inside the extent still answers through `*current-frame*` —
+  with the ONE exception a substrate opts into by naming `:extent-frame` on
+  the refusal, which refuses a carried stamp that names a frame OTHER than
+  the one the extent is rendering (rf2-nqj22).
   Nesting is not tracked and does not need to be — React renders a child
   fiber only after the parent's render function has returned, so this
   binding has already unwound before any child component (an adapter
@@ -629,6 +659,30 @@
 ;; may bind a frame VALUE (`make-frame`'s token) into `*current-frame*`, and
 ;; ring attribution must key on the record id, never a value map.
 (late-bind/set-fn! :frame/current-frame-id (fn [] (frame-value->id *current-frame*)))
+
+(defn- carried-frame-admitted-by
+  "The carried (tier-1) stamp, normalized to an id, when `refusal` — the
+  in-effect refusal detail — ADMITS it; **nil** otherwise (rf2-nqj22).
+
+  A refusal that names no `:extent-frame` admits every carried stamp, which
+  is the pre-rf2-nqj22 contract and the right answer for an extent with no
+  frame of its own. One that names one admits only that frame: a body whose
+  ambient ops target `:b` while its own reads, lowered intents and children
+  target `:a` is two frames in one body, and frames are ISOLATED contexts.
+
+  Both sides go through `frame-value->id`, so a substrate that declared a
+  frame VALUE compares equal to the id the reader normalized to. The
+  comparison is BY VALUE and must stay that way — keywords are interned on
+  the JVM and are not guaranteed reference-equal in ClojureScript, so an
+  `identical?` written here would be green on one host and refuse every
+  carried stamp on the other."
+  [refusal]
+  (let [carried (frame-value->id (current-frame))]
+    (when (and (some? carried)
+               (if-some [extent-frame (:extent-frame refusal)]
+                 (= carried (frame-value->id extent-frame))
+                 true))
+      carried)))
 
 (defn resolve-current-frame
   "Resolve the active frame at a no-explicit-frame call site — the
@@ -667,7 +721,20 @@
   `require-current-frame!` turns that into the loud
   `:rf.error/ambient-frame-refused`. Being a reader, it still returns nil
   rather than throwing: tooling and frame pickers running inside such an
-  extent read 'no ambient frame', which is the truth."
+  extent read 'no ambient frame', which is the truth.
+
+  AND TIER 1 ANSWERS ONLY FOR THE EXTENT'S OWN FRAME (rf2-nqj22). When the
+  refusal names an `:extent-frame`, a carried stamp naming some OTHER frame
+  is not an ambient answer this extent will accept, and this reader says so
+  by answering nil — see [[carried-frame-admitted-by]]. THE CHECK BELONGS
+  HERE AND NOT ONLY IN `require-current-frame!`, which is not the single
+  funnel the catalogue describes it as: `subs/subscribe`'s 1-arity — the
+  framework's per-read path, and the very op HD-002 clause (a) is about —
+  inlines `(or (resolve-current-frame) (require-current-frame! …))` to keep
+  its error payload off the fast path (rf2-a8bw0), so a check living only in
+  the requiring primitive would have missed every ambient subscribe. Putting
+  it in the reader makes every reader-first caller correct by construction
+  and leaves that optimisation intact."
   []
   ;; Sticky hook — `:adapter/current-frame` is published
   ;; once per loaded React-shaped adapter at ns-load time and routed
@@ -687,14 +754,14 @@
   ;; byte-for-byte the one that was here before. When an extent HAS refused,
   ;; resolution collapses to the CARRIED tier alone, which is exactly the
   ;; `:clj` branch: the React-context tier is withdrawn, an explicit
-  ;; `with-frame` still answers.
-  (if (nil? *ambient-frame-refusal*)
+  ;; `with-frame` still answers — for the extent's OWN frame (rf2-nqj22).
+  (if-some [refusal *ambient-frame-refusal*]
+    (carried-frame-admitted-by refusal)
     (frame-value->id
       #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
                  (f)
                  (current-frame))
-         :clj  (current-frame)))
-    (frame-value->id (current-frame))))
+         :clj  (current-frame)))))
 
 ;; ---- :rf.error/no-frame-context — the absence-is-the-corollary error ------
 ;;
@@ -842,29 +909,63 @@
   The substrate's own keys are merged in AFTER the frame, so `:substrate`,
   `:recovery` and any extra detail it carries reach the reader; its
   `:reason` is folded into the composed prose rather than replacing it, so
-  the payload always says both what happened and what to do instead."
+  the payload always says both what happened and what to do instead.
+
+  TWO REFUSALS, ONE ID, TWO SENTENCES (rf2-nqj22). `extra`'s
+  `:carried-frame` — set by [[require-current-frame!]] and by nothing else —
+  says which refusal this is. Absent: nothing was carried, the ambient FIND
+  was refused, and the prose is the one that has always been here. Present:
+  a stamp WAS carried and it names a frame other than the extent's
+  `:extent-frame`, so the composed sentence names BOTH frames and says why
+  a carried stamp lost for once — because the generic sentence's closing
+  promise (\"an explicitly carried frame still carries\") is precisely the
+  thing that just did not happen, and a diagnostic that says the opposite of
+  what occurred is worse than none."
   ([operation refusal] (ambient-frame-refused-payload operation refusal nil))
   ([operation refusal extra]
-   (merge {:rf.error/id :rf.error/ambient-frame-refused
-           :operation   operation
-           :recovery    :use-the-substrates-own-read-surface
-           :reason      (str "a frame-scoped " (name operation) " resolved its frame "
-                             "AMBIENTLY inside a render extent that refuses ambient "
-                             "frame resolution"
-                             (when-some [s (:substrate refusal)]
-                               (str " (" (name s) ")"))
-                             ". This is NOT an absence: a frame IS in scope here, so "
-                             "adding another frame boundary or a with-frame will not "
-                             "help. The extent refuses the AMBIENT reach specifically — "
-                             "an explicitly carried frame still carries, both as a "
-                             "{:frame <id>} option and through with-frame. "
-                             (:reason refusal default-ambient-refusal-reason))}
-          ;; Capture-site ancestry, exactly as `no-frame-context-payload`
-          ;; threads it — the refused op may sit under a captured callback.
-          (when-let [did (some-> trace/*handler-scope* :dispatch-id)]
-            {:rf.trace/dispatch-id did})
-          (dissoc refusal :reason)
-          extra)))
+   ;; The extent's frame is normalized to an id here and nowhere else: a
+   ;; substrate may declare a frame VALUE, and a payload — or worse, a
+   ;; sentence — carrying a whole frame map instead of `:app` is unreadable.
+   (let [extent-frame (frame-value->id (:extent-frame refusal))]
+     (merge {:rf.error/id :rf.error/ambient-frame-refused
+             :operation   operation
+             :recovery    :use-the-substrates-own-read-surface
+             :reason      (if-some [carried (:carried-frame extra)]
+                            (str "a frame-scoped " (name operation) " resolved its frame "
+                                 "AMBIENTLY inside a render extent that refuses ambient "
+                                 "frame resolution"
+                                 (when-some [s (:substrate refusal)]
+                                   (str " (" (name s) ")"))
+                                 ", and the stamp it found — " (pr-str carried)
+                                 " — is NOT the frame this extent is rendering ("
+                                 (pr-str extent-frame) "). A carried stamp "
+                                 "ordinarily wins, and everywhere it is the only frame in "
+                                 "play it still does; here it would put TWO frames in one "
+                                 "body — this " (name operation) " targeting " (pr-str carried)
+                                 " while the body's own reads, lowered intents and children "
+                                 "target " (pr-str extent-frame) " — and frames are "
+                                 "ISOLATED contexts. Carry the extent's own frame if that is "
+                                 "what you meant, or move the operation outside the render. "
+                                 (:reason refusal default-ambient-refusal-reason))
+                            (str "a frame-scoped " (name operation) " resolved its frame "
+                                 "AMBIENTLY inside a render extent that refuses ambient "
+                                 "frame resolution"
+                                 (when-some [s (:substrate refusal)]
+                                   (str " (" (name s) ")"))
+                                 ". This is NOT an absence: a frame IS in scope here, so "
+                                 "adding another frame boundary or a with-frame will not "
+                                 "help. The extent refuses the AMBIENT reach specifically — "
+                                 "an explicitly carried frame still carries, both as a "
+                                 "{:frame <id>} option and through a with-frame naming THIS "
+                                 "extent's own frame. "
+                                 (:reason refusal default-ambient-refusal-reason)))}
+            ;; Capture-site ancestry, exactly as `no-frame-context-payload`
+            ;; threads it — the refused op may sit under a captured callback.
+            (when-let [did (some-> trace/*handler-scope* :dispatch-id)]
+              {:rf.trace/dispatch-id did})
+            (dissoc refusal :reason :extent-frame)
+            (when (some? extent-frame) {:extent-frame extent-frame})
+            extra))))
 
 (defn emit-ambient-frame-refused!
   "Surface `:rf.error/ambient-frame-refused` through the always-on error axis
@@ -1003,13 +1104,37 @@
   ([[call-with-ambient-frame-refused]]), the mistake is not an absence and
   must not be reported as one: `:rf.error/ambient-frame-refused` is emitted
   and thrown instead, carrying the refusing substrate's own account of what
-  to write there. The discrimination costs nothing on the ordinary path —
-  it is read only after resolution has already failed."
+  to write there.
+
+  AND A MISMATCH IS A THIRD (rf2-nqj22). The reader now answers nil for one
+  more reason: inside an extent that declared its own `:extent-frame`, a
+  carried stamp naming a DIFFERENT frame is not an answer that extent will
+  accept, because the body would then read and dispatch against one frame
+  while its own reads, lowered intents and children target another. This
+  raises the same `:rf.error/ambient-frame-refused`, with the two frames
+  named on the payload so the author is not sent looking for the wrong one.
+  A MATCHED carried stamp still answers — refusing it would make `with-frame`
+  and `{:frame …}` disagree, which is strictly worse than the silence this
+  closes.
+
+  The discrimination costs the ordinary path nothing: it is read only after
+  resolution has already failed."
   ([operation] (require-current-frame! operation nil))
   ([operation extra]
    (or (resolve-current-frame)
        (if-some [refusal *ambient-frame-refusal*]
-         (let [payload (ambient-frame-refused-payload operation refusal extra)]
+         ;; Two refusals, one id. The reader answered nil either because
+         ;; nothing was carried at all (the ambient FIND was refused) or
+         ;; because what was carried is not this extent's frame — and only
+         ;; the second can name a stamp, so `:carried-frame` is what the
+         ;; payload builder discriminates on. Read here, on the failed path,
+         ;; rather than threaded down from the reader, so the ordinary
+         ;; resolution stays a single call returning a single value.
+         (let [payload (ambient-frame-refused-payload
+                         operation refusal
+                         (if-some [carried (frame-value->id (current-frame))]
+                           (assoc extra :carried-frame carried)
+                           extra))]
            (emit-ambient-frame-refused! payload)
            (throw (error/ex-info-from-data payload)))
          (let [payload (no-frame-context-payload operation extra)]

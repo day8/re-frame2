@@ -280,46 +280,51 @@
             "frames are isolated contexts — the sibling must not have moved")))))
 
 ;; ---------------------------------------------------------------------------
-;; The one configuration where the ambient carry still answers — and
-;; answers the WRONG frame
+;; The configuration where the ambient carry used to answer the WRONG frame
 ;; ---------------------------------------------------------------------------
 
-(deftest a-carried-outer-scope-makes-the-ambient-carry-answer-the-wrong-frame
+(deftest a-carried-outer-scope-refuses-rather-than-answering-the-wrong-frame
   (frames!)
-  (testing "FOUND while grounding the SSR rows, and pinned because it is
-           the residual case the whole primitive is for. rf2-2rtt6.122's
-           refusal withdraws the ambient FIND and never the CARRYING, so a
-           tier-1 stamp — an enclosing `rf/with-frame` — still answers
-           inside a body. Core is behaving exactly as EP-0002 specifies:
-           frame identity is carried, and that stamp WAS carried.
+  (testing "FOUND while grounding the SSR rows and pinned as a DEFECT
+           (rf2-nqj22); this row is its inversion, not a new claim.
+           rf2-2rtt6.122's refusal withdrew the ambient FIND and never the
+           CARRYING, so a tier-1 stamp — an enclosing `rf/with-frame` — still
+           answered inside a body. Core was behaving exactly as EP-0002
+           specifies: frame identity is carried, and that stamp WAS carried.
 
-           But the boundary is rendering under a different frame, and
-           everything else in the body targets THAT one: the collector's
-           reads, the lowered intents, the presence tray. So one body ends
-           up with two frames depending on which spelling the author
-           reached for, and the ambient one is silently the outer scope's.
+           But the boundary renders a different frame, and everything else in
+           the body targets THAT one: the collector's reads, the lowered
+           intents, the presence tray. One body, two frames, chosen by which
+           spelling the author reached for, and silent. Frames are ISOLATED
+           contexts, so the extent now declares its own frame to core and a
+           mismatched stamp refuses instead of quietly winning.
 
-           `(rf/capture-frame (h/frame))` is immune, because `h/frame`
-           reads the boundary's own binding. Behaviour is PINNED here, not
-           endorsed — whether the refusal should also withdraw a MISMATCHED
-           carried stamp inside a substrate render extent is a design
-           question filed separately (rf2-nqj22)"
+           `h/frame` and the composed carry are unchanged — they read the
+           boundary's own binding and never enter core's chain at all, which
+           is exactly what the primitive is for. The refusal's own rows live
+           with their siblings in `arm1/ambient_refusal_cljs_test`"
     (let [seen (volatile! ::unset)]
       (rf/with-frame frame-b
         (rt/render-body frame-a
                         (fn [_]
-                          (vreset! seen {:ambient  (rf/capture-frame)
+                          (vreset! seen {:ambient  (outcome #(rf/capture-frame))
                                          :composed (rf/capture-frame (intent/hframe))
                                          :hframe   (intent/hframe)})
                           [:li])
                         {}))
-      (is (= frame-b (:frame (:ambient @seen)))
-          "the ambient carry answered the ENCLOSING scope, not the boundary")
+      (is (= :rf.error/ambient-frame-refused (:rf.error/id (:ambient @seen)))
+          (str "the ambient carry must refuse rather than answer the ENCLOSING
+                scope; got " (pr-str (:ambient @seen))))
+      (is (= frame-b (:carried-frame (:ambient @seen)))
+          "naming the stamp that was carried")
+      (is (= frame-a (:extent-frame (:ambient @seen)))
+          "and the frame the boundary is rendering")
       (is (= frame-a (:hframe @seen))
           "while the boundary is unambiguously rendering under its own frame")
       (is (= frame-a (:frame (:composed @seen)))
           "and the composed spelling carries the boundary's — which is the
-           whole of what `h/frame` buys here"))))
+           whole of what `h/frame` buys here, and is the spelling that was
+           already correct before the refusal reached this case"))))
 
 ;; ---------------------------------------------------------------------------
 ;; W9 — an event-time read is not silently wrong

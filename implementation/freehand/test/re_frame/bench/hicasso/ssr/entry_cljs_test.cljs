@@ -22,6 +22,7 @@
             [re-frame.bench.hicasso.arm1.runtime :as rt]
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.dogfood :as dogfood]
+            [re-frame.bench.hicasso.front.intent :as intent]
             [re-frame.bench.hicasso.ssr.entry :as entry]
             [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
             [re-frame.core :as rf]
@@ -29,7 +30,9 @@
             ;; rf2-2rtt6.91 — the entry no longer computes a render hash, so
             ;; the row that keeps the measurement live takes it DIRECTLY.
             [re-frame.ssr.hash :as ssr-hash]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as frame]
+            [re-frame.test-support :as test-support])
+  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 ;; The adapter is UIx's for the reason `arm1/runtime_cljs_test` gives: it
 ;; is the substrate with a real reactivity layer, and Spec 006 allows
@@ -425,3 +428,54 @@
             (str id " stamped a render-hash marker on an adoption-tier root"))
         (is (not (contains? payload :rf/render-hash))
             (str id " shipped :rf/render-hash in an adoption-tier payload"))))))
+
+;; ---------------------------------------------------------------------------
+;; The host scope does not leak into a per-request body (rf2-nqj22)
+;; ---------------------------------------------------------------------------
+;;
+;; THIS FILE IS WHERE THE DEFECT WAS FOUND, which is the only reason the row
+;; lives here rather than beside its siblings in
+;; `arm1/ambient_refusal_cljs_test`. `test-support`'s `:ambient-frame` default
+;; root-binds `*current-frame*` to `:rf/default`, and the fixture above takes
+;; that default — so every witness in this file renders its per-request frame
+;; inside a `:rf/default` stamp. Measured on the tree before the fix: a
+;; `(rf/capture-frame)` in a body under `renderToString` answered
+;; `:rf/default`, while `h/frame` in the same body answered the per-request
+;; frame the markup was actually built from. An SSR host is the worst place
+;; for that: the wrong frame is a long-lived process-wide one, and what it
+;; would carry away is a closure that outlives the request.
+
+(def ^:private scope-probe-seen (volatile! ::unset))
+
+(defview scope-probe
+  "A body that reaches for the ambient frame three ways, so the row can say
+  which of them the host's outer scope reached."
+  [_]
+  (vreset! scope-probe-seen
+           {:ambient  (try (rf/capture-frame)
+                           (catch :default e (ex-data e)))
+            :composed (:frame (rf/capture-frame (intent/hframe)))
+            :hframe   (intent/hframe)})
+  [:p.scope-probe "probe"])
+
+(deftest the-hosts-ambient-scope-does-not-answer-inside-a-per-request-body
+  (testing "the render entry mints a per-request frame and renders under it,
+           inside whatever scope the host happens to have established — here
+           the fixture's `:rf/default`. A body that resolves ambiently must
+           not silently answer the host's frame"
+    (is (= :rf/default frame/*current-frame*)
+        "precondition: the fixture's ambient scope IS live, so a green row
+         below is the refusal working rather than nothing to refuse")
+    (let [{:keys [frame-id html]} (entry/render {:hiccup  [scope-probe {}]
+                                                 :payload fixtures/dogfood-payload-keys})
+          {:keys [ambient composed hframe]} @scope-probe-seen]
+      (is (str/includes? html "scope-probe") "the body ran under renderToString")
+      (is (not= :rf/default frame-id)
+          "precondition: the per-request frame is not the host's")
+      (is (= frame-id hframe) "the boundary renders the per-request frame")
+      (is (= frame-id composed) "and the composed carry has always been immune")
+      (is (= :rf.error/ambient-frame-refused (:rf.error/id ambient))
+          (str "the ambient carry must refuse rather than answer the host's
+                scope; got " (pr-str ambient)))
+      (is (= :rf/default (:carried-frame ambient)))
+      (is (= frame-id (:extent-frame ambient))))))
