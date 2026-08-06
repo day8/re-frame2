@@ -48,7 +48,7 @@
   |---------------|----------|----------------|
   | `ship-lazy`   | lazy     | the mount-billed walk: interpretation PLUS the body's lazy card/sub work |
   | `ship`        | realized | the shipping walk alone |
-  | `local`       | realized | the faithful in-namespace copy — the ablation baseline, validated against `ship` |
+  | `local`       | realized | the in-namespace copy — the ablation baseline, and the in-process A/B's OLD arm |
   | `no-create`   | realized | `local` with `react/createElement` swapped for a two-field object mint |
   | `no-props`    | realized | `local` emitting `#js {}` per element — the whole prop pipeline removed |
   | `no-lower`    | realized | `local` with intent lowering stubbed (vectors/maps at any position -> nil, cheaply) |
@@ -83,6 +83,20 @@
   foreign one compares call conventions as much as phases, and that
   confound was only ever caught by keeping all arms local and checking
   the copy against the shipping fn explicitly.
+
+  ## What `local` is frozen against (the PR #7383 audit)
+
+  `local` is also the OLD arm of the in-process A/B, so the two paths
+  the rf2-y1jkm candidate cheapened are held at their pre-candidate
+  shape here rather than reached for in the codec:
+  [[local-prop-cache]]/[[local-prop-name]] for the prop NAME, and
+  [[local-convert-prop-value]] for the prop VALUE. A baseline that calls
+  a helper the candidate changed absorbs the candidate and undersells
+  it, which is what the merged-PR audit found at `walk-value`. What is
+  deliberately NOT frozen, and why, is on
+  [[local-convert-prop-value]]'s own docstring; both freezes are pinned
+  by `walk_profile_baseline_cljs_test`, which fails if either arm
+  re-enters the shipping helper.
 
   Every phase delta is quoted as `local - variant`, so a positive number
   is the phase's cost. The stubs are not free (an object mint, a pair of
@@ -289,8 +303,10 @@
     (if (or (vector? v) (map? v)) nil v)
     (intent/lower-prop k v)))
 
+(declare local-convert-prop-value)
+
 (defn- walk-value [mode v]
-  (if (identical? mode M-NO-VALUE) v (codec/convert-prop-value v)))
+  (if (identical? mode M-NO-VALUE) v (local-convert-prop-value v)))
 
 (def ^:private id-slot "id")
 (def ^:private class-slot "className")
@@ -328,6 +344,8 @@
 ;; the `local` arm stays the pre-optimisation walk even after the codec's
 ;; own cache changes shape. Without this the ablation baseline silently
 ;; absorbs half the candidate and the in-process A/B undersells it.
+;; [[local-convert-prop-value]] below is the other half of the same
+;; freeze; `walk_profile_baseline_cljs_test` pins both.
 (def ^:private local-prop-cache
   (doto #js {}
     (unchecked-set "class" "className")
@@ -347,6 +365,53 @@
           (let [converted (codec/prop-name k)]
             (unchecked-set local-prop-cache n converted)
             converted))))))
+
+(defn- local-nested-map->js
+  "The donor's `nested-map->js`, on the frozen name lookup and the frozen
+  converter — `:style` and its kin."
+  [m]
+  (reduce-kv (fn [o k v] (unchecked-set o (local-prop-name k) (local-convert-prop-value v)) o)
+             #js {}
+             m))
+
+(defn local-convert-prop-value
+  "The donor's `convert-prop-value` **in the branch order the codec
+  shipped when this bead opened** — before the candidate's `string?`
+  fast lane (rf2-y1jkm).
+
+  Frozen here for the reason [[local-prop-cache]] is: `local` is the
+  ablation baseline AND the in-process A/B's old arm, and an old arm
+  that calls the candidate's own converter absorbs the candidate and
+  undersells it. PR #7383's audit named this exact site — the `local`
+  walk reached straight into `codec/convert-prop-value`, which that same
+  PR changed, so the quoted old-vs-new figure was measured against a
+  baseline the candidate had already reached into.
+
+  The answer is unchanged for every input; only the order of the tests
+  is. `walk_profile_baseline_cljs_test` asserts both halves of that —
+  that this agrees with the shipping converter value for value, and that
+  the baseline arm never enters the shipping one.
+
+  ## What is NOT frozen, and why
+
+  `merge-shorthand` and the map-copying `dissoc` the candidate also
+  replaced were **deleted** from the codec by rf2-2rtt6.36, so there is
+  no shipping shape left to copy and rf2-2rtt6.70 re-pointed
+  [[walk-convert-props]] at the lanes that ship. `codec/cached-parse`
+  likewise keeps the candidate's cheaper reserved-name check, because
+  the `parse-raw` benefit line prices the TAG CACHE and needs both its
+  arms on one parse implementation. So `local` is the pre-optimisation
+  walk in its prop-VALUE and prop-NAME paths, which is what the audit
+  asked for, and not a frozen copy of the whole pre-PR codec — which is
+  also why the reported `local/ship` line reads as an A/B ratio rather
+  than as a fidelity check near 1.0."
+  [v]
+  (cond
+    (fn? v)                       v
+    (map? v)                      (local-nested-map->js v)
+    (or (keyword? v) (symbol? v)) (name v)
+    (coll? v)                     (clj->js v)
+    :else                         v))
 
 (defn- walk-convert-props
   "The shipping `convert-props`' two lanes, with the phase switches.
@@ -450,6 +515,13 @@
     (keyword? x)     (name x)
     (symbol? x)      (name x)
     :else            x))
+
+(defn walk-arm
+  "Run the local walk at `mode` over hiccup `h`. The arms table reaches
+  [[walk-el]] directly; this exists so the witness set can run an arm
+  from outside the namespace without the modes leaking any further."
+  [mode h]
+  (walk-el mode h))
 
 ;; ---------------------------------------------------------------------------
 ;; The census
