@@ -92,6 +92,13 @@ canonical.
    CI-gated on the witnesses; UIx co-instrumented. The gate lives in an
    operator-owned standard bead with the kill bound and decider pre-registered:
    prose gates have historically been disposed of by ruling; beads survive.
+   **Amended 2026-08-05 (`rf2-hyd50`, operator-acked 2026-08-07):** the entry
+   gate is per-axis — **mount ≤ 1.10× direct UIx-on-subs** on the clock of
+   record, with Reagent-on-subs co-instrumented and reported beside that row
+   rather than gating it, and **bulk ≤ 1.0× Reagent-on-subs, like-for-like**,
+   unchanged. The sentence above stands as the record of what this charter
+   pre-registered, and is the live bar again if the operator overturns the
+   ruling. Same note, at length, under the v0 scope paragraph below.
 2. **Same authoring model; outcome-keeps only.** The model was independently
    re-derived from requirements alone, and no correctness failure was ever
    recorded against it. No keep-lists as architecture. Candidates for
