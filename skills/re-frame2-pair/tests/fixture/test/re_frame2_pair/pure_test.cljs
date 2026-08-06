@@ -129,9 +129,65 @@
   (is (pure/frameless-event? {:tags {:registry-kind :event}}))
   (is (not (pure/frameless-event? {:tags {:rf.trace/dispatch-id 1}}))))
 
-(deftest event-byte-size-is-pr-str-count
-  (is (= (count (pr-str {:a 1})) (pure/event-byte-size {:a 1})))
-  (is (number? (pure/event-byte-size {:x (range 5)}))))
+;; ---------------------------------------------------------------------------
+;; `event-byte-size` — the ruler the streaming byte budget is enforced against
+;; ---------------------------------------------------------------------------
+;;
+;; DISCRIMINATING FIXTURES (rf2-2rtt6.135). All three `pr-str` to the SAME 47
+;; UTF-16 code units and to THREE different UTF-8 byte lengths, so the
+;; defective `(count (pr-str ev))` answers 47 for all three while the honest
+;; ruler separates them. `astral-40` additionally separates code POINTS (20)
+;; from code UNITS (40). Built from `fromCodePoint` so this source file stays
+;; pure ASCII and no re-encoding can mangle the surrogate pair.
+
+(def ^:private em-dash   (.fromCodePoint js/String 0x2014)) ;; 1 unit / 1 point / 3 bytes
+(def ^:private g-clef    (.fromCodePoint js/String 0x1D11E)) ;; 2 units / 1 point / 4 bytes
+
+(def ^:private ascii-40  (apply str (repeat 40 "x")))
+(def ^:private emdash-40 (apply str (repeat 40 em-dash)))
+(def ^:private astral-40 (apply str (repeat 20 g-clef)))
+
+(defn- ev [s] {:s s})
+
+(deftest event-byte-size-counts-utf8-bytes-not-code-units
+  (testing "the fixtures are genuinely indistinguishable to `count`"
+    (is (= 40 (count ascii-40) (count emdash-40) (count astral-40))
+        "one code-unit length across all three")
+    (is (= 20 (.-length (js/Array.from astral-40)))
+        "astral-40 is 20 code POINTS in 40 code UNITS")
+    (is (= 47 (count (pr-str (ev ascii-40)))
+             (count (pr-str (ev emdash-40)))
+             (count (pr-str (ev astral-40))))
+        "the defective (count (pr-str ev)) answers 47 for all three"))
+  (testing "UTF-8 bytes separate them"
+    ;; ASCII stays green under an under-count -- the failure is specific to
+    ;; non-ASCII, which is what makes this a discriminator and not a smoke alarm.
+    (is (= 47 (pure/event-byte-size (ev ascii-40)))  "ASCII: bytes == code units")
+    (is (= 127 (pure/event-byte-size (ev emdash-40))) "40 x 3-byte em-dash + 7 ASCII")
+    (is (= 87 (pure/event-byte-size (ev astral-40)))  "20 x 4-byte astral + 7 ASCII"))
+  (testing "pr-str failure still falls back to 0 rather than blowing up enqueue"
+    (is (= 0 (pure/event-byte-size (reify IPrintWithWriter
+                                     (-pr-writer [_ _ _] (throw (js/Error. "nope")))))))))
+
+(deftest byte-budget-evicts-sooner-on-multi-byte-payload
+  ;; The behaviour change rf2-2rtt6.135 accepts, measured. One cap, one
+  ;; code-unit length, two payloads: the honest ruler holds 6 ASCII events and
+  ;; only 2 em-dash events. Under the old ruler BOTH held 6 -- the queue was
+  ;; sitting on 762 true bytes against a 300-byte budget.
+  (let [cap  300
+        fill (fn [payload]
+               (reduce #(pure/enqueue %1 "s" %2)
+                       {"s" (pure/make-subscription
+                              "s" {:topic :trace
+                                   :max-buffered-events 1000
+                                   :max-buffered-bytes  cap}
+                              0)}
+                       (repeat 20 (ev payload))))]
+    (is (= 6 (count (get-in (fill ascii-40) ["s" :queue])))
+        "6 x 47 bytes = 282, inside the 300-byte cap")
+    (is (= 2 (count (get-in (fill emdash-40) ["s" :queue])))
+        "2 x 127 bytes = 254; a 3rd would be 381 -- evicts at a THIRD the depth")
+    (is (= :max-buffered-bytes (get-in (fill emdash-40) ["s" :overflow-reason])))))
 
 (defn- trace-sub
   "A trace-topic subscription map for `sub-id` with the given budgets."

@@ -133,7 +133,7 @@ The final summary the call resolves with:
  :topic    :epoch
  :delivered      <count>
  :dropped-events <count>   ;; events evicted from the runtime queue
- :dropped-bytes  <count>   ;; bytes evicted alongside (pr-str char count)
+ :dropped-bytes  <count>   ;; UTF-8 bytes of pr-str evicted alongside
  :ticks          <count>
  :reason         :max-events-reached  ;; or one of the four above
  ;; optional, only when overflow eviction occurred:
@@ -142,7 +142,7 @@ The final summary the call resolves with:
  :dropped-sensitive <count>}
 ```
 
-Byte+event buffer budget: the runtime queue is bounded by an OR-combined pair — `max-buffered-events` (default 500) and `max-buffered-bytes` (default 5_000_000, ~5 MB pr-str char count). On overflow the OLDEST queued events are evicted (drop-oldest FIFO); count/bytes/reason surface on the next `notifications/progress` tick and the final summary. The byte budget is the load-bearing bound; the event budget is a coarse backstop for chatty-filter overruns. Tune `max-buffered-bytes` when `:overflow-reason :max-buffered-bytes` keeps tripping — a large-payload storm.
+Byte+event buffer budget: the runtime queue is bounded by an OR-combined pair — `max-buffered-events` (default 500) and `max-buffered-bytes` (default 5_000_000, ~5 MB of UTF-8 bytes of `pr-str`). On overflow the OLDEST queued events are evicted (drop-oldest FIFO); count/bytes/reason surface on the next `notifications/progress` tick and the final summary. The byte budget is the load-bearing bound; the event budget is a coarse backstop for chatty-filter overruns. Tune `max-buffered-bytes` when `:overflow-reason :max-buffered-bytes` keeps tripping — a large-payload storm.
 
 ## Privacy posture
 

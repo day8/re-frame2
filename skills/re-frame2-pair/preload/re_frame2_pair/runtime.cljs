@@ -1474,9 +1474,11 @@
 ;;    :topic    :trace | :epoch | :fx | :error
 ;;    :filter   <filter-map>         ;; vocab depends on topic
 ;;    :queue    <vector of events>   ;; appended-to by the cb, drained by the server
-;;    :queue-bytes <integer>         ;; running sum of (count (pr-str ev)) for queued events
+;;    :queue-bytes <integer>         ;; running sum of the UTF-8 BYTE size of
+;;                                   ;; (pr-str ev) over the queued events
+;;                                   ;; (`pure/event-byte-size`; rf2-2rtt6.135)
 ;;    :dropped-events <integer>      ;; events evicted because EITHER budget tripped
-;;    :dropped-bytes  <integer>      ;; bytes evicted alongside :dropped-events
+;;    :dropped-bytes  <integer>      ;; UTF-8 bytes evicted alongside :dropped-events
 ;;    :overflow-reason :max-buffered-events | :max-buffered-bytes | nil
 ;;                                   ;; budget that tripped LAST — surfaced verbatim
 ;;                                   ;; so the AI client knows WHICH limit it should
@@ -1484,7 +1486,8 @@
 ;;                                   ;; counters.
 ;;    :created-at <ms>
 ;;    :max-buffered-events <integer> ;; queue cap in events; default 500
-;;    :max-buffered-bytes  <integer>} ;; queue cap in bytes; default 5_000_000 (~5 MB)
+;;    :max-buffered-bytes  <integer>} ;; queue cap in UTF-8 bytes of pr-str;
+;;                                   ;; default 5_000_000 (~5 MB)
 ;;
 ;; Overflow policy (drop-oldest, byte+event budget):
 ;;   On enqueue, we first append the new event, then evict from the
@@ -1742,7 +1745,8 @@
      :max-buffered-events  cap on the in-runtime queue in events.
                            Default 500. When either budget trips, the
                            OLDEST events are evicted (drop-oldest FIFO).
-     :max-buffered-bytes   cap on the in-runtime queue in pr-str bytes.
+     :max-buffered-bytes   cap on the in-runtime queue in UTF-8 BYTES of
+                           each event's `pr-str` form (rf2-2rtt6.135).
                            Default 5_000_000 (~5 MB). Same drop-oldest
                            policy. The two budgets are OR-combined:
                            whichever trips first evicts.
@@ -1876,7 +1880,12 @@
    Returns
    `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes
                        :dropped-events :dropped-bytes :overflow-reason
-                       :created-at}]}`."
+                       :created-at}]}`.
+
+   `:queue-bytes` and `:dropped-bytes` are UTF-8 BYTES of each event's
+   `pr-str` form — the same ruler `:max-buffered-bytes` is enforced against
+   (`pure/event-byte-size`; rf2-2rtt6.135), so an agent comparing the two
+   is comparing like with like."
   []
   {:ok? true
    :subs (mapv (fn [[sub-id sub]]

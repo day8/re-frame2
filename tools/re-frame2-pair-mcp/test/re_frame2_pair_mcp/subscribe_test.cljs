@@ -361,16 +361,25 @@
 ;;
 ;; Parallel fixture of the runtime's `evict-oldest` / `enqueue!`
 ;; (drop-oldest, OR-combined budget) so the MCP-side test harness pins
-;; the contract. The runtime itself is bb-tested under
-;; `skills/re-frame2-pair/tests/runtime/streaming_subscriptions_test.clj`;
-;; this CLJS fixture lets `npm test` exercise the same contract
-;; alongside the MCP wire surface assertions above.
+;; the contract. The runtime itself is exercised directly under
+;; `skills/re-frame2-pair/tests/fixture` (`npm run test:pure`, against the
+;; SHIPPED `re-frame2-pair.pure`); this CLJS fixture lets `npm test`
+;; exercise the same contract alongside the MCP wire surface assertions
+;; above. Being a declared MIRROR, it moves whenever the runtime moves.
 
 (def ^:private default-max-events 500)
 (def ^:private default-max-bytes 5000000)
 
-(defn- event-byte-size [event]
-  (count (pr-str event)))
+(defn- event-byte-size
+  "Mirrors `re-frame2-pair.pure/event-byte-size`: UTF-8 BYTES of the event's
+   `pr-str` form, not `count`'s UTF-16 code units (rf2-2rtt6.135). The two
+   rulers agree only on ASCII, so a mirror left on `count` would keep
+   answering the right number for this file's ASCII fixtures while silently
+   ceasing to model the budget the runtime actually enforces."
+  [event]
+  (let [^js enc (js/TextEncoder.)
+        ^js buf (.encode enc (pr-str event))]
+    (.-length buf)))
 
 (defn- evict-oldest
   [sub max-events max-bytes]

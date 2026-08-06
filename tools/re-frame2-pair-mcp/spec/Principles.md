@@ -754,11 +754,14 @@ OR-combined pair on the runtime side:
 
 - `:max-buffered-events` — integer event-count cap, default
   500. The coarse backstop.
-- `:max-buffered-bytes` — integer pr-str byte cap, default
-  5_000_000 (~5 MB). The load-bearing bound. The unit
-  matches the wire-cap's `pr-str` character count discipline
-  (`token-estimate = (quot bytes 4)`), so the budgets across
-  the upstream-queue and the egress-wire stay coherent.
+- `:max-buffered-bytes` — integer cap on the UTF-8 BYTES of each
+  event's `pr-str` form, default 5_000_000 (~5 MB). The
+  load-bearing bound. The unit matches the wire-cap's own UTF-8
+  `pr-str` byte discipline (`token-estimate = (quot bytes 4)`), so
+  the budgets across the upstream-queue and the egress-wire stay
+  coherent — a coherence that only became true when both rulers
+  stopped counting UTF-16 code units (rf2-2rtt6.132 on the wire
+  cap, rf2-2rtt6.135 on this one).
 
 The runtime's `enqueue!` admits the new event first, then
 evicts from the FRONT of the queue until BOTH budgets hold.
