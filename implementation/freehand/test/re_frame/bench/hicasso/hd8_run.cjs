@@ -312,6 +312,11 @@ async function runOne(chromium, run) {
     const contractSelfTest = await page.evaluate(
       'window.HD8_CORRECTION_SELFTEST === undefined ? null : window.HD8_CORRECTION_SELFTEST'
     );
+    // THE CLOCK'S OWN GRAIN, measured in this page rather than quoted from a
+    // comment (rf2-d2tzk). It decides which of this run's magnitudes are
+    // reportable, so it rides the same JS-readable channel as the verdicts it
+    // governs instead of only the EDN blob.
+    const clock = await page.evaluate('window.HD8_CLOCK || null');
     const userAgent = await page.evaluate('navigator.userAgent');
     // THE SENTINEL'S OWN FAILURE LIST, read rather than discarded (rf2-x6g04).
     // `watch.race` throws on a failure that arrives while it is waiting, so
@@ -327,7 +332,7 @@ async function runOne(chromium, run) {
     watch.dispose();
     return {
       id: run.id, why: run.why, err, results, samples, summary,
-      correction, contractSelfTest, userAgent, lines, pageErrors,
+      correction, contractSelfTest, clock, userAgent, lines, pageErrors,
     };
   } finally {
     await browser.close();
@@ -353,10 +358,25 @@ function adjudicate(run) {
 // The table
 // ---------------------------------------------------------------------------
 
+// TWO PUBLICATION MASKS ARRIVE IN ONE SHAPE and print as two different
+// sentences, because they mean two different things and a reader must not
+// have to know which by looking up the reason code:
+//
+//   failed-dom-read-back   a FAULT — real milliseconds spent on a page that
+//                          never changed. Exit 3.
+//   below-clock-grain      a LIMIT — a window that does not exceed the clock's
+//                          own measured resolution, so the ratio taken against
+//                          it carries the grain rather than the arm. Exit 0,
+//                          and the row says so (rf2-d2tzk).
+//
+// Neither prints a number: that is the whole point of a mask.
 const band = (v) =>
-  v.unpublished
-    ? `UNPUBLISHED (${v.unverified}/${v.of} unverified)`
-    : `${v.min.toFixed(3)} – ${v.max.toFixed(3)}${v.straddles1 ? '  [STRADDLES 1.0 — indistinguishable]' : ''}`;
+  v.unpublished === 'below-clock-grain'
+    ? `NOT REPORTABLE — ${(v.arms || []).join(', ')} at ${v.quanta} tick(s) of this clock's ` +
+      `own ${v.tick} ms grain; no magnitude normalised by it is reportable`
+    : v.unpublished
+      ? `UNPUBLISHED (${v.unverified}/${v.of} unverified)`
+      : `${v.min.toFixed(3)} – ${v.max.toFixed(3)}${v.straddles1 ? '  [STRADDLES 1.0 — indistinguishable]' : ''}`;
 
 // The cross-run table. Every arm's figure is a ratio to the floor measured
 // in its OWN round, and the floor is the same hand-written `createElement`
@@ -372,6 +392,17 @@ function crossRun(runs) {
   out.push(';; ==== HD8 CROSS-RUN TABLE — every figure a RANGE over 6 rounds, ratio to the ====');
   out.push(';; ==== floor measured in the SAME round. The floor is identical code in an   ====');
   out.push(';; ==== identical bundle; only the installed adapter differs between runs.    ====');
+  // The clock that took every figure below, stated at the head of the table it
+  // governs. A ratio is only as resolved as its denominator, and a denominator
+  // is only as resolved as this number (rf2-d2tzk).
+  for (const run of runs) {
+    if (run.clock && run.clock.tick != null) {
+      out.push(
+        `;;   [${run.id.padEnd(7)}] clock grain ${run.clock.tick} ms, measured — ` +
+          `${run.clock.n} observations, differences ${JSON.stringify(run.clock.distinct)}`
+      );
+    }
+  }
   if (PARTIAL) {
     out.push(';;');
     out.push(`;;   PARTIAL RUN — HD8_ONLY=${ONLY}. This is not the published shape.`);
@@ -393,6 +424,18 @@ function crossRun(runs) {
       const s = run.summary[row];
       if (!s) continue;
       const mark = pub ? '' : ' [NON-PUBLISHING]';
+      // HOW MANY OF THE CLOCK'S OWN TICKS THIS ROW'S WINDOWS ARE WORTH,
+      // above the figures they form. A denominator worth one tick and a
+      // denominator worth ten produce the same-looking band, and only this
+      // line tells them apart (rf2-d2tzk). Printed for every write row,
+      // reportable or not: a reader who copies `11.000 – 13.667` needs to
+      // know that its denominator moved between one tick and two.
+      if (s.grain && s.grain.tick != null) {
+        const worst = Object.entries(s.grain.worst || {})
+          .map(([arm, q]) => `${arm} ${q == null ? '?' : q}`)
+          .join(', ');
+        out.push(`;;     [${run.id.padEnd(7)}] CLOCK GRAIN: ${s.grain.tick} ms measured — windows worth (ticks) ${worst}`);
+      }
       // The harness-microtask correction, stamped on the figures it governs.
       // `:not-owed` is the common case and says nothing; the other three all
       // change what a reader may do with the numbers on the line below.
@@ -501,6 +544,48 @@ function tableSelfTest() {
       ok: /donor-r1.*2\.000 – 2\.000.*\[UNADJUSTED\]/.test(out) && /donor-r1.*2\.200 – 2\.300.*\[CORRECTED\]/.test(out),
     },
   ];
+  // THE CLOCK-GRAIN MARKER, replayed through the same live `crossRun`
+  // (rf2-d2tzk). The live shape, from the run recorded on the bead: the bulk
+  // row's floor at one tick of a measured 0.1 ms grain takes the whole
+  // floor-normalised column, and the head-to-head pair — arm over arm, the
+  // floor cancelling exactly — is still printed as a number. A table that let
+  // either half of that slip is a table that publishes the grain.
+  const grainRuns = [
+    {
+      id: 'slim',
+      summary: {
+        'write-bulk': {
+          vsFloor: {
+            floor: { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+            'reagent-slim': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+          },
+          headToHead: { 'donor-r1-over-reagent-slim': { min: 1.185, max: 1.313, straddles1: false } },
+          grain: { tick: 0.1, worst: { floor: 1, 'reagent-slim': 17 }, quanta: {} },
+        },
+      },
+      correction: { 'write-bulk': { verdict: 'moot', reason: 'no-published-figure-bears-it', bound: null, why: 'fixture' } },
+    },
+  ];
+  const gout = crossRun(grainRuns).join('\n');
+  checks.push(
+    {
+      name: 'a window beneath the clock grain prints NOT REPORTABLE and never a number',
+      ok:
+        /reagent-slim\s+vs floor\s+NOT REPORTABLE — floor at 1 tick\(s\) of this clock's own 0\.1 ms grain/.test(gout) &&
+        // and no numeric band anywhere on a vs-floor line of this row. The
+        // head-to-head line beside it carries the same arm's NAME and a real
+        // band, which is the point, so the check is anchored to the column.
+        !/vs floor\s+\d/.test(gout),
+    },
+    {
+      name: 'the head-to-head pair beside it still prints its band (the floor cancels)',
+      ok: /donor-r1-over-reagent-slim\s+1\.185 – 1\.313/.test(gout),
+    },
+    {
+      name: 'and the row states how many ticks each window was worth',
+      ok: /CLOCK GRAIN: 0\.1 ms measured — windows worth \(ticks\) floor 1, reagent-slim 17/.test(gout),
+    }
+  );
   return { ok: checks.every((c) => c.ok), checks };
 }
 
@@ -553,6 +638,14 @@ function tableSelfTest() {
 /** The flat record the exit is decided on. One entry per refusable thing. */
 function summarise({ hardFail, contractFailed, orderRefused, runs } = {}) {
   const unpublished = [];
+  // A LIMIT IS NOT A FAULT, and the exit code is where that distinction has
+  // to live or it does not exist. A window beneath the clock's own grain
+  // produces the same marker shape as a failed DOM read-back and must not
+  // produce the same exit: nothing is broken, the instrument simply cannot
+  // resolve that magnitude, and the row publishes THAT (rf2-d2tzk). Failing
+  // the sweep on it would also brick the driver — the bulk row's floor is one
+  // commit under one clock and sits on the grain by construction, every run.
+  const instrumentLimited = [];
   const refusedCorrections = [];
   const pageErrors = [];
   for (const run of runs || []) {
@@ -565,7 +658,12 @@ function summarise({ hardFail, contractFailed, orderRefused, runs } = {}) {
         ...Object.entries((s && s.headToHead) || {}),
       ];
       for (const [figure, v] of surfaces) {
-        if (v && v.unpublished) {
+        if (v && v.unpublished === 'below-clock-grain') {
+          instrumentLimited.push({
+            run: run.id, row, figure,
+            arms: (v.arms || []).join(', '), tick: v.tick, quanta: v.quanta,
+          });
+        } else if (v && v.unpublished) {
           unpublished.push({ run: run.id, row, figure, why: String(v.unpublished), unverified: v.unverified, of: v.of });
         }
       }
@@ -582,6 +680,7 @@ function summarise({ hardFail, contractFailed, orderRefused, runs } = {}) {
     orderRefused: Boolean(orderRefused),
     pageErrors,
     unpublished,
+    instrumentLimited,
     refusedCorrections,
   };
 }
@@ -591,6 +690,7 @@ function verdict(summary) {
   const s = summary || {};
   const pageErrors = s.pageErrors || [];
   const unpublished = s.unpublished || [];
+  const instrumentLimited = s.instrumentLimited || [];
   const refusedCorrections = s.refusedCorrections || [];
   const lines = [];
 
@@ -631,6 +731,23 @@ function verdict(summary) {
           .join('\n  ')
     );
   }
+  if (instrumentLimited.length) {
+    // NOT a refusal, and it deliberately does not read like one. The run
+    // measured what it could and states what it could not: a window that does
+    // not exceed the clock's own grain has no magnitude, so the table carries
+    // NOT REPORTABLE where a ratio would be. The permanent repair is the
+    // batched window the narrow row got, which changes a measured window and
+    // obliges a re-take of the row (rf2-2rtt6.7's to authorise).
+    lines.push(
+      '[hd8] NO REPORTABLE MAGNITUDE — a measured window does not exceed this clock\'s own grain ' +
+        '(rf2-d2tzk), so the figures normalised by it carry the instrument rather than the arm. ' +
+        'Everything else in this run stands, and the within-run head-to-head pairs are unaffected ' +
+        '(the floor cancels out of them exactly):\n  ' +
+        instrumentLimited
+          .map((u) => `${u.run} / ${u.row} / ${u.figure}: ${u.arms} at ${u.quanta} tick(s) of ${u.tick} ms`)
+          .join('\n  ')
+    );
+  }
   if (refusedCorrections.length) {
     lines.push(
       '[hd8] REFUSED — the harness-microtask yield correction could not be discharged ' +
@@ -640,6 +757,14 @@ function verdict(summary) {
     );
   }
 
+  // `instrumentLimited` is DELIBERATELY absent from this expression, and the
+  // deliberateness is written down because rf2-rr6do's recorded fault was
+  // exactly three refusals that printed and never reached the exit. This one
+  // is not a refusal: nothing failed, a magnitude was never available, and the
+  // run publishes that as its result. A driver that exited non-zero on it
+  // would exit non-zero on EVERY run — the bulk row's floor is one commit
+  // under one clock and sits on the grain by construction — which is a broken
+  // gate, not a strict one (rf2-d2tzk).
   const code =
     s.hardFail || pageErrors.length || s.contractFailed
       ? 1
@@ -764,6 +889,49 @@ function verdictSelfTest() {
   );
   const all = verdict(summarise({ hardFail: 'x', orderRefused: true, runs: [readBackRun(), refusedRun()] }));
   check('and the hardest code wins the exit while every line is still printed', all.code === 1 && all.lines.length === 4, `code ${all.code}, ${all.lines.length} lines`);
+
+  // --- (d) A WINDOW BENEATH THE CLOCK'S GRAIN — a LIMIT, not a fault ------
+  // The one condition here that must NOT reach a non-zero exit, and the
+  // fixtures say so from both sides: it is stated, it exits 0, and it does not
+  // become invisible when a real refusal fires beside it (rf2-d2tzk).
+  const grainRun = () =>
+    run({
+      summary: {
+        'write-bulk': {
+          vsFloor: {
+            floor: { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+            'reagent-slim': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+          },
+          headToHead: { 'donor-r1 vs uix': { min: 1.185, max: 1.313 } },
+        },
+      },
+      correction: { 'write-bulk': { verdict: 'moot', reason: 'no-published-figure-bears-it' } },
+    });
+  const gl = verdict(summarise({ runs: [grainRun()] }));
+  check('a window beneath the clock grain exits 0 — nothing failed', gl.code === 0, `code ${gl.code}`);
+  check(
+    'and it is still STATED, naming the arm, the ticks and the grain',
+    /NO REPORTABLE MAGNITUDE/.test(gl.lines.join('\n')) &&
+      /slim \/ write-bulk \/ reagent-slim vs floor: floor at 1 tick\(s\) of 0\.1 ms/.test(gl.lines.join('\n')),
+    gl.lines.join(' | ')
+  );
+  check(
+    'and it does not read as a refusal — the word REFUSED is not in it',
+    !/REFUSED/.test(gl.lines.join('\n')),
+    gl.lines.join(' | ')
+  );
+  check(
+    'a `moot` correction is not a refusal either',
+    verdict(summarise({ runs: [run({ correction: { r: { verdict: 'moot' } } })] })).code === 0
+  );
+  const glrb = verdict(summarise({ runs: [grainRun(), readBackRun()] }));
+  check(
+    'and a real refusal beside it still exits 3, with BOTH sentences printed',
+    glrb.code === 3 &&
+      glrb.lines.some((l) => l.includes('NO REPORTABLE MAGNITUDE')) &&
+      glrb.lines.some((l) => l.includes('never reached the DOM')),
+    `code ${glrb.code}: ${glrb.lines.join(' | ')}`
+  );
 
   const empty = verdict(summarise({ runs: [] }));
   check('a run that took nothing is not a refusal', empty.code === 0 && empty.lines.length === 0);
@@ -940,7 +1108,15 @@ async function main() {
   if (decision.code !== 0) process.exit(decision.code);
   console.error(
     '[hd8] ok — measured; no arm reads differently for its position in the plan, every published ' +
-      'figure survived its DOM read-back, and no yield correction was refused'
+      'figure survived its DOM read-back, and no yield correction was refused' +
+      // The `ok` line must not claim more than the decision checked. A run can
+      // be entirely green and still have had a magnitude the clock could not
+      // resolve; the decision printed that above, and this line says which of
+      // the two it is rather than letting a green exit imply the stronger one
+      // (rf2-d2tzk).
+      (decision.lines.length
+        ? '. NOT every figure has a reportable magnitude — see above'
+        : '')
   );
 }
 

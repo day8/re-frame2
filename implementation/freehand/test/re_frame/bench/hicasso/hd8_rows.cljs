@@ -943,10 +943,119 @@
                                   (some #(re-find (re-pattern (name %)) (name k)) bad)))
                         m))))))
 
+(defn grain-record
+  "How many of the clock's own ticks each arm's window is worth, per round.
+
+  `tick` is [[clock-resolution!]]'s measured grain. A p50 of `v` against a
+  grain of `t` is `v/t` ticks, and the grain's SHARE of that reading is
+  `t/v` — the fraction of the number that is the instrument rather than the
+  arm. Both are recorded per arm per round, because the ratios are formed
+  WITHIN a round and it is each round's own p50 that becomes a published
+  endpoint.
+
+  Answers `{:tick :quanta {arm [q …]} :worst {arm q} :below-grain #{arm …}}`.
+  `:below-grain` is the set of arms whose p50 does not EXCEED the grain in
+  at least one round — two measured quantities with no constant between
+  them, the same shape as [[correct-round]]'s survival test. An arm in it
+  has a window the clock cannot tell from one half its size or twice it.
+
+  A `nil` tick (the clock never advanced, [[clock-resolution!]]'s spin cap)
+  puts EVERY arm below the grain: an instrument that cannot state its own
+  resolution has not earned a magnitude."
+  [row tick]
+  (let [arms   (:arms row)
+        rounds (mapv :p50 (:per-round row))
+        quanta (into {}
+                     (map (fn [id]
+                            [id (mapv (fn [p50]
+                                        (let [v (get p50 id)]
+                                          (when (and (number? v) (number? tick) (pos? tick))
+                                            (round4 (/ v tick)))))
+                                      rounds)]))
+                     arms)
+        worst  (into {} (map (fn [[id qs]] [id (when (every? number? qs) (apply min qs))])) quanta)]
+    {:tick        tick
+     :quanta      quanta
+     :worst       worst
+     :grain-share (into {} (map (fn [[id q]] [id (when (number? q) (round4 (/ 1.0 q)))])) worst)
+     :below-grain (into #{} (keep (fn [[id q]] (when-not (and (number? q) (> q 1.0)) id))) worst)}))
+
+(defn- mask-below-grain
+  "Apply the CLOCK-GRAIN publication mask to one write row's published
+  surfaces, and answer the row (rf2-d2tzk).
+
+  A WINDOW THAT DOES NOT EXCEED THE CLOCK'S OWN GRAIN HAS NO MAGNITUDE.
+  The reading is a real number and it is the instrument's resolution
+  wearing an arm's clothes: the bulk row's floor is a single commit under
+  one clock, it reads 1.0 to 2.0 ticks of a 0.1 ms grain, and its
+  neighbouring attainable values are 33 % to 100 % apart — so every ratio
+  normalised by it is determined only to within a factor of about two. The
+  row's own six rounds show it: the `reagent-slim` numerator moved 1.18x
+  across them while the published ratio moved 2.06x, and the whole of that
+  swing is the denominator stepping between one tick and two.
+
+  The mask is the DOM read-back's ([[mask-failed-read-backs]]) applied to
+  a second way of having no publishable timing, and it is deliberately the
+  same shape: `:summary` carries `:unpublished` in place of a number a
+  reader could quote, and every head-to-head pair touching an offending
+  arm is dropped. The two differ in what they mean and the driver keeps
+  them apart — a failed read-back is a FAULT and refuses the run; a window
+  beneath the grain is a LIMIT of the instrument, published as one.
+
+  WHICH FIGURES GO. The floor is the denominator of every floor-normalised
+  figure, so a floor beneath the grain takes the whole column. A
+  head-to-head pair is arm-over-arm and the floor cancels out of it
+  exactly, so those pairs SURVIVE — which is not a concession, it is the
+  measurement: the clamp destroys the cross-run column (the weaker
+  warrant) and leaves the within-run pairs (the stronger one) untouched.
+
+  The permanent repair is the batched window the narrow row got
+  (`narrow-batch-k`, rf2-9zysg): it lifts the sample clear of the clamp.
+  That changes a measured window and obliges a re-take of the row on every
+  adapter, which is a re-publication and rf2-2rtt6.7's to authorise — so
+  this mask states the limit rather than manufacturing resolution the
+  instrument does not have."
+  [row grain]
+  (let [bad (:below-grain grain)]
+    (if (empty? bad)
+      row
+      (let [marker (fn [arm]
+                     (let [offending (vec (sort (filter bad (distinct [:floor arm]))))
+                           qs        (keep #(get (:worst grain) %) offending)]
+                       {:unpublished  :below-clock-grain
+                        :arms         offending
+                        :tick         (:tick grain)
+                        :worst-quanta (when (seq qs) (apply min qs))}))]
+        (-> row
+            (update :summary
+                    (fn [m]
+                      (into {}
+                            (map (fn [[arm v]]
+                                   ;; An entry a mask has ALREADY taken keeps the
+                                   ;; marker it has: a failed DOM read-back is a
+                                   ;; page that never changed, which is the more
+                                   ;; serious thing to say about an arm than the
+                                   ;; resolution of the clock that timed it.
+                                   [arm (if (and (not (:unpublished v))
+                                                 (or (bad :floor) (bad arm)))
+                                          (marker arm)
+                                          v)]))
+                            m)))
+            (update :head-to-head
+                    (fn [m]
+                      (into {}
+                            (remove (fn [[_ v]] (or (bad (:numerator v)) (bad (:denominator v)))))
+                            m))))))))
+
 (defn measure-write!
   "`rounds` interleaved rounds of the write clock, `kind` ∈ `#{:narrow
-  :bulk}`. Answers a promise of the published record."
-  [arm-ids adapter kind rounds sampling]
+  :bulk}`. Answers a promise of the published record.
+
+  `clock` is [[clock-resolution!]]'s reading, and it decides which figures
+  in the row have a magnitude at all: a window that does not exceed the
+  clock's own grain publishes nothing a reader could quote
+  ([[mask-below-grain]], rf2-d2tzk)."
+  [arm-ids adapter kind rounds sampling clock]
   (doseq [id arm-ids] (reseed! id))
   (let [mounts (mount-write-arms! arm-ids adapter)]
     (-> (chain {:rounds-out [] :samples [] :unverified {} :total {} :position 0}
@@ -961,29 +1070,44 @@
                                :position   (:position r)})))))
         (.then (fn [acc]
                  (release-write-arms! mounts)
-                 ;; The publication mask — an arm whose writes did not reach
-                 ;; the DOM has NO figure — is [[mask-failed-read-backs]]'s,
-                 ;; applied over the raw summary and head-to-head, so the rule
-                 ;; the self-test's fixtures replay is the rule this row ships.
-                 (mask-failed-read-backs
-                  {:witness    (keyword (str "U-" (name kind)))
-                   :doc        (if (= kind :bulk)
-                                 "all 300 cells written in ONE commit — bulk view work"
-                                 (str narrow-batch-k " single-cell writes into a 300-cell "
-                                      "grid, each its own commit, all inside ONE timed "
-                                      "window — the narrow-write path. The per-write "
-                                      "figure is the sample divided by " narrow-batch-k))
-                   ;; Stated on the row, because a reader comparing this
-                   ;; against the pre-rf2-9zysg numbers is comparing two
-                   ;; different windows and has to be told so.
-                   :writes-per-sample (if (= kind :bulk) 1 narrow-batch-k)
-                   :arms       (vec arm-ids)
-                   :per-round  (:rounds-out acc)
-                   :summary    (lane/across-rounds (mapv :ratio (:rounds-out acc)))
-                   :head-to-head (head-to-head (:rounds-out acc))
-                   :unverified (:unverified acc)
-                   :writes     (:total acc)
-                   :samples    (:samples acc)})))
+                 ;; TWO PUBLICATION MASKS, both the instrument's own rule
+                 ;; applied over the raw summary and head-to-head rather than
+                 ;; a hand-written approximation of it, so the fixtures the
+                 ;; self-test replays are the rules this row ships.
+                 ;;
+                 ;;   read-back — an arm whose writes did not reach the DOM
+                 ;;               has no figure (rf2-x6g04). A FAULT.
+                 ;;   grain     — an arm whose window does not exceed the
+                 ;;               clock's own resolution has no magnitude
+                 ;;               (rf2-d2tzk). A LIMIT.
+                 ;;
+                 ;; The read-back mask runs FIRST so that an arm carrying both
+                 ;; keeps the fault marker: a page that never changed is the
+                 ;; more serious thing to say about it, and the grain mask must
+                 ;; not overwrite it with the milder one.
+                 (let [row   (mask-failed-read-backs
+                               {:witness      (keyword (str "U-" (name kind)))
+                                :doc          (if (= kind :bulk)
+                                                "all 300 cells written in ONE commit — bulk view work"
+                                                (str narrow-batch-k " single-cell writes into a 300-cell "
+                                                     "grid, each its own commit, all inside ONE timed "
+                                                     "window — the narrow-write path. The per-write "
+                                                     "figure is the sample divided by " narrow-batch-k))
+                                ;; Stated on the row, because a reader comparing this
+                                ;; against the pre-rf2-9zysg numbers is comparing two
+                                ;; different windows and has to be told so.
+                                :writes-per-sample (if (= kind :bulk) 1 narrow-batch-k)
+                                :arms         (vec arm-ids)
+                                :per-round    (:rounds-out acc)
+                                :summary      (lane/across-rounds (mapv :ratio (:rounds-out acc)))
+                                :head-to-head (head-to-head (:rounds-out acc))
+                                :unverified   (:unverified acc)
+                                :writes       (:total acc)
+                                :samples      (:samples acc)})
+                       grain (grain-record row (:tick clock))]
+                   (-> row
+                       (assoc :grain grain)
+                       (mask-below-grain grain)))))
         (.catch (fn [e] (release-write-arms! mounts) (throw e))))))
 
 ;; ===========================================================================
@@ -1176,8 +1300,14 @@
 
   Re-formed and not rescaled: the ratios are within-round by construction
   and the correction moves the DENOMINATOR whenever the floor is a bearer,
-  which no rescaling of the published ratio can express."
-  [{:keys [p50]} bearers bound]
+  which no rescaling of the published ratio can express.
+
+  `checked` is the subset of `bearers` the SURVIVAL test is applied to —
+  the ones a published figure is formed from ([[published-arms]]). Every
+  bearer is still subtracted from, because the turns were in its window
+  whatever the row prints; what a bearer with no published figure cannot
+  do is refuse a row on behalf of a number nobody may quote (rf2-d2tzk)."
+  [{:keys [p50]} bearers checked bound]
   (let [adj   (into {} (map (fn [[id v]] [id (if (contains? bearers id) (- v bound) v)])) p50)
         floor (get adj :floor)]
     ;; SURVIVAL: WHAT REMAINS MUST EXCEED WHAT WAS REMOVED.
@@ -1197,7 +1327,7 @@
     ;; window. That is not a threshold invented here — it is what makes a
     ;; correction a correction rather than the measurement, and it compares two
     ;; MEASURED quantities with no constant between them.
-    (when (every? (fn [[_ v]] (> v bound)) (select-keys adj bearers))
+    (when (every? (fn [[_ v]] (> v bound)) (select-keys adj checked))
       {:p50   adj
        :ratio (into {} (map (fn [[id v]] [id (round4 (/ v floor))])) adj)})))
 
@@ -1241,6 +1371,25 @@
                  [id (if (:unpublished o) o v)])))
         corrected))
 
+(defn- published-arms
+  "Every arm the row still publishes a figure ABOUT or a figure AGAINST.
+
+  A floor-normalised entry is formed from its own arm and from the floor,
+  which is its denominator; a head-to-head pair from the two arms
+  `lane/ratio-between` named in it. An entry a publication mask has
+  replaced with `:unpublished` contributes nothing, because there is no
+  longer a figure there for anything to change.
+
+  This is what [[yield-correction]] adjudicates over. A bearer that no
+  published figure is formed from cannot move one, and a contract that
+  refused on it would be refusing on a number the row does not print
+  (rf2-d2tzk)."
+  [row]
+  (let [normalised (into #{} (comp (remove (fn [[_ v]] (:unpublished v))) (map key)) (:summary row))
+        pairs      (into #{} (mapcat (fn [[_ v]] [(:numerator v) (:denominator v)])) (:head-to-head row))]
+    (cond-> (into pairs normalised)
+      (seq normalised) (conj :floor))))
+
 (defn yield-correction
   "Adjudicate one write row against the harness-microtask asymmetry, and
   answer a verdict rather than an observation (rf2-b69lw).
@@ -1258,12 +1407,25 @@
   `{:p50 0 :max 0.1 :n 10}`. A contract nothing enforces is a sentence,
   not a contract.
 
-  ## The four verdicts
+  ## The five verdicts
 
   `:not-owed` — every arm in the row shares one window shape, so the turns
   are in the numerator and the denominator alike. Only a row that MIXES
   shapes owes anything, and today that is the `slim` run's write rows and
   no others.
+
+  `:moot` — the row mixes shapes, but no figure it still PUBLISHES is
+  formed from a yield-bearing arm ([[published-arms]]), so the correction
+  has nothing to move and a refusal would have nothing to protect. This is
+  the BULK row on the slim run: its only bearer is the floor, the floor is
+  its denominator, and the floor sits on the clock's own grain — so
+  [[mask-below-grain]] has already withdrawn every figure normalised by it,
+  permanently and on stronger grounds than the harness turn. Before this
+  verdict existed the row's disposition was drawn from the clock rather
+  than from the measurement: a one-turn aggregate of `0.0` published it
+  unadjusted and an aggregate of `0.1` refused it and failed the whole
+  sweep, on the same page, the same arms and the same source, three times
+  and twice out of five observed runs (rf2-d2tzk).
 
   `:below-resolution` — the row owes, and the aggregate yield window's MAX
   is zero across every sample. Chrome clamps `performance.now()` to 100 µs;
@@ -1343,8 +1505,21 @@
         shapes   (into {} (map (fn [id] [id (window-shape id adapter)])) arms)
         bearers  (into #{} (keep (fn [[id s]] (when (= s :write-yield-drain) id))) shapes)
         exempt   (into #{} (keep (fn [[id s]] (when (= s :write-then-drain) id))) shapes)
+        ;; Only over the figures the row still PUBLISHES ([[published-arms]]).
+        ;; A bearer whose column a publication mask has already withdrawn has
+        ;; no figure left for the subtraction to move or for a refusal to
+        ;; protect, and the difference is not theoretical: the BULK row's
+        ;; floor is its only bearer on the slim run and it sits ON the clock's
+        ;; grain, so this row's disposition used to be a coin toss between
+        ;; publishing unadjusted (a 0.0 aggregate) and failing the whole sweep
+        ;; (a 0.1 aggregate) — the same page, the same arms, two opposite
+        ;; answers drawn from the clock rather than from the measurement
+        ;; (rf2-d2tzk).
+        published (published-arms row)
+        borne     (into #{} (filter published) bearers)
         base     {:row (:witness row) :k k :windows shapes
-                  :bearers (vec bearers) :exempt (vec exempt)}
+                  :bearers (vec bearers) :exempt (vec exempt)
+                  :bearers-published (vec borne)}
         agg      (cond
                    (= k narrow-batch-k) (let [b (:batched yc)]
                                           (when b {:source :batched-aggregate
@@ -1365,6 +1540,18 @@
                             (name (or (first (vals shapes)) :none))
                             "), so the harness turns are in the numerator and the denominator "
                             "alike and no arm is billed for a turn its rival escapes"))
+
+      (empty? borne)
+      (assoc base :verdict :moot
+                  :reason :no-published-figure-bears-it
+                  :why (str "this row mixes window shapes, but every figure it still publishes is "
+                            "formed only from arms that escape the harness turn ("
+                            (str/join ", " (map name exempt)) "). The yield-bearing arm(s) "
+                            (str/join ", " (map name bearers)) " carry no published figure — a "
+                            "publication mask has already withdrawn the column they denominate — "
+                            "so there is nothing for the subtraction to move and nothing for a "
+                            "refusal to protect. Head-to-head pairs are arm-over-arm and the "
+                            "floor cancels out of them exactly"))
 
       (nil? agg)
       (assoc base :verdict :refused
@@ -1388,7 +1575,7 @@
 
       :else
       (let [bound     (:max agg)
-            corrected (mapv #(correct-round % bearers bound) (:per-round row))]
+            corrected (mapv #(correct-round % bearers borne bound) (:per-round row))]
         (if (some nil? corrected)
           (assoc base :verdict :refused :reason :correction-exceeds-window
                       :aggregate agg :bound bound
@@ -1461,8 +1648,20 @@
      :summary           (lane/across-rounds (mapv :ratio per-round))
      :head-to-head      (head-to-head per-round)}))
 
+(defn- grain-fixture
+  "A [[fixture-row]] carried through the instrument's OWN clock-grain rule
+  at a stated `tick`, so a grain fixture is a handful of milliseconds and a
+  resolution rather than a hand-written marker that could drift from what
+  [[measure-write!]] applies (rf2-d2tzk). `tick` may be `nil` — that is the
+  reading a clock which never advanced produces, and it must fail closed."
+  [witness k arms rounds tick]
+  (let [row   (fixture-row witness k arms rounds)
+        grain (grain-record row tick)]
+    (-> row (assoc :grain grain) (mask-below-grain grain))))
+
 (defn yield-correction-self-test
-  "Replay [[yield-correction]] over recorded fixtures, and answer
+  "Replay the write rows' PUBLICATION RULES — [[mask-below-grain]] and
+  [[yield-correction]] — over recorded fixtures, and answer
   `{:ok? :checks}`.
 
   **A gate nobody has watched refuse is not a gate**, and this one refuses
@@ -1601,7 +1800,71 @@
                        (not (contains? (:head-to-head-corrected v) :donor-r1-over-reagent-slim)))
             :detail (str (name (:verdict v))
                          " reagent-slim-corrected=" (pr-str slim)
-                         " h2h-corrected=" (pr-str (vec (keys (:head-to-head-corrected v)))))})]]
+                         " h2h-corrected=" (pr-str (vec (keys (:head-to-head-corrected v)))))})
+
+         ;; 9. THE CLOCK-GRAIN MASK (rf2-d2tzk). The live bulk row: a floor
+         ;;    of one and two 0.1 ms ticks under a measured 0.1 ms grain. The
+         ;;    floor is every floor-normalised figure's DENOMINATOR, so the
+         ;;    whole column goes — and the head-to-head pairs, which are
+         ;;    arm-over-arm with the floor cancelling exactly, STAY. The
+         ;;    numbers are the run recorded on this bead, not invented.
+         (let [row   (grain-fixture :U-bulk 1 [:floor :reagent-slim :donor-r1]
+                                    [{:floor 0.1 :reagent-slim 1.75 :donor-r1 1.2}
+                                     {:floor 0.2 :reagent-slim 1.7  :donor-r1 1.3}]
+                                    0.1)
+               slim  (get-in row [:summary :reagent-slim])]
+           {:name "a floor at the clock's own grain unpublishes the floor-normalised column"
+            :ok   (and (= :below-clock-grain (:unpublished slim))
+                       (nil? (:min slim))
+                       (= [:floor] (:arms slim))
+                       (= :below-clock-grain (:unpublished (get-in row [:summary :floor])))
+                       (contains? (:head-to-head row) :donor-r1-over-reagent-slim))
+            :detail (str "reagent-slim=" (pr-str slim)
+                         " h2h=" (pr-str (vec (keys (:head-to-head row)))))})
+
+         ;; 10. AND THE CORRECTION OVER THAT ROW IS MOOT — which is the whole
+         ;;     of this bead. The same fixture, the same aggregate that made
+         ;;     the unmasked row REFUSE at check 4, now has no published
+         ;;     figure to refuse over: the bearer is the floor and the floor's
+         ;;     column is gone. Two draws of the clock, one answer.
+         (let [row  (grain-fixture :U-bulk 1 [:floor :reagent-slim]
+                                   [{:floor 0.1 :reagent-slim 1.5} {:floor 0.1 :reagent-slim 1.6}]
+                                   0.1)
+               live (verdict-of row :slim live-yc)
+               zero (verdict-of row :slim zero-yc)]
+           {:name "and the correction over a grain-masked row is MOOT on BOTH draws of the clock"
+            :ok   (and (= :moot (:verdict live)) (= :moot (:verdict zero))
+                       (= :no-published-figure-bears-it (:reason live)))
+            :detail (str "resolving=" (name (:verdict live)) " flat=" (name (:verdict zero)))})
+
+         ;; 11. THE MASK IS NOT A BLANKET. A floor well clear of the grain —
+         ;;     the batched NARROW row, 9 and 10 ticks on the same 0.1 ms
+         ;;     clock — publishes exactly as before, and its correction is
+         ;;     adjudicated exactly as before. Same rule, same clock, the
+         ;;     other answer: what separates the two rows is the measurement.
+         (let [row (grain-fixture :U-narrow narrow-batch-k [:floor :reagent-slim]
+                                  [{:floor 0.9 :reagent-slim 4.45} {:floor 1.0 :reagent-slim 5.3}]
+                                  0.1)
+               v   (verdict-of row :slim live-yc)]
+           {:name "a floor nine to ten ticks clear of the grain is untouched, and still corrected"
+            :ok   (and (number? (get-in row [:summary :reagent-slim :min]))
+                       (nil? (:unpublished (get-in row [:summary :reagent-slim])))
+                       (= :corrected (:verdict v)))
+            :detail (str "band=" (pr-str (get-in row [:summary :reagent-slim]))
+                         " verdict=" (name (:verdict v)))})
+
+         ;; 12. FAIL CLOSED ON AN UNMEASURABLE CLOCK. `clock-resolution!`
+         ;;     answers a nil tick when the clock never advanced inside its
+         ;;     spin cap. An instrument that cannot state its own resolution
+         ;;     has not earned a magnitude, so EVERY arm is below the grain —
+         ;;     never "no tick, so nothing is below it", which is the
+         ;;     fail-open reading of the same fact.
+         (let [row (grain-fixture :U-bulk 1 [:floor :reagent-slim]
+                                  [{:floor 5.0 :reagent-slim 50.0}]
+                                  nil)]
+           {:name "a clock that could not state its own resolution unpublishes everything"
+            :ok   (= :below-clock-grain (:unpublished (get-in row [:summary :reagent-slim])))
+            :detail (pr-str (get-in row [:summary :reagent-slim]))})]]
     {:ok?    (every? :ok checks)
      :checks (mapv (fn [c] (update c :ok boolean)) checks)}))
 

@@ -755,6 +755,55 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(verdict(summarise({ runs: [run({ correction: { r: { verdict: 'corrected' } } })] })).code, 0);
   });
 
+  // --- rf2-d2tzk: a LIMIT is not a FAULT, and the exit code says which -----
+  //
+  // The bulk row's floor is one write under one clock and reads 1.0 to 2.0
+  // ticks of a measured 0.1 ms grain, so `mask-below-grain` (hd8_rows.cljs)
+  // withdraws every figure normalised by it — the same marker SHAPE the DOM
+  // read-back uses and a different meaning. Nothing failed; a magnitude was
+  // never available. Exiting non-zero on it would exit non-zero on every run.
+  const belowGrain = () =>
+    run({
+      summary: {
+        'write-bulk': {
+          vsFloor: {
+            floor: { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+            'reagent-slim': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+          },
+          headToHead: { 'donor-r1 vs uix': { min: 1.185, max: 1.313 } },
+        },
+      },
+      correction: { 'write-bulk': { verdict: 'moot', reason: 'no-published-figure-bears-it' } },
+    });
+
+  t('a window beneath the clock grain exits 0 — it is a limit, not a fault', () => {
+    const v = verdict(summarise({ runs: [belowGrain()] }));
+    assert.strictEqual(v.code, 0, 'nothing failed; the instrument could not resolve a magnitude');
+    assert.match(v.lines.join('\n'), /NO REPORTABLE MAGNITUDE/);
+    assert.match(v.lines.join('\n'), /floor at 1 tick\(s\) of 0\.1 ms/);
+    assert.ok(!/REFUSED/.test(v.lines.join('\n')), 'and it must not read as a refusal');
+  });
+
+  t('a `moot` yield correction is not a refusal', () => {
+    assert.strictEqual(verdict(summarise({ runs: [run({ correction: { r: { verdict: 'moot' } } })] })).code, 0);
+  });
+
+  t('the grain limit never swallows a real refusal standing beside it', () => {
+    const v = verdict(summarise({ runs: [belowGrain(), readBack()] }));
+    assert.strictEqual(v.code, 3, 'the read-back still decides the exit');
+    const all = v.lines.join('\n');
+    assert.match(all, /NO REPORTABLE MAGNITUDE/);
+    assert.match(all, /never reached the DOM/);
+  });
+
+  t('the two masks are told apart by their reason, not by their shape', () => {
+    // Both arrive as `{unpublished: …}` on the same channel. If the driver
+    // ever partitions them by anything other than the reason code, a fault
+    // starts exiting 0.
+    assert.match(SRC, /v\.unpublished === 'below-clock-grain'/);
+    assert.match(SRC, /instrumentLimited`? is DELIBERATELY absent/);
+  });
+
   // --- the gates that already existed are UNCHANGED, which is half the repair
 
   t('a hard failure still exits 1, exactly as before', () => {
@@ -806,7 +855,11 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // In `runOne`, above `main` — the driver installed `watchPage` and then
     // read nobody's failures, alone among the six callers of it.
     assert.match(SRC, /const pageErrors = watch\.failures\.map/);
-    assert.match(SRC, /correction, contractSelfTest, userAgent, lines, pageErrors,/);
+    // The pin is on `pageErrors` REACHING the returned record, not on the
+    // shape of the record around it: this line grew a `clock` field for
+    // rf2-d2tzk and a pin that spelled every neighbour out went red for a
+    // change that could not touch what it is about.
+    assert.match(SRC, /lines, pageErrors,\s*\};/);
   });
 
   t('the exit code comes from `verdict` and from nothing else', () => {
