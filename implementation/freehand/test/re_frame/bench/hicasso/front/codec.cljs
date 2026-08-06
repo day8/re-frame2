@@ -117,7 +117,7 @@
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
   | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
-  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
+  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), an `h/fn` at any slot none of those claimed REFUSED (rf2-2rtt6.116), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -2054,10 +2054,13 @@
   name', and this refusal is the loud half of it: no contract is guessed
   — but the alternative to refusing is `clj->js` shipping the author's
   intent to the library as an inert array, which is the silently dead
-  handler class every loud error in this codec exists to delete. A
-  FUNCTION at an undeclared prop is different and legal: it is a value
-  handed to a foreign API — not a position — so it crosses by identity
-  and simply runs (the position table's deletion row)."
+  handler class every loud error in this codec exists to delete. An
+  ORDINARY function at an undeclared prop is different and legal: it is
+  a value handed to a foreign API — not a position — so it crosses by
+  identity and simply runs (the position table's deletion row). The
+  MARKED form is not, since rf2-2rtt6.116:
+  [[refuse-unclaimed-host-callback!]] takes an `h/fn` at the same
+  position, because that one asked for a contract."
   [^js head k v]
   (fail! :rf.error/hicasso-host-undeclared-callback
          'front.codec/host-element
@@ -2067,11 +2070,56 @@
               "prop names to :event, :handler or :render — never inferred "
               "from an on* spelling — so an undeclared intent would cross as "
               "inert data. Declare " (pr-str k) " in :callbacks, or hand a "
-              "function.")
+              "plain function.")
          :declare-the-callback-contract
          {:host     (unchecked-get head "displayName")
           :position k
           :value    v
+          :declared (into #{} (keys (unchecked-get head "callbacks")))}))
+
+(defn- refuse-unclaimed-host-callback!
+  "An `h/fn` at a host prop slot NOTHING CLAIMED — not the `:ref` slot,
+  not a slot the declaration named, not the class slot. The marked form
+  is a REQUEST that the position impose a contract, and at an unclaimed
+  slot no position selected one, so the mark reads nothing and the
+  function crosses to the foreign library as an ordinary function. It is
+  callable, so nothing throws.
+
+  **The trap is the `:event` contract's convenience.**
+  `[my-host {:on-pick (h/fn [x] [:row/pick x])}]`, with `:on-pick` absent
+  from `:callbacks`, crosses; the library calls it; it returns an intent
+  vector; the library discards the return; nothing dispatches. The user's
+  click does nothing, in production, with no diagnostic anywhere — the
+  silently dead handler class the sibling refusal above names as the one
+  every loud error in this codec exists to delete. An `h/fn` returning
+  that same vector is that defect one level of indirection down.
+
+  **This is derived, not new policy** (`rf2-2rtt6.116`). `mint-host!`
+  already refuses an option it does not know, on the reasoning HD-011's
+  addendum records: a policy could be written and never applied, and the
+  silent-ignore was its own defect. An `h/fn` whose contract is never
+  selected IS a policy written and never applied.
+
+  **A PLAIN function at the same slot stays legal and untouched.** It is
+  a value handed to a foreign API rather than a position, and it never
+  asked for anything, so there is nothing to leave unanswered. This
+  refuses the unanswered REQUEST — never functions at the crossing, and
+  never the form itself, which is legal at every slot a declaration
+  claims."
+  [^js head k]
+  (fail! :rf.error/hicasso-host-unclaimed-callback
+         'front.codec/host-element
+         (str "The host " (unchecked-get head "displayName") " was handed an "
+              "h/fn at " (pr-str k) ", which no position claims — its "
+              "declaration names " (pr-str (into #{} (keys (unchecked-get head "callbacks"))))
+              ". An h/fn asks the POSITION for a contract, and an unclaimed "
+              "slot has none to give: it would cross as an ordinary function "
+              "whose return the library discards, so an intent it returned "
+              "would never dispatch. Declare " (pr-str k) " in :callbacks, or "
+              "hand a plain function.")
+         :declare-the-slot-or-hand-a-plain-function
+         {:host     (unchecked-get head "displayName")
+          :position k
           :declared (into #{} (keys (unchecked-get head "callbacks")))}))
 
 (defn- host-entry
@@ -2091,7 +2139,10 @@
   a position MEANS here comes from the DECLARATION rather than from the
   key's spelling. A declared slot takes its declared contract; an
   event-spelled slot the declaration does not name is refused rather
-  than inferred; everything else crosses shallowly. `event?` is gated on
+  than inferred; an `h/fn` at any slot nothing claimed is refused too,
+  because the mark is a request for a contract and no position selected
+  one ([[refuse-unclaimed-host-callback!]], rf2-2rtt6.116); everything
+  else crosses shallowly. `event?` is gated on
   `keyword?` for the same reason the native walk gates it — a symbol
   spelled `on-click` shares the cache entry and is not an event
   position.
@@ -2156,6 +2207,18 @@
             :else
             (do (when (and event? (or (vector? v) (map? v)))
                   (refuse-undeclared-host-event! head k v))
+                ;; Beside its sibling, and for the sibling's own stated
+                ;; reason one indirection down (rf2-2rtt6.116). It is
+                ;; last of the two because `event?` is a flag already
+                ;; read, so that test costs a boolean, while this one
+                ;; costs a `fn?` — and it is ahead of
+                ;; [[host-prop-value]] because that function is where
+                ;; the marked form would silently become an ordinary
+                ;; one. Both live in the `:else` arm only: no claimed
+                ;; slot pays either, and the NATIVE walk
+                ;; ([[convert-entry]]) is not on this path at all.
+                (when (intent/callback? v)
+                  (refuse-unclaimed-host-callback! head k))
                 ;; The SLOT, never the key: `:class` and `:className` are
                 ;; one position, and the named-value rule is written
                 ;; against where the value lands (rf2-vrvv9).
@@ -2179,8 +2242,9 @@
   ([[re-frame.bench.hicasso.front.intent/lower-declared-prop]] — an
   `h/fn` takes the contract's wrapper, an intent vector or key-map
   lowers as at a native position), refuse an event-spelled intent at an
-  UNDECLARED slot, and convert everything else shallowly
-  ([[host-prop-value]]) under its camelCased name.
+  UNDECLARED slot and an `h/fn` at any UNCLAIMED one, and convert
+  everything else shallowly ([[host-prop-value]]) under its camelCased
+  name.
 
   Children are trailing forms converted hiccup→element and handed to the
   foreign component as ordinary React children — HD-011's third default.
