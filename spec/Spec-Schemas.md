@@ -1193,8 +1193,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:path            {:optional true} [:vector :any]]   ;; registration root (structural locator; no user value)
    [:registered-path {:optional true} [:vector :any]]
    [:schema          {:optional true} :any]             ;; the malformed registration form to fix
-   [:rollback?       {:optional true} :boolean]
-   [:recovery        {:optional true} :keyword]])
+   [:rollback?       {:optional true} :boolean]])
 
 (def DrainDepthExceededTags
   ;; rf2-fcbrjo — the DEV-TRACE tags for `:rf.error/drain-depth-exceeded`.
@@ -1327,14 +1326,20 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; `:rf.route/navigate`, `:rf.ssr/hydrate`, …), and whatever a pass-through
   ;; caller supplies (`re-frame.schemas.storage` forwards its own caller's).
   ;; `:where` is a SYMBOL naming the resolving call site (`'re-frame.subs/subscribe`,
-  ;; `'re-frame.router/build-envelope`), not a keyword.
+  ;; `'re-frame.router/build-envelope`), not a keyword. The slot is TYPED `:symbol`
+  ;; rather than `:any` because the catalogue conformance gate diffs KEY SETS only:
+  ;; the declared type is the sole thing standing between this payload and a string,
+  ;; number or arbitrary object at `:where`, so `:any` there enforced nothing. Every
+  ;; producer emits a quoted symbol — the requiring primitives' call sites across
+  ;; core, http, machines, routing, flows, resources, ssr, freehand and ui, plus the
+  ;; `where` argument threaded through `require-frame-provider-target!` and
+  ;; `re-frame.ui.frames/resolve-frame`.
   [:map
    [:category    :keyword]                         ;; [:= :rf.error/no-frame-context] in a closed schema
    [:operation   :keyword]                          ;; the failing frame-scoped op — open set (above)
-   [:where       {:optional true} :any]             ;; the resolving call site, a symbol; the 1-arity requiring forms omit it
+   [:where       {:optional true} :symbol]          ;; the resolving call site, a SYMBOL; the 1-arity requiring forms omit it
    [:event-id    {:optional true} :keyword]         ;; the query-id / event-id the op carried
    [:reason      :string]                           ;; the composed "establish a scope one of three ways" sentence
-   [:recovery    {:optional true} :keyword]         ;; :supply-frame
    ;; capture-site ancestry (frameless correlation) — the in-scope handler
    ;; scope's dispatch-id, present when the op fired inside a continuation
    ;; captured during a known run. There is no parent key here: per
@@ -1356,7 +1361,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:category :keyword]                              ;; [:= :rf.error/bad-frame-provider-arg] in a closed schema
    [:received :any]                                  ;; the offending value (neither keyword nor frame value)
    [:where    {:optional true} :any]                 ;; the validating provider call site (symbol)
-   [:recovery {:optional true} :keyword]             ;; :supply-frame-target
    [:reason   {:optional true} :string]])
 
 (def EffectMapShapeTags
@@ -1376,8 +1380,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:event         [:vector :any]]
    [:returned      :any]
    [:returned-type :any]
-   [:reason        :string]
-   [:recovery      [:= :no-recovery]]])
+   [:reason        :string]])
 
 (def FlowEvalExceptionTags
   [:map
@@ -1781,8 +1784,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:where     :keyword]                  ;; :event
    [:reason    :keyword]                  ;; the first extraction-law violation (e.g. :unknown-keys / :bad-address)
    [:keys      {:optional true} [:vector :any]]
-   [:frame     {:optional true} :any]
-   [:recovery  {:optional true} :keyword]])
+   [:frame     {:optional true} :any]])
 
 (def ResourceRouteBlockingTags
   ;; a BLOCKING route resource FAILED its first load — the runtime flips the
@@ -1884,7 +1886,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:where    [:or :symbol :string]]
    [:received {:optional true} :any]
    [:expected {:optional true} :string]
-   [:recovery {:optional true} :keyword]
    [:reason   :string]])
 
 (def AdapterMap
