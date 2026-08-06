@@ -704,7 +704,7 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
     # BARE PROVENANCE.  This case used to assert the opposite — that prose hex
     # outside a code span is never a citation — and that assertion pinned the
     # fail-open: explicit commit prose without backticks passed the gate
-    # unexamined (rf2-kqac1).  It reads the other way now, and the three cases
+    # unexamined (rf2-kqac1).  It reads the other way now, and the four cases
     # under it hold the narrowness in place.
     (
         "bare prose hex the writer calls a commit is a citation",
