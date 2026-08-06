@@ -37,9 +37,29 @@
 //
 // ## The rows — mounts only, and the write refusal up front
 //
-//   large-template  1,202 elements, ONE boundary   the interpreter row
-//   feed            5,129 elements, 301 boundaries the census M1 counterpart
-//   ordinary           51 elements, 7 boundaries   the small-screen row
+//   large-template   69 article cards  1,202 elements  141 reads    1 boundary
+//   feed            300 article cards  5,129 elements  603 reads  301 boundaries
+//   ordinary          5 comment cards     51 elements   15 reads    7 boundaries
+//
+// `ordinary` is a DIFFERENT SCREEN (the article page's comment column),
+// not the article list at a third size — its cards are not the other two
+// rows' cards and its counts are not on their arithmetic.
+//
+// EVERY ROW IS A WITHIN-ROW COMPARISON, AND NOTHING HERE IS A CROSS-ROW
+// ISOLATION (rf2-2rtt6.62, from the merged-PR audit of #7372/#7379). The
+// large-template and feed rows were once described as one screen at two
+// boundary decompositions, from which shell cost and interpreter cost
+// separate. They are not: they seed 69 and 300 articles through the SAME
+// element arithmetic, so cards, elements, per-instance reads and
+// boundaries all move together by 4.35x. Shared `card.cljs` and one-card
+// canonical equality buy MARKUP PARITY, not matched workload. What this
+// driver establishes is per row: within a row every arm mounts the
+// identical page (canon-gated before any clock), so hicasso/uix on THAT
+// page is adjudicable. Between rows it establishes ordering of measured
+// numbers and nothing causal. Matching the two decompositions at one card
+// count is a seed change in `census_clock_arms.cljs` plus a clock session
+// on a quiet box; the cards column above is printed on every stamp so the
+// confound cannot be re-derived silently.
 //
 // The roster's WRITE rows (shape 3's broad commit, shape 4's narrow
 // commit) are REFUSED by construction on this box, with the recorded
@@ -161,8 +181,14 @@ const BESIDE = {
 // What each arm reads on each row — printed on the stamp, because the
 // substrates do NOT meet the roster's boundary variable equally and a row
 // that hid that would be quoting a comparison it is not making.
+//
+// `cards` is on the stamp for the same reason (rf2-2rtt6.62): it is the
+// term that makes large-template and feed incomparable to each other, and
+// it was the one count the original stamp left off — which is precisely
+// how "the same screen at two boundary decompositions" survived review.
 const STAMP = {
   'large-template': {
+    cards: '69 article cards',
     elements: 1202,
     boundaries: { hicasso: 1, uix: 1, reagent: 1 },
     reads: {
@@ -172,6 +198,7 @@ const STAMP = {
     },
   },
   feed: {
+    cards: '300 article cards',
     elements: 5129,
     boundaries: { hicasso: 301, uix: 301, reagent: 301 },
     reads: {
@@ -181,6 +208,7 @@ const STAMP = {
     },
   },
   ordinary: {
+    cards: '5 comment cards (a DIFFERENT screen — not the article list at a third size)',
     elements: 51,
     boundaries: { hicasso: 7, uix: 7, reagent: 7 },
     reads: {
@@ -581,11 +609,16 @@ function report(out) {
   console.log(
     `;; grain    smallest non-zero per-sample TaskDuration delta ${granularity.length ? granularity[0].toFixed(6) : 'n/a'} ms`
   );
-  console.log(`;; stamp    ${stamp.elements} elements; the census's own screen, mounted at the roster's seed`);
+  console.log(`;; stamp    ${stamp.cards}; ${stamp.elements} elements; the census's own screen, mounted at the roster's seed`);
   for (const arm of ['hicasso', 'uix', 'reagent']) {
     if (!armIds.includes(arm)) continue;
     console.log(`;; stamp    ${arm.padEnd(8)} B=${stamp.boundaries[arm]} · reads: ${stamp.reads[arm]}`);
   }
+  console.log(
+    `;; scope    WITHIN-ROW ONLY — the arms above mount the identical page, so this row's ratios ` +
+      `adjudicate. Rows differ in cards as well as boundaries (rf2-2rtt6.62), so no difference ` +
+      `BETWEEN rows attributes to boundary decomposition.`
+  );
 
   // parity record
   const nonControl = Object.entries(canon).filter(([, c]) => !c.control);

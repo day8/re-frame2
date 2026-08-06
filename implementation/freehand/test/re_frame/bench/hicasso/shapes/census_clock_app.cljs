@@ -14,12 +14,21 @@
 
   ## Three rows, all mounts
 
-  `large-template` (1,202 elements, ONE boundary), `feed` (5,129
-  elements, 301 boundaries — shapes 3 and 4 share this mount), `ordinary`
-  (51 elements, 7 boundaries). Shapes 2 and 3 are the same screen at two
-  boundary decompositions with byte-identical cards, so the pair
-  separates shell cost from interpreter cost on one page — the thing no
-  synthetic witness does.
+  `large-template` (69 cards, 1,202 elements, 141 reads, ONE boundary),
+  `feed` (300 cards, 5,129 elements, 603 reads, 301 boundaries — shapes 3
+  and 4 share this mount), `ordinary` (51 elements, 7 boundaries).
+
+  **THE PAIR DOES NOT ISOLATE SHELL COST FROM INTERPRETER COST**
+  (rf2-2rtt6.62, merged-PR audit of #7372/#7379). An earlier wording here
+  called shapes 2 and 3 "the same screen at two boundary decompositions"
+  and claimed the pair separates the two costs on one page. Byte-identical
+  cards prove markup parity, not matched workload: the two rows carry 4.35x
+  apart in cards, elements and per-instance reads, so a cross-row timing
+  difference confounds decomposition with size and attributes nothing.
+  Each row is valid WITHIN itself — every arm mounts the identical page,
+  canon-gated before any clock — and that is the whole of what this
+  instrument establishes. The isolation is retracted until both
+  decompositions have been clocked at one card count.
 
   ## What this instrument does NOT measure, and why
 
