@@ -932,6 +932,22 @@
 (defonce ^:private alloc-sink (volatile! 0.0))
 (defonce ^:private alloc-samples (volatile! nil))
 
+;; The written value, MONOTONE FOR THE LIFE OF THE PAGE rather than
+;; restarting at 1 in every window.
+;;
+;; It restarted, and the row read a constant. `:p0/write-all` writes
+;; `(vec (repeat cells-n v))`, so writing the value that is already there
+;; produces an EQUAL app-db, no subscription changes, and React re-renders
+;; nothing — while the read-back still passed, because the warm-up pass had
+;; already put the expected text in the DOM. Every arm then reads the write
+;; pipeline's own cost and nothing else, which is why a one-write window
+;; priced the FLOOR — an arm with no subscription that cannot re-render —
+;; at 101 B/boundary and the 20-read UIx arm at 101 B/boundary too. A
+;; window whose work unit is a no-op is the allocation instrument's version
+;; of an arm that rendered nothing, and the read-back now states its
+;; expectation against the tick actually reached.
+(defonce ^:private alloc-tick (volatile! 0))
+
 (defn- mem
   "V8's used-heap counter, read from inside the page.
 
@@ -1002,7 +1018,8 @@
     (dotimes [i n]
       (aset buf (inc (* 2 i)) (mem))
       (cond
-        write? (do (arms/write-all! (inc i))
+        write? (do (vswap! alloc-tick inc)
+                   (arms/write-all! @alloc-tick)
                    (if reagent?
                      (react-dom/flushSync (fn [] (r/flush)))
                      (react-dom/flushSync (fn [] nil))))
@@ -1012,11 +1029,14 @@
     ;; The read-back, OUTSIDE the window: the text of one boundary, which
     ;; at R reads of a page written to `v` is `(str (* R v))`. A row whose
     ;; writes never reached the page is the cheapest row in any table, and
-    ;; this is the same class of gate as the mount read-back above.
+    ;; this is the same class of gate as the mount read-back above. `:tick`
+    ;; rides back with it so the DRIVER states the expectation against the
+    ;; value actually written rather than against one it assumed.
     (let [cell (.querySelector js/document ".cell")]
       #js {:samples (js/Array.from buf)
            :n       n
            :kind    kind
+           :tick    @alloc-tick
            :text    (when cell (.-textContent cell))})))
 
 ;; ---------------------------------------------------------------------------
