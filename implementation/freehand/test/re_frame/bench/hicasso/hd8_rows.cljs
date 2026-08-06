@@ -954,40 +954,67 @@
   endpoint.
 
   Answers `{:tick :quanta {arm [q …]} :worst {arm q} :below-grain #{arm …}}`.
-  `:below-grain` is the set of arms whose p50 does not EXCEED the grain in
-  at least one round — two measured quantities with no constant between
-  them, the same shape as [[correct-round]]'s survival test. An arm in it
-  has a window the clock cannot tell from one half its size or twice it.
+
+  ## WHEN A WINDOW HAS A MAGNITUDE, AND WHY THE TEST IS THIS ONE
+
+  `:below-grain` holds every arm for which, in at least one round,
+
+      (v - tick) > tick     is FALSE
+
+  — what the clock RESOLVED of that window does not exceed what it could
+  not. That is not a threshold invented here. It is word for word the rule
+  [[correct-round]] already applies to the harness turn — *what remains
+  must exceed what was removed* — with the instrument's own grain in the
+  place of the correction, and like that one it compares two MEASURED
+  quantities with no constant between them.
+
+  The weaker test — `v > tick`, the reading merely exceeding the grain —
+  was tried first and IT DOES NOT DECIDE ANYTHING. Two consecutive cold
+  runs of this same source measured the bulk floor's rounds at
+  `1.0 1.0 1.0 2.0 1.5 2.0` ticks and then at a worst of `1.5`: the first
+  draw masked the row and the second published `9.333 – 10.500`, a band
+  whose own width is 12 % over a denominator no better than 67 % — the
+  same figure-from-the-clock coin toss this bead exists to remove, moved
+  one place along. A grain that is the MAJORITY of a reading has not
+  measured it.
 
   A `nil` tick (the clock never advanced, [[clock-resolution!]]'s spin cap)
   puts EVERY arm below the grain: an instrument that cannot state its own
   resolution has not earned a magnitude."
   [row tick]
-  (let [arms   (:arms row)
-        rounds (mapv :p50 (:per-round row))
-        quanta (into {}
-                     (map (fn [id]
-                            [id (mapv (fn [p50]
-                                        (let [v (get p50 id)]
-                                          (when (and (number? v) (number? tick) (pos? tick))
-                                            (round4 (/ v tick)))))
-                                      rounds)]))
-                     arms)
-        worst  (into {} (map (fn [[id qs]] [id (when (every? number? qs) (apply min qs))])) quanta)]
+  (let [arms     (:arms row)
+        rounds   (mapv :p50 (:per-round row))
+        resolved (fn [v] (and (number? v) (number? tick) (pos? tick) (> (- v tick) tick)))
+        quanta   (into {}
+                       (map (fn [id]
+                              [id (mapv (fn [p50]
+                                          (let [v (get p50 id)]
+                                            (when (and (number? v) (number? tick) (pos? tick))
+                                              (round4 (/ v tick)))))
+                                        rounds)]))
+                       arms)
+        worst    (into {} (map (fn [[id qs]] [id (when (every? number? qs) (apply min qs))])) quanta)
+        below    (into #{}
+                       (keep (fn [id]
+                               (when-not (every? (fn [p50] (resolved (get p50 id))) rounds) id)))
+                       arms)]
     {:tick        tick
      :quanta      quanta
      :worst       worst
+     ;; What fraction of the WORST round's reading is the grain rather than
+     ;; the arm — the number the mask's rule is about, stated so a reader of
+     ;; a published band never has to divide it out.
      :grain-share (into {} (map (fn [[id q]] [id (when (number? q) (round4 (/ 1.0 q)))])) worst)
-     :below-grain (into #{} (keep (fn [[id q]] (when-not (and (number? q) (> q 1.0)) id))) worst)}))
+     :below-grain below}))
 
 (defn- mask-below-grain
   "Apply the CLOCK-GRAIN publication mask to one write row's published
   surfaces, and answer the row (rf2-d2tzk).
 
-  A WINDOW THAT DOES NOT EXCEED THE CLOCK'S OWN GRAIN HAS NO MAGNITUDE.
+  A WINDOW THE CLOCK RESOLVED LESS OF THAN IT MISSED HAS NO MAGNITUDE.
   The reading is a real number and it is the instrument's resolution
   wearing an arm's clothes: the bulk row's floor is a single commit under
-  one clock, it reads 1.0 to 2.0 ticks of a 0.1 ms grain, and its
+  one clock, it reads 1.0 to 2.0 ticks of a MEASURED 0.1 ms grain, and its
   neighbouring attainable values are 33 % to 100 % apart — so every ratio
   normalised by it is determined only to within a factor of about two. The
   row's own six rounds show it: the `reagent-slim` numerator moved 1.18x
@@ -1836,6 +1863,29 @@
             :ok   (and (= :moot (:verdict live)) (= :moot (:verdict zero))
                        (= :no-published-figure-bears-it (:reason live)))
             :detail (str "resolving=" (name (:verdict live)) " flat=" (name (:verdict zero)))})
+
+         ;; 10b. THE RULE AT ITS OWN EDGE. `v > tick` — the reading merely
+         ;;      exceeding the grain — is NOT the test, and the difference is
+         ;;      two consecutive live runs of one source: the bulk floor's
+         ;;      worst round read 1.0 ticks on the first and 1.5 on the
+         ;;      second, so the weaker rule masked the row and then published
+         ;;      `9.333 – 10.500` off the same window. The test is
+         ;;      `(v - tick) > tick` — what was resolved must exceed what was
+         ;;      not — so 1.5 and 2.0 ticks are still grain and 3.0 is a
+         ;;      measurement. Both polarities, because a boundary nobody has
+         ;;      watched decide is not a boundary.
+         (let [at (fn [floor] (-> (grain-fixture :U-bulk 1 [:floor :reagent-slim]
+                                                 [{:floor floor :reagent-slim 1.7}]
+                                                 0.1)
+                                  (get-in [:summary :reagent-slim])))]
+           {:name "the grain must be the SMALLER part of the window: 1.5 and 2.0 ticks are still grain, 3.0 is not"
+            :ok   (and (= :below-clock-grain (:unpublished (at 0.15)))
+                       (= :below-clock-grain (:unpublished (at 0.2)))
+                       (nil? (:unpublished (at 0.3)))
+                       (number? (:min (at 0.3))))
+            :detail (str "1.5=" (pr-str (:unpublished (at 0.15)))
+                         " 2.0=" (pr-str (:unpublished (at 0.2)))
+                         " 3.0=" (pr-str (:min (at 0.3))))})
 
          ;; 11. THE MASK IS NOT A BLANKET. A floor well clear of the grain —
          ;;     the batched NARROW row, 9 and 10 ticks on the same 0.1 ms
