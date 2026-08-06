@@ -226,9 +226,17 @@ against bands of 8.8–16.3% — which is what a row *at* parity should look lik
 **This is the check that makes the `bulk300` reading worth something.** The
 corrected clock is not a clock that flattens everything toward 1.0: in the same
 eight runs it puts `hicasso / reagent-subs` on `M1` at **1.4896×**
-[1.3488 – 1.5989], a magnitude far from parity that clears every run's band. It
+[1.3488 – 1.5989], a reading far from parity that clears every run's band. It
 reproduces a published parity row to two parts in a thousand and simultaneously
-reports a 49% deficit elsewhere.
+separates a large deficit elsewhere. **What that `M1` reading is NOT is a
+published magnitude** — `rf2-jcm3p` ruled on 2026-08-06 that `M1` mount states a
+**REGIME** and not an adjudicated magnitude, because its own `ctl-2x` fails
+(1.8173× against a predicted 2.00×, the additive constant `c ≈ 1.04 ms`
+explaining the undershoot); `1.4896×` remains visible here as a historical
+observation *stated under a failing `ctl-2x`; withdrawn as a magnitude
+2026-08-06*. **The check above is unaffected**, because it turns on this clock
+discriminating a far-from-parity reading from a parity one — a direction and a
+band, not a number.
 
 ---
 
@@ -264,7 +272,7 @@ substrate arms' 4.1–4.7 ms, so a subscription graph over 300 boundaries costs
 roughly 1.5–1.7× a top-down React render on this witness, on a clock that sees
 everything. And **`hicasso` is the most script-heavy arm of the three** at
 2.938 ms, which is the codec walking 901 elements and is the same finding
-[the candidate's clock](the-candidates-clock.md#4-the-mount-row--the-one-row-published-as-a-magnitude)
+[the candidate's clock](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)
 reached on the mount row.
 
 ---
@@ -418,4 +426,9 @@ commits is the check.
 - **The candidate's own mount deficit is worse than published**, at `1.4896×`
   Reagent-on-subs on the corrected clock against `1.2107×` on the frame-only
   one. Recorded here because it is in these runs; adjudicating it is
-  `rf2-emvod`'s, not this page's.
+  `rf2-emvod`'s, not this page's. **That adjudication has since happened, and
+  it publishes no magnitude**: `rf2-jcm3p` restated `M1` mount as a **REGIME**
+  on 2026-08-06 — materially slower than both adapters, every corroborated
+  reading above the amended `≤ 1.10×` UIx gate, `≤ 1.10×` not demonstrated —
+  because the row's `ctl-2x` fails. `1.4896×` above is a reading stated under
+  that failing control, not a published magnitude.

@@ -147,15 +147,33 @@ prices the whole authoring position, not the codec alone.
 ## What the rows say about the workload leg
 
 The operator's open question: does the candidate's p0 mount deficit —
-**1.5001× vs UIx / 1.4896× vs Reagent** on the M1 witness (`rf2-yd52q`, the
-published magnitude) — reproduce on census-real screens?
+`1.5001×` vs UIx / `1.4896×` vs Reagent on the M1 witness (`rf2-yd52q`) —
+reproduce on census-real screens?
 
-**At that magnitude, no.** On the census feed — 301 boundaries of 17-element
+> **THOSE TWO M1 FIGURES ARE NO LONGER PUBLISHED MAGNITUDES (`rf2-jcm3p`,
+> ruled 2026-08-06).** M1 mount is stated as a **REGIME**, not an adjudicated
+> magnitude: hicasso mounts materially slower than both adapters — every
+> corroborated reading sits above the amended `≤ 1.10×` UIx gate — direction
+> triple-corroborated (worst-case witnesses, **census rows**, outside
+> benchmark), and **`≤ 1.10×` has NOT been demonstrated**. The row's positive
+> control fails (`ctl-2x` 1.8173× against a predicted 2.00×, explained by the
+> additive constant `c ≈ 1.04 ms`), so no magnitude is published
+> ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).
+> `1.5001×` and `1.4896×` stay visible here as historical observations
+> *stated under a failing `ctl-2x`; withdrawn as magnitudes 2026-08-06*.
+> **The rows measured on THIS page are untouched by that ruling** — they carry
+> their own controls, adjudicated per row above — and this page is one of the
+> three legs corroborating the regime's direction. What changes below is that
+> M1 is compared against as a set of *readings*, never as a published
+> magnitude.
+
+**At M1's readings, no.** On the census feed — 301 boundaries of 17-element
 cards, the read shape M1's 3-element rows share — the same gated ratio reads
 **1.1646× [1.0951 – 1.2445]** (control-passing run), and 1.2159× [1.1362 –
 1.2892] on the co-instrumented run. The deficit against the floor tells the
 same story: hicasso 1.4936× floor vs uix 1.2838× floor (feed), where the p0
-gated pair implied ~1.5× *of UIx itself*.
+gated pair *read* ~1.5× *of UIx itself* — a reading, not a published
+magnitude, per the note above.
 
 The element-per-boundary scaling argument in the bead — census cards carry
 ~6× more interpreter work per boundary, so the interpreter-attributed deficit
@@ -164,11 +182,11 @@ its attribution**. The gap stays 100% script (taskNet ≈ 1.0), i.e. it *is*
 the interpreter; but on real cards React's own per-element mount work (style,
 layout, commit — identical across arms in the decomposition) grows faster than
 the interpreter term, so the interpreter's *share* shrinks and the ratio
-compresses from ~1.50 toward ~1.16–1.22. The candidate's mount deficit is
-workload-dependent, and the synthetic p0 witnesses sit near its worst case,
-not its typical one. Where the shell is held at one and the interpreter term
-is maximal (large-template), the ratio re-expands to 1.3053× — still well
-short of the p0 magnitude.
+compresses from M1's ~1.50 readings toward ~1.16–1.22. The candidate's mount
+deficit is workload-dependent, and the synthetic p0 witnesses sit near its
+worst case, not its typical one. Where the shell is held at one and the
+interpreter term is maximal (large-template), the ratio re-expands to
+1.3053× — still well short of what M1 reads.
 
 Beside the gate: on the one-boundary census page **direct UIx beats stock
 Reagent outright** — uix/reagent 0.8913× [0.7739 – 0.9835], whole range below
@@ -217,8 +235,10 @@ census rows corroborating M1:
   magnitude.
 
 The corroboration cuts both ways and the page says both halves: the candidate
-clears nothing here (no row passes the amendment's line), **and** its recorded
-1.50× M1 mount deficit does not transfer to census-real screens, where the
-measured deficit is 1.10–1.31× depending on how the same markup is cut into
-boundaries. The ruling on what that means for the programme is the operator's
-(`rf2-2rtt6.1`); this page measures.
+clears nothing here (no row passes the amendment's line), **and** M1's ~1.50×
+readings do not transfer to census-real screens, where the measured deficit is
+1.10–1.31× depending on how the same markup is cut into boundaries. That
+second half is a comparison of readings, not of magnitudes: M1 publishes a
+regime rather than a number (`rf2-jcm3p`, 2026-08-06 — see the note above),
+and what these rows corroborate is its **direction**. The ruling on what that
+means for the programme is the operator's (`rf2-2rtt6.1`); this page measures.

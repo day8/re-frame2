@@ -21,6 +21,21 @@ as corroborating rather than equal to it within 20%. What survives — and it is
 the stronger claim — is that an outside driver and ours agree to 8.8% on one app
 on one clock, so the deficit is not a harness artefact.
 
+> **THAT `1.4896×` IS A READING, NOT A PUBLISHED MAGNITUDE (`rf2-jcm3p`, ruled
+> 2026-08-06).** `M1` mount is stated as a **REGIME**: hicasso mounts materially
+> slower than both adapters — every corroborated reading sits above the amended
+> `≤ 1.10×` UIx gate — direction triple-corroborated (worst-case witnesses,
+> census rows, **this outside benchmark**), and **`≤ 1.10×` has NOT been
+> demonstrated**. The row's positive control fails (`ctl-2x` 1.8173× against a
+> predicted 2.00×, explained by the additive constant `c ≈ 1.04 ms`), so no
+> magnitude is published
+> ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).
+> `1.4896×` stays visible wherever it appears below as a historical observation
+> *stated under a failing `ctl-2x`; withdrawn as a magnitude 2026-08-06*.
+> **This page's OWN figures are untouched by that ruling** — §0 establishes they
+> are script-and-frame on an unaffected harness — and the corroboration above is
+> a direction, which is exactly what the regime publishes.
+
 The bulk number is the one that matters most, because it is the **third** reading
 of that row taken past the `flushSync` boundary and the third to refuse the win:
 this benchmark reads `0.9740×`, our own clock method on this benchmark's app
@@ -294,7 +309,9 @@ of our harness.**
 > on this page is a script-and-frame reading and none of them is restated.**
 >
 > The decomposition is. Against the M1 witness re-taken on the corrected clock
-> — `1.4896×` — the two legs are **workload** (`1.4896 → 1.2789`, our
+> — `1.4896×`, a reading and **not a published magnitude** (`rf2-jcm3p`,
+> 2026-08-06; see the note at the top of this page) — the two legs are
+> **workload** (`1.4896 → 1.2789`, our
 > instrument throughout) and **instrument 8.8%** (`1.2789 → 1.1756`, the same
 > app throughout). *That these two compound to the whole gap is arithmetic
 > rather than evidence* — `a/b × b/c = a/c` holds for any three numbers — so
@@ -313,7 +330,8 @@ of our harness.**
 > leg is **8.8%** with a named mechanism.
 >
 > What is wrong above is the claim that the three readings span 1.18 – 1.28.
-> On one clock they span **1.18 – 1.49**.
+> On one clock they span **1.18 – 1.49** — a span of *readings*, whose top end
+> is `M1`'s and is no longer published as a magnitude.
 
 ### 3.4 Bulk broad — the sharpened target, and the row that changes
 
@@ -545,7 +563,11 @@ comparable to the public leaderboard** — which is not what it is for.
   comparison: that figure is frame-only and is not a member of the set
   ([§3.3](#33-the-mount-row-three-ways)). On a clock that sees the whole
   operation the programme's own witness reads **1.4896×**, so the deficit is
-  worse than published rather than corroborated at 20%.
+  worse than published rather than corroborated at 20%. **What this page hands
+  the programme on that row is a DIRECTION, not a number**: `rf2-jcm3p` restated
+  `M1` mount as a **regime** on 2026-08-06 — its `ctl-2x` fails, so no mount
+  magnitude is published — and named this benchmark as one of the three legs
+  corroborating that direction.
 - **The bulk-broad win is refused by a third instrument.** `UIx / Reagent` reads
   0.9740 on the benchmark's `replace all rows` and 1.1419 on `swap rows`, against
   a published 0.6291. No instrument that has looked past the `flushSync`

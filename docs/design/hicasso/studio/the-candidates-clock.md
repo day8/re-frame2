@@ -498,8 +498,6 @@ be expected to buy the same pair of refusals.
 
 ---
 
-<a id="4-the-mount-row--the-one-row-published-as-a-magnitude"></a>
-
 ## 4. The mount row — a REGIME, not a magnitude
 
 > ## THE MOUNT MAGNITUDE IS WITHDRAWN AND THE ROW IS RESTATED AS A REGIME (`rf2-jcm3p`, ruled 2026-08-06)
