@@ -880,6 +880,347 @@
                             (codec/as-element [a-host {:ref reserved}]))))))
 
 ;; ---------------------------------------------------------------------------
+;; The `[:>]` raw escape (HD-011, rf2-2rtt6.103)
+;; ---------------------------------------------------------------------------
+;;
+;; The escape is `defhost` with the declaration erased, so almost every
+;; row below is a PARITY row: the same fixture component, the same prop
+;; corpus, one answer. What is not parity is stated as its own row — the
+;; carrier, the head test, the value roster, and the fact that no `:ssr`
+;; policy is spellable here (the DOM/SSR half of that lives in
+;; `arm1/raw_escape_dom_cljs_test`, which needs a server renderer).
+
+(defn- raw-carrier
+  "The gate element's own props — the two-slot carrier."
+  [e]
+  (.-props e))
+
+(defn- raw-component-of [e] (aget (raw-carrier e) "c"))
+
+(defn- raw-props
+  "The props object the FOREIGN component receives: the gate hands its
+  `p` slot straight through, so this is the object under test in every
+  parity row."
+  [e]
+  (aget (raw-carrier e) "p"))
+
+(defn- raw-prop
+  "The value the escape emitted at `slot` for a one-prop crossing —
+  [[host-prop]]'s twin, so the two can be read against each other."
+  [k v slot]
+  (aget (raw-props (codec/as-element [:> a-foreign-component {k v}])) slot))
+
+(defn- crossed-same?
+  "Did the two crossings answer the same thing? Functions by identity —
+  which is the point of the row — and everything else by value, through
+  `js->clj`, because two `clj->js` results are two distinct objects and
+  `=` on those is identity."
+  [a b]
+  (if (fn? a) (identical? a b) (= (js->clj a) (js->clj b))))
+
+(defn- error-id [f]
+  (try (f) ::did-not-throw (catch :default e (:rf.error/id (ex-data e)))))
+
+(deftest the-escape-is-a-crossing-and-not-a-tag-named-angle-bracket
+  (testing "THE MIS-PARSE REGRESSION. `:>` was not an error before this:
+            `hiccup-tag?` accepted any keyword that is not `:<>`, so
+            `[:> Foo {}]` routed to the native path and asked React for
+            an element literally named `<>`"
+    (let [e (codec/as-element [:> a-foreign-component {}])]
+      (is (not= ">" (el-type e)) "not a native tag any more")
+      (is (fn? (el-type e)) "a component — the shared gate")
+      (is (= "[:>]" (.-displayName (el-type e)))
+          "named by the CONSTANT, never by the component: React resolves
+           `displayName || name || null`, Closure renames `.name` under
+           :advanced, and foreign production bundles ship without
+           displayName — so any derived identity is build-dependent")
+      (is (identical? a-foreign-component (raw-component-of e))
+          "and the component rides in the carrier's `c` slot")))
+  (testing "the head is compared with `=` and never `identical?`. A
+            keyword built at runtime is a DIFFERENT object from the
+            literal, so an identity test would work under :advanced —
+            where the build interns literals — and silently route every
+            escape back into the native path everywhere else"
+    (let [computed (keyword ">")]
+      (is (not (identical? :> computed))
+          "precondition: the row is only meaningful because these are two
+           objects")
+      (is (= "[:>]" (.-displayName (el-type (codec/as-element [computed a-foreign-component {}])))))))
+  (testing "and the arms either side of the new one are untouched"
+    (is (= (.-Fragment react) (el-type (codec/as-element [:<> "x"]))))
+    (is (= "div" (el-type (codec/as-element [:div]))))
+    (is (= "toString" (el-type (codec/as-element [:toString])))
+        "the redundant second fragment test that paid for this arm is
+         gone; a native tag still parses as itself")))
+
+(deftest conversion-parity-with-the-door-on-one-prop-corpus
+  (testing "THE LOAD-BEARING ROW. HD-011 rules that the escape lowers
+            through the SAME foreign path with the SAME default
+            conversions, and one walk serves both — so this is an
+            identity by construction and the row is a tripwire against a
+            future fork rather than a detector of a present one"
+    (let [f       (fn [_])
+          ref-fn  (fn [_node])
+          corpus  {:on-thing   f
+                   :plain-fn   f
+                   :menu-items [{:day-of-week 1}]
+                   :options    {:pageSize 10}
+                   :variant    :compact
+                   :theme      :theme/dark
+                   :class      ["btn" nil :on]
+                   :className  "wide"
+                   :aria-label :close
+                   :data-kind  :row
+                   :id         :greeting
+                   :role       :dialog
+                   :label      "due date"
+                   :count      7
+                   :open       true
+                   :ref        ref-fn}
+          door    (.-props (codec/as-element [a-host corpus]))
+          raw     (raw-props (codec/as-element [:> a-foreign-component corpus]))]
+      (is (= (vec (sort (js/Object.keys door))) (vec (sort (js/Object.keys raw))))
+          "prop for prop, the same emitted slots")
+      (doseq [k (js/Object.keys door)]
+        (is (crossed-same? (aget door k) (aget raw k))
+            (str "the slot " k " crossed the same way at both")))))
+  (testing "including the two conversions that are the slot's own rather
+            than the walk's — the class coercion (rf2-2rtt6.119) and the
+            named value bound for an HTML attribute (rf2-vrvv9)"
+    (is (= "a b" (raw-prop :class ["a" nil :b] "className")))
+    (is (= "dark" (raw-prop :class :theme/dark "className")))
+    (is (= :theme/dark (raw-prop :value :theme/dark "value"))
+        "and NOT at an ordinary slot: the keyword crosses whole"))
+  (testing "the class slot composes across spellings here too, because the
+            rule is on the SLOT and the walk is the door's"
+    (let [e (codec/as-element [:> a-foreign-component {:class "a" :x/class ["b" :c]}])]
+      (is (= "a b c" (aget (raw-props e) "className"))))))
+
+(deftest the-carrier-never-leaks-and-key-rides-the-outer-element
+  (testing "the foreign component's props carry NEITHER internal slot.
+            Carrying the component beside the converted props and
+            stripping it inside would cost a shallow copy per crossing
+            per render and leave the key one bug away from React; two
+            slots make the leak unrepresentable instead"
+    (let [p (raw-props (codec/as-element [:> a-foreign-component {:label "x"}]))]
+      (is (= ["label"] (vec (sort (js/Object.keys p)))))))
+  (testing "and the carrier itself holds exactly the two slots, plus
+            children when there are any"
+    (is (= ["c" "p"] (vec (sort (js/Object.keys (raw-carrier (codec/as-element [:> a-foreign-component {}])))))))
+    (is (= ["c" "children" "p"]
+           (vec (sort (js/Object.keys (raw-carrier (codec/as-element [:> a-foreign-component {} [:span]]))))))))
+  (testing "`:key` is React's contract on the crossing's own element, not
+            an attribute and not a carrier slot — the door's rule,
+            unchanged"
+    (let [e (codec/as-element [:> a-foreign-component {:key "k7" :label "x"}])]
+      (is (= "k7" (el-key e)))
+      (is (nil? (aget (raw-carrier e) "key")))
+      (is (= ["label"] (vec (sort (js/Object.keys (raw-props e))))))))
+  (testing "a childless crossing does not write `children` onto the props
+            the component receives — which is what makes the parity row
+            above a claim about the object rather than about our walk"
+    (is (not (contains? (set (js/Object.keys (raw-props (codec/as-element [:> a-foreign-component {}]))))
+                        "children")))))
+
+(deftest the-escape-takes-the-doors-unclaimed-slot-conduct-exactly
+  (testing "every slot at this crossing is UNCLAIMED — the roster is
+            empty by construction — so the escape inherits `host-entry`'s
+            conduct with no branch of its own. That is what makes
+            `[:> X …]` → `(defhost x X {})` behaviour-preserving, which
+            is the whole theorem of the migration codemod"
+    (testing "an intent vector at an event-SPELLED slot refuses loudly"
+      (try
+        (codec/as-element [:> a-foreign-component {:on-pick [:boom]}])
+        (is false "should have thrown")
+        (catch :default e
+          (let [d (ex-data e)]
+            (is (= :rf.error/hicasso-host-undeclared-callback (:rf.error/id d)))
+            (is (= :on-pick (:position d)))
+            (is (= "[:>]" (:host d)) "the crossing names the form the author wrote")
+            (is (= #{} (:declared d)) "against an empty roster")))))
+    (testing "and so does an event-spelled key-map"
+      (is (= :rf.error/hicasso-host-undeclared-callback
+             (error-id #(codec/as-element [:> a-foreign-component {:on-key-down {"Enter" [:boom]}}])))))
+    (testing "a MARKED h/fn at any slot refuses — rf2-2rtt6.116's ruling,
+              inherited rather than forked. The mark asks the position for
+              a contract and here no position can ever select one"
+      (let [marked (intent/callback (fn [x] [:row/pick x]))]
+        (is (= :rf.error/hicasso-host-unclaimed-callback
+               (error-id #(codec/as-element [:> a-foreign-component {:on-value-change marked}]))))
+        (is (= :rf.error/hicasso-host-unclaimed-callback
+               (error-id #(codec/as-element [:> a-foreign-component {:row-formatter marked}])))
+            "the mark is the trigger, never the on* spelling")))
+    (testing "a PLAIN function crosses by identity — the fence, and the
+              reason React.memo and every downstream bail-out that
+              compares handler identity keep working"
+      (let [f (fn [_])]
+        (is (identical? f (raw-prop :on-value-change f "onValueChange")))))
+    (testing "an intent vector at a NON-event slot is ordinary data"
+      (is (= ["a" "b"] (js->clj (raw-prop :columns ["a" "b"] "columns")))))
+    (testing "`:ref` takes HD-016's rule at this crossing exactly as at the
+              door: a callback ref through, the reserved vector refused"
+      (let [r (fn [_node])]
+        (is (identical? r (raw-prop :ref r "ref"))))
+      (is (= :rf.error/hicasso-ref-vector-reserved
+             (error-id #(codec/as-element [:> a-foreign-component {:ref [::autosize {}]}])))))))
+
+(deftest the-ampersand-law-holds-at-the-escape-before-conversion
+  (testing "HD-023 clause (d): `:&` is merged BEFORE conversion and the
+            conversion that follows is the position's own. Asserted on
+            what the foreign component RECEIVED, not on the hiccup"
+    (let [p (raw-props (codec/as-element
+                         [:> a-foreign-component
+                          {:& {:className "react-name" :selected "caller"}
+                           :selected "owned"}]))]
+      (is (= "react-name" (aget p "className"))
+          "a remainder key crosses under the slot it names")
+      (is (= "owned" (aget p "selected"))
+          "and the owned literal wins, unconditionally")))
+  (testing "the deny is on the canonical SLOT, so a remainder reaches
+            neither structural slot however it is spelled"
+    (doseq [k [:key "key" :x/key]]
+      (is (nil? (el-key (codec/as-element [:> a-foreign-component {:& {k "hostile"}}])))
+          (str "forwarded as " (pr-str k))))
+    (is (nil? (aget (raw-props (codec/as-element [:> a-foreign-component {:& {:ref "hostile"} :ref (fn [_])}]))
+                    "hostile"))))
+  (testing "and the merge is the SAME one — a non-map remainder is the
+            same loud error at this crossing"
+    (is (= :rf.error/hicasso-merge-not-a-map
+           (error-id #(codec/as-element [:> a-foreign-component {:& "nope"}]))))))
+
+(deftest children-lower-eagerly-and-ride-the-outer-element
+  (testing "trailing forms lower here, in the render window of the
+            boundary that wrote the crossing, through `make-element`'s
+            existing three arms — so an intent closure in a child
+            captures the owner's frame-locked dispatch at LOWERING time
+            (the two-frame proof of that is the DOM witness)"
+    (let [one (raw-carrier (codec/as-element [:> a-foreign-component {} [:span "x"]]))]
+      (is (= "span" (.-type (aget one "children")))
+          "one child: an element, not hiccup"))
+    (let [many (raw-carrier (codec/as-element [:> a-foreign-component {} [:span "a"] [:b "c"]]))
+          kids (aget many "children")]
+      (is (array? kids))
+      (is (= ["span" "b"] (mapv #(.-type %) (vec kids))))))
+  (testing "the attribute map is optional, and the indices shift by one
+            from the door's: component at 1, props at 2 when it is a map,
+            children from 3 or from 2"
+    (let [e (codec/as-element [:> a-foreign-component [:span "no props"]])]
+      (is (= "span" (.-type (aget (raw-carrier e) "children"))))
+      (is (= [] (vec (sort (js/Object.keys (raw-props e)))))))
+    (is (some? (codec/as-element [:> a-foreign-component]))
+        "[:> Component] with neither props nor children is legal"))
+  (testing "a lowered intent inside a `[:>]` child is the ordinary
+            frame-locked one — the crossing is transparent to it"
+    (let [!seen (atom [])
+          e     (intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                   (fn [] (codec/as-element
+                                            [:> a-foreign-component {}
+                                             [:button {:on-click [:go]}]])))
+          child (aget (raw-carrier e) "children")]
+      ((aget (.-props child) "onClick") #js {:target #js {}})
+      (is (= [[:go]] @!seen)))))
+
+;; --- Edge 4: the legal Component value -------------------------------------
+;;
+;; THE PINNING ROSTER, and it is not optional. The accepted set is a
+;; REPLICA of what React 19's reconciler mints a fiber for, so a React
+;; upgrade that moved the boundary would have this escape false-refusing
+;; a legal component — the worst failure a hatch can have. These rows
+;; turn that into a red row instead of a silent ship: the accepts assert
+;; that each category crosses, and the refusals assert the id AND the
+;; discriminating reason rather than merely "it threw".
+
+(defn- accepts? [c] (identical? c (raw-component-of (codec/as-element [:> c {}]))))
+
+(deftest every-category-react-mints-a-fiber-for-crosses
+  (testing "functions and classes"
+    (is (accepts? a-foreign-component))
+    (is (accepts? (fn [_]))))
+  (testing "React's built-in `Symbol.for` exotics — the reason a
+            component-keyed weak cache could not have been the mechanism:
+            ES2024 excludes REGISTERED symbols as WeakMap keys by design"
+    (is (accepts? (.-Suspense react)))
+    (is (accepts? (.-Fragment react)))
+    (is (accepts? (.-StrictMode react)))
+    (is (accepts? (.-Profiler react))))
+  (testing "and the `$$typeof`-branded wrapper objects"
+    (is (accepts? (react/memo a-foreign-component)))
+    (is (accepts? (react/lazy (fn [] (js/Promise.resolve #js {:default a-foreign-component})))))
+    (is (accepts? (react/forwardRef (fn [_p _r] nil))))
+    (let [ctx (react/createContext "unset")]
+      (is (accepts? ctx) "a context is a legal type in React 19")
+      (is (accepts? (.-Provider ctx)))
+      (is (accepts? (.-Consumer ctx)))))
+  (testing "`Suspense` and `lazy` in particular are a PAIR — lazy requires
+            a Suspense ancestor, and HD-011 names that pairing as a reason
+            the escape exists, so a roster that took one and not the other
+            would be unsound"
+    (is (some? (codec/as-element [:> (.-Suspense react) {}
+                                  [:> (react/lazy (fn [] (js/Promise.resolve #js {:default a-foreign-component}))) {}]])))))
+
+(deftest a-value-react-would-not-mint-a-fiber-for-is-refused-at-the-crossing
+  (testing "refused HERE, in the owner's render and on the server too,
+            rather than by React. React's own 'Element type is invalid'
+            is minted at fiber creation — behind the gate that is
+            post-adoption and client-only — and it names `typeof type`,
+            so a keyword, map, vector, set or record all read
+            'got: object'"
+    (testing "nil, and the bare form: the broken-import diagnosis"
+      (let [d (ex-data (try (codec/as-element [:> nil {}]) nil (catch :default e e)))]
+        (is (= :rf.error/hicasso-raw-no-component (:rf.error/id d)))
+        (is (= :hand-the-escape-a-real-component (:recovery d))))
+      (is (= :rf.error/hicasso-raw-no-component (error-id #(codec/as-element [:>])))))
+    (testing "a string or a keyword: the GRAMMAR owns tags. Reagent's
+              `[:> \"input\" …]` took its controlled-input wrapper on
+              exactly this path, so accepting one would silently drop
+              caret and IME protection at a site a migrator ports verbatim"
+      (doseq [c ["input" "div" :div]]
+        (let [d (ex-data (try (codec/as-element [:> c {}]) nil (catch :default e e)))]
+          (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)) (str "for " (pr-str c)))
+          (is (re-find #"computed KEYWORD head" (:reason d))
+              "and the message says what to write instead"))))
+    (testing "a defview head, which React WOULD accept — it is fn?-true,
+              so a bare 'is it a function' test mounts the shell raw, the
+              body reads rfProps, gets undefined, and receives nil props"
+      (let [d (ex-data (try (codec/as-element [:> a-view {}]) nil (catch :default e e)))]
+        (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)))
+        (is (= "a defview product" (:shape d)))
+        (is (re-find #"\[my-view" (:reason d)))))
+    (testing "a defhost head — the escape is for what a declaration cannot
+              express, and this one already IS a declaration"
+      (let [d (ex-data (try (codec/as-element [:> a-host {}]) nil (catch :default e e)))]
+        (is (= "a defhost product" (:shape d)))
+        (is (re-find #"\[my-host" (:reason d)))))
+    (testing "a React ELEMENT, which is a legal child and never a type"
+      (let [d (ex-data (try (codec/as-element [:> (codec/as-element [:div]) {}]) nil (catch :default e e)))]
+        (is (= "a React element" (:shape d)))
+        (is (re-find #"legal CHILD" (:reason d)))))
+    (testing "and the ClojureScript shapes React would answer
+              'got: object' for — each NAMED rather than printed, because
+              a foreign or cyclic value would blow `pr-str` inside a
+              diagnostic"
+      (doseq [[c shape] [[{:a 1} "a map"]
+                         [[:a 1] "a vector"]
+                         [#{:a} "a set"]
+                         [(list :a) "a collection"]
+                         [(js/Date.) "a foreign object"]]]
+        (let [d (ex-data (try (codec/as-element [:> c {}]) nil (catch :default e e)))]
+          (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)) (str "for " shape))
+          (is (= shape (:shape d))))))
+    (testing "a non-fn IFn — an r/partial, a multimethod, a keyword used
+              as a lookup — is a WORKING Reagent site that would die here
+              as an opaque object. The refusal steers to wrapping it"
+      (let [d (ex-data (try (codec/as-element [:> (reify IFn (-invoke [_ _] nil)) {}])
+                            nil (catch :default e e)))]
+        (is (= "callable, but not a function" (:shape d)))
+        (is (re-find #"\(fn \[props\]" (:reason d)))))
+    (testing "the shape is in ex-data and the discriminating reason is in
+              the message — one error id is enough because the message
+              carries the difference"
+      (is (re-find #"was handed a map in the Component position"
+                   (ex-message (try (codec/as-element [:> {:a 1} {}]) nil (catch :default e e))))))))
+
+;; ---------------------------------------------------------------------------
 ;; What the codec must NOT be
 ;; ---------------------------------------------------------------------------
 
