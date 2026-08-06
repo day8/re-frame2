@@ -128,7 +128,15 @@
 
 (defn- census
   "Scan every tracked, prose-bearing file. Returns
-  `{:scanned n :bytes n :hits {path [[line-no line] …]}}`."
+  `{:scanned n :chars n :hits {path [[line-no line] …]}}`.
+
+  `:chars` and NOT `:bytes` (rf2-2rtt6.135): `slurp` hands back a DECODED
+  `String`, so `(count content)` is UTF-16 code units — which is not the file's
+  size on disk for any file carrying a non-ASCII character, and this corpus is
+  full of em-dashes. The figure is a pure anti-vacuity magnitude check (\"did we
+  actually read the corpus, or silently census nothing?\"), a same-vs-same
+  comparison against a floor, so the honest fix is to say what it counts rather
+  than to re-encode 500+ files' content to satisfy a name."
   []
   (let [root  (repo-root)
         _     (assert root "repository root not found — the drift census cannot be built")
@@ -143,9 +151,9 @@
                         hits    (offending-lines content)]
                     (cond-> (-> acc
                                 (update :scanned inc)
-                                (update :bytes + (count content)))
+                                (update :chars + (count content)))
                       (seq hits) (assoc-in [:hits path] hits))))))
-            {:scanned 0 :bytes 0 :hits {} :missing []}
+            {:scanned 0 :chars 0 :hits {} :missing []}
             paths)))
 
 (def ^:private census-result (delay (census)))
@@ -157,12 +165,12 @@
 (deftest drift-census-is-not-vacuous
   (testing "rf2-vxgfnd.167: the roster comes from `git ls-files` and is real —
             a census that silently shrank to nothing must FAIL, not pass"
-    (let [{:keys [scanned bytes missing]} @census-result]
+    (let [{:keys [scanned chars missing]} @census-result]
       (is (> scanned 500)
           (str "the tracked prose census collapsed to " scanned " files; this "
                "gate is only meaningful over the whole tracked corpus"))
-      (is (> bytes 1000000)
-          (str "the census read only " bytes " bytes — it is not actually "
+      (is (> chars 1000000)
+          (str "the census read only " chars " characters — it is not actually "
                "reading file contents"))
       (is (empty? missing)
           (str "tracked paths absent from the working tree: " (pr-str missing))))))
