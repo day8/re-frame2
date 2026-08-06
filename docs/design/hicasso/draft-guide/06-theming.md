@@ -108,7 +108,17 @@ choice.
 The event above moves a keyword into app-db. Layer 1's cascade keys off a
 `data-theme` attribute on a DOM element. Something has to join them.
 
-Two practical options. Pick one for your app; neither needs a new Hicasso API.
+**A view renders the attribute. That is the default**, and the reason is the one
+this guide leans on everywhere else: the DOM stays derived from app-db, so a
+rewind in Xray, a restored snapshot and a test fixture that writes the theme all
+agree with what is on screen. Option B below asserts the attribute imperatively
+from an effect, and stays documented for apps that want literally zero render work
+on a switch.
+
+If all you want is *follow the OS*, you need no bridge at all — a
+`@media (prefers-color-scheme: dark)` block in layer 1's stylesheet themes the
+page with no app state, no subscription and no effect. Bridge the choice when the
+**user** picks the theme, or when their pick has to survive a reload.
 
 ### Option A — a scope view reads the choice
 
@@ -127,23 +137,78 @@ One view reads `:theme/current` and puts it on its own element:
 spliced with `into` rather than dropped in as one child —
 [Views and reads](02-views-and-reads.md#the-component-abi) has the rule.
 
+**Where the attribute lands.** A view renders its own element and nothing above
+it, so `data-theme` goes on `theme-scope`'s own `div`: per frame, never per
+document. That is not a second decision you make after picking A — it is the only
+place the attribute can go, and it happens to be what frame isolation needs. Two
+frames on one page, one light and one dark, is an ordinary story page and an
+unwritable one against a single `documentElement`.
+
+Keep the scope at the frame's root, above any [`defhost`](05-interop.md) crossing.
+Under the default `:ssr :client-only` policy — and under `{:fallback …}` — a
+crossing renders *instead of* its subtree, so a scope beneath one goes missing
+from the server response along with everything it was scoping, and nothing reports
+it ([Server-side rendering](10-server-side-rendering.md#render--when-the-region-has-to-be-in-the-response)).
+
+Per-root does not strand the top layer. `::backdrop` inherits from its originating
+element on Chromium 122, Firefox 120 and Safari 17.4 and later, so a dialog opened
+inside the scope takes the scope's tokens; on engines older than those it
+inherited from nothing, which a document-level attribute did not fix either.
+
 **Tradeoff.** The boundary that reads the theme re-renders on every switch — one
-boundary, known cost. What happens below it depends on the
-[default value-equality bail-out](02-views-and-reads.md#boundaries-memoize-by-default).
-`app` is a boundary either way (handed down as `children` or minted inside
-`theme-scope`), and its props are unaffected by the theme, so they compare `=` and
-its memo wrapper bails. Lose that only by calling `app` as a plain function instead
-of writing `[app {}]` — a plain call has no boundary of its own, so it re-runs with
-`theme-scope` every time.
+boundary, known cost. What happens below it depends on *what sits there*. The
+[value-equality bail-out](02-views-and-reads.md#boundaries-memoize-by-default) is
+carried by heads `defview` mints, so `[app {}]` bails because `app` is a `defview`
+and its props are unaffected by the theme. A native-tag subtree, a fragment, or a
+`defhost` crossing carries no wrapper and re-runs with the scope — and so does
+`app` called as a plain function, which mints no boundary at all. Keep a `defview`
+head immediately below the scope and the rest of the tree stays quiet.
 
 Element identity does not help here: children cross a boundary as hiccup data, not
 as React elements, so `theme-scope` mints a fresh element for `app` on every render.
 The skip is always the comparator's `=`, never a referential short-circuit — and
-`=` on an unchanged props map is cheap. Keep `app` a boundary and the rest of the
-tree stays quiet.
+`=` on an unchanged props map is cheap.
+
+That quiet subtree rides the bail-out being the **default**, which guide 02 still
+lists as unsettled. If it ever becomes something you ask for, the arithmetic does
+not move: one boundary asks, and the tree below it is quiet again.
 
 **Wins.** The DOM is derived from state. Rewind app-db in Xray and the attribute
-follows. Tests and restored snapshots stay consistent.
+follows; tests and restored snapshots stay consistent. The server render is the
+same view reading the same snapshot, so the response carries the attribute and
+hydration adopts it — **as long as the payload carries the choice**. If it does
+not, the two sides disagree about one attribute, and an attribute-only divergence
+is the one class React never reports
+([Server-side rendering](10-server-side-rendering.md#troubleshooting)): the page
+hydrates in the server's theme and stays there until that boundary next re-renders.
+B's cost is a flash you can watch happen; A's residual cost is a wrong attribute
+nobody tells you about.
+
+**Page chrome.** The document scrollbar, the `<body>` canvas and
+`<meta name="theme-color">` sit above every frame, so a per-root attribute does not
+reach them. Echo the same db fact document-level, outside Hicasso's contract — on
+the client, that is one app-owned effect:
+
+```clojure
+(rf/reg-fx :page/echo-theme!                    ;; a projection, not the bridge
+  {:platforms #{:client}}
+  (fn [_ctx theme]
+    (.setAttribute (.-documentElement js/document)
+                   "data-page-theme" (name theme))))
+```
+
+`:theme/choose` returns it as a row under `:fx` beside its `:db` write — option B
+below shows that shape. On the server the same keyword rides `:html-attrs` in the
+head model your route already declares, which is a pure function of app-db, so it
+is there on the first byte. Give the document copy a **different attribute name**
+than layer 1's scope selector, as above: reuse `data-theme` on `<html>` and the
+cascade honours it as a real second carrier for every frame that has no scope of
+its own.
+
+One source, two projections, and deliberately asymmetric: the rendered root
+attribute is the app's only theme carrier, the document copy is cosmetic, and a
+stale copy costs you a scrollbar colour. Doubling the *carrier* — mixing A and B
+over the same elements — is the incoherence worth avoiding.
 
 ### Option B — an effect writes the attribute
 
@@ -178,17 +243,28 @@ you give up:
   otherwise.
 - **Boot needs its own hand.** Apply the initial theme with an initial event that
   carries the same effect, or the first paint is unthemed.
-- **It is not frame-isolated.** `document.documentElement` is one element; two
-  frames on one page share it. Targeting each root's own node would need the
-  effect to reach that node, and nothing in the product says an effect can today.
+- **The server response carries no attribute.** The effect is client-only by
+  declaration, so an SSR'd page arrives unthemed and flips when the client boots.
+  That flash is visible, self-healing and about as diagnosable as a page load gets
+  — the opposite polarity to A's silent divergence.
+- **It is per-document as written.** `document.documentElement` is one element and
+  two frames on one page share it, so two themes at once is not expressible.
+  Per-frame B *is* writable: an fx handler receives the frame id in its context
+  ([Events as data](03-events-as-data.md#callbacks-carry-their-frame)), so an
+  app-owned `frame-id → node` map populated at mount plus one effect reading it
+  runs to about five lines. Five lines you then own.
 
 ### Which one?
 
-Ordinary trade: render a fact (A) vs assert it imperatively (B). A keeps derivation
-at the cost of one reading boundary; B has no render cost and gives up derivation.
-Neither is the taught default yet — whether A's cost holds at one boundary under
-multi-frame load, and whether the theme attribute is per-root or per-document, are
-still open. Until those settle, pick the tradeoff that matches your app.
+**A, unless you have a reason.** Rendering the fact keeps every derived-state
+property the rest of this guide builds on, and the cost is one boundary re-running
+on an action users take rarely.
+
+Take B when you have measured a need for zero render work on the switch and can
+live without derivation — no rewind, no snapshot restore, no fixture that themes
+by writing app-db — and when the page is client-rendered, so the flash never
+happens. Nothing about starting on A makes that move harder: B is `rf/reg-fx`,
+public API you have already met.
 
 ## The two laws
 
@@ -242,7 +318,8 @@ structural tests can see less of. Honest trade, stated once.
 |---|---|---|
 | Blank page on first load, console shows `Doesn't support name:` | Nobody had chosen a theme, the sub read `nil`, and `(name nil)` threw at the root | Give the sub a default, as layer 3 does |
 | The theme keyword changes in app-db and nothing on screen changes | No bridge is wired — app-db holds the choice; the cascade keys off a DOM attribute | Wire option A or B above; the event alone does nothing to the document |
-| Theme switch re-renders the whole app | Option A, with the themed content spliced in as a plain call rather than an `[app {}]` vector | Put the content behind a boundary (children or a direct `[app {}]`), or use option B |
+| Theme switch re-renders the whole app | Option A, and what sits below the scope carries no memo wrapper — a native-tag subtree, a fragment, a `defhost` crossing, or `app` called as a plain function | Put a `defview` head immediately below the scope, as `[app {}]` does; or use option B |
+| The hydrated page keeps the server's theme and never corrects itself | Option A, and the two sides disagreed about the choice — the payload did not carry `:theme/current`, or each derived it differently. An attribute-only divergence is the one class React never reports | Allowlist the key in the hydration payload; there is no diagnostic coming ([Server-side rendering](10-server-side-rendering.md#instance-state-and-the-payload-allowlist)) |
 | A time-travel rewind shows the old theme | Option B — the attribute was asserted by an effect, so it is not derived from the state you rewound | Expected under B; it is the price named above |
 | A controlled input's value gets clobbered by a theme | Should be impossible — law (a) | A runtime bug, not a usage error |
 | A part override doesn't take effect | Merge order: instance props beat app theme beat base | Check which layer you set it in |
@@ -263,8 +340,6 @@ order to remember, in exchange for flexibility nobody will use.
 
 | Question | Status |
 |---|---|
-| How the app-db choice reaches the `data-theme` scope | Open. Both bridges above work; neither is the taught default yet |
-| Whether the theme attribute is per-root or per-document | Open. Layer 3 promises frame isolation; a document-level attribute does not have it |
 | How a control declares a part | Open. "Controls emit keyword-tagged parts" is the claim; the attribute or macro is unnamed |
 | How an app installs a theme | Open. Merge order is fixed; the mechanism that supplies the app-theme layer is not |
 | The part-address shape | This guide writes `[:typeahead :root]` by analogy; the actual shape is unstated |

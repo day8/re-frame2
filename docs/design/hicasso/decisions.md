@@ -306,6 +306,83 @@ signal, not verdicts.
 
 ## HD-010 — Theming; no native context API
 
+> **Addendum, 2026-08-06 — the bridge from layer 3 to layer 1 is a RENDERED
+> scope, and the attribute is PER-ROOT (`rf2-2rtt6.108`).** The ruling below
+> fixes the three layers and leaves unnamed the thing that joins the app-db
+> choice to the `data-theme` the cascade keys off; the guide carried both
+> candidates as open questions. A delegated design pass and an adversarial pass
+> ran on 2026-08-04 (0 FATAL / 4 MAJOR / 5 MINOR, verdict *ratify with the named
+> repairs*), and the shape was re-verified against `main` and priced on
+> 2026-08-06 in
+> [the studio dossier](studio/108-the-theming-taught-default-priced.md).
+> Operator-overturnable. Nothing below is withdrawn: the three layers, the two
+> laws and the no-context ruling stand unamended.
+>
+> **Option A is the taught default.** One view reads the theme sub and renders
+> `data-theme` on its own element; below it the value-equality bail-out keeps the
+> tree quiet. Its case is derivation (a rewind, a restored snapshot and a test
+> fixture that writes the theme all agree with the screen), SSR (the same
+> renderer emits the attribute from the same snapshot), boot coherence,
+> testability as an ordinary `:db` write, and Xray visibility. **Option B — an
+> app-owned fx flipping the attribute — stays documented rather than
+> deprecated**, as the zero-render alternative; what it costs is derivation, plus
+> a server response that carries no attribute at all, so an SSR'd page flashes
+> the wrong theme until the client boots.
+>
+> **The scope is per-root, and it is entailed rather than chosen.** A view
+> renders its own element and nothing above it, and `spec/011-SSR.md`
+> §*Head/meta contract* records that there is no DOM-head reconciler — so an
+> A-shaped per-document bridge is not a design that lost, it is not writable. The
+> space is three points, not four. Per-root is also what `spec/004-Views.md`
+> §*Theming and semantic parts* already rules — *"an ancestor scope the
+> application renders once"* — and what the shipped browser witness
+> `pilot_theming_dom_cljs_test.cljs` already does, setting `data-theme` on the
+> mount container and never on `documentElement`. The guide's second open
+> question therefore retires as **answered by the spec**, not as newly decided
+> here, which is the smaller and truer claim.
+>
+> **Page chrome is a projection, not a second carrier.** Document-level chrome —
+> the scrollbar, the `<body>` canvas, `theme-color` — sits above every frame, so
+> an app that wants it themed echoes the same db fact document-level *outside*
+> this contract: `:html-attrs` on the server, one app-owned fx on the client,
+> under an attribute name distinct from the scope selector. One source, two
+> projections, deliberately asymmetric — the rendered root attribute stays the
+> app's only theme carrier and the document attribute is a redundant cosmetic
+> copy, which is why doubling it is not the incoherence that doubling a carrier
+> would be.
+>
+> **The multi-frame cost question closes by argument. No measurement, no
+> quiet-box row.** A theme switch is a rare, user-initiated action, and per
+> switch per frame the cost is one small boundary body plus one `=` compare —
+> *a fortiori* the page-chrome shape
+> [HD-028](#hd-028--value-equality-is-the-boundary-default) already measured at
+> 300 bodies plain versus 0 memoized. **Conditioning clause:** that arithmetic
+> rides HD-028's *default* bail-out, whose own `Reopens` clause is live as of its
+> 2026-08-04 amendment. If the default is ever revised, option A's quiet tree is
+> re-derived on the successor mechanism — one explicit opt-in at the single
+> boundary below the scope — and this addendum survives either disposition. Only
+> the mechanism sentence moves.
+>
+> **Three 2026-08-05 landings neither pass could have seen, all folded into the
+> guide.** The memo default narrowed to the heads `defview` mints
+> (`rf2-2rtt6.102`, `rf2-u09ay`), so A's precondition is *what* sits below the
+> scope rather than *where* — a native-tag subtree, a fragment or a `defhost`
+> crossing carries no wrapper, and that is a second cause of the guide's
+> whole-app re-render row. A's SSR divergence is **attribute-only**, exactly the
+> class this adoption tier never reports, so A trades B's loud transient failure
+> for a silent persistent one, conditional on the payload carrying the choice;
+> "no flash by construction" is withdrawn and the guide carries a troubleshooting
+> row instead. And a scope below a `defhost` crossing is deleted from the server
+> response silently under `:client-only` and under `{:fallback …}`
+> (`rf2-l0wfx`, `rf2-nv07k`), which is why per-root **at the top** is the
+> load-bearing form. `::backdrop` is scope-neutral on every engine generation —
+> Chromium 122 / Firefox 120 / Safari 17.4 and later inherit it from the
+> originating element, and earlier engines stranded it under per-document too —
+> so per-root cannot strand the top layer.
+>
+> **No new public concept is minted by taking this ruling**, and no code, no new
+> fx and no measurement follow from it.
+
 **Ruling.** Hicasso ships **no context abstraction of its own**, and its native
 theming uses none; the substrate keeps exactly one internal context (frame
 identity). Ordinary React context remains available to advanced authors at the
