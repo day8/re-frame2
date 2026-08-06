@@ -1583,9 +1583,9 @@
   duplicate-key warning (`react-dom-client.development.js`,
   `warnOnInvalidKey`) bails on `if (\"string\" !== typeof key) break` —
   but the coercion above has already happened, so the key IS a string and
-  the check DOES apply. React therefore does warn `Encountered two
-  children with the same key, ` + \"`[object Object]`\" whenever two or
-  more foreign-object keys collide.
+  the check DOES apply. React therefore does emit its own *Encountered
+  two children with the same key, `[object Object]`* whenever two or more
+  foreign-object keys collide.
 
   That is worth stating plainly because it means this warning is NOT the
   only signal in the collision case. Where React is genuinely silent is
