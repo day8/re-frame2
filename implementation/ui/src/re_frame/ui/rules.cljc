@@ -2150,11 +2150,19 @@
                (nil? slot)
                (error/throw-error!
                 :rf.error/ui-tree-malformed 're-frame.ui/spread-safe
-                (str "(ui/spread-safe owned caller) — the caller attr key " (pr-str k)
+                ;; `error/pr-form` / `error/safe-form`, not bare `pr-str`: this is
+                ;; the ONE branch of this guard reached with a value that is not
+                ;; provably nameable — `caller-key-slot` returned nil, so `k` is a
+                ;; foreign object used as a map key, and a cyclic one (a React
+                ;; context) would make `pr-str` blow the stack instead of
+                ;; producing this error (rf2-30dc7). The two sibling arms below
+                ;; are gated on a NON-nil slot, so their `k` provably IS nameable
+                ;; and stays a bare `pr-str`.
+                (str "(ui/spread-safe owned caller) — the caller attr key " (error/pr-form k)
                      " is not a nameable attribute key (a keyword, string, or symbol), "
                      "so it has no canonical DOM/React name to check against the "
                      "owned-key deny law. Use a keyword attr key")
-                {:extra {:key k}})
+                {:extra {:key (error/safe-form k)}})
 
                (or (contains? spread-safe-denied-structural-slots slot)
                    (contains? owned-slots slot))
