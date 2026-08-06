@@ -292,7 +292,7 @@ the collector mechanics.
 | Index thrash, subscriptions constantly re-created | Query args not *value*-stable (timestamp, real sort-order change, or JS/fn identity) | Make the args equal under `=` between renders; allocation of equal persistent values is fine |
 | A body's side effect fires twice | StrictMode double-invoke | Bodies are pure; move the effect out |
 | `:rf.warning/hicasso-missing-key` names a view and a child head | A seq of boundary children has no `:key` — absent, or an expression that computed `nil` | Put a `:key` in each member's props map. A Reagent `^{:key}` on the form is not read |
-| `:rf.warning/hicasso-entity-key`, and a row remounts when you edit it | `:key` holds a collection, which React coerces to a string — the key moves with the content | Key on a stable identifier: `{:key (:id todo)}` |
+| `:rf.warning/hicasso-entity-key`, and a row remounts when you edit it | `:key` holds a value React has to coerce. The classification is total: strings, numbers, keywords, uuids and symbols pass; a collection, a foreign object, a `js/Date`, a JS array, a boolean or a function is named. A content-derived coercion moves with the content, and React itself says nothing — distinct keys never collide, so its duplicate-key warning never fires | Key on a stable identifier: `{:key (:id todo)}` |
 
 ## When not to use a boundary
 
