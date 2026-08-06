@@ -1,14 +1,24 @@
 # The candidate's clock — mount, bulk K=100/300, narrow, per-keystroke
 
 **The candidate is slower on the clock, and the correction made it slower
-still.** On the mount row — the only row of five whose positive control passed —
-Hicasso Arm 1 mounts the 300-boundary witness at **1.4896× Reagent-on-subs**
-[1.3488 – 1.5989]. That is the figure of record: it is on raw `TaskDuration`,
-which holds the operation's own script as well as the frame it causes, and it is
-above the ship bar's `≤ 1.0×` and above
+still.** On the mount row, Hicasso Arm 1 mounts the 300-boundary witness at
+**1.4896× Reagent-on-subs** [1.3488 – 1.5989] — on raw `TaskDuration`, which
+holds the operation's own script as well as the frame it causes, above the ship
+bar's `≤ 1.0×` and above
 [the restated M1 red zone](../validation.md#the-clock-gates-restated-on-the-post-25-tree)
-of `1.0150×`. **Its interval does not straddle 1.0**, so the deficit is
-*established* and not merely indicated.
+of `1.0150×`, with an interval that does not straddle 1.0. **That figure is a
+historical observation and not a published magnitude**: the row's positive
+control fails, so [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the
+mount as a **regime** — *Hicasso mounts materially slower than both adapters,
+and `≤ 1.10×` has not been demonstrated* — rather than as a number.
+*(2026-08-06, `rf2-jcm3p`: this called `1.4896×` ~~the figure of record~~ and
+the mount ~~the only row of five whose positive control passed~~, and read the
+deficit as ~~established and not merely indicated~~. The control that carries
+this figure — `rf2-emvod`'s seven-run ensemble — reads `ctl-2x` at `1.8173×`
+against a predicted `2.00×`, and two re-takes on verifiably idle boxes
+reproduced the miss. The strict rule that refuses the three bulk rows in
+[§6](#6-the-three-rows-this-page-refuses) binds here too; the asymmetry ends.
+The direction survives intact — it is what the regime states.)*
 
 **The number this page itself measured is `1.21×`** [0.9756 – 1.7208], and every
 magnitude below is on that same superseded clock — `taskNet`, which subtracts the
@@ -19,8 +29,10 @@ frame-only range *did* straddle 1.0 at n = 6, which is why this page originally
 declined to call the deficit established; that hedge is a property of the
 frame-only reading and does not carry onto the clock the row is now stated on.
 
-On per-keystroke it is **indistinguishable from both donors**, and all three are
-one frame. The three bulk rows **could not be measured honestly**; this page
+On per-keystroke it is **indistinguishable from both donors at Event Timing's
+resolution**, and all three are one frame — the row's published verdict, and
+[§5](#5-per-keystroke--every-arm-is-one-frame) says what that does and does not
+mean. The three bulk rows **could not be measured honestly**; this page
 publishes no magnitude for them and [§6](#6-the-three-rows-this-page-refuses)
 says exactly why — including one ground it has since **withdrawn as refuted**,
 and the measured band that replaced it
@@ -486,7 +498,65 @@ be expected to buy the same pair of refusals.
 
 ---
 
-## 4. The mount row — the one row published as a magnitude
+<a id="4-the-mount-row--the-one-row-published-as-a-magnitude"></a>
+
+## 4. The mount row — a REGIME, not a magnitude
+
+> ## THE MOUNT MAGNITUDE IS WITHDRAWN AND THE ROW IS RESTATED AS A REGIME (`rf2-jcm3p`, ruled 2026-08-06)
+>
+> **`1.4896×` [1.3488 – 1.5989] against Reagent-on-subs and `1.5001×` against
+> UIx-on-subs are withdrawn as MAGNITUDES.** The strict rule that refuses the
+> three bulk rows in [§6](#6-the-three-rows-this-page-refuses) binds here too,
+> and the asymmetry this section used to carry — a magnitude published under a
+> control that fails, beside three rows refused for that same failure — ends.
+>
+> **What the row publishes instead is a REGIME:** *Hicasso mounts materially
+> slower than both adapters.* Every corroborated reading sits above the amended
+> `≤ 1.10×` UIx gate — landed ensembles `1.5001×` and `1.4656×` against UIx,
+> `1.4896×` [1.3488 – 1.5989] and `1.3737×` against Reagent, raw quiet-window
+> recomputations `1.3484×` and `1.2066×` against UIx — and the direction is
+> corroborated three ways: worst-case witnesses, the census rows, and an outside
+> benchmark. **`≤ 1.10×` has NOT been demonstrated.**
+>
+> **Why no magnitude.** The row's positive control fails. `ctl-2x` reads
+> `1.8173×` against a predicted `2.00×` over `rf2-emvod`'s seven runs, and two
+> re-takes on verifiably idle boxes reproduced the miss at `1.8443×`
+> ([§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04))
+> and `1.8567×`
+> ([§3.5](#35-the-rebooked-window-which-refuses-in-the-same-two-places-rf2-0qj9w-2026-08-04)).
+> The additive constant explains the undershoot arithmetically — `c ≈ 1.04 ms`,
+> and `(2W + c)/(W + c)` is below 2 for any positive `c` — so it is not a
+> property of mounts, and
+> [§4.2 of the re-adjudication](rows-re-adjudicated-on-the-corrected-clock.md#42-ctl-2x-undershoots-on-the-mount-row-too-and-that-changes-its-diagnosis)
+> measures the same constant on four rows that do wildly different work. **And
+> no changed-set control can reach a mount**: a mount row's operation *is* the
+> mount, so there is no standing page to write a changed set into and no
+> changed-set axis to be linear in. Two clean windows on two idle boxes bought
+> two refusals and no magnitude, which is what settled that more measuring
+> cannot move this.
+>
+> **The figures below stay visible and are annotated rather than erased.** Every
+> `1.4896×` on this page is a historical observation *stated under a failing
+> `ctl-2x`; withdrawn as a magnitude 2026-08-06*. History is annotated, never
+> deleted.
+>
+> **What would reopen it, precisely.** A sitting must declare in writing that
+> its go/stop turns on locating `M1` against the `1.10×` line at a precision
+> inside the corroborated spread — that the difference between ~`1.10×` and
+> ~`1.20×`, or finer, would change its ruling. Only then: **one** pre-registered
+> mount-axis three-point control (mount 150 / 300 / 600 boundaries, adjudicated
+> `(T(600) − T(150)) / (T(300) − T(150))` → `3.00×`), accepting up front that it
+> inherits the noise condition — `σ/T ≈ 3.5%` needed against a measured
+> within-block IQR of 28–48%, and the band is **widest on an idle box**
+> ([§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear): 24.6% at zero
+> competing cores against 8.3% at four, `corr(band, floor) = −0.49`), so the
+> quietest achievable box is that construction's *worst* case and it may refuse
+> after the spend. A refusal there is a valid terminal answer. Absent that
+> declaration, **no further `M1` instrument work.**
+>
+> `clock_run.cjs` labels this row `mount-regime` and prints its control status
+> on every run, so a reader of the driver's output meets the disposition rather
+> than inferring it.
 
 **Positive control: PASS.** `ctl-2x` measured 1.9534× [1.7258 – 2.1817] over 18
 segment-rounds against 2.00× ±25%, every round inside the band. **Arm-order
@@ -519,17 +589,22 @@ The bar arithmetic — two floor-normalised ratios, one against the other:
 
 | row | measured | range | disposition |
 |---|---:|---|---|
-| ~~**`hicasso / reagent-subs`**~~ | ~~1.2107×~~ | [0.9756 – 1.7208] | **SUPERSEDED — frame-only.** Reads **1.4896×** [1.3488 – 1.5989] on the corrected clock, and **1.3737×** [1.3289 – 1.4331] on `rf2-emvod`'s heavier-regime ensemble. Above the `≤ 1.0×` win condition and the `1.0150×` red zone on all three, and the range no longer straddles 1.0 |
-| ~~**`hicasso / uix-subs`**~~ | ~~1.1865×~~ | [0.9753 – 1.3722] | **SUPERSEDED.** Reads **1.5001×** on the corrected clock and **1.4656×** [1.3819 – 1.5088] on `rf2-emvod`'s ensemble; no longer straddles 1.0 |
+| ~~**`hicasso / reagent-subs`**~~ | ~~1.2107×~~ | [0.9756 – 1.7208] | ~~**SUPERSEDED — frame-only.**~~ **REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*. Read **1.4896×** [1.3488 – 1.5989] on the corrected clock and **1.3737×** [1.3289 – 1.4331] on `rf2-emvod`'s heavier-regime ensemble — both above the `≤ 1.0×` win condition and the `1.0150×` red zone, neither straddling 1.0, **both stated under a failing `ctl-2x` and therefore historical observations rather than published magnitudes** |
+| ~~**`hicasso / uix-subs`**~~ | ~~1.1865×~~ | [0.9753 – 1.3722] | ~~**SUPERSEDED.**~~ **REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*. Read **1.5001×** on the corrected clock and **1.4656×** [1.3819 – 1.5088] on `rf2-emvod`'s ensemble; neither straddles 1.0, and both are stated under the same failing control |
 
 **What that means against the gates.** The P1 win condition is *mount ≤ 1.0×
 Reagent-on-subs, same run and same instrument*, and the restated M1 red zone is
 `1.0150×` because under Ruling 1 the red zone **is** the measured UIx ratio. The
 candidate's point estimate is above both, in this run and in the four before it.
-**On the clock of record the deficit is established**: `1.4896×`
+~~**On the clock of record the deficit is established**: `1.4896×`
 [1.3488 – 1.5989] does not straddle 1.0, and `rf2-emvod`'s independent ensemble
-agrees in direction at `1.3737×` [1.3289 – 1.4331]. ~~Its range straddles 1.0,
-so at n = 6 the deficit is not *established*~~ — that was the frame-only
+agrees in direction at `1.3737×` [1.3289 – 1.4331].~~ **The deficit's DIRECTION
+is established and its SIZE is not published** *(2026-08-06, `rf2-jcm3p`: an
+interval that misses 1.0 establishes a magnitude only against a control that can
+adjudicate it, and this row's cannot — see the banner above. What the readings
+jointly establish is the regime: above the `≤ 1.10×` UIx gate on every
+corroborated reading, with `≤ 1.10×` not demonstrated.)* ~~Its range straddles
+1.0, so at n = 6 the deficit is not *established*~~ — that was the frame-only
 reading's hedge and it is spent. What still holds either way is
 validation.md's own rule that *a margin under 5% is instrument-limited rather
 than cleared*, which cuts against the candidate here: a 21% margin was already
@@ -631,18 +706,82 @@ itself only half an operation.
 > read 104 on a substrate arm and none on a floor arm — each of them a refusal
 > that exits non-zero naming itself.
 >
-> **Two re-takes exist and neither is published here.** They were taken in the
-> quiet windows of [§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04)
+> ~~**Two re-takes exist and neither is published here.**~~ **Two re-takes exist
+> and BOTH are now published — as the re-adjudication in the banner below**
+> *(2026-08-06, `rf2-swwud`: this said the ruled posture was ~~to publish no
+> magnitude and rebook~~. No magnitude is published, and the rebook is spent:
+> the row is adjudicated by Event Timing rather than by the band, which the two
+> retained datasets already answer.)* They were taken in the quiet windows of
+> [§3.4](#34-the-quiet-window-and-why-it-publishes-nothing-rf2-0qj9w-2026-08-04)
 > and [§3.5](#35-the-rebooked-window-which-refuses-in-the-same-two-places-rf2-0qj9w-2026-08-04),
 > and both cleared every one of those gates — the second reconciling 540 keys
 > pressed against 449 observed and 91 censored, with the census reading 104 on
-> each substrate arm. But the bars of both are `UNADJUDICATED` for want of a
-> band — this row's fixed-50 ms control supplies none — and in both windows the
-> other row refused, so the ruled posture is to publish no magnitude and rebook.
+> each substrate arm. The bars of both are `UNADJUDICATED` for want of a band —
+> this row's fixed-50 ms control supplies none — and they are now labelled
+> **DIAGNOSTIC** rather than left as magnitudes waiting for one.
 > Both raw datasets are retained and re-adjudicable. **The figures
 > below therefore stand as the last published reading and not as a current one**;
 > the direction they report survives the correction (`rf2-emvod`), but their `n`
 > and their interaction accounting do not.
+
+> ## THIS ROW IS ADJUDICATED BY EVENT TIMING, NOT BY THE BAND (`rf2-swwud`, ruled 2026-08-06)
+>
+> **The section heading is the row's published verdict**, not a caveat on the
+> way to a number. Two clean runs on two verifiably idle boxes each cleared
+> every gate this row has and each produced three `UNADJUDICATED` bars, because
+> `ctl-50ms` burns a fixed 50 ms and `control / floor` therefore reads
+> `(F + 50) / F`, which moves with `F`. That is an excellent *sensitivity*
+> control and not a pair whose true ratio is a property of the page, so it
+> supplies no band, and [§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)'s
+> rule is defined on exactly such a pair. **The obstruction is the rig, not the
+> box; no scheduling moves it, and the ruling adjudicates the row on the
+> instrument that can.**
+>
+> **RE-ADJUDICATED FROM THE TWO RETAINED RUNS — no new window was taken.**
+> `clock_readjudicate.cjs` reads the driver's own stored witness and prints
+> this; the datasets are under
+> `implementation/freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/`.
+>
+> | arm | run 1 observed / censored | run 1 ET p50 | run 2 observed / censored | run 2 ET p50 |
+> |---|---:|---:|---:|---:|
+> | `reagent-subs` | 49 / 11 | **16.0 ms** | 47 / 13 | **16.0 ms** |
+> | `uix-subs` | 45 / 15 | **16.0 ms** | 41 / 19 | **16.0 ms** |
+> | **`hicasso`** | 49 / 11 | **16.0 ms** | 46 / 14 | **16.0 ms** |
+> | `floor` (per segment) | 46 – 49 / 11 – 14 | 16.0 ms | 44 – 46 / 14 – 16 | 16.0 ms |
+> | `ctl-50ms` (control) | 60 / 0 | 48.0 ms | 60 / 0 | 56.0 ms |
+>
+> Key accounting closes on both: **540 keys sent = 466 observed + 74 censored**
+> (run 1) and **540 = 449 + 91** (run 2), 60 sent on each of nine arms, censoring
+> published rather than dropped.
+>
+> **THE VERDICT.** *On this four-field / 100-cell witness, Hicasso,
+> Reagent-on-subs and UIx-on-subs are indistinguishable at Event Timing's
+> resolution; every observed interaction was one frame — 16.0 ms, both runs.*
+> The control moves when the work moves — `ctl-50ms` at 48.0 and 56.0 ms against
+> the arms' 16.0 — so the instrument is demonstrably not stuck.
+>
+> **POWERED TO DETECT, and this rider travels with the verdict.** Event Timing
+> resolves **8 ms buckets above a 16 ms floor**, so this row detects only a
+> difference that *crosses a bucket boundary*. The arms' separations are
+> sub-frame and sit two orders below that; the finest per-sample step either run
+> could resolve is 0.146 ms (run 1) and 0.181 ms (run 2); and every diagnostic
+> `TaskDuration` bar straddles 1.0 at this `n`, in both runs. **Do not read
+> "indistinguishable at one frame" as a measured tie below that resolution** —
+> it is a statement about what the instrument can separate, and the honest claim
+> the row is here to support is that no arm is near the frame budget.
+>
+> **The `TaskDuration` and `taskNet` bars below are DIAGNOSTIC and never
+> magnitudes.** A repair that merely gave this row a band would not survive the
+> resolution obstruction, so neither the three-point control on the dirty-cell
+> axis nor a second band-supplying control was built: both are instrument work
+> for a magnitude no current decision turns on, and the second would import
+> [§4](#4-the-mount-row--a-regime-not-a-magnitude)'s additive-constant
+> undershoot. They remain available **only** if a decision ever turns on a
+> pre-declared sub-frame effect size, at which point the experiment is powered
+> for that effect before its control is chosen. `clock_run.cjs` labels this row
+> `responsiveness-regime` and reports it only when key accounting, the recompute
+> census, the arm-order and canonical-DOM gates and **both** fixed-work controls
+> pass.
 
 **Both controls: PASS.** `ctl-50ms` produced 49.95 ms [49.44 – 50.49] of extra
 task time (predicted ≥ 40 ms, every segment-round) and Event Timing interactions
@@ -668,10 +807,17 @@ them.** 16.0 ms is one frame rounded to the nearest 8; the control proves the
 instrument moves when the work moves. The honest statement is that on
 paint-inclusive input latency the candidate and both donors are
 **indistinguishable, and all three are one frame** — a pass on the axis a user
-experiences, for all three, and not a finding *about* Hicasso.
+experiences, for all three, and not a finding *about* Hicasso. *(2026-08-06,
+`rf2-swwud`: that sentence is now the row's **published verdict** rather than a
+reading offered on the way to the finer one below. The re-adjudication in the
+banner above states it on the repaired witness and both retained runs.)*
 
-The finer instrument does separate them, and reports differences far below the
-frame budget:
+~~The finer instrument does separate them, and reports differences far below the
+frame budget:~~ **The finer instrument's readings are DIAGNOSTIC —
+UNADJUDICATED, never magnitudes** *(2026-08-06, `rf2-swwud`: this said the finer
+instrument ~~does separate them~~. It does not separate them at this `n` — every
+bar straddles 1.0, in this run and in both re-takes — and it carries no band to
+adjudicate one if it did. The numbers stay, as the diagnostics they are.)*
 
 | arm | task ms/keystroke | ×floor (tared) | range |
 |---|---:|---:|---|
@@ -682,7 +828,9 @@ frame budget:
 | `ctl-50ms` (control) | 51.9 – 52.1 | 34.4 – 37.3 | — |
 
 `hicasso / reagent-subs` = **0.9678×** [0.5318 – 1.3259] and
-`hicasso / uix-subs` = **1.0500×** [0.9119 – 1.2033]; both straddle 1.0.
+`hicasso / uix-subs` = **1.0500×** [0.9119 – 1.2033]; both straddle 1.0. **Both
+are `DIAGNOSTIC — UNADJUDICATED`**: this row has no band-supplying control, so
+neither is a magnitude and neither ever will be under this rig.
 
 > **THIS ROW SURVIVES THE CORRECTION UNCHANGED, and it is the only one that
 > does (`rf2-emvod`).** Its operation is a real key through the protocol's
