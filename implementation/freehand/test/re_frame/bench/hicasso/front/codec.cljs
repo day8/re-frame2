@@ -33,15 +33,15 @@
 
   Also absent, and worth naming so their absence reads as a decision
   rather than an omission: the `:r>` raw-props path, the class-component
-  `__rfArgv` crossing, the `[:>]` raw escape (HD-011 keeps it explicitly
-  secondary — the taught door is built below, and the escape stays
-  unbuilt until a case a static declaration cannot express actually
-  appears in the corpus), and the adapters' reserved-head and
-  keyword-prop diagnostics (public-boundary policy for a shipped
-  adapter; this codec has no public boundary, and the pre-alpha stance
-  is to trust the programmer). `defhost` — HD-011's taught door — is
-  NOT absent any more: [[mint-host!]] is the declaration and the host
-  head is the fourth element class, §Host heads below (rf2-2rtt6.65).
+  `__rfArgv` crossing, and the adapters' reserved-head and keyword-prop
+  diagnostics (public-boundary policy for a shipped adapter; this codec
+  has no public boundary, and the pre-alpha stance is to trust the
+  programmer). `defhost` — HD-011's taught door — is NOT absent any
+  more: [[mint-host!]] is the declaration and the host head is the
+  fourth element class, §Host heads below (rf2-2rtt6.65). Nor is the
+  `[:>]` raw escape, which HD-011 keeps explicitly secondary and which
+  is now built as [[raw-element]] — the same crossing with the
+  declaration erased (rf2-2rtt6.103).
   Neither is HD-011's SSR placeholder, which HD-020(d) left inert until
   the operator ruled SSR into scope: `:ssr` is a declaration option
   with three values (rf2-2rtt6.85, rf2-l0wfx). For the two gated ones
@@ -961,9 +961,10 @@
 ;; `defhost` is the door, and the only form taught. The declaration is a
 ;; VALUE — the foreign component, the finite `:callbacks` contract map,
 ;; and a name for the crossing — minted once and legal as a hiccup head
-;; anywhere. The `[:>]` raw escape stays unbuilt here, deliberately: it
-;; is HD-011's explicitly secondary form, for the cases a static
-;; declaration cannot express, and the census counts none.
+;; anywhere. The `[:>]` raw escape below is HD-011's explicitly
+;; secondary form, for the cases a static declaration cannot express;
+;; it is the SAME crossing with the declaration erased, and what erasing
+;; the declaration costs is exactly what the declaration carried.
 ;;
 ;; The declaration's `:callbacks` is a finite map from EXACT prop names
 ;; to `:event`, `:handler` or `:render` — NEVER inferred from an `on*`
@@ -2365,6 +2366,298 @@
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (unchecked-get head "gate") js-props argv (if has-props? 2 1))))
 
+;; ---------------------------------------------------------------------------
+;; The `[:>]` raw escape (HD-011) — the door with the declaration erased
+;; ---------------------------------------------------------------------------
+;;
+;; `[:> Component props & children]` is HD-011's explicitly SECONDARY
+;; form, for the cases a static declaration cannot express: a component
+;; selected at runtime, a `memo`/`lazy` value, a component a render prop
+;; handed you, a provider an ecosystem library handed you, a one-off
+;; migration site. The guide's rule is unchanged — *declare what you use
+;; twice* — and bare-head auto-hosting stays rejected.
+;;
+;; **The model, in one sentence: `[:>]` is `defhost` with the
+;; declaration erased, and what erasing the declaration costs you is
+;; exactly what the declaration carried.** No author-chosen crossing
+;; name; no `:callbacks` contracts, so every prop here is UNCLAIMED; no
+;; `:ssr` policy, so the crossing is hard `:client-only` and that is
+;; unspellable; refusals at render time rather than once at a
+;; declaration; one generic marker for every crossing instead of a
+;; minted identity; and the JS require lands in the view namespace
+;; rather than in a `.cljc`-quarantined host one. Every remedy for every
+;; one of those is `defhost`. That is the design, not a coincidence.
+;;
+;; Three things follow, and they are the whole of the mechanism:
+;;
+;; 1. **The props walk is [[host-entry]], unchanged, with an EMPTY
+;;    declared roster.** Not a branch of its own — the same function,
+;;    reading a [[raw-crossing]] stand-in for the declaration it does not
+;;    have. That is what makes `[:> X …]` → `(defhost x X {})` a
+;;    behaviour-preserving rewrite, which is the whole theorem of the
+;;    migration codemod (rf2-2rtt6.106). A refusal that is right in
+;;    isolation and wrong in composition is wrong: whatever is ruled at
+;;    the door, the escape does the same thing.
+;;
+;; 2. **SSR is hard `:client-only`, through ONE shared module-level
+;;    gate** ([[raw-gate]]), reusing the snapshot triple `mint-host-gate!`
+;;    uses with the placeholder fixed at `nil`. There is no declaration
+;;    to carry a policy and no inline spelling for one — a fallback is
+;;    POLICY, and policy lives on declarations. The server emits nothing,
+;;    hydration's first client pass emits nothing, and adoption swaps the
+;;    component in: server-absent and first-pass-absent are not two facts
+;;    kept in step, they are ONE fact and React chooses it. A per-site
+;;    placeholder is still reachable with no new escape surface, by
+;;    wrapping the escape in a declared host that has one.
+;;
+;; 3. **The Component value is refused AT THE CROSSING**, in the owner's
+;;    render ([[raw-component]]). React's own "Element type is invalid"
+;;    is minted at fiber creation, which behind the gate is
+;;    post-adoption and client-only, and for any ClojureScript value it
+;;    reads *"got: object"* because it names `typeof` — naming nothing
+;;    the author wrote.
+;;
+;; What is NOT reduced: the canonical DOM. The gate contributes no node
+;; of its own and `lane/canonical` serialises element and text nodes, so
+;; a `[:>]` and a `defhost` on the same component produce the same DOM in
+;; every phase. The hiccup data lane is reduced at exactly ONE slot —
+;; slot 1 holds a JS value compared by identity — and that is the whole
+;; of HD-011's "reduced structural identity". The fiber lane carries one
+;; shared gate type named by the constant `"[:>]"`; no name is derived
+;; from the component, because React resolves `displayName || name ||
+;; null`, Closure renames `.name` under `:advanced`, and foreign
+;; production bundles routinely ship without `displayName` — a derived
+;; identity would be build-dependent. `defhost` has no such problem
+;; because its name is authored DATA. The component's own fiber sits
+;; directly beneath the gate and React names it there, so a tree reads
+;; `<[:>]>` → `<DatePicker>`: one greppable frame naming the form the
+;; author wrote, and the component naming itself one level down.
+
+(def ^:private raw-crossing
+  "What [[host-entry]] reads at a `[:>]` prop in place of a declaration:
+  a `displayName` for its refusal messages and an EMPTY roster. The
+  escape has no `mint-host!` and mints nothing per site — this is one
+  module-level value, and `callbacks` is a ClojureScript map because
+  that is what the refusals project into their `:declared` ex-data."
+  #js {"displayName" "[:>]"
+       "callbacks"   {}})
+
+(def ^:private raw-gate
+  "THE ONE GATE, shared by every `[:>]` crossing on every page.
+
+  A one-hook component whose `useSyncExternalStore` answers `false` from
+  its SERVER snapshot and `true` from its client one — the same triple
+  [[mint-host-gate!]] uses, with the placeholder fixed at `nil`, which
+  is what `:client-only` already compiles to at the door.
+
+  **Shared rather than minted per component**, and that is a ruling
+  rather than a saving. A component-keyed cache is the identity-keyed
+  auto-hosting HD-011 rejected, wearing a different hat; it also cannot
+  be built, because React's built-in wrapper types (`Fragment`,
+  `Suspense`, `StrictMode`, `Profiler`) are `Symbol.for` values and
+  ES2024 excludes REGISTERED symbols as `WeakMap` keys by design. One
+  constant type is stable for every component including those, and a
+  runtime component swap at one site keeps the gate's fiber while
+  remounting the inner subtree — which is the correct grain for the
+  escape's first named use case.
+
+  **The carrier is two slots on the gate's own props**, `c` and `p` —
+  the shape [[boundary-element]] already uses for `rfProps` — so the
+  object the foreign component receives is exactly the one
+  [[raw-element]] built, with nothing of ours in it. Carrying the
+  component BESIDE the converted props and stripping it inside would
+  cost a shallow copy per crossing per render and leave an internal key
+  one bug away from reaching React; two slots make that leak
+  unrepresentable instead. Children ride on the OUTER element via
+  [[make-element]]'s existing arms and are forwarded here as
+  `createElement`'s third argument — which is why the childless case is
+  its own branch: passing `undefined` as a third argument WRITES
+  `children` onto the inner props, and conversion parity with the door
+  is a claim about the object the component receives."
+  (let [gate (fn [^js props]
+               (if (react/useSyncExternalStore
+                     gate-no-subscribe gate-adopted gate-unadopted)
+                 (let [component (unchecked-get props "c")
+                       js-props  (unchecked-get props "p")
+                       kids      (unchecked-get props "children")]
+                   (if (undefined? kids)
+                     (react/createElement component js-props)
+                     (react/createElement component js-props kids)))
+                 nil))]
+    (unchecked-set gate "displayName" "[:>]")
+    gate))
+
+(defn- ^boolean react-exotic?
+  "Is `x` one of React's built-in wrapper TYPES — `Fragment`,
+  `Suspense`, `StrictMode`, `Profiler`, and whatever it ships next?
+
+  They are all `Symbol.for(…)` values, so the test is the JS type and
+  not a roster: enumerating them would false-refuse the next one React
+  adds, and a hatch that refuses a legal component is worse than one
+  that passes an illegal value through to React's own error."
+  [x]
+  (identical? "symbol" (goog/typeOf x)))
+
+(defn- ^boolean react-wrapper-object?
+  "Is `x` one of React's wrapper OBJECTS — a `memo` or `lazy` product, a
+  context, a consumer, a `forwardRef`? All of them are plain objects
+  carrying a `$$typeof` brand, and asking for the brand is what keeps
+  this open to the ones React has not shipped yet. A ClojureScript map,
+  vector, set, record or keyword is not a plain object and never reaches
+  the second test."
+  [x]
+  (and (object? x) (some? (unchecked-get x "$$typeof"))))
+
+(defn- raw-component-shape
+  "What sits in the Component position, NAMED rather than printed —
+  [[key-shape]]'s discipline, applied at the one crossing in this codec
+  most likely to be handed a foreign or cyclic value. TOTAL, so no arm
+  falls through to the value itself."
+  [c]
+  (cond
+    (string? c)              "a string"
+    (keyword? c)             "a keyword"
+    (symbol? c)              "a symbol"
+    (boundary-head? c)       "a defview product"
+    (host-head? c)           "a defhost product"
+    (react/isValidElement c) "a React element"
+    (map? c)                 "a map"
+    (vector? c)              "a vector"
+    (set? c)                 "a set"
+    (coll? c)                "a collection"
+    (ifn? c)                 "callable, but not a function"
+    :else                    "a foreign object"))
+
+(defn- raw-component-fix
+  "The recovery sentence for one confusion — the discriminating half of
+  the refusal, which is what makes a single error id enough."
+  [c]
+  (cond
+    (or (string? c) (keyword? c) (symbol? c))
+    (str "A tag belongs to the grammar, not to this position: write the tag "
+         "— [:div …] — or, for a tag chosen at runtime, a computed KEYWORD "
+         "head, which keeps the parse and the controlled-input door that "
+         "[:> \"input\" …] would silently drop.")
+
+    (boundary-head? c)
+    (str "A Hicasso view is a head in its own right: write [my-view …]. "
+         "Mounted raw it would read rfProps, get undefined, and receive nil "
+         "props — silently.")
+
+    (host-head? c)
+    (str "A declared host is a head in its own right: write [my-host …]. "
+         "The escape is for what a declaration cannot express, and this "
+         "one already is a declaration.")
+
+    (react/isValidElement c)
+    (str "An element is a legal CHILD, never a type: put it in child "
+         "position, or hand [:>] the component it was built from.")
+
+    (ifn? c)
+    (str "It is callable, but React takes a real function: wrap it — "
+         "(fn [props] (f props)) — or declare the crossing with defhost.")
+
+    :else
+    (str "[:>] takes what React accepts as an element type: a function or "
+         "class component, one of React's built-in wrappers (Fragment, "
+         "Suspense, …), or a memo / lazy / forwardRef / context value.")))
+
+(defn- fail-raw-component!
+  [c]
+  (let [shape (raw-component-shape c)]
+    (fail! :rf.error/hicasso-raw-not-a-component
+           'front.codec/raw-element
+           (str "[:>] was handed " shape " in the Component position. "
+                (raw-component-fix c))
+           :hand-the-escape-a-component-react-accepts
+           {:shape shape})))
+
+(defn- raw-component
+  "The Component slot of a `[:>]` vector, or a loud refusal.
+
+  The accepted set is what React 19's reconciler mints a fiber for —
+  functions (function and class components alike), the built-in
+  `Symbol.for` exotics, and objects branded with a `$$typeof` — MINUS
+  three deliberate narrowings:
+
+  - **`nil`**, which is the classic broken-interop symptom (`:default`
+    against a library with no default export) and gets the door's own
+    diagnosis. `[:>]` with nothing after it lands here too.
+  - **strings and keywords**, because the GRAMMAR owns tags. Reagent's
+    `[:> \"input\" …]` took its controlled-input wrapper on exactly this
+    path, so accepting a string here would silently drop caret and IME
+    protection at a site a migrator ports verbatim. A dynamic tag is a
+    computed KEYWORD head, which keeps the parse and the controlled
+    door.
+  - **`defview` and `defhost` heads**, which React would accept and
+    which are silent breakage: a `defview` product is `fn?`-true, so a
+    bare \"is it a function\" test mounts the shell raw, the body reads
+    `rfProps`, gets `undefined`, and receives nil props. That is the
+    shape a migration produces.
+
+  Refused HERE, in the owner's render window and on the server too,
+  rather than delegated to React: React's refusal is minted at fiber
+  creation, which behind [[raw-gate]] is post-adoption and client-only,
+  and its message names `typeof type` — so a keyword, map, vector, set
+  or record all read *\"got: object\"*."
+  [argv]
+  (let [c (nth argv 1 nil)]
+    (cond
+      (nil? c)
+      (fail! :rf.error/hicasso-raw-no-component
+             'front.codec/raw-element
+             (str "[:>] was given " (if (< (count argv) 2) "no component at all" "nil")
+                  " in the Component position. The usual cause is a JS import "
+                  "that resolved nothing — e.g. `:default` against a library "
+                  "with no default export. Write [:> Component props & "
+                  "children], or declare the crossing with defhost.")
+             :hand-the-escape-a-real-component
+             {:argv-count (count argv)})
+
+      ;; Ahead of `fn?`, because both marked heads ARE functions or carry
+      ;; one and React would accept them.
+      (boundary-head? c)   (fail-raw-component! c)
+      (host-head? c)       (fail-raw-component! c)
+
+      (fn? c)              c
+      (react-exotic? c)    c
+
+      ;; Ahead of the `$$typeof` accept, because a React ELEMENT is an
+      ;; object carrying one — and an element is a legal CHILD, never a
+      ;; type.
+      (react/isValidElement c) (fail-raw-component! c)
+
+      (react-wrapper-object? c) c
+      :else                     (fail-raw-component! c))))
+
+(defn- raw-element
+  "One `[:> Component props & children]` vector as a React element.
+
+  The indices are the door's, shifted by one: the component is at 1, the
+  attribute map at 2 when there is one, children from 3 or from 2.
+  `[:> Component]` with neither is legal.
+
+  Everything after the component is [[host-element]]'s own body: fold a
+  `:&` remainder under the owned-literal law BEFORE conversion (HD-023
+  clause (d) — the conversion that follows is the position's own),
+  extract `:key` onto the crossing's outer element, and walk every prop
+  through [[host-entry]] against an EMPTY declared roster. Children lower
+  eagerly, here, inside the render window of the boundary that wrote the
+  crossing — so an intent closure in a `[:>]` child captures that
+  boundary's frame-locked dispatch and fires into the right frame however
+  much later the foreign component renders it.
+
+  The element's TYPE is always [[raw-gate]]; the component rides in the
+  carrier's `c` slot."
+  [argv]
+  (let [component  (raw-component argv)
+        has-props? (props-map? argv 2)
+        props      (merge-caller (if has-props? (nth argv 2) {}))
+        js-props   (reduce-kv (partial host-entry raw-crossing {}) #js {} props)
+        carrier    #js {"c" component "p" js-props}]
+    (when-some [k (:key props)] (unchecked-set carrier "key" k))
+    (make-element raw-gate carrier argv (if has-props? 3 2))))
+
 (defn- fragment-element [argv]
   (let [has-props? (props-map? argv 1)
         props      (if has-props? (nth argv 1) nil)
@@ -2381,9 +2674,29 @@
   [head]
   (= :<> head))
 
-(defn- hiccup-tag? [head]
-  (and (or (keyword? head) (symbol? head) (string? head))
-       (not (fragment-head? head))))
+(defn- raw-head?
+  "Is this the raw-escape spelling? Compared with `=` for
+  [[fragment-head?]]'s own reason, and it is sharper here: `:>` was NOT
+  an error before rf2-2rtt6.103 — [[hiccup-tag?]] accepted any keyword
+  that is not `:<>`, so `[:> Foo {}]` asked React for an element
+  literally named `<>`. An `identical?` test would work under
+  `:advanced`, where the build interns keyword literals, and silently
+  route every escape back into that native path everywhere else."
+  [head]
+  (= :> head))
+
+(defn- hiccup-tag?
+  "Is this head a native tag? Asked AFTER the fragment and raw arms in
+  [[vec->element]]'s `cond`, which is its only caller — so the
+  `(not (fragment-head? head))` this body used to re-ask was provably
+  dead, and every native tag on every page paid the fragment `=` twice
+  for it. Dropping it is what pays for [[raw-head?]] exactly: a keyword
+  tag paid two `=` and one type predicate before, and pays two `=` and
+  one type predicate now. This codec has costed a `keyword?`
+  short-circuit at ±51–67% of a walk, so a new head test is not free by
+  assertion on this surface — it is free by accounting."
+  [head]
+  (or (keyword? head) (symbol? head) (string? head)))
 
 (defn vec->element
   "Interpret one hiccup vector."
@@ -2397,23 +2710,25 @@
   (let [head (nth argv 0)]
     (cond
       (fragment-head? head)   (fragment-element argv)
+      (raw-head? head)        (raw-element argv)
       (hiccup-tag? head)      (native-element argv)
       (boundary-head? head)   (boundary-element argv)
       (host-head? head)       (host-element argv)
       :else
       (throw (ex-info (str "Hiccup head " (pr-str head) " is not a valid element head; "
-                           "use a tag keyword, :<>, a view minted by defview, or a "
+                           "use a tag keyword, :<>, :>, a view minted by defview, or a "
                            "host minted by defhost. "
                            "A plain function in head position is never a silent "
                            "embedding — call it, or make it a view. A raw JS "
                            "component is never a silent embedding either — "
-                           "declare it (HD-011). "
+                           "declare it with defhost, or write the escape "
+                           "[:> Component …] (HD-011). "
                            "[:rf.error/hicasso-bad-head]")
                       {:rf.error/id :rf.error/hicasso-bad-head
                        :where       'front.codec/vec->element
                        :reason      (if (fn? head)
                                       "A plain function in head position is a loud error (HD-016)."
-                                      "Hiccup head must be a tag keyword, :<>, a defview product, or a defhost product.")
+                                      "Hiccup head must be a tag keyword, :<>, :>, a defview product, or a defhost product.")
                        :recovery    (if (fn? head) :call-it-or-make-it-a-view :supply-a-valid-hiccup-head)})))))
 
 (defn as-element

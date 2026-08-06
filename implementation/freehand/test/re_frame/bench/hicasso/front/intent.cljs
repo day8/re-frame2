@@ -373,10 +373,40 @@
                           :reason reason :recovery recovery}
                          extra))))
 
-(defn- require-dispatch [intent]
+(defn- require-dispatch
+  "The frame-locked dispatch this lowering needs, or the loud refusal.
+
+  **The message offers TWO readings, because the runtime cannot tell
+  them apart** (rf2-2rtt6.103). `*dispatch*` being `nil` says only that
+  no render window is binding one; it does not say why, and the two
+  whys want opposite repairs:
+
+  1. The form really was lowered outside any boundary — a declaration,
+     a `defhost` fallback, a module-level `def`. Lower it in a body.
+  2. The form was lowered inside a function some foreign component
+     invokes LATER, after the render window that bound the dispatch has
+     unwound. **A function prop on a `[:>]` crossing is exactly this**:
+     the escape carries no declaration, so no position claims the slot
+     and nothing installs the render wrapper that captures the owner's
+     dispatch and forwards to it. From where the author sits they ARE
+     inside a boundary's render — they wrote the crossing in a body — so
+     a message offering only reading 1 reads as a framework bug.
+
+  Naming `defhost`'s `:callbacks {… :render}` is what makes reading 2
+  actionable: a declared `:render` slot is the position that owns the
+  frame, and declaring it is the whole of the repair."
+  [intent]
   (or *dispatch*
-      (throw (ex-info (str "Intent " (pr-str intent) " was lowered with no ambient frame; "
-                           "event vectors are only legal inside a boundary's render. "
+      (throw (ex-info (str "Intent " (pr-str intent) " was lowered with no ambient frame. "
+                           "Either the form is outside any boundary's render — a "
+                           "declaration, a fallback, a module-level def — in which case "
+                           "lower it inside a body; or it is inside a function a foreign "
+                           "component invokes after that render returned, which is what a "
+                           "function prop on a [:>] crossing is: the escape carries no "
+                           "declaration, so nothing claims the slot and nothing forwards "
+                           "to the owner. Declare the crossing instead — defhost with "
+                           ":callbacks {<the prop> :render} — and the position owns the "
+                           "frame. "
                            "[:rf.error/hicasso-intent-outside-boundary]")
                       {:rf.error/id :rf.error/hicasso-intent-outside-boundary
                        :where       'front.intent/lower-prop
