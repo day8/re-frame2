@@ -1453,6 +1453,128 @@
                  "`:any` slot — this is the blindness the tightening removes. If "
                  "this assertion fails the control is wrong, not the fix."))))))
 
+;; --- the remaining `:where` slots (rf2-am6qs) --------------------------------
+;;
+;; rf2-j4bg3 typed ONE slot; three others were left declaring `:where` as
+;; `:any`, and the blindness argued above is a property of the DECLARATION, not
+;; of the category — so each of the three had the same nothing standing between
+;; its payload and an arbitrary object. Each type below is a reading of that
+;; slot's own producers, taken separately (the answer does not transfer just
+;; because rf2-j4bg3 found symbols):
+;;
+;;   FrameDestroyedTags — ONE producer. Only
+;;     `substrate/observation/throw-frame-destroyed!` stamps `:where`; its three
+;;     call sites pass `'re-frame.substrate.observation/acquire!` (twice) and
+;;     `'re-frame.substrate.observation/probe`. The other three emitters of this
+;;     category (router, subs, ui/frames) never stamp the slot at all.
+;;
+;;   BadFrameProviderArgTags — the SHARP one, and why the bead was filed rather
+;;     than left. `frame/require-frame-provider-target!` threads ONE `where`
+;;     argument into BOTH payloads: the nil branch builds `no-frame-context`
+;;     (typed `:symbol` by rf2-j4bg3) and the else branch builds this one. Until
+;;     this change a single argument from a single call site carried two
+;;     different declared types. Nine src call sites, all quoted fn symbols
+;;     (`'re-frame.views.provider/frame-provider`,
+;;     `'re-frame.adapter.uix/frame-provider`,
+;;     `'re-frame.substrate.spine/build-frame-provider-element`,
+;;     `'re-frame.freehand.substrate/frame-provider`, `'v/->react`,
+;;     `'re-frame.ui/frame-provider`, `'re-frame.ui/frame`,
+;;     `'re-frame.ui/->react`), plus `'test/where` / `'test` in test.
+;;
+;;   ResourceSsrBlockingTimeoutTags — ONE producer, one emit:
+;;     `re-frame.resources.ssr/settle-blocking-timeout` stamps its own quoted
+;;     name, which is also the literal the 009 catalogue row prints.
+;;
+;; No producer of any of the three emits a keyword, and the keyword mutant is
+;; the one that matters: OTHER categories genuinely carry a keyword `:where`
+;; (`:where :event`, `:where :flow-eval`, `:where :reactive`), so `:any` here
+;; admitted a spelling that is right elsewhere in the same corpus.
+
+(def ^:private where-type-mutants
+  "The type mutants an `:any` `:where` declaration silently accepted. Shared
+  with `no-frame-context-where-mutants` in intent; kept separate so tightening
+  one slot's mutant set cannot quietly weaken another's."
+  {"a string"       "re-frame.substrate.observation/probe"
+   "a number"       42
+   "a map"          {:ns 're-frame.substrate :name 'probe}
+   "a bare keyword" :probe})
+
+(def ^:private typed-where-slots
+  "The three slots rf2-am6qs tightened, each with a MINIMAL payload that
+  satisfies the schema's required slots — so the only thing an assertion below
+  can be reading is the `:where` type."
+  [{:schema   "FrameDestroyedTags"
+    :producer 're-frame.substrate.observation/probe
+    :base     {:category :rf.error/frame-destroyed
+               :frame    :app}}
+   {:schema   "BadFrameProviderArgTags"
+    :producer 're-frame.views.provider/frame-provider
+    :base     {:category :rf.error/bad-frame-provider-arg
+               :received "app"}}
+   {:schema   "ResourceSsrBlockingTimeoutTags"
+    :producer 're-frame.resources.ssr/settle-blocking-timeout
+    :base     {:category  :rf.error/resource-ssr-blocking-timeout
+               :timed-out [[:rf/scoped-resource-key :user]]
+               :limit-ms  250
+               :reason    "1 blocking SSR resource(s) did not settle"}}])
+
+(deftest remaining-tag-where-slots-are-typed-not-any
+  (testing "each slot declares `:where` as `:symbol`, and the declaration is
+            load-bearing: the keys-set arm cannot see a type, so these are the
+            only assertions that read one."
+    (doseq [{:keys [schema]} typed-where-slots]
+      (let [form  (tags-schema-form schema)
+            entry (->> (rest form)
+                       (filter #(and (vector? %) (= :where (first %))))
+                       first)]
+        (is (some? form) (str schema " parsed out of Spec-Schemas.md"))
+        (is (some? entry) (str schema " declares a `:where` entry"))
+        (is (= :symbol (last entry))
+            (str "`" schema "` must declare `:where` as `:symbol` — every "
+                 "producer emits a quoted symbol, and `:any` here enforces "
+                 "nothing because the Tags-column arm diffs keys only. Found: "
+                 (pr-str entry)))
+        (is (= {:optional true} (second entry))
+            (str "`" schema "`'s `:where` stays OPTIONAL — the type was wrong, "
+                 "not the arity. Found: " (pr-str entry))))))
+
+  (testing "each slot's REAL producer value validates, and the slot may be
+            omitted — so the tightening did not outrun the corpus."
+    (doseq [{:keys [schema producer base]} typed-where-slots]
+      (let [form (tags-schema-form schema)]
+        (is (malli/validate form (assoc base :where producer))
+            (str schema ": the symbol its producer actually emits ("
+                 (pr-str producer) ") validates"))
+        (is (malli/validate form base)
+            (str schema ": `:where` omitted validates — the slot is optional")))))
+
+  (testing "THE MUTATION WITNESS, one control per slot. Each mutant is REJECTED
+            by the shipped `:symbol` slot and ACCEPTED by the `:any` slot it
+            replaced, so the tightening — not some unrelated required-slot
+            guard — is what rejects it. Without the second half a slot that
+            rejected EVERYTHING would pass."
+    (doseq [{:keys [schema base]} typed-where-slots]
+      (let [shipped (tags-schema-form schema)
+            ;; This slot's OWN `:any` control, rebuilt from its OWN shipped
+            ;; schema so the two differ in exactly one token.
+            as-any  (mapv (fn [e]
+                            (if (and (vector? e) (= :where (first e)))
+                              [:where {:optional true} :any]
+                              e))
+                          shipped)]
+        (is (not= shipped as-any)
+            (str schema ": the `:any` control really differs from the shipped "
+                 "schema"))
+        (doseq [[label v] where-type-mutants]
+          (is (not (malli/validate shipped (assoc base :where v)))
+              (str schema ": `:where` = " label " (" (pr-str v) ") must be "
+                   "REJECTED by the shipped `:symbol` slot"))
+          (is (malli/validate as-any (assoc base :where v))
+              (str schema ": `:where` = " label " (" (pr-str v) ") was ACCEPTED "
+                   "by the old `:any` slot — this is the blindness the "
+                   "tightening removes. If this assertion fails the control is "
+                   "wrong, not the fix.")))))))
+
 ;; --- non-vacuity ------------------------------------------------------------
 ;;
 ;; An arm that cannot red on the defect that motivated it has not been tested,
