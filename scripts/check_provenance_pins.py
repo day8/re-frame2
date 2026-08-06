@@ -182,11 +182,9 @@ def _split_span(inner: str, max_id_len: int) -> List[str]:
     """Yield every bare hex id inside one code span."""
     out: List[str] = []
     for part in _SPAN_SPLIT.split(inner.strip()):
+        # An abbreviated id trails an ellipsis, written both as the single
+        # character and as three dots; `rstrip` covers each.
         part = part.strip().strip("*").strip("()[]").rstrip(".").rstrip("…")
-        # A trailing ellipsis marks an abbreviated id and is written both as the
-        # single character and as three dots.
-        if part.endswith("..."):
-            part = part[:-3]
         if not _BARE_HEX.match(part):
             continue
         if len(part) > max_id_len:
@@ -284,7 +282,10 @@ def classify(
         _, is_pin, reason = signals[-1]
         return is_pin, reason
 
-    right = _strip_quote(lines[index])[span_end : span_end + _RIGHT_APPOSITION]
+    # The ORIGINAL line, not a quote-stripped one: `span_end` is an offset into
+    # the line as read, and stripping a `> ` prefix first would slide the
+    # window two characters past the apposition it exists to see.
+    right = lines[index][span_end : span_end + _RIGHT_APPOSITION]
     if _DIGEST_WORDS.search(right):
         return False, "digest word in apposition to the right"
     if _table_header_is_digest(lines, index):
@@ -640,6 +641,24 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         "abbreviated id with an ellipsis still reads as one id",
         ["Producing commit `0642815dc2…` for the spine."],
         ["0642815dc2"],
+    ),
+    # The right-apposition window is measured on the line AS READ.  Stripping
+    # the `> ` first slid it two characters and lost the word it looks for,
+    # which mattered because this corpus writes whole blob callouts in
+    # blockquotes.
+    (
+        "right apposition survives a blockquote prefix",
+        ["> The instrument is `a1d7005d74` blob for the run."],
+        [],
+    ),
+    (
+        "a blockquoted blob table is still a blob table",
+        [
+            "> | file | blob |",
+            "> |---|---|",
+            "> | coldmount views | `335a37bb09233121e83ca2dc9f6a0a9ef88e037c` |",
+        ],
+        [],
     ),
 ]
 
