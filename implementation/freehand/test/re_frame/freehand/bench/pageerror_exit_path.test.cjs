@@ -1208,6 +1208,17 @@ const RECORDS_FIXTURES = [
     src: 'const onError = (e) => {\n  console.error(e.message);\n};\n'
       + "page.on('pageerror', onError);",
   },
+  {
+    id: 'a BY-NAME function whose only push( is in a TRAILING COMMENT does NOT record',
+    records: false,
+    // The by-name path's own copy of the same defect, and the reason the
+    // declaration hunt runs on the masked text too. `code()` blanks comment-ONLY
+    // lines, so a TRAILING comment survives into the source the hunt reads — and
+    // a `push(` in prose is not a push.
+    src: 'const pageErrors = [];\nconst onError = (e) => {\n'
+      + '  console.error(e.message); // pageErrors.push(e)\n};\n'
+      + "page.on('pageerror', onError);",
+  },
 ];
 
 for (const f of RECORDS_FIXTURES) {
