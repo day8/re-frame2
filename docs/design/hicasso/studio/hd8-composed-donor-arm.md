@@ -413,8 +413,12 @@ discharged** on this sweep: the slim run's ten-turn aggregate resolved at
 published — `reagent-slim / floor` 4.500 – 5.389 `[UNADJUSTED]` /
 5.143 – 6.063 `[CORRECTED]` — the exact case
 [the contract](#the-correction-contract-is-enforced-not-stated) was built for.
-The bulk row's one-turn aggregate read 0.0 in every window
-(`:below-resolution`), so `rf2-d2tzk`'s refusal did not arm on this draw.
+The bulk row's one-turn aggregate read 0.0 in every window, which on the
+instrument of the day made it ~~`:below-resolution`~~ — a disposition drawn from
+the clock rather than from the measurement. **It is `:moot` on every draw now**
+(`rf2-d2tzk`): the row's only yield-bearing arm is its floor, the floor's column
+is withdrawn on the grain, and a correction has nothing left to move. The same
+answer on a 0.0 aggregate and on a 0.1 one.
 Within-run write pairs reproduce the published shape: narrow `donor / uix` all
 straddle 1.0; bulk `donor-r1 / uix` 1.250 – 1.500 and `donor-r2 / uix`
 1.313 – 1.600 against the published 1.185 – 1.313 / 1.278 – 1.469.
@@ -627,12 +631,56 @@ Within-run, `uix` run:
 | `donor-r2 / uix` | 1.278 – 1.469 |
 | `donor-r2 / donor-r1` — the shell | 1.046 – 1.125 |
 
-Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 7.750 – 11.000 and
-`donor-r2` 8.250 – 11.750 against `reagent` 8.750 – 17.000 and **`reagent-slim`
-11.000 – 13.667**. The independent slim-only replication at `f5bd4b49` read
-9.500 – 13.000. Absolute p50s: `reagent-slim` 2.05 – 2.70 ms, floor
-0.15 – 0.20 ms — four to eighteen quanta, so this row is far better resolved
-than the narrow one beside it. **0 unverified of 78.**
+Cross-run, floor-normalised — **withheld by the instrument (`rf2-d2tzk`,
+PR #7585).** This row's floor is a *single* commit under one clock, and its p50
+reads 0.15 – 0.20 ms against a **measured** grain of 0.1 ms — one-and-a-half to
+two ticks. `hd8-rows/mask-below-grain` therefore withdraws the floor and every
+figure normalised by it, on the rule `(v - tick) > tick`: what the clock
+resolved must exceed what it could not. The run prints **`NO REPORTABLE
+MAGNITUDE`** in this row's place and **exits `0`** — a limit is not a fault, and
+a driver that exited non-zero on a permanent limit would exit non-zero on every
+run.
+
+The within-run table above is **unaffected and stands**: those pairs are
+arm-over-arm and the floor cancels out of them exactly, so the clamp destroys
+the cross-run column — which was always the weaker warrant — and leaves the
+within-run pairs, which are the stronger one, untouched.
+
+Absolute p50s, which are what the paragraph above is measured *from* and are not
+withdrawn: `reagent-slim` 2.05 – 2.70 ms, floor 0.15 – 0.20 ms. **0 unverified
+of 78** — the read-back counts stand; it is the magnitude that does not.
+
+**And this row is the WORSE resolved of the two, not the better.** The sentence
+here read *"four to eighteen quanta, so this row is far better resolved than the
+narrow one beside it"*, and it was written before `rf2-9zysg` batched the narrow
+window. On the same measured 0.1 ms grain the batched narrow floor reads
+0.90 – 1.25 ms — nine to twelve-and-a-half ticks — against this floor's
+one-and-a-half to two. The narrow row is the better resolved of the two by about
+five times, which is exactly what the batch bought and exactly what this row
+never got.
+
+<details><summary><b>Withheld — the cross-run figures this row used to publish</b>
+(`d46ede4f`, and <code>b943c7ed</code> for <code>reagent-slim</code>)</summary>
+
+Cross-run, floor-normalised: `donor-r1` 7.750 – 11.000 and `donor-r2`
+8.250 – 11.750 against `reagent` 8.750 – 17.000 and `reagent-slim`
+11.000 – 13.667. The independent slim-only replication at `f5bd4b49` read
+9.500 – 13.000.
+
+**None of these may be quoted as a magnitude.** They are kept for the same
+reason the narrow row's superseded band is: a measurement the instrument later
+refused to print is evidence about the instrument, and deleting it would hide
+that this column was ever published. The row's own six rounds are the argument
+against it — the `reagent-slim` numerator moved 1.18× across them while the
+ratio moved 2.06×, and the whole of that swing is the denominator stepping
+between one tick and two.
+
+</details>
+
+The permanent repair is the one the narrow row already got — **batch the bulk
+window** so its floor clears the grain, then re-take the row on every adapter.
+That changes a measured window and is `rf2-2rtt6.7`'s to authorise; **it is not
+done here, and no figure on this page has been re-taken for it.**
 
 ### What the rungs cost
 
@@ -765,7 +813,10 @@ than as a pass.
 commit that had not happened, and the size of the correction says so: the narrow
 write moved from `0.16–0.50×` the floor to `2.667–6.000×`, and the bulk write
 to `11.000–13.667×`. A number roughly an order of magnitude below the truth is
-what an unpaid commit looks like from inside a clock.
+what an unpaid commit looks like from inside a clock. (The bulk figure is one of
+those [since withheld on the clock's own
+grain](#write--bulk-all-300-cells-in-one-commit); it is quoted here as the size
+of *that* repair, not as a magnitude.)
 
 **Two windows do not bill the same wait, so the difference was measured.** The
 `reagent-slim` window omits one harness microtask that the floor's contains.
@@ -989,7 +1040,10 @@ overlaps it (narrow `donor-r1` `4.000 – 8.000` ⊃ `5.000 – 8.000`; narrow
 `8.750 – 17.000`). The re-take's write ranges are **wider** — four sibling
 workers were live on the host — which is why they are cited as a check and not
 as a replacement. **No figure moved systematically, and nothing published was
-invalidated.**
+invalidated.** The two **bulk** comparisons in that list are both drawn from the
+column [since withheld on the clock's own
+grain](#write--bulk-all-300-cells-in-one-commit) — they remain a reproduction
+check on the instrument and are not magnitudes a reader may quote.
 
 **`HD8_ONLY` did not do what this page said it did.** The sentence here read
 *"`HD8_ONLY` exists so that a future re-take of one run cannot mint a competing
@@ -1101,17 +1155,22 @@ and the alternatives that were rejected.
   `< 1.0 ms`, which is up to ~26% of a 3.8–7.6 ms sample.
 - **The bulk write verifies one probe cell**, where the shared lane verifies a
   seq including the far end of the grid. Same bead.
-- **The bulk row's FLOOR sits on the clock clamp**, at a p50 of about one 100 µs
-  quantum, and that is a harder limit than it looks. The published row was taken
-  on a run whose harness-microtask aggregate read `0.0`, so nothing was owed and
-  the figure stands. But on a run where that aggregate *resolves* — and it does,
-  intermittently, at `0.1 ms` on this host — the correction is the whole of the
-  bulk floor, and [the contract](#the-correction-contract-is-enforced-not-stated)
-  refuses the row rather than quoting a ratio against a denominator that is
-  mostly harness. Lifting it needs the same repair the narrow row got: **batch
-  the bulk window** so the floor clears the clamp. Not done here — that changes a
-  measured window and therefore obliges a re-take of the row, which is a
-  re-publication and not this bead's to make.
+- **The bulk row's FLOOR sits on the clock's own grain**, at a p50 of one-and-a-half
+  to two ticks of a **measured** 0.1 ms, and that is a harder limit than it looks.
+  ~~The published row was taken on a run whose harness-microtask aggregate read
+  `0.0`, so nothing was owed and the figure stands.~~ **The read-back counts
+  stand; the magnitude does not** (`rf2-d2tzk`, PR #7585). The instrument stopped
+  asserting Chrome's clamp and measured its own resolution, and
+  `hd8-rows/mask-below-grain` now withdraws this row's floor-normalised column on
+  **every** draw rather than on the unlucky ones — so the row's disposition no
+  longer depends on which way the harness aggregate happens to fall, and
+  [the contract](#the-correction-contract-is-enforced-not-stated) over it is
+  `:moot` rather than a coin toss between publishing and refusing. Its
+  head-to-head pairs are arm-over-arm, so the floor cancels out of them exactly
+  and they are untouched. Lifting the limit needs the same repair the narrow row
+  got: **batch the bulk window** so the floor clears the grain. Not done here —
+  that changes a measured window and therefore obliges a re-take of the row,
+  which is a re-publication and `rf2-2rtt6.7`'s to authorise.
 - **The write rows' donor-vs-Reagent comparison is cross-run**, floor-normalised.
   The mount rows' is not. **The `reagent-slim` write column is normalised through
   the floor of a run taken at a different commit** from the donor and `reagent`
