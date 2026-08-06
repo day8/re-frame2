@@ -322,6 +322,7 @@ is_doc_surface_path() {
     *.md) return 0 ;;
     mkdocs.yml|mkdocs_hooks.py|requirements.txt) return 0 ;;
     scripts/check_readme_links.py|scripts/check_doc_slugs.py) return 0 ;;
+    scripts/check_provenance_pins.py) return 0 ;;
     scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
     scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
     # The residue sweeps added to this tier by rf2-ejm7m, same rule as their
@@ -935,6 +936,31 @@ if [ "$run_docs" = true ]; then
 
   run "docs corpus anchor validator" "python scripts/check_doc_slugs.py" \
     python "$spine_root/scripts/check_doc_slugs.py"
+
+  # Provenance pins (rf2-kqac1).  This repo rebase-merges, so a Hicasso page
+  # that pins a measurement to its own authored SHA is stranded the moment its
+  # PR lands — the object is reachable from no ref and absent from a fresh
+  # clone.  The rule is accompaniment: a cited authored head must share its
+  # block with a SHA that IS an ancestor of origin/main.
+  run "provenance pin self-test" \
+    "python scripts/check_provenance_pins.py --self-test --verbose" \
+    python "$spine_root/scripts/check_provenance_pins.py" --self-test --verbose
+
+  # The BLOCKING arm is scoped to pages this branch touches.  The corpus still
+  # carries the stranded pins rf2-owq6p catalogued and deliberately left for a
+  # human to judge one at a time, so a full-corpus gate would be red on main
+  # from the day it landed and disabled the week after.  Scoped, it holds every
+  # new and edited page to the rule immediately.  It needs origin/main to say
+  # what "landed" means, so it is skipped — announced, not silently — when the
+  # base is unresolved.
+  if [ "$base_resolved" = true ]; then
+    run "provenance pins on changed pages" \
+      "python scripts/check_provenance_pins.py --changed-since origin/main --verbose" \
+      python "$spine_root/scripts/check_provenance_pins.py" \
+        --changed-since origin/main --verbose
+  else
+    printf 'SKIP provenance pins on changed pages (origin/main unresolved — no baseline for "landed")\n'
+  fi
 
   # CI's docs-tier residue sweeps (rf2-ejm7m).  These four live in docs.yml's
   # `build` job, which is gated on `docs_surface` — so the documentation tier is
