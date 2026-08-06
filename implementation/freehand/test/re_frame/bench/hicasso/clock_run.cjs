@@ -1878,13 +1878,24 @@ function reportability(rows, opts) {
  * them back years later, and a fail-closed contract that holds only by
  * coincidence of an unrelated function is not a contract.
  *
+ * AND THE FIELD ITSELF, which #7550's merged-PR audit found still fail-open.
+ * The strict rule above counted a bar as unadjudicated only when its flag was
+ * TRUTHY, so a bar the dataset stored as `{}` — no verdict at all — read as
+ * adjudicated, and this function returned `adjudicable: true` beside an
+ * `unadjudicatedWhy` reading "the run adjudicated no bar on this row at all".
+ * A function contradicting itself in one object is the clearest possible sign
+ * that absence was being read as cleanliness. ADJUDICATED now means a bar that
+ * SAYS SO — `unadjudicated === false` and nothing else. A bar that is missing,
+ * null, or carries no verdict has not been adjudicated; it has been LOST, and
+ * a lost verdict is exactly what this whole bead is about.
+ *
  * `bars` is `seamTask.rows` — `{barName: {unadjudicated, why, ...}}`, the same
  * object the report printed and the dataset stored, never a recomputation.
  */
 function rowAdjudication(bars) {
   const src = bars || {};
   const names = Object.keys(src);
-  const unadjudicatedBars = names.filter((n) => src[n].unadjudicated);
+  const unadjudicatedBars = names.filter((n) => !(src[n] && src[n].unadjudicated === false));
   return {
     // Fail closed on a row that adjudicated no bar at all, too: an empty
     // verdict is an absent one, not a clean one.
@@ -1893,7 +1904,8 @@ function rowAdjudication(bars) {
     unadjudicatedBars,
     unadjudicatedWhy:
       unadjudicatedBars.length > 0
-        ? src[unadjudicatedBars[0]].why
+        ? (src[unadjudicatedBars[0]] && src[unadjudicatedBars[0]].why) ||
+          'the bar carries no adjudication verdict at all'
         : 'the run adjudicated no bar on this row at all',
   };
 }
@@ -2143,6 +2155,24 @@ function reportabilitySelfTest() {
   check(
     'and a verdict that went missing entirely is absent, not clean',
     rowAdjudication(undefined).adjudicable === false && rowAdjudication(null).adjudicable === false
+  );
+  // AND THE FIELD, not merely the bar (#7550's audit). A bar present but
+  // carrying no verdict used to read as adjudicated, because the rule asked
+  // truthiness rather than `=== false`.
+  const absentField = rowAdjudication({ 'hicasso / reagent-subs': ADJ, 'hicasso / uix-subs': {} });
+  check(
+    'a bar with NO `unadjudicated` field is unadjudicated — absent is not clean',
+    absentField.adjudicable === false &&
+      absentField.barCount === 2 &&
+      absentField.unadjudicatedBars.length === 1 &&
+      absentField.unadjudicatedBars[0] === 'hicasso / uix-subs' &&
+      absentField.unadjudicatedWhy === 'the bar carries no adjudication verdict at all',
+    JSON.stringify(absentField)
+  );
+  check(
+    'and a bar stored as null is unadjudicated rather than a crash',
+    rowAdjudication({ 'hicasso / reagent-subs': null }).adjudicable === false,
+    JSON.stringify(rowAdjudication({ 'hicasso / reagent-subs': null }))
   );
 
   // THE REGIMES (rf2-jcm3p, rf2-swwud). Every fixture above carries no

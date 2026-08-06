@@ -86,12 +86,23 @@ const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
  * predicate that is correct only for the files that happen to exist now is a
  * fail-open waiting for the first file that does not.
  *
+ * AND EVERY BAR MUST SAY SO, which #7550's merged-PR audit found this
+ * predicate still not asking. It read `!bars[n].unadjudicated` — truthiness —
+ * so a bar the file stored as `{}`, with no verdict in it at all, came back
+ * ADJUDICATED and the run was pooled into the published mean. That is the
+ * absent-is-not-clean contract two paragraphs up being contradicted by the
+ * line below it, and it matters MORE here than in the driver: the driver reads
+ * an object `seam.assess` built moments earlier in the same process, while
+ * this program reads a file, and a file is where a field goes missing. A bar
+ * counts as adjudicated only on `unadjudicated === false`; a bar that is
+ * missing, null, or silent has not been adjudicated, it has been lost.
+ *
  * `row` is one entry of a dataset's `rows`, as `clock_run.cjs` wrote it.
  */
 function adjudicated(row) {
   const bars = (row && row.seamTask && row.seamTask.rows) || {};
   const names = Object.keys(bars);
-  return names.length > 0 && names.every((n) => !bars[n].unadjudicated);
+  return names.length > 0 && names.every((n) => !!bars[n] && bars[n].unadjudicated === false);
 }
 
 /**
@@ -294,8 +305,13 @@ function main(argv) {
         // program's to depend on. The sentence is left row-phrased because no
         // dataset yet exists in which a row's bars disagree; the bar's own
         // `why` is in the dataset for the day one does.
+        //
+        // And it is read with `adjudicated`'s OWN token, `=== false`, for the
+        // same reason: a bar record present but silent is not a bar that
+        // cleared anything, and a column reading `!!` while the subset reads
+        // `=== false` is that disagreement again, one field further in.
         const barRec = (row.seamTask && row.seamTask.rows && row.seamTask.rows[pair]) || null;
-        const barUnadjudicated = barRec ? !!barRec.unadjudicated : !Number.isFinite(bandPct);
+        const barUnadjudicated = barRec ? barRec.unadjudicated !== false : !Number.isFinite(bandPct);
         const verdict = breached
           ? `BAND CEILING BREACHED — whole run refused before any control is consulted`
           : barUnadjudicated
