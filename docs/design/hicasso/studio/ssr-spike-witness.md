@@ -79,6 +79,18 @@ measurement live, so this is a status correction and not a re-measurement. Three
 things, covering this rationale, the `:rf/render-hash` column in the table above,
 and the §X5 passage below that reports both pages taking `83b865f8`:
 
+**Erratum, 2026-08-06 — the claim in that heading is false, and its wording is
+left standing above so that what was claimed stays legible (`rf2-zn7pj`).** It is
+false in a particular way worth naming. `rf2-2rtt6.91` did not merely leave the
+measurement alone: its `861ac3a059` removed the ` data-rf-render-hash="…"`
+attribute from the app root, so the bead this addendum credits with keeping the
+figures live is the one that changed the document being hashed. Rewiring where
+the render hash is *read* keeps the hash column live and does nothing for a
+SHA-256 taken over bytes the markup no longer carries. The first two bullets
+below are unaffected and stand as written; the third does not, and carries its
+own note. Which quantities here are pre-drift, and why the digests cannot simply
+be recomputed, is the 2026-08-06 addendum below.
+
 - **The column is now a fact about the hash function, not about the wire.** An
   adoption-tier root — a compiled `re-frame.ui` root, a native UIx root, or a
   Freehand root — emits no `:rf/render-hash` in its payload and stamps no
@@ -93,6 +105,10 @@ and the §X5 passage below that reports both pages taking `83b865f8`:
   digests over the hash were rewired to take it from `ssr-hash/render-tree-hash`
   directly rather than from the payload, precisely so this page and the
   server-arm dossier would keep reproducing after the entry stopped emitting.
+  **Erratum, 2026-08-06 (`rf2-zn7pj`):** true of the `:rf/render-hash` column,
+  false of the byte digests. The rewiring moved where the hash is read from; the
+  SHA-256 rows are taken over the document, and the same repair shortened the
+  document by 59 code units.
 
 The sentence above stands as written: this page was not the repair of the
 instrument. The repair was `rf2-2rtt6.91`'s, and it has landed.

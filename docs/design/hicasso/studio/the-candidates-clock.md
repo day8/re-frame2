@@ -194,10 +194,19 @@ magnitude must clear to be one.
   it is unaffected — that page carries no form — and is unchanged at 27,224.)*
 - **B/E/Q stamp**: `B = 300` boundaries, `E = 300` boundary-query edges (one
   read each), `Q = 300` unique live query keys — so **Q = E**, fan-out 1, the
-  mandatory distinct-query regime. The keystroke witness is `B = 101`,
-  `E = 101`, `Q = 101`. Cache cardinality is part of the witness by ruling, and
+  mandatory distinct-query regime. The keystroke witness is `B = 104`,
+  `E = 104`, `Q = 104`. Cache cardinality is part of the witness by ruling, and
   a clock row stamps it for the same reason a heap row does: two arms at
-  different cardinalities are not the same experiment.
+  different cardinalities are not the same experiment. *(2026-08-06,
+  `rf2-uu81y`: the keystroke figures read `101` — the one-field form's, moved by
+  the same `rf2-0qj9w` change that took 9,117 → 9,320 above. The `104` is read
+  off a run rather than counted off this page: `clock_witness.cjs`'s `format`
+  stamps `100 grid cells + 4 fields = 104 layer-1 recomputes per keystroke on a
+  substrate arm`, over the census
+  [§3.5](#35-the-rebooked-window-which-refuses-in-the-same-two-places-rf2-0qj9w-2026-08-04)
+  reports. One edge per boundary, each on its own indexed key, so `Q = E = B`.
+  No line in this driver's output is labelled `B/E/Q` — that name is this
+  page's, for what the shape stamp and that census jointly say.)*
 - **Schedule**: 6 rounds × (4 warm-up + 10 samples) per arm per segment, arms in
   the shared guard's reflecting order, segment order rotating with the round.
 - **Verification**: every mount is read back against the arm's own element
