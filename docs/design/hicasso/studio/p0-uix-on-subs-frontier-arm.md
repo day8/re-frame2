@@ -71,8 +71,9 @@ housekeeping.
 
 **Five of the ten instrument blobs have moved since these rows were taken, and
 this page says so rather than leaving a reader to discover it.** The three arm
-definitions and both fixtures are byte-identical on main; the driver, the heap
-probe, the app shell, the harness and the guard are not. The heap rows are
+definitions and both fixtures are byte-identical on main at that SHA; the
+driver, the heap probe, the app shell, the harness and the guard are not. The
+heap rows are
 **not** re-run on that account: under the heap-regime ruling (rf2-2rtt6.16)
 they stand as shared-query fan-out evidence rather than as the operative
 red-zone family, and the sweep that prices the regimes against each other is
@@ -195,7 +196,8 @@ Both arms against the floor, for context:
 
 Every row in the red-zone table divides one floor-normalised ratio by another,
 so the two segments' floors both enter it: `(U/F_U) ÷ (R/F_R)` is
-`(U/R) × (F_R/F_U)`, and that second term is the seam control published above.
+`(U/R) × (F_R/F_U)`, and that second term is the reciprocal of the seam control
+published above.
 Both tables are per round, so the floor-free estimator — `uix-subs` p50 over
 `reagent-subs` p50, touching neither floor — is their exact product. The
 per-round p50s themselves did not survive this arm, so the column below is
