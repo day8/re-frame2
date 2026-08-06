@@ -306,7 +306,12 @@ but the table above names the blobs that **ran** rather than the blobs that
 **ship**, because those are different questions and only the first is
 provenance.
 
-Commit `ef30c639162db98492cf0ebb53f00d411deb4bc4`. Chromium 147.0.7727.15
+Commit `ef30c639162db98492cf0ebb53f00d411deb4bc4` — authored, and rebase-merged,
+so it is on no branch and **will not resolve in a fresh clone**. It landed on
+main as **`93ad80f097`** (same patch — identical `git patch-id --stable`), with
+the blob it contributed unchanged; check out the landed SHA, which sits on a
+later base and so carries the change rather than the whole measured tree.
+Chromium 147.0.7727.15
 (Playwright), `:advanced`, `goog.DEBUG` false. Design 6 rounds × (4 warm-up + 20
 samples) per arm per segment, three segments, segment order rotating with the
 round. Box quiet, 24 logical cores.

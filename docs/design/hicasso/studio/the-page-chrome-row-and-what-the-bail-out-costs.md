@@ -16,7 +16,7 @@ and the same comparator ships as an explicit opt-in.
 
 | | |
 |---|---|
-| Producing commit | `2158869e2b226fb01af866ed4656c3dba6c58d86` |
+| Producing commit | `2158869e2b226fb01af866ed4656c3dba6c58d86` — **authored, and rebase-merged, so it is on no branch and will not resolve in a fresh clone.** It landed as **`870a7d1684`** (same subject and author date; recovered by that pairing, not by patch-id). **Do not treat the landed commit as the measured tree**: the rebase resolved conflicts in `arm1/runtime.cljs`, `front/codec.cljs` and `shapes/feed.cljs` — all three on the measured path — so its instrument differs from the one these rows were taken on. The measured tree survives nowhere; the run is pinned by this row's runtime, page and window, not by a checkout |
 | Command | `node implementation/freehand/test/re_frame/bench/hicasso/chrome_run.cjs` |
 | Runtime | HeadlessChrome **147.0.7727.15**, `:advanced`, **`goog.DEBUG=false`**, 24 cores, 32 GB |
 | Page | the shape roster's feed — 300 card boundaries under one page boundary, the roster's own card markup |

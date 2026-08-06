@@ -381,7 +381,7 @@ Consequences, declared:
 
 | | |
 |---|---|
-| **Producing commit** | `90cc9ab338` on `worker/walkdecomp-2rtt6-63` (the after run); the before run is the same tree with `front/codec.cljs` at its pre-change blob |
+| **Producing commit** | `90cc9ab338` on `worker/walkdecomp-2rtt6-63` (the after run); the before run is the same tree with `front/codec.cljs` at its pre-change blob. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone.** It landed as **`02a440a4d1`** (same patch — identical `git patch-id --stable`), but **the rebase moved `front/codec.cljs` itself** — the one file this decomposition turns on — so the landed commit is not the measured tree and must not be read as one. The blob hashes below are what pin this run |
 | **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main HICASSO_OUT_DIR=out/hicasso-walkcmp HICASSO_PORT=8171 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
 | **Build** | `:hicasso-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, lane cache cleared per `rf2-2rtt6.20`; **0 warnings** on every build |
 | **Runtime** | chromium `147.0.7727.15` (playwright), node `v24.13.0`, Windows NT 10.0 x64, 24 threads |

@@ -340,7 +340,7 @@ feed controls both passed.
 
 | | |
 |---|---|
-| **Producing commit** | `08344cb500` on `worker/linkterm-cno31`. The working tree carried no uncommitted change to any measured file — the only untracked paths were a pinned clj-kondo binary, a PR draft and this run's own dataset, none on the measured path |
+| **Producing commit** | `08344cb500` on `worker/linkterm-cno31`. The working tree carried no uncommitted change to any measured file — the only untracked paths were a pinned clj-kondo binary, a PR draft and this run's own dataset, none on the measured path. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`d0c91ad811`** (same patch — identical `git patch-id --stable`). The rebase moved only `docs/design/hicasso/decisions.md`, which is not on the measured path; both measured blobs are unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
 | **Reproduction** | `C56CLOCK_DATA_DIR=…/data/censusclock-cno31 node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` — both adapter runs, all three rows, nothing overridden |
 | **Build** | `:hicasso-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, lane cache cleared per `rf2-2rtt6.20`. **0 warnings**, 201 files |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |

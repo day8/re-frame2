@@ -262,7 +262,7 @@ attempt-1 refusal was the build's own heat decaying).
 
 | | |
 |---|---|
-| **Producing commit** | `8ccd9f4b41` on `worker/walkopt-y1jkm`, working tree clean — the stamped blobs are the commit's |
+| **Producing commit** | `8ccd9f4b41` on `worker/walkopt-y1jkm`, working tree clean — the stamped blobs are the commit's. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`a3ffe8380e`** (same patch — identical `git patch-id --stable`), with the blob it contributed unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` (datasets redirected via `C56CLOCK_DATA_DIR` to `data/censusclock-y1jkm/` so the `rf2-2rtt6.56` before-datasets stay intact) |
 | **Build** | `:hicasso-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`; 0 warnings |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |

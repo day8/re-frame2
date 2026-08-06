@@ -381,7 +381,7 @@ story — and the published run is the repaired page's.
 
 | | |
 |---|---|
-| **Producing commit** | `ac09504d74` on `worker/readopt-6c237` — the stamped code blobs are the commit's (the studio page and two diagnostic probe apps were uncommitted at run time; none is on the measured path) |
+| **Producing commit** | `ac09504d74` on `worker/readopt-6c237` — the stamped code blobs are the commit's (the studio page and two diagnostic probe apps were uncommitted at run time; none is on the measured path). **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`fd01c070a7`** (same patch — identical `git patch-id --stable`), where every blob it contributed is unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` with `C56CLOCK_DATA_DIR` → `data/censusclock-6c237/` (the y1jkm and 2rtt6.56 datasets stay intact) |
 | **Build** | `:hicasso-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, lane cache cleared per rf2-2rtt6.20; 0 warnings |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
