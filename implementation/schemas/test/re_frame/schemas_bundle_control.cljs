@@ -19,6 +19,31 @@
   adapter the facade pulls in with it. Both bundles carry the same
   `cljs.core` and the same `re-frame.core`, so both cancel.
 
+  ## What this control's own quantity did across that quarter (rf2-n9y35)
+
+  That 43.8 KB IS this control's quantity — the Malli-free surface
+  under the probe, `cljs.core` + `re-frame.core` + the schemas facade
+  minus its adapter. It measured 50.3 KB gzipped at the 2026-05-14
+  baseline (`ce6c0f4784`, where rf2-fqbcy authored the gate) and
+  94.1 KB at the 2026-08-05 attribution, both under matched
+  `:advanced` + `goog.DEBUG=false` probe builds carrying malli 0.20.1
+  at each end. Malli's own marginal cost moved 29.8 -> 30.8 KB over the
+  same span, so all but 1.0 KB of the growth is core.
+
+  Where that sits, from the 2026-08-05 `shadow.cljs.build-report`
+  optimized (uncompressed) bytes: `cljs/core.cljs` is 186.0 KB of the
+  probe's 494 KB (37.6 %), and `re-frame.core` about 150 KB — its
+  largest contributors being router 22.7, cofx 12.6, fx 12.1,
+  classification 9.7, subs 7.8, frame 7.6 and elision 7.6.
+
+  The figure is recorded and DELIBERATELY left alone: no gate, no
+  remedy. Pre-alpha growth is expected, and per the rf2-kybsf ruling an
+  absolute core budget belongs on a representative app in its own gate
+  if one is ever wanted — this gate owns the schemas margin and nothing
+  else. It lives in the tree rather than only in a bead so the trend
+  stays a fact, and this control's build is what reproduces it when
+  someone wants the next reading.
+
   ## Why it requires ONLY the core facade
 
   The A/B has to price what a consumer can actually BUY. Per rf2-v96fh
