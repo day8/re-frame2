@@ -75,12 +75,17 @@ page's final `rf2-b69lw` record landed; it moved no figure.
 | **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
 
 **The instrument at `main`'s tip is no longer any of the three.** `ba0c215a73`
-batched the yield-cost control (`rf2-2rtt6.19`), and `rf2-b69lw` has since turned
+batched the yield-cost control (`rf2-2rtt6.19`), `rf2-b69lw` has since turned
 that control into an enforced gate — see [The correction contract is enforced,
-not stated](#the-correction-contract-is-enforced-not-stated). Neither touched an
-arm's window, so no figure on this page moves; but a run at the tip is a run of
-a *later* instrument over the same plan, and only a run at the landed commit in
-the row's own line reproduces that row's instrument exactly.
+not stated](#the-correction-contract-is-enforced-not-stated) — and `rf2-d2tzk`
+(PR #7585) added the clock-grain publication mask. ~~Neither touched an
+arm's window, so no figure on this page moves;~~ **None of the three touched an
+arm's window, so no figure on this page MOVES — but the mask WITHDRAWS one, and
+a run at the tip prints `NO REPORTABLE MAGNITUDE` where [the bulk row's
+cross-run column](#write--bulk-all-300-cells-in-one-commit) once printed
+figures.** A run at the tip is a run of a *later* instrument over the same plan,
+and only a run at the landed commit in the row's own line reproduces that row's
+instrument exactly.
 
 ### Spine stamp — three of the six arms read a spine that no longer ships
 
@@ -908,12 +913,16 @@ unadjusted ratios anyway. A contract nothing evaluates is a sentence.
 
 `hd8-rows/yield-correction` is that contract as code, run against **both write
 rows of every run**, and `hd8-app` fails the run on a refusal — the same
-fail-closed path a positive control that missed its prediction takes. Four
-verdicts, and they are the whole of it:
+fail-closed path a positive control that missed its prediction takes. ~~Four
+verdicts, and they are the whole of it:~~ **Five verdicts, and they are the
+whole of it** — the fifth, `:moot`, was added by `rf2-d2tzk` (PR #7585) and is
+marked as such below, so a reader can see which four this section was written
+against:
 
 | verdict | when | what happens to the row |
 |---|---|---|
 | `:not-owed` | every arm in the row shares one window shape | published unchanged — the harness turns are in numerator and denominator alike |
+| **`:moot`** *(added by `rf2-d2tzk`)* | the row mixes shapes, but every figure it still publishes is formed only from arms that escape the harness turn — its yield-bearing arms denominate a column a publication mask has already withdrawn | the correction has nothing to move and a refusal nothing to protect; the within-run pairs publish unchanged, the withdrawn column stays withdrawn, and the aggregate's reading cannot change the answer |
 | `:below-resolution` | the row mixes shapes and the **aggregate** yield window's max is `0.0` across every sample | published unadjusted, with the bound on the record rather than assumed |
 | `:corrected` | mixed shapes, aggregate nonzero | the subtraction is **applied**; both bands publish, labelled `[UNADJUSTED]` and `[CORRECTED]` in the cross-run table itself |
 | `:refused` | the correction cannot be discharged | **nothing in the row may be published**, and the run exits non-zero |
@@ -921,7 +930,10 @@ verdicts, and they are the whole of it:
 **Which rows owe anything: the `slim` run's, and no others.** A row owes only
 when it mixes the two window shapes, and only `reagent-slim` is
 microtask-scheduled. In the `reagent` and `uix` runs every arm carries the
-harness turns, so there is nothing asymmetric to correct.
+harness turns, so there is nothing asymmetric to correct. **And of the `slim`
+run's two write rows only the narrow one can now be owed anything**: the bulk
+row's sole yield-bearing arm is its floor, whose column the grain mask
+withdraws, which is what makes that row `:moot` (`rf2-d2tzk`).
 
 **Two ways to be refused, and neither has a tolerance of its own.**
 
@@ -979,24 +991,47 @@ So the contract has a **self-test**, replayed from recorded fixtures through the
 live rule, run inside the bundle **before any clock**, and fatal when it
 disagrees: `hd8-app` throws, `hd8_run.cjs` prints every check and exits `1`. It
 is `order_guard.cjs`'s technique and `parity-can-fail?`'s argument, applied to
-the newest gate rather than only the oldest ones. Seven fixtures: one per
-verdict, one per refusal reason, and one per repaired hole in the rule itself.
-**Fixture 4 is the `15,518,934×` row** and **fixture 7 is the whole-band
-crossing** — the `0.95× → 1.0556×` reversal the boolean test accepted — each
-kept so its repair cannot silently come undone.
+the newest gate rather than only the oldest ones. ~~Seven~~ **Thirteen**
+fixtures: one per verdict, one per refusal reason, and one per repaired hole in
+the rule itself. **Fixture 4 is the `15,518,934×` row** and **fixture 7 is the
+whole-band crossing** — the `0.95× → 1.0556×` reversal the boolean test accepted
+— each kept so its repair cannot silently come undone. **The count grew with the
+rule and the numbering is stable, so those two pins still point where they
+did**: seven when this paragraph was written, an eighth when the PR #7295 audit
+found a corrected band minting a figure the DOM read-back had refused, and five
+more from `rf2-d2tzk` — the grain mask itself, the `:moot` verdict on *both*
+draws of the clock, the `(v - tick) > tick` boundary at both polarities, the
+well-resolved narrow row the mask must **not** touch, and a clock that cannot
+state its own resolution.
 
-**No figure on this page moves.** The contract reads the rows; it does not take
-them. A full three-run sweep on the branch that added it returns `:not-owed` on
-every `uix` and `reagent` write row and `:below-resolution` on both `slim` write
-rows — the aggregate read `0.0` in all ten of its windows, both at `k = 10` and
-at `k = 1` — so the ratios above stand exactly as published, now with the bound
-checked rather than asserted. A full sweep at the three-state repair (authored
-`79de836f35`; the landed SHA is the merge's to mint) answers the same, exit
-`0`: `:not-owed` on all four
+~~**No figure on this page moves.**~~ **No figure on this page moves *for this
+contract*.** That is the narrower claim, and it is the only one this section is
+entitled to make. The contract reads the rows; it does not take them, and it
+withdraws none. A full three-run sweep on the branch that added it
+returned `:not-owed` on every `uix` and `reagent` write row and
+`:below-resolution` on both `slim` write rows — the aggregate read `0.0` in all
+ten of its windows, both at `k = 10` and at `k = 1` — so ~~the ratios above stand
+exactly as published~~ **the ratios stood exactly as published on the instrument
+of that day**, now with the bound checked rather than asserted. A full sweep at
+the three-state repair (authored `79de836f35`; the landed SHA is the merge's to
+mint) answered the same, exit `0`: `:not-owed` on all four
 `uix`/`reagent` write rows, `:below-resolution` on both `slim` rows with every
 aggregate window at `0.0`, every read-back `0` unverified, and every slim write
 range overlapping the published one — the repair moves gate logic and table
 labelling, not a number.
+
+**Both sweeps pre-date the grain mask, and one of the two `slim` verdicts they
+record has since changed.** `rf2-d2tzk` (PR #7585) made the **bulk** row's
+floor-normalised column withdrawable on the clock's own measured grain, so that
+row now reads ~~`:below-resolution`~~ **`:moot`** on every draw: its only
+yield-bearing arm is the floor, the floor's column is withdrawn, and a
+correction has nothing left to move. The **narrow** row is untouched by the
+mask — its batched floor sits nine to twelve-and-a-half ticks clear of the
+grain — and its ratios do stand exactly as published. Nothing the two sweeps recorded is
+retracted: the `:not-owed` verdicts, the `0.0` aggregates and the read-back
+counts all still read as they read, and the mask still moves no figure. [The
+bulk cross-run column](#write--bulk-all-300-cells-in-one-commit) is **withheld**
+rather than amended, and that row's within-run pairs publish unchanged.
 
 **And the contract has been watched doing the other thing, which is the only
 reason to trust it.** A `slim`-only run on the same branch and the same host
