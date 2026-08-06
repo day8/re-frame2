@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+'use strict';
 //
 // THE CROSS-CHECK ITSELF — two instruments, one app, one table (rf2-rguy1).
 //
@@ -30,135 +31,322 @@
 // are telling the same story about a substrate, and two that differ by
 // more are not. It is stated here, in the code, so it cannot be chosen
 // after the numbers are seen.
+//
+// ## IT FAILS CLOSED, and it used to fail open (rf2-rguy1, #7359's audit)
+//
+// This program's exit code is quoted as a quality gate. It could not carry
+// that weight, because ABSENT EVIDENCE looked exactly like agreement: with
+// no results directory and no `--ours` JSON it printed a table of `n/a`,
+// announced `VERDICT: 0 of 0 comparable rows agree within 15%`, and exited
+// 0. A gate that is green when it was handed nothing is not a gate, and the
+// commonest way to hand it nothing is a run that never happened.
+//
+// So the evidence is now REQUIRED rather than merely read. `EXPECTED_CELLS`
+// is derived from `PAIRS` — every benchmark the driver actually runs,
+// crossed with every arm that is not the denominator, which is 5 x 2 = 10 —
+// and a cell that either instrument did not measure is named rather than
+// silently dropped from the denominator.
+//
+//   0  every expected cell was measured by both instruments.
+//   1  the comparison RAN and the evidence is SHORT: at least one expected
+//      cell is missing, and every missing cell is named with the side that
+//      lacks it.
+//   2  the comparison could not run at all: an input was not named, is not
+//      present, or will not parse. Named, with the path.
+//
+// WHAT IT DOES NOT ADJUDICATE, deliberately. The run's own gates — DOM
+// parity, the positive control, page errors, unverified writes — are
+// REPORTED here and decided by `jsfb_ours_run.cjs`, which owns them and
+// exits on them. Two programs deciding one verdict is the defect
+// `clock_exit_path.test.cjs` exists to pin, and this file is not going to
+// grow a second seat for it.
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 const AGREEMENT_BAND = 0.15;
 
+const BASE = 'rf2-reagent';
+const OTHERS = ['rf2-hicasso', 'rf2-uix'];
+
+// benchmark id -> the row id our instrument uses for the same operation.
+//
+// `theirs` records whether the benchmark driver runs this row at all.
+// `07_create10k` is OUR positive control and has no counterpart in the
+// published `--benchmark 01_ 02_ 03_ 05_ 09_` selection, so it is measured
+// on one instrument by design. That flag is what keeps the expected count
+// honest: it is the difference between "the driver does not run this" and
+// "the driver's run is missing", and before it existed the second was
+// indistinguishable from the first.
+const PAIRS = [
+  { bench: '01_run1k', ours: 'run1k', label: 'create 1,000 rows', maps: 'mount — build N elements from nothing', theirs: true },
+  { bench: '02_replace1k', ours: 'replace1k', label: 'replace all rows', maps: 'bulk', theirs: true },
+  { bench: '03_update10th1k_x16', ours: 'update10th', label: 'partial update (every 10th)', maps: 'narrow', theirs: true },
+  { bench: '05_swap1k', ours: 'swaprows', label: 'swap rows', maps: 'bulk', theirs: true },
+  { bench: '09_clear1k_x8', ours: 'clear1k', label: 'clear rows', maps: 'teardown — no clock row of ours', theirs: true },
+  { bench: '07_create10k', ours: 'create10k', label: 'create 10,000 rows', maps: 'the positive control', theirs: false },
+];
+
+const cellId = (bench, arm) => `${bench} / ${arm}`;
+
+// EVERY cell both instruments must have measured, DERIVED rather than typed.
+// The audit counted ten by hand; this counts them from the roster, so a row
+// added to `PAIRS` raises the bar automatically instead of leaving a gate
+// that quietly stopped covering the newest row.
+const EXPECTED_CELLS = PAIRS.filter((p) => p.theirs).flatMap((p) => OTHERS.map((arm) => cellId(p.bench, arm)));
+
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const THEIRS = arg('--theirs', process.env.JSFB_RESULTS);
-const OURS = arg('--ours', process.env.JSFB_OURS_JSON);
+// ---------------------------------------------------------------------------
+// Reading the evidence — every failure comes back as a NAMED absence
+// ---------------------------------------------------------------------------
 
-if (!THEIRS) {
-  console.error('[compare] --theirs <results dir> is required');
-  process.exit(2);
-}
-
-const BASE = 'rf2-reagent';
-const OTHERS = ['rf2-hicasso', 'rf2-uix'];
-
-// benchmark id -> the row id our instrument uses for the same operation
-const PAIRS = [
-  ['01_run1k', 'run1k', 'create 1,000 rows', 'mount — build N elements from nothing'],
-  ['02_replace1k', 'replace1k', 'replace all rows', 'bulk'],
-  ['03_update10th1k_x16', 'update10th', 'partial update (every 10th)', 'narrow'],
-  ['05_swap1k', 'swaprows', 'swap rows', 'bulk'],
-  ['09_clear1k_x8', 'clear1k', 'clear rows', 'teardown — no clock row of ours'],
-  ['07_create10k', 'create10k', 'create 10,000 rows', 'the positive control'],
-];
-
+/**
+ * The benchmark driver's own result files.
+ * @returns {{table: object, absent: string[]}}
+ */
 function readTheirs(dir) {
-  const out = {};
-  if (!fs.existsSync(dir)) return out;
+  const absent = [];
+  const table = {};
+
+  if (!dir) {
+    absent.push('--theirs <results dir> was not given, so the benchmark driver\'s side of the comparison is missing entirely');
+    return { table, absent };
+  }
+  let stat = null;
+  try {
+    stat = fs.statSync(dir);
+  } catch (e) {
+    absent.push(`the benchmark driver's results directory does not exist: ${dir}`);
+    return { table, absent };
+  }
+  if (!stat.isDirectory()) {
+    absent.push(`--theirs is not a directory: ${dir}`);
+    return { table, absent };
+  }
+
+  let seen = 0;
   for (const f of fs.readdirSync(dir)) {
     if (!f.endsWith('.json')) continue;
-    const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-    if (j.type !== 'cpu') continue;
-    const arm = [BASE, ...OTHERS].find((a) => j.framework.startsWith(a));
-    if (!arm) continue;
-    out[j.benchmark] = out[j.benchmark] || {};
-    out[j.benchmark][arm] = j.values;
-  }
-  return out;
-}
-
-const theirs = readTheirs(THEIRS);
-const ours = OURS && fs.existsSync(OURS) ? JSON.parse(fs.readFileSync(OURS, 'utf8')) : null;
-
-const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
-
-console.log('');
-console.log(';; THE CROSS-CHECK — hicasso / reagent, measured two ways on ONE app');
-console.log(';;');
-console.log(';;   theirs = js-framework-benchmark driver, wall clock click -> paint Commit,');
-console.log(';;            median of N iterations, fresh page per iteration');
-console.log(';;   ours   = CDP TaskDuration less DevToolsCommandDuration, rAF-settled,');
-console.log(';;            summed main-thread task time, warm page');
-console.log(';;');
-console.log(`;; agreement band: ${(AGREEMENT_BAND * 100).toFixed(0)}% (declared in this file, before the numbers)`);
-console.log('');
-
-console.log(
-  ';; operation                     arm            theirs ms   theirs ratio   ours ratio   |diff|   agree?'
-);
-
-const rows = [];
-for (const [bench, ourId, label] of PAIRS) {
-  const t = theirs[bench];
-  const tBase = t && t[BASE] ? t[BASE].total.median : NaN;
-  const o = ours && ours.summary && ours.summary[ourId];
-
-  for (const arm of OTHERS) {
-    const tArm = t && t[arm] ? t[arm].total.median : NaN;
-    const tRatio = tArm / tBase;
-    const oRatio = o && o.arms && o.arms[arm] ? o.arms[arm].ratio : NaN;
-
-    let agree = '';
-    let diff = NaN;
-    if (Number.isFinite(tRatio) && Number.isFinite(oRatio)) {
-      diff = Math.abs(tRatio - oRatio) / Math.min(tRatio, oRatio);
-      agree = diff <= AGREEMENT_BAND ? 'YES' : 'NO';
+    let j;
+    try {
+      j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+    } catch (e) {
+      absent.push(`a result file in ${dir} will not parse: ${f} — ${e.message}`);
+      continue;
     }
-    rows.push({ bench, ourId, label, arm, tArm, tRatio, oRatio, diff, agree });
-    console.log(
-      `;; ${(arm === OTHERS[0] ? label : '').padEnd(28)} ${arm.padEnd(13)} ${fmt(tArm, 1).padStart(9)}   ${fmt(tRatio).padStart(12)}   ${fmt(oRatio).padStart(10)}   ${(Number.isFinite(diff) ? (diff * 100).toFixed(1) + '%' : 'n/a').padStart(6)}   ${agree}`
+    if (!j || j.type !== 'cpu') continue;
+    const arm = [BASE, ...OTHERS].find((a) => typeof j.framework === 'string' && j.framework.startsWith(a));
+    if (!arm) continue;
+    seen += 1;
+    table[j.benchmark] = table[j.benchmark] || {};
+    table[j.benchmark][arm] = j.values;
+  }
+
+  if (absent.length === 0 && seen === 0) {
+    absent.push(
+      `${dir} holds no \`type: cpu\` result for any of ${[BASE, ...OTHERS].join(', ')} — ` +
+        'the directory is there but the run that fills it is not'
     );
   }
+  return { table, absent };
 }
 
-console.log('');
-console.log(';; DIRECTION — does each instrument put the arm on the same side of parity?');
-for (const r of rows) {
-  if (!Number.isFinite(r.tRatio) || !Number.isFinite(r.oRatio)) continue;
-  const tSide = r.tRatio > 1 ? 'slower' : 'faster';
-  const oSide = r.oRatio > 1 ? 'slower' : 'faster';
-  console.log(
-    `;;   ${r.label.padEnd(28)} ${r.arm.padEnd(13)} theirs: ${tSide.padEnd(7)} ours: ${oSide.padEnd(7)} ${tSide === oSide ? 'SAME' : 'OPPOSITE'}`
-  );
+/**
+ * Our instrument's JSON, as `jsfb_ours_run.cjs` writes it.
+ * @returns {{ours: object|null, absent: string[]}}
+ */
+function readOurs(file) {
+  if (!file) {
+    return { ours: null, absent: ['--ours <jsfb_ours_run.cjs JSON> was not given, so our side of the comparison is missing entirely'] };
+  }
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    return { ours: null, absent: [`our run's JSON does not exist: ${file}`] };
+  }
+  let ours;
+  try {
+    ours = JSON.parse(raw);
+  } catch (e) {
+    return { ours: null, absent: [`our run's JSON will not parse: ${file} — ${e.message}`] };
+  }
+  if (!ours || typeof ours !== 'object' || !ours.summary || typeof ours.summary !== 'object') {
+    return { ours: null, absent: [`our run's JSON carries no \`summary\` object: ${file}`] };
+  }
+  return { ours, absent: [] };
 }
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+const ratioOf = (o, arm) => (o && o.arms && o.arms[arm] ? o.arms[arm].ratio : NaN);
+
+/** One row per (benchmark, arm), whether or not either instrument measured it. */
+function buildRows(theirs, ours) {
+  const rows = [];
+  for (const p of PAIRS) {
+    const t = theirs[p.bench];
+    const tBase = t && t[BASE] && t[BASE].total ? t[BASE].total.median : NaN;
+    const o = ours && ours.summary ? ours.summary[p.ours] : null;
+
+    for (const arm of OTHERS) {
+      const tArm = t && t[arm] && t[arm].total ? t[arm].total.median : NaN;
+      const tRatio = tArm / tBase;
+      const oRatio = ratioOf(o, arm);
+
+      let agree = '';
+      let diff = NaN;
+      if (Number.isFinite(tRatio) && Number.isFinite(oRatio)) {
+        diff = Math.abs(tRatio - oRatio) / Math.min(tRatio, oRatio);
+        agree = diff <= AGREEMENT_BAND ? 'YES' : 'NO';
+      }
+      rows.push({ cell: cellId(p.bench, arm), bench: p.bench, ourId: p.ours, label: p.label, expected: p.theirs, arm, tArm, tRatio, oRatio, diff, agree });
+    }
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// THE DECISION, and it has ONE seat
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {{absent: string[], rows: object[]}} evidence
+ * @returns {{code: number, lines: string[]}}
+ */
+function verdict({ absent = [], rows = [] } = {}) {
+  const lines = [];
+
+  if (absent.length > 0) {
+    for (const a of absent) lines.push(`[compare] REFUSED — ${a}`);
+    lines.push(
+      '[compare] No comparison was made, so this run\'s exit code certifies nothing. ' +
+        'It used to exit 0 here, printing `0 of 0 comparable rows` (rf2-rguy1).'
+    );
+    return { code: 2, lines };
+  }
+
+  const measured = new Set(rows.filter((r) => Number.isFinite(r.diff)).map((r) => r.cell));
+  const missing = EXPECTED_CELLS.filter((c) => !measured.has(c));
+
+  if (missing.length > 0) {
+    lines.push(
+      `[compare] REFUSED — ${missing.length} of ${EXPECTED_CELLS.length} expected cells were not measured by both instruments:`
+    );
+    for (const cell of missing) {
+      const r = rows.find((x) => x.cell === cell);
+      let why;
+      if (!r) why = 'no row was built for it at all';
+      else if (!Number.isFinite(r.tRatio) && !Number.isFinite(r.oRatio)) why = 'NEITHER instrument measured it';
+      else if (!Number.isFinite(r.tRatio)) why = "the benchmark driver's results carry no usable median for this cell";
+      else why = "our run's JSON carries no usable ratio for this cell";
+      lines.push(`[compare]   ${cell}: ${why}`);
+    }
+    lines.push(
+      '[compare] A verdict over a subset of the table is not the verdict this program advertises. ' +
+        'Re-run the missing side rather than reading the rows that survived.'
+    );
+    return { code: 1, lines };
+  }
+
+  return { code: 0, lines: [] };
+}
+
+const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 
 // The workload comparison, which is the other half of the 2x2 and the
 // reason the ratio cannot simply be quoted against the published clock
 // row. Our instrument on the benchmark's create-1,000 against our
 // instrument on the M1 mount witness: same instrument, different page.
 const PUBLISHED_M1_MOUNT = 1.2107;
-console.log('');
-console.log(';; WORKLOAD — one instrument, two pages (the other half of the 2x2)');
-if (ours && ours.summary && ours.summary.run1k) {
-  const r = ours.summary.run1k.arms['rf2-hicasso'].ratio;
-  console.log(`;;   ours, benchmark create-1,000 rows   ${fmt(r)}`);
-  console.log(`;;   ours, M1 mount (published, rf2-0qj9w) ${fmt(PUBLISHED_M1_MOUNT)}`);
-  console.log(`;;   workload moves the ratio by ${(((r - PUBLISHED_M1_MOUNT) / PUBLISHED_M1_MOUNT) * 100).toFixed(1)}%`);
-}
 
-if (ours) {
+function report(theirs, ours, rows) {
   console.log('');
-  console.log(';; OUR RUN\'S GATES');
-  console.log(`;;   DOM parity        ${ours.parity && ours.parity.identical ? 'IDENTICAL' : 'DIFFERENT'}`);
-  console.log(`;;   positive control  ${ours.control && ours.control.pass ? 'PASS' : 'FAIL'}`);
-  console.log(`;;   page errors       ${ours.pageErrors}`);
-  const unv = Object.values(ours.summary).reduce((a, s) => a + s.unverified, 0);
-  console.log(`;;   unverified        ${unv}`);
+  console.log(';; THE CROSS-CHECK — hicasso / reagent, measured two ways on ONE app');
+  console.log(';;');
+  console.log(';;   theirs = js-framework-benchmark driver, wall clock click -> paint Commit,');
+  console.log(';;            median of N iterations, fresh page per iteration');
+  console.log(';;   ours   = CDP TaskDuration less DevToolsCommandDuration, rAF-settled,');
+  console.log(';;            summed main-thread task time, warm page');
+  console.log(';;');
+  console.log(`;; agreement band: ${(AGREEMENT_BAND * 100).toFixed(0)}% (declared in this file, before the numbers)`);
+  console.log(`;; expected cells: ${EXPECTED_CELLS.length} — every benchmark the driver runs, crossed with ${OTHERS.join(' and ')}`);
+  console.log('');
+
+  console.log(
+    ';; operation                     arm            theirs ms   theirs ratio   ours ratio   |diff|   agree?'
+  );
+
+  for (const r of rows) {
+    console.log(
+      `;; ${(r.arm === OTHERS[0] ? r.label : '').padEnd(28)} ${r.arm.padEnd(13)} ${fmt(r.tArm, 1).padStart(9)}   ${fmt(r.tRatio).padStart(12)}   ${fmt(r.oRatio).padStart(10)}   ${(Number.isFinite(r.diff) ? (r.diff * 100).toFixed(1) + '%' : 'n/a').padStart(6)}   ${r.agree}`
+    );
+  }
+
+  console.log('');
+  console.log(';; DIRECTION — does each instrument put the arm on the same side of parity?');
+  for (const r of rows) {
+    if (!Number.isFinite(r.tRatio) || !Number.isFinite(r.oRatio)) continue;
+    const tSide = r.tRatio > 1 ? 'slower' : 'faster';
+    const oSide = r.oRatio > 1 ? 'slower' : 'faster';
+    console.log(
+      `;;   ${r.label.padEnd(28)} ${r.arm.padEnd(13)} theirs: ${tSide.padEnd(7)} ours: ${oSide.padEnd(7)} ${tSide === oSide ? 'SAME' : 'OPPOSITE'}`
+    );
+  }
+
+  console.log('');
+  console.log(';; WORKLOAD — one instrument, two pages (the other half of the 2x2)');
+  if (ours && ours.summary && ours.summary.run1k) {
+    const r = ratioOf(ours.summary.run1k, 'rf2-hicasso');
+    console.log(`;;   ours, benchmark create-1,000 rows   ${fmt(r)}`);
+    console.log(`;;   ours, M1 mount (published, rf2-0qj9w) ${fmt(PUBLISHED_M1_MOUNT)}`);
+    console.log(`;;   workload moves the ratio by ${(((r - PUBLISHED_M1_MOUNT) / PUBLISHED_M1_MOUNT) * 100).toFixed(1)}%`);
+  }
+
+  // The run's own gates, REPORTED. `jsfb_ours_run.cjs` decides them.
+  if (ours) {
+    console.log('');
+    console.log(";; OUR RUN'S GATES (decided by jsfb_ours_run.cjs; reported here)");
+    console.log(`;;   DOM parity        ${ours.parity && ours.parity.identical ? 'IDENTICAL' : 'DIFFERENT'}`);
+    console.log(`;;   positive control  ${ours.control && ours.control.pass ? 'PASS' : 'FAIL'}`);
+    console.log(`;;   page errors       ${ours.pageErrors}`);
+    const unv = Object.values(ours.summary).reduce((a, s) => a + (s && s.unverified ? s.unverified : 0), 0);
+    console.log(`;;   unverified        ${unv}`);
+  }
+
+  console.log('');
+  const comparable = rows.filter((r) => Number.isFinite(r.diff));
+  const agreeing = comparable.filter((r) => r.agree === 'YES');
+  console.log(
+    `;; VERDICT: ${agreeing.length} of ${comparable.length} comparable rows agree within ${(AGREEMENT_BAND * 100).toFixed(0)}%` +
+      ` (${EXPECTED_CELLS.length} expected)`
+  );
 }
 
-console.log('');
-const comparable = rows.filter((r) => Number.isFinite(r.diff));
-const agreeing = comparable.filter((r) => r.agree === 'YES');
-console.log(
-  `;; VERDICT: ${agreeing.length} of ${comparable.length} comparable rows agree within ${(AGREEMENT_BAND * 100).toFixed(0)}%`
-);
+function main() {
+  const t = readTheirs(arg('--theirs', process.env.JSFB_RESULTS));
+  const o = readOurs(arg('--ours', process.env.JSFB_OURS_JSON));
+  const absent = [...t.absent, ...o.absent];
+  const rows = buildRows(t.table, o.ours);
+
+  // The table is printed whenever there is one to print, because a reader
+  // debugging a short run needs to see which cells arrived.
+  if (absent.length === 0) report(t.table, o.ours, rows);
+
+  const v = verdict({ absent, rows });
+  for (const line of v.lines) console.error(line);
+  return v.code;
+}
+
+module.exports = { verdict, buildRows, readTheirs, readOurs, EXPECTED_CELLS, PAIRS, OTHERS, BASE, AGREEMENT_BAND };
+
+if (require.main === module) {
+  const code = main();
+  if (code !== 0) process.exit(code);
+}
