@@ -50,6 +50,10 @@ on:
       - 'requirements.txt'
       - 'scripts/check_doc_slugs.py'
       - 'scripts/_test_fixtures/check_doc_slugs/**'
+      # rf2-kqac1 — the provenance-pin gate reads docs/design/hicasso/**, which
+      # `docs/**` above already arms; this line arms it on its own source, so a
+      # change to the checker cannot ship without the checker running.
+      - 'scripts/check_provenance_pins.py'
       - 'scripts/check_runtime_subsystem_grading.py'
       - 'scripts/check_inject_cofx_residue.py'
       - 'scripts/_test_fixtures/check_inject_cofx_residue/**'
@@ -164,7 +168,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_provenance_pins.py|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -501,6 +505,68 @@ jobs:
         with:
           path: site/
 
+  # ---------------------------------------------------------------------------
+  # Provenance pins (rf2-kqac1), following rf2-owq6p's census.
+  #
+  # This repo rebase-merges, which mints a new SHA for every commit on the
+  # branch, so a Hicasso page that pins a measurement to the SHA it was authored
+  # at is stranded the moment its own PR lands: the object is reachable from no
+  # ref and is absent from a fresh clone, and the page's verifiability claim
+  # fails without saying so.  The rule is ACCOMPANIMENT — a cited authored head
+  # must share its block with a SHA that IS an ancestor of origin/main — and
+  # deliberately not "no authored heads", which would red the pages that retain
+  # the head on purpose beside a landed one.
+  #
+  # It is a JOB OF ITS OWN because it needs `fetch-depth: 0`, and for a reason
+  # that is easy to get wrong: the gate asks `merge-base --is-ancestor` about
+  # SHAs months old, so a shallow or depth-limited clone would answer "not an
+  # ancestor" for pins that are perfectly landed and red the whole corpus.  The
+  # MkDocs build next door does not need that history and should not pay for it.
+  #
+  # SCOPED TO CHANGED PAGES on purpose.  The corpus still carries the stranded
+  # pins the census catalogued and left standing, because re-pinning restores
+  # the patch and not necessarily the measured tree and each one needs a human.
+  # A full-corpus gate would therefore be red on main from the day it landed.
+  # Scoped, it holds every new and edited page to the rule from today, and the
+  # audit (`python scripts/check_provenance_pins.py`, no flag) reports the
+  # backlog for whoever works it off.
+  provenance-pins:
+    name: Provenance pins
+    needs: detect
+    if: needs.detect.outputs.docs_surface == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # Full history: see the note above — a truncated one makes landed
+          # pins look stranded.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Self-test the provenance-pin checker
+        run: python scripts/check_provenance_pins.py --self-test --verbose
+
+      - name: Check provenance pins on changed pages
+        run: |
+          set -euo pipefail
+          if [ -z "${GITHUB_BASE_REF:-}" ]; then
+            # A push build has no base branch, so "the pages this change
+            # touches" is undefined.  The self-test above still ran, so this
+            # job is not a no-op; say so rather than implying a corpus verdict.
+            echo "No base ref (${GITHUB_EVENT_NAME}) — the changed-page gate is a"
+            echo "pull-request check. Self-test above covered the checker itself."
+            exit 0
+          fi
+          git fetch --no-tags origin "${GITHUB_BASE_REF}"
+          python scripts/check_provenance_pins.py \
+            --changed-since "origin/${GITHUB_BASE_REF}" --verbose
+
   deploy:
     # Only deploy from main pushes — PRs run build only (catch regressions) but don't deploy.
     if: github.event_name == 'push'
@@ -544,6 +610,8 @@ jobs:
     needs:
       - detect
       - build
+      # rf2-kqac1 — a gate nothing aggregates is a gate nobody has to pass.
+      - provenance-pins
     steps:
       - name: Fail if the docs build failed or was cancelled
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
