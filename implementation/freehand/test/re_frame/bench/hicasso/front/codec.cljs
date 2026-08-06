@@ -1472,13 +1472,45 @@
   [k]
   (or (string? k) (number? k) (keyword? k)))
 
+(defn- ^boolean stable-object-key?
+  "The two non-primitive `:key` values deliberately classified SAFE.
+
+  A `uuid` and a `symbol` are objects, so [[plain-key?]] rejects both —
+  but each string-coerces to its own NAME, which is the identity the
+  author means rather than the content of anything they will edit. A
+  `uuid` in particular is the canonical entity identifier: warning on
+  `{:key (:id entity)}` because that id happens to be a UUID would be
+  the false positive that teaches authors to ignore the warning, and a
+  guard everyone routes around is worse than the silence this repair
+  closes. A `symbol` coerces exactly as the `keyword` [[plain-key?]]
+  already admits does.
+
+  Asked only inside [[check-member-key!]]'s classification, never on the
+  keyed walk — see that docstring's ordering note."
+  [k]
+  (or (uuid? k) (symbol? k)))
+
 (defn- key-shape
   "What the author put at `:key`, named rather than printed. The VALUE
   never reaches the console: a foreign or cyclic value would blow
   `pr-str` inside a diagnostic, and the author already knows what they
-  wrote — what they need is the view, the child and the hazard."
+  wrote — what they need is the view, the child and the hazard.
+
+  TOTAL over everything [[check-member-key!]] rejects, which is the
+  repair rf2-2rtt6.104 asked for. The strings below are the ONLY text
+  this diagnostic can produce, so the totality and the never-print
+  guarantee are one property: no arm falls through to the value.
+  `coll?` sits here rather than at the call site because it is the
+  dearest predicate on the path and this function runs on detection
+  rather than on the walk."
   [k]
-  (cond (map? k) "a map" (vector? k) "a vector" (set? k) "a set" :else "a collection"))
+  (cond (map? k)     "a map"
+        (vector? k)  "a vector"
+        (set? k)     "a set"
+        (coll? k)    "a collection"
+        (boolean? k) "a boolean"
+        (fn? k)      "a function"
+        :else        "a foreign object"))
 
 (defn- warn-member-key!
   "One console line per site, where a site is *(enclosing view, member
@@ -1513,19 +1545,63 @@
                         (if owner (str " in the body of " owner) "")
                         ": a seq of " member " members carries " kind
                         " at :key (first at index " i ")."
-                        " React coerces a key to a string, so a collection keys"
-                        " the child by its CONTENT — edit the entity and the"
-                        " child silently remounts, losing focus, scroll position"
-                        " and any presence retention. Key on a stable identifier"
-                        " instead — [child {:key (:id entity), …}]. Warned once"
-                        " per site, in development builds only."
+                        " React coerces a key to a string, so a value like this"
+                        " keys the child by its CONTENT — edit the entity and"
+                        " the child silently remounts, losing focus, scroll"
+                        " position and any presence retention. A foreign object"
+                        " is the sharper case: every one of them coerces to the"
+                        " same `[object Object]`, so distinct children collapse"
+                        " onto a single key. Key on a stable identifier instead"
+                        " — [child {:key (:id entity), …}]. Warned once per"
+                        " site, in development builds only."
                         " [:rf.warning/hicasso-entity-key]")))))))
   nil)
 
 (defn- check-member-key!
   "One member of a lowered child seq, at index `i`. Warns when it is a
   boundary-headed vector React will reconcile by position — no `:key`, or
-  a `:key` whose value is a collection.
+  a `:key` whose value is not one React can coerce to a stable identity.
+
+  ## The classification is TOTAL (rf2-2rtt6.104)
+
+  This `cond` shipped with two arms and no `:else`, so every non-nil
+  `:key` that was neither primitive nor a CLJS collection fell out of the
+  check in silence. The shape that made that a bug rather than a gap is
+  the FOREIGN JS ENTITY OBJECT: `createElement` does `key = '' + key`, so
+  every plain object reaches `Object.prototype.toString` and every member
+  of the list is keyed `[object Object]`. Distinct rows, one key. The
+  codec was already careful never to PRINT such a value ([[key-shape]]);
+  it simply never reached the printing.
+
+  Every non-nil value [[plain-key?]] rejects now goes exactly one of two
+  ways — classified safe by [[stable-object-key?]], or named by
+  [[key-shape]], which is total. Nothing falls through.
+
+  ## What React says, and where it is genuinely silent
+
+  Verified against the vendored React 19.2 rather than assumed. React's
+  duplicate-key warning (`react-dom-client.development.js`,
+  `warnOnInvalidKey`) bails on `if (\"string\" !== typeof key) break` —
+  but the coercion above has already happened, so the key IS a string and
+  the check DOES apply. React therefore does warn `Encountered two
+  children with the same key, ` + \"`[object Object]`\" whenever two or
+  more foreign-object keys collide.
+
+  That is worth stating plainly because it means this warning is NOT the
+  only signal in the collision case. Where React is genuinely silent is
+  the larger half of the same hole: a key whose coercion is
+  CONTENT-DERIVED and therefore distinct per member — a `js/Date`, a JS
+  array, a CLJS map — collides with nothing, so React never warns, and
+  the row silently remounts the moment the author edits the entity. That
+  is the same hazard the `:rf.warning/hicasso-entity-key` row already
+  existed for, and the foreign object is simply its unhandled case.
+
+  The reason to warn on BOTH rather than defer the collision half to
+  React is cost, and here it is zero: see the ordering note below. The
+  cost argument that keeps this lane quiet where React already speaks
+  (rf2-2rtt6.134, the missing key on a host or `[:>]` child) is an
+  argument about a ~150 ns/member charge on the hot walk. Nothing here
+  touches the hot walk.
 
   ## What it costs, clocked rather than asserted
 
@@ -1569,9 +1645,26 @@
   The predicate order is the rest of the cost: `vector?` first, then the
   props-map `:key` read, then [[plain-key?]] — which is where a keyed
   member leaves, on a `typeof`. [[boundary-head?]]'s own-property read is
-  asked LAST, so an unkeyed `[:li …]` costs one `fn?` and no more, and
-  `coll?` — the dearest predicate on this path — is reached only by a
-  member that is already unkeyed or already odd.
+  asked LAST, so an unkeyed `[:li …]` costs one `fn?` and no more.
+
+  THE TOTALITY REPAIR IS FREE, and the ordering is why. Both new arms sit
+  INSIDE the `cond`, which is reached only by a member already known to
+  be boundary-headed AND already known to carry a non-plain `:key`. The
+  keyed steady state never arrives — it left at [[plain-key?]], three
+  `typeof`s up. The unkeyed fast path never arrives at the new arms
+  either: `nil?` is still the FIRST arm, so an unkeyed boundary member
+  short-circuits exactly where it did before. Neither of the two
+  populations in the table above executes one added instruction, so the
+  numbers stand as clocked.
+
+  The one population whose cost MOVED is a list keyed by `uuid`, and it
+  got cheaper. `coll?` — the dearest predicate on this path, because
+  anything without the `ICollection` marker falls through to
+  `native-satisfies?` — used to be asked on the walk, so a legitimate
+  UUID-keyed member paid it on every member of every render only to fall
+  out of the `cond` unhandled. It now lives in [[key-shape]], which runs
+  on detection, and a UUID leaves at [[stable-object-key?]] on two
+  `instanceof`-class tests instead.
 
   Every member is checked every time, uniform with the keyed steady
   state. Stopping at the first offender would save work only on the
@@ -1588,8 +1681,9 @@
         (let [h (nth m 0 nil)]
           (when (boundary-head? h)
             (cond
-              (nil? k)  (warn-member-key! h "missing" i)
-              (coll? k) (warn-member-key! h (key-shape k) i)))))))
+              (nil? k)               (warn-member-key! h "missing" i)
+              (stable-object-key? k) nil
+              :else                  (warn-member-key! h (key-shape k) i)))))))
   nil)
 
 (defn- check-seq-keys!

@@ -1038,6 +1038,99 @@
       (is (re-find #"carries a vector at :key" (first out)))
       (is (re-find #"carries a set at :key" (second out))))))
 
+;; ---------------------------------------------------------------------------
+;; THE TOTALITY REPAIR (rf2-2rtt6.104)
+;;
+;; `check-member-key!`'s `cond` shipped with two arms and no `:else`, so every
+;; non-nil `:key` that was neither primitive nor a CLJS collection fell out of
+;; the check in silence. The foreign JS object is the shape that makes that a
+;; bug rather than a gap: every one of them string-coerces to the SAME
+;; `[object Object]`, so distinct rows share one key. The rows below pin the
+;; collision on our own lowering first, then the warning, then — just as
+;; load-bearing — the two shapes deliberately classified SAFE, because a
+;; warning that fires on a `uuid` key would teach authors to ignore it.
+;; ---------------------------------------------------------------------------
+
+(deftest a-foreign-object-key-collapses-distinct-children-onto-one-key
+  (testing "the hazard pinned on OUR lowering rather than argued from React's
+            source: two DISTINCT entities mint two elements with ONE key"
+    (let [row  (named-view "w24.ns/row")
+          seen (atom nil)]
+      (warnings-during
+        #(reset! seen (child-vec
+                        (codec/as-element
+                          [:ul (list [row {:key #js {:id 1}}]
+                                     [row {:key #js {:id 2}}])]))))
+      (is (= 2 (count @seen)))
+      (is (= "[object Object]" (el-key (first @seen)))
+          "React's `key = '' + config.key` reaches Object.prototype.toString")
+      (is (= (el-key (first @seen)) (el-key (second @seen)))
+          "two entities, one key — React reconciles them as the same child")))
+  (testing "and it warns, naming the shape without ever printing the value"
+    (let [row  (named-view "w25.ns/row")
+          out  (warnings-during
+                 #(lowering-as "w25.ns/list"
+                               [:ul (list [row {:key #js {:secret "s3cr3t"}}])]))
+          line (first out)]
+      (is (= 1 (count out)))
+      (is (re-find #"w25\.ns/list" line) "the enclosing view")
+      (is (re-find #"w25\.ns/row" line) "the member head")
+      (is (re-find #"carries a foreign object at :key" line))
+      (is (re-find #"first at index 0" line))
+      (is (re-find #":rf\.warning/hicasso-entity-key" line))
+      (is (nil? (re-find #"s3cr3t" line))
+          "the VALUE never reaches the console"))))
+
+(deftest the-diagnostic-holds-on-a-value-that-would-blow-a-printer
+  (testing "a cyclic foreign object warns rather than throwing inside the
+            warning — the check names shapes, so no arm of it can reach the
+            value that would recur"
+    (let [row    (named-view "w26.ns/row")
+          cyclic (js-obj "id" 1)]
+      (unchecked-set cyclic "self" cyclic)
+      (let [out (warnings-during
+                  #(lowering-as "w26.ns/list" [:ul (list [row {:key cyclic}])]))]
+        (is (= 1 (count out)))
+        (is (re-find #"carries a foreign object at :key" (first out)))))))
+
+(deftest every-other-non-primitive-key-shape-is-named-rather-than-dropped
+  (testing "the shapes that used to fall through the missing `:else`"
+    (doseq [[label k pattern]
+            [["boolean"  true         #"carries a boolean at :key"]
+             ["function" (fn [] 1)    #"carries a function at :key"]
+             ["date"     (js/Date. 0) #"carries a foreign object at :key"]
+             ["js-array" #js [1 2]    #"carries a foreign object at :key"]]]
+      (let [row (named-view (str "w27.ns/" label))
+            out (warnings-during
+                  #(lowering-as (str "w27.ns/list-" label)
+                                [:ul (list [row {:key k}])]))]
+        (is (= 1 (count out)) (str "a " label " key must not fall through"))
+        (is (re-find pattern (first out)) (str "a " label " key is named"))))))
+
+(deftest the-object-key-shapes-deliberately-classified-safe-stay-silent
+  (testing "a uuid string-coerces to the identifier the author MEANS, so it is
+            the canonical entity key and warning on it would be the false
+            positive that teaches authors to ignore the warning"
+    (let [row  (named-view "w28.ns/row")
+          ids  [(uuid "00000000-0000-0000-0000-000000000001")
+                (uuid "00000000-0000-0000-0000-000000000002")]
+          seen (atom nil)]
+      (is (= [] (warnings-during
+                  #(reset! seen
+                           (child-vec
+                             (codec/as-element
+                               [:ul (for [id ids] [row {:key id}])]))))))
+      (is (= "00000000-0000-0000-0000-000000000001" (el-key (first @seen)))
+          "the coercion is the identity itself — this is WHY it is classified safe")
+      (is (not= (el-key (first @seen)) (el-key (second @seen)))
+          "distinct entities keep distinct keys, which is the whole test")))
+  (testing "a symbol coerces to its own NAME, exactly as the keyword that
+            `plain-key?` already admits does"
+    (let [row (named-view "w29.ns/row")]
+      (is (= [] (warnings-during
+                  #(lowering-as "w29.ns/list"
+                                [:ul (list [row {:key 'a}] [row {:key 'ns/b}])])))))))
+
 (deftest the-scope-line-holds-in-both-directions
   (testing "native-tag members are React's beat — there is no boundary head to name"
     (is (= [] (warnings-during
