@@ -508,11 +508,32 @@ the same programme files `rf2-2rtt6.117` asking whether that fork should exist �
 crossing, and it does not exist in the taught surface.** Designs A (hiccup in a prop), C
 (diagnostics rows 8 and 9, *and its entire render-prop worked example*), B (an edge-5
 witness) and the parity design (E5) all named it. Verified: **zero occurrences of
-`as-element` anywhere under `docs/design/hicasso/draft-guide/`**; the guide's taught `h/`
-roster is `h/hicasso`, `h/root`, `h/fn`, `h/render`, `h/defhost`, `h/presence`,
-`h/child-key` and `h/boundary`; `arm1/lang.clj` exports three macros — `defview`, `hfn`,
-`defhost` — and no `as-element`. The *mechanism* is public as `codec/as-element`; the
-*taught name* is not. **An error message naming a spelling the reader cannot call is worse
+`as-element` anywhere under `docs/design/hicasso/draft-guide/`**, and `arm1/lang.clj`
+exports three macros — `defview`, `hfn`, `defhost` — and no `as-element`. Nothing an
+author writes reaches a conversion.
+
+The *mechanism* exists as `codec/as-element`; the *taught name* does not. **This clause
+called that mechanism "public" until 2026-08-06, where A, B, C and `decisions.md` all call
+it INTERNAL — and the operative fact is neither word.** `as-element` is a non-private
+`defn`, so a fixture that requires `re-frame.bench.hicasso.front.codec` can call it; but
+that namespace lives in the bench tree under `implementation/freehand/test/`,
+`arm1/lang.clj` does not export it, and the guide's `h` is `re-frame.hicasso` — a package
+that does not exist yet. Reachable from a test, reachable from nothing an author writes:
+that is the sense in which the sibling records are right, and the sense a reader of this
+page needs, because "public" invites the `.103` implementer to name it in a message.
+
+> **The roster this clause used to enumerate was itself unverified (2026-08-06).** It gave
+> the guide's taught `h/` roster as `h/hicasso`, `h/root`, `h/fn`, `h/render`, `h/defhost`,
+> `h/presence`, `h/child-key`, `h/boundary`. Two of those are not spellings: `h/hicasso` is
+> a substring of the bench path `re_frame/bench/hicasso/`, which appears in the draft banner
+> at the top of every guide page, and the guide writes `h/root!`, not `h/root`. It also
+> missed `h/frame`, `h/reg-state` and `h/hydrate-root!`. The enumeration is dropped rather
+> than repaired — the guide is explicitly unfrozen, so any transcription of it goes stale,
+> the same failure mode as the line numbers retired in §10 — and the load-bearing half is
+> stated directly above instead. **The clause recording a myth born of an unchecked grep had
+> itself been assembled by one**; that is the gap `rf2-2rtt6.128` is filed against.
+
+**An error message naming a spelling the reader cannot call is worse
 than no message.** Either the arm exports the taught spelling in the same PR — one line — or
 every refusal message and guide row names what the arm actually exposes. Filed as
 `rf2-2rtt6.120`; the escape's PR must not be where this is discovered.
@@ -531,7 +552,10 @@ every refusal message and guide row names what the arm actually exposes. Filed a
 > Since corrected: the docstring (PR #7543), the guide's `05-interop.md` (PR #7523, which
 > also removed a `:render` hiccup return the page called "fine" — `render-callback` ends in
 > a bare `(apply f args)`, so the return crosses **unconverted** and a vector is refused by
-> React), and A, B, C and `decisions.md` above (PR #7543). **The arm ruling this clause asks
+> React), and A, B, C and `decisions.md` above (PR #7543); and this clause's own "public"
+> and its unverified roster (2026-08-06), which had survived both sweeps because they swept
+> the string `h/as-element` and these say `codec/as-element` and nothing at all.
+> **The arm ruling this clause asks
 > for — export a spelling, or rule a different one — is still unmade**, so the records now
 > name the gap rather than a function; none of them invents a replacement. The parity
 > design is local-only and outside the tracked tree.
