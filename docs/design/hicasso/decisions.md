@@ -882,9 +882,13 @@ read that lands in the calling boundary's window.
 > coverage would be a silent-inconsistency factory. Against all of that, the
 > ceremony saved is roughly a dozen characters per list site. The dominating
 > repair the pass identified — a dev warning on a **non-primitive `:key` value**,
-> closing the same hazard in the explicit spelling at zero concept cost — is
-> designed but **not landed** (`rf2-2rtt6.104`), and this verdict deliberately
-> does not lean on it.
+> closing the same hazard in the explicit spelling at zero concept cost — has
+> since **landed** (`rf2-2rtt6.104`), and its classification is total over every
+> value React must coerce rather than over collections alone. React's own
+> duplicate-key warning covers the collision half and only that half, so the
+> distinct-but-unstable key — a `js/Date`, a JS array, a CLJS map — is this
+> warning's alone. The verdict predates the repair and deliberately does not
+> lean on it.
 >
 > **Corpus correction, binding on any record of this ruling.** The decisive
 > framing is **not** "wrong at two-thirds" — that ratio belongs to the v1-idiom
