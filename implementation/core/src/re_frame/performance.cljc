@@ -101,6 +101,35 @@
 
 ;; ---- name builder (used by the macro expansion at the call site) ----------
 
+(defn entry-id
+  "Render `id` — a registered keyword / symbol / string — as the `<id>`
+  half of an `rf:<bucket>:<id>` entry name. A keyword loses its leading
+  colon and keeps its namespace; everything else is stringified as
+  written.
+
+  PUBLIC, and public for one reason. Spec 009 §Naming convention does not
+  merely say what the measure is called; it says that the `<id>` in the
+  measure name and **the id the substrate publishes to the developer**
+  (React `displayName`, the registrar key) are ONE identifier, \"so a
+  name read off the User-Timing stream is directly jumpable in the
+  tooling\". A substrate that publishes a name has to spell it the way
+  the measure spells it, and the only way two spellings cannot drift is
+  for there to be one spelling — this fn.
+
+  `(str id)` is NOT that spelling. A keyword stringifies WITH its colon,
+  so a substrate stamping `(str view-id)` on a React component showed
+  `:app.todo/todo-row` while its own measure carried
+  `rf:render:app.todo/todo-row`; pasting the name DevTools showed into
+  the documented `rf:render:` filter produced a double colon and matched
+  nothing — the tool answering \"no such trace\" to a developer using it
+  exactly as documented (rf2-2rtt6.136)."
+  [id]
+  (if (keyword? id)
+    (if-let [n (namespace id)]
+      (str n "/" (name id))
+      (name id))
+    (str id)))
+
 (defn build-name
   "Build a `rf:<bucket>:<id>` entry name from the bucket keyword and the
   registered id keyword/symbol/string. Stable shape across every emit
@@ -121,15 +150,13 @@
        from the production bundle.
 
   The body is pure data-shaping with no platform-specific calls — one
-  `.cljc` definition serves both JVM and CLJS callers."
+  `.cljc` definition serves both JVM and CLJS callers.
+
+  The `<id>` half is [[entry-id]], which a substrate also stamps as the
+  name it publishes to the developer — that shared call is what makes
+  the two ONE identifier rather than two that happen to agree."
   [bucket id]
-  (str "rf:" (name bucket) ":"
-       (cond
-         (keyword? id) (if-let [n (namespace id)]
-                         (str n "/" (name id))
-                         (name id))
-         (symbol? id)  (str id)
-         :else         (str id))))
+  (str "rf:" (name bucket) ":" (entry-id id)))
 
 ;; ---- the macro -------------------------------------------------------------
 
