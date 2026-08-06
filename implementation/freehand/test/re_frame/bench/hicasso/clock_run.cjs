@@ -1747,9 +1747,20 @@ function report(out) {
 function reportability(rows, opts) {
   const list = Array.isArray(rows) ? rows : [];
   const sabotage = (opts && opts.sabotage) || null;
-  const ctlFailed = list.filter((r) => !r.ctlOk);
-  const unadjudicated = list.filter((r) => !r.adjudicable);
-  const passed = list.filter((r) => r.ctlOk && r.adjudicable).map((r) => r.rowId);
+  // A ROW'S REGIME DECIDES WHICH REFUSAL IS ITS OWN (rf2-jcm3p, rf2-swwud).
+  // The two gates below adjudicate MAGNITUDES, and a regime row has none to
+  // adjudicate: reading `M1`'s known control failure as "the positive control
+  // did not see the change its own arithmetic predicts" states a finding as a
+  // fault, and reading `keystroke`'s bandless bars as "not every published bar
+  // can be ADJUDICATED" states a diagnostic as a magnitude. Both rows still
+  // refuse — see the regime block below — so no exit code moves; what moves is
+  // which sentence the run prints about them.
+  const regimeOf = (r) => REGIMES[r.regime] || REGIMES.magnitude;
+  const magnitudeRows = list.filter((r) => regimeOf(r).publishesMagnitude);
+  const regimeRows = list.filter((r) => !regimeOf(r).publishesMagnitude);
+  const ctlFailed = magnitudeRows.filter((r) => !r.ctlOk);
+  const unadjudicated = magnitudeRows.filter((r) => !r.adjudicable);
+  const passed = magnitudeRows.filter((r) => r.ctlOk && r.adjudicable).map((r) => r.rowId);
   const lines = [];
   if (ctlFailed.length > 0) {
     lines.push(
@@ -1797,7 +1808,42 @@ function reportability(rows, opts) {
       lines.push(`[clock]   ${r.rowId}: ${which}${r.unadjudicatedWhy || 'no proportional control on this row'}`);
     }
   }
-  if (ctlFailed.length === 0 && unadjudicated.length === 0) return { code: 0, lines };
+  // AND A ROW MAY PUBLISH A REGIME RATHER THAN A MAGNITUDE (rf2-jcm3p,
+  // rf2-swwud). This is a refusal of the same weight as the two above — no
+  // figure from the row is reportable — and of an entirely different kind: the
+  // two above are things that went wrong, this one is what the row IS. It is
+  // printed last so a reader meets the run's faults before its dispositions.
+  //
+  // The statement itself is published here whatever the exit, because a regime
+  // withheld in silence is indistinguishable from a regime nobody took.
+  if (regimeRows.length > 0) {
+    lines.push(
+      `[clock] REGIME: these rows publish a regime and never a magnitude, by ruling — ` +
+        `${regimeRows.map((r) => `${r.rowId} (${r.regime})`).join(', ')}. ` +
+        `A regime is a statement about what the row's numbers MEAN, so no figure from it is ` +
+        `reportable and this run cannot exit 0 on one:`
+    );
+    for (const r of regimeRows) {
+      const g = regimeOf(r);
+      const stated = !g.statementNeedsControl || r.ctlOk;
+      lines.push(
+        `[clock]   ${r.rowId} [${r.regime}, ${g.bead}] ${stated ? 'STATED' : 'WITHHELD'} — ${g.publishes}`
+      );
+      lines.push(
+        `[clock]     ${stated ? g.why : `its fixed-work controls did not pass${r.ctlNote || ''}, and they are what prove the instrument moves when the work moves — the regime is withheld rather than stated`}`
+      );
+      // The control status, printed on every regime row whichever way it fell,
+      // because the ruling that made these rows regimes is ABOUT their
+      // controls and a reader must not have to infer one from the other.
+      lines.push(
+        `[clock]     positive control: ${r.ctlOk ? 'PASS' : 'FAIL'}${r.ctlNote || ''}` +
+          (r.ctlOk ? '' : g.statementNeedsControl ? '' : ' — expected, and the reason no magnitude is published')
+      );
+    }
+  }
+  if (ctlFailed.length === 0 && unadjudicated.length === 0 && regimeRows.length === 0) {
+    return { code: 0, lines };
+  }
   lines.push(
     passed.length > 0
       ? `[clock] REPORTABLE: ${passed.join(', ')} — control passed, guard clean, canonical DOM identical, ` +
@@ -1847,6 +1893,103 @@ function rowAdjudication(bars) {
         ? src[unadjudicatedBars[0]].why
         : 'the run adjudicated no bar on this row at all',
   };
+}
+
+/**
+ * WHAT A ROW PUBLISHES — its REGIME, declared rather than inferred
+ * (rf2-jcm3p, rf2-swwud, both ruled 2026-08-06).
+ *
+ * Until these two rulings every row of this driver was a magnitude row that
+ * either cleared its gates or refused, and two rows had spent months refusing
+ * for reasons no amount of measuring could move. Both rulings say the same
+ * thing about their row: the honest answer is to NARROW THE CLAIM rather than
+ * to build a better instrument for a magnitude no decision turns on.
+ *
+ *   `magnitude`               publishes an adjudicated figure. Needs its
+ *                             positive control AND a band on every published
+ *                             bar — `rowAdjudication`'s rule, unchanged, which
+ *                             is rf2-y7mw7's contract and is not re-opened
+ *                             here.
+ *
+ *   `mount-regime`            `M1` (rf2-jcm3p). Publishes DIRECTION and no
+ *                             magnitude. Its positive control `ctl-2x` fails —
+ *                             1.8173x against a predicted 2.00x, reproduced at
+ *                             1.8443x and 1.8567x on two verifiably idle boxes
+ *                             — and the additive constant `c ~ 1.04 ms`
+ *                             explains the undershoot arithmetically:
+ *                             `(2W+c)/(W+c)` is below 2 for any positive `c`.
+ *                             A mount's operation IS the mount, so there is no
+ *                             standing page to write a changed set into and no
+ *                             changed-set control can reach it. THE FAILING
+ *                             CONTROL IS THE PUBLISHED REASON there is no
+ *                             magnitude, not a defect of the run that meets it,
+ *                             which is why this regime's statement does not
+ *                             wait on that control.
+ *
+ *   `responsiveness-regime`   `keystroke` (rf2-swwud). Adjudicated by EVENT
+ *                             TIMING rather than by the band of
+ *                             `the-candidates-clock.md` sec 6.2. Its control
+ *                             burns a fixed 50 ms, so `control/floor` reads
+ *                             `(F+50)/F` and moves with `F` — an excellent
+ *                             sensitivity control and not a pair whose true
+ *                             ratio is a property of the page, so it supplies
+ *                             no band and the TaskDuration bars it prints are
+ *                             DIAGNOSTIC, never magnitudes. Its statement DOES
+ *                             wait on its fixed-work controls, because those
+ *                             are what prove the instrument moves when the work
+ *                             moves; without them a frame reading is not
+ *                             evidence of anything.
+ *
+ * A REGIME ROW REFUSES THE RUN, and that is not a change of temperature. It
+ * publishes no magnitude — ever, by ruling rather than by accident — so
+ * `REPORTABLE` cannot name it and the exit code, which answers "is there a
+ * publishable MAGNITUDE here", stays 1. `HCLOCK_ONLY=keystroke` exited 1
+ * before these rulings and exits 1 after them; what changes is that the
+ * refusal now states the row's regime instead of reading as a defect.
+ *
+ * The regime is carried ON THE ROW SUMMARY rather than looked up inside
+ * `reportability`, so the rule and the roster are separately drivable: the
+ * fixtures below exercise each regime's behaviour, and `rowRegime` is mutation-
+ * provable on its own — relabel a row and its case fails.
+ */
+const REGIMES = {
+  magnitude: { publishesMagnitude: true },
+  'mount-regime': {
+    publishesMagnitude: false,
+    bead: 'rf2-jcm3p',
+    // The statement is about DIRECTION, and direction does not turn on a
+    // control whose failure is itself the published finding.
+    statementNeedsControl: false,
+    publishes: 'DIRECTION ONLY — hicasso mounts materially slower than both adapters; no magnitude',
+    why:
+      'ctl-2x undershoots 2.00x by the additive constant c ~ 1.04 ms and no changed-set control ' +
+      'can reach a mount, so the control status is the published reason rather than a fault of this run',
+  },
+  'responsiveness-regime': {
+    publishesMagnitude: false,
+    bead: 'rf2-swwud',
+    // Event Timing is the adjudicator, and a fixed-work control that did not
+    // move is an instrument nobody has seen respond.
+    statementNeedsControl: true,
+    publishes: 'A FRAME STATEMENT read off Event Timing — the TaskDuration bars are DIAGNOSTIC, never magnitudes',
+    why:
+      "this row's control burns a fixed 50 ms, so control/floor reads (F+50)/F and supplies no band; " +
+      'Event Timing adjudicates it instead, at 8 ms buckets above a 16 ms floor',
+  },
+};
+
+/** THE ROSTER, as one table a test can read back. */
+const ROW_REGIME = {
+  M1: 'mount-regime',
+  bulk300: 'magnitude',
+  bulk100: 'magnitude',
+  narrow: 'magnitude',
+  keystroke: 'responsiveness-regime',
+};
+
+/** A row's declared regime, defaulting to the one every row used to have. */
+function rowRegime(rowId) {
+  return ROW_REGIME[rowId] || 'magnitude';
 }
 
 /**
@@ -1997,6 +2140,98 @@ function reportabilitySelfTest() {
   check(
     'and a verdict that went missing entirely is absent, not clean',
     rowAdjudication(undefined).adjudicable === false && rowAdjudication(null).adjudicable === false
+  );
+
+  // THE REGIMES (rf2-jcm3p, rf2-swwud). Every fixture above carries no
+  // `regime` and so is a magnitude row, which is deliberate: the rule those
+  // cases pin is rf2-y7mw7's and these rulings do not re-open it. What is
+  // added is a second disposition beside it, and the cases that matter are
+  // the ones showing a regime row REFUSES — the temperature of the exit did
+  // not change, only the sentence.
+  const mount = (over) => row({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
+  const resp = (over) =>
+    row({ rowId: 'keystroke', regime: 'responsiveness-regime', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY, ...over });
+
+  const m = reportability([mount()]);
+  check(
+    'THE MOUNT REGIME: M1 refuses, exactly as it did when its control was read as a fault',
+    m.code === 1 && m.lines[m.lines.length - 1] === '[clock] REPORTABLE: none.',
+    m.lines.join(' | ')
+  );
+  check(
+    'and it is refused as a REGIME rather than as a control that went wrong',
+    m.lines.some((l) => /REGIME: these rows publish a regime and never a magnitude/.test(l)) &&
+      m.lines.some((l) => /M1 \[mount-regime, rf2-jcm3p\] STATED/.test(l)) &&
+      !m.lines.some((l) => /the positive control did not see the change/.test(l)),
+    m.lines.join(' | ')
+  );
+  check(
+    "the mount regime STATES itself although its control failed — the failure is the ruling's own premise",
+    m.lines.some((l) => /positive control: FAIL.*expected, and the reason no magnitude is published/.test(l)),
+    m.lines.join(' | ')
+  );
+
+  const k = reportability([resp()]);
+  check(
+    'THE RESPONSIVENESS REGIME: keystroke still cannot exit 0 — rf2-y7mw7 is not re-opened',
+    k.code === 1 && k.lines[k.lines.length - 1] === '[clock] REPORTABLE: none.',
+    k.lines.join(' | ')
+  );
+  check(
+    'and its bandless bars are named DIAGNOSTIC rather than unadjudicated magnitudes',
+    k.lines.some((l) => /keystroke \[responsiveness-regime, rf2-swwud\] STATED/.test(l)) &&
+      k.lines.some((l) => /DIAGNOSTIC, never magnitudes/.test(l)) &&
+      !k.lines.some((l) => /not every published bar can be ADJUDICATED/.test(l)),
+    k.lines.join(' | ')
+  );
+  check(
+    'THE ONE CONDITION rf2-swwud puts on it: fixed-work controls that did not pass WITHHOLD the regime',
+    (() => {
+      const w = reportability([resp({ ctlOk: false })]);
+      return w.code === 1 && w.lines.some((l) => /keystroke .* WITHHELD/.test(l));
+    })(),
+    reportability([resp({ ctlOk: false })]).lines.join(' | ')
+  );
+  check(
+    'and a mount regime is NOT withheld by the same control failure — the two regimes differ, deliberately',
+    m.lines.some((l) => /M1 .* STATED/.test(l)) && !m.lines.some((l) => /M1 .* WITHHELD/.test(l))
+  );
+
+  const mixedRegime = reportability([row({ rowId: 'bulk300' }), mount(), resp()]);
+  check(
+    'a magnitude row beside two regime rows is still reportable, and the regimes never join it',
+    mixedRegime.code === 1 &&
+      /REPORTABLE: bulk300 —/.test(mixedRegime.lines[mixedRegime.lines.length - 1]) &&
+      !/M1|keystroke/.test(mixedRegime.lines[mixedRegime.lines.length - 1]),
+    mixedRegime.lines[mixedRegime.lines.length - 1]
+  );
+  check(
+    'a magnitude row that fails is STILL refused as a fault, beside the regimes — the old gates are intact',
+    (() => {
+      const v = reportability([row({ rowId: 'bulk300', ctlOk: false }), mount()]);
+      return (
+        v.code === 1 &&
+        v.lines.some((l) => /the positive control did not see the change.*bulk300/.test(l)) &&
+        v.lines.some((l) => /REGIME:/.test(l))
+      );
+    })()
+  );
+
+  // THE ROSTER, which is the labelling this change actually ships. A row
+  // relabelled here reads as a different regime downstream, so the table is
+  // pinned by name rather than left to the fixtures that happen to use it.
+  check(
+    'the roster: M1 is a mount regime, keystroke a responsiveness regime, the bulk rows magnitudes',
+    rowRegime('M1') === 'mount-regime' &&
+      rowRegime('keystroke') === 'responsiveness-regime' &&
+      rowRegime('bulk300') === 'magnitude' &&
+      rowRegime('bulk100') === 'magnitude' &&
+      rowRegime('narrow') === 'magnitude',
+    JSON.stringify(ROW_REGIME)
+  );
+  check(
+    'and an unknown row is a MAGNITUDE row — a regime is granted by ruling, never by default',
+    rowRegime('a-row-nobody-has-ruled-on') === 'magnitude' && rowRegime(undefined) === 'magnitude'
   );
 
   return { checks };
@@ -2409,6 +2644,11 @@ async function main() {
       // second computation is a second decision.
       return {
         rowId: o.out.rowId,
+        // WHAT THIS ROW PUBLISHES, from the declared roster rather than from
+        // anything this run measured (rf2-jcm3p, rf2-swwud). A regime is a
+        // ruling about the row, so a run may not talk itself into or out of
+        // one on the strength of its own numbers.
+        regime: rowRegime(o.out.rowId),
         ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
         ctlNote: o.verdict.ctl3
           ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)`
@@ -2426,7 +2666,7 @@ async function main() {
   console.error('[clock] ok');
 }
 
-module.exports = { reportability, rowAdjudication, reportabilitySelfTest };
+module.exports = { reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest };
 
 if (require.main === module) {
   main();

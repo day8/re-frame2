@@ -117,6 +117,81 @@ function reportable(row) {
   );
 }
 
+/**
+ * THE RESPONSIVENESS REGIME, RE-ADJUDICATED OFF THE STORED RUN (rf2-swwud).
+ *
+ * The per-keystroke row has no band and never will: its control burns a fixed
+ * 50 ms, so `control/floor` reads `(F+50)/F` and moves with `F` — a fine
+ * sensitivity control, and not a pair whose true ratio is a property of the
+ * page. Two clean runs on two verifiably idle boxes produced two UNADJUDICATED
+ * rows for exactly that reason, which is what settled the question the row was
+ * raised on: the obstruction is the rig, not the box, and no scheduling moves
+ * it. The 2026-08-06 ruling therefore adjudicates this row by EVENT TIMING
+ * instead of by the band, and the tables above become diagnostics.
+ *
+ * WHY IT IS COMPUTED HERE. The re-adjudication is of the runs already on disk
+ * — no new window was taken and none is needed. `clock_run.cjs` stores the
+ * repaired witness's own per-arm accounting in every dataset, so this reads
+ * `kbWitness.perArm` rather than regrouping raw entries: the driver's witness
+ * owns what forms an interaction and what a censored key is, and a second
+ * grouping here would be a second adjudicator.
+ *
+ * IT PUBLISHES NO MAGNITUDE AND THE RIDER IS NOT OPTIONAL. Event Timing
+ * resolves 8 ms buckets above a 16 ms floor, so this row detects only a
+ * difference that crosses a bucket boundary. "Indistinguishable at one frame"
+ * is a statement about the instrument's resolution and NOT a measured tie
+ * below it — the arms' separations are sub-frame, the per-sample grid is
+ * coarser than they are, and every diagnostic bar straddles 1.0.
+ *
+ * `row` is one entry of a dataset's `rows`. Returns `null` for a row that
+ * carries no keystroke witness, which is every other row.
+ */
+function responsivenessRegime(row) {
+  const w = row && row.kbWitness;
+  if (!w || !w.perArm) return null;
+  const perArm = Object.entries(w.perArm).map(([arm, a]) => {
+    const ds = a.durations || [];
+    return {
+      arm,
+      control: /\/ctl-/.test(arm),
+      sent: a.sent,
+      observed: a.observed,
+      censored: a.censored,
+      n: ds.length,
+      p50: p50(ds),
+      min: ds.length ? Math.min(...ds) : NaN,
+      max: ds.length ? Math.max(...ds) : NaN,
+    };
+  });
+  const observedArms = perArm.filter((a) => !a.control && a.n > 0);
+  const controlArms = perArm.filter((a) => a.control && a.n > 0);
+  const buckets = [...new Set(observedArms.flatMap((a) => [a.min, a.max]))];
+  const controlDurations = controlArms.flatMap((a) => Array(a.n).fill(a.p50));
+  return {
+    perArm,
+    totals: w.totals || null,
+    // ONE BUCKET ACROSS EVERY OBSERVED ARM is the whole verdict. It is stated
+    // as a property of the readings rather than asserted, so a run in which
+    // the arms DID separate would say so here instead.
+    indistinguishable: observedArms.length > 0 && buckets.length === 1,
+    frame: buckets.length === 1 ? buckets[0] : NaN,
+    controlP50: controlDurations.length ? p50(controlDurations) : NaN,
+    // The instrument moved when the work moved, or this run states nothing.
+    controlMoved: controlArms.length > 0 && controlArms.every((a) => a.p50 > buckets[0]),
+    // THE RIDER'S OWN NUMBERS, both stored by the driver rather than derived
+    // here: the finest per-sample step this run could resolve, and whether the
+    // diagnostic bars separate the arms at this n. They do not.
+    grain: Array.isArray(row.granularity) && row.granularity.length ? row.granularity[0] : NaN,
+    diagnosticBars: PAIRS.filter((p) => row.barTask && row.barTask[p]).map((p) => ({
+      pair: p,
+      mean: row.barTask[p].mean,
+      min: row.barTask[p].min,
+      max: row.barTask[p].max,
+      straddles1: row.barTask[p].min <= 1 && row.barTask[p].max >= 1,
+    })),
+  };
+}
+
 function main(argv) {
   const files = argv.filter((a) => !a.startsWith('--'));
   if (files.length === 0) {
@@ -234,6 +309,56 @@ function main(argv) {
             ` ${(fmt(margin, 1) + '%').padStart(7)}   ${verdict}`
         );
       });
+    }
+
+    // --- the responsiveness regime, per run (rf2-swwud) -----------------------
+    //
+    // Printed immediately under the bars it re-labels, because the bars above
+    // are what this row USED to be published as and the ruling's whole content
+    // is that they are diagnostics.
+    for (const { file, row } of runs) {
+      const reg = responsivenessRegime(row);
+      if (!reg) continue;
+      console.log('');
+      console.log(
+        `;;   RESPONSIVENESS REGIME — ${shortName(file)}, re-adjudicated on EVENT TIMING rather than on the band`
+      );
+      console.log(';;     arm                        sent  observed  censored   ET p50   range');
+      for (const a of reg.perArm) {
+        console.log(
+          `;;     ${a.arm.padEnd(26)}${String(a.sent).padStart(4)}${String(a.observed).padStart(10)}` +
+            `${String(a.censored).padStart(10)}${(fmt(a.p50, 1) + ' ms').padStart(10)}   ` +
+            `[${fmt(a.min, 1)} – ${fmt(a.max, 1)}]${a.control ? '   (control)' : ''}`
+        );
+      }
+      if (reg.totals) {
+        console.log(
+          `;;     accounting: ${reg.totals.sent} keys sent = ${reg.totals.observed} observed + ` +
+            `${reg.totals.censored} censored under the 16 ms floor`
+        );
+      }
+      console.log(
+        `;;     VERDICT ${
+          reg.indistinguishable
+            ? `Hicasso, Reagent-on-subs and UIx-on-subs are INDISTINGUISHABLE at Event Timing's ` +
+              `resolution — every observed interaction was one frame (${fmt(reg.frame, 1)} ms)`
+            : `the arms did NOT fall in one bucket on this run — the frame statement does not hold here`
+        }`
+      );
+      console.log(
+        `;;     control ${reg.controlMoved ? 'PASS' : 'FAIL'} — ctl-50ms reads ${fmt(reg.controlP50, 1)} ms ` +
+          `against the arms' ${fmt(reg.frame, 1)} ms, so the instrument demonstrably moves when the work moves`
+      );
+      console.log(
+        `;;     POWERED TO DETECT: Event Timing resolves 8 ms buckets above a 16 ms floor, so this row ` +
+          `detects only a difference that CROSSES a bucket boundary. It is not a measured tie below that.`
+      );
+      console.log(
+        `;;       the arms' separations are sub-frame; this run's finest per-sample step is ` +
+          `${fmt(reg.grain, 3)} ms, and every diagnostic bar above straddles 1.0 ` +
+          `(${reg.diagnosticBars.filter((b) => b.straddles1).length} of ${reg.diagnosticBars.length}) — ` +
+          `no magnitude is published from this row.`
+      );
     }
 
     // --- absolutes, pooled over the ensemble ----------------------------------
@@ -384,7 +509,7 @@ function shortName(f) {
   return m ? m[1] : f;
 }
 
-module.exports = { adjudicated, reportable };
+module.exports = { adjudicated, reportable, responsivenessRegime };
 
 // Requiring this file must not run it: `clock_exit_path.test.cjs` drives the
 // two predicates above directly, which it cannot do if the module body reads
