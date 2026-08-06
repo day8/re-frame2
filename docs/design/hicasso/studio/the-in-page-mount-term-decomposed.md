@@ -326,6 +326,7 @@ advertisement:
 |---|---|---|
 | a stored aggregate edited (`:deficit 1.9625 → 1.4000` in run A) | REFUSE | **exit 1** — `runA: :deficit stored 1.4 != recomputed 1.9625` |
 | a single raw sample edited (`[0 :bare 2.5] → 9.9`) | REFUSE | **exit 1** — `stored max 5.9 != recomputed 9.9`, and the tmean with it |
+| every raw row for one arm removed, its stored block left (`:noreads` in run A) | REFUSE | **exit 1** — `runA: arm :noreads is ABSENT from the raw rounds`, and the terms built on it as non-finite |
 
 The second mutation is why `:min` and `:max` are checked at all: the trimmed
 mean deliberately discards the extremes, so a corrupted outlier moves neither
