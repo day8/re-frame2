@@ -166,7 +166,9 @@ function responsivenessRegime(row) {
   const observedArms = perArm.filter((a) => !a.control && a.n > 0);
   const controlArms = perArm.filter((a) => a.control && a.n > 0);
   const buckets = [...new Set(observedArms.flatMap((a) => [a.min, a.max]))];
-  const controlDurations = controlArms.flatMap((a) => Array(a.n).fill(a.p50));
+  // The control's median over its OWN readings, pooled across segments —
+  // every duration once, rather than each arm's median re-weighted.
+  const controlDurations = controlArms.flatMap((a) => w.perArm[a.arm].durations || []);
   return {
     perArm,
     totals: w.totals || null,
