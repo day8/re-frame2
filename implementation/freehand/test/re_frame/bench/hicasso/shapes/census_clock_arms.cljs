@@ -31,7 +31,7 @@
 
   **THEY DIFFER IN HOW MANY CARDS TOO, AND THAT IS NOT AN ISOLATION**
   (rf2-2rtt6.62, from the merged-PR audit of #7372/#7379). An earlier
-  wording of this docstring said the pages "differ in exactly one thing".
+  wording of this docstring said the pages differ in exactly one thing.
   They do not. `large-template` seeds 69 articles and `feed` seeds 300 —
   the same element arithmetic (`19 + 10 + 17·articles`) at 4.35x the
   cards, so elements (1,202 -> 5,129), per-instance reads (141 -> 603)
