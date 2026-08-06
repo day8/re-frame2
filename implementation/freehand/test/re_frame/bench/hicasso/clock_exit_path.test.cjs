@@ -280,7 +280,10 @@ for (const { tag, file, mod } of DRIVERS) {
 
   t('the driver exposes its run as `drive` and its decision as `verdict`', () => {
     assert.ok(DRIVE.length > 0, 'the driver must expose its run as `drive`');
-    assert.match(SRC, /module\.exports = \{ summarise, verdict \};/);
+    // `summarise` and `verdict` FIRST and always — a driver may export more
+    // (census_clock_run.cjs adds `destination`, its write-path decision), but
+    // the decision pair is what every test below reaches for.
+    assert.match(SRC, /module\.exports = \{ summarise, verdict\s*[,}]/);
     assert.match(SRC, /require\.main === module/);
     assert.match(SRC, /drive\(\)\.then\(\(code\) => \{\s*if \(code !== 0\) process\.exit\(code\);/);
   });
@@ -346,6 +349,134 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const band = verdict({ failed: null, rows: [row({ ceilingBreached: true, band: 0.4 })] });
   assert.notStrictEqual(band.code, 0, 'P4 promises a refusal when the band cannot hold');
 });
+
+// --- census_clock_run.cjs: the WRITE path, not just the exit path ------------
+//
+// rf2-2rtt6.56 (merged-PR audit #7379). `verdict` decides what may be QUOTED;
+// `destination` decides what may be WRITTEN. The driver used to write the
+// canonical datasets before the refusal was consulted and under the canonical
+// filenames whatever shape the run had, so a narrowed / --no-build / refused
+// run silently replaced the published evidence. Same fail-open as the exit
+// path, one file over, and checkable the same hermetic way.
+
+{
+  const CENSUS = DRIVERS[1].file;
+  const { destination } = DRIVERS[1].mod;
+  const SRC = fs.readFileSync(CENSUS, 'utf8');
+  const CANON = '/data/censusclock-2rtt6-56';
+  const shape = (over = {}) => ({
+    dataDir: CANON,
+    dataDirOverridden: false,
+    rowsOnly: null,
+    runsOnly: null,
+    noBuild: false,
+    depthPublished: true,
+    ...over,
+  });
+  const t = (what, fn) => test(`census_clock_run.cjs write path: ${what}`, fn);
+
+  t('the published shape, all gates passed, is the ONLY thing that is canonical', () => {
+    const d = destination(shape(), 0);
+    assert.strictEqual(d.canonical, true);
+    assert.strictEqual(d.dir, CANON);
+    assert.strictEqual(d.why, null);
+  });
+
+  // Each condition alone must move the write off the canonical set. These are
+  // the mutation proofs: flip one field, the destination must change.
+  for (const [what, over, code, needle] of [
+    ['a refused verdict', {}, 3, /verdict refused it \(exit 3\)/],
+    ['a partial row set', { rowsOnly: 'feed' }, 0, /PARTIAL row set/],
+    ['a partial run set', { runsOnly: 'uix' }, 0, /PARTIAL run set/],
+    ['--no-build', { noBuild: true }, 0, /--no-build/],
+    ['an overridden depth', { depthPublished: false }, 0, /OVERRIDDEN design depth/],
+  ]) {
+    t(`${what} is NOT canonical, and says why`, () => {
+      const d = destination(shape(over), code);
+      assert.strictEqual(d.canonical, false, `${what} must not be canonical`);
+      assert.notStrictEqual(d.dir, CANON, `${what} must not write the published filenames`);
+      assert.strictEqual(d.dir, `${CANON}.unpublished`);
+      assert.match(d.why, needle);
+      // ... and the same shape WITHOUT that condition is canonical again, so
+      // the test cannot pass by refusing everything.
+      assert.strictEqual(destination(shape(), 0).canonical, true);
+    });
+  }
+
+  t('every condition that fired is named, not just the first', () => {
+    const d = destination(shape({ rowsOnly: 'feed', noBuild: true, depthPublished: false }), 5);
+    assert.strictEqual(d.canonical, false);
+    for (const needle of [/verdict refused it \(exit 5\)/, /PARTIAL row set/, /--no-build/, /OVERRIDDEN design depth/]) {
+      assert.match(d.why, needle);
+    }
+  });
+
+  t('an explicit C56CLOCK_DATA_DIR is honoured as given, and is never canonical', () => {
+    const mine = '/data/censusclock-somebead';
+    const d = destination(shape({ dataDir: mine, dataDirOverridden: true }), 0);
+    assert.strictEqual(d.dir, mine, 'the operator named the destination; do not rewrite it');
+    assert.strictEqual(d.canonical, false, 'an operator-named directory is not the published set');
+    // Even refused, it still lands where the operator said — the refusal is
+    // carried by the exit code and by `canonical`, not by moving the file.
+    assert.strictEqual(destination(shape({ dataDir: mine, dataDirOverridden: true }), 4).dir, mine);
+  });
+
+  // The defect was an ORDERING one: the write happened, and the refusal was
+  // computed afterwards. Pin the order in the source, because that is what
+  // regressed and a behavioural test of a browser driver cannot see it.
+  t('the verdict is computed BEFORE any dataset is written', () => {
+    const v = SRC.indexOf('const v = verdict(summarise(failed, results));');
+    const dst = SRC.indexOf('const dest = destination(runShape(), v.code);');
+    const mk = SRC.indexOf('fs.mkdirSync(dest.dir');
+    assert.ok(v > 0 && dst > 0 && mk > 0, 'the write path no longer has the shape this test pins');
+    assert.ok(v < dst, 'the verdict must be computed before the destination is chosen');
+    assert.ok(dst < mk, 'the destination must be chosen before the directory is created');
+  });
+
+  t('no dataset is written to the raw DATA_DIR downstream of `destination`', () => {
+    // This is how the defect grew: the write named the canonical directory
+    // directly. Every write site must go through the chosen destination.
+    const after = SRC.slice(SRC.indexOf('const dest = destination(runShape(), v.code);'));
+    assert.ok(!/fs\.mkdirSync\(DATA_DIR/.test(after), 'mkdirSync must use the chosen destination');
+    assert.ok(!/path\.join\(DATA_DIR/.test(after), 'the dataset path must use the chosen destination');
+    assert.match(after, /path\.join\(dest\.dir/);
+  });
+
+  t('a dataset records whether it is the published evidence', () => {
+    // A file that travels out of its directory must still say what it is.
+    assert.match(SRC, /canonical: meta\.dest\.canonical/);
+    assert.match(SRC, /notCanonicalWhy: meta\.dest\.why/);
+  });
+
+  t('the dataset is built OUTSIDE `drive`, so recording never looks like deciding', () => {
+    // `datasetFor` names guardRefuse/ceilingBreached to SERIALISE them. Inside
+    // `drive` and downstream of `verdict` that would trip the invariant above
+    // — correctly, since a reader cannot tell a record from a second decision.
+    assert.match(SRC, /^function datasetFor\(rows, meta\) \{/m);
+    const drive = SRC.slice(SRC.indexOf('async function drive('));
+    assert.ok(drive.indexOf('function datasetFor(') === -1, '`datasetFor` must sit above `drive`');
+    assert.match(drive, /const data = datasetFor\(rows, \{ sha, blobs: bl, dest \}\);/);
+  });
+
+  // rf2-2rtt6.62: the counts the retraction turned on must be IN the evidence,
+  // not recoverable only by reading the instrument at the producing commit.
+  t("each row's workload counts are persisted with its numbers", () => {
+    assert.match(SRC, /stamp: STAMP\[r\.rowId\]/);
+    for (const needle of [/cards: '69 article cards'/, /cards: '300 article cards'/, /cards: '5 comment cards/]) {
+      assert.match(SRC, needle);
+    }
+  });
+
+  t('the published depth has ONE definition, shared by the stamp and the write path', () => {
+    assert.match(SRC, /const PUBLISHED_DEPTH = \{ rounds: 6, blocks: 3, warmup: 4, samples: 10 \}/);
+    // The old inline copy must be gone, or the two can drift apart again.
+    assert.ok(
+      !/ROUNDS === 6 && BLOCKS === 3 && WARMUP === 4 && SAMPLES === 10/.test(SRC),
+      'the inline depth predicate is duplicated; use depthIsPublished()'
+    );
+    assert.ok(SRC.split('depthIsPublished()').length - 1 >= 2, 'the one predicate must serve both readers');
+  });
+}
 
 // --- clock_run.cjs: the bar-level adjudication must reach the exit code -------
 //

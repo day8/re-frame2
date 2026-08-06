@@ -20,7 +20,7 @@
 
   **THE PAIR DOES NOT ISOLATE SHELL COST FROM INTERPRETER COST**
   (rf2-2rtt6.62, merged-PR audit of #7372/#7379). An earlier wording here
-  called shapes 2 and 3 "the same screen at two boundary decompositions"
+  called shapes 2 and 3 the same screen at two boundary decompositions
   and claimed the pair separates the two costs on one page. Byte-identical
   cards prove markup parity, not matched workload: the two rows carry 4.35x
   apart in cards, elements and per-instance reads, so a cross-row timing
