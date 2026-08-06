@@ -1298,6 +1298,18 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; replace
   ;; any `:event` slot with `:rf/redacted` / `:rf.size/large-elided` on egress.
   ;; Declaring a vector there would be a claim the runtime does not honour.
+  ;;
+  ;; `:where` is a SYMBOL, and — unlike `:event` — the tight type is honoured.
+  ;; The slot has exactly ONE producer (the ownership table above):
+  ;; `substrate/observation/throw-frame-destroyed!`, whose three call sites all
+  ;; pass a quoted fn symbol (`'re-frame.substrate.observation/acquire!` twice,
+  ;; `'re-frame.substrate.observation/probe` once). The three emitters that do
+  ;; NOT stamp `:where` — router, subs and ui/frames — cannot widen it. It is
+  ;; typed `:symbol` rather than `:any` for the reason rf2-j4bg3 established on
+  ;; `NoFrameContextTags`: the catalogue conformance gate diffs KEY SETS only,
+  ;; so the declared type is the sole thing standing between this payload and a
+  ;; string, number or arbitrary object at `:where`. OPTIONAL because three of
+  ;; the four emitters omit it.
   [:map
    [:category       :keyword]
    [:frame          :keyword]
@@ -1305,7 +1317,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:event          {:optional true} :any]
    [:query-v        {:optional true} [:vector :any]]
    [:reason         {:optional true} :keyword]
-   [:where          {:optional true} :any]
+   [:where          {:optional true} :symbol]
    [:rf.sub/id      {:optional true} :any]
    [:rf.sub/query-v {:optional true} [:vector :any]]])
 
@@ -1357,10 +1369,27 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; usable `:frame` — the supplied target is the invalid value). `:where` is
   ;; the validating provider call site (a symbol).
   ;; Per the 009 error catalogue row and [002 §Frame target resolution].
+  ;;
+  ;; `:where` is TYPED `:symbol`, and the disagreement it closes is the sharp
+  ;; one rf2-am6qs was filed for: `frame/require-frame-provider-target!` threads
+  ;; ONE `where` argument into BOTH payloads — the nil branch builds
+  ;; `no-frame-context` (typed `:symbol` by rf2-j4bg3) and the else branch builds
+  ;; THIS one — so leaving it `:any` had a single argument from a single call
+  ;; site carrying two different declared types. Every producer emits a quoted
+  ;; fn symbol: `'re-frame.views.provider/frame-provider`,
+  ;; `'re-frame.adapter.uix/frame-provider`,
+  ;; `'re-frame.substrate.spine/build-frame-provider-element`,
+  ;; `'re-frame.freehand.substrate/frame-provider`, `'v/->react`,
+  ;; `'re-frame.ui/frame-provider`, `'re-frame.ui/frame`, `'re-frame.ui/->react`
+  ;; (the last three arriving through `re-frame.ui.frames`' `require-scope-frame!`
+  ;; and `resolve-frame`), plus `'test/where` / `'test` in test. There is no
+  ;; keyword, string or map producer in src or in test. The type carries the
+  ;; contract alone: the catalogue conformance gate diffs KEY SETS only, so
+  ;; `:any` here enforced nothing while reading as though it did.
   [:map
    [:category :keyword]                              ;; [:= :rf.error/bad-frame-provider-arg] in a closed schema
    [:received :any]                                  ;; the offending value (neither keyword nor frame value)
-   [:where    {:optional true} :any]                 ;; the validating provider call site (symbol)
+   [:where    {:optional true} :symbol]              ;; the validating provider call site, a SYMBOL
    [:reason   {:optional true} :string]])
 
 (def EffectMapShapeTags
@@ -1727,9 +1756,18 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; settled as a structured first-load failure so the request never hangs
   ;; (Spec 016 §SSR and hydration — blocking timeout policy). A server-side
   ;; (JVM) trace, not a thrown ex-info — the render continues.
+  ;;
+  ;; `:where` is a SYMBOL. The slot has exactly one producer — the single
+  ;; `trace/emit-error!` inside `re-frame.resources.ssr/settle-blocking-timeout`,
+  ;; which stamps the quoted fn symbol
+  ;; `'re-frame.resources.ssr/settle-blocking-timeout` — and the 009 catalogue
+  ;; row names that same value. It is typed rather than `:any` for the reason
+  ;; rf2-j4bg3 established: the catalogue conformance gate diffs KEY SETS only,
+  ;; so a slot left `:any` is not weakly enforced but UNENFORCED. The slot stays
+  ;; OPTIONAL — the type is what was wrong, not the arity.
   [:map
    [:category  :keyword]
-   [:where     {:optional true} :any]
+   [:where     {:optional true} :symbol]
    [:frame     {:optional true} :any]
    [:timed-out [:vector :any]]        ;; the scoped resource keys that timed out
    [:limit-ms  :int]                  ;; the render deadline (ms)
