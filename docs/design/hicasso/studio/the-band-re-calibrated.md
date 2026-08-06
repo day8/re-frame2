@@ -56,8 +56,10 @@ Owner: `rf2-ymi6j`. Companion question: `rf2-h8o80`.
 
 ## 0. Predictions, written before the run
 
-Committed in `295f26651a`, before the first ladder result was read; the commit
-order is the pre-registration. The box: 24 cores (Intel Core Ultra 9 275HX),
+Committed in `295f26651a` — landed on main as **`61ea82850f`**, which is the SHA
+to check, the authored one having been stranded by the rebase-merge — before the
+first ladder result was read; the commit order is the pre-registration, and it is
+checkable only against the landed SHA. The box: 24 cores (Intel Core Ultra 9 275HX),
 68.1 GB, node v24.13.0, Windows 11, sole occupant. Registered 2026-08-02 07:21
 AUSEST.
 

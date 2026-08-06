@@ -76,8 +76,12 @@ returns is identically the other two checks recombined —
 ## Provenance
 
 **Instrument.** Whole-tree anchor `cd99cded8227816848499b989a9981f194ac656e` on
-`worker/fanout-5prok`. A SHA does not survive a rebase, so the content checks
-are beside it:
+`worker/fanout-5prok` — authored, and the branch was rebase-merged, so that SHA
+is on no branch and **will not resolve in a fresh clone**. It landed on main as
+**`cca5c7ea84`** (same patch — identical `git patch-id --stable`), with every
+blob it contributed unchanged; that is the SHA to check out. The landed tree
+sits on a later base, so it carries the change rather than the whole measured
+tree, and the content checks are beside it:
 
 | file | blob |
 |---|---|

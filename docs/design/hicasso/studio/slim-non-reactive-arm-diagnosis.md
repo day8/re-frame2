@@ -46,7 +46,7 @@ Two corrections to the bead's statement of the symptom fall out of this:
 
 | | |
 |---|---|
-| Producing commit | `f998a74c4aeb44ddc4dc2830dff31cb7181d3dfb` |
+| Producing commit | `f998a74c4aeb44ddc4dc2830dff31cb7181d3dfb` — **authored, and rebase-merged, so it is on no branch and will not resolve in a fresh clone.** Landed on main as **`bf5cd5a2a3`** (same patch — identical `git patch-id --stable`), where all eight blobs this commit contributed are unchanged. Check out the landed SHA; it sits on a later base, so it carries the change rather than the whole measured tree |
 | Runtime | **chromium 147.0.7727.15** (playwright, headless), `:advanced`, `goog.DEBUG false` |
 | Host | Windows 11, 24 logical cores, 32 GB |
 | Taken | 2026-07-31 00:36 AUSEST |

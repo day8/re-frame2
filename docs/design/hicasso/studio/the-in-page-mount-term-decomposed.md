@@ -105,7 +105,7 @@ measurement failure — see §5.
 
 | | |
 |---|---|
-| **Producing commit** | `b8e6da66814e380cafe08a9ebdf58d74f3730828` on `worker/inpage-409ab`, based on `origin/main` `667c744dc8`. Working tree clean at every run (`out/` and `logs/` are ignored), so the stamped blobs are the commit's |
+| **Producing commit** | `b8e6da66814e380cafe08a9ebdf58d74f3730828` on `worker/inpage-409ab`, based on `origin/main` `667c744dc8`. Working tree clean at every run (`out/` and `logs/` are ignored), so the stamped blobs are the commit's. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`4866dfa90c`** (same patch — identical `git patch-id --stable`), with the blob it contributed unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
 | **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.inpage-ladder-app/-main HICASSO_OUT_DIR=out/hicasso-inpage-ladder HICASSO_PORT=8152 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
 | **Re-deriving every figure below** | `node implementation/freehand/test/re_frame/bench/hicasso/inpage_ladder_aggregate.cjs` — fail-closed, see §7 |
 | **Build** | `:hicasso-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`. 199 files, 144 compiled, **0 warnings** |
