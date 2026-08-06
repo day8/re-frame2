@@ -1835,9 +1835,12 @@ function reportability(rows, opts) {
       // The control status, printed on every regime row whichever way it fell,
       // because the ruling that made these rows regimes is ABOUT their
       // controls and a reader must not have to infer one from the other.
+      // A failure the regime PREDICTS says so; one that withholds the regime is
+      // already explained by the line above and is not annotated twice.
+      const predictedFailure = !r.ctlOk && !g.statementNeedsControl;
       lines.push(
         `[clock]     positive control: ${r.ctlOk ? 'PASS' : 'FAIL'}${r.ctlNote || ''}` +
-          (r.ctlOk ? '' : g.statementNeedsControl ? '' : ' — expected, and the reason no magnitude is published')
+          (predictedFailure ? ' — expected, and the reason no magnitude is published' : '')
       );
     }
   }
