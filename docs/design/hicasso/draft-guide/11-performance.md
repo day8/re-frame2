@@ -48,12 +48,17 @@ performance rules of thumb are:
 
 ```clojure
 [todo-row {:key id :id id}]   ;; boundary — own re-render, own sub edge set
-(row-chrome {:id id})         ;; plain call — inlined; free at runtime
+(row-chrome {:id id})         ;; plain call — inlined; no boundary of its own
 ```
 
-A **vector** head is a boundary. A **plain call** splices into the parent and
-donates reads upward. Markup that always rides its parent should be a helper,
-not a `defview`.
+A **view in head position** mints a boundary — React identity, its own `sub`
+reads, its own bail-out
+([Views and reads](02-views-and-reads.md#boundaries-and-inlining)). Native tags,
+fragments and `defhost` heads sit in vector position too and mint none of that.
+A **plain call** still runs and still builds markup; what it does not buy is
+re-render granularity, and its hiccup splices into the parent while its reads
+donate upward. Markup that always rides its parent should be a helper, not a
+`defview`.
 
 **2. Read at the point of use.** A `sub` high in the tree invalidates that
 boundary and everything the value is threaded through. Expensive mounts we
@@ -119,14 +124,23 @@ A `defview` body is a real React function component. Hooks and refs are fine for
 **mechanics**: measure, SDK handles, animation clocks that are not app state.
 Semantic state stays in app-db.
 
-**Do not bare `rf/dispatch` or ambient `rf/capture-frame` from a timeout and
-hope.** In a Hicasso body those ambient forms are **not a contract** — they may
-work, throw, or pick the wrong frame depending on adapter, renderer, and timing.
-Intent vectors already carry the frame. Prefer the **event layer** (`:fx`,
-`:dispatch-later`). When you must close over a frame at the edge, the intended
-spelling is **`h/frame`** **[unfrozen]** with the platform carry:
-`(rf/capture-frame (h/frame))`. Shape is fixed; product shipping may still be
-landing.
+**Async work belongs in the event layer, which already has the frame.** An fx
+handler receives the frame id in its context and `:dispatch-later` says the
+delay as data, so a `setTimeout` in a view that dispatches is mis-layered before
+it is anything else. Move the work and the carrying question goes with it.
+
+Intent vectors need none of this — they already carry their boundary's frame.
+What survives the move is the **foreign edge**: a dispatching closure handed to
+a caller you do not control — an SDK attached through a ref, a `defhost` callback
+slot, a library that calls back with a value. There the frame is knowable during
+the render and nowhere else, so read it there with **`h/frame`** **[unfrozen]**
+and compose it with the platform carry: `(rf/capture-frame (h/frame))`.
+
+Do not reach for an ambient `rf/dispatch` or a bare `rf/capture-frame` instead.
+Ambient frame lookup is exactly what Hicasso's stricter body discipline
+withdraws: inside a body those forms **refuse**, under every adapter, naming the
+collector they went around — deterministically, not "sometimes"
+([Events as data](03-events-as-data.md#callbacks-carry-their-frame)).
 
 ```clojure
 ;; .cljs host-edge namespace — not the whole app.
@@ -136,7 +150,7 @@ landing.
             ["react" :as react]))
 
 (defview measure-box [{:keys [children]}]
-  (let [frame (h/frame)   ;; [unfrozen] — may still be landing; not ambient rf/*
+  (let [frame (h/frame)   ;; [unfrozen] name; not an ambient rf/* lookup
         ref   (react/useRef nil)]
     (react/useLayoutEffect
       (fn []
@@ -207,7 +221,7 @@ mode. Multi-frame: [Getting started](01-getting-started.md).
 | One cell change re-renders everything | Read too high, or one giant boundary | Push `sub` down; split boundaries |
 | Page-wide write re-runs every card | Props not `=` or keys unstable | Stable `:key`; read in the child; intent data not fresh fns |
 | Big table feels ~1.5× | Broad commit fan-out — known hard shape | Keys + bail-out + read shape; then virtualized `defhost` |
-| Bare `rf/dispatch` from a timeout "sometimes works" | Ambient `rf/*` is not a contract in Hicasso bodies | Event `:fx`, or `(rf/capture-frame (h/frame))` when available |
+| Bare `rf/dispatch` from a timeout | An ambient `rf/*` in a body refuses, naming the collector — it never "sometimes works" | Own the async work through `:fx`; only a closure crossing to foreign code carries `(rf/capture-frame (h/frame))` |
 | Hooks in every cell "for speed" | Second architecture | One island; app-db for semantic state |
 | Structural test dies after a "perf fix" | Hooks or JS in a `.cljc` body | Quarantine host code in `.cljs` |
 | Bare `[DatePicker …]` head | Not legal | `defhost` (or `[:>]` when available) |
@@ -227,6 +241,6 @@ mode. Multi-frame: [Getting started](01-getting-started.md).
 |---|---|
 | Compile / dual-mode path | **Not planned** — one interpreted Hiccup product |
 | `[:>]` availability | Ruled; may lag `defhost` — [Interop](05-interop.md) |
-| `h/frame` shipping | Shape fixed; spelling **[unfrozen]**; may still be landing |
+| `h/frame` spelling | Behaviour settled and proven in the arm; the product name is **[unfrozen]** |
 | Big-list bulk on our side | Outside numbers show risk; full own pricing still open |
 | Perf-island macro / scaffold | **None** — plain React + `defview` |
