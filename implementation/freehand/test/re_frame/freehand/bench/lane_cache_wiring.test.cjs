@@ -38,10 +38,10 @@
 // the riders rather than listing them, so the eighth fails here instead of in
 // a published table.
 //
-// ## The two fail-opens this gate shipped with, and what closed them
+// ## The fail-opens this gate shipped with, and what closed them
 //
-// A merged-PR audit found this file did not enforce its own central claim.
-// Both holes were REPRODUCED against the unmodified gate before anything
+// Merged-PR audits found this file did not enforce its own central claim.
+// Every hole below was REPRODUCED against the unmodified gate before anything
 // changed, each by a synthetic rider dropped into this directory:
 //
 //   * DIFFERENT IDS. A rider calling `resetLaneBuildCache(IMPL, CLEAR_BUILD)`
@@ -53,32 +53,59 @@
 //   * A COMMENT. The clear search was a text search, so `resetLaneBuildCache(`
 //     appearing in a comment satisfied it. That is the exact shape left behind
 //     when a refactor deletes the call and keeps the explanation.
+//   * A STRING. Blanking comments left string BODIES standing, so the same
+//     text in a log line or an error message stood in for the call exactly as
+//     a comment had: a rider whose only occurrences were
+//     `const POLICY = 'resetLaneBuildCache(IMPL, BUILD)'` and a template
+//     repeating it passed all four checks, build-id comparison included, with
+//     nothing executable in the file. Comment text and string text are one
+//     fault wearing different delimiters, and closing either alone closes half
+//     a door.
 //
 // So the gate now reads the build id out of BOTH sites and requires them to be
-// the same name, and every scan runs over CODE, with comments blanked.
+// the same name, and each scan runs over the projection that can answer it:
+// discovery and the spawn-side reads keep string text, because the argv slot
+// and the `require` path ARE string literals in a correct driver; the clear
+// call and its build-id argument are read from executable text alone.
 //
-// COMMENT BLANKING IS NOT A JS PARSER, deliberately. `codeOnly` models line
+// TWO PROJECTIONS, NOT A JS PARSER, deliberately. `project` models line
 // comments, block comments and the three string forms; it does not model regex
-// literals. The failure direction is what makes that acceptable: a mis-scan
-// blanks code, and blanked code makes an assertion FIRE, never fall silent. It
-// also refuses outright on an unterminated string or block comment rather than
-// returning a plausible-looking result.
+// literals or nested template interpolation. The failure direction is what
+// makes that acceptable: a mis-scan blanks MORE than it should, and blanked
+// text can only take away a call the checks are hunting for, so the assertion
+// FIRES. It also refuses outright on an unterminated string or block comment
+// rather than returning a plausible-looking result. That is a direction and
+// not a proof — a file adversarial enough to leave a real string outside a
+// mis-detected span could still hide in one — and the answer if that ever
+// appears is a sharper scanner here, never a check deleted.
 //
-// FIXTURES. `lane_cache_fixtures/` holds three drivers with known verdicts —
+// WHAT THE SPLIT DOES NOT COVER, said out loud because an edge that is known
+// is an edge somebody can price. The spawn-side reads and the `require` path
+// have to read string text, since in a correct driver both ARE string
+// literals, so a string that happens to spell `'release', BUILD` is still
+// visible to them: a rider that clears one id, releases another, and carries
+// such a string ahead of its real spawn would be compared against the string.
+// That is camouflage, not the accident this gate exists to catch — the riders
+// that arrived armed did so by omission — and pricing it out needs the scanner
+// to hand back string TOKENS rather than blanked spans. Left undone on
+// purpose: what this gate needs is lexical discrimination, not a parser.
+//
+// FIXTURES. `lane_cache_fixtures/` holds four drivers with known verdicts —
 // one correctly wired, one naming two different ids, one whose clear is only a
-// comment — so the gate has a regression net of its own and cannot quietly
-// stop firing. They live in a subdirectory because discovery reads THIS
-// directory only, and they are read as TEXT and never executed; the `require`
-// path in them is part of the source shape under test, not a live path.
+// comment, one whose clear is only string text — so the gate has a regression
+// net of its own and cannot quietly stop firing. They live in a subdirectory
+// because discovery reads THIS directory only, and they are read as TEXT and
+// never executed; the `require` path in them is part of the source shape under
+// test, not a live path.
 //
 // The fixtures stay IN the ESLint path rather than being ignored out of it, and
 // are held to the same rules as real driver source, because being faithful
 // driver source is the whole of their value — an ignore would let them drift
-// into shapes no driver could take. That constrains the comment-only fixture in
-// a way worth knowing: it requires `lane_cache.cjs` and binds nothing, because
-// a deleted clear that LEAVES its import binding behind is already caught one
-// gate earlier by `no-unused-vars`. The variant that binds nothing is the one
-// no linter can see, so it is the one this gate has to own.
+// into shapes no driver could take. That constrains the two clear-less fixtures
+// in a way worth knowing: each requires `lane_cache.cjs` and binds nothing,
+// because a deleted clear that LEAVES its import binding behind is already
+// caught one gate earlier by `no-unused-vars`. The variant that binds nothing is
+// the one no linter can see, so it is the one this gate has to own.
 //
 // Wired into implementation/package.json via `test:script-helpers`.
 
@@ -90,40 +117,63 @@ const test = require('node:test');
 const DIR = __dirname;
 const FIXTURE_DIR = path.join(DIR, 'lane_cache_fixtures');
 
-// Blanks comments to spaces, leaving string literals and total length intact
-// (so `--config-merge` and `'release'` still match, and offsets still compare).
+// Two blanked views of one source, both the ORIGINAL LENGTH — blanked spans
+// become spaces and newlines survive — so an offset taken from one compares
+// directly with an offset taken from the other:
+//
+//   `code`  comments blanked, string bodies KEPT. What discovery and the
+//           spawn-side reads need: `--config-merge`, `'release'` and the
+//           `require` path are string literals in every correct driver.
+//   `exec`  comments AND string bodies blanked; the quotes themselves stay, so
+//           the lengths line up and an empty literal still reads as one. What
+//           the clear call and its build-id argument are read from — a
+//           `resetLaneBuildCache(IMPL, BUILD)` sitting in a log line clears no
+//           more than the same words in a comment do.
+//
 // Throws rather than guessing when it runs off the end of a string or block.
-function codeOnly(src, file) {
-  const out = src.split('');
+function project(src, file) {
+  const code = src.split('');
+  const exec = src.split('');
+  // A comment is absent from both views; only strings tell them apart.
+  const blankBoth = (from, to) => {
+    for (let j = from; j < to; j += 1) {
+      if (src[j] !== '\n') {
+        code[j] = ' ';
+        exec[j] = ' ';
+      }
+    }
+  };
   let i = 0;
   while (i < src.length) {
     const c = src[i];
     const next = src[i + 1];
     if (c === '/' && next === '/') {
-      while (i < src.length && src[i] !== '\n') {
-        out[i] = ' ';
-        i += 1;
-      }
+      let end = i;
+      while (end < src.length && src[end] !== '\n') end += 1;
+      blankBoth(i, end);
+      i = end;
     } else if (c === '/' && next === '*') {
       const end = src.indexOf('*/', i + 2);
       assert.notStrictEqual(end, -1, `${file}: unterminated block comment`);
-      for (let j = i; j < end + 2; j += 1) if (src[j] !== '\n') out[j] = ' ';
+      blankBoth(i, end + 2);
       i = end + 2;
     } else if (c === '"' || c === "'" || c === '`') {
+      const open = i;
       i += 1;
       while (i < src.length && src[i] !== c) i += src[i] === '\\' ? 2 : 1;
       assert.ok(i < src.length, `${file}: unterminated string opened with ${c}`);
+      for (let j = open + 1; j < i; j += 1) if (src[j] !== '\n') exec[j] = ' ';
       i += 1;
     } else {
       i += 1;
     }
   }
-  return out.join('');
+  return { code: code.join(''), exec: exec.join('') };
 }
 
 function read(dir, file) {
   const src = fs.readFileSync(path.join(dir, file), 'utf8');
-  return { file, src, code: codeOnly(src, file) };
+  return { file, ...project(src, file) };
 }
 
 // A rider is any file here that spawns a shadow-cljs release build with its
@@ -166,6 +216,8 @@ const SPAWN_BUILD_ID = /['"]release['"]\s*,\s*([A-Za-z_$][\w$]*)/;
 const CHECKS = {
   requires: {
     title: 'requires lane_cache.cjs',
+    // Over `code`, string bodies and all: a genuine require's path is itself a
+    // string literal, so this one cannot be read from executable text.
     run: ({ file, code }) =>
       /require\(\s*['"]\.\/lane_cache\.cjs['"]\s*\)/.test(code)
         ? null
@@ -174,11 +226,14 @@ const CHECKS = {
 
   clearsFirst: {
     title: 'calls resetLaneBuildCache BEFORE it spawns the build',
-    run: ({ file, code }) => {
-      // Over CODE, so comment text cannot stand in for a call.
-      const clear = code.search(CLEAR_CALL);
+    run: ({ file, code, exec }) => {
+      // The call comes from EXECUTABLE text, so neither a comment nor a string
+      // can stand in for it; the argv slot comes from `code`, because it is a
+      // string literal. Comparing the two offsets is sound because the
+      // projections are the same length as the source and as each other.
+      const clear = exec.search(CLEAR_CALL);
       const spawn = code.search(SPAWN_SLOT);
-      if (clear === -1) return `${file} never calls resetLaneBuildCache (a mention in a comment is not a call)`;
+      if (clear === -1) return `${file} never calls resetLaneBuildCache (the name in a comment or a string is not a call)`;
       if (spawn === -1) return `${file} has no release spawn to guard`;
       return clear < spawn
         ? null
@@ -197,13 +252,14 @@ const CHECKS = {
 
   sameBuildId: {
     title: 'clears the SAME build id it releases',
-    run: ({ file, code }) => {
+    run: ({ file, code, exec }) => {
       // The central claim of this gate, and what it did not check until
       // rf2-t4j7c: clearing one id and building another is the defect, not a
       // fix for it. Silent when there is no clear at all — `clearsFirst` owns
-      // that fault and reports it better.
-      if (!CLEAR_CALL.test(code)) return null;
-      const cleared = code.match(CLEAR_BUILD_ID);
+      // that fault and reports it better, and a clear that exists only as
+      // comment or string text is no clear at all.
+      if (!CLEAR_CALL.test(exec)) return null;
+      const cleared = exec.match(CLEAR_BUILD_ID);
       const released = code.match(SPAWN_BUILD_ID);
       if (!cleared) {
         return `${file} calls resetLaneBuildCache but its build-id argument is not a plain ` +
@@ -257,10 +313,15 @@ for (const rider of RIDERS) {
 // null, for the correctly-wired control. A gate that rejects valid wiring is
 // worse than one that admits invalid wiring, because everyone routes around
 // it, so the control is not optional.
+// Two of them trip `clearsFirst` for what looks like the same reason and is
+// not: one hides the call in a comment, the other in a string, and the
+// projections that catch them are different. Deleting either as a duplicate
+// re-opens the hole the other never covered.
 const FIXTURES = {
   'agreeing_ids_run.cjs': null,
   'mismatched_ids_run.cjs': 'sameBuildId',
   'commented_clear_run.cjs': 'clearsFirst',
+  'string_clear_run.cjs': 'clearsFirst',
 };
 
 for (const [file, expected] of Object.entries(FIXTURES)) {
