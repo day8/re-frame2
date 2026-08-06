@@ -373,9 +373,39 @@ const PAGE_WATCHES = [];
 const pageFailures = () =>
   PAGE_WATCHES.flatMap((w) => w.failures).map((f) => `${f.kind}: ${f.detail}`);
 
-async function newPage(chromium, query) {
+// `jsFlags` is parameterised but every row passes the default, and the
+// allocation row's investigation (rf2-2rtt6.76) is why the obvious
+// override is NOT among them.
+//
+// The allocation instrument's method is that no collection runs between
+// two readings of the used-heap counter. Where one does, the allocation
+// between the last reading before it and the collection itself is netted
+// away inside a single step, and the rising-step sum under-reads. The
+// obvious repair is to enlarge the young generation so a whole window's
+// garbage fits — `--max-semi-space-size=N` — and it DOES NOT WORK. Two
+// standalone probes measured it directly, on both kinds of garbage:
+//
+//   one large array per iteration (LO space), 20 iterations:
+//     D=1,000 (8 KB)     8.40 B/double, 0 falls   <- the prediction, hit
+//     D=100,000 (800 KB) 4.00 B/double, 10 falls
+//   many small objects per iteration (new space), 20 iterations:
+//     K=5,000  (~240 KB) 23.92 B/object,  3 falls
+//     K=40,000 (~1.9 MB)  6.94 B/object, 10 falls
+//
+// and the SAME table came back at `--max-semi-space-size=128` and at
+// `=512`, falls unchanged to the unit. So the reading degrades
+// monotonically with the number of collections inside the window, the
+// flag does not suppress them, and the bias is always DOWNWARD.
+//
+// That last property is what matters for what this row was built to
+// measure. HD-002 predicts the candidate's steady-state allocation slope
+// is FLAT AT ZERO, and an instrument that systematically under-reads
+// allocation is an instrument that manufactures exactly that answer. The
+// row therefore gates on the falling-step count rather than shipping a
+// flag that changes nothing while looking like a repair.
+async function newPage(chromium, query, jsFlags = '--expose-gc') {
   const browser = await chromium.launch({
-    args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'],
+    args: ['--enable-precise-memory-info', `--js-flags=${jsFlags}`],
   });
   const page = await browser.newPage();
   // Every `;; P0` record, and EVERY warning or error the page emits. The
@@ -939,11 +969,15 @@ async function ladderRow(chromium) {
 const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || 30);
 const ALLOC_ROUNDS = Number(process.env.P0_ALLOC_ROUNDS || 6);
 const ALLOC_WARMUPS = Number(process.env.P0_ALLOC_WARMUPS || 3);
-// 8 B a double, so 100,000 doubles is a predicted 800,000 B of garbage per
-// iteration — well clear of the per-write traffic the arms produce, and
-// well inside the young generation at these window sizes.
-const ALLOC_D = Number(process.env.P0_ALLOC_D || 100000);
-const ALLOC_D2 = Number(process.env.P0_ALLOC_D2 || 40000);
+// 8 B a double, so 1,000 doubles is a predicted 8,000 B of garbage per
+// iteration. SMALL on purpose, and the size was chosen by measurement
+// rather than by taste: the standalone probe above walked D from 1,000 to
+// 100,000 and the reading tracked the prediction only at the bottom of
+// that range, where no collection fell inside the window (8.40 B/double
+// at 0 falls, against 4.00 B/double at 10). A control sized like the arms
+// would fail for the arms' reason and prove nothing about the arithmetic.
+const ALLOC_D = Number(process.env.P0_ALLOC_D || 1000);
+const ALLOC_D2 = Number(process.env.P0_ALLOC_D2 || 400);
 // How far the two control readings may sit from 8 B/double and still count
 // as THE INSTRUMENT CAN SEE GARBAGE. Generous on purpose: the claim being
 // gated is that transient bytes are visible AT ALL, not that V8's
@@ -951,6 +985,13 @@ const ALLOC_D2 = Number(process.env.P0_ALLOC_D2 || 40000);
 // B/double against the same 8 B arithmetic and could not close the gap, so
 // a band that demanded 8 exactly would refuse a working instrument.
 const ALLOC_CONTROL_SLACK = Number(process.env.P0_ALLOC_CONTROL_SLACK || 0.75);
+// The threshold, MEASURED rather than assumed: the standalone probes put
+// the first falling step at roughly 600 KB of cumulative garbage in a
+// window, on both kinds of garbage and at every semi-space size tried. It
+// is recorded here because it is what decides whether a given arm is
+// measurable by this instrument at all, and a warm re-render of 1,200
+// boundaries is two to three times over it in ONE write.
+const ALLOC_FALL_THRESHOLD_B = 600000;
 
 // Rising and falling steps, accumulated separately, from one window's raw
 // samples. The samples are `[s0, pre0, post0, pre1, post1, ...]`, so the
@@ -1106,7 +1147,7 @@ async function allocRow(chromium) {
         // any table, and this is the same class of gate as the mount
         // read-back the retention rows already carry.
         const R = entry.reads || 0;
-        const want = String(R * ALLOC_WRITES);
+        const want = String(R * win.tick);
         if (win.text !== want) {
           unverified++;
           unverifiedDetail.push(
@@ -1172,6 +1213,7 @@ async function allocRow(chromium) {
     instrument:
       'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
       'rising steps accumulated separately from falling ones; --enable-precise-memory-info',
+    fallThresholdB: ALLOC_FALL_THRESHOLD_B,
     verification: { unverified, detail: unverifiedDetail },
     perRound: rounds,
     allocFits: fits,
@@ -1242,9 +1284,24 @@ function summariseAlloc(row) {
   const wins = row.perRound.reduce((a, r) => a + Object.keys(r.arms).length, 0);
   console.log(';;');
   console.log(
+    `;;   measured fall threshold: ~${row.fallThresholdB} B of cumulative garbage per window. ` +
+      'Enlarging the young generation does NOT move it (128 MB and 512 MB tried).'
+  );
+  console.log(
     `;;   collections seen inside arm windows: ${falls} falling steps across ${wins} windows ` +
       '(a fall is EXCLUDED from the rising sum, never netted against it)'
   );
+  // A FALL INSIDE A MEASURED WINDOW IS AN EXIT CONDITION, and the probe run
+  // is why. Where a collection lands, the allocation between the last
+  // reading before it and the collection itself is netted away inside that
+  // single step, so the rising sum is an UNDER-estimate — and the probe
+  // measured how large that can get: the same control object read 6.67
+  // B/double at 320 KB per iteration and 1.38 B/double at 800 KB. A row
+  // that reported the second figure would be publishing the collector's
+  // schedule as a property of the arm, and the arms all read LOW under
+  // that fault, which is the direction that flatters a candidate whose
+  // predicted answer is zero.
+  row.fallsInMeasuredWindows = falls;
   console.log(
     `;;   verification: ${row.verification.unverified} unverified ` +
       '(mount read-backs AND the warm-write read-back)'
@@ -1928,6 +1985,15 @@ if (require.main === module) (async () => {
           `alloc: positive control — ${out.alloc.controlVerdict.perDouble.toFixed(2)} B/double ` +
             `direct, ${out.alloc.controlVerdict.differential.toFixed(2)} B/double differential, ` +
             'against a predicted 8'
+        );
+      }
+      if (out.alloc.fallsInMeasuredWindows > 0) {
+        failures.push(
+          `alloc: ${out.alloc.fallsInMeasuredWindows} collections fell inside measured windows ` +
+            '— every arm figure in this run is an UNDER-estimate, and under-reading allocation ' +
+            'is the direction that manufactures the flat-at-zero answer HD-002 predicts, so no ' +
+            'slope here is quotable. The controls above still adjudicate the arithmetic; what ' +
+            'refuses is the arms\' scale, not the method'
         );
       }
     }
