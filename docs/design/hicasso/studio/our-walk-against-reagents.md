@@ -789,3 +789,151 @@ read against run C at all.
 **Advisory, and no row above is amended.** No adapter, codec or runtime file is
 changed by this work; the ablation of run B was reverted before anything was
 committed and appears in no shipped file.
+
+## 2026-08-07 the key set is gone, and the row re-taken (rf2-jr0tg)
+
+**What landed.** The section above costed a repair and declined to land it, this
+page's practice being that a candidate is timed beside the shipping shape and
+lands on a bead of its own. `rf2-jr0tg` is that bead, and this is the arms row
+re-taken with the repair in place. It is one binding:
+
+    ks (when (map? m) (set (keys m)))      ; built on EVERY call
+    …
+    (= navigate-keys ks)
+
+became
+
+    (and (map? m) (== 4 (count m))
+         (contains? m :frame) (contains? m :payload)
+         (contains? m :native?) (contains? m :veto))
+
+with `ks` moved into the failure branch, which runs once, at the refusal, and
+still names what the author actually wrote.
+
+**Nothing was relaxed, and the count is the reason.** Four `contains?` alone are
+fail-open on a fifth key — the exact defect `rf2-2rtt6.54` closed — so the count
+is load-bearing, not decoration. Four presence tests AND a count of four admit
+precisely the maps the set equality admits.
+
+### The rows
+
+Three runs of the unchanged driver, 2026-08-07, bracketing the repair between
+two runs of the shape it replaces — D and F are `origin/main` at `c495a5e2df`,
+E is that tree with the one binding moved.
+
+| run | `hicasso` ns/el | `hicasso-native` ns/el | gap ns/el | grid steps | `hicasso-native`/`hicasso` |
+|---|---|---|---|---|---|
+| D — before | 385 | 572 | 187 | 18 | **1.4865** |
+| E — after | 437 | 510 | 73 | 7 | **1.1667** |
+| F — before, restored | 499 | 738 | 239 | 23 | **1.4792** |
+
+**Read the ratios, not the absolutes.** All three gaps are resolved at the
+0.0125 ms/walk grain, the smallest being E's 7 steps. The repaired ratio 1.1667
+sits against §2's published 1.0729 and 1.0762 and against the previous section's
+ablation at 1.1143; what remains above §2 is the rest of the navigate lowering,
+not the key check.
+
+**The bracket is the control, and it runs the wrong way for a sceptic.** The box
+got monotonically busier across the three runs — D's `hicasso` arm reads 385
+ns/el, E's 437, F's 499 — so the repaired run sits *between* the two shipping
+runs in absolute terms while carrying a *third* of either one's gap. A quiet box
+cannot be the explanation, because E's box was demonstrably busier than D's.
+
+### The stage rows underneath
+
+ns per position, each against what the plain arm pays at the same key:
+
+| stage | D — before | E — after | F — before |
+|---|---|---|---|
+| navigate carrier, native value | 710.1 | **239.1** | 992.8 |
+| navigate carrier, plain value | 67.6 | 70.0 | 113.5 |
+| authored intent, native value | 204.2 | 190.1 | 352.1 |
+| authored intent, plain value | 63.4 | 70.4 | 105.6 |
+| key-set check, shipping shape (local copy) | 451.7 | 591.8 | 792.3 |
+| key-set check, allocation-free (local copy) | 70.0 | 103.9 | 140.1 |
+
+**The last two rows are the positive control, exactly as they were in the
+previous section**, and they are why the collapse can be believed. They price
+LOCAL copies written into the instrument, which the change to `front/intent.cljs`
+cannot reach — and they do not collapse: 451.7 → 591.8 → 792.3 and 70.0 → 103.9
+→ 140.1, both rising monotonically with the box and nothing else. Meanwhile the
+row that goes through the real `unwrap-navigate` drops by a factor of three and
+comes straight back when the old shape is restored. The change landed where it
+was aimed and nowhere else.
+
+Carried onto the arm row's units — ns per position × roster ÷ 1,202 elements,
+done by the instrument:
+
+| carrier | D — before | E — after | F — before |
+|---|---|---|---|
+| navigate (207 links) | 110.6 | **29.1** | 151.4 |
+| authored intents (71 positions) | 8.3 | 7.1 | 14.6 |
+| named carriers, summed | 119.0 | 36.2 | 166.0 |
+| *observed arm gap* | *187.2* | *72.8* | *239.2* |
+
+**Attribution, not accounting**, per §3. The navigate carrier falls from ten to
+fifteen times the authored one to about four times it, and the authored carrier
+does not move — 8.3, 7.1, 14.6, tracking the box, which is the same flatness the
+previous section read.
+
+### The correctness, and how it was proven able to fail
+
+The repair is worth nothing if the grammar quietly re-opened, so the witnesses
+were made to fail on purpose:
+
+| | |
+|---|---|
+| **Witnesses** | `route_link_cljs_test`, 16 tests / 39 assertions, **0 failures, 0 errors** — including `the-navigate-map-is-a-closed-key-set` and, inside it, the two shapes `rf2-2rtt6.54` added: the map missing `:veto` and the map carrying a fifth key |
+| **The mutation** | `(== 4 (count m))` deleted from `unwrap-navigate`, leaving the four `contains?` — the fail-open shape the commit was fixing |
+| **What it did** | `the-navigate-map-is-a-closed-key-set` **FAILED** at `route_link_cljs_test.cljs:190`, on `{:frame … :payload [:x] :native? false :veto nil :replace? true}`: `expected: (thrown-with-msg? … #"hicasso-malformed-navigate" …)`, `actual: nil`. Runner exit `1`, exactly one failure |
+| **Blast radius** | the other four bad shapes in that witness — missing `:frame`, `:payload`, `:native?`, `:veto` — stayed green under the mutation, which is right: the `contains?` tests catch those, and only the fifth key needs the count |
+
+So the count is doing work no other line does, and the suite can see it go.
+
+### Provenance
+
+| | |
+|---|---|
+| **Producing commit** | `70304283e3` on `worker/navkeys-jr0tg`, merge-base `c495a5e2df` (`origin/main`) |
+| **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main HICASSO_OUT_DIR=out/hicasso-walkcmp HICASSO_PORT=8177 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
+| **Build** | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** on all three builds |
+| **Runtime** | chromium `147.0.7727.15` (playwright), node `v24.13.0`, Windows NT 10.0 x64, 24 threads |
+| **Design** | 4 arms × 6 rounds × (4 warm-up + 10 samples), 8 whole-page walks per window — unchanged |
+| **Clock** | in-page `performance.now`, **diagnostic**; the clock of record is untouched here |
+| **Windows** | 2026-08-07 AUSEST, completing D 03:26:12, E 03:35:07, F 03:36:43 |
+| **Exit codes** | D `0`, E `0`, F `0`; guard **reportable** on every arm of all three |
+
+| control | D | E | F |
+|---|---|---|---|
+| arm-order guard self-test (12 cases) | all `ok` | all `ok` | all `ok` |
+| twin parity gate (fatal) | OK — 1,202 el / 58,474 B | OK | OK |
+| workload match | 58,474 B / 58,529 B, the same 55-byte whitespace difference §1 prices | same | same |
+| arm-order guard verdict | **reportable**, 4/4 by predecessor and by phase | **reportable** | **reportable** |
+| candidate agreement failures | `[]` | `[]` | `[]` |
+| `SLIM DECOMPOSED` agreement failures | `[]` | `[]` | `[]` |
+| intent agreement failures | `[]` | `[]` | `[]` |
+| exit code | **0** | **0** | **0** |
+
+**The box was not quiet, and it was not instrumented for these three runs.** The
+previous section measured summed per-process CPU delta; this one did not, and
+says so rather than inventing a figure. What stands in its place is stronger for
+this particular claim: the bracket puts the repaired run between a quieter run
+and a busier one, and the instrument's own local control rises monotonically
+across all three while the measured row collapses in the middle.
+
+| file | blob |
+|---|---|
+| `…/front/intent.cljs` | `a6716e5cdd` → **`6486fd532e`** — the one binding; runs D and F measured the former, E the latter |
+| `…/front/route_link.cljs` | `3663b326a2` — unchanged |
+| `…/front/codec.cljs` | `dc5f893416` — moved again since the attribution section's `6301d60db0`, by other work, and still not implicated |
+| `…/walk_vs_reagent_app.cljs` | `ee0666c3d6` — the attribution section's, and what runs D–F measured. Corrected by COMMENT ONLY after the runs, so `navmap-keyset-shipping` no longer claims to be what ships |
+| `…/run.cjs` | `1bc82c38ea` — unchanged since the re-take |
+| `…/walk_profile_app.cljs` (the twin + its parity gate) | `43940c0227` — unchanged |
+| `reagent2.impl.template` | `9b30b6b74c` — still byte-identical to `rf2-e7zxb`'s landing |
+
+**No row above this section is amended.** §2's rows, the re-take's and the
+attribution section's all stand for the trees that produced them; this section
+is the next tree. `navmap-keyset-shipping` keeps its name in the instrument for
+the same reason the `SLIM DECOMPOSED` `-ship` rows keep theirs — a costed pair is
+kept as a pair, and the row that lost is the one that names the shape it lost
+to.
