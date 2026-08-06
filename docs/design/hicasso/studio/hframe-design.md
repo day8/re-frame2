@@ -217,7 +217,7 @@ Nine rows, re-grounded on the post-`rf2-2rtt6.122` tree.
 | W4 | Inside a `defhost` `:render` callback invocation → answers the **supplying** boundary's frame, not the invoker's | the `rf2-2rtt6.74` owner rule |
 | W5 | Not a tracked read: a body reading `(h/frame)` alone registers zero edges; adding it to a reading body changes no read set; the hook ledger still counts 2 (and 1 on the frame-prop shell) | |
 | W6 | StrictMode double-invoke: same value both runs, no additive effect | |
-| W7 | The `[:>]` value-first door dispatches through a plain closure over the capture | pairs with the `rf2-2rtt6.103` dev-warning row. **NOT BUILT** — the raw escape is unbuilt, so there is no door to drive; see §8a and `rf2-zllp8` |
+| W7 | The `[:>]` value-first door dispatches through a plain closure over the capture | **BUILT** once `rf2-2rtt6.103` shipped the escape — `rf2-zllp8`; see §8a |
 | W8 | SSR: the server body answers the per-request id; render-twice stays byte-identical while the id stays out of markup, and goes red when a witness deliberately renders it | |
 | W9 | An event-time read is not silently wrong: `(h/frame)` inside a `reg-event` handler body raises | the router binds core scope, not the arm's |
 
@@ -268,14 +268,33 @@ in exactly one place in the new work — nowhere. The carry rows pin *"the same 
 an ambient read gets"*, taken live from a sibling row, so `rf2-k0rbk`'s rename
 touches the one pre-existing anchor rather than five new sites.
 
-**W7 could not be built, and it is not a shortfall.** The row needs the `[:>]`
-value-first door; `front/codec.cljs` says at the site that the raw escape *"stays
-unbuilt here, deliberately"*, so a witness would have had to mint its own
-`[:>]`-shaped thing and would then be witnessing the test's construction.
-Filed as `rf2-zllp8` against whichever bead ships the escape. Everything W7
-depends on is pinned elsewhere — the composition firing after the extent unwinds,
-and `(h/frame)` answering the supplying boundary inside a render callback, which
-is the closest live analogue of a foreign value-first invoker.
+**W7 could not be built when this record was first written, and that was not a
+shortfall.** The row needs the `[:>]` value-first door, and `front/codec.cljs`
+said at the site that the raw escape *"stays unbuilt here, deliberately"* — so a
+witness would have had to mint its own `[:>]`-shaped thing and would then be
+witnessing the test's construction. It was filed as `rf2-zllp8` against whichever
+bead shipped the escape.
+
+**`rf2-2rtt6.103` shipped it, and W7 is now built** — the last row of
+`arm1/hframe_dom_cljs_test`, `the-escapes-value-first-door-dispatches-through-a-plain-closure-over-the-capture`
+(`rf2-zllp8`). ONE reusable view is mounted under two frames and writes a `[:>]`
+crossing whose callback prop is a plain closure over `(rf/capture-frame
+(h/frame))`; a foreign component keeps that closure and calls it from a DOM
+handler of its own, from a macrotask, after every render extent has unwound. Both
+crossings are clicked, deliberately: a capture that resolved one frame for both
+would toggle that one frame twice and leave the pair reading `false`/`false`,
+which one click alone would not catch.
+
+**One correction to the row's own note.** It said W7 *"pairs with the
+`rf2-2rtt6.103` dev-warning row"*, and what shipped is not a dev warning — it is
+a pair of hard refusals. `[:>]` carries no declaration, so `raw-crossing`'s
+roster is empty by construction, and an intent vector at an event-spelled prop is
+`:rf.error/hicasso-host-undeclared-callback` while a marked `h/fn` at any prop is
+`:rf.error/hicasso-host-unclaimed-callback`. That strengthens W7 rather than
+changing it: the plain closure is not the recommended spelling among two, it is
+the only one the door admits. Both refusals are asserted live at the top of the
+row, so the premise is measured rather than cited — if the escape ever grows a
+contract at a callback slot, W7 goes red before it mounts anything.
 
 **One new finding, pinned but not endorsed.** The refusal withdraws the ambient
 find and never the carrying — so an enclosing `rf/with-frame` still answers
@@ -297,8 +316,10 @@ to sequence with `rf2-k0rbk`.
 **The guide half is still owed.** §10's guide bullet was fenced out of the
 implementation PR — a rename was landing in `draft-guide/` at the time — so the
 fx-first troubleshooting row, the contract-force sentence, and the `[:>]`
-dev-warning's "plain closure" spelling have not been written. The last of those
-is blocked on `[:>]` in any case (`rf2-zllp8`).
+"plain closure" spelling have not been written. The last of those is no longer
+blocked — the escape shipped with `rf2-2rtt6.103` and W7 pins the mechanism — but
+it was fenced out of `rf2-zllp8` for the same reason it was fenced out of
+`rf2-841vn`: live work in `draft-guide/`. It stays owed.
 
 ---
 
