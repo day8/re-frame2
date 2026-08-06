@@ -52,7 +52,7 @@ Putting a raw JS component in the tree breaks three things at once:
 
 `defhost` quarantines the require in one `.cljs` host namespace and leaves the rest
 of the view tree as data. Friction once; free at every use site. The Reagent
-`[:> …]` escape is secondary, **not built** yet, and covered briefly below.
+`[:> …]` escape is built and explicitly secondary — covered briefly below.
 
 ## Defaults
 
@@ -216,20 +216,39 @@ If a host should react to a subscription, that value has to reach **its own**
 props — reading one boundary up and stopping looks identical, from the host's
 side, to the value never changing.
 
-## The escape: `[:>]` (unbuilt)
+## The escape: `[:>]`
 
 `[:> Component props & children]` is the secondary form for cases a static
-declaration cannot express. It is **not built** — there is nothing to call today.
-When it exists, it will use the same foreign path and accept the costs in
+declaration cannot express. It uses the same foreign path as `defhost` with the
+same default conversions, and it accepts the costs in
 [Why declare](#why-declare).
 
-Reach for it (once it exists) when the component is selected at runtime, is a
-`memo`/`lazy` value, arrives from a render prop, or is a one-off migration site.
+Reach for it when the component is selected at runtime, is a `memo`/`lazy`
+value, arrives from a render prop, or is a one-off migration site.
 **Declare what you use twice.** First use, escape if faster; second use, `defhost`.
 
+```clojure
+[:> Chart {:series data} [:span.legend "revenue"]]
+```
+
+**It is `defhost` with the declaration erased, and what erasing the declaration
+costs you is exactly what the declaration carried.** No crossing name for your
+tools; no `:callbacks`, so every prop here is unclaimed and an intent vector at
+an `on*` slot or an `h/fn` anywhere is a loud refusal; no `:ssr` policy, so a
+`[:>]` renders **nothing** server-side and there is no spelling to change that
+— wrap it in a `defhost` if you want a placeholder there. The JS require lands
+in the view namespace rather than a `.cljc`-quarantined host one, which is the
+cost you meet first: not "my structural test cannot match a node", but "my test
+namespace will not load."
+
+The Component position takes what React accepts as an element type — a function
+or class component, one of React's built-in wrappers, a `memo` / `lazy` /
+`forwardRef` / context value. A tag string, a keyword, a `defview` head and a
+`defhost` head are all refused, each naming the spelling to write instead.
+
 **Bare-head auto-hosting stays illegal.** `[DatePicker {…}]` with a raw JS
-component in head position is not a shortcut. One sentinel when the escape ships —
-not two ways to smuggle JS into the tree.
+component in head position is not a shortcut. One sentinel, not two ways to
+smuggle JS into the tree.
 
 A hand migration from Reagent is three moves per namespace: collect `[:> X …]`,
 emit `defhost`, rewrite call sites. A codemod is planned and not built.
@@ -245,7 +264,8 @@ emit `defhost`, rewrite call sites. A codemod is planned and not built.
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | Slot is `:handler` or `:render`; neither dispatches | Declare `:event`, or write an `h/fn` for the real work |
 | `:rf.error/hicasso-intent-needs-the-event` | Vector spelling needs the DOM event at arg one; library put something else there | Use `h/fn` — full argument list, library order |
 | Namespace won't load on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host ns |
-| Structural test can't match a node | A `[:>]` node (once built) has reduced structural identity | Prefer `defhost`, or assert around the node |
+| Structural test can't match a node | A `[:>]` node has reduced structural identity — slot 1 holds a JS value compared by identity, and the crossing's fiber is named `[:>]` rather than by the component | Prefer `defhost`, or assert around the node |
+| A `[:>]` region is missing from the server HTML | `[:>]` is hard `:client-only` — no declaration, so no `:ssr` policy and no spelling for one | Declare it with `defhost` and choose `:ssr`, or wrap the escape in a host that carries a `{:fallback …}` |
 | Hosted component doesn't update when the page did | Boundary above bailed out on equal props — host never re-entered | Put the changing value on the host's *own* props |
 | SDK mounts twice in dev | StrictMode double-invoke plus a handle stored outside the attach closure | One attach, one handle, one cleanup, all in one closure |
 | SDK rebuilt on every unrelated render | Ref function has a fresh identity each render | `useCallback` with `#js []` |

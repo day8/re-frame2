@@ -1,5 +1,17 @@
 # The `[:>]` raw escape — the synthesized spec
 
+> **BUILT, 2026-08-07 (`rf2-2rtt6.103`).** This page was the implementation brief and is
+> now also the record of what shipped. The mechanism landed as ruled: one shared
+> module-level gate, the door's `host-entry` walk against an empty declared roster, the
+> value roster refused at the crossing, children through `make-element`'s existing arms.
+> Two of the four operator rulings in §7 were taken before implementation and are marked
+> there — **R1** by `rf2-2rtt6.116` (refuse, at the DOOR, and the escape inherits) and
+> **R2** by `rf2-l0wfx` (`:ssr :render`, and the escape is untouched). **R3** was taken as
+> recommended: a `defview` or `defhost` head in Component position is refused. **R4**'s
+> record obligation was discharged on `main` by PR #7607 before this page's implementer
+> reached it; the escape's PR carries the verification rather than a second copy. HD-011
+> carries a dated addendum recording the shipped shape.
+
 **This is the artefact `rf2-2rtt6.103`'s design-phase note promises** ("implementation
 re-dispatches from the synthesized spec"). `rf2-2rtt6.109` reads it too. It is a spec, not
 a survey: where the designs agree it says the agreement is genuine and cites it, where they
@@ -202,7 +214,7 @@ declared map — exactly, and with no branch of its own.**
 |---|---|
 | intent vector or key-map at an **event-spelled** slot | **loud refusal** — no contract is ever inferred from an `on*` name |
 | intent vector or key-map at any other slot | data — `clj->js`, the position's own conversion |
-| marked `h/fn`, any slot | crosses **by identity**; it runs, and its return is ignored |
+| marked `h/fn`, any slot | **loud refusal** — `:rf.error/hicasso-host-unclaimed-callback`, the door's own branch |
 | plain `fn` | crosses by identity — memo bail-outs keep working |
 | `:ref` | `check-ref!` on the canonical slot — callback ref through, vector refused |
 | `:&` | `merge-caller` **before** conversion, per HD-023(d) |
@@ -210,11 +222,19 @@ declared map — exactly, and with no branch of its own.**
 
 *(7 rows, 2 columns.)*
 
-The refusal's message must **not** copy the door's "or hand a function", because at a
-crossing with no declaration an `h/fn`'s returned intent does not dispatch. It names
-`defhost`'s `:callbacks` as the door and states the `h/fn` return fact pre-emptively, so the
-author who tries the taught spelling first is told the whole story before they can fall into
-the other half of it.
+> **Row 3 was `crosses by identity` until 2026-08-06.** `rf2-2rtt6.116` ruled the DOOR's
+> unclaimed slot a **refusal** (HD-011's dated addendum), PR #7607 landed that as one branch
+> in `host-entry`'s `:else` arm, and the escape's empty roster means **every** slot here is
+> unclaimed — so `[:>]` inherits it through the same branch, with no fork and no code of its
+> own. The ruling above is unchanged by that; only its answer moved. §7 R1 records what was
+> decided and why, and the pin below is what made the answer inheritable rather than a second
+> decision.
+
+The event-spelled refusal's message must **not** copy the door's "or hand a function",
+because at a crossing with no declaration an `h/fn`'s returned intent does not dispatch. It
+names `defhost`'s `:callbacks` as the door, which is the recovery at both crossings — at
+the door the author adds the slot to a declaration they already have, and at the escape they
+write one.
 
 ### The rejected reading, and why C falls with it
 
@@ -254,10 +274,10 @@ makes the system's answer to "is `on*` a contract?" positional — no at `defhos
 ### The decisive argument, which only one document states in full
 
 Design A and the local minimal design both take the other fork — **refuse a marked `h/fn` at
-a `[:>]` prop**, since the marker requests a contract the position cannot give. It is a
-serious position: it is the only stance with no silent cell, and A prices it honestly. It is
-rejected here on a consequence neither of them considers and only the attack on the migration
-design states:
+a `[:>]` prop, where the door accepts one**. Their reading of the defect is right: the marker
+requests a contract the position cannot give, and it is the only stance with no silent cell.
+What is rejected is the FORK, on a consequence neither of them considers and only the attack
+on the migration design states:
 
 > **If the escape refuses what the door accepts, `[:> X …] → (defhost x X {})` is no longer
 > behaviour-preserving — and that rewrite is the whole theorem of `rf2-2rtt6.106`'s codemod.**
@@ -266,6 +286,13 @@ The hoist is mechanical precisely because both spellings run the *same walk*. A
 `[:>]`-only refusal forks that walk, and the fork lands on the one transformation the
 migration story is built on. A refusal that is right in isolation and wrong in composition is
 wrong. **Whatever is ruled, the escape does what the door does.**
+
+> **And what was ruled is the refusal — at the door (`rf2-2rtt6.116`, 2026-08-06).** So A
+> and the minimal design were right about the CONDUCT and this page was right about where the
+> decision belongs, and the two are not in tension: the outcome A wanted is what ships, and it
+> ships at both crossings through one branch, so the codemod's hoist theorem survives intact.
+> That is the pin below doing its work rather than being overruled — it is what let a ruling
+> taken at the door arrive here with no line of this page's mechanism changing.
 
 ### The diagnostic, pinned to the door rather than forked from it
 
@@ -285,11 +312,12 @@ default; deferring to the door costs nothing and cannot be wrong in any branch.
 
 > **Answered 2026-08-05 (`rf2-2rtt6.117`) — no, and the question inverted before it could be
 > put.** `.117` was spun out as a *parity* question: the escape had just been given a dev-only
-> warning, so does the door get the same one? The pin above retracts that grant. There is now
-> no warning at `[:>]` to be at parity with — `[:>]` is unbuilt, and by this section's ruling
-> it will never carry a diagnostic the door lacks — so the answer to the question as asked is
-> **no**, on the premise rather than on the merits. The second horn the bead offers ("or is the
-> door's declaration story sufficient signal?") is not the reason either; it was never reached.
+> warning, so does the door get the same one? The pin above retracts that grant. There was then
+> no warning at `[:>]` to be at parity with — the escape was unbuilt, and by this section's
+> ruling it would never carry a diagnostic the door lacks — so the answer to the question as
+> asked is **no**, on the premise rather than on the merits. The second horn the bead offers
+> ("or is the door's declaration story sufficient signal?") is not the reason either; it was
+> never reached.
 >
 > What survives of `.117` is not a second decision. It is the **warn** arm of the one
 > three-way ruling §7 R1 states as *refuse, warn, or leave* — the ruling `rf2-2rtt6.116`
@@ -298,6 +326,10 @@ default; deferring to the door costs nothing and cannot be wrong in any branch.
 > is moot; if the door leaves the crossing alone, warn-versus-leave is live and is still one
 > question, not two. Whichever way it goes, the escape does what the door does and no line of
 > the mechanism above changes.
+>
+> **Closed the first way, 2026-08-06 (`rf2-2rtt6.116`): the door REFUSES, so the warning is
+> moot** — and the escape, built the next day, carries no diagnostic of its own. §7 R1 records
+> it.
 
 ---
 
@@ -572,14 +604,29 @@ Stated with the recommendation and its cost. **None is decided here.** In every 
 spec is written so that no line of the escape's mechanism changes with the answer.
 
 **R1 — `h/fn` at an unclaimed prop slot: refuse, warn, or leave? (`rf2-2rtt6.116`, P2; the
-door's diagnostic is `rf2-2rtt6.117`, P3.)** True on `main` today with no `[:>]` anywhere: a
-marked callback nothing reads. *Recommendation:* rule it for the **door**, and let the escape
-inherit — §3's pin means all three answers preserve the zero-fork invariant and the codemod's
-hoist theorem. *Cost of refusing:* it chips HD-024's cleanest claim, that the marked form is
-callable everywhere and degrades to "a defensible contract rather than a crash". *Cost of
-leaving:* a silent dead return on the guide's own taught path for value-first invokers.
-*Cost of warning:* a diagnostic surface the record has to justify against the anti-nag
-posture. **The escape works under all three.**
+door's diagnostic is `rf2-2rtt6.117`, P3.)**
+**RULED 2026-08-06 — REFUSE, at the door, and the escape inherits.** The recommendation
+below was taken exactly as written: the ruling was made about `defhost`, PR #7607 landed it
+as one branch in `host-entry`'s `:else` arm with
+`:rf.error/hicasso-host-unclaimed-callback`, and because the escape's roster is empty every
+`[:>]` slot is unclaimed and flows through that same branch. **No line of the mechanism above
+changed** — which is what the pin was for. The warn arm lost on its own terms: a warning fires
+under `goog.DEBUG` and is gone in production, which is exactly where the dead click happens,
+so it converts a silent production failure into a silent production failure with a development
+courtesy. `rf2-2rtt6.117` closed on the premise rather than the merits — there was no `[:>]`
+warning left to be at parity with. HD-011 and HD-024 carry the full ruling and the fence: a
+**plain** function at an unclaimed slot is untouched, and the marked form stays legal at every
+CLAIMED slot including React's own `:ref`.
+
+*The record of what was weighed, kept because a reversal would have to weigh it again:*
+true on `main` at the time with no `[:>]` anywhere — a marked callback nothing reads.
+*Recommendation:* rule it for the **door**, and let the escape inherit — §3's pin means all
+three answers preserve the zero-fork invariant and the codemod's hoist theorem. *Cost of
+refusing:* it chips HD-024's cleanest claim, that the marked form is callable everywhere and
+degrades to "a defensible contract rather than a crash". *Cost of leaving:* a silent dead
+return on the guide's own taught path for value-first invokers. *Cost of warning:* a
+diagnostic surface the record has to justify against the anti-nag posture. **The escape works
+under all three.**
 
 **R2 — `defhost`'s `:ssr` has no value that renders children (`rf2-l0wfx`, P1).**
 **RULED 2026-08-05, and the escape is unchanged.** `mint-host-gate!` returned a single
@@ -615,14 +662,31 @@ raw — the body reads `rfProps`, gets `undefined`, and receives nil props. That
 silent breakage, and it is the kind a migration produces. *Cost:* two own-property reads per
 crossing render, and a refusal of something React would have accepted. **Removable without
 touching the mechanism** — it is a predicate and two message flavours.
+**TAKEN AS RECOMMENDED, 2026-08-07.** Both heads are refused with
+`:rf.error/hicasso-raw-not-a-component`, each with its own recovery — `[my-view …]` and
+`[my-host …]`. It remains removable on the terms above: two `cond` arms and two message
+flavours, and nothing else reads them.
 
-**R4 — `rf2-2rtt6.115`'s record correction must land before or with the escape.** Three
-independent adjudications concur that the **code** side is authoritative: HD-024's row 3 in
-`decisions.md` over-records, and the door's unclaimed-slot identity crossing was
-deliberate. The repair is a dated scope-note on row 3 plus the currently-missing witness
-pinning a *marked* `h/fn` at an unclaimed door slot (today only a *plain* fn is pinned). Edge
-2 rests on that resolution; it is `decisions.md`, outside this page's fence, and it is named
-here so the implementation PR carries it rather than discovering it.
+**R4 — `rf2-2rtt6.115`'s record correction must land before or with the escape.**
+**DISCHARGED ON `main` BEFORE THE ESCAPE, 2026-08-06 (PR #7607) — do not write it twice.**
+Three independent adjudications concurred that the **code** side was authoritative: HD-024's
+row 3 over-records, and the door's unclaimed-slot identity crossing was deliberate. That
+scope correction landed as a dated addendum on HD-024 **plus an inline clause in row 3
+itself**, because a reader who reads the table and not the addendum is how `rf2-2rtt6.115`
+came to be filed at all.
+
+**The witness half of the repair was superseded in the same tree, and this is what the
+implementer must not reapply.** The repair as written asked for *"the witness pinning a
+marked `h/fn` at an unclaimed door slot"* — pinning IDENTITY. `rf2-2rtt6.116` was ruled
+REFUSE three minutes after that review pass, and the ruling deletes the thing the witness
+was to pin: a marked `h/fn` at an unclaimed door slot no longer crosses, it raises
+`:rf.error/hicasso-host-unclaimed-callback`. **The witness R4 asks for is therefore #7607's
+RED refusal row** in `arm1/host_hatch_dom_cljs_test`
+(`an-hfn-at-a-slot-nothing-claimed-is-refused`), **and the identity witness that survives is
+the PLAIN-function row beside it** — which was always the half of the row's deletion clause
+that was true of it. Writing R4's original text now would put a sentence in `decisions.md`
+that `.116`'s own code falsifies in the same tree. Edge 2 still rests on the resolution; the
+escape's PR verifies it rather than re-landing it.
 
 ---
 
@@ -644,17 +708,27 @@ same time — §6(a). If the implementer cannot get the accounting to come out a
 fallback is not "it is only one `=`": it is to measure the walk on the census page's child
 roster before and after and publish the delta in the PR body.
 
-**3. X2's body-run equality is deliberately broken by any `:client-only` crossing.**
+**3. X2's body-run equality, and the correction to what this item used to say.**
 `arm1/hydrate_dom_cljs_test`'s `the-body-run-count-across-adoption-is-counted-and-not-inferred`
-asserts `(= boundary-count (rt/body-runs))`, read after
-adoption resolves. It is green today **only** because no page it drives carries a client-only
-crossing, and it goes **red on correct code** the moment the first one is added — via `[:>]`
-**or** via a `defhost` `:ssr :client-only`, so this is not specific to the escape. The two
-obvious readings when it fires — "my change is wrong" and "this test is wrong" — are **both
-wrong**: the count is *supposed* to move, because a client-only crossing legitimately runs a
-body the server never ran. **Do not delete the assertion and do not loosen it to a range.**
-Restate it as boundary count **plus** the number of client-only crossings on the page, so it
-still fails if a body runs twice or a boundary is skipped.
+asserts `(= boundary-count (rt/body-runs))`, read after adoption resolves. This item used to
+instruct the implementer to restate it as boundary count **plus the number of client-only
+crossings on the page**. That formula is **wrong for the mechanism this page selects**, and
+following it would make a correct implementation's witness fail or encode a topology-dependent
+miscount (merged-PR audit #7497).
+
+**Why.** `runtime/body-runs` increments only inside `run-once`, where an actual Hicasso
+BOUNDARY body is invoked. Neither `mint-host-gate!` nor the shared raw gate is a boundary —
+no frame, no subscription, no body — so a plain foreign component behind `[:>]` or behind a
+`defhost` `:ssr :client-only` adds **zero** body runs. A gate adds runs only insofar as it
+DEFERS actual boundaries beneath it, which is zero, one or many depending on what the page
+puts under the crossing.
+
+**So: keep X2 exact, and derive its expected count from the boundary bodies in the fixture** —
+including any first mounted beneath a client-only gate — never from the number of crossings.
+The two obvious readings if it ever does move — "my change is wrong" and "this test is wrong"
+— can both still be wrong, so **do not delete the assertion and do not loosen it to a range**.
+As built, `rf2-2rtt6.103` adds no `[:>]` to any page that suite drives, so the assertion is
+untouched and stays green.
 
 **4. The argv indices shift by one.** The component is at 1; the attribute map is at 2 when
 `(map? (nth argv 2 nil))`; children run from 3, or from 2 when there is no attribute map.
@@ -709,6 +783,19 @@ each names what would make it vacuous.
 | **The `:>` mis-parse regression** — `[:> Foo {}]` no longer asks React for `<>` | — |
 
 *(8 rows, 2 columns.)*
+
+**Where they landed (2026-08-07).** The element-level rows are in
+`front/codec_cljs_test` — conversion parity with the door on one prop corpus prop-for-prop,
+the carrier never leaking either internal slot, `:key` on the outer element, `:&` before
+conversion, refs, the door's unclaimed-slot conduct inherited, the E4 accept-and-refuse
+roster, and the mis-parse regression (including a runtime-built `:>` keyword, which is what
+makes the `=`-not-`identical?` requirement falsifiable rather than merely stated). The three
+rows a mounted React is the only honest witness for are in
+`arm1/raw_escape_dom_cljs_test`: server absence with the component never invoked, hydration
+against those bytes with React itself asked whether it found anything to reconcile, and
+canonical-DOM parity with the door on the same component and props. The children-capture row
+is there too, on a page with a second live frame so that *the right frame* is distinguishable
+from *any frame*.
 
 ---
 

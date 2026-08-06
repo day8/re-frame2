@@ -102,7 +102,7 @@ pointing you at a stable identifier.
 | Native tag — `[:div …]` | attribute map | trailing forms | `:key` in the attribute map | callback ref, legal |
 | Hicasso view — `[todo-row …]` | one props map | trailing forms, arriving as `(:children props)` | in the props map, **extracted before your body sees props** | not yet — use ids |
 | Fragment — `[:<> …]` | — | trailing forms | on the fragment's props map | — |
-| Foreign — `defhost` (and `[:>]`, once it is built) | converted per declaration | hiccup children become elements | `:key` in props | callback ref, legal |
+| Foreign — `defhost` and `[:>]` | converted per declaration | hiccup children become elements | `:key` in props | callback ref, legal |
 
 Children arrive realized and predictably flattened: nested and lazy sequences
 are realized once and flattened one level, `nil` and `false` render nothing,

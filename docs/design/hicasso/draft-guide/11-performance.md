@@ -204,7 +204,7 @@ Keep the island **small**. Callback refs: [Interop](05-interop.md) Advanced.
 Someone else's component — date picker, chart, **virtualized list**:
 
 - **`defhost`** — declare once ([Interop](05-interop.md))
-- **`[:> …]`** — secondary raw escape; may lag `defhost`
+- **`[:> …]`** — the secondary raw escape, for what a declaration cannot express
 
 ```clojure
 (h/defhost chart Chart
@@ -253,7 +253,7 @@ mode. Multi-frame: [Getting started](01-getting-started.md).
 | Bare `rf/dispatch` from a timeout | An ambient `rf/*` in a body refuses, naming the collector — it never "sometimes works" | Own the async work through `:fx`; only a closure crossing to foreign code carries `(rf/capture-frame (h/frame))` |
 | Hooks in every cell "for speed" | Second architecture | One island; app-db for semantic state |
 | Structural test dies after a "perf fix" | Hooks or JS in a `.cljc` body | Quarantine host code in `.cljs` |
-| Bare `[DatePicker …]` head | Not legal | `defhost` (or `[:>]` when available) |
+| Bare `[DatePicker …]` head | Not legal | `defhost`, or the `[:>]` escape |
 | SDK mounts twice / leaks | Ref without paired teardown | Attach + cleanup as one ref (React 19) — [Interop](05-interop.md) |
 | Still slow after dropping to React | Wrong layer | Profile again — often reads or event volume |
 
@@ -269,7 +269,7 @@ mode. Multi-frame: [Getting started](01-getting-started.md).
 | Question | Status |
 |---|---|
 | Compile / dual-mode path | **Not planned** — one interpreted Hiccup product |
-| `[:>]` availability | Ruled; may lag `defhost` — [Interop](05-interop.md) |
+| `[:>]` availability | Built — [Interop](05-interop.md) |
 | `h/frame` spelling | Behaviour settled and proven in the arm; the product name is **[unfrozen]** |
 | Big-list bulk on our side | Outside numbers show risk; full own pricing still open |
 | Perf-island macro / scaffold | **None** — plain React + `defview` |
