@@ -159,6 +159,8 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 
 Codify the loop bodies as commands (this repo: `.claude/commands/mayor-*.md`)
 so each is a single invocation and one source of truth, rather than re-pasted prose.
+When a method rule changes in this tree, re-read the matching `mayor-*.md`
+command files — the link gate catches renamed files, not semantic drift.
 
 **Establish the stance (first session only).** Every project has a stance
 (pre-alpha, production-stable, refactor-only, greenfield, perf-critical,
