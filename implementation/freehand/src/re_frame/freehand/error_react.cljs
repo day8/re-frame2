@@ -60,7 +60,8 @@
             [goog.object :as gobj]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.frame :as frame]
-            [re-frame.freehand.errors :as eb]))
+            [re-frame.freehand.errors :as eb]
+            [re-frame.performance :as performance]))
 
 (defn- props-map
   "The Clojure props map the React tree stashed under the `\"props\"` key —
@@ -113,7 +114,7 @@
         proto ^js (js/Object.create (.-prototype ^js react/Component))]
     (set! (.-prototype ^js ctor) proto)
     (set! (.-constructor proto) ctor)
-    (set! (.-displayName ^js ctor) (str eb/boundary-view-id))
+    (set! (.-displayName ^js ctor) (performance/entry-id eb/boundary-view-id))
     ;; The safe intent dispatches into the frame the boundary sits under.
     (set! (.-contextType ^js ctor) adapter-context/frame-context)
     ;; React-19 requires this static method for the boundary to catch; it

@@ -604,7 +604,7 @@
                           (catch :default e
                             (eb/note-failing-view! e view-id :normalize)
                             (throw e))))))))))]
-    (gobj/set c "displayName" (str view-id))
+    (gobj/set c "displayName" (performance/entry-id view-id))
     c))
 
 (defn- lowering-unavailable!
@@ -681,7 +681,7 @@
             (fn freehand-compiled-view [js-props]
               (performance/mark-and-measure :render view-id
                 (run (:body @slot) js-props))))]
-    (gobj/set c "displayName" (str view-id))
+    (gobj/set c "displayName" (performance/entry-id view-id))
     c))
 
 (defn- behavior-component
@@ -726,7 +726,7 @@
                         (catch :default e
                           (eb/note-failing-view! e view-id :normalize)
                           (throw e)))))))))]
-    (gobj/set c "displayName" (str view-id))
+    (gobj/set c "displayName" (performance/entry-id view-id))
     c))
 
 (defn- component-for

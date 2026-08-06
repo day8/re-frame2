@@ -113,6 +113,7 @@
             #?@(:cljs [["react" :as react]
                        [re-frame.freehand.refs :as refs]
                        [re-frame.freehand.shell :as shell]
+                       [re-frame.performance :as performance]
                        [re-frame.router :as router]])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -960,7 +961,10 @@
         set-node (use-attachment! opts)]
     (attach child set-node)))
 
-(set! (.-displayName behavior-el) (str behavior-view-id))
+;; The SAME spelling the interpreted twin publishes
+;; (`re-frame.freehand.react/behavior-component`) — one construct cannot show
+;; two names in DevTools depending on which tier lowered it.
+(set! (.-displayName behavior-el) (performance/entry-id behavior-view-id))
 
 (defn ^:no-doc compiled-attachment
   "The value a compiled body hands React for one `[v/behavior {…} node]`: the
