@@ -217,11 +217,14 @@
 ;; We unit-test that helper's routing directly (mirroring how
 ;; mount_cljs_test's `toggle!-*` suite unit-tests the mount layer's own
 ;; surface preservation): the auto-open GATE — the empty→non-empty edge +
-;; toggle-on + hidden — is covered by the watcher tests above. Note the
-;; full `install-auto-open-watcher!` `add-watch` path can't be driven
-;; under this suite's headless plain-atom adapter (its derived
-;; subscriptions reify `IDeref`/`IDisposable` only, not `IWatchable`);
-;; that reactive glue is exercised in the browser suites.
+;; toggle-on + hidden — is covered by the watcher tests above. The full
+;; `install-auto-open-watcher!` `add-watch` path can't be driven under THIS
+;; suite's headless plain-atom adapter (its derived subscriptions reify
+;; `IDeref`/`IDisposable` only, not `IWatchable`), and the claim that "the
+;; browser suites exercise that reactive glue" was false — no suite did, which
+;; is how rf2-lynzk (the missing `activate-derived-value!`) survived. It is now
+;; pinned on a ratom-family adapter, in this same directory:
+;; `settings.auto-open-watcher-activates-ratom-node-cljs-test`.
 
 (defn- with-recording-mount-exports
   "Install a stub `window.day8.re_frame2_xray` whose mount exports each
