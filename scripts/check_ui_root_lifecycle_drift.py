@@ -126,10 +126,18 @@ TEETH = (
         "spec/009-Instrumentation.md",
         "`:owner-root-id`, optional `:existing {:tearing-down? true}`",
     ),
+    # NOTE (rf2-mb8yp): this anchor carried a trailing `` , `:recovery` `` until
+    # the corpus-wide strike removed that slot from all 134 `:tags` cells (it is
+    # envelope-level — `build-event` hoists it — so no cell rosters it now). The
+    # suffix was only ever the row-UNIQUENESS half of the anchor, never the
+    # evidence half; the shortened literal still occurs exactly once in 009
+    # (`:rf.error/root-container-in-use` reads `` `:root-id`, `:owner-root-id`,
+    # optional … ``, so the comma breaks the match) and still CONTAINS the
+    # `:tearing-down? true` evidence this tooth exists to pin.
     Tooth(
         "spec-009-not-live-tearing-evidence",
         "spec/009-Instrumentation.md",
-        "`:root-id`, optional `:existing {:tearing-down? true}`, `:recovery`",
+        "`:root-id`, optional `:existing {:tearing-down? true}`",
     ),
     Tooth(
         "api-settlement-lifecycle",
