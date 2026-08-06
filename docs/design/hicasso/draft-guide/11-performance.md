@@ -87,12 +87,41 @@ obviously a foreign/SDK boundary you never expected Hiccup to own.
 
 ### Name the island first
 
-You do not need Hicasso-private tooling.
+You do not need Hicasso-private tooling. The measurements are the browser's own.
 
 | Tool | What it shows |
 |---|---|
 | **React DevTools Profiler** | Which components commit (every Hicasso boundary is a real React FC) |
+| **Chrome DevTools Performance** | The `rf:*` User-Timing measures, natively, in the Timings track |
 | **Xray** (or Spec 009) | Which **subscriptions** recomputed for the event you care about |
+
+**All four Performance buckets are live for a Hicasso app.** Build with
+`:closure-defines {re-frame.performance/enabled? true}` and every `defview`
+boundary emits one `rf:render:<ns>/<view>` measure per render — alongside the
+`rf:event:*`, `rf:sub:*` and `rf:fx:*` measures core already emits, since those
+sit in the router, the subs layer and the fx layer Hicasso consumes unchanged.
+The id is the head's `displayName`, so the name you filter the profile on is the
+name React DevTools shows. The flag is compile-time and default-off: a shipped
+build carries no render timing at all.
+
+Two measure counts that look like bugs and are not. A **bail-out emits nothing**
+— React consults the comparator above the bracket, so a boundary it skipped is
+absent from the stream rather than present at zero, which is what makes the
+count a measure of work actually done. And a boundary React invokes twice under
+**StrictMode emits twice**, because the body really did run twice. Only
+boundaries are bracketed: a plain inlined helper's cost lands inside its
+enclosing boundary's measure, the same place its reads land.
+
+Entries are *delivered, not retained* — each bracket emits its measure and then
+clears it by name, so a `PerformanceObserver` and the DevTools timeline see
+everything while a later `getEntriesByType("measure")` poll finds nothing. Flip
+the companion `re-frame.performance/retain-entries?` define if you want a
+one-shot reader to work.
+
+Spec 009's view **trace** pair (`:rf.view/render` / `:rf.view/rendered`) is a
+different channel, and it is the **adapter path's** today — Hicasso boundaries
+do not emit it, by ruling rather than by omission. For render timing on
+Hicasso, the `rf:render:*` measures are the signal.
 
 Name the boundary, the sub, or the event **before** changing architecture.
 "The app is slow" is still the 98% problem wearing a costume.
