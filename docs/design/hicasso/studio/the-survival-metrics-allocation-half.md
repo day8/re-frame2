@@ -314,9 +314,13 @@ does not survive a rebase, and this corpus has been bitten by that before.
 | `p0_arms.cljs` | `5be2024f326c4a3debd17f9f5c791c171468eeb4` |
 
 All three live under `implementation/core/test/re_frame/bench/`. Measured
-at `d31fdb5a069b5b5ff5541ff2878f60278dd61e7a` on branch
-`worker/heapslope-2rtt6-76`. **If that SHA does not resolve, a rebase moved
-it and the blobs above are what to trust:**
+at authored head `d31fdb5a069b5b5ff5541ff2878f60278dd61e7a` on branch
+`worker/heapslope-2rtt6-76`, which branched from the landed commit
+`6dbf37998dcccf21f6ec7316887410beaa09dbc4` on main — that one resolves in
+any fresh clone and is the tree everything above was measured *against*.
+The authored head will not survive this page's own rebase-merge, which is
+why it is accompanied rather than left alone. **If it does not resolve, the
+blobs above are what to trust:**
 
 ```bash
 P=implementation/core/test/re_frame/bench/p0_run.cjs
