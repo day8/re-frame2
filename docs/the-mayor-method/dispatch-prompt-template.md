@@ -62,7 +62,25 @@ You are implementing <BEAD_ID> in <project + one-line description>.
 Do NOT link gitignored working files (the ai/ tree, findings docs) from committed
 docs — the strict-docs link validator fails the build in cascade. Inline a
 one-sentence summary instead.
+Working notes may live in ai/findings/ (gitignored — check there first for prior
+passes), but before the bead closes the verdict must be self-contained on the
+bead and any implementation-governing conclusion must land in its owning tracked
+record (spec/, docs/, docs/design/) — a fresh maintainer must never need
+ai/findings/; do not promote transcripts.
 ```
+
+**A pass that concludes only in the gitignored tree concludes where nobody can
+read it.** The paths in that last sentence are this repo's; the rule is not —
+every project keeps some scratch tree git cannot see, and that invisibility is
+what makes the failure silent: a bead can cite a design by a path no maintainer
+has. Two audits (`rf2-cgcv`, `rf2-kfpf`) were lost exactly that way, and a mayor
+re-ran an entire three-design programme in one day for want of looking there
+first. Widening what git tracks is not the fix — working notes still stay local,
+and only the conclusion is promoted, into whichever tracked record already owns
+the surface, as a dated amendment where one exists and a new page only when the
+evidence stands on its own. Three workers in a single day found their design
+already written in that tree and promoted the surviving conclusion rather than
+re-deriving it, which is why the preamble tells the worker to look there first.
 
 ## Quality gates — the discipline
 
