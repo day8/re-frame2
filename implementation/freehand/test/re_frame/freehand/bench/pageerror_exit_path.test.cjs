@@ -447,6 +447,64 @@ function handlerSites(s) {
 }
 
 /**
+ * The keywords after which a `/` still opens a regex literal.
+ *
+ * They matter because the regex-or-division test below is a test on the previous
+ * CHARACTER, and these all end in one an identifier could end in: `return /x/`
+ * would otherwise be read as dividing by something called `return`.
+ */
+const REGEX_KEYWORDS = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete',
+  'void', 'throw', 'case', 'do', 'else', 'yield', 'await',
+]);
+
+/**
+ * The one-character rule, as the single predicate both scanners below consult.
+ *
+ * A regex may only begin where an expression may begin, so a `/` cannot open one
+ * directly after a token that ENDS an expression — an identifier, a number, `)`,
+ * `]`, a literal — with the keywords above named because they look like
+ * identifiers and are not.
+ */
+const mayStartRegex = (endsExpr, word) => !endsExpr || REGEX_KEYWORDS.has(word);
+
+/**
+ * The index of the `/` closing the regex literal opened at `i`, or -1 when
+ * nothing closes it before the line ends — meaning it was a division after all.
+ *
+ * Character classes are tracked, so `/[}]/` and the CSV `/^"|"$/` that three
+ * drivers write a few lines from their handler end where they actually end
+ * rather than at the first delimiter-looking character inside them, and a `\`
+ * escapes whatever follows it.
+ *
+ * BOTH SCANNERS BELOW CALL THIS, and sharing it is the repair rather than the
+ * tidying. `maskLiterals` lexed regex literals and `endOfSubstitution` did not,
+ * so a regex inside a `${...}` was handed to a bare brace counter — see that
+ * function for what the two answers then did to each other.
+ */
+function endOfRegex(s, i) {
+  let j = i + 1;
+  let inClass = false;
+  while (j < s.length) {
+    const k = s[j];
+    if (k === '\\') {
+      j += 2;
+      continue;
+    }
+    if (k === '\n') return -1; // a regex literal cannot span lines
+    if (inClass) {
+      if (k === ']') inClass = false;
+    } else if (k === '[') {
+      inClass = true;
+    } else if (k === '/') {
+      return j;
+    }
+    j += 1;
+  }
+  return -1;
+}
+
+/**
  * The `}` that closes a `${` — given the index just after it — or -1.
  *
  * IT USED TO BE `s.indexOf('}', j + 2)`, AND THAT DERAILED THE WHOLE MASK. A
@@ -465,10 +523,33 @@ function handlerSites(s) {
  * So the brace is matched by depth, with literals and comments skipped so a `}`
  * inside one cannot close anything. This is lexing, which is what the mask is; it
  * is not dataflow, which is what the mask must never become.
+ *
+ * AND A REGEX LITERAL IS ONE OF THOSE LITERALS, which this said it skipped and
+ * did not (rf2-sib23, audit of #7602). `` `x ${/[}]/.test(v) ? {ok: true} : {ok:
+ * false}} y` `` returned 7 — the `}` inside the character class — where 49 was
+ * the answer. Both consequences were measured on main before the repair, and
+ * they run in OPPOSITE directions, which is why both are fixtures below:
+ *
+ *   `/[}]/`  the brace counter finishes early, the mask blanks the rest of the
+ *            template, and a genuine `${... errors.length ...}` read is ERASED —
+ *            a refusing driver reported as an offender. Loud, and wrong.
+ *   `/[{]/`  the counter never balances, this returns -1, and `maskLiterals`
+ *            used to fall through to "a lone backtick consumes nothing" and
+ *            rescan the literal AS CODE — so a later template's TEXT vouched for
+ *            an array nobody consults. Silent, and the exact fail-open this file
+ *            exists to forbid, hiding in the gate again.
+ *
+ * Hence `endOfRegex` above, and hence -1 rather than a resumption mid-literal
+ * when a nested template does not close: a span this cannot delimit must be
+ * reported as undelimitable, not guessed at.
  */
 function endOfSubstitution(s, from) {
   let depth = 1;
   let i = from;
+  // The same two-variable state `maskLiterals` keeps, for the same reason: only
+  // the previous real token can say whether a `/` opens a regex or divides.
+  let endsExpr = false;
+  let word = '';
   while (i < s.length) {
     const c = s[i];
     const d = s[i + 1];
@@ -478,6 +559,13 @@ function endOfSubstitution(s, from) {
     } else if (c === '/' && d === '*') {
       const close = s.indexOf('*/', i + 2);
       i = close === -1 ? s.length : close + 2;
+    } else if (c === '/' && mayStartRegex(endsExpr, word)) {
+      // THE BRANCH THIS FUNCTION WAS MISSING. A `}` inside a regex closes
+      // nothing, and the two shapes above show what counting it does.
+      const close = endOfRegex(s, i);
+      endsExpr = close !== -1;
+      word = '';
+      i = close === -1 ? i + 1 : close + 1; // -1: it was a division after all
     } else if (c === "'" || c === '"') {
       let j = i + 1;
       let closed = false;
@@ -493,6 +581,8 @@ function endOfSubstitution(s, from) {
         j += 1;
       }
       i = closed ? j + 1 : i + 1;
+      endsExpr = closed;
+      word = '';
     } else if (c === '`') {
       let j = i + 1;
       let closed = false;
@@ -510,30 +600,32 @@ function endOfSubstitution(s, from) {
           j += 1;
         }
       }
-      i = closed ? j + 1 : i + 1;
+      // A nested template that never closes swallows the `}` this was hunting,
+      // so the honest answer is that the span cannot be delimited.
+      if (!closed) return -1;
+      i = j + 1;
+      endsExpr = true;
+      word = '';
     } else {
       if (c === '{') depth += 1;
       else if (c === '}') {
         depth -= 1;
         if (depth === 0) return i;
       }
+      if (/[\w$]/.test(c)) {
+        word += c;
+        endsExpr = true;
+      } else if (!/\s/.test(c)) {
+        // Whitespace is deliberately NOT reset, so `return /re/` inside a
+        // substitution still sees the keyword that licenses the literal.
+        word = '';
+        endsExpr = c === ')' || c === ']';
+      }
       i += 1;
     }
   }
   return -1;
 }
-
-/**
- * The keywords after which a `/` still opens a regex literal.
- *
- * They matter because the regex-or-division test below is a test on the previous
- * CHARACTER, and these all end in one an identifier could end in: `return /x/`
- * would otherwise be read as dividing by something called `return`.
- */
-const REGEX_KEYWORDS = new Set([
-  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete',
-  'void', 'throw', 'case', 'do', 'else', 'yield', 'await',
-]);
 
 /**
  * The source with every comment and string/template/regex literal blanked to
@@ -575,6 +667,16 @@ const REGEX_KEYWORDS = new Set([
  * that call is wrong it blanks code — which lands on the DELETING side, the loud
  * UNREAD, exactly as the old note claimed for the whole mechanism. That is the
  * bound this stays inside; it is not, and must not become, a JS parser.
+ *
+ * AND THE SAME RULE NOW GOVERNS `${...}`, WHICH IS WHERE IT WAS MISSING. Regex
+ * literals were lexed here and NOT in `endOfSubstitution`, so the two scanners
+ * disagreed about the same characters: a `}` inside a regex ended a substitution
+ * that had not ended. Both scanners call one `endOfRegex` and one
+ * `mayStartRegex` for that reason. The failure it left behind is the one below
+ * this paragraph's own claim — an undelimitable span used to consume nothing and
+ * be rescanned as code, which ADDS reads — so that fallback now blanks to the
+ * end of the input instead, and the deleting side is where every wrong call
+ * lands rather than merely most of them.
  */
 function maskLiterals(s) {
   const out = s.split('');
@@ -586,7 +688,6 @@ function maskLiterals(s) {
   let endsExpr = false; // did that token end an expression?
   let word = ''; // and if it was an identifier, which one
   let i = 0;
-  const mayStartRegex = () => !endsExpr || REGEX_KEYWORDS.has(word);
   while (i < s.length) {
     const c = s[i];
     const d = s[i + 1];
@@ -600,41 +701,22 @@ function maskLiterals(s) {
       const end = close === -1 ? s.length : close + 2;
       blank(i, end);
       i = end;
-    } else if (c === '/' && mayStartRegex()) {
+    } else if (c === '/' && mayStartRegex(endsExpr, word)) {
       // A REGEX LITERAL IS TEXT, and leaving it standing is the one failure mode
-      // that ADDS a read. Character classes are tracked so `/[/]/` and the CSV
-      // `/^"|"$/` three drivers write near their handler close where they end,
-      // and a run to end-of-line means this was division after all — a regex
-      // literal cannot span lines, so nothing is blanked.
-      let j = i + 1;
-      let closed = false;
-      let inClass = false;
-      while (j < s.length) {
-        const k = s[j];
-        if (k === '\\') {
-          j += 2;
-          continue;
-        }
-        if (k === '\n') break;
-        if (inClass) {
-          if (k === ']') inClass = false;
-        } else if (k === '[') {
-          inClass = true;
-        } else if (k === '/') {
-          closed = true;
-          break;
-        }
-        j += 1;
-      }
-      if (!closed) {
+      // that ADDS a read. `endOfRegex` tracks character classes and escapes so
+      // `/[/]/` and the CSV `/^"|"$/` three drivers write near their handler
+      // close where they end; a run to end-of-line means this was division after
+      // all, and nothing is blanked.
+      const close = endOfRegex(s, i);
+      if (close === -1) {
         endsExpr = false;
         word = '';
         i += 1;
       } else {
-        blank(i, j + 1); // the flags after it are ordinary identifier characters
+        blank(i, close + 1); // the flags after it are ordinary identifier characters
         endsExpr = true;
         word = '';
-        i = j + 1;
+        i = close + 1;
       }
     } else if (c === '`') {
       // A TEMPLATE'S TEXT IS A STRING; ITS `${...}` SUBSTITUTIONS ARE CODE.
@@ -665,7 +747,19 @@ function maskLiterals(s) {
         }
       }
       if (!closed) {
-        i += 1; // a lone backtick consumes nothing
+        // AN UNTERMINATED TEMPLATE IS TEXT TO THE END OF THE INPUT, and blanking
+        // it is the deleting side — a loud UNREAD naming the file.
+        //
+        // IT USED TO CONSUME NOTHING, and that inverted the whole ledger. The
+        // literal was then rescanned AS CODE, so its text became candidate reads;
+        // and since `endOfSubstitution` reaches here by returning -1, the trigger
+        // was any substitution it could not delimit. `${/[{]/.test(tag) ? 1 : 0}`
+        // is enough: the brace counter never balances, the template is read as
+        // code, and a LATER template's text (`errors are recorded`) then vouches
+        // for an array nobody consults. Measured on main before the repair —
+        // silent, green, and wrong (rf2-sib23, audit of #7602).
+        blank(i, s.length);
+        i = s.length;
       } else {
         runs.push([runFrom, j + 1]);
         for (const [from, to] of runs) blank(from, to);
@@ -1144,6 +1238,100 @@ const READER_FIXTURES = [
       'console.error(`done`);',
     ].join('\n'),
   },
+  {
+    id: 'a REGEX inside a ${...} does not end the substitution at its own brace',
+    read: true,
+    // rf2-sib23, audit of #7602, and the FIRST of its two directions. `/[}]/` is
+    // a character class holding a brace; `endOfSubstitution` counted it, closed
+    // the substitution forty characters early, and the mask blanked the rest of
+    // the template — `errors.length` with it. A driver that refuses correctly,
+    // reported as an offender. Loud, and wrong.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${/[}]/.test(tag) ? errors.length : 0} suspect labels`);',
+    ].join('\n'),
+  },
+  {
+    id: 'an ESCAPED brace inside a ${...} regex does not end it either',
+    read: true,
+    // The same shape without a character class: `\}` is one escaped character,
+    // and only a lexer that honours the escape can say so.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${/\\}/.test(tag) ? errors.length : 0} suspect labels`);',
+    ].join('\n'),
+  },
+  {
+    id: 'a regex inside a ${...} cannot let a LATER template TEXT vouch for the sink',
+    read: false,
+    // THE SILENT HALF, and the one that matters. `/[{]/` leaves the brace count
+    // unbalanced, so the substitution could not be delimited at all — and the
+    // mask answered that by consuming nothing and rescanning the literal AS
+    // CODE. The template on the next line then stopped being text: `errors are
+    // recorded` counted as a read of an array nobody consults, and the class
+    // check went green over a fail-open. Measured on main before the repair.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${/[{]/.test(tag) ? 1 : 0} suspect labels`);',
+      'console.error(`[x] errors are recorded`);',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'a ${...} regex SPELLING the array is not a read',
+    read: false,
+    // `const label = /errors/;` one syntax along. Inside a substitution the
+    // literal is reached by the recursion rather than the top-level scan, so it
+    // is a separate path to the same invented read.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${/errors/.test(tag) ? 1 : 0} suspect labels`);',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'DIVIDING inside a ${...} is still a read — the direction the repair could break',
+    read: true,
+    // The guard on the repair itself, and not a hypothetical: the bench fleet
+    // writes a slash inside a substitution more than a hundred times, and every
+    // one of them is a division (`${(a.task / a.n).toFixed(3)}`). If teaching
+    // `endOfSubstitution` about regex literals made it read those as literals,
+    // each would run to end of line, the substitution would never be delimited,
+    // and the read inside it would be blanked. A mask that stops counting
+    // literals by refusing to count anything is strictly worse than the bug.
+    //
+    // TWO divisions, in TWO substitutions, on ONE line — the same construction
+    // the `DIVIDING BY the sink` fixture uses and for the same reason. A lone
+    // `/` with no partner before the newline is un-mis-lexable: the scanner
+    // finds no closing delimiter and blanks nothing, so a one-division fixture
+    // stays green under every mutation and certifies nothing. With two, a `/`
+    // wrongly taken for a regex opener swallows the read between them.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${(total / errors.length).toFixed(2)} ms, ${(n / 2).toFixed(0)} runs`);',
+    ].join('\n'),
+  },
+  {
+    id: 'a substitution that cannot be delimited DELETES the template, it does not read it',
+    read: false,
+    // Deliberately not valid JS, and that is the fixture: the claim is which way
+    // the mask fails on a span it cannot delimit, not what this source means.
+    // The fall-through used to be "a lone backtick consumes nothing", so the
+    // literal was rescanned as code and the text below vouched for the sink.
+    // Blanking to the end of the input is the DELETING side — a loud UNREAD
+    // naming the file, which is the failure this whole mechanism promises.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(`[x] ${errors.length);',
+      'console.error(`[x] errors are recorded`);',
+    ].join('\n'),
+  },
 ];
 
 // EACH FIXTURE IS ITS OWN CHECK. They used to share one, and a single assertion
@@ -1272,6 +1460,60 @@ test('the mask blanks every literal form, and preserves every index', () => {
   // And a blanked regex stops at its own delimiter — `.test(ten)` is code on the
   // same line and must survive, as must every line after it.
   assert.strictEqual(m.split('\n').length, 8);
+});
+
+test('THE FULL-MASK WITNESS — a regex inside a ${...}, character by character', () => {
+  // The reader fixtures above ask what the answer is. This asks what the mask
+  // DID, on the exact template rf2-sib23's audit of #7602 named: the helper
+  // returned 7 for it, the index of the `}` inside the character class, where 49
+  // was the answer. A substitution is code and a regex inside it is text, and
+  // this pins both halves of that sentence at once.
+  const s = [
+    'const before = keep1;',
+    'const t = `x ${/[}]/.test(value) ? {ok: true} : {ok: false}} y`;',
+    'const after = keep2;',
+  ].join('\n');
+  const m = maskLiterals(s);
+  assert.strictEqual(m.length, s.length, 'the mask must preserve length');
+  assert.strictEqual(m.split('\n').length, 3, 'the mask must preserve line count');
+  // THE SUBSTITUTION IS CODE and survives whole. This is the half that used to
+  // be blanked, taking any read inside it along.
+  assert.ok(
+    m.includes('.test(value) ? {ok: true} : {ok: false}'),
+    "a substitution's code must survive the mask, braces and all"
+  );
+  // THE REGEX IS TEXT and is gone — delimiters, character class and all.
+  assert.ok(!m.includes('[}]'), 'the regex literal is text and must be blanked');
+  assert.ok(!m.includes('/'), 'not one slash of the regex survives');
+  // AND THE TEMPLATE'S OWN TEXT IS TEXT, with the run stopping at the closing
+  // backtick rather than anywhere the brace counter guessed.
+  assert.ok(!/\bx\b/.test(m) && !/\by\b/.test(m), "the template's text must be blanked");
+  assert.ok(m.includes('const before = keep1;'), 'code before the template survives');
+  assert.ok(m.includes('const after = keep2;'), 'code after the template survives');
+  assert.ok(m.includes('const t = '), 'the statement holding the template survives');
+});
+
+test('an undelimitable substitution BLANKS the template — it is not rescanned as code', () => {
+  // THE SAFETY PROPERTY ITSELF, which the file states and could not previously
+  // keep. When `endOfSubstitution` cannot find its `}` it returns -1, and what
+  // the mask does with that answer decides which way the whole mechanism fails.
+  // It used to consume nothing and rescan the literal AS CODE — so the text of
+  // the template, and of every template after it, became candidate reads. That
+  // is the ADDING side: an invented read is a silent pass. Blanking to the end
+  // of the input is the DELETING side, and a deleted read fails loud.
+  const s = [
+    'const before = keep1;',
+    'const t = `x ${errors.length;',
+    'console.error(`errors are recorded`);',
+  ].join('\n');
+  const m = maskLiterals(s);
+  assert.strictEqual(m.length, s.length, 'the mask must preserve length');
+  assert.strictEqual(m.split('\n').length, 3, 'the mask must preserve line count');
+  assert.ok(m.includes('const before = keep1;'), 'code before the template survives');
+  assert.ok(
+    !m.includes('errors'),
+    'nothing inside or after an undelimitable template may be offered as code'
+  );
 });
 
 test('every driver that uses the shared collector also READS its failures', () => {
