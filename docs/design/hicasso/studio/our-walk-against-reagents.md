@@ -142,6 +142,14 @@ samples and the guard passed on both partitions.
 > from it are figures about a donor the programme has since repaired; and the
 > codec has itself moved on. Both are re-taken in one process on current `main`
 > in [the 2026-08-04 re-take](#2026-08-04-re-take-of-the-arms-on-current-main).
+>
+> **A third bullet was wrong when it was written.** "Hicasso's own authoring
+> surface costs 41 ns/element … 71 intent vectors lowered across 1,202
+> elements" — the 41 is right for this tree and the attribution is not: 207 of
+> the page's event positions carry an `[::h/navigate {…}]` that `route-link`
+> minted, and they are three-quarters of the figure. The authored surface is
+> nearer 12 ns/element. Measured and attributed in
+> [the 2026-08-06 attribution](#2026-08-06-attribution-of-the-intent-row-rf2-vw412).
 
 ## 3. The stages — absolute ns, because a ratio cannot be read against a frame
 
