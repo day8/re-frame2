@@ -1123,6 +1123,60 @@ the node-held record valid, and it is not a public React guarantee — or if any
 candidate second call site appears. The composition value path reopens on
 `rf2-digtt`'s ruling, whichever way it goes.
 
+> **Addendum, 2026-08-07 — the reset law is applied at the element as
+> `::h/revision` (`rf2-zq8kh`).** The trigger sentence above — *resets are by
+> explicit caller revision, never value equality*, kept from D016 — had no
+> spelling at the element path. It has one now:
+> `:re-frame.hicasso/revision`, **[unfrozen]**, matched as the exact namespaced
+> keyword and never slot-claimed. A change to its value (CLJS `=`) re-baselines
+> a controlled `<input>`/`<textarea>` to the model **without remount** — the
+> node is kept, the focus is kept, and the caret lands at end-of-model on the
+> commit that carries the reset, which is the platform's own conduct for a
+> `value` assignment and which D016's caret clause licenses as permission
+> rather than obligation. A value change under an unchanged revision continues
+> the draft. Equal-but-fresh revisions are inert. The design record is
+> `docs/design/hicasso/studio/revision-prop-spec.md`; the single prop is the
+> whole scope, and the post-v0 buffered ladder **consumes** this trigger rather
+> than extending it.
+>
+> **The `flushSync` count is unchanged, and the audit statement is the
+> mechanism clause rather than a tally.** The reset adds no call site. Its
+> transport is React's own per-commit controlled re-assert off the fresh props
+> object the codec mints per render (HD-004 refuses prop-object caching), so
+> in-turn resets ride the keystroke converge, deferred resets ride the
+> `compositionend` site, and out-of-band resets ride ordinary commits — no
+> hook, no ref, no comparison record, no keyed re-render, and **no third
+> `flushSync` site**. Note for the next reader that `converge!`'s SECOND caret
+> read is likewise not a third site: this exception is granted to an audited
+> MECHANISM, not to a count, and that read is the same element inside the same
+> exchange.
+>
+> **A named dependency, stated so it cannot be optimised away.** Three React
+> behaviours carry the transport and none is a public contract — the same class
+> as the `defaultValue` mirror this ruling already names. This therefore
+> promotes HD-004's no-caching posture from a measurement-honesty stance to a
+> **correctness dependency of the reset transport**: any future prop-object
+> memoization must exclude controlled text elements or re-design the delivery.
+>
+> **Mid-composition, the reset defers to the exchange's close**, inheriting
+> `rf2-digtt`'s carve-out rather than adding a second deferral. The argument is
+> mechanical: there is no cancel primitive to build an immediate variant from,
+> and the only immediate write available silently aborts the composition, which
+> on a normalising field corrupts the commit. Every release path converges the
+> field to the then-current model. State the limit honestly — *the deferral
+> cannot strand the field* is true; *the reset cannot be lost* is not, because
+> on an accepting field a post-bump dispatch supersedes it by ordinary event
+> order.
+>
+> **Reopens** if the per-commit re-assert stops holding — the witness file
+> `front/revision_dom_cljs_test` pins it as a design-validation row and a red
+> there means the prop needs machinery of its own — or if the hydration
+> adoption row deopts, in which case the documented conduct becomes deferral
+> past adoption through the same shape as the IME carve-out. The name itself
+> rides the API freeze, which owes the reset-name trio a decision: this element
+> revision, `h/boundary`'s `:reset-key` (which **remounts**), and D016's ladder
+> `:reset-key`. Two of the three are the same word for opposite conduct.
+
 ## HD-020 — v0 host mechanics: frame plumbing, hook ledger, error boundary, SSR posture
 
 > **Addendum, 2026-08-04 — clause (d) is reopened and reversed: SSR + hydration
