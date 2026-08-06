@@ -560,7 +560,7 @@ function tableSelfTest() {
             'reagent-slim': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
           },
           headToHead: { 'donor-r1-over-reagent-slim': { min: 1.185, max: 1.313, straddles1: false } },
-          grain: { tick: 0.1, worst: { floor: 1, 'reagent-slim': 17 }, quanta: {} },
+          grain: { tick: 0.1, worst: { floor: 1, 'reagent-slim': 17 } },
         },
       },
       correction: { 'write-bulk': { verdict: 'moot', reason: 'no-published-figure-bears-it', bound: null, why: 'fixture' } },
