@@ -523,6 +523,157 @@
     @bad))
 
 ;; ---------------------------------------------------------------------------
+;; THE INTENT SURFACE, DECOMPOSED (rf2-vw412)
+;; ---------------------------------------------------------------------------
+;;
+;; The `hicasso-native` − `hicasso` gap is the only figure on this page
+;; that prices the authoring surface, and the arms earn that reading
+;; honestly: the two witnesses differ at EVENT POSITIONS and nowhere else.
+;; What the arm row cannot say is WHICH event positions, and this page
+;; carries two populations of them that cost nothing like each other:
+;;
+;;   - the AUTHOR-WRITTEN intent vectors — `:on-click [:conduit/favorite
+;;     …]` on each card's favourite button, `[::h/prevent …]` on the two
+;;     feed toggles. This is the affordance the P2 fork is about.
+;;   - one `[::h/navigate {…}]` per `route-link`, MINTED by route-link
+;;     rather than written by anybody, and §1 counts 207 links here.
+;;
+;; [[plainify]] replaces both with the shared [[noop]], so BOTH are inside
+;; the gap, and the second population is three times the size of the
+;; first. §1's statement that the route-link term is "structurally absent
+;; from this instrument" is true of the `route-url` SYNTHESIS — that
+;; happens once, at `realize-deep`, outside every window — and is not true
+;; of the navigate vector's LOWERING, which `codec/as-element` performs
+;; inside every timed window of the native arm and never on the plain one.
+;;
+;; So the rows below split the gap by carrier and price each against what
+;; the plain arm pays at the SAME key. Every one of them runs inside the
+;; body door: lowering an intent with no ambient dispatch is
+;; `:rf.error/hicasso-intent-outside-boundary` by construction.
+
+(defn- collect-intent-roster
+  "The NATIVE witness's event positions, split by carrier. The plain arm's
+  value at every one of them is [[noop]] by construction, so the plain
+  column needs no second walk — it is the same key with the same handler
+  the plain witness carries."
+  [h]
+  (let [nav-ks #js [] nav-vs #js [] nav-maps #js []
+        int-ks #js [] int-vs #js []
+        other-ks #js [] other-vs #js []]
+    (letfn [(visit-child [c]
+              (cond (vector? c) (visit c)
+                    (seq? c)    (run! visit-child c)
+                    :else       nil))
+            (visit [argv]
+              (let [has-props? (map? (nth argv 1 nil))
+                    props      (when has-props? (nth argv 1))]
+                (when props
+                  (doseq [[k v] props]
+                    (when (and (keyword? k) (intent/event-prop? k))
+                      (cond
+                        (intent/navigate-head? v) (do (.push nav-ks k)
+                                                      (.push nav-vs v)
+                                                      (.push nav-maps (nth v 1 nil)))
+                        (vector? v)               (do (.push int-ks k) (.push int-vs v))
+                        :else                     (do (.push other-ks k)
+                                                      (.push other-vs v))))))
+                (doseq [c (subvec argv (if has-props? 2 1))]
+                  (visit-child c))))]
+      (visit h))
+    {:nav-keys nav-ks :nav-vals nav-vs :nav-maps nav-maps
+     :intent-keys int-ks :intent-vals int-vs
+     :other-keys other-ks :other-vals other-vs}))
+
+;; The one term inside navigate lowering that is neither a closure nor a
+;; field read: `unwrap-navigate`'s closed-grammar check. It is written
+;; here rather than reached for, exactly as [[guarded-lookup]] is, so the
+;; two shapes are local and comparable.
+
+(def ^:private navigate-key-set
+  "`front.intent/navigate-keys`, verbatim — the closed roster HD-027
+  names."
+  #{:frame :payload :native? :veto})
+
+(defn- navmap-keyset-shipping
+  "The shipping check: build the map's key SET and compare it to the
+  roster. One `PersistentHashSet` per link per render."
+  [m]
+  (= navigate-key-set (when (map? m) (set (keys m)))))
+
+(defn- navmap-keyset-scan
+  "The same CLOSED grammar with nothing allocated. The count is what
+  closes it — four presence tests alone are fail-open on a fifth key,
+  which is the defect `rf2-2rtt6.54` was fixing; four presence tests AND a
+  count of four admit exactly the same maps the set equality admits."
+  [m]
+  (and (map? m)
+       (== 4 (count m))
+       (contains? m :frame)
+       (contains? m :payload)
+       (contains? m :native?)
+       (contains? m :veto)))
+
+(def ^:private hostile-nav-maps
+  "The shapes `rf2-2rtt6.54` closed the grammar against, plus the ones it
+  already refused — the candidate must answer the shipping shape on every
+  one of them before either figure is read."
+  [{:frame :f :payload [:e] :native? false :veto nil}
+   {:frame :f :payload [:e] :native? false}                       ; missing :veto
+   {:frame :f :payload [:e] :native? false :veto nil :extra 1}    ; a fifth key
+   {:frame :f :payload [:e] :veto nil}                            ; missing :native?
+   {:payload [:e] :native? false :veto nil}                       ; missing :frame
+   {:frame :f :native? false :veto nil}                           ; missing :payload
+   {:a 1 :b 2 :c 3 :d 4}                                          ; four, all wrong
+   {}
+   nil
+   [:frame :payload :native? :veto]
+   "not a map"])
+
+(defn- intent-agreement
+  "The key-set candidate answers what the shipping shape answers, for
+  every navigate map the page actually mints AND for the hostile roster —
+  checked before any figure is read."
+  [{:keys [^js nav-maps]}]
+  (let [bad (atom [])]
+    (dotimes [i (.-length nav-maps)]
+      (let [m (aget nav-maps i)]
+        (when-not (= (navmap-keyset-shipping m) (navmap-keyset-scan m))
+          (swap! bad conj [:page-navmap i]))))
+    (doseq [m hostile-nav-maps]
+      (when-not (= (navmap-keyset-shipping m) (navmap-keyset-scan m))
+        (swap! bad conj [:hostile-navmap m])))
+    @bad))
+
+(def ^:private intent-roster-rows
+  "The rows of [[intent-table]] that are COUNTS and not ns figures."
+  #{:roster-navigate-positions :roster-intent-positions
+    :roster-other-event-positions})
+
+(defn- intent-table
+  "Ours at an event position, by carrier, against the plain arm's own
+  value at the same key. ns/POSITION — multiply by the roster count and
+  divide by 1,202 to read it against the arm rows' ns/element."
+  [{:keys [^js nav-keys ^js nav-vals ^js nav-maps
+           ^js intent-keys ^js intent-vals ^js other-keys]}]
+  (let [plain-of (fn [^js ks] (let [a #js []]
+                                (dotimes [_ (.-length ks)] (.push a noop))
+                                a))
+        nav-plain (plain-of nav-keys)
+        int-plain (plain-of intent-keys)]
+    [[:roster-navigate-positions     (.-length nav-keys)]
+     [:roster-intent-positions       (.-length intent-keys)]
+     [:roster-other-event-positions  (.-length other-keys)]
+     ;; --- the navigate carrier: minted by route-link, 1 per link -------
+     [:lower-navigate-native (ns-per-op2 micro-reps nav-keys nav-vals intent/lower-prop)]
+     [:lower-navigate-plain  (ns-per-op2 micro-reps nav-keys nav-plain intent/lower-prop)]
+     ;; --- the author-written carrier -----------------------------------
+     [:lower-intent-native   (ns-per-op2 micro-reps intent-keys intent-vals intent/lower-prop)]
+     [:lower-intent-plain    (ns-per-op2 micro-reps intent-keys int-plain intent/lower-prop)]
+     ;; --- the closed-grammar check inside the navigate carrier ---------
+     [:navmap-keyset-shipping (ns-per-op micro-reps nav-maps navmap-keyset-shipping)]
+     [:navmap-keyset-scan     (ns-per-op micro-reps nav-maps navmap-keyset-scan)]]))
+
+;; ---------------------------------------------------------------------------
 ;; SLIM, DECOMPOSED (rf2-lhdp0)
 ;; ---------------------------------------------------------------------------
 ;;
@@ -1084,6 +1235,12 @@
                   cands   (candidate-table roster)
                   slim-bad (slim-agreement roster)
                   slims    (slim-table roster)
+                  ;; The intent roster is the NATIVE witness's, and every
+                  ;; row of its table lowers — so the whole table runs
+                  ;; inside the body door (rf2-vw412).
+                  iroster  (collect-intent-roster native)
+                  intent-bad (intent-agreement iroster)
+                  intents  (wp/in-body (fn [] (intent-table iroster)))
                   hic     (:p50 (get rows :hicasso))
                   rgt     (:p50 (get rows :reagent))
                   slm     (:p50 (get rows :slim))]
@@ -1103,6 +1260,9 @@
               (lane/record! :walk-vs-reagent-slim
                             {:disagreements slim-bad
                              :ns-per-op (into {} (map (fn [[k v]] [k (lane/round4 v)])) slims)})
+              (lane/record! :walk-vs-reagent-intent
+                            {:disagreements intent-bad
+                             :ns-per-op (into {} (map (fn [[k v]] [k (lane/round4 v)])) intents)})
 
               (js/console.log ";; ==== WORKLOAD MATCH (every arm's own DOM, canonical) ====")
               (doseq [{:keys [id]} arms]
@@ -1141,6 +1301,41 @@
               (js/console.log (str ";;   agreement failures: " (pr-str slim-bad)))
               (doseq [[k v] slims]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns/op")))
+
+              (js/console.log ";; ==== INTENT SURFACE DECOMPOSED (rf2-vw412) ====")
+              (js/console.log (str ";;   agreement failures: " (pr-str intent-bad)))
+              (doseq [[k v] intents]
+                (js/console.log (str ";;   " (name k) ": " (fmt v 1)
+                                     (when-not (contains? intent-roster-rows k) " ns/op"))))
+              ;; The arm row is ns/ELEMENT over the whole page; these are
+              ;; ns/POSITION over a roster of a few hundred. Carried onto
+              ;; the arm row's units here so the two are readable together
+              ;; and the reader is not asked to do it.
+              (let [m       (into {} intents)
+                    per-el  (fn [delta n] (/ (* delta n) elements))
+                    nav-n   (:roster-navigate-positions m)
+                    int-n   (:roster-intent-positions m)
+                    nav-d   (- (:lower-navigate-native m) (:lower-navigate-plain m))
+                    int-d   (- (:lower-intent-native m) (:lower-intent-plain m))
+                    nav-el  (per-el nav-d nav-n)
+                    int-el  (per-el int-d int-n)
+                    keyset-el (per-el (- (:navmap-keyset-shipping m)
+                                         (:navmap-keyset-scan m))
+                                      nav-n)]
+                (js/console.log (str ";;   -> navigate carrier: " (fmt nav-d 1)
+                                     " ns/position x " nav-n " links / " elements
+                                     " elements = " (fmt nav-el 1) " ns/element"))
+                (js/console.log (str ";;   -> authored intents:  " (fmt int-d 1)
+                                     " ns/position x " int-n " positions / " elements
+                                     " elements = " (fmt int-el 1) " ns/element"))
+                (js/console.log (str ";;   -> named carriers sum: " (fmt (+ nav-el int-el) 1)
+                                     " ns/element; OBSERVED arm gap "
+                                     (fmt (* 1e6 (/ (- (:p50 (get rows :hicasso-native)) hic)
+                                                    elements))
+                                          1)
+                                     " ns/element"))
+                (js/console.log (str ";;   -> of the navigate carrier, the closed-grammar key-set "
+                                     "check is " (fmt keyset-el 1) " ns/element")))
 
               (when (:refuse? gv)
                 (set! (.-HICASSO_GUARD_REFUSED js/window) true))
