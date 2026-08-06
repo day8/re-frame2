@@ -67,9 +67,14 @@ SHA again while the three blobs below did not move at all:
 | `reads_ladder_app.cljs` | `5b1770a49d4cac50248946b9e80bed726ca4f53d` |
 
 All three live under `implementation/freehand/test/re_frame/freehand/bench/`.
-Authored as `09ec4e6b3c` on `worker/bench-audit-cluster`. **If that SHA does not
-resolve, a rebase moved it and the blobs above are what to trust** — this finds
-a commit carrying them, and confirms it:
+Authored as `09ec4e6b3c` on `worker/bench-audit-cluster`; that head is stranded
+by the rebase merge and is in no fresh clone, so the resolvable anchor is the
+commit it landed as, `ea225b8e11`. The landed commit anchors the patch, and the
+authored head names the tree — they are not the same object and the rest of this
+page keeps them apart. For *this* instrument the distinction costs nothing: all
+three blobs above are byte-identical at both, which is the claim that matters
+here and the only one being made. **If a SHA does not resolve, the blobs above
+are what to trust** — this finds a commit carrying them, and confirms it:
 
 ```bash
 P=implementation/freehand/test/re_frame/freehand/bench/reads_ladder_run.cjs
@@ -1051,7 +1056,11 @@ rule on.
 ### The memo wrapper, priced on this rung (rf2-2rtt6.58)
 
 > **HISTORICAL, and not comparable to the tree that ships (2026-08-04).** These
-> rows were taken on `worker/cascade-2rtt6-52` at tree `4a33c61e1c`. The
+> rows were taken on `worker/cascade-2rtt6-52` at tree `4a33c61e1c`, an authored
+> head the rebase merge stranded; the same change landed as `cb179b6b3c`, which
+> resolves. The landed commit anchors the **patch** and not this **tree** — the
+> rebase rewrote both blobs under test — so the two are not interchangeable, and
+> the head above is the only thing that names what was measured. The
 > provenance paragraph below says the recorded blobs "will prove the measured
 > tree and the merged tree agree once it is rebased" — **they do not agree**:
 > the measured runtime and codec blobs were `a6d6c55a58` and `12284ef8f4`, and
@@ -1260,7 +1269,12 @@ exactly as §6's own shell row was left to be — and this section, like §6, wr
 Whole-tree anchor **`4a33c61e1c`** on `worker/cascade-2rtt6-52`. That branch was
 **conflicting with `main` and deliberately not rebased while these rows were
 taken**, so the blobs are what to trust — and they are what will prove the
-measured tree and the merged tree agree once it is rebased.
+measured tree and the merged tree agree once it is rebased. The rebase came, and
+stranded that head: the change is on `main` as `cb179b6b3c`, an anchor for the
+**patch** only. It is not the tree these rows were taken on — the rebase moved
+`arm1/runtime.cljs` and `front/codec.cljs`, which are precisely the two blobs
+under test — so it is quoted here to be resolvable, never as a substitute. (The
+callout opening this section records what the disagreement cost.)
 
 The one line under test, and the only thing that differs between the arms:
 
@@ -2223,7 +2237,10 @@ One pin quoted by an earlier section on this page does **not** resolve:
 it was authored on `worker/cascade-2rtt6-52` and stranded by the rebase merge.
 That is already recorded in the re-take's opening paragraph as the reason the
 re-take exists, and it is noted rather than re-pinned: re-pinning would restore
-the patch and not the tree.
+the patch and not the tree. The patch is on `main`, landed as `cb179b6b3c`, and
+that is the whole of what it recovers — the rebase rewrote both blobs under test
+there, so the resolvable commit and the measured tree are two different things
+and the page says so wherever it quotes either.
 
 **Run order was deliberately not monotone in tree age** — T4, T3, T1, T2, T4′ —
 so that box drift could not masquerade as the bisect. The oldest and
