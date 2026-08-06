@@ -1294,6 +1294,38 @@ const READER_FIXTURES = [
     ].join('\n'),
   },
   {
+    id: 'a `/` inside a CHARACTER CLASS does not end the regex early',
+    read: false,
+    // `endOfRegex`'s class tracking, which nothing else here reaches. The two
+    // `${...}` fixtures above pass with or without it — `/[}]/` holds no slash
+    // inside its class, so both readings find the same closing delimiter — and
+    // the CSV `/^"|"$/` the drivers write has no class at all. So the tracking
+    // was UNFALSIFIED until this fixture, and an unfalsifiable line is not a
+    // proven one: without it the literal ends at the slash inside the class,
+    // three characters early, and the `errors` after it is left standing as
+    // code. Masking LESS is the inventing side.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'const sep = /[/]errors[/]/;',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
+    id: 'an ESCAPED `/` inside a regex does not end it early either',
+    read: false,
+    // The same gap one escape along, and the same reason the `/\}/` fixture
+    // above cannot cover it: an escaped `}` is found at the same index whether
+    // or not the `\` is honoured, so that fixture is green either way. Only an
+    // escaped DELIMITER separates the two readings.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'const sep = /\\/errors\\//;',
+      'process.exit(0);',
+    ].join('\n'),
+  },
+  {
     id: 'DIVIDING inside a ${...} is still a read — the direction the repair could break',
     read: true,
     // The guard on the repair itself, and not a hypothetical: the bench fleet
