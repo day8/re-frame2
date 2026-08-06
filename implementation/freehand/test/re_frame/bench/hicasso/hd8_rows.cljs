@@ -1096,6 +1096,69 @@
                                "of multiplying (rf2-2rtt6.19)")}}))))))))
 
 ;; ===========================================================================
+;; The instrument's OWN resolution — measured, not asserted
+;; ===========================================================================
+
+(defn- tick-once
+  "One observation of the clock's grain: the first difference
+  [[lane/now-ms]] reports after a busy wait, or `nil` if it reported none
+  within `spin-cap` reads.
+
+  A clamped clock answers the SAME value for every read inside a tick, so
+  the first difference IS one tick. The cap is not a tolerance — it is the
+  only alternative to hanging the page on a clock that never advances, and
+  it answers `nil` so a missing reading fails closed rather than arriving
+  as a small number."
+  [spin-cap]
+  (let [t0 (lane/now-ms)]
+    (loop [i 0]
+      (let [t1 (lane/now-ms)]
+        (cond
+          (> t1 t0)      (round4 (- t1 t0))
+          (>= i spin-cap) nil
+          :else          (recur (inc i)))))))
+
+(defn clock-resolution!
+  "Measure the smallest interval this instrument's clock can report.
+
+  Every page in this studio states *Chrome clamps `performance.now()` to
+  100 µs* and then reasons against 100 µs as though it were a property of
+  the measurement. It is a property of a browser build and its
+  cross-origin-isolation state, and a row whose DENOMINATOR sits on that
+  grain is decided by it — so the number is taken in the run it governs
+  rather than quoted from a comment, on the same argument that made
+  [[yield-cost!]] measure the harness turn instead of asserting it was
+  small (rf2-d2tzk).
+
+  The method is the only one a clamped clock permits: read, spin until the
+  value CHANGES, record the difference. `:tick` is the MINIMUM across `n`
+  such observations, because a spin that overran a boundary reports a
+  multiple and the smallest observation is the only one that cannot.
+
+  Answers `{:tick :p50 :max :n :distinct :unresolved}`. `:distinct` is the
+  set of observed differences — on a clamped clock they are multiples of
+  `:tick`, which is what makes the reading a RESOLUTION and not a latency.
+  `:unresolved` counts observations that hit the spin cap; any of them
+  leaves `:tick` nil, and [[denominator-resolution]] treats a missing tick
+  as unevaluable rather than as zero."
+  [n]
+  (let [spin-cap 5000000
+        ds       (vec (repeatedly n #(tick-once spin-cap)))
+        good     (vec (remove nil? ds))
+        s        (lane/summarise good)]
+    {:control     :clock-resolution
+     :tick        (when (= (count good) (count ds)) (:min s))
+     :p50         (:p50 s)
+     :max         (:max s)
+     :n           (count ds)
+     :unresolved  (- (count ds) (count good))
+     :distinct    (vec (sort (distinct good)))
+     :note (str "the smallest difference lane/now-ms reports, measured by spinning until "
+                "the clock advances. A denominator at this size cannot be told from one "
+                "half its size or twice it, so a ratio taken against it carries the grain "
+                "rather than the arm (rf2-d2tzk)")}))
+
+;; ===========================================================================
 ;; THE CORRECTION-OR-REFUSAL CONTRACT — the asymmetry adjudicated, not noted
 ;; ===========================================================================
 

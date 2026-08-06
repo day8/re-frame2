@@ -45,6 +45,10 @@
 (def ^:private mount-sampling {:warmup 4 :samples 12})
 (def ^:private write-sampling {:warmup 3 :samples 10})
 (def ^:private control-sampling {:warmup 3 :samples 8})
+;; How many times the clock's grain is observed. Each observation spins until
+;; `performance.now()` advances, so the whole control costs `n` ticks — about
+;; 20 ms at a 100 µs grain — and it runs once, outside every measured window.
+(def ^:private clock-resolution-samples 200)
 
 ;; ---------------------------------------------------------------------------
 ;; Publication
@@ -182,10 +186,19 @@
   (let [which    (query-adapter)
         _        (install! which)
         arm-ids  (get rows/arm-ids-for which)
-        write-ids (get rows/write-arm-ids-for which)]
+        write-ids (get rows/write-arm-ids-for which)
+        ;; THE CLOCK'S OWN GRAIN, taken in the run it governs. Every page in
+        ;; this studio asserted "Chrome clamps performance.now() to 100 µs"
+        ;; and then reasoned against that constant; the write rows' floor is
+        ;; a single commit and sits ON it, so the number decides whether
+        ;; those rows have a magnitude at all and is measured rather than
+        ;; quoted (rf2-d2tzk).
+        clock    (rows/clock-resolution! clock-resolution-samples)]
     (lane/leave-act-environment!)
     (doseq [id arm-ids] (rows/ensure-frame! id))
     (record! :method (rows/method-record which arm-ids write-ids rounds mount-sampling write-sampling))
+    (record! :clock-resolution clock)
+    (set! (.-HD8_CLOCK js/window) (clj->js clock))
 
     ;; ---- gate 0: the correction contract's own self-test -------------------
     ;; Before anything is measured, because a harness that gets `false` here
