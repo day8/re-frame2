@@ -65,10 +65,25 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 **Hard-won (the bits that bite — earned in the field, not obvious up front).**
 - *Local-green ≠ CI.* A worker's "all gates pass locally" usually means "the
   subset I ran"; the red CI gate is one its local run skipped (integration/live,
-  a linter, a drift-check). Merge only on CI 0-fail AND 0-pending. A failing
-  *touched-surface* gate is never an `--admin` bypass — dispatch a fix-worker to
-  the SAME branch that runs the ACTUAL failing gate. (`--admin` is only for a
-  pending check that structurally cannot touch the diff, e.g. mergeable-recompute lag.)
+  a linter, a drift-check). Merge only on a CI rollup that is complete as well as
+  clean (next bullet). A failing *touched-surface* gate is never an `--admin`
+  bypass — dispatch a fix-worker to the SAME branch that runs the ACTUAL failing
+  gate. (`--admin` is only for a pending check that structurally cannot touch the
+  diff, e.g. mergeable-recompute lag.)
+- *Zero failures is not green; it is only the absence of bad news.* An EMPTY
+  rollup satisfies "0 fail AND 0 pending" perfectly — that is exactly what a PR
+  reports in the seconds before its workflow runs are created, and exactly what
+  every PR reports while the CI provider is down. One merged that way here on a
+  rollup read as 0/0/0 eleven seconds before its runs existed, and during a
+  provider outage the same day six PRs at once reported MERGEABLE with zero
+  checks; the rule as written would have taken all six. So the criterion is
+  completeness *and* cleanliness: a non-empty rollup, every check concluded, and a
+  total in the band this repo's PRs actually produce — learn that number, because
+  a partial rollup of 11 where ~86 are expected is no greener than an empty one.
+  A gate that verifies the absence of bad news rather than the presence of good
+  news is the same fail-open class the project spends its days hunting in its own
+  instruments; the merge decision is not exempt from it. Short or empty is a
+  re-check on the next signal, never an `--admin`.
 - *Reproduce the real failing path.* A worker's passing synthetic test can route
   around the gap and explain away a symptom the operator reproduced. The
   acceptance test must exercise the path that actually failed, not a proxy —
@@ -148,7 +163,10 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   of the change it reviewed, and a later commit may have fixed the finding, often
   bundled under an unrelated subject where no search for the symptom or the issue
   id will find it. Read the current source at the named site before dispatching.
-  A verified "nothing to do" is a good outcome; an assumed one is not.
+  A verified "nothing to do" is a good outcome; an assumed one is not. The
+  worker-side countermeasure is mandatory in `dispatch-prompt-template.md`'s
+  common preamble — the bead governs over the brief, and its notes are read
+  bottom-up — so a stale brief still gets caught on arrival.
 
 **Set up loops.** If they don't exist already, create:
 - 60m — reread this file + siblings; reassert posture to operator
