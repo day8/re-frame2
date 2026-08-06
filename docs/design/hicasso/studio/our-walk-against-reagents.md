@@ -48,6 +48,17 @@ legal, and identical work, for all three interpreters. A fourth arm,
 `hicasso-native`, then walks the page's OWN markup, so the authoring surface's
 term is named rather than hidden inside the comparison.
 
+> **The exemption above covers `route-url`, and not the navigate vector's
+> lowering.** Every `route-link` mints an `:on-click [::h/navigate {…}]` as well
+> as an `href`, and the href is indeed a plain string before any clock starts —
+> but `codec/as-element` lowers the navigate vector *inside* every timed window
+> of the `hicasso-native` arm, 207 times, where `plainify` has replaced all 207
+> with `noop` on the plain one. So the `hicasso-native` − `hicasso` gap is
+> three-quarters route-link and one-quarter the 71 author-written intents §2
+> attributes the whole of it to. Measured, attributed to a commit, and costed
+> against a repair in
+> [the 2026-08-06 attribution](#2026-08-06-attribution-of-the-intent-row-rf2-vw412).
+
 ### Workload matching is gated, not asserted
 
 Every arm's element tree is rendered into a fresh container and its canonical
@@ -557,3 +568,216 @@ across runs.
 adapter, codec or runtime file was touched by this run; `validation.md`,
 `decisions.md` and `rf2-2rtt6.1`'s standard-bead notes are unmodified; no bead
 was closed or reprioritised. The decider is the operator.
+
+## 2026-08-06 attribution of the intent row (rf2-vw412)
+
+**Why this run exists.** `rf2-vw412` put the two intent readings above side by
+side — §2's ~41 ns/element, the re-take's 125 — observed that both were resolved
+and both passed the guard, and asked for the one thing neither run had done:
+attribute the difference rather than re-take it. It named `front/codec.cljs`'s
+593 changed lines as the suspects and declined to guess among them.
+
+**The suspects were the wrong file, and no published row is wrong.** Both
+readings are correct for their trees. What is wrong is the sentence §2 attaches
+to its row — and it was already wrong when it was written, before anything
+regressed.
+
+### The gap holds two populations, and only one of them is authored
+
+The two witnesses differ at event positions and nowhere else, which is what
+earns the row its reading. What the arms cannot say is *which* event positions,
+and this page carries two kinds that cost nothing like each other:
+
+| carrier at an `:on-*` position | count | written by |
+|---|---|---|
+| `[:conduit/favorite slug]`, `[::h/prevent [:conduit/show-your-feed]]` | 71 | the author |
+| `[::h/navigate {:frame … :payload … :native? … :veto …}]` | 207 | `route-link`, one per link |
+
+Both are replaced by the shared `noop` on the plain witness, so **both are
+inside the gap**, and the minted population is three times the authored one.
+The instrument now counts them rather than assuming: `roster-navigate-positions
+207`, `roster-intent-positions 71`, `roster-other-event-positions 0` — the same
+207 links §1 counts, and exactly the 71 §2 names.
+
+§1 exempts route-link from this instrument, and the exemption is sound for the
+term it names: the `route-url` synthesis happens once, at `realize-deep`,
+outside every window. The navigate vector's **lowering** is a different term
+with the same owner, and it happens inside every timed window the native arm
+takes.
+
+### The rows, and the one term ablated
+
+Three runs of the unchanged driver, 2026-08-06, on the tree below. Runs A and C
+are the shipping code. Run B is run C's tree with **one line** of
+`front.intent/unwrap-navigate` ablated — `(set (keys m))` replaced by the
+roster it is compared against, which deletes the allocation and leaves every
+other line of the lowering standing.
+
+| run | `hicasso` ns/el | `hicasso-native` ns/el | gap ns/el | grid steps | `hicasso-native`/`hicasso` |
+|---|---|---|---|---|---|
+| A — shipping | 447 | 655 | 208 | 20 | **1.4651** |
+| B — one line ablated | 364 | 406 | 42 | 4 | **1.1143** |
+| C — shipping, restored | 447 | 645 | 198 | 19 | **1.4419** |
+
+**Read the ratios, not the absolutes, exactly as §2 and the re-take do.** All
+three gaps are resolved at the 0.0125 ms/walk grain (4 steps is the smallest).
+Run B's box was *busier* than run C's (16.0% against 12.3%), so box state does
+not explain it: the quieter of the two shipping runs still read 1.44.
+
+**Ablating one line puts the row back on §2's published figure.** 42 ns/element
+against §2's ~41, and a same-run ratio of 1.1143 against §2's 1.0729 and 1.0762.
+
+### The stage rows underneath, by carrier
+
+`lower-prop` over each carrier, against what the plain arm pays at the **same
+key** — so every row is a within-run difference, and the plain column is the
+`noop` the plain witness actually carries. ns per position:
+
+| stage | A — shipping | B — ablated | C — shipping |
+|---|---|---|---|
+| navigate carrier, native value | 821.3 | **173.9** | 1,135.3 |
+| navigate carrier, plain value | 79.7 | 74.9 | 94.2 |
+| authored intent, native value | 288.7 | 225.4 | 302.8 |
+| authored intent, plain value | 77.5 | 70.4 | 98.6 |
+| key-set check, shipping shape (local copy) | 529.0 | 584.5 | 654.6 |
+| key-set check, allocation-free | 82.1 | 74.9 | 106.3 |
+
+**The last two rows are the positive control, and they are the reason the
+ablation can be believed.** They price a LOCAL copy of the check, written into
+the instrument the way `guarded-lookup` is, so the ablation cannot reach them —
+and it does not: 529.0 → 584.5 → 654.6, tracking the box and nothing else,
+while the row that goes through the real `unwrap-navigate` collapses by a
+factor of five and comes straight back. The mutation landed where it was aimed
+and nowhere else.
+
+Carried onto the arm row's units — ns per position × roster ÷ 1,202 elements,
+done by the instrument so no reader has to:
+
+| carrier | A — shipping | B — ablated | C — shipping |
+|---|---|---|---|
+| navigate (207 links) | 127.7 | **17.1** | 179.3 |
+| authored intents (71 positions) | 12.5 | 9.2 | 12.1 |
+| named carriers, summed | 140.2 | 26.2 | 191.3 |
+| *observed arm gap* | *208.0* | *41.6* | *197.6* |
+
+**Attribution, not accounting** — §3's rule holds here and for the same reason.
+The named carriers come to 67% of the observed gap in run A and 97% in run C,
+which is the spread a micro table taken on this box is entitled to and is why
+no closure percentage is offered. What the table supports is which term is
+large: the navigate carrier is worth ten to fifteen times the authored one in
+every run, and the ablation moves the *arm* row by more than the micro row
+predicts (156 ns/element against 94) — the expected direction, since the walk
+pays the allocation's collection pressure that a warm 207-entry loop mostly
+does not.
+
+### The commit
+
+`unwrap-navigate` validated the navigate map's key **types** and asked nothing
+about its key **set**, so a map missing `:veto` passed and so did a map carrying
+a fifth key the lowering then dropped. `rf2-2rtt6.54` closed that, correctly,
+by asserting the exact set:
+
+    ks (when (map? m) (set (keys m)))
+    …
+    (= navigate-keys ks)
+
+One `PersistentHashSet` built and compared **per link per render**, 207 times a
+walk on this page.
+
+| | |
+|---|---|
+| **Commit** | `69678caee6` — `fix(hicasso): route-link's navigate grammar is closed, and prefetch is refused (rf2-2rtt6.54)`, committed 2026-08-03 15:52 AUSEST |
+| **Not** in §2's tree | `git merge-base --is-ancestor 69678caee6 02a440a4d1` → **1**. At `02a440a4d1` the line reads `(map? m)` |
+| **In** the re-take's tree | `git merge-base --is-ancestor 69678caee6 77a92185ea` → **0** |
+| **Unchanged since** | `unwrap-navigate` is byte-identical at `77a92185ea` and at this run's tree, so runs A–C measure the re-take's own code for this term |
+| **The other half of that commit** | `route-link/prefetch-declined!` runs at route-link render — `realize-deep` time, outside every window. It is not in any figure here |
+
+`front/codec.cljs`, the file `rf2-vw412` nominated, is not implicated. The
+navigate lowering is `front/intent.cljs`'s.
+
+### So: a regression, and a number nobody had published
+
+**On the bead's question — floor or regression — the honest answer is that it
+is a regression, and that the row it moved was never the number the question
+was about.** Three statements, and they are independent:
+
+1. **The intent surface the P2 fork is deciding about costs ~12 ns/element.**
+   The authored carrier reads 12.5, 9.2 and 12.1 across the three runs —
+   flat, and untouched by what the navigate carrier does — against a walk of
+   447, 364 and 447. That is **under 3% of the walk**, on an instrument whose
+   published sentence says 7%. This figure has not appeared on this page
+   before, and it is the one a ship/kill decision needs.
+2. **The move from ~41 to 125 is a regression with a named line**, and it is
+   **not** a semantic floor in §5's sense. §5's floor is the prop pipeline,
+   where every item is a shipped semantic and removing one removes a feature.
+   Nothing is removed here: a count and four `contains?` admit exactly the maps
+   the set equality admits, including the two shapes `rf2-2rtt6.54` closed the
+   grammar against. `agreement failures: []` on all three runs, over every
+   navigate map the page mints and over an eleven-shape hostile roster —
+   missing `:veto`, a fifth key, a four-key map with all four names wrong, a
+   vector, a string, `nil`.
+3. **The correctness that commit bought is not in question.** A closed grammar
+   that a fifth key can slip past is fail-open by construction and the fix was
+   right. What is at issue is that it is spent once per link per render, on the
+   hot path, when the same guarantee is available for nothing.
+
+**Costed, not landed.** This page's practice is that a candidate is timed
+beside the shipping shape and lands only on a bead of its own; the repair is
+one `let` binding moved into the failure branch and is filed as such.
+
+### What no row should move
+
+§2's rows, the re-take's rows and their arm ratios all stand: each is correct
+for the tree that produced it, and the two trees differ by a commit that is now
+named. §2's **sentence** is the thing that does not survive — "Hicasso's own
+authoring surface costs 41 ns/element … 71 intent vectors lowered across 1,202
+elements". The 41 was never 71 intent vectors: on that tree it was ~12
+ns/element of authored intent and ~29 of route-link's minted navigate carrier,
+and the arithmetic is the same one done three times above. The bullet is left
+exactly as taken, per this page's rule, and this section is where it is
+corrected.
+
+### Controls, the box, and provenance
+
+| control | A | B | C |
+|---|---|---|---|
+| arm-order guard self-test (12 cases) | all `ok` | all `ok` | all `ok` |
+| twin parity gate (fatal) | OK — 1,202 el / 58,474 B | OK | OK |
+| workload match | 58,474 B / 58,529 B, the same 55-byte whitespace difference §1 prices | same | same |
+| arm-order guard verdict | **reportable**, 4/4 by predecessor and by phase | **reportable** | **reportable** |
+| candidate agreement failures | `[]` | `[]` | `[]` |
+| `SLIM DECOMPOSED` agreement failures | `[]` | `[]` | `[]` |
+| intent agreement failures | `[]` | `[]` | `[]` |
+| exit code | **0** | **0** | **0** |
+| box, summed per-process CPU delta ÷ 24 cores | 46.6%, 3 `java` | 16.0%, 1 `java` | 12.3%, 1 `java` |
+
+**The box was NOT quiet and this section says so.** Other workers held
+shadow-cljs JVMs throughout. The absolutes are therefore ceilings and are not
+compared across runs; every claim above is a same-run ratio or a same-run
+difference, which is the discipline §7 established and the reason run B can be
+read against run C at all.
+
+| | |
+|---|---|
+| **Producing commit** | `ea04769e09` on `worker/intentprice-vw412`, merge-base `2cf3a48037` (`origin/main`) |
+| **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main HICASSO_OUT_DIR=out/hicasso-walkcmp HICASSO_PORT=8171 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
+| **Build** | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** on all three builds |
+| **Runtime** | chromium `147.0.7727.15` (playwright), node `v24.13.0`, Windows NT 10.0 x64, 24 threads |
+| **Design** | 4 arms × 6 rounds × (4 warm-up + 10 samples), 8 whole-page walks per window — unchanged |
+| **Clock** | in-page `performance.now`, **diagnostic**; the clock of record is untouched here |
+| **Windows** | 2026-08-06 AUSEST, each ~35 s build + ~60 s measurement, completing A 23:18:09, B 23:21:26, C 23:23:32 |
+| **Exit codes** | A `0`, B `0`, C `0`; guard reportable on all three |
+
+| file | blob |
+|---|---|
+| `…/front/intent.cljs` | `a6716e5cdd` — `unwrap-navigate` byte-identical to `77a92185ea`'s |
+| `…/front/route_link.cljs` | `3663b326a2` |
+| `…/front/codec.cljs` | `6301d60db0` — moved again since the re-take's `2c0c26ccb5`, and not implicated |
+| `…/walk_vs_reagent_app.cljs` | `ee0666c3d6` — the re-take's `596d6c1220` plus this section's roster and rows; no arm, witness or window touched |
+| `…/run.cjs` | `1bc82c38ea` — the re-take's, unchanged |
+| `…/walk_profile_app.cljs` (the twin + its parity gate) | `43940c0227` |
+| `reagent2.impl.template` | `9b30b6b74c` — still byte-identical to `rf2-e7zxb`'s landing |
+
+**Advisory, and no row above is amended.** No adapter, codec or runtime file is
+changed by this work; the ablation of run B was reverted before anything was
+committed and appears in no shipped file.
