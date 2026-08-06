@@ -605,8 +605,9 @@
     :applied   reducer applications, counted in the reducer itself
     :mutations DOM records observed across the whole run
     :peak-backlog  max over offers of `offered − applied`
-    :tail-ms   from the LAST OFFER'S OWN TIMESTAMP to the page showing the
-               last generation
+    :tail-ms   the LAST GENERATION'S OWN OBSERVER LATENCY — the same
+               number its entry in `:latency` carries, retained rather
+               than recomputed
     :latency   per-generation offer→DOM distribution, read from the
                `MutationObserver` callback that carried it
 
@@ -634,12 +635,40 @@
   unchanged and still separate** — the poll remains the `settled?`
   detector and nothing else.
 
-  Four fields make the anchoring checkable rather than asserted:
+  ## The tail is not RECOMPUTED, it is RETAINED — and the algebra is published
 
+  The third edition anchored the tail correctly but published it as a
+  fresh subtraction, `(- t-settle t0)`, sitting beside a control derived
+  from a DIFFERENT pair of instants. `rf2-drpa3.182.12`'s merged-PR audit
+  found the consequence: moving that subtraction's start back to settle
+  time left the gap, `:tail-anchored?` and the numeric/nonnegative checks
+  every one of them green, so the control could not fail on the value it
+  existed to protect. A gate that cannot go red is not a gate.
+
+  So the observer computes each generation's latency ONCE, and the final
+  generation's is retained and published verbatim. `:tail-ms` is not a
+  subtraction performed at publication time; it is a number lifted out of
+  the `:latency` distribution, and there is no start instant at the
+  publication site left to get wrong. The two readings that produced it
+  are published beside it so the identity can be asserted rather than
+  believed — see `tail-identity-holds?`.
+
+  Six fields make the anchoring checkable rather than asserted:
+
+    :tail-offer-at-ms        the RETAINED last-offer reading, `t-offer`.
+                             Origin-relative and meaningful only as a
+                             difference (see `measure/now-ms`); published
+                             so the tail's algebra is checkable.
+    :tail-observed-at-ms     the instant the tail ended — the observer's
+                             own reading when `:tail-source` is
+                             `:observer`, the poll's when it is `:poll`.
     :offer-to-poll-start-ms  last offer → the settle decision. One
                              interval, by construction. This is exactly
                              the term the old reading dropped, so a clock
                              restarted at settle time cannot produce it.
+                             Derived from `:tail-offer-at-ms` itself, so
+                             moving that reading to escape the identity
+                             check lands on this one.
     :predicted-gap-ms        the run's own achieved period,
                              `duration-ms / offered` — what that gap is
                              predicted to be, computed from a different
@@ -652,7 +681,17 @@
                              `setInterval` cannot fire faster than its
                              period, so the floor holds however badly the
                              browser is falling behind; a settle-time
-                             clock fails it outright."
+                             clock fails it outright.
+
+  The two controls are deliberately SEPARATE and neither subsumes the
+  other. `:tail-anchored?` (C3) says WHERE the retained offer reading
+  sits — one interval before the settle decision. `tail-identity-holds?`
+  (C4) says the published tail was computed from THAT reading and the
+  observer's, and from nothing else. Re-anchoring the tail at settle time
+  keeps C3 green and turns C4 red by a whole interval; re-anchoring the
+  published offer reading to keep C4 green collapses the gap and turns C3
+  red. There is no longer a way to move the tail's start that leaves both
+  standing."
   [mnt rate k duration-ms]
   (let [{:keys [container observer]} mnt
         period    (/ 1000.0 rate)
@@ -664,7 +703,12 @@
         start     (m/now-ms)
         last-gen  (volatile! nil)
         t-offer   (volatile! nil)         ; the LAST offer's own timestamp
-        last-seen (volatile! nil)]        ; [generation when-the-page-showed-it]
+        ;; The newest generation the page has shown, retained WITH the two
+        ;; readings that produced its latency and with that latency itself:
+        ;; [generation offered-at observed-at latency-ms]. The tail is
+        ;; LIFTED from here, not recomputed, so the published figure and the
+        ;; generation's entry in the latency distribution are one number.
+        last-obs  (volatile! nil)]
     (.disconnect observer)
     (reset-applied!)
     (let [watcher (js/MutationObserver.
@@ -674,17 +718,26 @@
                             txt (cell-text container 0)
                             g   (js/parseInt txt 10)]
                         (when-not (js/isNaN g)
-                          ;; The newest generation the page has shown, and
-                          ;; WHEN it showed it. The tail is read from here
-                          ;; rather than from the settle poll, so it carries
-                          ;; this observer's resolution rather than the
-                          ;; poll's 4 ms — which in a shipped bundle is
-                          ;; larger than the quantity itself.
-                          (when (or (nil? @last-seen) (> g (nth @last-seen 0)))
-                            (vreset! last-seen [g now]))
+                          ;; ONE latency per generation, computed ONCE. The
+                          ;; distribution and the tail are the same numbers:
+                          ;; `latencies` collects them all and `last-obs`
+                          ;; keeps the newest, so the settle branch has
+                          ;; nothing left to subtract. Reading the tail here
+                          ;; rather than at the settle poll also carries this
+                          ;; observer's resolution rather than the poll's
+                          ;; 4 ms — which in a shipped bundle is larger than
+                          ;; the quantity itself.
+                          ;;
+                          ;; `offers` holds an entry from the moment a
+                          ;; generation is offered until its FIRST sighting,
+                          ;; so this branch runs exactly once per generation
+                          ;; and every newest-generation sighting reaches it.
                           (when-let [t (get @offers g)]
-                            (swap! latencies conj (- now t))
-                            (swap! offers dissoc g))))))]
+                            (let [lat (- now t)]
+                              (swap! latencies conj lat)
+                              (swap! offers dissoc g)
+                              (when (or (nil? @last-obs) (> g (nth @last-obs 0)))
+                                (vreset! last-obs [g t now lat]))))))))]
       (.observe watcher container #js {:subtree true :childList true :characterData true})
       (js/Promise.
         (fn [resolve]
@@ -713,11 +766,25 @@
                                 (when (or done? over?)
                                   (js/clearInterval @poll)
                                   (let [now      (m/now-ms)
-                                        seen     @last-seen
+                                        seen     @last-obs
                                         by-obs?  (boolean (and done? seen
                                                                (= (nth seen 0) @last-gen)))
-                                        t-settle (if by-obs? (nth seen 1) now)
+                                        ;; The retained last-offer reading. It
+                                        ;; anchors the gap AND is published, so
+                                        ;; C3 and C4 gate the same instant.
                                         t0       @t-offer
+                                        ;; LIFTED, not recomputed: when the
+                                        ;; observer saw the last generation the
+                                        ;; tail IS that generation's latency,
+                                        ;; the same number in the distribution.
+                                        ;; The `:poll` arm is the degraded
+                                        ;; fallback — the ceiling expired, or
+                                        ;; the page never showed the last
+                                        ;; generation — and is labelled as such.
+                                        t-end    (if by-obs? (nth seen 2) now)
+                                        tail     (if by-obs?
+                                                   (nth seen 3)
+                                                   (when t0 (- now t0)))
                                         n        @offered
                                         gap      (when t0 (- t-poll-start t0))]
                                     (.disconnect watcher)
@@ -734,8 +801,10 @@
                                        :applied         (applied)
                                        :mutations       @muts
                                        :peak-backlog    @backlog
-                                       :tail-ms         (when t0 (- t-settle t0))
+                                       :tail-ms         tail
                                        :tail-source     (if by-obs? :observer :poll)
+                                       :tail-offer-at-ms    t0
+                                       :tail-observed-at-ms t-end
                                        :offer-to-poll-start-ms gap
                                        :predicted-gap-ms       (when (pos? n)
                                                                  (/ duration-ms (double n)))
@@ -760,6 +829,42 @@
                       (swap! backlog max (- @offered (applied)))
                       (rf/dispatch [:b10/moved k gen] {:frame frame-id}))))
                 period))))))))
+
+;; ---------------------------------------------------------------------------
+;; C4 — the published tail IS the two retained readings
+;; ---------------------------------------------------------------------------
+
+(defn tail-identity-holds?
+  "True when a `drive!` record's `:tail-ms` is exactly the difference of
+  the two instants published beside it.
+
+  This is the gate C3 could not be. `:tail-anchored?` is derived from
+  `:offer-to-poll-start-ms` — the last offer against the SETTLE DECISION
+  — and the tail runs from the last offer to the OBSERVER. Two of the
+  three instants differ, so the third edition's `:tail-ms` could be
+  re-anchored anywhere and C3 would not notice; the merged-PR audit on
+  `rf2-drpa3.182.12` demonstrated exactly that, re-anchoring at settle
+  time and finding the gap, the anchor and the nonnegative check all
+  still green. This asserts the arithmetic itself.
+
+  The comparison is EXACT and can afford to be. Both operands are
+  `measure/now-ms` readings on one clock and the tail is their retained
+  difference — a double subtraction reproduced, not a rounded chain of
+  them, which is why the two instants are published raw (origin-relative,
+  meaningful only as a difference) rather than rebased on the run start.
+  Rebasing would introduce two roundings and put slack in a check whose
+  whole value is that it has none. The interval a re-anchoring moves the
+  tail by is 4 to 33 ms; there is no tolerance to trade away.
+
+  C3 is deliberately left standing beside this rather than folded into
+  it. This says the tail was computed from the retained offer reading;
+  C3 says that reading is the immediately preceding interval. Escaping
+  one lands on the other."
+  [{:keys [tail-ms tail-offer-at-ms tail-observed-at-ms]}]
+  (and (number? tail-ms)
+       (number? tail-offer-at-ms)
+       (number? tail-observed-at-ms)
+       (== tail-ms (- tail-observed-at-ms tail-offer-at-ms))))
 
 ;; ===========================================================================
 ;; Publication
