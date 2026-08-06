@@ -68,6 +68,17 @@
 // both require every published bar to carry a band, and both are driven below
 // on the mixed-bar case that neither used to have.
 //
+// AND THEN THAT REPAIR'S REMAINDER, which #7550's merged-PR audit found: the
+// strict rule was asking TRUTHINESS, so absence read as cleanliness one level
+// down. A bar stored as `{}` — present, carrying no verdict at all — counted
+// as adjudicated in both seats. `rowAdjudication` returned `adjudicable: true`
+// beside an `unadjudicatedWhy` reading "the run adjudicated no bar on this row
+// at all", contradicting itself inside one returned object; `adjudicated`
+// returned true and the reader pooled the run into the published mean. A bar
+// stored as `null` did not even fail open — it threw. Both now require an
+// EXPLICIT `unadjudicated === false`, absence and null included, and the
+// fixtures for it are in both blocks below.
+//
 // Wired into implementation/package.json via `test:script-helpers`.
 
 const assert = require('node:assert');
@@ -501,6 +512,58 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.doesNotMatch(v.lines[1], /0 of 0/);
   });
 
+  // --- AND THE FIELD, not merely the bar set (#7550's merged-PR audit) ------
+  //
+  // The strict rule above still asked TRUTHINESS — `src[n].unadjudicated` —
+  // so absence read as cleanliness one level down: a bar the dataset stored
+  // as `{}` counted as adjudicated, and `rowAdjudication` returned
+  // `adjudicable: true` beside `unadjudicatedWhy: "the run adjudicated no bar
+  // on this row at all"`. A function contradicting itself inside one returned
+  // object is what a fail-open looks like from the inside. Reproduced against
+  // 57e0e68 before the repair, and driven here.
+
+  t('THE FIELD: a bar with NO `unadjudicated` field is unadjudicated — absent is not clean', () => {
+    const a = rowAdjudication({ 'h / r': ADJ, 'h / u': {} });
+    assert.strictEqual(a.adjudicable, false, 'a bar carrying no verdict has not been adjudicated');
+    assert.strictEqual(a.barCount, 2);
+    assert.deepStrictEqual(a.unadjudicatedBars, ['h / u']);
+    assert.strictEqual(a.unadjudicatedWhy, 'the bar carries no adjudication verdict at all');
+  });
+
+  t('a row of nothing but fieldless bars cannot exit 0, and it used to exit 0', () => {
+    // The exact shape the audit named: every bar `{}`, which before the repair
+    // produced `{adjudicable: true, unadjudicatedWhy: "the run adjudicated no
+    // bar on this row at all"}` and a green run.
+    const a = rowAdjudication({ 'h / r': {}, 'h / u': {} });
+    assert.strictEqual(a.adjudicable, false);
+    const v = reportability([clockRow({ rowId: 'keystroke', ...a })]);
+    assert.strictEqual(v.code, 1, 'a run that adjudicated nothing must not announce success');
+    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
+    assert.match(v.lines[1], /2 of 2 published bars carry no band \(h \/ r, h \/ u\)/);
+    assert.match(v.lines[1], /the bar carries no adjudication verdict at all/);
+  });
+
+  t('a bar stored as null or undefined is unadjudicated rather than a crash', () => {
+    // Truthiness dereferenced the record before testing it, so a null bar did
+    // not fail open — it threw `Cannot read properties of null`, which is a
+    // driver that dies mid-report rather than one that refuses.
+    for (const missing of [null, undefined]) {
+      const a = rowAdjudication({ 'h / r': ADJ, 'h / u': missing });
+      assert.strictEqual(a.adjudicable, false, `bar=${String(missing)} must not be adjudicable`);
+      assert.deepStrictEqual(a.unadjudicatedBars, ['h / u']);
+      assert.strictEqual(a.unadjudicatedWhy, 'the bar carries no adjudication verdict at all');
+    }
+  });
+
+  t('an EXPLICIT clean verdict is what adjudicates — the tightening is not vacuous', () => {
+    // Without this, everything above would pass if the rule returned false for
+    // every bar. `unadjudicated: false` is the one value that means adjudicated.
+    const a = rowAdjudication({ 'h / r': { unadjudicated: false }, 'h / u': { unadjudicated: false, why: 'x' } });
+    assert.strictEqual(a.adjudicable, true);
+    assert.deepStrictEqual(a.unadjudicatedBars, []);
+    assert.strictEqual(reportability([clockRow({ ...a })]).code, 0);
+  });
+
   // --- and the sentence that invited the publication -----------------------
 
   t('REPORTABLE no longer says "Publish those" without saying "adjudicated"', () => {
@@ -760,6 +823,47 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(reportable(undefined), false);
   });
 
+  // --- AND THE FIELD, which #7550's merged-PR audit found still open here ---
+  //
+  // The predicate asked `!bars[n].unadjudicated`, so a bar the FILE stored as
+  // `{}` — present, and carrying no verdict — read as adjudicated and the run
+  // was pooled into the published mean for every pair. This is the seat where
+  // it matters most: the driver reads an object built moments earlier in its
+  // own process, this program reads a file, and a file is where a field goes
+  // missing. Reproduced against 57e0e68 before the repair.
+
+  t('THE FIELD: a bar with no `unadjudicated` field keeps the run OUT of the subset', () => {
+    const row = dsRow({ 'h / r': ADJ, 'h / u': {} });
+    assert.strictEqual(adjudicated(row), false, 'a bar carrying no verdict has not been adjudicated');
+    assert.strictEqual(reportable(row), false, 'and a lost verdict may not reach the published mean');
+  });
+
+  t('a dataset whose every bar is fieldless is out, and it used to be IN', () => {
+    // The exact shape the audit named: `adjudicated` returned true, and with a
+    // passing control and no ceiling breach `reportable` returned true too.
+    const row = dsRow({ 'h / r': {}, 'h / u': {} });
+    assert.strictEqual(adjudicated(row), false);
+    assert.strictEqual(reportable(row), false);
+  });
+
+  t('a bar stored as null or undefined is out rather than a crash', () => {
+    // Truthiness dereferenced the record before testing it, so these threw
+    // `Cannot read properties of null` — a reader that dies over a dataset
+    // rather than one that declines to publish from it.
+    for (const missing of [null, undefined]) {
+      assert.strictEqual(adjudicated(dsRow({ 'h / r': ADJ, 'h / u': missing })), false, `bar=${String(missing)}`);
+      assert.strictEqual(reportable(dsRow({ 'h / r': ADJ, 'h / u': missing })), false, `bar=${String(missing)}`);
+    }
+  });
+
+  t('an EXPLICIT clean verdict is what pools a run — the tightening is not vacuous', () => {
+    // Without this, everything above would pass if the predicate always said
+    // false and no run would ever be published again.
+    const row = dsRow({ 'h / r': { unadjudicated: false }, 'h / u': { unadjudicated: false, band: 0.2 } });
+    assert.strictEqual(adjudicated(row), true);
+    assert.strictEqual(reportable(row), true);
+  });
+
   t('the OTHER two terms are unchanged — adjudication was ADDED, never substituted', () => {
     const bars = { 'h / r': ADJ, 'h / u': ADJ };
     // A failed control still excludes a fully adjudicated run ...
@@ -808,7 +912,10 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // pointing the other way.
     const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
     assert.match(body, /const barRec = \(row\.seamTask && row\.seamTask\.rows && row\.seamTask\.rows\[pair\]\)/);
-    assert.match(body, /const barUnadjudicated = barRec \? !!barRec\.unadjudicated/);
+    // ... and with `adjudicated`'s own token. A column reading `!!` beside a
+    // subset reading `=== false` would print "clears its band" for a silent
+    // bar the subset had just refused — the disagreement one field further in.
+    assert.match(body, /const barUnadjudicated = barRec \? barRec\.unadjudicated !== false/);
     // and the column's UNADJUDICATED branch is taken from THAT, not from the
     // row-wide band.
     assert.match(body, /: barUnadjudicated\s*\r?\n\s*\? 'UNADJUDICATED/);
