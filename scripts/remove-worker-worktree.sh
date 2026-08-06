@@ -44,6 +44,10 @@
 #   --force-disposable   force-remove ONLY when every untracked path is build
 #                        or gate output; refuse the tree otherwise. This is the
 #                        flag a bulk hygiene sweep wants.
+#   --husk       the paths given are HUSKS of worktrees of this repository —
+#                git already gutted them and left the files. Only then will an
+#                unregistered path be disarmed and classified; see below. Pass
+#                it alone, with the paths you have identified.
 #   --dry-run    report what would be disarmed/removed; change nothing
 #   --self-test  prove the disarm against a throwaway link in a temp dir
 #   --mayor-root <path> / RF2_MAYOR_ROOT   override mayor-root derivation
@@ -53,6 +57,7 @@
 #   CANARY_BEFORE=<path> <signature>        (one per real mayor node_modules)
 #   DISARMED=<link path> -> <target>        (one per link unlinked)
 #   NO_LINKS=<worktree path>                (when the worktree carried none)
+#   HUSK_PROVENANCE=<path> <what identified it>
 #   REMOVED=<worktree path>
 #   CANARY_AFTER=<path> <signature>
 #   OK: worktree removal complete.
@@ -63,14 +68,17 @@
 #   The exit codes split on WHAT THE CALLER SHOULD DO NEXT, which is the only
 #   thing a caller can act on:
 #     0  done.
-#     1  refused or failed, and the worktree is INTACT — this script is still
-#        the right tool (retry when the lock clears; --force-disposable for
-#        build output; a human for [KEEP] paths).
+#     1  refused or failed, and NOTHING was destroyed — this script is either
+#        still the right tool (retry when the lock clears; --force-disposable
+#        for build output; a human for [KEEP] paths) or the wrong one for a
+#        path it declines to identify.
 #     2  usage error.
 #     3  PARTIAL — the tree is already gutted and deregistered. This script
 #        can do nothing more with it; see REMOVE_PARTIAL below. 3 wins over 1
 #        when both occur in one run, because it is the outcome needing a
-#        different remedy.
+#        different remedy. Exit 3 is a CLAIM ABOUT PROVENANCE and is only ever
+#        reached when that provenance is established — never from a predicate
+#        that merely failed to recognise something.
 #
 #   A <signature> is `<immediate-entries>/<recursive-files>/<sentinels-present>`,
 #   e.g. `103/2933/2`. The recursive count and the sentinels are load-bearing:
@@ -107,6 +115,33 @@
 #   unaffected". Both entry points report it: a removal that fails this way,
 #   and a later invocation handed a path that is already a husk.
 #
+#   AND WHAT A HUSK IS *NOT*: MERELY AN UNREGISTERED DIRECTORY (rf2-k3j2w,
+#   second pass). "git does not list it and it has no `.git`" is true of a
+#   husk — and equally true of an ordinary project, a mistyped argument, and a
+#   directory that has never been anything else. The first version of the
+#   later-invocation path read that negative as proof. Handed a temp directory
+#   created seconds earlier it unlinked any node_modules inside it, declared
+#   it a DESTROYED TREE and recommended `rm -rf`: a destructive script
+#   confidently recommending the destruction of something it had misidentified.
+#   Reproduced on demand, `--dry-run` against a fresh empty directory, exit 3.
+#
+#   So the two entry points are no longer symmetric, because their EVIDENCE is
+#   not symmetric:
+#     - SAME INVOCATION — we called `git worktree remove` on a REGISTERED
+#       worktree and watched it fail. Provenance is known first-hand, so the
+#       classification stays automatic.
+#     - LATER INVOCATION — a path handed to us cold. Refused unless the caller
+#       says `--husk` AND the directory still holds a KILOBYTE of content this
+#       repository recognises as its own. Both are required. An acknowledgement
+#       is carried by a mistyped path exactly as willingly as by the right one,
+#       so the flag alone does not license the delete; and the content test is
+#       a read of git's own object database rather than a guess about names,
+#       shapes or locations. Bytes rather than a file count, because tiny files
+#       coincide — a throwaway `package.json` reading `{}` matched a blob of
+#       ours on the first run. `HUSK_PROVENANCE=` prints what was established.
+#   A REFUSAL TOUCHES NOTHING — no disarm, no advice, no delete. Every one of
+#   those acts presumes the identification that has just failed.
+#
 # Cross-platform: POSIX sh; runs under Git Bash on Windows, macOS, Linux.
 # No bashisms (`[[`, arrays, `<<<`).
 #
@@ -125,7 +160,15 @@ FORCE=0
 FORCE_DISPOSABLE=0
 DRY_RUN=0
 SELF_TEST=0
+HUSK=0
 MAYOR_ROOT="${RF2_MAYOR_ROOT:-}"
+
+# Absolute path to this script. --self-test invokes it as a subprocess to prove
+# what the MAIN LOOP does, and a relative $0 would not survive the fixtures.
+SCRIPT_SELF="$0"
+if _ss_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd); then
+  SCRIPT_SELF="$_ss_dir/$(basename "$0")"
+fi
 
 WORK_DIR=$(mktemp -d 2>/dev/null) || {
   printf 'remove-worker-worktree: could not create a temp dir.\n' >&2
@@ -140,6 +183,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --force)             FORCE=1; shift ;;
     --force-disposable)  FORCE_DISPOSABLE=1; shift ;;
+    --husk)      HUSK=1; shift ;;
     --dry-run)   DRY_RUN=1; shift ;;
     --self-test) SELF_TEST=1; shift ;;
     --mayor-root)   MAYOR_ROOT="${2:-}"; shift 2 ;;
@@ -257,6 +301,72 @@ worktree_is_intact() {
   [ -e "$1/.git" ] && git -C "$1" rev-parse --git-dir >/dev/null 2>&1
 }
 
+# Does this directory hold content that belongs to THIS repository?
+#
+# THE POSITIVE HALF of husk identification (rf2-k3j2w). "Unregistered, and no
+# `.git`" is a pair of NEGATIVES, and every ordinary directory on the machine
+# satisfies both. What actually distinguishes a husk is what it still CONTAINS:
+# the files git had checked out and did not get to delete.
+#
+# So this is a read of the repository's own object database, not a guess about
+# names, shapes or locations. Each top-level tracked FILE of the mayor's HEAD
+# that also exists in the candidate is hashed with the attributes git itself
+# would apply (`hash-object --path`, which is why a CRLF checkout still
+# matches), and the resulting blob is offered back to `cat-file -e`. A hit
+# means this repository has, at some commit, stored exactly those bytes under
+# exactly that name.
+#
+# `cat-file -e` rather than a compare against HEAD's blob is deliberate: a husk
+# was checked out at whatever commit its worker was on, and half its files will
+# differ from mayor HEAD. Any HISTORICAL version counts, which is what makes an
+# unrelated project score zero while a husk scores most of the roster.
+#
+# A MATCH COUNT IS NOT THE MEASURE; MATCHED BYTES ARE. A tiny file is not
+# evidence of anything, because tiny files coincide: the first version of this
+# counted files, and a throwaway directory holding a three-byte `package.json`
+# reading `{}` scored a hit against this repository, because `{}` is a blob
+# every second project has committed at some point. The empty blob is worse
+# still — it exists in every repository there is.
+#
+# So the criterion is a VOLUME of recognised content: at least
+# HUSK_PROVENANCE_MIN_BYTES of bytes this repository has stored under those
+# exact names. The floor is a stated one rather than a derived one, and it is
+# cheap to be wrong in either direction: any real checkout clears it on its
+# first substantial file (a wild husk found in the worktree parent matched 8
+# files and tens of kilobytes), while a husk stripped down to less than a
+# kilobyte of recognisable content is refused — and a directory with nothing
+# recognisable left in it is an ordinary directory, which the caller can delete
+# without this script's help.
+HUSK_PROVENANCE_MIN_BYTES=1024
+
+# Prints "<hits> <candidates> <matched-bytes> <first-matching-file>".
+repo_content_matches() {
+  _rcm_dir="$1"
+  _rcm_hits=0
+  _rcm_total=0
+  _rcm_bytes=0
+  _rcm_first=""
+  : > "$WORK_DIR/toplevel"
+  git -C "$MAYOR_ROOT" ls-tree HEAD 2>/dev/null \
+    | awk -F'\t' '{split($1, meta, " "); if (meta[2] == "blob") print $2}' \
+    >> "$WORK_DIR/toplevel" 2>/dev/null || true
+  while IFS= read -r _rcm_p; do
+    [ -n "$_rcm_p" ] || continue
+    _rcm_total=$((_rcm_total + 1))
+    [ -f "$_rcm_dir/$_rcm_p" ] || continue
+    [ -s "$_rcm_dir/$_rcm_p" ] || continue
+    _rcm_h=$(git -C "$MAYOR_ROOT" hash-object --path "$_rcm_p" -- "$_rcm_dir/$_rcm_p" 2>/dev/null) || continue
+    [ -n "$_rcm_h" ] || continue
+    git -C "$MAYOR_ROOT" cat-file -e "$_rcm_h" 2>/dev/null || continue
+    _rcm_sz=$(wc -c < "$_rcm_dir/$_rcm_p" 2>/dev/null | tr -d ' ') || _rcm_sz=0
+    [ -n "$_rcm_sz" ] || _rcm_sz=0
+    _rcm_hits=$((_rcm_hits + 1))
+    _rcm_bytes=$((_rcm_bytes + _rcm_sz))
+    [ -n "$_rcm_first" ] || _rcm_first="$_rcm_p"
+  done < "$WORK_DIR/toplevel"
+  printf '%s %s %s %s' "$_rcm_hits" "$_rcm_total" "$_rcm_bytes" "$_rcm_first"
+}
+
 # Is one `git status --porcelain` line safe to delete unreviewed?
 #
 # Only UNTRACKED (`??`) build and gate output qualifies. A modified tracked
@@ -342,6 +452,27 @@ disarm_link() {
   return 0
 }
 
+# --self-test ONLY. Make a link at $1 pointing at $2, by whatever means this
+# platform offers: `ln -s` is the POSIX answer, and under Git Bash it silently
+# COPIES unless MSYS=winsymlinks is set, so fall back to a native junction via
+# PowerShell — which needs Windows-shaped paths, hence cygpath. Returns
+# non-zero when neither yields a link, so the caller SKIPS that assertion
+# rather than claiming a pass it did not earn.
+make_test_link() {
+  _mtl_link="$1"
+  _mtl_target="$2"
+  ln -s "$_mtl_target" "$_mtl_link" 2>/dev/null || true
+  if [ ! -L "$_mtl_link" ]; then
+    rm -rf "$_mtl_link" 2>/dev/null || true
+    if command -v powershell >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+      powershell -NoProfile -Command \
+        "New-Item -ItemType Junction -Path '$(cygpath -w "$_mtl_link")' -Target '$(cygpath -w "$_mtl_target")' | Out-Null" \
+        >/dev/null 2>&1 || true
+    fi
+  fi
+  [ -L "$_mtl_link" ]
+}
+
 # Disarm every node_modules link under one worktree, before anything recursive
 # runs over it.
 #
@@ -408,6 +539,34 @@ report_husk() {
   printf '  rm -rf %s\n' "$1" >&2
 }
 
+# The refusals for a path this script declines to IDENTIFY (rf2-k3j2w, second
+# pass). Each says what was established and what was not, and each is followed
+# by nothing at all: no disarm, no classification, no delete advice.
+report_refused_unidentified() {
+  printf 'REFUSED_UNREGISTERED=%s\n' "$1" >&2
+  printf '  registered as a worktree : no\n' >&2
+  printf '  .git present             : no\n' >&2
+  printf '  content from this repo   : %s\n' "$2" >&2
+  printf 'The first two are true of a husk and equally true of an ordinary directory, a\n' >&2
+  printf 'mistyped path and an unrelated project, so they identify nothing on their own.\n' >&2
+  printf 'NOTHING HERE WAS TOUCHED.\n' >&2
+  printf 'If you know this is the husk of a worktree of this repository — git gutted it\n' >&2
+  printf 'and left the files standing — say so, and it will be disarmed and classified:\n' >&2
+  printf '  sh scripts/remove-worker-worktree.sh --husk %s\n' "$1" >&2
+}
+
+report_refused_not_husk() {
+  printf 'REFUSED_NOT_A_HUSK=%s\n' "$1" >&2
+  # %s, not a bare format: a format string starting with `--` is read as an
+  # end-of-options marker and printf fails, taking `set -e` with it.
+  printf '%s\n' '--husk claims this is the husk of a worktree of this repository, but its' >&2
+  printf 'contents do not come from one: %s.\n' "$2" >&2
+  printf 'A mistyped path carries the flag exactly as willingly as the right one, so the\n' >&2
+  printf 'acknowledgement does not overrule the evidence. NOTHING HERE WAS TOUCHED.\n' >&2
+  printf 'If it really is a gutted worktree with nothing recognisable left in it, then it\n' >&2
+  printf 'is an ordinary directory now and needs no special tool to delete.\n' >&2
+}
+
 report_remove_failure() {
   _rf_wt="$1"
   # A husk reads as CLEAN below — the git call fails and prints nothing — so
@@ -444,8 +603,12 @@ report_remove_failure() {
 #   2. Proves the canary SEES the damage the old immediate-entry count was
 #      blind to: files vanish from under every package while each package
 #      directory stays standing.
+#   3. Proves the husk DETECTOR against three husk shapes.
+#   4. Proves the later-invocation GUARD by invoking this script, for real,
+#      against fixtures a wrong answer would destroy — the negative direction
+#      first, because refusing is the behaviour that was missing.
 #
-# Never touches a real node_modules.
+# Never touches a real node_modules, and never this repository.
 # ---------------------------------------------------------------------------
 if [ "$SELF_TEST" -eq 1 ]; then
   ST_TARGET="$WORK_DIR/dummy-target"
@@ -456,33 +619,24 @@ if [ "$SELF_TEST" -eq 1 ]; then
   done
   ST_BEFORE=$(signature "$ST_TARGET")
 
-  # Make a link. `ln -s` is the POSIX answer; under Git Bash it silently
-  # COPIES instead of linking unless MSYS=winsymlinks is set, so fall back to
-  # a native junction via PowerShell — which needs Windows-shaped paths, hence
-  # cygpath. If neither yields a link we SKIP rather than claim a pass we did
-  # not earn.
-  ln -s "$ST_TARGET" "$ST_LINK" 2>/dev/null || true
-  if [ ! -L "$ST_LINK" ]; then
-    rm -rf "$ST_LINK" 2>/dev/null || true
-    if command -v powershell >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
-      powershell -NoProfile -Command \
-        "New-Item -ItemType Junction -Path '$(cygpath -w "$ST_LINK")' -Target '$(cygpath -w "$ST_TARGET")' | Out-Null" \
-        >/dev/null 2>&1 || true
+  # The link assertions SKIP on a platform that yields no link, but only THEY
+  # do. This used to `exit 0` for the whole run, which quietly took the husk
+  # detector and the later-invocation guard down with it — two suites that need
+  # no link at all and have nothing to skip for.
+  ST_LINK_OK=1
+  ST_AFTER="$ST_BEFORE"
+  if make_test_link "$ST_LINK" "$ST_TARGET"; then
+    printf 'SELF_TEST target=%s signature_before=%s\n' "$ST_TARGET" "$ST_BEFORE"
+    disarm_link "$ST_LINK" \
+      || die "SELF_TEST=FAILED the link survived the disarm: $ST_LINK"
+    ST_AFTER=$(signature "$ST_TARGET")
+    printf 'SELF_TEST link_removed=yes signature_after=%s\n' "$ST_AFTER"
+    if [ "$ST_AFTER" != "$ST_BEFORE" ]; then
+      die "SELF_TEST=FAILED the disarm deleted THROUGH the link: $ST_BEFORE -> $ST_AFTER."
     fi
-  fi
-  if [ ! -L "$ST_LINK" ]; then
-    printf 'SELF_TEST=SKIPPED (this platform produced no link to test against)\n'
-    printf 'Run scripts/remove-worker-worktree.ps1 -SelfTest on Windows instead.\n'
-    exit 0
-  fi
-
-  printf 'SELF_TEST target=%s signature_before=%s\n' "$ST_TARGET" "$ST_BEFORE"
-  disarm_link "$ST_LINK" \
-    || die "SELF_TEST=FAILED the link survived the disarm: $ST_LINK"
-  ST_AFTER=$(signature "$ST_TARGET")
-  printf 'SELF_TEST link_removed=yes signature_after=%s\n' "$ST_AFTER"
-  if [ "$ST_AFTER" != "$ST_BEFORE" ]; then
-    die "SELF_TEST=FAILED the disarm deleted THROUGH the link: $ST_BEFORE -> $ST_AFTER."
+  else
+    ST_LINK_OK=0
+    printf 'SELF_TEST link_disarm=SKIPPED (this platform produced no link to test against; run scripts/remove-worker-worktree.ps1 -SelfTest on Windows)\n'
   fi
 
   # The nested-loss case. This is the shape a partial recursive delete leaves
@@ -560,7 +714,155 @@ if [ "$SELF_TEST" -eq 1 ]; then
     die "SELF_TEST=FAILED could not build the throwaway husk fixtures under $ST_REPO, so the husk detector was never exercised."
   fi
 
-  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the canary caught nested-only loss, and a husk is not mistaken for a clean tree.\n' "$ST_AFTER"
+  # ---- THE LATER-INVOCATION GUARD (rf2-k3j2w, second pass), END TO END ----
+  #
+  # Helper-level assertions cannot reach this one. What failed was not a
+  # predicate but what the MAIN LOOP did with it: unlink a stranger's junction
+  # and recommend `rm -rf` on a directory it had never seen. So these fixtures
+  # go through REAL invocations of this script, against a throwaway repository,
+  # and the assertions are on exit codes and output — including, for the
+  # negative cases, that the fixture is still standing afterwards.
+  ST_G_REPO="$WORK_DIR/guard-repo"
+  ST_G_HUSK="$WORK_DIR/guard-husk"
+  ST_G_LIVE="$WORK_DIR/guard-live"
+  ST_G_PLAIN="$WORK_DIR/guard-plain"
+  ST_G_TINY="$WORK_DIR/guard-tiny"
+  ST_G_TARGET="$WORK_DIR/guard-target"
+  ST_G_LINK="$ST_G_PLAIN/implementation/node_modules"
+  ST_G_OUT="$WORK_DIR/guard-out"
+  mkdir -p "$ST_G_REPO" "$ST_G_PLAIN/implementation" "$ST_G_TINY" "$ST_G_TARGET"
+  for _i in 1 2 3 4 5; do
+    printf 'canary\n' > "$ST_G_TARGET/f$_i.txt"
+  done
+  # A populated ordinary directory: real files, real names, none of them ours.
+  printf 'from no repository at all\n' > "$ST_G_PLAIN/README.md"
+  printf '{ "name": "somebody-elses-project" }\n' > "$ST_G_PLAIN/package.json"
+  # And the NEAR MISS that a match COUNT could not see: an ordinary directory
+  # holding one three-byte file that genuinely does match a blob of ours,
+  # because `{}` is a blob half the projects on the machine have committed.
+  printf '{}\n' > "$ST_G_TINY/tiny.json"
+  ST_G_TGT_BEFORE=$(signature "$ST_G_TARGET")
+  # probe.txt is deliberately over the byte floor and unique to this run ($$),
+  # so the positive case has to earn its provenance rather than inherit it from
+  # some file every repository holds; tiny.json is deliberately under it.
+  ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+    cd "$ST_G_REPO" \
+      && git init -q . \
+      && { _i=0
+           while [ "$_i" -lt 64 ]; do
+             printf 'provenance probe %s line %s\n' "$$" "$_i" >> probe.txt
+             _i=$((_i + 1))
+           done; } \
+      && printf '{}\n' > tiny.json \
+      && git add probe.txt tiny.json \
+      && git -c user.email=selftest@example.invalid -c user.name=selftest \
+             commit -q -m init \
+      && git worktree add -q "$ST_G_HUSK" -b guard-probe-husk \
+      && git worktree add -q "$ST_G_LIVE" -b guard-probe-live ) >/dev/null 2>&1 || true
+  [ -e "$ST_G_HUSK/probe.txt" ] && [ -e "$ST_G_LIVE/.git" ] \
+    || die "SELF_TEST=FAILED could not build the later-invocation fixtures under $ST_G_REPO, so the guard went untested."
+  [ "$(wc -c < "$ST_G_HUSK/probe.txt" | tr -d ' ')" -gt "$HUSK_PROVENANCE_MIN_BYTES" ] \
+    || die "SELF_TEST=FAILED the positive fixture does not clear the provenance byte floor, so it proves nothing."
+  # Precisely what a partial removal leaves behind, in BOTH of its parts: the
+  # `.git` file gone AND the worktree deregistered. Deleting the `.git` alone
+  # leaves git still listing the path (as `prunable`), which is NOT the state
+  # seen in the wild and would let this fixture pass against a roster check it
+  # never really faced. `prune` is git's own deregistration and it leaves every
+  # other file standing — verified: `gitdir file points to non-existent
+  # location`, entry removed, contents untouched.
+  rm -f "$ST_G_HUSK/.git"
+  ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+    git -C "$ST_G_REPO" worktree prune ) >/dev/null 2>&1 || true
+  ST_G_LINK_OK=0
+  if make_test_link "$ST_G_LINK" "$ST_G_TARGET"; then
+    ST_G_LINK_OK=1
+  fi
+
+  # NEGATIVE 1 — an ordinary directory, unacknowledged. This is the case that
+  # was reproduced against main: exit 3, "THIS IS A DESTROYED TREE", `rm -rf`.
+  ST_G_RC=0
+  sh "$SCRIPT_SELF" --mayor-root "$ST_G_REPO" "$ST_G_PLAIN" > "$ST_G_OUT" 2>&1 || ST_G_RC=$?
+  [ "$ST_G_RC" -eq 1 ] \
+    || die "SELF_TEST=FAILED an ordinary directory exited $ST_G_RC, want 1 (a refusal). Output: $(cat "$ST_G_OUT")"
+  grep -q '^REFUSED_UNREGISTERED=' "$ST_G_OUT" \
+    || die "SELF_TEST=FAILED an ordinary directory was not refused by name. Output: $(cat "$ST_G_OUT")"
+  if grep -qE 'REMOVE_PARTIAL=|DESTROYED TREE|rm -rf ' "$ST_G_OUT"; then
+    die "SELF_TEST=FAILED an ordinary directory was called a destroyed tree or handed a recursive delete. Output: $(cat "$ST_G_OUT")"
+  fi
+  if grep -q '^DISARMED=' "$ST_G_OUT"; then
+    die "SELF_TEST=FAILED a refused directory had a link disarmed anyway. Output: $(cat "$ST_G_OUT")"
+  fi
+  [ -f "$ST_G_PLAIN/README.md" ] \
+    || die "SELF_TEST=FAILED a refused directory lost files."
+  if [ "$ST_G_LINK_OK" -eq 1 ]; then
+    [ -L "$ST_G_LINK" ] \
+      || die "SELF_TEST=FAILED a refused directory's link was removed: $ST_G_LINK"
+    [ "$(signature "$ST_G_TARGET")" = "$ST_G_TGT_BEFORE" ] \
+      || die "SELF_TEST=FAILED a refused directory's link target lost entries."
+  fi
+
+  # NEGATIVE 2 — the same ordinary directory WITH the acknowledgement. The flag
+  # is what a mistyped path carries too, so it must not be sufficient on its own.
+  ST_G_RC=0
+  sh "$SCRIPT_SELF" --mayor-root "$ST_G_REPO" --husk "$ST_G_PLAIN" > "$ST_G_OUT" 2>&1 || ST_G_RC=$?
+  [ "$ST_G_RC" -eq 1 ] \
+    || die "SELF_TEST=FAILED --husk on an ordinary directory exited $ST_G_RC, want 1. Output: $(cat "$ST_G_OUT")"
+  grep -q '^REFUSED_NOT_A_HUSK=' "$ST_G_OUT" \
+    || die "SELF_TEST=FAILED --husk on an ordinary directory was not refused on the evidence. Output: $(cat "$ST_G_OUT")"
+  if grep -qE '^DISARMED=|rm -rf ' "$ST_G_OUT"; then
+    die "SELF_TEST=FAILED --husk alone was enough to disarm or condemn an ordinary directory. Output: $(cat "$ST_G_OUT")"
+  fi
+  if [ "$ST_G_LINK_OK" -eq 1 ]; then
+    [ -L "$ST_G_LINK" ] \
+      || die "SELF_TEST=FAILED --husk removed a refused directory's link."
+    [ "$(signature "$ST_G_TARGET")" = "$ST_G_TGT_BEFORE" ] \
+      || die "SELF_TEST=FAILED --husk deleted through a refused directory's link."
+  fi
+
+  # NEGATIVE 3 — an ordinary directory whose one tiny file DOES match a blob of
+  # ours. This is the case a match count called provenance: found while proving
+  # the guard, against a throwaway `package.json` holding `{}`.
+  ST_G_RC=0
+  sh "$SCRIPT_SELF" --mayor-root "$ST_G_REPO" --husk "$ST_G_TINY" > "$ST_G_OUT" 2>&1 || ST_G_RC=$?
+  [ "$ST_G_RC" -eq 1 ] \
+    || die "SELF_TEST=FAILED a lone tiny coincidental blob bought a husk classification (exit $ST_G_RC, want 1). Output: $(cat "$ST_G_OUT")"
+  grep -q '^REFUSED_NOT_A_HUSK=' "$ST_G_OUT" \
+    || die "SELF_TEST=FAILED the byte floor did not refuse a tiny coincidental match. Output: $(cat "$ST_G_OUT")"
+
+  # NEGATIVE 4 — --husk sprayed at a LIVE registered worktree. The likeliest way
+  # for the flag to be wrong is a caller applying it to a whole sweep list.
+  ST_G_RC=0
+  sh "$SCRIPT_SELF" --mayor-root "$ST_G_REPO" --husk "$ST_G_LIVE" > "$ST_G_OUT" 2>&1 || ST_G_RC=$?
+  [ "$ST_G_RC" -eq 1 ] \
+    || die "SELF_TEST=FAILED --husk on a registered worktree exited $ST_G_RC, want 1. Output: $(cat "$ST_G_OUT")"
+  grep -q '^REFUSED_HUSK_IS_REGISTERED=' "$ST_G_OUT" \
+    || die "SELF_TEST=FAILED --husk on a registered worktree was not refused. Output: $(cat "$ST_G_OUT")"
+  [ -e "$ST_G_LIVE/.git" ] \
+    || die "SELF_TEST=FAILED a live worktree was gutted by a --husk claim."
+
+  # POSITIVE — a REAL husk, acknowledged. The guard must not have cost the one
+  # case the husk path exists for: it is still classified, still disarmed first,
+  # and still exits 3.
+  ST_G_RC=0
+  sh "$SCRIPT_SELF" --mayor-root "$ST_G_REPO" --husk "$ST_G_HUSK" > "$ST_G_OUT" 2>&1 || ST_G_RC=$?
+  [ "$ST_G_RC" -eq 3 ] \
+    || die "SELF_TEST=FAILED an acknowledged husk exited $ST_G_RC, want 3. Output: $(cat "$ST_G_OUT")"
+  grep -q '^HUSK_PROVENANCE=' "$ST_G_OUT" \
+    || die "SELF_TEST=FAILED a husk was classified without naming what identified it. Output: $(cat "$ST_G_OUT")"
+  grep -q '^REMOVE_PARTIAL=' "$ST_G_OUT" \
+    || die "SELF_TEST=FAILED an acknowledged husk was not reported as a partial removal. Output: $(cat "$ST_G_OUT")"
+
+  printf 'SELF_TEST later_invocation guard=yes (ordinary dir REFUSED untouched; --husk alone REFUSED on the evidence; a lone tiny coincidental blob REFUSED by the byte floor; --husk on a live worktree REFUSED; a real husk still classified exit 3 with provenance named)\n'
+
+  if [ "$ST_LINK_OK" -eq 0 ]; then
+    # The verdict CI greps for is withheld, exactly as it was before the link
+    # assertions were made skippable: everything else passed, but a run that
+    # could not test the disarm has not proven the thing this script exists for.
+    printf 'SELF_TEST=SKIPPED the disarm went untested on this platform (no link could be created); every other assertion passed.\n'
+    exit 0
+  fi
+
+  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the canary caught nested-only loss, a husk is not mistaken for a clean tree, and an unidentified directory is refused rather than condemned.\n' "$ST_AFTER"
   exit 0
 fi
 
@@ -637,22 +939,65 @@ while IFS= read -r raw_target; do
     die "Refusing to remove the MAYOR checkout: $WT"
   fi
 
+  # --husk is a claim about a path git has ALREADY let go of. Applied to a
+  # registered worktree it is simply false, and the likeliest way for it to
+  # become false is a caller spraying the flag across a whole sweep list. So
+  # the contradiction is refused rather than quietly ignored.
+  if [ "$HUSK" -eq 1 ] && grep -Fxq "$(to_lower "$WT")" "$WORK_DIR/roster"; then
+    printf 'REFUSED_HUSK_IS_REGISTERED=%s\n' "$WT" >&2
+    printf 'git still lists this as a worktree, so it is not a husk. NOTHING WAS TOUCHED —\n' >&2
+    printf 're-run without --husk to remove it normally. --husk is for paths git has\n' >&2
+    printf 'already let go of; pass it alone, with the husks you have identified.\n' >&2
+    FAILED=1
+    continue
+  fi
+
   # Refuse anything git does not know as a linked worktree. This script never
   # deletes a directory itself; if git will not remove it, neither will we.
   #
-  # One unregistered path is NOT a mistyped argument, and saying so is the
-  # difference between an actionable message and a wild goose chase: a HUSK
-  # left by an earlier partial removal is deregistered BY DEFINITION, so the
-  # old advice here ("run 'git worktree prune'") sent the caller after an
-  # entry that had already been cleared (rf2-k3j2w). Disarm it and name it.
+  # AND REFUSING IS THE DEFAULT HERE, because "git does not list it" is a fact
+  # about git, not about the directory (rf2-k3j2w, second pass). A husk is
+  # deregistered by definition — and so is every directory that was never a
+  # worktree. The version that inferred a husk from that negative alone
+  # disarmed and condemned an ordinary temp directory. Identification now needs
+  # a positive: the caller's --husk AND content this repository recognises.
   if ! grep -Fxq "$(to_lower "$WT")" "$WORK_DIR/roster"; then
-    if [ -d "$WT" ] && ! worktree_is_intact "$WT"; then
-      disarm_worktree_links "$WT"
-      report_husk "$WT"
-      PARTIAL=1
+    if [ ! -d "$WT" ]; then
+      printf 'REFUSED_UNREGISTERED=%s (no such directory)\n' "$WT" >&2
+      printf "Nothing was touched. Check the path; 'git worktree list' shows what is registered.\n" >&2
+      FAILED=1
       continue
     fi
-    die "Not a registered worktree of $MAYOR_ROOT: $WT (run 'git worktree list'; 'git worktree prune' clears stale entries)."
+    if worktree_is_intact "$WT"; then
+      printf 'REFUSED_UNREGISTERED=%s\n' "$WT" >&2
+      printf 'It has a working .git and git answers for it, so it is some OTHER checkout —\n' >&2
+      printf 'neither a worktree of %s nor a husk. Nothing was touched.\n' "$MAYOR_ROOT" >&2
+      FAILED=1
+      continue
+    fi
+    PROV=$(repo_content_matches "$WT")
+    PROV_HITS=${PROV%% *}
+    PROV_REST=${PROV#* }
+    PROV_TOTAL=${PROV_REST%% *}
+    PROV_REST=${PROV_REST#* }
+    PROV_BYTES=${PROV_REST%% *}
+    PROV_FILE=${PROV_REST#* }
+    PROV_SUMMARY="$PROV_HITS of $PROV_TOTAL top-level tracked files match a blob this repository knows, $PROV_BYTES bytes (floor $HUSK_PROVENANCE_MIN_BYTES)"
+    if [ "$HUSK" -eq 0 ]; then
+      report_refused_unidentified "$WT" "$PROV_SUMMARY"
+      FAILED=1
+      continue
+    fi
+    if [ "$PROV_BYTES" -lt "$HUSK_PROVENANCE_MIN_BYTES" ]; then
+      report_refused_not_husk "$WT" "$PROV_SUMMARY"
+      FAILED=1
+      continue
+    fi
+    printf 'HUSK_PROVENANCE=%s %s (e.g. %s)\n' "$WT" "$PROV_SUMMARY" "$PROV_FILE"
+    disarm_worktree_links "$WT"
+    report_husk "$WT"
+    PARTIAL=1
+    continue
   fi
 
   # 1. Disarm every link, before anything recursive runs over the tree.
