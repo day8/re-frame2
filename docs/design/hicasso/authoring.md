@@ -197,8 +197,11 @@ non-forfeitable — a merge cannot reach an owned literal, so there is no wrong
 choice of syntax to make. The case where a caller override *should* win is spelled
 by not writing the literal.
 
-Three details. `:key` and `:ref` are never taken from a `:&` map (they address the
-element the caller wrote). The same key and the same law hold at a crossing — a
+Three details. `:key`, `:ref` and `::h/revision` are never taken from a `:&` map
+(they address the element the caller wrote, and a remainder that carries a
+`::h/revision` is refused loudly rather than quietly ignored — it would
+otherwise be asking to force a re-baseline on a field whose author never wrote
+one). The same key and the same law hold at a crossing — a
 view head, a `defhost` head, `[:>]` — because `:&` is merged before any conversion
 and the conversion that follows is the position's own, so a forwarded `:className`
 crosses under the name it was written as. And an element's own classes belong on
@@ -234,6 +237,47 @@ against. **Witnessed on Chromium only** — the harness drives composition over
 CDP, which is Chromium's protocol. On the lean-React arm the
 end-of-discrete-event restore is React's; a PATCH back end must own it
 (architecture.md, hard gate).
+
+### Resetting a field — `::h/revision`, the third reserved key
+
+Resets are by **explicit caller revision, never value equality** (HD-019's law,
+kept from D016). `::h/revision` is where that law is spelled at the element:
+
+```clojure
+[:input {:value    (sub [:editor/field id])
+         ::h/revision (sub [:editor/baseline-id id])
+         :on-input [:editor/edit-field id ::h/value]}]
+```
+
+A change to the revision re-baselines the field to the model **without
+remount** — the node, the focus and the selection survive, and the caret lands
+at end-of-model on the commit carrying the reset. A `:value` that changes under
+an *unchanged* revision continues the draft rather than resetting it, which is
+what makes the distinction explicit rather than guessed. The comparison is `=`,
+so equal-but-fresh values are inert.
+
+**Write a revision the way you would write an instance key**: a domain fact
+your events put in `app-db` — a record id, a load generation, a "form opened
+at" stamp. Never a render-order index, never a counter minted in render, never
+`random-uuid`; each of those resets the field on every render.
+
+Three limits, stated rather than discovered. A revision arriving **during a
+live IME composition defers to the exchange's close**, like everything else on
+this path — the model is correct throughout, the glass is not, and there is no
+cancel primitive to do better with. On an *accepting* field a post-bump edit
+**supersedes** the reset by ordinary event order, so the close lands the
+then-current model rather than the model the reset produced. And the spelling
+is matched **exactly**: a bare `:revision` is not this prop, and becomes an
+ordinary DOM attribute — silently, and with a namespaced keyword's namespace
+deleted on the way, so `:rev/a` and `:other/a` both show as `revision="a"` in
+devtools. On anything that is not a controlled `<input>`/`<textarea>` the prop
+is a loud refusal, `:rf.error/hicasso-revision-not-controlled` — including a
+value-less checkbox, though a checkbox carrying a form-submission `value` is
+accepted and the revision is simply inert there.
+
+This is the single prop and nothing more: no commit/cancel intents, no
+acknowledgement that the reset landed, no caret-policy knobs. The post-v0
+buffered-controls ladder **consumes** this trigger; it never extends it.
 
 ## The interop door (HD-011)
 
