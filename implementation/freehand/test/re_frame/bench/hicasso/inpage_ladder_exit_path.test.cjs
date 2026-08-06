@@ -235,6 +235,134 @@ test('a REFUSAL can never reach the exit as an empty problem list', () => {
   assert.ok(out.problems.length > 0, 'a refusing guard must contribute at least one problem');
 });
 
+// --- the raw shape, and the NaN that used to pass -------------------------
+//
+// rf2-409ab audit item 2. The command exited 0, printed "every published
+// aggregate reproduces", and emitted `NaN` across five cells — because the
+// arm roster was derived from the rows that survived, and because every
+// comparison against a NaN is false.
+//
+// EVERY FIXTURE BELOW IS BUILT IN-TEST from the tracked dataset text, never
+// asserted about the checkout. That is the CRLF tests' model above and it is
+// deliberate: an earlier version of one of those asserted a fact about git's
+// checkout settings, passed on Windows and failed on Linux CI.
+
+/** Every `[round :arm ms]` row for one arm, gone; the stored block stays. */
+const stripArm = (text, arm) =>
+  text.replace(new RegExp(`\\[\\d+ :${arm} -?[0-9.]+\\] ?`, 'g'), '');
+/** Every row of one round, gone. */
+const stripRound = (text, r) =>
+  text.replace(new RegExp(`\\[${r} :[A-Za-z0-9-]+ -?[0-9.]+\\] ?`, 'g'), '');
+
+test('THE CONTRACT IS THE COMMITTED DATA\'S OWN SHAPE, on all four runs', () => {
+  // The constants are asserted, not derived — so they must be checked against
+  // the data once, here. If a future dataset legitimately changes shape this
+  // goes red and the constants move WITH the measurement; what it forbids is
+  // loosening them to accommodate data that lost rows.
+  assert.strictEqual(agg.ARMS.length, 15);
+  assert.strictEqual(agg.ROUNDS_PER_RUN, 6);
+  assert.strictEqual(agg.SAMPLES_PER_CELL, 10);
+  assert.strictEqual(agg.RAW_ROWS, 900);
+  assert.strictEqual(new Set(agg.ARMS).size, 15, 'the roster carries no duplicate');
+  for (const r of RUNS) {
+    const raw = agg.rounds(agg.readMap(read(r), 'rounds'));
+    assert.strictEqual(raw.length, 900, `run${r}: 900 raw rows`);
+    assert.deepStrictEqual(
+      [...new Set(raw.map((x) => x.arm))].sort(),
+      [...agg.ARMS].sort(),
+      `run${r}: the roster this file asserts must be the roster the run took`
+    );
+    assert.deepStrictEqual(
+      [...new Set(raw.map((x) => x.round))].sort((a, b) => a - b),
+      [0, 1, 2, 3, 4, 5],
+      `run${r}: round ids`
+    );
+    const n = new Map();
+    for (const x of raw) n.set(`${x.round}|${x.arm}`, (n.get(`${x.round}|${x.arm}`) || 0) + 1);
+    assert.strictEqual(n.size, 90, `run${r}: 15 arms x 6 rounds = 90 cells`);
+    assert.deepStrictEqual([...new Set(n.values())], [10], `run${r}: 10 samples in every cell`);
+  }
+});
+
+test('THE FAIL-OPEN: an arm stripped from the raw rounds REFUSES', () => {
+  // The audit's own mutation, verbatim: remove every run-A `:noreads` RAW
+  // row and leave its stored summary block in place. This exited 0.
+  const text = stripArm(read('A'), 'noreads');
+  assert.ok(!/\[\d+ :noreads /.test(text), 'no raw :noreads row survives the mutation');
+  assert.ok(/:noreads \{:n /.test(text), 'and its stored summary block is untouched');
+
+  const out = agg.checkRun('A', text);
+  assert.ok(
+    out.problems.some((p) => /arm :noreads is ABSENT from the raw rounds/.test(p)),
+    `an absent arm must be named as absent; got: ${out.problems.join(' | ')}`
+  );
+  // And the second half of the defect: the terms that went NaN must refuse on
+  // their non-finiteness rather than compare equal to their stored values.
+  for (const term of ['h-reads+commit', 'h-memo-fiber']) {
+    assert.ok(
+      out.problems.some((p) =>
+        p.includes(`:${term} recomputes to NaN, which is not a finite number`)),
+      `:${term} must refuse as non-finite; got: ${out.problems.join(' | ')}`
+    );
+  }
+  assert.ok(
+    out.problems.some((p) => /no arm mean recomputed for :noreads/.test(p)),
+    'and the refusal must name what was absent, not merely that arithmetic failed'
+  );
+});
+
+test('the NaN trap is real — an equality check on one reads as AGREEMENT', () => {
+  // Why finiteness is tested BEFORE the comparison and not by it. This is the
+  // exact expression `checkRun` runs against every stored figure.
+  assert.ok(!(Math.abs(1.2345 - NaN) > agg.EPS), 'NaN comparisons are all false');
+});
+
+test('a whole round missing from the raw rounds REFUSES', () => {
+  const out = agg.checkRun('A', stripRound(read('A'), 4));
+  assert.ok(
+    out.problems.some((p) => /raw rounds carry 750 samples, the contract is 900/.test(p)),
+    `the row count must be checked; got: ${out.problems.slice(0, 3).join(' | ')}`
+  );
+  assert.ok(
+    out.problems.some((p) => /runA\/noreads: no samples at all in round\(s\) 4/.test(p)),
+    'and the empty round must be named per arm'
+  );
+});
+
+test('a cell that is not exactly 10 samples REFUSES — short OR long', () => {
+  const short = agg.checkRun('A', read('A').replace(/\[0 :bare -?[0-9.]+\] /, ''));
+  assert.ok(
+    short.problems.some((p) => /runA\/bare: round 0 carries 9 samples, the contract is 10/.test(p)),
+    `a dropped sample must refuse; got: ${short.problems.slice(0, 3).join(' | ')}`
+  );
+  const long = agg.checkRun('A', read('A').replace(/(\[0 :bare -?[0-9.]+\] )/, '$1$1'));
+  assert.ok(
+    long.problems.some((p) => /runA\/bare: round 0 carries 11 samples, the contract is 10/.test(p)),
+    `a duplicated sample must refuse too; got: ${long.problems.slice(0, 3).join(' | ')}`
+  );
+});
+
+test('an arm outside the roster REFUSES rather than joining it', () => {
+  const out = agg.checkRun('A', read('A').replace('[[0 :nohiccup', '[[0 :bogus 1.0] [0 :nohiccup'));
+  assert.ok(
+    out.problems.some((p) => /raw rounds carry :bogus, which is not one of the 15 ladder arms/.test(p)),
+    `an unknown arm must refuse; got: ${out.problems.slice(0, 3).join(' | ')}`
+  );
+});
+
+test('a control ratio that recomputes non-finite REFUSES', () => {
+  // The per-round ratio is taken over the CONTRACT's six rounds, so a floor
+  // absent from one round makes that round's ratio NaN instead of quietly
+  // averaging the five that survived.
+  const text = read('A').replace(/\[3 :floor -?[0-9.]+\] /g, '');
+  const out = agg.checkRun('A', text);
+  assert.ok(
+    out.problems.some((p) =>
+      /:ratio-to-floor :ctl-2x :mean recomputes to NaN, which is not a finite number/.test(p)),
+    `a non-finite control ratio must refuse; got: ${out.problems.slice(0, 4).join(' | ')}`
+  );
+});
+
 // --- the wiring -----------------------------------------------------------
 
 test('the aggregate is requirable without running, and exits from `main`', () => {

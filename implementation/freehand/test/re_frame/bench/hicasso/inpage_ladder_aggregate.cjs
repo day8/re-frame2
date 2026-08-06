@@ -10,11 +10,15 @@
 //
 //   node implementation/freehand/test/re_frame/bench/hicasso/inpage_ladder_aggregate.cjs
 //
-// Exit 0  every run's stored aggregates reproduce from its own raw rounds,
-//         its positive control met its own arithmetic, its arm order was
-//         clean, and the ensemble table below is the studio page's.
+// Exit 0  every run presents the whole raw shape this instrument published,
+//         its stored aggregates reproduce from its own raw rounds, no
+//         recomputed figure is non-finite, its positive control met its own
+//         arithmetic, its arm order was clean, and the ensemble table below is
+//         the studio page's.
 // Exit 1  a disagreement, a missing dataset, or a run that recorded a guard
-//         refusal or a failed control.
+//         refusal or a failed control; raw rounds that are not the shape this
+//         instrument published; or any figure that recomputes to a non-finite
+//         number.
 //
 // ## The last two clauses of that promise were never computed (rf2-bml5u)
 //
@@ -41,6 +45,31 @@
 // never run; it is not the place to also change the rule it reconstructs, so
 // it applies the OVERLAP rule the page applied and no other. A tighter
 // prospective policy is that open ruling's to make.
+//
+// ## And it FAILED OPEN on a structural omission (rf2-409ab, audit item 2)
+//
+// A third defect, and the one that matters most for a command whose whole
+// job is to refuse. The audit's own mutation: strip every run-A `:noreads`
+// RAW row and leave its stored summary block untouched. This file exited 0
+// and printed "every published aggregate reproduces" while emitting `NaN`
+// across `h-reads+commit`, `h-memo-fiber`, `reads`, `shell+memo` and
+// `residual`.
+//
+// Two causes compounded, and both are fixed below.
+//
+// **The arm set was DERIVED from whatever rows survived.** `[...new
+// Set(raw.map(x => x.arm))]` cannot report a missing arm, because a wholly
+// absent arm is not a missing arm to it — it is simply not an arm. A verifier
+// that lets the data choose the roster verifies the data against itself. The
+// roster, the round count and the samples-per-cell are now a CONTRACT
+// (`ARMS`/`ROUNDS_PER_RUN`/`SAMPLES_PER_CELL`), measured off all four
+// committed datasets and asserted, not inferred.
+//
+// **Every comparison against a NaN is false.** `Math.abs(stored - NaN) > EPS`
+// is false, so an equality test on a figure that failed to recompute reads as
+// AGREEMENT. Non-finiteness is therefore tested BEFORE the figure is compared,
+// and the refusal names the arms that produced no mean — what was absent,
+// rather than the arithmetic's symptom.
 
 const fs = require('fs');
 const path = require('path');
@@ -63,6 +92,31 @@ const CTL_PREDICTED = 1.9759;
 const CONTROL_SLACK = 0.25;
 // `lane/guard!`'s default, which is the tolerance the page ran at.
 const GUARD_TOLERANCE = 0.1;
+
+// --- THE RAW SHAPE, ASSERTED RATHER THAN DERIVED (rf2-409ab) --------------
+//
+// `inpage_ladder_app.cljs` runs a fixed ladder: 15 arms interleaved within
+// each sample index, 6 rounds, 10 post-warm-up samples per arm per round.
+// Every one of the four committed datasets presents exactly that — 900 raw
+// rows, the same roster, round ids 0–5, 10 samples in all 90 cells — and the
+// figures the studio page publishes are only meaningful over the whole shape.
+// So it is stated here and checked, because the alternative is to read it off
+// the surviving rows, and rows that were removed cannot say they are missing.
+//
+// The 14 ladder arms are exactly the operands `decompose` subtracts, plus the
+// `ctl-2x` positive control.
+const ARMS = [
+  'floor', 'bare',
+  'hicasso', 'local', 'nolink', 'nohiccup', 'nowalk', 'noreads', 'nomemo',
+  'coarse',
+  'uix', 'uixlocal', 'uixnolink', 'uixbare',
+  'ctl-2x',
+];
+const ARM_SET = new Set(ARMS);
+const ROUNDS_PER_RUN = 6;
+const ROUND_IDS = Array.from({ length: ROUNDS_PER_RUN }, (_, i) => i);
+const SAMPLES_PER_CELL = 10;
+const RAW_ROWS = ARMS.length * ROUNDS_PER_RUN * SAMPLES_PER_CELL; // 900
 
 // --- the two EDN shapes this file reads, and nothing more general ---------
 
@@ -245,6 +299,63 @@ function guardSamples(raw) {
   }));
 }
 
+// --- the raw shape, checked against the contract --------------------------
+
+/**
+ * Every way one run's raw rounds can fail to be the shape this instrument
+ * published: a row count that is not 900, an arm or a round id outside the
+ * contract, an arm absent from the run or from a round, and a cell that does
+ * not carry exactly 10 samples (which catches a dropped sample and a
+ * duplicated one alike).
+ *
+ * Driven by `ARMS` x `ROUND_IDS`, never by the surviving rows — that
+ * direction is the whole point. An absent arm is invisible to a roster
+ * derived from the data, and it was exactly the omission that used to exit 0.
+ */
+function shapeProblems(runId, raw) {
+  const problems = [];
+  const n = new Map(); // "round|arm" -> count
+  const strayArms = new Set();
+  const strayRounds = new Set();
+  for (const x of raw) {
+    if (!ARM_SET.has(x.arm)) strayArms.add(x.arm);
+    if (!ROUND_IDS.includes(x.round)) strayRounds.add(x.round);
+    const k = `${x.round}|${x.arm}`;
+    n.set(k, (n.get(k) || 0) + 1);
+  }
+
+  if (raw.length !== RAW_ROWS)
+    problems.push(
+      `run${runId}: raw rounds carry ${raw.length} samples, the contract is ${RAW_ROWS} ` +
+        `(${ARMS.length} arms x ${ROUNDS_PER_RUN} rounds x ${SAMPLES_PER_CELL} samples)`
+    );
+  for (const a of [...strayArms].sort())
+    problems.push(`run${runId}: raw rounds carry :${a}, which is not one of the ${ARMS.length} ladder arms`);
+  for (const r of [...strayRounds].sort((x, y) => x - y))
+    problems.push(`run${runId}: raw rounds carry round ${r}, outside 0–${ROUNDS_PER_RUN - 1}`);
+
+  for (const a of ARMS) {
+    const empty = ROUND_IDS.filter((r) => !n.has(`${r}|${a}`));
+    if (empty.length === ROUNDS_PER_RUN) {
+      problems.push(
+        `run${runId}: arm :${a} is ABSENT from the raw rounds — the roster is a contract, ` +
+          'not whatever survived'
+      );
+      continue;
+    }
+    if (empty.length)
+      problems.push(`run${runId}/${a}: no samples at all in round(s) ${empty.join(', ')}`);
+    for (const r of ROUND_IDS) {
+      const c = n.get(`${r}|${a}`);
+      if (c !== undefined && c !== SAMPLES_PER_CELL)
+        problems.push(
+          `run${runId}/${a}: round ${r} carries ${c} samples, the contract is ${SAMPLES_PER_CELL}`
+        );
+    }
+  }
+  return problems;
+}
+
 // --- one run --------------------------------------------------------------
 
 /**
@@ -260,11 +371,15 @@ function checkRun(runId, text) {
   const storedDec = scalarMap(readMap(text, 'decomposition'));
   const storedRatio = readMap(text, 'ratio-to-floor');
 
-  const arms = [...new Set(raw.map((x) => x.arm))];
+  // BEFORE ANY FIGURE IS COMPARED: is this the run the page took? A shape
+  // failure does not stop the comparisons below — they still run and still
+  // report — but it can no longer be answered by silence.
+  problems.push(...shapeProblems(runId, raw));
+
   const tmean = {};
-  for (const a of arms) {
+  for (const a of ARMS) {
     const xs = raw.filter((x) => x.arm === a).map((x) => x.ms);
-    tmean[a] = trimmedMean(xs);
+    tmean[a] = trimmedMean(xs); // NaN when the arm carries no samples at all
     // The stored per-arm block must reproduce from the same raw samples.
     // `:min` and `:max` are checked too, and they are not decoration: the
     // trimmed mean deliberately discards the extremes, so a corrupted
@@ -280,6 +395,10 @@ function checkRun(runId, text) {
     }
     if (Number(blk[1]) !== xs.length)
       problems.push(`run${runId}/${a}: stored n=${blk[1]}, raw rounds carry ${xs.length}`);
+    // An absent arm has already been named above, and `Math.min` of nothing
+    // is `Infinity` — comparing against that would bury the real finding
+    // under four lines of arithmetic noise.
+    if (xs.length === 0) continue;
     if (Math.abs(Number(blk[2]) - Math.min(...xs)) > EPS)
       problems.push(`run${runId}/${a}: stored min ${blk[2]} != recomputed ${round4(Math.min(...xs))}`);
     if (Math.abs(Number(blk[3]) - Math.max(...xs)) > EPS)
@@ -290,10 +409,25 @@ function checkRun(runId, text) {
       problems.push(`run${runId}/${a}: stored tmean ${blk[5]} != recomputed ${round4(tmean[a])}`);
   }
 
+  // NON-FINITE IS A REFUSAL, NOT A COMPARISON (rf2-409ab). `Math.abs(stored -
+  // NaN) > EPS` is FALSE, so a term that failed to recompute used to read as
+  // agreement and print as `NaN` in a published cell under an exit 0. Test
+  // finiteness first, and name the arms that produced no mean — that is what
+  // was absent; the NaN is only where it surfaced. Every cell of the ensemble
+  // table is one of these terms, so a finite decomposition per run is what
+  // makes the printed table finite.
+  const noMean = ARMS.filter((a) => !Number.isFinite(tmean[a]));
   const dec = decompose(tmean);
   for (const [k, v] of Object.entries(dec)) {
     if (!(k in storedDec)) {
       problems.push(`run${runId}: decomposition has no :${k}`);
+      continue;
+    }
+    if (!Number.isFinite(v)) {
+      problems.push(
+        `run${runId}: :${k} recomputes to ${v}, which is not a finite number` +
+          (noMean.length ? ` — no arm mean recomputed for ${noMean.map((a) => ':' + a).join(', ')}` : '')
+      );
       continue;
     }
     if (Math.abs(storedDec[k] - v) > EPS)
@@ -304,8 +438,15 @@ function checkRun(runId, text) {
   // against what the page stored, and only then adjudicated: a control
   // adjudicated on a number this file could not regenerate would be gating
   // the dataset's own assertion rather than the measurement.
-  const roundIds = [...new Set(raw.map((x) => x.round))].sort((a, b) => a - b);
-  const ratio = perRoundRatio(raw, 'ctl-2x', 'floor', roundIds);
+  // Over the CONTRACT's rounds, not the rounds that happen to be present: a
+  // control averaged over the rounds that survived is a control of nothing.
+  const ratio = perRoundRatio(raw, 'ctl-2x', 'floor', ROUND_IDS);
+  for (const k of ['mean', 'min', 'max'])
+    if (!Number.isFinite(ratio[k]))
+      problems.push(
+        `run${runId}: :ratio-to-floor :ctl-2x :${k} recomputes to ${ratio[k]}, which is not a ` +
+          'finite number — :ctl-2x or :floor is not present in every round'
+      );
   const storedCtl = armBand(storedRatio, 'ctl-2x');
   if (!storedCtl) {
     problems.push(`run${runId}: :ratio-to-floor has no :ctl-2x`);
@@ -425,8 +566,10 @@ function main() {
   console.log(`;;     residual           ${f(mean.deficit - named)}  ${pct(mean.deficit - named)}`);
   console.log(`;;   read shape on our own arm (local - coarse) ${f(mean['h-read-shape'])}  ${pct(mean['h-read-shape'])} of the deficit`);
   console.log(`;;   at MATCHED read shape (coarse - uix)       ${f(mean['matched-shape-gap'])}`);
-  console.log('[inpage-ladder] ok — every published aggregate reproduces from the raw rounds, ' +
-    'its control met its own arithmetic, and its arm order was clean');
+  console.log(`[inpage-ladder] ok — every run presents its whole ${ARMS.length}-arm x ` +
+    `${ROUNDS_PER_RUN}-round x ${SAMPLES_PER_CELL}-sample contract, every published aggregate ` +
+    'reproduces from the raw rounds as a finite number, its control met its own arithmetic, ' +
+    'and its arm order was clean');
   return 0;
 }
 
@@ -438,8 +581,13 @@ module.exports = {
   perRoundRatio,
   controlVerdict,
   guardSamples,
+  shapeProblems,
   checkRun,
   main,
+  ARMS,
+  ROUNDS_PER_RUN,
+  SAMPLES_PER_CELL,
+  RAW_ROWS,
   CTL_PREDICTED,
   CONTROL_SLACK,
   GUARD_TOLERANCE,
