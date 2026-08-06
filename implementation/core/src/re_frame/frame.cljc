@@ -734,9 +734,13 @@
 
     {:rf.error/id :rf.error/no-frame-context
      :operation   <op-kw>     ;; e.g. :dispatch / :subscribe
-     :where       <sym-or-kw> ;; the resolving call site
+     :where       <sym>       ;; the resolving call site, a SYMBOL
      :event-id    <kw>        ;; the in-flight op's id, when known
      :recovery    :supply-frame}
+
+  `:where` is a SYMBOL naming the resolving fn (`'re-frame.subs/subscribe`),
+  never a keyword — `NoFrameContextTags` in spec/Spec-Schemas.md declares the
+  slot `:symbol`, and every call site in the corpus emits a quoted symbol.
 
   `:reason` is always composed, and `:rf.trace/dispatch-id` (the capture-site
   correlation key) is merged whenever a handler scope is in effect. There is
@@ -954,10 +958,11 @@
   target fails loudly at the provider rather than being silently coerced to
   a registered keyword frame by the lower-level context reader.
 
-  `where` (sym/kw) names the validating call site for the payload. The nil
-  branch threads `where` + a `:supply-frame` recovery into the
-  no-frame-context payload, matching each provider surface's nil
-  handling."
+  `where` is a SYMBOL naming the validating call site for the payload (every
+  caller passes a quoted fn symbol, e.g.
+  `'re-frame.views.provider/frame-provider`). The nil branch threads `where` +
+  a `:supply-frame` recovery into the no-frame-context payload, matching each
+  provider surface's nil handling."
   [frame-target where]
   (cond
     (keyword? frame-target) frame-target

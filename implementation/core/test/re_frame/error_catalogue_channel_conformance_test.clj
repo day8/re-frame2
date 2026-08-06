@@ -112,6 +112,14 @@
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
+            ;; Malli reaches this ns through the schemas artefact's test-only
+            ;; dep (see implementation/core/deps.edn — core's PRODUCTION
+            ;; classpath deliberately carries none). Used by the `:where`
+            ;; type-mutation witness below, which is the only assertion here
+            ;; that VALIDATES a payload rather than diffing key sets.
+            ;; aliased `malli`, not `m` — `parse-tags-schemas` binds a local
+            ;; `m` for its matcher and a shadowed alias reads as a bug.
+            [malli.core :as malli]
             ;; The dual-runtime exercise leg's always-on literal — Test A
             ;; pins it against the parsed catalogue (invariant #4), Test B
             ;; iterates it. Requiring it here closes the coupling in code.
@@ -951,6 +959,26 @@
                        (schema-map-keys (read-form-at text (.start m)))))
          acc)))))
 
+(defn- tags-schema-form
+  "The Malli FORM a named `*Tags` schema declares in Spec-Schemas.md — the
+  `[:map …]` vector itself, not its key set.
+
+  `parse-tags-schemas` throws the types away by design (its arm diffs key
+  sets), so a slot's declared TYPE is unreachable through it. This reader
+  keeps the form so the `:where` witness below can validate real payloads
+  against the schema the spec actually ships."
+  [schema-name]
+  (let [text    (slurp spec-schemas-file)
+        matcher (re-matcher tags-schema-def-re text)]
+    (loop []
+      (when (.find matcher)
+        (if (= schema-name (.group matcher 1))
+          (let [form (read-form-at text (.start matcher))]
+            (->> (tree-seq coll? seq form)
+                 (filter #(and (vector? %) (= :map (first %))))
+                 first))
+          (recur))))))
+
 (def ^:private tags-cell-key-re
   "A `:tags` cell entry: a back-ticked span that is EXACTLY one keyword.
   Anchored on the whole span on purpose — the cells carry long prose in which
@@ -1057,9 +1085,25 @@
           rows))
 
 (def ^:private envelope-only-tag-keys
-  "The two slots 009 excludes from every row's `:tags` cell BY RULE, so a
-  schema declaring them is not evidence of a row defect."
-  #{:recovery :category})
+  "The slot 009 excludes from every row's `:tags` cell BY RULE, so a schema
+  declaring it is not evidence of a row defect.
+
+  `:recovery` used to sit here too, and its removal (rf2-v1sg5) is what makes
+  this set an exemption rather than a blind spot. The slot was exempted because
+  `re-frame.trace/build-event` strips it and hoists it to the envelope top
+  level, so a schema declaring it convicted no row — but subtracting it from
+  the SCHEMA side of the diff meant a schema could over-declare `:recovery`
+  with no mechanical consequence, which is exactly the tolerance 009
+  §'The `:tags` column is pinned, not documentary' calls a defect. With the six
+  over-declaring schemas struck from Spec-Schemas.md (`MalformedSchemaTags`,
+  `NoFrameContextTags`, `BadFrameProviderArgTags`, `EffectHandlerBadReturnTags`,
+  `PrefetchBadAddressTags`, `NoAdapterSpecifiedTags`), the exemption is dead and
+  dropping it makes this arm STRICTLY STRONGER: a schema that re-declares
+  `:recovery` under `:tags` now reds instead of being silently absolved.
+
+  `:category` stays: the `:warning` branch synthesizes none and the closed
+  schemas pin it, so it is genuinely envelope-level on every row."
+  #{:category})
 
 (defn tags-column-findings
   "`[{:category … :schema … :missing #{…}} …]` — every paired row whose `:tags`
@@ -1082,15 +1126,18 @@
 
 (defn tags-column-recovery-listings
   "`[category …]` — every ACTIVE catalogue row whose `:tags` cell LISTS
-  `:recovery`. The other direction of `envelope-only-tag-keys`' first slot, and
-  the reason the drift it retires reached 134 rows unseen (rf2-mb8yp).
+  `:recovery`. The CELL-side guard on the slot, and the reason the drift it
+  retires reached 134 rows unseen (rf2-mb8yp).
 
-  That exempt set stops a SCHEMA declaring `:recovery` from convicting its row,
-  correctly: `re-frame.trace/build-event` strips the slot and hoists it to the
-  envelope top level on every branch, so no schema's declaration is evidence of
-  a row defect. But subtracting the slot exempted BOTH sides of the diff — a
-  row was equally free to LIST a key no consumer can read under `:tags`, with
-  no mechanical consequence either way. 009 §Reading the two right-hand columns
+  `envelope-only-tag-keys` used to carry `:recovery` as its first slot, which
+  stopped a SCHEMA declaring it from convicting its row: `re-frame.trace/build-
+  event` strips the slot and hoists it to the envelope top level on every
+  branch, so no schema's declaration was evidence of a row defect. But
+  subtracting the slot exempted BOTH sides of the diff — a row was equally free
+  to LIST a key no consumer can read under `:tags`, with no mechanical
+  consequence either way. This fn closed the CELL side; rf2-v1sg5 then struck
+  `:recovery` from the six over-declaring schemas and dropped the exemption, so
+  the SCHEMA side is now closed by the ordinary keys diff rather than exempted. 009 §Reading the two right-hand columns
   has always called that 'a row defect, not a counterexample', and the
   `Default :recovery` column is where a row states its disposition; the listing
   is now caught rather than tolerated.
@@ -1316,6 +1363,95 @@
                "`tags-column-paired-floor` still records "
                tags-column-paired-floor ". Raise it to " paired " in this PR: "
                "a floor below live coverage protects nothing above itself.")))))
+
+;; --- the :where slot's TYPE (rf2-j4bg3) --------------------------------------
+;;
+;; THE ARM ABOVE DIFFS KEY SETS AND IS BLIND TO TYPES BY CONSTRUCTION.
+;; `schema-map-keys` keeps entry KEYS and discards every declared type, so a
+;; slot declared `:any` validates a string, a number, a map or an arbitrary
+;; host object with no gate anywhere disagreeing. For `:where` that is not a
+;; harmless looseness: the declared type is the ONLY thing standing between
+;; `NoFrameContextTags` and an arbitrary object, so `:any` there enforced
+;; nothing while reading as though it did — which is how PR #7560 could claim a
+;; producer/schema agreement the corpus never checked.
+;;
+;; The contract is a SYMBOL, and that is a reading of the producers rather than
+;; of the prose: every call site that supplies `:where` into a
+;; no-frame-context payload emits a QUOTED SYMBOL naming the resolving fn —
+;; `re-frame.subs/subscribe`, `re-frame.router/build-envelope`,
+;; `re-frame.core/capture-frame`, `rf.ssr/hydrate!`, `rf.http/managed`,
+;; `rf.machine/spawn`, `rf.route/navigate-handler`, … across core, http,
+;; machines, routing, flows, resources, ssr, freehand and ui — as does the
+;; `where` argument threaded through `require-frame-provider-target!` and
+;; `re-frame.ui.frames/resolve-frame`. There is no keyword producer in src or
+;; in test. Spec 009's row and the schema's own comment both already said
+;; "a SYMBOL … not a keyword"; only the slot disagreed.
+
+(def ^:private no-frame-context-where-mutants
+  "The type mutants the `:any` declaration silently accepted. A STRING is the
+  realistic drift (a call site interpolating a name), the NUMBER and the MAP
+  stand for `anything at all`."
+  {"a string"        "re-frame.subs/subscribe"
+   "a number"        42
+   "a map"           {:ns 're-frame.subs :name 'subscribe}
+   "a bare keyword"  :re-frame.subs/subscribe})
+
+(deftest no-frame-context-where-is-typed-not-any
+  (testing "`NoFrameContextTags` declares `:where` as `:symbol`, and the
+            declaration is load-bearing: the keys-set arm above cannot see a
+            type, so this is the only assertion that reads one."
+    (let [schema (tags-schema-form "NoFrameContextTags")
+          entry  (->> (rest schema)
+                      (filter #(and (vector? %) (= :where (first %))))
+                      first)]
+      (is (some? schema) "NoFrameContextTags parsed out of Spec-Schemas.md")
+      (is (some? entry) "NoFrameContextTags declares a `:where` entry")
+      (is (= :symbol (last entry))
+          (str "`:where` must be declared `:symbol` — every producer emits a "
+               "quoted symbol, and `:any` here enforces nothing because the "
+               "Tags-column arm diffs keys only. Found: " (pr-str entry)))
+      (is (= {:optional true} (second entry))
+          (str "`:where` stays OPTIONAL — the 1-arity requiring forms omit it. "
+               "Found: " (pr-str entry)))))
+
+  (testing "A legitimate symbol validates, and the slot may be omitted."
+    (let [schema (tags-schema-form "NoFrameContextTags")
+          base   {:category  :rf.error/no-frame-context
+                  :operation :subscribe
+                  :reason    "a frame-scoped subscribe ran with no frame context"}]
+      (is (malli/validate schema (assoc base :where 're-frame.subs/subscribe))
+          "a quoted symbol — what every producer actually emits — validates")
+      (is (malli/validate schema (assoc base :where 'rf.ssr/hydrate!))
+          "a namespaced symbol from the carried-stamp seam validates")
+      (is (malli/validate schema base)
+          "`:where` omitted validates — the 1-arity requiring forms omit it")))
+
+  (testing "THE MUTATION WITNESS. Each mutant is REJECTED by the shipped
+            `:symbol` slot and ACCEPTED by the `:any` slot it replaced — so the
+            tightening, and not some unrelated guard, is what rejects them.
+            Without the second half this test could pass against a schema that
+            rejected everything."
+    (let [shipped (tags-schema-form "NoFrameContextTags")
+          ;; The pre-fix declaration, rebuilt from the shipped schema so the
+          ;; two differ in exactly one token.
+          as-any  (mapv (fn [e]
+                          (if (and (vector? e) (= :where (first e)))
+                            [:where {:optional true} :any]
+                            e))
+                        shipped)
+          base    {:category  :rf.error/no-frame-context
+                   :operation :subscribe
+                   :reason    "a frame-scoped subscribe ran with no frame context"}]
+      (is (not= shipped as-any)
+          "the `:any` control really differs from the shipped schema")
+      (doseq [[label v] no-frame-context-where-mutants]
+        (is (not (malli/validate shipped (assoc base :where v)))
+            (str "`:where` = " label " (" (pr-str v) ") must be REJECTED by the "
+                 "shipped `:symbol` slot"))
+        (is (malli/validate as-any (assoc base :where v))
+            (str "`:where` = " label " (" (pr-str v) ") was ACCEPTED by the old "
+                 "`:any` slot — this is the blindness the tightening removes. If "
+                 "this assertion fails the control is wrong, not the fix."))))))
 
 ;; --- non-vacuity ------------------------------------------------------------
 ;;
