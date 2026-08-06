@@ -366,32 +366,54 @@
               (.then
                 (fn [_]
                   (doseq [{:keys [rate siblings offered applied tail-ms tail-anchored?
-                                  offer-to-poll-start-ms predicted-gap-ms]} @runs]
+                                  tail-source tail-offer-at-ms tail-observed-at-ms
+                                  offer-to-poll-start-ms predicted-gap-ms]
+                           :as   run} @runs]
                     (is (pos? offered)
                         (str "rate " rate " / k=" siblings ": the driver ran at all"))
                     (is (<= applied offered)
                         (str "rate " rate " / k=" siblings
                              ": the reducer cannot apply more than was offered ("
                              applied " applied, " offered " offered)"))
-                    ;; C3 — the tail anchor. `:tail-ms` claims to start at the
-                    ;; last offer, and the callback that ends the drive is one
-                    ;; interval PAST that offer. So the gap must exist and must
-                    ;; be at least half a requested period — `setInterval`
-                    ;; cannot fire faster than its period, so the floor holds
-                    ;; however far behind the browser has fallen. A tail read
-                    ;; off a clock restarted at settle time reports the poll
-                    ;; delay and cannot produce this gap at all, which is the
-                    ;; fault this assertion exists for.
+                    ;; C3 — WHERE the retained offer reading sits. The
+                    ;; callback that ends the drive is one interval PAST the
+                    ;; last offer, so the gap must exist and must be at least
+                    ;; half a requested period — `setInterval` cannot fire
+                    ;; faster than its period, so the floor holds however far
+                    ;; behind the browser has fallen. This gates the reading
+                    ;; `:tail-ms` is measured FROM; C4 below gates that
+                    ;; `:tail-ms` was measured from it. Neither subsumes the
+                    ;; other and they are kept apart deliberately.
                     (is tail-anchored?
                         (str "rate " rate " / k=" siblings
-                             ": the tail is anchored at the last offer — gap "
+                             ": the retained offer reading is the immediately "
+                             "preceding interval — gap "
                              offer-to-poll-start-ms " ms against a "
                              (/ 1000.0 rate) " ms period (predicted "
                              predicted-gap-ms " ms from the achieved rate)"))
                     (is (and (number? tail-ms) (not (neg? tail-ms)))
                         (str "rate " rate " / k=" siblings
                              ": the tail is a real measurement, not nil ("
-                             (pr-str tail-ms) ")")))
+                             (pr-str tail-ms) ")"))
+                    ;; C4 — the published tail IS the two retained readings.
+                    ;; `:tail-ms` is the last generation's own observer
+                    ;; latency, lifted out of the distribution rather than
+                    ;; recomputed, and the two instants that produced it ride
+                    ;; beside it. Re-anchoring the tail at settle time — the
+                    ;; regression the first two editions shipped, and the one
+                    ;; C3 alone could not see — moves this by a whole
+                    ;; interval, 4 to 33 ms across the ladder. Exact
+                    ;; comparison; see `b10/tail-identity-holds?`.
+                    (is (b10/tail-identity-holds? run)
+                        (str "rate " rate " / k=" siblings
+                             ": the published tail is the two retained readings — "
+                             (pr-str tail-ms) " ms against "
+                             (pr-str tail-observed-at-ms) " − "
+                             (pr-str tail-offer-at-ms) " = "
+                             (pr-str (when (and (number? tail-observed-at-ms)
+                                                (number? tail-offer-at-ms))
+                                       (- tail-observed-at-ms tail-offer-at-ms)))
+                             " (source " (pr-str tail-source) ")")))
                   (h/publish!
                     "B10 M3 / driven rates"
                     (b10/record
@@ -409,13 +431,19 @@
                             ":offered counts driver invocations; :applied is incremented "
                             "inside the reducer; :mutations counts DOM records; "
                             ":peak-backlog is the largest offered-minus-applied ever seen at "
-                            "an offer; :tail-ms is from the LAST OFFER'S OWN TIMESTAMP to "
-                            "the MutationObserver's sighting of the last generation, with a "
-                            "4 ms poll and a 2000 ms ceiling serving only as the :settled? "
-                            "detector; :offer-to-poll-start-ms is the one-interval gap "
-                            "between those two instants and :tail-anchored? gates it against "
-                            "half a requested period, so a tail read off a clock restarted "
-                            "at settle time fails rather than publishes; :latency-ms is the "
+                            "an offer; :tail-ms is the LAST GENERATION'S OWN OBSERVER "
+                            "LATENCY, retained by the MutationObserver that computed it "
+                            "rather than recomputed at publication time, so it is the same "
+                            "number that generation contributes to :latency-ms, with a 4 ms "
+                            "poll and a 2000 ms ceiling serving only as the :settled? "
+                            "detector; :tail-offer-at-ms and :tail-observed-at-ms publish "
+                            "the two readings it is the difference of, and that identity is "
+                            "asserted exactly (C4); :offer-to-poll-start-ms is the "
+                            "one-interval gap between the retained offer reading and the "
+                            "settle decision and :tail-anchored? gates it against half a "
+                            "requested period (C3), so re-anchoring the tail at settle time "
+                            "fails C4 by a whole interval and re-anchoring the published "
+                            "offer reading to match fails C3; :latency-ms is the "
                             "offer-to-DOM distribution read from the MutationObserver "
                             "callback that carried each generation.")}
                       {:warmup 0 :samples (count @runs)}
@@ -423,6 +451,73 @@
                   nil))
               (.catch (fn [e] (is false (str "M3 rejected: " e))))
               (.finally (fn [] (b10/release! mnt) (done)))))))))
+
+;; ===========================================================================
+;; C4's witness — the mutation the old gate could not see
+;; ===========================================================================
+
+(deftest c4-a-settle-anchored-tail-cannot-pass-both-controls
+  (testing "A gate nobody has watched fail is not known to be a gate, and
+            this surface has already shipped one that wasn't. The third
+            edition's C3 was introduced as 'the assertion that fails if
+            the tail clock restarts at settle time'; it wasn't, and
+            `rf2-drpa3.182.12`'s merged-PR audit showed why — C3 is
+            derived from the last offer against the SETTLE DECISION while
+            the tail runs from the last offer to the OBSERVER, so
+            re-anchoring the tail left the gap, the anchor and the
+            numeric/nonnegative checks every one of them green.
+
+            This is that mutation, performed on the record rather than on
+            the source, so the witness rides in the suite instead of
+            living in a PR description. One thing changes and one only:
+            the tail's START. The three checks that WERE the whole gate
+            are asserted to stay green on it, which is the fault being
+            recorded, and then C4 is asserted to catch it. The single
+            escape — moving the published offer reading to match — is
+            asserted to land on C3, which is why the two controls are
+            kept apart.
+
+            The instants are one 30 Hz rung: an offer at 1000.0, the next
+            fire of the same `setInterval` 34.2 ms later deciding to
+            settle, and the observer seeing the last generation 3.3 ms
+            after that. 37.5 ms of tail, of which the settle-anchored
+            reading publishes 3.3 — the same order as the 4 ms poll delay
+            the first two editions actually published."
+    (let [period       (/ 1000.0 30)
+          t-offer      1000.0
+          t-poll-start 1034.2
+          t-observed   1037.5
+          ;; C3 exactly as `drive!` derives it, from the PUBLISHED offer
+          ;; reading — which is what makes the escape route land here.
+          anchored?    (fn [{:keys [tail-offer-at-ms]}]
+                         (let [gap (- t-poll-start tail-offer-at-ms)]
+                           (>= gap (* 0.5 period))))
+          honest       {:tail-ms             (- t-observed t-offer)
+                        :tail-offer-at-ms    t-offer
+                        :tail-observed-at-ms t-observed}
+          settle       (assoc honest :tail-ms (- t-observed t-poll-start))
+          both-moved   (assoc settle :tail-offer-at-ms t-poll-start)]
+      (is (b10/tail-identity-holds? honest)
+          "an honest record satisfies C4")
+      (is (anchored? honest)
+          "and C3, so the witness is measuring the mutation and not the fixture")
+      ;; The fault, recorded: every check that existed before C4 passes.
+      (is (anchored? settle)
+          "the settle-anchored tail still passes C3 — the gap is untouched")
+      (is (number? (:tail-ms settle))
+          "and is still numeric")
+      (is (not (neg? (:tail-ms settle)))
+          "and still nonnegative — 3.3 ms, precise, plausible and wrong")
+      ;; C4 is what closes it.
+      (is (not (b10/tail-identity-holds? settle))
+          (str "C4 catches the settle-anchored tail: " (:tail-ms settle)
+               " ms published against " t-observed " − " t-offer " = "
+               (- t-observed t-offer)))
+      ;; And the one way out of C4 is barred by C3.
+      (is (b10/tail-identity-holds? both-moved)
+          "moving the published offer reading restores C4 …")
+      (is (not (anchored? both-moved))
+          "… and collapses the gap, so C3 fails instead"))))
 
 ;; ===========================================================================
 ;; M4 — the controlled field, correctness FIRST
