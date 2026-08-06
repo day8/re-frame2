@@ -564,6 +564,252 @@ if [ "$plan_only" = true ]; then
   exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# ONE LIVE RUN PER TREE — a run that outlives its invocation is REAPED, not
+# inherited (rf2-ketqy).
+#
+# THE OBSERVED DEFECT, twice in one day.  A worker starts this spine in the
+# foreground, the agent harness hits its cap, and the tool call returns — but
+# the run does not stop.  Told the gate "timed out", the worker relaunches it
+# in the same tree, and two live spines then share that tree.  Two kinds of
+# damage follow, both seen on real runs:
+#
+#   1. TWO WRITERS, ONE FILE.  AGENTS.md has every worker redirect this script
+#      to a FIXED path (`> gate-fastpr.log`), so the two runs interleave into
+#      it and produce NUL-riddled output in which no line can be trusted.
+#   2. A SPURIOUS RED IN THE GATE'S OWN ENVIRONMENT CLASS.  The older run's
+#      `npm run test:cljs` unlinks out/node-test.js underneath the younger
+#      run's live per-namespace isolation sweep, which then fails with "the
+#      bundle changed on disk during the sweep" and MODULE_NOT_FOUND.  The
+#      sweep is RIGHT — something did mutate the bundle — but the something is
+#      a dead run, and at the moment a worker meets it that is
+#      indistinguishable from an isolation regression in their own diff.
+#
+# WHY THE REAP RUNS HERE, AT THE START OF THE NEXT RUN, AND NOT ONLY FROM A
+# SIGNAL TRAP.  The obvious remedy is to trap INT/TERM and reap on the way out.
+# One is installed below and it earns its place, but MEASURED — not assumed —
+# it cannot be the whole fix:
+#
+#   * The harness cap does not signal anything.  It BACKGROUNDS the call: the
+#     tool returns while the process tree keeps running.  A probe script with
+#     traps on INT/TERM/HUP/QUIT/EXIT recorded no trap firing at all and its
+#     child went on ticking; this spine, capped mid-run, advanced two more
+#     stages and grew its log by 7.4 KB after the tool call had returned.
+#   * The harness's explicit stop path behaves the same way — it reports
+#     success and the tree keeps running.
+#   * Even when a signal IS delivered, bash defers a trapped signal until the
+#     current FOREGROUND child returns.  Measured: SIGTERM at t+3s to a script
+#     sitting in `bash -c 'sleep 25'` ran the handler at t+25s.  Every
+#     expensive step of this spine is exactly such a child, so a trap-only
+#     remedy would reap minutes after the damage window had opened.
+#
+# The one moment a reap can always run is the start of the NEXT run — which is
+# also the moment it matters, because that is the run whose log and bundle are
+# about to be corrupted.  Both workers who hit this recovered only because they
+# thought to hunt for the orphaned tree by hand; that hunt is what the block
+# below automates.
+#
+# NOT A LOCK.  A second run never waits and never refuses — it clears the dead
+# one and proceeds.  Refusing would be worse than the defect it fixes: the cap
+# fires on most full runs of this spine, so a refusal would block the relaunch
+# every single time.
+# ---------------------------------------------------------------------------
+spine_run_dir="$spine_root/.scratch"
+spine_pidfile="$spine_run_dir/test-fast-pr.run"
+
+# WINDOWS NEEDS A SECOND MECHANISM, and this too was measured rather than
+# assumed.  MSYS `ps` tracks what a shell here spawned, native binaries
+# included — `clojure.exe` and `node.exe` show up with a usable PPID — but
+# NOTHING BENEATH THEM DOES.  Measured on a live `bash -lc "... clojure -M ..."`
+# gate exactly like the ones below: the `java.exe` clojure spawns is absent
+# from `ps -ef` and from `ps`, and `ps -ef` reports the shell as having no
+# children at all.  java is the shadow-cljs compile, i.e. precisely the process
+# that unlinks out/node-test.js, so on Windows the POSIX walk cannot even name
+# the process that has to die.  Windows itself knows the link
+# (Win32_Process.ParentProcessId) and `taskkill /T` walks it: on the same tree
+# it terminated clojure, the java beneath it and java's own child, all three.
+#
+# THE ENV VARS ARE LOAD-BEARING, not decoration.  Git Bash rewrites an argument
+# that looks like a POSIX path, so a bare `taskkill /F /T /PID n` arrives as
+# `taskkill F:/ ...` and dies with "Invalid argument/option - 'F:/'" — which,
+# behind the `>/dev/null 2>&1 || true` this call needs, is a SILENT no-op.
+# `MSYS_NO_PATHCONV=1` is Git-for-Windows' switch and `MSYS2_ARG_CONV_EXCL='*'`
+# is MSYS2's; Cygwin does no such rewriting and ignores both.  Setting the pair
+# is what makes one spelling work on all three.
+#
+# Both arms are guarded, so a host with neither reaps nothing rather than
+# failing the run.
+spine_is_windows=false
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v taskkill >/dev/null 2>&1; then
+      spine_is_windows=true
+    fi
+    ;;
+esac
+
+# `ps -ef` is the ONE listing whose PID and PPID sit in the same columns ($2,
+# $3) on Git Bash, macOS and Linux alike.  The tidier spellings are not
+# portable here: MSYS `ps` rejects both `-o` and `-A`, and ships no `pgrep`.
+# No `exit` in any awk program below, deliberately: exiting early would SIGPIPE
+# `ps`, and under this script's `set -o pipefail` that turns a lookup into a
+# failed pipeline and `set -e` would take the whole run down with it.
+spine_child_pids() {
+  { ps -ef 2>/dev/null || true; } |
+    awk -v parent="$1" '$3 == parent && $2 != parent { print $2 }'
+}
+
+spine_descendant_pids() {
+  local kid
+  for kid in $(spine_child_pids "$1"); do
+    spine_descendant_pids "$kid"
+    printf '%s\n' "$kid"
+  done
+}
+
+spine_winpid() {
+  { ps 2>/dev/null || true; } |
+    awk -v pid="$1" '$1 == pid && !seen { print $4; seen = 1 }'
+}
+
+spine_taskkill_tree() {
+  local winpid
+  if [ "$spine_is_windows" != true ]; then
+    return 0
+  fi
+  winpid="$(spine_winpid "$1")"
+  if [ -n "$winpid" ]; then
+    MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 \
+      taskkill /F /T /PID "$winpid" >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+
+# Everything BELOW pid, deepest first, TERM then KILL.  Never touches pid.
+spine_kill_descendants() {
+  local root="$1" kid pid pids
+  for kid in $(spine_child_pids "$root"); do
+    spine_taskkill_tree "$kid"
+  done
+  pids="$(spine_descendant_pids "$root")"
+  for pid in $pids; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  if [ -n "$pids" ]; then
+    sleep 1
+    for pid in $pids; do
+      kill -KILL "$pid" 2>/dev/null || true
+    done
+  fi
+  return 0
+}
+
+# Two guards stand between "the recorded pid is alive" and "kill it", because a
+# wrong answer there kills a stranger's process tree.
+#
+# FIRST, the pid must still BE this gate.  Pids are recycled, and `ps -ef`
+# prints the command with its arguments on all three platforms, so the cheapest
+# sound check is to read it back.  If the listing does not name this script the
+# predecessor is not reaped at all — the run degrades to the old behaviour
+# rather than killing something it cannot identify.
+spine_pid_is_this_gate() {
+  local line
+  line="$({ ps -ef 2>/dev/null || true; } |
+    awk -v pid="$1" '$2 == pid && !seen { print; seen = 1 }')"
+  case "$line" in
+    *test-fast-pr*) return 0 ;;
+  esac
+  return 1
+}
+
+# SECOND, it must not be one of OUR ancestors.  `scripts/test-rigorous-local.sh`
+# invokes this spine as a child, so an ancestor pid in the file would be a run
+# killing whatever started it.
+spine_is_own_ancestor() {
+  local target="$1" cur="$$" hops=0
+  while [ -n "$cur" ] && [ "$cur" != 0 ] && [ "$cur" != 1 ] && [ "$hops" -lt 64 ]; do
+    if [ "$cur" = "$target" ]; then
+      return 0
+    fi
+    cur="$({ ps -ef 2>/dev/null || true; } |
+      awk -v pid="$cur" '$2 == pid && !seen { print $3; seen = 1 }')"
+    hops=$((hops + 1))
+  done
+  return 1
+}
+
+spine_release_run() {
+  local held=""
+  if [ -f "$spine_pidfile" ]; then
+    held="$(tr -dc '0-9' < "$spine_pidfile" 2>/dev/null || true)"
+    if [ "$held" = "$$" ]; then
+      rm -f "$spine_pidfile" 2>/dev/null || true
+    fi
+  fi
+  return 0
+}
+
+spine_claim_run() {
+  local prev=""
+  mkdir -p "$spine_run_dir" 2>/dev/null || true
+  if [ -f "$spine_pidfile" ]; then
+    prev="$(tr -dc '0-9' < "$spine_pidfile" 2>/dev/null || true)"
+  fi
+  if [ -n "$prev" ] && [ "$prev" != "$$" ] && kill -0 "$prev" 2>/dev/null &&
+     spine_pid_is_this_gate "$prev" && ! spine_is_own_ancestor "$prev"; then
+    printf 'REAPING A PREVIOUS RUN: pid %s is still live in this tree.\n' "$prev"
+    printf '  It outlived the tool call that started it.  Left alone it would\n'
+    printf '  interleave into this log and mutate out/node-test.js underneath\n'
+    printf '  the isolation sweep, which reads as a regression in your own diff\n'
+    printf '  (rf2-ketqy).  Killing it and its children before starting.\n'
+    spine_taskkill_tree "$prev"
+    spine_kill_descendants "$prev"
+    kill -TERM "$prev" 2>/dev/null || true
+    sleep 1
+    kill -KILL "$prev" 2>/dev/null || true
+    if kill -0 "$prev" 2>/dev/null; then
+      printf '  WARNING: pid %s survived the reap.  Kill it by hand before you\n' "$prev"
+      printf '  trust anything this run reports.\n'
+    else
+      printf '  reaped.\n'
+    fi
+  fi
+  printf '%s\n' "$$" > "$spine_pidfile" 2>/dev/null || true
+  printf 'run pid: %s\n' "$$"
+}
+
+# The trap half of the remedy, for the paths that DO signal: an interactive
+# Ctrl-C, `timeout(1)`, a CI job cancellation, a plain `kill`.  Ctrl-C is where
+# it earns its keep on Windows — SIGINT reaches the foreground process group,
+# so `clojure.exe` dies with the shell while the `java.exe` beneath it does
+# not, and this is what collects that.  The handler clears the traps first, so
+# a second Ctrl-C is not queued behind anything.
+#
+# It deliberately does NOT kill by process group.  Measured here: every child
+# of this script shares the CALLER's process group, so `kill -- -$PGID` would
+# take the harness or terminal that invoked the gate down with it.
+spine_on_signal() {
+  trap - INT TERM HUP QUIT EXIT
+  printf '\n%s received — killing the child processes of this run before exiting (rf2-ketqy)\n' \
+    "$1" >&2
+  spine_kill_descendants "$$"
+  spine_release_run
+  exit "$2"
+}
+
+trap 'spine_on_signal SIGINT 130'  INT
+trap 'spine_on_signal SIGTERM 143' TERM
+trap 'spine_on_signal SIGHUP 129'  HUP
+trap 'spine_on_signal SIGQUIT 131' QUIT
+
+# EXIT does not reap — on a normal or a failing exit every gate has already
+# returned.  It only releases the claim, and it must not disturb the exit
+# status: AGENTS.md has every worker echo this script's `$?` into a file, so
+# the handler runs nothing that can fail and never calls `exit` itself.
+trap 'spine_release_run' EXIT
+
+spine_claim_run
+
 printf '=== fast PR spine: docs=%s jvm=%s node=%s (%s) ===\n' \
   "$run_docs" "$run_jvm" "$run_node" "$plan_reason"
 
