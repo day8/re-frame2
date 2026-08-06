@@ -418,6 +418,78 @@ instance props can express.
 
 ## HD-011 — The interop door
 
+> **Addendum, 2026-08-07 — the `[:>]` raw escape is BUILT, and its shape is
+> "`defhost` with the declaration erased" (`rf2-2rtt6.103`).** The ruling below
+> adopted the escape and left five edges open; the design programme closed them
+> and [the synthesized spec](studio/raw-escape-spec.md) carries the argument.
+> This records what shipped, because a reader of this decision should not have
+> to reconstruct it from a studio page.
+>
+> **The model.** `[:> Component props & children]` is the same crossing as
+> `defhost` with the declaration erased, and **what erasing the declaration
+> costs is exactly what the declaration carried**: no author-chosen crossing
+> name, no `:callbacks` contracts, no `:ssr` policy, refusals at render time
+> rather than once at a declaration, one generic marker instead of a minted
+> identity, and the JS require landing in the view namespace rather than in a
+> `.cljc`-quarantined host one. Every remedy for every one of those is
+> `defhost`. That is what makes the escape **strictly weaker than the door by
+> construction**, which is the only way *"declare what you use twice"* has
+> teeth.
+>
+> **Props take the door's UNCLAIMED-slot conduct exactly, with no branch of
+> their own** — the same `host-entry` walk against an empty declared roster. So
+> an intent vector or key-map at an event-spelled slot refuses, a marked `h/fn`
+> at any slot refuses (the addendum immediately below, inherited rather than
+> forked), a plain function crosses by identity, `:&` merges before conversion
+> under HD-023(d), `:key` rides the crossing's outer element, `:ref` takes
+> HD-016 and HD-022 through the same `check-ref!`, and the class slot takes its
+> own coercion. The reason it is the same walk rather than a parallel one is
+> compositional: if the escape refused what the door accepts, `[:> X …]` →
+> `(defhost x X {})` would stop being behaviour-preserving, and that rewrite is
+> the whole theorem of `rf2-2rtt6.106`'s codemod.
+>
+> **SSR is hard `:client-only`, through ONE shared module-level gate**, reusing
+> the snapshot triple `mint-host-gate!` uses with the placeholder fixed at
+> `nil`. There is no declaration to carry a policy and **no inline spelling for
+> one** — a fallback is POLICY, and policy lives on declarations; an author who
+> wants one wraps the escape in a `defhost` that has one. Server-absent and
+> hydration-first-pass-absent are not two facts kept in step: they are one fact,
+> and React chooses it. **The escape must never grow an `:ssr` spelling of its
+> own.**
+>
+> **The Component value is refused AT THE CROSSING**, in the owner's render and
+> on the server too — React's own refusal is minted at fiber creation, which
+> behind the gate is post-adoption and client-only, and it names `typeof type`,
+> so every ClojureScript value reads *"got: object"*. The accepted set is what
+> React 19 mints a fiber for (functions and classes, the built-in `Symbol.for`
+> exotics, `$$typeof`-branded wrapper objects) minus three narrowings, each
+> with its own message: `nil` (the broken-import diagnosis); **strings and
+> keywords**, because the grammar owns tags and Reagent's `[:> "input" …]` took
+> the controlled-input wrapper on exactly this path, so accepting one would
+> silently drop caret protection at a site a migrator ports verbatim; and
+> **`defview`/`defhost` heads**, which React would accept and which are silent
+> breakage (a `defview` product is `fn?`-true, so mounting it raw hands the body
+> `undefined` for `rfProps`).
+>
+> **"Reduced structural identity" is exactly two things, and the DOM is not one
+> of them.** The hiccup data lane is reduced at one slot — slot 1 holds a JS
+> value compared by identity, total everywhere else. The fiber lane carries one
+> shared gate type named by the constant `"[:>]"`, with **no name derived from
+> the component**: React resolves `displayName || name || null`, Closure renames
+> `.name` under `:advanced`, and foreign production bundles ship without
+> `displayName`, so a derived identity would be build-dependent — where
+> `defhost`'s name is authored DATA. The canonical DOM is **not reduced at all**,
+> and that is witnessed rather than asserted.
+>
+> **Bare-head auto-hosting stays rejected** and `defhost` stays the taught,
+> policy-bearing, tooling-identified form. Witnessed in
+> `front/codec_cljs_test` (the carrier, conversion parity with the door
+> prop-for-prop, the value roster and its refusals, `:&`, `:key`, refs, the
+> `:>` mis-parse regression) and `arm1/raw_escape_dom_cljs_test` (server
+> absence, hydration with zero recoverable errors, canonical-DOM parity with the
+> door, and a child intent landing in the frame that wrote the crossing and in
+> no other).
+
 > **Addendum, 2026-08-06 — an `h/fn` at a prop slot NOTHING CLAIMED is refused
 > at the crossing (`rf2-2rtt6.116`).** The door already refuses an intent
 > *vector* at an event-spelled slot the declaration does not name, on the stated
