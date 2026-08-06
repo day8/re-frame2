@@ -447,6 +447,83 @@ function handlerSites(s) {
 }
 
 /**
+ * The `}` that closes a `${` — given the index just after it — or -1.
+ *
+ * IT USED TO BE `s.indexOf('}', j + 2)`, AND THAT DERAILED THE WHOLE MASK. A
+ * substitution can contain braces, and `z3vlz_run.cjs` writes a template INSIDE
+ * one:
+ *
+ *     `composition (${bad.map((k) => `${k}: want ${want[k]}`).join('; ')}). `
+ *
+ * The first `}` after `${bad` belongs to the NESTED `${k}`, so the scan resumed
+ * mid-literal, the backtick accounting inverted, and everything from there to the
+ * next backtick was blanked — forty lines, including that driver's `onError`
+ * declaration. The consequence was NOT a loud UNREAD: `sinkOf` found no push in a
+ * blanked declaration, returned no sink, and the reader check SKIPPED the driver
+ * entirely. A silent skip, in the file whose subject is silent skips.
+ *
+ * So the brace is matched by depth, with literals and comments skipped so a `}`
+ * inside one cannot close anything. This is lexing, which is what the mask is; it
+ * is not dataflow, which is what the mask must never become.
+ */
+function endOfSubstitution(s, from) {
+  let depth = 1;
+  let i = from;
+  while (i < s.length) {
+    const c = s[i];
+    const d = s[i + 1];
+    if (c === '/' && d === '/') {
+      const nl = s.indexOf('\n', i);
+      i = nl === -1 ? s.length : nl;
+    } else if (c === '/' && d === '*') {
+      const close = s.indexOf('*/', i + 2);
+      i = close === -1 ? s.length : close + 2;
+    } else if (c === "'" || c === '"') {
+      let j = i + 1;
+      let closed = false;
+      while (j < s.length && s[j] !== '\n') {
+        if (s[j] === '\\') {
+          j += 2;
+          continue;
+        }
+        if (s[j] === c) {
+          closed = true;
+          break;
+        }
+        j += 1;
+      }
+      i = closed ? j + 1 : i + 1;
+    } else if (c === '`') {
+      let j = i + 1;
+      let closed = false;
+      while (j < s.length) {
+        if (s[j] === '\\') {
+          j += 2;
+        } else if (s[j] === '`') {
+          closed = true;
+          break;
+        } else if (s[j] === '$' && s[j + 1] === '{') {
+          const close = endOfSubstitution(s, j + 2);
+          if (close === -1) return -1;
+          j = close + 1;
+        } else {
+          j += 1;
+        }
+      }
+      i = closed ? j + 1 : i + 1;
+    } else {
+      if (c === '{') depth += 1;
+      else if (c === '}') {
+        depth -= 1;
+        if (depth === 0) return i;
+      }
+      i += 1;
+    }
+  }
+  return -1;
+}
+
+/**
  * The keywords after which a `/` still opens a regex literal.
  *
  * They matter because the regex-or-division test below is a test on the previous
@@ -577,7 +654,7 @@ function maskLiterals(s) {
           closed = true;
           break;
         } else if (s[j] === '$' && s[j + 1] === '{') {
-          const close = s.indexOf('}', j + 2);
+          const close = endOfSubstitution(s, j + 2);
           if (close === -1) break;
           runs.push([runFrom, j + 2], [close, close + 1]);
           subs.push([j + 2, close]);
@@ -700,21 +777,43 @@ function sinkIsRead({ masked }, sink) {
   return { read: false, at: -1 };
 }
 
+/**
+ * Does this handler RECORD, or does it only print?
+ *
+ * THE VOUCHING VERB IS READ FROM THE MASKED TEXT AND THE REGISTRATION FROM THE
+ * RAW — the same split `sinkOf` documents, for the same reason: `'pageerror'` is
+ * a string literal, so the mask has eaten it, while a `push(` that is only ever
+ * PRINTED is text, and text must not vouch for a handler.
+ *
+ * That was not hypothetical either. `page.on('pageerror', (e) =>
+ * console.error('would push(e) here', e))` was skipped here — the raw body has
+ * `push(` — and `sinkOf` then found no push in the MASKED window and returned no
+ * sink, so the reader check below skipped it too. Checked by neither, which is a
+ * print-only handler passing the check written to catch print-only handlers.
+ * Found while proving the regex-literal case (rf2-sib23); it is the same defect
+ * — literal text counting as code — one predicate along.
+ */
+function handlerRecords({ s, masked }, site) {
+  // A recording handler names a sink: `push(` into an array, or `record(`
+  // — the shared collector's own verb.
+  const vouch = masked.slice(site.at, site.at + 220);
+  if (/push\(/.test(vouch) || /record\(/.test(vouch)) return true;
+  // A handler registered by NAME (`page.on('pageerror', onError)`) is
+  // sound too — `z3vlz_run.cjs` does exactly that — provided the named
+  // function records. Follow the name once rather than demanding an
+  // inline arrow, which would be a style rule wearing a gate's clothes.
+  const named = /page\.on\(\s*['"]pageerror['"]\s*,\s*([A-Za-z_$][\w$]*)\s*\)/.exec(site.body);
+  if (!named) return false;
+  return Boolean(new RegExp(`${named[1]}\\s*=\\s*[\\s\\S]{0,400}?push\\(`).exec(masked || s));
+}
+
 test('NO bench driver installs a pageerror handler that only prints (rf2-sib23)', () => {
   const offenders = [];
   for (const { file, src: s } of benchDrivers()) {
-    for (const { body } of handlerSites(s)) {
-      // A recording handler names a sink: `push(` into an array, or `record(`
-      // — the shared collector's own verb.
-      if (/push\(/.test(body) || /record\(/.test(body)) continue;
-      // A handler registered by NAME (`page.on('pageerror', onError)`) is
-      // sound too — `z3vlz_run.cjs` does exactly that — provided the named
-      // function records. Follow the name once rather than demanding an
-      // inline arrow, which would be a style rule wearing a gate's clothes.
-      const named = /page\.on\(\s*['"]pageerror['"]\s*,\s*([A-Za-z_$][\w$]*)\s*\)/.exec(body);
-      const decl = named && new RegExp(`${named[1]}\\s*=\\s*[\\s\\S]{0,400}?push\\(`).exec(s);
-      if (decl) continue;
-      offenders.push(`${path.relative(IMPL, file)}: ${body.split('\n')[0].trim()}`);
+    const sc = scan(s);
+    for (const site of handlerSites(s)) {
+      if (handlerRecords(sc, site)) continue;
+      offenders.push(`${path.relative(IMPL, file)}: ${site.body.split('\n')[0].trim()}`);
     }
     // A driver that registers no handler at all must be reaching the event
     // some other way — the shared collector. Anything else is a driver with
@@ -1022,6 +1121,29 @@ const READER_FIXTURES = [
       'const fields = line.split(/[,;]/); if (errors.length) process.exit(1);',
     ].join('\n'),
   },
+  {
+    id: 'a template NESTED inside a ${...} does not derail the rest of the mask',
+    read: true,
+    // `z3vlz_run.cjs`'s real shape, reduced. `s.indexOf('}', j + 2)` stopped at
+    // the INNER `${k}`'s brace, so the scan resumed mid-literal, the backtick
+    // accounting inverted, and the next backtick opened a template that ate
+    // everything down to the one after it — the refusal included.
+    //
+    // ON THE REAL DRIVER THE CONSEQUENCE WAS WORSE THAN THIS FIXTURE SHOWS. Here
+    // the derail eats the read and the driver is reported as an offender, which
+    // is loud. There it ate the `onError` DECLARATION forty lines further on, so
+    // `sinkOf` found no push, returned no sink, and the reader check skipped the
+    // driver in silence. Measured both ways before the repair.
+    src: [
+      'const errors = [];',
+      "page.on('pageerror', (e) => errors.push(e));",
+      'console.error(',
+      '  `composition (${bad.map((k) => `${k}: want`).join(\'; \')}). `',
+      ');',
+      'if (errors.length) process.exit(1);',
+      'console.error(`done`);',
+    ].join('\n'),
+  },
 ];
 
 // EACH FIXTURE IS ITS OWN CHECK. They used to share one, and a single assertion
@@ -1041,6 +1163,63 @@ for (const f of READER_FIXTURES) {
       f.read,
       `fixture "${f.id}": the sink \`${sink.name}\` is ${f.read ? 'READ' : 'UNREAD'}, `
         + `and the check said otherwise`
+    );
+  });
+}
+
+// THE OFFENDER LOOP'S OWN PREDICATE, WHICH HAD NEVER BEEN DRIVEN. It was inline
+// in a test over real drivers, so the only thing that could exercise it was a
+// driver on disk wearing the shape — the same luck the reader check was green by
+// for two rounds. `handlerRecords` is now a function, and these are its fixtures.
+const RECORDS_FIXTURES = [
+  {
+    id: 'an inline handler that pushes RECORDS',
+    records: true,
+    src: "const errors = [];\npage.on('pageerror', (e) => errors.push(e));",
+  },
+  {
+    id: 'a bare printing handler does NOT record',
+    records: false,
+    src: "page.on('pageerror', (e) => console.error(`[x] page error: ${e.message}`));",
+  },
+  {
+    id: 'a printed message containing `push(` does NOT record',
+    records: false,
+    // The second instance of this bead's own defect class: literal text
+    // vouching for code. The raw body has `push(`, so the offender loop skipped
+    // it — and `sinkOf` reads the MASKED window, found no push, returned no
+    // sink, so the reader check skipped it too. Checked by neither.
+    src: "page.on('pageerror', (e) => console.error('would push(e) here', e));",
+  },
+  {
+    id: 'a `record(` inside a comment does NOT record',
+    records: false,
+    src: "page.on('pageerror', (e) => {\n  console.error(e); /* should record(e) */\n});",
+  },
+  {
+    id: 'a handler registered BY NAME whose function pushes RECORDS',
+    records: true,
+    src: 'const pageErrors = [];\nconst onError = (e) => {\n  pageErrors.push(e.message);\n};\n'
+      + "page.on('pageerror', onError);",
+  },
+  {
+    id: 'a handler registered BY NAME whose function only prints does NOT record',
+    records: false,
+    src: 'const onError = (e) => {\n  console.error(e.message);\n};\n'
+      + "page.on('pageerror', onError);",
+  },
+];
+
+for (const f of RECORDS_FIXTURES) {
+  test(`records fixture — ${f.id} (rf2-sib23)`, () => {
+    const sc = scan(code(f.src));
+    const sites = handlerSites(sc.s);
+    assert.strictEqual(sites.length, 1, `fixture "${f.id}": expected one handler site`);
+    assert.strictEqual(
+      handlerRecords(sc, sites[0]),
+      f.records,
+      `fixture "${f.id}": the handler ${f.records ? 'RECORDS' : 'only PRINTS'}, `
+        + 'and the check said otherwise'
     );
   });
 }
