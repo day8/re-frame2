@@ -83,6 +83,19 @@ Two contract facts, each pinned against the shipped spec:
     fires on the dispatch-only route-2 examples, the `capture-frame` rename recipe,
     or explanatory prose. See `form3_captured_subscribe_problems`.
 
+  * **Form-3 reactive OWNERSHIP — the exceptional imperative subscription must
+    activate what it acquires (rf2-ynved; defect shape rf2-8cnxg).** Rules 5 and
+    5b police where the reaction comes from; neither asks whether anything
+    ACTIVATES it. Under the stock-Reagent adapter a subscription is a bare
+    `reagent.ratom/Reaction` built without `:auto-run`, and a Reaction learns its
+    sources only through `deref-capture` — so a deref taken in
+    `:component-did-mount` runs the body raw, leaves `watching` nil, and puts the
+    node in no watcher set. A bare `add-watch` on it is a TRAP: registered, never
+    fires, widget fed once at mount and deaf thereafter. That shape shipped in the
+    copy-pasteable recipe. The rule requires, on the same one canonical fenced
+    example, no `add-watch`, a per-mount `r/track!` owner, and a matching
+    `r/dispose!` at unmount. See `form3_reactive_owner_problems`.
+
   * **Form-3 capture-once retarget invariance — a RELATIONSHIP + POLARITY +
     cross-owner check (rf2-aalo4n, rf2-gjrlz).** The reagent-slim FORM-3.md is the
     adopter-facing owner of the Form-3 capture-once recipe; guided-handlers-
@@ -1124,6 +1137,116 @@ def form3_captured_subscribe_problems(text: str) -> list[tuple[int, str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Rule 5c — the exceptional imperative Form-3 must OWN its subscription
+# (rf2-ynved; the defect shape is rf2-8cnxg).
+#
+# Rules 5 and 5b police WHERE the reaction comes from (the captured frame, the
+# captured `subscribe`). Neither asks the question that actually decides whether
+# the recipe works: does anything ACTIVATE the acquired reaction?
+#
+# Under the stock-Reagent adapter a subscription IS a bare `reagent.ratom/
+# Reaction`, built deliberately without `:auto-run`, and a Reaction learns its
+# sources only through `deref-capture`. A deref taken in `:component-did-mount`
+# runs outside `*ratom-context*`, so it computes the body raw and leaves
+# `watching` nil — the node is in nobody's watcher set and can never be told the
+# value moved. An `add-watch` on it is therefore a TRAP, not an observer: the
+# watch is registered, fires never, and the widget is fed once at mount and deaf
+# for the rest of its life. That shape shipped in the copy-pasteable recipe and
+# is what rf2-ynved repaired.
+#
+# The repair is a per-mount reactive OWNER — `(r/track! …)` — created in the
+# same hook: its eager first run is both the seed and the `deref-capture`, and
+# `r/dispose!` in `:component-will-unmount` stops it before the cache slot is
+# released. So this rule requires, on the ONE canonical fenced example (same
+# three landmarks Rule 5b keys on):
+#
+#   1. no `add-watch` — the trap must not come back;
+#   2. a `track!` / `run!` owner;
+#   3. a matching `dispose!` for that owner.
+#
+# Like Rule 5b this is deliberately NOT a Clojure parser: it scans fenced
+# Clojure code with strings / `;` comments blanked, and it matches the ops as
+# SYMBOLS rather than call heads, because the shipped teardown reaches
+# `r/dispose!` through `(some-> @!driver r/dispose!)` — a threading macro, where
+# the op is not in head position.
+# ---------------------------------------------------------------------------
+
+# The reactive owner: `r/track!` (or the `ratom/run!` spelling our own fixtures
+# use). Matched as a symbol so a threading / higher-order use still counts.
+FORM3_REACTIVE_OWNER_RE = re.compile(
+    r"\b(?:r|reagent\.core|ratom|reagent\.ratom)/(?:track!|run!)(?![-\w])"
+)
+# The owner's teardown. `(some-> @!driver r/dispose!)` puts it out of head
+# position, so this too is a symbol match.
+FORM3_OWNER_DISPOSE_RE = re.compile(
+    r"\b(?:r|reagent\.core|ratom|reagent\.ratom)/dispose!(?![-\w])"
+)
+# The trap: an `add-watch` standing in for an owner.
+FORM3_ADD_WATCH_RE = re.compile(r"\(add-watch(?![-\w])")
+
+FORM3_ADD_WATCH_PROBLEM = (
+    "FORM3-IMPERATIVE-ADD-WATCH: the exceptional imperative-subscription Form-3 "
+    "observes its acquired reaction with `add-watch`. Under the stock-Reagent "
+    "adapter a subscription is a `reagent.ratom/Reaction` built without "
+    "`:auto-run`, and a Reaction learns its sources only through `deref-capture`; "
+    "a deref taken in a lifecycle hook runs the body raw and leaves `watching` "
+    "nil, so the node is in no watcher set and the watch CANNOT fire — the widget "
+    "is fed once at mount and deaf thereafter. Own the reaction with a per-mount "
+    "`(r/track! (fn [] … @reaction))` in `:component-did-mount` instead; its eager "
+    "first run is both the seed and the deref-capture. (rf2-ynved / rf2-8cnxg.)"
+)
+FORM3_OWNER_MISSING_PROBLEM = (
+    "FORM3-REACTIVE-OWNER-MISSING: the exceptional imperative-subscription Form-3 "
+    "acquires a long-lived reaction but gives it no reactive owner. A cached "
+    "subscription with no live consumer is dormant on this adapter — it never "
+    "re-runs, so nothing downstream of it ever moves. Create a per-mount "
+    "`(r/track! (fn [] … @reaction))` in `:component-did-mount`. (rf2-ynved.)"
+)
+FORM3_OWNER_DISPOSE_MISSING_PROBLEM = (
+    "FORM3-OWNER-DISPOSE-MISSING: the exceptional imperative-subscription Form-3 "
+    "creates a per-mount reactive owner but never disposes it. "
+    "`:component-will-unmount` must `r/dispose!` the tracker BEFORE "
+    "`(rf/unsubscribe frame query-v)`, so the owner is gone before the cache slot "
+    "is released and no feed runs against a destroyed widget. (rf2-ynved.)"
+)
+
+
+def form3_reactive_owner_problems(text: str) -> list[tuple[int, str, str]]:
+    """Rule 5c — the exceptional imperative-subscription Form-3 must OWN its
+    acquired reaction with a per-mount `r/track!`, dispose that owner at unmount,
+    and never fall back to a bare `add-watch` (rf2-ynved).
+
+    Returns `(lineno, label, excerpt)`, matching the sibling Form-3 rules so
+    `find_drift` formats it identically. Scoped by the same three structural
+    landmarks Rule 5b uses — the outer-callable `(rf/capture-frame)`, the
+    `:component-did-mount` hook, and the frame-first `(rf/unsubscribe …)` teardown
+    — so it cannot fire on the dispatch-only route-2 examples, the route-1
+    outer/inner pattern, or explanatory prose."""
+    found: list[tuple[int, str, str]] = []
+    for buf_start, block in _fenced_code_blocks(text):
+        code = _code_masked(block)
+        if not (
+            FORM3_CAPTURE_FRAME_CALL_RE.search(code)
+            and FORM3_DIDMOUNT_RE.search(code)
+            and FORM3_UNSUBSCRIBE_CALL_RE.search(code)
+        ):
+            continue  # not the exceptional imperative-subscription Form-3
+        watch = FORM3_ADD_WATCH_RE.search(code)
+        if watch:
+            lineno, excerpt = _block_line_at(block, watch.start(), buf_start)
+            found.append((lineno, FORM3_ADD_WATCH_PROBLEM, excerpt))
+        owner = FORM3_REACTIVE_OWNER_RE.search(code)
+        if not owner:
+            m = FORM3_DIDMOUNT_RE.search(code)
+            lineno, excerpt = _block_line_at(block, m.start(), buf_start)
+            found.append((lineno, FORM3_OWNER_MISSING_PROBLEM, excerpt))
+        elif not FORM3_OWNER_DISPOSE_RE.search(code):
+            lineno, excerpt = _block_line_at(block, owner.start(), buf_start)
+            found.append((lineno, FORM3_OWNER_DISPOSE_MISSING_PROBLEM, excerpt))
+    return found
+
+
+# ---------------------------------------------------------------------------
 # M-1 public-namespace classifier + kickoff / slicing anchors (rf2-3fc89f.35).
 #
 # A second, structurally distinct defect class the M-11/M-13 line-scanner above
@@ -1726,6 +1849,9 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for lineno, label, excerpt in form3_captured_subscribe_problems(text):
             rel = path.relative_to(REPO_ROOT)
             problems.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
+        for lineno, label, excerpt in form3_reactive_owner_problems(text):
+            rel = path.relative_to(REPO_ROOT)
+            problems.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
     return problems, lines_checked
 
 
@@ -1761,7 +1887,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "moved-to-frame-level-:on-error (M-13), boot-smoke Pair "
                 "partition-mismatch (Rule 4), Form-3 bare-lifecycle targeting "
                 "(Rule 5), Form-3 captured-subscribe acquisition (Rule 5b — "
-                "rf2-v84zn), Form-3 capture-once retarget-invariance drift "
+                "rf2-v84zn), Form-3 reactive-owner ownership (Rule 5c — "
+                "rf2-ynved), Form-3 capture-once retarget-invariance drift "
                 "(rf2-aalo4n), M-0 publication-route drift (Rule 6 — "
                 "rf2-snjn5), or M-1 classifier / kickoff-anchor drift found."
             )
@@ -1778,7 +1905,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         "`get-path`/`snapshot {path:}` CANNOT read runtime-db; use "
         "`read-sub [:rf/machine <id>]`), and the M-1 classifier (public "
         "destinations exempt, private internals flagged) / kickoff anchors, plus "
-        "Form-3 lifecycle explicit-frame targeting, the Form-3 capture-once "
+        "Form-3 lifecycle explicit-frame targeting, the exceptional imperative "
+        "Form-3's per-mount `r/track!` OWNER (a bare `add-watch` on a ratom-family "
+        "subscription can never fire — rf2-ynved), the Form-3 capture-once "
         "retarget invariance (FORM-3.md + guided-handlers-state.md §M-11 aligned "
         "— rf2-aalo4n), and the M-0 publication-route lock (author-supplied "
         "pinned route, no `\"<latest>\"`, no stop-and-wait — rf2-snjn5), to the "
@@ -1905,6 +2034,69 @@ def _live_captured_subscribe_problems() -> list[str]:
     return []
 
 
+# Rule 5c live teeth (rf2-ynved). Each entry breaks the SHIPPED recipe's
+# ownership in one of the three ways the repair rules out: delete the owner,
+# swap it back for the `add-watch` trap, or leave the owner undisposed. Anchors
+# are kept short so a re-authored recipe reports STALE rather than going vacuous.
+LIVE_TRACK_OWNER = "(r/track!"
+LIVE_OWNER_DISPOSE = "r/dispose!"
+LIVE_OWNER_MUTATIONS = (
+    (
+        "the per-mount reactive owner is deleted",
+        LIVE_TRACK_OWNER,
+        "(identity",
+    ),
+    (
+        "the owner is swapped back for the `add-watch` trap",
+        LIVE_TRACK_OWNER,
+        "(add-watch reaction ::feed",
+    ),
+    (
+        "the owner is never disposed at unmount",
+        LIVE_OWNER_DISPOSE,
+        "identity",
+    ),
+)
+
+
+def _live_reactive_owner_problems() -> list[str]:
+    """Run Rule 5c against MUTATIONS OF THE SHIPPED guided-handlers-state.md
+    (rf2-ynved). The shipped exceptional Form-3 must own its acquired reaction
+    with a per-mount `r/track!` and dispose it at unmount; deleting that owner,
+    restoring the `add-watch` trap, or dropping the dispose must each trip the
+    guard against the LIVE text. A re-authored recipe reports STALE instead of
+    quietly proving nothing."""
+    if not GUIDED_HANDLERS_MD.is_file():
+        return [
+            f"SETUP: {GUIDED_HANDLERS_MD.name} missing — the reactive-owner live "
+            "teeth cannot run."
+        ]
+    text = _slurp(GUIDED_HANDLERS_MD)
+    if form3_reactive_owner_problems(text):
+        return [
+            "LIVE-REACTIVE-OWNER-DIRTY: the shipped guided-handlers-state.md "
+            "exceptional Form-3 already trips Rule 5c, so the mutation teeth below "
+            "cannot prove the guard has bite. Fix the guidance (or the rule) first."
+        ]
+    problems: list[str] = []
+    for label, present, broken in LIVE_OWNER_MUTATIONS:
+        if present not in text:
+            problems.append(
+                f"LIVE-REACTIVE-OWNER-STALE: guided-handlers-state.md no longer "
+                f"contains `{present}`, so the Rule 5c tooth for '{label}' is "
+                f"vacuous — the exceptional Form-3 recipe was re-authored. "
+                f"Re-point LIVE_OWNER_MUTATIONS at the current recipe."
+            )
+            continue
+        if not form3_reactive_owner_problems(text.replace(present, broken)):
+            problems.append(
+                f"LIVE-REACTIVE-OWNER-UNDETECTED: mutating the LIVE recipe so "
+                f"{label} did not trip Rule 5c. The guard is blind to the shape "
+                f"that shipped the rf2-8cnxg defect to users (rf2-ynved)."
+            )
+    return problems
+
+
 def _live_m0_delegation_problems() -> list[str]:
     """Run Rule 6's delegation assertion against a MUTATION OF THE SHIPPED
     migration guide, not hand-written fixtures (rf2-snjn5). The landed guide
@@ -1978,6 +2170,16 @@ def _self_test() -> int:
     def expect_captured(text: str, *, dirty: bool, label: str) -> None:
         nonlocal failures
         got = bool(form3_captured_subscribe_problems(text))
+        if got != dirty:
+            print(
+                f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got "
+                f"{got} for multiline text: {text!r}"
+            )
+            failures += 1
+
+    def expect_owner(text: str, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(form3_reactive_owner_problems(text))
         if got != dirty:
             print(
                 f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got "
@@ -2617,20 +2819,27 @@ def _self_test() -> int:
         "(re-frame.core/reg-view* ::live-gauge\n"
         "  (fn [gauge-id]\n"
         "    (let [{:keys [frame subscribe]} (rf/capture-frame)  ; captured ONCE\n"
-        "          query-v   [:gauge/reading gauge-id]\n"
-        "          watch-key (gensym \"gauge-feed-\")]\n"
+        "          query-v [:gauge/reading gauge-id]\n"
+        "          !driver (r/atom nil)]\n"
         "      (reagent.core/create-class\n"
         "        {:reagent-render (fn [_] [:div.gauge])\n"
         "         :component-did-mount\n"
         "         (fn [this]\n"
         "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
-        "             (add-watch reaction watch-key\n"
-        "               (fn [_ _ _ v] (feed-gauge! v)))))\n"
+        "             (reset! !driver                             ; OWN\n"
+        "               (r/track! (fn [] (feed-gauge! @reaction))))))\n"
         "         :component-will-unmount\n"
         "         (fn [_]\n"
-        "           (remove-watch @!reaction watch-key)\n"
+        "           (some-> @!driver r/dispose!)\n"
         "           (rf/unsubscribe frame query-v))}))))\n"  # RELEASE — frame-first
         "```"
+    )
+    # The mount hook as CANON ships it — the anchor mutations replace.
+    CANON_MOUNT = (
+        "         (fn [this]\n"
+        "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
+        "             (reset! !driver                             ; OWN\n"
+        "               (r/track! (fn [] (feed-gauge! @reaction))))))\n"
     )
     expect_captured(CANON, dirty=False, label="VC1 canonical captured acquire is clean")
     # VC2 — the exact bead repro: the captured acquire swapped for ambient.
@@ -2647,10 +2856,7 @@ def _self_test() -> int:
     # VC4 — destructures subscribe but never acquires through it in did-mount.
     expect_captured(
         CANON.replace(
-            "         (fn [this]\n"
-            "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
-            "             (add-watch reaction watch-key\n"
-            "               (fn [_ _ _ v] (feed-gauge! v)))))\n",
+            CANON_MOUNT,
             "         (fn [this]\n"
             "           (reset! !widget (mk-gauge! this)))\n",
         ),
@@ -2722,6 +2928,94 @@ def _self_test() -> int:
     # the bead's exact acquire swap must trip the guard against the LIVE recipe.
     for problem in _live_captured_subscribe_problems():
         print(f"SELF-TEST FAIL (captured-subscribe live): {problem}")
+        failures += 1
+
+    # --- Rule 5c fixtures — reactive ownership (rf2-ynved) ----------------------
+    # The same CANON, now read for the question that decides whether the recipe
+    # WORKS: does anything activate the reaction it acquires?
+    expect_owner(CANON, dirty=False, label="VO1 canonical track!-owner recipe is clean")
+    # VO2 — the shipped pre-fix shape: seed deref + add-watch, no owner. This is
+    # the recipe as it stood before rf2-ynved; it must not be able to come back.
+    PRE_FIX_MOUNT = (
+        "         (fn [this]\n"
+        "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
+        "             (feed-gauge! @reaction)\n"
+        "             (add-watch reaction watch-key\n"
+        "               (fn [_ _ _ v] (feed-gauge! v)))))\n"
+    )
+    PRE_FIX = CANON.replace(CANON_MOUNT, PRE_FIX_MOUNT).replace(
+        "           (some-> @!driver r/dispose!)\n",
+        "           (remove-watch @!reaction watch-key)\n",
+    )
+    expect_owner(
+        PRE_FIX,
+        dirty=True,
+        label="VO2 the pre-fix seed-deref + add-watch recipe is flagged (rf2-ynved)",
+    )
+    # VO3 — the trap alone: an add-watch bolted onto the owned recipe.
+    expect_owner(
+        CANON.replace(
+            "             (reset! !driver                             ; OWN\n",
+            "             (add-watch reaction ::feed (fn [_ _ _ v] (feed-gauge! v)))\n"
+            "             (reset! !driver                             ; OWN\n",
+        ),
+        dirty=True, label="VO3 add-watch beside the owner is still flagged",
+    )
+    # VO4 — owner dropped, everything else intact: the acquired reaction is
+    # dormant, so the widget is fed once and never again.
+    expect_owner(
+        CANON.replace(
+            "             (reset! !driver                             ; OWN\n"
+            "               (r/track! (fn [] (feed-gauge! @reaction))))))\n",
+            "             (feed-gauge! @reaction)))\n",
+        ),
+        dirty=True, label="VO4 acquire with no reactive owner is flagged",
+    )
+    # VO5 — owner created but never disposed: the tracker outlives the mount and
+    # keeps feeding a destroyed widget.
+    expect_owner(
+        CANON.replace("           (some-> @!driver r/dispose!)\n", ""),
+        dirty=True, label="VO5 undisposed owner is flagged",
+    )
+    # VO6 — the `ratom/run!` spelling our own fixtures use is an owner too.
+    expect_owner(
+        CANON.replace("(r/track! (fn [] (feed-gauge! @reaction))))))",
+                      "(ratom/run! (feed-gauge! @reaction)))))")
+             .replace("(some-> @!driver r/dispose!)",
+                      "(ratom/dispose! @!driver)"),
+        dirty=False, label="VO6 ratom/run! + ratom/dispose! spelling is clean",
+    )
+    # VO7 — out of scope: the dispatch-only route-2 example holds no subscription,
+    # so it needs no owner (it is VC6, re-read by Rule 5c).
+    expect_owner(
+        "**Route 2 — capture the frame in the outer callable.**\n\n"
+        "```clojure\n"
+        "(re-frame.core/reg-view* ::chart\n"
+        "  (fn [series]\n"
+        "    (let [{:keys [dispatch]} (rf/capture-frame)\n"
+        "          !inst (r/atom nil)]\n"
+        "      (reagent.core/create-class\n"
+        "        {:reagent-render (fn [series] [:div.chart])\n"
+        "         :component-did-mount    (fn [this] (dispatch [:chart/mounted]))\n"
+        "         :component-will-unmount (fn [_] (dispatch [:chart/unmounted]))}))))\n"
+        "```",
+        dirty=False, label="VO7 dispatch-only route-2 example is not flagged",
+    )
+    # VO8 — lexical: an `add-watch` named inside a `;` comment (the recipe
+    # explaining the trap in situ) is prose, not code.
+    expect_owner(
+        CANON.replace(
+            "             (reset! !driver                             ; OWN\n",
+            "             ;; NOT (add-watch reaction ::feed …) — it could never fire\n"
+            "             (reset! !driver                             ; OWN\n",
+        ),
+        dirty=False, label="VO8 add-watch inside a comment does not flag",
+    )
+
+    # Rule 5c live-corpus teeth: the shipped recipe must own its subscription, and
+    # deleting that owner from the LIVE text must trip the guard.
+    for problem in _live_reactive_owner_problems():
+        print(f"SELF-TEST FAIL (reactive-owner live): {problem}")
         failures += 1
 
     # --- Live-corpus mutation teeth (rf2-vxgfnd.94.15) --------------------------
