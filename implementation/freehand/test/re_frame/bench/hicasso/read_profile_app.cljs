@@ -94,7 +94,10 @@
   Every phase-B delta is quoted as `c-local - variant`, a floor on the
   phase (the stubs are not free). Teardown runs outside every window;
   a settle and a residue equality gate (runtime counters AND each probe
-  frame's sub-cache emptiness) sit between samples.
+  frame's sub-cache emptiness) sit between samples. That settle is
+  [[residue-settle!]] — the runtime's own quiescence point rather than a
+  bare macrotask, and its docstring says why the difference is the
+  difference between phase B reaching a number and not (rf2-981nt).
 
   **`c-noactivate` should read at the noise floor ON THIS HOST, and that is
   the point of quoting it** (rf2-lzpfj). This app installs the UIx adapter,
@@ -513,6 +516,45 @@
 (def ^:private b-sampling {:warmup 2 :samples 6})
 (def ^:private b-rounds 4)
 
+(defn residue-settle!
+  "**The one point behind which every phase-B residue reading is taken** —
+  the baseline, the between-sample gate, and the final zero.
+
+  It is [[rt/quiesced!]] and not [[lane/settle!]], and the difference is
+  the whole of rf2-981nt. `settle!` yields ONE macrotask, which is the
+  right point for a substrate that queues its disposals there and the
+  wrong one for a runtime that arms its entry reaper at a horizon
+  deliberately OUTSIDE a bare `setTimeout 0` (rf2-2rtt6.84, so an
+  unclaimed entry survives long enough for `hydrateRoot`'s passive
+  subscribe to claim it). Phase B's setup harvests one unclaimed entry
+  per commit frame; baselined a macrotask later they are all still
+  cached, and they are gone by the first sampled arm. The gate compares
+  by equality — correctly, it is a count of live references — so it saw
+  six entries and then five and threw, every run.
+
+  So the baseline moves to where the runtime has actually settled. That
+  is the better instrument on its own terms: a baseline that holds
+  because the runtime has quiesced is evidence, where one that holds
+  because nothing has had time to happen yet is a coincidence with a
+  four-millisecond shelf life.
+
+  The arms are unaffected. A reaped entry is dropped from the runtime's
+  entry CACHE, not destroyed — the object survives in the closure phase B
+  holds — and [[rt/commit-boundary!]] reads the entry, never the cache,
+  so the `commit` arm acquires the same 141 cells through the same seam
+  either way.
+
+  **Named rather than spelled out three times**, because this defect was
+  invisible for exactly as long as the concept was unnamed: three
+  `lane/settle!` calls look like three ordinary yields, and there was
+  nowhere for the reason to live. Public because
+  `read-profile-baseline-cljs-test` drives THIS fn — a witness that
+  called `rt/quiesced!` itself would go green however this instrument
+  settled, which is the vacuous test that let the horizon move under a
+  faithful rig in the first place."
+  []
+  (rt/quiesced!))
+
 (defn- probe-caches-empty? []
   (every? (fn [f] (zero? (count @(:sub-cache (frame/frame f)))))
           commit-frames))
@@ -520,9 +562,9 @@
 (defn- rounds-async!
   "The reflecting-schedule sampler, promise-chained: every sample index
   visits every arm in [[lane/slot-order]]'s order; warm-up samples are
-  taken and discarded; between samples the arm's teardowns run, one
-  macrotask settles, and the residue gate must answer clean. Mirrors
-  `lane/rounds!`, which cannot yield."
+  taken and discarded; between samples the arm's teardowns run, the
+  runtime settles behind [[residue-settle!]], and the residue gate must
+  answer clean. Mirrors `lane/rounds!`, which cannot yield."
   [arms {:keys [warmup samples]} rounds' baseline]
   (let [k    (count arms)
         coll (lane/sample-collector)
@@ -539,7 +581,7 @@
                   teardowns (run)
                   ms        (- (lane/now-ms) t0)]
               (doseq [t teardowns] (t))
-              (-> (lane/settle!)
+              (-> (residue-settle!)
                   (.then
                     (fn [_]
                       (let [now (rt/residue)]
@@ -686,7 +728,7 @@
                                             commit-frames)
                               sets    (into {} (map (fn [f] [f (rt/reads-of (get entries f))])) commit-frames)
                               fss     (into {} (map (fn [f] [f (frame/frame-state-value f)])) commit-frames)]
-                          (-> (lane/settle!)
+                          (-> (residue-settle!)
                               (.then (fn [_]
                                        (let [baseline (rt/residue)]
                                          (rounds-async! (phase-b-arms entries sets fss roster)
@@ -728,8 +770,15 @@
                                       (doseq [[k v] micro]
                                         (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns"))))
                                     ;; ---- Teardown: release the warm hold, verify.
+                                    ;; Behind [[residue-settle!]] like every
+                                    ;; other residue reading: releasing the warm
+                                    ;; boundary arms the warm entry's reaper, and
+                                    ;; a bare macrotask lands in front of it — so
+                                    ;; the "nothing survives" gate below would
+                                    ;; have failed on `:entries 1` for the same
+                                    ;; reason the baseline failed on six.
                                     (warm-release)
-                                    (lane/settle!))))
+                                    (residue-settle!))))
                               (.then
                                 (fn [_]
                                   (let [res (rt/residue)]
