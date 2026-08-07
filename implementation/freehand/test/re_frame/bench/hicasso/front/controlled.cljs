@@ -249,7 +249,68 @@
   The release also runs **before** the author's handler at every slot
   that has one, so a handler that throws cannot strand a shadow either.
   `arm1_controlled_grid_dom_cljs_test` §7 witnesses the blur, the
-  non-composing keystroke and the unmount paths in a real React tree."
+  non-composing keystroke and the unmount paths in a real React tree.
+
+  ## The revision prop, and why it costs this file one read (rf2-zq8kh)
+
+  `::h/revision` re-baselines the field to the model on an explicit
+  caller revision change, and NEVER on value equality — HD-019's reset
+  law, kept from D016. The whole of its delivery is
+  [[install!]]'s one `unchecked-get`: **zero new machinery**, because the
+  transport already exists. The codec mints a fresh props object per
+  element per render, React marks a host update on props identity, and
+  the commit's `updateInput` assigns whenever the DOM disagrees — so a
+  revision change re-runs the body, the re-run re-commits the element,
+  and the commit re-asserts the model over whatever draft was in the
+  field. No hook, no ref, no comparison record, no keyed re-render, and
+  **no third `flushSync` site**.
+
+  The last of those is worth stating as the mechanism clause rather than
+  as a tally, because this file already reads the caret twice and the two
+  are not in tension. HD-019 grants the `flushSync` exception to an
+  AUDITED MECHANISM, not to a count: [[converge!]] holds the one
+  `flushSync` expression in the namespace, it is reached from exactly two
+  call sites (the keystroke path and the `compositionend` path), at most
+  one fires per event, and the second caret read inside it is the same
+  element in the same exchange. The revision adds no call site to that
+  set. In-turn resets ride the keystroke converge; deferred resets ride
+  the `compositionend` site; out-of-band resets ride ordinary commits.
+
+  ### Mid-composition, the reset defers to the exchange's close
+
+  Not a new deferral — the carve-out's own, inherited, with no new
+  machinery and no revision-comparison state. The argument is mechanical
+  before it is philosophical: **there is no cancel primitive to build an
+  immediate variant from.** The only immediate write available is
+  `element.value`, and mid-composition that write silently aborts the
+  exchange — no `compositionend`, a fresh `compositionstart` on the IME's
+  next update — which on a normalising field corrupts the commit, the
+  measured `SSHSH` row. So a revision arriving mid-composition lands at
+  the close, through every release path this file already has:
+  `compositionend`, a non-composing change, blur, unmount.
+
+  **The honest limit, stated rather than overclaimed.** The deferral
+  cannot STRAND the field — every exit converges it to the then-current
+  model. It cannot promise the reset survives: on an accepting field the
+  model keeps taking every composing update while the shadow is held, so
+  a post-bump dispatch — including the composition's own final input
+  event — supersedes the reset by ordinary event order, exactly as it
+  would at rest, and discarded pre-reset content can ride back in through
+  the draft echo. \"The reset cannot be lost\" is false; \"the deferral
+  cannot strand the field\" is what is true.
+
+  ### Mid-hydration, the reset defers past adoption — for React's reason
+
+  The design claimed a mid-adoption revision would land on the first
+  post-adoption commit, on the SERVER's node. That is not a claim this
+  prop can make either way: the revision is consumed at the codec before
+  emission, so React is handed a prop-identical element whether it moved
+  or not, and nothing on React's side can branch on a value it was never
+  given. Whether adoption keeps the server's node across a client render
+  that lands mid-flight is React's own race — two hand-rolled arms
+  disagreed in opposite directions on consecutive runs. So the documented
+  conduct is the deferral, pre-committed rather than improvised, and
+  `rf2-ne3ey` owns the timing row on the `.84` hydration harness."
   (:require ["react" :as react]
             ["react-dom" :as react-dom]))
 
@@ -468,6 +529,18 @@
   this namespace exists."
   "hicassoNativeTag")
 
+(def revision-slot
+  "The private slot [[re-frame.bench.hicasso.front.codec/native-element]]
+  stashes a `::h/revision` on, and [[install!]] deletes as it reads.
+
+  It exists for exactly the length of one `install!` call. The codec
+  reads the revision off the author's own pre-merge map and has nowhere
+  to put it except the object it is already building; this namespace owns
+  the name so the codec cannot drift from it, and the delete is what
+  makes \"never a DOM attribute\" true by construction rather than by a
+  strip at each of the three exits (React, the DOM, the server bytes)."
+  "hicassoRevision")
+
 (defn- shadowed-props
   "The props the native tag is rendered with while `shadow` is held —
   the author's, with the value and three handlers replaced.
@@ -601,8 +674,45 @@
   same shape the codec already has for every lowered intent, and it
   closes over nothing but the author's handler — deliberately **not**
   over the value, which is the stale reading [[converge-to!]] exists to
-  keep out of the write."
+  keep out of the write.
+
+  ## The revision marker, read and deleted
+
+  One `unchecked-get` on every native element, which is what the reset
+  trigger costs an element that does not carry one. Present, it is
+  deleted before anything else can see it — the delete is the whole of
+  \"never a DOM attribute\" — and the element is REFUSED if it is not a
+  [[controlled-text-tag?]]. Nothing else happens, because nothing else
+  needs to: the reset rides React's own per-commit controlled re-assert
+  off the fresh props object the codec mints per render, so there is no
+  hook, no ref, no comparison record and **no third `flushSync` site**
+  here. See [[re-frame.bench.hicasso.front.codec/revision-key]].
+
+  The acceptance predicate is [[controlled-text-tag?]] — the one that
+  already chooses the shadow component, reused rather than duplicated —
+  and it is deliberately type-blind, so state the coverage honestly
+  rather than overstating it. A `:div`, a `select`, a value-less
+  `<input>` and a checkbox written idiomatically with `:checked` and no
+  `:value` are all refused. A checkbox carrying a form-submission
+  `value=\"yes\"` is ACCEPTED, and the revision is simply inert there; an
+  `<input type=\"number\">` is likewise accepted, with caret semantics
+  that do not apply to it. \"A checkbox is refused\" is the wrong
+  sentence; \"a value-less checkbox is refused\" is the right one."
   [tag js-props]
+  (when-not (undefined? (unchecked-get js-props revision-slot))
+    (js-delete js-props revision-slot)
+    (when-not (controlled-text-tag? tag js-props)
+      (throw (ex-info (str "A revision belongs on a controlled text field, and this is not one. "
+                           "[:rf.error/hicasso-revision-not-controlled]")
+                      {:rf.error/id :rf.error/hicasso-revision-not-controlled
+                       :where       'front.controlled/install!
+                       :reason      (str ":re-frame.hicasso/revision re-baselines a controlled "
+                                         "<input> or <textarea> to its model, so it needs both "
+                                         "of those: an `input`/`textarea` tag, and a non-nil "
+                                         ":value to re-baseline TO. This is a " (pr-str tag)
+                                         " and the trigger has no field to fire at.")
+                       :recovery    :put-the-revision-on-a-controlled-input-or-textarea
+                       :tag         tag}))))
   (when (convergeable? tag js-props)
     (let [slot    (change-slot js-props)
           handler (unchecked-get js-props slot)]

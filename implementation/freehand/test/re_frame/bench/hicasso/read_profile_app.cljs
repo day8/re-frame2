@@ -67,9 +67,9 @@
   ## The commit half (phase B — async, settled between samples)
 
   What the render's cold read deliberately does not pay, the commit does:
-  one durable cell per unique key — `subs/subscribe`, the baseline deref,
-  the value-change watch, the disposal hook, the `!cells` insert — plus
-  one reader membership per key. **That last term re-shaped under
+  one durable cell per unique key — `subs/subscribe`, the ACTIVATION, the
+  baseline deref, the value-change watch, the disposal hook, the `!cells`
+  insert — plus one reader membership per key. **That last term re-shaped under
   rf2-dabt3**: the dependency index used to be a second process-global
   structure and the commit paid an `index/mount!` plus a whole-set
   `record-reads!` into it; the readers now live on the cell, so the
@@ -83,7 +83,8 @@
   | arm         | one window is                                     | what it prices |
   |-------------|---------------------------------------------------|----------------|
   | `commit`    | 4 frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
-  | `c-local`   | faithful copy: cell mint + subscribe + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
+  | `c-local`   | faithful copy: cell mint + subscribe + activation + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
+  | `c-noactivate` | `c-local` minus `interop/activate-derived-value!` | the substrate's capture run (rf2-lzpfj) |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
   | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge (rf2-dabt3) |
@@ -94,6 +95,26 @@
   phase (the stubs are not free). Teardown runs outside every window;
   a settle and a residue equality gate (runtime counters AND each probe
   frame's sub-cache emptiness) sit between samples.
+
+  **`c-noactivate` should read at the noise floor ON THIS HOST, and that is
+  the point of quoting it** (rf2-lzpfj). This app installs the UIx adapter,
+  and `interop/activate-derived-value!` is a routed no-op on the React-hook
+  spine — that spine wires one watch per source at construction, so there
+  is nothing to activate and the delta prices one cached hook lookup that
+  misses, per key, and nothing else. The arm exists because the term is NOT
+  a no-op under the ratom family, where a `Reaction` learns its sources only
+  through `deref-capture`: the capture run retains a `watching` array per
+  reaction and an entry in each source's watcher set — per-key retained heap
+  the model understated for as long as the call was missing. Quoting it as
+  its own ablation keeps that cost attributable the day the rig is pointed
+  at a ratom host, instead of folding it silently into the `c-nosub` term.
+
+  And under that host the delta stays clean rather than double-counting,
+  because the capture run REPLACES the raw `(f)` the baseline deref would
+  otherwise perform: with the activation the following deref finds a settled
+  node and recomputes nothing, without it that deref runs the body raw. One
+  computation either way, so `c-local - c-noactivate` is the capture
+  BOOKKEEPING and not a second evaluation of the sub.
 
   Owner bead: rf2-6c237. Driver: `run.cjs` with
   HICASSO_INIT_FN=re-frame.bench.hicasso.read-profile-app/-main."
@@ -361,6 +382,7 @@
 (def ^:const C-NOSUB 2)
 (def ^:const C-NOREADERS 3)
 (def ^:const C-NOMAP 4)
+(def ^:const C-NOACTIVATE 5)
 
 (def ^:private cell-watch-key
   "**One constant keyword for every local cell's value-change watch**,
@@ -384,14 +406,26 @@
 (defn- commit-local!
   "Faithful copy of the commit half `make-subscribe` performs for one
   boundary at `mode`: the registration object, one cell per key of the
-  read SET (`subs/subscribe` + the baseline deref + the value-change
-  watch + the disposal hook + the map insert), each cell taking the
-  registration onto its reader list. Answers a teardown fn that mirrors
-  the returned unsubscribe closure — run OUTSIDE the window.
+  read SET (`subs/subscribe` + the ACTIVATION + the baseline deref + the
+  value-change watch + the disposal hook + the map insert), each cell
+  taking the registration onto its reader list. Answers a teardown fn
+  that mirrors the returned unsubscribe closure — run OUTSIDE the window.
+
+  **The activation is `wire-cell!`'s, in `wire-cell!`'s order** — activate,
+  baseline, watch (rf2-lzpfj, transcribing the rf2-2kshh repair). It is not
+  decoration: this arm's entire claim is that it transcribes `wire-cell!`,
+  and these arms are deliberately LOCAL COPIES of shipping code, so they
+  drift by construction — the rf2-2rtt6.32 call-convention discipline is
+  the standing answer to exactly that, and rf2-6wh9o is the same lesson
+  already learnt once on `cell-watch-key` below. A copy that prices a cell
+  shape the original no longer builds is an instrument measuring itself.
 
   The stubs, stated: `c-nosub` keeps the computation (a `compute-sub`
   against the frame-state snapshot) so its delta prices the reaction
-  build + cache insert rather than build-plus-compute; `c-nowatch` skips
+  build + cache insert rather than build-plus-compute; `c-noactivate`
+  skips the activation alone (see the namespace docstring — a routed
+  no-op on this UIx host, a real capture run under the ratom family, and
+  quoted separately so it stays attributable either way); `c-nowatch` skips
   both the watch and the disposal hook; the disposal hook and the watch
   callback are no-ops rather than the arm's real repair fns, which is a
   floor in the stubs' favour.
@@ -418,7 +452,10 @@
                           "disposed" false}]
         (if (identical? mode C-NOSUB)
           (subs/compute-sub q fs)
-          (do @r
+          (do ;; ACTIVATE, then baseline, then watch — `wire-cell!`'s order.
+              (when-not (identical? mode C-NOACTIVATE)
+                (interop/activate-derived-value! r))
+              @r
               (when-not (identical? mode C-NOWATCH)
                 (add-watch r cell-watch-key (fn [_ _ _ _] nil))
                 (interop/add-on-dispose! r (fn [] nil)))))
@@ -465,6 +502,7 @@
              (mapv (fn [f] (rt/commit-boundary! (get entries f) (fn [] nil)))
                    commit-frames))}
      {:id :c-local   :run (mk-local C-FULL)}
+     {:id :c-noactivate :run (mk-local C-NOACTIVATE)}
      {:id :c-nowatch :run (mk-local C-NOWATCH)}
      {:id :c-nosub   :run (mk-local C-NOSUB)}
      {:id :c-noreaders :run (mk-local C-NOREADERS)}
@@ -655,7 +693,7 @@
                                                         b-sampling b-rounds baseline))))
                               (.then
                                 (fn [{:keys [readings samples]}]
-                                  (let [ids  [:commit :c-local :c-nowatch :c-nosub :c-noreaders :c-nomap :b-build]
+                                  (let [ids  [:commit :c-local :c-noactivate :c-nowatch :c-nosub :c-noreaders :c-nomap :b-build]
                                         rows (arm-rows ids readings 4)
                                         gv-b (lane/guard! samples "read-profile phase B (in-page ms, diagnostic)")]
                                     (lane/record! :read-profile-commit
@@ -671,6 +709,8 @@
                                     (let [commit' (:p50 (get rows :commit))
                                           clocal  (:p50 (get rows :c-local))]
                                       (js/console.log (str ";;   copy fidelity: c-local/commit = " (fmt (/ clocal commit') 4)))
+                                      (js/console.log (delta-line "activation-capture (c-local - c-noactivate)" clocal (:p50 (get rows :c-noactivate))))
+                                      (js/console.log (str ";;     ^ routed no-op on this UIx host — expect the noise floor; real only under the ratom family (rf2-lzpfj)"))
                                       (js/console.log (delta-line "watch-wiring (c-local - c-nowatch)" clocal (:p50 (get rows :c-nowatch))))
                                       (js/console.log (delta-line "reaction-build+cache-insert (c-local - c-nosub)" clocal (:p50 (get rows :c-nosub))))
                                       (js/console.log (delta-line "reader-membership (c-local - c-noreaders)" clocal (:p50 (get rows :c-noreaders))))
