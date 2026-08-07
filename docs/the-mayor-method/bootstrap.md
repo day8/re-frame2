@@ -84,6 +84,34 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   news is the same fail-open class the project spends its days hunting in its own
   instruments; the merge decision is not exempt from it. Short or empty is a
   re-check on the next signal, never an `--admin`.
+- *A cancelled check is not a passed one.* Rollup entries carry a status and a
+  conclusion, and a CANCELLED check is `status == COMPLETED` — so a tally keyed on
+  completion counts it as green. One PR here was reported as "85 of 86 concluded,
+  one check from complete" when the truth was 79 passed, 6 cancelled and 1 pending:
+  six re-runs across four workflows from mergeable, not one. Count only the
+  conclusions that mean the work ran and was fine — SUCCESS and SKIPPED — and read
+  every other value, cancelled included, as a check that has not passed.
+- *A settled rollup is not a quiet branch.* A queued run's checks are not attached
+  to the head commit yet, so the rollup cannot report what it does not yet know is
+  coming. A PR here read `ok=78 canc=0 fail=0 pend=0 total=78` — settled by every
+  field it exposes — while the branch's own run listing showed two runs QUEUED;
+  merging there ships the PR two workflows short. So query the branch as well, and
+  key that query to the branch AND to the PR's current head sha, because it fails
+  in both directions and both have already bitten. A global run listing truncated
+  to the most recent 40 was substituted for the per-branch one, and a branch with
+  four queued runs never appeared in the window at all — the check reported "no
+  live runs" for a branch that had four. Keyed on the branch but not the sha it
+  over-blocked instead: two PRs sat at 86/86 for three cycles on runs still queued
+  against a sha from before a re-trigger commit, and a stale-sha run is not
+  evidence about this head. A guard that blocks forever is not safe, it is
+  differently wrong. The whole criterion is these four clauses, no one of them
+  sufficient: a non-empty total in the band the repo actually produces; every
+  conclusion in SUCCESS or SKIPPED; nothing queued or in progress in the rollup;
+  and no queued or in-progress run on the branch carrying the PR's current head sha.
+- *"Base branch was modified" usually means stale, not raced.* The rejection reads
+  like a lost race, so the reflex is to try again — seven retries here proved
+  otherwise. The branch was simply behind its base, and the remedy is to update it
+  (`gh pr update-branch`) and re-check; retrying faster never substitutes.
 - *Reproduce the real failing path.* A worker's passing synthetic test can route
   around the gap and explain away a symptom the operator reproduced. The
   acceptance test must exercise the path that actually failed, not a proxy —
@@ -118,7 +146,11 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 - *The exit code is the verdict; the summary is decoration.* Piping a gate into
   `tail` or `grep` returns the pipe's status, not the runner's, so a worker reads
   "0 failures" and reports green on a failed run. Require capture to a file, an
-  explicit echo of the exit code, and that code in the report.
+  explicit echo of the exit code, and that code in the report. The same blindness
+  has a second shape: a command's own failure and a later line that reads like
+  success land in one buffer, so a failed fetch followed by "Already up to date"
+  looks like a quiet no-op. Check the exit of the step that fetched, not the
+  summary of the step after it.
 - *Concurrent workers share the machine's temp directory.* Two workers writing the
   same `/tmp/gate.log` overwrite each other, and the loser reads a green belonging
   to someone else's run — plausible numbers, wrong code. This defeats the rule
