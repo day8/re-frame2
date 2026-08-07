@@ -61,12 +61,28 @@ roster of known digests (which rots) and never by asking git (see above):
     than 40 characters cannot be an object id here at all, and every 64-char
     token in the corpus is a SHA-256 document digest.
 
-When none of those speaks, the token is treated as a PIN.  That is the failure
-direction again: an unclassifiable token costs a finding, and the cost of the
-opposite default is a corpus of broken pins that reports success.  A handful of
-genuinely ambiguous lines are reported for that reason — "at `e145597127` the
-gate reads …" is a sentence a reader cannot classify either, which is the
-finding.
+When none of those speaks, a token IN A CODE SPAN is treated as a PIN.  That is
+the failure direction again: an unclassifiable token costs a finding, and the
+cost of the opposite default is a corpus of broken pins that reports success.  A
+handful of genuinely ambiguous lines are reported for that reason — "at
+`e145597127` the gate reads …" is a sentence a reader cannot classify either,
+which is the finding.
+
+BARE HEX, OUTSIDE A CODE SPAN, IS READ TOO, but only when the vocabulary above
+positively calls it a commit.  Reading code spans alone was a fail-open against
+the very rule at the top of this file: `Authored at deadbeef00 on worker/x.`
+extracted nothing, so a page could cite an authored head in explicit commit
+prose, omit the backticks, and pass `--changed-since` without the accompaniment
+rule ever running (rf2-kqac1).  Backticks are a convention here, not a
+guarantee, and dropping them is ordinary formatting drift.
+
+The default flips at that boundary, and deliberately.  Inside a code span the
+writer has already said "this is an id" and only the KIND is open, so silence
+means pin.  In open prose nothing separates an unremarked hex run from a version
+string or a large decimal, so silence means NOT a citation, and arbitrary bare
+hex and bare decimals stay invisible exactly as before.  The narrow reading is
+what keeps the whole idea affordable: it costs the corpus a handful of newly
+visible citations rather than a column of noise.
 
 WHAT THIS DOES NOT DO: it never re-pins.  rf2-owq6p established that recovering
 the landed SHA restores the PATCH, not the TREE — where the rebase did not
@@ -114,10 +130,34 @@ BASELINE_REF = "origin/main"
 # abbreviation; 64 admits a full SHA-256.
 _BARE_HEX = re.compile(r"^[0-9a-f]{7,64}$")
 
-# Inline code spans.  Pins and digests in this corpus are ALWAYS written in a
-# code span; bare prose hex is not a citation, and reading it invents findings
-# out of version strings and decimal numbers ("0.0999999 ms").
+# Inline code spans.  This corpus writes pins and digests in a code span by
+# convention, but a convention is not a guarantee — see _BARE_PROSE_HEX.
 _CODE_SPAN = re.compile(r"`([^`\n]{1,200})`")
+
+# A provenance id written WITHOUT backticks.  Extraction used to read code spans
+# only, so `Authored at deadbeef00 on worker/x.` yielded nothing at all: a page
+# could cite an authored head in completely explicit commit prose, omit the
+# backticks, and sail through `--changed-since` without the accompaniment rule
+# ever running (rf2-kqac1).  That is ordinary formatting drift, not camouflage,
+# and silence is the one direction this gate must never fail in.
+#
+# So bare hex is read, but ONLY when the writer's own vocabulary classifies it
+# as a commit — the same nearest-word-wins machinery `classify` already runs,
+# with the fail-toward-refusal default switched off.  Inside a code span the
+# writer has said "this is an id" and only the KIND is in question, so silence
+# there still means pin; in open prose nothing distinguishes an unremarked hex
+# run from a version string or a large decimal, so silence means not a citation.
+# Arbitrary bare hex and bare decimals stay invisible, which is what keeps this
+# checker off the digests and off the disable list.
+#
+# The boundaries carry the rest of that load.  A run may not touch an
+# alphanumeric, `_`, `/`, `\`, `#` or `-` on either side, and may not FOLLOW a
+# `.` — which is what keeps the "0999999" inside "0.0999999 ms" out, and every
+# version string with it — while a `.` AFTER it is allowed as sentence
+# punctuation unless a word character follows.
+_BARE_PROSE_HEX = re.compile(
+    r"(?<![0-9A-Za-z._/\\#-])([0-9a-f]{7,64})(?![0-9A-Za-z_/\\-])(?!\.[0-9A-Za-z])"
+)
 
 # Separators that appear INSIDE a single span carrying more than one id:
 # `a=b` (an authored=landed mapping), `sha:path` (a rev-parse argument),
@@ -173,6 +213,21 @@ class Finding(NamedTuple):
     detail: str
 
 
+class Verdict(NamedTuple):
+    """What `classify` made of one hex token.
+
+    `spoken` records whether the WRITER's own words decided it — a vocabulary
+    word, a file path, a table header — as against the fail-toward-refusal
+    default.  Only the bare-prose reader consults it, and it is the whole of
+    what keeps that reader narrow: outside a code span, a token nobody called a
+    commit is not a citation.
+    """
+
+    is_pin: bool
+    reason: str
+    spoken: bool
+
+
 # --------------------------------------------------------------------------
 # Extraction
 # --------------------------------------------------------------------------
@@ -194,6 +249,17 @@ def _split_span(inner: str, max_id_len: int) -> List[str]:
             continue
         out.append(part)
     return out
+
+
+def _mask_code_spans(line: str) -> str:
+    """The line with every code span blanked out, OFFSETS PRESERVED.
+
+    The bare-prose reader runs over this so it cannot re-read a token the span
+    reader already took, while `classify` still sees the real line — the left
+    context needs the surrounding spans intact to spot the file path that marks
+    a blob.
+    """
+    return _CODE_SPAN.sub(lambda m: " " * (m.end() - m.start()), line)
 
 
 def _strip_quote(line: str) -> str:
@@ -253,12 +319,11 @@ def _left_context(lines: Sequence[str], index: int, span_start: int) -> str:
 
 def classify(
     lines: Sequence[str], index: int, span_start: int, span_end: int
-) -> Tuple[bool, str]:
+) -> Verdict:
     """Decide whether one hex token is a cited PIN.
 
-    Returns (is_pin, reason).  Nearest signal in the left context wins; then a
-    tight right apposition; then the enclosing table's header; and silence
-    means PIN.
+    Nearest signal in the left context wins; then a tight right apposition;
+    then the enclosing table's header; and silence means PIN.
     """
     context = _left_context(lines, index, span_start)
 
@@ -280,17 +345,17 @@ def classify(
         # silently, whereas calling it a pin costs at worst one finding.
         signals.sort(key=lambda s: (s[0], s[1]))
         _, is_pin, reason = signals[-1]
-        return is_pin, reason
+        return Verdict(is_pin, reason, True)
 
     # The ORIGINAL line, not a quote-stripped one: `span_end` is an offset into
     # the line as read, and stripping a `> ` prefix first would slide the
     # window two characters past the apposition it exists to see.
     right = lines[index][span_end : span_end + _RIGHT_APPOSITION]
     if _DIGEST_WORDS.search(right):
-        return False, "digest word in apposition to the right"
+        return Verdict(False, "digest word in apposition to the right", True)
     if _table_header_is_digest(lines, index):
-        return False, "table header names a digest"
-    return True, "unclassified — read as a pin (fail toward refusal)"
+        return Verdict(False, "table header names a digest", True)
+    return Verdict(True, "unclassified — read as a pin (fail toward refusal)", False)
 
 
 def scan_file(
@@ -325,9 +390,20 @@ def scan_file(
             )
         for match in _CODE_SPAN.finditer(line):
             for token in _split_span(match.group(1), max_id_len):
-                is_pin, reason = classify(lines, i, match.start(), match.end())
-                if is_pin:
-                    citations.append(Citation(path, i + 1, block, token, reason))
+                verdict = classify(lines, i, match.start(), match.end())
+                if verdict.is_pin:
+                    citations.append(Citation(path, i + 1, block, token, verdict.reason))
+        # Then the same line with its code spans blanked out, so a token cannot
+        # be read twice, and with the default reading switched off.
+        for match in _BARE_PROSE_HEX.finditer(_mask_code_spans(line)):
+            token = match.group(1)
+            if len(token) > max_id_len:
+                continue
+            verdict = classify(lines, i, match.start(), match.end())
+            if verdict.is_pin and verdict.spoken:
+                citations.append(
+                    Citation(path, i + 1, block, token, verdict.reason + ", uncoded")
+                )
     return citations, anchors
 
 
@@ -625,9 +701,36 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ["the ten-turn aggregate resolved at `0.0999999 ms`, the bulk row's floor"],
         [],
     ),
+    # BARE PROVENANCE.  This case used to assert the opposite — that prose hex
+    # outside a code span is never a citation — and that assertion pinned the
+    # fail-open: explicit commit prose without backticks passed the gate
+    # unexamined (rf2-kqac1).  It reads the other way now, and the four cases
+    # under it hold the narrowness in place.
     (
-        "prose hex outside a code span is not a citation",
+        "bare prose hex the writer calls a commit is a citation",
         ["Commit 08344cb500 was measured on one box."],
+        ["08344cb500"],
+    ),
+    (
+        "bare prose hex the writer calls authored is a citation",
+        ["Authored at deadbeef00 on worker/x."],
+        ["deadbeef00"],
+    ),
+    (
+        "bare hex nobody calls a commit is not a citation",
+        ["The bulk row settled at 5f2c8a1b3d across all ten turns."],
+        [],
+    ),
+    (
+        "bare hex the writer calls a blob is not a citation",
+        ["The instrument blob 0304f489bb is byte-identical to the last arm."],
+        [],
+    ),
+    (
+        # The boundary rule, not the vocabulary rule: "commit" is right there,
+        # so only the `.` in front of `0999999` keeps the decimal out.
+        "a bare decimal beside a commit word is not a citation",
+        ["The commit's ten-turn aggregate resolved at 0.0999999 ms on the bulk row."],
         [],
     ),
     # THE FAILURE DIRECTION, pinned.  A token with no vocabulary either way is
@@ -706,6 +809,29 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         ["Authored as `aaaaaaaaaa`, superseded by `dddddddddd` on `worker/x`."],
         {"aaaaaaaaaa": "STRANDED", "dddddddddd": "STRANDED"},
         ["aaaaaaaaaa", "dddddddddd"],
+    ),
+    # BARE PROVENANCE, end to end.  The first is the finding the code-span-only
+    # reader let through; the second is the noise the repair must still ignore —
+    # with no status table behind it, anything extracted here would resolve to
+    # UNRESOLVABLE and become a finding, so an empty expectation is a real
+    # assertion that nothing was extracted at all.
+    (
+        "a bare authored head, no backticks, is still a finding",
+        ["Authored at aaaaaaaaaa on worker/x, before the rebase mints its landed id."],
+        {"aaaaaaaaaa": "STRANDED"},
+        ["aaaaaaaaaa"],
+    ),
+    (
+        "a bare digest and a bare number raise no finding",
+        ["The instrument blob 0304f489bb held at 0.0999999 ms across ten turns."],
+        {},
+        [],
+    ),
+    (
+        "a bare landed id accompanies the stranded head beside it",
+        ["Authored at aaaaaaaaaa on worker/x; it landed on main as bbbbbbbbbb."],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        [],
     ),
 ]
 

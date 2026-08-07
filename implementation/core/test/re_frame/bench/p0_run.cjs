@@ -373,9 +373,39 @@ const PAGE_WATCHES = [];
 const pageFailures = () =>
   PAGE_WATCHES.flatMap((w) => w.failures).map((f) => `${f.kind}: ${f.detail}`);
 
-async function newPage(chromium, query) {
+// `jsFlags` is parameterised but every row passes the default, and the
+// allocation row's investigation (rf2-2rtt6.76) is why the obvious
+// override is NOT among them.
+//
+// The allocation instrument's method is that no collection runs between
+// two readings of the used-heap counter. Where one does, the allocation
+// between the last reading before it and the collection itself is netted
+// away inside a single step, and the rising-step sum under-reads. The
+// obvious repair is to enlarge the young generation so a whole window's
+// garbage fits — `--max-semi-space-size=N` — and it DOES NOT WORK. Two
+// standalone probes measured it directly, on both kinds of garbage:
+//
+//   one large array per iteration (LO space), 20 iterations:
+//     D=1,000 (8 KB)     8.40 B/double, 0 falls   <- the prediction, hit
+//     D=100,000 (800 KB) 4.00 B/double, 10 falls
+//   many small objects per iteration (new space), 20 iterations:
+//     K=5,000  (~240 KB) 23.92 B/object,  3 falls
+//     K=40,000 (~1.9 MB)  6.94 B/object, 10 falls
+//
+// and the SAME table came back at `--max-semi-space-size=128` and at
+// `=512`, falls unchanged to the unit. So the reading degrades
+// monotonically with the number of collections inside the window, the
+// flag does not suppress them, and the bias is always DOWNWARD.
+//
+// That last property is what matters for what this row was built to
+// measure. HD-002 predicts the candidate's steady-state allocation slope
+// is FLAT AT ZERO, and an instrument that systematically under-reads
+// allocation is an instrument that manufactures exactly that answer. The
+// row therefore gates on the falling-step count rather than shipping a
+// flag that changes nothing while looking like a repair.
+async function newPage(chromium, query, jsFlags = '--expose-gc') {
   const browser = await chromium.launch({
-    args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'],
+    args: ['--enable-precise-memory-info', `--js-flags=${jsFlags}`],
   });
   const page = await browser.newPage();
   // Every `;; P0` record, and EVERY warning or error the page emits. The
@@ -881,6 +911,493 @@ async function ladderRow(chromium) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// The allocation row (rf2-2rtt6.76) — the survival metric's OTHER half
+// ---------------------------------------------------------------------------
+//
+// `--only alloc` is the STEADY-STATE ALLOCATION SLOPE across warm 1/3/7/20
+// reads. It is opt-in and runs nothing else, on the same terms as `ladder`
+// and `fanout`.
+//
+// It is not a variant of the ladder and it does not re-measure it. The
+// ladder prices what a boundary KEEPS per read; this prices what a warm
+// re-render THROWS AWAY per read. `p0_heap.cljs`'s own header says
+// "Nothing here counts allocations", and that is exactly why HD-002's
+// survival metric has been half-witnessed: the zero-retained-per-
+// occurrence clause is answered by the ladder's residue column and its
+// structural stamp (rf2-2rtt6.9), and the allocation clause has never had
+// an instrument on this rig at all.
+//
+// THE SHAPE OF A READING. Collect; then run N warm bulk writes with the
+// used-heap counter sampled on both sides of every one of them; accumulate
+// the RISING steps and the FALLING steps separately. A rising-step sum is
+// an allocation total whether or not a collection intervened, because a
+// collection is excluded from it rather than netted against it. Where one
+// did land the sum is a slight UNDER-estimate, bounded by one leg per
+// collection, and the collection count is published beside every figure.
+//
+// WHAT IS BEING WRITTEN. One `dispatch-sync` of `:p0/write-all` — the same
+// event the bulk clock arms drive — through the event pipeline and the
+// signal graph, followed by the substrate's own drain. Every boundary
+// re-renders and every boundary's READ SET IS UNCHANGED, which is the
+// steady state HD-002's cost law is stated over.
+//
+// WHY THE DONORS RIDE ALONG. A warm re-render at R reads allocates R query
+// vectors in the arm's own body, R subscription recomputations and a React
+// element tree, on EVERY substrate. HD-002's claim is about edge
+// maintenance alone, so the quantity that answers it is the candidate's
+// slope LESS the same-run donor's. A candidate slope quoted on its own
+// would be mostly other people's allocation, which is why this row carries
+// the donors in the same rounds under the same collector exactly as the
+// ladder does.
+//
+// THE CONTROLS. Three, and the run exits on the first two:
+//
+//   idle       a window with no work in it at all — the sampler's own
+//              footprint, which is otherwise an unexamined constant
+//              sitting inside every figure in the table;
+//   control    a dropped `.slice()` of D doubles per iteration, costing a
+//              PREDICTED 8D bytes, read DIRECTLY;
+//   control'   the same at a second D, so the per-double cost is also read
+//              as a SLOPE between the two, which cancels every constant
+//              including the sampler's footprint.
+//
+// A retention instrument reads both control figures as ZERO. That is the
+// entire claim this row has to establish before any arm is quoted, and it
+// is the check `b8-alloc` was built around after the sampling profiler
+// produced a wrong table on this surface.
+const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || 30);
+const ALLOC_ROUNDS = Number(process.env.P0_ALLOC_ROUNDS || 6);
+const ALLOC_WARMUPS = Number(process.env.P0_ALLOC_WARMUPS || 3);
+// 8 B a double, so 1,000 doubles is a predicted 8,000 B of garbage per
+// iteration. SMALL on purpose, and the size was chosen by measurement
+// rather than by taste: the standalone probe above walked D from 1,000 to
+// 100,000 and the reading tracked the prediction only at the bottom of
+// that range, where no collection fell inside the window (8.40 B/double
+// at 0 falls, against 4.00 B/double at 10). A control sized like the arms
+// would fail for the arms' reason and prove nothing about the arithmetic.
+const ALLOC_D = Number(process.env.P0_ALLOC_D || 1000);
+const ALLOC_D2 = Number(process.env.P0_ALLOC_D2 || 400);
+// How far the two control readings may sit from 8 B/double and still count
+// as THE INSTRUMENT CAN SEE GARBAGE. Generous on purpose: the claim being
+// gated is that transient bytes are visible AT ALL, not that V8's
+// bookkeeping is exactly 8 B wide. `b8-alloc` measured a stable 12.06
+// B/double against the same 8 B arithmetic and could not close the gap, so
+// a band that demanded 8 exactly would refuse a working instrument.
+const ALLOC_CONTROL_SLACK = Number(process.env.P0_ALLOC_CONTROL_SLACK || 0.75);
+// The threshold, MEASURED rather than assumed: the standalone probes put
+// the first falling step at roughly 600 KB of cumulative garbage in a
+// window, on both kinds of garbage and at every semi-space size tried. It
+// is recorded here because it is what decides whether a given arm is
+// measurable by this instrument at all, and a warm re-render of 1,200
+// boundaries is two to three times over it in ONE write.
+const ALLOC_FALL_THRESHOLD_B = 600000;
+
+// Rising and falling steps, accumulated separately, from one window's raw
+// samples. The samples are `[s0, pre0, post0, pre1, post1, ...]`, so the
+// work legs are the (pre -> post) steps and the gaps between iterations
+// are the (post -> pre) steps; both are walked, because a collection can
+// fall in either.
+function allocSteps(samples) {
+  let rise = 0;
+  let fall = 0;
+  let falls = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const d = samples[i] - samples[i - 1];
+    if (d > 0) rise += d;
+    else if (d < 0) {
+      fall += -d;
+      falls++;
+    }
+  }
+  return {
+    rise,
+    fall,
+    falls,
+    endpoints: samples[samples.length - 1] - samples[0],
+  };
+}
+
+async function allocRow(chromium) {
+  const { browser, page, watch } = await newPage(chromium, '?mode=heap');
+  await watch.race('window.P0_READY === true || window.P0_ERROR', {
+    timeoutMs: 180000,
+    budget: 'the 180s wait for window.P0_READY (the alloc page)',
+  });
+  const err = await page.evaluate('window.P0_ERROR || null');
+  if (err) {
+    await browser.close();
+    throw new Error(`alloc page failed to initialise: ${err}`);
+  }
+
+  // The fit rule's own self-test, BEFORE anything is measured. This row
+  // fits with `p0-heap/ladder-fit` — the SAME rule the reads ladder uses,
+  // with the same r² floor and the same R=0 exclusion — so it inherits
+  // that rule's control unchanged rather than growing a second one.
+  const st = await page.evaluate(() => window.P0H.ladderSelfTest());
+  for (const c of st.checks) {
+    console.log(`;; P0 alloc-fit ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}  — ${c.detail}`);
+  }
+  if (!st.ok) {
+    await browser.close();
+    throw new Error('the ladder-fit self-test FAILED — no allocation slope may be priced');
+  }
+
+  const perRoot = await page.evaluate(() => window.P0H.boundariesPerRoot);
+  const B = ROOTS * perRoot.grid;
+  const plan = ladderPlan(perRoot, ROOTS);
+  const { gc, read } = await makeReaders(page);
+
+  // --- the precise-memory flag, PROVED rather than trusted --------------
+  // Without `--enable-precise-memory-info` Chrome quantises the in-page
+  // counter to 100 KB buckets and every figure here would be noise. A
+  // quantised counter is not a small error; it is a different instrument.
+  await page.evaluate(([d, n]) => window.P0H.allocPrepare(d, n), [ALLOC_D, ALLOC_WRITES]);
+  const probe = await page.evaluate(
+    (n) => window.P0H.allocWindow(n, 'control', 'react'),
+    ALLOC_WRITES
+  );
+  const rounded = probe.samples.filter((x) => x % 100000 === 0).length;
+  const precise = rounded < probe.samples.length;
+  if (!precise) {
+    await browser.close();
+    throw new Error(
+      `--enable-precise-memory-info did not take: all ${probe.samples.length} readings are ` +
+        'multiples of 100,000, so the counter is quantised and nothing here is measurable'
+    );
+  }
+
+  let unverified = 0;
+  const unverifiedDetail = [];
+  const rounds = [];
+
+  for (let round = 0; round < ALLOC_ROUNDS; round++) {
+    console.error(`[p0] alloc round ${round + 1}/${ALLOC_ROUNDS}`);
+    const armsOut = {};
+
+    // --- the three controls, in situ, before this round's arms ----------
+    const controlOf = async (kind, d) => {
+      await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [d, ALLOC_WRITES]);
+      await gc();
+      const pre = await read();
+      const w = await page.evaluate(
+        ([n, k]) => window.P0H.allocWindow(n, k, 'react'),
+        [ALLOC_WRITES, kind]
+      );
+      const post = await read();
+      const s = allocSteps(w.samples);
+      return { kind, d, ...s, perIter: s.rise / ALLOC_WRITES, cdpBracket: post.cdp - pre.cdp };
+    };
+    const idle = await controlOf('idle', 0);
+    const ctl1 = await controlOf('control', ALLOC_D);
+    const ctl2 = await controlOf('control', ALLOC_D2);
+
+    // --- the arms, in the order this round's parity dictates ------------
+    const segs = round % 2 === 0 ? plan : [...plan].slice().reverse();
+    for (const { segment, arms } of segs) {
+      await page.evaluate((s) => window.P0H.prepare(s), segment);
+      const drain = segment === 'reagent-subs' ? 'reagent' : 'react';
+      const order = await page.evaluate(
+        ([n, r]) => window.P0H.slotOrder(n, r),
+        [arms.length, round]
+      );
+      for (const j of order) {
+        const entry = arms[j];
+        // Mount, and KEEP it. Nothing is released inside this row — the
+        // whole quantity is what a STANDING page allocates when it is
+        // written to, and an arm torn down between windows would be
+        // measuring a mount.
+        const v = await page.evaluate(
+          ([a, k, o]) => window.P0H.mount(a, k, o),
+          [entry.arm, ROOTS, entry.opts]
+        );
+        if (!v.ok) {
+          unverified++;
+          unverifiedDetail.push(
+            `${entry.key}: elements ${v.elements}/${v.expected}, keys ${v.keys}/${v.keysExpected}`
+          );
+        }
+        // A WARM-UP PASS at the REAL window size, and not a token one. A
+        // measurement site reads well above its settled value until it has
+        // run several full-size windows: `b8-alloc`'s driver watched a
+        // first window read 5.3x its settled value with nothing else
+        // varying, and its own instrument pseudo-arm read 9.9x. Warming
+        // with anything smaller than the window would leave that inside
+        // the first round of every arm.
+        await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [0, ALLOC_WRITES]);
+        for (let w = 0; w < ALLOC_WARMUPS; w++) {
+          await page.evaluate(
+            ([n, d]) => window.P0H.allocWindow(n, 'write', d),
+            [ALLOC_WRITES, drain]
+          );
+        }
+        await gc();
+        const pre = await read();
+        const win = await page.evaluate(
+          ([n, d]) => window.P0H.allocWindow(n, 'write', d),
+          [ALLOC_WRITES, drain]
+        );
+        const post = await read();
+        await page.evaluate(() => window.P0H.release());
+        const s = allocSteps(win.samples);
+        // THE WRITE READ-BACK, and the row exits on it. At R reads of a
+        // page whose cells were all written to `v`, a ladder boundary's
+        // text is `R·v`; the floor has no subscription and cannot move.
+        // A row whose writes never reached the page is the cheapest row in
+        // any table, and this is the same class of gate as the mount
+        // read-back the retention rows already carry.
+        const R = entry.reads || 0;
+        const want = String(R * win.tick);
+        if (win.text !== want) {
+          unverified++;
+          unverifiedDetail.push(
+            `${entry.key}: warm write read-back "${win.text}", expected "${want}"`
+          );
+        }
+        armsOut[entry.key] = {
+          segment,
+          arm: entry.arm,
+          rung: entry.rung,
+          reads: R,
+          boundaries: B,
+          text: win.text,
+          ...s,
+          perWrite: s.rise / ALLOC_WRITES,
+          perBoundaryPerWrite: s.rise / ALLOC_WRITES / B,
+          cdpBracket: post.cdp - pre.cdp,
+        };
+      }
+    }
+    rounds.push({ round, controls: { idle, ctl1, ctl2 }, arms: armsOut });
+  }
+
+  // --- the fits, through the LADDER's rule, with the page still open ----
+  const fits = { perRound: {}, mean: {} };
+  for (const { segment } of plan) {
+    for (const sub of LADDER_SUBSTRATES[segment]) {
+      const id = `${segment}|${sub}`;
+      const rungsOf = (r) =>
+        LADDER_RUNGS.map((R) => ({
+          rung: `R${R}`,
+          reads: R,
+          y: r.arms[`${segment}|lad/${sub}#R${R}`].perBoundaryPerWrite,
+        }));
+      fits.perRound[id] = [];
+      for (const r of rounds) {
+        fits.perRound[id].push(await page.evaluate((rs) => window.P0H.ladderFit(rs), rungsOf(r)));
+      }
+      const all = rounds.map(rungsOf);
+      const meanRungs = all[0].map((g, i) => ({
+        ...g,
+        y: all.reduce((acc, rr) => acc + rr[i].y, 0) / all.length,
+      }));
+      fits.mean[id] = await page.evaluate((rs) => window.P0H.ladderFit(rs), meanRungs);
+      fits.mean[id].rungs = meanRungs;
+    }
+  }
+
+  await browser.close();
+
+  return {
+    benchmark: 'P0:steady-state-allocation-slope',
+    bead: 'rf2-2rtt6.76',
+    roots: ROOTS,
+    perRoot,
+    boundaries: B,
+    writes: ALLOC_WRITES,
+    warmups: ALLOC_WARMUPS,
+    rounds: ALLOC_ROUNDS,
+    preciseMemory: precise,
+    controlDoubles: { d1: ALLOC_D, d2: ALLOC_D2 },
+    controlSlack: ALLOC_CONTROL_SLACK,
+    instrument:
+      'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
+      'rising steps accumulated separately from falling ones; --enable-precise-memory-info',
+    fallThresholdB: ALLOC_FALL_THRESHOLD_B,
+    verification: { unverified, detail: unverifiedDetail },
+    perRound: rounds,
+    allocFits: fits,
+  };
+}
+
+function summariseAlloc(row) {
+  const B = row.boundaries;
+  console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — WARM 1/3/7/20 READS (rf2-2rtt6.76) ====');
+  console.log(
+    `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
+      'held FIXED across every rung'
+  );
+  console.log(
+    `;; ${row.rounds} rounds x ${row.writes} warm bulk writes, after ${row.warmups} full-size ` +
+      'warm-up windows. Q = E on every rung.'
+  );
+  console.log(';; The arm stays MOUNTED across the window: this is what a standing page');
+  console.log(';; allocates when it is written to, not what a mount costs.');
+
+  // --- the controls, adjudicated ----------------------------------------
+  console.log(';;');
+  console.log(';; ==== THE CONTROLS ====');
+  const cstat = (f) => stat(row.perRound.map(f));
+  const idle = cstat((r) => r.controls.idle.perIter);
+  const c1 = cstat((r) => r.controls.ctl1.perIter);
+  const c2 = cstat((r) => r.controls.ctl2.perIter);
+  const d1 = row.controlDoubles.d1;
+  const d2 = row.controlDoubles.d2;
+  console.log(
+    `;;   idle window (the sampler's own footprint): ${n0(idle.mean)} B/iteration ` +
+      `[${n0(idle.min)}–${n0(idle.max)}]`
+  );
+  console.log(
+    `;;   control D=${d1}: predicted ${8 * d1} B  |  measured ${n0(c1.mean)} B ` +
+      `[${n0(c1.min)}–${n0(c1.max)}]  = ${(c1.mean / d1).toFixed(2)} B/double`
+  );
+  console.log(
+    `;;   control D=${d2}: predicted ${8 * d2} B  |  measured ${n0(c2.mean)} B ` +
+      `[${n0(c2.min)}–${n0(c2.max)}]  = ${(c2.mean / d2).toFixed(2)} B/double`
+  );
+  // The DIFFERENTIAL reading, which cancels every constant including the
+  // sampler's own footprint. It is the one of the two that a residual
+  // per-window overhead cannot flatter.
+  const slopePerDouble = (c1.mean - c2.mean) / (d1 - d2);
+  console.log(
+    `;;   DIFFERENTIAL (D=${d1} less D=${d2}): ${slopePerDouble.toFixed(2)} B/double ` +
+      '— cancels the sampler footprint and every other constant'
+  );
+  const within = (x) => Math.abs(x - 8) / 8 <= row.controlSlack;
+  const controlOk = within(c1.mean / d1) && within(slopePerDouble);
+  console.log(
+    `;;   VERDICT (slack ±${(row.controlSlack * 100).toFixed(0)}% around 8 B/double): ` +
+      `${controlOk ? 'OK — transient garbage IS visible to this counter' : 'FAILED'}`
+  );
+  console.log(
+    ';;   A RETENTION instrument reads both control figures as ZERO. That is what the'
+  );
+  console.log(
+    ';;   CDP sampling profiler does on this surface, and why it is not used here.'
+  );
+  row.controlVerdict = { ok: controlOk, perDouble: c1.mean / d1, differential: slopePerDouble };
+
+  const falls = row.perRound.reduce(
+    (a, r) => a + Object.values(r.arms).reduce((b, x) => b + x.falls, 0),
+    0
+  );
+  const wins = row.perRound.reduce((a, r) => a + Object.keys(r.arms).length, 0);
+  console.log(';;');
+  console.log(
+    `;;   measured fall threshold: ~${row.fallThresholdB} B of cumulative garbage per window. ` +
+      'Enlarging the young generation does NOT move it (128 MB and 512 MB tried).'
+  );
+  console.log(
+    `;;   collections seen inside arm windows: ${falls} falling steps across ${wins} windows ` +
+      '(a fall is EXCLUDED from the rising sum, never netted against it)'
+  );
+  // A FALL INSIDE A MEASURED WINDOW IS AN EXIT CONDITION, and the probe run
+  // is why. Where a collection lands, the allocation between the last
+  // reading before it and the collection itself is netted away inside that
+  // single step, so the rising sum is an UNDER-estimate — and the probe
+  // measured how large that can get: the same control object read 6.67
+  // B/double at 320 KB per iteration and 1.38 B/double at 800 KB. A row
+  // that reported the second figure would be publishing the collector's
+  // schedule as a property of the arm, and the arms all read LOW under
+  // that fault, which is the direction that flatters a candidate whose
+  // predicted answer is zero.
+  row.fallsInMeasuredWindows = falls;
+  console.log(
+    `;;   verification: ${row.verification.unverified} unverified ` +
+      '(mount read-backs AND the warm-write read-back)'
+  );
+  for (const d of row.verification.detail || []) console.log(`;;   UNVERIFIED ${d}`);
+
+  // --- the rows ----------------------------------------------------------
+  for (const segment of Object.keys(LADDER_SUBSTRATES)) {
+    console.log(';;');
+    console.log(`;; ---- ${segment} ----`);
+    console.log(
+      ';; arm            reads        B/boundary/write [min–max]        B/write        falls'
+    );
+    const floorKey = `${segment}|grid/floor`;
+    const fl = stat(row.perRound.map((r) => r.arms[floorKey].perBoundaryPerWrite));
+    const flw = stat(row.perRound.map((r) => r.arms[floorKey].perWrite));
+    console.log(
+      `;; floor              — ${(n0(fl.mean) + ' [' + n0(fl.min) + '–' + n0(fl.max) + ']').padStart(30)}` +
+        `${n0(flw.mean).padStart(15)}   (no subscription: the WRITE's own cost)`
+    );
+    for (const sub of LADDER_SUBSTRATES[segment]) {
+      for (const R of LADDER_RUNGS) {
+        const key = `${segment}|lad/${sub}#R${R}`;
+        const s = stat(row.perRound.map((r) => r.arms[key].perBoundaryPerWrite));
+        const w = stat(row.perRound.map((r) => r.arms[key].perWrite));
+        const f = row.perRound.reduce((a, r) => a + r.arms[key].falls, 0);
+        console.log(
+          `;; ${sub.padEnd(11)}${String(R).padStart(6)} ` +
+            `${(n0(s.mean) + ' [' + n0(s.min) + '–' + n0(s.max) + ']').padStart(30)}` +
+            `${n0(w.mean).padStart(15)}${String(f).padStart(9)}` +
+            (R === 0 ? '   (anchor — regressed nowhere; cannot re-render)' : '')
+        );
+      }
+    }
+  }
+
+  // --- the fitted lines ---------------------------------------------------
+  console.log(';;');
+  console.log(';; ==== THE FITTED LINES —  y = intercept + slope·R,  over 1/3/7/20 ONLY ====');
+  console.log(';;   y is bytes ALLOCATED per boundary per warm write. The slope is what one');
+  console.log(';;   more read costs a boundary that already reads, on a re-render whose READ');
+  console.log(';;   SET DID NOT CHANGE. R=0 is the anchor and is regressed nowhere.');
+  const fits = row.allocFits;
+  for (const id of Object.keys(fits.mean)) {
+    const m = fits.mean[id];
+    const per = fits.perRound[id];
+    const rng = (f) => {
+      const xs = per.map(f).filter((x) => typeof x === 'number' && isFinite(x));
+      return xs.length ? `[${n0(Math.min(...xs))}–${n0(Math.max(...xs))}]` : '[—]';
+    };
+    console.log(';;');
+    console.log(
+      `;;   ${id.padEnd(22)} slope ${n0(m.slope).padStart(6)} B/read ${rng((f) => f.slope)}` +
+        `   intercept ${n0(m.intercept)} B ${rng((f) => f.intercept)}`
+    );
+    console.log(
+      `;;     shell (R=0, measured) ${n0(m.shell)} B ${rng((f) => f.shell)}` +
+        `   ·   first read ${n0(m.firstRead)} B ${rng((f) => f.firstRead)}` +
+        `   ·   r² ${m.r2.toFixed(5)}`
+    );
+    const nonlinear = per.filter((f) => !f.linear).length;
+    console.log(
+      `;;     ${m.linear ? 'LINE' : 'NOT A LINE'} — ${m.why}` +
+        `  (per-round: ${per.length - nonlinear} of ${per.length} rounds linear)`
+    );
+  }
+
+  // --- HD-002's own question ---------------------------------------------
+  console.log(';;');
+  console.log(';; ==== WHAT HD-002 PREDICTED, AND WHAT THE ROW SAYS ====');
+  console.log(';;   HD-002 (hd-002-adjudication.md): "allocation is proportional to the CHANGE,');
+  console.log(';;   not to the read count... the allocation slope across warm 1/3/7/20 reads is');
+  console.log(';;   FLAT AT ZERO", falsified by a non-flat slope. That is a claim about EDGE');
+  console.log(';;   MAINTENANCE, and every substrate here also allocates R query vectors, R sub');
+  console.log(';;   recomputations and a React element tree. So the quantity that answers it is');
+  console.log(';;   the candidate slope LESS the same-run donor slope, in the SAME segment.');
+  const slopeOf = (id) => fits.mean[id] && fits.mean[id].slope;
+  for (const seg of Object.keys(LADDER_SUBSTRATES)) {
+    const donor = LADDER_SUBSTRATES[seg][0];
+    const hc = slopeOf(`${seg}|hicasso`);
+    const dn = slopeOf(`${seg}|${donor}`);
+    if (typeof hc !== 'number' || typeof dn !== 'number') continue;
+    console.log(
+      `;;   ${seg.padEnd(13)} candidate ${n0(hc)} − ${donor} ${n0(dn)} = ` +
+        `${n0(hc - dn)} B/read of EXCESS steady-state allocation`
+    );
+  }
+  console.log(';;');
+  console.log(';; ==== ARM-ORDER NOTE (alloc) ====');
+  console.log(';;   This row mounts each arm and keeps it for the whole window, so it produces');
+  console.log(";;   no mount/release sample stream for `order-guard`'s phase test. Segment order");
+  console.log(';;   still alternates by round parity and slot order is still the guard\'s, so the');
+  console.log(';;   ranges below are across BOTH orders — but the guard itself does not');
+  console.log(';;   adjudicate this row and no figure here claims its verdict.');
+}
+
 // The candidate's structural claim, as numbers the run exits on. The
 // arm IS `arm1.runtime`, so its own index and cell tables can be
 // counted, and "one subscription/epoch hook per boundary plus N edges
@@ -1345,8 +1862,13 @@ if (require.main === module) (async () => {
   // row, and folding it into a default run would change the sample
   // stream that row's arm-order guard adjudicates.
   const wantLadder = ONLY === 'ladder';
-  if (ONLY !== null && !wantClock && !wantHeap && !wantFanout && !wantLadder) {
-    console.error(`[p0] unknown --only ${ONLY} (clock | heap | fanout | ladder)`);
+  // `--only alloc` is opt-in on the same terms, and for a third reason as
+  // well as the two the ladder gives: it is the only row here that keeps
+  // an arm mounted across a measured window, so its sample stream is not
+  // the mount/release one the arm-order guard adjudicates.
+  const wantAlloc = ONLY === 'alloc';
+  if (ONLY !== null && !wantClock && !wantHeap && !wantFanout && !wantLadder && !wantAlloc) {
+    console.error(`[p0] unknown --only ${ONLY} (clock | heap | fanout | ladder | alloc)`);
     process.exit(1);
   }
   try {
@@ -1442,6 +1964,38 @@ if (require.main === module) (async () => {
         );
       }
       refused = refused || out.ladder.orderRefused;
+    }
+    if (wantAlloc) {
+      console.error('[p0] steady-state allocation row ...');
+      out.alloc = await allocRow(chromium);
+      summariseAlloc(out.alloc);
+      if (out.alloc.verification.unverified > 0) {
+        failures.push(
+          `alloc: ${out.alloc.verification.unverified} unverified — ` +
+            out.alloc.verification.detail.join(' | ')
+        );
+      }
+      // The controls ARE an exit code. Everything this row prints rests on
+      // one claim — that transient garbage is visible to the counter at
+      // all — and a run whose control read zero would be a retention
+      // instrument publishing an allocation table, which is the exact
+      // fault that produced a wrong table on this surface before.
+      if (!out.alloc.controlVerdict.ok) {
+        failures.push(
+          `alloc: positive control — ${out.alloc.controlVerdict.perDouble.toFixed(2)} B/double ` +
+            `direct, ${out.alloc.controlVerdict.differential.toFixed(2)} B/double differential, ` +
+            'against a predicted 8'
+        );
+      }
+      if (out.alloc.fallsInMeasuredWindows > 0) {
+        failures.push(
+          `alloc: ${out.alloc.fallsInMeasuredWindows} collections fell inside measured windows ` +
+            '— every arm figure in this run is an UNDER-estimate, and under-reading allocation ' +
+            'is the direction that manufactures the flat-at-zero answer HD-002 predicts, so no ' +
+            'slope here is quotable. The controls above still adjudicate the arithmetic; what ' +
+            'refuses is the arms\' scale, not the method'
+        );
+      }
     }
   } catch (e) {
     failures.push(String(e && e.stack ? e.stack : e));

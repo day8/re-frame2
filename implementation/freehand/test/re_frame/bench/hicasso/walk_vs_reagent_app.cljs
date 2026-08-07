@@ -595,16 +595,22 @@
   #{:frame :payload :native? :veto})
 
 (defn- navmap-keyset-shipping
-  "The shipping check: build the map's key SET and compare it to the
-  roster. One `PersistentHashSet` per link per render."
+  "The PRE-`rf2-jr0tg` check, and the name is historical the way the
+  `-ship` rows below are: build the map's key SET and compare it to the
+  roster, one `PersistentHashSet` per link per render. It WAS shipping
+  when this row was written; the twin beside it is what ships now. Kept
+  as the losing half of a costed pair, which is this lane's practice."
   [m]
   (= navigate-key-set (when (map? m) (set (keys m)))))
 
 (defn- navmap-keyset-scan
-  "The same CLOSED grammar with nothing allocated. The count is what
-  closes it — four presence tests alone are fail-open on a fifth key,
-  which is the defect `rf2-2rtt6.54` was fixing; four presence tests AND a
-  count of four admit exactly the same maps the set equality admits."
+  "The same CLOSED grammar with nothing allocated, and what
+  `front.intent/unwrap-navigate` now asks — `rf2-jr0tg` landed it. The
+  count is what closes it — four presence tests alone are fail-open on a
+  fifth key, which is the defect `rf2-2rtt6.54` was fixing; four presence
+  tests AND a count of four admit exactly the same maps the set equality
+  admits. This LOCAL copy stays, because a copy the change cannot reach
+  is the positive control the arm rows are read against."
   [m]
   (and (map? m)
        (== 4 (count m))

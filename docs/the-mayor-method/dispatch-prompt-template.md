@@ -59,6 +59,14 @@ edit-guard is caught from the other side. Install per the project's hook scripts
 ```text
 You are implementing <BEAD_ID> in <project + one-line description>.
 <Project stance — from the operator; e.g. pre-alpha / production-stable / refactor-only.>
+
+READ THE BEAD BEFORE THE BRIEF, AND READ IT BOTTOM-UP — MANDATORY.
+`bd show <BEAD_ID>` prints DESCRIPTION first, and the description is the OLDEST
+text on the bead: corrections, scope changes and sibling landings accrete BELOW
+it as notes. So read the notes from the bottom up, the description last. Where
+the bead and this brief disagree, the BEAD governs — follow it, and say in your
+report what differed.
+
 Do NOT link gitignored working files (the ai/ tree, findings docs) from committed
 docs — the strict-docs link validator fails the build in cascade. Inline a
 one-sentence summary instead.
@@ -81,6 +89,17 @@ the surface, as a dated amendment where one exists and a new page only when the
 evidence stands on its own. Three workers in a single day found their design
 already written in that tree and promoted the surviving conclusion rather than
 re-deriving it, which is why the preamble tells the worker to look there first.
+
+**A bead is oldest at the top, which is why the reading order is mandatory rather
+than tidy.** Every correction to a bead arrives below its description, so reading
+top-down starts from the stalest field on the record — and that is also the field
+the dispatching mayor most likely paraphrased into the brief. In one day the rule
+caught five stale briefs: `rf2-409ab`, whose fix had landed two days earlier under
+a sibling bead; `rf2-409ab` again, where the brief named the wrong audit item;
+`rf2-2rtt6.103`, told to execute a resolution that had already merged in PR #7607;
+`rf2-y1jkm`, which a scope correction had redefined from an allocation leak to a
+baseline-contamination leak; and `rf2-2rtt6.56`, carrying three wrong path, flag
+and script details. Every one of those briefs was accurate when it was written.
 
 ## Quality gates — the discipline
 
@@ -245,6 +264,7 @@ before fixing.
 - Clusters split that should be one PR (or vice-versa) → cluster reviewer pre-validates shape.
 - Stalled workers losing analysis → findings-first + one-bead-at-a-time tracker creates.
 - Re-discovering known issues → name recent landings + prior findings.
+- A brief that was accurate when written but stale when read → bead-governs-the-brief, notes bottom-up.
 - Generic prompts → require `file:line` citations + concrete fix sketches.
 
 ---

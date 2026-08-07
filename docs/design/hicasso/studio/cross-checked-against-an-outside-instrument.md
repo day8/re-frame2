@@ -474,11 +474,12 @@ The band is not widened after the fact. It is recorded as failed.
 
 | | |
 |---|---|
-| Landed whole-tree anchor | **`2f5af3db42`** — on main, so it resolves. Recovered by identical `git patch-id --stable`; every blob its commit contributed is unchanged there |
-| Authoring anchor | `19a3710bc9604684ddbc7b2b72ec901dcc0f0ea7` on `worker/xbench-rguy1`, the tree both runs were taken at. A later rebase moved it to `3680992949a6eec842ba033ae50f3a9a34af7884` — **but that SHA is itself authored and equally stranded**, so naming it repaired nothing; both are on no branch and neither resolves in a fresh clone. The landed anchor above is the one to check out. **Every blob below is unchanged across the rebase**, which is the check that matters |
+| Landed whole-tree anchor | **`2f5af3db42`** — the commit that landed this page, on main, so it resolves, and its tree carries every instrument blob below. **This is the one to check out.** It is **not** the authoring anchor's `git patch-id --stable` counterpart, and the earlier claim that it was is withdrawn (`rf2-rguy1`, checked 2026-08-07): that counterpart is its parent, the next row |
+| Landed instrument anchor | **`f6cb3584fb`** — what the authoring anchor `19a3710bc9…` became when it landed, recovered by identical `git patch-id --stable` and verified rather than asserted. It carries the instrument, and `2f5af3db42` is its child adding only this page. PR #7359 landed as `f6cb3584fb` then `2f5af3db42` then `cc7d21e6ce9c4fc01dae9d6606cf4cf7674450f8`, which is its tip; this repository rebase-merges, so there is no merge commit to name |
+| Authoring anchor | `19a3710bc9604684ddbc7b2b72ec901dcc0f0ea7` on `worker/xbench-rguy1`, the tree both runs were taken at. A later rebase moved it to `3680992949a6eec842ba033ae50f3a9a34af7884` — **but that SHA is itself authored and equally stranded**, so naming it repaired nothing; both are on no branch and neither resolves in a fresh clone. The landed anchors above are the ones to check out. **Every blob below is unchanged across the rebase**, which is the check that matters |
 | Runtime, ours | Chromium `147.0.7727.15` headless, Playwright 1.59.1, node v24.13.0, `hardware-concurrency` 24, `device-memory` 32 |
 | Runtime, theirs | Chrome **150.0.7871.186** (system), puppeteer-core 25.3.0 via `webdriver-ts`, headless, chromedriver 150.0.1 present and version-matched |
-| Benchmark revision | `krausest/js-framework-benchmark` `master`, shallow clone taken 2026-08-01, kept at `%LOCALAPPDATA%\Temp\jsfb-rguy1\repo` — **outside this repository, never committed** |
+| Benchmark revision | `krausest/js-framework-benchmark` at commit **`247fafa22c1f2caeb4cad179aa64cf444398cbc7`** (*"incremental run"*, 2026-07-28), read back from the surviving clone rather than recalled. It was reached as a shallow clone of `master` taken 2026-08-01, and `master` alone is not a pin — the branch has moved since. The clone is kept at `%LOCALAPPDATA%\Temp\jsfb-rguy1\repo`, **outside this repository, never committed**. That SHA belongs to the benchmark's repository, not to this one, so it resolves there and nowhere else |
 | Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
 | Bundles | `rf2-reagent` `300a273bd20d44fcc9a6ef6718a2366faf73d691b2a2122c43003d4fc0ce8ac6` · `rf2-hicasso` `1cc9fef3bca6a6a85602361f807ff95d8338ffefba0dcad9ed04dc8ff343814f` · `rf2-uix` `4594e3f11222a16e7ef47f3fb7c6827854ff3cd9e3fa4ea07682482adea1abc1` |
 | Their run | started 2026-08-01 23:55:03 AUSEST, ended 00:00:55, **exit 0**, driver's own PlausibilityCheck `successful run` |
@@ -498,10 +499,15 @@ rebase:
 | `implementation/freehand/test/re_frame/bench/hicasso/jsfb_ours_run.cjs` | `8f4c8c7657ffe34d63de0b6fccc944021e088259` |
 | `implementation/freehand/test/re_frame/bench/hicasso/jsfb_compare.cjs` | `6af3eb23b86b512f0c25dd8020099f8364cd63fa` |
 
-Reproduction — the clone is not vendored, so step one fetches it:
+Reproduction — the clone is not vendored, so step one fetches it. Every figure
+above was taken at the revision and the schedule this command names, and both
+are load-bearing: a `--depth 1` clone of `master` gets whatever `master` is
+today, and the runner's own default is **6** rounds where the published run took
+**5**.
 
 ```bash
-git clone --depth 1 https://github.com/krausest/js-framework-benchmark.git /tmp/jsfb
+git clone https://github.com/krausest/js-framework-benchmark.git /tmp/jsfb
+git -C /tmp/jsfb checkout 247fafa22c1f2caeb4cad179aa64cf444398cbc7   # the pinned revision
 cd /tmp/jsfb && npm --prefix server install && npm --prefix webdriver-ts ci \
   && npm --prefix webdriver-ts run compile
 (cd server && npm start &)                      # serves :8080
@@ -514,13 +520,21 @@ node dist/benchmarkRunner.js \
   --framework keyed/rf2-reagent keyed/rf2-hicasso keyed/rf2-uix \
   --benchmark 01_ 02_ 03_ 05_ 09_ --count 10 --headless true --nothrottling true
 
-cd <re-frame2>/implementation                    # OURS
-JSFB_OURS_JSON=/tmp/ours.json \
+cd <re-frame2>/implementation                    # OURS — 5 rounds, as published
+JSFB_ROUNDS=5 JSFB_OURS_JSON=/tmp/ours.json \
   node freehand/test/re_frame/bench/hicasso/jsfb_ours_run.cjs
 
 node freehand/test/re_frame/bench/hicasso/jsfb_compare.cjs \
   --theirs /tmp/jsfb/webdriver-ts/results --ours /tmp/ours.json
 ```
+
+The comparator **fails closed** and its exit code is therefore worth reading:
+`0` only when all **10** expected cells — the five benchmarks the driver runs,
+crossed with `rf2-hicasso` and `rf2-uix` — were measured by both instruments;
+`1` when the table is short, naming every missing cell and the side that lacks
+it; `2` when an input was not named, is not present, or will not parse. It used
+to exit `0` on an absent results directory, reporting *0 of 0 comparable rows*
+(`rf2-rguy1`).
 
 `--nothrottling` is passed deliberately: the driver applies a **4× CPU slowdown**
 to benchmarks 03, 05 and 09 by default, and our instrument applies none. Upstream's

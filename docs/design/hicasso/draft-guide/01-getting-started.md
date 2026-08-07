@@ -78,7 +78,7 @@ finished product package.
 | **Routing links as data** | `route-link` — href + click decision assertable with `=` | [Events as data](03-events-as-data.md) |
 | **Controlled inputs** | Value through app-db; same-tick echo; caret preservation; careful IME on the controlled path | [Controlled inputs](04-controlled-inputs.md) |
 | **Testing shape** | **Today:** assert intents / prevent / navigate / presence attrs with `=` (no browser). **Mounted** for hooks, caret, real React. **Planned:** full headless structural render (ruled, not built; no dedicated bead yet) | [Testing](08-testing.md) |
-| **Interop** | `defhost` for npm React components; policies at the declaration; `[:>]` secondary and still landing | [Interop](05-interop.md) |
+| **Interop** | `defhost` for npm React components; policies at the declaration; `[:>]` built, and explicitly secondary | [Interop](05-interop.md) |
 | **Ephemeral UI state** | No product `local`; `reg-state` sugar; placement rules | [Ephemeral state](07-ephemeral-state.md) |
 | **Exit / enter animation** | `h/presence` — node can outlive app-db for a fade-out | [Ephemeral state](07-ephemeral-state.md) |
 | **Lifecycle without `:on-mount`** | Page data → routes; seed → `:initial-events`; animation → presence; DOM/SDK → ref / `defhost` | [Ephemeral state](07-ephemeral-state.md) |

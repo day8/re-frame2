@@ -15,10 +15,19 @@ Bead **`rf2-2rtt6.56`**. The standard is **`rf2-2rtt6.1`**.
 > **THE CANONICAL MOUNT WITNESS IS M1 AND STAYS M1.** The amendment is
 > explicit that census-page rows **corroborate** the canonical witness and do
 > not silently redefine it. These rows are the diagnostic ladder the roster's
-> pages suggest — the same screen at two boundary decompositions, so shell
-> cost and interpreter cost separate on one page — and the bar rows stay on
-> their own instrument. Nothing here re-baselines HD-012, and the ruling on
-> any verdict below is the operator's (`rf2-2rtt6.1`), never this page's.
+> pages suggest, and the bar rows stay on their own instrument. Nothing here
+> re-baselines HD-012, and the ruling on any verdict below is the operator's
+> (`rf2-2rtt6.1`), never this page's.
+
+> **RETRACTED, 2026-08-07 (`rf2-2rtt6.62`).** This page previously described
+> the large-template and feed rows as *the same screen at two boundary
+> decompositions, so shell cost and interpreter cost separate on one page*,
+> and drew conclusions from the difference between them. **That isolation was
+> never established and is withdrawn** — see [What this page does not
+> isolate](#what-this-page-does-not-isolate) below. Every **within-row**
+> measurement stands unchanged: each row's arms mount a canon-gated identical
+> page, so the per-row verdicts, controls and bands below are exactly as
+> measured. What is withdrawn is every **cross-row causal** reading.
 
 ## Provenance
 
@@ -93,6 +102,45 @@ The feed row is therefore the census-real counterpart of the canonical M1
 witness — same decomposition, same read shape, real cards — and the cleanest
 gated pair on this page.
 
+## What this page does not isolate
+
+The three rows are not one screen at three sizes, and only one variable was
+ever meant to move between the first two. In the landed instrument, four move
+together:
+
+| row | cards | elements | per-instance reads | boundaries |
+|---|---|---|---|---|
+| large-template | 69 article cards | 1,202 | 141 | **1** |
+| feed | 300 article cards | 5,129 | 603 | **301** |
+| ordinary | 5 comment cards (a *different screen*) | 51 | 15 | 7 |
+
+`large_template.cljs` seeds `{:articles 69 :tags 10}` and `feed.cljs` seeds
+`{:articles 300 :tags 10}`, through the **same** element arithmetic
+(`19 + 10 + 17·articles`). So the step from the one-boundary row to the
+301-boundary row is simultaneously a step to **4.35× the cards** — and with
+them 4.27× the elements and 4.28× the subscription reads, the two lagging
+slightly because the 29-element page chrome does not scale. The boundary count
+meanwhile steps by 301×. A shared `card.cljs` and the one-card canonical equality
+gate establish that the two pages are built from **byte-identical markup** —
+that is markup parity, and it is real. It is not matched workload, and no
+timing difference between these two rows can be attributed to boundary
+decomposition rather than to size.
+
+**Consequently, everything below is a within-row claim.** Within a row the
+comparison is sound and unaffected: all arms mount the identical page, proven
+by canonical-DOM equality before any clock is read, so each row's
+hicasso/uix ratio, control, band and verdict are exactly as measured. Between
+rows this page reports the **ordering of measured numbers** and nothing
+causal.
+
+**What would establish it.** Clock both decompositions at one card count — at
+minimum the 69 and 300 rungs. That is a seed change (both shapes already take
+`{:articles n :tags 10}`) plus a session on a quiet box, and it has not been
+run: this repository has published rows taken on a contended box and had to
+retract them, so the matched run waits for a real measurement window rather
+than being estimated from the absolutes already on this page. Until it exists,
+the isolation stays retracted. Tracked on `rf2-2rtt6.62`.
+
 ## What this page refuses, up front
 
 The roster's **write rows** (shape 3's broad commit, shape 4's narrow commit)
@@ -136,10 +184,13 @@ on its own shapes
 cleanly, and it FAILS the amendment's line**: 1.3053× [1.1044 – 1.4660]
 against direct UIx, control PASS, band 6.7%, margin 18.7%. This is the row the
 roster built to price the hiccup interpreter with the boundary shell held at
-one — 1,202 interpreted elements against a compile-time page — and it behaves
-exactly as the restated HD-008 verdict attributes: the deficit lives in the
-interpreter walk, and it concentrates where the interpreter term is largest.
-The caveat is printed on the row itself: the UIx twin reads five coarse
+one — 1,202 interpreted elements against a compile-time page — and its own
+`taskNet` reading puts the whole gap in **script**, which is what the restated
+HD-008 verdict attributes: the deficit lives in the interpreter walk. That
+attribution is within-row and stands. The further claim that it *concentrates
+where the interpreter term is largest* was a cross-row reading and is withdrawn
+(`rf2-2rtt6.62`) — this row is not the feed row with its boundaries rearranged,
+it is a smaller page. The caveat is printed on the row itself: the UIx twin reads five coarse
 subscriptions where the census page reads 141 per-instance, because no
 one-boundary hook surface can spell the census's read shape at all. The row
 prices the whole authoring position, not the codec alone.
@@ -178,15 +229,24 @@ magnitude, per the note above.
 The element-per-boundary scaling argument in the bead — census cards carry
 ~6× more interpreter work per boundary, so the interpreter-attributed deficit
 should scale up — is **refuted in its magnitude prediction and confirmed in
-its attribution**. The gap stays 100% script (taskNet ≈ 1.0), i.e. it *is*
-the interpreter; but on real cards React's own per-element mount work (style,
-layout, commit — identical across arms in the decomposition) grows faster than
-the interpreter term, so the interpreter's *share* shrinks and the ratio
-compresses from M1's ~1.50 readings toward ~1.16–1.22. The candidate's mount
-deficit is workload-dependent, and the synthetic p0 witnesses sit near its
-worst case, not its typical one. Where the shell is held at one and the
-interpreter term is maximal (large-template), the ratio re-expands to
-1.3053× — still well short of what M1 reads.
+its attribution**. The gap stays 100% script (taskNet ≈ 1.0) on every row,
+i.e. it *is* the interpreter: that is a within-row decomposition, measured
+three times, and it stands. The *magnitude* did not grow — the feed row reads
+1.16–1.22× where M1 reads ~1.50 — so the candidate's mount deficit is
+workload-dependent and the synthetic p0 witnesses sit near its worst case
+rather than its typical one.
+
+> **The explanation of *why* it compresses is withdrawn (`rf2-2rtt6.62`).**
+> This paragraph previously argued that React's own per-element mount work
+> grows faster than the interpreter term, so the interpreter's *share*
+> shrinks — and read the large-template row's 1.3053× as that share
+> re-expanding "where the shell is held at one and the interpreter term is
+> maximal". That is a cross-row causal reading, and the rows do not support
+> one: large-template differs from feed in cards, elements and reads as well
+> as in boundaries (see [What this page does not
+> isolate](#what-this-page-does-not-isolate)). The three ratios remain as
+> measured — 1.3053× / 1.1646× / 1.1248× — but which term of the workload
+> moves them is unresolved on this instrument.
 
 Beside the gate: on the one-boundary census page **direct UIx beats stock
 Reagent outright** — uix/reagent 0.8913× [0.7739 – 0.9835], whole range below
@@ -200,7 +260,7 @@ own shapes.
 |---|---|---|
 | P1 | ctl-2x reads below its arithmetic prediction on every row (`rf2-jcm3p`) | **CONFIRMED on large-template** (1.8650 / 1.8879 vs 1.9759) and **on ordinary**, where the additive residual `c` is 0.90 ms on a 1.14 ms tared floor — the constant is most of the signal. **REFUTED on feed** (2.0772 / 2.2450 vs 1.9943): at 10,229 elements the doubled floor costs *more* than the arithmetic — layout 2.06×, style 1.85×, script 2.3× in the decomposition — so the superlinearity of React's own mount at 10k elements outweighs the additive undershoot. Recorded, not smoothed over |
 | P2 | direction only: feed hicasso/uix wholly above 1.10 | **CONFIRMED in direction on the reagent run** (whole range above 1.10); **not resolved on the uix run** (range floor 1.0951). The magnitude *growth* the bead's scaling argument implied did not happen — the deficit shrank instead (see the workload leg above) |
-| P3 | large-template is the largest hicasso/uix of the three rows | **CONFIRMED** — 1.3053 > 1.1646 > 1.1248 |
+| P3 | large-template is the largest hicasso/uix of the three rows | **ORDERING CONFIRMED, REASONING NOT** — 1.3053 > 1.1646 > 1.1248 is what was measured. P3 was registered on the reasoning that the shell is held at one boundary while the interpreter term is maximal; the rows cannot separate that from large-template simply being a different page at a different size (`rf2-2rtt6.62`). The ordering is a fact about three numbers, not evidence for the mechanism that predicted it |
 | P4 | the ordinary row sits near this door's floor; if its control or band cannot hold, it publishes a refusal, not a number | **CONFIRMED** — both runs' ordinary controls FAILED (1.1511 / 1.2964 vs 1.7255 predicted); the row's gated magnitudes are published only as instrument-limited non-results carrying the control's failure |
 
 ## Refusals and instrument limits, with reasons
@@ -236,9 +296,11 @@ census rows corroborating M1:
 
 The corroboration cuts both ways and the page says both halves: the candidate
 clears nothing here (no row passes the amendment's line), **and** M1's ~1.50×
-readings do not transfer to census-real screens, where the measured deficit is
-1.10–1.31× depending on how the same markup is cut into boundaries. That
-second half is a comparison of readings, not of magnitudes: M1 publishes a
-regime rather than a number (`rf2-jcm3p`, 2026-08-06 — see the note above),
-and what these rows corroborate is its **direction**. The ruling on what that
-means for the programme is the operator's (`rf2-2rtt6.1`); this page measures.
+readings do not transfer to census-real screens, where the measured deficit
+across the three rows spans 1.10–1.31×. That span is an observed range over
+three *different pages* — not a function of boundary decomposition, which this
+instrument does not isolate (`rf2-2rtt6.62`). And the second half is a
+comparison of readings, not of magnitudes: M1 publishes a regime rather than a
+number (`rf2-jcm3p`, 2026-08-06 — see the note above), and what these rows
+corroborate is its **direction**. The ruling on what that means for the
+programme is the operator's (`rf2-2rtt6.1`); this page measures.

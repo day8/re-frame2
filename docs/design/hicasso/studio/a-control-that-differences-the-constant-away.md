@@ -23,7 +23,9 @@ moving the control anywhere it would not matter
 
 The control is nonetheless real, and it is shown **refusing** under a
 falsification in which every other gate passes
-([§6](#6-the-control-is-shown-failing)).
+([§6](#6-the-control-is-shown-failing)) — under a rule since tightened, because
+differencing the constant away also costs the statistic its
+[**sign**](#the-band-is-necessary-and-not-sufficient).
 
 Owner: the operator-owned standard bead `rf2-2rtt6.1`; this page `rf2-7iqb5` and
 `rf2-5xrcd`.
@@ -233,13 +235,55 @@ probes follow the actual dirty set, and a cold cell is probed as well as two hot
 ones), canonical DOM identical across all 15 non-control arms, band 10.9%. The
 control was the only gate that fired, which is the whole claim.
 
-**Offline.** `node clock_run.cjs --selftest` runs eleven fixtures with no browser
-and is fatal in every run. They include: superlinear work refuses; an arm
+**Offline.** `node clock_run.cjs --selftest` runs fourteen fixtures with no
+browser and is fatal in every run. They include: superlinear work refuses; an arm
 declaring 200 while rendering 140 refuses; a degenerate denominator refuses
 rather than passing quietly; one nonlinear block in nine refuses, so eight good
-blocks cannot vouch for it; a large additive constant does *not* move the
-statistic; a multiplicative block perturbation does not either; and the doubling
-control is biased low on a world the three-point one reads exactly.
+blocks cannot vouch for it; a page on which more dirty work reads *faster*
+refuses ([below](#the-band-is-necessary-and-not-sufficient)); a large additive
+constant does *not* move the statistic; a multiplicative block perturbation does
+not either; and the doubling control is biased low on a world the three-point one
+reads exactly.
+
+### The band is necessary and not sufficient
+
+The first eleven fixtures adjudicated a block on its ratio alone, and that is a
+gate with a hole in it. **Cancelling the constant costs the statistic its sign.**
+`(T(2D) − T(ε)) / (T(D) − T(ε))` is unchanged when *both* differences flip, so a
+page on which more dirty work reads **faster** lands on exactly the same number
+as one on which it reads slower.
+
+It is not a corner case. For `T(d) = 10 − 0.006d`:
+
+| point | time | difference | value |
+|---|---|---|---|
+| `T(1)` | 9.994 ms | numerator `T(200) − T(1)` | **−1.194 ms** |
+| `T(100)` | 9.400 ms | denominator `T(100) − T(1)` | **−0.594 ms** |
+| `T(200)` | 8.800 ms | quotient | **2.0101×** |
+
+That is the prediction to four places, dead centre of the `[1.5076 – 2.5126]`
+band. The control passed on a page that had inverted underneath it.
+
+So each block must also carry the **monotonicity the control's own premise
+asserts** — `T` rising with `d` — and it is checked on the terms the statistic is
+built from: both differences finite and **strictly positive**. `≥ 0` would not
+do. A difference of exactly zero is a denominator gone to noise, or a numerator
+saying the top two points are indistinguishable; neither is a reading, and a
+control that admits one is admitting an arm it cannot see. The per-block rule is
+unchanged and still strict — one inverted block refuses the row exactly as one
+out-of-band block does — and an empty block set is refused rather than passing on
+a vacuous `every`.
+
+The fixture asserts **both halves**: that the band-only rule the driver shipped
+with admits this page, and that the shipped rule refuses it, on the sign rather
+than on the number. Two more fixtures cover the boundaries — negative or
+exactly-zero numerator, ditto denominator, an arm that read nothing — and one
+countercheck asserts the gate refuses nothing healthy, so `ctl-2x`'s bias, the
+superlinear world and the declaring-200-rendering-140 world are all still refused
+for their own reasons rather than swept up by this one.
+
+**None of the figures on this page moves.** The gate can only turn a pass into a
+refusal, and all three rows already refused.
 
 ### What it cannot catch, asserted rather than described
 
@@ -296,15 +340,23 @@ Two further constraints on any future attempt:
 | `implementation/freehand/test/re_frame/bench/hicasso/clock_views.cljs` | `7e48dbc0b3a974cd61a5c61e606333848877a31f` |
 
 These are the blobs **that produced the figures above**, and they are what a
-reproduction needs. Both harness files have since taken **comment-only**
-corrections — an over-stated negative-denominator count, a stale comment block
-left from the abandoned 3,000-cell design — and now hash
-`c5e8801569715e27c5a1ecb543badb88182063fc` and
-`0d54998103649cd8479d3a73eca9e8745a026a8c`.
-Behaviour is unchanged and the adjudicators' fixtures were re-run against them,
-but the table above names the blobs that **ran** rather than the blobs that
-**ship**, because those are different questions and only the first is
-provenance.
+reproduction needs. The table names the blobs that **ran** rather than the blobs
+that **ship**, because those are different questions and only the first is
+provenance — the shipping files have moved since, and they will move again.
+
+Two rounds of change so far. The first was **comment-only**: an over-stated
+negative-denominator count and a stale comment block left from the abandoned
+3,000-cell design. The second, `rf2-7iqb5`, is **behavioural** — the
+[sign gate](#the-band-is-necessary-and-not-sufficient), plus the last three
+diagnostics
+that still described the 3,000-cell arms. As of it, `clock_app.cljs` hashes
+`f9b31f14a9ed922beb416a436555f436fb2aa6c0` and `clock_run.cjs`
+`1aa4f3e9f4f20230596c71051a52d72facc12cff`.
+
+**No figure above moves under either round.** The sign gate can only convert a
+pass into a refusal, and all three rows already refused; the `LayoutDuration`
+column is quoted as a mean and a range rather than a verdict, so it does not move
+either. The adjudicators' fixtures were re-run against both.
 
 Commit `ef30c639162db98492cf0ebb53f00d411deb4bc4` — authored, and rebase-merged,
 so it is on no branch and **will not resolve in a fresh clone**. It landed on

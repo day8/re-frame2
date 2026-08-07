@@ -339,16 +339,21 @@
                 plan)
         (.then
           (fn [_]
-            ;; C3 rides here too: a driven run whose tail is not anchored at
-            ;; the last offer is incoherent in the same way a run that applied
-            ;; more than it offered is, and fails the arm rather than
-            ;; publishing a plausible wrong number.
-            (let [bad (filterv (fn [{:keys [offered applied tail-ms tail-anchored?]}]
+            ;; C3 and C4 ride here too: a driven run whose tail is not
+            ;; anchored at the last offer, or whose published tail is not the
+            ;; difference of the two instants published beside it, is
+            ;; incoherent in the same way a run that applied more than it
+            ;; offered is, and fails the arm rather than publishing a
+            ;; plausible wrong number. C4 is the check the third edition
+            ;; lacked: C3 alone left `:tail-ms` free to be re-anchored at
+            ;; settle time with every gate still green.
+            (let [bad (filterv (fn [{:keys [offered applied tail-ms tail-anchored?] :as run}]
                                  (or (not (pos? offered))
                                      (> applied offered)
                                      (not tail-anchored?)
                                      (not (number? tail-ms))
-                                     (neg? tail-ms)))
+                                     (neg? tail-ms)
+                                     (not (b10/tail-identity-holds? run))))
                                @runs)]
               (record! :m3
                        (b10/record
@@ -366,20 +371,27 @@
                                "measurement; :offered counts driver invocations; :applied is "
                                "incremented inside the reducer; :mutations counts DOM "
                                "records; :peak-backlog is the largest offered-minus-applied "
-                               "ever seen at an offer; :tail-ms is from the LAST OFFER'S OWN "
-                               "TIMESTAMP to the MutationObserver's sighting of the last "
-                               "generation, with a 4 ms poll and a 2000 ms ceiling serving "
-                               "only as the :settled? detector; :offer-to-poll-start-ms is "
-                               "the one-interval gap between those two instants and "
-                               ":tail-anchored? gates it against half a requested period, so "
-                               "a tail read off a clock restarted at settle time fails rather "
-                               "than publishes; :latency-ms is the offer-to-DOM distribution "
-                               "read from the MutationObserver callback that carried each "
-                               "generation.")}
+                               "ever seen at an offer; :tail-ms is the LAST GENERATION'S OWN "
+                               "OBSERVER LATENCY, retained by the MutationObserver that "
+                               "computed it rather than recomputed at publication time, so "
+                               "it is the same number that generation contributes to "
+                               ":latency-ms, with a 4 ms poll and a 2000 ms ceiling serving "
+                               "only as the :settled? detector; :tail-offer-at-ms and "
+                               ":tail-observed-at-ms publish the two readings it is the "
+                               "difference of, and that identity is asserted exactly (C4); "
+                               ":offer-to-poll-start-ms is the one-interval gap between the "
+                               "retained offer reading and the settle decision and "
+                               ":tail-anchored? gates it against half a requested period "
+                               "(C3), so re-anchoring the tail at settle time fails C4 by a "
+                               "whole interval and re-anchoring the published offer reading "
+                               "to match fails C3; :latency-ms is the offer-to-DOM "
+                               "distribution read from the MutationObserver callback that "
+                               "carried each generation.")}
                          {:warmup 0 :samples (count @runs)}
                          {:runs @runs}))
               (when (seq bad)
-                (fail! (str "M3 — a driven run is incoherent (offered/applied): "
+                (fail! (str "M3 — a driven run is incoherent "
+                            "(offered/applied, C3 anchor or C4 tail identity): "
                             (pr-str bad)))))
             nil))
         (.finally (fn [] (b10/release! mnt))))))

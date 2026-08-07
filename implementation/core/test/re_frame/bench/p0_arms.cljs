@@ -152,6 +152,19 @@
 (defn- dispatch-sync! [ev]
   ((:dispatch-sync @captured) ev))
 
+(defn write-all!
+  "The bulk write, as a PUBLIC door, so a row that is not one of this
+  namespace's own arms can drive the identical write (rf2-2rtt6.76).
+
+  It is [[dispatch-sync!]] of the same `:p0/write-all` event the bulk
+  clock arms use and nothing else — the allocation row's warm re-render
+  has to be the write a real application pays for, through the event
+  pipeline and the signal graph, or it is measuring a different page from
+  the one the clock and heap rows measured."
+  [v]
+  (dispatch-sync! [:p0/write-all v])
+  nil)
+
 ;; ---------------------------------------------------------------------------
 ;; MOUNT arms
 ;; ---------------------------------------------------------------------------

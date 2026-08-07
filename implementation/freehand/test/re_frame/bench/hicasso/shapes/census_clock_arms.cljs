@@ -25,9 +25,25 @@
 
   ## What each substrate can and cannot spell, stated up front
 
-  The three pages differ in exactly one thing — how many boundaries the
-  same markup is cut into — and the substrates do not meet that variable
-  equally. These are findings the rows are FOR, not defects in the arms:
+  The three pages differ in HOW MANY BOUNDARIES the same markup is cut
+  into, and the substrates do not meet that variable equally. These are
+  findings the rows are FOR, not defects in the arms.
+
+  **THEY DIFFER IN HOW MANY CARDS TOO, AND THAT IS NOT AN ISOLATION**
+  (rf2-2rtt6.62, from the merged-PR audit of #7372/#7379). An earlier
+  wording of this docstring said the pages differ in exactly one thing.
+  They do not. `large-template` seeds 69 articles and `feed` seeds 300 —
+  the same element arithmetic (`19 + 10 + 17·articles`) at 4.35x the
+  cards, so elements (1,202 -> 5,129), per-instance reads (141 -> 603)
+  and boundaries (1 -> 301) all move TOGETHER between those two rows.
+  A shared `card.cljs` and one-card canonical equality establish MARKUP
+  PARITY; they do not hold WORKLOAD constant. Every row below is
+  therefore valid WITHIN itself — its arms mount the identical page —
+  and no cross-row difference may be attributed to boundary
+  decomposition. Matching the decompositions at one card count is a
+  seed change here (both rows already take `{:articles n :tags 10}`)
+  plus a clock session on a quiet box; until that run exists, the
+  isolation is retracted rather than assumed.
 
   - **large-template (1,202 elements, ONE boundary, 141 per-instance
     reads).** The candidate and Reagent read per-instance subscriptions
