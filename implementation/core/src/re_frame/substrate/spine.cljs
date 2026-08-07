@@ -2144,13 +2144,15 @@
           ;; developer one identifier; `(str id)` kept a keyword's colon and so
           ;; published a second spelling (rf2-976bw).
           ;;
-          ;; On the `reg-view` path this stamp is not the name React sees:
-          ;; `views/build-frame-aware-view` wraps this fn again and the OUTER
-          ;; wrapper is the element type, so its own `entry-id` stamp wins.
-          ;; The stamp stays because `wrap-view` is a published adapter surface
-          ;; (`re-frame.adapter.uix/wrap-view`) documented as usable directly
-          ;; as a component head — a head reached that way is named too, and by
-          ;; the same builder, so no substrate-dependent spelling survives.
+          ;; This stamp is NOT redundant behind the outer `views.cljs` one.
+          ;; That wrapper is `(with-meta (fn …) {:contextType …})`, and
+          ;; `cljs.core/with-meta` on a fn yields a `MetaFn` — an IFn, not a
+          ;; JS function — so React cannot use it as an element type. Reagent
+          ;; converts it (its class machinery reads `.-displayName` off the
+          ;; input and forwards it); a React-hook substrate has no such
+          ;; conversion, so the component head it mounts is THIS fn, and this
+          ;; is the stamp React DevTools reads. `wrap-view` is published for
+          ;; exactly that use (`re-frame.adapter.uix/wrap-view`).
           ;;
           ;; The assignment sits inside the `interop/debug-enabled?` arm so the
           ;; name and the assignment elide in production builds.

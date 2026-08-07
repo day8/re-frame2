@@ -83,3 +83,25 @@
         (is (nil? (aget props "data-rf-view"))
             "NO data-rf-view merged into the props — view-id tagging elides on the
              same gate (rf2-ihcib)")))))
+
+(deftest wrap-view-head-has-no-display-name-under-prod-uix
+  (testing "rf2-976bw: the spine's displayName stamp now calls
+            `re-frame.performance/entry-id` to build the published name.
+            That call sits inside the same `interop/debug-enabled?` arm as
+            the rest of `wrap-view`'s body, so under :advanced +
+            goog.DEBUG=false the arm DCEs, `wrap-view` returns the user-fn
+            unchanged, and NO per-view name string — nor the label builder
+            reached through it — survives into the bundle. The Reagent-side
+            counterpart is
+            `re-frame.reg-view-devtools-elision-prod-test/reg-view-wrapped-fn-has-no-display-name-under-prod`."
+    (let [user-fn (fn [] (React/createElement "span" #js {:id "x"} "hi"))]
+      (rf/reg-view* :rf.uix-prod-elision-test/dn-elided user-fn)
+      (let [wrapped (rf/view :rf.uix-prod-elision-test/dn-elided)]
+        (is (some? wrapped) "the view is registered")
+        (is (nil? (.-displayName ^js wrapped))
+            "no .displayName on the registered view under prod-mode")
+        (is (nil? (.-displayName ^js (uix-adapter/wrap-view
+                                       :rf.uix-prod-elision-test/dn-elided-head
+                                       {} user-fn)))
+            "no .displayName on a directly-built wrap-view head either —
+             the whole arm elided")))))

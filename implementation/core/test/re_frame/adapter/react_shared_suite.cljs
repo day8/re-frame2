@@ -104,6 +104,7 @@
             [re-frame.epoch]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.react-test-support :as react-test-support]
+            [re-frame.performance :as performance]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.spine :as spine]
             [re-frame.trace.tooling :as trace-tooling])
@@ -456,6 +457,87 @@
           (is (string? coord) "data-rf2-source-coord present")
           (is (str/ends-with? coord ":42:7")
               "the explicit {:line 42 :column 7} coords land in the attribute"))))))
+
+;; ===========================================================================
+;; React DevTools display-name (Spec 006 §React DevTools support item 1, as
+;; amended by rf2-976bw) — the name a React-hook substrate publishes to the
+;; developer is the view-id's performance/display projection, and it is the
+;; SAME STRING the `rf:render:<id>` measure carries.
+;;
+;; The pre-amendment spelling was `(str id)`, which keeps a keyword's leading
+;; colon: DevTools read `:cart/total-line` while the bracket wrote
+;; `rf:render:cart/total-line`. Both halves were separately well-formed and
+;; separately pinned — which is exactly why they could drift. The assertions
+;; below are equalities BETWEEN the halves, not shape checks on each.
+;; ===========================================================================
+
+(defn assert-display-name-matches-render-measure
+  "rf2-976bw: the spine's `wrap-view` names its component head with
+  `performance/entry-id` — the same builder `performance/build-name` calls —
+  so the DevTools name and the `rf:render:` measure are ONE identifier.
+  Headless (node-safe); the mounted counterpart is
+  `assert-mounted-display-name-is-devtools-visible`.
+
+  cfg keys: :substrate-kw, :name, :wrap-view."
+  [{:keys [substrate-kw name wrap-view]}]
+  (testing (str name " — displayName is the entry-id projection, equal to the rf:render: id (rf2-976bw)")
+    (let [id      (mint-kw substrate-kw "display-name-one-identifier")
+          head    (wrap-view id {} (fn [] (React/createElement "span" #js {} "hi")))
+          visible (.-displayName ^js head)]
+      (is (= (performance/entry-id id) visible)
+          "the component head is named by performance/entry-id")
+      (is (not (str/starts-with? visible ":"))
+          (str "no leading colon survives into the published name; got " (pr-str visible)))
+      (is (= (performance/build-name :render id)
+             (str "rf:render:" visible))
+          "the render measure name is exactly \"rf:render:\" + the published name")
+      ;; Non-vacuous: the id really is namespaced, so the equality above is
+      ;; not satisfied by two degenerate strings.
+      (is (str/includes? visible "/")
+          (str "the projection preserves the keyword's namespace; got " (pr-str visible))))))
+
+(defn assert-mounted-display-name-is-devtools-visible
+  "rf2-976bw: mount the spine's `wrap-view` head as a real React component
+  and read the name the way React DevTools does — off the committed fiber's
+  `type` — rather than off the fn property. Spec 006 item 1 is a claim about
+  what a developer READS in the component tree; rf2-fa4ly pinned the stamp
+  and never exercised the mount.
+
+  `wrap-view` is the right head to mount on this substrate: the registered
+  handler-fn from `views/reg-view*` carries `:contextType` metadata, and
+  `cljs.core/with-meta` on a fn yields a `MetaFn` — an IFn, not a JS
+  function — so it is Reagent's class machinery that turns it into a React
+  component type. A React-hook substrate has no such conversion; its
+  component head is the `wrap-view` output, which is where the spine's stamp
+  lands.
+
+  Browser-DOM gate (real createRoot); skipped on node-test via
+  `with-browser-act`. cfg keys: :substrate-kw, :name, :wrap-view."
+  [{:keys [substrate-kw name wrap-view]}]
+  (testing (str name " — the MOUNTED component's DevTools name is the colon-free projection (rf2-976bw)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [id         (mint-kw substrate-kw "display-name-mounted")
+            head       (wrap-view id {} (fn [] (React/createElement
+                                                 "span" #js {"data-testid" "rf-dn-mounted"} "hi")))
+            expected   (performance/entry-id id)
+            mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (React/createElement head #js {}))))
+          (let [names (react-test-support/devtools-names-above
+                        (.querySelector mount-node "[data-testid='rf-dn-mounted']"))]
+            (is (some #{expected} names)
+                (str "the mounted component is named " (pr-str expected)
+                     " in the fiber tree; saw " (pr-str names)))
+            (is (not-any? #{(str ":" expected)} names)
+                (str "no colon-prefixed spelling survives into the tree; saw "
+                     (pr-str names)))
+            (is (= (performance/build-name :render id)
+                   (str "rf:render:" expected))
+                "the name read off the fiber is the measure's own id"))
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
 
 ;; ===========================================================================
 ;; React `:key` parity (Spec 006 §Source-coord annotation — CRITICAL key
