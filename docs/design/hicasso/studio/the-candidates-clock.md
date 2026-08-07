@@ -523,7 +523,7 @@ be expected to buy the same pair of refusals.
 
 ## 4. The mount row — a REGIME, not a magnitude
 
-> ## THE ROW PUBLISHES A MAGNITUDE AGAIN, AND THIS SECTION'S TITLE IS SUPERSEDED (`rf2-t2flm`, ruled 2026-08-07)
+> ## THE ROW PUBLISHES A MAGNITUDE AGAIN — THIS SECTION'S TITLE IS SUPERSEDED AND KEPT (`rf2-t2flm`, ruled 2026-08-07)
 >
 > **The regime-only statement below is superseded.** `M1` publishes `~1.184×`
 > against direct UIx-on-subs, conditionally labelled, on the two retained
@@ -531,8 +531,7 @@ be expected to buy the same pair of refusals.
 > labels every one of them must carry are at
 > [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row),
 > and they are **not** duplicated here: two copies of a published row is how a
-> record starts disagreeing with itself, which is the failure this sweep exists
-> to repair.
+> record starts disagreeing with itself.
 >
 > **What fell was the ground, not a measurement.** `rf2-jcm3p` read `ctl-2x`'s
 > *mean* against `2.00×` and called that categorical failure. The implemented
