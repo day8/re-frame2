@@ -81,7 +81,57 @@ Force a field back to a value with an **explicit revision** from the caller —
 form reset, revert, server normalisation — not by comparing the incoming value
 to a target. Value-equality reset is how a user who legitimately types that
 value gets yanked mid-edit, and how a same-value reassertion becomes invisible.
-The prop that carries the revision is still unnamed; see **Not settled yet**.
+
+`::h/revision` **[unfrozen]** is where that law is spelled at the element. It
+reads like any other value, beside `:value`:
+
+```clojure
+(defview revertable-field [{:keys [id]}]
+  [:input {:type        :text
+           :value       (sub [:editor/field id])
+           ::h/revision (sub [:editor/baseline id])
+           :on-input    [:editor/edit-field id ::h/value]}])
+```
+
+The revert event does both halves — restore the value **and** move the
+revision. A `[:button {:on-click [:editor/revert id]} "Revert"]` fires it:
+
+```clojure
+(rf/reg-event :editor/revert
+  (fn [{:keys [db]} [_ id]]
+    {:db (-> db
+             (assoc-in [:editor :fields id] (get-in db [:editor :saved id]))
+             (update-in [:editor :baselines id] inc))}))   ;; the revision moves
+```
+
+**Only a revision change resets.** A `:value` that moves under an unchanged
+revision is ordinary controlled conduct: the field shows it, and nothing
+consulted the revision on the way. The comparison is `=`, so equal-but-fresh
+revision values are inert.
+
+**A reset is not a remount.** What goes is the draft in the field. What stays is
+the node itself, and the focus on it — the caret lands at end-of-model on the
+commit carrying the reset, which is the platform's own conduct for a `value`
+assignment. Contrast `h/boundary`'s `:reset-key`, which *does* remount ([When a
+view throws](09-when-a-view-throws.md)): same idea, opposite conduct on the node.
+
+**Write a revision the way you would write an instance key** — a domain fact
+your events put in app-db: a record id, a load generation, a "form opened at"
+stamp. Never a render-order index, never a counter minted in render, never
+`random-uuid`; each of those resets the field on every render.
+
+The prop is refused loudly on anything that is not controlled text — a `:div`, a
+`select`, an input with no `:value`, a value-less checkbox — as
+`:rf.error/hicasso-revision-not-controlled`. It is never taken from a `:&`
+remainder either, so a caller cannot force a re-baseline on a field whose author
+never wrote one. And it never reaches the DOM as an attribute, client or server.
+
+This is the single prop and nothing more: no commit/cancel intents, no
+acknowledgement that the reset landed, no caret-policy knobs. The
+draft-and-commit ladder under **Not settled yet** *consumes* this trigger rather
+than extending it. The ruled shape is in [the adjudicated
+spec](../studio/revision-prop-spec.md); the two cases where a reset cannot land
+immediately are under [Advanced](#advanced).
 
 ## Troubleshooting
 
@@ -92,7 +142,9 @@ The prop that carries the revision is still unnamed; see **Not settled yet**.
 | Enter commits half-typed text mid-composition | A hand-written key handler that bypasses the intent path | Use the data key-map; the composition check lives there |
 | Composition dies when the model refuses mid-draft | A value write during composition (browser treats that as abort) | Not this runtime on controlled text: composition is left alone until `compositionend` |
 | An IME commit lands stale text, then corrects itself | Something async sat between keystroke and commit, so `compositionend` reconciled the field against a model the deferred write had not reached yet | Keep the controlled write synchronous. The composition survives either way — only what it commits is late |
-| Typing the "reset" value clears the field | Reset keyed on value equality somewhere | Reset on an explicit revision |
+| Typing the "reset" value clears the field | Reset keyed on value equality somewhere | Move `::h/revision`; a value comparison is not a reset |
+| The field resets on every render | A revision minted in render — `random-uuid`, a render-order index, a counter the body increments | Read a revision your *events* wrote into app-db |
+| The field never resets, and devtools shows a `revision="…"` attribute on it | A bare `:revision`. The match is the exact namespaced keyword, so every other spelling flows through as an ordinary attribute — silently, and with a namespaced value's namespace deleted on the way, so two distinct revisions can collapse to one | Write `::h/revision` |
 | Focus lost after validation fails | Something remounted the node | Do not remount to reset — that is exactly what destroys focus |
 
 ## When not to control an input
@@ -157,11 +209,37 @@ Scope: controlled **text** entry (same path as the rest of this page).
 Composition behaviour is proven on Chromium; a WebKit IME misbehave is a bug
 report, not a documented limit.
 
+### A reset that cannot land immediately
+
+Two cases, both deferrals, and both limits rather than bugs.
+
+**Mid-composition.** A revision change that arrives while an IME composition is
+running lands at the exchange's close — `compositionend`, blur, unmount, or the
+next non-composing input — for the same reason nothing else writes the field
+there: the only immediate write available is `element.value`, and
+mid-composition that silently aborts the composition. The model is correct
+throughout; the glass is not.
+
+The deferral does not promise the reset *survives*, and the honest version
+matters here. On an accepting field the model keeps taking every composing
+update while the reset is pending, so a post-bump edit — including the
+composition's own final input event — supersedes the reset by ordinary event
+order, exactly as it would at rest. What does hold is that the field is never
+stranded: every exit converges it to the then-current model.
+
+**Mid-hydration.** A revision that arrives before adoption completes defers past
+adoption. The revision cannot influence adoption either way — it is consumed
+before the element is emitted, so React is handed the same element whether the
+revision moved or not. What adoption does with a client render that lands
+mid-flight is React's own affair and is **not pinned yet**; the deferral is the
+documented conduct until it is.
+
 ## Not settled yet
 
 | Question | Status |
 |---|---|
-| The revision prop's spelling on a controlled element | Reset law fixed; the attribute name is still open |
-| A buffered / draft-and-commit input ladder | Not in the first ship of same-tick echo + caret preservation |
+| `::h/revision`'s spelling | The prop exists and the reset law is fixed; the name is **[unfrozen]**, and the freeze faces it alongside the other reset-ish names |
+| What adoption does with a reset that lands mid-hydration | Deferring past adoption is the documented conduct; the timing itself is not pinned |
+| A buffered / draft-and-commit input ladder | Not in the first ship of same-tick echo + caret preservation. It *consumes* `::h/revision`'s trigger; the single prop is not the ladder |
 | A controls kit that owns drafts and revisions | Not first ship — a draft is app-db state you write yourself |
 | Whether `:on-input` or `:on-change` is the taught attribute | Both work; the runtime takes whichever runs last. Current screens use `:on-input` for text and `:on-change` for checkboxes |
