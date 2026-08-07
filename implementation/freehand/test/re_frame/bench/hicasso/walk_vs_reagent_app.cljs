@@ -72,6 +72,7 @@
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.front.intent :as intent]
+            [re-frame.bench.hicasso.front.slot :as slot]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.hicasso.shapes.large-template :as lt]
             [re-frame.bench.hicasso.walk-profile-app :as wp]
@@ -367,7 +368,7 @@
   "All three arms cache the same value shape the codec caches, so the
   rows price the LOOKUP and not two different payloads."
   [k n]
-  (codec/->PropSlot (codec/prop-name k) (reserved-name? n) false false false))
+  (codec/->PropSlot (slot/prop-name k) (reserved-name? n) false false false))
 
 (defn- guarded-lookup
   "The shipping lookup shape, written here so every arm is local."

@@ -64,7 +64,7 @@
 
   React's `onChange` fires on the native `input` event, and Hicasso's
   `:on-change` lowers to the same prop: `intent/lower-prop` claims every
-  `^on-` position and `codec/prop-name` camelCases it to `onChange`. Same
+  `^on-` position and `slot/prop-name` camelCases it to `onChange`. Same
   prop, same event, same handler.
 
   ## The keystroke floor holds its draft in React, and it is NOT a lower

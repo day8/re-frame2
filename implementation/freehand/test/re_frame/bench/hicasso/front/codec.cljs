@@ -373,12 +373,14 @@
 (def ^:private prop-cache
   ;; The three seeded entries are the RULE, not memos of one — they are
   ;; the rename table inside
-  ;; [[re-frame.bench.hicasso.front.slot/prop-name]], pre-warmed, and
-  ;; `slot-cljs-test`'s corpus asserts the seed against the rule on both
-  ;; hosts so a re-spelled seed cannot outlive it. None is reserved, an
-  ;; event position, or the ref
-  ;; slot; `class` IS the class slot, which is the whole reason the rule
-  ;; is stated on the emitted name rather than on the key.
+  ;; [[re-frame.bench.hicasso.front.slot/prop-name]], pre-warmed. They
+  ;; are the one place this file could still answer a slot the shared
+  ;; rule would not, so `codec-cljs-test` asks these very keys of
+  ;; `cached-prop-name` against `slot-cljs-test`'s corpus and a
+  ;; re-spelled seed cannot outlive the ask. None is reserved, an event
+  ;; position, or the ref slot; `class` IS the class slot, which is the
+  ;; whole reason the rule is stated on the emitted name rather than on
+  ;; the key.
   (doto (empty-cache)
     (unchecked-set "class" (->PropSlot "className" false false false true))
     (unchecked-set "for" (->PropSlot "htmlFor" false false false false))
