@@ -3,7 +3,7 @@
 **The mount row survives and the bulk-broad win does not.** Running
 [krausest/js-framework-benchmark](https://github.com/krausest/js-framework-benchmark)'s
 own driver over three re-frame2 arms — Reagent-on-subs, UIx-on-subs and Hicasso
-Arm 1, sharing one model and building byte-identical DOM — an instrument this
+Arm 1, sharing one model and building canonically identical DOM — an instrument this
 programme did not write reads the candidate's mount at **1.1756× Reagent**
 against **1.2789×** from our own clock on the same app, the same operation and
 the same DOM — an **8.8%** instrument gap with a named mechanism, and that
@@ -166,12 +166,37 @@ arms draw the identical id sequence and the identical labels, and therefore buil
 **canonically identical DOM: 216,066 bytes on all three**, attribute names
 sorted.
 
-That last gate is worth a sentence because it first came back red. Reagent
-serialises `type, id, class` and UIx serialises `class, type, id` — same
-elements, same attributes, same values, same length, different write order.
-Attribute order is not part of the DOM, so the gate now sorts attribute names, as
-this lane's own DOM gate does, and reports the raw lengths beside the canonical
-ones.
+That last gate is worth more than a sentence, because for five days this page
+claimed it on a run that never took it (`rf2-rguy1`, corrected 2026-08-07).
+
+It first came back red. Reagent serialises `type, id, class` and UIx serialises
+`class, type, id` — same elements, same attributes, same values, same length,
+different write order. Attribute order is not part of the DOM, so the gate was
+changed to sort attribute names, as this lane's own DOM gate does, and to report
+the raw lengths beside the canonical ones.
+
+**The published run predates that change and therefore failed the gate it is
+quoted as passing.** The preserved `ours3.json` records `parity.identical:
+false`, its `firstDiff` is exactly the `#run` button's attribute permutation, and
+the sorting commit `f6cb3584fb` was authored at 00:09:42 — after that run ended
+at 00:06:59. The evidence settles it without reference to any clock: `ours3.json`
+carries no `rawLens` key at all, and `rawLens` is *introduced by* `f6cb3584fb`,
+whose parent contains no occurrence of it. A file written by the sorting
+instrument always has that key, so `ours3.json` was not written by it.
+
+What made the error easy to miss is that the three `lens` values were already
+equal — **216,066 on all three arms, in the failing run**. Equal length is
+precisely what a permutation of one element's attributes produces, so the triple
+that was read as proof of identity was consistent with the gate being red.
+
+**The gate has now actually been run, and it clears.** Re-taken 2026-08-07 on the
+landed harness against the three published bundles — byte-for-byte the same
+bundles, verified by their SHA-256 digests in [§6](#6-provenance) — it reports
+`IDENTICAL`, `firstDiff: null`, canonical lengths `216,066` on all three arms and
+raw `innerHTML` lengths of `216,066` on all three as well. That last pair is the
+point the original gate could not make: the raw lengths match while the raw bytes
+do not, which is the attribute-order difference stated as a measurement rather
+than as an argument.
 
 ---
 
@@ -247,9 +272,14 @@ Ratios against `rf2-reagent`, the denominator HD-012 names. Every figure below
 comes from one run of each instrument on a quiet box, at the blobs in
 [§6](#6-provenance).
 
-**Gates on our run: canonical DOM identical (216,066 B, three arms). 0
-unverified of 1,000 writes. 0 page errors. Positive control FAILED — see
-[§5](#5-the-control-failed-and-here-is-what-that-does-and-does-not-touch).**
+**Gates on our run: 0 unverified of 1,000 writes. 0 page errors. Positive control
+FAILED — see
+[§5](#5-the-control-failed-and-here-is-what-that-does-and-does-not-touch). The
+DOM gate was RED on this run and is not claimed for it** — the arms do build
+canonically identical DOM (216,066 B, three arms), but that was demonstrated by
+the 2026-08-07 re-take on the landed harness, not by the run these figures come
+from ([§1.3](#13-the-one-deliberate-deviation-and-why-it-strengthens-the-comparison),
+[§6](#6-provenance)).
 
 ### 3.1 The candidate — `hicasso / reagent`
 
@@ -468,6 +498,19 @@ closing it.
 
 The band is not widened after the fact. It is recorded as failed.
 
+**And the control is not stable across runs, which the 2026-08-07 re-take
+exposed** (`rf2-rguy1`). That run — same box, same bundles, same instrument on
+this gate — measured `rf2-reagent` **14.638×**, `rf2-hicasso` **12.883×** and
+`rf2-uix` **14.367×**, so two arms failed the `8 – 13×` band and **one passed
+it**. The verdict for an arm therefore flipped between two runs of the same
+experiment. The figures above are not restated on the strength of one re-take and
+the re-take's are not published in their place; what is recorded is that this
+control decides arm-level pass/fail near its own boundary and is not reproducible
+there. A control that cannot repeat its own verdict is weaker than a failed one,
+because a failure at least says something definite. The repair already named
+above — hold page size fixed and double the changed set — is the one this
+strengthens the case for.
+
 ---
 
 ## 6. Provenance
@@ -483,8 +526,9 @@ The band is not widened after the fact. It is recorded as failed.
 | Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
 | Bundles | `rf2-reagent` `300a273bd20d44fcc9a6ef6718a2366faf73d691b2a2122c43003d4fc0ce8ac6` · `rf2-hicasso` `1cc9fef3bca6a6a85602361f807ff95d8338ffefba0dcad9ed04dc8ff343814f` · `rf2-uix` `4594e3f11222a16e7ef47f3fb7c6827854ff3cd9e3fa4ea07682482adea1abc1` |
 | Their run | started 2026-08-01 23:55:03 AUSEST, ended 00:00:55, **exit 0**, driver's own PlausibilityCheck `successful run` |
-| Our run | started 2026-08-02 00:01:09 AUSEST, ended 00:06:59, **exit 1** — scoped to the positive control ([§5](#5-the-control-failed-and-here-is-what-that-does-and-does-not-touch)); DOM parity, unverified writes and page errors all cleared |
-| Box | verified quiet before each run — 8 consecutive `LoadPercentage` samples below 30% |
+| Our run | started 2026-08-02 00:01:09 AUSEST, ended 00:06:59, **exit 1**. Unverified writes and page errors cleared; the positive control failed ([§5](#5-the-control-failed-and-here-is-what-that-does-and-does-not-touch)) and **so did the DOM parity gate** — `parity.identical: false`. The earlier claim that parity cleared here is **withdrawn** (`rf2-rguy1`, 2026-08-07): this run predates the attribute-sorting gate, so the gate it is quoted as passing did not yet exist ([§1.3](#13-the-one-deliberate-deviation-and-why-it-strengthens-the-comparison)) |
+| Our DOM-parity re-take | started 2026-08-07 18:33:08 AUSEST, ended 18:39:47, **exit 1** — scoped to the positive control alone. **DOM parity IDENTICAL**, `firstDiff: null`, canonical and raw lengths `216,066` on all three arms; 0 unverified of 1,000 writes; 0 page errors. Landed harness at `851961adc6`, whose `jsfb_ours_run.cjs` differs from the pinned blob below only in `rf2-emvod`'s raw-`TaskDuration` reporting and `JSFB_ONLY` — the canonicalisation and the exit gate are byte-identical, so this is the same instrument on the parity question. Run against the three bundles below, digests re-verified before the run. **This re-take establishes the DOM gate only**; the ratios on this page are unchanged and remain those of the 2026-08-02 run |
+| Box | 2026-08-02 runs: verified quiet before each — 8 consecutive `LoadPercentage` samples below 30%. **That counter is now known to be unreliable on this box** — it has read 93% while the true utilisation was 11% — so the 2026-08-07 re-take used `\Processor(_Total)\% Processor Time` and `\System\Processor Queue Length` instead: 8.9–17.1% before, 11.6–21.9% mid-run, 9.3–19.5% after, with **processor queue length 0 on every sample except one reading of 1 taken after the run had finished** |
 
 The instrument, by blob rather than by SHA, because a SHA does not survive a
 rebase:
