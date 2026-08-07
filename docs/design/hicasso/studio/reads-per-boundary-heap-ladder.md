@@ -893,7 +893,7 @@ is a second model and this page does not quote it as a result; it is named
 here so that 1.43 is read as one model's output inside a measured bracket,
 and not as a quantity known to two significant figures.
 
-**The archetype is past the crossing under any of them, and by direct
+**The archetype is past the crossing under either model, and by direct
 measurement.** The census's seven-read archetype reads **16,457 B against
 20,799 B, a 4,341 B/boundary saving** — 5.2 MB across 1,200 boundaries —
 with no model standing between that row and its reading. Against Reagent
