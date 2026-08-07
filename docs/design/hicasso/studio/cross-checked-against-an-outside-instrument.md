@@ -21,7 +21,15 @@ as corroborating rather than equal to it within 20%. What survives — and it is
 the stronger claim — is that an outside driver and ours agree to 8.8% on one app
 on one clock, so the deficit is not a harness artefact.
 
-> **THAT `1.4896×` IS A READING, NOT A PUBLISHED MAGNITUDE (`rf2-jcm3p`, ruled
+> **THAT `1.4896×` IS A READING, AND THE PUBLISHED MAGNITUDE IS ELSEWHERE
+> (`rf2-t2flm`, ruled 2026-08-07).** `M1` mount publishes `~1.184×` against
+> direct UIx-on-subs, conditionally labelled and drawn from two retained
+> quiet-box ensembles; the figures and their labels are at [`rf2-emvod`
+> §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+> and are not restated here. `1.4896×` stays visible wherever it appears below
+> as what the corrected clock read on 2026-08-01.
+>
+> ~~**THAT `1.4896×` IS A READING, NOT A PUBLISHED MAGNITUDE (`rf2-jcm3p`, ruled
 > 2026-08-06).** `M1` mount is stated as a **REGIME**: hicasso mounts materially
 > slower than both adapters — every corroborated reading sits above the amended
 > `≤ 1.10×` UIx gate — direction triple-corroborated (worst-case witnesses,
@@ -29,12 +37,13 @@ on one clock, so the deficit is not a harness artefact.
 > demonstrated**. The row's positive control fails (`ctl-2x` 1.8173× against a
 > predicted 2.00×, explained by the additive constant `c ≈ 1.04 ms`), so no
 > magnitude is published
-> ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).
-> `1.4896×` stays visible wherever it appears below as a historical observation
-> *stated under a failing `ctl-2x`; withdrawn as a magnitude 2026-08-06*.
-> **This page's OWN figures are untouched by that ruling** — §0 establishes they
-> are script-and-frame on an unaffected harness — and the corroboration above is
-> a direction, which is exactly what the regime publishes.
+> ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).~~
+> *(Superseded 2026-08-07: the implemented control rule tests per-block band
+> membership rather than the mean, and seven of fourteen runs pass it.)*
+>
+> **This page's OWN figures are untouched by either ruling** — §0 establishes
+> they are script-and-frame on an unaffected harness — and the corroboration
+> above is a direction, which both rulings agree this benchmark supplies.
 
 The bulk number is the one that matters most, because it is the **third** reading
 of that row taken past the `flushSync` boundary and the third to refuse the win:
@@ -339,8 +348,9 @@ of our harness.**
 > on this page is a script-and-frame reading and none of them is restated.**
 >
 > The decomposition is. Against the M1 witness re-taken on the corrected clock
-> — `1.4896×`, a reading and **not a published magnitude** (`rf2-jcm3p`,
-> 2026-08-06; see the note at the top of this page) — the two legs are
+> — `1.4896×`, a reading and **not the published magnitude** (~~`rf2-jcm3p`,
+> 2026-08-06~~ `rf2-t2flm`, 2026-08-07; see the note at the top of this
+> page) — the two legs are
 > **workload** (`1.4896 → 1.2789`, our
 > instrument throughout) and **instrument 8.8%** (`1.2789 → 1.1756`, the same
 > app throughout). *That these two compound to the whole gap is arithmetic
@@ -622,10 +632,16 @@ comparable to the public leaderboard** — which is not what it is for.
   ([§3.3](#33-the-mount-row-three-ways)). On a clock that sees the whole
   operation the programme's own witness reads **1.4896×**, so the deficit is
   worse than published rather than corroborated at 20%. **What this page hands
-  the programme on that row is a DIRECTION, not a number**: `rf2-jcm3p` restated
-  `M1` mount as a **regime** on 2026-08-06 — its `ctl-2x` fails, so no mount
-  magnitude is published — and named this benchmark as one of the three legs
-  corroborating that direction.
+  the programme on that row is a DIRECTION, and the number is stated
+  elsewhere**: ~~`rf2-jcm3p` restated `M1` mount as a **regime** on 2026-08-06 —
+  its `ctl-2x` fails, so no mount magnitude is published — and named this
+  benchmark as one of the three legs corroborating that direction.~~
+  *(Superseded 2026-08-07, `rf2-t2flm`: `M1` publishes a magnitude again,
+  conditionally labelled, at
+  [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
+  What is unchanged is this page's part in it — an outside driver corroborating
+  the direction, one of three legs, and no figure of this page's restated by
+  either ruling.)*
 - **The bulk-broad win is refused by a third instrument.** `UIx / Reagent` reads
   0.9740 on the benchmark's `replace all rows` and 1.1419 on `swap rows`, against
   a published 0.6291. No instrument that has looked past the `flushSync`
