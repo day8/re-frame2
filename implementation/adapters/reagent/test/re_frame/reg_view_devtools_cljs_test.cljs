@@ -1,13 +1,22 @@
 (ns re-frame.reg-view-devtools-cljs-test
-  "Per Spec 006 §React DevTools support (rf2-fa4ly): the reg-view
-  wrapper sets a React `displayName` to the registered view-id and
-  the React Context backing the frame-provider carries a recognisable
+  "Per Spec 006 §React DevTools support (rf2-fa4ly, amended by
+  rf2-976bw): the reg-view wrapper sets a React `displayName` to the
+  registered view-id's performance/display projection, and the React
+  Context backing the frame-provider carries a recognisable
   `displayName` for the Context inspector.
 
   Coverage:
 
-    - `displayName` on the wrapped fn matches `(str view-id)` for
-      auto-derived and `:rf/id`-overridden registrations.
+    - `displayName` on the wrapped fn matches
+      `(performance/entry-id view-id)` — colon-free, namespace
+      preserved — for auto-derived and `:rf/id`-overridden
+      registrations.
+    - THE EQUALITY ROW: `(performance/build-name :render id)` equals
+      `\"rf:render:\" + displayName`. Spec 009 §Naming convention makes
+      the two ONE identifier, and asserting each half is separately
+      well-formed is exactly the shape that let them drift (rf2-976bw:
+      DevTools showed `:cart/total-line` while the bracket wrote
+      `rf:render:cart/total-line`). Only an equality can catch that.
     - The frame-context's React `displayName` is set to `\"rf2-frame\"`.
     - Regression (rf2-rohdn): NO `:_jsxFileName` / `:_jsxLineNumber`
       / `:_jsxColumnNumber` JSX-shaped source-coord props are injected
@@ -23,6 +32,7 @@
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.core :as rf]
+            [re-frame.performance :as performance]
             [re-frame.test-support :as test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -42,26 +52,50 @@
 ;; ---- displayName -----------------------------------------------------------
 
 (deftest display-name-on-wrapped-fn-matches-view-id
-  (testing "the reg-view wrapper's React displayName is (str view-id)
-            so React DevTools shows `<:rf.devtools-test/dn-auto>` in
-            the component tree"
+  (testing "the reg-view wrapper's React displayName is the view-id's
+            performance/display projection — colon-free, namespace
+            preserved — so React DevTools shows
+            `<re-frame.reg-view-devtools-cljs-test/dn-auto>` in the
+            component tree AND the name is the one the rf:render:
+            measure carries (rf2-976bw)"
     (rf/reg-view dn-auto [] [:p "hi"])
     (let [wrapped (rf/view :re-frame.reg-view-devtools-cljs-test/dn-auto)]
       (is (some? wrapped) "the view is registered")
-      (is (= ":re-frame.reg-view-devtools-cljs-test/dn-auto"
+      (is (= "re-frame.reg-view-devtools-cljs-test/dn-auto"
              (.-displayName ^js wrapped))
-          "displayName matches (str id) on the wrapped fn"))))
+          "displayName matches (performance/entry-id id) on the wrapped fn"))))
 
 (deftest display-name-honours-rf-id-override
   (testing "an `:rf/id`-overridden registration carries the override id in
-            displayName"
+            displayName, in the same colon-free projection"
     (rf/reg-view ^{:rf/id :rf.devtools-test/dn-explicit} dn-meta-view
                  [] [:span "ok"])
     (let [wrapped (rf/view :rf.devtools-test/dn-explicit)]
       (is (some? wrapped))
-      (is (= ":rf.devtools-test/dn-explicit"
+      (is (= "rf.devtools-test/dn-explicit"
              (.-displayName ^js wrapped))
           "the override id drives displayName"))))
+
+(deftest display-name-and-render-measure-are-one-identifier
+  (testing "rf2-976bw — THE equality row. Spec 009 §Naming convention makes
+            the `<id>` in `rf:render:<id>` and the id the substrate
+            publishes to the developer ONE identifier. Asserting each half
+            is separately well-formed is what let them drift; this asserts
+            they are the same string, so a change to either spelling that
+            is not made to both fails here."
+    (rf/reg-view ^{:rf/id :rf.devtools-test/one-identifier} one-id-view
+                 [] [:p "x"])
+    (let [id      :rf.devtools-test/one-identifier
+          wrapped (rf/view id)]
+      (is (= (performance/build-name :render id)
+             (str "rf:render:" (.-displayName ^js wrapped)))
+          "the render measure name is exactly \"rf:render:\" + displayName")
+      ;; Non-vacuous on both sides: a namespaced keyword, and a measure
+      ;; name that really does carry the namespace (so the equality is not
+      ;; satisfied by two empty strings).
+      (is (= "rf:render:rf.devtools-test/one-identifier"
+             (performance/build-name :render id))
+          "the measure name is the documented shape for a namespaced id"))))
 
 ;; ---- JSX source-coord props (regression: must NOT be injected) -----------
 ;;

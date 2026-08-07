@@ -572,18 +572,39 @@
                                                                  out)
                           out))))))))
           {:contextType frame-context})]
-    ;; rf2-fa4ly: stamp the React `displayName` to the registered view-id so
-    ;; React DevTools shows `<:cart/total-line>` in the component tree rather
-    ;; than the CLJS-munged fn name (`day8.cart.total.total_line`) or an
-    ;; anonymous Reagent wrapper. Reagent's create-class / fn-to-class
-    ;; machinery picks up `.-displayName` off the input fn and forwards it to
-    ;; the constructed React component. Dev-only — gated so the literal name
-    ;; string never lands in the production bundle. The bundle-isolation gate
-    ;; pins absence (the elision contract is broader — `displayName` itself is
-    ;; a React surface, but assigning it from a user-derived string belongs
-    ;; behind `interop/debug-enabled?`).
+    ;; rf2-fa4ly, amended by rf2-976bw: stamp the React `displayName` to the
+    ;; registered view-id so React DevTools shows `<cart/total-line>` in the
+    ;; component tree rather than the CLJS-munged fn name
+    ;; (`day8.cart.total.total_line`) or an anonymous Reagent wrapper.
+    ;; Reagent's create-class / fn-to-class machinery picks up
+    ;; `.-displayName` off the input fn and forwards it to the constructed
+    ;; React component.
+    ;;
+    ;; THE SPELLING IS `performance/entry-id`, NOT `(str id)`. Spec 009
+    ;; §Naming convention makes the `<id>` in the `rf:render:<id>` measure and
+    ;; the id the substrate publishes to the developer ONE identifier, so a
+    ;; name read off the User-Timing stream is directly jumpable in the
+    ;; tooling. `(str id)` keeps a keyword's leading colon, so the same view
+    ;; showed as `:cart/total-line` in DevTools while its own bracket wrote
+    ;; `rf:render:cart/total-line` — pasting one into the other yielded
+    ;; `rf:render::cart/total-line` and matched nothing (rf2-2rtt6.136 fixed
+    ;; the identical divergence on the compiled-view substrate). rf2-fa4ly's
+    ;; `<:cart/total-line>` aesthetic is a dev-only nicety; the shared
+    ;; spelling is a contract, and `entry-id` is its single source — the same
+    ;; fn `build-name` calls, so the two cannot drift.
+    ;;
+    ;; NOT the same decision as `data-rf-view`, which keeps `(str id)`
+    ;; deliberately: that attribute is a round-trippable ENCODING, reversed to
+    ;; a keyword by `source-coords/parse-view-id`. `displayName` is a display
+    ;; PROJECTION with no inverse to preserve.
+    ;;
+    ;; Dev-only — gated so the literal name string never lands in the
+    ;; production bundle. The bundle-isolation gate pins absence (the elision
+    ;; contract is broader — `displayName` itself is a React surface, but
+    ;; assigning it from a user-derived string belongs behind
+    ;; `interop/debug-enabled?`).
     (when interop/debug-enabled?
-      (set! (.-displayName ^js wrapped) (str id)))
+      (set! (.-displayName ^js wrapped) (performance/entry-id id)))
     wrapped))
 
 (defn reg-view*

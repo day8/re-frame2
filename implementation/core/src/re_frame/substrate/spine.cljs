@@ -46,6 +46,7 @@
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
             [re-frame.movement   :as movement]
+            [re-frame.performance :as performance]
             [re-frame.subs       :as subs]
             [re-frame.trace      :as trace]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -2133,13 +2134,27 @@
                                  annotated (inject-source-coord-attr warn-fn id coord-attr
                                                                      view-attr out)]
                              (append-unmount-sentinel unmount-sentinel id frame-id annotated)))]
-          ;; rf2-fa4ly: stamp the React `displayName` to the registered view-id
-          ;; so React DevTools shows `<:cart/total-line>` in the component tree
-          ;; rather than the CLJS-munged fn name or an anonymous wrapper. The
-          ;; assignment sits inside the `interop/debug-enabled?` arm so the
-          ;; string-literal id `(str id)` and the assignment itself elide in
-          ;; production builds.
-          (set! (.-displayName ^js wrapped) (str id))
+          ;; rf2-fa4ly, amended by rf2-976bw: stamp the React `displayName` to
+          ;; the registered view-id so React DevTools shows `<cart/total-line>`
+          ;; rather than the CLJS-munged fn name or an anonymous wrapper.
+          ;;
+          ;; ONE SPELLING, `performance/entry-id` — the same fn `build-name`
+          ;; calls to build `rf:render:<id>`. Spec 009 §Naming convention makes
+          ;; the measure's `<id>` and the id the substrate publishes to the
+          ;; developer one identifier; `(str id)` kept a keyword's colon and so
+          ;; published a second spelling (rf2-976bw).
+          ;;
+          ;; On the `reg-view` path this stamp is not the name React sees:
+          ;; `views/build-frame-aware-view` wraps this fn again and the OUTER
+          ;; wrapper is the element type, so its own `entry-id` stamp wins.
+          ;; The stamp stays because `wrap-view` is a published adapter surface
+          ;; (`re-frame.adapter.uix/wrap-view`) documented as usable directly
+          ;; as a component head — a head reached that way is named too, and by
+          ;; the same builder, so no substrate-dependent spelling survives.
+          ;;
+          ;; The assignment sits inside the `interop/debug-enabled?` arm so the
+          ;; name and the assignment elide in production builds.
+          (set! (.-displayName ^js wrapped) (performance/entry-id id))
           wrapped)
         user-fn))))
 
