@@ -237,8 +237,9 @@ deriving the value in render (pure, no state needed):
     [:div derived]))
 ```
 
-If memoisation is needed, wrap `compute` in `memoize` or a
-`(reagent2.core/track compute props)` track.
+If memoisation is needed, wrap `compute` in `memoize`, or move the derivation
+into a `reg-sub` and deref that in render. `reagent2.core/track` is **not**
+shipped — a cached derived value is what a sub already is.
 
 ---
 
@@ -355,16 +356,40 @@ Three variations worth knowing:
   captured `:subscribe` inside `:reagent-render`, never in a lifecycle callback
   (reactive reads have no owner there, and the scope has already unwound). The
   one disciplined exception is a rare imperative widget re-fed as a sub's value
-  changes from a hook rather than React's render commit: it captures the frame's
-  `:subscribe` in the outer callable, `add-watch`es the reaction under a
-  **per-mount** watch key (never a constant — equal `(frame, query-v)`
-  subscriptions share **one** cached reaction, so a constant key clobbers a
-  sibling instance's watch), and balances the acquire with frame-first
-  `(rf/unsubscribe frame query-v)` at unmount. That is the *only* lifecycle use
-  of the captured `:subscribe`; see
+  changes from a hook rather than React's render commit. It captures the frame's
+  `:subscribe` in the outer callable, acquires the reaction in
+  `:component-did-mount`, and — the step that is easy to miss — **owns** it there
+  with a per-mount reactive owner, because a subscription is not live merely for
+  having been handed to you. On this adapter a subscription *is* a bare
+  `reagent2.ratom/Reaction`, built deliberately without `:auto-run`, and a
+  Reaction learns its sources only through `deref-capture`; a deref taken in a
+  lifecycle hook runs the body raw and leaves `watching` nil, so the node ends up
+  in no watcher set. An `add-watch` on it is therefore a **trap** rather than a
+  shortcut — the watch is registered against a node that can never fire, so the
+  widget is fed once at mount and is deaf for the rest of its life, silently and
+  with no error. The owner is what supplies the missing capture, and reagent-slim
+  spells it with its own reactive primitives:
+  `(reagent2.ratom/activate! (reagent2.ratom/make-reaction (fn [] (feed! @!widget @reaction))))`.
+  `activate!` runs that body once through `deref-capture`, so the first run is
+  both the seed and the subscription to the sources, and every later change
+  re-runs it on the ordinary batched drain (`reagent2.ratom/flush!`, which the
+  commit boundary performs) rather than inline inside the `app-db` write. Hold
+  the owner per mount and tear down in that order at unmount —
+  `reagent2.ratom/dispose!` the owner **first**, then balance the acquire with
+  frame-first `(rf/unsubscribe frame query-v)` — so the owner is gone before the
+  cache slot is released and no feed can run against a destroyed widget. Equal
+  `(frame, query-v)` subscriptions share **one** cached reaction, but each mount
+  holds its own owner, so two instances are independent by construction: there is
+  nothing to key and no sibling watch to clobber. That is the *only* lifecycle
+  use of the captured `:subscribe`; see
   [`guided-handlers-state.md`](../../../skills/re-frame-migration/references/guided-handlers-state.md)
-  §M-11 for the copy-pasteable form. It does not weaken the default: ordinary
-  reactive reads still belong in `:reagent-render`, not a hook.
+  §M-11 for the fully worked form — take its **structure**, not its ops. M-11 is
+  written for the stock-Reagent adapter and reaches for `reagent.core/track!`,
+  which `reagent2.core` deliberately does not ship (see
+  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)); `activate!` + `make-reaction` +
+  `dispose!` is the reagent-slim spelling of the same ownership. It does not
+  weaken the default: ordinary reactive reads still belong in `:reagent-render`,
+  not a hook.
 
   **Capture-once is a locked handle — safe only when the mount's frame is
   invariant.** `(rf/capture-frame)` locks to the **one** frame that is live when
