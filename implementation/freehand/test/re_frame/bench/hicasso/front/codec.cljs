@@ -370,21 +370,29 @@
                 ;; overwriting the other.
                 (identical? "className" js-name))))
 
-(def ^:private prop-cache
-  ;; The three seeded entries are the RULE, not memos of one — they are
-  ;; the rename table inside
-  ;; [[re-frame.bench.hicasso.front.slot/prop-name]], pre-warmed. They
-  ;; are the one place this file could still answer a slot the shared
-  ;; rule would not, so `codec-cljs-test` asks these very keys of
-  ;; `cached-prop-name` against `slot-cljs-test`'s corpus and a
-  ;; re-spelled seed cannot outlive the ask. None is reserved, an event
-  ;; position, or the ref slot; `class` IS the class slot, which is the
-  ;; whole reason the rule is stated on the emitted name rather than on
-  ;; the key.
-  (doto (empty-cache)
-    (unchecked-set "class" (->PropSlot "className" false false false true))
-    (unchecked-set "for" (->PropSlot "htmlFor" false false false false))
-    (unchecked-set "charset" (->PropSlot "charSet" false false false false))))
+(defn- seed-prop-cache!
+  "Pre-warm `cache` with the three React renames, and return it.
+
+  **The seeded entries are the RULE, not memos of one** — so each slot
+  name is ASKED of [[re-frame.bench.hicasso.front.slot/prop-name]]
+  rather than written out again here (rf2-ani6y). A hand-spelled seed is
+  the one place this file could still answer a slot the shared rule
+  would not, which is this bead's own defect class one level in; and the
+  seed was written out TWICE, here and in [[reset-caches!]], so a drift
+  had two chances and the suites' `:each` fixture made the second copy
+  the live one. There is one copy now, and it cannot disagree with the
+  rule because it does not restate it.
+
+  None of the three is reserved, an event position, or the ref slot;
+  `class` IS the class slot, which is the whole reason the rule is
+  stated on the emitted name rather than on the key."
+  [cache]
+  (doto cache
+    (unchecked-set "class" (->PropSlot (slot/prop-name :class) false false false true))
+    (unchecked-set "for" (->PropSlot (slot/prop-name :for) false false false false))
+    (unchecked-set "charset" (->PropSlot (slot/prop-name :charset) false false false false))))
+
+(def ^:private prop-cache (seed-prop-cache! (empty-cache)))
 
 (defn- prop-slot
   "The [[PropSlot]] for keyword/symbol `k` with name `n` — the caller has
@@ -2953,11 +2961,12 @@
 
 (defn reset-caches!
   "Empty both codec caches. The prop cache keeps its three seeded entries,
-  because those are the rule and not a memo of one."
+  because those are the rule and not a memo of one — and it re-seeds
+  through [[seed-prop-cache!]], the same one the `def` uses, so a
+  suite's `:each` fixture cannot leave the cache holding a different
+  spelling from a cold build's (rf2-ani6y)."
   []
   (doseq [k (js/Object.keys tag-cache)] (js-delete tag-cache k))
   (doseq [k (js/Object.keys prop-cache)] (js-delete prop-cache k))
-  (unchecked-set prop-cache "class" (->PropSlot "className" false false false true))
-  (unchecked-set prop-cache "for" (->PropSlot "htmlFor" false false false false))
-  (unchecked-set prop-cache "charset" (->PropSlot "charSet" false false false false))
+  (seed-prop-cache! prop-cache)
   nil)
