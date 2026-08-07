@@ -1084,13 +1084,42 @@ spreads of 30–45% are ordinary here — this ladder saw 45% in one round of an
 *observation* and not the *load attribution*; the pooled statistic is the one
 §6 quoted and the one this ladder moved a box under without shifting.
 
-The two pages also reach cancellation by different routes, and conflating them
+~~The two pages also reach cancellation by different routes, and conflating them
 would overstate both. The audit's `(U/F) ÷ (R/F) = U/R` is **algebra**, and it
 is exact only where both legs are divided by the *same* floor — the converged
 witness, whose arms share one segment. Here the three segments have three
 different floors, so nothing cancels algebraically; what makes it cancel is the
 measured fact that the perturbation is multiplicative. Same conclusion, and only
-one of the two is free.
+one of the two is free.~~
+
+**WITHDRAWN — the contrast was drawn wrongly on both sides (2026-08-07,
+`rf2-es04f`).** The audit has since withdrawn the identity itself.
+`(U/F) ÷ (R/F) = U/R` holds only where the two `F`s are the *same reading*;
+where each arm is normalised against the floor measured in its own segment the
+identity is `(U/F_U) ÷ (R/F_R) = (U/R) × (F_R/F_U)`, and the floor is not the arm
+that cancels but the arm that contributes a second term
+([the clock behind the published rows §2](the-clock-behind-the-published-rows.md#2-why-the-floor-normalisation-does-not-protect-the-ratio)).
+
+So the exception carved out above is empty. **The converged witness's published
+red zone crosses two segments**, and
+[its own page](p0-converged-witness-set.md#two-estimators-published-together)
+says so outright — *"every threshold above divides one floor-normalised ratio by
+another, so the two segments' floors enter it"* — which is why it publishes a
+floor-free estimator beside every threshold and reports the two together. What
+*does* cancel there is its
+[reactive leg](p0-converged-witness-set.md#the-reactive-leg-from-a-second-author-rf2-2rtt621),
+formed inside one segment of one round from two Reagent arms against a single
+floor reading. One reading, so the algebra is exact — that is the shape the
+sentence above was reaching for, and it is not the shape of a cross-segment row,
+here or there.
+
+And the second route is gone with it: cancellation *"by the measured fact that
+the perturbation is multiplicative"* is precisely what the re-take withdrew a few
+paragraphs up. **Nothing on this page cancels the seam.** What survives is
+weaker: the seam does not track load and does not belong to the segment, so it is
+*controlled for* rather than divided out, and
+[§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)'s band — which
+measures what fails to cancel — is what a magnitude is adjudicated against.
 
 ### 6.2 What replaces it: the band a magnitude must clear
 
