@@ -234,8 +234,8 @@ Different lenses find different issues.
 ## Standing prompts
 
 The cron prompts I register with the scheduler are defined in
-[`bootstrap.md`](bootstrap.md). Four `/loop` blocks: bead dispatch,
-clustering review, worktree hygiene, and PR merge. Each
+[`bootstrap.md`](bootstrap.md). Five `/loop` blocks: bead dispatch,
+clustering review, worktree hygiene, PR merge, and posture reread. Each
 carries its own operating manual inline (short-circuit rules,
 phase-transition behaviour, `--admin` discipline, the Windows-worktree
 merge trap recovery sequence). Register them once with your local
@@ -256,8 +256,9 @@ is running:
 
 - [`dispatch-prompt-template.md`](dispatch-prompt-template.md) — the
   canonical worker-prompt shapes (solo / cluster / audit /
-  cluster-reviewer / CI-fix) and the worktree-boundary block that must
-  go into every editing dispatch verbatim.
+  cluster-reviewer / CI-fix / measurement window) and the
+  worktree-boundary block that must go into every editing dispatch
+  verbatim.
 - [`bootstrap.md`](bootstrap.md) — re-read on cadence; it carries
   the five `/loop` blocks the mayor registers with its scheduler,
   each with its own inline operating manual.
