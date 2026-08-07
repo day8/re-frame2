@@ -299,18 +299,33 @@
   the draft echo. \"The reset cannot be lost\" is false; \"the deferral
   cannot strand the field\" is what is true.
 
-  ### Mid-hydration, the reset defers past adoption — for React's reason
+  ### Mid-hydration, the reset is ABSORBED by the adoption — measured
 
   The design claimed a mid-adoption revision would land on the first
   post-adoption commit, on the SERVER's node. That is not a claim this
   prop can make either way: the revision is consumed at the codec before
   emission, so React is handed a prop-identical element whether it moved
   or not, and nothing on React's side can branch on a value it was never
-  given. Whether adoption keeps the server's node across a client render
-  that lands mid-flight is React's own race — two hand-rolled arms
-  disagreed in opposite directions on consecutive runs. So the documented
-  conduct is the deferral, pre-committed rather than improvised, and
-  `rf2-ne3ey` owns the timing row on the `.84` hydration harness."
+  given.
+
+  What does happen was then measured (rf2-ne3ey) on the `.84` hydration
+  harness rather than on a hand-rolled `hydrateRoot`, because two
+  hand-rolled arms disagreed about node identity in opposite directions on
+  consecutive runs: `arm1/hydrate_dom_cljs_test` §6, where *mid-adoption*
+  is a fact rather than a wait — `hydrate-root!` returns before the tree
+  is adopted, so a synchronous dispatch on the next line cannot be raced,
+  and ten consecutive runs gave one answer.
+
+  **The revision is ABSORBED, not deferred.** The write reaches no
+  committed boundary, so it notifies nothing and the already-scheduled
+  adoption render simply reads it as the field's FIRST revision — a change
+  with no predecessor to be a change from. And hydration is a MOUNT rather
+  than an update, so the per-commit re-assert that carries the whole reset
+  never runs. Measured: the server's node survives, React reports on
+  neither channel, one body runs, and the draft is still in the field
+  afterwards. The next revision change after the window shuts does reset
+  it, on the server's own node and without remount — so the field is never
+  stranded, but the reset is the caller's to send again."
   (:require ["react" :as react]
             ["react-dom" :as react-dom]))
 

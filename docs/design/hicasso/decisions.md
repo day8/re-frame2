@@ -1179,11 +1179,27 @@ candidate second call site appears. The composition value path reopens on
 > adoption included, can branch on a value it was never given. Two hand-rolled
 > `hydrateRoot` arms disagreed about node identity in opposite directions on
 > consecutive runs, which is React's own adoption race and not this prop's
-> doing. Documented conduct is therefore the fallback: **a reset arriving
-> mid-adoption defers past adoption**, the same shape the IME carve-out has.
-> The structural fact that makes that safe to document is witnessed;
-> `rf2-ne3ey` owns the adoption-TIMING row, on the `.84` hydration harness
-> rather than on a hand-rolled race.
+> doing. Documented conduct is therefore the fallback, pending the timing row.
+>
+> **Amended by rf2-ne3ey, which ran that timing row on the `.84` hydration
+> harness — the conduct is ABSORPTION, not deferral.** `hydrate-root!`
+> returns before the tree is adopted, so "mid-adoption" is a fact rather than
+> a wait and a synchronous dispatch on the next line cannot be raced; ten
+> consecutive runs gave one answer. A mid-adoption revision reaches no
+> committed boundary — this arm acquires at COMMIT, and the adoption commit
+> is the first one — so it notifies nothing, and the already-scheduled
+> adoption render reads it as the field's FIRST revision, a change with no
+> predecessor to be a change from. Hydration is a mount rather than an
+> update, so the per-commit re-assert that carries the whole reset never
+> runs. Measured: the server's node survives, React reports on neither
+> channel, one body runs, and the draft is still in the field. *"Lands on the
+> first post-adoption commit"* is therefore false in both halves — there is
+> no post-adoption commit, and the adoption commit does not re-assert — and
+> *"defers past adoption"* overstates it, because nothing lands later either.
+> What survives of R3 is the NODE claim, and the row pins it: the next
+> revision change after the window shuts resets the field on the server's own
+> node, without remount. The field is never stranded; the reset is the
+> caller's to send again. `arm1/hydrate_dom_cljs_test` §6.
 >
 > **Reopens** if the per-commit re-assert stops holding — the witness file
 > `front/revision_dom_cljs_test` pins it as a design-validation row and a red

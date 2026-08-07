@@ -30,9 +30,11 @@
   on a value it was never given. Two hand-rolled mid-adoption arms
   disagreed about node identity in opposite directions on consecutive
   runs, which is React's own adoption race rather than the prop's doing.
-  So the row pins the structural fact that makes the pre-committed
-  fallback safe to document, and the timing row it does not attempt is
-  `rf2-ne3ey`, on the `.84` hydration harness.
+  So the row pins the structural fact, and the timing row it does not
+  attempt is `arm1/hydrate_dom_cljs_test` §6, on the `.84` hydration
+  harness (rf2-ne3ey) — which measured the conduct as ABSORPTION rather
+  than deferral: the adoption render reads the new revision as the
+  field's FIRST, so the reset never fires and the draft survives.
 
   ## What is a proxy, and what is the path
 
@@ -222,13 +224,14 @@
            direction on the next, which is exactly what a race looks like
            and exactly what a prop React cannot see could not have caused.
 
-           So the documented conduct is the pre-committed fallback — a
-           reset arriving mid-adoption **defers past adoption**, like every
-           other deferral on this path — and the row that would pin
-           adoption TIMING belongs to the `.84` hydration harness rather
-           than to a hand-rolled `hydrateRoot` here (rf2-ne3ey). What
-           this row pins is the fact that makes the deferral safe to
-           document: the prop cannot influence adoption at all."
+           So the row that pins adoption TIMING belongs to the `.84`
+           hydration harness rather than to a hand-rolled `hydrateRoot`
+           here, and it is `arm1/hydrate_dom_cljs_test` §6 (rf2-ne3ey): it
+           measured ABSORPTION rather than the pre-committed deferral —
+           the adoption render reads the mid-adoption revision as the
+           field's first, so no reset ever fires and the draft survives.
+           What THIS row pins is the fact underneath that: the prop cannot
+           influence adoption at all."
     (let [with-rev    (codec/as-element (field :input "server" "rev-1"))
           bumped      (codec/as-element (field :input "server" "rev-2"))
           without-rev (codec/as-element (field :input "server"))

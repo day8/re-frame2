@@ -267,10 +267,13 @@ this path — the model is correct throughout, the glass is not, and there is no
 cancel primitive to do better with. On an *accepting* field a post-bump edit
 **supersedes** the reset by ordinary event order, so the close lands the
 then-current model rather than the model the reset produced. A revision
-arriving **mid-hydration defers past adoption**: whether React keeps the
-server's node across a client render that lands before adoption completes is
-React's own race, and the revision cannot influence it either way — it is
-consumed at the codec, so React never sees it. And the spelling is matched
+arriving **while the page is still hydrating is absorbed rather than
+deferred**: the adoption render takes it as the field's first revision, so
+no reset fires and a draft typed into the server-rendered field survives —
+send the revision again after adoption if you need it discarded. The node is
+never at risk (the revision is consumed at the codec, so React never sees
+it), and the next revision change does reset the field on the server's own
+node without remount. And the spelling is matched
 **exactly**: a
 bare `:revision` is not this prop, and becomes an
 ordinary DOM attribute — silently, and with a namespaced keyword's namespace
