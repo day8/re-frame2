@@ -186,11 +186,12 @@ clock, on those rows. **No such raw counterpart exists for this audit's two
 clocks and this page does not manufacture one.** Forming it needs the per-sample
 readings, and §7 records that no dataset from this ensemble survives; the driver's
 second estimator is un-tared rather than un-normalised, so it is not the quantity
-either. That is a run on the box, `rf2-w3yxd` owns it, and it is left as one
-rather than approximated from the absolutes quoted in the box at the top of this
-page — a single round of one row is not an ensemble. Raw readings for all three
-windows have been written since blob `84aa25d9…`, so the ensemble that closes
-this can publish both estimators off its own file.
+either. That was a run on the box, `rf2-w3yxd` owned it, and **it has been
+taken**: [the 2026-08-07 ensemble](#2026-08-07-the-ensemble-on-the-corrected-clock-and-what-it-refuses-rf2-w3yxd)
+publishes both estimators off its own retained files on all three windows, and
+puts the term this paragraph could not size at **0.6 to 3.9 percentage points**
+on `M1`, `bulk300` and `narrow`. It changes no verdict anywhere, which is the
+same answer the in-page rows gave.
 
 This is the mechanism the pure-React controls were never able to catch. A lane
 that certifies its instrument on `ctl-2x` alone is certifying the arm least
@@ -286,10 +287,15 @@ direction is the whole of what §4 reads off them: the in-page window puts
 `1.0078×` over one — and a frame-only reading from one or two runs is not a bar
 row either. (`narrow` is the one row whose controls mostly held, 3 of 4, and it
 is the row that is not comparable to its published figure at all.) **A
-control-valid ensemble on the corrected clock is a run on the box, and it is left
-as one** — `rf2-w3yxd`, which would settle §2's missing raw estimator in the same
-sitting. Every magnitude this page now quotes comes from `rf2-yd52q`'s and
-`rf2-emvod`'s raw-`TaskDuration` ensembles instead, named where it appears.
+control-valid ensemble on the corrected clock was a run on the box, and it has
+been taken** — [the 2026-08-07 ensemble](#2026-08-07-the-ensemble-on-the-corrected-clock-and-what-it-refuses-rf2-w3yxd),
+`rf2-w3yxd`, which settled §2's missing raw estimator in the same sitting. It
+does **not** rescue the four figures above: `bulk300` refused six times out of
+six on the three-point control, `M1` yields a control-passing subset of three
+whose value sits *below* both published figures and is therefore recorded rather
+than published, and nothing here is replaced. Every magnitude this page now
+quotes comes from `rf2-yd52q`'s and `rf2-emvod`'s raw-`TaskDuration` ensembles
+instead, named where it appears.
 
 **`narrow` has no corrected-clock donor bar, and this page does not manufacture
 one.** `rf2-yd52q`'s ensemble ran `M1` and `bulk300` only. `rf2-emvod`'s
@@ -425,6 +431,51 @@ Taking the check on it would re-run the error rather than close it. The row need
 the box either way (§3: no dataset survives, and the corrected clock has no
 `uix-subs ÷ reagent-subs` donor bar for `narrow`), so nothing here is a
 recomputation and nothing here manufactures one.
+
+> ### AND NO INSTRUMENT IN THE TREE CAN TAKE IT — read at the source, 2026-08-07
+>
+> `rf2-w3yxd` was written expecting this row to fall out of its own ensemble,
+> "narrow at k=10 … falls out of the same run". It does not, and the two
+> harnesses' `k` are two different quantities:
+>
+> - [`clock_app.cljs`'s `rows`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_app.cljs)
+>   declares `:narrow {:kind :bulk :k 1}`, and the same file's `write-cells!`
+>   docstring fixes what `k` means there — *"`k = 300` is the broad row,
+>   `k = 100` the K=100 rung, `k = 1` narrow"*, i.e. **how many of the 300
+>   boundaries one commit changes**. One commit per timed sample, always.
+> - [`p0_converge_app.cljs`'s `narrow-batch-k`](../../../../implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs)
+>   is `10`, and its docstring fixes *its* meaning: **how many narrow writes
+>   share ONE clock**. The published row is ten commits inside one window; the
+>   corrected clock's `narrow` row is one commit inside each of many.
+> - `p0_converge_run.cjs` — the driver that takes the published row — contains
+>   no `Performance.getMetrics`, no CDP session and no `TaskDuration`. It is
+>   the in-page instrument end to end, so the batched row exists on the clamped
+>   clock and nowhere else.
+>
+> **So the check is a new rung, and its cost is now stated rather than assumed
+> cheap.** It needs a batch parameter on `clock_app.cljs`'s `narrow` row and a
+> canonical ensemble taken on it. That was not built inside `rf2-w3yxd`'s
+> measurement window, deliberately: a rung added between runs is an instrument
+> change in the middle of a series, and the series would then be measuring two
+> instruments.
+>
+> **One thing that reading also settles.** `narrow-batch-k`'s own docstring
+> says why the published row batches — `performance.now()` is clamped to
+> 100 µs and the unbatched row sat one to one-and-a-half quanta above its
+> floor. Raw `TaskDuration` is a protocol value and carries no such clamp, so
+> on the corrected clock batching buys no resolution. It does not follow that
+> the unbatched row substitutes: ten commits in one window and ten windows of
+> one commit are different work, and the difference is exactly the scheduling
+> the localisation claim is about. `rf2-ph85f` item 1 therefore stays open, and
+> is now specified.
+>
+> **And the nearest available reading supplies nothing either.** The `k=1`
+> `narrow` row *is* in
+> [the 2026-08-07 ensemble](#2026-08-07-the-ensemble-on-the-corrected-clock-and-what-it-refuses-rf2-w3yxd)
+> on raw `TaskDuration`, six runs — and its three-point control refused **6 of
+> 6**, so even the row that could have served as a loose stand-in carries no
+> reportable magnitude on the corrected clock. `1.1754×` is checked against
+> nothing, and this page still says so.
 
 **`M2 mount 1.0601×` *(diagnostic)* — unchanged in status.** It sits on the
 100 µs clamp and was never quotable against the bar.
@@ -572,24 +623,48 @@ publishes no keystroke row, so every figure on it is on the `page.evaluate` side
 Runtime: Chromium 147.0.7727.15 (Playwright), `:advanced`, `goog.DEBUG false`,
 24 hardware threads, 32 GB. Taken 2026-08-01 AUSEST on a quiet box.
 
-**No dataset from this ensemble survives.** The driver at this blob wrote only
+**No dataset from THIS ensemble survives**, and that is a statement about the
+2026-08-01 runs which stays true of them. The driver at this blob wrote only
 `rounds` — the `taskNet` per-sample readings — to `HCLOCK_JSON`, and wrote it to
 a gitignored `out/`; nothing was retained. So no figure on this page can be
 restated by recomputation, and every corrected-clock number quoted here comes
 from a *later ensemble* on a later blob, named where it appears. Raw readings for
 all three windows have been written since blob `84aa25d9…` (`roundsTask`,
-`inPageRounds`), which is what makes the next ensemble restatable without the box
-— provided the file is kept.
+`inPageRounds`), and
+[the 2026-08-07 ensemble](#2026-08-07-the-ensemble-on-the-corrected-clock-and-what-it-refuses-rf2-w3yxd)
+is the first on this instrument whose files are **kept** —
+`data/clock-w3yxd/run{1..6}.json`, six of six `canonical: true`.
+
+**The three commands this section used to print no longer certify anything, and
+they are replaced rather than annotated.** They were
+
+```bash
+HCLOCK_ONLY=M1      HCLOCK_SAMPLES=20 node …/clock_run.cjs
+HCLOCK_ONLY=bulk300 HCLOCK_SAMPLES=20 node …/clock_run.cjs --no-build
+HCLOCK_ONLY=narrow  HCLOCK_SAMPLES=20 node …/clock_run.cjs --no-build
+```
+
+and under `rf2-e87sk`'s two-tier write policy — which landed after they were
+written — each of the three knobs in them stamps the dataset `canonical: false`
+on its own: `HCLOCK_ONLY` is *a PARTIAL row set*, `HCLOCK_SAMPLES=20` is *an
+OVERRIDDEN design depth*, and `--no-build` is *the bundle on disk is not known
+to be this tree's*. `clock_readjudicate.cjs`'s first gate then refuses the file
+and exits `3`, because absent-or-false is not a pass. Narrowing the roster
+saves nothing anyway: `bulk300` and `narrow` are rows of every run, so the full
+roster at published depth answers this page's questions and the two beads'
+questions from one ensemble.
 
 ```bash
 cd implementation
-HCLOCK_ONLY=M1      HCLOCK_SAMPLES=20 node freehand/test/re_frame/bench/hicasso/clock_run.cjs
-HCLOCK_ONLY=bulk300 HCLOCK_SAMPLES=20 node freehand/test/re_frame/bench/hicasso/clock_run.cjs --no-build
-HCLOCK_ONLY=narrow  HCLOCK_SAMPLES=20 node freehand/test/re_frame/bench/hicasso/clock_run.cjs --no-build
+HCLOCK_JSON=out/window/run1.json node freehand/test/re_frame/bench/hicasso/clock_run.cjs
+node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/window/run*.json
 ```
 
-Exit 0 means the row's positive control passed strictly and its magnitudes are
-reportable; exit 1 means the control refused and the run is directional only.
+The driver's exit code is a whole-run verdict and is **not** a row's licence:
+it goes non-zero when any row refuses, so an ensemble in which `M1`'s control
+passes and the bulk rows' three-point control does not exits non-zero every
+time. What decides whether a row's magnitude may be quoted is the
+readjudicator's per-row gate roster, printed per run beside the row it refuses.
 
 ## 8. What this raises
 
@@ -616,3 +691,138 @@ page**, on `bulk300` runs driven through the same `page.evaluate` door;
 `rf2-ymi6j` carries that, and [the candidate's clock
 §6.1–§6.2](the-candidates-clock.md#61-the-seam-measured-against-load) now says so
 on every ladder figure.
+
+## 2026-08-07 the ensemble on the corrected clock, and what it refuses (rf2-w3yxd)
+
+§3 left this page's four headline figures **directional and not magnitudes**,
+because `ctl-2x` refused a majority of the runs each aggregates, and §2 left the
+size of the seam term unmeasured because forming the raw estimator needs
+per-sample readings no surviving dataset carried. Both were filed as one run on
+the box. This is that run, taken on a granted quiet window with nothing else
+dispatched on the machine.
+
+**The shape, and why the roster was not narrowed.** §7's three commands
+prescribed `HCLOCK_ONLY=… HCLOCK_SAMPLES=20 … --no-build`; under `rf2-e87sk`'s
+two-tier write policy every one of those knobs stamps the dataset
+`canonical: false`, and the readjudicator's first gate then exits `3`. So what
+was taken is **six runs of the full five-row roster at the published design
+depth**, tare on, no falsification knob — the only shape that certifies, and one
+that answers `M1`, `bulk300` and `narrow` from the same runs. §7 carries the
+correction.
+
+**The box, measured rather than asserted.** `\Processor(_Total)\% Processor
+Time` and `\System\Processor Queue Length`, four one-second samples:
+**before** 20.0 / 18.7 / 7.4 / 12.3% at queue **0, 0, 0, 0**; **after** 11.7 /
+15.9 / 21.9 / 19.6% at queue **0, 0, 0, 0**. One mid-series read landed a single
+queue length of **1**, seconds after the preceding run's Chromium exited while
+it was winding down; it is reported rather than dropped, and the read taken
+between runs 3 and 4 was **0, 0, 0, 0**. `Win32_Processor.LoadPercentage` was
+not used — it has read 93% on this host while the truth was 11%.
+
+### Every control, predicted against measured
+
+| control | predicted | ensemble mean (range over 6 runs) | runs it passed |
+|---|---|---|---|
+| `ctl-2x`, `M1` | 2.00× | 1.7970× (1.7642 – 1.8291) | 4 of 6 on the published clock, **3 of 6 on both clocks** |
+| `ctl-2x`, `bulk300` | 2.00× | 1.7579× (1.6648 – 1.8159) | 0 of 6 |
+| `ctl-2x`, `bulk100` | 2.00× | 1.7637× (1.6806 – 1.9472) | 0 of 6 |
+| `ctl-2x`, `narrow` | 2.00× | 1.6913× (1.6354 – 1.8532) | 0 of 6 |
+| `ctl-3pt`, `bulk300` | 2.0101× | 1.8071× (1.6570 – 1.9516) | **0 of 6** |
+| `ctl-3pt`, `bulk100` | 2.0101× | 1.5945× (1.3950 – 1.9066) | **0 of 6** |
+| `ctl-3pt`, `narrow` | 2.0101× | 1.4662× (0.4934 – 1.8262) | **0 of 6** |
+| **arm-order guard**, every row, both clocks | no arm reads differently for its position in the plan | — | **30 of 30 row-runs, no refusal** |
+| write verification, every row | every window's value reaches the page | — | **0 unverified of 42,336** |
+
+**The three-point control refused every bulk-class run — 18 of 18.** That is
+`rf2-7iqb5`'s repair, the control built to difference away the additive constant
+`ctl-2x` undershoots by, and it is the second consecutive quiet-box ensemble in
+which it has refused everything it was asked to adjudicate. **No bulk magnitude
+is reportable from this ensemble and none is published here.** Its calibration is
+`rf2-5xrcd`'s, not this page's.
+
+### Per row — reportable or refused
+
+| row | runs | reportable | what refused the rest |
+|---|---:|---:|---|
+| `M1` | 6 | **3** | `ctl-2x` on `taskNet` — runs 3, 4 and 5 |
+| `bulk300` | 6 | **0** | the three-point control on all six; runs 5 and 6 also breached a band ceiling |
+| `bulk100` | 6 | **0** | the three-point control on all six; runs 1 and 2 also breached both ceilings (42.4% / 38.0% on the published clock) |
+| `narrow` | 6 | **0** | the three-point control on all six |
+| `keystroke` | 6 | **0** | the row carries no proportional control, so no bar it publishes is adjudicated — `rf2-y7mw7`'s structural refusal, unchanged. Runs 1 and 5 additionally had the per-keystroke witness refuse on Event Timing entries attributable to no key the driver pressed |
+
+`M1` is the one row with a control-passing ensemble, and three runs is what §3
+asked for — *an ensemble rather than one or two runs* — rather than more than it
+asked for.
+
+### Two estimators, published together — on all three windows
+
+The published bar is a **double ratio**: `(U/F_U) ÷ (R/F_R) = (U/R) × (F_R/F_U)`,
+so the two segments' floors do not cancel and a seam term rides beside the
+substrate arms' quotient. §2 corrected itself about that and could not size the
+term. The counterpart — one arm's p50 over the other's in the same round,
+touching neither floor and no tare — is now computed from the retained datasets
+by `clock_readjudicate.cjs` and printed under every pair. It is **not** the
+driver's existing `raw` flag, which drops the tare and keeps the normalisation.
+
+`M1`, the row with a reportable subset:
+
+| pair | window | floor-normalised (n=6) | raw quotient (n=6) | gap |
+|---|---|---|---|---|
+| `uix-subs / reagent-subs` | raw `TaskDuration` | 0.9628× [0.8804 – 1.1222] | 0.9723× [0.9230 – 1.0513] | −0.9 pp |
+| `uix-subs / reagent-subs` | `taskNet` *(frame-only)* | 1.0394× [0.9036 – 1.3094] | 1.0588× [0.9246 – 1.2394] | −1.9 pp |
+| `uix-subs / reagent-subs` | in-page | 0.9064× [0.8340 – 0.9968] | 0.9128× [0.8173 – 0.9620] | −0.6 pp |
+| `hicasso / uix-subs` | raw `TaskDuration` | 1.2057× [1.1731 – 1.2390] | 1.1670× [1.1023 – 1.2063] | +3.9 pp |
+| `hicasso / reagent-subs` | raw `TaskDuration` | 1.1492× [1.0492 – 1.3339] | 1.1303× [1.0540 – 1.2495] | +1.9 pp |
+
+`bulk300` and `narrow`, whose magnitudes this ensemble refuses — the pair is
+published anyway, because the question §2 asks is about the *estimator* and does
+not become answerable or unanswerable with the row's control:
+
+| row · pair | window | floor-normalised (n=6) | raw quotient (n=6) | gap |
+|---|---|---|---|---|
+| `bulk300` · `uix-subs / reagent-subs` | raw `TaskDuration` | 0.8743× [0.8253 – 0.9280] | 0.9036× [0.8701 – 0.9220] | −2.9 pp |
+| `bulk300` · `uix-subs / reagent-subs` | `taskNet` | 1.0267× [0.9127 – 1.1300] | 1.0570× [0.9879 – 1.1517] | −3.0 pp |
+| `narrow` *(k=1)* · `uix-subs / reagent-subs` | raw `TaskDuration` | 0.9520× [0.7351 – 1.0449] | 0.9692× [0.8730 – 1.0374] | −1.7 pp |
+| `narrow` *(k=1)* · `uix-subs / reagent-subs` | `taskNet` | 1.0056× [0.8023 – 1.2199] | 1.0102× [0.9108 – 1.1090] | −1.7 pp |
+
+**So the term §2 could not size is between 0.6 and 3.9 percentage points on
+these rows, and it does not change a verdict anywhere.** The two estimators
+agree on direction on every row and every window, which is the same answer
+[the converged page](p0-converged-witness-set.md#two-estimators-published-together)
+reached for the in-page rows. That is a bound on what the normalisation does to
+a mean — it is not licence to quote a refused row's mean.
+
+### What is NOT restated
+
+**`M1`'s reportable subset reads below both figures the programme carries on
+this row, and it is recorded rather than published.** The control-passing three
+runs give `uix-subs ÷ reagent-subs` **0.9427×** floor-normalised and **0.9538×**
+raw, against `rf2-yd52q`'s published `1.0011×` [0.9464 – 1.0763] and the in-page
+row's `1.0150×` [0.9820 – 1.0480]. The whole-ensemble range does contain both, so
+this is not a contradiction — it is a lower-centred ensemble of three, and
+accepting it as the row's value would be a **restatement on thin evidence**,
+which is exactly what §3's own rule forbids. `rf2-jcm3p`'s ruling also stands
+untouched: `M1` publishes a regime, not a magnitude.
+
+**None of §3's four struck figures is replaced.** `0.8474×`, `0.6924×`,
+`1.0110×` and `1.0509×` remain directional; nothing in this ensemble makes them
+magnitudes, and nothing here supplies a substitute — `bulk300` refused six times
+out of six.
+
+### What is now durable
+
+Six datasets at
+`implementation/freehand/test/re_frame/bench/hicasso/data/clock-w3yxd/run{1..6}.json`,
+every one `canonical: true`, re-adjudicated by
+`clock_readjudicate.cjs` at **exit 0**. §7's *"no dataset from this ensemble
+survives"* is a statement about the 2026-08-01 runs and stays true of them; it is
+no longer true of the programme. Every figure in this section is a function of
+those files, and `roundsTask`, `rounds` and `inPageRounds` are all three there,
+so the raw estimator above is recomputable without the box.
+
+Runtime: Chromium `147.0.7727.15` (Playwright), node `v24.13.0`, `:advanced`,
+`goog.DEBUG false`, 24 hardware threads, 32 GB, measured at `752b8069be`. Every
+run exited **1** — the driver's exit is a whole-run verdict, and an ensemble in
+which the bulk rows refuse cannot exit 0 however clean `M1` is. Nothing was
+re-run for a quieter moment, no run was dropped, no gate was widened and no
+tolerance was touched.
