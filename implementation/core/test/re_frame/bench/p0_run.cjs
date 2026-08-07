@@ -1838,7 +1838,7 @@ function summariseFanout(row) {
 // is how the R=0 expectation sat stale from rf2-dabt3 until rf2-zei9w ran
 // the driver; the unit pin is what stops the next such drift being found
 // by the next measurement instead of by CI.
-module.exports = { ladderStructuralFailures };
+module.exports = { ladderStructuralFailures, allocSteps };
 
 if (require.main === module) (async () => {
   build();

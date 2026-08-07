@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // THE LADDER'S STRUCTURAL WITNESS — what the counts must be, and at R=0
-// especially. rf2-xzg3b.
+// especially. rf2-xzg3b. AND THE ALLOCATION ROW'S MASKING WITNESS —
+// rf2-n6w7o, at the foot of this file.
 //
 //     node core/test/re_frame/bench/p0_ladder_structural.test.cjs
 //
@@ -41,7 +42,12 @@ const path = require('node:path');
 const DRIVER = path.join(__dirname, 'p0_run.cjs');
 // Requiring the driver must NOT drive it: it builds, serves and launches a
 // browser. The `require.main === module` guard is part of what is under test.
-const { ladderStructuralFailures } = require('./p0_run.cjs');
+const {
+  ladderStructuralFailures,
+  allocSteps,
+  allocMaskableWindows,
+  ALLOC_MASK_BUDGET_B,
+} = require('./p0_run.cjs');
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -269,6 +275,194 @@ test('the printed legend states the R=0 zero rather than the old flat `boundarie
   has(/boundaries = B \(0 at R=0\)/, 'the printed legend must qualify it');
   lacks(/boundaries = B ·/, 'the unqualified printed legend');
   lacks(/one registration per boundary, R-independent/, 'the stale source legend');
+});
+
+// ===========================================================================
+// THE ALLOCATION ROW'S MASKING WITNESS — rf2-n6w7o
+// ===========================================================================
+//
+// THE DEFECT THIS PINS. `allocSteps` detects a collection by the SIGN of an
+// adjacent step in `usedJSHeapSize`. A sign test is blind in exactly one
+// direction: where V8 collects inside a leg that also allocates at least as
+// much as the collection reclaimed, the observed step is >= 0, `falls` stays
+// 0, and the reclaimed bytes are simply missing from `rise`. The row then
+// prints a window that looks clean and reads LOW — and under-reading
+// allocation is the direction that manufactures HD-002's predicted
+// flat-at-zero, so it is the one direction this row may not fail in.
+//
+// Until rf2-n6w7o there was no allocation coverage in this file at all, and a
+// sample stream with a fully masked collection in it passed `allocSteps`
+// silently with nothing anywhere to notice. The pin below is that stream.
+//
+// HERMETIC BY CONSTRUCTION. Nothing here measures anything. `stream` builds
+// the sample buffer `p0-heap/alloc-window!` would have filled, from stated
+// per-leg allocations and stated reclaims, so the masked case is a fixture
+// rather than something that has to be provoked out of a real collector.
+
+// `[s0, pre0, post0, pre1, post1, ...]` — the shape `alloc-window!` fills:
+// one sample before the window, then a pair around every iteration. `legs[i]`
+// is the TRUE allocation of work leg i; `reclaim[i]` is what a collection
+// took back inside that same leg, which is what the sign test cannot see.
+// The gaps between iterations do nothing, as they do in the real window.
+function stream(legs, reclaim = []) {
+  let h = 10000000;
+  const out = [h];
+  legs.forEach((a, i) => {
+    out.push(h);
+    h += a - (reclaim[i] || 0);
+    out.push(h);
+  });
+  return out;
+}
+
+test('THE DEFECT — a collection fully masked by net growth is REFUSED', () => {
+  // Four warm writes of 200 KB each. A collection runs inside the third and
+  // reclaims exactly what that leg allocated, so the step is 0 and the sign
+  // test sees nothing at all. 200 KB of real allocation has vanished from
+  // `rise`, and the window would have been published as clean.
+  const s = allocSteps(stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]));
+  assert.strictEqual(s.falls, 0, 'the sign test is blind here — that IS the defect');
+  assert.strictEqual(s.fall, 0, 'and nothing was netted, so `fall` is silent too');
+  assert.strictEqual(s.rise, 600000, 'rise under-reads the true 800000 by the reclaimed 200000');
+  assert.ok(s.maskable, 'the masking witness must refuse it where the sign test cannot');
+  assert.ok(s.headroom < 0, `headroom must be negative, was ${s.headroom}`);
+});
+
+test('the budget is the measured fall threshold HALVED, and pinned at its value', () => {
+  // Pinned as a NUMBER on purpose. Widening this constant is the one repair
+  // that would retro-admit every window it was introduced to refuse, so a
+  // change to it has to come through this line and say so.
+  assert.strictEqual(ALLOC_MASK_BUDGET_B, 300000, 'ALLOC_FALL_THRESHOLD_B (600000) / 2');
+});
+
+test('the gate is not vacuous — a small clean window passes it', () => {
+  // Four writes of 20 KB. 100 KB of rise-plus-largest-step against a 300 KB
+  // budget: nowhere near the threshold at which a collection can fire, which
+  // is the shape rf2-2rtt6.138's small-witness arm has to have.
+  const s = allocSteps(stream([20000, 20000, 20000, 20000]));
+  assert.strictEqual(s.falls, 0);
+  assert.strictEqual(s.rise, 80000);
+  assert.strictEqual(s.maxStep, 20000);
+  assert.strictEqual(s.headroom, ALLOC_MASK_BUDGET_B - 100000);
+  assert.strictEqual(s.maskable, false);
+});
+
+test('the boundary is exact — at budget passes, one byte over refuses', () => {
+  const at = allocSteps(stream([50000, 50000, 50000, 50000, 50000]));
+  assert.strictEqual(at.rise + at.maxStep, ALLOC_MASK_BUDGET_B);
+  assert.strictEqual(at.headroom, 0);
+  assert.strictEqual(at.maskable, false, 'exactly at budget is still inside it');
+  const over = allocSteps(stream([50000, 50000, 50000, 50000, 50000, 1]));
+  assert.strictEqual(over.rise + over.maxStep, ALLOC_MASK_BUDGET_B + 1);
+  assert.strictEqual(over.headroom, -1);
+  assert.ok(over.maskable);
+});
+
+test('NET GROWTH CANNOT DEFEAT IT — masking only moves a window toward refusal', () => {
+  // The same four legs, once with the third leg's collection masked and once
+  // without it. Masking REMOVES bytes from `rise`, so the masked window is
+  // the one with MORE headroom — and it is still refused, because the
+  // allocation that had to happen before the collector could fire is counted
+  // in full, in the legs before it, where no masking is possible.
+  const legs = [200000, 200000, 200000, 200000];
+  const masked = allocSteps(stream(legs, [0, 0, 200000, 0]));
+  const clean = allocSteps(stream(legs));
+  assert.ok(masked.rise < clean.rise, 'masking removes bytes from the rising sum');
+  assert.ok(masked.headroom > clean.headroom, 'so it can only flatter the headroom');
+  assert.ok(masked.maskable && clean.maskable, 'and both are over budget regardless');
+});
+
+test('THE FALLS GATE IS UNTOUCHED — a visible collection still counts as one', () => {
+  // The half that works. rf2-n6w7o is discharged by ADDING a refusal, never
+  // by widening this one: every window it admits today it must still admit.
+  const s = allocSteps(stream([20000, 20000], [0, 40000]));
+  assert.strictEqual(s.falls, 1, 'a net-negative leg is still a falling step');
+  assert.strictEqual(s.fall, 20000, 'the second leg allocated 20000 and lost 40000');
+  assert.strictEqual(s.rise, 20000, 'a fall is EXCLUDED from the rising sum, never netted');
+  assert.strictEqual(s.endpoints, 0, 'and the endpoints alone would have said nothing happened');
+});
+
+test('`maxStep` is the largest single rising step, not the mean or the last', () => {
+  const s = allocSteps(stream([1000, 7000, 3000]));
+  assert.strictEqual(s.rise, 11000);
+  assert.strictEqual(s.maxStep, 7000);
+  assert.strictEqual(s.endpoints, 11000);
+});
+
+test('an idle window is neither maskable nor a fall', () => {
+  const s = allocSteps(stream([0, 0, 0]));
+  assert.strictEqual(s.rise, 0);
+  assert.strictEqual(s.falls, 0);
+  assert.strictEqual(s.maxStep, 0);
+  assert.strictEqual(s.maskable, false);
+});
+
+// --- the row-level witness the driver actually exits on --------------------
+
+const allocRowWith = (windows, rounds = 2) => ({
+  perRound: Array.from({ length: rounds }, (_, i) => ({
+    round: i + 1,
+    arms: Object.fromEntries(
+      Object.entries(windows).map(([key, legs]) => [
+        key,
+        { segment: 'reagent-subs', arm: 'lad/hicasso', reads: 7, ...allocSteps(legs) },
+      ])
+    ),
+  })),
+});
+
+const SMALL = stream([20000, 20000, 20000, 20000]);
+const MASKED = stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]);
+
+test('a row of small clean windows is not a failure', () => {
+  assert.deepStrictEqual(
+    allocMaskableWindows(allocRowWith({ 'reagent-subs|lad/hicasso#R7': SMALL })),
+    []
+  );
+});
+
+test('a row with no rounds at all is not a failure', () => {
+  assert.deepStrictEqual(allocMaskableWindows({ perRound: [] }), []);
+});
+
+test('every over-budget window is named, on every round, with its overshoot', () => {
+  const fails = allocMaskableWindows(
+    allocRowWith({
+      'reagent-subs|lad/hicasso#R7': MASKED,
+      'reagent-subs|lad/reagent#R7': SMALL,
+    })
+  );
+  assert.strictEqual(fails.length, 2, 'one per round, and only the over-budget arm');
+  for (const f of fails) {
+    assert.match(f, /lad\/hicasso#R7/);
+    assert.match(f, /rise 600000 B \+ largest step 200000 B/);
+    assert.match(f, /500000 B over the 300000 B masking budget/);
+  }
+  assert.ok(fails.some((f) => f.startsWith('round 1 ')));
+  assert.ok(fails.some((f) => f.startsWith('round 2 ')));
+});
+
+// --- the wiring, so this pin cannot drift off the thing that exits ---------
+
+test('the driver exits on THIS function and does not re-derive the budget', () => {
+  has(/const maskable = allocMaskableWindows\(out\.alloc\);/, 'the alloc gate calls it');
+  has(/if \(maskable\.length > 0\) \{/, 'and its result is what pushes a failure');
+  has(
+    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocMaskableWindows,\s*ALLOC_MASK_BUDGET_B,\s*\};/,
+    'so this file can drive it'
+  );
+});
+
+test('the budget is DERIVED from the measured threshold and has no dial on it', () => {
+  has(
+    /const ALLOC_MASK_BUDGET_B = ALLOC_FALL_THRESHOLD_B \/ 2;/,
+    'the budget must follow the measured threshold, not be typed beside it'
+  );
+  lacks(
+    /P0_ALLOC_MASK|P0_ALLOC_HEADROOM|P0_ALLOC_BUDGET/,
+    'a gate with an env dial on it is a gate that gets dialled off'
+  );
+  has(/if \(out\.alloc\.fallsInMeasuredWindows > 0\) \{/, 'and the falling-step gate still exits');
 });
 
 let failed = 0;
