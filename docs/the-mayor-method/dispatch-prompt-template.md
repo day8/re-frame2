@@ -252,6 +252,54 @@ it's deeper than scope + the stance allows a safe-out); push to the existing bra
 touched-surface gate.* Diagnosis often beats the failure log — test the hypothesis
 before fixing.
 
+**Shape 6 — Measurement window.** The five shapes above all tell a worker to
+iterate until the gate goes green. A measurement worker must do the opposite, and
+that inversion is the whole shape: it is not there to produce a number, it is
+there to find out whether a trustworthy number can be produced at all. Pick it by
+the kind of work, not by its size — a measurement bead is never a solo-vs-cluster
+decision. The brief below was written from scratch twice in one day before it
+lived here.
+
+- **The controls are the arbiter, not the worker's judgement about the box.** A
+  worker asked whether its own machine was quiet enough will always find a reason
+  it was. If a control fails, or the arm-order guard exits 2 — a refusal, which is
+  deliberately not a plain non-zero failure — the run refuses and the worker
+  reports the refusal, without weighing it against how the box felt.
+- **A refusal is a deliverable, not a failure.** Two of three window beads in one
+  day came back as refusals and both were the correct outcome. If everything
+  refuses, the window succeeded: you now know the rig cannot see what you hoped it
+  would, which is what you dispatched it to find out. Say this in the brief, or the
+  worker reads its refusal as its own failure and goes hunting for a way to turn
+  it green.
+- **Never "fix" a refusal by loosening a gate.** Every gate in a rig is there
+  because something once passed that should not have. Widening a threshold to
+  admit today's run retro-admits that failure too, and the series loses the one
+  property that made it worth running.
+- **Do not improve the rig mid-window.** No new instrument, no extra rungs, no
+  third estimator, however obvious the improvement looks from inside the run. One
+  worker declined to build a rung it genuinely needed, mid-series, on the grounds
+  that *"a rung added between runs makes the series two instruments"* — the
+  clearest statement of this rule anyone here has managed. File the improvement and
+  run it as its own window.
+- **Do not restate a published figure on thin evidence.** A worker holding four
+  reportable runs, every one reading *below* both published figures, recorded them
+  without publishing. That was right: four runs disagreeing with a number are a
+  reason to look again, not a mandate to move it.
+- **Verify the box with real counters, not the convenient one.**
+  `Win32_Processor.LoadPercentage` read **93% while the true value was 11%**.
+  `Get-Counter '\Processor(_Total)\% Processor Time'` and
+  `'\System\Processor Queue Length'` agreed at ~11%, and a per-process delta
+  corroborated at 2.8%. **Processor Queue Length is the decisive number** — it says
+  whether anything is actually waiting for a core, which is the only thing the
+  window cares about.
+- **One run at a time, never concurrent.** Concurrency is precisely the contention
+  the window exists to exclude, so two runs the worker believes are independent
+  still are not.
+
+Report what ran, what refused and on which control, the raw numbers, and — as its
+own heading — what was **not** concluded. A window that publishes nothing still
+reports everything.
+
 ## Failure modes these shapes close
 
 - Back-compat shims by default → stance explicit in every preamble.
@@ -266,6 +314,7 @@ before fixing.
 - Re-discovering known issues → name recent landings + prior findings.
 - A brief that was accurate when written but stale when read → bead-governs-the-brief, notes bottom-up.
 - Generic prompts → require `file:line` citations + concrete fix sketches.
+- A measurement worker iterating until the number looked right → Shape 6: the controls arbitrate, a refusal is a deliverable, and the rig does not change mid-window.
 
 ---
 

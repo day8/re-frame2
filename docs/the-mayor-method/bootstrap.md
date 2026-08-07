@@ -108,10 +108,25 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   sufficient: a non-empty total in the band the repo actually produces; every
   conclusion in SUCCESS or SKIPPED; nothing queued or in progress in the rollup;
   and no queued or in-progress run on the branch carrying the PR's current head sha.
-- *"Base branch was modified" usually means stale, not raced.* The rejection reads
-  like a lost race, so the reflex is to try again — seven retries here proved
-  otherwise. The branch was simply behind its base, and the remedy is to update it
-  (`gh pr update-branch`) and re-check; retrying faster never substitutes.
+- *"Base branch was modified" usually means stale — until something is moving the
+  base.* The rejection reads like a lost race, so the reflex is to try again, and
+  seven retries here proved otherwise: the branch was simply behind, and the remedy
+  is to update it (`gh pr update-branch`) and re-check. But any automation that
+  writes to `main` after a merge turns that reflex into a trap, because then the
+  race is real. This repo runs a post-merge hook that commits
+  `chore(beads): audit merged PR NNNN` and pushes it to `main` asynchronously,
+  seconds later — so during a merge burst the base never holds still and the next
+  merge is refused for a reason no amount of updating fixes. **One PR was refused
+  thirty times.** Both transports agree — GraphQL `mergePullRequest` and REST
+  `PUT /pulls/{n}/merge` with an explicit sha (HTTP 405) — so it is not a client
+  quirk, and `update-branch` makes it worse before it makes it better, because CI
+  restarts on the updated branch and another audit commit lands inside that window.
+  The remedy is counterintuitive: **merge the whole queue FIRST, then give the
+  straggler a genuinely empty window.** Raising its nominal priority does the
+  opposite of what it looks like — priority without an empty window is just more
+  attempts against a moving base. And if a PR refuses more than about three times
+  and nothing is blocked on it, **shelve it** and take it opportunistically;
+  persistence on an item that is blocking nothing is its own gold-plating.
 - *Reproduce the real failing path.* A worker's passing synthetic test can route
   around the gap and explain away a symptom the operator reproduced. The
   acceptance test must exercise the path that actually failed, not a proxy —
@@ -186,6 +201,22 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   to deliver to. So wait for the report. A stale directory is the entire cost of
   waiting. And one worker is not one worktree — it may build a second for its
   gate run, so an unfamiliar worktree belongs to someone until its agent reports.
+- *A stale progress string is not a dead worker.* The rule above says when you may
+  reap, which leaves the opposite question open — is this worker alive or
+  stranded? — and a long-running worker and a stranded one look identical from
+  outside. Both readings went wrong here in a single day, in opposite directions:
+  a worktree was reaped on merged-PR-plus-identity while its worker was mid-gate,
+  destroying the run; then a perfectly healthy worker was called stranded across
+  four consecutive ticks because its progress line sat unchanged, when it had been
+  measuring and committing in batches the whole time. **The cheap, reliable
+  discriminator is whether the commit count on the worker's branch has moved since
+  the last tick.** A worker committing as briefed advances it, which is exactly why
+  every brief demands commit-and-push as you go; an unchanged progress string and
+  an unchanged worktree are both poor liveness proxies, because neither is
+  something a working agent is obliged to touch. Note what this does and does not
+  license: a moved count says alive, but a still count is not a seventh reap-proxy
+  and never authorises a reap on its own. When in doubt, the cost of waiting is
+  still one stale directory.
 - *Pushed commits are the only durable worker state.* Workers die mid-run for
   reasons unrelated to their work, so put "commit and push as you go, not at the
   end" in every brief, with the reason. The mayor may push a worker's existing
