@@ -175,7 +175,7 @@ touches documentation content.  The cheap static/drift checks always run.
 
 Within the JVM tier the spine runs implementation/core plus the suite of every
 artefact whose own tree the diff touched, selected against the roster in
-scripts/test-jvm-implementation.sh.  `--plan` prints that selection.
+scripts/test-jvm-implementation.sh.  --plan prints that selection.
 
 Flags:
   --all, -a     run the COMPLETE spine regardless of classification
