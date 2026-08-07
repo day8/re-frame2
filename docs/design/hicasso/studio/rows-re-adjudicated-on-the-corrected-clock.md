@@ -74,6 +74,15 @@ tables below. It does not select runs — every dataset handed to it appears, an
 the reportable subset is shown *beside* the whole ensemble rather than instead
 of it.
 
+**The subset that program draws is now the driver's whole exit path, and it
+fails closed** *(2026-08-07, `rf2-emvod`)*. It asked for the positive control
+and the two ceilings and nothing else, while printing four further verdicts it
+then ignored; and the driver writes its dataset *before* its own fatal checks
+run, so a run the page threw on was a well-formed file that reached the
+published mean. What that repair does and does not reach — including the
+datasets this page's own tables were computed from, which **were never
+retained** — is [§7.1](#71-what-this-page-cannot-regenerate).
+
 ---
 
 ## 2. The door
@@ -438,6 +447,75 @@ git rev-parse <candidate>:$P   # must print 84aa25d93b65ee55f3d28d339d57720e3a50
 cd implementation && npm ci
 node freehand/test/re_frame/bench/hicasso/clock_run.cjs           # one run, all five rows
 node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+```
+
+### 7.1 What this page cannot regenerate
+
+**The seven datasets were not retained, and the command above is therefore not
+a reproduction** *(2026-08-07, `rf2-emvod`, recorded rather than repaired)*.
+`out/run*.json` names files that existed only in the author's working tree; the
+merge landed no Hicasso dataset at all. So a fresh clone cannot recompute
+`1.3737×`, its range, the 7/3/2/4 reportable counts, the controls, the bands,
+the absolutes, the door spreads or [§4.2](#42-ctl-2x-undershoots-on-the-mount-row-too-and-that-changes-its-diagnosis)'s
+additive-residual table. **Every table on this page is unreproducible from the
+tree, and that is stated here rather than left to be discovered.** Re-taking the
+ensemble is a *measurement*, not a repair, and none was taken to write this
+section: no figure above has been restated, widened or recomputed.
+
+This is [`rf2-cvvb7`'s recorded gap](the-candidates-clock.md#71-the-seam-study-rf2-cvvb7)
+landing on the very page that quotes it — which is the reason the repair below
+is in the *instrument* rather than in this prose. A page can only promise
+reproducibility; a program can refuse to pretend.
+
+**What the tree enforces now.** `clock_readjudicate.cjs`'s reportable subset is
+the driver's own exit path, read back off the serialised record, fail-closed at
+every seat — a verdict that is missing, null or silent has not been passed, it
+has been lost. Its first gate is [`rf2-2rtt6.31`'s two-tier write
+policy](hd8-composed-donor-arm.md) seen from the reading end: a dataset records
+`canonical` and `notCanonicalWhy` **in the file**, and a missing `canonical`
+field is not a pass. Nothing is selected away — every run stays in every table
+with its own magnitude beside it and its refusals named — and the program exits
+`3` over evidence it may not publish from.
+
+| gate | what refuses the run | serialised today |
+|---|---|---|
+| `canonical` | the file does not say it is the published evidence set | **no** — the producer half is `clock_run.cjs`'s to add |
+| `page-errors` | Chromium threw during the run | **no** |
+| `guard-net`, `guard-task` | the arm-order guard refused, on either clock | yes |
+| `canonical-dom` | the arms built different pages | **no** |
+| `ctl3-parity` | the three-point control's own arms built different pages | yes |
+| `keystroke-witness` | the per-keystroke accounting does not close | yes |
+| `unverified` | a window whose value never reached the page | yes |
+| `ceiling-net`, `ceiling-task` | the reproducibility band exceeds its ceiling | yes |
+| `control` | the three-point control failed, or `ctl-2x` on either clock | yes |
+| `event-timing` | the Event-Timing witness refused | **no** |
+| `adjudication` | a published bar carries no band | yes |
+
+The four unserialised verdicts are named at the driver's own internal field
+names, so no dataset in the tree satisfies the filter today — the correct
+fail-closed reading of an *incomplete* record, and not a defect in it.
+`clock_run.cjs` adopts the family policy when it is next touched — "record
+once, converge on touch" — and because the names above are its own, that
+adoption is one line per verdict.
+
+**The one command, and what it does on the datasets that were kept:**
+
+```bash
+cd implementation
+node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
+  freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run1.json \
+  freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run2.json
+# exit 3 — neither file carries a `canonical` verdict, both are printed in
+#          full, and no reportable subset is drawn from either
+```
+
+Its refusals are fixtures rather than an assertion — one deliberate corruption
+*and* one deliberate erasure per gate, plus the whole program run over a file
+in both directions:
+
+```bash
+cd implementation
+node freehand/test/re_frame/bench/hicasso/clock_exit_path.test.cjs
 ```
 
 The cross-check probe in [§2.1](#21-what-the-correction-therefore-does-not-reach)
