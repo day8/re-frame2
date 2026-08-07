@@ -154,7 +154,9 @@ anything quotable against the bar.
 **Why both columns, and what each one is actually good for.** A producing SHA is
 rewritten by rebase *and* by merge. Every authored SHA in the middle column above
 is now unreachable — `d46ede4f`, `b943c7ed` and `d3f1c2ff` are on no branch, so a
-reader handed one of them can check out nothing and run nothing. That is what the
+reader handed one of them can check out nothing and run nothing. Each landed on
+main as `172244521e`, `c7e4c70ac0` and `0cba8181a7` respectively, established by
+`git patch-id --stable` rather than by matching subjects. That is what the
 landed column is for, and it is the **whole-tree anchor**: the bundle these
 figures came off depends on `re-frame.core`, on the three adapters, on
 `deps.edn`, `package-lock.json` and the React version, and only a commit pins all
@@ -178,9 +180,9 @@ the superseded unbatched ranges are kept rather than deleted; `rf2-9zysg`
 batched ten writes under one clock and left every other window alone, so no
 other row moved. Before that:
 
-At `d46ede4f` the `reagent-slim` write rows read *78 of 78*
+At `d46ede4f` (landed `172244521e`) the `reagent-slim` write rows read *78 of 78*
 unverified and their figures were withheld. `rf2-z3vlz` diagnosed why and
-`rf2-b69lw` repaired it; `b943c7ed` is that repair, and the `reagent-slim`
+`rf2-b69lw` repaired it; `b943c7ed` (landed `c7e4c70ac0`) is that repair, and the `reagent-slim`
 write rows below are its. **No other row was replaced.** The repair changes the
 write window for arms on a **microtask-scheduled** substrate and leaves every
 other arm's window byte-for-byte as it was, so the rows taken at `d46ede4f`
@@ -220,7 +222,7 @@ So the re-take is two measurements, deliberately separate:
 
 | | |
 |---|---|
-| **Producing commit** | `16ddf3e30772ceff170f28ffe466247b0a84341b` on `worker/hd8retake-2rtt6-31` — both measurements, one tree. The landed SHA is the merge's to mint |
+| **Producing commit** | `16ddf3e30772ceff170f28ffe466247b0a84341b` on `worker/hd8retake-2rtt6-31` — both measurements, one tree. That head is the authored one; this repo rebase-merges, so it is reachable from no ref and a fresh clone does not have it. It landed on main as `1ac48c4a0be1fed3338fbb504f5b023af6d1524d` (PR #7378), which is the resolvable whole-tree anchor to check this page against. The rebase minted a new commit, not a new tree for what is stamped here: every one of the six instrument blobs below is byte-identical at both heads |
 | **Spine** | blob `ad7b19d9d8957e7a1872e58f9b18ace8acdc4841` — post-`.13`/`.25`, and **further moved since this page's stamp** (latest spine-touching commit `0c7c5bfb0d`, the `.25` reap-horizon race statement). The pre-landing blob this page's original rows read is `befd8469d932…`, above |
 | **Clock of record** | CDP `Performance.getMetrics` raw `TaskDuration`, settled to the next frame (`requestAnimationFrame` → `setTimeout 0`), tared by a `plumb` arm measured in the same block. `taskNet` and the in-page `flushSync` window are recorded on the **same samples** as diagnostics |
 | **The door** | every arm, tare included: `page.evaluate → HD8CLOCK.sample` — one door, so its cost is common-mode and subtracted. Through this door `taskNet` is FRAME-ONLY (`DevToolsCommandDuration` carries the arm's own script, `rf2-emvod`) and is never a verdict here |
@@ -385,7 +387,7 @@ all twelve rows; exit `0`. The plan is the current 7-arm plan (`donor-fh` rides
 per `rf2-2rtt6.29`), so ranges are compared with the published 4/5/5-arm rows
 as *the same comparison on a fresh take*, not figure-for-figure.
 
-Mount, published above → re-taken at `16ddf3e307`, in-page instrument:
+Mount, published above → re-taken at `16ddf3e307` (landed `1ac48c4a0b`), in-page instrument:
 
 | run | comparison | published *(pre-landing spine)* | **re-taken (current tree)** |
 |---|---|---|---|
@@ -608,14 +610,14 @@ the same reason — a denominator pinned at one quantum was rounded **up**, and 
 floor rounded up understates every ratio taken against it.
 
 <details><summary><b>Superseded — the same row on the unbatched window</b>
-(`d46ede4f`, and `b943c7ed` for <code>reagent-slim</code>)</summary>
+(`d46ede4f`, landed `172244521e`; and `b943c7ed` for <code>reagent-slim</code>)</summary>
 
 Within-run, `uix` run: `donor-r1 / uix` 0.909 – 1.200, `donor-r2 / uix`
 0.960 – 1.200, `donor-r2 / donor-r1` 1.000 – 1.167 — all *indistinguishable*.
 
 Cross-run, floor-normalised: `donor-r1` 5.000 – 8.000 and `donor-r2`
 5.000 – 8.000 against `reagent` 3.000 – 5.000 and `reagent-slim` 2.667 – 6.000.
-An independent slim-only replication at `f5bd4b49` read 3.000 – 5.500. Absolute
+An independent slim-only replication at `f5bd4b49` (landed `85cb1dd5c2`) read 3.000 – 5.500. Absolute
 p50s: `reagent-slim` 0.40 – 0.60 ms, floor 0.10 – 0.15 ms. **0 unverified of
 78.**
 
@@ -665,12 +667,12 @@ five times, which is exactly what the batch bought and exactly what this row
 never got.
 
 <details><summary><b>Withheld — the cross-run figures this row used to publish</b>
-(`d46ede4f`, and <code>b943c7ed</code> for <code>reagent-slim</code>)</summary>
+(`d46ede4f`, landed `172244521e`; and <code>b943c7ed</code> for <code>reagent-slim</code>)</summary>
 
 Cross-run, floor-normalised: `donor-r1` 7.750 – 11.000 and `donor-r2`
 8.250 – 11.750 against `reagent` 8.750 – 17.000 and `reagent-slim`
-11.000 – 13.667. The independent slim-only replication at `f5bd4b49` read
-9.500 – 13.000.
+11.000 – 13.667. The independent slim-only replication at `f5bd4b49` (landed
+`85cb1dd5c2`) read 9.500 – 13.000.
 
 **None of these may be quoted as a magnitude.** They are kept for the same
 reason the narrow row's superseded band is: a measurement the instrument later
@@ -733,13 +735,13 @@ split **30 / 30** across its two possible predecessors, which is the local
 `slot-order` override working.
 
 **DOM read-back — 0 unverified of 1,248**, which is every write the driver
-executed across the three runs at `b943c7ed` (`0 of 960` counting only the timed
+executed across the three runs at `b943c7ed` (landed `c7e4c70ac0`; `0 of 960` counting only the timed
 post-warmup samples). **On the batched re-take the narrow rows carry ten writes per
 sample, so the same three runs execute 0 unverified of 6,864** — `0 of 780` on
 each of the eight narrow arm-columns, plus the bulk rows' `0 of 78` each. The
 denominator grew with the batch; the numerator did not.
 
-At `d46ede4f` the same counts read **156 of 1,248** and **120 of 960**,
+At `d46ede4f` (landed `172244521e`) the same counts read **156 of 1,248** and **120 of 960**,
 every one of them the `reagent-slim` arm, and its write figures were suppressed
 rather than published. *An earlier version of this page reported that as "156
 unverified of 936", which is not a like-for-like denominator and is corrected
@@ -1013,8 +1015,8 @@ returned `:not-owed` on every `uix` and `reagent` write row and
 ten of its windows, both at `k = 10` and at `k = 1` — so ~~the ratios above stand
 exactly as published~~ **the ratios stood exactly as published on the instrument
 of that day**, now with the bound checked rather than asserted. A full sweep at
-the three-state repair (authored `79de836f35`; the landed SHA is the merge's to
-mint) answered the same, exit `0`: `:not-owed` on all four
+the three-state repair (authored `79de836f35`, landed on main as `50ce76d85f`)
+answered the same, exit `0`: `:not-owed` on all four
 `uix`/`reagent` write rows, `:below-resolution` on both `slim` rows with every
 aggregate window at `0.0`, every read-back `0` unverified, and every slim write
 range overlapping the published one — the repair moves gate logic and table
@@ -1064,7 +1066,7 @@ wherever a sub-quantum per-item cost is asserted negligible across a batch.
 reappears there and wants the same treatment.
 
 **Reproduction check — NOT a republication.** The re-take ran all three
-adapters, so the rows published at `d46ede4f` were measured again by a driver
+adapters, so the rows published at `d46ede4f` (landed `172244521e`) were measured again by a driver
 carrying the change. Every one of them reproduced: on the mount rows, which are
 the well-resolved ones, `donor-r1 / uix` in the `uix` run read `1.150 – 1.233`
 against the published `1.149 – 1.230`. On the write rows five of the six

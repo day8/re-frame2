@@ -80,6 +80,17 @@
 // 3, 4 and 5 are rf2-rr6do's repair: all three were computed, printed and
 // written into the dataset, and none of them reached the exit. See the note
 // above `verdict` below.
+//
+// ## Where the datasets land
+//
+// The canonical dataset directory holds THE PUBLISHED SHAPE and nothing
+// else. A run that is narrowed (HD8CLOCK_ONLY), taken at an overridden
+// depth, taken `--no-build`, or refused by the verdict above writes to a
+// sibling `.unpublished` directory instead, named on stdout with the reason;
+// an explicit HD8CLOCK_DATA_DIR is honoured as given. See the note above
+// `destination` — that routing is rf2-2rtt6.31's half of the same fail-open
+// rf2-rr6do repaired on the exit path, and the rule census_clock_run.cjs
+// (rf2-2rtt6.56) already carries one file over.
 
 'use strict';
 
@@ -126,9 +137,20 @@ const GATE_LINE = 1.1; // the amendment's one line: donor <= 1.10x direct UIx
 const NO_BUILD = process.argv.includes('--no-build');
 const SKIP_QUIET = process.env.HD8CLOCK_SKIP_QUIET === '1';
 
+// The published depth, in ONE place. The provenance stamp and the dataset
+// write path must agree on what "the published shape" is, and two copies of
+// that predicate is how they drift apart.
+const PUBLISHED_DEPTH = { rounds: 6, blocks: 3, warmup: 4, samples: 10 };
+const depthIsPublished = () =>
+  ROUNDS === PUBLISHED_DEPTH.rounds &&
+  BLOCKS === PUBLISHED_DEPTH.blocks &&
+  WARMUP === PUBLISHED_DEPTH.warmup &&
+  SAMPLES === PUBLISHED_DEPTH.samples;
+
 // Where the run's compact datasets go. Named per run id below; the page's
 // provenance points here, because a published study a reader cannot
 // recompute from the landed tree is rf2-cvvb7's recorded fault.
+const DATA_DIR_OVERRIDDEN = Boolean((process.env.HD8CLOCK_DATA_DIR || '').trim());
 const DATA_DIR =
   process.env.HD8CLOCK_DATA_DIR || path.join(__dirname, 'data', 'hd8clock-2rtt6-31');
 
@@ -717,9 +739,17 @@ function report(out) {
 // arm-order guard refused still exits 2 — so nothing that used to refuse now
 // refuses differently.
 //
-// No refusal suppresses output: the tables are printed and the datasets are
-// written before this is consulted. A refusal is about what may be QUOTED,
-// not about throwing the measurement away.
+// No refusal suppresses output, and none ever discards a completed
+// measurement: the tables are printed and the datasets are written whatever
+// this returns. A refusal is about what may be QUOTED, not about throwing
+// the measurement away.
+//
+// What a refusal DOES decide is where the datasets land (rf2-2rtt6.31). The
+// canonical directory is the PUBLISHED EVIDENCE SET, not "the last file this
+// driver wrote", so a refused run is written to a `.unpublished` sibling and
+// stamped `canonical: false` in the file rather than replacing the rows the
+// studio page cites. Capture is not publication. See `destination` below —
+// which is why this verdict is now computed BEFORE the write, not after it.
 
 /** The flat record the exit is decided on: one entry per row actually taken. */
 function summarise(failed, results) {
@@ -798,6 +828,116 @@ function verdict(summary) {
 }
 
 // ---------------------------------------------------------------------------
+// Where a run's datasets may be written
+// ---------------------------------------------------------------------------
+
+// WHERE A RUN'S DATASETS MAY BE WRITTEN (rf2-2rtt6.31, the write-before-refuse
+// ruling; census_clock_run.cjs / rf2-2rtt6.56 carries the same rule).
+//
+// `verdict` decides what may be QUOTED. This decides what may be WRITTEN, and
+// it is a separate question this driver got wrong in the same direction its
+// sibling did. The datasets were written under the CANONICAL filenames before
+// the refusal was consulted, whatever shape the run had — so a run narrowed to
+// one adapter (HD8CLOCK_ONLY), taken with `--no-build` against whatever bundle
+// happened to be on disk, taken at an overridden depth, or one the verdict then
+// REFUSED, silently replaced the published evidence the studio page cites.
+// Nothing announced it: the write had already landed, and the nonzero exit
+// arrived afterwards. rf2-rr6do repaired the exit path; this is the write path,
+// the other half of the same fail-open.
+//
+// THE RULE: the canonical directory holds the PUBLISHED SHAPE and nothing
+// else. Any narrowing, any override, any refusal routes to a sibling
+// `.unpublished` directory, named on stdout with the reason. No completed
+// measurement is ever discarded — it simply does not get the published names.
+//
+// An explicit HD8CLOCK_DATA_DIR is the operator naming their own destination.
+// It is honoured as given, and it is never the canonical set.
+//
+// This is census's `destination` with ONE condition absent: census names a
+// PARTIAL ROW SET because C56CLOCK_ROWS can narrow its rows. This driver's
+// ROWS is a fixed pair with no such knob, so there is no partial-row shape to
+// name and a `rowsOnly` that could only ever be null would be a dead reason.
+// Every other condition, and the routing, is the same rule verbatim.
+//
+// Pure over a flat shape record, for the same reason `verdict` is: the write
+// path is then checkable without a release build and a headless Chromium.
+function destination(shape, code) {
+  const s = shape || {};
+  if (s.dataDirOverridden) {
+    return { dir: s.dataDir, canonical: false, why: 'HD8CLOCK_DATA_DIR named this destination' };
+  }
+  const why = [];
+  if (code !== 0) why.push(`the run's own verdict refused it (exit ${code})`);
+  if (s.runsOnly) why.push(`a PARTIAL run set (HD8CLOCK_ONLY=${s.runsOnly})`);
+  if (s.noBuild) why.push("--no-build (the bundle on disk is not known to be this tree's)");
+  if (!s.depthPublished) why.push('an OVERRIDDEN design depth');
+  if (!why.length) return { dir: s.dataDir, canonical: true, why: null };
+  return { dir: `${s.dataDir}.unpublished`, canonical: false, why: why.join('; ') };
+}
+
+/**
+ * The compact dataset for one run — the reduced quantities every statistic on
+ * the studio page is a function of, so the page can be recomputed from the
+ * tree.
+ *
+ * Lifted out of `drive` deliberately. Serialising a row means naming its
+ * refusal fields (`guardRefuse`, `ceilingBreached`, …), and `drive` is held to
+ * an invariant that nothing downstream of `verdict` may name one — the check
+ * that stops a second exit path growing back (`clock_exit_path.test.cjs`).
+ * The write now happens after the verdict, so the serialiser has to live
+ * outside it. Recording is not deciding, and this is where that shows.
+ */
+function datasetFor(rows, meta) {
+  return {
+    bead: 'rf2-2rtt6.31',
+    commit: meta.sha,
+    blobs: meta.blobs,
+    when: new Date().toISOString(),
+    // Whether this file is the published evidence, recorded IN the file — a
+    // dataset that travels out of its directory must still say what it is.
+    // A consumer that finds no `canonical` field has not found a pass.
+    canonical: meta.dest.canonical,
+    notCanonicalWhy: meta.dest.why,
+    design: { rounds: ROUNDS, blocks: BLOCKS, warmup: WARMUP, samples: SAMPLES, tolerance: TOLERANCE, controlSlack: CONTROL_SLACK, gateLine: GATE_LINE },
+    clock: 'Performance.getMetrics raw TaskDuration, frame-settled (rAF + setTimeout), plumb-tared',
+    door: 'page.evaluate -> HD8CLOCK.sample (every arm, plumb included)',
+    node: process.version,
+    rows: rows.map((r) => ({
+      rowId: r.rowId,
+      armIds: r.armIds,
+      canon: r.canon,
+      blocksTask: r.blocksTask,
+      blocksNet: r.blocksNet.map((rd) => rd.map((b) => Object.fromEntries(Object.entries(b).map(([a, xs]) => [a, r4(p50(xs))])))),
+      blocksInPage: r.blocksInPage.map((rd) => rd.map((b) => Object.fromEntries(Object.entries(b).map(([a, xs]) => [a, r4(p50(xs.filter(Number.isFinite)))])))),
+      tally: r.tally,
+      runtime: r.runtime,
+      quiet: r.quiet,
+      windowStart: r.windowStart,
+      adjudication: {
+        ctl: r.adjudication.ctl,
+        cAdditive: r4(r.adjudication.cAdditive),
+        band: Number.isFinite(r.adjudication.assessed.bandStats.band) ? r4(r.adjudication.assessed.bandStats.band) : null,
+        ceilingBreached: r.adjudication.assessed.verdict.ceilingBreached,
+        bars: r.adjudication.bars,
+        verdicts: r.adjudication.verdicts,
+        guardRefuse: r.adjudication.guardRefuse,
+        plumb: r4(r.adjudication.plumb),
+        floorTared: r4(r.adjudication.floorTared),
+      },
+    })),
+  };
+}
+
+/** This process's shape, as `destination` reads it. */
+const runShape = () => ({
+  dataDir: DATA_DIR,
+  dataDirOverridden: DATA_DIR_OVERRIDDEN,
+  runsOnly: ONLY || null,
+  noBuild: NO_BUILD,
+  depthPublished: depthIsPublished(),
+});
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -828,7 +968,7 @@ async function drive() {
   console.log(`;;   node        ${process.version}`);
   console.log(
     `;;   design      ${ROUNDS} rounds x ${BLOCKS} blocks x (${WARMUP} warmup + ${SAMPLES} samples) per arm` +
-      `${ROUNDS === 6 && BLOCKS === 3 && WARMUP === 4 && SAMPLES === 10 ? '' : '  *** OVERRIDDEN — NOT THE PUBLISHED SHAPE ***'}`
+      `${depthIsPublished() ? '' : '  *** OVERRIDDEN — NOT THE PUBLISHED SHAPE ***'}`
   );
   console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8CLOCK_ONLY=${ONLY} — PARTIAL, not the published shape)` : ''}`);
   console.log(`;;   guard tol   ${TOLERANCE} on raw TaskDuration (HD-008's stated mount choice)`);
@@ -875,49 +1015,29 @@ async function drive() {
     server.close();
   }
 
+  // The verdict is computed BEFORE the datasets are written, because where
+  // they may be written depends on it (see `destination`).
+  const v = verdict(summarise(failed, results));
+  const dest = destination(runShape(), v.code);
+
   // compact datasets — the reduced quantities every statistic above is a
   // function of, per run, so the page can be recomputed from the tree.
   if (results.length && !failed) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (dest.canonical) {
+      console.log(';; datasets CANONICAL — the published shape, all gates passed');
+    } else {
+      console.log(`;; datasets NOT CANONICAL — ${dest.why}`);
+      console.log(';;          These are working datasets. They are not the published evidence and');
+      console.log(';;          may not be cited as it.');
+    }
+    fs.mkdirSync(dest.dir, { recursive: true });
     for (const runDef of RUNS) {
       const rows = results.filter((r) => r.runId === runDef.id);
       if (!rows.length) continue;
-      const data = {
-        bead: 'rf2-2rtt6.31',
-        commit: sha,
-        blobs: bl,
-        when: new Date().toISOString(),
-        design: { rounds: ROUNDS, blocks: BLOCKS, warmup: WARMUP, samples: SAMPLES, tolerance: TOLERANCE, controlSlack: CONTROL_SLACK, gateLine: GATE_LINE },
-        clock: 'Performance.getMetrics raw TaskDuration, frame-settled (rAF + setTimeout), plumb-tared',
-        door: 'page.evaluate -> HD8CLOCK.sample (every arm, plumb included)',
-        node: process.version,
-        rows: rows.map((r) => ({
-          rowId: r.rowId,
-          armIds: r.armIds,
-          canon: r.canon,
-          blocksTask: r.blocksTask,
-          blocksNet: r.blocksNet.map((rd) => rd.map((b) => Object.fromEntries(Object.entries(b).map(([a, xs]) => [a, r4(p50(xs))])))),
-          blocksInPage: r.blocksInPage.map((rd) => rd.map((b) => Object.fromEntries(Object.entries(b).map(([a, xs]) => [a, r4(p50(xs.filter(Number.isFinite)))])))),
-          tally: r.tally,
-          runtime: r.runtime,
-          quiet: r.quiet,
-          windowStart: r.windowStart,
-          adjudication: {
-            ctl: r.adjudication.ctl,
-            cAdditive: r4(r.adjudication.cAdditive),
-            band: Number.isFinite(r.adjudication.assessed.bandStats.band) ? r4(r.adjudication.assessed.bandStats.band) : null,
-            ceilingBreached: r.adjudication.assessed.verdict.ceilingBreached,
-            bars: r.adjudication.bars,
-            verdicts: r.adjudication.verdicts,
-            guardRefuse: r.adjudication.guardRefuse,
-            plumb: r4(r.adjudication.plumb),
-            floorTared: r4(r.adjudication.floorTared),
-          },
-        })),
-      };
-      const f = path.join(DATA_DIR, `${runDef.id}.json`);
+      const data = datasetFor(rows, { sha, blobs: bl, dest });
+      const f = path.join(dest.dir, `${runDef.id}.json`);
       fs.writeFileSync(f, JSON.stringify(data));
-      console.log(`;; dataset  ${f}`);
+      console.log(`;; dataset  ${f}${dest.canonical ? '' : '   (NOT the published evidence)'}`);
     }
   }
 
@@ -926,7 +1046,6 @@ async function drive() {
   console.log(';;   operator\'s to overturn (rf2-2rtt6.1). This driver prints measurements and');
   console.log(';;   per-pair adjudications against the recorded line; nothing here amends the bar.');
 
-  const v = verdict(summarise(failed, results));
   for (const line of v.lines) console.error(line);
   if (v.code === 0) {
     console.error('[hd8clock] ok — measured, and no arm reads differently for its position in the plan');
@@ -934,7 +1053,7 @@ async function drive() {
   return v.code;
 }
 
-module.exports = { summarise, verdict };
+module.exports = { summarise, verdict, destination };
 
 if (require.main === module) {
   drive().then((code) => {

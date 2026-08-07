@@ -479,14 +479,28 @@
                   (.catch fail!)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-rjjry — the exceptional imperative-subscription recipe must be
-;; instance-safe. The copy-pasteable Form-3 (guided-handlers-state.md §M-11)
-;; `add-watch`es the cached reaction to re-feed an imperative widget. Equal
-;; `(frame, query-v)` subscriptions SHARE one reaction, so the watch key MUST be
-;; PER-MOUNT: a constant key lets a second mount clobber the first's callback,
-;; and either unmount then strips the sole surviving callback. This fixture
-;; mirrors the recipe and proves two same-frame/same-query mounts keep
-;; INDEPENDENT watches with a balanced cache.
+;; rf2-rjjry + rf2-ynved — the exceptional imperative-subscription recipe must be
+;; LIVE and instance-safe, and it must be so on its own.
+;;
+;; The copy-pasteable Form-3 (guided-handlers-state.md §M-11) re-feeds an
+;; imperative widget as a sub's value changes. It used to do that with an
+;; `add-watch` on the acquired reaction, and this fixture used to mirror that —
+;; but only because it stood an external `ratom/run!` DRIVER beside the mounts to
+;; "keep the lazy reaction on the push path". That driver was not a test
+;; convenience: it was the missing runtime step, hand-supplied. Without it the
+;; recipe's `add-watch` sat on a reaction that had never captured its sources and
+;; so could never fire — rf2-8cnxg's defect, shipped to consumers (rf2-ynved).
+;;
+;; The recipe now owns its subscription: each mount creates a per-mount
+;; `r/track!` in `:component-did-mount` and `r/dispose!`s it at unmount. The
+;; scaffolding is GONE from this file — the liveness under test is the recipe's
+;; own. Delete the `r/track!` from `gauge-class` and
+;; `one-change-feeds-every-mount` fails on the assertion of that name.
+;;
+;; Equal `(frame, query-v)` subscriptions still SHARE one reaction; instance
+;; safety (rf2-rjjry) now falls out structurally rather than from a per-mount
+;; `gensym` key — two mounts are two independent reactive owners of one node,
+;; with no shared callback registry to clobber or strip.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private gauge-query [::gauge-value])
@@ -500,12 +514,13 @@
 
 (defn- gauge-class
   "Mirrors the copy-pasteable exceptional imperative-subscription Form-3 recipe.
-  A PER-MOUNT watch key (a fresh `gensym`, captured once in the outer callable)
-  keeps two same-query mounts' `add-watch` callbacks independent on the single
-  shared reaction — the constant `::feed` of the pre-fix recipe would clobber."
+  The mount hook acquires through the captured `subscribe` and then OWNS the
+  reaction with a per-mount `r/track!`: that tracker's eager first run is both
+  the seed and the `deref-capture` which puts the shared reaction on the push
+  path. Unmount disposes the owner BEFORE releasing the cache slot."
   [feeds instance-id handle]
   (let [{:keys [frame subscribe]} handle
-        watch-key (gensym "gauge-feed-")          ; PER-MOUNT — never a constant
+        !driver   (r/atom nil)                    ; per-MOUNT reactive owner
         !reaction (r/atom nil)
         feed!     (fn [v] (swap! feeds update instance-id (fnil conj []) v))]
     (r/create-class
@@ -515,13 +530,13 @@
        (fn [_this]
          (let [reaction (subscribe gauge-query)]  ; ACQUIRE — shared reaction, ref-count +1
            (reset! !reaction reaction)
-           (feed! @reaction)                        ; seed with the current value
-           (add-watch reaction watch-key
-                      (fn [_ _ _ v] (feed! v)))))    ; per-mount key — no sibling clobber
+           (reset! !driver                          ; OWN — eager first run seeds AND captures
+                   (r/track! (fn [] (feed! @reaction))))))
        :component-will-unmount
        (fn [_]
-         (remove-watch @!reaction watch-key)        ; strips only THIS mount's watch
+         (some-> @!driver r/dispose!)               ; STOP this mount's owner first
          (rf/unsubscribe frame gauge-query)         ; RELEASE — frame-first; ref-count -1
+         (reset! !driver nil)
          (reset! !reaction nil))})))
 
 (defn- register-gauge-fixture! [view-id feeds]
@@ -535,15 +550,16 @@
          (map (fn [id] (with-meta [view id] {:key (name id)})))
          instance-ids)])
 
-(deftest two-imperative-watches-on-one-query-stay-independent
-  (testing "two same-frame/same-query Form-3 mounts share one cached reaction yet
-            keep INDEPENDENT per-mount add-watch callbacks: both receive updates,
-            unmounting one leaves the survivor live, and the shared reaction's
-            ref-count balances back to zero. A constant watch key (the pre-fix
-            recipe) would clobber the first callback and, on either unmount, strip
-            the sole survivor (rf2-rjjry)."
+(deftest one-change-feeds-every-mount
+  (testing "two same-frame/same-query Form-3 mounts share one cached reaction and
+            each OWNS it with its own per-mount r/track!: both seed, one change
+            feeds both, unmounting one leaves the survivor live, and the shared
+            reaction's ref-count balances back to zero. Nothing outside the
+            fixture keeps the reaction on the push path — the liveness proved
+            here is the recipe's own, and deleting the r/track! from gauge-class
+            fails this test (rf2-ynved, rf2-rjjry)."
     (if-not (browser?)
-      (is true ":node-test: no DOM — :browser-test exercises the two-watch fixture")
+      (is true ":node-test: no DOM — :browser-test exercises the two-mount fixture")
       (async done
         (let [act-fn (get-act)]
           (if-not (fn? act-fn)
@@ -557,19 +573,6 @@
                   view (rf/view view-id)
                   root (rdc/create-root (.createElement js/document "div"))
                   rc   (fn [] (ref-count (cache-state frame-a) gauge-query))
-                  ;; Keep the shared reaction on the push path the way a mounted
-                  ;; consumer would: a cached sub reaction with NO live consumer is
-                  ;; dormant and never re-runs (so its imperative watches never
-                  ;; fire). `warm` subscribes ONCE (a stable +1 holder); `driver` is
-                  ;; an auto-running reaction that derefs the HELD reaction, so a
-                  ;; value movement re-runs the shared node — the observation-port
-                  ;; suites use the same `ratom/run!` stand-in for a mounted
-                  ;; ViewCell. This is warmth scaffolding, not the behaviour under
-                  ;; test — rf2-rjjry is about the per-mount watch KEY on that node.
-                  warm   (rf/subscribe gauge-query {:frame frame-a})
-                  driver (ratom/run! (deref warm))
-                  _ (ratom/flush!)
-                  base (rc)   ; ref-count contributed by the single warm-keeper hold
                   cleanup! (fn [] (try (act-fn #(rdc/unmount root))
                                        (catch :default _ nil)))
                   fail! (fn [err]
@@ -578,54 +581,66 @@
                           (done!))]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (try
+                (is (zero? (rc))
+                    "precondition — NO holder before the mounts; there is no
+                     warmth scaffolding standing behind this fixture")
                 (act-fn #(rdc/render root (gauge-tree view [:g-one :g-two])))
                 (ratom/flush!)
                 (is (= {:g-one [10] :g-two [10]} @feeds)
-                    "both mounts seed from the same shared reaction")
-                (is (= (+ base 2) (rc))
+                    "each mount's tracker ran eagerly and seeded its widget")
+                (is (= 2 (rc))
                     "the two mounts share one reaction — each adds one holder")
 
                 (act-fn #(do (rf/dispatch-sync [::seed 20] {:frame frame-a})
                              (ratom/flush!)))
                 (is (= {:g-one [10 20] :g-two [10 20]} @feeds)
-                    "one shared-reaction change fires BOTH per-mount watches")
+                    "one shared-reaction change feeds BOTH mounts")
 
                 (act-fn #(rdc/render root (gauge-tree view [:g-one])))
                 (ratom/flush!)
-                (is (= (+ base 1) (rc))
+                (is (= 1 (rc))
                     "unmounting one mount releases exactly one holder")
                 (act-fn #(do (rf/dispatch-sync [::seed 30] {:frame frame-a})
                              (ratom/flush!)))
-                ;; Property-based, not exact-vector: the warmth driver can re-notify
-                ;; the surviving watch during the unmount re-render, so the survivor
-                ;; may carry a benign duplicate. What must hold: the survivor SEES 30
-                ;; and the unmounted mount NEVER does (its watch was removed).
+                ;; Property-based on the survivor, exact on the released mount.
+                ;; The sibling's unmount commit re-runs the survivor's tracker
+                ;; against the SAME value, so `:g-one` can carry a benign
+                ;; duplicate `20` — an idempotent re-feed of an unchanged value,
+                ;; which is what an imperative widget wants anyway. (The DOM-free
+                ;; counterpart, `re-frame.m11-recipe-reactive-owner-cljs-test`,
+                ;; drives the identical release with no React commit and sees no
+                ;; duplicate, so this is the commit cycle, not the recipe.) What
+                ;; must hold is the ownership claim: the survivor SEES 30 and the
+                ;; released mount NEVER does.
                 (is (= 30 (last (:g-one @feeds)))
-                    "the survivor's watch keeps firing after its sibling unmounts")
-                (is (not (some #{30} (:g-two @feeds)))
-                    "the unmounted mount's watch was removed — it never sees 30")
+                    "the survivor's own tracker keeps feeding it after its
+                     sibling unmounts — disposing a sibling's owner cannot
+                     touch this mount's observation")
                 (is (= [10 20] (:g-two @feeds))
-                    "the unmounted mount is frozen at its pre-unmount feed")
+                    "the unmounted mount is frozen at its pre-unmount feed —
+                     its tracker was disposed")
 
                 (act-fn #(rdc/unmount root))
                 (ratom/flush!)
-                (is (= base (rc))
-                    "both mounts' acquires release — cache back to the pre-mount baseline")
-                (ratom/dispose! driver)
-                (rf/unsubscribe frame-a gauge-query)
-                (ratom/flush!)
-                (is (= 0 (rc))
-                    "releasing the warm-keeper too returns the shared reaction to zero")
+                (is (zero? (rc))
+                    "both mounts' acquires release — the shared reaction is back
+                     to zero holders with nothing left holding it open")
+                (let [before @feeds]
+                  (act-fn #(do (rf/dispatch-sync [::seed 40] {:frame frame-a})
+                               (ratom/flush!)))
+                  (is (= before @feeds)
+                      "and no disposed tracker feeds a destroyed widget — after
+                       both unmounts a further commit moves neither log"))
                 (done!)
                 (catch :default e (fail! e))))))))))
 
-(deftest gauge-watch-key-balances-under-strict-mode
+(deftest gauge-owner-balances-under-strict-mode
   (testing "React 19 StrictMode's did-mount → will-unmount → did-mount replay
-            leaves exactly one live acquire — the per-mount watch key, captured
-            once in the outer callable, is stable across the replay so each
-            remove-watch matches its add-watch — and a post-replay update still
-            feeds the widget; a real unmount then restores the ref-count baseline
-            (rf2-rjjry)."
+            leaves exactly one live acquire and exactly one live owner — each
+            replayed did-mount creates a fresh tracker and the intervening
+            will-unmount disposes the previous one — and a post-replay update
+            still feeds the widget; a real unmount then returns the ref-count to
+            zero (rf2-ynved, rf2-rjjry)."
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test exercises StrictMode balance")
       (async done
@@ -640,11 +655,6 @@
                   root  (rdc/create-root (.createElement js/document "div"))
                   tree  [rf/frame-provider {:frame frame-a} [klass :strict-gauge]]
                   rc    (fn [] (ref-count (cache-state frame-a) gauge-query))
-                  ;; Warm-keeper — see the two-watch test above.
-                  warm   (rf/subscribe gauge-query {:frame frame-a})
-                  driver (ratom/run! (deref warm))
-                  _ (ratom/flush!)
-                  base (rc)
                   cleanup! #(try (rdc/unmount root) (catch :default _ nil))
                   fail! (fn [err]
                           (is false (str "gauge StrictMode fixture threw: " (pr-str err)))
@@ -655,7 +665,7 @@
                   (.then (fn [_] (settle-macrotasks 3)))
                   (.then
                     (fn [_]
-                      (is (= (+ base 1) (rc))
+                      (is (= 1 (rc))
                           "StrictMode replay leaves exactly one live acquire")
                       (js/Promise.resolve
                         (act-fn (fn []
@@ -664,16 +674,15 @@
                   (.then
                     (fn [_]
                       (is (= 15 (last (get @feeds :strict-gauge)))
-                          "the per-mount watch survives the replay and feeds the update")
-                      (is (= (+ base 1) (rc))
+                          "the surviving tracker feeds the post-replay update —
+                           the replay left a live owner, not a disposed one")
+                      (is (= 1 (rc))
                           "the post-replay update did not duplicate the acquire")
                       (js/Promise.resolve (act-fn #(rdc/unmount root)))))
                   (.then (fn [_] (next-microtask)))
                   (.then
                     (fn [_]
-                      (is (= base (rc))
-                          "the real unmount restores the ref-count baseline")
-                      (ratom/dispose! driver)
-                      (rf/unsubscribe frame-a gauge-query)
+                      (is (zero? (rc))
+                          "the real unmount returns the shared reaction to zero")
                       (done!)))
                   (.catch fail!)))))))))
