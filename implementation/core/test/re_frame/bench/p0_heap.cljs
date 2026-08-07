@@ -153,6 +153,22 @@
    :unmount-one (fn [handle]
                   (react-dom/flushSync (fn [] (.unmount (:root handle)))))})
 
+(defn- grid-floor-arm
+  "The `grid` family's floor over `cells` boundaries per root — no
+  subscription, no hook, nothing on the page that a write can re-render.
+
+  CONSTRUCTED rather than tabled, and that is the allocation row's doing
+  (rf2-2rtt6.138). The ladder's arms are now sized by their driver so that
+  a whole measured window fits under the masking bound, and a floor left
+  at the published 300 would be the calibrator for a page the row never
+  mounted: its `B/boundary/write` column would divide the write's own cost
+  by a boundary count its own DOM did not have. At `cells` = [[per-root]]
+  it is the arm the table used to hold, to the byte."
+  [cells]
+  (assoc (react-root-arm (fn [_] (floor/u-grid (vec (repeat cells 0))))
+                         ".cell" cells)
+         :segment nil :keys-expected 0))
+
 (def arm-table
   "`arm-id -> {:segment :selector :expected :keys-expected :mount-one
   :unmount-one}`.
@@ -161,6 +177,10 @@
   with it before taking the baseline of the pair. A floor arm names the
   segment it is being measured IN, because the floor is the calibrator and
   has to be read on both sides of the seam.
+
+  `:grid/floor` is NOT here: it is sized with whatever ladder it is
+  calibrating, so it is built by [[grid-floor-arm]] in [[arm-for]] beside
+  the arms it is differenced against.
 
   `:keys-expected` is **Q**, and it is written down here rather than
   derived, because the published arms are exactly the ones whose Q the
@@ -183,11 +203,6 @@
    (assoc (uix-root-arm (fn [_] (ux/w1-root arms/frame-id rows-per-root))
                         ".row" rows-per-root)
           :segment :uix-subs :keys-expected rows-per-root)
-
-   :grid/floor
-   (assoc (react-root-arm (fn [_] (floor/u-grid (vec (repeat per-root 0))))
-                          ".cell" per-root)
-          :segment nil :keys-expected 0)
 
    :grid/reagent
    (assoc (reagent-root-arm (fn [_] (rg/u-root arms/frame-id)) ".cell" per-root)
@@ -244,23 +259,49 @@
 ;; boundary carrying `data-i` and the one-character text `0`, because
 ;; every `:p0/fan` value is 0 and a sum of zeros is zero — so the floor
 ;; subtraction stays honest as R grows.
+;;
+;; ## The page is a PARAMETER, and the allocation row is why (rf2-2rtt6.138)
+;;
+;; The retention rows hold B fixed at the published 1,200 and nothing here
+;; needed to move. The allocation row cannot: its instrument is accurate
+;; only while no collection falls inside the measured window, and one warm
+;; write of 1,200 boundaries allocates 1.2–1.7 MB, two to three times the
+;; ~600 KB at which the first fall appears. The row's own masking bound
+;; (`p0_run.cjs` `ALLOC_MASK_BUDGET_B`) refuses a window that large rather
+;; than publishing what it reads, because the reading degrades ALWAYS
+;; DOWNWARD and under-reading allocation is the direction that manufactures
+;; HD-002's predicted flat-at-zero.
+;;
+;; The repair is to shrink the measured UNIT, not the window: the quantity
+;; is per BOUNDARY, so a page of a few dozen boundaries puts a many-write
+;; window under the threshold and leaves the averaging a fit needs. B was
+;; unreachable through the driver's env surface — `P0_ROOTS=1` floors it at
+;; the compile-time [[per-root]] — which is exactly why the small-witness
+;; arm is this parameter and not a flag.
 
 (defn- lad-arm
   "One rung of the ladder: `reads` DISTINCT subscription reads on each of
-  the same `.cell` boundaries the `grid` family holds, drawn from `q`
-  unique query keys — and at Q = E the driver states `q` as `B·reads`."
-  [substrate reads q]
+  `cells` boundaries per root, drawn from `q` unique query keys — and at
+  Q = E the driver states `q` as `B·reads`.
+
+  `cells` is the measured unit and the driver owns it: the retention rows
+  pass [[per-root]] and read the published page, the allocation row passes
+  the size its masking bound admits. Nothing else about the rung moves
+  with it — the same substrates, the same key rule, the same DOM one
+  `span.cell` at a time."
+  [substrate cells reads q]
   (let [reads   (long reads)
+        cells   (long cells)
         base    (case substrate
                   :reagent (reagent-root-arm
-                             (fn [r] (rg/lad-root arms/frame-id (* r per-root) per-root reads))
-                             ".cell" per-root)
+                             (fn [r] (rg/lad-root arms/frame-id (* r cells) cells reads))
+                             ".cell" cells)
                   :uix     (uix-root-arm
-                             (fn [r] (ux/lad-root arms/frame-id (* r per-root) per-root reads))
-                             ".cell" per-root)
+                             (fn [r] (ux/lad-root arms/frame-id (* r cells) cells reads))
+                             ".cell" cells)
                   :hicasso (hicasso-root-arm
-                             (fn [r] (hic/lad-grid (* r per-root) per-root reads))
-                             ".cell" per-root))]
+                             (fn [r] (hic/lad-grid (* r cells) cells reads))
+                             ".cell" cells))]
     (assoc base
            ;; The candidate reads through `re-frame.subs` and the
            ;; substrate's single internal frame context, so it needs
@@ -286,18 +327,26 @@
            :keys-expected (if (zero? reads) 0 (long q)))))
 
 (defn- arm-for
-  "Resolve `arm-id` to an arm map. `:fan/*` and `:lad/*` are
-  parameterised by `opts` (`{:reads r :keys q}`); everything else is the
-  published table."
+  "Resolve `arm-id` to an arm map. `:fan/*`, `:lad/*` and `:grid/floor`
+  are parameterised by `opts` (`{:reads r :keys q :cells n}`); everything
+  else is the published table.
+
+  `:cells` is boundaries per root, and it moves the LADDER family and the
+  floor that calibrates it together — the two arms a row differences
+  against each other must be the same page or the difference is not one.
+  Absent, it is [[per-root]], which is what every retention row passes and
+  what the published table was written in. The fan family does not take
+  it: its sweep moves Q against a fixed page and has no reason to."
   [arm-id opts]
-  (or (get arm-table arm-id)
-      (case arm-id
-        :fan/reagent (fan-arm :reagent (:reads opts) (:keys opts))
-        :fan/uix     (fan-arm :uix     (:reads opts) (:keys opts))
-        :lad/reagent (lad-arm :reagent (:reads opts) (:keys opts))
-        :lad/uix     (lad-arm :uix     (:reads opts) (:keys opts))
-        :lad/hicasso (lad-arm :hicasso (:reads opts) (:keys opts))
-        nil)))
+  (let [cells (long (or (:cells opts) per-root))]
+    (case arm-id
+      :grid/floor  (grid-floor-arm cells)
+      :fan/reagent (fan-arm :reagent (:reads opts) (:keys opts))
+      :fan/uix     (fan-arm :uix     (:reads opts) (:keys opts))
+      :lad/reagent (lad-arm :reagent cells (:reads opts) (:keys opts))
+      :lad/uix     (lad-arm :uix     cells (:reads opts) (:keys opts))
+      :lad/hicasso (lad-arm :hicasso cells (:reads opts) (:keys opts))
+      (get arm-table arm-id))))
 
 ;; ---------------------------------------------------------------------------
 ;; Segment preparation — always OUTSIDE the baseline read
