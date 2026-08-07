@@ -46,16 +46,18 @@
 // the published mean. `GATES` below is that exit path, read back off the
 // serialised record, fail-closed at every seat: **absent is not clean.**
 //
-// THREE OF THE DRIVER'S FATAL CHECKS ARE NOT SERIALISED YET, and they are
-// named here rather than skipped, because skipping one is how this file came
-// to need repairing twice. `clock_run.cjs` computes `pageErrors`, `parityOk`
-// (the canonical-DOM gate) and `etVerdict` (Event Timing) and exits 1 on each,
-// but stores none of them, so no dataset in the tree today can satisfy this
-// filter — which is the correct fail-closed reading of an INCOMPLETE record
-// and not a defect in it. The producer half adopts the family policy when
-// `clock_run.cjs` is next touched (`rf2-2rtt6.31`, "record once, converge on
-// touch"); the field names below are its own internal names so that adoption
-// is one line per verdict.
+// THREE OF THE DRIVER'S FATAL CHECKS WERE NOT SERIALISED WHEN THIS ROSTER WAS
+// WRITTEN, and they were named here rather than skipped, because skipping one
+// is how this file came to need repairing twice. `clock_run.cjs` computed
+// `pageErrors`, `parityOk` (the canonical-DOM gate) and `etVerdict` (Event
+// Timing) and exited 1 on each while storing none of them, so no dataset in
+// the tree could satisfy this filter — the correct fail-closed reading of an
+// INCOMPLETE record, and not a defect in it. Naming them at the driver's OWN
+// internal field names is what made the producer half one line per verdict,
+// and `rf2-e87sk` wrote those lines: `clock_run.cjs`'s `datasetFor` stores all
+// three now, and its `publication` writes the two-tier `canonical` verdict
+// beside them. Datasets taken before that repair still fail these gates, which
+// is exactly what an incomplete record should do.
 //
 // ## THE ADDITIVE RESIDUAL, and why it is computed here
 //
