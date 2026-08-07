@@ -302,15 +302,15 @@
   ### Mid-hydration, the reset defers past adoption — for React's reason
 
   The design claimed a mid-adoption revision would land on the first
-  post-adoption commit, on the SERVER's node. It does not: React discards
-  the server's node when any client render arrives before adoption has
-  completed. The witness runs a control arm to place the blame correctly
-  — an identical mid-adoption render carrying an UNCHANGED revision loses
-  the node the same way — so this is adoption's conduct rather than the
-  prop's, and the revision neither causes it nor escapes it. The
-  documented conduct is the deferral, which was pre-committed rather than
-  improvised. After adoption a bump keeps the node and lands the reset,
-  and that is the case the shipped feature rests on."
+  post-adoption commit, on the SERVER's node. That is not a claim this
+  prop can make either way: the revision is consumed at the codec before
+  emission, so React is handed a prop-identical element whether it moved
+  or not, and nothing on React's side can branch on a value it was never
+  given. Whether adoption keeps the server's node across a client render
+  that lands mid-flight is React's own race — two hand-rolled arms
+  disagreed in opposite directions on consecutive runs. So the documented
+  conduct is the deferral, pre-committed rather than improvised, and
+  `rf2-ne3ey` owns the timing row on the `.84` hydration harness."
   (:require ["react" :as react]
             ["react-dom" :as react-dom]))
 
