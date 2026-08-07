@@ -433,12 +433,21 @@ function ctl3Verdict(rounds, plan, slack) {
   const [a0, a1, a2] = arms;
   const [d0, d1, d2] = arms.map((a) => dirty[a]);
   // The witness would be a fourth point BELOW the control's range, and it is
-  // never a term in the statistic: it exists to re-measure, every run, the
-  // saturating paint term that refuted the first build of this control.
-  // NO SHIPPED ARM DECLARES ITSELF ONE — `clock-app/ctl3-arms` emits the
-  // three control points and nothing else — so `wArm` is null on every run
-  // and the witness column of the regime table reads null. Read here rather
-  // than deleted because the page can declare one without the driver
+  // never a term in the statistic: its job was to re-measure the saturating
+  // paint term that refuted the first build of this control.
+  //
+  // IT WAS BUILT AND THEN RETIRED, not planned-and-never-landed — and which
+  // of those it is decides how far this control is corroborated.
+  // `ctl3-witness-dirty` (one dirty cell, arm `:ctl-b-witness`) shipped with
+  // the eps=1 rebuild in 46f1db73c2 and went out in 04638c42e1 with the
+  // 3,000-cell page it measured, when the run reverted to the ruled 300-cell
+  // construction. Only the page's `:ctl3Witness` emission outlived it, so NO
+  // SHIPPED ARM DECLARES ITSELF ONE — `clock-app/ctl3-arms` emits the three
+  // control points and nothing else — and `wArm` is null on every run.
+  //
+  // The paint-saturation account is therefore INHERITED from that retired
+  // run rather than re-measured on this one. Read here rather than deleted
+  // because the page can declare a witness again without the driver
   // changing; a reader of a null witness column is reading its absence.
   const wArm = witness.length ? witness[0].id : null;
   const wD = witness.length ? witness[0].dirty : null;
@@ -519,7 +528,8 @@ function ctl3Verdict(rounds, plan, slack) {
     blocks,
     // THE REGIME TABLE. The two intervals inside the control must agree;
     // the witness interval below it is where the first build of this
-    // control was refuted, and it is re-measured rather than inherited.
+    // control was refuted. With the witness arm retired it is null, so
+    // that refutation is inherited rather than re-measured.
     marginal: {
       witness: wD !== null ? marg(`${wD}-${d0}`) : null,
       lower: marg(`${d0}-${d1}`),
@@ -1736,9 +1746,10 @@ function report(out) {
     );
     // THE REGIME TABLE — the reason the epsilon point is not one cell.
     // The control's two intervals must agree with each other (that is the
-    // statistic restated); the witness interval below them is expected NOT
-    // to, and an agreement there would refute the paint-saturation account
-    // that put the control where it is.
+    // statistic restated). The witness interval below them was expected NOT
+    // to, and an agreement there would have refuted the paint-saturation
+    // account that put the control where it is — but its arm is retired, so
+    // only the control's own two intervals are printed here.
     const m = ctl3.marginal;
     // NB not `disagree` — that name is the canonical-DOM gate's, above.
     const margGap = (x) => (Math.abs(x.upper.mean - x.lower.mean) / ((x.upper.mean + x.lower.mean) / 2)) * 100;
