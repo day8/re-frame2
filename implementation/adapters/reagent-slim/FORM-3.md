@@ -373,7 +373,11 @@ Three variations worth knowing:
   `activate!` runs that body once through `deref-capture`, so the first run is
   both the seed and the subscription to the sources, and every later change
   re-runs it on the ordinary batched drain (`reagent2.ratom/flush!`, which the
-  commit boundary performs) rather than inline inside the `app-db` write. Hold
+  commit boundary performs) rather than inline inside the `app-db` write. Write
+  the widget as though the feed lands on the following commit; the adapter's
+  `:flush-render!` happens to perform that drain itself, so under `dispatch-sync`
+  the widget is already current when the call returns, but do not build on it.
+  Hold
   the owner per mount and tear down in that order at unmount —
   `reagent2.ratom/dispose!` the owner **first**, then balance the acquire with
   frame-first `(rf/unsubscribe frame query-v)` — so the owner is gone before the
