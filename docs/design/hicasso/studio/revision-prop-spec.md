@@ -229,6 +229,14 @@ pre-committed rather than improvised: if React deopts, the documented conduct
 becomes that the reset defers past adoption through the same deferral shape as IME,
 and the row pins that instead. **Never ship the claim unpinned.**
 
+*Outcome (rf2-ne3ey, on the `.84` hydration harness).* Neither the claim nor the
+pre-committed fallback: the conduct is **absorption**. A mid-adoption revision
+notifies no committed boundary, so the adoption render reads it as the field's
+first revision and nothing fires; the server's node survives, and the draft
+survives with it. The next revision change after the window shuts does reset the
+field, on the server's own node. Pinned by `arm1/hydrate_dom_cljs_test` §6; the
+ruling record is amended at HD-019's addendum in `decisions.md`.
+
 ---
 
 ## 5 · Witnesses
