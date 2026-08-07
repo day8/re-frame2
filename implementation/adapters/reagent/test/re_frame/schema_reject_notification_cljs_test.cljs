@@ -16,9 +16,9 @@
   assert-schema-rejection-zero-sub-notifications`.
 
   The observer is an `r/track!` auto-runner — the SAME activation path
-  a mounted Reagent view uses (a bare `add-watch` on a Reagent 1.x
-  Reaction never activates it headlessly, so it would vacuously see
-  nothing on ANY commit).
+  a mounted Reagent view uses (a bare `add-watch` on a Reagent Reaction
+  never activates it headlessly, so it would vacuously see nothing on
+  ANY commit).
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]

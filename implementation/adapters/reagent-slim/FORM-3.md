@@ -374,9 +374,12 @@ Three variations worth knowing:
   both the seed and the subscription to the sources, and every later change
   re-runs it on the ordinary batched drain (`reagent2.ratom/flush!`, which the
   commit boundary performs) rather than inline inside the `app-db` write. Write
-  the widget as though the feed lands on the following commit; the adapter's
-  `:flush-render!` happens to perform that drain itself, so under `dispatch-sync`
-  the widget is already current when the call returns, but do not build on it.
+  the widget as though the feed lands on the following commit, because it does:
+  a source change only enqueues the owner for the next microtask drain, and
+  `dispatch-sync` returns before that drain has run. A caller that must see the
+  widget settled before it looks — a test, or a headless Tool-Pair step — wraps
+  the dispatch in the adapter's `:flush-render!`, which drains the reaction
+  queue and commits inside a single `flushSync` boundary.
   Hold the owner per mount and tear down in that order at unmount —
   `reagent2.ratom/dispose!` the owner **first**, then balance the acquire with
   frame-first `(rf/unsubscribe frame query-v)` — so the owner is gone before the
