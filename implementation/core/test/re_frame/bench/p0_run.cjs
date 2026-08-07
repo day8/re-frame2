@@ -1150,15 +1150,10 @@ const ALLOC_MIN_WRITES = 6;
 // size can be certified. `p0-heap/arm-for` now takes it as `:cells`, so the
 // driver states the page and the dial exists for a measurement window that
 // wants to walk B — the bound below adjudicates whatever it is set to.
-const ALLOC_CELLS = Number(
-  process.env.P0_ALLOC_CELLS ||
-    Math.max(
-      1,
-      Math.floor(
-        ALLOC_MASK_BUDGET_B / ((ALLOC_MIN_WRITES + 1) * ROOTS * ALLOC_B_PER_BOUNDARY_WRITE)
-      )
-    )
-);
+// MUTATION (rf2-2rtt6.138, temporary): a deliberately MIS-SIZED arm — ten
+// times the page the bound admits, with the window typed beside it instead
+// of derived from it. Reverted in the next commit.
+const ALLOC_CELLS = Number(process.env.P0_ALLOC_CELLS || 60);
 
 // The largest window a page of `boundaries` admits, from the bound and
 // nothing else. `- 1` is `maxStep`: the bound charges one extra write's
@@ -1167,9 +1162,7 @@ function allocMaxWrites(boundaries) {
   return Math.floor(ALLOC_MASK_BUDGET_B / (boundaries * ALLOC_B_PER_BOUNDARY_WRITE)) - 1;
 }
 
-const ALLOC_WRITES = Number(
-  process.env.P0_ALLOC_WRITES || allocMaxWrites(ROOTS * ALLOC_CELLS)
-);
+const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || 6);
 
 // The sizing, as a PURE FUNCTION of the config and the bound — the same
 // shape and for the same reason as `allocSteps` and `allocMaskableWindows`:
