@@ -201,7 +201,16 @@ The operator's open question: does the candidate's p0 mount deficit —
 `1.5001×` vs UIx / `1.4896×` vs Reagent on the M1 witness (`rf2-yd52q`) —
 reproduce on census-real screens?
 
-> **THOSE TWO M1 FIGURES ARE NO LONGER PUBLISHED MAGNITUDES (`rf2-jcm3p`,
+> **THOSE TWO M1 FIGURES ARE STILL NOT THE PUBLISHED MAGNITUDE, BUT THERE IS
+> ONE AGAIN (`rf2-t2flm`, ruled 2026-08-07).** M1 mount publishes `~1.184×`
+> against direct UIx-on-subs, conditionally labelled, drawn from two retained
+> quiet-box ensembles — [`rf2-emvod`
+> §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+> carries the figures and the labels, and this page does not restate them.
+> `1.5001×` and `1.4896×` stay visible here as what the programme read on
+> 2026-08-01, on a heavier load regime than the published row is drawn from.
+>
+> ~~**THOSE TWO M1 FIGURES ARE NO LONGER PUBLISHED MAGNITUDES (`rf2-jcm3p`,
 > ruled 2026-08-06).** M1 mount is stated as a **REGIME**, not an adjudicated
 > magnitude: hicasso mounts materially slower than both adapters — every
 > corroborated reading sits above the amended `≤ 1.10×` UIx gate — direction
@@ -209,14 +218,14 @@ reproduce on census-real screens?
 > benchmark), and **`≤ 1.10×` has NOT been demonstrated**. The row's positive
 > control fails (`ctl-2x` 1.8173× against a predicted 2.00×, explained by the
 > additive constant `c ≈ 1.04 ms`), so no magnitude is published
-> ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).
-> `1.5001×` and `1.4896×` stay visible here as historical observations
-> *stated under a failing `ctl-2x`; withdrawn as magnitudes 2026-08-06*.
-> **The rows measured on THIS page are untouched by that ruling** — they carry
-> their own controls, adjudicated per row above — and this page is one of the
-> three legs corroborating the regime's direction. What changes below is that
-> M1 is compared against as a set of *readings*, never as a published
-> magnitude.
+> ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).~~
+> *(Superseded 2026-08-07 — the implemented rule tests per-block band
+> membership rather than the mean, and seven of fourteen runs pass it.)*
+>
+> **The rows measured on THIS page are untouched by either ruling** — they
+> carry their own controls, adjudicated per row above — and this page remains
+> one of the three legs corroborating the direction. What holds below is that
+> M1 is compared against as a set of *readings*, never as the published figure.
 
 **At M1's readings, no.** On the census feed — 301 boundaries of 17-element
 cards, the read shape M1's 3-element rows share — the same gated ratio reads
@@ -300,10 +309,16 @@ readings do not transfer to census-real screens, where the measured deficit
 across the three rows spans 1.10–1.31×. That span is an observed range over
 three *different pages* — not a function of boundary decomposition, which this
 instrument does not isolate (`rf2-2rtt6.62`). And the second half is a
-comparison of readings, not of magnitudes: M1 publishes a regime rather than a
-number (`rf2-jcm3p`, 2026-08-06 — see the note above), and what these rows
-corroborate is its **direction**. The ruling on what that means for the
-programme is the operator's (`rf2-2rtt6.1`); this page measures.
+comparison of readings, not of magnitudes: ~~M1 publishes a regime rather than a
+number (`rf2-jcm3p`, 2026-08-06 — see the note above)~~ **the `~1.50×` readings
+compared here are not M1's published figure** *(2026-08-07, `rf2-t2flm`: M1 does
+publish a magnitude, conditionally labelled and drawn from the two retained
+ensembles —
+[`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) —
+and it is neither of the readings named above; see the note earlier on this
+page)*, and what these rows corroborate is the **direction**. The ruling on what
+that means for the programme is the operator's (`rf2-2rtt6.1`); this page
+measures.
 
 ## 2026-08-07 the re-take on the current tree (rf2-jv36i)
 
