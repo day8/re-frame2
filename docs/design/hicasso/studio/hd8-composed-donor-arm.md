@@ -220,7 +220,7 @@ So the re-take is two measurements, deliberately separate:
 
 | | |
 |---|---|
-| **Producing commit** | `16ddf3e30772ceff170f28ffe466247b0a84341b` on `worker/hd8retake-2rtt6-31` — both measurements, one tree. The landed SHA is the merge's to mint |
+| **Producing commit** | `16ddf3e30772ceff170f28ffe466247b0a84341b` on `worker/hd8retake-2rtt6-31` — both measurements, one tree. That head is the authored one; this repo rebase-merges, so it is reachable from no ref and a fresh clone does not have it. It landed on main as `1ac48c4a0be1fed3338fbb504f5b023af6d1524d` (PR #7378), which is the resolvable whole-tree anchor to check this page against. The rebase minted a new commit, not a new tree for what is stamped here: every one of the six instrument blobs below is byte-identical at both heads |
 | **Spine** | blob `ad7b19d9d8957e7a1872e58f9b18ace8acdc4841` — post-`.13`/`.25`, and **further moved since this page's stamp** (latest spine-touching commit `0c7c5bfb0d`, the `.25` reap-horizon race statement). The pre-landing blob this page's original rows read is `befd8469d932…`, above |
 | **Clock of record** | CDP `Performance.getMetrics` raw `TaskDuration`, settled to the next frame (`requestAnimationFrame` → `setTimeout 0`), tared by a `plumb` arm measured in the same block. `taskNet` and the in-page `flushSync` window are recorded on the **same samples** as diagnostics |
 | **The door** | every arm, tare included: `page.evaluate → HD8CLOCK.sample` — one door, so its cost is common-mode and subtracted. Through this door `taskNet` is FRAME-ONLY (`DevToolsCommandDuration` carries the arm's own script, `rf2-emvod`) and is never a verdict here |
