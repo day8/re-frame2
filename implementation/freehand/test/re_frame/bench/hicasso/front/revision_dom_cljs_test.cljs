@@ -296,12 +296,16 @@
                 "no revision change, no commit, no reset — the draft continues"))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
-(deftest a-value-change-under-an-unchanged-revision-continues-the-draft
-  (testing "THE LAW'S OWN EXPLICITNESS CLAUSE, and the half a
-           value-equality trigger would get wrong. `:value` moves while the
-           revision stands: behind the wall the caller's new model is
-           delivered, but nothing here treats the value change as a reset
-           signal — the reset fires on the revision or it does not fire.
+(deftest a-value-change-never-consults-the-revision
+  (testing "THE TRIGGER IS THE ONLY THING THE LAW FIXES AT THIS PATH, and
+           this row is scoped to that. D016's draft-continuation clause is
+           the BUFFERED CONTROLLER's protocol — unbuilt, deferred past v0
+           by the charter — and HD-019 kept its trigger sentence for the
+           element and nothing else. At a raw element there is no buffered
+           draft to continue: the model IS the field, so a `:value` change
+           re-asserts, as it always did. What this pins is the half that
+           does belong here — the value change is delivered as ordinary
+           controlled conduct and nothing consults the revision on the way.
            Resets are by explicit caller revision, NEVER by value equality."
     (if-not (browser?)
       (skip! "needs a real commit")
