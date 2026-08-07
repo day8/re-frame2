@@ -513,15 +513,15 @@ async function runRow(browser, runDef, rowId) {
   const blocksTask = [];
   const blocksNet = [];
   const blocksInPage = [];
+  const blocksDecomp = []; // per block: the renderer's own Script/Layout/Style split
   const samplesTask = []; // arm-order guard, on the clock of record
   const samplesNet = []; // the same guard on the diagnostic clock
-  const decomposition = {};
   const granularity = new Set();
   let position = 0;
   let previous = null;
 
-  const bump = (arm, d, inPage) => {
-    const acc = (decomposition[arm] ||= {
+  const bump = (into, arm, d, inPage) => {
+    const acc = (into[arm] ||= {
       n: 0, task: 0, taskNet: 0, devtools: 0, script: 0, style: 0, layout: 0, layoutCount: 0, inPage: 0,
     });
     acc.n += 1;
@@ -539,10 +539,12 @@ async function runRow(browser, runDef, rowId) {
     const roundTask = [];
     const roundNet = [];
     const roundInPage = [];
+    const roundDecomp = [];
     for (let blk = 0; blk < BLOCKS; blk++) {
       const accT = {};
       const accN = {};
       const accI = {};
+      const accD = {};
       for (const a of armIds) {
         accT[a] = [];
         accN[a] = [];
@@ -566,7 +568,7 @@ async function runRow(browser, runDef, rowId) {
             accT[armId].push(d.task);
             accN[armId].push(d.taskNet);
             accI[armId].push(res.inPageMs);
-            bump(armId, d, res.inPageMs);
+            bump(accD, armId, d, res.inPageMs);
             samplesTask.push({ arm: armId, value: d.task, predecessor: previous, position });
             samplesNet.push({ arm: armId, value: d.taskNet, predecessor: previous, position });
             position += 1;
@@ -577,10 +579,12 @@ async function runRow(browser, runDef, rowId) {
       roundTask.push(accT);
       roundNet.push(accN);
       roundInPage.push(accI);
+      roundDecomp.push(accD);
     }
     blocksTask.push(roundTask);
     blocksNet.push(roundNet);
     blocksInPage.push(roundInPage);
+    blocksDecomp.push(roundDecomp);
   }
 
   const tally = await page.evaluate('window.C56CLOCK.tally()');
@@ -592,10 +596,47 @@ async function runRow(browser, runDef, rowId) {
 
   return {
     runId: runDef.id, rowId, armIds, plan, canon, ctlPredicted,
-    blocksTask, blocksNet, blocksInPage,
-    samplesTask, samplesNet, decomposition, tally, runtime,
+    blocksTask, blocksNet, blocksInPage, blocksDecomp,
+    samplesTask, samplesNet, tally, runtime,
     granularity: [...granularity].sort((a, b) => a - b),
   };
+}
+
+/**
+ * The row's decomposition, folded out of the per-block accumulators — one
+ * `{n, task, taskNet, devtools, script, style, layout, layoutCount, inPage}`
+ * per arm, summed over every block of every round.
+ *
+ * The blocks are what is COLLECTED and what is STORED; this is the only
+ * derived form, so the mean the report prints and the ratio the studio page
+ * quotes are both functions of the dataset rather than of a number that was
+ * true once in a console. Addition is associative, so folding the stored
+ * blocks reproduces the row exactly — `../clock_exit_path.test.cjs` pins that.
+ *
+ * It REFUSES a row that carries no blocks rather than folding to zeros, because
+ * every census dataset written before rf2-jo60g is exactly that row, and a fold
+ * that answered there would hand a reader a NaN — or worse, a plausible number
+ * — for a split those files never recorded.
+ */
+function foldDecomposition(blocksDecomp) {
+  if (!Array.isArray(blocksDecomp) || blocksDecomp.length === 0) {
+    throw new Error(
+      'this row carries no per-block decomposition: it predates rf2-jo60g, so the ' +
+        'Script/Layout/RecalcStyle split is NOT recomputable from it and may not be quoted'
+    );
+  }
+  const out = {};
+  for (const round of blocksDecomp) {
+    for (const blk of round) {
+      for (const [arm, a] of Object.entries(blk)) {
+        const acc = (out[arm] ||= {
+          n: 0, task: 0, taskNet: 0, devtools: 0, script: 0, style: 0, layout: 0, layoutCount: 0, inPage: 0,
+        });
+        for (const k of Object.keys(acc)) acc[k] += a[k] || 0;
+      }
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,7 +657,8 @@ function perBlock(blocks, f) {
 }
 
 function report(out) {
-  const { runId, rowId, armIds, canon, ctlPredicted, blocksTask, blocksNet, blocksInPage, samplesTask, samplesNet, decomposition, tally, runtime, granularity } = out;
+  const { runId, rowId, armIds, canon, ctlPredicted, blocksTask, blocksNet, blocksInPage, blocksDecomp, samplesTask, samplesNet, tally, runtime, granularity } = out;
+  const decomposition = foldDecomposition(blocksDecomp);
   const stamp = STAMP[rowId];
 
   console.log(`\n;; ==== RUN ${runId} — ROW ${rowId} ====`);
@@ -983,6 +1025,26 @@ function datasetFor(rows, meta) {
       blocksTask: r.blocksTask,
       blocksNet: r.blocksNet.map((rd) => rd.map((b) => Object.fromEntries(Object.entries(b).map(([a, xs]) => [a, r4(p50(xs))])))),
       blocksInPage: r.blocksInPage.map((rd) => rd.map((b) => Object.fromEntries(Object.entries(b).map(([a, xs]) => [a, r4(p50(xs.filter(Number.isFinite)))])))),
+      // THE DECOMPOSITION — the renderer's own Script / RecalcStyle / Layout
+      // split, per block per arm: the block's sums with the `n` that produced
+      // them beside them.
+      //
+      // rf2-jo60g. `deltaOf` has always COLLECTED these three and this function
+      // has always dropped them, so the studio page's cited split on the feed
+      // row — "layout 2.06x, style 1.85x, script 2.3x" — was a figure no
+      // committed dataset could reproduce. Sums and counts at the same block
+      // grain as `blocksTask` are the reduced quantity: `foldDecomposition`
+      // gives the row, dividing by `n` gives the per-sample mean the report
+      // prints, and one arm's mean over another's gives the published ratio.
+      // Persisting it does not backfill the datasets already on main — the
+      // split becomes recomputable from the NEXT canonical run, not this line.
+      blocksDecomp: r.blocksDecomp.map((rd) =>
+        rd.map((b) =>
+          Object.fromEntries(
+            Object.entries(b).map(([a, acc]) => [a, Object.fromEntries(Object.entries(acc).map(([k, v]) => [k, r4(v)]))])
+          )
+        )
+      ),
       tally: r.tally,
       runtime: r.runtime,
       quiet: r.quiet,
@@ -1147,7 +1209,7 @@ async function drive() {
   return v.code;
 }
 
-module.exports = { summarise, verdict, destination };
+module.exports = { summarise, verdict, destination, datasetFor, foldDecomposition };
 
 if (require.main === module) {
   drive().then((code) => {
