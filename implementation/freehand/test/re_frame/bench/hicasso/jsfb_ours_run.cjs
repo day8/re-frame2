@@ -815,6 +815,9 @@ module.exports = {
   deltaOf,
   PUBLISHED,
   CONTROL,
+  // The rosters the gates are taken over, so a witness derives its fixtures
+  // from them rather than retyping them and drifting.
+  ALL_ROWS,
   ARMS,
   BASE,
   OTHERS,
