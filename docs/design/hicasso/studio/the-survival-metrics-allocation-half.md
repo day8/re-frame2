@@ -48,6 +48,12 @@ the cheaper mistake is the one that never ships.
 - **The instrument has a hard ceiling and the published witness is outside
   it.** At B = 1,200 boundaries, 32 collections fell inside 44 measured
   windows and the row refused on that alone.
+- **Re-taken 2026-08-07 on a granted quiet box and it refuses identically**
+  — 36 falls across 44 windows, controls passing at 8.13 / 8.20 / 8.08
+  B/double. The one thing that moved is the Reagent-segment read-back, now
+  clean at 0 of 44 since `rf2-2kshh` landed. Detail, and why the
+  small-witness arm was not built in that window, are under
+  [The published witness is outside the instrument's range](#the-published-witness-is-outside-the-instruments-range).
 
 ## What the metric is, and why the reads ladder does not answer it
 
@@ -311,6 +317,77 @@ A warm re-render of 1,200 boundaries allocates 1.2–1.7 MB, two to three
 times the ~600 KB fall threshold **in a single write**. There is no window
 size that fixes this, because one write is the atom.
 
+### Re-taken on a granted quiet box, and it refuses on the same gate
+
+`rf2-2rtt6.138` was dispatched to build the small-witness arm that clause (4)
+of [What this hands the programme](#what-this-hands-the-programme) describes.
+Before building anything it re-ran the published witness unchanged, at
+`abcb34217c`, on a box granted quiet for the purpose — Processor Queue Length
+**0** on every sample before the run, 29–42% of 24 logical cores. The verdict
+is the same verdict:
+
+- **36 falling steps across 44 measured windows** (2026-08-07), against the
+  32 across 44 this section already records. Runner exit `1`.
+- **The controls pass, and pass better**: idle window 32 B/iteration
+  [32–32]; D=1,000 → 8.13 B/double [8,096–8,165 B]; D=400 → 8.20 B/double
+  [3,280–3,280 B]; **differential 8.08 B/double** against a predicted 8. All
+  three fit self-tests (A, B, C) ok.
+- **A quiet box does not move the ceiling.** It was never a contention
+  problem; it is the arm's scale against a ~600 KB threshold, exactly as
+  this section says.
+
+**One thing did change, and it is good news.** This is the first allocation
+run since `rf2-2kshh` landed, and the warm-write read-back is now clean:
+**0 unverified across all 44 windows**, where `rf2-2rtt6.137` recorded 16
+failures on the Reagent segment's `lad/hicasso` arm. That arm now reads
+544–1,655 B/boundary/write instead of sitting on the floor's ~20. The deaf
+arm is fixed and the Reagent segment is being exercised again.
+
+**None of this run's arm figures are quotable and none are reproduced here**
+— 36 falls means every one is an under-estimate the run cannot bound. They
+are worth one sentence only as a warning: the candidate's fitted slopes came
+in at 36–55 B/read against donors at 289–610, which reads as *candidate minus
+donor of −234 and −574 B/read*. That is HD-002's predicted answer arriving in
+the exact shape a systematically under-reading instrument manufactures, from
+a run whose own gate says it under-read. It is recorded so nobody mistakes it
+for a result later, and it is why `rf2-n6w7o` (below) has to land first.
+
+### Why the small-witness arm was not built in that window
+
+Two structural reasons, neither of them about the box or about effort:
+
+1. **The audit precondition is unmet.** The merged-PR audit of #7644 found
+   the collector refusal **fail-open**: `allocSteps` calls a collection only
+   on a negative adjacent `usedJSHeapSize` delta, so a GC inside one sampled
+   leg whose in-leg allocation equals or exceeds the reclaimed bytes leaves
+   `post ≥ pre`, `falls` at zero, and the vanished bytes out of `rise`. It
+   required an independent in-window collection witness that net growth
+   cannot mask — or a comparably rigorous bound that the window cannot
+   collect — plus the masked-GC case pinned in the allocation-row structural
+   tests, **before** any small-witness fit publishes. Confirmed still unmet
+   by reading: `cdpBracket` is recorded on every arm and control and appears
+   in no failure path, and `p0_ladder_structural.test.cjs` carries no
+   allocation coverage at all. Filed as **`rf2-n6w7o`**, which now blocks
+   `rf2-2rtt6.138`.
+2. **The arm is a new rung, and the window forbade one.** `per-root` is the
+   compile-time `fx/cells-n` = 300, so `P0_ROOTS=1` floors B at 300 and a
+   few-dozen-boundary arm cannot be reached through the rig's env surface at
+   all — it is a `p0_heap.cljs` edit, exactly as (4) says. A rung added
+   between runs of a series makes the series two instruments, so it was not
+   added mid-measurement.
+
+**And the premise deserves a look before anyone builds it.** (4) argues a
+many-write window "restores the averaging a fit needs". The in-range witness
+did not fail for want of averaging: its four fits came back 0.75 / 0.28 /
+0.94 / 0.31 against a 0.98 floor and its rungs are **non-monotone**, and
+averaging does not make a non-monotone sequence linear. This run's own
+candidate fits say the same thing from the other side — r² 0.97538 on the
+Reagent segment and 0.84451 on the UIx one, both refused, while both donors
+fit cleanly at 0.99730 and 0.99446. The donors are lines; the candidate is
+not a line at this scale. Whether that is noise the smaller unit will resolve
+or a real non-linearity is itself unmeasured, and the small-witness arm
+should be costed against that question rather than assumed to answer it.
+
 ## What this hands the programme
 
 1. **The rig has an allocation instrument it did not have**, gated on its
@@ -323,10 +400,10 @@ size that fixes this, because one write is the atom.
 3. **Two blockers stand between here and the metric**, and neither is about
    effort:
    - the candidate does not re-render under the Reagent adapter on this
-     bench, so half the witness is not being exercised at all. This one is
-     now **diagnosed and has a one-line repair in flight** (`rf2-2kshh`);
-     until it lands, a Reagent-segment re-take is blocked, and the rows it
-     produced are struck from this page rather than standing as a refusal;
+     bench, so half the witness is not being exercised at all. **This one is
+     now DISCHARGED** — `rf2-2kshh` landed and the 2026-08-07 re-take reads
+     0 unverified across all 44 windows (see above); the rows it originally
+     produced stay struck rather than standing as a refusal;
    - at any witness the instrument can see, a single-write window is too
      noisy to fit, and at any window large enough to average, the collector
      is inside it.
@@ -335,7 +412,10 @@ size that fixes this, because one write is the atom.
    dozen boundaries would put a many-write window under the fall threshold
    and restore the averaging a fit needs. That is a new arm on this row
    rather than a new instrument, and it is the shape the next attempt
-   should take.
+   should take. **It is `rf2-2rtt6.138`, it is now blocked on `rf2-n6w7o`,
+   and its premise about averaging is questioned above on the strength of
+   the 2026-08-07 re-take** — settle the fail-open first, then cost the arm
+   against whether the candidate's ladder is noisy or genuinely non-monotone.
 5. **Nothing in [validation.md](../validation.md) moves.** The survival
    metric's allocation half is exactly as unwitnessed as it was, and no
    gate line, budget or verdict anywhere in the corpus is restated on the
