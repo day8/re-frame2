@@ -82,7 +82,9 @@
 // Wired into implementation/package.json via `test:script-helpers`.
 
 const assert = require('node:assert');
+const cp = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 // Requiring a driver must NOT drive it: the `require.main === module` guard
@@ -916,16 +918,31 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
 {
   const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
-  const { adjudicated, reportable, responsivenessRegime } = require('./clock_readjudicate.cjs');
+  const { GATES, adjudicated, refusals, reportable, responsivenessRegime } = require('./clock_readjudicate.cjs');
   const RJSRC = fs.readFileSync(RJ, 'utf8');
   const t = (what, fn) => test(`clock_readjudicate.cjs: ${what}`, fn);
   const ADJ = { unadjudicated: false, band: 0.21, why: 'margin 34.8% clears the band 21.4%' };
   const UNADJ = { unadjudicated: true, band: null, why: 'UNADJUDICATED — no proportional control on this row' };
-  // A dataset row as `clock_run.cjs` writes it, reduced to the fields this
-  // predicate reads.
+  // THE FILE'S OWN TWO-TIER VERDICT (rf2-2rtt6.31), as `datasetFor` writes it.
+  // Every predicate here is handed one, because a row cannot vouch for the
+  // file it came from and this filter's first gate is that it does not try.
+  const CANON = { canonical: true, notCanonicalWhy: null };
+  // A dataset row as a two-tier `clock_run.cjs` writes it, reduced to the
+  // fields this predicate reads — every whole-run verdict the driver exits on,
+  // each at its passing value.
   const dsRow = (bars, over) => ({
     rowId: 'M1',
+    pageErrors: [],
+    guardRefuse: false,
+    guardRefuseTask: false,
+    parityOk: true,
+    ctl3Parity: null,
+    kbWitness: null,
+    tally: { writes: 1008, unverified: 0 },
+    ctl3: null,
+    ctlOk: true,
     ctlTask: { ok: true },
+    etVerdict: null,
     seam: { verdict: { ceilingBreached: false } },
     seamTask: { ceilingBreached: false, rows: bars },
     ...over,
@@ -934,13 +951,13 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('THE REMAINDER: one unadjudicated bar keeps the whole run OUT of the subset', () => {
     const row = dsRow({ 'h / r': ADJ, 'h / u': UNADJ, 'u / r': ADJ });
     assert.strictEqual(adjudicated(row), false, 'two adjudicated bars may not carry a third with no band');
-    assert.strictEqual(reportable(row), false, 'and the run may not be pooled into the published mean');
+    assert.strictEqual(reportable(row, CANON), false, 'and the run may not be pooled into the published mean');
   });
 
   t('a run whose every bar carries a band IS pooled — the predicate is not vacuous', () => {
     const row = dsRow({ 'h / r': ADJ, 'h / u': ADJ, 'u / r': ADJ });
     assert.strictEqual(adjudicated(row), true);
-    assert.strictEqual(reportable(row), true, 'a clean run must still reach the reportable subset');
+    assert.strictEqual(reportable(row, CANON), true, 'a clean run must still reach the reportable subset');
   });
 
   t('a run whose every bar is UNADJUDICATED is still out — the term was tightened, not swapped', () => {
@@ -951,7 +968,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(adjudicated(dsRow({})), false, 'an empty bar set is absent, not clean');
     assert.strictEqual(adjudicated({ rowId: 'M1' }), false, 'a row with no seamTask at all is absent, not clean');
     assert.strictEqual(adjudicated(undefined), false);
-    assert.strictEqual(reportable(undefined), false);
+    assert.strictEqual(reportable(undefined, CANON), false);
   });
 
   // --- AND THE FIELD, which #7550's merged-PR audit found still open here ---
@@ -966,7 +983,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('THE FIELD: a bar with no `unadjudicated` field keeps the run OUT of the subset', () => {
     const row = dsRow({ 'h / r': ADJ, 'h / u': {} });
     assert.strictEqual(adjudicated(row), false, 'a bar carrying no verdict has not been adjudicated');
-    assert.strictEqual(reportable(row), false, 'and a lost verdict may not reach the published mean');
+    assert.strictEqual(reportable(row, CANON), false, 'and a lost verdict may not reach the published mean');
   });
 
   t('a dataset whose every bar is fieldless is out, and it used to be IN', () => {
@@ -974,7 +991,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // passing control and no ceiling breach `reportable` returned true too.
     const row = dsRow({ 'h / r': {}, 'h / u': {} });
     assert.strictEqual(adjudicated(row), false);
-    assert.strictEqual(reportable(row), false);
+    assert.strictEqual(reportable(row, CANON), false);
   });
 
   t('a bar stored as null or undefined is out rather than a crash', () => {
@@ -983,7 +1000,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // rather than one that declines to publish from it.
     for (const missing of [null, undefined]) {
       assert.strictEqual(adjudicated(dsRow({ 'h / r': ADJ, 'h / u': missing })), false, `bar=${String(missing)}`);
-      assert.strictEqual(reportable(dsRow({ 'h / r': ADJ, 'h / u': missing })), false, `bar=${String(missing)}`);
+      assert.strictEqual(reportable(dsRow({ 'h / r': ADJ, 'h / u': missing }), CANON), false, `bar=${String(missing)}`);
     }
   });
 
@@ -992,36 +1009,286 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // false and no run would ever be published again.
     const row = dsRow({ 'h / r': { unadjudicated: false }, 'h / u': { unadjudicated: false, band: 0.2 } });
     assert.strictEqual(adjudicated(row), true);
-    assert.strictEqual(reportable(row), true);
+    assert.strictEqual(reportable(row, CANON), true);
   });
 
   t('the OTHER two terms are unchanged — adjudication was ADDED, never substituted', () => {
     const bars = { 'h / r': ADJ, 'h / u': ADJ };
     // A failed control still excludes a fully adjudicated run ...
-    assert.strictEqual(reportable(dsRow(bars, { ctlTask: { ok: false } })), false);
-    assert.strictEqual(reportable(dsRow(bars, { ctlTask: null })), false);
+    assert.strictEqual(reportable(dsRow(bars, { ctlTask: { ok: false } }), CANON), false);
+    assert.strictEqual(reportable(dsRow(bars, { ctlTask: null }), CANON), false);
     // ... and so does either ceiling, which fires before any control.
     assert.strictEqual(
-      reportable(dsRow(bars, { seam: { verdict: { ceilingBreached: true } } })),
+      reportable(dsRow(bars, { seam: { verdict: { ceilingBreached: true } } }), CANON),
       false,
       'a breached net-band ceiling still excludes the run'
     );
     assert.strictEqual(
-      reportable(dsRow(bars, { seamTask: { ceilingBreached: true, rows: bars } })),
+      reportable(dsRow(bars, { seamTask: { ceilingBreached: true, rows: bars } }), CANON),
       false,
       'a breached task-band ceiling still excludes the run'
     );
   });
 
+  // --- EVERY GATE THE DRIVER EXITS ON, ENFORCED HERE TOO (rf2-emvod) --------
+  //
+  // #7365's merged-PR audit: the subset asked for `ctlTask.ok` and the two
+  // ceilings and nothing else, while the very same program PRINTED
+  // `guardRefuse`, `guardRefuseTask`, the legacy-clock `ctlOk` and
+  // `tally.unverified` in the gate table two lines above the pooled mean. And
+  // `clock_run.cjs` writes its dataset BEFORE its fatal checks run, so a run
+  // Chromium threw on, or whose arms built different pages, is a well-formed
+  // file that reached the published mean. The filter is now the driver's own
+  // exit path read back off the record, plus rf2-2rtt6.31's two-tier clause:
+  // a file that does not say it is the published evidence set is not.
+  //
+  // DRIVEN OVER THE ROSTER, not over a hand-written list, so a gate added to
+  // `GATES` without a case here fails the first assertion rather than shipping
+  // as a gate nothing has ever seen refuse.
+
+  const del = (o, k) => {
+    const c = { ...o };
+    delete c[k];
+    return c;
+  };
+  const BARS = { 'h / r': ADJ, 'h / u': ADJ };
+  // One deliberate corruption per gate, and one deliberate ERASURE per gate:
+  // `failed` and `absent` are different faults and both must refuse.
+  const CASES = [
+    {
+      id: 'canonical',
+      data: { canonical: false, notCanonicalWhy: "the run's own verdict refused it (exit 5)" },
+      failed: /NOT the published evidence set — the run's own verdict refused it \(exit 5\)/,
+      erase: { data: 'canonical' },
+      absent: /carries no `canonical` verdict/,
+    },
+    {
+      id: 'page-errors',
+      row: { pageErrors: ['TypeError: undefined is not a function'] },
+      failed: /the page THREW during the run: TypeError/,
+      erase: { row: 'pageErrors' },
+      absent: /no `pageErrors` record/,
+    },
+    {
+      id: 'guard-net',
+      row: { guardRefuse: true },
+      failed: /arm-order guard REFUSED this row on taskNet/,
+      erase: { row: 'guardRefuse' },
+      absent: /no arm-order guard verdict on taskNet/,
+    },
+    {
+      id: 'guard-task',
+      row: { guardRefuseTask: true },
+      failed: /arm-order guard REFUSED this row on the published clock/,
+      erase: { row: 'guardRefuseTask' },
+      absent: /no arm-order guard verdict on the published clock/,
+    },
+    {
+      id: 'canonical-dom',
+      row: { parityOk: false },
+      failed: /canonical-DOM gate found arms building DIFFERENT PAGES/,
+      erase: { row: 'parityOk' },
+      absent: /no canonical-DOM verdict was serialised/,
+    },
+    {
+      id: 'ctl3-parity',
+      row: { ctl3Parity: { ok: false } },
+      failed: /three-point control's own arms built DIFFERENT PAGES/,
+      erase: { row: 'ctl3Parity' },
+      absent: /no three-point-control parity record/,
+    },
+    {
+      id: 'keystroke-witness',
+      row: { kbWitness: { ok: false, faults: [{ code: 'ORPHAN', why: 'an entry belongs to no key pressed' }] } },
+      failed: /per-keystroke witness REFUSED/,
+      erase: { row: 'kbWitness' },
+      absent: /no per-keystroke witness record/,
+    },
+    {
+      id: 'unverified',
+      row: { tally: { writes: 1008, unverified: 4 } },
+      failed: /4 unverified operation\(s\) of 1008/,
+      erase: { row: 'tally' },
+      absent: /no write-verification tally/,
+    },
+    {
+      id: 'ceiling-net',
+      row: { seam: { verdict: { ceilingBreached: true } } },
+      failed: /frame-only reproducibility band exceeds the ceiling/,
+      erase: { row: 'seam' },
+      absent: /no frame-only band verdict/,
+    },
+    {
+      id: 'ceiling-task',
+      row: { seamTask: { ceilingBreached: true, rows: BARS } },
+      failed: /band exceeds the ceiling on the published clock/,
+      erase: { row: 'seamTask' },
+      absent: /no published-clock band verdict/,
+    },
+    {
+      id: 'control',
+      row: { ctl3: { ok: false, measured: { mean: 1.2 } } },
+      failed: /THREE-POINT control FAILED/,
+      erase: { row: 'ctl3' },
+      absent: /no three-point-control record/,
+    },
+    {
+      id: 'event-timing',
+      row: { etVerdict: { ok: false } },
+      failed: /Event-Timing witness REFUSED/,
+      erase: { row: 'etVerdict' },
+      absent: /no Event-Timing verdict was serialised/,
+    },
+    {
+      id: 'adjudication',
+      bars: { 'h / r': ADJ, 'h / u': UNADJ },
+      failed: /carries no adjudication verdict/,
+      erase: { bars: true },
+      absent: /carries no adjudication verdict/,
+    },
+  ];
+
+  t('every gate in the roster has a case — an unexercised gate is not a gate', () => {
+    assert.deepStrictEqual(
+      GATES.map((g) => g.id),
+      CASES.map((c) => c.id),
+      'GATES and the corruption cases must agree, in order'
+    );
+  });
+
+  t('a fully compliant run IS reportable — the roster is not vacuous', () => {
+    // Every assertion below would pass against a predicate that always said
+    // false, so this one comes first in weight if not in order.
+    assert.strictEqual(reportable(dsRow(BARS), CANON), true);
+    assert.deepStrictEqual(refusals(dsRow(BARS), CANON), []);
+  });
+
+  for (const c of CASES) {
+    t(`gate \`${c.id}\`: a FAILED verdict removes the run from the subset, and names itself`, () => {
+      const row = dsRow(c.bars || BARS, c.row || {});
+      const data = { ...CANON, ...(c.data || {}) };
+      const why = refusals(row, data);
+      assert.ok(
+        why.some((w) => c.failed.test(w)),
+        `no refusal matched ${c.failed} — got ${JSON.stringify(why)}`
+      );
+      assert.strictEqual(reportable(row, data), false);
+    });
+
+    t(`gate \`${c.id}\`: an ABSENT verdict removes it too — absent is not clean`, () => {
+      let row = dsRow(c.erase.bars ? {} : c.bars || BARS, c.row ? {} : {});
+      if (c.erase.row) row = del(row, c.erase.row);
+      let data = { ...CANON };
+      if (c.erase.data) data = del(data, c.erase.data);
+      const why = refusals(row, data);
+      assert.ok(
+        why.some((w) => c.absent.test(w)),
+        `no refusal matched ${c.absent} — got ${JSON.stringify(why)}`
+      );
+      assert.strictEqual(reportable(row, data), false);
+    });
+  }
+
+  t('a row cannot vouch for the file it came from — no envelope is a refusal', () => {
+    // The two-tier contract's consumer clause. A dataset that travelled out of
+    // its directory, or a caller that forgot to pass the envelope, must not be
+    // able to publish on the strength of the row alone.
+    assert.strictEqual(reportable(dsRow(BARS)), false);
+    assert.ok(refusals(dsRow(BARS)).some((w) => /carries no `canonical` verdict/.test(w)));
+  });
+
+  t('EVERY reason is reported, not the first — a run that failed four gates says four', () => {
+    const why = refusals(dsRow(BARS, { guardRefuse: true, parityOk: false, ctlTask: { ok: false } }), {
+      canonical: false,
+      notCanonicalWhy: 'a PARTIAL row set',
+    });
+    assert.strictEqual(why.length, 4, JSON.stringify(why));
+  });
+
+  // --- AND THE WHOLE PROGRAM, END TO END, ON A FILE -------------------------
+  //
+  // The predicates above are pure and the program is what a reader actually
+  // runs, so the refusal is demonstrated where it is claimed: over a dataset on
+  // disk, by exit code. Both directions, because a checker nobody has seen say
+  // yes is as useless as one nobody has seen say no.
+
+  const fixture = (over) => ({
+    label: 'fixture',
+    chromium: '147.0.0.0',
+    node: process.version,
+    when: '2026-08-07T00:00:00.000Z',
+    design: { rounds: 6, warmup: 4, samples: 10, tare: true },
+    canonical: true,
+    notCanonicalWhy: null,
+    ...over,
+    rows: [
+      {
+        ...dsRow({ 'hicasso / reagent-subs': ADJ }),
+        granularity: [0.146],
+        inPageRounds: [],
+        decomposition: {
+          'reagent-subs/plumb': { n: 60, task: 36, taskNet: 12, devtools: 24, script: 0.06, layout: 5 },
+          'reagent-subs/floor': { n: 60, task: 360, taskNet: 280, devtools: 80, script: 0.06, layout: 40 },
+          'reagent-subs/reagent-subs': { n: 60, task: 600, taskNet: 280, devtools: 320, script: 0.06, layout: 60 },
+          'hicasso/hicasso': { n: 60, task: 780, taskNet: 320, devtools: 460, script: 0.06, layout: 70 },
+        },
+        ctlTask: { ok: true, measured: { mean: 1.9 } },
+        seam: { band: 0.06, verdict: { ceilingBreached: false } },
+        seamTask: { ceilingBreached: false, band: 0.05, rows: { 'hicasso / reagent-subs': ADJ } },
+        bandTask: 0.05,
+        bar: { 'hicasso / reagent-subs': { tared: { mean: 1.1 } } },
+        inPageBar: { 'hicasso / reagent-subs': { mean: 1.2 } },
+        barTask: { 'hicasso / reagent-subs': { mean: 1.3, min: 1.2, max: 1.4 } },
+      },
+    ],
+  });
+
+  const runProgram = (data) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-emvod-'));
+    const f = path.join(dir, 'run1.json');
+    fs.writeFileSync(f, JSON.stringify(data));
+    const r = cp.spawnSync(process.execPath, [RJ, f], { encoding: 'utf8' });
+    fs.rmSync(dir, { recursive: true, force: true });
+    return { code: r.status, out: `${r.stdout}${r.stderr}` };
+  };
+
+  t('THE COMMAND: a compliant dataset regenerates its aggregate and exits 0', () => {
+    const { code, out } = runProgram(fixture());
+    assert.strictEqual(code, 0, out);
+    assert.match(out, /reportable subset 1\.3000x n=1/);
+    assert.match(out, /— reportable: every gate this dataset serialises is clean/);
+  });
+
+  t('THE COMMAND: a non-canonical dataset exits 3 and is still printed in full', () => {
+    const { code, out } = runProgram(fixture({ canonical: false, notCanonicalWhy: '--no-build' }));
+    assert.strictEqual(code, 3, out);
+    assert.match(out, /NOT ELIGIBLE PUBLISHED EVIDENCE/);
+    assert.match(out, /reportable subset: NONE/);
+    // RETAINED, not erased: the run is still in the per-run table with its own
+    // magnitude beside it. A refusal is about what may be QUOTED.
+    assert.match(out, /;;\s+run1\s+1\.2000\s+1\.1000\s+1\.3000/);
+    assert.match(out, /EXIT 3 — 1 of 1 dataset\(s\) are not eligible published evidence/);
+  });
+
+  t('THE COMMAND: a gate failure inside a canonical dataset empties the subset, not the table', () => {
+    const bad = fixture();
+    bad.rows[0].tally = { writes: 1008, unverified: 4 };
+    const { code, out } = runProgram(bad);
+    assert.strictEqual(code, 0, 'the FILE is still eligible evidence — it is the RUN that is refused');
+    assert.match(out, /reportable subset: NONE/);
+    assert.match(out, /4 unverified operation\(s\) of 1008/);
+    assert.match(out, /;;\s+run1\s+1\.2000\s+1\.1000\s+1\.3000/);
+  });
+
   t('requiring the readjudicator does not RUN it, which is what made this reachable', () => {
-    assert.match(RJSRC, /module\.exports = \{ adjudicated, reportable, responsivenessRegime \};/);
+    assert.match(RJSRC, /module\.exports = \{ GATES, adjudicated, refusals, reportable, responsivenessRegime \};/);
     assert.match(RJSRC, /if \(require\.main === module\) \{/);
     assert.match(RJSRC, /main\(process\.argv\.slice\(2\)\)/);
   });
 
   t('the subset is chosen by `reportable` alone, not by a second predicate inline', () => {
     const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
-    assert.match(body, /runs\.map\(\(\{ row \}, i\) => \(reportable\(row\) \? i : -1\)\)/);
+    assert.match(body, /runs\.map\(\(\{ row, data \}, i\) => \(reportable\(row, data\) \? i : -1\)\)/);
     assert.ok(
       !/\.some\(\(n\) => !bars\[n\]\.unadjudicated\)/.test(RJSRC),
       'the loose `some` rule must not survive anywhere in this file'
