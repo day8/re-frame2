@@ -10,6 +10,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.intent :as intent]
+            [re-frame.bench.hicasso.front.slot :as slot]
+            [re-frame.bench.hicasso.front.slot-cljs-test :as slot-test]
             ["react" :as react]))
 
 (use-fixtures :each {:before (fn [] (codec/reset-caches!))})
@@ -106,21 +108,42 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest prop-names-follow-the-donors-kebab-to-camel-rule
-  (is (= "onClick" (codec/prop-name :on-click)))
-  (is (= "tabIndex" (codec/prop-name :tab-index)))
+  (is (= "onClick" (slot/prop-name :on-click)))
+  (is (= "tabIndex" (slot/prop-name :tab-index)))
   (is (= "className" (codec/cached-prop-name :class)))
   (is (= "htmlFor" (codec/cached-prop-name :for)))
   (is (= "charSet" (codec/cached-prop-name :charset)))
   (testing "aria and data are HTML attribute names in React too"
-    (is (= "aria-label" (codec/prop-name :aria-label)))
-    (is (= "data-index" (codec/prop-name :data-index))))
+    (is (= "aria-label" (slot/prop-name :aria-label)))
+    (is (= "data-index" (slot/prop-name :data-index))))
   (testing "a CSS custom property is preserved verbatim"
-    (is (= "--gap" (codec/prop-name :--gap))))
+    (is (= "--gap" (slot/prop-name :--gap))))
   (testing "the three seeded entries are the rule, not a memo of one"
     (is (= 3 (:props (codec/cache-sizes))))
     (codec/cached-prop-name :on-click)
     (codec/cached-prop-name :on-click)
     (is (= 4 (:props (codec/cache-sizes))))))
+
+(deftest the-codecs-cached-slot-is-the-shared-rules-answer
+  (testing "THE OTHER HALF OF THE EQUIVALENCE PIN (rf2-ani6y). The rule
+            lives in `.cljc` so the JVM codemod and this runtime share one
+            implementation, and `slot-cljs-test` runs its corpus on both
+            hosts. That pins the RULE. What it cannot see is this codec
+            putting something else in front of the rule — a
+            hand-written seed in `prop-cache`, a cache keyed so two
+            spellings share one entry, a re-introduced local copy — each
+            of which would answer a slot the codemod would never predict.
+            So the codec's own doors are asked the same corpus: whatever
+            the rule answers, `cached-prop-name` and `canonical-slot`
+            answer, for every spelling the codec accepts."
+    (doseq [[k expected] slot-test/corpus]
+      (is (= expected (codec/cached-prop-name k) (codec/canonical-slot k))
+          (str "codec slot for " (pr-str k)))))
+  (testing "and again warm, because the first ask is the one that writes
+            the cache and the second is the one that reads it"
+    (doseq [[k expected] slot-test/corpus]
+      (is (= expected (codec/cached-prop-name k))
+          (str "warm codec slot for " (pr-str k))))))
 
 (deftest the-slot-is-a-pure-function-of-the-key-and-a-string-cannot-poison-it
   (testing "a string prop name is already a React name and is taken verbatim,
