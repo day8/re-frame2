@@ -7,11 +7,18 @@ holds the operation's own script as well as the frame it causes, above the ship
 bar's `≤ 1.0×` and above
 [the restated M1 red zone](../validation.md#the-clock-gates-restated-on-the-post-25-tree)
 of `1.0150×`, with an interval that does not straddle 1.0. **That figure is a
-historical observation and not a published magnitude**: the row's positive
+historical observation and not the published magnitude**: ~~the row's positive
 control fails, so [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the
 mount as a **regime** — *Hicasso mounts materially slower than both adapters,
-and `≤ 1.10×` has not been demonstrated* — rather than as a number.
-*(2026-08-06, `rf2-jcm3p`: this called `1.4896×` ~~the figure of record~~ and
+and `≤ 1.10×` has not been demonstrated* — rather than as a number.~~
+**Superseded 2026-08-07 (`rf2-t2flm`): the row publishes a magnitude again**,
+`~1.184×` against direct UIx-on-subs and conditionally labelled. The figures and
+the labels they must carry are at
+[`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+and are not restated here. `1.4896×` remains what this programme read on
+2026-08-01, on a heavier load regime than the published row is drawn from.
+*(2026-08-06, `rf2-jcm3p` — **the withdrawal, since superseded**: this called
+`1.4896×` ~~the figure of record~~ and
 the mount ~~the only row of five whose positive control passed~~, and read the
 deficit as ~~established and not merely indicated~~. The control that carries
 this figure — `rf2-emvod`'s seven-run ensemble — reads `ctl-2x` at `1.8173×`
@@ -68,9 +75,13 @@ report.
 > [1.3488 – 1.5989] against the **1.2107×** below, and `hicasso / uix-subs` at
 > **1.5001×** against **1.1865×**. The candidate's mount deficit is *materially
 > worse* than ~~this page publishes~~ this page read before the correction, not
-> better. *(2026-08-06, `rf2-jcm3p`: neither mount figure is a published
+> better. *(2026-08-06, `rf2-jcm3p`: ~~neither mount figure is a published
 > magnitude any longer — both are stated under a failing `ctl-2x`, and
-> [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the row as a regime.)*
+> [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the row as a regime.~~
+> **Superseded 2026-08-07, `rf2-t2flm`**: the row publishes a magnitude again,
+> and it is neither of the two figures above — see
+> [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
+> Both stay here as dated readings of the corrected clock.)*
 > `ctl-2x` is untouched — it reads
 > 1.69–1.83× the floor on both clocks — so [§6](#6-the-three-rows-this-page-refuses)'s
 > refusals stand unchanged.
@@ -512,7 +523,38 @@ be expected to buy the same pair of refusals.
 
 ## 4. The mount row — a REGIME, not a magnitude
 
+> ## THE ROW PUBLISHES A MAGNITUDE AGAIN, AND THIS SECTION'S TITLE IS SUPERSEDED (`rf2-t2flm`, ruled 2026-08-07)
+>
+> **The regime-only statement below is superseded.** `M1` publishes `~1.184×`
+> against direct UIx-on-subs, conditionally labelled, on the two retained
+> quiet-box ensembles. The figures, the estimators they are drawn on and the
+> labels every one of them must carry are at
+> [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row),
+> and they are **not** duplicated here: two copies of a published row is how a
+> record starts disagreeing with itself, which is the failure this sweep exists
+> to repair.
+>
+> **What fell was the ground, not a measurement.** `rf2-jcm3p` read `ctl-2x`'s
+> *mean* against `2.00×` and called that categorical failure. The implemented
+> rule never asked the mean to equal `2.00×` — `controlVerdict` tests per-block
+> band membership, committed 2026-08-01, before either retained ensemble was
+> captured — and **seven of fourteen runs pass it on both clocks**. So no new
+> window was taken and nothing here was re-measured; a rule already in the tree
+> was read correctly for the first time.
+>
+> **This section keeps its title and its anchor.** `#4-the-mount-row--a-regime-not-a-magnitude`
+> is cited from five other pages, including the re-adjudication that carries the
+> published row, and an anchor is part of how this record is addressed. Renaming
+> it would strand those citations to spare a reader one line of reading; the
+> banner does that job instead.
+>
+> **The withdrawal below stays in full**, because the reasoning it records is
+> the reason the premise was worth re-examining.
+
 > ## THE MOUNT MAGNITUDE IS WITHDRAWN AND THE ROW IS RESTATED AS A REGIME (`rf2-jcm3p`, ruled 2026-08-06)
+>
+> ***Superseded 2026-08-07 by `rf2-t2flm` — see the banner immediately above.
+> Kept in full and unedited below.***
 >
 > **`1.4896×` [1.3488 – 1.5989] against Reagent-on-subs and `1.5001×` against
 > UIx-on-subs are withdrawn as MAGNITUDES.** The strict rule that refuses the
@@ -599,8 +641,8 @@ The bar arithmetic — two floor-normalised ratios, one against the other:
 
 | row | measured | range | disposition |
 |---|---:|---|---|
-| ~~**`hicasso / reagent-subs`**~~ | ~~1.2107×~~ | [0.9756 – 1.7208] | ~~**SUPERSEDED — frame-only.**~~ **REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*. Read **1.4896×** [1.3488 – 1.5989] on the corrected clock and **1.3737×** [1.3289 – 1.4331] on `rf2-emvod`'s heavier-regime ensemble — both above the `≤ 1.0×` win condition and the `1.0150×` red zone, neither straddling 1.0, **both stated under a failing `ctl-2x` and therefore historical observations rather than published magnitudes** |
-| ~~**`hicasso / uix-subs`**~~ | ~~1.1865×~~ | [0.9753 – 1.3722] | ~~**SUPERSEDED.**~~ **REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*. Read **1.5001×** on the corrected clock and **1.4656×** [1.3819 – 1.5088] on `rf2-emvod`'s ensemble; neither straddles 1.0, and both are stated under the same failing control |
+| ~~**`hicasso / reagent-subs`**~~ | ~~1.2107×~~ | [0.9756 – 1.7208] | ~~**SUPERSEDED — frame-only.**~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ **A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. Read **1.4896×** [1.3488 – 1.5989] on the corrected clock and **1.3737×** [1.3289 – 1.4331] on `rf2-emvod`'s heavier-regime ensemble — both above the `≤ 1.0×` win condition and the `1.0150×` red zone, neither straddling 1.0, **both dated historical observations, and neither is the published figure** |
+| ~~**`hicasso / uix-subs`**~~ | ~~1.1865×~~ | [0.9753 – 1.3722] | ~~**SUPERSEDED.**~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ **A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. Read **1.5001×** on the corrected clock and **1.4656×** [1.3819 – 1.5088] on `rf2-emvod`'s ensemble; neither straddles 1.0, and both are dated readings rather than the published figure |
 
 **What that means against the gates.** The P1 win condition is *mount ≤ 1.0×
 Reagent-on-subs, same run and same instrument*, and the restated M1 red zone is
@@ -608,12 +650,18 @@ Reagent-on-subs, same run and same instrument*, and the restated M1 red zone is
 candidate's point estimate is above both, in this run and in the four before it.
 ~~**On the clock of record the deficit is established**: `1.4896×`
 [1.3488 – 1.5989] does not straddle 1.0, and `rf2-emvod`'s independent ensemble
-agrees in direction at `1.3737×` [1.3289 – 1.4331].~~ **The deficit's DIRECTION
+agrees in direction at `1.3737×` [1.3289 – 1.4331].~~ ~~**The deficit's DIRECTION
 is established and its SIZE is not published** *(2026-08-06, `rf2-jcm3p`: an
 interval that misses 1.0 establishes a magnitude only against a control that can
 adjudicate it, and this row's cannot — see the banner above. What the readings
 jointly establish is the regime: above the `≤ 1.10×` UIx gate on every
-corroborated reading, with `≤ 1.10×` not demonstrated.)* ~~Its range straddles
+corroborated reading, with `≤ 1.10×` not demonstrated.)*~~ **Both the direction
+and a size are published, the size conditionally** *(2026-08-07, `rf2-t2flm`:
+this row's control can adjudicate it after all — the rule tests per-block band
+membership, not the mean — so the deficit has a magnitude again, at
+[§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+and under the labels stated there. Neither figure struck above is that
+magnitude.)* ~~Its range straddles
 1.0, so at n = 6 the deficit is not *established*~~ — that was the frame-only
 reading's hedge and it is spent. What still holds either way is
 validation.md's own rule that *a margin under 5% is instrument-limited rather
@@ -660,9 +708,13 @@ On the substrate arms the two windows differ by a factor of three to nine and �
 the part that matters — **by a different factor per arm**. It is not a scale
 error that cancels in a ratio: on M1 the in-page window puts
 `hicasso / reagent` at 1.56× where `taskNet` reads 1.21×, and raw
-`TaskDuration` — the clock that holds both halves — reads **1.4896×** (a
+`TaskDuration` — the clock that holds both halves — reads **1.4896×** (~~a
 reading under a failing `ctl-2x`; the row publishes no magnitude —
-[§4](#4-the-mount-row--a-regime-not-a-magnitude)).
+[§4](#4-the-mount-row--a-regime-not-a-magnitude)~~ a dated reading, and not the
+published magnitude, which is at
+[§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) —
+*2026-08-07, `rf2-t2flm`*). What this table is doing is comparing **windows**,
+and that comparison is unaffected either way.
 
 > **THE SEPARATION IS REAL AND THIS MECHANISM STATEMENT IS WRONG (`rf2-yd52q`,
 > measured by `rf2-emvod`).** The `+300–610%` above is not one window
@@ -1210,7 +1262,7 @@ readings; the **magnitudes** are superseded row by row on
 
 | run 5 row *(all figures `taskNet`)* | margin from 1.0 | against | verdict |
 |---|---:|---|---|
-| `M1`, `hicasso / reagent-subs` ~~1.2107~~ | 21.1% | its own band, ≤ 11.7% | **clears the band** — ~~published, as it was; the magnitude is now **1.4896×**~~ **and still publishes no magnitude** *(2026-08-06, `rf2-jcm3p`)*. The corrected clock read **1.4896×** [1.3488 – 1.5989] on this row, under a failing `ctl-2x`; clearing the band is not clearing the control, and [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the row as a regime |
+| `M1`, `hicasso / reagent-subs` ~~1.2107~~ | 21.1% | its own band, ≤ 11.7% | **clears the band** — ~~published, as it was; the magnitude is now **1.4896×**~~ ~~**and still publishes no magnitude** *(2026-08-06, `rf2-jcm3p`)*. The corrected clock read **1.4896×** [1.3488 – 1.5989] on this row, under a failing `ctl-2x`; clearing the band is not clearing the control, and [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the row as a regime~~ **and publishes a magnitude again, conditionally labelled** *(2026-08-07, `rf2-t2flm` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. The corrected clock read **1.4896×** [1.3488 – 1.5989] on this row, which stays a dated observation; the published figure is drawn from the two retained ensembles and stated at §4.3 |
 | `bulk300` ~~1.0100~~ | 1.0% | smaller than every band ever measured here | instrument-limited — refused, as it was; **1.1494×** corrected |
 | `bulk100` ~~0.9902~~ | 1.0% | the same | instrument-limited — refused, as it was; **1.1089×** corrected, a sign change |
 | `narrow` 1.0369 | 3.7% | the same | instrument-limited — refused, as it was; **1.0236×** corrected |
@@ -1392,15 +1444,16 @@ inputs are gone; the durable path starts at the re-run and not before it.
 ## 8. What this hands the programme
 
 - **The candidate has clock rows.** It did not before.
-- **On mount it is materially slower than Reagent-on-subs — a REGIME, and not a
-  magnitude** *(2026-08-06, `rf2-jcm3p`;
-  [§4](#4-the-mount-row--a-regime-not-a-magnitude))*. ~~On mount it is 1.4896×
+- **On mount it is materially slower than Reagent-on-subs, and the row publishes
+  a magnitude** *(2026-08-07, `rf2-t2flm`;
+  [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))* —
+  ~~a REGIME, and not a magnitude *(2026-08-06, `rf2-jcm3p`;
+  [§4](#4-the-mount-row--a-regime-not-a-magnitude))*~~. ~~On mount it is 1.4896×
   Reagent-on-subs on the clock of record [1.3488 – 1.5989], against a `≤ 1.0×`
   win condition and a `1.0150×` red zone.~~ That reading stands as a historical
-  observation *stated under a failing `ctl-2x`*: it sits above the `≤ 1.0×` win
-  condition and the `1.0150×` red zone, as does every other corroborated
-  reading, and `≤ 1.10×` has not been demonstrated — but the row publishes no
-  number.
+  observation: it sits above the `≤ 1.0×` win condition and the `1.0150×` red
+  zone, as does every other corroborated reading. What the row now publishes,
+  with the conditional labels it must carry, is stated at §4.3 and not here.
   This page's own `1.21×` is the frame-only reading of the same row, above
   parity in all five of its runs; the correction moved the figure *up*. Still
   not a clear K1 kill — K1 asks for `> Reagent` *after two serious runtime
