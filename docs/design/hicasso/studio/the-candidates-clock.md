@@ -369,7 +369,7 @@ transcribed.
 | Box at close | occupancy **1.37%**, same process counts, 32.4 GB free |
 | Occupancy method | summed per-process CPU-time deltas over a 10 s wall interval, divided by core count. **Not** `Win32_Processor.LoadPercentage`, which read 24% and 45% on this same idle box |
 | Driver exit code | **1** — the positive control on `M1` |
-| Retained dataset | `implementation/freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run1.json`, re-adjudicable with `clock_readjudicate.cjs` |
+| Retained dataset | `implementation/freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run1.json`, re-adjudicable with `clock_readjudicate.cjs` — which prints every table and **exits 3**, because the file predates `rf2-2rtt6.31`'s two-tier contract and carries no in-file `canonical` verdict *(2026-08-07, `rf2-emvod`)* |
 
 **One refusal fired, and it is `M1`'s positive control.** `ctl-2x` measured
 **1.8443×** [1.3837 – 2.4233] on raw `TaskDuration` against 2.00× ±25% under the
@@ -443,7 +443,7 @@ might have dissolved.
 | Box at close | occupancy **3.12%**, 534 processes, 28.8 GB free |
 | Occupancy method | summed per-process CPU-time deltas over a 6 s wall interval, divided by core count. **Not** `Win32_Processor.LoadPercentage` |
 | Driver exit code | **1** — the positive control on `M1`, again |
-| Retained dataset | `implementation/freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run2.json`, re-adjudicable with `clock_readjudicate.cjs` |
+| Retained dataset | `implementation/freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run2.json`, re-adjudicable with `clock_readjudicate.cjs` — which prints every table and **exits 3**, because the file predates `rf2-2rtt6.31`'s two-tier contract and carries no in-file `canonical` verdict *(2026-08-07, `rf2-emvod`)* |
 
 **`M1`'s positive control refused again, and it refused from the other side.**
 `ctl-2x` measured **1.8567×** [1.6562 – 2.6112] against 2.00× ±25% under the
