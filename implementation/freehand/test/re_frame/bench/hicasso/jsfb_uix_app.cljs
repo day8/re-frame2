@@ -5,11 +5,20 @@
   ## Why a third arm, added after the first two had already run
 
   The `rf2-8nqsl` audit (PR #7357) reported that the programme's published
-  **bulk-broad `0.6291×`** row does not survive a frame-inclusive
-  instrument: on the same samples it reads `1.0509×`, parity, and a
-  claimed 37% win becomes no win. The follow-up asked this bead to point
-  at bulk broad, because two independent frame-inclusive instruments
-  agreeing would settle the row.
+  **bulk-broad `0.6291×`** row does not survive a clock that looks past
+  the `flushSync` boundary: on the same samples it reads `1.0509×`,
+  parity, and a claimed 37% win becomes no win. The follow-up asked this
+  bead to point at bulk broad, because two independent instruments that
+  see the whole operation agreeing would settle the row.
+
+  **The audit's own clock was `taskNet`, and `taskNet` is FRAME-ONLY**
+  (`rf2-yd52q`) — the subtraction of `DevToolsCommandDuration` removes the
+  operation's own script — so its `1.0509×` is struck rather than kept as
+  the second reading. That is why this arm still matters: it drives
+  through the Input domain rather than `page.evaluate`, so it was never
+  exposed to that fault, and it is the independent instrument the
+  follow-up asked for. Nothing in this lane is called by the bare
+  adjective *frame-inclusive*; a window is named by what it measures.
 
   **That row is `UIx / Reagent`, not `Hicasso / Reagent`.** Every clock
   figure the programme published before `rf2-0qj9w` is about the DONORS —
