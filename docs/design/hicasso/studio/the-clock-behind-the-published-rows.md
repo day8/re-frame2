@@ -189,9 +189,12 @@ second estimator is un-tared rather than un-normalised, so it is not the quantit
 either. That was a run on the box, `rf2-w3yxd` owned it, and **it has been
 taken**: [the 2026-08-07 ensemble](#2026-08-07-the-ensemble-on-the-corrected-clock-and-what-it-refuses-rf2-w3yxd)
 publishes both estimators off its own retained files on all three windows, and
-puts the term this paragraph could not size at **0.6 to 3.9 percentage points**
-on `M1`, `bulk300` and `narrow`. It changes no verdict anywhere, which is the
-same answer the in-page rows gave.
+puts the term this paragraph could not size at **0.5 to 3.9 percentage points**
+across the comparisons it tabulates on `M1`, `bulk300` and `narrow`, changing no
+direction among them — the same answer the in-page rows gave. That bounds those
+comparisons and not the estimator: four comparisons outside the set do cross,
+every one on a row the ensemble refused a magnitude for, and the section names
+them.
 
 This is the mechanism the pure-React controls were never able to catch. A lane
 that certifies its instrument on `ctl-2x` alone is certifying the arm least
@@ -834,14 +837,28 @@ not become answerable or unanswerable with the row's control:
 | `bulk300` · `uix-subs / reagent-subs` | raw `TaskDuration` | 0.8743× [0.8253 – 0.9280] | 0.9036× [0.8701 – 0.9220] | −2.9 pp |
 | `bulk300` · `uix-subs / reagent-subs` | `taskNet` | 1.0267× [0.9127 – 1.1300] | 1.0570× [0.9879 – 1.1517] | −3.0 pp |
 | `narrow` *(k=1)* · `uix-subs / reagent-subs` | raw `TaskDuration` | 0.9520× [0.7351 – 1.0449] | 0.9692× [0.8730 – 1.0374] | −1.7 pp |
-| `narrow` *(k=1)* · `uix-subs / reagent-subs` | `taskNet` | 1.0056× [0.8023 – 1.2199] | 1.0102× [0.9108 – 1.1090] | −1.7 pp |
+| `narrow` *(k=1)* · `uix-subs / reagent-subs` | `taskNet` | 1.0056× [0.8023 – 1.2199] | 1.0102× [0.9108 – 1.1090] | ~~−1.7 pp~~ → **−0.5 pp** |
 
-**So the term §2 could not size is between 0.6 and 3.9 percentage points on
-these rows, and it does not change a verdict anywhere.** The two estimators
-agree on direction on every row and every window, which is the same answer
-[the converged page](p0-converged-witness-set.md#two-estimators-published-together)
-reached for the in-page rows. That is a bound on what the normalisation does to
-a mean — it is not licence to quote a refused row's mean.
+**So the term §2 could not size is between 0.5 and 3.9 percentage points on the
+nine comparisons above, and on none of them does it change a direction** — the
+same answer [the converged page](p0-converged-witness-set.md#two-estimators-published-together)
+reached for its own four in-page rows.
+
+**That is a bound on the comparisons selected here, not a property of the
+estimator.** `clock_readjudicate.cjs` forms the pair for every row, pair and
+window it can, which is forty-two comparisons, and four of them cross.
+`bulk100` · `uix-subs / reagent-subs` reads `1.0072×` normalised against
+`0.9949×` raw on the published clock; `narrow` · `hicasso / reagent-subs` reads
+`0.9659×` against `1.0065×` on `taskNet`; and `keystroke` ·
+`uix-subs / reagent-subs` crosses on both of those windows — `1.0265×` against
+`0.9754×`, and `1.0209×` against `0.9590×`. The gap runs wider outside the table
+too: `5.4 pp` on `narrow` · `hicasso / uix-subs` in-page, `9.8 pp` on `bulk100` ·
+`hicasso / uix-subs`. Every crossing falls on a row the per-row table above
+refused a magnitude for, and none of the eight figures sits more than 4.1 points
+from parity, so no verdict on this page turns on which estimator is read. But
+agreement on the rows chosen is not agreement in general, and this paragraph
+used to claim the latter. That is a bound on what the normalisation does to a
+mean — it is not licence to quote a refused row's mean.
 
 ### What is NOT restated
 
