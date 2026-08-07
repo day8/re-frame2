@@ -852,8 +852,13 @@ raw, against `rf2-yd52q`'s published `1.0011×` [0.9464 – 1.0763] and the in-p
 row's `1.0150×` [0.9820 – 1.0480]. The whole-ensemble range does contain both, so
 this is not a contradiction — it is a lower-centred ensemble of three, and
 accepting it as the row's value would be a **restatement on thin evidence**,
-which is exactly what §3's own rule forbids. `rf2-jcm3p`'s ruling also stands
-untouched: `M1` publishes a regime, not a magnitude.
+which is exactly what §3's own rule forbids. ~~`rf2-jcm3p`'s ruling also stands
+untouched: `M1` publishes a regime, not a magnitude.~~ *(2026-08-07,
+`rf2-t2flm`: `rf2-jcm3p` is **superseded** and `M1` publishes a magnitude again —
+see the section below. **The paragraph above is unaffected**, because it is about
+the `uix-subs ÷ reagent-subs` **donor bar**, which the new ruling does not
+restate. `0.9427×` and `0.9538×` stay recorded and unpublished exactly as
+written.)*
 
 **None of §3's four struck figures is replaced.** `0.8474×`, `0.6924×`,
 `1.0110×` and `1.0509×` remain directional; nothing in this ensemble makes them
@@ -877,3 +882,54 @@ run exited **1** — the driver's exit is a whole-run verdict, and an ensemble i
 which the bulk rows refuse cannot exit 0 however clean `M1` is. Nothing was
 re-run for a quieter moment, no run was dropped, no gate was widened and no
 tolerance was touched.
+
+## 2026-08-07 the M1 row regains a magnitude (rf2-t2flm)
+
+**Ruled 2026-08-07. `rf2-jcm3p`'s regime-only statement is superseded, and this
+section says what that does to the page above.** The full published row — every
+figure, every band, every label — is
+[`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row);
+it is not duplicated here, because two copies of a published row is how a record
+starts disagreeing with itself. What belongs on **this** page is the clock story.
+
+**The row is published on `~1.184×` against direct UIx-on-subs**,
+floor-normalised on raw `TaskDuration` — the clock this page spent its length
+establishing as the only one that holds script and frame together. The two
+retained ensembles read `1.1837×` (`clock-emvod`, n=4) and `1.1848×`
+(`clock-w3yxd`, n=3) over their reportable subsets, and **the raw quotient
+`~1.155×` is published beside it, not behind it**. Against Reagent-on-subs the
+row publishes **two ensemble-specific estimates and no pooled point** — `1.1402×`
+and `1.1100×` — because the replication is looser there and a single figure would
+be falsely precise. Every one of those figures is **reportable-subset
+conditional**, and the control yield is stated plainly: **7 of 14 runs eligible**,
+Wilson 95% ≈ 0.27 – 0.73. This control **can** adjudicate `M1`; it is not
+promised to usually do so.
+
+**`clock-w3yxd` is the ensemble this page carries**, so the section above
+contributes three of those seven eligible runs. Its own tables do not move: the
+`hicasso / uix-subs` line at `1.2057×` [1.1731 – 1.2390] and `hicasso /
+reagent-subs` at `1.1492×` [1.0492 – 1.3339] were already printed
+[two estimators at a time](#two-estimators-published-together--on-all-three-windows),
+and what changed is that a reportable subset drawn from them may now be quoted as
+a magnitude rather than only recorded.
+
+**Why this page's `ctl-2x` table is the reason, and why the passes are not
+luck.** The table above reads *"4 of 6 on the published clock, **3 of 6 on both
+clocks**"* against a predicted 2.00×, next to an ensemble mean of 1.7970×. That
+juxtaposition is the whole premise correction: the mean never had to reach
+2.00×. `clock_run.cjs`'s `controlVerdict` requires **every one of 18 blocks**
+(3 segments × 6 rounds) inside `2.00× ± 25%`, and the ~1.80× centre is the known
+additive undershoot the driver documents as a signal check. `rf2-8a746` supplies
+the mechanism that makes the pass rate predictable: `ctl-2x` is a ratio of two
+**levels** while the three-point control is a ratio of two **differences**, so on
+`M1` the `ctl-2x` centre sits **~20% above the band's 1.50 rejection edge** at a
+per-block in-band rate of **95.4%** here (95.1% on `clock-emvod`) — and those
+rates raised to the 18th power give the pass counts actually observed. The same
+two numbers say why the three-point control refuses everything in the table above:
+**+4%** above the edge at a 47–48% per-block rate.
+
+**Nothing in §4 of this page moves, and no window was consumed.** The four
+struck figures stay struck, the bulk rows stay refused, `1.1754×` stays an
+in-page figure, and the re-adjudication that produced the published row is a
+read over committed data — which is why `rf2-0qj9w`'s third `M1` quiet window
+was closed rather than granted.

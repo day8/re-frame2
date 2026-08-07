@@ -14,8 +14,13 @@ and are published as a second regime rather than as the magnitude, because the
 corroboration control they were pre-registered against **failed**
 ([§5](#5-what-this-ensemble-may-not-say)).
 
-**AND NEITHER MOUNT FIGURE IS A MAGNITUDE ANY LONGER (`rf2-jcm3p`, ruled
-2026-08-06).** `M1`'s own positive control fails — `ctl-2x` reads **1.8173×**
+~~**AND NEITHER MOUNT FIGURE IS A MAGNITUDE ANY LONGER (`rf2-jcm3p`, ruled
+2026-08-06).**~~ **`M1` PUBLISHES A MAGNITUDE AGAIN, CONDITIONALLY LABELLED
+(`rf2-t2flm`, ruled 2026-08-07 — [§4.3](#43-the-published-m1-row)).** The
+regime-only statement is **superseded**, and the paragraph below is kept because
+the reasoning that fell is part of the record.
+
+~~`M1`'s own positive control fails — `ctl-2x` reads **1.8173×**
 against a predicted 2.00× on this very ensemble
 ([§4.2](#42-ctl-2x-undershoots-on-the-mount-row-too-and-that-changes-its-diagnosis)),
 reproduced at 1.8443× and 1.8567× on two verifiably idle boxes — and a mount row
@@ -23,9 +28,18 @@ has no changed-set axis a control could be linear in, so no control can
 adjudicate it. The strict rule that refuses `bulk300` and `bulk100` below binds
 on `M1` too, and the row is restated as a **regime**: *Hicasso mounts materially
 slower than both adapters, every corroborated reading is above the amended
-`≤ 1.10×` UIx gate, and `≤ 1.10×` has not been demonstrated.* Both figures stay
-on this page as historical observations, annotated with the control status they
-were taken under. The full restatement is on
+`≤ 1.10×` UIx gate, and `≤ 1.10×` has not been demonstrated.*~~ **What that
+argument got wrong is the rule it attributed to the instrument**: `controlVerdict`
+never required `ctl-2x`'s *mean* to reach 2.00×, it requires every one of 18
+blocks inside `2.00× ± 25%`, and on two retained quiet-box ensembles **7 of 14
+runs pass it on both clocks**. `rf2-8a746` supplies the mechanism that makes those
+passes predictable rather than lucky. The row now publishes **`~1.184×` against
+direct UIx-on-subs** and two ensemble-specific estimates against Reagent-on-subs,
+under the labels [§4.3](#43-the-published-m1-row) states — reportable-subset
+conditional, with the control yield and the raw quotient beside every figure.
+Both historical figures stay on this page as dated observations, annotated with
+the control status they were taken under; nothing is erased. The superseded
+restatement is on
 [the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude).
 
 **And the correction has a boundary nobody had drawn.** `rf2-yd52q` established
@@ -227,7 +241,7 @@ reading 3 would be a container that survived its unmount *(2026-08-06,
 
 | row | `hicasso / reagent-subs`, raw `TaskDuration` | on `taskNet` | reportable runs | disposition |
 |---|---:|---:|---:|---|
-| **`M1` mount** | **1.3737×** [1.3289 – 1.4331] | 1.1143× | **7 of 7** | ~~every run clears its own band (margins 32.9–43.3% against bands 4.9–10.8%)~~ **REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)* — every run does clear its own band, and a band is not a control: `ctl-2x` reads 1.8173× against 2.00× on this ensemble, and no changed-set control can reach a mount. Direction only. See also [§5](#5-what-this-ensemble-may-not-say) |
+| **`M1` mount** | **1.3737×** [1.3289 – 1.4331] *(historical — see §4.3)* | 1.1143× | **7 of 7** | ~~every run clears its own band (margins 32.9–43.3% against bands 4.9–10.8%)~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ **A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm` — [§4.3](#43-the-published-m1-row))*: `~1.184×` against direct UIx-on-subs, `1.1402×` / `1.1100×` against Reagent-on-subs, on the two **retained** ensembles and under the labels §4.3 states. `1.3737×` in this table is **this** ensemble's own reading and stays as a dated historical observation — taken at a heavier load regime, and no figure in §4.3 derives from it. See also [§5](#5-what-this-ensemble-may-not-say) |
 | `bulk300` | 1.1494× [1.1102 – 1.2032] | 1.0703× | 3 of 7 | **refused** — control failed on 4, ceiling breached on 1 |
 | `bulk100` | 1.1089× [1.0649 – 1.1545] | 0.9859× | 2 of 7 | **refused** — control failed on 5 |
 | `narrow` | 1.0236× [0.9855 – 1.0900] | 1.0352× | 4 of 7 | **parity, instrument-limited** — every reportable run's margin is inside its band |
@@ -298,6 +312,123 @@ control — dirty ε, dirty `D`, dirty `2D` — adjudicated as
 new arm in the page half of the harness, which would have changed the blobs this
 ensemble was taken at, so it is filed rather than done here.
 
+### 4.3 The published M1 row
+
+**Ruled 2026-08-07, `rf2-t2flm`. `M1` regains a magnitude.** The regime-only
+statement of `rf2-jcm3p` (2026-08-06) is **superseded** — not because a new
+measurement was taken, but because the ground it stood on was re-examined and did
+not hold. It is published on the two retained quiet-box ensembles,
+[`clock-emvod`](#72-the-re-take-that-was-taken-and-what-it-refuses) and
+`clock-w3yxd`, and on **both estimators**.
+
+**Against direct UIx-on-subs — `~1.184×`, floor-normalised.**
+
+| ensemble | reportable subset | whole ensemble | raw quotient, reportable subset |
+|---|---:|---|---:|
+| `clock-emvod` | **1.1837×** *(n=4)* | 1.1798× [1.1346 – 1.2347] *(n=8)* | 1.1561× *(n=4)* |
+| `clock-w3yxd` | **1.1848×** *(n=3)* | 1.2057× [1.1731 – 1.2390] *(n=6)* | 1.1537× *(n=3)* |
+
+Two independently launched ensembles agreeing to **0.11 percentage points** on
+the programme's floor-normalised `TaskDuration` estimator. The **raw quotient —
+the direct arm-to-arm comparison touching neither floor — reads `~1.155×`**, and
+it is stated here beside the headline rather than behind it: on the reportable
+subsets the two estimators differ by **2.8 pp** (`clock-emvod`) and **3.1 pp**
+(`clock-w3yxd`), the floor-normalised one is the higher in both, and a reader is
+entitled to both numbers without going looking. **All fourteen whole-ensemble run
+means on this pair sit above `1.10×`** — the amended UIx gate — with no exception
+in either ensemble.
+
+**Against Reagent-on-subs — two ensemble-specific estimates, and no pooled
+point.**
+
+| ensemble | reportable subset | whole ensemble | raw quotient, reportable subset |
+|---|---:|---|---:|
+| `clock-emvod` | **1.1402×** *(n=4)* | 1.1429× [1.0723 – 1.2640] *(n=8)* | 1.1545× *(n=4)* |
+| `clock-w3yxd` | **1.1100×** *(n=3)* | 1.1492× [1.0492 – 1.3339] *(n=6)* | 1.0969× *(n=3)* |
+
+The replication is **looser** on this pair — 3.0 pp apart floor-normalised and
+5.8 pp raw, against 0.11 pp on the UIx pair — so the two estimates are published
+side by side and **a single pooled figure is refused**. Averaging them would
+manufacture a precision the data does not carry, and the honest statement is that
+the candidate is above Reagent-on-subs on mount by something in the low tens of
+percent, measured twice, at two values.
+
+#### The labels these figures carry, and they are not optional
+
+**Reportable-subset conditional.** Every bolded figure above is a mean over the
+runs that passed the **strict every-block `ctl-2x` rule on both clocks** — not
+over the ensemble. The subset is a *selection on a control*, and the
+whole-ensemble band is printed beside each one so the selection's effect is
+visible rather than asserted away.
+
+**The control yield, stated plainly: `7 of 14` runs eligible** — 4 of 8 on
+`clock-emvod`, 3 of 6 on `clock-w3yxd`. Wilson 95% on that proportion is
+**≈ 0.27 – 0.73**. The correct reading of this control is that it **CAN
+adjudicate `M1`** — not that it usually will. A third ensemble might yield two
+eligible runs or five, and nothing here promises otherwise.
+
+**Disclosure — the row-level pool is looser than the run-level gate**
+*(`rf2-t2flm`, disclosed and deliberately not repaired)*. The readjudicator's
+row-level pool accepts a bar carrying an adjudication record **even when that bar
+is marked `clear:false`** — i.e. a run can contribute to a reportable subset on
+the strength of its run-level control while its own bar sits inside its noise
+band. Among the seven eligible runs:
+
+| pair | clears its own noise band | detail |
+|---|---:|---|
+| `hicasso / uix-subs` | **6 of 7** | `clock-w3yxd` 3 of 3; `clock-emvod` 3 of 4 |
+| `hicasso / reagent-subs` | **5 of 7** | `clock-emvod` 3 of 4; `clock-w3yxd` 2 of 3 |
+
+Tightening the pool is **not** required by this ruling and is not done. It is a
+disclosed wrinkle, the disclosure is what the reader needs, and building new
+adjudication machinery for it would be the wrong trade at this stage.
+
+#### Why `rf2-jcm3p`'s ground fell
+
+The 2026-08-06 ruling read `ctl-2x`'s mean of **1.8173× against a predicted
+2.00×** as categorical failure, and concluded the control could not adjudicate
+this row **anywhere**. **The implemented rule never required the mean to equal
+2.00×.** `clock_run.cjs`'s `controlVerdict` tests **per-block band membership** —
+every one of 18 blocks (3 segments × 6 rounds) inside `2.00× ± 25%`, strict — and
+the `1.80×` centre is the *known additive undershoot* the driver itself documents
+as a signal check rather than an exact model ([§4.2](#42-ctl-2x-undershoots-on-the-mount-row-too-and-that-changes-its-diagnosis)
+prices the constant at `c ≈ 1.04 ms`). Seven of fourteen runs pass the
+implemented rule on both clocks.
+
+**That rule is genuine pre-registration.** It was committed on **2026-08-01** in
+`2bf3027347`, six days before either ensemble was captured — so no outcome was
+visible when it was written.
+
+**And the passes are mechanistic, not luck** — `rf2-8a746`'s diagnosis supplies
+the mechanism. `ctl-2x` is a ratio of two **levels**; the three-point control is a
+ratio of two **differences**, which throws away the pedestal that was keeping the
+relative noise small. On `M1`, `ctl-2x`'s centre sits **+20%** (`clock-emvod`)
+and **+18%** (`clock-w3yxd`) above the band's 1.50 rejection edge, with per-block
+in-band rates of **95.1%** and **95.4%**; those two numbers — distance above the
+edge, and per-block scatter — raised to the 18th power reproduce the pass rates
+actually observed. The same pair explains why the three-point control refuses
+everything: its centre sits **+4%** above the edge at a 47–48% per-block rate.
+**Nothing here is a property of "row class"** — `ctl-2x`'s denominator is the
+floor's whole tared reading carrying ~9% relative error, the three-point
+control's is a 1.25 ms difference carrying the same error at ~48% — and nothing
+was tuned until it passed.
+
+#### The standing condition this ruling attaches
+
+A pre-committed k-of-n decision function was considered and **rejected as a
+retrofit**: writing one with the outcomes already visible is not
+pre-registration and cannot remove researcher degrees of freedom. It is the right
+tool only **prospectively**. So: *if stronger precision on this row ever becomes
+decision-critical, pre-commit the estimator, the pair-level clear rule, the
+required eligible count and the precision target **before** collecting a
+genuinely new ensemble.* That condition is part of this ruling.
+
+**No new window was consumed to reach any of this.** Every figure above is a
+function of committed data, recomputable by the command in
+[§7.2](#72-the-re-take-that-was-taken-and-what-it-refuses) over each ensemble's
+`run*.json`. `rf2-0qj9w`'s third `M1` quiet window was closed on exactly that
+ground.
+
 ---
 
 ## 5. What this ensemble may not say
@@ -339,12 +470,18 @@ gates passing.
 Therefore:
 
 - ~~**The published `M1` magnitude is `rf2-yd52q`'s `1.4896×`** [1.3488 – 1.5989],
-  whose corroboration control passed at `1.0011×` on a quiet box.~~ **There is no
+  whose corroboration control passed at `1.0011×` on a quiet box.~~ ~~**There is no
   published `M1` magnitude** *(2026-08-06, `rf2-jcm3p`)*. `rf2-yd52q`'s `1.4896×`
   [1.3488 – 1.5989] remains the best-corroborated reading and its corroboration
   control did pass at `1.0011×` on a quiet box — but the row's own **positive**
   control fails there too, at `ctl-2x` `1.8173×` against `2.00×`, so the figure
-  is a historical observation and the row publishes a regime.
+  is a historical observation and the row publishes a regime.~~ **There IS a
+  published `M1` magnitude again** *(2026-08-07, `rf2-t2flm` —
+  [§4.3](#43-the-published-m1-row))*, and it is **not** `1.4896×`. It is drawn
+  from the two **retained** ensembles, which no earlier statement on this row
+  could use because their datasets did not exist. `1.4896×` and `1.3737×` both
+  stay visible as dated historical observations; neither is withdrawn, and
+  neither is the published figure.
 - **This ensemble's `1.3737×` is published as a second regime**, not as the
   magnitude, and its agreement with `1.4896×` in direction and rough size is
   what it contributes.
@@ -379,15 +516,20 @@ any control was consulted.
 
 ## 6. What is refused, and what is not
 
-**Refused as magnitudes:** `bulk300`, `bulk100`, `narrow`, `keystroke`, and —
-~~on this ensemble —~~ `M1` *(2026-08-06, `rf2-jcm3p`: the qualifier is spent.
-`M1` is refused as a magnitude on every ensemble, this one and the two landed
-ones, because its control cannot adjudicate it anywhere. It publishes a
-mount **regime**.)*
+**Refused as magnitudes:** `bulk300`, `bulk100`, `narrow`, `keystroke` — and
+~~`M1`~~ **no longer `M1`** *(2026-08-07, `rf2-t2flm`)*. ~~*(2026-08-06,
+`rf2-jcm3p`: the qualifier is spent. `M1` is refused as a magnitude on every
+ensemble, this one and the two landed ones, because its control cannot adjudicate
+it anywhere. It publishes a mount **regime**.)*~~ **`M1` is refused on THIS
+ensemble and published on the two retained ones**
+([§4.3](#43-the-published-m1-row)) — the qualifier struck above turns out to have
+been the correct one, and striking it was the error: the control's reach is a
+property of the *run*, not of the row.
 
 **What each refused row publishes instead** *(2026-08-06, `rf2-jcm3p`,
-`rf2-swwud`)*: `M1` a **mount regime** — direction only, materially slower than
-both adapters, `≤ 1.10×` not demonstrated. `keystroke` a **responsiveness
+`rf2-swwud`; `M1`'s entry superseded 2026-08-07, `rf2-t2flm`)*: ~~`M1` a **mount
+regime** — direction only, materially slower than
+both adapters, `≤ 1.10×` not demonstrated.~~ `keystroke` a **responsiveness
 regime** — indistinguishable from both donors at Event Timing's resolution,
 every observed interaction one frame, with the rider that the instrument
 resolves 8 ms buckets above a 16 ms floor and states no tie below it. The three
@@ -596,12 +738,27 @@ built to catch and did. **Whether that is the instrument or the workload is a
 measurement this window did not take**, and nothing here is widened to
 accommodate it — `rf2-5xrcd` owns the control's calibration.
 
-`M1`'s four reportable runs are **not** a magnitude, and this page does not
+~~`M1`'s four reportable runs are **not** a magnitude, and this page does not
 publish one from them. Its standing ruling (`rf2-jcm3p`, §6 above) is that the
 mount row publishes a regime because its control cannot adjudicate it — and on
 these eight runs `ctl-2x` did pass, on both clocks, on four of them. That is
 evidence bearing on a ruling, not a ruling; it is recorded here and left to be
-ruled on.
+ruled on.~~
+
+**IT WAS RULED ON, AND `M1`'S FOUR REPORTABLE RUNS ARE NOW PART OF A PUBLISHED
+MAGNITUDE** *(2026-08-07, `rf2-t2flm`)*. The paragraph above was right to stop:
+whether a control passing on four of eight runs is the same claim as a control
+that can adjudicate the row is a **ruling**, and a worker holding a measurement
+is not the one to make it. The ruling went **for** adjudication — the passes are
+mechanistic (`rf2-8a746`), the rule they pass was pre-registered six days before
+this ensemble, and a second independently launched ensemble replicates the result.
+This ensemble's four runs supply `hicasso / uix-subs` **1.1837×** and
+`hicasso / reagent-subs` **1.1402×** to the published row at
+[§4.3](#43-the-published-m1-row), where they are stated with their conditional
+labels, their whole-ensemble bands and their raw quotients. **Nothing on this
+page is restated by that** — §7.2's own sentence, *"the re-take does not restate
+one figure on this page"*, still holds: §4.3 publishes from the retained
+ensembles, and the seven runs this page was written on are untouched.
 
 **The one command, over evidence it may publish from:**
 
