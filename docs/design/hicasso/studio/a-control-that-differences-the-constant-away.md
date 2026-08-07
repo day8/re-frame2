@@ -393,3 +393,17 @@ Every figure on this page is recomputable from the dataset the run writes when
 `inPageRounds` per block, the control's per-block terms and marginals, the page's
 **declared** plan, and what the 2D arm actually rendered when the falsification
 knob was on.
+
+**That sentence is about the FORMAT, and this page's own datasets were not
+retained** *(2026-08-07, `rf2-emvod`, recorded rather than repaired)*. Nothing
+tracked in the tree holds the run behind §2's constants, §3's marginal-cost and
+`LayoutDuration` tables, §5's noise figures or §6's sabotage result, so the two
+commands above take a **new** run at this instrument rather than recomputing
+*this* one, and the falsification is re-performed rather than re-read. Re-taking
+them is a measurement and not a repair; none was taken to write this note, and
+no figure above is restated. The retention contract that would close it — a run
+of the full published shape writing under a canonical name, a refused or partial
+one writing the same serialised shape beside it, and both saying which they are
+in the file — is `rf2-2rtt6.31`'s two-tier policy, which `clock_run.cjs` adopts
+when it is next touched. Its reading end is already armed: see
+[the corrected-clock page's §7.1](rows-re-adjudicated-on-the-corrected-clock.md#71-what-this-page-cannot-regenerate).

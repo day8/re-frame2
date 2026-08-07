@@ -118,11 +118,12 @@
 //
 // The canonical dataset directory holds THE PUBLISHED SHAPE and nothing
 // else. A run that is narrowed (C56CLOCK_ROWS / C56CLOCK_ONLY), taken at an
-// overridden depth, taken `--no-build`, or refused by the verdict above
-// writes to a sibling `.unpublished` directory instead, named on stdout with
-// the reason; an explicit C56CLOCK_DATA_DIR is honoured as given. See the
-// note above `destination` — that routing is rf2-2rtt6.56's half of the same
-// fail-open rf2-rr6do repaired on the exit path.
+// overridden depth, taken `--no-build`, taken with the quiet gate skipped
+// (C56CLOCK_SKIP_QUIET), or refused by the verdict above writes to a sibling
+// `.unpublished` directory instead, named on stdout with the reason; an
+// explicit C56CLOCK_DATA_DIR is honoured as given. See the note above
+// `destination` — that routing is rf2-2rtt6.56's half of the same fail-open
+// rf2-rr6do repaired on the exit path.
 
 'use strict';
 
@@ -912,8 +913,14 @@ function verdict(summary) {
 // path; this is the write path, the other half of the same fail-open.
 //
 // THE RULE: the canonical directory holds the PUBLISHED SHAPE and nothing
-// else. Any narrowing, any override, any refusal routes to a sibling
-// `.unpublished` directory, named on stdout with the reason.
+// else. Any narrowing, any override, any skipped gate, any refusal routes to
+// a sibling `.unpublished` directory, named on stdout with the reason.
+//
+// rf2-azopg added the skipped gate to that list, and it is the sharpest case:
+// C56CLOCK_SKIP_QUIET=1 already PRINTED "NOT the published shape", but the
+// fact never reached here, so a run taken on a contended box could occupy the
+// canonical set and read back as if it had been taken in a granted window.
+// That is the one distinction the whole quiet-box discipline exists to keep.
 //
 // An explicit C56CLOCK_DATA_DIR is the operator naming their own destination
 // — which is how the sibling `censusclock-*` datasets beside the canonical
@@ -932,6 +939,7 @@ function destination(shape, code) {
   if (s.runsOnly) why.push(`a PARTIAL run set (C56CLOCK_ONLY=${s.runsOnly})`);
   if (s.noBuild) why.push("--no-build (the bundle on disk is not known to be this tree's)");
   if (!s.depthPublished) why.push('an OVERRIDDEN design depth');
+  if (s.skipQuiet) why.push('a SKIPPED quiet gate (C56CLOCK_SKIP_QUIET=1)');
   if (!why.length) return { dir: s.dataDir, canonical: true, why: null };
   return { dir: `${s.dataDir}.unpublished`, canonical: false, why: why.join('; ') };
 }
@@ -1002,6 +1010,10 @@ const runShape = () => ({
   runsOnly: ONLY || null,
   noBuild: NO_BUILD,
   depthPublished: depthIsPublished(),
+  // The quiet gate PRINTS that a skipped run is not the published shape
+  // (`quietGate`); until rf2-azopg nothing carried that fact here, so the
+  // write decision never saw it. Printing a caveat is not enforcing one.
+  skipQuiet: SKIP_QUIET,
 });
 
 // ---------------------------------------------------------------------------
