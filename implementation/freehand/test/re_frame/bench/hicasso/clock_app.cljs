@@ -38,7 +38,7 @@
   runs inside a protocol command and Chromium bills page script run there
   to the DevTools term. So it is nearer the in-page window's COMPLEMENT
   than its superset, and neither window is named by the bare adjective
-  "frame-inclusive" anywhere in this lane.
+  *frame-inclusive* anywhere in this lane.
 
   ## THREE segments, one substrate arm each, and why that is forced
 
