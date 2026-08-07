@@ -72,7 +72,9 @@
 // REPORTED here and decided by `jsfb_ours_run.cjs`, which owns them and
 // exits on them. Two programs deciding one verdict is the defect
 // `clock_exit_path.test.cjs` exists to pin, and this file is not going to
-// grow a second seat for it.
+// grow a second seat for it. But reporting a gate is not licence to invent
+// one: an unverified-writes count the JSON does not carry is now printed as
+// UNSTATED rather than defaulted into a clean total (rf2-0fixc).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -365,8 +367,20 @@ function report(theirs, ours, rows) {
     console.log(`;;   DOM parity        ${ours.parity && ours.parity.identical ? 'IDENTICAL' : 'DIFFERENT'}`);
     console.log(`;;   positive control  ${ours.control && ours.control.pass ? 'PASS' : 'FAIL'}`);
     console.log(`;;   page errors       ${ours.pageErrors}`);
-    const unv = Object.values(ours.summary).reduce((a, s) => a + (s && s.unverified ? s.unverified : 0), 0);
-    console.log(`;;   unverified        ${unv}`);
+    // A COUNT THAT IS NOT THERE IS NOT A ZERO (rf2-0fixc). This fold defaulted
+    // a missing `unverified` to 0, so an entry that never recorded the field
+    // read exactly like one that recorded it as 0 having verified every write.
+    // The field is REQUIRED, and the benchmarks lacking it are named instead of
+    // summed away. UNSTATED rather than UNMEASURED because nobody measures this
+    // one: the rig counts it, and the fault is that it did not say so.
+    const unstated = Object.entries(ours.summary).filter(([, s]) => !s || !Number.isFinite(s.unverified));
+    if (unstated.length > 0) {
+      console.log(
+        `;;   unverified        UNSTATED — no \`unverified\` count under ${unstated.map(([k]) => k).join(', ')}, so no total is derived`
+      );
+    } else {
+      console.log(`;;   unverified        ${Object.values(ours.summary).reduce((a, s) => a + s.unverified, 0)}`);
+    }
   }
 
   console.log('');
