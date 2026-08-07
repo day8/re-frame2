@@ -2016,6 +2016,72 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 }
 
+// --- THE ADJECTIVE, which is what both instrument errors hid behind ---------
+//
+// rf2-yd52q's merged-PR audit (#7363) named the mislabel the root cause of
+// BOTH instrument errors this programme has suffered. `taskNet` is
+// `TaskDuration` less `DevToolsCommandDuration`, and because every arm's
+// operation runs inside `page.evaluate` — a protocol command Chromium bills
+// whole, page script included — the subtraction removes the operation's own
+// script. So `taskNet` is FRAME-ONLY and nearer the in-page window's
+// COMPLEMENT than its superset, and calling it "frame-inclusive" is not loose
+// wording but a false statement about which quantity is on the row. It
+// survived a full audit because the driver printed the two clocks' RATIO and
+// never their absolutes, so the one tell that needed no arithmetic — a
+// substrate arm's in-page absolute EXCEEDING its `taskNet` absolute — was
+// never on screen.
+//
+// A one-time sweep does not hold that. This does: no line of a
+// `Performance.getMetrics` driver that is not WHOLLY a comment may carry the
+// adjective. Prose may — and must — discuss the mislabel; a printed LABEL,
+// an identifier or a serialised key may not carry it, because those are what
+// a reader takes the row's quantity from.
+//
+// THE ROSTER IS THE THREE CDP DRIVERS AND DELIBERATELY NOT THE LANE.
+// `chrome_run.cjs` reports an in-page `performance.now()` span that closes
+// after a `requestAnimationFrame` + `setTimeout`, which genuinely does span
+// the frame. Its label is accurate and banning the word there would trade a
+// true statement for a rule.
+{
+  const CDP_DRIVERS = [
+    path.join(__dirname, 'clock_run.cjs'),
+    path.join(__dirname, 'hd8_clock_run.cjs'),
+    path.join(__dirname, 'shapes', 'census_clock_run.cjs'),
+  ];
+  // Whole-line comments only. A trailing `//` is not stripped, so a label
+  // followed by a comment cannot smuggle the adjective past this, and neither
+  // can a `//` inside a string literal truncate a line out of the search.
+  const code = (src) =>
+    src
+      .split('\n')
+      .map((line, i) => [i + 1, line])
+      .filter(([, line]) => !/^\s*\/\//.test(line));
+
+  for (const file of CDP_DRIVERS) {
+    const name = path.relative(__dirname, file).replace(/\\/g, '/');
+    test(`${name}: the banked clock is never LABELLED "frame-inclusive"`, () => {
+      const hits = code(fs.readFileSync(file, 'utf8')).filter(([, line]) => /frame-inclusive/i.test(line));
+      assert.deepStrictEqual(
+        hits.map(([n, line]) => `${n}: ${line.trim()}`),
+        [],
+        `${name} labels a reading "frame-inclusive" outside prose. ` +
+          `\`taskNet\` is frame-ONLY — name the window by what it measures.`
+      );
+    });
+  }
+
+  test('the adjective guard is not vacuous — it refuses a label and passes prose', () => {
+    // Both halves, because a guard that cannot be shown to refuse proves
+    // nothing, and one that refuses the correcting sentence would be deleted
+    // by the first person who had to write it.
+    const label = "console.log(`;; clock  frame-inclusive ${x}x`);";
+    const prose = '// a frame-ONLY clock, not a frame-inclusive one — see rf2-yd52q';
+    assert.strictEqual(code(label).length, 1, 'a printed label is code, and must be searched');
+    assert.match(code(label)[0][1], /frame-inclusive/);
+    assert.deepStrictEqual(code(prose), [], 'a whole-line comment is prose, and must not be');
+  });
+}
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {
