@@ -60,7 +60,6 @@ const {
   CONTROL,
   ALL_ROWS,
   ARMS,
-  BASE,
   OTHERS,
 } = require('./jsfb_ours_run.cjs');
 
