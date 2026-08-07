@@ -411,16 +411,55 @@ the strength of a shared witness, so the chain is one link longer than the mount
 row's and inherits its gap: this is corroboration of a *parity verdict* by
 analogy, not a check of this harness at all.
 
-**`bulk narrow 1.1754×` — EXPOSED, NOT ADJUDICATED.** The cross-check's `narrow`
-row writes one commit per window (`k=1`) where the published row batches ten
-commits into one window, so the numbers are not comparable and this audit does
-not claim they are. What the row does establish is that the split between the two
-halves is just as large on a narrow write (+398% to +484% on the substrate arms)
-and that moving from the script half to the frame half moves the statistic toward
-parity (`0.9156×` → `1.0062×`, +9.9%) — **both frame-only-versus-in-page figures,
-and neither is the corrected clock**, which has no donor bar for this row (see
-§3). A published row sitting 17.5% off parity, on a witness whose two halves
-split this far apart, is not safe to quote without the check.
+**`bulk narrow 1.1754×` — ~~EXPOSED, NOT ADJUDICATED~~ UNCHECKED AGAINST THE
+CLOCK OF RECORD, AND UNCHECKABLE THERE UNTIL THE BULK CONTROL IS SETTLED.**
+*(2026-08-07, `rf2-r7q6n`, on the close of `rf2-ph85f`.)* The new label is
+strictly stronger than the old one and says a different thing: the check is not
+merely outstanding, it **cannot be posed** on any instrument this programme owns
+until a separate question — `rf2-8a746`'s — is answered. `1.1754×` does not move.
+It stays exactly where it is, an **in-page figure** and labelled as one; nothing
+in this rewording withdraws a number, restates one, or transfers one to another
+clock.
+
+The evidence for the old label is unchanged and still holds. The cross-check's
+`narrow` row writes one commit per window (`k=1`) where the published row batches
+ten commits into one window, so the numbers are not comparable and this audit
+does not claim they are. What the row does establish is that the split between
+the two halves is just as large on a narrow write (+398% to +484% on the
+substrate arms) and that moving from the script half to the frame half moves the
+statistic toward parity (`0.9156×` → `1.0062×`, +9.9%) — **both
+frame-only-versus-in-page figures, and neither is the corrected clock**, which
+has no donor bar for this row (see §3). A published row sitting 17.5% off parity,
+on a witness whose two halves split this far apart, is not safe to quote without
+the check.
+
+**What is new is why the check is unavailable, and it is structural rather than
+budgetary.** The clock of record has exactly one raw-`TaskDuration` instrument on
+the `M1` page, `clock_run.cjs`, and four facts in that instrument compose into a
+verdict fixed before any box is booted:
+
+- [`clock_app.cljs:121`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_app.cljs)
+  — `:narrow` is **already** `{:kind :bulk :k 1}`. It is not a row awaiting a
+  bulk classification; it has one.
+- [`clock_app.cljs:553-557`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_app.cljs)
+  — `arms-for` appends `(ctl3-arms)` to **every** `:bulk` row, with no further
+  condition.
+- [`clock_run.cjs:3032-3051`](../../../../implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs)
+  — the presence of those three arms is what *selects the gate*: `ctlBad` reads
+  `ctl3.ok` **alone** on any row that carries them, and `ctl-2x` is demoted to a
+  printed diagnostic there.
+- `ctl3-arms` is **nullary** — it takes no row key and no `k` — so the control's
+  three arms are byte-identical across `bulk300`, `bulk100` and `narrow`. A batch
+  parameter added to the `narrow` row would move the *substrate* arms' windows
+  and reach the control not at all.
+
+So the row inherits `rf2-8a746`'s **0-of-42** three-point refusal *by
+construction*, and a rung built to take this check would be a fourth replicate of
+the experiment that refused rather than a new measurement. `rf2-8a746` owns the
+settling question — whether that control can be made to hold on this page at all
+— and until it is settled there is no instrument here on which the batched narrow
+row could return a reportable magnitude. `rf2-ph85f` is where that unposeability
+was established from source, and it closed on that ground.
 
 **The outstanding check is a ten-commits-per-window narrow row on raw
 `TaskDuration`, and naming the clock is not pedantry.** `rf2-ph85f` was filed
@@ -466,8 +505,10 @@ recomputation and nothing here manufactures one.
 > on the corrected clock batching buys no resolution. It does not follow that
 > the unbatched row substitutes: ten commits in one window and ten windows of
 > one commit are different work, and the difference is exactly the scheduling
-> the localisation claim is about. `rf2-ph85f` item 1 therefore stays open, and
-> is now specified.
+> the localisation claim is about. ~~`rf2-ph85f` item 1 therefore stays open, and
+> is now specified.~~ *(2026-08-07, `rf2-r7q6n`: `rf2-ph85f` item 1 **closed as
+> mis-specified**. Specifying the rung was what showed it could not be built to
+> answer anything — see the paragraph above the box, and `rf2-8a746`.)*
 >
 > **And the nearest available reading supplies nothing either.** The `k=1`
 > `narrow` row *is* in
