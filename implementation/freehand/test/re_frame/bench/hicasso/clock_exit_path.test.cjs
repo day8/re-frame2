@@ -832,7 +832,10 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
 {
   const CLOCK = path.join(__dirname, 'clock_run.cjs');
-  const { reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest } = require('./clock_run.cjs');
+  const {
+    reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest,
+    ctl3Verdict, ctl3SelfTest,
+  } = require('./clock_run.cjs');
   const SRC = fs.readFileSync(CLOCK, 'utf8');
   const t = (what, fn) => test(`clock_run.cjs: ${what}`, fn);
   const KEYSTROKE_WHY = "UNADJUDICATED — this row's control burns a fixed 50 ms rather than doubling the page";
@@ -849,6 +852,114 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const bad = checks.filter((c) => !c.ok);
     assert.deepStrictEqual(bad, [], bad.map((c) => `${c.name}: ${c.detail}`).join('\n'));
   });
+
+  // --- the three-point control's own fixtures, likewise --------------------
+  //
+  // The driver runs these before the browser opens and dies if one fails, but
+  // that path needs an `:advanced` build to reach. Driving them here puts the
+  // control's refusals in the fast spine, where a change to how a run
+  // DESCRIBES itself gets checked against what it DECIDES.
+
+  t("the three-point control's own self-test passes, every case", () => {
+    const { checks } = ctl3SelfTest();
+    assert.ok(checks.length >= 10, `expected the control's fixtures, got ${checks.length}`);
+    const bad = checks.filter((c) => !c.ok);
+    assert.deepStrictEqual(bad.map((c) => c.name), [], 'the control must still refuse everything it refused');
+  });
+
+  // --- rf2-8bgqq: the run figure is a summary, never a verdict --------------
+  //
+  // The headline moved from the block MEAN to the block MEDIAN, because a mean
+  // over a quotient whose denominator sits ~2 sigma from zero summarises
+  // whichever block came nearest to it: rf2-8a746's two ensembles were read as
+  // DISAGREEING at 1.6045x and 86.05x when their block medians were 1.569 and
+  // 1.575 and they agreed to within 2% on every structural quantity.
+  //
+  // A robuster headline is worth nothing if it is also a softer gate, and the
+  // median is precisely the statistic that shrugs off the one wild block. So
+  // the load-bearing assertion is not that the number improved — it is that a
+  // run which refused before refuses after, ON A RUN BUILT SO THE NEW HEADLINE
+  // LOOKS PERFECT: eight clean blocks and one whose denominator has collapsed,
+  // median dead on the prediction and inside the band, verdict still FAIL.
+  {
+    const SEG = ['reagent-subs', 'uix-subs', 'hicasso'];
+    const D = [1, 100, 200];
+    const plan = ['ctl-d1', 'ctl-d100', 'ctl-d200'].map((id, i) => ({
+      id, dirty: D[i], ctl3: true, ctl3Witness: false, cells: 300,
+    }));
+    const A = 0.006;
+    const C = 3.5;
+    const synth = (f) => {
+      const rs = [];
+      for (let r = 0; r < 3; r++) {
+        const per = {};
+        for (let i = 0; i < SEG.length; i++) {
+          per[SEG[i]] = {
+            'ctl-d1': [f(1, r, i)], 'ctl-d100': [f(100, r, i)], 'ctl-d200': [f(200, r, i)],
+            floor: [f(300, r, i)], plumb: [0.7],
+          };
+        }
+        rs.push(per);
+      }
+      return rs;
+    };
+    // One block of nine with a denominator collapsed to 0.02 ms; the rest
+    // linear and exact. Both differences stay positive, so the sign gate is
+    // clean and the refusal is the band's, exactly as on the real runs.
+    const heavy = ctl3Verdict(
+      synth((d, r, i) => (r === 0 && i === 0 ? { 1: 5.0, 100: 5.02, 200: 7.0 }[d] : A * d + C)),
+      plan,
+      0.25
+    );
+
+    t('rf2-8bgqq: a refusal STAYS a refusal though the new headline lands dead on the prediction', () => {
+      assert.strictEqual(heavy.measured.p50, 2.0101, 'the median is the prediction, to four places');
+      assert.ok(
+        heavy.measured.p50 >= heavy.band[0] && heavy.measured.p50 <= heavy.band[1],
+        `the new headline must be INSIDE the band [${heavy.band}] for this test to mean anything`
+      );
+      // ...and the run refuses anyway. A verdict that read the summary would
+      // pass here, and that is the whole failure this test exists to catch.
+      assert.strictEqual(heavy.ok, false, 'one out-of-band block must still refuse the run');
+      assert.strictEqual(heavy.sign.ok, true, 'refused by the BAND, not swept up by the sign gate');
+      assert.strictEqual(heavy.perRound.filter((x) => x > 10).length, 1, 'exactly one wild block');
+    });
+
+    t('rf2-8bgqq: the mean it replaced was off by a factor of six, from that one block', () => {
+      assert.strictEqual(heavy.measured.mean, 12.8979);
+      assert.ok(heavy.measured.mean > heavy.band[1], 'the OLD headline was outside the band it is quoted against');
+    });
+
+    t('rf2-8bgqq: the denominator is surfaced in ms, which is where the collapse is visible', () => {
+      assert.strictEqual(heavy.signal.denMs.p50, 0.594, 'the healthy denominator');
+      assert.strictEqual(heavy.signal.denMs.min, 0.02, 'and the collapsed one, which the ratio alone cannot show');
+    });
+
+    t('rf2-8bgqq: on a healthy run the median IS the mean, so no untailed run moved', () => {
+      const clean = ctl3Verdict(synth((d) => A * d + C), plan, 0.25);
+      assert.strictEqual(clean.ok, true);
+      assert.strictEqual(clean.measured.p50, clean.measured.mean);
+      assert.strictEqual(clean.measured.p50, 2.0101);
+    });
+
+    t('rf2-8bgqq: every refusing world in the fixture set still refuses', () => {
+      // The summary changed; the refusals may not. Each of these is a world
+      // the control is built to reject, driven through the same entry point.
+      const at = (m) => (d) => (d in m ? m[d] : 0);
+      const refusing = {
+        'decreasing (more dirty work reads FASTER)': synth((d) => 10 - A * d),
+        'superlinear': synth((d) => (A * Math.pow(d, 2)) / 300 + C),
+        'a dead page': synth(() => C),
+        'negative denominator': synth(at({ 1: 5.0, 100: 4.7, 200: 4.4 })),
+        'zero denominator': synth(at({ 1: 5.0, 100: 5.0, 200: 6.2 })),
+        'an unreadable arm': synth((d) => (d === 100 ? NaN : A * d + C)),
+      };
+      for (const [name, rounds] of Object.entries(refusing)) {
+        assert.strictEqual(ctl3Verdict(rounds, plan, 0.25).ok, false, `${name} must still refuse`);
+      }
+      assert.strictEqual(ctl3Verdict([], plan, 0.25).ok, false, 'and an empty block set is not a pass');
+    });
+  }
 
   // --- the defect itself, driven here as well as in the driver -------------
 
