@@ -476,6 +476,128 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     );
     assert.ok(SRC.split('depthIsPublished()').length - 1 >= 2, 'the one predicate must serve both readers');
   });
+
+  // --- rf2-jo60g: the split the driver collects must reach the file ----------
+  //
+  // `deltaOf` has always read ScriptDuration / LayoutDuration /
+  // RecalcStyleDuration per sample, the report has always printed the row's
+  // means, and `datasetFor` dropped all three. So census-real-clock-rows.md's
+  // P1 scoring — "layout 2.06x, style 1.85x, script 2.3x" on the feed row —
+  // was a figure the tree could not reproduce: real when taken, unreachable
+  // afterwards. These tests drive the WRITE, hermetically, on a fixture row.
+  // NO measurement is taken here and none is needed: what regressed is what
+  // the serialiser keeps.
+
+  const { datasetFor, foldDecomposition } = DRIVERS[1].mod;
+  const round4 = (x) => Math.round(x * 10000) / 10000;
+
+  // Four blocks over two rounds, ten samples each. Per-block sums differ so a
+  // fold that read one block, or averaged the blocks' means, cannot pass:
+  // only summing all four gives floor 1.0 / 1.0 / 0.1 ms per sample against
+  // ctl-2x 2.06 / 1.85 / 0.23 — the page's cited ratios, exactly.
+  const DECOMP_BLOCK = (n, layout, style, script) => ({
+    n, task: layout + style + script, taskNet: 0, devtools: 0, script, style, layout, layoutCount: n, inPage: 0,
+  });
+  const FIXTURE_DECOMP = [
+    [
+      { floor: DECOMP_BLOCK(10, 8, 9, 0.8), 'ctl-2x': DECOMP_BLOCK(10, 20, 18, 2.0) },
+      { floor: DECOMP_BLOCK(10, 12, 11, 1.2), 'ctl-2x': DECOMP_BLOCK(10, 21, 19, 2.4) },
+    ],
+    [
+      { floor: DECOMP_BLOCK(10, 9, 10, 1.0), 'ctl-2x': DECOMP_BLOCK(10, 20.4, 18.5, 2.4) },
+      { floor: DECOMP_BLOCK(10, 11, 10, 1.0), 'ctl-2x': DECOMP_BLOCK(10, 21, 18.5, 2.4) },
+    ],
+  ];
+  const CITED = { layout: 2.06, style: 1.85, script: 2.3 };
+
+  const fixtureRow = (over = {}) => ({
+    runId: 'reagent',
+    rowId: 'feed',
+    armIds: ['plumb', 'floor', 'ctl-2x'],
+    canon: { floor: true },
+    ctlPredicted: 1.9943,
+    blocksTask: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
+    blocksNet: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
+    blocksInPage: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
+    blocksDecomp: FIXTURE_DECOMP,
+    tally: { writes: 36, unverified: 0 },
+    runtime: 'fixture',
+    quiet: { ok: true },
+    windowStart: '2026-08-07T00:00:00.000Z',
+    adjudication: {
+      ctl: { ok: true },
+      cAdditive: 0.9,
+      assessed: { bandStats: { band: 0.12 }, verdict: { ceilingBreached: false } },
+      bars: {},
+      verdicts: {},
+      guardRefuse: false,
+      plumb: 0.5,
+      floorTared: 1.14,
+    },
+    ...over,
+  });
+  const META = { sha: 'deadbeef', blobs: {}, dest: { canonical: true, why: null } };
+  const written = () => JSON.parse(JSON.stringify(datasetFor([fixtureRow()], META))).rows[0];
+
+  t('the Script / Layout / RecalcStyle split reaches the written dataset', () => {
+    const row = written();
+    assert.ok(row.blocksDecomp, 'the split was collected and then dropped at write time — that was the defect');
+    // At the same block grain as the arrays beside it, not a row-level lump.
+    assert.strictEqual(row.blocksDecomp.length, FIXTURE_DECOMP.length);
+    assert.strictEqual(row.blocksDecomp[0].length, FIXTURE_DECOMP[0].length);
+    for (const arm of ['floor', 'ctl-2x']) {
+      for (const k of ['n', 'script', 'style', 'layout']) {
+        assert.ok(Number.isFinite(row.blocksDecomp[0][0][arm][k]), `${arm}.${k} must be a number in the file`);
+      }
+    }
+  });
+
+  t("the studio page's cited decomposition is recomputable from the file alone", () => {
+    // The whole point of the bead: read the JSON, fold it, divide, and the
+    // page's three numbers come back out. Nothing here reads the browser.
+    const fold = foldDecomposition(written().blocksDecomp);
+    const mean = (arm, k) => fold[arm][k] / fold[arm].n;
+    for (const [k, cited] of Object.entries(CITED)) {
+      assert.strictEqual(round4(mean('ctl-2x', k) / mean('floor', k)), cited, `${k} must recompute to ${cited}x`);
+    }
+    // ... and the fold is the sum of the stored blocks, so the row the report
+    // prints and the file are the same quantity.
+    assert.strictEqual(fold.floor.n, 40);
+    assert.strictEqual(round4(fold['ctl-2x'].layout), 82.4);
+  });
+
+  t('a row written BEFORE this change fails closed rather than folding to zeros', () => {
+    // This is the state of every census dataset on main when rf2-jo60g was
+    // filed. A fold that answered on it would hand the reader a number for a
+    // split the file never recorded, which is the defect wearing a fix's face.
+    const legacy = written();
+    delete legacy.blocksDecomp;
+    assert.throws(() => foldDecomposition(legacy.blocksDecomp), /NOT recomputable/);
+    assert.throws(() => foldDecomposition([]), /NOT recomputable/);
+  });
+
+  t('every committed census dataset either carries the split or refuses to answer', () => {
+    // Capture backfills nothing: the datasets on disk gain the fields on the
+    // next canonical run, not on this commit. Whatever is there, the rule is
+    // the same — a row with the split folds, a row without it refuses. There
+    // is no third answer, so this stays true across the re-run.
+    const dir = path.join(__dirname, 'data');
+    const files = fs
+      .readdirSync(dir)
+      .filter((d) => d.startsWith('censusclock-'))
+      .flatMap((d) => fs.readdirSync(path.join(dir, d)).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, d, f)));
+    assert.ok(files.length >= 2, 'expected the committed census datasets');
+    for (const f of files) {
+      for (const row of JSON.parse(fs.readFileSync(f, 'utf8')).rows) {
+        if (row.blocksDecomp) {
+          const fold = foldDecomposition(row.blocksDecomp);
+          assert.ok(Object.values(fold).every((a) => a.n > 0), `${f}: a stored split must fold to real counts`);
+        } else {
+          assert.throws(() => foldDecomposition(row.blocksDecomp), /NOT recomputable/, `${f}: must refuse, not answer`);
+        }
+      }
+    }
+  });
 }
 
 // --- clock_run.cjs: the bar-level adjudication must reach the exit code -------
