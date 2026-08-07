@@ -22,7 +22,8 @@
   between the segments and nothing else — and every published figure is a
   ratio to the floor measured in the SAME segment of the SAME round. That
   is what makes a UIx-over-Reagent ratio legitimate across the seam:
-  neither number is an absolute millisecond and the seam cancels.
+  neither number is an absolute millisecond, and the seam cancels
+  PROVIDED that drift is common-mode.
 
   A round in which the floor's two segments disagree by more than the
   stated tolerance is reported as such; it is the seam's own control.

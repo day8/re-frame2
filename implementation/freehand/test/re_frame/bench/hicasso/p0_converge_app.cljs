@@ -121,8 +121,9 @@
   other, re-register, re-seed — with the FLOOR IN BOTH. The floor holds no
   re-frame state, reads no subscription and is untouched by which adapter
   is installed, so a UIx-over-Reagent figure is a ratio of two
-  floor-normalised ratios and the seam cancels. That cancellation is
-  PUBLISHED rather than assumed: the floor's own p50 in the UIx segment
+  floor-normalised ratios, and the seam cancels PROVIDED the segment
+  drift is common-mode. That cancellation is PUBLISHED rather than
+  assumed: the floor's own p50 in the UIx segment
   over its p50 in the Reagent segment is reported per round per row, and
   a reader can see how far it moves and how much less the derived ratio
   moves.

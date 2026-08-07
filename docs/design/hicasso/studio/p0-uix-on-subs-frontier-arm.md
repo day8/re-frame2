@@ -71,8 +71,9 @@ housekeeping.
 
 **Five of the ten instrument blobs have moved since these rows were taken, and
 this page says so rather than leaving a reader to discover it.** The three arm
-definitions and both fixtures are byte-identical on main; the driver, the heap
-probe, the app shell, the harness and the guard are not. The heap rows are
+definitions and both fixtures are byte-identical on main at that SHA; the
+driver, the heap probe, the app shell, the harness and the guard are not. The
+heap rows are
 **not** re-run on that account: under the heap-regime ruling (rf2-2rtt6.16)
 they stand as shared-query fan-out evidence rather than as the operative
 red-zone family, and the sweep that prices the regimes against each other is
@@ -133,7 +134,8 @@ the two candidate arms **cannot be interleaved inside one round**. Each round
 therefore runs two segments — destroy the adapter, install the other, re-seed —
 with the **floor in both**. The floor holds no re-frame state and is untouched by
 which adapter is installed, so a UIx-over-Reagent figure is a ratio of two
-floor-normalised ratios and the seam cancels.
+floor-normalised ratios, and the seam cancels provided the segment drift is
+common-mode.
 
 That cancellation is relied upon heavily and is **published rather than assumed**.
 The floor's own UIx-segment p50 over its Reagent-segment p50, per round:
@@ -189,6 +191,35 @@ Both arms against the floor, for context:
 | W3-form | 1.948× [1.857 – 2.028] | 1.738× [1.633 – 1.827] |
 | U-broad | 8.064× [7.250 – 8.769] | 6.729× [6.100 – 7.318] |
 | U-narrow | 4.277× [3.875 – 4.731] | 6.502× [5.800 – 7.271] |
+
+### The floor-free counterpart
+
+Every row in the red-zone table divides one floor-normalised ratio by another,
+so the two segments' floors both enter it: `(U/F_U) ÷ (R/F_R)` is
+`(U/R) × (F_R/F_U)`, and that second term is the reciprocal of the seam control
+published above.
+Both tables are per round, so the floor-free estimator — `uix-subs` p50 over
+`reagent-subs` p50, touching neither floor — is their exact product. The
+per-round p50s themselves did not survive this arm, so the column below is
+recovered from the two rounded tables rather than re-measured; read two
+decimals, not three.
+
+| witness | floor-normalised | floor-free | floor-free per round | verdict |
+|---|---|---|---|---|
+| **W1-list** mount | 1.057× | **1.350×** [0.867 – 1.696] | 1.598 · 1.084 · 1.506 · 0.867 · 1.696 | straddles 1.0 in both |
+| **W3-form** mount | 0.893× | **0.928×** [0.528 – 1.291] | 1.291 · 0.528 · 1.122 · 0.573 · 1.124 | floor-free straddles; the normalised row does not |
+| **U-broad** bulk | 0.838× | **0.696×** [0.629 – 0.789] | 0.789 · 0.725 · 0.683 · 0.629 · 0.656 | UIx faster in both |
+| **U-narrow** bulk | 1.536× | **1.150×** [1.053 – 1.257] | 1.172 · 1.098 · 1.257 · 1.172 · 1.053 | UIx slower in both |
+
+The two estimators keep three verdicts of four and disagree on the means by up
+to 28% — nothing like the 0.06 – 5.6% agreement [the converged witness
+set](p0-converged-witness-set.md) reports, and the reason is visible in the
+seam: that page's seam straddles unity on every row, and this one's row means
+run 0.762 – 1.290. The floor-free column is not thereby the better number. Its
+per-round values alternate with segment order, which is the confound the
+normalisation exists to remove. What it does establish is that `F_R/F_U` is
+bounded here by this page's own control rather than unknown, and these four
+rows are superseded as thresholds, so nothing gates on the gap.
 
 ### Reading the narrow row
 
