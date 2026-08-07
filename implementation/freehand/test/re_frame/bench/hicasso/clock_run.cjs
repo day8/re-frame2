@@ -2466,6 +2466,180 @@ function reportabilitySelfTest() {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * THE DESIGN DEPTH EVERY PUBLISHED TABLE ON THIS LANE WAS TAKEN AT. The knobs
+ * exist so a reader can probe the instrument cheaply; a probe is not the
+ * published shape, and `publication` below is where that distinction is made.
+ */
+const PUBLISHED_DEPTH = { rounds: 6, warmup: 4, samples: 10 };
+
+/**
+ * IS THIS FILE THE PUBLISHED EVIDENCE SET? (rf2-2rtt6.31, rf2-e87sk)
+ *
+ * The family's two-tier write policy splits CAPTURE from PUBLICATION: every
+ * completed measurement is preserved, and only a run of the full published
+ * shape is eligible published evidence. A dataset says which it is IN THE
+ * FILE, because the directory a file was found in is exactly what it loses
+ * when it is copied — and `clock_readjudicate.cjs`'s first gate refuses a file
+ * that does not say, because absent is not a pass.
+ *
+ * WHAT THIS ANSWERS, AND WHAT IT DELIBERATELY DOES NOT. This is the SHAPE
+ * verdict: was the run the published design, over every row, against a bundle
+ * built from this tree, with no falsification knob set and the tare on? It is
+ * NOT the run's own verdict. Every gate this driver exits on is serialised per
+ * row by `datasetFor` below and re-adjudicated by the readjudicator's twelve
+ * ROW gates, so folding them in here would be a second seat deciding what one
+ * seat already decides — the fault this driver's exit path was rebuilt to
+ * remove. Shape here, run there; the two together are the filter.
+ *
+ * Pure over a flat record, for the reason `reportability` is: the write path
+ * is then checkable without a release build and a headless Chromium.
+ */
+function publication(shape) {
+  const s = shape || {};
+  const why = [];
+  if (s.rowsOnly) why.push(`a PARTIAL row set (HCLOCK_ONLY=${s.rowsOnly})`);
+  if (s.noBuild) why.push("--no-build (the bundle on disk is not known to be this tree's)");
+  if (!s.depthPublished) why.push('an OVERRIDDEN design depth');
+  if (!s.tare) why.push('the tare DISABLED (HCLOCK_TARE=off)');
+  if (s.sabotage) why.push(`a FALSIFICATION run (HCLOCK_CTL3_SABOTAGE=${s.sabotage})`);
+  return why.length === 0 ? { canonical: true, why: null } : { canonical: false, why: why.join('; ') };
+}
+
+/** This process's own shape, in the flat form `publication` reads. */
+function runShape() {
+  return {
+    rowsOnly: ONLY || null,
+    noBuild: NO_BUILD,
+    depthPublished:
+      ROUNDS === PUBLISHED_DEPTH.rounds && WARMUP === PUBLISHED_DEPTH.warmup && SAMPLES === PUBLISHED_DEPTH.samples,
+    tare: TARE,
+    sabotage: CTL3_SABOTAGE,
+  };
+}
+
+/**
+ * THE RUN'S DATASET — the raw readings, and EVERY verdict this driver exits
+ * on, so a reader holding the file can re-adjudicate the run instead of
+ * trusting it.
+ *
+ * LIFTED OUT OF `main`, in `shapes/census_clock_run.cjs`'s idiom and for its
+ * reason. Serialising a row means naming its refusal fields — `pageErrors`,
+ * `guardRefuse`, `parityOk`, `ceilingBreached` — and `main` is held to an
+ * invariant that nothing downstream of the decision may name one
+ * (`clock_exit_path.test.cjs`, the check that stops a second exit path growing
+ * back). A serialiser inside `main` is also a serialiser no test can drive,
+ * because reaching it needs an `:advanced` build and a headless Chromium.
+ * Recording is not deciding, and this is where that shows: every field below
+ * is COPIED off the object the report printed, never recomputed.
+ *
+ * rf2-e87sk IS THE FOUR FIELDS THAT WERE MISSING. `clock_readjudicate.cjs`
+ * carries thirteen gates in this driver's own order, each read off the
+ * serialised record and each fail-closed on ABSENT as well as on failed. Four
+ * of them — `canonical`, `pageErrors`, `parityOk`, `etVerdict` — named
+ * verdicts this driver computed, printed and exited on, and then did not
+ * store. The consumer was right to refuse and no dataset in the tree could be
+ * reportable on those axes: an incomplete record read correctly, not a defect
+ * in the reader. They are stored now, and the erasure cases in
+ * `clock_exit_path.test.cjs` hold each gate closed against their loss.
+ */
+function datasetFor(outcomes, meta) {
+  const pub = (meta && meta.publication) || {};
+  return {
+    label: process.env.HCLOCK_LABEL || null,
+    load: process.env.HCLOCK_LOAD === undefined ? null : Number(process.env.HCLOCK_LOAD),
+    chromium: meta && meta.chromium,
+    node: process.version,
+    when: new Date().toISOString(),
+    // WHETHER THIS FILE IS THE PUBLISHED EVIDENCE, recorded IN the file — a
+    // dataset that travels out of its directory must still say what it is.
+    canonical: pub.canonical,
+    notCanonicalWhy: pub.why,
+    design: { rounds: ROUNDS, warmup: WARMUP, samples: SAMPLES, tare: TARE, segments: SEGMENTS },
+    rows: outcomes.map((o) => ({
+      rowId: o.out.rowId,
+      // Raw per-sample task-time readings, [round][segment][arm].
+      // Everything the seam decomposition needs is derived from
+      // these; the segment's POSITION in a round is
+      // `(SEGMENTS.indexOf(seg) - round) mod 3` by construction.
+      rounds: o.out.rounds,
+      // THE PUBLISHED CLOCK'S OWN RAW READINGS, and the in-page
+      // window's, on the same samples. Only `rounds` (taskNet) was
+      // ever written, so a dataset from this driver could not
+      // recompute the figure the page actually quotes — which is the
+      // durable-evidence gap `rf2-cvvb7`'s merged-PR audit recorded
+      // against the seam study. All three windows are here now, so
+      // every table in `the-candidates-clock.md` is reproducible from
+      // the file without re-running the box.
+      roundsTask: o.out.roundsTask,
+      inPageRounds: o.out.inPageRounds,
+      decomposition: o.out.decomposition,
+      granularity: o.out.granularity,
+      // DID THE PAGE THROW? The driver exits 1 on a non-empty list and stored
+      // none of it, so every figure a reader recomputed from an older dataset
+      // was taken on a page that may already have thrown (rf2-e87sk).
+      pageErrors: o.out.pageErrors,
+      seam: o.verdict.seam,
+      seamTask: o.verdict.seamTask,
+      tally: o.verdict.tally,
+      ctlOk: o.verdict.ctlVerdict ? o.verdict.ctlVerdict.ok : null,
+      // THE THREE-POINT CONTROL, whole — its per-block readings, the
+      // absolutes each difference was taken from, the fitted line and
+      // the constant it recovers. `armPlan` is the page's DECLARED
+      // plan and `sabotage` is what the 2D arm actually rendered, so a
+      // dataset carries the evidence that a falsification run was a
+      // falsification run rather than a measurement.
+      ctl3: o.verdict.ctl3,
+      ctl3Net: o.verdict.ctl3Net,
+      ctl3Layout: o.verdict.ctl3Layout,
+      roundsLayout: o.out.roundsLayout,
+      ctl3Parity: o.verdict.ctl3Parity,
+      constants: o.verdict.constants,
+      armPlan: o.out.armPlan,
+      sabotage: o.out.sabotage,
+      guardRefuse: o.verdict.guardVerdict.refuse,
+      guardRefuseTask: o.verdict.guardVerdictTask.refuse,
+      // DID THE ARMS BUILD THE SAME PAGE? The canonical-DOM gate — a ratio
+      // between two different pages is not a ratio, the driver exits 1 on it,
+      // and it too went unstored (rf2-e87sk).
+      parityOk: o.verdict.parityOk,
+      bar: o.verdict.bar,
+      inPageBar: o.verdict.inPageBar,
+      ctl: o.verdict.ctlVerdict,
+      barTask: o.verdict.barTask,
+      ctlTask: o.verdict.ctlTask,
+      bandTask: o.verdict.bandTask,
+      // THE EVENT-TIMING WITNESS'S VERDICT, which adjudicates the
+      // responsiveness regime (rf2-swwud) and reaches the exit code through
+      // `ctlOk` in the summary below. `null` on every row that has no
+      // keystroke, which is a verdict — the field is present and says so.
+      etVerdict: o.verdict.etVerdict,
+      // THE KEYSTROKE ROW'S RAW ACCOUNTING. `sentKeys` is what the
+      // driver pressed, `eventTiming` is what the browser reported and
+      // `census` is what recomputed — so the published records, the
+      // censored count and the localisation can all be recomputed from
+      // the file without re-running the box, which is what the seam
+      // study's merged-PR audit asked of every row here.
+      sentKeys: o.out.sentKeys,
+      eventTiming: o.out.eventTiming,
+      census: o.out.census,
+      kbShape: o.out.kbShape,
+      kbWitness: o.verdict.kbVerdict
+        ? {
+            ok: o.verdict.kbVerdict.ok,
+            faults: o.verdict.kbVerdict.faults,
+            totals: o.verdict.kbVerdict.totals,
+            perArm: o.verdict.kbVerdict.perArm,
+            records: o.verdict.kbVerdict.records,
+            censored: o.verdict.kbVerdict.censored,
+          }
+        : null,
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+
 async function main() {
   // THE ADJUDICATORS' SELF-TESTS, and they run before anything is built or
   // launched. `ctl3SelfTest` is the one that matters for this driver's new
@@ -2614,89 +2788,20 @@ async function main() {
   }
 
   if (JSON_OUT) {
+    // THE SHAPE VERDICT, announced as well as stored. A run that narrowed the
+    // design or skipped the build still writes its file — capture is not
+    // publication — but nothing downstream should have to infer which it was
+    // from the path the operator chose.
+    const pub = publication(runShape());
     fs.mkdirSync(path.dirname(path.resolve(JSON_OUT)), { recursive: true });
     fs.writeFileSync(
       path.resolve(JSON_OUT),
-      JSON.stringify(
-        {
-          label: process.env.HCLOCK_LABEL || null,
-          load: process.env.HCLOCK_LOAD === undefined ? null : Number(process.env.HCLOCK_LOAD),
-          chromium: version,
-          node: process.version,
-          when: new Date().toISOString(),
-          design: { rounds: ROUNDS, warmup: WARMUP, samples: SAMPLES, tare: TARE, segments: SEGMENTS },
-          rows: outcomes.map((o) => ({
-            rowId: o.out.rowId,
-            // Raw per-sample task-time readings, [round][segment][arm].
-            // Everything the seam decomposition needs is derived from
-            // these; the segment's POSITION in a round is
-            // `(SEGMENTS.indexOf(seg) - round) mod 3` by construction.
-            rounds: o.out.rounds,
-            // THE PUBLISHED CLOCK'S OWN RAW READINGS, and the in-page
-            // window's, on the same samples. Only `rounds` (taskNet) was
-            // ever written, so a dataset from this driver could not
-            // recompute the figure the page actually quotes — which is the
-            // durable-evidence gap `rf2-cvvb7`'s merged-PR audit recorded
-            // against the seam study. All three windows are here now, so
-            // every table in `the-candidates-clock.md` is reproducible from
-            // the file without re-running the box.
-            roundsTask: o.out.roundsTask,
-            inPageRounds: o.out.inPageRounds,
-            decomposition: o.out.decomposition,
-            granularity: o.out.granularity,
-            seam: o.verdict.seam,
-            seamTask: o.verdict.seamTask,
-            tally: o.verdict.tally,
-            ctlOk: o.verdict.ctlVerdict ? o.verdict.ctlVerdict.ok : null,
-            // THE THREE-POINT CONTROL, whole — its per-block readings, the
-            // absolutes each difference was taken from, the fitted line and
-            // the constant it recovers. `armPlan` is the page's DECLARED
-            // plan and `sabotage` is what the 2D arm actually rendered, so a
-            // dataset carries the evidence that a falsification run was a
-            // falsification run rather than a measurement.
-            ctl3: o.verdict.ctl3,
-            ctl3Net: o.verdict.ctl3Net,
-            ctl3Layout: o.verdict.ctl3Layout,
-            roundsLayout: o.out.roundsLayout,
-            ctl3Parity: o.verdict.ctl3Parity,
-            constants: o.verdict.constants,
-            armPlan: o.out.armPlan,
-            sabotage: o.out.sabotage,
-            guardRefuse: o.verdict.guardVerdict.refuse,
-            guardRefuseTask: o.verdict.guardVerdictTask.refuse,
-            bar: o.verdict.bar,
-            inPageBar: o.verdict.inPageBar,
-            ctl: o.verdict.ctlVerdict,
-            barTask: o.verdict.barTask,
-            ctlTask: o.verdict.ctlTask,
-            bandTask: o.verdict.bandTask,
-            // THE KEYSTROKE ROW'S RAW ACCOUNTING. `sentKeys` is what the
-            // driver pressed, `eventTiming` is what the browser reported and
-            // `census` is what recomputed — so the published records, the
-            // censored count and the localisation can all be recomputed from
-            // the file without re-running the box, which is what the seam
-            // study's merged-PR audit asked of every row here.
-            sentKeys: o.out.sentKeys,
-            eventTiming: o.out.eventTiming,
-            census: o.out.census,
-            kbShape: o.out.kbShape,
-            kbWitness: o.verdict.kbVerdict
-              ? {
-                  ok: o.verdict.kbVerdict.ok,
-                  faults: o.verdict.kbVerdict.faults,
-                  totals: o.verdict.kbVerdict.totals,
-                  perArm: o.verdict.kbVerdict.perArm,
-                  records: o.verdict.kbVerdict.records,
-                  censored: o.verdict.kbVerdict.censored,
-                }
-              : null,
-          })),
-        },
-        null,
-        1
-      )
+      JSON.stringify(datasetFor(outcomes, { chromium: version, publication: pub }), null, 1)
     );
-    console.error(`[clock] raw readings -> ${path.resolve(JSON_OUT)}`);
+    console.error(
+      `[clock] raw readings -> ${path.resolve(JSON_OUT)}` +
+        (pub.canonical ? '' : `   (NOT the published evidence set — ${pub.why})`)
+    );
   }
 
   const errored = outcomes.filter((o) => o.out.pageErrors.length > 0);
@@ -2895,7 +3000,16 @@ async function main() {
   console.error('[clock] ok');
 }
 
-module.exports = { reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest };
+module.exports = {
+  reportability,
+  rowAdjudication,
+  rowRegime,
+  ROW_REGIME,
+  reportabilitySelfTest,
+  publication,
+  datasetFor,
+  PUBLISHED_DEPTH,
+};
 
 if (require.main === module) {
   main();
