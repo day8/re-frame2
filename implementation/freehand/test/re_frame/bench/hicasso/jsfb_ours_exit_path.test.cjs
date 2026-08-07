@@ -473,7 +473,14 @@ test('THE PROCESS EXIT: a JSFB_ONLY naming no row exits 1 from the shell', () =>
     // `main`, where a surviving copy would be the second seat.
     assert.ok(!/totalUnverified|totalNonPositive/.test(MAIN), 'the inline exit must not survive in `main`');
     assert.ok(!/let controlPass = true;/.test(SRC), 'the control must be decided in one seat');
-    assert.ok(/if \(!parity\.identical \|\| totalUnverified > 0/.test(SRC), 'and the disjunction must still exist, in `verdict`');
+    // All five terms, in their original order: what moved is where the
+    // disjunction lives, not what it says.
+    assert.ok(
+      SRC.includes(
+        'if (!parity.identical || totalUnverified > 0 || pageErrors.length > 0 || !control.pass || totalNonPositive > 0) {'
+      ),
+      'the five terms must survive verbatim, in `verdict`'
+    );
   });
 
   test('the recording site COUNTS a non-measurement rather than dropping it', () => {
