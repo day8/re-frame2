@@ -1054,7 +1054,7 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 //     built on it has to take the conservative side.
 //   - The halved figure, ~300 KB, is a whisker above the largest window
 //     this instrument has a CORROBORATED clean reading for: the D=1,000
-//     control at the default 30 writes is 240 KB of cumulative garbage and
+//     control at 30 writes is 240 KB of cumulative garbage and
 //     reads 8.13 B/double against a predicted 8. A window that under-read
 //     would not hit its prediction, so the control is positive evidence of
 //     no collection at that scale — which a fall count of zero, on its own,
@@ -1142,6 +1142,14 @@ const ALLOC_B_PER_BOUNDARY_WRITE = 1655;
 // The averaging floor. Six is the config the quiet-box run took the
 // published witness in, and the smallest window the bead's own re-costing
 // table carries; below two there is no averaging in a window at all.
+//
+// It moves the CONTROLS too, and that is checked rather than assumed: the
+// same quiet-box run read 8.13 and 8.20 B/double direct and 8.08
+// differential against a predicted 8 at exactly this window, so the claim
+// the controls exist to establish — that transient garbage is visible to
+// this counter at all — has been corroborated here as well as at the 30
+// writes `ALLOC_MASK_BUDGET_B` cites. A smaller control window is also a
+// further-under-budget one, which is the safe direction.
 const ALLOC_MIN_WRITES = 6;
 
 // Boundaries per root — the MEASURED UNIT, and the reason this arm is a code
