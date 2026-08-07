@@ -45,10 +45,11 @@ figure.
 plus the three chrome keys — every one a **single-source layer-1 sub**
 (`:input-kind :db`, no `:<-` chain, no shared parents).
 
-**The render half** (before, commit `cb41ee537b` — authored, and rebase-merged,
-so it resolves in no fresh clone; it landed on main as **`12e50c5b36`**, which
-recovers the measured read path in full (Provenance); ms per 141-read pass, p50
-over 60 samples; µs per read in brackets):
+**The render half** (before, commit `cb41ee537b`; ms per 141-read pass, p50
+over 60 samples; µs per read in brackets). `cb41ee537b` is an authored head
+this repo's rebase-merge stranded, so it is in no fresh clone; **it landed on
+main as `12e50c5b36`**, which recovers the measured read path in full
+(Provenance), and that is the SHA to check these rows against:
 
 | arm | what one pass is | p50 ms [min–max] | µs/read |
 |---|---|---|---|
@@ -277,10 +278,11 @@ builds only.
 
 The instrument's `local` arm is deliberately the FROZEN pre-change path, so
 the re-run at the landed commit is a before/after in one process (commit
-`0c0ff21f0d` — authored on the same rebase-merged branch as §1's, and it landed
-on main as **`aeab4bbd0d`**, which recovers the measured read path in full
-(Provenance); exit 0, guard clean on every arm of both phases, control
-predicted 1.100 measured 1.113 [0.987–1.825] PASS):
+`0c0ff21f0d`, exit 0, guard clean on every arm of both phases, control
+predicted 1.100 measured 1.113 [0.987–1.825] PASS). `0c0ff21f0d` is an authored
+head on the same rebase-merged branch as §1's; **it landed on main as
+`aeab4bbd0d`**, which recovers the measured read path in full (Provenance), and
+that is the SHA to check these rows against:
 
 | arm | ms per 141-read pass, p50 [min–max] | µs/read |
 |---|---|---|
@@ -349,10 +351,10 @@ authored head resolves in no fresh clone, and its landed counterpart
 **`a3ffe8380e`** recovers the patch but **not this tree** — see Provenance):
 the last rows on the **pre-migration** page — hand-written anchors, no
 routing term. **After** (this run, commit `ac09504d74`, landed on main as
-**`fd01c070a7`**, windows
-2026-08-02T11:45:12Z – 11:49:12Z (`uix`) and – 11:54:01Z (`reagent`), exit
-`0`, both runs to completion, arm-order guard reportable on every row,
-quiet-box gate QUIET on attempt 1 or 2 everywhere): the first rows on the
+**`fd01c070a7`**, windows 2026-08-02T11:45:12Z – 11:49:12Z (`uix`)
+and – 11:54:01Z (`reagent`), exit `0`, both runs to completion, arm-order
+guard reportable on every row, quiet-box gate QUIET on attempt 1 or 2
+everywhere): the first rows on the
 **post-migration** page, whose 207 anchors are `route-link` calls through
 routing's `link-model`. The before/after pair therefore carries THREE
 deltas at once — the rf2-6c237 probe (an improvement, priced in-process at
