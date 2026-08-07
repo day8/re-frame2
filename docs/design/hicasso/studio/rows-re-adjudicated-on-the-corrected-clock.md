@@ -477,26 +477,26 @@ field is not a pass. Nothing is selected away — every run stays in every table
 with its own magnitude beside it and its refusals named — and the program exits
 `3` over evidence it may not publish from.
 
-| gate | what refuses the run | serialised today |
+| gate | what refuses the run | serialised |
 |---|---|---|
-| `canonical` | the file does not say it is the published evidence set | **no** — the producer half is `clock_run.cjs`'s to add |
-| `page-errors` | Chromium threw during the run | **no** |
+| `canonical` | the file does not say it is the published evidence set | yes *(`rf2-e87sk`)* |
+| `page-errors` | Chromium threw during the run | yes *(`rf2-e87sk`)* |
 | `guard-net`, `guard-task` | the arm-order guard refused, on either clock | yes |
-| `canonical-dom` | the arms built different pages | **no** |
+| `canonical-dom` | the arms built different pages | yes *(`rf2-e87sk`)* |
 | `ctl3-parity` | the three-point control's own arms built different pages | yes |
 | `keystroke-witness` | the per-keystroke accounting does not close | yes |
 | `unverified` | a window whose value never reached the page | yes |
 | `ceiling-net`, `ceiling-task` | the reproducibility band exceeds its ceiling | yes |
 | `control` | the three-point control failed, or `ctl-2x` on either clock | yes |
-| `event-timing` | the Event-Timing witness refused | **no** |
+| `event-timing` | the Event-Timing witness refused | yes *(`rf2-e87sk`)* |
 | `adjudication` | a published bar carries no band | yes |
 
-The four unserialised verdicts are named at the driver's own internal field
-names, so no dataset in the tree satisfies the filter today — the correct
-fail-closed reading of an *incomplete* record, and not a defect in it.
-`clock_run.cjs` adopts the family policy when it is next touched — "record
-once, converge on touch" — and because the names above are its own, that
-adoption is one line per verdict.
+**Four of those verdicts were computed, printed and exited on but never stored**,
+so when this section was first written no dataset in the tree could satisfy the
+filter — the correct fail-closed reading of an *incomplete* record, and not a
+defect in it. `rf2-e87sk` serialised them, and the column above says `yes` for
+every gate the roster carries: a run of this driver now writes a record the
+readjudicator can adjudicate on all thirteen axes without re-running the box.
 
 **The one command, and what it does on the datasets that were kept:**
 
@@ -524,3 +524,92 @@ blob it landed at in this change, against arms built by `jsfb_build.cjs` and
 served by `jsfb_serve.cjs` from a bare `--dest`. **Its stylesheet was absent**
 and the server says so at startup; it certifies no ratio and ran without the
 `create10k` positive control, which its own output states.
+
+### 7.2 The re-take that was taken, and what it refuses
+
+**A retained ensemble now exists** *(2026-08-07, `rf2-emvod`, on a granted quiet
+box)*. Nothing in §7.1 is thereby repaired: the seven runs this page publishes
+were never written to a file, so no command will ever recompute *them*, and that
+stays permanently true. What is different is that the tree now carries **an
+ensemble of its own** — eight runs of the full five-row roster, taken at
+`c172f22bb0`, each written by the serialiser `rf2-e87sk` completed, each
+`canonical: true` in the file, and each adjudicable on all thirteen gates above
+off the record rather than off a console log.
+
+| file | blob |
+|---|---|
+| `data/clock-emvod/run1.json` | `c53c8af9dfe2e4af19d6e41ae9a4614f1c62e949` |
+| `data/clock-emvod/run2.json` | `e150449931c677c7aef301c34fb5889225c0b95d` |
+| `data/clock-emvod/run3.json` | `223cfedcd09e774cefb8b59d163b7504790aa6ca` |
+| `data/clock-emvod/run4.json` | `b57e659cdba5e9b1df3d60932d77da7a1c57d254` |
+| `data/clock-emvod/run5.json` | `dfaaaec0c9d6314cd814fdb44c74c698d73c845e` |
+| `data/clock-emvod/run6.json` | `5938fcf93c78cc636859dba63f5f924dd21e3772` |
+| `data/clock-emvod/run7.json` | `be960330307c89d138f3272a7a4efae9c25be543` |
+| `data/clock-emvod/run8.json` | `2e9d27fc6efa9070bc84e08512ec30024c56c56a` |
+
+| | |
+|---|---|
+| Ensemble | **8 runs**, all five rows in each, 2026-08-07 15:31–16:22 AUSEST, one at a time and never two at once |
+| Driver | `clock_run.cjs` at blob `c6a4f249153f4bce6e85daa25121a06335d5c68d`, `clock_readjudicate.cjs` at `b85e312b734cf2051abd542429e8d6eddef1ec22` — **both later than this page's own §7 table, which is left un-re-pinned** |
+| Design | the published depth on every run — 6 rounds, 4 warmup, 10 samples, tare on, no falsification knob, no `--no-build`, no `HCLOCK_ONLY`. That is what makes each file `canonical: true`; a run that narrows any of them writes `canonical: false` and names why, and the readjudicator's first gate refuses it |
+| Box | **quiet, and measured rather than asserted.** `\System\Processor Queue Length` **0** on every sample before the ensemble and after it, with `\Processor(_Total)\% Processor Time` 9.3–12.2% before and 10.2–18.2% after. One mid-series sample read a queue length of 1 while a run's Chromium was winding down. No other worker was dispatched during the window |
+| Exit code | **1** on all eight, scoped to a control on rows the run then refuses |
+
+**The re-take does not restate one figure on this page.** It is a later
+measurement on a moved instrument, and the reason to land it is that it can be
+re-adjudicated by a reader instead of believed. What it says about itself:
+
+| row | runs | reportable | what refused the rest |
+|---|---:|---:|---|
+| `M1` | 8 | **4** | `ctl-2x` on `taskNet` — runs 1, 2, 4 and 6 |
+| `bulk300` | 8 | **0** | the three-point control, on every run |
+| `bulk100` | 8 | **0** | the three-point control, on every run |
+| `narrow` | 8 | **0** | the three-point control on every run; run 1 also breached the band ceiling, at 41.8% and 49.9%, before any control was consulted |
+| `keystroke` | 8 | **0** | the row carries no proportional control, so no bar it publishes carries an adjudication verdict — the structural refusal `rf2-y7mw7` records, unchanged |
+
+**Every control's prediction against what it measured**, which is the part of
+this that was worth a box:
+
+| control | predicted | measured over 8 runs | runs it passed |
+|---|---|---|---|
+| `ctl-2x`, `M1` | 2.00× | mean 1.8000×, runs 1.7045 – 1.8756 | 5 of 8 on the published clock, **4 of 8 on both clocks** |
+| `ctl-2x`, `bulk300` | 2.00× | mean 1.7880×, runs 1.7004 – 1.8603 | 2 of 8 |
+| `ctl-2x`, `bulk100` | 2.00× | mean 1.6965×, runs 1.6065 – 1.7520 | 2 of 8 |
+| `ctl-2x`, `narrow` | 2.00× | mean 1.7626×, runs 1.6650 – 1.9173 | 0 of 8 |
+| `ctl-3pt`, `bulk300` | 2.0101× | mean 1.6045×, runs 1.3516 – 1.7838 | **0 of 8** |
+| `ctl-3pt`, `bulk100` | 2.0101× | mean 2.1777×, runs 1.4953 – 5.5726 | **0 of 8** |
+| `ctl-3pt`, `narrow` | 2.0101× | mean 2.7141×, runs 1.4466 – 8.0908 | **0 of 8** |
+| Event Timing, `keystroke` | `ctl-50ms` above the arms | 56.0 ms against 16.0 ms | **8 of 8** |
+| arm-order guard, every row | no arm reads differently for its position | no refusal on either clock | **8 of 8** |
+
+**The three-point control refused twenty-four times out of twenty-four**, and
+that is the finding this window produced. It is `rf2-7iqb5`'s repair — the
+control built to difference away the additive constant that makes `ctl-2x`
+undershoot — declining to certify a single bulk run on a box whose queue length
+never left zero. Two shapes of failure are visible in the table and they are not
+the same shape: `bulk300` sits *low* and tight, at 1.35–1.78 against 2.01, which
+is the undershoot `ctl-2x` shows on the same samples and not obviously a box
+effect; `bulk100` and `narrow` each carry one run whose blocks went degenerate
+(the three-point statistic ranges to 86× on `bulk100` run 7 and to 114× on
+`narrow` run 7, with negative blocks on both), which the control's sign gate is
+built to catch and did. **Whether that is the instrument or the workload is a
+measurement this window did not take**, and nothing here is widened to
+accommodate it — `rf2-5xrcd` owns the control's calibration.
+
+`M1`'s four reportable runs are **not** a magnitude, and this page does not
+publish one from them. Its standing ruling (`rf2-jcm3p`, §6 above) is that the
+mount row publishes a regime because its control cannot adjudicate it — and on
+these eight runs `ctl-2x` did pass, on both clocks, on four of them. That is
+evidence bearing on a ruling, not a ruling; it is recorded here and left to be
+ruled on.
+
+**The one command, over evidence it may publish from:**
+
+```bash
+cd implementation
+node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
+  freehand/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
+# exit 0 — all eight datasets are eligible published evidence, every run is
+#          printed with its own magnitude and its own refusals beside it, and
+#          the reportable subset is drawn only where the gates left one
+```

@@ -359,7 +359,7 @@ git rev-parse <candidate>:$P   # must print e145597127a87983377bd1a7ca40ca0388df
 | Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
 | Box | quiet. Sampled at 0–19% total CPU before the ensemble, no competing agent, no editing during a run. The absolute floor — the load indicator `rf2-cvvb7`'s ladder established — read 2.37–2.44 ms on `bulk300`, at the bottom of the 3.06–5.50 ms range that ladder produced |
 | Exit code | **1** on every run. Exit 1 from a control is scoped to the row that failed it; every whole-run gate cleared on every row of every run |
-| Retained dataset | **NONE. Every table on this page was assembled by hand from console logs, and no run of either ensemble was taken with `HCLOCK_JSON` set.** So `0.8602×`, its `[0.7709 – 0.9058]`, the bands, the controls and the 43-of-48 count are *not recomputable from this repository* — they are readings, recorded, not re-derivable evidence. `rf2-ymi6j` established the same thing from the other side: the seam ladder's `data/ladder-ymi6j.json` is the only published ensemble on this instrument whose dataset survives |
+| Retained dataset | **NONE, and permanently so. Every table on this page was assembled by hand from console logs, and no run of either ensemble was taken with `HCLOCK_JSON` set.** So `0.8602×`, its `[0.7709 – 0.9058]`, the bands, the controls and the 43-of-48 count are *not recomputable from this repository* — they are readings, recorded, not re-derivable evidence. `rf2-ymi6j` established the same thing from the other side: the seam ladder's `data/ladder-ymi6j.json` is the only published ensemble on this instrument whose dataset survives. **A re-take with its datasets retained now exists and it is a different ensemble, not a reproduction of this one** — [§7.1](#71-the-re-take-was-taken-and-the-row-is-refused) |
 
 **The gap is closed for the next run, not for this one.** At this page's blob
 the driver's serializer wrote `taskNet` rounds and rounded summaries only, so
@@ -395,6 +395,45 @@ one had, `rf2-yd52q` gave the serializer the raw windows and retired the
 *frame-inclusive* label from every printed reading, and `rf2-7iqb5` repaired the
 changed-set control. Each is a change to the instrument, not to these runs; the
 blob table pins what measured them and stays as it is.
+
+### 7.1 The re-take was taken, and the row is refused
+
+*(2026-08-07, `rf2-yd52q`, on a granted quiet box.)* Eight runs at
+`c172f22bb0`, datasets retained under
+[`data/clock-emvod/`](rows-re-adjudicated-on-the-corrected-clock.md#72-the-re-take-that-was-taken-and-what-it-refuses),
+where the blobs, the box counters and every control's prediction against its
+reading are tabulated. **`bulk300` is one of the five rows in each of those
+runs**, so this row is now re-adjudicable from the tree — which is the whole of
+what the re-take was for.
+
+**The form this section prescribed above cannot produce publishable evidence,
+and that is a correction to it rather than to the runs.** `HCLOCK_ONLY` narrows
+the roster and `HCLOCK_SAMPLES=20` overrides the published design depth, and
+`rf2-e87sk`'s two-tier write policy makes a run that does either write
+`canonical: false` into its own file with the reason beside it — after which
+`clock_readjudicate.cjs`'s first gate refuses the file and exits `3`. The
+re-take therefore ran **the full five-row roster at the published depth**, with
+`HCLOCK_JSON` set on every run and nothing else overridden. The narrowed form
+above still measures; it just no longer certifies.
+
+**What the row reads, and it is refused.** `uix-subs / reagent-subs` on
+`bulk300` — the donor row this page withdrew `0.6291×` from:
+
+| window | ensemble | reportable subset |
+|---|---|---|
+| raw `TaskDuration` (published) | 0.8539× [0.7232 – 0.9785] over 8 runs | **NONE** |
+| `taskNet` (frame-only, diagnostic) | 1.0130× | — |
+| in-page `performance.now()` (diagnostic) | 0.7497× [0.6885 – 0.8540] | — |
+
+**Every one of the eight runs was refused by the three-point control**, which
+read 1.3516 – 1.7838× against a predicted 2.0101×. No magnitude is drawn from
+them and none is offered here: `0.8602×` above is neither confirmed nor
+replaced. What the ensemble adds is that it is **retained**, so the next reader
+re-adjudicates it rather than taking this paragraph's word for it.
+
+The direction is the one thing the refusal does not touch — all eight runs read
+below 1.0 on the published clock, as the withdrawal above concluded — and the
+page's own rule is that a direction is not a magnitude.
 
 ## 8. The earlier ensemble
 
