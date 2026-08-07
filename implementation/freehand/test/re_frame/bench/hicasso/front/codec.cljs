@@ -152,6 +152,14 @@
   written against the raw key is a rule that `\"key\"`, `:x/ref` and
   `:onInput` walk straight past.
 
+  **The rule itself is not in this file** (rf2-ani6y). It is
+  [[re-frame.bench.hicasso.front.slot/prop-name]], in `.cljc`, because
+  the `[:>]` migration codemod decides the same slots on the JVM and a
+  reimplementation there would be the codemod's own defect class turned
+  inward: a divergence nothing pins, failing silently. What stays here is
+  the CACHING of its answers — [[cached-prop-name]] and [[PropSlot]] —
+  which is emission work and has no JVM consumer.
+
   The tag's `#id`/`.class` shorthand answers the same question one step
   further on: it is folded onto the **emitted object**, where the slot is
   not resolved at all because it already *is* the slot. An explicit id
@@ -197,6 +205,7 @@
   (:require [clojure.string :as str]
             [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.front.intent :as intent]
+            [re-frame.bench.hicasso.front.slot :as slot]
             ["react" :as react]))
 
 (declare as-element)
@@ -312,41 +321,12 @@
 ;; Prop names and their cache
 ;; ---------------------------------------------------------------------------
 
-(def ^:private dont-camel-case
-  "`aria-*` and `data-*` are HTML attribute names in React too, and
-  camelCasing them would break them."
-  #{"aria" "data"})
-
-(defn- capitalize [s]
-  (if (< (count s) 2) (str/upper-case s) (str (str/upper-case (subs s 0 1)) (subs s 1))))
-
-(def ^:private react-renames
-  "The three attribute names React spells differently from HTML. They are
-  the RULE rather than a memo of one, so they hold for every spelling of
-  the same attribute: `:class`, `:className`, `\"class\"` and `:x/class`
-  all name the one slot React calls `className`."
-  {"class" "className" "for" "htmlFor" "charset" "charSet"})
-
-(defn prop-name
-  "The React prop name for a hiccup prop key — which, because it is the
-  name the codec emits the value under, is that key's CANONICAL SLOT.
-  `:on-click` → `\"onClick\"`; `:aria-label` and `:data-index` pass
-  through; a `--custom-property` is preserved verbatim; a string is
-  already a React name and is taken verbatim apart from the three renames
-  above.
-
-  **A pure function of the key**, which is what [[canonical-slot]] rests
-  on. A slot that depended on what the build happened to have converted
-  earlier would make the owned-literal law depend on render order."
-  [k]
-  (let [n (name k)]
-    (or (react-renames n)
-        (if (or (string? k) (str/starts-with? n "--"))
-          n
-          (let [[start & parts] (str/split n #"-")]
-            (if (dont-camel-case start)
-              n
-              (apply str start (map capitalize parts))))))))
+;; The slot rule itself is NOT here. It is
+;; [[re-frame.bench.hicasso.front.slot/prop-name]], in `.cljc`, because
+;; the `[:>]` migration codemod has to ask the same question on the JVM
+;; and a tool that reimplemented it would reproduce — inside the tool —
+;; the silent divergence the codemod exists to delete (rf2-ani6y). Only
+;; the CACHING of its answers is codec work, and that is what follows.
 
 (deftype PropSlot [js-name reserved? event? ref? class?]
   ;; What the prop cache holds for one prop literal (rf2-y1jkm): the React
@@ -373,7 +353,7 @@
   "The [[PropSlot]] for a keyword or symbol prop literal whose name is
   `n`. Every field a pure function of the literal, per the deftype note."
   [k n]
-  (let [js-name (prop-name k)]
+  (let [js-name (slot/prop-name k)]
     (->PropSlot js-name
                 (reserved-name? js-name)
                 ;; asked of the NAME, not of `k` — a symbol shares the
@@ -391,8 +371,12 @@
                 (identical? "className" js-name))))
 
 (def ^:private prop-cache
-  ;; The three seeded entries are the RULE, not memos of one — see
-  ;; [[react-renames]]. None is reserved, an event position, or the ref
+  ;; The three seeded entries are the RULE, not memos of one — they are
+  ;; the rename table inside
+  ;; [[re-frame.bench.hicasso.front.slot/prop-name]], pre-warmed, and
+  ;; `slot-cljs-test`'s corpus asserts the seed against the rule on both
+  ;; hosts so a re-spelled seed cannot outlive it. None is reserved, an
+  ;; event position, or the ref
   ;; slot; `class` IS the class slot, which is the whole reason the rule
   ;; is stated on the emitted name rather than on the key.
   (doto (empty-cache)
@@ -419,11 +403,12 @@
       hit)))
 
 (defn cached-prop-name
-  "[[prop-name]] behind the codec-work cache (HD-004).
+  "[[re-frame.bench.hicasso.front.slot/prop-name]] behind the codec-work
+  cache (HD-004).
 
   **Only a keyword or a symbol is cached**, which is the donor's shape and
-  is load-bearing here. The cache is keyed by `(name k)` while
-  [[prop-name]] answers a STRING differently from the keyword of the same
+  is load-bearing here. The cache is keyed by `(name k)` while the rule
+  answers a STRING differently from the keyword of the same
   name — a string is already a React name, so `\"on-input\"` stays
   `\"on-input\"` where `:on-input` becomes `\"onInput\"`. Sharing one cache
   entry between them lets either poison the other: the first
@@ -435,7 +420,7 @@
   dependence the owned-literal law exists to remove."
   [k]
   (if-not (or (keyword? k) (symbol? k))
-    (if (string? k) (prop-name k) k)
+    (if (string? k) (slot/prop-name k) k)
     (let [^PropSlot s (prop-slot k (name k))]
       (.-js-name s))))
 
@@ -2219,7 +2204,8 @@
   as SLOTS rather than as keys — `:class`, `:className` and `\"class\"`
   are one position ([[canonical-slot]]), and a rule written against the
   spelling is a rule the other spellings walk past. The `data-*` /
-  `aria-*` families join them by prefix; [[prop-name]] leaves those two
+  `aria-*` families join them by prefix;
+  [[re-frame.bench.hicasso.front.slot/prop-name]] leaves those two
   uncamelCased, so the slot still carries the prefix to test.
 
   The roster is this repo's own, not a guess: the `reagent-slim` adapter
