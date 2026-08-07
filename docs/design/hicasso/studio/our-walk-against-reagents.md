@@ -937,3 +937,36 @@ is the next tree. `navmap-keyset-shipping` keeps its name in the instrument for
 the same reason the `SLIM DECOMPOSED` `-ship` rows keep theirs — a costed pair is
 kept as a pair, and the row that lost is the one that names the shape it lost
 to.
+
+## 2026-08-07 the composition against the clock of record (rf2-jv36i)
+
+**The obligation, and where it came from.** Every row on this page is the
+in-page walk clock — a diagnostic, as each section says. `rf2-2rtt6.63`'s
+acceptance asked for something this instrument cannot give: the same
+cheapenings read on the **clock of record**, before and after, as a census
+mount row. `rf2-jv36i` carried that obligation so it would not be lost, planned
+to satisfy it by reading `rf2-cno31`'s census re-take as the after-row, and
+that plan failed on its premise — the branch was authored before the cheapening
+and rebase-merged after it, and its own published blob table names
+`5a0b04733a`, the *before* codec, as what it measured. The bead's stated
+fallback was one re-take, same instrument, same-run donors. It has been taken:
+[the re-take on the current tree](census-real-clock-rows.md#2026-08-07-the-re-take-on-the-current-tree-rf2-jv36i).
+
+**The composition, stated plainly.** A census mount row on the clock of record
+now exists on a tree that contains `02a440a4d1`. That is post-change
+provenance and it is all of what the re-take supplies.
+
+**The increment is not isolated, and this page is not holding the question
+open for it.** The arithmetic was recorded before the window and the window did
+not change it: `rf2-2rtt6.63` prices its two cheapenings at ~9% of the walk;
+§3's rows put the walk at ~0.66 ms of a ~10 ms mount; so the expected effect is
+**~0.6% of a mount**, against reportable bands of 7.7% – 10.6% on the re-take's
+own rows. Two further terms each dwarf it — `rf2-cno31` gave the twin arms a
+route-link cost they did not previously pay (207 links on the 69-card page, 900
+on the feed), and the host's own `floor` arm, byte-identical between the two
+sessions, ran 57–72% slower than it did on 2026-08-02. **A single re-take
+cannot attribute 0.6% through either of those, and the honest close is that
+this instrument's decomposition is the evidence for the cheapenings and the
+census clock is not.** No census row is quoted here as an after-row for the
+codec, no run was repeated in search of a preferred sign, and the rows above
+are unamended.

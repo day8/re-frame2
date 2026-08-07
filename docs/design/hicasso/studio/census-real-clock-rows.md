@@ -304,3 +304,131 @@ comparison of readings, not of magnitudes: M1 publishes a regime rather than a
 number (`rf2-jcm3p`, 2026-08-06 — see the note above), and what these rows
 corroborate is its **direction**. The ruling on what that means for the
 programme is the operator's (`rf2-2rtt6.1`); this page measures.
+
+## 2026-08-07 the re-take on the current tree (rf2-jv36i)
+
+**Why this run exists, and what it is not.** `rf2-jv36i` carried an obligation
+inherited from `rf2-2rtt6.63`: a census mount row on the clock of record, taken
+on a tree that contains that bead's codec cheapening. Its plan was that
+`rf2-cno31`'s re-take would already *be* that row — "the codec change is on
+main by then" — and it was not. That branch was authored before the cheapening
+and rebase-merged after it, so the landed history orders the two commits
+correctly while the measured tree never held either; the page that published it
+stamps the pre-cheapening codec blob `5a0b04733a` as what it measured. The
+bead's own stated fallback is therefore what was taken here: *one re-take after
+it, same instrument, same-run donors.*
+
+**What it establishes.** The tree measured below contains `02a440a4d1` —
+`git merge-base --is-ancestor` exits `0` — so a census mount row on the clock
+of record now exists on the post-cheapening codec. That is the whole of the
+provenance obligation, and it is discharged.
+
+**What it deliberately does not establish.** It does not isolate the increment.
+`rf2-2rtt6.63` prices its two cheapenings at ~9% of the walk, and the walk is
+~0.66 ms of a ~10 ms mount — about **0.6% of a mount**, against reportable
+bands of **7.7%, 9.2% and 10.6%** on this run. No row below is offered as
+evidence for or against that change, no run was re-taken looking for a
+preferred sign, and no figure published above is restated by anything here.
+
+### The rows
+
+Both adapter runs, all three rows, the published design depth. Every ratio is
+same-run, same-block, plumb-tared, on raw `TaskDuration`; ranges over 18
+blocks.
+
+`uix` run (the gated run):
+
+| row | floor abs p50 | hicasso abs | uix abs | **hicasso / uix** | ctl-2x measured (pred) | band | verdict vs 1.10× |
+|---|---|---|---|---|---|---|---|
+| large-template | 14.158 ms | 18.827 ms | 16.347 ms | 1.1608× [0.9301 – 1.2652] | 1.8022 [1.5043–2.1151] vs 1.9759 **PASS** | 9.2% | **INSTRUMENT-LIMITED** — straddles 1.10 *and* 1.0 |
+| feed | 56.029 ms | 79.342 ms | 76.313 ms | 1.0430× [0.9309 – 1.1460] | 1.9828 [1.7366–2.2347] vs 1.9943 **PASS** | 7.7% | **INSTRUMENT-LIMITED** — straddles 1.10 |
+| ordinary | 2.846 ms | 3.588 ms | 3.394 ms | 1.1888× [0.7808 – 3.1299] | 1.3569 [0.9182–3.1273] vs 1.7255 **FAIL** | 29.2% | **INSTRUMENT-LIMITED**, carrying the control's failure |
+
+`reagent` run (co-instrumented — the same-run donors the fallback asks for):
+
+| row | **hicasso / uix** | hicasso / reagent | uix / reagent | ctl-2x measured (pred) | band | verdict |
+|---|---|---|---|---|---|---|
+| large-template | 1.1986× [0.7713 – 1.5949] | 1.0689× [0.8336 – 1.2748] | 0.9011× [0.7414 – 1.1729] | 1.8363 [1.4815–2.1460] vs 1.9759 **FAIL** | 15.9% | INSTRUMENT-LIMITED, control failed |
+| feed | 1.1216× [1.0274 – 1.2350] | 1.1232× [0.9881 – 1.2105] | 1.0034× [0.9420 – 1.1490] | 2.0674 [1.7110–2.3373] vs 1.9943 **PASS** | 10.6% | INSTRUMENT-LIMITED — straddles 1.10 |
+| ordinary | 1.0847× [0.6492 – 1.3544] | 1.0316× [0.6223 – 1.1477] | 0.9871× [0.5189 – 1.7679] | 1.1750 [0.5499–2.2957] vs 1.7255 **FAIL** | **48.1% — BREACHED** | **REFUSED** before any control is consulted |
+
+`taskNet` on the same samples reads every gated pair at **0.97 – 1.10**, which
+is the same decomposition the 2026-08-02 rows found: the frame halves are near
+equal and the hicasso-vs-UIx difference is script.
+
+**Three of six row-runs are reportable** — `uix/large-template`, `uix/feed`
+and `reagent/feed` — and the run as a whole **exited 4**: `reagent/ordinary`
+breached the band ceiling, and three row-runs failed `ctl-2x`. Nothing was
+selected away; both dataset files carry all six rows with their own verdicts.
+
+### These rows are not comparable to the 2026-08-02 rows, for two independent reasons
+
+Read alongside the tables above, `hicasso / uix` has fallen on every row —
+1.3053 → 1.1608 on `large-template`, 1.1646 → 1.0430 on `feed`. **Neither
+movement may be read as an effect of the codec**, and the reasons are both
+checkable in the tree rather than inferred from the numbers.
+
+- **The twin arms changed, so the comparison changed.** `rf2-cno31`
+  (`b37a185cfd`) gave the `ux-` and `rg-` arms the route-link term the
+  candidate's card already paid: `route-attrs` is called once per anchor,
+  three anchors per card, so **207 links on `large-template` and 900 on
+  `feed`**. Before it, the numerator paid a term neither denominator did. A
+  ratio whose denominator gained work falls for that reason alone, and this is
+  by construction rather than by measurement.
+- **The host is in a different performance state.** The `floor` arm is
+  hand-written `createElement` over a plain seeded value with one hoisted inert
+  handler, and it is **byte-identical across the two sessions** — the arms diff
+  touches nothing before `ux-card-body`. Its absolute p50 moved
+  **8.237 → 14.158 ms** (`large-template`), **34.837 → 56.029 ms** (`feed`) and
+  **1.811 → 2.846 ms** (`ordinary`): +57% to +72%, uniform across three pages
+  that share no arm code. No commit in this repository can do that.
+
+Within-run ratios are untouched by the second point — every figure here is
+same-run and same-block — but a *difference between the two sessions* is not a
+measurement of anything, and 0.6% of a mount is two orders below what either
+effect is worth.
+
+### Controls, the box, and provenance
+
+| | |
+|---|---|
+| **Measured commit** | `752b8069be867c2b0af193db7db3c9beab5cb0ac`, working tree clean. Contains `02a440a4d1` (`rf2-2rtt6.63`'s cheapening), `870a7d1684` (`rf2-2rtt6.52`'s boundary change) and `d0c91ad811` (`rf2-cno31`'s route-link fix) — all three checked with `git merge-base --is-ancestor`, all exit `0` |
+| **Reproduction** | `C56CLOCK_DATA_DIR=…/data/censusclock-jv36i node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` — both adapter runs, all three rows, no depth override, no `--no-build`, quiet gate armed |
+| **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — the published shape, unoverridden |
+| **Read-backs** | **0 unverified of 8,316** across the six row-runs |
+| **Arm-order guard** | **reportable on all six row-runs**, on raw `TaskDuration` and on the diagnostic clock alike — no refusal, tolerance 0.35 |
+| **Parity** | canonical DOM byte-identical across every non-control arm on all three rows in both runs (58,474 / 250,997 / 2,636 bytes) |
+| **Quiet gate** | **QUIET on attempt 1 before all six rows**; `C56CLOCK_SKIP_QUIET` was not set |
+| **Windows** | `uix` `2026-08-07T06:48:02Z – 06:51:46Z`; `reagent` `06:51:46Z – 06:56:13Z`. One run at a time, nothing else dispatched on the box |
+| **Runtime** | `HeadlessChrome/147.0.7727.15`, node `v24.13.0`, 24 hardware threads, 32 GB |
+| **Exit code** | **4** — the band ceiling on `reagent/ordinary` (48.1%), with `ctl-2x` failures on `uix/ordinary`, `reagent/large-template` and `reagent/ordinary` named beside it |
+| **Datasets** | `implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-jv36i/` — `canonical: false`, because `C56CLOCK_DATA_DIR` named a sibling directory rather than overwriting the published evidence set above. That is the same route every other `censusclock-*` sibling was taken by; it is not a gate failure, and the run's own gate outcomes are the exit code and the per-row verdicts |
+
+Blob hashes at the measured commit:
+
+| file | blob |
+|---|---|
+| `…/bench/hicasso/shapes/census_clock_arms.cljs` | `5d4ed45eb41fcbabf7dd26a7bf0962688b58ee9b` |
+| `…/bench/hicasso/shapes/census_clock_app.cljs` | `2057882111067ed9872ee3cb195527f7989bb2b3` |
+| `…/bench/hicasso/shapes/census_clock_run.cjs` | `13d713fe8930c4eb2b32062947fd9b9dbad4b412` |
+| `…/bench/hicasso/shapes/model.cljs` | `7f4043dc09aef036aab0c502748da7dcacc6d70d` |
+| `…/bench/hicasso/shapes/card.cljs` | `07458921f7830b99b60a90262cbb974f7e05d5c7` |
+| `…/bench/hicasso/shapes/large_template.cljs` | `f575b78429ba1292a98a355b3ba1a8d3fac5bec6` |
+| `…/bench/hicasso/shapes/feed.cljs` | `9add8a25377809c36747511f268aedefa68e5372` |
+| `…/bench/hicasso/shapes/ordinary.cljs` | `d3e3acc859287c4eaf5f6e036e01954ea1d11ea7` |
+| `…/bench/hicasso/arm1/runtime.cljs` | `9f0e341c2deffffc5b4dc32cbcf6ad00f2a5c924` |
+| `…/bench/hicasso/arm1/lang.clj` | `8c18fb0c4d43d6f392ac4d1ac7ac550626c178a5` |
+| `…/bench/hicasso/front/codec.cljs` | `fc28796b5c7cc3a543f989d19b65d6587ca86da8` |
+| `…/bench/hicasso/lane.cljs` | `769ffc55fca216f3742bfb248c1b3a0c1e6df787` |
+| `implementation/core/src/re_frame/substrate/spine.cljs` | `630782a321211b9ec4cb98f6a3218762a9506143` |
+
+**These are the first census datasets that carry `blocksDecomp`** (`rf2-jo60g`),
+so the renderer's own Script / RecalcStyle / Layout split is recomputable from
+the file rather than only from a console. The 2026-08-02 sets predate it and
+`foldDecomposition` refuses them by name rather than folding to zeros.
+
+**One thing this run says about the driver rather than the pages.** The
+2026-08-02 run is recorded above as exiting `0` while its `ordinary` control
+failed on both adapter runs. That was the fail-open exit path `rf2-rr6do`
+repaired afterwards: the same shape today exits non-zero, and this run's `4` is
+that repair working, not a new fault in the pages.
