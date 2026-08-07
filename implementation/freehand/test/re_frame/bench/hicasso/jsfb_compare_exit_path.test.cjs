@@ -69,19 +69,22 @@ const resultFile = (framework, benchmark, median) => ({
   values: { total: { min: median, max: median, median, mean: median, stddev: 0, values: [median] } },
 });
 
+// Arms differ so the ratios are finite and not all exactly 1.0.
+const DEFAULT_MEDIAN = (arm) => (arm === BASE ? 100 : arm === OTHERS[0] ? 120 : 90);
+
 /**
  * A complete results directory: every benchmark the driver runs, every arm.
  * `skip` drops named `framework_benchmark` files so a SHORT run can be built.
+ * `median(arm, bench)` supplies the duration, so a table can be built whose
+ * shape is complete and whose numbers are not measurements.
  */
-function theirsDir(name, { skip = [], corrupt = null } = {}) {
+function theirsDir(name, { skip = [], corrupt = null, median = DEFAULT_MEDIAN } = {}) {
   const dir = scratch(name);
   for (const p of PAIRS.filter((x) => x.theirs)) {
     for (const arm of [BASE, ...OTHERS]) {
       const file = `${arm}_${p.bench}.json`;
       if (skip.includes(`${arm}_${p.bench}`)) continue;
-      // Arms differ so the ratios are finite and not all exactly 1.0.
-      const median = arm === BASE ? 100 : arm === OTHERS[0] ? 120 : 90;
-      fs.writeFileSync(path.join(dir, file), JSON.stringify(resultFile(arm, p.bench, median)));
+      fs.writeFileSync(path.join(dir, file), JSON.stringify(resultFile(arm, p.bench, median(arm, p.bench))));
     }
   }
   if (corrupt) fs.writeFileSync(path.join(dir, corrupt), '{ this is not json');
@@ -103,6 +106,20 @@ function oursJson(name, { drop = [], over = {} } = {}) {
     file,
     JSON.stringify({ provenance: { rounds: 5 }, parity: { identical: true }, summary, control: { pass: true }, pageErrors: 0, ...over })
   );
+  return file;
+}
+
+/**
+ * Our run's JSON with one cell's own numbers overwritten — the style the
+ * non-finite-ratio case below already uses, factored out because the
+ * positivity cases need `base` and `ms` as well as `ratio`.
+ */
+function oursPatched(name, ourId, arm, patch) {
+  const j = JSON.parse(fs.readFileSync(oursJson(`${name}.src`), 'utf8'));
+  if ('base' in patch) j.summary[ourId].base = patch.base;
+  for (const k of ['ms', 'ratio']) if (k in patch) j.summary[ourId].arms[arm][k] = patch[k];
+  const file = path.join(TMP, name);
+  fs.writeFileSync(file, JSON.stringify(j));
   return file;
 }
 
@@ -258,6 +275,102 @@ test('a ratio present but NOT FINITE is missing evidence, not a measured cell', 
   });
 });
 
+// --- A ZERO OR NEGATIVE DURATION IS NOT A MEASUREMENT (rf2-110be) -----------
+//
+// The half of the fail-open class the repair above left standing. "Measured"
+// meant "the derived difference is finite", and a difference is finite long
+// before the durations under it are real. #7643's merged-PR audit built the
+// case: a COMPLETE ten-cell table whose driver medians are all NEGATIVE
+// (-100 ms base, -120/-90 ms arms) divides out to exactly the positive
+// 1.2/0.9 ratios a sound run produces, matches our ratios, and exited 0 with
+// YES on every row. Counter-inverted or malformed timing evidence walked
+// through the fail-closed gate the rest of this file pins.
+//
+// The tightening is one-way by construction — the predicate gained
+// conjuncts and lost none — so no input that was refused before is measured
+// now. The green cases at the top of this file are the witness for that
+// direction; these are the witness for the other.
+
+const NEGATE = (arm, bench) => -DEFAULT_MEDIAN(arm, bench);
+
+test("THE AUDIT'S FIXTURE: an all-negative driver table is not a measured run", () => {
+  const v = verdict(evidence(theirsDir('neg-all', { median: NEGATE }), oursJson('neg-all.json')));
+  assert.notStrictEqual(v.code, 0, 'negative durations divide out to sound-looking ratios');
+  assert.strictEqual(v.code, 1, 'the comparison RAN; what it read is not measurement');
+  const all = v.lines.join('\n');
+  assert.match(all, /10 of 10 expected cells were not measured by both instruments/);
+  assert.ok(
+    all.includes(`01_run1k / ${OTHERS[0]}: the benchmark driver's results carry no usable median for this cell (${BASE} median=-100)`),
+    all
+  );
+});
+
+test('a negative table reports agreement on NO row — the cells, not just the verdict', () => {
+  const { rows } = evidence(theirsDir('neg-rows', { median: NEGATE }), oursJson('neg-rows.json'));
+  assert.deepStrictEqual(rows.filter((r) => r.agree === 'YES').map((r) => r.cell), [], 'no negative row may agree');
+  assert.deepStrictEqual(rows.filter((r) => Number.isFinite(r.diff)).map((r) => r.cell), [], 'and none may be comparable');
+});
+
+test('ONE arm median of zero or negative refuses that cell alone, naming the value', () => {
+  for (const bad of [0, -120]) {
+    const median = (arm, bench) => (arm === OTHERS[0] && bench === '01_run1k' ? bad : DEFAULT_MEDIAN(arm));
+    const v = verdict(evidence(theirsDir(`arm-${bad}`, { median }), oursJson(`arm-${bad}.json`)));
+    assert.strictEqual(v.code, 1, `arm median ${bad} must refuse`);
+    const all = v.lines.join('\n');
+    assert.match(all, /1 of 10 expected cells/);
+    assert.ok(
+      all.includes(`01_run1k / ${OTHERS[0]}: the benchmark driver's results carry no usable median for this cell (${OTHERS[0]} median=${bad})`),
+      all
+    );
+    assert.doesNotMatch(all, /02_replace1k/, 'the sound rows of the same table must not be blamed');
+  }
+});
+
+test('a zero or negative DENOMINATOR takes every cell of that benchmark with it', () => {
+  // A negative base against positive arms is the sharper half: it yields a
+  // NEGATIVE ratio, whose distance from ours divided by that same negative
+  // minimum came out negative — and a negative distance is inside any band.
+  for (const bad of [0, -100]) {
+    const median = (arm, bench) => (arm === BASE && bench === '02_replace1k' ? bad : DEFAULT_MEDIAN(arm));
+    const v = verdict(evidence(theirsDir(`base-${bad}`, { median }), oursJson(`base-${bad}.json`)));
+    assert.strictEqual(v.code, 1, `base median ${bad} must refuse`);
+    const all = v.lines.join('\n');
+    assert.match(all, /2 of 10 expected cells/);
+    for (const arm of OTHERS) {
+      assert.ok(
+        all.includes(`02_replace1k / ${arm}: the benchmark driver's results carry no usable median for this cell (${BASE} median=${bad})`),
+        all
+      );
+    }
+  }
+});
+
+test('an OURS ratio of zero or negative is not a measurement, however finite', () => {
+  for (const bad of [0, -1.2]) {
+    const f = oursPatched(`ours-ratio-${bad}.json`, 'run1k', OTHERS[0], { ratio: bad });
+    const v = verdict(evidence(theirsDir(`ours-ratio-${bad}`), f));
+    assert.strictEqual(v.code, 1, `ours ratio ${bad} must refuse`);
+    const all = v.lines.join('\n');
+    assert.match(all, /1 of 10 expected cells/);
+    assert.ok(all.includes(`01_run1k / ${OTHERS[0]}: our run's JSON carries no usable ratio for this cell (ratio=${bad})`), all);
+  }
+});
+
+test('an OURS base or arm duration of zero or negative refuses even behind a sound ratio', () => {
+  // The ratio these sit under is a perfectly ordinary 1.2. Reading only the
+  // derived number is exactly how the durations went unexamined.
+  for (const [field, bad] of [['base', 0], ['base', -100], ['ms', 0], ['ms', -120]]) {
+    const f = oursPatched(`ours-${field}-${bad}.json`, 'run1k', OTHERS[0], { [field]: bad });
+    const v = verdict(evidence(theirsDir(`ours-${field}-${bad}`), f));
+    assert.strictEqual(v.code, 1, `ours ${field} ${bad} must refuse`);
+    const all = v.lines.join('\n');
+    // `base` is the row's denominator, so it takes both arms; `ms` is one arm's.
+    assert.match(all, new RegExp(`${field === 'base' ? 2 : 1} of 10 expected cells`));
+    const named = field === 'base' ? `base ms=${bad}` : `${OTHERS[0]} ms=${bad}`;
+    assert.ok(all.includes(`01_run1k / ${OTHERS[0]}: our run's JSON carries no usable ratio for this cell (${named})`), all);
+  }
+});
+
 // --- THE EXPECTED COUNT, derived rather than typed --------------------------
 
 test('EXPECTED_CELLS is the ten the audit counted, and it is DERIVED from PAIRS', () => {
@@ -335,6 +448,13 @@ test('THE PROCESS EXIT: short evidence exits 1 and names the missing cells', () 
   assert.strictEqual(r.status, 1, r.stderr);
   assert.match(r.stderr, /1 of 10 expected cells were not measured/);
   assert.match(r.stderr, /03_update10th1k_x16 \/ rf2-uix/);
+});
+
+test('THE PROCESS EXIT: an all-negative driver table exits 1 from the shell, not 0', () => {
+  const r = run(['--theirs', theirsDir('e2e-neg', { median: NEGATE }), '--ours', oursJson('e2e-neg.json')]);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /10 of 10 expected cells were not measured/);
+  assert.doesNotMatch(r.stdout, /VERDICT: 10 of 10 comparable rows agree/, 'ten negative rows are not ten agreements');
 });
 
 test('THE PROCESS EXIT: no arguments at all is a refusal, not a green run', () => {

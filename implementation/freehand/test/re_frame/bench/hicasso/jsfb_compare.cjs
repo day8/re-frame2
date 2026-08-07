@@ -54,6 +54,12 @@
 //   2  the comparison could not run at all: an input was not named, is not
 //      present, or will not parse. Named, with the path.
 //
+// And a cell counts as measured only when the DURATIONS UNDER IT are
+// measurements: finite and STRICTLY POSITIVE on both sides — base, arm and
+// ratio. A table of all-negative medians divides out to exactly the positive
+// ratios a sound run produces, so finiteness alone let counter-inverted
+// timing evidence through the gate above (rf2-110be, from #7643's audit).
+//
 // WHAT IT DOES NOT ADJUDICATE, deliberately. The run's own gates — DOM
 // parity, the positive control, page errors, unverified writes — are
 // REPORTED here and decided by `jsfb_ours_run.cjs`, which owns them and
@@ -187,6 +193,21 @@ function readOurs(file) {
 
 const ratioOf = (o, arm) => (o && o.arms && o.arms[arm] ? o.arms[arm].ratio : NaN);
 
+// A MEASUREMENT IS FINITE AND STRICTLY POSITIVE (rf2-110be).
+//
+// The predicate below used to be "the derived difference is finite", and a
+// difference is finite long before the durations under it are real. An
+// elapsed time of zero is the absence of a measurement and a negative one is
+// a broken measurement, so neither may enter the measured set — and neither
+// may a ratio built out of them.
+const positive = (x) => Number.isFinite(x) && x > 0;
+
+/** The first named value on one side that is not a measurement, or `null`. */
+const notMeasured = (named) => {
+  const bad = named.find(([, v]) => !positive(v));
+  return bad ? `${bad[0]}=${bad[1]}` : null;
+};
+
 /** One row per (benchmark, arm), whether or not either instrument measured it. */
 function buildRows(theirs, ours) {
   const rows = [];
@@ -194,19 +215,27 @@ function buildRows(theirs, ours) {
     const t = theirs[p.bench];
     const tBase = t && t[BASE] && t[BASE].total ? t[BASE].total.median : NaN;
     const o = ours && ours.summary ? ours.summary[p.ours] : null;
+    const oBase = o ? o.base : NaN;
 
     for (const arm of OTHERS) {
       const tArm = t && t[arm] && t[arm].total ? t[arm].total.median : NaN;
       const tRatio = tArm / tBase;
+      const oArm = o && o.arms && o.arms[arm] ? o.arms[arm] : null;
+      const oMs = oArm ? oArm.ms : NaN;
       const oRatio = ratioOf(o, arm);
+
+      // Both sides must have MEASURED, and the durations say whether they did:
+      // -100 ms over -120 ms is a tidy 1.2 that no reading produced.
+      const tBad = notMeasured([[`${BASE} median`, tBase], [`${arm} median`, tArm], ['ratio', tRatio]]);
+      const oBad = notMeasured([['base ms', oBase], [`${arm} ms`, oMs], ['ratio', oRatio]]);
 
       let agree = '';
       let diff = NaN;
-      if (Number.isFinite(tRatio) && Number.isFinite(oRatio)) {
+      if (!tBad && !oBad) {
         diff = Math.abs(tRatio - oRatio) / Math.min(tRatio, oRatio);
         agree = diff <= AGREEMENT_BAND ? 'YES' : 'NO';
       }
-      rows.push({ cell: cellId(p.bench, arm), bench: p.bench, ourId: p.ours, label: p.label, expected: p.theirs, arm, tArm, tRatio, oRatio, diff, agree });
+      rows.push({ cell: cellId(p.bench, arm), bench: p.bench, ourId: p.ours, label: p.label, expected: p.theirs, arm, tArm, tRatio, oRatio, diff, agree, tBad, oBad });
     }
   }
   return rows;
@@ -242,10 +271,12 @@ function verdict({ absent = [], rows = [] } = {}) {
     for (const cell of missing) {
       const r = rows.find((x) => x.cell === cell);
       let why;
+      // The offending value is NAMED. Absence prints `NaN`; the positivity
+      // cases print the number that is not a duration.
       if (!r) why = 'no row was built for it at all';
-      else if (!Number.isFinite(r.tRatio) && !Number.isFinite(r.oRatio)) why = 'NEITHER instrument measured it';
-      else if (!Number.isFinite(r.tRatio)) why = "the benchmark driver's results carry no usable median for this cell";
-      else why = "our run's JSON carries no usable ratio for this cell";
+      else if (r.tBad && r.oBad) why = `NEITHER instrument measured it (theirs ${r.tBad}; ours ${r.oBad})`;
+      else if (r.tBad) why = `the benchmark driver's results carry no usable median for this cell (${r.tBad})`;
+      else why = `our run's JSON carries no usable ratio for this cell (${r.oBad})`;
       lines.push(`[compare]   ${cell}: ${why}`);
     }
     lines.push(
@@ -292,7 +323,7 @@ function report(theirs, ours, rows) {
   console.log('');
   console.log(';; DIRECTION — does each instrument put the arm on the same side of parity?');
   for (const r of rows) {
-    if (!Number.isFinite(r.tRatio) || !Number.isFinite(r.oRatio)) continue;
+    if (!Number.isFinite(r.diff)) continue; // an unmeasured cell has no direction
     const tSide = r.tRatio > 1 ? 'slower' : 'faster';
     const oSide = r.oRatio > 1 ? 'slower' : 'faster';
     console.log(
