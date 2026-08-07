@@ -371,6 +371,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     runsOnly: null,
     noBuild: false,
     depthPublished: true,
+    skipQuiet: false,
     ...over,
   });
   const t = (what, fn) => test(`census_clock_run.cjs write path: ${what}`, fn);
@@ -390,6 +391,13 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     ['a partial run set', { runsOnly: 'uix' }, 0, /PARTIAL run set/],
     ['--no-build', { noBuild: true }, 0, /--no-build/],
     ['an overridden depth', { depthPublished: false }, 0, /OVERRIDDEN design depth/],
+    // rf2-azopg. C56CLOCK_SKIP_QUIET=1 made `quietGate` return ok:true and
+    // print "NOT the published shape", and then nothing carried that fact to
+    // the write decision — so a run whose samples were never checked against a
+    // quiet box could occupy the canonical directory, indistinguishable from
+    // one taken in a granted window. This is the probe that found it: the
+    // published shape in every other respect, exit 0, quiet gate skipped.
+    ['a SKIPPED quiet gate', { skipQuiet: true }, 0, /SKIPPED quiet gate \(C56CLOCK_SKIP_QUIET=1\)/],
   ]) {
     t(`${what} is NOT canonical, and says why`, () => {
       const d = destination(shape(over), code);
@@ -404,11 +412,30 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   }
 
   t('every condition that fired is named, not just the first', () => {
-    const d = destination(shape({ rowsOnly: 'feed', noBuild: true, depthPublished: false }), 5);
+    const d = destination(shape({ rowsOnly: 'feed', noBuild: true, depthPublished: false, skipQuiet: true }), 5);
     assert.strictEqual(d.canonical, false);
-    for (const needle of [/verdict refused it \(exit 5\)/, /PARTIAL row set/, /--no-build/, /OVERRIDDEN design depth/]) {
+    for (const needle of [/verdict refused it \(exit 5\)/, /PARTIAL row set/, /--no-build/, /OVERRIDDEN design depth/, /SKIPPED quiet gate/]) {
       assert.match(d.why, needle);
     }
+  });
+
+  // rf2-azopg, the other half. `destination` is pure over a shape RECORD; the
+  // one caller that builds the real shape is `runShape`, and it is not
+  // exported. So a `destination` that reads `skipQuiet` correctly still fails
+  // open if `runShape` never puts it there — which is precisely how the defect
+  // survived: the flag existed, printed "NOT the published shape", and never
+  // reached the write decision. Pin the wiring in the source, the same way the
+  // ordering pins below do, because no test of the export can see it.
+  t('runShape carries the skip-quiet fact into the write decision', () => {
+    assert.match(SRC, /const SKIP_QUIET = process\.env\.C56CLOCK_SKIP_QUIET === '1';/);
+    const from = SRC.indexOf('const runShape = () => ({');
+    assert.ok(from > 0, 'runShape no longer has the shape this test pins');
+    const body = SRC.slice(from, SRC.indexOf('});', from));
+    assert.match(
+      body,
+      /skipQuiet: SKIP_QUIET,/,
+      'runShape must carry skipQuiet, or a skipped quiet gate can still write the canonical set'
+    );
   });
 
   t('an explicit C56CLOCK_DATA_DIR is honoured as given, and is never canonical', () => {
