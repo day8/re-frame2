@@ -377,8 +377,7 @@ Three variations worth knowing:
   the widget as though the feed lands on the following commit; the adapter's
   `:flush-render!` happens to perform that drain itself, so under `dispatch-sync`
   the widget is already current when the call returns, but do not build on it.
-  Hold
-  the owner per mount and tear down in that order at unmount —
+  Hold the owner per mount and tear down in that order at unmount —
   `reagent2.ratom/dispose!` the owner **first**, then balance the acquire with
   frame-first `(rf/unsubscribe frame query-v)` — so the owner is gone before the
   cache slot is released and no feed can run against a destroyed widget. Equal
