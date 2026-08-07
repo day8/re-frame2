@@ -260,7 +260,7 @@ const lacks = (re, why) => assert.ok(!re.test(SRC), `p0_run.cjs: must no longer 
 test('the driver exits on THIS function and does not re-derive the counts', () => {
   has(/const structural = ladderStructuralFailures\(out\.ladder\);/, 'the ladder gate calls it');
   has(/if \(structural\.length > 0\) \{/, 'and its result is what pushes a failure');
-  has(/module\.exports = \{ ladderStructuralFailures \};/, 'so this file can drive it');
+  has(/module\.exports = \{\s*ladderStructuralFailures,/, 'so this file can drive it');
   has(/if \(require\.main === module\)/, 'and requiring the driver must not drive it');
 });
 
