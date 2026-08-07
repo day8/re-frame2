@@ -496,48 +496,10 @@
       (is (str/includes? visible "/")
           (str "the projection preserves the keyword's namespace; got " (pr-str visible))))))
 
-(defn assert-mounted-display-name-is-devtools-visible
-  "rf2-976bw: mount the spine's `wrap-view` head as a real React component
-  and read the name the way React DevTools does — off the committed fiber's
-  `type` — rather than off the fn property. Spec 006 item 1 is a claim about
-  what a developer READS in the component tree; rf2-fa4ly pinned the stamp
-  and never exercised the mount.
-
-  `wrap-view` is the right head to mount on this substrate: the registered
-  handler-fn from `views/reg-view*` carries `:contextType` metadata, and
-  `cljs.core/with-meta` on a fn yields a `MetaFn` — an IFn, not a JS
-  function — so it is Reagent's class machinery that turns it into a React
-  component type. A React-hook substrate has no such conversion; its
-  component head is the `wrap-view` output, which is where the spine's stamp
-  lands.
-
-  Browser-DOM gate (real createRoot); skipped on node-test via
-  `with-browser-act`. cfg keys: :substrate-kw, :name, :wrap-view."
-  [{:keys [substrate-kw name wrap-view]}]
-  (testing (str name " — the MOUNTED component's DevTools name is the colon-free projection (rf2-976bw)")
-    (with-browser-act
-     (fn [act-fn]
-      (let [id         (mint-kw substrate-kw "display-name-mounted")
-            head       (wrap-view id {} (fn [] (React/createElement
-                                                 "span" #js {"data-testid" "rf-dn-mounted"} "hi")))
-            expected   (performance/entry-id id)
-            mount-node (make-mount-node!)
-            root       (react-dom-client/createRoot mount-node)]
-        (try
-          (act-fn (fn [] (.render root (React/createElement head #js {}))))
-          (let [names (react-test-support/devtools-names-above
-                        (.querySelector mount-node "[data-testid='rf-dn-mounted']"))]
-            (is (some #{expected} names)
-                (str "the mounted component is named " (pr-str expected)
-                     " in the fiber tree; saw " (pr-str names)))
-            (is (not-any? #{(str ":" expected)} names)
-                (str "no colon-prefixed spelling survives into the tree; saw "
-                     (pr-str names)))
-            (is (= (performance/build-name :render id)
-                   (str "rf:render:" expected))
-                "the name read off the fiber is the measure's own id"))
-          (finally
-            (try (.unmount root) (catch :default _ nil)))))))))
+;; `assert-mounted-display-name-is-devtools-visible` — the MOUNTED
+;; counterpart — lives at the end of this file, alongside the other
+;; browser-gated assertions: it calls `with-browser-act` /
+;; `make-mount-node!`, which are defined down in the DOM-twin section.
 
 ;; ===========================================================================
 ;; React `:key` parity (Spec 006 §Source-coord annotation — CRITICAL key
@@ -6341,3 +6303,46 @@
             (finally
               (trace-tooling/unregister-listener! ::void-view-unmounted-recorder)
               (try (.unmount root) (catch :default _ nil))))))))))
+
+(defn assert-mounted-display-name-is-devtools-visible
+  "rf2-976bw: mount the spine's `wrap-view` head as a real React component
+  and read the name the way React DevTools does — off the committed fiber's
+  `type` — rather than off the fn property. Spec 006 item 1 is a claim about
+  what a developer READS in the component tree; rf2-fa4ly pinned the stamp
+  and never exercised the mount.
+
+  `wrap-view` is the right head to mount on this substrate: the registered
+  handler-fn from `views/reg-view*` carries `:contextType` metadata, and
+  `cljs.core/with-meta` on a fn yields a `MetaFn` — an IFn, not a JS
+  function — so it is Reagent's class machinery that turns it into a React
+  component type. A React-hook substrate has no such conversion; its
+  component head is the `wrap-view` output, which is where the spine's stamp
+  lands.
+
+  Browser-DOM gate (real createRoot); skipped on node-test via
+  `with-browser-act`. cfg keys: :substrate-kw, :name, :wrap-view."
+  [{:keys [substrate-kw name wrap-view]}]
+  (testing (str name " — the MOUNTED component's DevTools name is the colon-free projection (rf2-976bw)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [id         (mint-kw substrate-kw "display-name-mounted")
+            head       (wrap-view id {} (fn [] (React/createElement
+                                                 "span" #js {"data-testid" "rf-dn-mounted"} "hi")))
+            expected   (performance/entry-id id)
+            mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (React/createElement head #js {}))))
+          (let [names (react-test-support/devtools-names-above
+                        (.querySelector mount-node "[data-testid='rf-dn-mounted']"))]
+            (is (some #{expected} names)
+                (str "the mounted component is named " (pr-str expected)
+                     " in the fiber tree; saw " (pr-str names)))
+            (is (not-any? #{(str ":" expected)} names)
+                (str "no colon-prefixed spelling survives into the tree; saw "
+                     (pr-str names)))
+            (is (= (performance/build-name :render id)
+                   (str "rf:render:" expected))
+                "the name read off the fiber is the measure's own id"))
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
