@@ -85,13 +85,18 @@
 (rf/reg-sub :hyd/row (fn [db [_ i]] (get-in db [:rows i] "")))
 (rf/reg-sub :hyd/toasts (fn [db _] (:toasts db)))
 (rf/reg-sub :hyd/field (fn [db _] (:field db)))
+(rf/reg-sub :hyd/revision (fn [db _] (:revision db)))
 
 (rf/reg-event :hyd/seed
   (fn [_ _]
-    {:db {:title  "hydrated"
-          :rows   {0 "alpha" 1 "beta" 2 "gamma"}
-          :toasts [{:id 1 :message "Saved"}]
-          :field  "abc"}}))
+    {:db {:title    "hydrated"
+          :rows     {0 "alpha" 1 "beta" 2 "gamma"}
+          :toasts   [{:id 1 :message "Saved"}]
+          :field    "abc"
+          :revision "rev-1"}}))
+
+(rf/reg-event :hyd/set-revision
+  (fn [{:keys [db]} [_ r]] {:db (assoc db :revision r)}))
 
 (rf/reg-event :hyd/set-row
   (fn [{:keys [db]} [_ i v]] {:db (assoc-in db [:rows i] v)}))
@@ -180,6 +185,31 @@
   [:input#hyd-field.field {:type     "text"
                            :value    (rt/sub [:hyd/field])
                            :on-input [:hyd/set-field :re-frame.hicasso/value]}])
+
+(defview revision-field-screen
+  "[[field-screen]] carrying `::h/revision` off a subscription — the shape
+  §6 needs, and the only difference is that the reset trigger is a value
+  the model owns rather than a literal."
+  [_]
+  [:input#hyd-field.field {:type     "text"
+                           :value    (rt/sub [:hyd/field])
+                           :re-frame.hicasso/revision (rt/sub [:hyd/revision])
+                           :on-input [:hyd/set-field :re-frame.hicasso/value]}])
+
+(defn- drift!
+  "Move the field's value WITHOUT telling React — what a user typing into
+  server-rendered HTML before the bundle arrived leaves behind, and the
+  draft a reset exists to discard.
+
+  Written through the PROTOTYPE's `value` setter because React patches the
+  instance setter to maintain its change tracker; a plain `set!` would
+  update the tracker too, after which React reads the node as already
+  agreeing and no re-assert runs. Same reason, same shape as
+  `front/revision_dom_cljs_test`'s own."
+  [node v]
+  (let [d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
+    (.call (.-set d) node v)
+    nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The fixture doors
@@ -467,3 +497,127 @@
                             "and every row is still the SERVER'S node — the
                              render did not remount the adopted tree"))
                       (finally (mount/release! handle) (done))))))))))))
+
+;; ===========================================================================
+;; 6 — HD-019's OTHER rider: a `::h/revision` arriving mid-adoption
+;;
+;; R3 of `studio/revision-prop-spec.md`, adjudicated on this harness
+;; (rf2-ne3ey). The design claimed a revision arriving during adoption
+;; lands on the first post-adoption commit, on the SERVER's node. R3
+;; demoted that to witness-gated intent with the fallback pre-committed;
+;; rf2-zq8kh settled the STRUCTURAL half — the revision is consumed at the
+;; codec, so React is handed a prop-identical element whether it moved or
+;; not (`front/revision_dom_cljs_test`) — and left the TIMING half here,
+;; because two hand-rolled `hydrateRoot` arms disagreed about node identity
+;; in opposite directions on consecutive runs.
+;;
+;; **The row below is not a re-run of that race, because `mid-adoption` is
+;; a fact here rather than a wait.** `hydrate-root!` refuses to `flushSync`,
+;; so it returns before the tree is adopted and `(rt/adopting?)` is TRUE on
+;; the line after — asserted, exactly as §1 asserts it. The dispatch is
+;; synchronous in that same turn, so no timer, no retry loop and no
+;; tolerance stands between the two: nothing can interleave and there is
+;; nothing to settle. It goes through `rt/dispatch!` rather than
+;; `mount/dispatch!` deliberately — the latter's `settle!` is a `flushSync`,
+;; and flushing React mid-adoption would manufacture the very schedule this
+;; door exists to refuse.
+;;
+;; **The verdict: the revision is ABSORBED, not deferred, and the adoption
+;; never notices it.** The write reaches no committed boundary — this arm
+;; acquires at COMMIT, and the adoption commit is the first one — so it
+;; notifies nothing, and the already-scheduled adoption render simply reads
+;; the new revision as its FIRST revision. A change with no predecessor to
+;; be a change from fires nothing; and React's hydration is a mount rather
+;; than an update, so the per-commit `updateInput` re-assert that carries
+;; the whole reset never runs. One body ran, the server's node survived,
+;; React reported nothing, and the draft the user typed into the server HTML
+;; is still in the field.
+;;
+;; So "lands on the first post-adoption commit" is false in both halves:
+;; there is no post-adoption commit to land on, and the adoption commit does
+;; not re-assert. What survives of the claim is the NODE, and the closing
+;; arm pins it — the next revision change after the window shuts resets the
+;; field on the server's own node, without remount. The field is never
+;; stranded; the reset is simply the caller's to send again.
+;; ===========================================================================
+
+(deftest a-revision-arriving-mid-adoption-is-absorbed-by-the-adoption
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (fresh!)
+        (let [html (server-html! [revision-field-screen {}])]
+          (is (re-find #"value=\"abc\"" html)
+              "the server emitted the model as an attribute")
+          (is (not (re-find #"revision" html))
+              (str "and no revision — the strip is codec-level, so the wire
+                    cannot carry one: " html))
+          (let [container (stamp-server-nodes! (server-dom! html))
+                before    (.querySelector container "#hyd-field")]
+            (is (server-node? before))
+            (drift! before "a draft the model never took")
+            (is (= "a draft the model never took" (.-value before))
+                "the draft really landed, and it landed BEFORE any JS adopted
+                 the page — which is the only way a hydrated field can be
+                 carrying one at all")
+            (rt/reset-body-runs!)
+            (let [{:keys [captured close!]} (open-console-capture!)
+                  handle (mount/hydrate-root! container frame-id
+                                              [revision-field-screen {}])]
+              (is (true? (rt/adopting?))
+                  "**the window is OPEN**, so the dispatch on the next line is
+                   mid-adoption by construction rather than by timing")
+              (rt/dispatch! frame-id [:hyd/set-revision "rev-2"])
+              (-> (adopted!)
+                  (.then
+                    (fn [ok]
+                      (close!)
+                      (try
+                        (is (true? ok) "the closer's passive effect ran")
+                        (is (= "rev-2" @(rf/subscribe [:hyd/revision]
+                                                      {:frame frame-id}))
+                            "and the mid-adoption write really landed in the
+                             model — what follows measures an ABSORBED
+                             revision, not a dispatch that went nowhere")
+                        (is (= [] @captured)
+                            (str "React reported nothing on either channel: "
+                                 (pr-str @captured)))
+                        (let [after (.querySelector container "#hyd-field")]
+                          (is (identical? before after)
+                              "**the server's node survived.** A revision React
+                               was never given cannot make it deopt to a client
+                               render")
+                          (is (server-node? after)
+                              "and the stamp says so — an expando cannot
+                               survive re-serialisation")
+                          (is (= "a draft the model never took" (.-value after))
+                              "**THE RESET DID NOT LAND.** Hydration is a mount,
+                               not an update, so the per-commit re-assert that
+                               carries the whole reset never ran — the draft is
+                               exactly where the user left it")
+                          (is (= "abc" (controlled/last-rendered after))
+                              "while the mirror is the MODEL's, so the field is
+                               one ordinary commit away from converging"))
+                        (is (= 1 (rt/body-runs))
+                            (str "one boundary, ONE body run across the whole "
+                                 "adoption — the mid-adoption revision produced "
+                                 "no render of its own, which is what ABSORBED "
+                                 "means; read " (rt/body-runs)))
+                        (testing "**and the field is not stranded.** The next
+                                 revision change after the window shuts resets
+                                 it, on the SERVER's own node — the half of
+                                 R3's claim that does survive"
+                          (rt/reset-body-runs!)
+                          (mount/dispatch! handle [:hyd/set-revision "rev-3"])
+                          (let [after (.querySelector container "#hyd-field")]
+                            (is (= "abc" (.-value after))
+                                "the draft is discarded and the field
+                                 re-baselined to the model")
+                            (is (identical? before after)
+                                "WITHOUT REMOUNT — still the server's own node")
+                            (is (server-node? after))
+                            (is (= 1 (rt/body-runs))
+                                (str "on one ordinary commit; read "
+                                     (rt/body-runs)))))
+                        (finally (mount/release! handle) (done)))))))))))))
