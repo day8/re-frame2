@@ -60,6 +60,13 @@
 // ratios a sound run produces, so finiteness alone let counter-inverted
 // timing evidence through the gate above (rf2-110be, from #7643's audit).
 //
+// NOR MAY ANYTHING DOWNSTREAM CONCLUDE FROM A CELL THAT PREDICATE REFUSED.
+// The WORKLOAD section states a second finding out of the same numbers, and
+// its only condition used to be that `summary.run1k` existed — so a ratio the
+// table had already thrown out still moved the published mount by a perfectly
+// finite percentage (rf2-110be, from #7675's audit). Every conclusion in
+// `report` now sits behind the decision its evidence was already given.
+//
 // WHAT IT DOES NOT ADJUDICATE, deliberately. The run's own gates — DOM
 // parity, the positive control, page errors, unverified writes — are
 // REPORTED here and decided by `jsfb_ours_run.cjs`, which owns them and
@@ -296,6 +303,7 @@ const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 // row. Our instrument on the benchmark's create-1,000 against our
 // instrument on the M1 mount witness: same instrument, different page.
 const PUBLISHED_M1_MOUNT = 1.2107;
+const WORKLOAD_CELL = cellId('01_run1k', 'rf2-hicasso');
 
 function report(theirs, ours, rows) {
   console.log('');
@@ -333,11 +341,21 @@ function report(theirs, ours, rows) {
 
   console.log('');
   console.log(';; WORKLOAD — one instrument, two pages (the other half of the 2x2)');
-  if (ours && ours.summary && ours.summary.run1k) {
-    const r = ratioOf(ours.summary.run1k, 'rf2-hicasso');
-    console.log(`;;   ours, benchmark create-1,000 rows   ${fmt(r)}`);
-    console.log(`;;   ours, M1 mount (published, rf2-0qj9w) ${fmt(PUBLISHED_M1_MOUNT)}`);
-    console.log(`;;   workload moves the ratio by ${(((r - PUBLISHED_M1_MOUNT) / PUBLISHED_M1_MOUNT) * 100).toFixed(1)}%`);
+  // Both pages are OURS, so it is our side's refusal that governs and not the
+  // row's comparability: the benchmark driver's evidence is not among this
+  // section's premises. The row has already taken that decision over base, arm
+  // and ratio, so this reads it rather than deriving a second one.
+  const w = rows.find((r) => r.cell === WORKLOAD_CELL);
+  const bad = w ? w.oBad : `no \`${WORKLOAD_CELL}\` row was built at all`;
+  console.log(`;;   ours, benchmark create-1,000 rows   ${fmt(w ? w.oRatio : NaN)}`);
+  console.log(`;;   ours, M1 mount (published, rf2-0qj9w) ${fmt(PUBLISHED_M1_MOUNT)}`);
+  // The refused value stays visible; it is the CONCLUSION that is withheld.
+  // Saying so beats printing nothing — a section that simply vanishes reads as
+  // "not applicable" rather than "the evidence was rejected".
+  if (bad) {
+    console.log(`;;   UNMEASURED — ${bad}, so no movement is derived from it`);
+  } else {
+    console.log(`;;   workload moves the ratio by ${(((w.oRatio - PUBLISHED_M1_MOUNT) / PUBLISHED_M1_MOUNT) * 100).toFixed(1)}%`);
   }
 
   // The run's own gates, REPORTED. `jsfb_ours_run.cjs` decides them.
