@@ -92,6 +92,44 @@ and settled between samples behind a residue equality gate that never fired):
 > once again *structurally* identical to the seam it prices, which warrants
 > the `c-*` ablations better than a clock agreement on its own ever did.
 
+> **THE QUIET-BOX RE-TAKE WAS ATTEMPTED AND REFUSED — the figures above stand
+> unchanged, still as upper bounds** (`rf2-d360z`, 2026-08-07, `abcb34217c`,
+> Processor Queue Length 0 before the attempt). `read_profile_app` reaches
+> phase A and stops: **both attempts threw at the phase-B residue gate, on the
+> `commit` arm, with the identical counts** — baseline
+> `{:cells 141 :cell-refs 141 :boundaries 1 :edges 141 :entries 6}` against a
+> measured `:entries 5`. Runner exit `1` both times; nothing from phase B was
+> produced, let alone published.
+>
+> **The cause is not the box and not this instrument.** `rf2-2rtt6.84`
+> (`337b2c2fb4`, 2026-08-04) moved `arm1/runtime.cljs`'s
+> `entry-reap-horizon-ms` from **0 to 4** so the entry reaper could not beat
+> React back to its own passive flush on a `hydrateRoot`. `lane/settle!` is
+> one macrotask — a bare `setTimeout 0` — and 4 ms is strictly outside it, so
+> the two no longer interleave the way the gate's baseline assumes. Phase B's
+> setup harvests four read-set entries through `rt/render-body`, each minted
+> with `refs` 0 and each arming a reaper at +4 ms; the baseline `rt/residue` is
+> read after ONE settle, at ~0 ms, so it counts all six entries. The reapers
+> then fire during the first sampled arm, `commit` is the only arm that raises
+> `refs` at all, and any entry whose reaper lands while `refs` is 0 is evicted.
+> The gate compares by EQUALITY and refuses. **Both published phase-B runs
+> (`cb41ee537b`, `0c0ff21f0d`, both 2026-08-02) predate that change**, which is
+> exactly why §1 could record a residue gate that never fired.
+>
+> **The gate is right and was not touched.** What it is telling us is that the
+> baseline phase B hands it is no longer reachable — an instrument-versus-
+> runtime disagreement, filed as `rf2-981nt`, not something to widen.
+>
+> **And the prize was under the grid in any case, which the refusal does not
+> change.** 141 mints at the micro table's nearest anchor of 53 ns is
+> **0.0075 ms/commit against a 0.025 ms quantum — under a third of one grid
+> step**, and the two absolutes this page already carries (0.8875 here, 0.7625
+> in §4) sit **5 quanta apart** across two runs taken an hour apart at
+> different commits. The drift is smaller than the instrument's resolution and
+> far smaller than its run-to-run dispersion, so no re-take on this clock could
+> have attributed a difference to `rf2-aqgr2`/`rf2-6wh9o` even had phase B run.
+> A quiet box does not fix that.
+
 Micro table, over the page's own roster (ns/op): `subscribe-once` 5,284;
 `compute-sub` 1,170; the raw handler invoke 227; `registrar/lookup` 67;
 `frame-state-value` 266; the `call-with-frame-resolution` wrap 206; the
@@ -265,7 +303,11 @@ decomposition as before (reaction build + cache insert 51.9%, index write
 designed: the durable wiring, amortised over the mount. That re-read is
 `0c0ff21f0d`'s and carries §1's staleness for the same reason — the per-cell
 keyword mint was still on both arms — so it is an upper bound and its shares
-lower bounds, by the same about-one-quantum term.
+lower bounds, by the same about-one-quantum term. **`rf2-d360z`'s quiet-box
+re-take of this figure was attempted on 2026-08-07 at `abcb34217c` and
+refused twice at the phase-B residue gate before producing a number** — same
+cause, same evidence, stated in full under §1's table. 0.7625 and its
+51.9 / 5.6 / 3.7% shares therefore stand exactly as they are.
 
 ## 5. The parity gap the re-take tripped over — found, bisected, repaired
 
