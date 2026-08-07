@@ -102,6 +102,52 @@ const PAIRS = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reage
 const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
 
 /**
+ * THE ESTIMATOR THAT TOUCHES NEITHER FLOOR (rf2-w3yxd).
+ *
+ * Every `bar` this program prints is a DOUBLE ratio. Each arm is divided first
+ * by the floor measured in its OWN segment of that round, so the quantity the
+ * pages publish is
+ *
+ *     (U / F_U) ÷ (R / F_R) = (U / R) × (F_R / F_U)
+ *
+ * and the two floors are not one value. `the-clock-behind-the-published-rows.md`
+ * §2 first said they divide out, corrected itself, and left the size of the
+ * second term unmeasured on these clocks — because forming the counterpart
+ * needs the per-sample readings, and no dataset from any published ensemble on
+ * this instrument had survived.
+ *
+ * This is that counterpart: one arm's p50 over the other's, in the same round,
+ * no floor and no tare. `p0-converged-witness-set.md`'s "Two estimators,
+ * published together" has carried the pair for the in-page rows since
+ * `rf2-zb3qg`; the two agreeing on a row's verdict is the evidence that the
+ * normalisation is doing its job rather than injecting a term of its own.
+ *
+ * IT IS NOT `crossSegment`'s `raw` FLAG. That flag drops the TARE and keeps the
+ * floor normalisation, so it is neither of the two quantities either page is
+ * about — the bead says so in terms, and it is worth the sentence because the
+ * word `raw` appears on both.
+ *
+ * ANALYSIS, NOT INSTRUMENT. Nothing here is measured; every number is a
+ * function of `roundsTask` / `rounds` / `inPageRounds` as the driver wrote
+ * them, which is what makes a retained dataset worth retaining. `rounds` is
+ * `[round][segment][arm]`, and each leg's segment and arm carry the same name
+ * by the construction the driver's own `crossSegment` uses.
+ */
+function rawCrossSegment(rounds, pair) {
+  const [num, den] = pair.split(' / ');
+  const per = [];
+  for (const round of rounds || []) {
+    const n = round && round[num] && round[num][num];
+    const d = round && round[den] && round[den][den];
+    if (!Array.isArray(n) || !Array.isArray(d) || n.length === 0 || d.length === 0) {
+      return { n: 0, mean: NaN, min: NaN, max: NaN };
+    }
+    per.push(p50(n) / p50(d));
+  }
+  return ens(per);
+}
+
+/**
  * IS EVERY BAR THIS RUN PUBLISHED ON THIS ROW ADJUDICATED?
  *
  * rf2-y7mw7's term, and the one this file was missing entirely: a row whose
@@ -527,6 +573,34 @@ function main(argv) {
       );
       console.log(`;;     taskNet (frame-only, superseded) ${fmt(en.mean)}x  [${fmt(en.min)} – ${fmt(en.max)}]`);
       console.log(`;;     in-page performance.now()        ${fmt(ei.mean)}x  [${fmt(ei.min)} – ${fmt(ei.max)}]`);
+
+      // BOTH ESTIMATORS, SIDE BY SIDE (rf2-w3yxd). The three lines above are
+      // the floor-normalised bar on each window; these are the same three
+      // windows read with the raw quotient, which touches neither floor. They
+      // are printed together and never one instead of the other: the pair
+      // agreeing on a row's verdict is what bounds what the normalisation is
+      // doing to the mean, and a disagreement is a finding rather than a
+      // choice between them.
+      const rawTask = runs.map(({ row }) => rawCrossSegment(row.roundsTask, pair).mean);
+      const rawNet = runs.map(({ row }) => rawCrossSegment(row.rounds, pair).mean);
+      const rawInPage = runs.map(({ row }) => rawCrossSegment(row.inPageRounds, pair).mean);
+      const erT = ens(rawTask);
+      const erN = ens(rawNet);
+      const erI = ens(rawInPage);
+      if (erT.n > 0) {
+        const rawPass = passIdx.map((i) => rawTask[i]).filter(Number.isFinite);
+        console.log(
+          `;;     RAW quotient (neither floor) raw TaskDuration ${fmt(erT.mean)}x  [${fmt(erT.min)} – ${fmt(erT.max)}]  n=${erT.n}` +
+            (rawPass.length
+              ? `   reportable subset ${fmt(ens(rawPass).mean)}x n=${rawPass.length}`
+              : '   reportable subset: NONE')
+        );
+        console.log(
+          `;;       the same quotient on taskNet ${fmt(erN.mean)}x  [${fmt(erN.min)} – ${fmt(erN.max)}]` +
+            `, on the in-page window ${fmt(erI.mean)}x  [${fmt(erI.min)} – ${fmt(erI.max)}]` +
+            `  — floor-normalised minus raw, published clock: ${fmt((e.mean - erT.mean) * 100, 1)}pp`
+        );
+      }
       console.log(';;     run   in-page   taskNet   TaskDuration   band   margin   verdict');
       runs.forEach(({ file, row }, i) => {
         const b = row.bandTask;
@@ -781,6 +855,11 @@ function shortName(f) {
   return m ? m[1] : f;
 }
 
+// `rawCrossSegment` is deliberately NOT here. This list is pinned by
+// `clock_exit_path.test.cjs`, and the pin is right: the exported names are the
+// DECISIONS a test must be able to drive. The raw estimator decides nothing —
+// it is a second description of a row printed beside the first — so exporting
+// it would widen a guard to accommodate a reporting helper.
 module.exports = { GATES, adjudicated, refusals, reportable, responsivenessRegime };
 
 // Requiring this file must not run it: `clock_exit_path.test.cjs` drives the
