@@ -464,6 +464,16 @@ function deltaOf(a, b) {
   };
 }
 
+/**
+ * The nine quantities ONE block's decomposition accumulator carries, named
+ * once. `bump` creates them at collection, `datasetFor` serialises them, and
+ * `foldDecomposition` both sums them and requires exactly these — three
+ * readers over one list, so a field cannot be collected and then silently not
+ * be required, which is how the split came to be dropped in the first place.
+ */
+const DECOMP_FIELDS = ['n', 'task', 'taskNet', 'devtools', 'script', 'style', 'layout', 'layoutCount', 'inPage'];
+const zeroDecomp = () => Object.fromEntries(DECOMP_FIELDS.map((k) => [k, 0]));
+
 // ---------------------------------------------------------------------------
 // One row of one run
 // ---------------------------------------------------------------------------
@@ -521,9 +531,7 @@ async function runRow(browser, runDef, rowId) {
   let previous = null;
 
   const bump = (into, arm, d, inPage) => {
-    const acc = (into[arm] ||= {
-      n: 0, task: 0, taskNet: 0, devtools: 0, script: 0, style: 0, layout: 0, layoutCount: 0, inPage: 0,
-    });
+    const acc = (into[arm] ||= zeroDecomp());
     acc.n += 1;
     acc.task += d.task;
     acc.taskNet += d.taskNet;
@@ -617,6 +625,27 @@ async function runRow(browser, runDef, rowId) {
  * every census dataset written before rf2-jo60g is exactly that row, and a fold
  * that answered there would hand a reader a NaN — or worse, a plausible number
  * — for a split those files never recorded.
+ *
+ * AND IT REFUSES A PARTIAL ONE (merged-PR audit #7666). The first landing
+ * checked only the OUTER array and then summed with `acc[k] += a[k] || 0`, so
+ * `[[]]` and `[[{}]]` both answered `{}`, and a missing, null or NaN metric was
+ * silently synthesised as zero. An arm that had lost half its fields therefore
+ * folded to a plausible ratio instead of a refusal — the same fail-open one
+ * level down, and the one this bead exists to close. `|| 0` is the defect, so
+ * the repair is to REQUIRE the shape rather than to default it:
+ *
+ *   - every round carries at least one block, and every block at least one arm;
+ *   - every block carries the same arm roster as the row's first block, so a
+ *     block that dropped an arm cannot be summed against blocks that kept it;
+ *   - every arm carries every one of `DECOMP_FIELDS`, each a FINITE number —
+ *     absent, `null`, `undefined` and `NaN` are refusals, not zeros;
+ *   - `n` is positive (a block that took no samples is not evidence) and
+ *     `layoutCount` is non-negative (it tallies a monotone renderer counter).
+ *
+ * Durations are only required to be finite: `plumb` legitimately lays nothing
+ * out and reads 0, and `taskNet` subtracts the devtools window so it may read
+ * below zero. The refusal names the round, the block, the arm and the field, so
+ * a reader can go to the offending side of the ratio and see what is wrong.
  */
 function foldDecomposition(blocksDecomp) {
   if (!Array.isArray(blocksDecomp) || blocksDecomp.length === 0) {
@@ -625,14 +654,61 @@ function foldDecomposition(blocksDecomp) {
         'Script/Layout/RecalcStyle split is NOT recomputable from it and may not be quoted'
     );
   }
+  const describe = (v) =>
+    v === undefined ? 'absent'
+      : v === null ? 'null'
+        : typeof v === 'number' ? (Number.isNaN(v) ? 'NaN' : String(v))
+          : Array.isArray(v) ? 'an array'
+            : `a ${typeof v}`;
+  const refuse = (where, what) => {
+    throw new Error(
+      `this row's per-block decomposition is not valid evidence — ${where}: ${what}. ` +
+        'A partial or corrupt split is refused rather than folded: defaulting it to zero ' +
+        'would publish a plausible Script/Layout/RecalcStyle ratio for numbers the run ' +
+        'never recorded (rf2-jo60g).'
+    );
+  };
+
+  let roster = null; // the arms of round 0, block 0 — every block must carry them
   const out = {};
-  for (const round of blocksDecomp) {
-    for (const blk of round) {
-      for (const [arm, a] of Object.entries(blk)) {
-        const acc = (out[arm] ||= {
-          n: 0, task: 0, taskNet: 0, devtools: 0, script: 0, style: 0, layout: 0, layoutCount: 0, inPage: 0,
-        });
-        for (const k of Object.keys(acc)) acc[k] += a[k] || 0;
+  for (let r = 0; r < blocksDecomp.length; r++) {
+    const round = blocksDecomp[r];
+    if (!Array.isArray(round) || round.length === 0) {
+      refuse(`round ${r}`, `carries no blocks (${describe(round)})`);
+    }
+    for (let b = 0; b < round.length; b++) {
+      const blk = round[b];
+      const at = `round ${r}, block ${b}`;
+      if (!blk || typeof blk !== 'object' || Array.isArray(blk)) refuse(at, `is not a block of arms (${describe(blk)})`);
+      const here = Object.keys(blk).sort();
+      if (here.length === 0) refuse(at, 'carries no arms — an empty block measured nothing');
+      if (roster === null) {
+        roster = here;
+      } else {
+        const missing = roster.filter((a) => !here.includes(a));
+        const extra = here.filter((a) => !roster.includes(a));
+        if (missing.length || extra.length) {
+          refuse(
+            at,
+            `carries arms [${here.join(', ')}] where round 0, block 0 carries [${roster.join(', ')}]` +
+              `${missing.length ? ` — missing ${missing.join(', ')}` : ''}` +
+              `${extra.length ? ` — unexpected ${extra.join(', ')}` : ''}`
+          );
+        }
+      }
+      for (const arm of roster) {
+        const a = blk[arm];
+        const side = `${at}, arm "${arm}"`;
+        if (!a || typeof a !== 'object' || Array.isArray(a)) refuse(side, `carries no accumulator (${describe(a)})`);
+        for (const k of DECOMP_FIELDS) {
+          if (typeof a[k] !== 'number' || !Number.isFinite(a[k])) {
+            refuse(side, `field "${k}" is ${describe(a[k])}, not a finite number`);
+          }
+        }
+        if (!(a.n > 0)) refuse(side, `field "n" is ${a.n} — a block that took no samples is not evidence`);
+        if (a.layoutCount < 0) refuse(side, `field "layoutCount" is ${a.layoutCount} — a count cannot be negative`);
+        const acc = (out[arm] ||= zeroDecomp());
+        for (const k of DECOMP_FIELDS) acc[k] += a[k];
       }
     }
   }

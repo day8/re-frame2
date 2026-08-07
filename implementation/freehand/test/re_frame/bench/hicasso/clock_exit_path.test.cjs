@@ -627,6 +627,170 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       }
     }
   });
+
+  // --- rf2-jo60g, merged-PR audit #7666: PARTIAL evidence must refuse too ----
+  //
+  // The landing above closed the ABSENT case and left the partial one open. It
+  // checked the outer array and nothing inside it, then summed with
+  // `acc[k] += a[k] || 0` — so `foldDecomposition([[]])` and
+  // `foldDecomposition([[{}]])` each answered `{}`, and an arm that had lost
+  // `task`/`script`/`layoutCount`, or carried an explicit `null`, folded with
+  // every missing field synthesised as zero. A half-written or truncated
+  // dataset therefore became a plausible Script/Layout/RecalcStyle ratio
+  // instead of the refusal this bead promises, which is the fail-open the
+  // whole bead exists to close, one level down from where it was closed.
+  //
+  // Every fixture below is built HERE. The committed datasets cannot witness
+  // these states — they either carry a whole split or none — and a negative
+  // case that needs a file to be wrong on disk is not a test anyone can run.
+
+  const { summarise, verdict } = DRIVERS[1].mod;
+
+  // `drive`'s own composition, on the real exported functions: `report` folds
+  // BEFORE anything else it does, inside the try; a throw sets `failed`, so the
+  // row never reaches `results`; `verdict` reads `failed`; and the dataset write
+  // is gated on `results.length && !failed`. A refusal that throws where nothing
+  // catches is not the same as a driver that exits non-zero — this drives the
+  // second. The source pins below hold the reconstruction to the shape it
+  // stands for, so it cannot drift away from the driver while still passing.
+  const summarisable = () => {
+    const r = fixtureRow();
+    r.adjudication.ctl = { ok: true, measured: { mean: 1.9943 } };
+    return r;
+  };
+  const driveOn = (blocksDecomp) => {
+    const results = [];
+    let failed = null;
+    try {
+      foldDecomposition(blocksDecomp); // `report`'s first act on the row
+      results.push(summarisable()); // reached only if the fold ANSWERED
+    } catch (e) {
+      failed = e.message;
+    }
+    const v = verdict(summarise(failed, results));
+    return {
+      code: v.code,
+      wrote: Boolean(results.length && !failed),
+      canonical: destination(shape(), v.code).canonical,
+      why: failed || '',
+    };
+  };
+
+  t("the reconstruction above IS `drive`'s composition, and stays that way", () => {
+    // Each pin is one link of the chain the witnesses below assume. Newlines
+    // are normalised because this tree is checked out with CRLF on Windows.
+    const src = SRC.replace(/\r\n/g, '\n');
+    assert.match(src, /function report\(out\) \{\n {2}const \{[^}]*blocksDecomp[^}]*\} = out;\n {2}const decomposition = foldDecomposition\(blocksDecomp\);/);
+    const drive = src.slice(src.indexOf('async function drive('));
+    assert.match(drive, /const out = await runRow\(browser, runDef, rowId\);\n\s*const adj = report\(out\);\n\s*results\.push\(/);
+    assert.match(drive, /\} catch \(e\) \{\n\s*failed = e\.message;/);
+    assert.match(drive, /if \(results\.length && !failed\) \{/);
+  });
+
+  // The green case first, so nothing below is vacuously red: the valid fixture
+  // folds, the row is kept, and the run writes to the canonical set.
+  t('the fold ANSWERS on whole evidence — the gate is not vacuous', () => {
+    const d = driveOn(FIXTURE_DECOMP);
+    assert.strictEqual(d.code, 0, 'a complete decomposition must fold, not refuse');
+    assert.strictEqual(d.wrote, true);
+    assert.strictEqual(d.canonical, true);
+  });
+
+  t('the fold sums the stored fields and DEFAULTS nothing', () => {
+    // `acc[k] += a[k] || 0` is the defect itself. Pinned in the source because
+    // a rewrite of the loop could reintroduce it while every witness below
+    // still described a state the new loop happened to reject some other way.
+    const fold = SRC.slice(SRC.indexOf('function foldDecomposition('), SRC.indexOf('function taredCell('));
+    assert.ok(fold.length > 0, 'the fold no longer has the shape this test pins');
+    assert.ok(!/\|\| 0/.test(fold), 'a missing or null metric must REFUSE, not become zero');
+    assert.match(fold, /for \(const k of DECOMP_FIELDS\) acc\[k\] \+= a\[k\];/);
+  });
+
+  t('the collector, the serialiser and the fold agree on ONE field list', () => {
+    // Three readers over one constant; the split was dropped in the first place
+    // because a field could be collected and then not be required anywhere.
+    assert.match(SRC, /^const DECOMP_FIELDS = \['n', 'task', 'taskNet', 'devtools', 'script', 'style', 'layout', 'layoutCount', 'inPage'\];$/m);
+    assert.match(SRC, /const acc = \(into\[arm\] \|\|= zeroDecomp\(\)\);/, 'the collector must build the one shape');
+    assert.match(SRC, /const acc = \(out\[arm\] \|\|= zeroDecomp\(\)\);/, 'the fold must build the one shape');
+  });
+
+  // JSON.stringify cannot carry NaN or undefined, so the mutations are applied
+  // AFTER the clone — the states below are what a truncated write, a partial
+  // in-memory row, or a corrupt read actually looks like.
+  const mutate = (fn) => {
+    const c = JSON.parse(JSON.stringify(FIXTURE_DECOMP));
+    fn(c);
+    return c;
+  };
+
+  // [what it is, the evidence, the phrase the refusal must carry, the side it must name]
+  const PARTIAL = [
+    ['an outer array whose round has no blocks', [[]], 'carries no blocks', 'round 0'],
+    ['a round whose block has no arms', [[{}]], 'carries no arms', 'round 0, block 0'],
+    ['a round that is not an array at all', [null], 'carries no blocks', 'round 0'],
+    ['a block that is not a block of arms', [[[]]], 'is not a block of arms', 'round 0, block 0'],
+    ['a block that LOST an arm the other blocks carry', mutate((c) => delete c[1][0]['ctl-2x']), 'missing ctl-2x', 'round 1, block 0'],
+    ['a block that grew an arm the row never planned', mutate((c) => (c[1][1].bogus = DECOMP_BLOCK(10, 1, 1, 1))), 'unexpected bogus', 'round 1, block 1'],
+    ['an arm with no accumulator at all', mutate((c) => (c[0][0].floor = null)), 'carries no accumulator (null)', 'arm "floor"'],
+    ['an arm MISSING a metric', mutate((c) => delete c[0][1]['ctl-2x'].script), 'field "script" is absent', 'round 0, block 1, arm "ctl-2x"'],
+    ['an arm whose metric is explicitly null', mutate((c) => (c[0][0].floor.layout = null)), 'field "layout" is null', 'round 0, block 0, arm "floor"'],
+    ['an arm whose metric is NaN', mutate((c) => (c[1][1]['ctl-2x'].style = NaN)), 'field "style" is NaN', 'round 1, block 1, arm "ctl-2x"'],
+    ['an arm whose metric is a string', mutate((c) => (c[0][0]['ctl-2x'].task = '20')), 'field "task" is a string', 'arm "ctl-2x"'],
+    ['a block that took no samples', mutate((c) => (c[1][0].floor.n = 0)), 'field "n" is 0', 'round 1, block 0, arm "floor"'],
+    ['a negative renderer count', mutate((c) => (c[0][1].floor.layoutCount = -1)), 'field "layoutCount" is -1', 'round 0, block 1, arm "floor"'],
+  ];
+
+  for (const [what, blocks, needle, side] of PARTIAL) {
+    t(`${what} is refused, and the refusal names it`, () => {
+      assert.throws(() => foldDecomposition(blocks), /not valid evidence/, 'this state must not fold');
+      const d = driveOn(blocks);
+      assert.notStrictEqual(d.code, 0, 'a refused row must reach a NON-ZERO driver outcome');
+      assert.strictEqual(d.wrote, false, 'a refused row must not be written at all');
+      assert.strictEqual(d.canonical, false, 'and the destination must not be the published set');
+      // Naming the offending side is the diagnostic that earns its place: it
+      // fires only on evidence that is already invalid, and it tells the reader
+      // which side of the ratio to go and look at.
+      assert.ok(d.why.includes(needle), `the refusal must say "${needle}" — it said: ${d.why}`);
+      assert.ok(d.why.includes(side), `the refusal must name ${side} — it said: ${d.why}`);
+    });
+  }
+
+  t('a partial arm can no longer be synthesised into a plausible ratio', () => {
+    // The audit's own probe, verbatim: an arm lacking task/taskNet/devtools/
+    // script/layoutCount/inPage used to fold with all six read as zero, and an
+    // explicit `null` script used to fold as `script: 0`. Both would have made
+    // the studio page's cited split reproducible from evidence that never held
+    // it — a wrong number with a fold's authority behind it.
+    const stripped = mutate((c) => {
+      for (const k of ['task', 'taskNet', 'devtools', 'script', 'layoutCount', 'inPage']) delete c[0][0]['ctl-2x'][k];
+    });
+    assert.throws(() => foldDecomposition(stripped), /not valid evidence/);
+    const nulled = mutate((c) => (c[0][0]['ctl-2x'].script = null));
+    assert.throws(() => foldDecomposition(nulled), /field "script" is null/);
+    assert.strictEqual(driveOn(nulled).code, 1, 'the run must exit non-zero, not publish a script ratio of 0');
+  });
+
+  t("a stored split must agree with the row's own arm roster", () => {
+    // The blocks and `armIds` are serialised independently, so their agreement
+    // is a real check on the file rather than a restatement of it — and it is
+    // the one case block-to-block consistency alone cannot see: an arm absent
+    // from EVERY block folds to a roster the file's own header contradicts.
+    const dir = path.join(__dirname, 'data');
+    const files = fs
+      .readdirSync(dir)
+      .filter((d) => d.startsWith('censusclock-'))
+      .flatMap((d) => fs.readdirSync(path.join(dir, d)).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, d, f)));
+    for (const f of files) {
+      for (const row of JSON.parse(fs.readFileSync(f, 'utf8')).rows) {
+        if (!row.blocksDecomp) continue;
+        assert.deepStrictEqual(
+          Object.keys(foldDecomposition(row.blocksDecomp)).sort(),
+          row.armIds.slice().sort(),
+          `${f} / ${row.rowId}: the stored split covers a different arm set than the row claims`
+        );
+      }
+    }
+  });
 }
 
 // --- hd8_clock_run.cjs: the WRITE path, not just the exit path ---------------
