@@ -47,6 +47,10 @@ const {
   allocSteps,
   allocMaskableWindows,
   ALLOC_MASK_BUDGET_B,
+  ladderPlan,
+  allocArmSizing,
+  allocMaxWrites,
+  ALLOC_ARM,
 } = require('./p0_run.cjs');
 
 const tests = [];
@@ -448,7 +452,7 @@ test('the driver exits on THIS function and does not re-derive the budget', () =
   has(/const maskable = allocMaskableWindows\(out\.alloc\);/, 'the alloc gate calls it');
   has(/if \(maskable\.length > 0\) \{/, 'and its result is what pushes a failure');
   has(
-    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocMaskableWindows,\s*ALLOC_MASK_BUDGET_B,\s*\};/,
+    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocMaskableWindows,\s*ALLOC_MASK_BUDGET_B,\s*ladderPlan,\s*allocArmSizing,\s*allocMaxWrites,\s*ALLOC_ARM,\s*\};/,
     'so this file can drive it'
   );
 });
@@ -463,6 +467,223 @@ test('the budget is DERIVED from the measured threshold and has no dial on it', 
     'a gate with an env dial on it is a gate that gets dialled off'
   );
   has(/if \(out\.alloc\.fallsInMeasuredWindows > 0\) \{/, 'and the falling-step gate still exits');
+});
+
+// ===========================================================================
+// THE SMALL-WITNESS ARM — rf2-2rtt6.138
+// ===========================================================================
+//
+// WHAT THIS PINS, AND WHY IT IS PINNED HERE. The allocation row's published
+// witness is outside its own instrument's range: one warm write of 1,200
+// boundaries allocates 1.2-1.7 MB against a ~600 KB fall threshold, and the
+// masking bound above refuses a window that size rather than publishing what
+// it reads. The repair is a smaller PAGE — the row's quantity is per
+// BOUNDARY, so a few dozen of them put a many-write window under the
+// threshold with the averaging a fit needs still in it.
+//
+// A SIZE IS A CLAIM AND HAS TO BE CHECKABLE. `allocArmSizing` is the
+// arithmetic that chose the page, as a pure function of the bound, so the
+// claim "this arm fits" is a thing this file can adjudicate on every PR
+// rather than something the next opt-in run discovers. `--only alloc` needs
+// a release build and a headless Chromium and is in no gate; an arm that
+// drifted out of range would otherwise be found by a measurement, which is
+// the expensive way to find it and the way rf2-2rtt6.76 already found it
+// once.
+//
+// NOTHING HERE MEASURES ANYTHING, and the arm these tests describe HAS NEVER
+// BEEN RUN. Every window below is a synthetic sample stream from `stream`
+// above, built from the sizing's own prediction — which is exactly what
+// makes the check hermetic and exactly what stops it being evidence about
+// the substrate.
+
+// The window a page of `boundaries` produces at `writes`, as `alloc-window!`
+// would have sampled it if every leg allocated the predicted `B.c`. Built
+// from the SIZING, so the two cannot disagree: if the prediction is wrong
+// about the bound, `allocSteps` says so on the sizing's own numbers.
+const predictedStream = (sizing) =>
+  stream(Array.from({ length: sizing.writes }, () => sizing.predictedMaxStep));
+
+test('THE BOUND IS THE SIZING — (W+1).B.c is what the arithmetic computes', () => {
+  const s = allocArmSizing({ writes: 6, roots: 4, cells: 6, bytesPerBoundaryWrite: 1000 });
+  assert.strictEqual(s.boundaries, 24, 'B is roots x cells');
+  assert.strictEqual(s.predictedMaxStep, 24000, 'the largest single step is ONE write, B.c');
+  assert.strictEqual(s.predictedRise, 144000, 'and rise is W of them');
+  assert.strictEqual(s.predictedWindowB, 168000, '(W+1).B.c — the bound\'s left-hand side');
+  assert.strictEqual(s.headroom, ALLOC_MASK_BUDGET_B - 168000);
+  assert.ok(s.admissible);
+});
+
+test('THE SHIPPED ARM is a few dozen boundaries and is inside the bound', () => {
+  // The numbers the driver ships with. A `P0_ALLOC_CELLS` / `P0_ALLOC_WRITES`
+  // / `P0_ROOTS` in the environment moves them, and this failing under one is
+  // a TRUE signal — the run's arm would not be the shipped arm.
+  assert.strictEqual(ALLOC_ARM.cells, 6, 'cells per root');
+  assert.strictEqual(ALLOC_ARM.roots, 4, 'P0_ROOTS');
+  assert.strictEqual(ALLOC_ARM.boundaries, 24, 'a few dozen boundaries, as the bead asked');
+  assert.strictEqual(ALLOC_ARM.writes, 6, 'and a MANY-write window, which is the averaging');
+  assert.strictEqual(ALLOC_ARM.bytesPerBoundaryWrite, 1655, 'the top of the measured range');
+  assert.strictEqual(ALLOC_ARM.predictedWindowB, 278040, '(6+1) x 24 x 1655');
+  assert.strictEqual(ALLOC_ARM.headroom, 21960, 'under the 300000 B budget');
+  assert.ok(ALLOC_ARM.admissible);
+});
+
+test('the shipped arm takes EVERY write the bound admits at its page', () => {
+  // A window smaller than the bound allows is averaging thrown away, and the
+  // whole reason the page shrank was to buy that averaging back.
+  assert.strictEqual(ALLOC_ARM.writes, allocMaxWrites(ALLOC_ARM.boundaries));
+});
+
+test('THE PUBLISHED WITNESS is refused by the same arithmetic — the reason the arm exists', () => {
+  const published = allocArmSizing({ writes: ALLOC_ARM.writes, roots: 4, cells: 300 });
+  assert.strictEqual(published.boundaries, 1200);
+  assert.strictEqual(published.predictedWindowB, 7 * 1200 * 1655);
+  assert.ok(!published.admissible, '1,200 boundaries cannot be certified at any useful window');
+  assert.ok(published.headroom < 0);
+  assert.strictEqual(allocMaxWrites(1200), -1, 'not even a one-write window fits at that page');
+});
+
+test('the predicted window PASSES the real gate, and the published one does not', () => {
+  // The sizing and `allocSteps` are two expressions of one bound, so they are
+  // driven against each other rather than each asserted alone.
+  const arm = allocSteps(predictedStream(ALLOC_ARM));
+  assert.strictEqual(arm.rise, ALLOC_ARM.predictedRise);
+  assert.strictEqual(arm.maxStep, ALLOC_ARM.predictedMaxStep);
+  assert.strictEqual(arm.headroom, ALLOC_ARM.headroom);
+  assert.strictEqual(arm.maskable, false, 'the arm the driver ships is inside the budget');
+  assert.strictEqual(arm.falls, 0);
+
+  const published = allocArmSizing({ writes: ALLOC_ARM.writes, roots: 4, cells: 300 });
+  const big = allocSteps(predictedStream(published));
+  assert.strictEqual(big.headroom, published.headroom);
+  assert.ok(big.maskable, 'and the 1,200-boundary page is not');
+});
+
+test('a MIS-SIZED arm is refused — one boundary over the bound is over it', () => {
+  // `maxBoundaries` is the largest page the window admits, so the page one
+  // root wider than it must refuse. A sizing rule that named a limit it did
+  // not enforce would have adjudicated nothing.
+  const fits = allocArmSizing({ writes: 6, roots: 1, cells: ALLOC_ARM.maxBoundaries });
+  assert.strictEqual(fits.boundaries, 25);
+  assert.ok(fits.admissible, 'exactly at the limit is inside it');
+  const over = allocArmSizing({ writes: 6, roots: 1, cells: ALLOC_ARM.maxBoundaries + 1 });
+  assert.ok(!over.admissible, 'and one boundary more is not');
+  assert.ok(allocSteps(predictedStream(over)).maskable, 'the real gate agrees');
+});
+
+test('`allocMaxWrites` inverts the bound exactly — one write more refuses', () => {
+  for (const boundaries of [4, 12, 24, 25, 60]) {
+    const w = allocMaxWrites(boundaries);
+    assert.ok(w >= 1, `${boundaries} boundaries must admit a window at all`);
+    assert.ok(
+      allocArmSizing({ writes: w, roots: 1, cells: boundaries }).admissible,
+      `${boundaries} boundaries at ${w} writes must fit`
+    );
+    assert.ok(
+      !allocArmSizing({ writes: w + 1, roots: 1, cells: boundaries }).admissible,
+      `${boundaries} boundaries at ${w + 1} writes must not`
+    );
+  }
+});
+
+test('a window with no work in it, and a page with no boundaries, are NOT admissible', () => {
+  // Both sail under the budget on zero bytes, and neither has a per-boundary
+  // quantity to publish. A bound that admitted them would be admitting
+  // nothing measured at all.
+  assert.ok(!allocArmSizing({ writes: 0, roots: 4, cells: 6 }).admissible);
+  assert.ok(!allocArmSizing({ writes: 6, roots: 4, cells: 0 }).admissible);
+  assert.ok(!allocArmSizing({ writes: 0, roots: 0, cells: 0 }).admissible);
+});
+
+test('the sizing cannot buy headroom by shrinking the WINDOW alone', () => {
+  // The direction the bead ruled out: the 300-boundary one-write config whose
+  // fall count was zero across 88 windows is still refused by the bound, so
+  // it was never certified. Shrinking the unit is what works.
+  const oneWrite = allocArmSizing({ writes: 1, roots: 1, cells: 300 });
+  assert.ok(!oneWrite.admissible, 'B=300 at one write is still over budget');
+  assert.ok(oneWrite.predictedWindowB > ALLOC_MASK_BUDGET_B);
+  const smallUnit = allocArmSizing({ writes: 6, roots: 4, cells: 6 });
+  assert.ok(smallUnit.admissible, 'and a smaller UNIT carries six writes of averaging');
+});
+
+// --- the plan the page is mounted from -------------------------------------
+
+test('`ladderPlan` states the page on every arm, floor included', () => {
+  const plan = ladderPlan({ list: 300, grid: 6 }, 4);
+  assert.strictEqual(plan.length, 2, 'one per segment');
+  for (const { arms } of plan) {
+    assert.strictEqual(arms.length, 11, 'a floor plus 5 rungs x 2 substrates');
+    for (const a of arms) {
+      assert.strictEqual(a.opts.cells, 6, `${a.key} must state the page it mounts`);
+      assert.strictEqual(a.boundaries, 24, `${a.key} must agree with roots x cells`);
+    }
+  }
+  const floor = plan[0].arms[0];
+  assert.strictEqual(floor.arm, 'grid/floor');
+  assert.strictEqual(floor.opts.cells, 6, 'the calibrator is read on the SAME page as the arms');
+});
+
+test('the plan the small arm mounts is the ladder plan, at a smaller page', () => {
+  // Same arms, same rungs, same keys rule — Q = E on every rung. A second
+  // plan shape would make the small witness a second instrument, which is the
+  // one thing this arm may not be.
+  const small = ladderPlan({ list: 300, grid: 6 }, 4);
+  const published = ladderPlan({ list: 300, grid: 300 }, 4);
+  assert.deepStrictEqual(
+    small.map((s) => s.arms.map((a) => a.key)),
+    published.map((s) => s.arms.map((a) => a.key)),
+    'the same arms under the same keys'
+  );
+  for (const [i, seg] of small.entries()) {
+    for (const [j, a] of seg.arms.entries()) {
+      const p = published[i].arms[j];
+      assert.strictEqual(a.rung, p.rung);
+      assert.strictEqual(a.reads, p.reads);
+      if (a.rung === 'floor') {
+        // The calibrator reads nothing and holds no key on either page.
+        assert.strictEqual(a.keys, undefined);
+        assert.strictEqual(p.keys, undefined);
+        continue;
+      }
+      // Q = E at every rung on both pages: keys is B x R and nothing else.
+      assert.strictEqual(a.keys, a.boundaries * a.reads);
+      assert.strictEqual(p.keys, p.boundaries * p.reads);
+    }
+  }
+});
+
+test('the RETENTION ladder is not moved by any of this', () => {
+  // It reads at the published 1,200 and its instrument has no such ceiling.
+  const published = ladderPlan({ list: 300, grid: 300 }, 4);
+  for (const { arms } of published) {
+    for (const a of arms) {
+      assert.strictEqual(a.boundaries, 1200);
+      assert.strictEqual(a.opts.cells, 300);
+    }
+  }
+  assert.strictEqual(published[0].arms.find((a) => a.rung === 'R20').keys, 24000);
+});
+
+// --- the wiring, so this pin cannot drift off the thing that refuses -------
+
+test('the driver REFUSES a mis-sized arm before it launches a browser', () => {
+  has(/if \(!ALLOC_ARM\.admissible\) \{/, 'the sizing refusal is an exit, not a warning');
+  has(
+    /the allocation arm is configured outside the masking bound before anything is /,
+    'and it says so before a byte is measured'
+  );
+  has(/SHRINK THE MEASURED UNIT, DO NOT WIDEN THE BUDGET/, 'naming the repair, not the dial');
+});
+
+test('the window is DERIVED from the bound and the arm from the measured cost', () => {
+  has(
+    /const ALLOC_WRITES = Number\(\s*process\.env\.P0_ALLOC_WRITES \|\| allocMaxWrites\(ROOTS \* ALLOC_CELLS\)\s*\);/,
+    'the window must be what the page admits, not a number typed beside it'
+  );
+  has(/const ALLOC_B_PER_BOUNDARY_WRITE = 1655;/, 'the top of the MEASURED range sizes the arm');
+  has(/const ALLOC_MIN_WRITES = 6;/, 'and a window is sized to hold averaging');
+  // The bound itself is still the untouched one, with no dial of its own.
+  has(/const ALLOC_MASK_BUDGET_B = ALLOC_FALL_THRESHOLD_B \/ 2;/, 'unchanged by this arm');
+  has(/const ALLOC_FALL_THRESHOLD_B = 600000;/, 'and so is the measured threshold under it');
 });
 
 let failed = 0;

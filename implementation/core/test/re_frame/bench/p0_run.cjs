@@ -268,11 +268,24 @@ const LADDER_SUBSTRATES = {
   'uix-subs': ['uix', 'hicasso'],
 };
 
+// `perRoot.grid` is the PAGE, and the plan states it on every arm rather
+// than letting the page's own compile-time default stand in for it. The
+// retention row passes what `window.P0H.boundariesPerRoot` answers and the
+// plan is the one it has always been; the allocation row passes the small
+// witness its masking bound admits (rf2-2rtt6.138), and the floor moves with
+// the arms because a calibrator read on a different page is not one.
 function ladderPlan(perRoot, roots) {
-  const B = roots * perRoot.grid;
+  const cells = perRoot.grid;
+  const B = roots * cells;
   return Object.keys(LADDER_SUBSTRATES).map((segment) => {
     const arms = [
-      { arm: 'grid/floor', key: `${segment}|grid/floor`, boundaries: B, opts: null, rung: 'floor' },
+      {
+        arm: 'grid/floor',
+        key: `${segment}|grid/floor`,
+        boundaries: B,
+        opts: { cells },
+        rung: 'floor',
+      },
     ];
     for (const sub of LADDER_SUBSTRATES[segment]) {
       for (const R of LADDER_RUNGS) {
@@ -280,7 +293,7 @@ function ladderPlan(perRoot, roots) {
           arm: `lad/${sub}`,
           key: `${segment}|lad/${sub}#R${R}`,
           boundaries: B,
-          opts: { reads: R, keys: B * R },
+          opts: { reads: R, keys: B * R, cells },
           rung: `R${R}`,
           reads: R,
           keys: B * R,
@@ -966,7 +979,10 @@ async function ladderRow(chromium) {
 // entire claim this row has to establish before any arm is quoted, and it
 // is the check `b8-alloc` was built around after the sampling profiler
 // produced a wrong table on this surface.
-const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || 30);
+// `ALLOC_WRITES` — how many warm writes one measured window holds — is
+// NOT here. It is an answer to the masking bound rather than a number
+// chosen beside it, so it is derived below `ALLOC_MASK_BUDGET_B` together
+// with the arm it has to fit around (rf2-2rtt6.138).
 const ALLOC_ROUNDS = Number(process.env.P0_ALLOC_ROUNDS || 6);
 const ALLOC_WARMUPS = Number(process.env.P0_ALLOC_WARMUPS || 3);
 // 8 B a double, so 1,000 doubles is a predicted 8,000 B of garbage per
@@ -1064,6 +1080,132 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 // that says why.
 const ALLOC_MASK_BUDGET_B = ALLOC_FALL_THRESHOLD_B / 2;
 
+// ---------------------------------------------------------------------------
+// THE SMALL-WITNESS ARM (rf2-2rtt6.138) — the page sized TO the bound above
+// ---------------------------------------------------------------------------
+//
+// The published witness is outside this instrument's range and the row is
+// right to refuse it. One warm write of the 1,200-boundary page allocates
+// 1.2-1.7 MB, two to three times the ~600 KB at which the first collection
+// appears; the 2026-08-07 quiet-box run put 36 falling steps inside 44
+// windows and a quiet box moved neither figure, because it was never
+// contention. It is the arm's SCALE against a fixed threshold.
+//
+// So the repair is the one the bead named: shrink the measured UNIT, not the
+// window. The quantity this row publishes is per BOUNDARY, so a page of a few
+// dozen boundaries puts a MANY-WRITE window under the threshold and leaves
+// the averaging a fit needs — where the other direction, one write on the
+// 300-boundary page, cleared the fall count and produced four fits at r2
+// 0.75 / 0.28 / 0.94 / 0.31 out of windows the bound above cannot certify
+// anyway (326-993 KB of rise+maxStep).
+//
+// THE ARITHMETIC, and every term in it is either measured or derived:
+//
+//   c   bytes one warm write allocates per mounted boundary. MEASURED, on
+//       the candidate arm, in that same quiet-box run: 544-1655 B across its
+//       rungs. The TOP of the range sizes the arm, because a page sized off
+//       the bottom would be refused rather than published.
+//   W   writes in one window. A window of one has no averaging in it, so the
+//       arm is sized to hold at least `ALLOC_MIN_WRITES` of them and then
+//       takes every further write the bound still admits.
+//   B   boundaries on the page, = P0_ROOTS x cells-per-root.
+//
+//   rise ~ W.B.c and the largest single step is one write, ~B.c, so the
+//   bound `rise + maxStep <= ALLOC_MASK_BUDGET_B` reads
+//
+//       (W + 1).B.c  <=  ALLOC_MASK_BUDGET_B
+//
+//   and the two ways round it are the two knobs:
+//
+//       B  <=  budget / ((W + 1).c)        the page a window admits
+//       W  <=  budget / (B.c)  -  1        the window a page admits
+//
+// At the shipped constants that is 6 cells x 4 roots = 24 boundaries and 6
+// writes: 24 x 1,655 = 39,720 B a write, 278,040 B of rise+maxStep, 21,960 B
+// of headroom under the budget. The same page at the published 1,200
+// boundaries predicts 13.9 MB and the row would refuse it — which is the
+// whole reason this arm exists.
+//
+// WHAT THE ARITHMETIC DOES NOT MODEL, stated rather than glossed. `c` is
+// per-boundary, and `:p0/write-all` also rebuilds a 300-element vector and
+// drives the whole event pipeline whether one boundary is mounted or 1,200.
+// That fixed per-write cost is in every window and in no term above, and no
+// run on this rig has recorded it on its own — the floor arm measures it
+// directly and its figure has never been published. So the prediction below
+// is a SIZING aid and not a certificate: what certifies a window is
+// `allocSteps` reading the window's own samples, on the run, against the
+// same budget. The prediction is here so a configuration that cannot
+// possibly pass is refused before a measurement is spent on it, not so that
+// one which passes it may be trusted.
+const ALLOC_B_PER_BOUNDARY_WRITE = 1655;
+
+// The averaging floor. Six is the config the quiet-box run took the
+// published witness in, and the smallest window the bead's own re-costing
+// table carries; below two there is no averaging in a window at all.
+const ALLOC_MIN_WRITES = 6;
+
+// Boundaries per root — the MEASURED UNIT, and the reason this arm is a code
+// change rather than a flag. `fx/cells-n` is compile-time, so `P0_ROOTS=1`
+// floored B at 300 through the env surface and no window on any page that
+// size can be certified. `p0-heap/arm-for` now takes it as `:cells`, so the
+// driver states the page and the dial exists for a measurement window that
+// wants to walk B — the bound below adjudicates whatever it is set to.
+const ALLOC_CELLS = Number(
+  process.env.P0_ALLOC_CELLS ||
+    Math.max(
+      1,
+      Math.floor(
+        ALLOC_MASK_BUDGET_B / ((ALLOC_MIN_WRITES + 1) * ROOTS * ALLOC_B_PER_BOUNDARY_WRITE)
+      )
+    )
+);
+
+// The largest window a page of `boundaries` admits, from the bound and
+// nothing else. `- 1` is `maxStep`: the bound charges one extra write's
+// worth for the leg a collection could have hidden in.
+function allocMaxWrites(boundaries) {
+  return Math.floor(ALLOC_MASK_BUDGET_B / (boundaries * ALLOC_B_PER_BOUNDARY_WRITE)) - 1;
+}
+
+const ALLOC_WRITES = Number(
+  process.env.P0_ALLOC_WRITES || allocMaxWrites(ROOTS * ALLOC_CELLS)
+);
+
+// The sizing, as a PURE FUNCTION of the config and the bound — the same
+// shape and for the same reason as `allocSteps` and `allocMaskableWindows`:
+// it needs neither a release build nor a Chromium, so it is pinned on every
+// PR by `p0_ladder_structural.test.cjs` instead of waiting for the next
+// opt-in run of this driver to notice that an arm drifted out of range.
+//
+// Nothing here measures anything. `predictedWindowB` is `(W + 1).B.c`, the
+// left-hand side of the bound, and `admissible` is the bound itself.
+function allocArmSizing({ writes, roots, cells, bytesPerBoundaryWrite = ALLOC_B_PER_BOUNDARY_WRITE }) {
+  const boundaries = roots * cells;
+  const predictedMaxStep = boundaries * bytesPerBoundaryWrite;
+  const predictedRise = writes * predictedMaxStep;
+  const predictedWindowB = predictedRise + predictedMaxStep;
+  const headroom = ALLOC_MASK_BUDGET_B - predictedWindowB;
+  return {
+    cells,
+    roots,
+    boundaries,
+    writes,
+    bytesPerBoundaryWrite,
+    predictedRise,
+    predictedMaxStep,
+    predictedWindowB,
+    headroom,
+    // A window with no work in it measures nothing, and a page with no
+    // boundaries on it has no per-boundary quantity to publish. Both would
+    // otherwise sail under the budget on zero bytes.
+    admissible: writes >= 1 && boundaries >= 1 && headroom >= 0,
+    maxWrites: allocMaxWrites(boundaries),
+    maxBoundaries: Math.floor(ALLOC_MASK_BUDGET_B / ((writes + 1) * bytesPerBoundaryWrite)),
+  };
+}
+
+const ALLOC_ARM = allocArmSizing({ writes: ALLOC_WRITES, roots: ROOTS, cells: ALLOC_CELLS });
+
 // Rising and falling steps, accumulated separately, from one window's raw
 // samples. The samples are `[s0, pre0, post0, pre1, post1, ...]`, so the
 // work legs are the (pre -> post) steps and the gaps between iterations
@@ -1128,6 +1270,24 @@ function allocMaskableWindows(row) {
 }
 
 async function allocRow(chromium) {
+  // THE SIZING REFUSAL, before a browser is launched and a byte is measured.
+  // The bound decides what may be published; this decides what is worth
+  // measuring at all, and it exists because the alternative is a twenty
+  // minute run whose every window the bound then refuses — which is exactly
+  // what the 2026-08-07 quiet-box run spent. It is a PREDICTION and not a
+  // certificate: passing it licenses nothing, and `allocSteps` still reads
+  // every window's own samples against the same budget on the way through.
+  if (!ALLOC_ARM.admissible) {
+    throw new Error(
+      `the allocation arm is configured outside the masking bound before anything is ` +
+        `measured: ${ALLOC_ARM.boundaries} boundaries (${ROOTS} roots x ${ALLOC_CELLS} cells) ` +
+        `x ${ALLOC_ARM.writes} writes predicts ${ALLOC_ARM.predictedWindowB} B of rise+maxStep ` +
+        `at the measured ${ALLOC_ARM.bytesPerBoundaryWrite} B/boundary/write, against the ` +
+        `${ALLOC_MASK_BUDGET_B} B budget. SHRINK THE MEASURED UNIT, DO NOT WIDEN THE BUDGET: ` +
+        `this page admits at most ${ALLOC_ARM.maxWrites} writes (P0_ALLOC_WRITES), and this ` +
+        `window at most ${ALLOC_ARM.maxBoundaries} boundaries (P0_ROOTS x P0_ALLOC_CELLS)`
+    );
+  }
   const { browser, page, watch } = await newPage(chromium, '?mode=heap');
   await watch.race('window.P0_READY === true || window.P0_ERROR', {
     timeoutMs: 180000,
@@ -1152,8 +1312,14 @@ async function allocRow(chromium) {
     throw new Error('the ladder-fit self-test FAILED — no allocation slope may be priced');
   }
 
-  const perRoot = await page.evaluate(() => window.P0H.boundariesPerRoot);
-  const B = ROOTS * perRoot.grid;
+  // The page's own `boundariesPerRoot` is the PUBLISHED size and this row
+  // does not measure it: `grid` is overridden with the small witness, so the
+  // plan, the floor and every rung mount the same few dozen boundaries. The
+  // published figure rides along in the record, because a reader has to be
+  // able to see which page this row is NOT the 1,200-boundary one.
+  const published = await page.evaluate(() => window.P0H.boundariesPerRoot);
+  const perRoot = { ...published, grid: ALLOC_CELLS };
+  const B = ALLOC_ARM.boundaries;
   const plan = ladderPlan(perRoot, ROOTS);
   const { gc, read } = await makeReaders(page);
 
@@ -1312,6 +1478,8 @@ async function allocRow(chromium) {
     bead: 'rf2-2rtt6.76',
     roots: ROOTS,
     perRoot,
+    publishedPerRoot: published,
+    arm: ALLOC_ARM,
     boundaries: B,
     writes: ALLOC_WRITES,
     warmups: ALLOC_WARMUPS,
@@ -1345,6 +1513,49 @@ function summariseAlloc(row, maskable) {
   );
   console.log(';; The arm stays MOUNTED across the window: this is what a standing page');
   console.log(';; allocates when it is written to, not what a mount costs.');
+
+  // THE ARM'S SIZE, AND THE ARITHMETIC THAT CHOSE IT (rf2-2rtt6.138). Printed
+  // beside the figures rather than left in a source comment, because the one
+  // question a reader of this table has to be able to answer is which page it
+  // was taken on — the published 1,200-boundary witness is outside this
+  // instrument's range and its refusal is what put this arm here.
+  const a = row.arm;
+  const publishedB = row.roots * row.publishedPerRoot.grid;
+  const publishedWindow = allocArmSizing({
+    writes: a.writes,
+    roots: row.roots,
+    cells: row.publishedPerRoot.grid,
+  });
+  console.log(';;');
+  console.log(';; ==== THE SMALL-WITNESS ARM (rf2-2rtt6.138) ====');
+  console.log(
+    `;;   ${a.cells} cells x ${a.roots} roots = ${a.boundaries} boundaries, ${a.writes} writes a ` +
+      'window. The measured unit is the BOUNDARY, so shrinking'
+  );
+  console.log(
+    ';;   the PAGE is what puts a many-write window under the fall threshold — not shrinking the'
+  );
+  console.log(';;   window, which is the direction that leaves a fit with nothing to average.');
+  console.log(
+    `;;   PREDICTED (W+1).B.c at the measured ${a.bytesPerBoundaryWrite} B/boundary/write: ` +
+      `${n0(a.predictedRise)} B rise + ${n0(a.predictedMaxStep)} B largest step = ` +
+      `${n0(a.predictedWindowB)} B,`
+  );
+  console.log(
+    `;;   against the ${ALLOC_MASK_BUDGET_B} B masking budget — headroom ${n0(a.headroom)} B. ` +
+      `The published ${publishedB}-boundary witness`
+  );
+  console.log(
+    `;;   predicts ${n0(publishedWindow.predictedWindowB)} B on the same window, and the row ` +
+      'would refuse it. That refusal is why this arm exists.'
+  );
+  console.log(
+    ';;   A PREDICTION, NOT A CERTIFICATE: what certifies a window is the bound read off that'
+  );
+  console.log(
+    ";;   window's OWN samples, below. The fixed per-write cost of `:p0/write-all` is in every"
+  );
+  console.log(';;   window here and in no term of the prediction.');
 
   // --- the controls, adjudicated ----------------------------------------
   console.log(';;');
@@ -1979,6 +2190,10 @@ module.exports = {
   allocSteps,
   allocMaskableWindows,
   ALLOC_MASK_BUDGET_B,
+  ladderPlan,
+  allocArmSizing,
+  allocMaxWrites,
+  ALLOC_ARM,
 };
 
 if (require.main === module) (async () => {
