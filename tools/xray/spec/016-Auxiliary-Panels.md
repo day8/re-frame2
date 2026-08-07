@@ -675,11 +675,29 @@ nil and `(add-watch nil …)` would throw; the frame-presence guard
 makes the early call safe and the watcher lands on first frame
 registration. Detached on flip-off.
 
+**Activation (rf2-lynzk).** The install MUST put the subscription on the
+substrate's push path — `re-frame.interop/activate-derived-value!` — as
+its FIRST act, before the baseline seed and before `add-watch`. A
+subscription is **not** already live the instant `subscribe` returns.
+On the ratom family (Reagent, reagent-slim) a subscription IS a bare
+`reagent.ratom/Reaction`, built deliberately without `:auto-run`, and a
+Reaction learns its sources ONLY through `deref-capture`; a plain deref
+taken outside `*ratom-context*` runs the body raw and leaves the
+reaction watching nothing. The `add-watch` then records a callback that
+cannot fire, and auto-open-on-error never fires at all — silently, and
+only on those adapters, while this section promises the behaviour
+unconditionally. `:rf.xray/issues-ribbon` is a SIGNAL with no rendered
+consumer (see [`018-Event-Spine.md` §5.4](./018-Event-Spine.md)), so no
+component render supplies the capture context that hides this defect
+elsewhere. The op is a no-op on adapters already push-based from birth
+and idempotent on an already-activated reaction. Same law, same fix
+order (activate → seed → watch) as the framework's own observation port.
+
 **Baseline seeding (rf2-8i1tg3).** The edge-detector's baseline count
 MUST be seeded from the reaction's value AT INSTALL TIME, before
-`add-watch` — a reaction is already live the instant `subscribe`
-returns (e.g. a re-install after a focus-nav that already landed on an
-issue-carrying epoch), so `add-watch` only fires on the NEXT change.
+`add-watch` — the reaction may already hold issues that predate the
+install (e.g. a re-install after a focus-nav that already landed on an
+issue-carrying epoch), and `add-watch` only fires on the NEXT change.
 Leaving the baseline at its cold-start default of zero misclassifies
 that pre-existing non-empty state as the empty→non-empty edge on the
 first subsequent change, spuriously auto-opening Xray for an epoch the
