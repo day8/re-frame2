@@ -1426,10 +1426,10 @@ function summariseAlloc(row, maskable) {
   row.maskableWindows = maskable.length;
   console.log(
     `;;   masking budget: ${ALLOC_MASK_BUDGET_B} B per window (the measured fall threshold, ` +
-      'HALVED) on rise PLUS the largest single step. Below it no collection can have run at'
+      'HALVED) on rise PLUS the largest single step. At or under it no collection can have'
   );
   console.log(
-    ';;   all, masked or otherwise; at or above it a collection can hide behind the window\'s ' +
+    ';;   run at all, masked or otherwise; above it a collection can hide behind the window\'s ' +
       'own growth and `falls` = 0 stops meaning the reading is clean'
   );
   console.log(
@@ -2148,7 +2148,7 @@ if (require.main === module) (async () => {
       // and replaces none of it.
       if (maskable.length > 0) {
         failures.push(
-          `alloc: ${maskable.length} windows at or over the ${ALLOC_MASK_BUDGET_B} B masking ` +
+          `alloc: ${maskable.length} windows over the ${ALLOC_MASK_BUDGET_B} B masking ` +
             'budget — at that scale a collection can run inside a leg that allocates at least as ' +
             'much as it reclaims, so no step goes negative, the falling-step gate above reports a ' +
             'clean window, and the reclaimed bytes are missing from `rise` with nothing to say ' +
