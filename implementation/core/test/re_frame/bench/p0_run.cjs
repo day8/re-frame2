@@ -993,29 +993,138 @@ const ALLOC_CONTROL_SLACK = Number(process.env.P0_ALLOC_CONTROL_SLACK || 0.75);
 // boundaries is two to three times over it in ONE write.
 const ALLOC_FALL_THRESHOLD_B = 600000;
 
+// THE MASKING BUDGET — what makes a masked collection UNREACHABLE rather
+// than merely unlikely (rf2-n6w7o).
+//
+// `allocSteps` below detects a collection by the SIGN of an adjacent step,
+// and a sign test is blind in exactly one direction. Where V8 collects
+// inside a leg that ALSO allocates at least as much as the collection
+// reclaimed, the observed step is >= 0: `falls` stays 0, the reclaimed
+// bytes are simply missing from `rise`, and the row prints a window that
+// looks clean and reads LOW. Under-reading allocation is the direction that
+// manufactures HD-002's predicted flat-at-zero, so it is the one direction
+// this row may not be able to fail in — and until this constant existed it
+// was the direction with no gate on it at all.
+//
+// THE REPAIR IS ARITHMETIC, NOT A SECOND DETECTOR, and it rests on one
+// property of the fault: MASKING CANNOT PRECEDE THE FIRST COLLECTION. Every
+// leg before it runs with no collector in it, so `rise` counts those legs
+// EXACTLY. And the first collection does not fire until roughly
+// `ALLOC_FALL_THRESHOLD_B` of cumulative garbage has built up since the
+// forced GC the driver takes on the window's near side. So if a collection
+// fired in leg k, writing A_k for that leg's own allocation:
+//
+//     rise  >=  (every leg before k)  >=  ALLOC_FALL_THRESHOLD_B - A_k
+//
+// The legs are n repetitions of ONE work unit and every earlier leg is
+// counted exactly, so A_k is bounded by the largest rising step the window
+// shows. Contrapositive, and it is the gate:
+//
+//     rise + maxStep  <=  budget   =>   NO collection ran, masked or not.
+//
+// Note which way net growth pushes here, because it is the whole point.
+// Masking REMOVES bytes from `rise`, so it can only move a window further
+// under budget — but the allocation that had to happen first, to give the
+// collector a reason to run, is already counted in full in the legs before
+// it, where no masking is possible. Growth cannot defeat this gate the way
+// it defeats the sign test. It can only make a window fail it sooner.
+//
+// THE BUDGET IS THE MEASURED THRESHOLD HALVED, and both halves of that are
+// stated rather than assumed:
+//
+//   - `ALLOC_FALL_THRESHOLD_B` is where the first VISIBLE fall appeared in
+//     the standalone probes. A masked one would not have shown, so it is an
+//     UPPER bound on where the first collection actually runs, and a gate
+//     built on it has to take the conservative side.
+//   - The halved figure, ~300 KB, is a whisker above the largest window
+//     this instrument has a CORROBORATED clean reading for: the D=1,000
+//     control at the default 30 writes is 240 KB of cumulative garbage and
+//     reads 8.13 B/double against a predicted 8. A window that under-read
+//     would not hit its prediction, so the control is positive evidence of
+//     no collection at that scale — which a fall count of zero, on its own,
+//     is not.
+//
+// Deliberately not an env knob. Every other `P0_ALLOC_*` constant sizes the
+// measurement; this one decides whether a measurement may be PUBLISHED, and
+// a gate with a dial on it is a gate that gets dialled. Widening it would
+// retro-admit every window it exists to refuse.
+//
+// WHAT IT DOES NOT CLOSE, stated because a bound that oversells itself is
+// worse than no bound. A window in which EVERY leg is masked — a collection
+// in each one, each reclaiming at least that leg's allocation, the heap
+// flat while megabytes pass through it — defeats both terms. `falls`
+// catches such a window the moment one collection overshoots; `maxStep`
+// catches it the moment one leg runs unmasked; nothing here catches it if
+// neither ever happens, and closing it properly would need a per-leg
+// allocation counter V8 does not expose in-page. It is also UNREACHABLE for
+// the arm this bound exists to license: an arm whose warm write allocates a
+// few KB cannot cross the threshold inside a single leg at all, so there is
+// no leg for a first collection to hide in. That is the shape
+// rf2-2rtt6.138's small-witness arm has to have, and this is the arithmetic
+// that says why.
+const ALLOC_MASK_BUDGET_B = ALLOC_FALL_THRESHOLD_B / 2;
+
 // Rising and falling steps, accumulated separately, from one window's raw
 // samples. The samples are `[s0, pre0, post0, pre1, post1, ...]`, so the
 // work legs are the (pre -> post) steps and the gaps between iterations
 // are the (post -> pre) steps; both are walked, because a collection can
 // fall in either.
+//
+// `maxStep`, `headroom` and `maskable` are the masking witness above:
+// `headroom` is the budget less what a collection would have had to hide
+// behind to go unseen, and `maskable` says the window is large enough to
+// have hidden one WHATEVER `falls` reports. The two gates are independent
+// and both are exits — a fall is a collection this counter saw, a maskable
+// window is one it could not have.
 function allocSteps(samples) {
   let rise = 0;
   let fall = 0;
   let falls = 0;
+  let maxStep = 0;
   for (let i = 1; i < samples.length; i++) {
     const d = samples[i] - samples[i - 1];
-    if (d > 0) rise += d;
-    else if (d < 0) {
+    if (d > 0) {
+      rise += d;
+      if (d > maxStep) maxStep = d;
+    } else if (d < 0) {
       fall += -d;
       falls++;
     }
   }
+  const headroom = ALLOC_MASK_BUDGET_B - (rise + maxStep);
   return {
     rise,
     fall,
     falls,
+    maxStep,
+    headroom,
+    maskable: headroom < 0,
     endpoints: samples[samples.length - 1] - samples[0],
   };
+}
+
+// The masking witness over a whole collected row, as a PURE FUNCTION of it
+// — the same shape and for the same reason as `ladderStructuralFailures`
+// below: it needs neither a release build nor a Chromium to adjudicate, so
+// it can be pinned on every PR by `p0_ladder_structural.test.cjs` instead of
+// waiting for the next opt-in run of this driver to notice.
+//
+// ARM WINDOWS ONLY, exactly as the falling-step gate counts only those. The
+// arms are what gets published; the controls adjudicate the arithmetic, and
+// a masked control would read LOW against its own 8 B/double prediction and
+// refuse through `controlVerdict` — the safe direction, already gated.
+function allocMaskableWindows(row) {
+  const out = [];
+  for (const r of row.perRound || []) {
+    for (const [key, a] of Object.entries(r.arms || {})) {
+      if (!a.maskable) continue;
+      out.push(
+        `round ${r.round} ${key}: rise ${a.rise} B + largest step ${a.maxStep} B is ` +
+          `${-a.headroom} B over the ${ALLOC_MASK_BUDGET_B} B masking budget`
+      );
+    }
+  }
+  return out;
 }
 
 async function allocRow(chromium) {
@@ -1220,7 +1329,7 @@ async function allocRow(chromium) {
   };
 }
 
-function summariseAlloc(row) {
+function summariseAlloc(row, maskable) {
   const B = row.boundaries;
   console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — WARM 1/3/7/20 READS (rf2-2rtt6.76) ====');
   console.log(
@@ -1302,6 +1411,30 @@ function summariseAlloc(row) {
   // that fault, which is the direction that flatters a candidate whose
   // predicted answer is zero.
   row.fallsInMeasuredWindows = falls;
+
+  // THE MASKING WITNESS (rf2-n6w7o), which is the fall gate's blind side and
+  // a SECOND exit, not a softening of the first. A collection that runs
+  // inside a leg allocating at least as much as it reclaims never turns a
+  // step negative, so the line above reports 0 and the window under-reads
+  // with nothing to say so. See ALLOC_MASK_BUDGET_B for the arithmetic that
+  // makes that case unreachable below the budget rather than merely
+  // improbable.
+  const headrooms = row.perRound.flatMap((r) => Object.values(r.arms).map((x) => x.headroom));
+  row.maskableWindows = maskable.length;
+  console.log(
+    `;;   masking budget: ${ALLOC_MASK_BUDGET_B} B per window (the measured fall threshold, ` +
+      'HALVED) on rise PLUS the largest single step. Below it no collection can have run at'
+  );
+  console.log(
+    ';;   all, masked or otherwise; at or above it a collection can hide behind the window\'s ' +
+      'own growth and `falls` = 0 stops meaning the reading is clean'
+  );
+  console.log(
+    `;;   windows over budget: ${maskable.length} of ${wins}` +
+      (headrooms.length ? `  (tightest headroom ${n0(Math.min(...headrooms))} B)` : '')
+  );
+  for (const m of maskable) console.log(`;;   MASKABLE ${m}`);
+
   console.log(
     `;;   verification: ${row.verification.unverified} unverified ` +
       '(mount read-backs AND the warm-write read-back)'
@@ -1838,7 +1971,12 @@ function summariseFanout(row) {
 // is how the R=0 expectation sat stale from rf2-dabt3 until rf2-zei9w ran
 // the driver; the unit pin is what stops the next such drift being found
 // by the next measurement instead of by CI.
-module.exports = { ladderStructuralFailures, allocSteps };
+module.exports = {
+  ladderStructuralFailures,
+  allocSteps,
+  allocMaskableWindows,
+  ALLOC_MASK_BUDGET_B,
+};
 
 if (require.main === module) (async () => {
   build();
@@ -1968,7 +2106,8 @@ if (require.main === module) (async () => {
     if (wantAlloc) {
       console.error('[p0] steady-state allocation row ...');
       out.alloc = await allocRow(chromium);
-      summariseAlloc(out.alloc);
+      const maskable = allocMaskableWindows(out.alloc);
+      summariseAlloc(out.alloc, maskable);
       if (out.alloc.verification.unverified > 0) {
         failures.push(
           `alloc: ${out.alloc.verification.unverified} unverified — ` +
@@ -1994,6 +2133,25 @@ if (require.main === module) (async () => {
             'is the direction that manufactures the flat-at-zero answer HD-002 predicts, so no ' +
             'slope here is quotable. The controls above still adjudicate the arithmetic; what ' +
             'refuses is the arms\' scale, not the method'
+        );
+      }
+      // AND ITS BLIND SIDE (rf2-n6w7o). The gate above sees a collection
+      // only when it turns a step negative. One that runs inside a leg
+      // allocating at least as much as it reclaimed turns nothing negative,
+      // so that gate reports a clean window while the reclaimed bytes are
+      // missing from `rise`. This one refuses any window merely LARGE ENOUGH
+      // for that to have happened, which is a bound rather than a detector —
+      // see ALLOC_MASK_BUDGET_B. It is additional to the falling-step gate
+      // and replaces none of it.
+      if (maskable.length > 0) {
+        failures.push(
+          `alloc: ${maskable.length} windows at or over the ${ALLOC_MASK_BUDGET_B} B masking ` +
+            'budget — at that scale a collection can run inside a leg that allocates at least as ' +
+            'much as it reclaims, so no step goes negative, the falling-step gate above reports a ' +
+            'clean window, and the reclaimed bytes are missing from `rise` with nothing to say ' +
+            'so. Every figure from such a window is an UNDER-estimate of unknown size, and ' +
+            'under-reading is the direction that manufactures HD-002\'s flat-at-zero. SHRINK THE ' +
+            `MEASURED UNIT, DO NOT WIDEN THE BUDGET. First: ${maskable[0]}`
         );
       }
     }
