@@ -18,9 +18,9 @@ the labels they must carry are at
 and are not restated here. `1.4896×` remains what this programme read on
 2026-08-01, on a heavier load regime than the published row is drawn from.
 *(2026-08-06, `rf2-jcm3p` — **the withdrawal, since superseded**: this called
-`1.4896×` ~~the figure of record~~ and
-the mount ~~the only row of five whose positive control passed~~, and read the
-deficit as ~~established and not merely indicated~~. The control that carries
+`1.4896×` ~~the figure of record~~ and the mount ~~the only row of five whose
+positive control passed~~, and read the deficit as ~~established and not merely
+indicated~~. The control that carries
 this figure — `rf2-emvod`'s seven-run ensemble — reads `ctl-2x` at `1.8173×`
 against a predicted `2.00×`, and two re-takes on verifiably idle boxes
 reproduced the miss. The strict rule that refuses the three bulk rows in
