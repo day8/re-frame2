@@ -243,13 +243,18 @@ corrected clock is not a clock that flattens everything toward 1.0: in the same
 eight runs it puts `hicasso / reagent-subs` on `M1` at **1.4896×**
 [1.3488 – 1.5989], a reading far from parity that clears every run's band. It
 reproduces a published parity row to two parts in a thousand and simultaneously
-separates a large deficit elsewhere. **What that `M1` reading is NOT is a
-published magnitude** — `rf2-jcm3p` ruled on 2026-08-06 that `M1` mount states a
-**REGIME** and not an adjudicated magnitude, because its own `ctl-2x` fails
+separates a large deficit elsewhere. **What that `M1` reading is NOT is the
+published magnitude** — ~~`rf2-jcm3p` ruled on 2026-08-06 that `M1` mount states
+a **REGIME** and not an adjudicated magnitude, because its own `ctl-2x` fails
 (1.8173× against a predicted 2.00×, the additive constant `c ≈ 1.04 ms`
 explaining the undershoot); `1.4896×` remains visible here as a historical
 observation *stated under a failing `ctl-2x`; withdrawn as a magnitude
-2026-08-06*. **The check above is unaffected**, because it turns on this clock
+2026-08-06*.~~ *(Superseded 2026-08-07, `rf2-t2flm`: the row does publish a
+magnitude, drawn from the two retained quiet-box ensembles and conditionally
+labelled —
+[`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
+`1.4896×` is not it, and stays here as what these eight runs read on
+2026-08-01.)* **The check above is unaffected**, because it turns on this clock
 discriminating a far-from-parity reading from a parity one — a direction and a
 band, not a number.
 
@@ -513,9 +518,16 @@ commits is the check.
 - **The candidate's own mount deficit is worse than published**, at `1.4896×`
   Reagent-on-subs on the corrected clock against `1.2107×` on the frame-only
   one. Recorded here because it is in these runs; adjudicating it is
-  `rf2-emvod`'s, not this page's. **That adjudication has since happened, and
+  `rf2-emvod`'s, not this page's. ~~**That adjudication has since happened, and
   it publishes no magnitude**: `rf2-jcm3p` restated `M1` mount as a **REGIME**
   on 2026-08-06 — materially slower than both adapters, every corroborated
   reading above the amended `≤ 1.10×` UIx gate, `≤ 1.10×` not demonstrated —
   because the row's `ctl-2x` fails. `1.4896×` above is a reading stated under
-  that failing control, not a published magnitude.
+  that failing control, not a published magnitude.~~ **That adjudication has
+  since happened twice, and it publishes a magnitude** *(2026-08-07,
+  `rf2-t2flm`, superseding the 2026-08-06 regime statement struck above —
+  `rf2-jcm3p` read `ctl-2x`'s mean against `2.00×` where the implemented rule
+  tests per-block band membership)*: the row and its conditional labels are at
+  [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
+  `1.4896×` above is this ensemble's own reading and stays as such; it is not
+  the published figure.
