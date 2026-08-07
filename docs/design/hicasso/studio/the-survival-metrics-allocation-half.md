@@ -432,7 +432,19 @@ does not survive a rebase, and this corpus has been bitten by that before.
 | `p0_heap.cljs` | `5c83cc2a653812cfbddc7c7c76ae022ebe6f870c` |
 | `p0_arms.cljs` | `5be2024f326c4a3debd17f9f5c791c171468eeb4` |
 
-All three live under `implementation/core/test/re_frame/bench/`. Measured
+All three live under `implementation/core/test/re_frame/bench/`.
+
+> **The 2026-08-07 re-take is accompanied by these same three pins, not by
+> new ones.** It ran at `abcb34217c`, where `p0_run.cjs`, `p0_heap.cljs` and
+> `p0_arms.cljs` are **byte-identical** to the blobs above — so the move from
+> 32 falls to 36 cannot be an instrument change, and the controls' agreement
+> across the two runs is a like-for-like agreement. What moved *under* the
+> instrument is the arm: `arm1/runtime.cljs` is
+> `9f0e341c2deffffc5b4dc32cbcf6ad00f2a5c924` at that commit, carrying
+> `rf2-2kshh` (`9d01cd171e`), which is why the Reagent-segment read-back is
+> clean where this page's own run recorded 16 failures.
+
+Measured
 at authored head `d31fdb5a069b5b5ff5541ff2878f60278dd61e7a` on branch
 `worker/heapslope-2rtt6-76`, which branched from the landed commit
 `6dbf37998dcccf21f6ec7316887410beaa09dbc4` on main — that one resolves in
