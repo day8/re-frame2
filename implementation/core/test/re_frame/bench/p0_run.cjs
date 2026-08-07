@@ -1321,8 +1321,11 @@ async function allocRow(chromium) {
     controlSlack: ALLOC_CONTROL_SLACK,
     instrument:
       'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
-      'rising steps accumulated separately from falling ones; --enable-precise-memory-info',
+      'rising steps accumulated separately from falling ones; --enable-precise-memory-info. ' +
+      'A falling step is a collection this counter SAW; a window over the masking budget is ' +
+      'one it could not have seen, and both refuse',
     fallThresholdB: ALLOC_FALL_THRESHOLD_B,
+    maskBudgetB: ALLOC_MASK_BUDGET_B,
     verification: { unverified, detail: unverifiedDetail },
     perRound: rounds,
     allocFits: fits,
