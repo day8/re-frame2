@@ -188,14 +188,22 @@ in one segment would each pay for the other's writes.
 The floor runs in all three: it holds no re-frame state, reads no subscription
 and is untouched by which adapter is installed. Every figure is a ratio to the
 floor measured in **that round of that segment**, so a cross-segment figure is a
-ratio of two floor-normalised ratios with the seam cancelled. That is a weaker
-interleaving than one segment's, and this page says so rather than describing it
-as though it were sample-level. **That the seam cancels is now measured rather
-than asserted** ([§6.1](#61-the-seam-measured-against-load)): the perturbation a
-busy box applies is multiplicative, and a multiplicative perturbation cancels
-exactly. Every row publishes the seam, the null of the seam's own statistic, an
-orthogonal decomposition of where the floor's variation lives, and the **band** a
-magnitude must clear to be one.
+ratio of two floor-normalised ratios ~~with the seam cancelled~~ — **and the two
+floors are two readings, not one, so the seam does not divide out**:
+`(H/F_H) ÷ (R/F_R) = (H/R) × (F_R/F_H)`, and the second term is the seam. That is
+a weaker interleaving than one segment's, and this page says so rather than
+describing it as though it were sample-level. ~~**That the seam cancels is now
+measured rather than asserted**: the perturbation a busy box applies is
+multiplicative, and a multiplicative perturbation cancels exactly.~~
+*(2026-08-07, `rf2-s6qg4`: **withdrawn** —
+[§6.1](#61-the-seam-measured-against-load)'s own banner records the re-take that
+refuted multiplicativity.)* What §6.1 leaves standing is weaker, and is what this
+design actually rests on: **the seam does not track load and is not attributable
+to the segment**, so it is *controlled for* rather than cancelled. Nor is it
+nominal — this page's own seams reach 22–34% on runs 3 and 4. Every row
+publishes the seam, the null of the seam's own statistic, an orthogonal
+decomposition of where the floor's variation lives, and the **band** a magnitude
+must clear to be one.
 
 - **Witness**: the `M1` page — 300 sub-reading boundaries, 901 elements, one
   `[:p0/cell i]` read per boundary. Identical markup on all three substrates,
@@ -895,10 +903,18 @@ earns its place. It refused.
    the *same* floor — identical work, no substrate — read 3.147 / 2.437 /
    2.349 ms across the three segments on run 3's `bulk300`, a **34% spread**,
    against 23% and 22% on the other two bulk rows. The *inference* does not.
-   Floor-normalisation cancels a multiplicative seam and not an additive one,
+   ~~Floor-normalisation cancels a multiplicative seam and not an additive one,
    and [§6.1](#61-the-seam-measured-against-load) measures which this is: it is
-   multiplicative, it cancels exactly, and the seam is not attributable to the
-   segment at all. **The rows are still refused, on grounds 1 and 2 and on the
+   multiplicative, it cancels exactly,~~ *(2026-08-07, `rf2-s6qg4`: the
+   multiplicativity clause is **withdrawn** — §6.1's own banner records the
+   re-take that refuted it, and a seam of this size does not divide out of a
+   cross-segment ratio.)* **The withdrawal stands on its other leg**, which is
+   the one that was never about cancellation:
+   [§6.1](#61-the-seam-measured-against-load)'s relabelling null puts the
+   variation on the **round**, so the seam is not attributable to the
+   segment at all — a spread between three segments' floors is not a property of
+   the segments being compared, and this ground read it as one.
+   **The rows are still refused, on grounds 1 and 2 and on the
    band `rf2-cvvb7` put in this ground's place** — which refuses them on a
    quantity that was measured rather than assumed. A ground is withdrawn here
    because it was shown wrong, which is the only reason a refusal may drop one.
@@ -1068,13 +1084,42 @@ spreads of 30–45% are ordinary here — this ladder saw 45% in one round of an
 *observation* and not the *load attribution*; the pooled statistic is the one
 §6 quoted and the one this ladder moved a box under without shifting.
 
-The two pages also reach cancellation by different routes, and conflating them
+~~The two pages also reach cancellation by different routes, and conflating them
 would overstate both. The audit's `(U/F) ÷ (R/F) = U/R` is **algebra**, and it
 is exact only where both legs are divided by the *same* floor — the converged
 witness, whose arms share one segment. Here the three segments have three
 different floors, so nothing cancels algebraically; what makes it cancel is the
 measured fact that the perturbation is multiplicative. Same conclusion, and only
-one of the two is free.
+one of the two is free.~~
+
+**WITHDRAWN — the contrast was drawn wrongly on both sides (2026-08-07,
+`rf2-es04f`).** The audit has since withdrawn the identity itself.
+`(U/F) ÷ (R/F) = U/R` holds only where the two `F`s are the *same reading*;
+where each arm is normalised against the floor measured in its own segment the
+identity is `(U/F_U) ÷ (R/F_R) = (U/R) × (F_R/F_U)`, and the floor is not the arm
+that cancels but the arm that contributes a second term
+([the clock behind the published rows §2](the-clock-behind-the-published-rows.md#2-why-the-floor-normalisation-does-not-protect-the-ratio)).
+
+So the exception carved out above is empty. **The converged witness's published
+red zone crosses two segments**, and
+[its own page](p0-converged-witness-set.md#two-estimators-published-together)
+says so outright — *"every threshold above divides one floor-normalised ratio by
+another, so the two segments' floors enter it"* — which is why it publishes a
+floor-free estimator beside every threshold and reports the two together. What
+*does* cancel there is its
+[reactive leg](p0-converged-witness-set.md#the-reactive-leg-from-a-second-author-rf2-2rtt621),
+formed inside one segment of one round from two Reagent arms against a single
+floor reading. One reading, so the algebra is exact — that is the shape the
+sentence above was reaching for, and it is not the shape of a cross-segment row,
+here or there.
+
+And the second route is gone with it: cancellation *"by the measured fact that
+the perturbation is multiplicative"* is precisely what the re-take withdrew a few
+paragraphs up. **Nothing on this page cancels the seam.** What survives is
+weaker: the seam does not track load and does not belong to the segment, so it is
+*controlled for* rather than divided out, and
+[§6.2](#62-what-replaces-it-the-band-a-magnitude-must-clear)'s band — which
+measures what fails to cancel — is what a magnitude is adjudicated against.
 
 ### 6.2 What replaces it: the band a magnitude must clear
 
@@ -1377,8 +1422,11 @@ inputs are gone; the durable path starts at the re-run and not before it.
   turns `validation.md`'s assumed *"a margin under 5% is instrument-limited"*
   into a figure each run measures for itself.
 - **One of this page's own refusal grounds was wrong, and a load ladder found
-  it.** The seam does not track load, is not attributable to the segment, and is
-  multiplicative — so it cancels, exactly. The ground is withdrawn and the
+  it.** The seam does not track load and is not attributable to the segment —
+  ~~and is multiplicative, so it cancels, exactly~~ *(2026-08-07, `rf2-s6qg4`:
+  that third clause is **withdrawn**; see
+  [§6.1](#61-the-seam-measured-against-load). The seam is controlled for, not
+  cancelled.)*. The ground is withdrawn and the
   measurement that withdrew it is published beside it. The general lesson is
   cheap and reusable: a max-over-min of three noisy block medians has a long
   right tail, and quoting one without its null invites a reader to treat 6% as a

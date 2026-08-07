@@ -36,6 +36,7 @@
   already emitted `:rf.machine.timer/skipped-on-server` in place of
   /scheduled."
   (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.reply :as m-reply]
@@ -661,6 +662,37 @@
                     ;; `add-watch` failed, so the author needs a signal the
                     ;; dynamic-delay subscription is not actually wired up.
                     (try
+                      ;; ACTIVATE, then watch — the order is the whole fix for
+                      ;; rf2-wmpte, and it mirrors
+                      ;; `re-frame.substrate.observation/build-node-handle!`
+                      ;; (rf2-8cnxg / rf2-jt8vz).
+                      ;;
+                      ;; `resolve-delay-ms`'s "subscribe to keep the reaction
+                      ;; live" is FALSE on the ratom family, and silently so. A
+                      ;; `reagent.ratom/Reaction` learns its sources ONLY through
+                      ;; `deref-capture`; the plain `deref` `resolve-delay-ms`
+                      ;; takes runs outside `*ratom-context*` with no `auto-run`,
+                      ;; so it runs the body raw and leaves `watching` nil. The
+                      ;; node is then in no source's watcher set: `_handle-change`
+                      ;; is never called, `_queued-run` short-circuits on
+                      ;; `(some? watching)`, and the `add-watch` below RECORDS a
+                      ;; callback that can never fire. The first arming resolved
+                      ;; correctly and the dynamic delay then never re-resolved
+                      ;; for the rest of the arming's life — no trace, no error.
+                      ;;
+                      ;; A Reagent COMPONENT never hits this because its render
+                      ;; IS the capture context; a timer is not a component, so
+                      ;; nothing but this call supplies one. It runs BEFORE
+                      ;; `add-watch` so activation's own first recompute cannot
+                      ;; fan a priming change at this watcher. Total and
+                      ;; idempotent: the React-hook spine (UIx / Helix /
+                      ;; re-frame.ui / Freehand) is push-based from birth and
+                      ;; publishes no hook, so the routed chain-bottom returns
+                      ;; nil; plain-atom / JVM derived values have no capture
+                      ;; step. A throw here lands on the same
+                      ;; `:recovery :static-delay` signal as a failed
+                      ;; `add-watch` — both mean the dynamic delay is not wired.
+                      (interop/activate-derived-value! reaction)
                       (add-watch reaction watch-key
                                  (fn [_ _ old-v new-v]
                                    (on-sub-changed! frame-id parent-id invoke-id

@@ -267,7 +267,7 @@ an undeclared slot, through the same code, not a second rule:
 | An intent vector or key-map at an `on*`-spelled slot | **Refused** — `:rf.error/hicasso-host-undeclared-callback`. A contract is never inferred from a name, and the alternative is `clj->js` shipping your intent to the library as an inert array |
 | An intent vector or key-map anywhere else | Data, through the position's own conversion, like any other collection |
 | An `h/fn`, at any slot | **Refused** — `:rf.error/hicasso-host-unclaimed-callback`. The marked form *asks* the position for a contract, and there is no position here to answer |
-| A plain function | Crosses by identity and runs. It never asked for anything, so nothing is left unanswered — memoisation on callback identity keeps working |
+| A plain function | Crosses by identity and runs. It never asked for anything, so nothing is left unanswered — memoisation on callback identity keeps working. It also carries no frame, so a dispatching one has to [carry its own](#the-closure-has-to-carry-the-frame) |
 | `:ref` | The crossing's own check: a callback ref crosses untouched, the reserved vector is refused |
 | `:key` | React's, on the crossing's element, exactly as at a `defhost` |
 
@@ -276,6 +276,49 @@ that means writing the declaration you do not have. **The refusals are the
 point.** An `h/fn` that crossed unclaimed would be called by the library, would
 return an intent, and the library would discard the return — a handler that does
 nothing, in production, with no diagnostic anywhere.
+
+### The closure has to carry the frame
+
+The two refusals above are the two spellings that carry a frame *for* you, so
+what is left is the plain function — and a plain function carries no frame. The
+library keeps it and calls it later, from its own DOM handler or a timer, by
+which time the render that built it has unwound and there is no ambient frame
+anywhere to find. `(fn [value] (rf/dispatch [:row/picked value]))` at a `[:>]`
+prop is a handler that runs and then refuses, with `:rf.error/no-frame-context`
+at the library's call.
+
+Async work *you* own does not have this problem and does not belong here: an fx
+handler already receives the frame id in its context and `:dispatch-later` says
+the delay as data. What survives that move is this case and only this case — a
+dispatching closure handed to a caller you do not control. Read the frame during
+the render, where it is knowable, and let the closure close over the carry:
+
+```clojure
+;; cf. implementation/freehand/test/re_frame/bench/hicasso/arm1/
+;;     hframe_dom_cljs_test.cljs — the witness mounts one such view under two
+;;     frames and clicks both crossings from the component's own DOM handler.
+(defview picker-row [{:keys [id component]}]   ;; component chosen at runtime
+  (let [{:keys [dispatch]} (rf/capture-frame (h/frame))]   ;; h/frame is [unfrozen]
+    [:> component
+     {:label   id
+      ;; unclaimed and value-first, so a plain closure is the only door —
+      ;; and this one carries the frame its own render read
+      :on-pick (fn [value] (dispatch [:row/picked id value]))}]))
+```
+
+**Each half is load-bearing.** `(h/frame)` answers the frame the boundary is
+rendering under, which is the id a *reusable* view cannot name — the whole reason
+it is mounted under several. Core's `rf/capture-frame` takes that id and, in this
+one-argument form, never consults the ambient resolver, so the handle it returns
+is still good after the render extent has unwound. The bare `(rf/capture-frame)`
+the adapters spell is not the shorter way to write this: ambient frame lookup is
+what a Hicasso body withdraws, so it refuses there for the same reason an ambient
+`rf/dispatch` does
+([Events as data](03-events-as-data.md#callbacks-carry-their-frame)).
+
+`defhost` is still the remedy for the two rows above — a declared `:event` slot
+builds this closure for you and you write the intent. This is what you write
+until you have one.
 
 ### On the server, nothing
 
@@ -394,10 +437,13 @@ an intent there runs with no ambient frame and raises
 never silently inert. The message offers both readings, because from where you sit
 you *are* inside a boundary's render (you wrote the crossing in a body), and it
 names the repair: `defhost` with `:callbacks {<the prop> :render}` is the position
-that owns the frame. A `[:>]` written inside a *declared* `:render` body inherits
-that position's frame, which is the composition intended — but a `:render` return
-still crosses unconverted, so today the subtree has to be written where children
-lower ([Not settled yet](#not-settled-yet)).
+that owns the frame. If what that body wanted was to *dispatch* rather than lower,
+the repair keeps the escape:
+[the closure carries the frame itself](#the-closure-has-to-carry-the-frame). A
+`[:>]` written inside a *declared* `:render` body inherits that position's frame,
+which is the composition intended — but a `:render` return still crosses
+unconverted, so today the subtree has to be written where children lower
+([Not settled yet](#not-settled-yet)).
 
 ### Migrating off it
 
@@ -417,6 +463,7 @@ same thing. A codemod is planned and not built.
 | React refuses an object as a child, from a `:render` body | The body returned hiccup; a `:render` return crosses unconverted | Return a string, or keep the subtree on the Hicasso side of the crossing |
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | Slot is `:handler` or `:render`; neither dispatches | Declare `:event`, or write an `h/fn` for the real work |
 | `:rf.error/hicasso-intent-needs-the-event` | Vector spelling needs the DOM event at arg one; library put something else there | Use `h/fn` — full argument list, library order |
+| A `[:>]` callback runs, then refuses with `:rf.error/no-frame-context` | A plain function crosses by identity and carries no frame; by the time the library calls it the render has unwound | Build `(rf/capture-frame (h/frame))` in the body and close over it |
 | Namespace won't load on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host ns |
 | Structural test can't match a node | A `[:>]` node has reduced structural identity — slot 1 holds a JS value compared by identity, and the crossing's fiber is named `[:>]` rather than by the component | Prefer `defhost`, or assert around the node |
 | A `[:>]` region is missing from the server HTML | `[:>]` is hard `:client-only` — no declaration, so no `:ssr` policy and no spelling for one | Declare it with `defhost` and choose `:ssr`, or wrap the escape in a host that carries a `{:fallback …}` |
