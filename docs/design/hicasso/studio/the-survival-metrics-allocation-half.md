@@ -26,18 +26,25 @@ the cheaper mistake is the one that never ships.
   predicted 8, with the idle window at 32 B. Transient garbage is visible
   to this counter, which is the one claim the row had to establish before
   quoting anything.
-- **The fit rule refused all four arms.** Over the mandated 1/3/7/20 rungs
-  the r² came back **0.75, 0.28, 0.94 and 0.31** against a 0.98 floor, and
-  no arm was a line in more than one round of four. The rule is the reads
-  ladder's own `ladder-fit`, with its self-test proving it can fail, so the
-  refusal is a criterion's and not an editorial call.
-- **A second blocker is in the way, and it is a real one.** On the
-  Reagent-adapter segment the Hicasso arm **does not re-render on a write
-  at all**: its DOM read-back is stale by exactly the number of writes the
-  window drove, in every round, at every rung, and its allocation sits flat
-  on the no-op floor of ~100 B/boundary. The UIx-adapter segment re-renders
-  normally. Until that is understood no Reagent-segment allocation figure
-  means anything.
+- **The fit rule refused every arm it was given.** Over the mandated
+  1/3/7/20 rungs the r² came back **0.75, 0.94 and 0.31** against a 0.98
+  floor, and no arm was a line in more than one round of four. The rule is
+  the reads ladder's own `ladder-fit`, with its self-test proving it can
+  fail, so the refusal is a criterion's and not an editorial call.
+- **The candidate's Reagent-segment rows are struck, and "refused" was the
+  wrong word for them.** That arm never re-rendered: its DOM read-back was
+  stale by exactly the number of writes each window drove, in every round,
+  at every rung, and its allocation column sat flat on ~100 B/boundary,
+  which is the *floor's* own figure. A refusal says the fit did not hold;
+  the truth is that nothing was measured, so the rows and their fit line are
+  **removed rather than re-captioned**. The cause is a propagation gap in
+  the arm's own runtime, diagnosed on `rf2-2rtt6.137` and repaired in one
+  line by `rf2-2kshh`.
+- **The UIx-adapter segment is untouched by that mechanism and its rows
+  stand.** The React-hook spine is push-based from birth, those read-backs
+  all passed, and the candidate's refusal there is the fit rule's — r²
+  0.311, slope −37 B/read, 0 of 4 rounds linear — which is a genuine
+  refusal and is not withdrawn.
 - **The instrument has a hard ceiling and the published witness is outside
   it.** At B = 1,200 boundaries, 32 collections fell inside 44 measured
   windows and the row refused on that alone.
@@ -167,14 +174,14 @@ windows** — the instrument is inside its valid regime everywhere below.
 | Reagent | 3 | 4,637 [3,162–5,874] | 1,391,177 |
 | Reagent | 7 | 3,051 [2,916–3,157] | 915,306 |
 | Reagent | 20 | 7,387 [4,090–9,435] | 2,216,118 |
-| Hicasso | 0 | 99 [98–100] | 29,788 |
-| Hicasso | 1 | 100 [100–100] | 29,951 |
-| Hicasso | 3 | 102 [100–107] | 30,512 |
-| Hicasso | 7 | 98 [97–100] | 29,542 |
-| Hicasso | 20 | 103 [97–113] | 30,752 |
 
-**Every Hicasso row in this segment is a no-op reading and none of them is
-a measurement.** See [the second blocker](#the-second-blocker-the-candidate-does-not-re-render-under-reagent).
+**The candidate's five rows are struck from this table.** They read
+99/100/102/98/103 B/boundary at R = 0/1/3/7/20 — the floor's own figure at
+every rung, on an arm that has a subscription at four of them — because the
+arm never re-rendered at all. There is no reading here to refuse and none
+to re-caption: the write never reached the boundary, so the counter
+measured a page that did not move.
+[The cause is below](#the-second-blocker-the-candidate-does-not-re-render-under-reagent).
 
 ### UIx-adapter segment
 
@@ -207,9 +214,14 @@ whose self-test feeds it a quadratic page and requires a refusal.
 | arm | slope | r² | verdict | rounds linear |
 |---|---:|---:|---|---:|
 | Reagent | 262 B/read [54–411] | 0.75279 | **NOT A LINE** | 0 of 4 |
-| Hicasso, Reagent substrate | 0 B/read [0–1] | 0.28333 | **NOT A LINE** | 1 of 4 |
 | UIx | 589 B/read [549–645] | 0.93851 | **NOT A LINE** | 1 of 4 |
 | Hicasso, UIx substrate | −37 B/read [−56–−6] | 0.31140 | **NOT A LINE** | 0 of 4 |
+
+**The "Hicasso, Reagent substrate" fit is struck rather than refused.** It
+read 0 B/read at r² 0.283, and a fit over four rungs of an arm that never
+re-rendered is a fit over the floor. A refusal on this table invites a
+re-run on a quieter box, and no box will ever help this one — the repair
+is a line of the arm's runtime and it is `rf2-2kshh`.
 
 **No slope on that table may be quoted, including the donors'.** The
 per-round ranges say the same thing the r² does: Reagent's 20-read rung
@@ -246,14 +258,38 @@ allocation column sits flat on ~100 B/boundary — the same figure the
 UIx-adapter segment's Hicasso arm re-renders normally and reads 2,461 to
 3,840 B/boundary.
 
-The candidate needs neither adapter's hooks, but every read goes through
+**That is why those rows are struck above rather than refused.** The
+candidate needs neither adapter's hooks, but every read goes through
 `re-frame.subs` and the reaction `subscribe` builds is the installed
 adapter's — the same fact the reads ladder's two candidate columns are
-built on. So this is either a missing drain for that pairing in the bench
-(the segment drains with `reagent.core/flush` inside a `flushSync`, which
-is Reagent's render queue and not a `useSyncExternalStore` notification),
-or a real propagation gap. **It is not diagnosed here**, and it is filed
-rather than guessed at.
+built on. The read-back ruled the bench's drain out and a read-only pass on
+`rf2-2rtt6.137` named the cause: a **real propagation gap in the
+candidate's own runtime**, not in the architecture and not in the
+instrument. `arm1/runtime.cljs`'s `wire-cell!` — the arm's entire
+attachment to the substrate — subscribes, derefs once for a baseline,
+`add-watch`es and never calls `interop/activate-derived-value!`. Under the
+ratom family a subscription *is* a bare `Reaction` built deliberately
+without `:auto-run`, and a `Reaction` learns its sources only through
+deref-capture, so a plain deref outside `*ratom-context*` runs the body raw
+and leaves its `watching` set nil. The reaction is therefore never in
+`app-db`'s watcher set, the watch never fires, and `mark-dirty!` — whose
+only caller is that watch — never fires either. The arm paints once at
+mount and is deaf thereafter.
+
+This is the same defect as `rf2-8cnxg`, which the shipping observation port
+repaired by ordering the acts *activate, then watch, then observe*; arm 1's
+runtime is a second consumer of that substrate which never received the
+fix. `rf2-2kshh` carries the one-line insertion. **It had not landed when
+this page was corrected, so a re-take of the Reagent segment is blocked on
+it** — and a re-take needs the quiet box this row's provenance describes,
+not merely the fix.
+
+Nothing else on the page moves with it. The clock bench gives the candidate
+a segment that installs the UIx adapter on purpose, and every `p0-heap` row
+is mount–hold–release with no write at all, so **this row is the first time
+in the P0 programme that a write was driven at `lad/hicasso` with the
+Reagent adapter installed**. No previously published Hicasso figure is
+invalidated.
 
 Note what it would have done unnoticed. A candidate arm that never
 re-renders allocates nothing per read, and "nothing per read" is precisely
@@ -287,7 +323,10 @@ size that fixes this, because one write is the atom.
 3. **Two blockers stand between here and the metric**, and neither is about
    effort:
    - the candidate does not re-render under the Reagent adapter on this
-     bench, so half the witness is not being exercised at all;
+     bench, so half the witness is not being exercised at all. This one is
+     now **diagnosed and has a one-line repair in flight** (`rf2-2kshh`);
+     until it lands, a Reagent-segment re-take is blocked, and the rows it
+     produced are struck from this page rather than standing as a refusal;
    - at any witness the instrument can see, a single-write window is too
      noisy to fit, and at any window large enough to average, the collector
      is inside it.
