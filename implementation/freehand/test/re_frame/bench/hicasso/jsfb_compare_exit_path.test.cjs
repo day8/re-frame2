@@ -457,6 +457,83 @@ test('THE PROCESS EXIT: an all-negative driver table exits 1 from the shell, not
   assert.doesNotMatch(r.stdout, /VERDICT: 10 of 10 comparable rows agree/, 'ten negative rows are not ten agreements');
 });
 
+// --- AND NOTHING DOWNSTREAM MAY CONCLUDE FROM A CELL THE GATE REFUSED -------
+//
+// The predicate above decides which cells are measured; `report`'s WORKLOAD
+// section then states a SECOND finding — how far our create-1,000 ratio sits
+// from the published M1 mount — and for one release it was not behind that
+// decision. Its only condition was that `summary.run1k` existed, so #7675's
+// merged-PR audit found the refused evidence still speaking: an ours ratio of
+// -1.2 is thrown out of the table by `buildRows` and moves the published
+// 1.2107 by a perfectly finite -199.1% four lines later. A refused
+// measurement that still concludes is worse than one that errors, because the
+// sentence it prints is well formed.
+//
+// `report` prints rather than returns, so these are PROCESS assertions: there
+// is no seam to call. What they pin is one-way — a conclusion may become a
+// suppression, never the reverse — so the measured case is asserted too.
+
+const WORKLOAD_CONCLUSION = /workload moves the ratio by/;
+
+test('THE WORKLOAD CONCLUSION: a refused ours ratio prints UNMEASURED, not a movement', () => {
+  for (const bad of [0, -1.2]) {
+    const f = oursPatched(`wl-ratio-${bad}.json`, 'run1k', OTHERS[0], { ratio: bad });
+    const r = run(['--theirs', theirsDir(`wl-ratio-${bad}`), '--ours', f]);
+    assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, WORKLOAD_CONCLUSION, `ratio ${bad} may not move the published mount by anything`);
+    assert.ok(r.stdout.includes(`UNMEASURED — ratio=${bad}`), r.stdout);
+    // The refused number stays ON THE PAGE. It is the conclusion that goes,
+    // not the evidence: a reader debugging the run needs to see what arrived.
+    assert.match(r.stdout, new RegExp(`ours, benchmark create-1,000 rows\\s+${bad.toFixed(4).replace('-', '-')}`), r.stdout);
+  }
+});
+
+test('THE WORKLOAD CONCLUSION: the audit\'s own -199.1% is not printed', () => {
+  // Named literally, because it is the number the bypass produced and the one
+  // a reader would have quoted.
+  const f = oursPatched('wl-audit.json', 'run1k', OTHERS[0], { ratio: -1.2 });
+  const r = run(['--theirs', theirsDir('wl-audit'), '--ours', f]);
+  assert.doesNotMatch(r.stdout, /-199\.1%/, 'the audit\'s worked example must not survive as a finding');
+});
+
+test('THE WORKLOAD CONCLUSION: a refused ours DURATION suppresses it too, sound ratio or not', () => {
+  // The discriminating case, and the reason this reuses the row's own refusal
+  // rather than testing the ratio a second time: the ratio here is an ordinary
+  // 1.2, so a guard that looked only at the derived number would still print
+  // the movement — which is exactly the defect this bead's first half fixed,
+  // recurring one section further down.
+  for (const [field, bad] of [['base', 0], ['base', -100], ['ms', 0], ['ms', -120]]) {
+    const f = oursPatched(`wl-${field}-${bad}.json`, 'run1k', OTHERS[0], { [field]: bad });
+    const r = run(['--theirs', theirsDir(`wl-${field}-${bad}`), '--ours', f]);
+    assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, WORKLOAD_CONCLUSION, `ours ${field}=${bad} may not yield a movement`);
+    const named = field === 'base' ? `base ms=${bad}` : `${OTHERS[0]} ms=${bad}`;
+    assert.ok(r.stdout.includes(`UNMEASURED — ${named}`), r.stdout);
+  }
+});
+
+test('THE WORKLOAD CONCLUSION: a MEASURED run still states the movement', () => {
+  // The other direction. A section that fell silent on sound evidence would
+  // pass every assertion above and be a worse program than the one repaired.
+  const r = run(['--theirs', theirsDir('wl-ok'), '--ours', oursJson('wl-ok.json')]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /workload moves the ratio by -?\d+\.\d%/);
+  assert.doesNotMatch(r.stdout, /UNMEASURED/, 'a sound ratio is not a refusal');
+});
+
+test('THE WORKLOAD CONCLUSION is OURS-only: a short DRIVER table does not suppress it', () => {
+  // The fence. This section is one instrument across two pages, so the
+  // benchmark driver's evidence is not among its premises — guarding it on the
+  // row's comparability, as the DIRECTION block above rightly does, would
+  // refuse on grounds it never read. Our side's refusal governs; theirs does
+  // not.
+  const dir = theirsDir('wl-short', { skip: [`${OTHERS[0]}_01_run1k`] });
+  const r = run(['--theirs', dir, '--ours', oursJson('wl-short.json')]);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /1 of 10 expected cells/);
+  assert.match(r.stdout, WORKLOAD_CONCLUSION, 'ours measured this page; the driver is not its premise');
+});
+
 test('THE PROCESS EXIT: no arguments at all is a refusal, not a green run', () => {
   const r = run([]);
   assert.notStrictEqual(r.status, 0);
