@@ -261,13 +261,18 @@ your events put in `app-db` — a record id, a load generation, a "form opened
 at" stamp. Never a render-order index, never a counter minted in render, never
 `random-uuid`; each of those resets the field on every render.
 
-Three limits, stated rather than discovered. A revision arriving **during a
+Four limits, stated rather than discovered. A revision arriving **during a
 live IME composition defers to the exchange's close**, like everything else on
 this path — the model is correct throughout, the glass is not, and there is no
 cancel primitive to do better with. On an *accepting* field a post-bump edit
 **supersedes** the reset by ordinary event order, so the close lands the
-then-current model rather than the model the reset produced. And the spelling
-is matched **exactly**: a bare `:revision` is not this prop, and becomes an
+then-current model rather than the model the reset produced. A revision
+arriving **mid-hydration defers past adoption** for the same reason it defers
+past a composition: React discards the server's node when any client render
+lands before adoption completes — with or without a revision change, so this
+is adoption's conduct and not the prop's — and after adoption a bump keeps the
+node and lands the reset normally. And the spelling is matched **exactly**: a
+bare `:revision` is not this prop, and becomes an
 ordinary DOM attribute — silently, and with a namespaced keyword's namespace
 deleted on the way, so `:rev/a` and `:other/a` both show as `revision="a"` in
 devtools. On anything that is not a controlled `<input>`/`<textarea>` the prop

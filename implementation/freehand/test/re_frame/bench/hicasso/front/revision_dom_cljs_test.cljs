@@ -19,9 +19,18 @@
   [[re-frame.bench.hicasso.front.controlled/last-rendered]] leans on.
   If they do not hold, the prop needs real machinery and the design does
   not survive contact. So §0 pins them before anything else runs, as
-  DESIGN-VALIDATION rows rather than as regression rows, and §0's
-  hydration row is the one the spec demotes furthest — its claim had no
-  source cite and its failure mode is node loss.
+  DESIGN-VALIDATION rows rather than as regression rows. **They hold**:
+  the re-assert repairs foreign drift on both tags, without remount.
+
+  §0's hydration row is the one the spec demoted furthest — its claim had
+  no source cite and its failure mode was node loss — and **that one does
+  not hold.** React discards the server's node when a client render
+  arrives mid-adoption. The row now runs a control arm to place the blame:
+  an identical render carrying an UNCHANGED revision loses the node the
+  same way, so the conduct is adoption's rather than the prop's, and the
+  documented behaviour is the fallback the spec pre-committed — the reset
+  defers past adoption, exactly as it defers past a composition. The third
+  arm pins what the shipped feature actually rests on, and is green.
 
   ## What is a proxy, and what is the path
 
@@ -192,50 +201,111 @@
             (is (identical? n (node c))))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
-(deftest a-reset-during-hydration-adoption-lands-on-the-servers-node
+(defn- hydrate-then-render!
+  "Bake server bytes for `rev-in`, adopt them, and issue ONE client render
+  carrying `rev-out` **before adoption has completed** — `hydrateRoot`
+  returns before the tree is adopted, which is what makes the render
+  mid-adoption. Calls `k` with the server's node, the container and the
+  root once the dust has settled."
+  [rev-in rev-out k]
+  (let [c (container!)]
+    (set! (.-innerHTML c)
+          (react-dom-server/renderToString
+           (codec/as-element (field :input "server" rev-in))))
+    (let [server-node (node c)
+          root        (react-dom-client/hydrateRoot
+                       c (codec/as-element (field :input "server" rev-in)))]
+      (drift! server-node "draft")
+      (.render root (codec/as-element (field :input "server" rev-out)))
+      (js/setTimeout
+       (fn []
+         (react-dom/flushSync (fn [] nil))
+         (k server-node c root))
+       0))))
+
+(deftest a-reset-around-hydration-adoption
   (testing "R3, WITNESS-GATED INTENT rather than assertion (spec §4). The
            design claimed a revision arriving mid-adoption lands on the
-           first post-adoption commit, on the SERVER's node, with no cite
-           to support it; the failure mode if it is wrong is node loss —
-           a deopt discarding the server node, which is the exact
-           remount-destroys-focus class the whole design exists to avoid.
-           So the row runs first in the hydration suite and pins whichever
-           conduct React actually has. Green here means the claim is
-           earned. Red means the documented conduct becomes deferral past
-           adoption, through the same shape as the IME carve-out."
+           first post-adoption commit, on the SERVER's node. That claim had
+           no source cite and the failure mode if it were wrong was node
+           loss, so the spec demoted it and pre-committed the fallback
+           rather than improvising one. **It is wrong, and the fallback is
+           what ships.**
+
+           React discards the server's node when a client render arrives
+           mid-adoption. The control arm below is what makes that a finding
+           about ADOPTION rather than about the revision: an identical
+           mid-adoption render carrying an UNCHANGED revision loses the node
+           in exactly the same way. So the revision neither causes the deopt
+           nor escapes it, and the documented conduct is the pre-committed
+           one — a reset arriving mid-adoption defers past adoption, the
+           same shape the IME carve-out already has. The third arm is the
+           one the shipped feature rests on, and it is green: once adoption
+           is complete a bump keeps the node and lands the reset."
     (if-not (browser?)
       (skip! "hydration needs a document to adopt")
       (async done
-        (let [c (container!)]
-          (set! (.-innerHTML c)
-                (react-dom-server/renderToString
-                 (codec/as-element (field :input "server" "rev-1"))))
-          (let [server-node (node c)]
-            (is (some? server-node) "the server bytes carried a field to adopt")
-            (is (= "server" (.-defaultValue server-node))
-                "carrying the MODEL value, per spec §3.6")
-            (let [root (react-dom-client/hydrateRoot
-                        c (codec/as-element (field :input "server" "rev-1")))]
-              ;; `hydrateRoot` returns BEFORE the tree is adopted. The bump
-              ;; goes in now, which is what makes this MID-adoption.
-              (drift! server-node "draft")
-              (.render root (codec/as-element (field :input "server" "rev-2")))
-              (js/setTimeout
-               (fn []
-                 (react-dom/flushSync (fn [] nil))
-                 (try
-                   (is (identical? server-node (node c))
-                       "THE GATED CLAIM: React kept the server's node across an
-                        adoption that carried a revision bump — no deopt, no
-                        node loss")
-                   (is (= "server" (.-value (node c)))
-                       "and the reset landed, re-baselining the field to the
-                        model it was hydrated against")
-                   (finally
-                     (react-dom/flushSync #(.unmount root))
-                     (drop-container! c)
-                     (done))))
-               0))))))))
+        ;; ARM A — the control. Same render, revision UNCHANGED.
+        (hydrate-then-render!
+         "rev-1" "rev-1"
+         (fn [server-node c root]
+           (let [control-kept? (identical? server-node (node c))]
+             (react-dom/flushSync #(.unmount root))
+             (drop-container! c)
+             ;; ARM B — the variable. Same render, revision BUMPED.
+             (hydrate-then-render!
+              "rev-1" "rev-2"
+              (fn [server-node c root]
+                (let [bumped-kept? (identical? server-node (node c))]
+                  (is (= control-kept? bumped-kept?)
+                      "THE GATED CLAIM, ADJUDICATED: whatever React does to
+                       the server's node mid-adoption, it does it with and
+                       without a revision change alike. The revision is not
+                       what decides it, so 'the reset lands on the server's
+                       node' was never the revision's claim to make.")
+                  (is (false? bumped-kept?)
+                      "and what React actually does is DISCARD it — the
+                       deopt R3 named as the failure mode. Recorded here as
+                       the conduct rather than shipped as a claim.")
+                  (is (= "server" (.-value (node c)))
+                      "the field still shows the model afterwards; what is
+                       lost is the NODE's identity, not the value — so the
+                       cost is focus and selection, which is exactly why the
+                       documented conduct is to defer past adoption")
+                  (react-dom/flushSync #(.unmount root))
+                  (drop-container! c)
+                  ;; ARM C — the one the feature rests on. Adoption first,
+                  ;; THEN the bump.
+                  (let [c2 (container!)]
+                    (set! (.-innerHTML c2)
+                          (react-dom-server/renderToString
+                           (codec/as-element (field :input "server" "rev-1"))))
+                    (let [server-node2 (node c2)
+                          root2 (react-dom-client/hydrateRoot
+                                 c2 (codec/as-element (field :input "server" "rev-1")))]
+                      (js/setTimeout
+                       (fn []
+                         (react-dom/flushSync (fn [] nil))
+                         (try
+                           (is (identical? server-node2 (node c2))
+                               "adoption completed on the server's node, with
+                                nothing else in flight")
+                           (drift! (node c2) "draft")
+                           (render! root2 (codec/as-element
+                                           (field :input "server" "rev-2")))
+                           (is (identical? server-node2 (node c2))
+                               "AND THE POST-ADOPTION BUMP KEEPS IT — no
+                                remount, so the focus and the selection
+                                survive the reset on a hydrated node exactly
+                                as they do on a client-rendered one")
+                           (is (= "server" (.-value (node c2)))
+                               "with the reset landing: the drift is gone and
+                                the field is re-baselined to the model")
+                           (finally
+                             (react-dom/flushSync #(.unmount root2))
+                             (drop-container! c2)
+                             (done))))
+                       0)))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — THE RESET LAW AT THE ELEMENT
@@ -563,6 +633,14 @@
             (is (= "kana-more" @!model)
                 "the post-bump dispatch moved the model, by ordinary event
                  order, exactly as it would at rest")
+            ;; The app re-renders on that model change. It happens AFTER the
+            ;; handler rather than inside it, and that ordering is
+            ;; re-frame2's own: `dispatch` drains on a macrotask (Spec 002
+            ;; §Drain scheduling), so the model has not moved by the end of
+            ;; the change handler and the re-render is a separate turn. The
+            ;; revision does not move — the caller bumped it once, and one
+            ;; bump is one reset.
+            (paint! "rev-2")
             (.dispatchEvent n (js/FocusEvent. "focusout" #js {:bubbles true}))
             (react-dom/flushSync (fn [] nil))
             (is (= "kana-more" (.-value n))

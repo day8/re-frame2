@@ -1168,13 +1168,26 @@ candidate second call site appears. The composition value path reopens on
 > on an accepting field a post-bump dispatch supersedes it by ordinary event
 > order.
 >
+> **Hydration: the design's mid-adoption claim was WRONG, and the
+> pre-committed fallback is what ships.** The design asserted, with no source
+> cite, that a revision arriving mid-adoption lands on the first post-adoption
+> commit *on the server's node*; the adversarial pass demoted it to
+> witness-gated intent precisely because the failure mode was node loss. The
+> witness reds: React **discards** the server's node when a client render
+> arrives before adoption completes. The control arm is what makes this a
+> finding about adoption rather than about this prop — an identical
+> mid-adoption render carrying an *unchanged* revision loses the node the same
+> way, so the revision neither causes the deopt nor escapes it. Documented
+> conduct is therefore the fallback: **a reset arriving mid-adoption defers
+> past adoption**, the same shape the IME carve-out has. Once adoption is
+> complete a bump keeps the node and lands the reset, which is the case the
+> shipped feature rests on and is witnessed green.
+>
 > **Reopens** if the per-commit re-assert stops holding — the witness file
 > `front/revision_dom_cljs_test` pins it as a design-validation row and a red
-> there means the prop needs machinery of its own — or if the hydration
-> adoption row deopts, in which case the documented conduct becomes deferral
-> past adoption through the same shape as the IME carve-out. The name itself
-> rides the API freeze, which owes the reset-name trio a decision: this element
-> revision, `h/boundary`'s `:reset-key` (which **remounts**), and D016's ladder
+> there means the prop needs machinery of its own. The name itself rides the
+> API freeze, which owes the reset-name trio a decision: this element revision,
+> `h/boundary`'s `:reset-key` (which **remounts**), and D016's ladder
 > `:reset-key`. Two of the three are the same word for opposite conduct.
 
 ## HD-020 — v0 host mechanics: frame plumbing, hook ledger, error boundary, SSR posture
