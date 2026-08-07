@@ -46,9 +46,34 @@
 //     Everything below is main-thread cost. That is stated on every row
 //     rather than implied.
 //
-// The in-page span is taken anyway, on the same operation in the same
-// sample, and published beside the frame-inclusive one. The gap between
-// them measures the error the other instrument makes, per arm.
+// ## THREE WINDOWS, AND WHICH ONE IS PUBLISHED — the stamp discipline
+//
+//   PUBLISHED   raw `TaskDuration`, frame-settled (rAF + setTimeout) —
+//               the arm's script AND the frame it caused, main thread
+//               only, no raster/composite. CDP does not document
+//               `TaskDuration`'s semantics; this is Chromium's accounting
+//               read from source (rf2-8nqsl).
+//   DIAGNOSTIC  `taskNet` (`TaskDuration` less `DevToolsCommandDuration`)
+//               — a FRAME-ONLY reading through this door, because every
+//               arm's operation runs inside `page.evaluate` and Chromium
+//               bills page script run inside a protocol command to the
+//               DevTools term (rf2-yd52q, rf2-emvod). It is the reading
+//               this driver banked, and every row it published before
+//               `rf2-yd52q` is stated on it.
+//   DIAGNOSTIC  the in-page `performance.now()` window the page reports
+//               as `:ms` — the published rows' own clock, taken on the
+//               SAME samples so the two instruments are compared on one
+//               operation rather than across runs.
+//
+// NONE OF THE THREE IS CALLED BY THE BARE ADJECTIVE "frame-inclusive",
+// and that is a repair rather than a style rule. The adjective was
+// attached to `taskNet`, which is not a superset of the in-page window
+// but very nearly its COMPLEMENT — and the mislabel survived because this
+// driver printed the two clocks' RATIO and never their absolutes, so the
+// one observation that needed no arithmetic (a substrate arm's in-page
+// absolute EXCEEDING its `taskNet` absolute) was never on screen. Both of
+// this programme's instrument errors hid behind that word (rf2-yd52q).
+// Every window below is named by what it measures.
 //
 // ## PER-KEYSTROKE IS EVENT TIMING, AND THE KEY IS A REAL KEY
 //
@@ -1401,29 +1426,32 @@ function report(out) {
         const per = inPageRounds.map((r) => p50(r[seg][arm]) / p50(r[seg][FLOOR]));
         if (!per.every(Number.isFinite)) continue;
         const b = band(per);
-        const fi = band(ratioToFloor(rounds, seg, arm));
-        // The two windows in MILLISECONDS as well as in ratios. A ratio says
-        // the two clocks disagree; only the absolutes say WHAT they disagree
-        // about — how much of each arm's frame lands inside `flushSync` — and
-        // that is the whole mechanism behind a published row moving.
+        const net = band(ratioToFloor(rounds, seg, arm));
+        // The two windows in MILLISECONDS as well as in ratios, and the
+        // ABSOLUTES ARE THE POINT. A ratio says the two clocks disagree; only
+        // the absolutes say WHAT they disagree about, and printing only the
+        // ratio is how `taskNet` passed for a superset of the in-page window
+        // for as long as it did (rf2-yd52q). The share below is `taskNet`'s,
+        // NOT "the frame's": `taskNet` is frame-only, so an in-page absolute
+        // over 100% of it is the mislabel refuting itself on the page.
         const ipAbs = p50(inPageRounds.flatMap((r) => r[seg][arm]));
-        const fiAbs = p50(rounds.flatMap((r) => r[seg][arm]));
+        const netAbs = p50(rounds.flatMap((r) => r[seg][arm]));
         console.log(
           `;;   ${(seg + '/' + arm).padEnd(28)} in-page ${b.mean.toFixed(4)}x  vs  ` +
-            `frame-inclusive ${fi.mean.toFixed(4)}x   (in-page reads ` +
-            `${(((b.mean - fi.mean) / fi.mean) * 100).toFixed(1)}% differently)` +
-            `   [abs ${ipAbs.toFixed(3)} of ${fiAbs.toFixed(3)} ms = ` +
-            `${((ipAbs / fiAbs) * 100).toFixed(0)}% of the frame]`
+            `taskNet (frame-only) ${net.mean.toFixed(4)}x   (in-page reads ` +
+            `${(((b.mean - net.mean) / net.mean) * 100).toFixed(1)}% differently)` +
+            `   [abs ${ipAbs.toFixed(3)} of ${netAbs.toFixed(3)} ms = ` +
+            `${((ipAbs / netAbs) * 100).toFixed(0)}% of taskNet]`
         );
       }
       // The floor's own two windows, because every ratio above is taken
       // against it and its in-page share is the smaller half of why the two
       // clocks rank these arms differently.
       const ipF = p50(inPageRounds.flatMap((r) => r[seg][FLOOR]));
-      const fiF = p50(rounds.flatMap((r) => r[seg][FLOOR]));
+      const netF = p50(rounds.flatMap((r) => r[seg][FLOOR]));
       console.log(
-        `;;   ${(seg + '/floor').padEnd(28)} in-page 1.0000x  vs  frame-inclusive 1.0000x   (the denominator)` +
-          `   [abs ${ipF.toFixed(3)} of ${fiF.toFixed(3)} ms = ${((ipF / fiF) * 100).toFixed(0)}% of the frame]`
+        `;;   ${(seg + '/floor').padEnd(28)} in-page 1.0000x  vs  taskNet (frame-only) 1.0000x   (the denominator)` +
+          `   [abs ${ipF.toFixed(3)} of ${netF.toFixed(3)} ms = ${((ipF / netF) * 100).toFixed(0)}% of taskNet]`
       );
     }
     // THE BAR ROWS ON BOTH CLOCKS. Per-arm gaps are not the comparison a
@@ -1437,12 +1465,12 @@ function report(out) {
       const d = ipRatio(den, den);
       if (!n.every(Number.isFinite) || !d.every(Number.isFinite)) continue;
       const b = band(n.map((x, i) => x / d[i]));
-      const fi = bar[`${num} / ${den}`].tared;
+      const net = bar[`${num} / ${den}`].tared;
       console.log(
         `;;   BAR ${(num + ' / ' + den).padEnd(24)} in-page ${b.mean.toFixed(4)}x ` +
-          `[${b.min.toFixed(4)} – ${b.max.toFixed(4)}]  vs  frame-inclusive ${fi.mean.toFixed(4)}x ` +
-          `[${fi.min.toFixed(4)} – ${fi.max.toFixed(4)}]   (in-page reads ` +
-          `${(((b.mean - fi.mean) / fi.mean) * 100).toFixed(1)}% differently)`
+          `[${b.min.toFixed(4)} – ${b.max.toFixed(4)}]  vs  taskNet (frame-only) ${net.mean.toFixed(4)}x ` +
+          `[${net.min.toFixed(4)} – ${net.max.toFixed(4)}]   (in-page reads ` +
+          `${(((b.mean - net.mean) / net.mean) * 100).toFixed(1)}% differently)`
       );
       inPageBar[`${num} / ${den}`] = b;
     }

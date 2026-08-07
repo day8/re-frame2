@@ -9,9 +9,9 @@ whole operation — the arm's own JavaScript *and* the frame it causes —
 half the runs that margin sits inside the band this instrument measured for
 itself. **No replacement magnitude is published** ([§6](#6-what-is-refused)).
 
-**And the re-take found something larger than the row.** The frame-inclusive
-clock `rf2-0qj9w` built, and `rf2-8nqsl`'s audit used to read this row at
-`1.0509×`, subtracts `DevToolsCommandDuration` from `TaskDuration` — and
+**And the re-take found something larger than the row.** The clock `rf2-0qj9w`
+built and *called* frame-inclusive, which `rf2-8nqsl`'s audit used to read this
+row at `1.0509×`, subtracts `DevToolsCommandDuration` from `TaskDuration` — and
 `DevToolsCommandDuration` **carries the operation's own script**, because the
 driver runs every arm through a protocol command and Chromium bills the whole
 command to that counter. So `taskNet` is style, layout and paint with the
@@ -37,7 +37,7 @@ was taken on an in-page `performance.now()` window closing the instant
 `flushSync` returns, and that
 [`bulk broad 0.6291×`](the-clock-behind-the-published-rows.md#4-which-rows-change)
 was the one published verdict that did not survive a change of instrument. It
-could not re-take the row: a frame-inclusive clock needs one operation per
+could not re-take the row: a clock that sees the frame needs one operation per
 frame, and `p0_converge_app` runs an entire row in one macrotask by design.
 
 So the row needed a purpose-built harness, and the bead named it — the
@@ -163,15 +163,30 @@ runs and the published run 5 — the page half was not touched
 | the in-page window | reads the row **below** 1.0 and near the published 0.63–0.69 | **PASSED.** 0.7120× [0.6390 – 0.7964] |
 
 The row prediction is recorded as *partly refuted* rather than quietly widened.
-It was written expecting parity, on the strength of three prior frame-inclusive
-readings; the corrected clock puts the row at a real but much smaller win, and
-saying so is the point of registering a prediction that could fail.
+It was written expecting parity, on the strength of three prior readings that
+were *believed* frame-inclusive and were in fact `taskNet` — so the prediction
+inherited the mislabel it was written to test. The corrected clock puts the row
+at a real but much smaller win, and saying so is the point of registering a
+prediction that could fail.
 
 Whole-run gates, all sixteen row-runs of the published ensemble: **0 unverified
 of 1,728** writes each, **27,224-byte canonical DOM identical** across all six
 non-control arms in all three segments, **arm-order guard reportable**, candidate
 runtime residue zero on every counter. `body-children` reads 2 throughout — the
 page's own `#app` and its script tag, constant, not residue.
+
+**The arm-order guard on this ensemble ran on `taskNet`, not on the clock the
+row is published on.** At the blob in [§7](#7-provenance) the driver held one
+`guard.verdict`, over the `taskNet` samples, and — the same mislabel again —
+printed it as *"frame-inclusive task time"*. So the sentence above is true of
+the diagnostic and was never established for raw `TaskDuration`: the `0.8602×`
+and the 43-of-48 direction are **guarded by inheritance, not by verdict**. The
+guard is a statement about a particular quantity — *this arm does not read
+differently for WHERE in the plan it was measured* — and it does not carry
+across a change of quantity. The driver now runs it on **both** clocks and
+either refusal refuses the row (`rf2-emvod`), so a re-take is guarded; this
+ensemble is not, and that is a limit on the figures rather than on the
+direction, which three instruments agree on.
 
 ---
 
@@ -344,12 +359,42 @@ git rev-parse <candidate>:$P   # must print e145597127a87983377bd1a7ca40ca0388df
 | Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
 | Box | quiet. Sampled at 0–19% total CPU before the ensemble, no competing agent, no editing during a run. The absolute floor — the load indicator `rf2-cvvb7`'s ladder established — read 2.37–2.44 ms on `bulk300`, at the bottom of the 3.06–5.50 ms range that ladder produced |
 | Exit code | **1** on every run. Exit 1 from a control is scoped to the row that failed it; every whole-run gate cleared on every row of every run |
+| Retained dataset | **NONE. Every table on this page was assembled by hand from console logs, and no run of either ensemble was taken with `HCLOCK_JSON` set.** So `0.8602×`, its `[0.7709 – 0.9058]`, the bands, the controls and the 43-of-48 count are *not recomputable from this repository* — they are readings, recorded, not re-derivable evidence. `rf2-ymi6j` established the same thing from the other side: the seam ladder's `data/ladder-ymi6j.json` is the only published ensemble on this instrument whose dataset survives |
+
+**The gap is closed for the next run, not for this one.** At this page's blob
+the driver's serializer wrote `taskNet` rounds and rounded summaries only, so
+even a dataset from these runs could not have reproduced the figures the page
+quotes. It now writes the raw per-sample readings on **all three windows** —
+`rounds` (`taskNet`), `roundsTask` (raw `TaskDuration`) and `inPageRounds` —
+plus both guard verdicts and the whole control record, and
+`clock_readjudicate.cjs` pools an ensemble of those files and prints the table
+that gets published. **A re-take must set `HCLOCK_JSON` on every run**, and no
+figure from this page should be restated without one:
+
+```bash
+cd implementation && npm ci
+for i in $(seq 1 8); do
+  HCLOCK_ONLY=M1,bulk300 HCLOCK_SAMPLES=20 HCLOCK_JSON=out/run$i.json \
+    node freehand/test/re_frame/bench/hicasso/clock_run.cjs
+done
+node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+```
+
+The single-run form this page's ensemble was taken with, retained because it is
+what produced the readings above:
 
 ```bash
 cd implementation && npm ci
 HCLOCK_ONLY=M1,bulk300 HCLOCK_SAMPLES=20 \
   node freehand/test/re_frame/bench/hicasso/clock_run.cjs
 ```
+
+**The driver has moved since the blob above, and this page is not re-pinned to
+where it went.** `rf2-emvod` gave the published clock the guards the superseded
+one had, `rf2-yd52q` gave the serializer the raw windows and retired the
+*frame-inclusive* label from every printed reading, and `rf2-7iqb5` repaired the
+changed-set control. Each is a change to the instrument, not to these runs; the
+blob table pins what measured them and stays as it is.
 
 ## 8. The earlier ensemble
 
@@ -410,12 +455,15 @@ commits is the check.
   differ by 42% on script and by 5% on frame, and the frame is half the
   operation. A window that closes when `flushSync` returns publishes the first
   number as though it were the second.
-- **The frame-inclusive clock was subtracting the operation.** That is the
-  finding to carry: `DevToolsCommandDuration` absorbs page script run through a
-  protocol command, so `taskNet` is a frame-only reading, and the driver's own
-  absolutes said so from its first run and were never printed. Three beads carry
-  the consequences — `rf2-emvod` for the candidate's rows, `rf2-aj15b` for the
-  audit's page, `rf2-ymi6j` for the band calibration.
+- **The clock everyone called frame-inclusive was subtracting the operation.**
+  That is the finding to carry: `DevToolsCommandDuration` absorbs page script run
+  through a protocol command, so `taskNet` is a frame-only reading, and the
+  driver's own absolutes said so from its first run and were never printed.
+  **The label is the fault, not a symptom of it** — it is what let a whole audit
+  read a complement as a superset, and it is now refused by a test rather than
+  by a sweep (`clock_exit_path.test.cjs`). Three beads carry the consequences —
+  `rf2-emvod` for the candidate's rows, `rf2-aj15b` for the audit's page,
+  `rf2-ymi6j` for the band calibration.
 - **A control certified on pure-React arms cannot catch a fault in the substrate
   arms' half of the frame.** `ctl-2x` agreed between the two clocks to within
   2% while the arms whose ratio is published disagreed by hundreds of percent —

@@ -24,14 +24,21 @@
   Chrome's own renderer counters over the Chrome DevTools Protocol
   (`Performance.getMetrics`) on either side of one operation, and the
   operation does not resolve until the browser has produced the frame
-  that follows it. The number banked is therefore main-thread task time
-  INCLUDING style, layout and paint recording — the work a user waits
-  for. `TaskDuration` is a protocol value rather than a web-exposed one,
-  so it does not carry the Spectre clamp `performance.now()` does.
+  that follows it. Raw `TaskDuration` across that delta is therefore
+  main-thread task time INCLUDING style, layout and paint recording — the
+  work a user waits for — and it is what the driver PUBLISHES.
+  `TaskDuration` is a protocol value rather than a web-exposed one, so it
+  does not carry the Spectre clamp `performance.now()` does.
 
   The in-page span is still taken, on the same operation in the same
-  sample, and published beside the frame-inclusive one. The gap between
-  them is a measurement of the error the other instrument makes, per arm.
+  sample, and published beside it, as is `taskNet` — `TaskDuration` less
+  `DevToolsCommandDuration`, the reading this driver banked until
+  `rf2-yd52q`. `taskNet` is FRAME-ONLY, not frame-inclusive: the
+  subtraction removes the operation's own script, because the operation
+  runs inside a protocol command and Chromium bills page script run there
+  to the DevTools term. So it is nearer the in-page window's COMPLEMENT
+  than its superset, and neither window is named by the bare adjective
+  *frame-inclusive* anywhere in this lane.
 
   ## THREE segments, one substrate arm each, and why that is forced
 
@@ -601,7 +608,7 @@
     (react-dom/flushSync (fn [] nil))))
 
 ;; ---------------------------------------------------------------------------
-;; The frame settle — what makes this instrument frame-inclusive
+;; The frame settle — what puts the frame inside the driver's raw delta
 ;; ---------------------------------------------------------------------------
 
 (defn- settle-frame

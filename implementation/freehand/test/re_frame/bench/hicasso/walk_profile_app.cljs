@@ -125,6 +125,7 @@
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.controlled :as controlled]
             [re-frame.bench.hicasso.front.intent :as intent]
+            [re-frame.bench.hicasso.front.slot :as slot]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.hicasso.shapes.card :as card]
             [re-frame.bench.hicasso.shapes.large-template :as lt]
@@ -346,6 +347,11 @@
 ;; absorbs half the candidate and the in-process A/B undersells it.
 ;; [[local-convert-prop-value]] below is the other half of the same
 ;; freeze; `walk_profile_baseline_cljs_test` pins both.
+;;
+;; What is frozen is the CACHE, never the rule. The name each arm
+;; computes on a miss is [[re-frame.bench.hicasso.front.slot/prop-name]]
+;; on both sides — freezing that too would make the A/B price a
+;; difference in answers rather than a difference in lookups.
 (def ^:private local-prop-cache
   (doto #js {}
     (unchecked-set "class" "className")
@@ -356,13 +362,13 @@
 
 (defn- local-prop-name [k]
   (if-not (or (keyword? k) (symbol? k))
-    (if (string? k) (codec/prop-name k) k)
+    (if (string? k) (slot/prop-name k) k)
     (let [n (name k)]
       (if (reserved-names n)
-        (codec/prop-name k)
+        (slot/prop-name k)
         (if (.call local-has-own local-prop-cache n)
           (unchecked-get local-prop-cache n)
-          (let [converted (codec/prop-name k)]
+          (let [converted (slot/prop-name k)]
             (unchecked-set local-prop-cache n converted)
             converted))))))
 
