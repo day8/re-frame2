@@ -1202,10 +1202,20 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t('the driver exposes its decision and does not drive itself on require', () => {
     assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
-    assert.match(
-      SRC,
-      /module\.exports = \{ reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest \};/
-    );
+    // The decision's four seats, plus the write path's two (rf2-e87sk) — a
+    // serialiser nothing can require is a serialiser nothing can drive.
+    for (const name of [
+      'reportability',
+      'rowAdjudication',
+      'rowRegime',
+      'ROW_REGIME',
+      'reportabilitySelfTest',
+      'publication',
+      'datasetFor',
+      'PUBLISHED_DEPTH',
+    ]) {
+      assert.match(SRC, new RegExp(`module\\.exports = \\{[^}]*\\b${name}\\b`), `\`${name}\` must be exported`);
+    }
     assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
   });
 
@@ -1794,6 +1804,255 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(RJSRC, /It does not select runs\./);
     const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
     assert.match(body, /runs\.forEach\(\(\{ file, row \}, i\) => \{/);
+  });
+}
+
+// --- THE PRODUCER HALF: clock_run.cjs must WRITE every verdict it is gated on
+//
+// rf2-e87sk, the other half of rf2-emvod. The roster above refuses on ABSENT
+// as well as on failed, which is right — a gate that passes when its evidence
+// is missing is the fail-open this lane keeps finding — and four of its
+// thirteen gates named verdicts `clock_run.cjs` COMPUTED, PRINTED and EXITED
+// ON and then did not store: `canonical`, `pageErrors`, `parityOk` and
+// `etVerdict`. So no dataset in the tree could be reportable on those axes,
+// and a measurement window would have produced correctly-unreportable
+// evidence.
+//
+// THE TWO CLAIMS THIS BLOCK MAKES, and they pull against each other, which is
+// the point:
+//
+//   1. A dataset the CURRENT serialiser writes satisfies every one of the
+//      thirteen gates. Without this the repair could be "the field is there
+//      somewhere" rather than "the consumer accepts it".
+//   2. Erase any one of those fields from that same freshly written record and
+//      its gate refuses again. Without this the repair could have been made by
+//      loosening the gate, which is the fail-open wearing the fix's clothes.
+//
+// Both are driven over `GATES` rather than over a hand-written list, so a gate
+// added to the roster with no producer field fails the first assertion instead
+// of shipping as a gate no dataset can satisfy — the exact fault this bead is.
+
+{
+  const { datasetFor, publication, PUBLISHED_DEPTH } = require('./clock_run.cjs');
+  const { GATES, refusals, reportable } = require('./clock_readjudicate.cjs');
+  const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
+  const t = (what, fn) => test(`clock_run.cjs -> clock_readjudicate.cjs: ${what}`, fn);
+
+  const ADJ = { unadjudicated: false, band: 0.21, why: 'margin 34.8% clears the band 21.4%' };
+  const BARS = { 'hicasso / reagent-subs': ADJ };
+
+  /**
+   * ONE OUTCOME AS `runRow` AND `report` HAND IT TO THE WRITE PATH, at every
+   * gate's passing value. Hermetic on purpose: reaching the real thing needs
+   * an `:advanced` build and a headless Chromium, and no measurement window is
+   * spent on a serialisation test.
+   */
+  const outcome = (outOver, verdictOver) => ({
+    out: {
+      rowId: 'bulk300',
+      rounds: [],
+      roundsTask: [],
+      roundsLayout: [],
+      inPageRounds: [],
+      granularity: [0.146],
+      decomposition: {
+        'reagent-subs/plumb': { n: 60, task: 36, taskNet: 12, devtools: 24, script: 0.06, layout: 5 },
+        'reagent-subs/floor': { n: 60, task: 360, taskNet: 280, devtools: 80, script: 0.06, layout: 40 },
+        'reagent-subs/reagent-subs': { n: 60, task: 600, taskNet: 280, devtools: 320, script: 0.06, layout: 60 },
+        'hicasso/hicasso': { n: 60, task: 780, taskNet: 320, devtools: 460, script: 0.06, layout: 70 },
+      },
+      // THE FOUR, at the producer's own internal names.
+      pageErrors: [],
+      armPlan: { 'ctl-3pt-2d': 200 },
+      sabotage: null,
+      sentKeys: null,
+      eventTiming: null,
+      census: null,
+      kbShape: null,
+      ...outOver,
+    },
+    verdict: {
+      seam: { band: 0.06, verdict: { ceilingBreached: false } },
+      seamTask: { band: 0.05, ceilingBreached: false, rows: BARS },
+      tally: { writes: 1008, unverified: 0 },
+      ctlVerdict: { ok: true },
+      ctl3: null,
+      ctl3Net: null,
+      ctl3Layout: null,
+      ctl3Parity: null,
+      constants: null,
+      guardVerdict: { refuse: false },
+      guardVerdictTask: { refuse: false },
+      parityOk: true,
+      bar: { 'hicasso / reagent-subs': { tared: { mean: 1.1 } } },
+      inPageBar: { 'hicasso / reagent-subs': { mean: 1.2 } },
+      barTask: { 'hicasso / reagent-subs': { mean: 1.3, min: 1.2, max: 1.4 } },
+      ctlTask: { ok: true, measured: { mean: 1.9 } },
+      bandTask: 0.05,
+      etVerdict: null,
+      kbVerdict: null,
+      ...verdictOver,
+    },
+  });
+
+  /** What the driver would write for a full-shape run of that outcome. */
+  const produce = (outOver, verdictOver) =>
+    datasetFor([outcome(outOver, verdictOver)], {
+      chromium: '147.0.0.0',
+      publication: publication({ depthPublished: true, tare: true }),
+    });
+
+  // --- 1. THE FOUR, BY NAME ------------------------------------------------
+
+  t('rf2-e87sk: the four verdicts no dataset could carry are in the record', () => {
+    const rec = produce();
+    assert.strictEqual(rec.canonical, true, 'the file must state whether it is the published evidence set');
+    assert.ok('notCanonicalWhy' in rec, 'and carry the reason seat even when there is no reason');
+    assert.deepStrictEqual(rec.rows[0].pageErrors, [], 'whether the page threw must be IN the file');
+    assert.strictEqual(rec.rows[0].parityOk, true, 'and whether the arms built the same page');
+    assert.ok('etVerdict' in rec.rows[0], 'and the Event-Timing verdict, `null` included — null is a verdict');
+  });
+
+  t('each of the four is COPIED off the verdict, never defaulted to a passing value', () => {
+    // A serialiser that wrote `pageErrors: []` unconditionally would satisfy
+    // the gate on a run that threw, which is the fail-open one layer down.
+    const rec = produce(
+      { pageErrors: ['TypeError: undefined is not a function'] },
+      { parityOk: false, etVerdict: { ok: false, predicted: 1, measured: 3 } }
+    );
+    assert.deepStrictEqual(rec.rows[0].pageErrors, ['TypeError: undefined is not a function']);
+    assert.strictEqual(rec.rows[0].parityOk, false);
+    assert.deepStrictEqual(rec.rows[0].etVerdict, { ok: false, predicted: 1, measured: 3 });
+    assert.strictEqual(reportable(rec.rows[0], rec), false, 'and a record carrying them is refused');
+    for (const want of [
+      /the page THREW during the run/,
+      /canonical-DOM gate found arms building DIFFERENT PAGES/,
+      /Event-Timing witness REFUSED/,
+    ]) {
+      assert.ok(refusals(rec.rows[0], rec).some((w) => want.test(w)), `no refusal matched ${want}`);
+    }
+  });
+
+  // --- 2. EVERY GATE, SATISFIED THEN ERASED --------------------------------
+  //
+  // The eraser is per gate rather than per field name because two gates read
+  // one object (`seamTask` carries both the task ceiling and the bar set), and
+  // a table keyed by field could not say which of them a deletion tests.
+
+  const ERASE = {
+    canonical: (rec) => delete rec.canonical,
+    'page-errors': (rec) => delete rec.rows[0].pageErrors,
+    'guard-net': (rec) => delete rec.rows[0].guardRefuse,
+    'guard-task': (rec) => delete rec.rows[0].guardRefuseTask,
+    'canonical-dom': (rec) => delete rec.rows[0].parityOk,
+    'ctl3-parity': (rec) => delete rec.rows[0].ctl3Parity,
+    'keystroke-witness': (rec) => delete rec.rows[0].kbWitness,
+    unverified: (rec) => delete rec.rows[0].tally,
+    'ceiling-net': (rec) => delete rec.rows[0].seam,
+    'ceiling-task': (rec) => delete rec.rows[0].seamTask.ceilingBreached,
+    control: (rec) => delete rec.rows[0].ctl3,
+    'event-timing': (rec) => delete rec.rows[0].etVerdict,
+    adjudication: (rec) => delete rec.rows[0].seamTask.rows,
+  };
+
+  t('every gate in the roster has a producer field — a gate no dataset can satisfy is this bead', () => {
+    assert.deepStrictEqual(GATES.map((g) => g.id), Object.keys(ERASE), 'GATES and the erasures must agree, in order');
+  });
+
+  t('THE WHOLE ROSTER IS SATISFIABLE by a freshly written dataset — all thirteen', () => {
+    const rec = produce();
+    assert.deepStrictEqual(refusals(rec.rows[0], rec), [], 'a full-shape clean run must clear every gate');
+    assert.strictEqual(reportable(rec.rows[0], rec), true);
+  });
+
+  for (const g of GATES) {
+    t(`gate \`${g.id}\`: the record SATISFIES it, and erasing the field REFUSES again`, () => {
+      const ask = (rec) => (g.scope === 'dataset' ? g.why(rec) : g.why(rec.rows[0]));
+      const green = produce();
+      assert.strictEqual(ask(green), null, `the serialiser must write what \`${g.id}\` reads`);
+
+      const red = produce();
+      ERASE[g.id](red);
+      const why = ask(red);
+      assert.ok(
+        typeof why === 'string' && why.length > 0,
+        `erasing \`${g.id}\`'s field must refuse — absent is not clean, and a fix that made it clean ` +
+          `would be the fail-open this gate exists to prevent`
+      );
+      assert.strictEqual(reportable(red.rows[0], red), false, 'and the run may not be pooled into the published mean');
+    });
+  }
+
+  // --- 3. AND THE PROGRAM A READER ACTUALLY RUNS ---------------------------
+
+  t('THE COMMAND accepts a freshly written dataset and pools it — end to end, on a file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-e87sk-'));
+    const f = path.join(dir, 'run1.json');
+    fs.writeFileSync(f, JSON.stringify(produce()));
+    const r = cp.spawnSync(process.execPath, [RJ, f], { encoding: 'utf8' });
+    fs.rmSync(dir, { recursive: true, force: true });
+    const out = `${r.stdout}${r.stderr}`;
+    assert.strictEqual(r.status, 0, out);
+    assert.match(out, /reportable subset 1\.3000x n=1/);
+    assert.match(out, /— reportable: every gate this dataset serialises is clean/);
+  });
+
+  // --- 4. THE SHAPE VERDICT ------------------------------------------------
+  //
+  // `publication` answers "is this file the published evidence set", and the
+  // one thing it must never do is answer yes by default. Every narrowing gets
+  // a case and each names itself, because a refusal without a reason is
+  // indistinguishable from a run that was selected away.
+
+  const full = { rowsOnly: null, noBuild: false, depthPublished: true, tare: true, sabotage: null };
+
+  t('a full-shape run IS canonical — the verdict is not vacuous', () => {
+    assert.deepStrictEqual(publication(full), { canonical: true, why: null });
+  });
+
+  t('the published depth is the design every table on this lane was taken at', () => {
+    assert.deepStrictEqual(PUBLISHED_DEPTH, { rounds: 6, warmup: 4, samples: 10 });
+  });
+
+  for (const [what, over, why] of [
+    ['a PARTIAL row set', { rowsOnly: 'keystroke' }, /a PARTIAL row set \(HCLOCK_ONLY=keystroke\)/],
+    ['--no-build', { noBuild: true }, /--no-build/],
+    ['an overridden depth', { depthPublished: false }, /an OVERRIDDEN design depth/],
+    ['the tare off', { tare: false }, /the tare DISABLED \(HCLOCK_TARE=off\)/],
+    ['a falsification run', { sabotage: 140 }, /a FALSIFICATION run \(HCLOCK_CTL3_SABOTAGE=140\)/],
+  ]) {
+    t(`${what} is NOT the published evidence set, and the file says why`, () => {
+      const p = publication({ ...full, ...over });
+      assert.strictEqual(p.canonical, false);
+      assert.match(p.why, why);
+      // and the consumer refuses it by that same sentence.
+      const rec = { ...produce(), canonical: p.canonical, notCanonicalWhy: p.why };
+      assert.strictEqual(reportable(rec.rows[0], rec), false);
+      assert.ok(refusals(rec.rows[0], rec).some((w) => /NOT the published evidence set/.test(w)));
+    });
+  }
+
+  t('an absent shape record is NOT canonical either — the producer fails closed too', () => {
+    assert.strictEqual(publication(undefined).canonical, false);
+    assert.match(publication({}).why, /an OVERRIDDEN design depth/);
+  });
+
+  t('every narrowing is named at once, not the first — the same rule the refusals follow', () => {
+    const p = publication({ rowsOnly: 'M1', noBuild: true, depthPublished: false, tare: false, sabotage: 140 });
+    assert.strictEqual(p.why.split('; ').length, 5, p.why);
+  });
+
+  // --- 5. THE WIRING, so none of the above is decorative -------------------
+
+  t('the driver writes what `datasetFor` returns, and derives the shape from its own knobs', () => {
+    const SRC = fs.readFileSync(path.join(__dirname, 'clock_run.cjs'), 'utf8');
+    const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
+    assert.match(MAIN, /const pub = publication\(runShape\(\)\);/);
+    assert.match(MAIN, /datasetFor\(outcomes, \{ chromium: version, publication: pub \}\)/);
+    // The serialiser lives OUTSIDE `main` — it names refusal fields, and
+    // inside `main` those names are both invariant-breaking and undrivable.
+    assert.ok(!/pageErrors: o\.out\.pageErrors/.test(MAIN), 'the serialiser must not have grown back inside `main`');
+    assert.match(SRC.slice(0, SRC.indexOf('async function main()')), /function datasetFor\(outcomes, meta\) \{/);
   });
 }
 
