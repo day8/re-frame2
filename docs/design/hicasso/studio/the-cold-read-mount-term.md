@@ -45,7 +45,9 @@ figure.
 plus the three chrome keys — every one a **single-source layer-1 sub**
 (`:input-kind :db`, no `:<-` chain, no shared parents).
 
-**The render half** (before, commit `cb41ee537b`; ms per 141-read pass, p50
+**The render half** (before, commit `cb41ee537b` — authored, and rebase-merged,
+so it resolves in no fresh clone; it landed on main as **`12e50c5b36`**, which
+recovers the measured read path in full (Provenance); ms per 141-read pass, p50
 over 60 samples; µs per read in brackets):
 
 | arm | what one pass is | p50 ms [min–max] | µs/read |
@@ -275,7 +277,9 @@ builds only.
 
 The instrument's `local` arm is deliberately the FROZEN pre-change path, so
 the re-run at the landed commit is a before/after in one process (commit
-`0c0ff21f0d`, exit 0, guard clean on every arm of both phases, control
+`0c0ff21f0d` — authored on the same rebase-merged branch as §1's, and it landed
+on main as **`aeab4bbd0d`**, which recovers the measured read path in full
+(Provenance); exit 0, guard clean on every arm of both phases, control
 predicted 1.100 measured 1.113 [0.987–1.825] PASS):
 
 | arm | ms per 141-read pass, p50 [min–max] | µs/read |
@@ -340,9 +344,12 @@ hash form with the reason stated at the assertion.
 
 ## 6. The clock of record — the re-take, and what page it measured
 
-**Before** (`rf2-y1jkm`, commit `8ccd9f4b41`, 2026-08-02T08:31Z, this box):
+**Before** (`rf2-y1jkm`, commit `8ccd9f4b41`, 2026-08-02T08:31Z, this box; the
+authored head resolves in no fresh clone, and its landed counterpart
+**`a3ffe8380e`** recovers the patch but **not this tree** — see Provenance):
 the last rows on the **pre-migration** page — hand-written anchors, no
-routing term. **After** (this run, commit `ac09504d74`, windows
+routing term. **After** (this run, commit `ac09504d74`, landed on main as
+**`fd01c070a7`**, windows
 2026-08-02T11:45:12Z – 11:49:12Z (`uix`) and – 11:54:01Z (`reagent`), exit
 `0`, both runs to completion, arm-order guard reportable on every row,
 quiet-box gate QUIET on attempt 1 or 2 everywhere): the first rows on the
@@ -446,6 +453,22 @@ the y1jkm row's blobs are exactly the two this page describes:
 | `…/arm1/lang.clj` · `…/lane.cljs` · `core …/substrate/spine.cljs` | `0151ddafb4…` · `0642815dc2…` · `ad7b19d9d8…` |
 
 Compact datasets: `implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-6c237/`.
+
+**The other commits this page pins.** Three of its runs were taken before the
+published one, at authored heads on branches this repo rebase-merged, so none
+of the three is in a fresh clone; each is accompanied below by the SHA a reader
+can actually check out. Every mapping holds three independent ways — same
+subject and author date, the commit's own contributed blobs identical, and
+identical `git patch-id --stable` — and each was separated from its neighbours
+on main, because a patch-id alone can match a commit's parent and once did
+(rf2-rguy1). Recovering the patch is not the same as recovering the tree, so
+the last column says which was recovered.
+
+| authored (the tree measured) | landed on main | what the landed SHA recovers |
+|---|---|---|
+| `cb41ee537b` — §1's two halves | `12e50c5b36` | the patch **and** the measured tree. Six sources differ across the pair; the only one the profiled build compiles at all is the controlled-input mechanism, whose whole delta there is a docstring. Everything this profile times is byte-identical |
+| `0c0ff21f0d` — §4's A/B, authored on the same branch | `aeab4bbd0d` | the same, across the same six-source gap |
+| `8ccd9f4b41` — §6's *before* rows (`rf2-y1jkm`'s) | `a3ffe8380e` | **the patch only.** The y1jkm branch was rebased over the rf2-2rtt6.54 migration on its way to main, so at `a3ffe8380e` the arm-1 runtime and the `card`, `model`, `ordinary` and `route_link` sources are already post-migration. The tree those rows were measured on is reachable from no ref — which is §5's finding from the other side, and exactly why they are labelled pre-migration |
 
 ## 7. How this composes with the pending memo wrapper (#7375)
 
