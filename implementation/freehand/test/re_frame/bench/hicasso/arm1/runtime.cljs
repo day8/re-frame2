@@ -2069,6 +2069,32 @@
   []
   (select-keys (stats) [:cells :cell-refs :boundaries :edges :entries]))
 
+(defn quiesced!
+  "A promise that resolves once every reaper armed before this call has
+  run — **the runtime's own settling point, and the only honest place to
+  take a [[residue]] BASELINE**.
+
+  One macrotask is not that point. [[entry-reap-horizon-ms]] is
+  deliberately outside a bare `setTimeout 0`, so a residue read one
+  macrotask after an unclaimed render still counts entries the runtime
+  is about to drop. A baseline taken there is a state the runtime never
+  returns to, and an instrument gating on residue EQUALITY against it
+  throws on the first arm whose row outlives the horizon — which is
+  exactly what rf2-981nt was: `read_profile_app`'s phase B baselined six
+  entries at ~0 ms and found five thereafter, every run, byte-identical.
+
+  Exported so a caller settles against the runtime's own horizon rather
+  than against a copy of it, because the copy is what drifted. Nothing
+  here becomes a contract: [[entry-reap-horizon-ms]] stays a margin no
+  caller may rely on, and this promise says only *wait for me*, never
+  *here is my number*."
+  []
+  (js/Promise.
+    (fn [resolve]
+      ;; Strictly past the horizon, so a timer armed here expires after
+      ;; every reaper armed before it — the cell reapers (0 ms) included.
+      (js/setTimeout (fn [] (resolve nil)) (inc entry-reap-horizon-ms)))))
+
 (defn reset-runtime!
   "Drop every cell, every edge, every cached entry and every frame bundle.
   The root-teardown and test-fixture door; disposing each cell releases
