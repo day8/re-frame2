@@ -25,6 +25,38 @@
 // result is the fault this whole lane is built to avoid, and an analysis
 // script is the easiest possible place to commit it silently.
 //
+// ## THE CONSUMER HALF OF THE TWO-TIER WRITE POLICY (`rf2-2rtt6.31`)
+//
+// The family's ruling of 2026-08-07 splits CAPTURE from PUBLICATION. Every
+// completed measurement is preserved; only a gate-passing run of the full
+// published shape is eligible published evidence, and a dataset says which it
+// is IN THE FILE — `canonical` and `notCanonicalWhy`, exactly as
+// `shapes/census_clock_run.cjs`'s `datasetFor` writes them. The ruling's
+// consumer clause is one sentence: **a missing `canonical` field is not a
+// pass.** A reader that inferred eligibility from the directory a file was
+// found in would be trusting the one thing a file loses when it is copied.
+//
+// This program is that consumer, and `rf2-emvod`'s merged-PR audit (#7365)
+// recorded it failing open in the other direction as well: the subset asked
+// only for `ctlTask.ok` and the two ceilings, so it PRINTED `guardRefuse`,
+// `guardRefuseTask`, the legacy-clock `ctlOk` and `tally.unverified` and then
+// pooled the run anyway. The driver writes its dataset BEFORE its own fatal
+// checks run, so a run that Chromium threw on, whose arms built different
+// pages, or whose arm-order guard refused, is a well-formed file that reached
+// the published mean. `GATES` below is that exit path, read back off the
+// serialised record, fail-closed at every seat: **absent is not clean.**
+//
+// THREE OF THE DRIVER'S FATAL CHECKS ARE NOT SERIALISED YET, and they are
+// named here rather than skipped, because skipping one is how this file came
+// to need repairing twice. `clock_run.cjs` computes `pageErrors`, `parityOk`
+// (the canonical-DOM gate) and `etVerdict` (Event Timing) and exits 1 on each,
+// but stores none of them, so no dataset in the tree today can satisfy this
+// filter — which is the correct fail-closed reading of an INCOMPLETE record
+// and not a defect in it. The producer half adopts the family policy when
+// `clock_run.cjs` is next touched (`rf2-2rtt6.31`, "record once, converge on
+// touch"); the field names below are its own internal names so that adoption
+// is one line per verdict.
+//
 // ## THE ADDITIVE RESIDUAL, and why it is computed here
 //
 // `ctl-2x` builds exactly twice the floor's page and reads 1.68-1.86x rather
@@ -106,26 +138,198 @@ function adjudicated(row) {
 }
 
 /**
- * MAY THIS RUN'S MAGNITUDE ON THIS ROW BE POOLED INTO THE REPORTABLE SUBSET?
+ * EVERY GATE A RUN MUST CLEAR BEFORE ITS MAGNITUDE MAY BE POOLED, in the order
+ * `clock_run.cjs` applies them, each read off the serialised record and each
+ * FAIL-CLOSED: a verdict that is missing, null or silent has not been passed,
+ * it has been lost.
  *
- * Its control held, its band stayed under the ceiling — the ceiling is a
- * whole-run refusal that fires before any control is consulted, so a run that
- * breached it contributes no magnitude even if its control passed — AND every
- * bar it published carries a band.
+ * Stated as data rather than as a boolean expression for two reasons. The
+ * refusal has to be NAMED — a run dropped from the subset without a reason is
+ * indistinguishable from a run that was selected away — and a roster can be
+ * quantified over, so `clock_exit_path.test.cjs` drives every gate rather than
+ * the handful someone remembered to write a case for.
+ *
+ * Each entry's `why` returns `null` for a pass and the refusal's own sentence
+ * otherwise. `scope` says what it is handed: the dataset envelope, or one row.
+ */
+const GATES = [
+  // --- the file's own two-tier verdict, before anything in it is read ------
+  {
+    id: 'canonical',
+    scope: 'dataset',
+    why: (d) =>
+      d.canonical === true
+        ? null
+        : d.notCanonicalWhy
+          ? `NOT the published evidence set — ${d.notCanonicalWhy}`
+          : 'the file carries no `canonical` verdict, so it has never been shown to be the published ' +
+            'evidence set — absent is not a pass (rf2-2rtt6.31)',
+  },
+  // --- the driver's fatal checks, in its own order -------------------------
+  {
+    id: 'page-errors',
+    scope: 'row',
+    why: (r) =>
+      !Array.isArray(r.pageErrors)
+        ? 'no `pageErrors` record — whether the page threw was not serialised'
+        : r.pageErrors.length
+          ? `the page THREW during the run: ${r.pageErrors.join(' | ')}`
+          : null,
+  },
+  {
+    id: 'guard-net',
+    scope: 'row',
+    why: (r) =>
+      r.guardRefuse === false
+        ? null
+        : r.guardRefuse === true
+          ? 'the arm-order guard REFUSED this row on taskNet'
+          : 'no arm-order guard verdict on taskNet',
+  },
+  {
+    id: 'guard-task',
+    scope: 'row',
+    why: (r) =>
+      r.guardRefuseTask === false
+        ? null
+        : r.guardRefuseTask === true
+          ? 'the arm-order guard REFUSED this row on the published clock'
+          : 'no arm-order guard verdict on the published clock',
+  },
+  {
+    id: 'canonical-dom',
+    scope: 'row',
+    why: (r) =>
+      r.parityOk === true
+        ? null
+        : r.parityOk === false
+          ? 'the canonical-DOM gate found arms building DIFFERENT PAGES — a ratio between two pages is not a ratio'
+          : 'no canonical-DOM verdict was serialised',
+  },
+  {
+    id: 'ctl3-parity',
+    scope: 'row',
+    why: (r) =>
+      !('ctl3Parity' in r)
+        ? "no three-point-control parity record — whether the control's own arms agreed was not serialised"
+        : r.ctl3Parity === null || r.ctl3Parity.ok === true
+          ? null
+          : "the three-point control's own arms built DIFFERENT PAGES",
+  },
+  {
+    id: 'keystroke-witness',
+    scope: 'row',
+    why: (r) =>
+      !('kbWitness' in r)
+        ? "no per-keystroke witness record — whether the row's n counts anything was not serialised"
+        : r.kbWitness === null || r.kbWitness.ok === true
+          ? null
+          : 'the per-keystroke witness REFUSED — its accounting does not close',
+  },
+  {
+    id: 'unverified',
+    scope: 'row',
+    why: (r) =>
+      !r.tally || !Number.isFinite(r.tally.unverified)
+        ? 'no write-verification tally'
+        : r.tally.unverified > 0
+          ? `${r.tally.unverified} unverified operation(s) of ${r.tally.writes} — a window whose value never reached the page`
+          : null,
+  },
+  // THE CEILINGS FIRE BEFORE ANY CONTROL IS CONSULTED, and this file refuses
+  // on BOTH while the driver (rf2-ymi6j) refuses only on the published clock's
+  // and reports the frame-only one. The asymmetry is deliberate and it is the
+  // safe direction: a consumer stricter than its producer can withhold a
+  // magnitude the driver would have allowed, never publish one it refused.
+  {
+    id: 'ceiling-net',
+    scope: 'row',
+    why: (r) =>
+      !r.seam || !r.seam.verdict || typeof r.seam.verdict.ceilingBreached !== 'boolean'
+        ? 'no frame-only band verdict'
+        : r.seam.verdict.ceilingBreached
+          ? "the run's own frame-only reproducibility band exceeds the ceiling"
+          : null,
+  },
+  {
+    id: 'ceiling-task',
+    scope: 'row',
+    why: (r) =>
+      !r.seamTask || typeof r.seamTask.ceilingBreached !== 'boolean'
+        ? 'no published-clock band verdict'
+        : r.seamTask.ceilingBreached
+          ? "the run's own reproducibility band exceeds the ceiling on the published clock"
+          : null,
+  },
+  // THE CONTROL, MIRRORING `ctlBad` RATHER THAN RE-DECIDING IT. A row that has
+  // a three-point control is gated on it and `ctl-2x` is a reported diagnostic
+  // (rf2-7iqb5, rf2-5xrcd); a row that has none — `M1`, `keystroke` — is gated
+  // on `ctl-2x`, and on BOTH clocks, because the row is stated on one of them
+  // and was adjudicated on the other.
+  {
+    id: 'control',
+    scope: 'row',
+    why: (r) => {
+      if (!('ctl3' in r)) return 'no three-point-control record — which control gates this row was not serialised';
+      if (r.ctl3) return r.ctl3.ok === true ? null : 'the THREE-POINT control FAILED';
+      if (r.ctlOk !== true) return r.ctlOk === false ? 'ctl-2x FAILED on taskNet' : 'no ctl-2x verdict on taskNet';
+      return r.ctlTask && r.ctlTask.ok === true
+        ? null
+        : r.ctlTask
+          ? 'ctl-2x FAILED on the published clock'
+          : 'no ctl-2x verdict on the published clock';
+    },
+  },
+  {
+    id: 'event-timing',
+    scope: 'row',
+    why: (r) =>
+      !('etVerdict' in r)
+        ? 'no Event-Timing verdict was serialised'
+        : r.etVerdict === null || r.etVerdict.ok === true
+          ? null
+          : 'the Event-Timing witness REFUSED',
+  },
+  {
+    id: 'adjudication',
+    scope: 'row',
+    why: (r) => (adjudicated(r) ? null : 'a bar this run published carries no adjudication verdict'),
+  },
+];
+
+/**
+ * WHY THIS RUN MAY NOT BE POOLED — every reason, never the first one.
+ *
+ * All of them, because a reader deciding whether to re-take a run needs to know
+ * that four gates failed rather than that one did, and because a filter that
+ * short-circuits reports the cheapest fault rather than the interesting one.
  *
  * This selects nothing away from the TABLE. Every dataset handed to this
- * program appears in the per-run table whatever this returns; the subset is
- * printed beside the whole ensemble and never instead of it.
+ * program appears in the per-run listing whatever this returns, with these
+ * reasons printed beside it; the subset is shown beside the whole ensemble and
+ * never instead of it.
  */
-function reportable(row) {
-  return !!(
-    row &&
-    row.ctlTask &&
-    row.ctlTask.ok &&
-    !(row.seam && row.seam.verdict && row.seam.verdict.ceilingBreached) &&
-    !(row.seamTask && row.seamTask.ceilingBreached) &&
-    adjudicated(row)
-  );
+function refusals(row, dataset) {
+  const d = dataset || {};
+  const r = row || null;
+  const why = [];
+  for (const g of GATES) {
+    if (g.scope === 'dataset') {
+      const w = g.why(d);
+      if (w) why.push(w);
+    } else if (!r) {
+      why.push(`no row to read \`${g.id}\` from`);
+    } else {
+      const w = g.why(r);
+      if (w) why.push(w);
+    }
+  }
+  return why;
+}
+
+/** MAY THIS RUN'S MAGNITUDE ON THIS ROW BE POOLED INTO THE REPORTABLE SUBSET? */
+function reportable(row, dataset) {
+  return refusals(row, dataset).length === 0;
 }
 
 /**
@@ -230,9 +434,22 @@ function main(argv) {
     );
   }
 
+  // THE FILE'S OWN VERDICT, ANNOUNCED BEFORE ANY TABLE. A dataset that does
+  // not say it is the published evidence set is still read, still tabled and
+  // still printed in full — capture is preserved — but it may not contribute a
+  // magnitude, and the reader is told that at the top rather than left to
+  // notice an empty subset at the bottom.
+  const ineligible = datasets.filter(({ data }) => !!GATES[0].why(data));
+  if (ineligible.length) {
+    console.log('');
+    console.log(';; !! NOT ELIGIBLE PUBLISHED EVIDENCE — every table below is printed, and none of it');
+    console.log(';; !! may be quoted as a magnitude. This program exits nonzero for that reason.');
+    for (const { file, data } of ineligible) console.log(`;; !!   ${file}: ${GATES[0].why(data)}`);
+  }
+
   for (const rowId of rowIds) {
     const runs = datasets
-      .map(({ file, data }) => ({ file, row: data.rows.find((r) => r.rowId === rowId) }))
+      .map(({ file, data }) => ({ file, data, row: data.rows.find((r) => r.rowId === rowId) }))
       .filter((x) => x.row);
     if (runs.length === 0) continue;
 
@@ -259,6 +476,20 @@ function main(argv) {
       );
     }
 
+    // --- WHY EACH REFUSED RUN IS REFUSED --------------------------------------
+    //
+    // The audit's own term: reject an incomplete or failed dataset in the
+    // reportable ACCOUNTING while still displaying it in the full ensemble.
+    // Every reason, named, per run — so a run that leaves the subset leaves it
+    // for a stated cause and can be told from one that was selected away.
+    console.log(';; run    REFUSED FROM THE REPORTABLE SUBSET (and retained in every table here)');
+    for (const { file, data, row } of runs) {
+      const why = refusals(row, data);
+      console.log(
+        `;;  ${shortName(file).padEnd(6)} ${why.length ? why.join('; ') : '— reportable: every gate this dataset serialises is clean'}`
+      );
+    }
+
     // --- the three clocks, per pair -------------------------------------------
     for (const pair of PAIRS) {
       const inPage = runs.map(({ row }) => (row.inPageBar && row.inPageBar[pair] ? row.inPageBar[pair].mean : NaN));
@@ -271,7 +502,7 @@ function main(argv) {
       // test. rf2-y7mw7's third term landed here wrong, and it took a merged-PR
       // audit rather than a gate to find it, precisely because nothing could
       // reach it.
-      const passIdx = runs.map(({ row }, i) => (reportable(row) ? i : -1)).filter((i) => i >= 0);
+      const passIdx = runs.map(({ row, data }, i) => (reportable(row, data) ? i : -1)).filter((i) => i >= 0);
       const taskPass = passIdx.map((i) => task[i]);
 
       const e = ens(task);
@@ -282,8 +513,8 @@ function main(argv) {
       console.log(
         `;;     raw TaskDuration (PUBLISHED)  ${fmt(e.mean)}x  [${fmt(e.min)} – ${fmt(e.max)}]  n=${e.n}` +
           (taskPass.length
-            ? `   control-passing subset ${fmt(ens(taskPass).mean)}x n=${taskPass.length}`
-            : '   control-passing subset: NONE')
+            ? `   reportable subset ${fmt(ens(taskPass).mean)}x n=${taskPass.length}`
+            : '   reportable subset: NONE')
       );
       console.log(`;;     taskNet (frame-only, superseded) ${fmt(en.mean)}x  [${fmt(en.min)} – ${fmt(en.max)}]`);
       console.log(`;;     in-page performance.now()        ${fmt(ei.mean)}x  [${fmt(ei.min)} – ${fmt(ei.max)}]`);
@@ -519,6 +750,20 @@ function main(argv) {
     );
   }
 
+  // FAIL-CLOSED, AND THE EXIT CODE IS WHERE THAT LANDS. `rf2-cvvb7`'s recorded
+  // gap was a study nobody could recompute; the repair is not just that a
+  // program exists but that running it over evidence it may not publish from
+  // says so in the one place a script can be believed. Everything is printed
+  // either way — a refusal is about what may be QUOTED, never about throwing a
+  // measurement away (`rf2-2rtt6.31`).
+  if (ineligible.length) {
+    console.log('');
+    console.log(
+      `;; EXIT 3 — ${ineligible.length} of ${datasets.length} dataset(s) are not eligible published evidence. ` +
+        'No reportable subset above was drawn from them, and no figure here may be quoted as a magnitude.'
+    );
+    return 3;
+  }
   return 0;
 }
 
@@ -527,7 +772,7 @@ function shortName(f) {
   return m ? m[1] : f;
 }
 
-module.exports = { adjudicated, reportable, responsivenessRegime };
+module.exports = { GATES, adjudicated, refusals, reportable, responsivenessRegime };
 
 // Requiring this file must not run it: `clock_exit_path.test.cjs` drives the
 // two predicates above directly, which it cannot do if the module body reads
