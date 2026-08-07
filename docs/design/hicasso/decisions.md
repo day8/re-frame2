@@ -1168,20 +1168,22 @@ candidate second call site appears. The composition value path reopens on
 > on an accepting field a post-bump dispatch supersedes it by ordinary event
 > order.
 >
-> **Hydration: the design's mid-adoption claim was WRONG, and the
-> pre-committed fallback is what ships.** The design asserted, with no source
-> cite, that a revision arriving mid-adoption lands on the first post-adoption
-> commit *on the server's node*; the adversarial pass demoted it to
-> witness-gated intent precisely because the failure mode was node loss. The
-> witness reds: React **discards** the server's node when a client render
-> arrives before adoption completes. The control arm is what makes this a
-> finding about adoption rather than about this prop — an identical
-> mid-adoption render carrying an *unchanged* revision loses the node the same
-> way, so the revision neither causes the deopt nor escapes it. Documented
-> conduct is therefore the fallback: **a reset arriving mid-adoption defers
-> past adoption**, the same shape the IME carve-out has. Once adoption is
-> complete a bump keeps the node and lands the reset, which is the case the
-> shipped feature rests on and is witnessed green.
+> **Hydration: the design's mid-adoption claim is not this prop's to make, and
+> the pre-committed fallback is what ships.** The design asserted, with no
+> source cite, that a revision arriving mid-adoption lands on the first
+> post-adoption commit *on the server's node*; the adversarial pass demoted it
+> to witness-gated intent precisely because the failure mode was node loss.
+> Adjudicated: the revision is **consumed at the codec before emission**, so
+> React is handed a prop-identical element whether it moved or not — same
+> slots, same values, same element type — and nothing on React's side,
+> adoption included, can branch on a value it was never given. Two hand-rolled
+> `hydrateRoot` arms disagreed about node identity in opposite directions on
+> consecutive runs, which is React's own adoption race and not this prop's
+> doing. Documented conduct is therefore the fallback: **a reset arriving
+> mid-adoption defers past adoption**, the same shape the IME carve-out has.
+> The structural fact that makes that safe to document is witnessed;
+> `rf2-ne3ey` owns the adoption-TIMING row, on the `.84` hydration harness
+> rather than on a hand-rolled race.
 >
 > **Reopens** if the per-commit re-assert stops holding — the witness file
 > `front/revision_dom_cljs_test` pins it as a design-validation row and a red

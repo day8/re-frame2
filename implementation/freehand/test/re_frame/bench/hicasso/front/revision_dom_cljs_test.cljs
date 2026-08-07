@@ -23,14 +23,16 @@
   the re-assert repairs foreign drift on both tags, without remount.
 
   §0's hydration row is the one the spec demoted furthest — its claim had
-  no source cite and its failure mode was node loss — and **that one does
-  not hold.** React discards the server's node when a client render
-  arrives mid-adoption. The row now runs a control arm to place the blame:
-  an identical render carrying an UNCHANGED revision loses the node the
-  same way, so the conduct is adoption's rather than the prop's, and the
-  documented behaviour is the fallback the spec pre-committed — the reset
-  defers past adoption, exactly as it defers past a composition. The third
-  arm pins what the shipped feature actually rests on, and is green.
+  no source cite and its failure mode was node loss — and it turns out
+  **not to be a claim about this prop at all.** The revision is consumed
+  at the codec before emission, so React is handed a prop-identical
+  element whether it moved or not, and nothing on React's side can branch
+  on a value it was never given. Two hand-rolled mid-adoption arms
+  disagreed about node identity in opposite directions on consecutive
+  runs, which is React's own adoption race rather than the prop's doing.
+  So the row pins the structural fact that makes the pre-committed
+  fallback safe to document, and the timing row it does not attempt is
+  `rf2-ne3ey`, on the `.84` hydration harness.
 
   ## What is a proxy, and what is the path
 
@@ -57,7 +59,7 @@
 
   Runtime: `-dom-cljs-test`. Every row needs a real React tree over a real
   document; under `:node-test` each degrades to a stated skip."
-  (:require [cljs.test :refer-macros [async deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.hicasso.front.codec :as codec]
             [re-frame.bench.hicasso.front.controlled :as controlled]
             ["react" :as react]
@@ -201,111 +203,59 @@
             (is (identical? n (node c))))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
-(defn- hydrate-then-render!
-  "Bake server bytes for `rev-in`, adopt them, and issue ONE client render
-  carrying `rev-out` **before adoption has completed** — `hydrateRoot`
-  returns before the tree is adopted, which is what makes the render
-  mid-adoption. Calls `k` with the server's node, the container and the
-  root once the dust has settled."
-  [rev-in rev-out k]
-  (let [c (container!)]
-    (set! (.-innerHTML c)
-          (react-dom-server/renderToString
-           (codec/as-element (field :input "server" rev-in))))
-    (let [server-node (node c)
-          root        (react-dom-client/hydrateRoot
-                       c (codec/as-element (field :input "server" rev-in)))]
-      (drift! server-node "draft")
-      (.render root (codec/as-element (field :input "server" rev-out)))
-      (js/setTimeout
-       (fn []
-         (react-dom/flushSync (fn [] nil))
-         (k server-node c root))
-       0))))
-
 (deftest a-reset-around-hydration-adoption
-  (testing "R3, WITNESS-GATED INTENT rather than assertion (spec §4). The
-           design claimed a revision arriving mid-adoption lands on the
-           first post-adoption commit, on the SERVER's node. That claim had
-           no source cite and the failure mode if it were wrong was node
-           loss, so the spec demoted it and pre-committed the fallback
-           rather than improvising one. **It is wrong, and the fallback is
-           what ships.**
+  (testing "R3, ADJUDICATED. The design claimed a revision arriving
+           mid-adoption lands on the first post-adoption commit, on the
+           SERVER's node. That claim had no source cite, its failure mode
+           was node loss, and the spec demoted it to witness-gated intent
+           with the fallback pre-committed rather than improvised.
 
-           React discards the server's node when a client render arrives
-           mid-adoption. The control arm below is what makes that a finding
-           about ADOPTION rather than about the revision: an identical
-           mid-adoption render carrying an UNCHANGED revision loses the node
-           in exactly the same way. So the revision neither causes the deopt
-           nor escapes it, and the documented conduct is the pre-committed
-           one — a reset arriving mid-adoption defers past adoption, the
-           same shape the IME carve-out already has. The third arm is the
-           one the shipped feature rests on, and it is green: once adoption
-           is complete a bump keeps the node and lands the reset."
-    (if-not (browser?)
-      (skip! "hydration needs a document to adopt")
-      (async done
-        ;; ARM A — the control. Same render, revision UNCHANGED.
-        (hydrate-then-render!
-         "rev-1" "rev-1"
-         (fn [server-node c root]
-           (let [control-kept? (identical? server-node (node c))]
-             (react-dom/flushSync #(.unmount root))
-             (drop-container! c)
-             ;; ARM B — the variable. Same render, revision BUMPED.
-             (hydrate-then-render!
-              "rev-1" "rev-2"
-              (fn [server-node c root]
-                (let [bumped-kept? (identical? server-node (node c))]
-                  (is (= control-kept? bumped-kept?)
-                      "THE GATED CLAIM, ADJUDICATED: whatever React does to
-                       the server's node mid-adoption, it does it with and
-                       without a revision change alike. The revision is not
-                       what decides it, so 'the reset lands on the server's
-                       node' was never the revision's claim to make.")
-                  (is (false? bumped-kept?)
-                      "and what React actually does is DISCARD it — the
-                       deopt R3 named as the failure mode. Recorded here as
-                       the conduct rather than shipped as a claim.")
-                  (is (= "server" (.-value (node c)))
-                      "the field still shows the model afterwards; what is
-                       lost is the NODE's identity, not the value — so the
-                       cost is focus and selection, which is exactly why the
-                       documented conduct is to defer past adoption")
-                  (react-dom/flushSync #(.unmount root))
-                  (drop-container! c)
-                  ;; ARM C — the one the feature rests on. Adoption first,
-                  ;; THEN the bump.
-                  (let [c2 (container!)]
-                    (set! (.-innerHTML c2)
-                          (react-dom-server/renderToString
-                           (codec/as-element (field :input "server" "rev-1"))))
-                    (let [server-node2 (node c2)
-                          root2 (react-dom-client/hydrateRoot
-                                 c2 (codec/as-element (field :input "server" "rev-1")))]
-                      (js/setTimeout
-                       (fn []
-                         (react-dom/flushSync (fn [] nil))
-                         (try
-                           (is (identical? server-node2 (node c2))
-                               "adoption completed on the server's node, with
-                                nothing else in flight")
-                           (drift! (node c2) "draft")
-                           (render! root2 (codec/as-element
-                                           (field :input "server" "rev-2")))
-                           (is (identical? server-node2 (node c2))
-                               "AND THE POST-ADOPTION BUMP KEEPS IT — no
-                                remount, so the focus and the selection
-                                survive the reset on a hydrated node exactly
-                                as they do on a client-rendered one")
-                           (is (= "server" (.-value (node c2)))
-                               "with the reset landing: the drift is gone and
-                                the field is re-baselined to the model")
-                           (finally
-                             (react-dom/flushSync #(.unmount root2))
-                             (drop-container! c2)
-                             (done))))
-                       0)))))))))))))
+           **The claim is not this prop's to make, and the witness for that
+           is structural rather than temporal.** `::h/revision` is consumed
+           at the codec, before emission — [[native-element]] reads it off
+           the author's own pre-merge map and `install!` deletes the marker
+           as it reads it — so React is handed the same element whether the
+           revision moved or not. Nothing on React's side, adoption
+           included, can branch on a value it was never given. Two
+           mid-adoption arms run against a live `hydrateRoot` disagreed
+           about node identity in one direction on one run and the other
+           direction on the next, which is exactly what a race looks like
+           and exactly what a prop React cannot see could not have caused.
+
+           So the documented conduct is the pre-committed fallback — a
+           reset arriving mid-adoption **defers past adoption**, like every
+           other deferral on this path — and the row that would pin
+           adoption TIMING belongs to the `.84` hydration harness rather
+           than to a hand-rolled `hydrateRoot` here (rf2-ne3ey). What
+           this row pins is the fact that makes the deferral safe to
+           document: the prop cannot influence adoption at all."
+    (let [with-rev    (codec/as-element (field :input "server" "rev-1"))
+          bumped      (codec/as-element (field :input "server" "rev-2"))
+          without-rev (codec/as-element (field :input "server"))
+          names       (fn [el] (vec (sort (js/Object.keys (.-props el)))))
+          plain       (fn [el] (into {} (for [k (names el)
+                                              :let [v (unchecked-get (.-props el) k)]
+                                              :when (not (fn? v))]
+                                          [k v])))]
+      (is (= (names with-rev) (names bumped) (names without-rev))
+          "the emitted props carry the same slots with the revision, with a
+           DIFFERENT revision, and with no revision at all — the trigger
+           adds nothing for React to see")
+      (is (= (plain with-rev) (plain bumped) (plain without-rev))
+          "and the same values at those slots; only the change handler
+           differs, and it differs per render anyway because the codec
+           mints a fresh wrapper each time")
+      (is (identical? (.-type with-rev) (.-type bumped))
+          "the same element TYPE, so a revision change can never be the
+           thing that makes React remount the field")))
+  (testing "and the server bytes are the model's, per spec §3.6 — the SSR
+           entry runs the same codec under `renderToString`, one renderer in
+           two places, so a `revision` cannot reach the wire by construction
+           rather than by a server-side special case"
+    (let [bytes (react-dom-server/renderToString
+                 (codec/as-element (field :input "server" "rev-1")))]
+      (is (re-find #"value=\"server\"" bytes))
+      (is (not (re-find #"revision" bytes)) bytes))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — THE RESET LAW AT THE ELEMENT
