@@ -308,8 +308,35 @@ function summarise(xs) {
   return { n: v.length, min: v[0], p50: p50(v), max: v[v.length - 1] };
 }
 
+/**
+ * A BAND CARRIES ITS MEDIAN AS WELL AS ITS MEAN, and for a RATIO the median is
+ * the one to read (rf2-8bgqq). A sample mean summarises a quantity whose tail
+ * is thin. The three-point control's statistic is a quotient whose denominator
+ * `T(d1) - T(d0)` is measured at 1.249 ms against a block-to-block dispersion
+ * of 0.599 ms — 2.09 sigma from zero — so 2.5% of blocks land with
+ * `|den| < 0.2 ms` and the ratio is heavy-tailed by construction. Over 18
+ * blocks ONE such block moved a run's headline from ~1.6x to 86x, and that is
+ * not a rounding complaint: rf2-8a746's ensembles were read as DISAGREEING
+ * about the shape of the same experiment when at block level they agree to
+ * within 2% on every structural quantity (statistic p50 1.52-1.62, in-band
+ * 42-49%, den p50 1.19-1.29 ms). The medians were 1.569 and 1.575.
+ *
+ * Both are kept and both are printed. The mean is not wrong about the sample,
+ * it is simply not a summary of this one, and a reader shown only the median
+ * could not see the tail that the pair together makes obvious.
+ *
+ * NOTHING HERE IS A VERDICT. `p50` is an added field on a summary object; no
+ * gate, band, slack, sign check or prediction reads it — `controlVerdict`'s
+ * `ok` is `perRound.every(...)` over the RAW per-block ratios and is untouched
+ * by how they are later described.
+ */
 function band(xs) {
-  return { mean: r4(xs.reduce((a, b) => a + b, 0) / xs.length), min: r4(Math.min(...xs)), max: r4(Math.max(...xs)) };
+  return {
+    mean: r4(xs.reduce((a, b) => a + b, 0) / xs.length),
+    p50: r4(p50(xs)),
+    min: r4(Math.min(...xs)),
+    max: r4(Math.max(...xs)),
+  };
 }
 
 /**
@@ -833,6 +860,53 @@ function ctl3SelfTest() {
       sup.sign.ok && !sup.ok &&
       sab.sign.ok && !sab.ok &&
       !noBlocks.ok && noBlocks.sign.of === 0,
+  });
+
+  // 10. THE SUMMARY MAY NOT LAUNDER A REFUSAL (rf2-8bgqq). The run figure is
+  //     now the block MEDIAN, because a mean over a quotient whose denominator
+  //     sits ~2 sigma from zero is a summary of whichever block came nearest —
+  //     rf2-8a746's two ensembles were read as DISAGREEING at 1.6045x and
+  //     86.05x when their block medians were 1.569 and 1.575.
+  //
+  //     A more robust HEADLINE is worth nothing if it is also a softer GATE,
+  //     and the failure mode is specific enough to name: a median is exactly
+  //     the statistic that shrugs off the one wild block, so wiring it into
+  //     the verdict would turn "one block out of band" into a pass. This
+  //     fixture is that run — eight clean blocks and one whose denominator has
+  //     collapsed to 0.02 ms — and it is built so the median lands DEAD ON the
+  //     prediction, inside the band, while the run must still REFUSE.
+  //
+  //     It also pins the route: this run is refused by the BAND, with its sign
+  //     check clean, because both differences are positive. A near-zero
+  //     denominator is not a sign defect — it is a real reading of a signal
+  //     that has gone into the noise, which is precisely why the ratio needed
+  //     its denominator printed in milliseconds beside it.
+  const heavy = ctl3Verdict(
+    synth((d, r, i) => (r === 0 && i === 0 ? { 1: 5.0, 100: 5.02, 200: 7.0 }[d] || 5.0 : A * d + C)),
+    plan,
+    CONTROL_SLACK
+  );
+  checks.push({
+    name: 'ONE near-zero-denominator block still REFUSES the run, though the MEDIAN lands dead on the prediction',
+    ok:
+      // the run refuses — this is the whole point of the fixture
+      !heavy.ok &&
+      // and it refuses on the BAND, not swept up by the sign gate: every
+      // difference here is a finite positive reading
+      heavy.sign.ok && heavy.sign.bad === 0 &&
+      // the median is the prediction, to the last place `band` can carry,
+      // and sits INSIDE the band — so a verdict reading it would have passed
+      exact(heavy.measured.p50) &&
+      heavy.measured.p50 >= heavy.band[0] && heavy.measured.p50 <= heavy.band[1] &&
+      // while the mean it replaced is off by a factor of six, from one block
+      heavy.measured.mean > 10 &&
+      // the denominator is what moved, and the summary now says so: its
+      // median is the healthy 0.594 ms, its minimum the collapsed one
+      Math.abs(heavy.signal.denMs.p50 - r4(A * 99 * 1000) / 1000) < 5e-4 &&
+      heavy.signal.denMs.min < 0.05 &&
+      // and on a HEALTHY world the median is the mean, so this change is
+      // invisible to every run that was not heavy-tailed to begin with
+      exact(lin.measured.p50) && lin.measured.p50 === lin.measured.mean,
   });
 
   return { checks };
@@ -1828,7 +1902,7 @@ function report(out) {
     if (ctl3Layout) {
       console.log(
         `;;   MECHANISM the same statistic on LayoutDuration alone: ${ctl3Layout.ok ? 'PASS' : 'FAIL'} ` +
-          `${ctl3Layout.measured.mean.toFixed(4)}x [${ctl3Layout.measured.min.toFixed(4)} – ` +
+          `${ctl3Layout.measured.p50.toFixed(4)}x median [${ctl3Layout.measured.min.toFixed(4)} – ` +
           `${ctl3Layout.measured.max.toFixed(4)}], marginal ${ctl3Layout.marginal.lower.mean.toFixed(3)} then ` +
           `${ctl3Layout.marginal.upper.mean.toFixed(3)} µs per dirty cell — a ` +
           `${margGap(ctl3Layout.marginal).toFixed(1)}% disagreement against ${margGap(m).toFixed(1)}% on task`
@@ -1861,16 +1935,34 @@ function report(out) {
           `a necessary condition, never a sufficient one.`
       );
     }
+    // THE RUN FIGURE IS THE MEDIAN, and the denominator stands beside it
+    // (rf2-8bgqq). The verdict on this line is unchanged — it is
+    // `ctl3.ok`, every block against the band plus every sign — and only the
+    // NUMBER describing the run has moved. It had to: a mean over 18 blocks of
+    // a quotient this close to a zero denominator is a summary of whichever
+    // block came nearest, and it reported two ensembles of the same experiment
+    // as 1.6045x and 86.05x when their block medians were 1.569 and 1.575.
+    // The mean is still printed, one line down, where it can be read as the
+    // tail-detector it actually is rather than as the headline.
     console.log(
-      `;;   ${ctl3.ok ? 'PASS' : 'FAIL'}     measured ${ctl3.measured.mean.toFixed(4)}x ` +
-        `[${ctl3.measured.min.toFixed(4)} – ${ctl3.measured.max.toFixed(4)}] against band ` +
-        `[${ctl3.band[0]} – ${ctl3.band[1]}] over ${ctl3.perRound.length} blocks (${ctl3.rule})`
+      `;;   ${ctl3.ok ? 'PASS' : 'FAIL'}     measured ${ctl3.measured.p50.toFixed(4)}x MEDIAN of ` +
+        `${ctl3.perRound.length} blocks [${ctl3.measured.min.toFixed(4)} – ${ctl3.measured.max.toFixed(4)}] ` +
+        `against band [${ctl3.band[0]} – ${ctl3.band[1]}] (${ctl3.rule}), on a denominator of ` +
+        `${ctl3.signal.denMs.p50.toFixed(4)} ms [${ctl3.signal.denMs.min.toFixed(4)} – ` +
+        `${ctl3.signal.denMs.max.toFixed(4)}]`
+    );
+    console.log(
+      `;;            the block MEAN is ${ctl3.measured.mean.toFixed(4)}x and is NOT the run figure: this ` +
+        `statistic is a quotient whose denominator sits ~2 sigma from zero, so one near-zero block moves a ` +
+        `mean by a factor of fifty and moves the median not at all. A mean far from the median above is a ` +
+        `reading about the DENOMINATOR, not about the page. Neither number decides anything — the verdict ` +
+        `is the strict per-block rule, and it is stated on the line above.`
     );
     console.log(`;;   per-block ${ctl3.perRound.join(', ')}`);
     if (ctl3Net) {
       console.log(
         `;;   the same statistic on the superseded taskNet clock: ${ctl3Net.ok ? 'PASS' : 'FAIL'} ` +
-          `${ctl3Net.measured.mean.toFixed(4)}x — reported as a diagnostic, never as the verdict`
+          `${ctl3Net.measured.p50.toFixed(4)}x median — reported as a diagnostic, never as the verdict`
       );
     }
     // SIDE BY SIDE with the control it replaces, on the SAME samples. The
@@ -2963,7 +3055,7 @@ async function main() {
   for (const o of demoted) {
     console.error(
       `[clock] ${o.out.rowId}: ctl-2x FAILED at ${o.verdict.ctlTask ? o.verdict.ctlTask.measured.mean : '?'}x and the ` +
-        `THREE-POINT control PASSED at ${o.verdict.ctl3.measured.mean.toFixed(4)}x on the same samples. ` +
+        `THREE-POINT control PASSED at ${o.verdict.ctl3.measured.p50.toFixed(4)}x median on the same samples. ` +
         `The row is gated on the three-point control. c(2x) = ` +
         `${o.verdict.constants ? o.verdict.constants.c2x.mean.toFixed(4) : '?'} ms is the reported reason they differ.`
     );
@@ -2984,8 +3076,13 @@ async function main() {
         // one on the strength of its own numbers.
         regime: rowRegime(o.out.rowId),
         ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
+        // THE PARENTHETICAL A REFUSAL CARRIES, and therefore the one sentence
+        // most likely to be quoted out of the log — so it reports the MEDIAN
+        // and names its denominator in milliseconds (rf2-8bgqq). It describes
+        // the refusal; `ctlOk` above decides it, from `ctl3.ok`.
         ctlNote: o.verdict.ctl3
-          ? ` (three-point ${o.verdict.ctl3.measured.mean.toFixed(4)}x vs ${o.verdict.ctl3.predicted}x)`
+          ? ` (three-point ${o.verdict.ctl3.measured.p50.toFixed(4)}x median vs ` +
+            `${o.verdict.ctl3.predicted}x, on a ${o.verdict.ctl3.signal.denMs.p50.toFixed(4)} ms denominator)`
           : '',
         // THE BAR-LEVEL RULE HAS ONE SEAT TOO (`rowAdjudication`, above), for
         // the reason the run-level one does: a rule written out here is a rule
@@ -3006,6 +3103,11 @@ module.exports = {
   rowRegime,
   ROW_REGIME,
   reportabilitySelfTest,
+  // The three-point control's own arithmetic and its fixture set, exported so
+  // the witness can drive the REFUSALS directly rather than through a headless
+  // Chromium (rf2-8bgqq) — the same reason `reportability` is exported above.
+  ctl3Verdict,
+  ctl3SelfTest,
   publication,
   datasetFor,
   PUBLISHED_DEPTH,
