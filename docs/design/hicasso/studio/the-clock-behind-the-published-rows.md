@@ -631,9 +631,12 @@ restated by recomputation, and every corrected-clock number quoted here comes
 from a *later ensemble* on a later blob, named where it appears. Raw readings for
 all three windows have been written since blob `84aa25d9…` (`roundsTask`,
 `inPageRounds`), and
-[the 2026-08-07 ensemble](#2026-08-07-the-ensemble-on-the-corrected-clock-and-what-it-refuses-rf2-w3yxd)
-is the first on this instrument whose files are **kept** —
-`data/clock-w3yxd/run{1..6}.json`, six of six `canonical: true`.
+two ensembles on this instrument now **keep** theirs: `rf2-emvod`'s eight at
+`data/clock-emvod/run{1..8}.json`, and
+[this page's own 2026-08-07 ensemble](#2026-08-07-the-ensemble-on-the-corrected-clock-and-what-it-refuses-rf2-w3yxd)
+at `data/clock-w3yxd/run{1..6}.json`, six of six `canonical: true`. The gap this
+paragraph records is closed going forward; it is not closed retrospectively, and
+no figure above becomes recomputable because of it.
 
 **The three commands this section used to print no longer certify anything, and
 they are replaced rather than annotated.** They were
@@ -735,10 +738,17 @@ not used — it has read 93% on this host while the truth was 11%.
 
 **The three-point control refused every bulk-class run — 18 of 18.** That is
 `rf2-7iqb5`'s repair, the control built to difference away the additive constant
-`ctl-2x` undershoots by, and it is the second consecutive quiet-box ensemble in
-which it has refused everything it was asked to adjudicate. **No bulk magnitude
-is reportable from this ensemble and none is published here.** Its calibration is
-`rf2-5xrcd`'s, not this page's.
+`ctl-2x` undershoots by, and this is the **second independent quiet-box ensemble
+on the same instrument to have it refuse everything it was asked to adjudicate**:
+`rf2-emvod`'s eight-run ensemble read
+[0 of 24](rows-re-adjudicated-on-the-corrected-clock.md) earlier the same day,
+and these six read 0 of 18 — **42 bulk-class runs, no pass**. The two ensembles
+also disagree about the *shape* of the failure, which is a finding rather than
+noise: `rf2-emvod`'s `bulk100` and `narrow` means ran 2.18× and 2.71× with
+excursions to 5.57× and 8.09×, while these six sit low and tight (1.59× and
+1.47×, no run above 1.91×). **No bulk magnitude is reportable from this ensemble
+and none is published here.** The control's calibration is `rf2-5xrcd`'s, not
+this page's.
 
 ### Per row — reportable or refused
 
