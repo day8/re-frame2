@@ -89,6 +89,10 @@
    {:test 'wrap-view-injects-explicit-coords
     :fn   'assert-wrap-view-injects-explicit-coords}
 
+   {:section "React DevTools display-name (Spec 006 item 1, amended rf2-976bw)"}
+   {:test 'display-name-matches-render-measure
+    :fn   'assert-display-name-matches-render-measure}
+
    {:section "React :key parity (rf2-pt0u2 — follow-up to rf2-1anbp)"}
    {:test 'reg-view-react-key-preserved
     :fn   'assert-reg-view-react-key-preserved}
