@@ -60,6 +60,21 @@
 // alternate WITHIN each round and the round order flips, so a monotone
 // drift across the run cancels to first order; and a per-round seam figure
 // is published so a reader can see what did not cancel.
+//
+// ## A sample is admitted only if its durations are measurements (rf2-iuudn)
+//
+// `rf2-110be` taught the COMPARATOR that a zero or negative duration is not
+// a measurement — a table of all-negative medians divides out to exactly the
+// positive ratios a sound run produces. The comparator refusing is the last
+// line, not the only one: a value that is not a duration, recorded here,
+// still lands in the JSON this file writes and is still read by everything
+// that is not the comparator. So the refusal is made at the point of
+// measurement too, where it is cheaper.
+//
+// A recorded sample must read strictly positive on both clocks this file
+// publishes. A sample that does not is not averaged, not written, and not
+// silently dropped either — it is COUNTED and the run refuses on the count,
+// alongside the unverified writes it already refuses on.
 
 const fs = require('node:fs');
 
@@ -282,6 +297,36 @@ function deltaOf(a, b) {
   };
 }
 
+// A MEASUREMENT IS FINITE AND STRICTLY POSITIVE (rf2-iuudn).
+//
+// An elapsed time of zero is the absence of a measurement and a negative one
+// is a broken measurement — a counter that went backwards across the delta,
+// or a `DevToolsCommandDuration` that outran the task it is subtracted from.
+// Neither may enter a median.
+const positive = (x) => Number.isFinite(x) && x > 0;
+
+// WHICH DURATIONS ARE ASKED, and — as important — which are not.
+//
+// `taskNet` and `task` are the two clocks this file PUBLISHES: every ratio in
+// the report and every `summary`/`summaryTask` figure in the JSON is a mean of
+// medians of one of them. Both are asked, not just `taskNet`, and rf2-110be
+// says why: it is the derived quantity, `task - devtools`, and a derived
+// number is sound-looking long before its inputs are. A `task` of 0 against a
+// negative `devtools` yields a perfectly positive `taskNet`, which is the
+// wrong-side-blamed failure that bead found on the comparator.
+//
+// `script`, `layout`, `style` and `devtools` are DECOMPOSITION and are
+// deliberately not asked. An operation that recalculates no style honestly
+// reads 0 there — `clear1k` is the obvious candidate — so requiring them
+// positive would refuse sound runs, which is the opposite fault.
+const PUBLISHED = ['taskNet', 'task'];
+
+/** The first published duration in `d` that is not a measurement, or `null`. */
+const notMeasured = (d) => {
+  const bad = PUBLISHED.find((k) => !positive(d[k]));
+  return bad ? `${bad}=${d[bad]}` : null;
+};
+
 // ---------------------------------------------------------------------------
 // Statistics — the lane's, so a figure here is read the way its figures are
 // ---------------------------------------------------------------------------
@@ -315,6 +360,7 @@ async function measureArm(browser, arm, row, roundIdx) {
 
   const out = [];
   let unverified = 0;
+  let nonPositive = 0;
 
   const warmup = row.warmup ?? WARMUP;
   const samples = row.samples ?? SAMPLES;
@@ -338,11 +384,26 @@ async function measureArm(browser, arm, row, roundIdx) {
       }
     }
 
-    if (i >= warmup) out.push(d);
+    // THE RECORDING SITE. A sample enters the medians only if its published
+    // durations are measurements; one that is not is counted and named, and
+    // `main` refuses the run on the count. Counting rather than dropping is
+    // the difference between a gate and a filter: a filter would quietly
+    // publish a figure from a rig that produced impossible numbers.
+    if (i >= warmup) {
+      const bad = notMeasured(d);
+      if (!bad) {
+        out.push(d);
+      } else {
+        nonPositive++;
+        if (nonPositive <= 3) {
+          console.error(`[ours] ${arm} ${row.id} r${roundIdx} sample ${i}: not a measurement, ${bad}`);
+        }
+      }
+    }
   }
 
   await page.close();
-  return { samples: out, unverified, errors };
+  return { samples: out, unverified, nonPositive, errors };
 }
 
 async function main() {
@@ -435,7 +496,7 @@ async function main() {
   const acc = {};
   for (const row of ROWS) {
     acc[row.id] = {};
-    for (const arm of ARMS) acc[row.id][arm] = { rounds: [], unverified: 0, errors: [] };
+    for (const arm of ARMS) acc[row.id][arm] = { rounds: [], unverified: 0, nonPositive: 0, errors: [] };
   }
 
   for (let r = 0; r < ROUNDS; r++) {
@@ -444,11 +505,12 @@ async function main() {
     const order = r % 2 === 0 ? ARMS : [...ARMS].reverse();
     for (const row of ROWS) {
       for (const arm of order) {
-        const { samples, unverified, errors } = await measureArm(browser, arm, row, r);
+        const { samples, unverified, nonPositive, errors } = await measureArm(browser, arm, row, r);
         const a = acc[row.id][arm];
         a.rounds.push(median(samples.map((s) => s.taskNet)));
         (a.roundsTask ||= []).push(median(samples.map((s) => s.task)));
         a.unverified += unverified;
+        a.nonPositive += nonPositive;
         a.errors.push(...errors);
         if (!a.decomp) a.decomp = [];
         a.decomp.push({
@@ -495,7 +557,8 @@ async function main() {
   for (const row of ROWS) {
     const R = acc[row.id][BASE].rounds;
     const unverified = ARMS.reduce((a, x) => a + acc[row.id][x].unverified, 0);
-    summary[row.id] = { base: mean(R), unverified, arms: {} };
+    const nonPositive = ARMS.reduce((a, x) => a + acc[row.id][x].nonPositive, 0);
+    summary[row.id] = { base: mean(R), unverified, nonPositive, arms: {} };
     console.log(`;; ${row.id.padEnd(12)} ${row.jsfb.padEnd(21)} ${BASE.padEnd(13)} ${fmt(mean(R), 3).padStart(8)}     1.0000   —`);
     for (const arm of OTHERS) {
       const H = acc[row.id][arm].rounds;
@@ -552,6 +615,12 @@ async function main() {
   console.log('');
   console.log(';; UNVERIFIED SAMPLES (must be 0 on every row)');
   for (const row of ROWS) console.log(`;;   ${row.id.padEnd(12)} ${summary[row.id].unverified}`);
+
+  // The other way a sample fails to be a sample: it verified the page, and
+  // then read a duration that no elapsed time can produce (rf2-iuudn).
+  console.log('');
+  console.log(';; SAMPLES REFUSED AS NON-MEASUREMENTS — taskNet or task not > 0 (must be 0 on every row)');
+  for (const row of ROWS) console.log(`;;   ${row.id.padEnd(12)} ${summary[row.id].nonPositive}`);
 
   // The positive control, adjudicated against the band registered above.
   console.log('');
@@ -627,7 +696,8 @@ async function main() {
   }
 
   const totalUnverified = Object.values(summary).reduce((a, s) => a + s.unverified, 0);
-  if (!parity.identical || totalUnverified > 0 || pageErrors.length > 0 || !controlPass) {
+  const totalNonPositive = Object.values(summary).reduce((a, s) => a + s.nonPositive, 0);
+  if (!parity.identical || totalUnverified > 0 || pageErrors.length > 0 || !controlPass || totalNonPositive > 0) {
     console.error('[ours] a gate did not clear — see the report above');
     process.exit(1);
   }
