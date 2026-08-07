@@ -861,20 +861,55 @@ reactions it holds — and the bracket is wide: 1,363 to 2,272 B/read.
 
 ### The crossover, and where the archetype falls
 
-Against the UIx spine the candidate pays a fixed 913 B more at the shell
-and saves 708 B on every read, so it is behind at one read and ahead from
-two:
+Against the UIx spine the candidate pays a large fixed cost at the boundary
+and saves **708 B on every read**, so it starts behind and ends ahead.
+*Where* it crosses depends on which fixed term the arithmetic uses, and
+this page states **one model: the two fitted lines**, whose own intercepts
+are the only fixed terms that belong to them.
 
 ```
-crossover  =  (1,134 − 220) / (2,981 − 2,272)  =  R = 1.29 reads
+fitted lines   UIx      y =   161 + 2,981·R
+               Hicasso  y = 1,175 + 2,272·R
+
+crossover   =  (1,175 − 161) / (2,981 − 2,272)  =  R = 1.43 reads
+               MODEL-INFERRED — no R = 2 rung was measured
 ```
 
-Measured, not only fitted: at R = 1 the candidate is **1.173×** UIx and at
-R = 3 it is **0.883×**. The census's seven-read archetype sits well past
-the crossing — **16,457 B against 20,799 B, a 4,341 B/boundary saving**,
-5.2 MB across 1,200 boundaries. Against Reagent there is no crossover at
-all: the candidate is worse at every rung, and the ratio only *improves*
-with reads (1.764× → 1.466×) because the shell amortises.
+**Direct observation brackets the crossing; it does not locate it.** The
+candidate is behind at R = 1 — **1.173×** UIx — and ahead at R = 3 —
+**0.883×** — in all six rounds, both directly measured. The crossing
+therefore lies somewhere in (1, 3). That bracket is the evidence. The 1.43
+is what the model says inside it, and **anything this page or anything
+downstream reads as the candidate being ahead at R = 2 is model-inferred**,
+because no R = 2 rung exists on this ladder.
+
+**Why the model's answer sits low in its own bracket, stated rather than
+smoothed.** Both arms cost more on their first read than on their marginal
+one — UIx 3,067 against 2,981, the candidate 2,721 against 2,272 — so a
+line fitted over the reactive rungs under-predicts R = 1 on both, by 145 B
+and 408 B. Anchoring instead on the *measured* R = 1 pair and applying the
+−708 B/read after the first read would put the crossing near R = 1.8. That
+is a second model and this page does not quote it as a result; it is named
+here so that 1.43 is read as one model's output inside a measured bracket,
+and not as a quantity known to two significant figures.
+
+**The archetype is past the crossing under any of them, and by direct
+measurement.** The census's seven-read archetype reads **16,457 B against
+20,799 B, a 4,341 B/boundary saving** — 5.2 MB across 1,200 boundaries —
+with no model standing between that row and its reading. Against Reagent
+there is no crossover at all: the candidate is worse at every rung, and the
+ratio only *improves* with reads (1.764× → 1.466×) because the shell
+amortises.
+
+**What this row published before, and why it was withdrawn
+(`rf2-2rtt6.34`).** It read `(1,134 − 220) / (2,981 − 2,272) = R = 1.29
+reads`, dividing the **measured** R = 0 shell difference by the **fitted**
+marginal-slope difference. The fit excludes R = 0 by rule — that exclusion
+is the whole point of [the fitted lines](#the-fitted-lines) — so those two
+quantities belong to no single line, and 1.29 was neither the fitted
+crossing nor an observation of one. Nothing measured moved; the arithmetic
+did. The withdrawn value is left visible here rather than erased, because
+it was quoted downstream.
 
 ### The survival metric, in objects and not only in bytes
 
@@ -1437,9 +1472,21 @@ published — nothing here touches them. The candidate's live numbers move:
 | the design's win (UIx seg., donor − candidate) | −708 B/read (0.7624×) | **−692 B/read** (0.7679×, a 23.2% margin) |
 | the design's bill (Reagent seg., candidate − donor) | +415 B/read (1.4379×) | **+499 B/read** (1.5264×) |
 | the bracket a shipped Hicasso sits in | 1,363 – 2,272 B/read | **1,447 – 2,289 B/read** |
-| crossover against the UIx spine | R = 1.29 reads | **R = 1.32 reads** |
+| crossover against the UIx spine *(model-inferred)* | R = 1.43 reads, fitted lines | **not restated** — the bisection publishes slopes, not intercepts |
 | the grouped tier's ~2,000 B line | cleared on the Reagent substrate only | unchanged in kind: 1,447 < 2,000 < 2,289 |
 | seven-read archetype vs UIx, B = 1,200 | 4,341 B/boundary saved | **4,230 B/boundary** saved (16,572 vs 20,802, measured R = 7; ≈5.1 MB across 1,200) |
+
+**The crossover row was corrected, not re-measured (`rf2-2rtt6.34`).** Both
+of its cells previously carried the hybrid arithmetic — 1.29 as published,
+restated as 1.32 on run 4's slopes — which divides a *measured* R = 0 shell
+difference by a *fitted* slope difference and so belongs to neither line.
+[§6's crossover](#the-crossover-and-where-the-archetype-falls) now states
+the fitted-line model alone, and run 4's counterpart cannot be restated in
+that model, because the bisection above publishes marginal slopes and no
+fitted intercepts. What the row's reading actually rests on is the direct
+bracket, and no arithmetic here touches it: the candidate is behind at the
+measured R = 1 and ahead at the measured R = 3, and **R = 2 was never
+measured on any tree on this page.**
 
 The verdict's shape survives — the axis is still won against UIx by nearly
 five times the instrument-limited floor, and 943/948 B is still not beaten
@@ -1591,9 +1638,11 @@ wobble does not read as a change in the bill.
 unchanged: the axis is won against UIx — now by more than five times the
 instrument-limited floor — and lost to Reagent's `deref`-capture. What
 moved is the size of the loss, by 22%. The crossover against the UIx
-spine is deliberately **not** restated: rf2-2rtt6.34 is reopened on which
-model this page states it in, and a fifth number computed a sixth way is
-the opposite of what that bead asks for.
+spine is still **not** restated here, and now for a settled reason rather
+than a pending one: `rf2-2rtt6.34` has since fixed the page's model to
+[the fitted lines](#the-crossover-and-where-the-archetype-falls), this
+section publishes marginal slopes and no fitted intercepts, and a fifth
+number computed a sixth way was never what that bead asked for.
 
 #### Provenance
 
