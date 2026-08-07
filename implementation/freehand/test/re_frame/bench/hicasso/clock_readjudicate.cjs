@@ -298,6 +298,13 @@ const GATES = [
 ];
 
 /**
+ * THE FILE-LEVEL GATE, BY NAME. `main` announces a dataset's own verdict ahead
+ * of every table and carries it into the exit code, and reaching it by array
+ * position would make that announcement depend on the roster's order.
+ */
+const CANONICAL_GATE = GATES.find((g) => g.id === 'canonical');
+
+/**
  * WHY THIS RUN MAY NOT BE POOLED — every reason, never the first one.
  *
  * All of them, because a reader deciding whether to re-take a run needs to know
@@ -439,12 +446,12 @@ function main(argv) {
   // still printed in full — capture is preserved — but it may not contribute a
   // magnitude, and the reader is told that at the top rather than left to
   // notice an empty subset at the bottom.
-  const ineligible = datasets.filter(({ data }) => !!GATES[0].why(data));
+  const ineligible = datasets.filter(({ data }) => !!CANONICAL_GATE.why(data));
   if (ineligible.length) {
     console.log('');
     console.log(';; !! NOT ELIGIBLE PUBLISHED EVIDENCE — every table below is printed, and none of it');
     console.log(';; !! may be quoted as a magnitude. This program exits nonzero for that reason.');
-    for (const { file, data } of ineligible) console.log(`;; !!   ${file}: ${GATES[0].why(data)}`);
+    for (const { file, data } of ineligible) console.log(`;; !!   ${file}: ${CANONICAL_GATE.why(data)}`);
   }
 
   for (const rowId of rowIds) {
