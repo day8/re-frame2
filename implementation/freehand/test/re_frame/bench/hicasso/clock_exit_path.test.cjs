@@ -2357,7 +2357,10 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const all = v.lines.join('\n');
     assert.match(all, /M1 \[mount-regime, rf2-diaud superseding rf2-jcm3p\] STATED/);
     assert.match(all, /NO MAGNITUDE FROM ONE RUN/);
-    assert.match(all, /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — expected, and the reason no magnitude/);
+    assert.match(
+      all,
+      /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — the regime does not wait on this control/
+    );
     assert.doesNotMatch(all, /the positive control did not see the change/);
   });
 
@@ -2395,6 +2398,65 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // rf2-diaud's reason and not rf2-jcm3p's: one run, no ensemble.
     assert.match(all, /ENSEMBLE one/);
     assert.match(all, /one run cannot form the interval it is adjudicated against/);
+  });
+
+  // --- AND THE CONTROL ANNOTATION TOO (rf2-ejb9h) ---------------------------
+  //
+  // rf2-vr1hl re-cited the row's own three strings and filed this: two lines
+  // below them, `reportability` annotated the control status of a regime row
+  // that failed its control with " — expected, and the reason no magnitude is
+  // published", and BOTH claims were rf2-jcm3p's. "expected" fell with
+  // rf2-8a746 (`ctl-2x` was never failing — the rule tests per-block band
+  // membership, and all fourteen committed mount row-runs are IN CONTROL under
+  // the v2 class), so no live ruling predicts a failure here. "the reason no
+  // magnitude is published" fell with rf2-diaud, which publishes a magnitude on
+  // M1 and locates this driver's refusal in the ensemble bootstrap instead.
+  //
+  // THE ANNOTATION IS RE-CITED, NEVER DELETED. It exists because the ruling
+  // that made these rows regimes is ABOUT their controls, so a reader must meet
+  // the status rather than infer it. What survives both rulings — and is the
+  // real subject of the fixture's `ctlOk: false` — is that the mount regime
+  // does not WAIT on its control.
+  //
+  // NOTE THAT THIS SUFFIX DOES NOT FIRE ON THE COMMITTED CORPUS: it needs
+  // `ctlOk === false` on a regime row, and every committed mount row-run is in
+  // control. It is reachable only from fixtures like these, which is precisely
+  // why it had to be corrected rather than left — dead prose asserting a
+  // retired premise is read as current the day it finally prints.
+
+  t('the control annotation says what SURVIVED both rulings and predicts nothing', () => {
+    const all = reportability([mountRow({ ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]).lines.join('\n');
+    assert.match(
+      all,
+      /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — the regime does not wait on this control, so a failure here withholds nothing/,
+      'the independence is what both rulings leave standing, so it is what the annotation states'
+    );
+    // Two-sided, because a pin that asserted only the new sentence would pass
+    // on a line that had merely gained it beside the retired one.
+    assert.doesNotMatch(
+      all,
+      /positive control: FAIL[^\n]*expected/,
+      'rf2-8a746 established ctl-2x was never failing, so no live ruling PREDICTS this failure'
+    );
+    assert.doesNotMatch(
+      all,
+      /the reason no magnitude is published/,
+      'rf2-diaud: M1 publishes a magnitude, and this driver withholds one for the ensemble reason, not a control failure'
+    );
+  });
+
+  t('a regime row whose control PASSED is not annotated at all — the suffix is conditional', () => {
+    const all = reportability([mountRow({ ctlOk: true })]).lines.join('\n');
+    assert.match(all, /positive control: PASS/);
+    assert.doesNotMatch(all, /positive control: PASS[^\n]*withholds nothing/);
+  });
+
+  t('and a regime WITHHELD by its control is not annotated twice', () => {
+    // `keystroke` DOES wait on its controls, so the withholding is already the
+    // subject of the line above and the annotation stays out of it.
+    const all = reportability([respRow({ ctlOk: false })]).lines.join('\n');
+    assert.match(all, /keystroke \[responsiveness-regime, rf2-swwud\] WITHHELD/);
+    assert.doesNotMatch(all, /positive control: FAIL[^\n]*withholds nothing/);
   });
 
   t('the driver CITES the published M1 row and copies no figure out of it', () => {
