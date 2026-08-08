@@ -2179,12 +2179,19 @@ function reportability(rows, opts) {
   const sabotage = (opts && opts.sabotage) || null;
   // A ROW'S REGIME DECIDES WHICH REFUSAL IS ITS OWN (rf2-jcm3p, rf2-swwud).
   // The two gates below adjudicate MAGNITUDES, and a regime row has none to
-  // adjudicate: reading `M1`'s known control failure as "the positive control
-  // did not see the change its own arithmetic predicts" states a finding as a
+  // adjudicate: reading `M1`'s control status as "the positive control did not
+  // see the change its own arithmetic predicts" states a disposition as a
   // fault, and reading `keystroke`'s bandless bars as "not every published bar
   // can be ADJUDICATED" states a diagnostic as a magnitude. Both rows still
   // refuse — see the regime block below — so no exit code moves; what moves is
   // which sentence the run prints about them.
+  //
+  // `M1`'s half of that sentence used to read "known control failure", and it
+  // is corrected here rather than deleted: rf2-8a746 established that the
+  // control was never failing. The correction does not change the point the
+  // sentence is making — a disposition read as a fault is still the wrong
+  // sentence — and the supersession beside `REGIMES` below carries the whole
+  // of it.
   const regimeOf = (r) => REGIMES[r.regime] || REGIMES.magnitude;
   const magnitudeRows = list.filter((r) => regimeOf(r).publishesMagnitude);
   const regimeRows = list.filter((r) => !regimeOf(r).publishesMagnitude);
@@ -2248,10 +2255,13 @@ function reportability(rows, opts) {
     }
   }
   // AND A ROW MAY PUBLISH A REGIME RATHER THAN A MAGNITUDE (rf2-jcm3p,
-  // rf2-swwud). This is a refusal of the same weight as the two above — no
-  // figure from the row is reportable — and of an entirely different kind: the
-  // two above are things that went wrong, this one is what the row IS. It is
-  // printed last so a reader meets the run's faults before its dispositions.
+  // rf2-swwud — the MECHANISM is theirs and stands; rf2-jcm3p's account of
+  // what the mount regime MEANS is superseded, and the block beside `REGIMES`
+  // below is where that is set out). This is a refusal of the same weight as
+  // the two above — no figure from the row is reportable — and of an entirely
+  // different kind: the two above are things that went wrong, this one is what
+  // the row IS. It is printed last so a reader meets the run's faults before
+  // its dispositions.
   //
   // The statement itself is published here whatever the exit, because a regime
   // withheld in silence is indistinguishable from a regime nobody took.
@@ -2353,6 +2363,11 @@ function rowAdjudication(bars) {
  * WHAT A ROW PUBLISHES — its REGIME, declared rather than inferred
  * (rf2-jcm3p, rf2-swwud, both ruled 2026-08-06).
  *
+ * THE MOUNT HALF OF THIS ROSTER IS TWO RULINGS OLD AND IS ANNOTATED, NOT
+ * REWRITTEN. `rf2-jcm3p`'s entry below is kept as it was written; the
+ * supersession that follows the table is what a reader should carry away from
+ * it. Nothing in the mechanism changed.
+ *
  * Until these two rulings every row of this driver was a magnitude row that
  * either cleared its gates or refused, and two rows had spent months refusing
  * for reasons no amount of measuring could move. Both rulings say the same
@@ -2365,7 +2380,10 @@ function rowAdjudication(bars) {
  *                             is rf2-y7mw7's contract and is not re-opened
  *                             here.
  *
- *   `mount-regime`            `M1` (rf2-jcm3p). Publishes DIRECTION and no
+ *   `mount-regime`            `M1` (rf2-jcm3p — SUPERSEDED, and preserved
+ *                             verbatim; read the block after this table
+ *                             before quoting a word of this entry).
+ *                             Publishes DIRECTION and no
  *                             magnitude. Its positive control `ctl-2x` fails —
  *                             1.8173x against a predicted 2.00x, reproduced at
  *                             1.8443x and 1.8567x on two verifiably idle boxes
@@ -2394,8 +2412,58 @@ function rowAdjudication(bars) {
  *                             moves; without them a frame reading is not
  *                             evidence of anything.
  *
- * A REGIME ROW REFUSES THE RUN, and that is not a change of temperature. It
- * publishes no magnitude — ever, by ruling rather than by accident — so
+ * THE `mount-regime` ENTRY ABOVE IS rf2-jcm3p's REASONING AND IT IS SUPERSEDED
+ * (rf2-owiis's sweep, 2026-08-08). It is annotated rather than deleted,
+ * because it is the record of what this driver believed and because HOW it
+ * fell is the useful part: a rationale can be sound, current on the day it was
+ * written, and still rest on a premise the next ruling removes. Two rulings
+ * moved under it, and they moved different things.
+ *
+ * rf2-8a746 TOOK ITS GROUND. `ctl-2x` was never failing. The implemented rule
+ * — `controlVerdict`, committed 2026-08-01, before either ensemble was taken —
+ * tests per-block band membership; it never asked the mean to equal 2.00x. The
+ * ~1.80x centre is the additive undershoot the entry above explains correctly
+ * and then misreads, and under the mount check standard rf2-x7x10 calibrated
+ * at v2 all fourteen committed mount row-runs come back IN CONTROL. So "THE
+ * FAILING CONTROL IS THE PUBLISHED REASON there is no magnitude" names a
+ * failure that is not one. Every other sentence in the entry survives: the
+ * arithmetic of `(2W+c)/(W+c)`, the constant, and the fact that a mount has no
+ * standing page for a changed-set control to reach are all still true.
+ *
+ * rf2-t2flm (2026-08-07) THEN TOOK THE POSITION ITSELF, and rf2-diaud
+ * (2026-08-08) settled what replaces it. M1 PUBLISHES A MAGNITUDE. Against
+ * direct UIx-on-subs, floor-normalised on the clock of record, the verdict is
+ * K1 MISSED, DECISIVELY — the whole interval sits above K1's `1.10x` mount
+ * gate on both committed ensembles. The row is
+ * `docs/design/hicasso/studio/rows-re-adjudicated-on-the-corrected-clock.md`
+ * sec 4.3, and the figures are printed by `clock_readjudicate.cjs` over the
+ * committed corpus. QUOTE THEM FROM THERE. They are deliberately not copied
+ * into this comment: a figure with two homes has two futures, and this file
+ * is not the one that computes it.
+ *
+ * SO WHY DOES THIS DRIVER STILL REFUSE? `publishesMagnitude: false` stays, and
+ * it is now right for a reason rf2-jcm3p did not give. The published figure is
+ * an ENSEMBLE estimate — a floor-normalised leg ratio through a run-preserving
+ * bootstrap whose OUTER unit is the run, over eight runs and six — so a single
+ * run of this driver cannot form the interval it would be adjudicated against.
+ * That is a statement about what ONE RUN can build, not about a control that
+ * went wrong, which is how the entry above could be right about the exit code
+ * while being wrong about the reason. A reader who takes the supersession as
+ * licence to flip this flag would let a one-run capture announce a figure the
+ * programme publishes only across an ensemble.
+ *
+ * WHAT THE LOG STILL SAYS, stated here because a comment nobody reads is not a
+ * correction. The printed line remains `M1 [mount-regime, rf2-jcm3p] STATED —
+ * DIRECTION ONLY ...`: both halves are pinned in `clock_exit_path.test.cjs`,
+ * which a concurrent bead holds, so re-citing the LOG is a coordinated change
+ * across two files and is filed as rf2-vr1hl rather than forced here. This
+ * sweep changed no value, no threshold, no verdict, no roster entry and no
+ * string this driver prints about a run. One `--selftest` CASE NAME was
+ * corrected, in the fixtures below, because it asserted the premise rf2-8a746
+ * retired; the case it names is unchanged and still passes.
+ *
+ * A REGIME ROW REFUSES THE RUN, and that is not a change of temperature. This
+ * run publishes no magnitude from it — by ruling rather than by accident — so
  * `REPORTABLE` cannot name it and the exit code, which answers "is there a
  * publishable MAGNITUDE here", stays 1. `HCLOCK_ONLY=keystroke` exited 1
  * before these rulings and exits 1 after them; what changes is that the
@@ -2408,11 +2476,23 @@ function rowAdjudication(bars) {
  */
 const REGIMES = {
   magnitude: { publishesMagnitude: true },
+  // EVERY STRING IN THIS ENTRY IS rf2-jcm3p's, AND rf2-jcm3p IS SUPERSEDED ON
+  // THIS ROW — the block above sets out by what, and rf2-vr1hl carries the
+  // re-citation of the printed line, which is pinned in
+  // `clock_exit_path.test.cjs` and therefore not this file's to take alone.
+  // The strings stay byte-identical: they are the record of the ruling this
+  // driver refused under, and rf2-owiis's sweep was of the prose around them.
   'mount-regime': {
+    // Still `false`, and now for rf2-diaud's reason rather than rf2-jcm3p's: a
+    // single run cannot form the ensemble bootstrap the published M1 magnitude
+    // is an estimate from. See the block above before changing this.
     publishesMagnitude: false,
     bead: 'rf2-jcm3p',
     // The statement is about DIRECTION, and direction does not turn on a
-    // control whose failure is itself the published finding.
+    // control whose status is itself the published finding. (rf2-8a746: that
+    // status is not a FAILURE — the rule tests per-block band membership — but
+    // the regime's independence from it is what let the row state itself at
+    // all, and it is unaffected by the correction.)
     statementNeedsControl: false,
     publishes: 'DIRECTION ONLY — hicasso mounts materially slower than both adapters; no magnitude',
     why:
@@ -2635,6 +2715,13 @@ function reportabilitySelfTest() {
   // added is a second disposition beside it, and the cases that matter are
   // the ones showing a regime row REFUSES — the temperature of the exit did
   // not change, only the sentence.
+  //
+  // THESE CASES PIN A SENTENCE rf2-jcm3p WROTE AND LATER RULINGS SUPERSEDED,
+  // and they still pin it on purpose. What they are for is that the regimes
+  // did not soften the exit code, and that holds whichever ruling the printed
+  // bracket names; changing the sentence is rf2-vr1hl's, jointly with
+  // `clock_exit_path.test.cjs`. The supersession itself is set out beside
+  // `REGIMES` above.
   const mount = (over) => row({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
   const resp = (over) =>
     row({ rowId: 'keystroke', regime: 'responsiveness-regime', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY, ...over });
@@ -2652,8 +2739,13 @@ function reportabilitySelfTest() {
       !m.lines.some((l) => /the positive control did not see the change/.test(l)),
     m.lines.join(' | ')
   );
+  // The case name used to end "the failure is the ruling's own premise". That
+  // premise is the one rf2-8a746 retired — the control was not failing — so
+  // the name is corrected while the case itself is untouched: what it pins is
+  // that the mount regime does not WAIT on its control, which is independent
+  // of whether that control passes and is why the fixture sets `ctlOk: false`.
   check(
-    "the mount regime STATES itself although its control failed — the failure is the ruling's own premise",
+    'the mount regime STATES itself although its control failed — the regime does not wait on that control',
     m.lines.some((l) => /positive control: FAIL.*expected, and the reason no magnitude is published/.test(l)),
     m.lines.join(' | ')
   );
@@ -3261,9 +3353,11 @@ async function main() {
       return {
         rowId: o.out.rowId,
         // WHAT THIS ROW PUBLISHES, from the declared roster rather than from
-        // anything this run measured (rf2-jcm3p, rf2-swwud). A regime is a
-        // ruling about the row, so a run may not talk itself into or out of
-        // one on the strength of its own numbers.
+        // anything this run measured (rf2-jcm3p, rf2-swwud — the mount half of
+        // the first is superseded, and the block beside `REGIMES` carries by
+        // what). A regime is a ruling about the row, so a run may not talk
+        // itself into or out of one on the strength of its own numbers, and
+        // that is exactly as true of a ruling that has since been amended.
         regime: rowRegime(o.out.rowId),
         ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
         // THE PARENTHETICAL A REFUSAL CARRIES, and therefore the one sentence
