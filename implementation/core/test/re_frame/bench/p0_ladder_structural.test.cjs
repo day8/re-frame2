@@ -678,7 +678,12 @@ test('ROUTE 2 — an explicit one-write window on the shipped page is refused', 
   assert.strictEqual(arm.writes, 1);
   assert.ok(arm.headroom >= 0, 'and far under the budget, which is why it got through');
   assert.ok(!arm.admissible);
-  assert.ok(arm.refusals.some((r) => r.includes('averaging floor')));
+  const floor = arm.refusals.find((r) => r.includes('averaging floor'));
+  assert.ok(floor, JSON.stringify(arm.refusals));
+  // The page here is fine — it carries six writes — so the WINDOW is the knob
+  // and the refusal must say so rather than send the operator at the page.
+  assert.match(floor, /RAISE P0_ALLOC_WRITES to at least 6/);
+  assert.doesNotMatch(floor, /SHRINK THE PAGE/);
 });
 
 test('THE CONTROL — the shipped six-write arm is still admitted, so this is not vacuous', () => {
@@ -698,13 +703,13 @@ test('the refusal names SHRINKING THE PAGE and never shrinking the window', () =
   // the very shape being refused.
   const arm = armUnderEnv({ P0_ROOTS: '50', P0_ALLOC_CELLS: '', P0_ALLOC_WRITES: '' });
   const floor = arm.refusals.find((r) => r.includes('averaging floor'));
-  assert.match(floor, /P0_ROOTS/);
-  assert.match(floor, /P0_ALLOC_CELLS/);
+  assert.match(floor, /SHRINK THE PAGE/);
+  assert.match(floor, /P0_ROOTS \/ P0_ALLOC_CELLS/);
   assert.match(floor, /at most 25 boundaries/, 'the largest page that carries the floor');
   assert.doesNotMatch(
     floor,
-    /admits at most 2 writes \(P0_ALLOC_WRITES\)/,
-    'the window is not the knob when the window is what is wrong'
+    /P0_ALLOC_WRITES/,
+    'a page that cannot carry the floor must not have its window named at all'
   );
 });
 

@@ -1107,7 +1107,10 @@ const ALLOC_MASK_BUDGET_B = ALLOC_FALL_THRESHOLD_B / 2;
 //       the bottom would be refused rather than published.
 //   W   writes in one window. A window of one has no averaging in it, so the
 //       arm is sized to hold at least `ALLOC_MIN_WRITES` of them and then
-//       takes every further write the bound still admits.
+//       takes every further write the bound still admits — and the preflight
+//       REFUSES a window under that floor however it was configured, which
+//       the bound below cannot do for it (a small window is a small window,
+//       and the budget is a ceiling on size).
 //   B   boundaries on the page, = P0_ROOTS x cells-per-root.
 //
 //   rise ~ W.B.c and the largest single step is one write, ~B.c, so the
@@ -1150,6 +1153,18 @@ const ALLOC_B_PER_BOUNDARY_WRITE = 1655;
 // this counter at all — has been corroborated here as well as at the 30
 // writes `ALLOC_MASK_BUDGET_B` cites. A smaller control window is also a
 // further-under-budget one, which is the safe direction.
+//
+// IT IS A FLOOR AND NOT ONLY A DEFAULT (rf2-2rtt6.142). It sized the page
+// below and adjudicated nothing, so the preflight admitted any window from
+// one write up: `P0_ROOTS=50` derives a 50-boundary page whose largest legal
+// window is two writes, and `P0_ALLOC_WRITES=1` sets a one-write window on
+// the shipped page. Both sit far under the masking budget — that budget is a
+// ceiling on a window's SIZE and has nothing to say about how few writes are
+// averaged inside it — so both reached every publication path. One write is
+// exactly the configuration whose four fits came back at r² 0.75 / 0.28 /
+// 0.94 / 0.31, against the 0.98 floor this row publishes under.
+// `allocArmSizing` now refuses below this number rather than only deriving
+// from it.
 const ALLOC_MIN_WRITES = 6;
 
 // Boundaries per root — the MEASURED UNIT, and the reason this arm is a code
@@ -1186,13 +1201,82 @@ const ALLOC_WRITES = Number(
 // opt-in run of this driver to notice that an arm drifted out of range.
 //
 // Nothing here measures anything. `predictedWindowB` is `(W + 1).B.c`, the
-// left-hand side of the bound, and `admissible` is the bound itself.
+// left-hand side of the bound.
+//
+// `refusals` IS THE VERDICT, one entry per thing wrong with the arm, and
+// `admissible` is just "none of them" (rf2-2rtt6.142). One boolean was not
+// enough because the two ways an arm can be wrong want OPPOSITE repairs: a
+// window over the masking budget is repaired by shrinking it, and a window
+// under the averaging floor is repaired by shrinking the PAGE so a bigger one
+// fits. An arm can be both at once, and a refusal that named only the budget
+// would send an operator to `P0_ALLOC_WRITES` — i.e. to configure the very
+// shape being refused.
 function allocArmSizing({ writes, roots, cells, bytesPerBoundaryWrite = ALLOC_B_PER_BOUNDARY_WRITE }) {
   const boundaries = roots * cells;
   const predictedMaxStep = boundaries * bytesPerBoundaryWrite;
   const predictedRise = writes * predictedMaxStep;
   const predictedWindowB = predictedRise + predictedMaxStep;
   const headroom = ALLOC_MASK_BUDGET_B - predictedWindowB;
+  const maxWrites = allocMaxWrites(boundaries);
+  const maxBoundaries = Math.floor(ALLOC_MASK_BUDGET_B / ((writes + 1) * bytesPerBoundaryWrite));
+  // The largest page that still carries the averaging floor: `maxBoundaries`
+  // read at `ALLOC_MIN_WRITES` instead of at whatever this window happens to
+  // be. It is the number a below-floor arm has to be shrunk TO, so it is
+  // computed here rather than left for the reader to invert.
+  const floorBoundaries = Math.floor(
+    ALLOC_MASK_BUDGET_B / ((ALLOC_MIN_WRITES + 1) * bytesPerBoundaryWrite)
+  );
+
+  const refusals = [];
+  if (boundaries < 1) {
+    // No per-boundary quantity to publish, and none of the terms below mean
+    // anything on an empty page — it would otherwise sail under the budget on
+    // zero bytes.
+    refusals.push(
+      `a page of ${boundaries} boundaries (${roots} roots x ${cells} cells) has no ` +
+        `per-boundary quantity to publish: RAISE P0_ROOTS or P0_ALLOC_CELLS`
+    );
+  } else {
+    if (writes < ALLOC_MIN_WRITES) {
+      // Two different arms land here and they want opposite repairs. If the
+      // page still admits the floor then the window alone was set too small
+      // and the window is the knob. If it does not, the window is not the
+      // knob at all — and naming what such a page DOES admit would be naming
+      // a below-floor window, i.e. advising the shape being refused. So that
+      // branch names only the page.
+      const repair =
+        maxWrites >= ALLOC_MIN_WRITES
+          ? `This page admits ${maxWrites} writes: RAISE P0_ALLOC_WRITES to at least ` +
+            `${ALLOC_MIN_WRITES}, or unset it and take the window the page derives`
+          : `${boundaries} boundaries cannot carry a ${ALLOC_MIN_WRITES}-write window under ` +
+            `the ${ALLOC_MASK_BUDGET_B} B masking budget, so the WINDOW IS NOT THE KNOB: ` +
+            `SHRINK THE PAGE — lower P0_ROOTS / P0_ALLOC_CELLS to at most ` +
+            `${floorBoundaries} boundaries`;
+      refusals.push(
+        `a window of ${writes} write(s) is under the ${ALLOC_MIN_WRITES}-write averaging floor ` +
+          `(ALLOC_MIN_WRITES) and has too little in it to average: at one write per window this ` +
+          `row's four fits came back at r² 0.75 / 0.28 / 0.94 / 0.31, under its 0.98 floor. ` +
+          repair
+      );
+    }
+    if (headroom < 0) {
+      // Naming `maxWrites` here is only a repair while the page can still
+      // carry the floor; below it the window is not the knob, and saying so
+      // would advise exactly the shape the refusal above exists to stop.
+      const windowKnob =
+        maxWrites >= ALLOC_MIN_WRITES
+          ? `, and this page at most ${maxWrites} writes (P0_ALLOC_WRITES)`
+          : '';
+      refusals.push(
+        `${boundaries} boundaries x ${writes} writes predicts ${predictedWindowB} B of ` +
+          `rise+maxStep at the measured ${bytesPerBoundaryWrite} B/boundary/write, against the ` +
+          `${ALLOC_MASK_BUDGET_B} B masking budget. ` +
+          `SHRINK THE MEASURED UNIT, DO NOT WIDEN THE BUDGET: this window admits at most ` +
+          `${maxBoundaries} boundaries (P0_ROOTS x P0_ALLOC_CELLS)${windowKnob}`
+      );
+    }
+  }
+
   return {
     cells,
     roots,
@@ -1203,12 +1287,11 @@ function allocArmSizing({ writes, roots, cells, bytesPerBoundaryWrite = ALLOC_B_
     predictedMaxStep,
     predictedWindowB,
     headroom,
-    // A window with no work in it measures nothing, and a page with no
-    // boundaries on it has no per-boundary quantity to publish. Both would
-    // otherwise sail under the budget on zero bytes.
-    admissible: writes >= 1 && boundaries >= 1 && headroom >= 0,
-    maxWrites: allocMaxWrites(boundaries),
-    maxBoundaries: Math.floor(ALLOC_MASK_BUDGET_B / ((writes + 1) * bytesPerBoundaryWrite)),
+    refusals,
+    admissible: refusals.length === 0,
+    maxWrites,
+    maxBoundaries,
+    floorBoundaries,
   };
 }
 
@@ -1285,15 +1368,18 @@ async function allocRow(chromium) {
   // what the 2026-08-07 quiet-box run spent. It is a PREDICTION and not a
   // certificate: passing it licenses nothing, and `allocSteps` still reads
   // every window's own samples against the same budget on the way through.
+  //
+  // The averaging floor is the half that `allocSteps` can NEVER catch up on
+  // (rf2-2rtt6.142). A window under `ALLOC_MIN_WRITES` is not over the budget
+  // — it is comfortably under it — so nothing downstream refuses it, and the
+  // r² floor sees only a fit it has no averaging to make. This is the one
+  // gate that can say so, and it says so here.
   if (!ALLOC_ARM.admissible) {
     throw new Error(
-      `the allocation arm is configured outside the masking bound before anything is ` +
-        `measured: ${ALLOC_ARM.boundaries} boundaries (${ROOTS} roots x ${ALLOC_CELLS} cells) ` +
-        `x ${ALLOC_ARM.writes} writes predicts ${ALLOC_ARM.predictedWindowB} B of rise+maxStep ` +
-        `at the measured ${ALLOC_ARM.bytesPerBoundaryWrite} B/boundary/write, against the ` +
-        `${ALLOC_MASK_BUDGET_B} B budget. SHRINK THE MEASURED UNIT, DO NOT WIDEN THE BUDGET: ` +
-        `this page admits at most ${ALLOC_ARM.maxWrites} writes (P0_ALLOC_WRITES), and this ` +
-        `window at most ${ALLOC_ARM.maxBoundaries} boundaries (P0_ROOTS x P0_ALLOC_CELLS)`
+      `the allocation arm is refused by its own preflight before anything is measured — ` +
+        `${ALLOC_ARM.boundaries} boundaries (${ROOTS} roots x ${ALLOC_CELLS} cells) x ` +
+        `${ALLOC_ARM.writes} writes:\n` +
+        ALLOC_ARM.refusals.map((r) => `  - ${r}`).join('\n')
     );
   }
   const { browser, page, watch } = await newPage(chromium, '?mode=heap');
@@ -2201,6 +2287,7 @@ module.exports = {
   ladderPlan,
   allocArmSizing,
   allocMaxWrites,
+  ALLOC_MIN_WRITES,
   ALLOC_ARM,
 };
 
