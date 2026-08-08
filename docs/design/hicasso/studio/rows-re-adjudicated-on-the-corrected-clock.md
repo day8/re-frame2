@@ -378,7 +378,8 @@ ensemble was taken at, so it is filed rather than done here.
 > magnitude.** It could not reach it before: with no run eligible, no interval
 > was formed. With all 14 eligible the run-preserving effect-size interval
 > (paired same-round level ratios, outer runs resampled before inner rounds,
-> 4000 draws, seed `20260807`) computes, and on **every pair of both ensembles**
+> 4000 draws, at the fixed bootstrap seed 20260807) computes, and on **every
+> pair of both ensembles**
 > the verdict is `INSTRUMENT-LIMITED`:
 >
 > | pair | `clock-emvod` | `clock-w3yxd` |
