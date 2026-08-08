@@ -10,6 +10,34 @@ series was taken. The refusal is reported here in full rather than
 withdrawn, because the programme has retracted a published row before and
 the cheaper mistake is the one that never ships.
 
+> **SUPERSEDED-NOT-COMPARABLE, 2026-08-08 17:12 AUSEST.** The instrument
+> these rows were taken on no longer exists. `rf2-2rtt6.140`'s implementation
+> landed the two artefacts
+> [the allocation instrument's rework](../allocation-instrument-rework.md)
+> designs: a **boundary-proportional write** (`:p0/write-page`, which
+> rebuilds the grid at the width the mounted page reads, where
+> `:p0/write-all` rebuilt 300 cells whatever was mounted) and an
+> **observed-collection witness** (a window is certified by whether its work
+> legs look like repetitions of one work unit, not by
+> `(W+1)·perWrite ≤ ALLOC_MASK_BUDGET_B`, which is retired).
+>
+> **So no `s(R)`, floor figure or ladder row below may be differenced against
+> anything measured after that change**, and none may be quoted as a property
+> of the new instrument. They remain valid as exactly what they are: the
+> record of the write that was, and the evidence base the rework was designed
+> from. **Every figure and every table on this page stands** — this note
+> annotates and erases nothing.
+>
+> The one figure that keeps its full force across the change is **`F_old`**,
+> the 24,108 / 24,730 B per write the floor arm read on 2026-08-08. Validity
+> witness V1 re-measures it as its own control, and an agreement at B = 24 is
+> what licenses comparing the two writes at all.
+>
+> The three instrument blob pins below are pins on the **old** instrument.
+> The new one carries its own. **V1–V3 have not run**: `rf2-2rtt6.140`
+> criterion 5 freezes every allocation window until they are green, and no
+> window has been granted.
+
 ## The answer, first
 
 - **The allocation half of HD-002's survival metric is still unwitnessed**,
@@ -399,6 +427,14 @@ or a real non-linearity is itself unmeasured, and the small-witness arm
 should be costed against that question rather than assumed to answer it.
 
 ## The small-witness arm, measured
+
+> **Superseded-not-comparable** (see the note at the head of this page). This
+> section and [the fixed per-write cost](#the-fixed-per-write-cost-measured-for-the-first-time)
+> below were taken with `:p0/write-all` on a 24-boundary page, and
+> `rf2-2rtt6.140` replaced that write with `:p0/write-page`. Nothing measured
+> under the new write may be differenced against these rows. `F_old` — the
+> 24,108 / 24,730 B per write — is the exception, and V1 re-measures it as
+> the control that licenses the comparison.
 
 The arm clause (4) asks for was built by `rf2-2rtt6.138` (PR #7688) and had
 never been executed. It was executed once, on 2026-08-08, on a box granted

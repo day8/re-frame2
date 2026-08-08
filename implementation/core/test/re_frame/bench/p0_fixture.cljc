@@ -151,12 +151,26 @@
 
 (defn seed-db
   "The app-db every arm starts from. One map, so the two adapter segments
-  cannot begin from different data."
-  []
-  {:rows   (mapv row-value (range w1-rows))
-   :fields (mapv (fn [i] {:value (field-value i) :error (field-error i)})
-                 (range w3-fields))
-   :cells  (vec (repeat cells-n 0))})
+  cannot begin from different data.
+
+  `grid-width` is how many cells `:cells` holds, and it is A PROPERTY OF THE
+  SEEDED DB rather than a compile-time constant baked into three places
+  (rf2-2rtt6.140). [[cells-n]] is the default, so every caller that passes
+  nothing gets the published page to the byte — the clock rows, the bulk
+  rows, the fan-out sweep and the retention ladder all do.
+
+  The allocation row is the one caller that states it, because
+  `:p0/write-all` rebuilds 300 cells whether one boundary is mounted or
+  1,200 and that fixed cost is the thing that made the ladder
+  uncertifiable at any page size. There is nowhere for the width to drift
+  to: [[fan-key]]'s modulus is Q, and `:p0/fan` folds into whatever grid
+  the db it is handed actually holds."
+  ([] (seed-db cells-n))
+  ([grid-width]
+   {:rows   (mapv row-value (range w1-rows))
+    :fields (mapv (fn [i] {:value (field-value i) :error (field-error i)})
+                  (range w3-fields))
+    :cells  (vec (repeat grid-width 0))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The registrations
@@ -176,8 +190,18 @@
   ;; grid answers and every rung of the sweep renders identical DOM. A rung
   ;; whose text differed with Q would be moving the floor it is differenced
   ;; against while claiming to move only the cache.
-  (rf/reg-sub :p0/fan   (fn [db [_ i]] (get-in db [:cells (mod i cells-n)])))
-  (rf/reg-event :p0/seed (fn [_ _] {:db (seed-db)}))
+  ;;
+  ;; The modulus is READ OFF THE DB rather than off `cells-n`
+  ;; (rf2-2rtt6.140), so the grid width lives in exactly one place — the
+  ;; seeded db — and cannot drift against the width a write rebuilds. It is
+  ;; a field read on a `PersistentVector`: O(1), allocating nothing and
+  ;; retaining nothing, which is why the retention rows that publish
+  ;; retained bytes are not moved by it.
+  (rf/reg-sub :p0/fan   (fn [db [_ i]] (get-in db [:cells (mod i (count (:cells db)))])))
+  ;; The width rides on the event, so a frame's `:initial-events` states the
+  ;; page it is seeding and nothing ambient has to be set in the right order
+  ;; beforehand. Absent, it is the published [[cells-n]].
+  (rf/reg-event :p0/seed (fn [_ [_ grid-width]] {:db (seed-db (or grid-width cells-n))}))
   ;; The two BULK writes, as ordinary re-frame events. Both arms drive
   ;; their bulk row through `dispatch-sync` on these, because in re-frame2
   ;; the commit IS the write clock and an arm that reached past it — a
@@ -186,6 +210,30 @@
   ;; for on every write. The floor arm has neither and says so.
   (rf/reg-event :p0/write-all
     (fn [{:keys [db]} [_ v]] {:db (assoc db :cells (vec (repeat cells-n v)))}))
+  ;; THE BOUNDARY-PROPORTIONAL WRITE (rf2-2rtt6.140). Byte-for-byte the same
+  ;; event through the same pipeline as `:p0/write-all` — an ordinary
+  ;; re-frame event with an ordinary `:db` effect, dispatched synchronously —
+  ;; differing in ONE term: the width of the vector rebuilt inside the
+  ;; handler is the db's own, not the compile-time 300.
+  ;;
+  ;; THE EQUIVALENCE ARGUMENT, because a cheaper write that measures
+  ;; something else is worse than no write. Every mounted key `[:p0/fan k]`
+  ;; folds into `db[:cells]` under `(mod k width)` and this replaces every
+  ;; slot with a new value, so every one of the E = B·R edges sees a changed
+  ;; value and the INVALIDATION SET IS IDENTICAL: the same R subs recompute,
+  ;; the same R changed values reach each boundary, the same re-render and
+  ;; commit follow. A boundary's text is the sum of its R reads, so at a page
+  ;; written to `v` it is `(str (* R v))` under either write and the DOM
+  ;; read-back, the canonical-DOM comparison and the floor subtraction are
+  ;; all unchanged. B, E, Q and the key rule are untouched.
+  ;;
+  ;; The old write ALSO changed data no boundary read — on the 24-boundary
+  ;; page 276 of the 300 rebuilt cells were read by nothing at all — and that
+  ;; is the whole of the difference. It is machinery on both sides of the
+  ;; floor subtraction. `:p0/write-all` is left exactly as it is: its rows
+  ;; are published and it stays byte-identical.
+  (rf/reg-event :p0/write-page
+    (fn [{:keys [db]} [_ v]] {:db (assoc db :cells (vec (repeat (count (:cells db)) v)))}))
   (rf/reg-event :p0/write-one
     (fn [{:keys [db]} [_ i v]] {:db (update db :cells assoc i v)}))
   nil)

@@ -158,8 +158,7 @@
   subscription, no hook, nothing on the page that a write can re-render.
 
   CONSTRUCTED rather than tabled, and that is the allocation row's doing
-  (rf2-2rtt6.138). The ladder's arms are now sized by their driver so that
-  a whole measured window fits under the masking bound, and a floor left
+  (rf2-2rtt6.138). The ladder's arms are sized by their driver, and a floor left
   at the published 300 would be the calibrator for a page the row never
   mounted: its `B/boundary/write` column would divide the write's own cost
   by a boundary count its own DOM did not have. At `cells` = [[per-root]]
@@ -266,18 +265,22 @@
 ;; needed to move. The allocation row cannot: its instrument is accurate
 ;; only while no collection falls inside the measured window, and one warm
 ;; write of 1,200 boundaries allocates 1.2–1.7 MB, two to three times the
-;; ~600 KB at which the first fall appears. The row's own masking bound
-;; (`p0_run.cjs` `ALLOC_MASK_BUDGET_B`) refuses a window that large rather
-;; than publishing what it reads, because the reading degrades ALWAYS
-;; DOWNWARD and under-reading allocation is the direction that manufactures
+;; ~600 KB at which the first fall appears — so the reading degrades ALWAYS
+;; DOWNWARD, and under-reading allocation is the direction that manufactures
 ;; HD-002's predicted flat-at-zero.
 ;;
 ;; The repair is to shrink the measured UNIT, not the window: the quantity
-;; is per BOUNDARY, so a page of a few dozen boundaries puts a many-write
-;; window under the threshold and leaves the averaging a fit needs. B was
-;; unreachable through the driver's env surface — `P0_ROOTS=1` floors it at
-;; the compile-time [[per-root]] — which is exactly why the small-witness
-;; arm is this parameter and not a flag.
+;; is per BOUNDARY, so a page of a few dozen boundaries leaves the averaging
+;; a fit needs. B was unreachable through the driver's env surface —
+;; `P0_ROOTS=1` floors it at the compile-time [[per-root]] — which is exactly
+;; why the small-witness arm is this parameter and not a flag.
+;;
+;; AND IT IS ONLY HALF THE REPAIR (rf2-2rtt6.140). Shrinking the page did not
+;; shrink the write: `:p0/write-all` rebuilds 300 cells whatever is mounted,
+;; a fixed F ~ 24.4 KB per write that at B=24 was 57% of the whole allowance
+;; before a boundary had been measured. `:p0/write-page` makes that term
+;; proportional to the page too, and `p0_run.cjs`'s certification is now read
+;; off the window's own legs rather than predicted from a constant.
 
 (defn- lad-arm
   "One rung of the ladder: `reads` DISTINCT subscription reads on each of
@@ -286,7 +289,7 @@
 
   `cells` is the measured unit and the driver owns it: the retention rows
   pass [[per-root]] and read the published page, the allocation row passes
-  the size its masking bound admits. Nothing else about the rung moves
+  the page its operator stated. Nothing else about the rung moves
   with it — the same substrates, the same key rule, the same DOM one
   `span.cell` at a time."
   [substrate cells reads q]
@@ -353,25 +356,33 @@
 ;; ---------------------------------------------------------------------------
 
 (defn prepare!
-  "Install the adapter `segment-id` names and stand the frame back up.
+  "Install the adapter `segment-id` names and stand the frame back up,
+  seeded at `grid-width` cells.
 
   Called by the driver BEFORE its baseline read, so the adapter swap's own
   residue is in the baseline and not in the arm's retained delta. Passing
   a segment that is already installed still re-seeds, so the two branches
-  cost the same."
-  [segment-id]
-  ;; The Hicasso runtime memoises `capture-frame` per frame id, and
-  ;; `enter-segment!` destroys and re-creates `:p0/frame` — a bundle
-  ;; captured before the swap is pinned to a dead incarnation. Resetting
-  ;; here rather than after an arm is deliberate: `prepare!` runs OUTSIDE
-  ;; every measured window and before the baseline read, so the reset's
-  ;; own residue lands in the baseline, and no arm's teardown is ever
-  ;; forced — which is what leaves the survival metric something to
-  ;; measure (rf2-2rtt6.34).
-  (hic-rt/reset-runtime!)
-  (let [segment (first (filter #(= segment-id (:id %)) arms/segments))]
-    (when segment (arms/enter-segment! segment)))
-  true)
+  cost the same.
+
+  `grid-width` defaults to [[per-root]] — the published 300 — so the
+  retention rows and the fan-out sweep, which pass nothing, seed the page
+  they always did. The allocation row states B, because its write rebuilds
+  the grid and a grid wider than the mounted page is machinery no boundary
+  reads (rf2-2rtt6.140)."
+  ([segment-id] (prepare! segment-id per-root))
+  ([segment-id grid-width]
+   ;; The Hicasso runtime memoises `capture-frame` per frame id, and
+   ;; `enter-segment!` destroys and re-creates `:p0/frame` — a bundle
+   ;; captured before the swap is pinned to a dead incarnation. Resetting
+   ;; here rather than after an arm is deliberate: `prepare!` runs OUTSIDE
+   ;; every measured window and before the baseline read, so the reset's
+   ;; own residue lands in the baseline, and no arm's teardown is ever
+   ;; forced — which is what leaves the survival metric something to
+   ;; measure (rf2-2rtt6.34).
+   (hic-rt/reset-runtime!)
+   (let [segment (first (filter #(= segment-id (:id %)) arms/segments))]
+     (when segment (arms/enter-segment! segment (long grid-width))))
+   true))
 
 ;; ---------------------------------------------------------------------------
 ;; Holding, and letting go
@@ -984,8 +995,8 @@
 ;; The written value, MONOTONE FOR THE LIFE OF THE PAGE rather than
 ;; restarting at 1 in every window.
 ;;
-;; It restarted, and the row read a constant. `:p0/write-all` writes
-;; `(vec (repeat cells-n v))`, so writing the value that is already there
+;; It restarted, and the row read a constant. A `:p0/write-*` event writes
+;; `(vec (repeat width v))`, so writing the value that is already there
 ;; produces an EQUAL app-db, no subscription changes, and React re-renders
 ;; nothing — while the read-back still passed, because the warm-up pass had
 ;; already put the expected text in the DOM. Every arm then reads the write
@@ -1044,10 +1055,13 @@
   leg boundary, and answer the raw samples.
 
   `kind` is `\"write\"` — a warm bulk re-render of the arm that is ALREADY
-  MOUNTED, through the same `:p0/write-all` event the bulk clock arms
-  drive — or `\"control\"` (a dropped `.slice` of predicted size) or
-  `\"idle\"` (nothing at all, which prices the sampler's own footprint as
-  a constant sitting inside every other figure).
+  MOUNTED, through the `:p0/write-page` event (rf2-2rtt6.140), which is
+  the same `dispatch-sync` through the same pipeline and signal graph as
+  the bulk clock arms' `:p0/write-all` and differs only in rebuilding the
+  grid at the mounted page's own width — or `\"control\"` (a dropped
+  `.slice` of predicted size) or `\"idle\"` (nothing at all, which prices
+  the sampler's own footprint as a constant sitting inside every other
+  figure).
 
   `drain` is `\"reagent\"` for Reagent's own documented synchronous render
   drain, and anything else for the empty `flushSync` a
@@ -1068,7 +1082,7 @@
       (aset buf (inc (* 2 i)) (mem))
       (cond
         write? (do (vswap! alloc-tick inc)
-                   (arms/write-all! @alloc-tick)
+                   (arms/write-page! @alloc-tick)
                    (if reagent?
                      (react-dom/flushSync (fn [] (r/flush)))
                      (react-dom/flushSync (fn [] nil))))
@@ -1097,7 +1111,9 @@
   decides when a reading is taken."
   []
   (set! (.-P0H js/window)
-        #js {:prepare        (fn [seg] (prepare! (when seg (keyword seg))))
+        #js {:prepare        (fn [seg grid-width]
+                               (prepare! (when seg (keyword seg))
+                                         (if (some? grid-width) (long grid-width) per-root)))
              :mount          (fn [arm k opts] (mount! arm k opts))
              :release        (fn [] (release!*) true)
              :control        (fn [n] (control! n))
