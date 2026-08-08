@@ -561,8 +561,8 @@ be expected to buy the same pair of refusals.
 > Kept in full: it is the position that ruling composed, and its conditioning is
 > what the ruling had to retire.***
 >
-> **The regime-only statement below is superseded.** `M1` publishes ~~`~1.184×`
-> against direct UIx-on-subs, conditionally labelled,~~ on the two retained
+> **The regime-only statement below is superseded.** `M1` publishes `~1.184×`
+> against direct UIx-on-subs, conditionally labelled, on the two retained
 > quiet-box ensembles. The figures, the estimators they are drawn on and the
 > labels every one of them must carry are at
 > [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row),
