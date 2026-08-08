@@ -19,7 +19,7 @@
       "prediction": 1.7255,
       "centre": 1.2308,
       "location": {
-        "limits": [1.0411, 1.4204],
+        "limits": [1.0412, 1.4204],
         "derivation": "centre +/- 3 x between-run SD 0.0632, over the 8 BASELINE row-runs"
       },
       "dispersion": {
@@ -37,8 +37,8 @@
       "sensitivity": {
         "what": "WHAT THIS STANDARD CAN AND CANNOT CATCH, stated rather than left to be discovered. A standard nobody has seen refuse is a standard of unmeasured sensitivity, and this lane has found that defect nine times.",
         "model": "R = 0.3181 * P_eff + 0.6819 — the row's reading as a function of the work its control arm actually builds, fitted from the baseline's own additive residual (c / floorTared p50 = 0.6819, so only 31.8% of this row's reading is page-proportional)",
-        "admits": "the location limits admit control arms building P_eff in [1.1293, 2.3217] against a declared 1.7255 — that is, an arm doing between 17.8% and 182.2% of the declared EXTRA work",
-        "catches": "an arm that does not double at all reads 1.0000x and is REFUSED; an arm building a TRIPLING reads 1.4615x and is REFUSED",
+        "admits": "the location limits admit control arms building P_eff in [1.1295, 2.3216] against a declared 1.7255 — that is, an arm doing between 17.8% and 182.2% of the declared EXTRA work",
+        "catches": "an arm that does not double at all reads 1.0000x and is REFUSED; an arm building a TRIPLING reads 1.4616x and is REFUSED",
         "misses": "an arm rendering 140 of the 300 boundaries it declares — the sabotage rf2-8a746 proved its own standard against — would read 1.1077x on THIS row and be ADMITTED. That is not a hole in the rule; it is prediction P4 restated as a number. 51 elements through this door leaves too little page-proportional signal for a control to resolve a half-built arm, and any row-level claim taken here carries that resolution."
       },
       "provenance": {
