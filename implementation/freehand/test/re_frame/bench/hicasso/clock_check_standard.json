@@ -1,0 +1,64 @@
+{
+  "id": "hicasso-clock/ctl-2x-level",
+  "version": 1,
+  "ruling": "rf2-8a746",
+  "frozen": "2026-08-07",
+  "what": "The level-denominated check standard for the Hicasso clock (clock_run.cjs). The measured quantity is the ctl-2x arm's TARED TaskDuration over the floor's TARED TaskDuration, in the same round of the same segment — one per block, 18 per row-run. Both terms are LEVELS, so the ~0.4 ms of estimator error each arm's p50 carries is 9% of a ~4.5 ms denominator rather than 48% of a 1.2 ms difference. It replaces the three-point difference-of-differences control, which rf2-8a746 retired as a gate.",
+  "notAPrediction": "The expected centre is EMPIRICAL, not theoretical. ctl-2x builds exactly twice the floor's page and the arithmetic prediction is 2.00x, but TaskDuration is not affine in the page either, and asserting a theoretical value against a non-affine clock is the exact mistake rf2-8a746 retired. What is frozen below is what this instrument, on this page, through this door, was MEASURED to read.",
+  "statistics": {
+    "block": "one (round, segment) pair — tared(ctl-2x) / tared(floor)",
+    "location": "the run's MEDIAN over its blocks (rf2-8bgqq: a ratio's headline is its median)",
+    "dispersion": "the run's robust scale over its blocks, IQR / 1.349 — the normal-consistent estimator, so it is comparable with an SD without inheriting one wild block"
+  },
+  "runRejection": "a run is IN CONTROL when its block median lies inside the frozen location limits AND its robust scale is at or under the frozen dispersion limit. Nothing per-block rejects a run: the retired rule required all 18 blocks inside a tolerance band, and 0.835^18 = 3.9% is why a control that fully met its premise still passed only 4 of 42 runs.",
+  "toleranceBandIsNotTheRule": "The per-block tolerance band below is REPORTED and decides nothing. rf2-8a746 ruled that the tolerance band and the run-rejection rule get distinct, calibrated error rates; these are they.",
+  "classes": {
+    "bulk": {
+      "rows": ["bulk300", "bulk100", "narrow"],
+      "calibrated": true,
+      "centre": 1.7207,
+      "location": { "limits": [1.5509, 1.8905], "derivation": "centre +/- 3 x between-run SD 0.0566" },
+      "dispersion": { "limit": 0.568, "derivation": "exp(mu + 3 sigma) of the 42 log robust scales, mu = -1.6757, sigma = 0.37 — a lognormal upper 3 sigma on a positive skewed quantity, 35% above the widest of the 42 observed draws rather than at it" },
+      "tolerance": { "slack": 0.25, "band": [1.2905, 2.1509], "reported": true },
+      "errorRates": {
+        "runRejectionNominal": "0.4% per run — location 0.27% (two-sided 3 sigma, normal) plus dispersion 0.13% (one-sided 3 sigma, lognormal)",
+        "runRejectionEmpirical": "0 of 42 committed row-runs refused",
+        "toleranceBandPerBlock": "8.2% of blocks fall outside the reported band (694 of 756 inside)",
+        "retiredRuleForComparison": "the retired rule — every block inside a +/-25% band about the theoretical 2.00x — put 626 of 756 blocks (82.8%) inside and passed 4 of 42 runs, a 90.5% empirical per-run false refusal. Re-centring that band on the empirical 1.7207 raises the pooled in-band fraction to 91.8% and still passes only 10 of 42, because 0.918^18 = 21.4%. The centre and the all-blocks rule are two separate defects and this standard repairs both."
+      },
+      "provenance": {
+        "rowRuns": 42,
+        "datasets": ["data/clock-emvod/run1-8.json", "data/clock-w3yxd/run1-6.json"],
+        "chromium": "147.0.7727.15",
+        "design": "6 rounds x (4 warmup + 10 samples), tare on, 3 segments",
+        "observed": { "runMedianCentre": 1.7207, "runMedianRange": [1.596, 1.8288], "betweenRunSD": 0.0566, "robustScaleP50": 0.1922, "robustScaleMax": 0.4211 },
+        "independence": "NOT INDEPENDENT OF ITS OWN BASELINE, and said here rather than left to be discovered. v1 is seeded from the same 42 row-runs it is quoted against, so 0-of-42 is a consistency check and not a false-refusal measurement. NIST e-Handbook 2.3.5's doctrine is that the limits come from a baseline the standard is not afterwards judged on; the next recalibration must take one."
+      }
+    },
+    "mount": {
+      "rows": ["M1"],
+      "calibrated": false,
+      "why": "rf2-8a746 calibrated the BULK class only, from the 42 bulk row-runs it names. The mount half of the instrument question is rf2-t2flm's ruling, and one finding is handed to it by id: ctl-2x's true centre is empirical and differs by row class — 1.72x on bulk against 1.80x on the mount — so a mount decision function must state its expectation empirically too. Until that ruling lands this class FAILS CLOSED: an uncalibrated class cannot certify that a run was in control. M1 publishes DIRECTION and never a magnitude by rf2-jcm3p, so nothing turns on it.",
+      "observed": {
+        "rowRuns": 14,
+        "runMedianCentre": 1.7956,
+        "runMedianRange": [1.7489, 1.8978],
+        "betweenRunSD": 0.0397,
+        "robustScaleP50": 0.12,
+        "robustScaleRange": [0.041, 0.2863],
+        "note": "evidence for rf2-t2flm, not limits. Nothing reads these."
+      }
+    }
+  },
+  "noStandard": {
+    "rows": ["keystroke"],
+    "why": "this row's control burns a fixed 50 ms rather than doubling the page, so control/floor reads (F+50)/F and moves with F. It is a sensitivity control and not a check standard, and rf2-swwud adjudicates the row by Event Timing. A row with no proportional control arm cannot be certified in control by this standard, and the verdict says so rather than passing."
+  },
+  "recalibrateOn": [
+    "any Chromium version change — the counters and the compositor are the instrument",
+    "any change to the harness: the door an arm goes through, the tare arm, the settle, the sample or round counts",
+    "any change to the floor's page — cell count, boundary count, the shape of a cell",
+    "any change to the published clock (the counter the rows are stated on)",
+    "and the recalibration takes a FRESH baseline: re-deriving limits from the runs they will judge is how a check standard stops being one"
+  ]
+}
