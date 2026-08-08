@@ -378,8 +378,8 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
   const t = (what, fn) => test(`census_clock_run.cjs write path: ${what}`, fn);
 
-  t('the published shape, all gates passed, is the ONLY thing that is canonical', () => {
-    const d = destination(shape(), 0);
+  t('the published shape is the ONLY thing that is canonical', () => {
+    const d = destination(shape());
     assert.strictEqual(d.canonical, true);
     assert.strictEqual(d.dir, CANON);
     assert.strictEqual(d.why, null);
@@ -387,36 +387,41 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   // Each condition alone must move the write off the canonical set. These are
   // the mutation proofs: flip one field, the destination must change.
-  for (const [what, over, code, needle] of [
-    ['a refused verdict', {}, 3, /verdict refused it \(exit 3\)/],
-    ['a partial row set', { rowsOnly: 'feed' }, 0, /PARTIAL row set/],
-    ['a partial run set', { runsOnly: 'uix' }, 0, /PARTIAL run set/],
-    ['--no-build', { noBuild: true }, 0, /--no-build/],
-    ['an overridden depth', { depthPublished: false }, 0, /OVERRIDDEN design depth/],
+  //
+  // EVERY ONE OF THEM IS A FACT ABOUT THE RUN'S SHAPE, and after rf2-pzqy8
+  // that is the whole of this list — a refused VERDICT used to be on it and
+  // is not, because a gate refusal belongs to one row and is recorded there
+  // (`rowPublication`, below). `clock_run.cjs`'s `publication(shape)` has
+  // read shape and nothing else all along; this is now that same rule.
+  for (const [what, over, needle] of [
+    ['a partial row set', { rowsOnly: 'feed' }, /PARTIAL row set/],
+    ['a partial run set', { runsOnly: 'uix' }, /PARTIAL run set/],
+    ['--no-build', { noBuild: true }, /--no-build/],
+    ['an overridden depth', { depthPublished: false }, /OVERRIDDEN design depth/],
     // rf2-azopg. C56CLOCK_SKIP_QUIET=1 made `quietGate` return ok:true and
     // print "NOT the published shape", and then nothing carried that fact to
     // the write decision — so a run whose samples were never checked against a
     // quiet box could occupy the canonical directory, indistinguishable from
     // one taken in a granted window. This is the probe that found it: the
     // published shape in every other respect, exit 0, quiet gate skipped.
-    ['a SKIPPED quiet gate', { skipQuiet: true }, 0, /SKIPPED quiet gate \(C56CLOCK_SKIP_QUIET=1\)/],
+    ['a SKIPPED quiet gate', { skipQuiet: true }, /SKIPPED quiet gate \(C56CLOCK_SKIP_QUIET=1\)/],
   ]) {
     t(`${what} is NOT canonical, and says why`, () => {
-      const d = destination(shape(over), code);
+      const d = destination(shape(over));
       assert.strictEqual(d.canonical, false, `${what} must not be canonical`);
       assert.notStrictEqual(d.dir, CANON, `${what} must not write the published filenames`);
       assert.strictEqual(d.dir, `${CANON}.unpublished`);
       assert.match(d.why, needle);
       // ... and the same shape WITHOUT that condition is canonical again, so
       // the test cannot pass by refusing everything.
-      assert.strictEqual(destination(shape(), 0).canonical, true);
+      assert.strictEqual(destination(shape()).canonical, true);
     });
   }
 
   t('every condition that fired is named, not just the first', () => {
-    const d = destination(shape({ rowsOnly: 'feed', noBuild: true, depthPublished: false, skipQuiet: true }), 5);
+    const d = destination(shape({ rowsOnly: 'feed', noBuild: true, depthPublished: false, skipQuiet: true }));
     assert.strictEqual(d.canonical, false);
-    for (const needle of [/verdict refused it \(exit 5\)/, /PARTIAL row set/, /--no-build/, /OVERRIDDEN design depth/, /SKIPPED quiet gate/]) {
+    for (const needle of [/PARTIAL row set/, /--no-build/, /OVERRIDDEN design depth/, /SKIPPED quiet gate/]) {
       assert.match(d.why, needle);
     }
   });
@@ -442,12 +447,13 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t('an explicit C56CLOCK_DATA_DIR is honoured as given, and is never canonical', () => {
     const mine = '/data/censusclock-somebead';
-    const d = destination(shape({ dataDir: mine, dataDirOverridden: true }), 0);
+    const d = destination(shape({ dataDir: mine, dataDirOverridden: true }));
     assert.strictEqual(d.dir, mine, 'the operator named the destination; do not rewrite it');
     assert.strictEqual(d.canonical, false, 'an operator-named directory is not the published set');
-    // Even refused, it still lands where the operator said — the refusal is
-    // carried by the exit code and by `canonical`, not by moving the file.
-    assert.strictEqual(destination(shape({ dataDir: mine, dataDirOverridden: true }), 4).dir, mine);
+    // It still lands where the operator said whatever else the run was — the
+    // refusal is carried by the exit code and by `canonical`, never by moving
+    // the file out from under the name the operator gave it.
+    assert.strictEqual(destination(shape({ dataDir: mine, dataDirOverridden: true, skipQuiet: true })).dir, mine);
   });
 
   // The defect was an ORDERING one: the write happened, and the refusal was
@@ -455,7 +461,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // regressed and a behavioural test of a browser driver cannot see it.
   t('the verdict is computed BEFORE any dataset is written', () => {
     const v = SRC.indexOf('const v = verdict(summarise(failed, results));');
-    const dst = SRC.indexOf('const dest = destination(runShape(), v.code);');
+    const dst = SRC.indexOf('const dest = destination(runShape());');
     const mk = SRC.indexOf('fs.mkdirSync(dest.dir');
     assert.ok(v > 0 && dst > 0 && mk > 0, 'the write path no longer has the shape this test pins');
     assert.ok(v < dst, 'the verdict must be computed before the destination is chosen');
@@ -465,7 +471,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('no dataset is written to the raw DATA_DIR downstream of `destination`', () => {
     // This is how the defect grew: the write named the canonical directory
     // directly. Every write site must go through the chosen destination.
-    const after = SRC.slice(SRC.indexOf('const dest = destination(runShape(), v.code);'));
+    const after = SRC.slice(SRC.indexOf('const dest = destination(runShape());'));
     assert.ok(!/fs\.mkdirSync\(DATA_DIR/.test(after), 'mkdirSync must use the chosen destination');
     assert.ok(!/path\.join\(DATA_DIR/.test(after), 'the dataset path must use the chosen destination');
     assert.match(after, /path\.join\(dest\.dir/);
@@ -569,7 +575,12 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     quiet: { ok: true },
     windowStart: '2026-08-07T00:00:00.000Z',
     adjudication: {
-      ctl: { ok: true },
+      // The whole `ctl` record a real row carries, `measured` included:
+      // `datasetFor` now decides each row's own publication through the same
+      // `summariseRow` mapper `summarise` uses, so a fixture missing a field
+      // the mapper reads would be testing a row no run can produce
+      // (rf2-pzqy8).
+      ctl: { ok: true, measured: { mean: 1.9943 } },
       cAdditive: 0.9,
       assessed: { bandStats: { band: 0.12 }, verdict: { ceilingBreached: false } },
       bars: {},
@@ -681,25 +692,27 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // catches is not the same as a driver that exits non-zero — this drives the
   // second. The source pins below hold the reconstruction to the shape it
   // stands for, so it cannot drift away from the driver while still passing.
-  const summarisable = () => {
-    const r = fixtureRow();
-    r.adjudication.ctl = { ok: true, measured: { mean: 1.9943 } };
-    return r;
-  };
   const driveOn = (blocksDecomp, declared = DECLARED) => {
     const results = [];
     let failed = null;
     try {
       foldDecomposition(blocksDecomp, declared); // `report`'s first act on the row
-      results.push(summarisable()); // reached only if the fold ANSWERED
+      results.push(fixtureRow()); // reached only if the fold ANSWERED
     } catch (e) {
       failed = e.message;
     }
     const v = verdict(summarise(failed, results));
+    const wrote = Boolean(results.length && !failed);
     return {
       code: v.code,
-      wrote: Boolean(results.length && !failed),
-      canonical: destination(shape(), v.code).canonical,
+      wrote,
+      // WHAT THIS RUN PUBLISHED, which is the question every witness below
+      // asks. `destination` reads the run's SHAPE and nothing else after
+      // rf2-pzqy8, so what keeps a refused fold out of the published set is
+      // not a routing decision — it is that `report` threw, `failed` was set,
+      // and `drive`'s `if (results.length && !failed)` never reached a write
+      // at all. Nothing is published because nothing was written.
+      canonical: wrote && destination(shape()).canonical,
       why: failed || '',
     };
   };
