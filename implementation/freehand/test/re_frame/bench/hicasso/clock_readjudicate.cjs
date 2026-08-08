@@ -181,25 +181,35 @@
 // retaining the veto flips `M1` to INSTRUMENT-LIMITED (the widest same-run bands
 // are 22.34% and 18.29%) even though the row-specific interval clears `1.10x`.
 //
-// THE RETIREMENT IS SCOPED TO THE MOUNT CLASS, AND THAT IS A FINDING RATHER
-// THAN A HEDGE (rf2-vh0e3). Criterion (c) retires the veto; criterion (b) of
-// the same ruling says BULK'S PATH IS UNCHANGED. On the committed corpus those
-// two cannot both be satisfied globally, and the implementation is how that
-// became visible: retiring the veto on `bulk` as well promotes TWO pairs of the
-// 42-run corpus to published magnitudes — `bulk300` and `bulk100` on
-// `uix-subs / reagent-subs`, at [0.8327 – 0.9031] and [0.8870 – 0.9675]. Both
-// are DONOR AGAINST DONOR, a comparison that answers no ship question, and
-// `rf2-8a746` says in terms that the 42 committed row-runs "remain
-// calibration/diagnostic evidence and are NOT retroactively promoted to
-// published magnitudes". `rf2-diaud` amends that ruling for the row it is
-// about; it does not overturn that sentence, and no implementation may.
+// ## AND THE RETIREMENT IS GENERAL, ONCE BULK GATES THE PAIR ITS BAR NAMES
+// (rf2-vh0e3, rf2-vp0j7)
 //
-// So the veto is retired where the ruling states its consequence — the mount —
-// and retained on `bulk`, which is what "bulk's path unchanged" says in the one
-// place the two criteria disagree. It is NOT quietly re-added to make a verdict
-// look safer: on the mount row, the row this ruling is about, it is gone, and
-// `M1` publishes because its own interval clears its own gate. `rf2-vh0e3`
-// carries the collision to the operator with both consequences priced.
+// It did not start there. Criterion (c) retires the veto and criterion (b) of
+// the same ruling says BULK'S PATH IS UNCHANGED, and on the committed corpus
+// those two could not both hold: retiring the veto on `bulk` promoted pairs of
+// the 42-run corpus `rf2-8a746` fenced. So it was retired on the mount, where
+// the ruling states its consequence, and RETAINED on `bulk` pending a ruling.
+//
+// THE COLLISION DISSOLVED RATHER THAN BEING DECIDED, and the mechanism is the
+// `gatedPairs` field in `PUBLICATION` below. EVERY pair the veto was holding is
+// `uix-subs / reagent-subs` — UIx-on-subs against Reagent-on-subs, DONOR
+// AGAINST DONOR, which answers no question `validation.md`'s bulk bar asks.
+// That bar reads "<= 1.0x Reagent-on-subs, like-for-like", naming ONE
+// comparison exactly as the mount's names one, so `bulk` gates
+// `hicasso / reagent-subs` and reports the other two beside it. A pair nobody
+// adjudicates has no verdict for a retirement to promote it into, so
+// `rf2-8a746`'s "remain calibration/diagnostic evidence and are NOT
+// retroactively promoted to published magnitudes" is honoured in full — and
+// honoured by scoping the rule rather than by leaving a control statistic
+// standing in for a scope guard it was never designed to be.
+//
+// THE ONE BULK PAIR THAT IS ADJUDICATED DOES NOT MOVE, which is what makes the
+// retirement safe to make rather than merely arguable: on all six row-ensemble
+// combinations `hicasso / reagent-subs` STRADDLES 1.0 and is refused by the
+// whole-interval rule, which sits ahead of the veto and is untouched by it. The
+// veto was never what was holding it. That is a fact about this corpus and not
+// a property of the rule, so `clock_exit_path.test.cjs` drives it in both
+// directions — and if it ever stops being true, the failure is the finding.
 
 'use strict';
 
@@ -405,19 +415,22 @@ const PUBLICATION = {
     estimandSays: 'paired same-round LEVEL ratio at fixed witness and fixed K, touching neither floor',
     bar: 1.0,
     architectureKill: 1.5,
-    // UNCHANGED BY rf2-diaud, deliberately and by name: the ruling adopts
-    // row-specific thresholds and leaves bulk's path exactly as `rf2-8a746`
-    // froze it, including that every pair of a bulk row adjudicates. (The bulk
-    // bar's own pair is `hicasso / reagent-subs`; that the rule speaks to all
-    // three is a pre-existing looseness this ruling did not reach — rf2-vp0j7.)
-    gatedPairs: null,
-    // THE CROSS-RUN MAX-BAND SECOND VETO, RETAINED HERE AND NOWHERE ELSE, under
-    // criterion (b) and against criterion (c) — see the header, and rf2-vh0e3
-    // for the ruling this waits on. Retiring it here promotes `bulk300` and
-    // `bulk100` on `uix-subs / reagent-subs` out of the 42-run corpus that
-    // `rf2-8a746` fenced, on a donor-against-donor comparison that answers no
-    // ship question. One field, so overturning it is one line.
-    crossRunBandVeto: true,
+    // THE BAR GATES THE PAIR IT NAMES (rf2-vp0j7). `validation.md:17` states it
+    // as "<= 1.0x Reagent-on-subs, LIKE-FOR-LIKE, both sides reading re-frame2
+    // subscriptions" — ONE comparison, exactly as `:15-16` state the mount's
+    // against direct UIx-on-subs. Adjudicating `hicasso / uix-subs` or
+    // `uix-subs / reagent-subs` against it holds a pair to a threshold written
+    // for a different question, which is the error rf2-diaud fixed one class
+    // up. They keep their intervals and lose only the verdict.
+    gatedPairs: ['hicasso / reagent-subs'],
+    // AND THE CROSS-RUN MAX-BAND SECOND VETO IS RETIRED HERE TOO (rf2-vh0e3) —
+    // which the line above is what made possible. Every pair the veto was
+    // holding is donor against donor, so once they are no longer adjudicated
+    // there is no verdict left for its retirement to promote them into, and
+    // `rf2-8a746`'s 42-run fence stands without a control statistic doing a
+    // scope guard's work. One field, so overturning it is still one line, and
+    // `adjudicate` below still carries the refusal it would fire.
+    crossRunBandVeto: false,
     adjudicate(iv, diagnostics) {
       const below = iv.hi < this.bar;
       const above = iv.lo > this.architectureKill;
@@ -439,8 +452,8 @@ const PUBLICATION = {
           why:
             `the effect is ${fmt(effectPct, 1)}% and the widest same-run noise band among the pooled runs is ` +
             `${Number.isFinite(bandPct) ? fmt(bandPct, 1) + '%' : 'not recorded'} — rf2-8a746's second veto, ` +
-            'RETAINED on this class alone because rf2-diaud (b) leaves bulk\'s path unchanged while rf2-diaud (c) ' +
-            'retires the veto; the collision is rf2-vh0e3 and it is the operator\'s',
+            'RETIRED from publication authority by rf2-diaud (c) and rf2-vh0e3, and reachable now only by setting ' +
+            'this class\'s crossRunBandVeto back to true',
         };
       }
       return {
@@ -689,15 +702,23 @@ function effectInterval(runs) {
  * ABOVE 1.5, while the mount ships at or under K1's 1.10x and trips K1 wholly
  * above it.
  *
- * THE SECOND VETO IS RETIRED ON THE MOUNT (rf2-diaud (c)) and the band arrives
- * as a `diagnostics` bag rather than as a bare limit, because on every class but
- * `bulk` that is all it is. The widest same-run band is a control statistic for
- * a different estimand, it belongs to one run while the effect is pooled over
- * all of them, and it gets HARDER to clear as runs are added. The 35% band
- * ceiling still refuses a run outright in `GATES`, and the same-run bands still
- * print beside every verdict. `bulk` alone still consults it, under criterion
- * (b)'s "bulk's path unchanged" and pending rf2-vh0e3 — the entry says so by
- * name in its own `crossRunBandVeto` field.
+ * AND WHICH PAIR, WHICH IS NOT THE SAME QUESTION (rf2-diaud, rf2-vp0j7). A
+ * class's bar is stated against ONE comparison — the mount's against direct
+ * UIx-on-subs, bulk's against Reagent-on-subs like-for-like — so `gatedPairs`
+ * names it and the others are reported beside it with no verdict at all. They
+ * lose the adjudication, never the interval.
+ *
+ * THE SECOND VETO IS RETIRED ON EVERY CLASS (rf2-diaud (c), rf2-vh0e3) and the
+ * band arrives as a `diagnostics` bag rather than as a bare limit, because that
+ * is now all it is. The widest same-run band is a control statistic for a
+ * different estimand, it belongs to one run while the effect is pooled over all
+ * of them, and it gets HARDER to clear as runs are added. The 35% band ceiling
+ * still refuses a run outright in `GATES`, and the same-run bands still print
+ * beside every verdict. `bulk` consulted it for one ruling's length and no
+ * longer does: retiring it there promoted nothing once `gatedPairs` stopped the
+ * donor-against-donor pairs being adjudicated at all. Each entry still says
+ * which it is, by name, in its own `crossRunBandVeto` field, because that is
+ * the one line an operator overturns.
  */
 function effectVerdict(iv, rowId, pair, diagnostics) {
   const rule = publicationRule(rowId);
@@ -716,8 +737,8 @@ function effectVerdict(iv, rowId, pair, diagnostics) {
       verdict: 'CO-INSTRUMENTED — reported beside the gated pair, not gating it',
       why:
         `this row's gate is stated on ${rule.gatedPairs.join(', ')}; \`${pair}\` is measured on the same estimand ` +
-        'and printed beside it, and holding it to a threshold defined for another comparison is the error this ' +
-        'ruling retires (rf2-diaud)',
+        'and printed beside it, and holding it to a threshold defined for another comparison is the error these ' +
+        'rulings retire (rf2-diaud on the mount, rf2-vp0j7 on bulk)',
     };
   }
   if (!iv) return { publishes: false, verdict: 'INSTRUMENT-LIMITED', why: 'no usable paired readings in any pooled run — no interval was formed' };
@@ -1289,22 +1310,23 @@ function main(argv) {
                 ? `thresholds: bar ${rule.bar} (whole interval below), architecture-kill ${rule.architectureKill} (whole interval above)`
                 : 'no threshold — this row class has no governing record')
         );
-        // SENSITIVITY DIAGNOSTIC, AND ON EVERY CLASS BUT `bulk` THAT IS ALL IT
-        // IS (rf2-diaud (c)). The 35% ceiling above already refused any run
-        // whose band breached it; what the ruling retires is the cross-run
-        // MAXIMUM as a second gate on publication. Which classes it still gates
-        // is printed rather than inferred, because the asymmetry is a live
-        // ruling (rf2-vh0e3) and a reader must not have to read the table.
+        // SENSITIVITY DIAGNOSTIC, AND ON EVERY CLASS THAT IS NOW ALL IT IS
+        // (rf2-diaud (c), rf2-vh0e3). The 35% ceiling above already refused any
+        // run whose band breached it; what the rulings retire is the cross-run
+        // MAXIMUM as a second gate on publication. Whether it still gates is
+        // printed rather than inferred, because the retirement is operator-
+        // overturnable in one field and a reader must not have to read the
+        // table to see which way that field is set.
         console.log(
           `;;       SENSITIVITY DIAGNOSTIC — same-run reproducibility bands among the pooled runs, widest ` +
             `${Number.isFinite(noise) ? fmt(noise, 1) + '%' : 'n/a'}. ` +
             (rule && rule.crossRunBandVeto
-              ? `On this row class it ALSO still vetoes publication — rf2-8a746's second condition, retained under ` +
-                `${EFFECT.thresholdsRuling} (b) "bulk's path unchanged" while (c) retires it elsewhere; the ` +
-                `collision is rf2-vh0e3 and it is the operator's.`
+              ? `On this row class it ALSO vetoes publication — rf2-8a746's second condition, REINSTATED against ` +
+                `${EFFECT.thresholdsRuling} (c) and rf2-vh0e3 by this class's own crossRunBandVeto field.`
               : `It DECIDES NOTHING here: the 35% ceiling refuses a run in the gates above, and the cross-run ` +
-                `maximum was retired from publication authority (${EFFECT.thresholdsRuling}) — it is not an ` +
-                `interval for this effect, it belongs to one run, and it grows harder to clear as runs are added.`)
+                `maximum was retired from publication authority (${EFFECT.thresholdsRuling} (c), rf2-vh0e3) — it ` +
+                `is not an interval for this effect, it belongs to one run, and it grows harder to clear as runs ` +
+                `are added.`)
         );
         // THE OTHER ESTIMAND, COMPLETE AND LABELLED — never a headline, and
         // never a bound to be read beside the point above.
