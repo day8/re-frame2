@@ -243,14 +243,40 @@
    :unmount  (fn [root] (.unmount root))})
 
 ;; ---------------------------------------------------------------------------
-;; THE THREE-POINT CONTROL — the one that differences the constant away
+;; THE THREE-POINT STATISTIC — DIAGNOSTIC, NON-GATING (rf2-8a746)
 ;; ---------------------------------------------------------------------------
 
 (def ^:private ctl3-dirty
-  "The dirty-set sizes of the three-point control's arms, at FIXED page
+  "The dirty-set sizes of the three-point statistic's arms, at FIXED page
   size. The floor supplies a fourth point at 300 for free, because a floor
   sample rewrites every one of its cells with a value that is fresh on
   every operation.
+
+  ## IT IS NO LONGER A CONTROL, AND THE ARMS STAY (rf2-8a746)
+
+  These arms fed a difference-of-differences CONTROL that gated every bulk
+  row. It refused 42 of 42 bulk row-runs across two independent quiet-box
+  ensembles, and the 2026-08-07 ruling retired it as a gate — not re-sited,
+  not re-tried. The diagnosis is arithmetic and both halves are
+  independently fatal: the prediction `(2D - eps)/(D - eps)` holds only if
+  `T` is affine in `d` and it is not, so the statistic's true centre sits
+  2.6% ABOVE the value at which it refuses; and `T(D) - T(eps)` is ~1.25 ms
+  carrying ~0.6 ms of dispersion, about 2 sigma from zero, which is the
+  classic Fieller ratio problem. Re-siting at 100/200/300 fixes the centre
+  and halves the denominator. Both available sitings fail; the conditioning
+  arithmetic says any siting must.
+
+  WHAT GATES A BULK ROW NOW is a level-denominated, empirically calibrated,
+  versioned CHECK STANDARD on `ctl-2x / floor` —
+  `clock_check_standard.json`, applied by `clock_check_standard.cjs`.
+
+  WHY THE ARMS ARE STILL BUILT. The same statistic on `LayoutDuration` over
+  the identical blocks is healthy — 1.9681/1.9801, flat marginals, no
+  negative difference in 756 blocks — which localises the failure to the
+  non-affine non-layout clock rather than to the quotient machinery, and
+  makes the pair a live diagnostic of the PAGE's dirty-set shape. The
+  driver prints it labelled non-gating. Removing the arms would delete the
+  only reading this instrument has of that shape.
 
   ## Why the control this replaces cannot be repaired by widening it
 
@@ -318,15 +344,21 @@
   three-point statistic reading 2.14x on the layout counter — so the
   workload's LAYOUT half is affine and something else is not.
 
-  The mechanism is PAINT, and it saturates. A commit that dirties cells
+  WHAT IS ESTABLISHED, AND WHAT IS ONLY INFERRED (rf2-8a746). Established,
+  on both committed ensembles: the concave term is in the NON-LAYOUT half,
+  it collapses 7.1 -> 1.8 µs per dirty cell, and it saturates below
+  d = 100. That is enough to kill the control, because it is not a constant
+  — it is a saturating function of the very axis the statistic varies, and
+  no amount of differencing removes one.
+
+  WHICH non-layout work it is remains UNSETTLED and must not be published
+  as settled. Paint damage-region clipping at the viewport is consistent
+  with the shape and with layout staying linear — a commit dirtying cells
   0..d-1 damages a region that grows with `d` only until it covers the
-  VIEWPORT; past that, the extra dirty rows are off-screen, they are laid
-  out but never painted. The viewport holds a few tens of rows, so paint
-  is still growing at d = 1 and has stopped by d = 100, which is exactly
-  the shape in the table. It is a property of the page and the window,
-  not of the instrument, and no amount of differencing removes it because
-  it is not a constant — it is a saturating function of the very axis the
-  control varies.
+  viewport, and the viewport holds a few tens of rows — but these datasets
+  carry Task, Script, Layout and DevTools and NO paint counter, so nothing
+  here measures paint. rf2-8a746 carries this as residual uncertainty: no
+  published row may state paint causation.
 
   RECORDED AS A REFUTATION. The driver prints the marginal cost per dirty
   cell over each interval on every row, so the shape above is re-measured
@@ -479,14 +511,16 @@
    (floor-mount-arm :ctl-2x (* 2 v/cells-n) 2)])
 
 (defn- ctl3-arms
-  "The three-point control's arms, and they exist on BULK ROWS ONLY.
+  "The three-point statistic's arms, and they exist on BULK ROWS ONLY.
+
+  THEY GATE NOTHING (rf2-8a746) — see [[ctl3-dirty]]. What they feed is a
+  printed diagnostic of the page's dirty-set shape.
 
   A mount row's operation IS the mount, so it has no standing page to
   write a changed set into and no changed-set axis to be linear in. Its
-  control stays `ctl-2x` and stays known to undershoot — recorded on the
-  bead rather than papered over here, because the row this instrument
-  blocks is a bulk row and an arm invented for a mount row would be an
-  arm nothing had asked for.
+  check standard is `ctl-2x / floor`, whose empirical centre differs by row
+  class (1.72x on bulk, 1.80x on the mount) and whose mount class rf2-8a746
+  deliberately left UNCALIBRATED for rf2-t2flm's concurrent ruling.
 
   The arms come out in ascending dirty count, so a reader of the
   marginal-cost table reads it in the order the cells rise."
