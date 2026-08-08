@@ -49,22 +49,35 @@
 
 (def ^:private frame-id :p0.wp/frame)
 
+;; THE IMAGE IS SCOPED TO THE FIXTURE'S OWN NAMESPACE, and it has to be.
+;; `:p0/cell` is registered THREE times across this repo — here in
+;; `p0-fixture`, and again in `hicasso/clock_views` and
+;; `hicasso/p0_reagent_views`, each with its own implementation. The p0
+;; release builds put exactly one of those namespaces on the classpath, so
+;; the collision is unreachable there; the consolidated `:node-test` build
+;; loads all three, and image assembly correctly refuses to let selection
+;; order decide which one a frame runs (`:rf.error/image-duplicate-id`).
+;;
+;; So this suite says which it means. That is the error's own first remedy
+;; and it is the right one: a bench fixture suite asserting the fixture's
+;; contract should be running the fixture's registrations and no one else's.
+(def ^:private fixture-image
+  (rf/image {:id :p0.wp/app :select-ns {:include ["re-frame.bench.p0-fixture"]}}))
+
 (defn- frame-at
   "Stand a frame up seeded at `width` cells, with `q` unique fan keys —
   the same two moves `p0-arms/enter-segment!` and `p0-heap/mount!` make,
-  in the same order (the key space is set BEFORE the page reads it).
-
-  The whole-db sub is this suite's own and exists so the assertions can
-  read `:cells` directly; nothing in the fixture registers one, and the
-  arms deliberately do not — a whole-db read would re-render every
-  boundary on every write and make the NARROW row unmeasurable."
+  in the same order (the key space is set BEFORE the page reads it)."
   [width q]
   (fx/register!)
-  (rf/reg-sub :p0.wp/db (fn [db _] db))
   (fx/set-fan-keys! q)
-  (rf/make-frame {:id frame-id :initial-events [[:p0/seed width]]}))
+  (rf/make-frame {:id frame-id :images [fixture-image] :initial-events [[:p0/seed width]]}))
 
-(defn- db [] (rf/subscribe-once [:p0.wp/db] {:frame frame-id}))
+;; Read straight off the frame rather than through a whole-db subscription:
+;; the fixture deliberately registers none, because a whole-db read would
+;; re-render every boundary on every write and make the NARROW row
+;; unmeasurable by construction.
+(defn- db [] (rf/app-db-value frame-id))
 
 (defn- fan [k] (rf/subscribe-once [:p0/fan k] {:frame frame-id}))
 
