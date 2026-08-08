@@ -488,6 +488,33 @@ test('an idle window is homogeneous at zero, and certifies', () => {
   assert.strictEqual(lumpy.certified, false, 'one leg doing work and two doing none is not one unit');
 });
 
+test('THE CERTIFICATE IS TIGHT — an admitted window under-reads by at most 2τ', () => {
+  // What an admitted window is certified to BE, checked rather than asserted.
+  // UNDER THE COHORT PREMISE — that absent a collection each leg's true
+  // allocation lies within τ of the true median — a leg can sit τ·m high on
+  // its own merits and still be admitted after losing a further τ·m. So the
+  // guarantee is `rise under-reads by at most 2τ`, and this is the exact
+  // worst case: leg 1 is τ·m HIGH, loses 2τ·m, and reads τ·m LOW.
+  const m = 1000;
+  const hi = m * (1 + ALLOC_LEG_TOLERANCE);
+  const lost = 2 * ALLOC_LEG_TOLERANCE * m;
+  const at = allocSteps(stream([hi, m, m, m, m], [lost, 0, 0, 0, 0]));
+  assert.strictEqual(at.falls, 0, 'a masked leg turns no step negative — that IS the fault');
+  assert.strictEqual(at.legs[0], m * (1 - ALLOC_LEG_TOLERANCE), 'and reads exactly τ·m low');
+  assert.strictEqual(at.legMedian, m);
+  assert.strictEqual(at.certified, true, 'admitted, at the very edge of the tolerance');
+  // The under-read that bought that admission is exactly 2τ of the median,
+  // and no more: one byte further and the window refuses.
+  assert.strictEqual(lost, 2 * ALLOC_LEG_TOLERANCE * at.legMedian);
+  const past = allocSteps(stream([hi, m, m, m, m], [lost + 1, 0, 0, 0, 0]));
+  assert.strictEqual(past.certified, false, 'so 2τ is a BOUND and not an approximation');
+  // And the whole-window statement the summary prints: `rise` under-reads the
+  // true allocation by at most 2τ. Here the true allocation is 5,250 B and
+  // `rise` reads 4,750 B — a 9.5% under-read against a 50% ceiling.
+  const trueAlloc = hi + 4 * m;
+  assert.ok((trueAlloc - at.rise) / trueAlloc <= 2 * ALLOC_LEG_TOLERANCE);
+});
+
 test('LEGS AND GAPS are read apart, and only the legs are adjudicated', () => {
   // `[s0, pre0, post0, pre1, post1, ...]`: the legs are `post - pre` and the
   // gaps are `pre - post`, where nothing happens but a loop increment and two
