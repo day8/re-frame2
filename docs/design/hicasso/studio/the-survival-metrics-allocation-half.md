@@ -567,7 +567,11 @@ it is two segments under-reading by different amounts.
    smaller page.** It is either a cheaper write on this bench, so that F
    stops consuming the budget, or an instrument whose bound does not have to
    charge `(W + 1) · perWrite` — and that is a design question, not a
-   sizing one.
+   sizing one. **It is now both, and they are designed together** in
+   [the allocation instrument's rework](../allocation-instrument-rework.md)
+   (`rf2-2rtt6.140`), which rules that neither route works alone. *Nothing on
+   this page is superseded yet* — that annotation is due when the new write
+   lands, and the figures above are the evidence base the brief reasons from.
 5. **Nothing in [validation.md](../validation.md) moves.** The survival
    metric's allocation half is exactly as unwitnessed as it was, and no
    gate line, budget or verdict anywhere in the corpus is restated on the
