@@ -2284,12 +2284,43 @@ function reportability(rows, opts) {
       // The control status, printed on every regime row whichever way it fell,
       // because the ruling that made these rows regimes is ABOUT their
       // controls and a reader must not have to infer one from the other.
-      // A failure the regime PREDICTS says so; one that withholds the regime is
-      // already explained by the line above and is not annotated twice.
-      const predictedFailure = !r.ctlOk && !g.statementNeedsControl;
+      //
+      // SUPERSEDED (rf2-ejb9h, 2026-08-08), was: 'A failure the regime PREDICTS
+      // says so; one that withholds the regime is already explained by the line
+      // above and is not annotated twice.' Its second clause survives verbatim
+      // below. Its first is rf2-jcm3p's and is retired: NO LIVE RULING PREDICTS
+      // a failure on this row. rf2-8a746 established `ctl-2x` was never failing
+      // — `controlVerdict` tests per-block band membership rather than the mean,
+      // and under the mount class rf2-x7x10 calibrated at v2 all fourteen
+      // committed mount row-runs come back IN CONTROL. What this condition
+      // actually selects is a row whose regime does not WAIT on its control and
+      // whose control nonetheless did not pass, so the row states itself anyway
+      // — which is the independence rf2-jcm3p established and the one part of
+      // its account that both later rulings leave standing. A failure that DOES
+      // withhold the regime is already explained by the line above and is not
+      // annotated twice.
+      // SUPERSEDED (rf2-ejb9h, 2026-08-08), was: `predictedFailure`. The
+      // expression is byte-identical; only the name moved, because a local
+      // asserting a prediction beside a string that denies one is the same lie
+      // one surface in.
+      const statedDespiteFailure = !r.ctlOk && !g.statementNeedsControl;
       lines.push(
         `[clock]     positive control: ${r.ctlOk ? 'PASS' : 'FAIL'}${r.ctlNote || ''}` +
-          (predictedFailure ? ' — expected, and the reason no magnitude is published' : '')
+          // SUPERSEDED (rf2-ejb9h, 2026-08-08), was: ' — expected, and the reason
+          // no magnitude is published'. BOTH of its claims were rf2-jcm3p's and
+          // BOTH are retired. "expected" fell with rf2-8a746, above. "the reason
+          // no magnitude is published" fell with rf2-diaud: M1 publishes a
+          // magnitude, and where THIS DRIVER withholds one the reason is that the
+          // published magnitude is an ensemble estimate whose bootstrap's outer
+          // unit is the RUN — which is exactly what the `why` line printed
+          // directly above this one now says. The annotation is re-cited rather
+          // than deleted, for the reason three paragraphs up: the ruling that
+          // made these rows regimes is about their controls, so a reader must
+          // meet the control's status here and not infer it.
+          (statedDespiteFailure
+            ? ' — the regime does not wait on this control, so a failure here withholds nothing; ' +
+              'what the row publishes and why are the two lines above'
+            : '')
       );
     }
   }
@@ -2776,9 +2807,16 @@ function reportabilitySelfTest() {
   // the name is corrected while the case itself is untouched: what it pins is
   // that the mount regime does not WAIT on its control, which is independent
   // of whether that control passes and is why the fixture sets `ctlOk: false`.
+  //
+  // THE REGEX moved with the annotation it pins (rf2-ejb9h, 2026-08-08), and it
+  // is two-sided for the reason rf2-vr1hl's pins are: asserting only the new
+  // sentence would pass on a line that still carried the retired one beside it.
+  // SUPERSEDED (rf2-ejb9h, 2026-08-08), was:
+  //   /positive control: FAIL.*expected, and the reason no magnitude is published/
   check(
     'the mount regime STATES itself although its control failed — the regime does not wait on that control',
-    m.lines.some((l) => /positive control: FAIL.*expected, and the reason no magnitude is published/.test(l)),
+    m.lines.some((l) => /positive control: FAIL.*the regime does not wait on this control/.test(l)) &&
+      !m.lines.some((l) => /expected, and the reason no magnitude is published/.test(l)),
     m.lines.join(' | ')
   );
 
