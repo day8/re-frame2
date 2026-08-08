@@ -558,33 +558,45 @@ function checkStandardSelfTest() {
   //    themselves are re-derived from the committed datasets by
   //    `clock_exit_path.test.cjs`, which is where the data lives.
   const calibrated = Object.entries(STANDARD.classes).filter(([, k]) => k.calibrated);
+  // A MISSING RECORD MUST FAIL THE CHECK, NOT THROW PAST IT. Every reader below
+  // goes through `HO`, so a class with no hold-out — the pre-v3 shape — reports
+  // as a red fixture with its name and its detail, which is what the mutation
+  // proof reads. A fixture that crashes on the mutation it exists to catch
+  // tells you only that something broke.
+  const HO = (k) => (k.provenance && k.provenance.holdOut) || {};
+  const DIRS = (k) => (Array.isArray(HO(k).directions) ? HO(k).directions : []);
   check(
     'every calibrated class carries an out-of-sample hold-out, taken BOTH WAYS',
     calibrated.every(([, k]) => {
-      const h = k.provenance.holdOut;
-      if (!h || !Array.isArray(h.directions) || h.directions.length !== 2) return false;
-      const bases = h.directions.map((d) => d.baseline).sort();
-      const held = h.directions.map((d) => d.heldOut).sort();
+      const dirs = DIRS(k);
+      if (dirs.length !== 2) return false;
+      const bases = dirs.map((d) => d.baseline).sort();
+      const held = dirs.map((d) => d.heldOut).sort();
       // each ensemble serves once as baseline and once as the held-out set —
       // a "both ways" that reused one baseline would be one direction twice
       return bases[0] !== bases[1] && JSON.stringify(bases) === JSON.stringify(held);
     }),
-    calibrated.map(([n, k]) => `${n}:${(k.provenance.holdOut && k.provenance.holdOut.directions || []).length}`).join(' ')
+    calibrated.map(([n, k]) => `${n}:${DIRS(k).length}`).join(' ')
   );
   check(
     'the two baselines PARTITION the class\'s corpus — a hold-out that judged a run it was fitted on is not one',
     calibrated.every(([, k]) => {
-      const h = k.provenance.holdOut;
-      const sum = h.directions.reduce((a, d) => a + d.baselineRowRuns, 0);
-      return sum === k.provenance.rowRuns && h.directions.every((d) => d.baselineRowRuns + d.heldOutRowRuns === k.provenance.rowRuns);
+      const dirs = DIRS(k);
+      if (!dirs.length) return false;
+      const sum = dirs.reduce((a, d) => a + d.baselineRowRuns, 0);
+      return sum === k.provenance.rowRuns && dirs.every((d) => d.baselineRowRuns + d.heldOutRowRuns === k.provenance.rowRuns);
     }),
-    calibrated.map(([n, k]) => `${n}: ${k.provenance.holdOut.directions.map((d) => d.baselineRowRuns).join('+')} of ${k.provenance.rowRuns}`).join('; ')
+    calibrated.map(([n, k]) => `${n}: ${DIRS(k).map((d) => d.baselineRowRuns).join('+') || 'none'} of ${k.provenance.rowRuns}`).join('; ')
   );
   check(
     'the claim is SESSION-LEVEL and says why it is not commit-level — the weaker claim, made in the file rather than in a PR body',
-    calibrated.every(([, k]) => /SESSION[- ]LEVEL/i.test(k.provenance.holdOut.level) && /does not split by commit/.test(k.provenance.holdOut.whyNotCommitLevel)) &&
-      calibrated.every(([, k]) => /SESSION LEVEL/i.test(k.provenance.independence)),
-    calibrated.map(([n, k]) => `${n}: ${k.provenance.holdOut.level.slice(0, 40)}`).join(' | ')
+    calibrated.every(
+      ([, k]) =>
+        /SESSION[- ]LEVEL/i.test(HO(k).level || '') &&
+        /does not split by commit/.test(HO(k).whyNotCommitLevel || '') &&
+        /SESSION LEVEL/i.test(k.provenance.independence || '')
+    ),
+    calibrated.map(([n, k]) => `${n}: ${(HO(k).level || 'NO HOLD-OUT').slice(0, 40)}`).join(' | ')
   );
   check(
     'and the residual is the STANDARD\'s to state: commit-level independence is named as what the next ensemble is for',
@@ -594,35 +606,35 @@ function checkStandardSelfTest() {
   check(
     '`agree` is the arithmetic and not an opinion — true exactly when every direction admitted every held-out run',
     calibrated.every(([, k]) => {
-      const h = k.provenance.holdOut;
-      const allIn = h.directions.every((d) => d.inControl === d.heldOutRowRuns);
-      const totIn = h.directions.reduce((a, d) => a + d.inControl, 0);
-      const totOf = h.directions.reduce((a, d) => a + d.heldOutRowRuns, 0);
-      return h.agree === allIn && h.heldOutInControl === `${totIn} of ${totOf}`;
+      const dirs = DIRS(k);
+      if (!dirs.length) return false;
+      const allIn = dirs.every((d) => d.inControl === d.heldOutRowRuns);
+      const totIn = dirs.reduce((a, d) => a + d.inControl, 0);
+      const totOf = dirs.reduce((a, d) => a + d.heldOutRowRuns, 0);
+      return HO(k).agree === allIn && HO(k).heldOutInControl === `${totIn} of ${totOf}`;
     }),
-    calibrated.map(([n, k]) => `${n}: agree=${k.provenance.holdOut.agree} ${k.provenance.holdOut.heldOutInControl}`).join('; ')
+    calibrated.map(([n, k]) => `${n}: agree=${HO(k).agree} ${HO(k).heldOutInControl}`).join('; ')
   );
   check(
     'a DISAGREEING class states the disagreement and names every refused run and its term — not averaged into a summary',
     calibrated
-      .filter(([, k]) => k.provenance.holdOut.agree === false)
+      .filter(([, k]) => HO(k).agree === false)
       .every(([, k]) => {
-        const h = k.provenance.holdOut;
-        const refused = h.directions.flatMap((d) => d.refused || []);
+        const refused = DIRS(k).flatMap((d) => d.refused || []);
         return (
-          typeof h.disagreement === 'string' &&
-          h.disagreement.length > 0 &&
+          typeof HO(k).disagreement === 'string' &&
+          HO(k).disagreement.length > 0 &&
           refused.length > 0 &&
           refused.every((r) => r.run && Number.isFinite(r.median) && r.term) &&
-          h.directions.every((d) => (d.refused || []).length === d.heldOutRowRuns - d.inControl)
+          DIRS(k).every((d) => (d.refused || []).length === d.heldOutRowRuns - d.inControl)
         );
       }),
-    calibrated.filter(([, k]) => k.provenance.holdOut.agree === false).map(([n]) => n).join(',') || 'no class disagreed'
+    calibrated.filter(([, k]) => HO(k).agree === false).map(([n]) => n).join(',') || 'no class disagreed'
   );
   check(
     'THE FENCE: no hold-out fit became a shipped limit — the frozen limits are still the POOLED ones',
     calibrated.every(([, k]) =>
-      k.provenance.holdOut.directions.every(
+      DIRS(k).every(
         (d) =>
           d.centre !== k.centre &&
           d.limits[0] !== k.location.limits[0] &&
@@ -635,19 +647,18 @@ function checkStandardSelfTest() {
   check(
     'and the pooled limits are not simply the widest available — pooling carried the between-session term, it did not widen',
     calibrated.every(([, k]) => {
+      const widths = DIRS(k).map((d) => d.limits[1] - d.limits[0]);
+      if (!widths.length) return false;
       const width = k.location.limits[1] - k.location.limits[0];
-      const widths = k.provenance.holdOut.directions.map((d) => d.limits[1] - d.limits[0]);
       return width < Math.max(...widths) && width > Math.min(...widths);
     }),
     calibrated
-      .map(([n, k]) => `${n}: pooled ${r4(k.location.limits[1] - k.location.limits[0])} against [${k.provenance.holdOut.directions.map((d) => r4(d.limits[1] - d.limits[0])).join(', ')}]`)
+      .map(([n, k]) => `${n}: pooled ${r4(k.location.limits[1] - k.location.limits[0])} against [${DIRS(k).map((d) => r4(d.limits[1] - d.limits[0])).join(', ') || 'none'}]`)
       .join('; ')
   );
   check(
     'every hold-out direction\'s limits bracket its own derived centre, exactly as the shipped ones do',
-    calibrated.every(([, k]) =>
-      k.provenance.holdOut.directions.every((d) => d.limits[0] < d.centre && d.centre < d.limits[1] && d.betweenRunSD > 0 && d.dispersionLimit > 0)
-    )
+    calibrated.every(([, k]) => DIRS(k).length > 0 && DIRS(k).every((d) => d.limits[0] < d.centre && d.centre < d.limits[1] && d.betweenRunSD > 0 && d.dispersionLimit > 0))
   );
 
   return { checks };
