@@ -82,7 +82,7 @@
 // `rf2-8a746` saw it coming and handed the finding forward by id.
 //
 // WHAT THIS DOES NOT DO. It moves no published figure and it loosens nothing:
-// the mount's location limits are HALF the width of bulk's, because the mount's
+// the mount's location limits are 30% NARROWER than bulk's, because the mount's
 // between-run scatter is smaller. What it restores is the reproduction path — a
 // reader with the datasets can run the readjudicator and get the row back — and
 // what the row then says is the readjudicator's to state, not this file's.
