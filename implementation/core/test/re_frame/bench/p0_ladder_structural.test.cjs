@@ -36,6 +36,7 @@
 // Wired into implementation/package.json via `test:script-helpers`.
 
 const assert = require('node:assert');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -50,6 +51,7 @@ const {
   ladderPlan,
   allocArmSizing,
   allocMaxWrites,
+  ALLOC_MIN_WRITES,
   ALLOC_ARM,
 } = require('./p0_run.cjs');
 
@@ -452,7 +454,7 @@ test('the driver exits on THIS function and does not re-derive the budget', () =
   has(/const maskable = allocMaskableWindows\(out\.alloc\);/, 'the alloc gate calls it');
   has(/if \(maskable\.length > 0\) \{/, 'and its result is what pushes a failure');
   has(
-    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocMaskableWindows,\s*ALLOC_MASK_BUDGET_B,\s*ladderPlan,\s*allocArmSizing,\s*allocMaxWrites,\s*ALLOC_ARM,\s*\};/,
+    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocMaskableWindows,\s*ALLOC_MASK_BUDGET_B,\s*ladderPlan,\s*allocArmSizing,\s*allocMaxWrites,\s*ALLOC_MIN_WRITES,\s*ALLOC_ARM,\s*\};/,
     'so this file can drive it'
   );
 });
@@ -570,16 +572,20 @@ test('a MIS-SIZED arm is refused — one boundary over the bound is over it', ()
   assert.ok(allocSteps(predictedStream(over)).maskable, 'the real gate agrees');
 });
 
-test('`allocMaxWrites` inverts the bound exactly — one write more refuses', () => {
+test('`allocMaxWrites` inverts the BOUND exactly — one write more is over budget', () => {
+  // Driven on `headroom`, which is the bound's own term, and not on
+  // `admissible`, which is the whole preflight verdict: at 60 boundaries the
+  // bound admits only 2 writes, and the averaging floor refuses that page
+  // whatever the budget thinks of it (rf2-2rtt6.142, below).
   for (const boundaries of [4, 12, 24, 25, 60]) {
     const w = allocMaxWrites(boundaries);
     assert.ok(w >= 1, `${boundaries} boundaries must admit a window at all`);
     assert.ok(
-      allocArmSizing({ writes: w, roots: 1, cells: boundaries }).admissible,
-      `${boundaries} boundaries at ${w} writes must fit`
+      allocArmSizing({ writes: w, roots: 1, cells: boundaries }).headroom >= 0,
+      `${boundaries} boundaries at ${w} writes must fit the budget`
     );
     assert.ok(
-      !allocArmSizing({ writes: w + 1, roots: 1, cells: boundaries }).admissible,
+      allocArmSizing({ writes: w + 1, roots: 1, cells: boundaries }).headroom < 0,
       `${boundaries} boundaries at ${w + 1} writes must not`
     );
   }
@@ -603,6 +609,171 @@ test('the sizing cannot buy headroom by shrinking the WINDOW alone', () => {
   assert.ok(oneWrite.predictedWindowB > ALLOC_MASK_BUDGET_B);
   const smallUnit = allocArmSizing({ writes: 6, roots: 4, cells: 6 });
   assert.ok(smallUnit.admissible, 'and a smaller UNIT carries six writes of averaging');
+});
+
+// ===========================================================================
+// THE AVERAGING FLOOR IS ENFORCED, NOT MERELY DERIVED FROM — rf2-2rtt6.142
+// ===========================================================================
+//
+// THE DEFECT THIS PINS. `ALLOC_MIN_WRITES` sized the default page and then
+// adjudicated nothing: the preflight's verdict was `writes >= 1 && boundaries
+// >= 1 && headroom >= 0`, so every window from one write upwards was licensed
+// however little averaging was left in it. Two routes reached that state
+// through the shipped env surface, and the merged-PR audit of #7688 derived
+// both without launching a browser:
+//
+//   P0_ROOTS=50          the DEFAULT derivation, which floors `cells` at 1 and
+//                        lands on 50 boundaries — a page that admits 2 writes
+//   P0_ALLOC_WRITES=1    the shipped 24-boundary page, window set by hand
+//
+// Both are far under the masking budget, which is precisely why the bound
+// could not catch them: the budget is an upper limit on a window's SIZE and
+// has nothing to say about how few writes are averaged inside it.
+//
+// WHY THE FLOOR EXISTS, so it is not weakened by accident. A one-write window
+// has no averaging in it, and at one write per window all four ladder fits
+// came back under the 0.98 r2 floor — 0.75 / 0.28 / 0.94 / 0.31. The row
+// already assumes the averaging; this is the preflight being made to enforce
+// what the row assumes.
+//
+// NOTHING HERE MEASURES ANYTHING. The two env routes are re-derived in a
+// child `node` that requires the driver and prints `ALLOC_ARM` — the module
+// constants are read at require time, so an env route can only be pinned from
+// outside the process. No build, no browser, no page.
+
+// The driver's own `ALLOC_ARM`, as a fresh process with `env` set derives it.
+// This is the shipped derivation and not a re-statement of it, which is the
+// whole point: the routes below are configuration, and configuration is read
+// exactly once, at require.
+function armUnderEnv(env) {
+  const r = spawnSync(
+    process.execPath,
+    ['-e', 'process.stdout.write(JSON.stringify(require(process.argv[1]).ALLOC_ARM))', DRIVER],
+    { env: { ...process.env, ...env }, encoding: 'utf8' }
+  );
+  assert.strictEqual(r.status, 0, `requiring the driver must not throw: ${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
+
+test('ROUTE 1 — the large-root DEFAULT that cannot fit six writes is refused', () => {
+  // `P0_ROOTS=50` needs no other flag: the `ALLOC_CELLS` default floors at one
+  // cell per root, so the page it derives is 50 boundaries and the window that
+  // page admits is 2 — below the floor, and inside the budget, which is how it
+  // reached a publication path at all.
+  const arm = armUnderEnv({ P0_ROOTS: '50', P0_ALLOC_CELLS: '', P0_ALLOC_WRITES: '' });
+  assert.strictEqual(arm.cells, 1, 'the default floors at one cell per root');
+  assert.strictEqual(arm.boundaries, 50);
+  assert.strictEqual(arm.writes, 2, 'and 50 boundaries admit only a two-write window');
+  assert.ok(arm.headroom >= 0, 'the masking bound is content — it never saw this');
+  assert.ok(!arm.admissible, 'the averaging floor is what refuses it');
+  assert.ok(
+    arm.refusals.some((r) => r.includes('averaging floor')),
+    `the refusal must name the floor: ${JSON.stringify(arm.refusals)}`
+  );
+});
+
+test('ROUTE 2 — an explicit one-write window on the shipped page is refused', () => {
+  const arm = armUnderEnv({ P0_ALLOC_WRITES: '1' });
+  assert.strictEqual(arm.boundaries, 24, 'the shipped page, unchanged');
+  assert.strictEqual(arm.writes, 1);
+  assert.ok(arm.headroom >= 0, 'and far under the budget, which is why it got through');
+  assert.ok(!arm.admissible);
+  assert.ok(arm.refusals.some((r) => r.includes('averaging floor')));
+});
+
+test('THE CONTROL — the shipped six-write arm is still admitted, so this is not vacuous', () => {
+  // A gate that refused everything would pass the two cases above and have
+  // adjudicated nothing. The arm the driver actually ships must go through.
+  const arm = armUnderEnv({});
+  assert.strictEqual(arm.boundaries, 24);
+  assert.strictEqual(arm.writes, ALLOC_MIN_WRITES, 'exactly at the floor');
+  assert.deepStrictEqual(arm.refusals, []);
+  assert.ok(arm.admissible);
+});
+
+test('the refusal names SHRINKING THE PAGE and never shrinking the window', () => {
+  // The one direction that must not be advised. A below-floor arm whose page
+  // admits fewer than six writes has no window repair at all: telling the
+  // operator "this page admits at most 2 writes" is telling them to configure
+  // the very shape being refused.
+  const arm = armUnderEnv({ P0_ROOTS: '50', P0_ALLOC_CELLS: '', P0_ALLOC_WRITES: '' });
+  const floor = arm.refusals.find((r) => r.includes('averaging floor'));
+  assert.match(floor, /P0_ROOTS/);
+  assert.match(floor, /P0_ALLOC_CELLS/);
+  assert.match(floor, /at most 25 boundaries/, 'the largest page that carries the floor');
+  assert.doesNotMatch(
+    floor,
+    /admits at most 2 writes \(P0_ALLOC_WRITES\)/,
+    'the window is not the knob when the window is what is wrong'
+  );
+});
+
+test('the floor follows ALLOC_MIN_WRITES rather than a number typed beside it', () => {
+  // If a later ruling moves the averaging floor, the preflight moves with it.
+  assert.ok(ALLOC_MIN_WRITES >= 1, 'a floor below one write would not be a floor');
+  const page = { roots: 1, cells: 4 }; // 4 boundaries: admits 44 writes, budget-wise
+  for (let w = 0; w < ALLOC_MIN_WRITES; w++) {
+    const s = allocArmSizing({ writes: w, ...page });
+    assert.ok(s.headroom >= 0, `w=${w} is inside the budget`);
+    assert.ok(!s.admissible, `w=${w} is below the floor and must refuse`);
+  }
+  const atFloor = allocArmSizing({ writes: ALLOC_MIN_WRITES, ...page });
+  assert.ok(atFloor.admissible, 'and exactly at the floor is admitted');
+});
+
+test('THE CHANGE ONLY EVER REFUSES MORE — admissible is a subset of the old bound', () => {
+  // The old predicate, verbatim: `writes >= 1 && boundaries >= 1 && headroom
+  // >= 0`. Enforcing the floor may only turn an admitted shape into a refused
+  // one, never the reverse, and that is checked exhaustively over the grid
+  // rather than argued.
+  let admitted = 0;
+  let newlyRefused = 0;
+  for (let writes = 0; writes <= 40; writes++) {
+    for (let cells = 0; cells <= 40; cells++) {
+      for (const roots of [0, 1, 4, 50]) {
+        const s = allocArmSizing({ writes, roots, cells });
+        const wasAdmissible = writes >= 1 && s.boundaries >= 1 && s.headroom >= 0;
+        if (s.admissible) {
+          admitted++;
+          assert.ok(wasAdmissible, `newly admissible at W=${writes} B=${s.boundaries}`);
+        } else if (wasAdmissible) {
+          newlyRefused++;
+          assert.ok(writes < ALLOC_MIN_WRITES, 'and only ever for want of averaging');
+        }
+      }
+    }
+  }
+  assert.ok(admitted > 0, 'the sweep must still admit something');
+  assert.ok(newlyRefused > 0, 'and must have refused something, or it changed nothing');
+});
+
+test('a refused arm says WHY, one reason per thing wrong with it', () => {
+  // Both wrong at once: 300 boundaries at one write is over the budget AND
+  // under the floor, and an operator who fixed only the one they were told
+  // about would come back to the other.
+  const both = allocArmSizing({ writes: 1, roots: 1, cells: 300 });
+  assert.strictEqual(both.refusals.length, 2, JSON.stringify(both.refusals));
+  assert.ok(both.refusals.some((r) => r.includes('averaging floor')));
+  assert.ok(both.refusals.some((r) => r.includes('masking budget')));
+  // A page with nothing on it has no per-boundary quantity, and none of the
+  // other terms mean anything: one reason, and it is that one.
+  const empty = allocArmSizing({ writes: 6, roots: 4, cells: 0 });
+  assert.strictEqual(empty.refusals.length, 1);
+  assert.match(empty.refusals[0], /no per-boundary quantity/);
+});
+
+test('`floorBoundaries` is the largest page that carries the averaging floor', () => {
+  const s = allocArmSizing({ writes: 6, roots: 4, cells: 6 });
+  assert.strictEqual(s.floorBoundaries, 25, '300000 / ((6+1) x 1655)');
+  assert.ok(
+    allocMaxWrites(s.floorBoundaries) >= ALLOC_MIN_WRITES,
+    'a page that size admits the floor'
+  );
+  assert.ok(
+    allocMaxWrites(s.floorBoundaries + 1) < ALLOC_MIN_WRITES,
+    'and one boundary more does not'
+  );
+  assert.ok(ALLOC_ARM.boundaries <= s.floorBoundaries, 'the shipped page is inside it');
 });
 
 // --- the plan the page is mounted from -------------------------------------
@@ -668,10 +839,25 @@ test('the RETENTION ladder is not moved by any of this', () => {
 test('the driver REFUSES a mis-sized arm before it launches a browser', () => {
   has(/if \(!ALLOC_ARM\.admissible\) \{/, 'the sizing refusal is an exit, not a warning');
   has(
-    /the allocation arm is configured outside the masking bound before anything is /,
+    /the allocation arm is refused by its own preflight before anything is measured/,
     'and it says so before a byte is measured'
   );
   has(/SHRINK THE MEASURED UNIT, DO NOT WIDEN THE BUDGET/, 'naming the repair, not the dial');
+  has(
+    /ALLOC_ARM\.refusals/,
+    'and the exit prints the reasons rather than one undifferentiated verdict'
+  );
+});
+
+test('the averaging floor is ENFORCED in the sizing, not merely derived from', () => {
+  // rf2-2rtt6.142. `ALLOC_MIN_WRITES` sized the default page and adjudicated
+  // nothing; the verdict admitted any window from one write up.
+  has(/if \(writes < ALLOC_MIN_WRITES\) \{/, 'the floor is a refusal in the sizing itself');
+  has(/admissible: refusals\.length === 0,/, 'and the verdict is the reasons, not a conjunction');
+  lacks(
+    /admissible: writes >= 1 && boundaries >= 1 && headroom >= 0,/,
+    'the old verdict licensed exactly the low-averaging shape the row rules out'
+  );
 });
 
 test('the window is DERIVED from the bound and the arm from the measured cost', () => {
