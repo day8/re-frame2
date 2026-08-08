@@ -108,7 +108,7 @@
               "baseline": "clock-emvod", "baselineRowRuns": 8,
               "centre": 1.8133, "betweenRunSD": 0.0486, "limits": [1.6674, 1.9591], "dispersionLimit": 0.3983,
               "heldOut": "clock-w3yxd", "heldOutRowRuns": 6, "inControl": 6, "refused": [],
-              "tightestMargin": 0.1039, "note": "the held-out medians span [1.7713, 1.8014] — a 0.0300 span inside a 0.2916-wide limit — and the widest held-out robust scale is 0.2863 against a limit of 0.3983"
+              "tightestMargin": 0.1039, "note": "the held-out medians span [1.7713, 1.8014] — a 0.0300 span inside a 0.2917-wide limit — and the widest held-out robust scale is 0.2863 against a limit of 0.3983"
             },
             {
               "baseline": "clock-w3yxd", "baselineRowRuns": 6,
@@ -127,7 +127,7 @@
           "agree": false,
           "heldOutInControl": "10 of 14",
           "betweenSessionOffset": "the two sittings' centres are 0.0322 apart (1.8133x against 1.7810x, 1.81%) — SMALLER in absolute terms than bulk's 0.0412, where both directions held. The offset is not what breaks this class.",
-          "disagreement": "WHAT BREAKS IT IS THE w3yxd SITTING'S OWN REPRODUCIBILITY. Its six mount medians span 0.0300 and give a between-run SD of 0.0113, under a quarter of emvod's 0.0486, so its +/- 3 SD budget is only 0.0678 wide and the between-session offset alone consumes 2.85 of the 3 sigma. Fitted the other way the budget is 0.2916 wide and the same offset consumes 0.66 sigma, so it costs nothing. THE ASYMMETRY IS THE MEASUREMENT: a single sitting can be reproducible enough to fit limits this instrument will not meet ninety minutes later, and six runs is far too few to tell a genuinely tight instrument from a lucky sitting. NOTE WHERE THE SHIPPED LIMITS SIT: v2 pools both sittings, so its between-run SD of 0.0397 already carries the between-session component and its limits are 0.2382 wide — narrower than the emvod-derived 0.2916 and 3.5x wider than the w3yxd-derived 0.0678. Pooling is what makes them survivable; it is not a widening, and none was applied here."
+          "disagreement": "WHAT BREAKS IT IS THE w3yxd SITTING'S OWN REPRODUCIBILITY. Its six mount medians span 0.0300 and give a between-run SD of 0.0113, under a quarter of emvod's 0.0486, so its +/- 3 SD budget is only 0.0678 wide and the between-session offset alone consumes 2.85 of the 3 sigma. Fitted the other way the budget is 0.2917 wide and the same offset consumes 0.66 sigma, so it costs nothing. THE ASYMMETRY IS THE MEASUREMENT: a single sitting can be reproducible enough to fit limits this instrument will not meet ninety minutes later, and six runs is far too few to tell a genuinely tight instrument from a lucky sitting. NOTE WHERE THE SHIPPED LIMITS SIT: v2 pools both sittings, so its between-run SD of 0.0397 already carries the between-session component and its limits are 0.2382 wide — narrower than the emvod-derived 0.2917 and 3.5x wider than the w3yxd-derived 0.0678. Pooling is what makes them survivable; it is not a widening, and none was applied here."
         }
       },
       "amendedFrom": {
