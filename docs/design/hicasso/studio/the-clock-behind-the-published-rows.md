@@ -931,6 +931,24 @@ conditional**, and the control yield is stated plainly: **7 of 14 runs eligible*
 Wilson 95% ≈ 0.27 – 0.73. This control **can** adjudicate `M1`; it is not
 promised to usually do so.
 
+> **THAT CONDITIONING RULE IS RETIRED AND THE ROW IS RE-ADJUDICATED
+> (2026-08-08, `rf2-x7x10`).** `rf2-8a746` retired the every-block `ctl-2x` rule
+> everywhere on this instrument, which left the labels above naming a rule
+> nothing implements and left `clock_readjudicate.cjs` printing `reportable
+> subset: NONE` on the row it is recorded as reproducing exactly. The check
+> standard's `mount` class is now calibrated from the mount's own 14 row-runs —
+> centre `1.7956×`, location `[1.6765 – 1.9147]`, dispersion ≤ `0.577` — and
+> under it **`14 of 14` runs are in control**, so the reportable subset is the
+> whole ensemble and the figures move to the whole-ensemble column. On this
+> page's own ensemble that is `hicasso / uix-subs` **1.2057×** *(n=6)* rather
+> than `1.1848×` *(n=3)*, and `hicasso / reagent-subs` **1.1492×** *(n=6)*
+> rather than `1.1100×` *(n=3)* — both already tabled below, so no new number
+> enters this page. `rf2-8a746`'s publication rule then reaches the row for the
+> first time and returns `INSTRUMENT-LIMITED` on every pair, which puts it in
+> tension with `rf2-t2flm`'s published magnitude; that collision is a ruling and
+> is recorded rather than decided. The full account, including the intervals, is
+> at [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
+
 **`clock-w3yxd` is the ensemble this page carries**, so the section above
 contributes three of those seven eligible runs. Its own tables do not move: the
 `hicasso / uix-subs` line at `1.2057×` [1.1731 – 1.2390] and `hicasso /
