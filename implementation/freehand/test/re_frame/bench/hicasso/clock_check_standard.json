@@ -1,6 +1,6 @@
 {
   "id": "hicasso-clock/ctl-2x-level",
-  "version": 2,
+  "version": 3,
   "ruling": "rf2-8a746",
   "frozen": "2026-08-07",
   "amendments": [
@@ -10,6 +10,13 @@
       "ruling": "rf2-x7x10",
       "what": "The MOUNT class is calibrated, from its own 14 committed row-runs, in the same derivation the bulk class was frozen under. v1 left it uncalibrated and failing closed; see classes.mount.amendedFrom for what that cost and for the superseded ruling v1's rationale cited.",
       "touches": "the mount class only. The bulk class's centre, limits, dispersion and error rates are byte-identical to v1, and no hard refusal (read-back, canonical-DOM, page-error, arm-order, quiet-box, band-ceiling) is involved either way."
+    },
+    {
+      "version": 3,
+      "date": "2026-08-08",
+      "ruling": "rf2-c1974",
+      "what": "The limits are VALIDATED OUT OF SAMPLE, to the strongest independence this corpus supports — a SESSION-level hold-out. Each class's limits are re-derived from ONE ensemble and the OTHER is judged against them, both ways, and each provenance.independence field now carries what that measured in place of v1 and v2's honest admission that it had never been measured. Bulk passes both ways; the MOUNT DIRECTIONS DISAGREE, and that is recorded as the finding rather than averaged away.",
+      "touches": "the two provenance.independence fields, a new provenance.holdOut record on each class, and one recalibrateOn entry naming the residual. NO NUMBER THAT DECIDES ANYTHING MOVED: every centre, location limit, dispersion limit, tolerance band and error rate is byte-identical to v2, and no hard refusal is involved. Nothing was widened to make a hold-out pass — the fence rf2-c1974 was raised under."
     }
   ],
   "what": "The level-denominated check standard for the Hicasso clock (clock_run.cjs). The measured quantity is the ctl-2x arm's TARED TaskDuration over the floor's TARED TaskDuration, in the same round of the same segment — one per block, 18 per row-run. Both terms are LEVELS, so the ~0.4 ms of estimator error each arm's p50 carries is 9% of a ~4.5 ms denominator rather than 48% of a 1.2 ms difference. It replaces the three-point difference-of-differences control, which rf2-8a746 retired as a gate.",
@@ -41,7 +48,30 @@
         "chromium": "147.0.7727.15",
         "design": "6 rounds x (4 warmup + 10 samples), tare on, 3 segments",
         "observed": { "runMedianCentre": 1.7207, "runMedianRange": [1.596, 1.8288], "betweenRunSD": 0.0566, "robustScaleP50": 0.1922, "robustScaleMax": 0.4211 },
-        "independence": "NOT INDEPENDENT OF ITS OWN BASELINE, and said here rather than left to be discovered. v1 is seeded from the same 42 row-runs it is quoted against, so 0-of-42 is a consistency check and not a false-refusal measurement. NIST e-Handbook 2.3.5's doctrine is that the limits come from a baseline the standard is not afterwards judged on; the next recalibration must take one."
+        "independence": "VALIDATED OUT OF SAMPLE AT SESSION LEVEL, both ways, and every held-out row-run came back in control (rf2-c1974). v1 said plainly that it was seeded from the same 42 row-runs it was quoted against, so 0-of-42 was a consistency check; that admission was correct and is replaced here by a measurement rather than deleted. Derive from clock-emvod's 24 row-runs and clock-w3yxd's 18 are ALL IN CONTROL; derive from clock-w3yxd's 18 and clock-emvod's 24 are ALL IN CONTROL. 42 of 42 held-out judgements, on limits fitted without the run being judged, and the two directions AGREE — which is the reassurance a single direction could not give, because it would have depended on which ensemble happened to be picked. See holdOut for the derived limits and the margins, and recalibrateOn for what this still does NOT establish.",
+        "holdOut": {
+          "ruling": "rf2-c1974",
+          "level": "SESSION-LEVEL, same day, same tree — and that is the ceiling this corpus supports, not a choice",
+          "whyNotCommitLevel": "the corpus does not split by commit. Every run in both ensembles carries a `when` of 2026-08-07 and the two ensembles start 87 minutes apart — clock-emvod/run1 at 05:37:29Z, clock-w3yxd/run1 at 07:04:47Z — on the evidence one tree. A hold-out across them therefore crosses a SITTING and not a commit, which is real and is the dominant practical failure mode for a check standard, but it is weaker than the census standard's hold-out (rf2-pzqy8) which crossed five days and a code change.",
+          "derivation": "each direction re-derives the class's own frozen recipe on ONE ensemble alone — centre = median of that ensemble's run medians, location = centre +/- 3 x its between-run SD, dispersion = exp(mu + 3 sigma) of its log robust scales — and judges every row-run of the other against it. The two baselines partition the 42: 24 + 18.",
+          "directions": [
+            {
+              "baseline": "clock-emvod", "baselineRowRuns": 24,
+              "centre": 1.7298, "betweenRunSD": 0.0592, "limits": [1.5521, 1.9075], "dispersionLimit": 0.5879,
+              "heldOut": "clock-w3yxd", "heldOutRowRuns": 18, "inControl": 18, "refused": [],
+              "tightestMargin": 0.0635, "note": "the held-out medians span [1.6157, 1.7954] and the widest held-out robust scale is 0.3779 against a limit of 0.5879 — location is the term with the smaller headroom here, as it is everywhere on this instrument"
+            },
+            {
+              "baseline": "clock-w3yxd", "baselineRowRuns": 18,
+              "centre": 1.6886, "betweenRunSD": 0.0492, "limits": [1.5411, 1.8361], "dispersionLimit": 0.5443,
+              "heldOut": "clock-emvod", "heldOutRowRuns": 24, "inControl": 24, "refused": [],
+              "tightestMargin": 0.0073, "note": "AND IT IS CLOSE, which is worth saying rather than rounding off: emvod's widest run reads 1.8288x against this direction's ceiling of 1.8361, clear by 0.0073 — 2.5% of the limits' own width. It passes on the numbers and it does not pass comfortably."
+            }
+          ],
+          "agree": true,
+          "heldOutInControl": "42 of 42",
+          "betweenSessionOffset": "the two sittings' centres are 0.0412 apart (1.7298x against 1.6886x, 2.44%), which is 0.70 of emvod's own between-run SD and 0.84 of w3yxd's. On this class the between-session shift is small against the within-session scatter, which is exactly why both directions hold."
+        }
       }
     },
     "mount": {
@@ -67,7 +97,38 @@
         "design": "6 rounds x (4 warmup + 10 samples), tare on, 3 segments",
         "observed": { "runMedianCentre": 1.7956, "runMedianRange": [1.7489, 1.8978], "betweenRunSD": 0.0397, "robustScaleP50": 0.12, "robustScaleRange": [0.041, 0.2863] },
         "notCopiedFromBULK": "and this is the point of the class existing at all. The bulk class reads 1.7207x and the mount reads 1.7956x on the identical statistic through the identical door — 4.4% apart, which is 1.9 of the mount's own between-run SDs. Importing bulk's [1.5509, 1.8905] here would have asserted against the mount a value never measured on it, which is the mis-specification rf2-8a746 retired, one row class over. rf2-8a746 saw this and handed the finding forward by id: ctl-2x's true centre is EMPIRICAL and differs by row class.",
-        "independence": "NOT INDEPENDENT OF ITS OWN BASELINE, on the bulk class's own terms and on a smaller baseline. v2 is seeded from the same 14 M1 row-runs it is quoted against, so 14 of 14 is a consistency check and not a false-refusal measurement. NIST e-Handbook 2.3.5's doctrine is that the limits come from a baseline the standard is not afterwards judged on; the next recalibration must take one, and on this class it wants more than 14 runs — 14 is what fixes sigma for the dispersion term, and it is thin."
+        "independence": "MEASURED OUT OF SAMPLE AT SESSION LEVEL, AND ONE DIRECTION FAILED — which is this class's finding, not a defect to be tuned away (rf2-c1974). v2 said plainly that it was seeded from the same 14 M1 row-runs it was quoted against, so 14 of 14 was a consistency check; that admission was correct and is replaced here by a measurement rather than deleted. Derive from clock-emvod's 8 row-runs and all 6 of clock-w3yxd are IN CONTROL. Derive from clock-w3yxd's 6 and 4 of clock-emvod's 8 are REFUSED — every one on LOCATION, none on dispersion. THE DIRECTIONS DISAGREE, and the reason is not a large between-session shift: see holdOut.disagreement. WHAT IT DOES AND DOES NOT IMPEACH: not the shipped limits, which are fitted on both sittings pooled and admit all 14; it impeaches SINGLE-SITTING CALIBRATION on this class, which is a live risk because 14 runs is thin and the temptation at the next recalibration will be to take one sitting's worth. See recalibrateOn.",
+        "holdOut": {
+          "ruling": "rf2-c1974",
+          "level": "SESSION-LEVEL, same day, same tree — and that is the ceiling this corpus supports, not a choice",
+          "whyNotCommitLevel": "the corpus does not split by commit. Every run in both ensembles carries a `when` of 2026-08-07 and the two ensembles start 87 minutes apart — clock-emvod/run1 at 05:37:29Z, clock-w3yxd/run1 at 07:04:47Z — on the evidence one tree. A hold-out across them therefore crosses a SITTING and not a commit.",
+          "derivation": "each direction re-derives the class's own frozen recipe on ONE ensemble alone — centre = median of that ensemble's run medians, location = centre +/- 3 x its between-run SD, dispersion = exp(mu + 3 sigma) of its log robust scales — and judges every row-run of the other against it. The two baselines partition the 14: 8 + 6.",
+          "directions": [
+            {
+              "baseline": "clock-emvod", "baselineRowRuns": 8,
+              "centre": 1.8133, "betweenRunSD": 0.0486, "limits": [1.6674, 1.9591], "dispersionLimit": 0.3983,
+              "heldOut": "clock-w3yxd", "heldOutRowRuns": 6, "inControl": 6, "refused": [],
+              "tightestMargin": 0.1039, "note": "the held-out medians span [1.7713, 1.8014] — a 0.0300 span inside a 0.2916-wide limit — and the widest held-out robust scale is 0.2863 against a limit of 0.3983"
+            },
+            {
+              "baseline": "clock-w3yxd", "baselineRowRuns": 6,
+              "centre": 1.781, "betweenRunSD": 0.0113, "limits": [1.7471, 1.8149], "dispersionLimit": 0.6763,
+              "heldOut": "clock-emvod", "heldOutRowRuns": 8, "inControl": 4,
+              "refused": [
+                { "run": "clock-emvod/run3", "median": 1.8978, "term": "location", "over": 0.0828 },
+                { "run": "clock-emvod/run4", "median": 1.8475, "term": "location", "over": 0.0325 },
+                { "run": "clock-emvod/run2", "median": 1.8412, "term": "location", "over": 0.0263 },
+                { "run": "clock-emvod/run6", "median": 1.8176, "term": "location", "over": 0.0027 }
+              ],
+              "tightestMargin": -0.0828,
+              "note": "4 of 8 refused, every one on LOCATION and not one on dispersion — so this is a statement about where the sittings sit, not about how noisy either was"
+            }
+          ],
+          "agree": false,
+          "heldOutInControl": "10 of 14",
+          "betweenSessionOffset": "the two sittings' centres are 0.0322 apart (1.8133x against 1.7810x, 1.81%) — SMALLER in absolute terms than bulk's 0.0412, where both directions held. The offset is not what breaks this class.",
+          "disagreement": "WHAT BREAKS IT IS THE w3yxd SITTING'S OWN REPRODUCIBILITY. Its six mount medians span 0.0300 and give a between-run SD of 0.0113, under a quarter of emvod's 0.0486, so its +/- 3 SD budget is only 0.0678 wide and the between-session offset alone consumes 2.85 of the 3 sigma. Fitted the other way the budget is 0.2916 wide and the same offset consumes 0.66 sigma, so it costs nothing. THE ASYMMETRY IS THE MEASUREMENT: a single sitting can be reproducible enough to fit limits this instrument will not meet ninety minutes later, and six runs is far too few to tell a genuinely tight instrument from a lucky sitting. NOTE WHERE THE SHIPPED LIMITS SIT: v2 pools both sittings, so its between-run SD of 0.0397 already carries the between-session component and its limits are 0.2382 wide — narrower than the emvod-derived 0.2916 and 3.5x wider than the w3yxd-derived 0.0678. Pooling is what makes them survivable; it is not a widening, and none was applied here."
+        }
       },
       "amendedFrom": {
         "version": 1,
@@ -88,6 +149,8 @@
     "any change to the harness: the door an arm goes through, the tare arm, the settle, the sample or round counts",
     "any change to the floor's page — cell count, boundary count, the shape of a cell",
     "any change to the published clock (the counter the rows are stated on)",
-    "and the recalibration takes a FRESH baseline: re-deriving limits from the runs they will judge is how a check standard stops being one"
+    "and the recalibration takes a FRESH baseline: re-deriving limits from the runs they will judge is how a check standard stops being one",
+    "THE RESIDUAL, AND THE NEXT RECALIBRATION'S JOB (rf2-c1974). The independence this standard has is SESSION-LEVEL and no further: both ensembles were taken on 2026-08-07, about ninety minutes apart, on one tree, so the hold-out crosses a sitting and not a commit. COMMIT-LEVEL INDEPENDENCE HAS NEVER BEEN MEASURED ON THIS INSTRUMENT, and taking it is what the next ensemble is for — a baseline and a hold-out on different trees, which is what rf2-8a746 part 3 asks for and what rf2-pzqy8's census standard already has. Until then no run judged in control here has been judged by limits validated across a code change.",
+    "and on the MOUNT class specifically, the next baseline spans MORE THAN ONE SITTING and more than 14 runs. rf2-c1974 measured what a single-sitting mount baseline does: fitted on clock-w3yxd's 6 runs it refuses 4 of clock-emvod's 8, all on location. A sitting can be reproducible enough to fit limits the instrument will not meet an hour and a half later."
   ]
 }

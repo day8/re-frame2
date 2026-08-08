@@ -3734,7 +3734,10 @@ function fixtureRoundsTask(over) {
     const prov = STANDARD.classes.bulk.provenance;
     assert.strictEqual(prov.rowRuns, 42);
     assert.deepStrictEqual(prov.datasets, ['data/clock-emvod/run1-8.json', 'data/clock-w3yxd/run1-6.json']);
-    assert.match(prov.independence, /NOT INDEPENDENT/, 'v1 is seeded from the runs it is quoted against, and must say so');
+    // v1 said it was seeded from the runs it was quoted against; v3 replaced
+    // that admission with the measurement it was waiting for (rf2-c1974).
+    assert.match(prov.independence, /SESSION LEVEL/i, 'the independence field states the level actually achieved');
+    assert.ok(prov.holdOut, 'and carries the hold-out it was measured by');
   });
 
   // --- 2. THE SABOTAGE FIXTURE (criterion 2) --------------------------------
@@ -4117,7 +4120,11 @@ function fixtureRoundsTask(over) {
   // --- 1. THE CLASS IS DATA, LIKE THE OTHER ONE -----------------------------
 
   t('the mount class lands as DATA — calibrated, with its own frozen centre and limits', () => {
-    assert.strictEqual(STANDARD.version, 2, 'calibrating a class is a version bump, or a stored verdict cannot be re-read');
+    // Calibrating a class is a version bump, or a stored verdict cannot be
+    // re-read. The version has moved on since (v3, rf2-c1974), so the pin is on
+    // the amendment that records THIS change rather than on the head number.
+    assert.ok(STANDARD.version >= 2, `expected at least v2, got ${STANDARD.version}`);
+    assert.strictEqual((STANDARD.amendments.find((a) => a.ruling === 'rf2-x7x10') || {}).version, 2);
     assert.strictEqual(mount.calibrated, true);
     assert.deepStrictEqual(mount.rows, ['M1']);
     assert.strictEqual(classOf('M1'), 'mount');
@@ -4132,13 +4139,17 @@ function fixtureRoundsTask(over) {
     );
   });
 
-  t('the mount centre is EMPIRICAL, with its provenance and its non-independence stated', () => {
+  t('the mount centre is EMPIRICAL, with its provenance and the independence it has stated', () => {
     assert.ok(Math.abs(mount.centre - 2.0) > 0.15, 'the frozen centre is not the arithmetic 2.00x');
     const prov = mount.provenance;
     assert.strictEqual(prov.rowRuns, 14);
     assert.strictEqual(prov.calibratedBy, 'rf2-x7x10');
     assert.deepStrictEqual(prov.datasets, ['data/clock-emvod/run1-8.json', 'data/clock-w3yxd/run1-6.json']);
-    assert.match(prov.independence, /NOT INDEPENDENT/, 'v2 is seeded from the runs it is quoted against, and must say so');
+    // v2 said it was seeded from the runs it was quoted against; v3 replaced
+    // that admission with the measurement it was waiting for (rf2-c1974), and
+    // on this class the measurement came back split — see the rf2-c1974 block.
+    assert.match(prov.independence, /SESSION LEVEL/i, 'the independence field states the level actually achieved');
+    assert.ok(prov.holdOut, 'and carries the hold-out it was measured by');
     // the derivation is the bulk class's, restated on this class's numbers
     assert.match(mount.location.derivation, /3 x between-run SD/);
     assert.match(mount.dispersion.derivation, /exp\(mu \+ 3 sigma\)/);
@@ -4345,6 +4356,271 @@ function fixtureRoundsTask(over) {
     assert.match(v.why, /NOT CALIBRATED/);
     assert.strictEqual(JSON.stringify(STANDARD.classes.mount), before, 'the fixture must leave the standard as it found it');
     assert.strictEqual(checkStandard([1.79, 1.8, 1.81], 'M1').ok, true, 'and the class certifies again afterwards');
+  });
+}
+
+// ============================================================================
+// rf2-c1974 — THE LIMITS, VALIDATED OUT OF SAMPLE
+// ============================================================================
+//
+// rf2-8a746 part 3 asks for limits frozen from an INDEPENDENT baseline. v1 and
+// v2 both said, in their own `provenance.independence` fields, that they did not
+// have one — seeded from the runs they were quoted against, so `0 of 42` and
+// `14 of 14` were CONSISTENCY CHECKS and not false-refusal measurements. To
+// their credit they said it rather than leaving it to be found; but the moment
+// a NEW run is judged in control the verdict rests on limits nobody has tested
+// out of sample.
+//
+// WHAT THIS CORPUS SUPPORTS, AND THE CLAIM IS DELIBERATELY THE WEAKER ONE.
+// rf2-pzqy8's census standard held out a later COMMIT: its corpus spans five
+// days and a code change. This one cannot — every run in both clock ensembles
+// carries a `when` of 2026-08-07 and the ensembles start 87 minutes apart, on
+// the evidence one tree — so the strongest hold-out here is by SITTING. That is
+// real, and it is the dominant practical failure mode for a check standard, but
+// it crosses a coffee break rather than a commit. The first case below checks
+// that premise against the datasets rather than taking it on trust.
+//
+// BOTH WAYS, because a one-directional answer depends on which ensemble
+// happened to be picked. BULK agrees, 42 of 42 held-out row-runs in control.
+// MOUNT DISAGREES — and the disagreement is the finding, so it is pinned here
+// as a measurement rather than smoothed into an average.
+//
+// AND NOTHING WAS WIDENED. The fence rf2-c1974 was raised under is that a
+// hold-out failure is an answer, not a tuning signal; the last cases assert
+// that every shipped limit is still v2's, to the last place.
+{
+  const { STANDARD } = require('./clock_check_standard.cjs');
+  const { checkStandardFor } = require('./clock_readjudicate.cjs');
+  const t = (what, fn) => test(`rf2-c1974: ${what}`, fn);
+  const bulk = STANDARD.classes.bulk;
+  const mount = STANDARD.classes.mount;
+  const ENSEMBLES = ['clock-emvod', 'clock-w3yxd'];
+
+  const r4 = (x) => Math.round(x * 10000) / 10000;
+  const p50 = (xs) => {
+    const v = [...xs].sort((a, b) => a - b);
+    return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  };
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = (xs) => {
+    const m = mean(xs);
+    return Math.sqrt(xs.reduce((a, b) => a + (b - m) * (b - m), 0) / (xs.length - 1));
+  };
+
+  /**
+   * Every committed row-run of one class, per ensemble, ADJUDICATED BY THE LIVE
+   * ADJUDICATOR rather than by a copy of its arithmetic: `checkStandardFor` is
+   * what the readjudicator applies to a dataset off disk, so a witness built on
+   * it cannot pass while the thing it describes has changed. Returns `null`
+   * when the corpus is absent — the datasets are retained, not required to
+   * build.
+   */
+  const readClass = (klassName) => {
+    const rows = STANDARD.classes[klassName].rows;
+    const out = {};
+    for (const dir of ENSEMBLES) {
+      const d = path.join(__dirname, 'data', dir);
+      if (!fs.existsSync(d)) return null;
+      out[dir] = [];
+      for (const f of fs.readdirSync(d).sort()) {
+        const data = JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'));
+        for (const row of data.rows.filter((r) => rows.includes(r.rowId))) {
+          const v = checkStandardFor(row, data);
+          out[dir].push({ run: `${dir}/${f.replace(/\.json$/, '')}`, rowId: row.rowId, median: v.location.measured, scale: v.dispersion.measured });
+        }
+      }
+    }
+    return out;
+  };
+
+  /** The class's own frozen recipe, applied to ONE ensemble alone. */
+  const deriveFrom = (runs) => {
+    const meds = runs.map((r) => r.median);
+    const logs = runs.map((r) => Math.log(r.scale));
+    const centre = p50(meds);
+    const s = sd(meds);
+    return { n: runs.length, centre, sd: s, limits: [centre - 3 * s, centre + 3 * s], dispersionLimit: Math.exp(mean(logs) + 3 * sd(logs)) };
+  };
+
+  // --- 1. THE PREMISE OF THE WEAKER CLAIM, CHECKED AGAINST THE DATA ---------
+
+  t('the corpus does NOT split by commit — one day, ~90 minutes apart, so the hold-out is by SITTING', () => {
+    // The reason the claim is session-level rather than commit-level. It is
+    // asserted from the datasets because a standard that overstated its own
+    // independence would be the exact defect rf2-c1974 was raised on, one
+    // level up.
+    const firsts = {};
+    for (const dir of ENSEMBLES) {
+      const d = path.join(__dirname, 'data', dir);
+      if (!fs.existsSync(d)) return;
+      const whens = fs.readdirSync(d).sort().map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')).when);
+      assert.ok(whens.every((w) => /^2026-08-07T/.test(w)), `${dir}: every run must be the same day for the claim to be what it says — ${JSON.stringify(whens)}`);
+      firsts[dir] = Math.min(...whens.map((w) => Date.parse(w)));
+    }
+    const gapMinutes = Math.abs(firsts['clock-w3yxd'] - firsts['clock-emvod']) / 60000;
+    assert.ok(gapMinutes > 30 && gapMinutes < 180, `the two ensembles must be separate sittings of the same day — ${r4(gapMinutes)} minutes apart`);
+    for (const k of [bulk, mount]) {
+      assert.match(k.provenance.holdOut.level, /SESSION-LEVEL/, 'and the file must claim exactly that');
+      assert.match(k.provenance.holdOut.whyNotCommitLevel, /does not split by commit/);
+    }
+  });
+
+  // --- 2. THE HOLD-OUT IS RECOMPUTABLE FROM THE COMMITTED DATASETS ---------
+
+  t('every hold-out number in the standard is re-derived from the corpus — both classes, both directions', () => {
+    for (const [name, klass] of [['bulk', bulk], ['mount', mount]]) {
+      const data = readClass(name);
+      if (!data) return;
+      assert.strictEqual(
+        Object.values(data).reduce((a, v) => a + v.length, 0),
+        klass.provenance.rowRuns,
+        `${name}: the corpus must be the ${klass.provenance.rowRuns} row-runs the class was calibrated from`
+      );
+      for (const dir of klass.provenance.holdOut.directions) {
+        const d = deriveFrom(data[dir.baseline]);
+        const held = data[dir.heldOut];
+        assert.strictEqual(d.n, dir.baselineRowRuns, `${name}/${dir.baseline}: baseline size`);
+        assert.strictEqual(held.length, dir.heldOutRowRuns, `${name}/${dir.heldOut}: held-out size`);
+        assert.strictEqual(r4(d.centre), dir.centre, `${name}/${dir.baseline}: derived centre`);
+        assert.strictEqual(r4(d.sd), dir.betweenRunSD, `${name}/${dir.baseline}: derived between-run SD`);
+        // THE LIMITS AND THE DISPERSION TERM ARE PINNED TO WITHIN HALF A PLACE
+        // rather than to the last one, and the reason is arithmetic and not
+        // slack: the adjudicator reports a run's median and scale ROUNDED to
+        // four places, so a statistic taken over the reported numbers can
+        // differ from one taken over the raw ones in the fourth. Any refit
+        // moves these by orders of magnitude more than 1e-3.
+        assert.ok(Math.abs(d.limits[0] - dir.limits[0]) < 1e-3 && Math.abs(d.limits[1] - dir.limits[1]) < 1e-3,
+          `${name}/${dir.baseline}: derived limits [${r4(d.limits[0])}, ${r4(d.limits[1])}] against recorded ${JSON.stringify(dir.limits)}`);
+        assert.ok(Math.abs(d.dispersionLimit - dir.dispersionLimit) < 1e-3,
+          `${name}/${dir.baseline}: derived dispersion ${r4(d.dispersionLimit)} against recorded ${dir.dispersionLimit}`);
+        // and the verdict itself: every held-out run judged by limits fitted
+        // without it, against the limits the file records.
+        const verdicts = held.map((r) => ({ ...r, ok: r.median >= dir.limits[0] && r.median <= dir.limits[1] && r.scale <= dir.dispersionLimit }));
+        assert.strictEqual(verdicts.filter((v) => v.ok).length, dir.inControl, `${name}/${dir.baseline} -> ${dir.heldOut}: in-control count`);
+        assert.deepStrictEqual(
+          verdicts.filter((v) => !v.ok).map((v) => v.run).sort(),
+          (dir.refused || []).map((r) => r.run).sort(),
+          `${name}/${dir.baseline} -> ${dir.heldOut}: the refused runs must be the ones the file names`
+        );
+        for (const r of dir.refused || []) {
+          const v = verdicts.find((x) => x.run === r.run);
+          assert.strictEqual(v.median, r.median, `${r.run}: recorded median`);
+          assert.strictEqual(r.term, v.scale <= dir.dispersionLimit ? 'location' : 'dispersion', `${r.run}: recorded term`);
+        }
+      }
+    }
+  });
+
+  // --- 3. BULK: BOTH DIRECTIONS AGREE ---------------------------------------
+
+  t('BULK: limits fitted on one sitting admit every row-run of the other, BOTH WAYS — 42 of 42', () => {
+    const h = bulk.provenance.holdOut;
+    assert.strictEqual(h.agree, true);
+    assert.strictEqual(h.heldOutInControl, '42 of 42');
+    assert.deepStrictEqual(h.directions.map((d) => `${d.baseline}->${d.heldOut} ${d.inControl}/${d.heldOutRowRuns}`), [
+      'clock-emvod->clock-w3yxd 18/18',
+      'clock-w3yxd->clock-emvod 24/24',
+    ]);
+    // and the file does not oversell it: the closer direction passes by 0.0073
+    // on a limits width of 0.2949, which the note says out loud.
+    const tight = Math.min(...h.directions.map((d) => d.tightestMargin));
+    assert.ok(tight > 0 && tight < 0.02, `the tightest held-out margin is ${tight}`);
+    assert.match(h.directions.find((d) => d.tightestMargin === tight).note, /does not pass comfortably/);
+  });
+
+  // --- 4. MOUNT: THE DIRECTIONS DISAGREE, AND THAT IS THE FINDING -----------
+
+  t('MOUNT: one direction admits all 6, the other REFUSES 4 of 8 — the disagreement is recorded, not averaged', () => {
+    const h = mount.provenance.holdOut;
+    assert.strictEqual(h.agree, false, 'a class whose directions disagree may not report as if they agreed');
+    assert.strictEqual(h.heldOutInControl, '10 of 14');
+    const emvodBased = h.directions.find((d) => d.baseline === 'clock-emvod');
+    const w3yxdBased = h.directions.find((d) => d.baseline === 'clock-w3yxd');
+    assert.strictEqual(emvodBased.inControl, emvodBased.heldOutRowRuns, 'the 8-run baseline admits the whole other sitting');
+    assert.strictEqual(w3yxdBased.inControl, 4);
+    assert.strictEqual(w3yxdBased.refused.length, 4);
+    // EVERY refusal is LOCATION. That is what makes this a statement about
+    // where the two sittings sit rather than about how noisy either was, and
+    // it is the difference between a finding and a flaky instrument.
+    assert.ok(w3yxdBased.refused.every((r) => r.term === 'location'), JSON.stringify(w3yxdBased.refused));
+    // and the cause is stated: not a large shift, but a baseline too tight to
+    // contain a small one.
+    assert.ok(
+      Math.abs(emvodBased.centre - w3yxdBased.centre) < Math.abs(bulk.provenance.holdOut.directions[0].centre - bulk.provenance.holdOut.directions[1].centre),
+      'the mount sittings are CLOSER than the bulk sittings, which is why the cause cannot be the offset alone'
+    );
+    assert.ok(w3yxdBased.betweenRunSD * 4 < emvodBased.betweenRunSD, 'the failing baseline is the tighter one, by more than 4x');
+    assert.match(h.disagreement, /REPRODUCIBILITY/);
+    assert.match(h.disagreement, /single sitting/i);
+  });
+
+  // --- 5. THE FENCE: NOTHING WAS WIDENED TO MAKE A HOLD-OUT PASS ------------
+
+  t('THE FENCE: not one shipped limit moved — v2\'s frozen numbers, to the last place', () => {
+    // The bulk half of this is already pinned by the rf2-x7x10 block; the mount
+    // half is pinned here, because the mount is the class whose hold-out
+    // failed and therefore the one a tuning hand would have reached for.
+    assert.strictEqual(mount.centre, 1.7956);
+    assert.deepStrictEqual(mount.location.limits, [1.6765, 1.9147]);
+    assert.strictEqual(mount.dispersion.limit, 0.577);
+    assert.deepStrictEqual(mount.tolerance.band, [1.3467, 2.2445]);
+    assert.strictEqual(bulk.centre, 1.7207);
+    assert.deepStrictEqual(bulk.location.limits, [1.5509, 1.8905]);
+    assert.strictEqual(bulk.dispersion.limit, 0.568);
+    // and the shipped limits are the POOLED fit rather than either single-
+    // sitting one — narrower than the widest available, which is what a
+    // widening would have produced.
+    for (const k of [bulk, mount]) {
+      const width = k.location.limits[1] - k.location.limits[0];
+      const widths = k.provenance.holdOut.directions.map((d) => d.limits[1] - d.limits[0]);
+      assert.ok(width < Math.max(...widths), `${JSON.stringify(k.rows)}: pooled width ${r4(width)} against ${widths.map(r4)}`);
+    }
+    // the standard still admits its own baseline, both classes, unchanged
+    for (const [name, klass] of [['bulk', bulk], ['mount', mount]]) {
+      const data = readClass(name);
+      if (!data) return;
+      const all = ENSEMBLES.flatMap((d) => data[d]);
+      const inControl = all.filter((r) => r.median >= klass.location.limits[0] && r.median <= klass.location.limits[1] && r.scale <= klass.dispersion.limit);
+      assert.strictEqual(inControl.length, klass.provenance.rowRuns, `${name}: the shipped limits must still admit all ${klass.provenance.rowRuns}`);
+    }
+  });
+
+  // --- 6. THE VERSION, THE AMENDMENT AND THE RESIDUAL -----------------------
+
+  t('v3 is an amendment with its own entry, and the earlier admissions are replaced by measurements', () => {
+    assert.strictEqual(STANDARD.version, 3, 'replacing an independence claim is a version bump — a stored verdict must stay re-readable');
+    const a = STANDARD.amendments.find((x) => x.ruling === 'rf2-c1974');
+    assert.ok(a, 'the amendment log must carry this change');
+    assert.strictEqual(a.version, 3);
+    assert.match(a.what, /OUT OF SAMPLE/);
+    assert.match(a.touches, /byte-identical to v2/);
+    // the honest admission is GONE as a live claim, on both classes, because it
+    // has been answered — not because it was inconvenient.
+    for (const k of [bulk, mount]) {
+      assert.ok(!/NOT INDEPENDENT OF ITS OWN BASELINE/.test(k.provenance.independence), 'the admission is replaced by the measurement that answers it');
+      assert.match(k.provenance.independence, /rf2-c1974/);
+      assert.match(k.provenance.independence, /SESSION LEVEL/i);
+    }
+  });
+
+  t('THE RESIDUAL: commit-level independence is named as the recalibration trigger, not implied to be done', () => {
+    // The half of rf2-8a746 part 3 this work does NOT discharge. Left unstated,
+    // a reader meeting `provenance.independence` would take "validated out of
+    // sample" for the whole criterion.
+    const triggers = STANDARD.recalibrateOn;
+    const residual = triggers.find((r) => /COMMIT-LEVEL INDEPENDENCE HAS NEVER BEEN MEASURED/.test(r));
+    assert.ok(residual, `the standard must name what it still lacks — ${JSON.stringify(triggers)}`);
+    assert.match(residual, /different trees/);
+    assert.match(residual, /rf2-8a746 part 3/);
+    // and the mount's own residual, which is narrower and sharper: its next
+    // baseline may not be a single sitting.
+    assert.ok(triggers.some((r) => /MOUNT class specifically/.test(r) && /more than 14 runs/.test(r)), JSON.stringify(triggers));
+  });
+
+  t('the ruling is cited by bead id in every surface it changed', () => {
+    for (const file of ['clock_check_standard.json', 'clock_check_standard.cjs']) {
+      assert.ok(/rf2-c1974/.test(fs.readFileSync(path.join(__dirname, file), 'utf8')), `${file} must cite the ruling that changed it`);
+    }
   });
 }
 
