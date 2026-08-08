@@ -396,15 +396,17 @@ function controlVerdict(predicted, per, slack) {
  * would replace a working control with a copied one.
  *
  * `ordinary` is the row that does not. It reads 1.2308x against a predicted
- * 1.7255x — 71.3% of P and 5.2% BELOW the strict band's own lower edge — so
- * every one of its ten committed row-runs refused, and rf2-y0pkh measured
- * that no relaxation of the block count reaches it (0, 1, 2 or 3 out-of-band
- * blocks allowed: 0 of 10 either way). The arithmetic is not wrong anywhere;
- * the row is small. `R = (P*W + c)/(W + c)`, and at 51 elements the tared
- * floor is 1.41 ms of which `c = 0.96 ms` — 68% — does not scale with the
- * page, so the reading sits far below `P` by construction. That is a
- * mis-specified CENTRE, the class rf2-8a746 diagnosed on ctl3 (whose true
- * centre sat 2.6% ABOVE its refusal edge where this sits 5.2% below), and
+ * 1.7255x — 71.3% of P, and BELOW the strict band's own lower edge of 1.2941
+ * rather than inside it — so every one of its ten committed row-runs refused,
+ * and rf2-y0pkh measured that no relaxation of the block count reaches it
+ * (0, 1, 2 or 3 out-of-band blocks allowed: 0 of 10 either way, its pooled
+ * block median 1.2264 sitting 5.2% under that edge). The arithmetic is not
+ * wrong anywhere; the row is small. `R = (P*W + c)/(W + c)`, and at 51
+ * elements the tared floor is 1.41 ms of which `c = 0.96 ms` — 68% — does
+ * not scale with the page, so the reading sits far below `P` by
+ * construction. That is a mis-specified CENTRE, the class rf2-8a746
+ * diagnosed on ctl3 (whose true centre sat 2.6% ABOVE its refusal edge
+ * where this row's sits below its own), and
  * its ruling's part 3 is the repair: a level-denominated, EMPIRICALLY
  * CALIBRATED, versioned standard rather than a theoretical value asserted
  * against a reading it does not describe.

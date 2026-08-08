@@ -32,7 +32,7 @@
         "runRejectionBaseline": "0 of 8 baseline row-runs refused — a consistency check, since the limits are seeded from them",
         "runRejectionHoldOut": "0 of 2 HOLD-OUT row-runs refused — and this one is a false-refusal measurement, because the limits were derived without them",
         "toleranceBandPerBlock": "10.0% of blocks fall outside the reported band (162 of 180 inside; 136 of 144 on the baseline alone)",
-        "retiredCentreForComparison": "the element-arithmetic centre 1.7255 put 56 of 180 blocks (31.1%) inside its +/-25% band and passed 0 of 10 row-runs. rf2-y0pkh measured that no relaxation of the block count reaches it — allowing one, two or three out-of-band blocks per row-run still passes 0 of 10 — because the row's centre sat 5.2% BELOW that band's lower edge of 1.2941. The centre was the defect, and this file is the repair."
+        "retiredCentreForComparison": "the element-arithmetic centre 1.7255 put 56 of 180 blocks (31.1%) inside its +/-25% band and passed 0 of 10 row-runs. rf2-y0pkh measured that no relaxation of the block count reaches it — allowing one, two or three out-of-band blocks per row-run still passes 0 of 10 — because the row's centre sat BELOW that band's lower edge of 1.2941 rather than inside it, its pooled block median of 1.2264 by 5.2% and the baseline centre frozen above by 4.9%. The centre was the defect, and this file is the repair."
       },
       "sensitivity": {
         "what": "WHAT THIS STANDARD CAN AND CANNOT CATCH, stated rather than left to be discovered. A standard nobody has seen refuse is a standard of unmeasured sensitivity, and this lane has found that defect nine times.",
