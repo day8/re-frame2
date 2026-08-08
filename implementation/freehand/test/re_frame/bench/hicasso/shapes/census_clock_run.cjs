@@ -635,8 +635,6 @@ async function runRow(browser, runDef, rowId) {
  * the repair is to REQUIRE the shape rather than to default it:
  *
  *   - every round carries at least one block, and every block at least one arm;
- *   - every block carries the same arm roster as the row's first block, so a
- *     block that dropped an arm cannot be summed against blocks that kept it;
  *   - every arm carries every one of `DECOMP_FIELDS`, each a FINITE number —
  *     absent, `null`, `undefined` and `NaN` are refusals, not zeros;
  *   - `n` is positive (a block that took no samples is not evidence) and
@@ -646,12 +644,40 @@ async function runRow(browser, runDef, rowId) {
  * out and reads 0, and `taskNet` subtracts the devtools window so it may read
  * below zero. The refusal names the round, the block, the arm and the field, so
  * a reader can go to the offending side of the ratio and see what is wrong.
+ *
+ * AND IT MEASURES COMPLETENESS AGAINST THE ROW'S DECLARED SHAPE, not against
+ * the evidence itself (merged-PR audit #7681, rf2-e1tko). That landing required
+ * "the same arm roster as the row's FIRST BLOCK" and counted no rounds or
+ * blocks at all, so the evidence certified itself: a row with its final round
+ * removed, a row with one block removed, and a row with an arm removed from
+ * EVERY block were all accepted, each folding to internally consistent
+ * survivors and a plausible aggregate. The third is the sharp one — a roster
+ * read off block 1 cannot see an arm that block 1 has also lost, so uniform
+ * loss walks straight past the check written to catch it.
+ *
+ * So `declared` is REQUIRED, and it is the row's own account of itself: the
+ * `armIds` its plan named and the `rounds` x `blocks` its design ran. Both are
+ * carried beside the split rather than derived from it — `report` reads them
+ * from the row and the run's design, a reader of a written dataset from
+ * `row.armIds` and `data.design`. Passing the stored blocks back in under a new
+ * name would be this defect with extra steps, so a caller that offers no
+ * declared shape gets a refusal rather than a fold.
  */
-function foldDecomposition(blocksDecomp) {
+function foldDecomposition(blocksDecomp, declared) {
   if (!Array.isArray(blocksDecomp) || blocksDecomp.length === 0) {
     throw new Error(
       'this row carries no per-block decomposition: it predates rf2-jo60g, so the ' +
         'Script/Layout/RecalcStyle split is NOT recomputable from it and may not be quoted'
+    );
+  }
+  const shape = declared || {};
+  const expected = Array.isArray(shape.armIds) ? shape.armIds.slice().sort() : [];
+  if (expected.length === 0 || !(shape.rounds > 0) || !(shape.blocks > 0)) {
+    throw new Error(
+      "foldDecomposition needs the row's DECLARED shape — {armIds, rounds, blocks} — to measure " +
+        'completeness against. Anchoring to the stored blocks instead lets a truncated row certify ' +
+        'itself: that is what accepted a removed round, a removed block, and an arm removed from ' +
+        'every block (rf2-e1tko).'
     );
   }
   const describe = (v) =>
@@ -669,34 +695,38 @@ function foldDecomposition(blocksDecomp) {
     );
   };
 
-  let roster = null; // the arms of round 0, block 0 — every block must carry them
+  // "5 rounds are stored where the row declares 6 — 1 missing", in one voice for
+  // both dimensions, because a reader wants the same sentence either way.
+  const counted = (stored, want, unit) =>
+    `carries ${stored} ${unit}${stored === 1 ? '' : 's'} where the row declares ${want} — ` +
+    `${Math.abs(want - stored)} ${stored < want ? 'missing' : 'unexpected'}`;
+
+  if (blocksDecomp.length !== shape.rounds) refuse("the row's shape", counted(blocksDecomp.length, shape.rounds, 'round'));
+
   const out = {};
   for (let r = 0; r < blocksDecomp.length; r++) {
     const round = blocksDecomp[r];
     if (!Array.isArray(round) || round.length === 0) {
       refuse(`round ${r}`, `carries no blocks (${describe(round)})`);
     }
+    if (round.length !== shape.blocks) refuse(`round ${r}`, counted(round.length, shape.blocks, 'block'));
     for (let b = 0; b < round.length; b++) {
       const blk = round[b];
       const at = `round ${r}, block ${b}`;
       if (!blk || typeof blk !== 'object' || Array.isArray(blk)) refuse(at, `is not a block of arms (${describe(blk)})`);
       const here = Object.keys(blk).sort();
       if (here.length === 0) refuse(at, 'carries no arms — an empty block measured nothing');
-      if (roster === null) {
-        roster = here;
-      } else {
-        const missing = roster.filter((a) => !here.includes(a));
-        const extra = here.filter((a) => !roster.includes(a));
-        if (missing.length || extra.length) {
-          refuse(
-            at,
-            `carries arms [${here.join(', ')}] where round 0, block 0 carries [${roster.join(', ')}]` +
-              `${missing.length ? ` — missing ${missing.join(', ')}` : ''}` +
-              `${extra.length ? ` — unexpected ${extra.join(', ')}` : ''}`
-          );
-        }
+      const missing = expected.filter((a) => !here.includes(a));
+      const extra = here.filter((a) => !expected.includes(a));
+      if (missing.length || extra.length) {
+        refuse(
+          at,
+          `carries arms [${here.join(', ')}] where the row declares [${expected.join(', ')}]` +
+            `${missing.length ? ` — missing ${missing.join(', ')}` : ''}` +
+            `${extra.length ? ` — unexpected ${extra.join(', ')}` : ''}`
+        );
       }
-      for (const arm of roster) {
+      for (const arm of expected) {
         const a = blk[arm];
         const side = `${at}, arm "${arm}"`;
         if (!a || typeof a !== 'object' || Array.isArray(a)) refuse(side, `carries no accumulator (${describe(a)})`);
@@ -734,7 +764,7 @@ function perBlock(blocks, f) {
 
 function report(out) {
   const { runId, rowId, armIds, canon, ctlPredicted, blocksTask, blocksNet, blocksInPage, blocksDecomp, samplesTask, samplesNet, tally, runtime, granularity } = out;
-  const decomposition = foldDecomposition(blocksDecomp);
+  const decomposition = foldDecomposition(blocksDecomp, { armIds, rounds: ROUNDS, blocks: BLOCKS });
   const stamp = STAMP[rowId];
 
   console.log(`\n;; ==== RUN ${runId} — ROW ${rowId} ====`);

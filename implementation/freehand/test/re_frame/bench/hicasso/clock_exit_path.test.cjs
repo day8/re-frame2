@@ -527,22 +527,37 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const DECOMP_BLOCK = (n, layout, style, script) => ({
     n, task: layout + style + script, taskNet: 0, devtools: 0, script, style, layout, layoutCount: n, inPage: 0,
   });
+  // The plan names plumb too and the collector bumps every arm in it, so a
+  // faithful block carries plumb — laying nothing out and reading zeros, as it
+  // does in the committed data. rf2-e1tko made this load-bearing: completeness
+  // is measured against the row's DECLARED roster, so a fixture that omitted
+  // plumb from every block would itself be the truncation under test.
+  const DECOMP_PLUMB = () => ({
+    n: 10, task: 0.5, taskNet: 0, devtools: 0, script: 0.5, style: 0, layout: 0, layoutCount: 0, inPage: 0,
+  });
   const FIXTURE_DECOMP = [
     [
-      { floor: DECOMP_BLOCK(10, 8, 9, 0.8), 'ctl-2x': DECOMP_BLOCK(10, 20, 18, 2.0) },
-      { floor: DECOMP_BLOCK(10, 12, 11, 1.2), 'ctl-2x': DECOMP_BLOCK(10, 21, 19, 2.4) },
+      { plumb: DECOMP_PLUMB(), floor: DECOMP_BLOCK(10, 8, 9, 0.8), 'ctl-2x': DECOMP_BLOCK(10, 20, 18, 2.0) },
+      { plumb: DECOMP_PLUMB(), floor: DECOMP_BLOCK(10, 12, 11, 1.2), 'ctl-2x': DECOMP_BLOCK(10, 21, 19, 2.4) },
     ],
     [
-      { floor: DECOMP_BLOCK(10, 9, 10, 1.0), 'ctl-2x': DECOMP_BLOCK(10, 20.4, 18.5, 2.4) },
-      { floor: DECOMP_BLOCK(10, 11, 10, 1.0), 'ctl-2x': DECOMP_BLOCK(10, 21, 18.5, 2.4) },
+      { plumb: DECOMP_PLUMB(), floor: DECOMP_BLOCK(10, 9, 10, 1.0), 'ctl-2x': DECOMP_BLOCK(10, 20.4, 18.5, 2.4) },
+      { plumb: DECOMP_PLUMB(), floor: DECOMP_BLOCK(10, 11, 10, 1.0), 'ctl-2x': DECOMP_BLOCK(10, 21, 18.5, 2.4) },
     ],
   ];
   const CITED = { layout: 2.06, style: 1.85, script: 2.3 };
 
+  // What the row DECLARES itself to be: the arms its plan named and the
+  // dimensions its design ran. Both travel beside the split rather than out of
+  // it — `report` reads them from the row and the run's design, a reader of a
+  // written dataset from `row.armIds` and `data.design` — which is the whole
+  // point: evidence cannot be its own completeness check (rf2-e1tko).
+  const DECLARED = { armIds: ['plumb', 'floor', 'ctl-2x'], rounds: 2, blocks: 2 };
+
   const fixtureRow = (over = {}) => ({
     runId: 'reagent',
     rowId: 'feed',
-    armIds: ['plumb', 'floor', 'ctl-2x'],
+    armIds: DECLARED.armIds,
     canon: { floor: true },
     ctlPredicted: 1.9943,
     blocksTask: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
@@ -584,7 +599,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t("the studio page's cited decomposition is recomputable from the file alone", () => {
     // The whole point of the bead: read the JSON, fold it, divide, and the
     // page's three numbers come back out. Nothing here reads the browser.
-    const fold = foldDecomposition(written().blocksDecomp);
+    const fold = foldDecomposition(written().blocksDecomp, DECLARED);
     const mean = (arm, k) => fold[arm][k] / fold[arm].n;
     for (const [k, cited] of Object.entries(CITED)) {
       assert.strictEqual(round4(mean('ctl-2x', k) / mean('floor', k)), cited, `${k} must recompute to ${cited}x`);
@@ -601,29 +616,42 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // split the file never recorded, which is the defect wearing a fix's face.
     const legacy = written();
     delete legacy.blocksDecomp;
-    assert.throws(() => foldDecomposition(legacy.blocksDecomp), /NOT recomputable/);
-    assert.throws(() => foldDecomposition([]), /NOT recomputable/);
+    assert.throws(() => foldDecomposition(legacy.blocksDecomp, DECLARED), /NOT recomputable/);
+    assert.throws(() => foldDecomposition([], DECLARED), /NOT recomputable/);
   });
 
-  t('every committed census dataset either carries the split or refuses to answer', () => {
-    // Capture backfills nothing: the datasets on disk gain the fields on the
-    // next canonical run, not on this commit. Whatever is there, the rule is
-    // the same — a row with the split folds, a row without it refuses. There
-    // is no third answer, so this stays true across the re-run.
+  // Every committed census row, paired with the declared shape its own file
+  // carries. `row.armIds` and `data.design` are serialised independently of
+  // `blocksDecomp`, so reading them back measures the split against something
+  // other than itself — which is the whole of rf2-e1tko in one line.
+  const committedRows = () => {
     const dir = path.join(__dirname, 'data');
     const files = fs
       .readdirSync(dir)
       .filter((d) => d.startsWith('censusclock-'))
       .flatMap((d) => fs.readdirSync(path.join(dir, d)).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, d, f)));
     assert.ok(files.length >= 2, 'expected the committed census datasets');
-    for (const f of files) {
-      for (const row of JSON.parse(fs.readFileSync(f, 'utf8')).rows) {
-        if (row.blocksDecomp) {
-          const fold = foldDecomposition(row.blocksDecomp);
-          assert.ok(Object.values(fold).every((a) => a.n > 0), `${f}: a stored split must fold to real counts`);
-        } else {
-          assert.throws(() => foldDecomposition(row.blocksDecomp), /NOT recomputable/, `${f}: must refuse, not answer`);
-        }
+    return files.flatMap((f) => {
+      const data = JSON.parse(fs.readFileSync(f, 'utf8'));
+      return data.rows.map((row) => ({
+        f,
+        row,
+        declared: { armIds: row.armIds, rounds: data.design.rounds, blocks: data.design.blocks },
+      }));
+    });
+  };
+
+  t('every committed census dataset either carries the split or refuses to answer', () => {
+    // Capture backfills nothing: the datasets on disk gain the fields on the
+    // next canonical run, not on this commit. Whatever is there, the rule is
+    // the same — a row with the split folds, a row without it refuses. There
+    // is no third answer, so this stays true across the re-run.
+    for (const { f, row, declared } of committedRows()) {
+      if (row.blocksDecomp) {
+        const fold = foldDecomposition(row.blocksDecomp, declared);
+        assert.ok(Object.values(fold).every((a) => a.n > 0), `${f}: a stored split must fold to real counts`);
+      } else {
+        assert.throws(() => foldDecomposition(row.blocksDecomp, declared), /NOT recomputable/, `${f}: must refuse, not answer`);
       }
     }
   });
@@ -658,11 +686,11 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     r.adjudication.ctl = { ok: true, measured: { mean: 1.9943 } };
     return r;
   };
-  const driveOn = (blocksDecomp) => {
+  const driveOn = (blocksDecomp, declared = DECLARED) => {
     const results = [];
     let failed = null;
     try {
-      foldDecomposition(blocksDecomp); // `report`'s first act on the row
+      foldDecomposition(blocksDecomp, declared); // `report`'s first act on the row
       results.push(summarisable()); // reached only if the fold ANSWERED
     } catch (e) {
       failed = e.message;
@@ -680,7 +708,13 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // Each pin is one link of the chain the witnesses below assume. Newlines
     // are normalised because this tree is checked out with CRLF on Windows.
     const src = SRC.replace(/\r\n/g, '\n');
-    assert.match(src, /function report\(out\) \{\n {2}const \{[^}]*blocksDecomp[^}]*\} = out;\n {2}const decomposition = foldDecomposition\(blocksDecomp\);/);
+    // The second argument is pinned with the first: rf2-e1tko turns on WHERE
+    // the declared shape comes from, and `{ armIds, rounds: ROUNDS, blocks:
+    // BLOCKS }` is the row's plan and the run's design — never the blocks.
+    assert.match(
+      src,
+      /function report\(out\) \{\n {2}const \{[^}]*armIds[^}]*blocksDecomp[^}]*\} = out;\n {2}const decomposition = foldDecomposition\(blocksDecomp, \{ armIds, rounds: ROUNDS, blocks: BLOCKS \}\);/
+    );
     const drive = src.slice(src.indexOf('async function drive('));
     assert.match(drive, /const out = await runRow\(browser, runDef, rowId\);\n\s*const adj = report\(out\);\n\s*results\.push\(/);
     assert.match(drive, /\} catch \(e\) \{\n\s*failed = e\.message;/);
@@ -706,6 +740,21 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(fold, /for \(const k of DECOMP_FIELDS\) acc\[k\] \+= a\[k\];/);
   });
 
+  t('the fold measures completeness against the DECLARED shape, never against block 1', () => {
+    // rf2-e1tko, and the reason it is a source pin as well as a witness: every
+    // state below is one the pre-repair fold ACCEPTED, and a rewrite that
+    // re-derived the roster from the evidence could go on rejecting them for
+    // some other reason while the anchor quietly returned. `roster`, the old
+    // block-1 variable, and the message that named it are both gone.
+    const fold = SRC.slice(SRC.indexOf('function foldDecomposition('), SRC.indexOf('function taredCell('));
+    assert.match(fold, /function foldDecomposition\(blocksDecomp, declared\)/);
+    assert.match(fold, /const expected = Array\.isArray\(shape\.armIds\) \? shape\.armIds\.slice\(\)\.sort\(\) : \[\];/);
+    assert.match(fold, /blocksDecomp\.length !== shape\.rounds/, 'the row must carry the rounds it declares');
+    assert.match(fold, /round\.length !== shape\.blocks/, 'each round must carry the blocks the row declares');
+    assert.match(fold, /for \(const arm of expected\)/, 'the per-field checks must run over the declared roster');
+    assert.ok(!/round 0, block 0 carries/.test(fold), 'block 1 is not the authority on what a whole row carries');
+  });
+
   t('the collector, the serialiser and the fold agree on ONE field list', () => {
     // Three readers over one constant; the split was dropped in the first place
     // because a field could be collected and then not be required anywhere.
@@ -723,12 +772,20 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     return c;
   };
 
-  // [what it is, the evidence, the phrase the refusal must carry, the side it must name]
+  // [what it is, the evidence, the phrase the refusal must carry, the side it
+  //  must name, and the shape the row DECLARES itself to be]
+  //
+  // The declared shape defaults to the fixture's own. The four degenerate
+  // arrays below are single-round, single-block by construction, so each is
+  // measured against a shape that matches its dimensions — otherwise the row
+  // count would refuse them first and the structural fault they stand for would
+  // never be reached.
+  const ONE = { armIds: DECLARED.armIds, rounds: 1, blocks: 1 };
   const PARTIAL = [
-    ['an outer array whose round has no blocks', [[]], 'carries no blocks', 'round 0'],
-    ['a round whose block has no arms', [[{}]], 'carries no arms', 'round 0, block 0'],
-    ['a round that is not an array at all', [null], 'carries no blocks', 'round 0'],
-    ['a block that is not a block of arms', [[[]]], 'is not a block of arms', 'round 0, block 0'],
+    ['an outer array whose round has no blocks', [[]], 'carries no blocks', 'round 0', ONE],
+    ['a round whose block has no arms', [[{}]], 'carries no arms', 'round 0, block 0', ONE],
+    ['a round that is not an array at all', [null], 'carries no blocks', 'round 0', ONE],
+    ['a block that is not a block of arms', [[[]]], 'is not a block of arms', 'round 0, block 0', ONE],
     ['a block that LOST an arm the other blocks carry', mutate((c) => delete c[1][0]['ctl-2x']), 'missing ctl-2x', 'round 1, block 0'],
     ['a block that grew an arm the row never planned', mutate((c) => (c[1][1].bogus = DECOMP_BLOCK(10, 1, 1, 1))), 'unexpected bogus', 'round 1, block 1'],
     ['an arm with no accumulator at all', mutate((c) => (c[0][0].floor = null)), 'carries no accumulator (null)', 'arm "floor"'],
@@ -740,10 +797,34 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     ['a negative renderer count', mutate((c) => (c[0][1].floor.layoutCount = -1)), 'field "layoutCount" is -1', 'round 0, block 1, arm "floor"'],
   ];
 
-  for (const [what, blocks, needle, side] of PARTIAL) {
+  // --- rf2-e1tko, merged-PR audit #7681: TRUNCATED evidence must refuse too ---
+  //
+  // The three shapes the audit drove through the landed fold and watched it
+  // ACCEPT — each returning internally consistent survivors and a perfectly
+  // plausible aggregate, which is the whole danger. They passed because
+  // completeness was measured against the first surviving block, and block 1
+  // cannot report a round dropped after it, a sibling block that was never
+  // stored, or an arm it has lost itself. The third is the sharp one: uniform
+  // loss walks straight past a block-to-block roster check, so the check written
+  // to catch a lost arm was blind to an arm lost everywhere. The row's declared
+  // shape sees all three, which is why it is now the anchor.
+  const TRUNCATED = [
+    ['a row whose FINAL ROUND was dropped', mutate((c) => c.pop()), 'carries 1 round where the row declares 2', "the row's shape"],
+    ['a round that LOST a block', mutate((c) => c[1].splice(0, 1)), 'carries 1 block where the row declares 2', 'round 1'],
+    [
+      'an arm removed from EVERY block, which block-to-block agreement cannot see',
+      mutate((c) => {
+        for (const rd of c) for (const b of rd) delete b['ctl-2x'];
+      }),
+      'missing ctl-2x',
+      'round 0, block 0',
+    ],
+  ];
+
+  for (const [what, blocks, needle, side, declared = DECLARED] of PARTIAL.concat(TRUNCATED)) {
     t(`${what} is refused, and the refusal names it`, () => {
-      assert.throws(() => foldDecomposition(blocks), /not valid evidence/, 'this state must not fold');
-      const d = driveOn(blocks);
+      assert.throws(() => foldDecomposition(blocks, declared), /not valid evidence/, 'this state must not fold');
+      const d = driveOn(blocks, declared);
       assert.notStrictEqual(d.code, 0, 'a refused row must reach a NON-ZERO driver outcome');
       assert.strictEqual(d.wrote, false, 'a refused row must not be written at all');
       assert.strictEqual(d.canonical, false, 'and the destination must not be the published set');
@@ -764,32 +845,47 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const stripped = mutate((c) => {
       for (const k of ['task', 'taskNet', 'devtools', 'script', 'layoutCount', 'inPage']) delete c[0][0]['ctl-2x'][k];
     });
-    assert.throws(() => foldDecomposition(stripped), /not valid evidence/);
+    assert.throws(() => foldDecomposition(stripped, DECLARED), /not valid evidence/);
     const nulled = mutate((c) => (c[0][0]['ctl-2x'].script = null));
-    assert.throws(() => foldDecomposition(nulled), /field "script" is null/);
+    assert.throws(() => foldDecomposition(nulled, DECLARED), /field "script" is null/);
     assert.strictEqual(driveOn(nulled).code, 1, 'the run must exit non-zero, not publish a script ratio of 0');
   });
 
-  t("a stored split must agree with the row's own arm roster", () => {
-    // The blocks and `armIds` are serialised independently, so their agreement
-    // is a real check on the file rather than a restatement of it — and it is
-    // the one case block-to-block consistency alone cannot see: an arm absent
-    // from EVERY block folds to a roster the file's own header contradicts.
-    const dir = path.join(__dirname, 'data');
-    const files = fs
-      .readdirSync(dir)
-      .filter((d) => d.startsWith('censusclock-'))
-      .flatMap((d) => fs.readdirSync(path.join(dir, d)).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, d, f)));
-    for (const f of files) {
-      for (const row of JSON.parse(fs.readFileSync(f, 'utf8')).rows) {
-        if (!row.blocksDecomp) continue;
-        assert.deepStrictEqual(
-          Object.keys(foldDecomposition(row.blocksDecomp)).sort(),
-          row.armIds.slice().sort(),
-          `${f} / ${row.rowId}: the stored split covers a different arm set than the row claims`
-        );
-      }
+  t('a fold offered no declared shape refuses rather than anchoring to the evidence', () => {
+    // The fence around rf2-e1tko. A shape argument that could be omitted, or
+    // quietly filled in from block 1, would be the defect with an extra
+    // parameter — so the whole evidence, folded with nothing to measure it
+    // against, must refuse exactly as a truncated row does.
+    for (const bad of [undefined, {}, { armIds: [], rounds: 2, blocks: 2 }, { armIds: DECLARED.armIds, rounds: 0, blocks: 2 }]) {
+      assert.throws(() => foldDecomposition(FIXTURE_DECOMP, bad), /DECLARED shape/, `${JSON.stringify(bad)} must not fold`);
     }
+    // `null` rather than `undefined`, which `driveOn`'s own default would fill.
+    const d = driveOn(FIXTURE_DECOMP, null);
+    assert.notStrictEqual(d.code, 0);
+    assert.strictEqual(d.wrote, false);
+    assert.strictEqual(d.canonical, false);
+  });
+
+  t("a stored split must match the row's own declared shape, dimensions included", () => {
+    // The counterweight to the tightening above: a rule that refuses a dropped
+    // round, a lost block and a uniformly-missing arm must still accept the real
+    // thing unchanged, or it is over-tight rather than fail-closed. `armIds` and
+    // `design` are serialised independently of `blocksDecomp`, so this measures
+    // the file against its own header rather than restating it.
+    let checked = 0;
+    for (const { f, row, declared } of committedRows()) {
+      if (!row.blocksDecomp) continue;
+      const where = `${f} / ${row.rowId}`;
+      assert.strictEqual(row.blocksDecomp.length, declared.rounds, `${where}: stored rounds must be the declared depth`);
+      for (const rd of row.blocksDecomp) assert.strictEqual(rd.length, declared.blocks, `${where}: stored blocks must be the declared width`);
+      assert.deepStrictEqual(
+        Object.keys(foldDecomposition(row.blocksDecomp, declared)).sort(),
+        declared.armIds.slice().sort(),
+        `${where}: the stored split covers a different arm set than the row claims`
+      );
+      checked += 1;
+    }
+    assert.ok(checked >= 3, 'expected the committed rows that carry the split');
   });
 }
 
