@@ -1180,7 +1180,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       );
       // ...and the run refuses anyway. A verdict that read the summary would
       // pass here, and that is the whole failure this test exists to catch.
-      assert.strictEqual(heavy.ok, false, 'one out-of-band block must still refuse the run');
+      assert.strictEqual(heavy.premiseMet, false, 'one out-of-band block must still break the premise');
       assert.strictEqual(heavy.sign.ok, true, 'refused by the BAND, not swept up by the sign gate');
       assert.strictEqual(heavy.perRound.filter((x) => x > 10).length, 1, 'exactly one wild block');
     });
@@ -1197,7 +1197,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
     t('rf2-8bgqq: on a healthy run the median IS the mean, so no untailed run moved', () => {
       const clean = ctl3Verdict(synth((d) => A * d + C), plan, 0.25);
-      assert.strictEqual(clean.ok, true);
+      assert.strictEqual(clean.premiseMet, true);
       assert.strictEqual(clean.measured.p50, clean.measured.mean);
       assert.strictEqual(clean.measured.p50, 2.0101);
     });
@@ -1215,9 +1215,9 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
         'an unreadable arm': synth((d) => (d === 100 ? NaN : A * d + C)),
       };
       for (const [name, rounds] of Object.entries(refusing)) {
-        assert.strictEqual(ctl3Verdict(rounds, plan, 0.25).ok, false, `${name} must still refuse`);
+        assert.strictEqual(ctl3Verdict(rounds, plan, 0.25).premiseMet, false, `${name} must still break the premise`);
       }
-      assert.strictEqual(ctl3Verdict([], plan, 0.25).ok, false, 'and an empty block set is not a pass');
+      assert.strictEqual(ctl3Verdict([], plan, 0.25).premiseMet, false, 'and an empty block set is not a premise met');
     });
   }
 
@@ -1273,7 +1273,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('HCLOCK_CTL3_SABOTAGE still declares the run a falsification', () => {
     const v = reportability([clockRow({ ctlOk: false })], { sabotage: 140 });
     assert.strictEqual(v.code, 1);
-    assert.match(v.lines[1], /HCLOCK_CTL3_SABOTAGE=140 WAS SET/);
+    assert.match(v.lines[0], /HCLOCK_CTL3_SABOTAGE=140 WAS SET/);
   });
 
   t('neither verdict masks the other — a row failing both is refused for both', () => {
@@ -1626,6 +1626,50 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 }
 
+// --- A RUN'S RAW READINGS, AS A FIXTURE (rf2-8a746) --------------------------
+//
+// The check standard is applied to the READINGS rather than read back off a
+// stored boolean — a check standard is versioned data a reader applies, and
+// re-applying a recalibrated standard to a retained dataset is the whole point
+// of freezing it as data. So every fixture that must clear the gate below has
+// to carry readings, and this builds them in the shape `clock_run.cjs` writes:
+// `roundsTask[round][segment][arm]`, ten samples an arm.
+//
+// The numbers are the instrument's own model — a floor sample is `W + c` where
+// `c` is the part that does not scale with the page, and `ctl-2x` builds twice
+// the page so it reads `2W + c`. `W = 3.0` and `c = 1.1628` put the block ratio
+// dead on the frozen empirical centre, 1.7207x. The jitter is deterministic and
+// small, so the run has a real dispersion without being anywhere near the
+// frozen limit: a fixture that passed only because it had none would not be
+// exercising the dispersion term at all.
+const FIXTURE_SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
+function fixtureRoundsTask(over) {
+  const o = over || {};
+  const W = o.W === undefined ? 3.0 : o.W;
+  const C = 1.1628;
+  const TARE = 0.7;
+  const scale = o.ctlScale === undefined ? 2 : o.ctlScale; // what ctl-2x actually builds
+  const ten = (x) => Array.from({ length: 10 }, (_, k) => x + (k % 3) * 0.01);
+  const rounds = [];
+  for (let r = 0; r < 6; r++) {
+    const per = {};
+    for (let i = 0; i < FIXTURE_SEGMENTS.length; i++) {
+      const seg = FIXTURE_SEGMENTS[i];
+      const j = 0.02 * ((r + i) % 4) - 0.03;
+      per[seg] = {
+        plumb: ten(TARE),
+        floor: ten(W + C + TARE + j),
+        'ctl-2x': ten(scale * W + C + TARE + j),
+        // the segment's own substrate arm, which is what the paired level
+        // ratio is formed from
+        [seg]: ten(5.0 + i * 0.1 + j),
+      };
+    }
+    rounds.push(per);
+  }
+  return rounds;
+}
+
 // --- clock_readjudicate.cjs: the SAME term, on the persisted datasets --------
 //
 // rf2-y7mw7's second place. The driver adjudicates one run; the readjudicator
@@ -1651,12 +1695,21 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // THE FILE'S OWN TWO-TIER VERDICT (rf2-2rtt6.31), as `datasetFor` writes it.
   // Every predicate here is handed one, because a row cannot vouch for the
   // file it came from and this filter's first gate is that it does not try.
-  const CANON = { canonical: true, notCanonicalWhy: null };
+  // `design` is here because a ROW gate now receives the envelope too
+  // (rf2-8a746): whether the readings are tared decides what a level ratio
+  // taken from them means, and the check standard refuses a record that does
+  // not say.
+  const CANON = { canonical: true, notCanonicalWhy: null, design: { rounds: 6, warmup: 4, samples: 10, tare: true } };
   // A dataset row as a two-tier `clock_run.cjs` writes it, reduced to the
   // fields this predicate reads — every whole-run verdict the driver exits on,
   // each at its passing value.
+  //
+  // `bulk300` rather than `M1` (rf2-8a746): the check standard's mount class is
+  // deliberately UNCALIBRATED — the mount decision function is rf2-t2flm's —
+  // so an `M1` row can never be reportable and a roster fixture built on one
+  // would be asserting against a gate that is closed for an unrelated reason.
   const dsRow = (bars, over) => ({
-    rowId: 'M1',
+    rowId: 'bulk300',
     pageErrors: [],
     guardRefuse: false,
     guardRefuseTask: false,
@@ -1665,8 +1718,9 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     kbWitness: null,
     tally: { writes: 1008, unverified: 0 },
     ctl3: null,
-    ctlOk: true,
-    ctlTask: { ok: true },
+    ctlOk: null,
+    ctlTask: { measured: { mean: 1.9 }, inBand: 18, of: 18 },
+    roundsTask: fixtureRoundsTask(),
     etVerdict: null,
     seam: { verdict: { ceilingBreached: false } },
     seamTask: { ceilingBreached: false, rows: bars },
@@ -1739,9 +1793,14 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t('the OTHER two terms are unchanged — adjudication was ADDED, never substituted', () => {
     const bars = { 'h / r': ADJ, 'h / u': ADJ };
-    // A failed control still excludes a fully adjudicated run ...
-    assert.strictEqual(reportable(dsRow(bars, { ctlTask: { ok: false } }), CANON), false);
-    assert.strictEqual(reportable(dsRow(bars, { ctlTask: null }), CANON), false);
+    // A failed control still excludes a fully adjudicated run — and it is the
+    // CHECK STANDARD's refusal now (rf2-8a746), read off the run's own
+    // readings rather than off a stored `ctlTask.ok`.
+    assert.strictEqual(
+      reportable(dsRow(bars, { roundsTask: fixtureRoundsTask({ ctlScale: 140 / 300 }) }), CANON),
+      false
+    );
+    assert.strictEqual(reportable(dsRow(bars, { roundsTask: [] }), CANON), false);
     // ... and so does either ceiling, which fires before any control.
     assert.strictEqual(
       reportable(dsRow(bars, { seam: { verdict: { ceilingBreached: true } } }), CANON),
@@ -1851,11 +1910,17 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       absent: /no published-clock band verdict/,
     },
     {
-      id: 'control',
-      row: { ctl3: { ok: false, measured: { mean: 1.2 } } },
-      failed: /THREE-POINT control FAILED/,
-      erase: { row: 'ctl3' },
-      absent: /no three-point-control record/,
+      // THE SABOTAGE, ON THE CONSUMER SIDE (rf2-8a746). `ctlScale: 140/300` is
+      // the fixture form of an arm that declares the floor's page doubled and
+      // builds 140 of its 300 boundaries — the run's block median collapses to
+      // 0.6156x and the frozen location limits refuse it. The ERASURE case is
+      // the readings themselves: a record that did not store them cannot be
+      // shown to have been in control.
+      id: 'check-standard',
+      row: { roundsTask: fixtureRoundsTask({ ctlScale: 140 / 300 }) },
+      failed: /outside the frozen location limits/,
+      erase: { row: 'roundsTask' },
+      absent: /no raw per-sample TaskDuration readings/,
     },
     {
       id: 'event-timing',
@@ -1923,10 +1988,10 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 
   t('EVERY reason is reported, not the first — a run that failed four gates says four', () => {
-    const why = refusals(dsRow(BARS, { guardRefuse: true, parityOk: false, ctlTask: { ok: false } }), {
-      canonical: false,
-      notCanonicalWhy: 'a PARTIAL row set',
-    });
+    const why = refusals(
+      dsRow(BARS, { guardRefuse: true, parityOk: false, roundsTask: fixtureRoundsTask({ ctlScale: 140 / 300 }) }),
+      { canonical: false, notCanonicalWhy: 'a PARTIAL row set', design: { tare: true } }
+    );
     assert.strictEqual(why.length, 4, JSON.stringify(why));
   });
 
@@ -2006,7 +2071,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 
   t('requiring the readjudicator does not RUN it, which is what made this reachable', () => {
-    assert.match(RJSRC, /module\.exports = \{ GATES, adjudicated, refusals, reportable, responsivenessRegime \};/);
+    assert.match(RJSRC, /^  GATES, adjudicated, refusals, reportable, responsivenessRegime,$/m);
     assert.match(RJSRC, /if \(require\.main === module\) \{/);
     assert.match(RJSRC, /main\(process\.argv\.slice\(2\)\)/);
   });
@@ -2222,7 +2287,11 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     out: {
       rowId: 'bulk300',
       rounds: [],
-      roundsTask: [],
+      // THE READINGS THE CHECK STANDARD IS APPLIED TO (rf2-8a746). This used
+      // to be `[]`, which was fine while every gate read a stored boolean; the
+      // standard is applied to the readings, so a serialiser that dropped them
+      // would produce a record no reader could certify.
+      roundsTask: fixtureRoundsTask(),
       roundsLayout: [],
       inPageRounds: [],
       granularity: [0.146],
@@ -2246,11 +2315,12 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       seam: { band: 0.06, verdict: { ceilingBreached: false } },
       seamTask: { band: 0.05, ceilingBreached: false, rows: BARS },
       tally: { writes: 1008, unverified: 0 },
-      ctlVerdict: { ok: true },
+      ctlVerdict: { measured: { mean: 1.9 }, inBand: 18, of: 18, allInBand: true, gating: false },
       ctl3: null,
       ctl3Net: null,
       ctl3Layout: null,
       ctl3Parity: null,
+      checkStandard: { ok: true, standard: { id: 'hicasso-clock/ctl-2x-level', version: 1 }, why: null },
       constants: null,
       guardVerdict: { refuse: false },
       guardVerdictTask: { refuse: false },
@@ -2321,7 +2391,11 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     unverified: (rec) => delete rec.rows[0].tally,
     'ceiling-net': (rec) => delete rec.rows[0].seam,
     'ceiling-task': (rec) => delete rec.rows[0].seamTask.ceilingBreached,
-    control: (rec) => delete rec.rows[0].ctl3,
+    // THE PRODUCER FIELD FOR THE CHECK STANDARD IS THE READINGS (rf2-8a746),
+    // not the driver's stored verdict — the standard is versioned data a
+    // reader applies, so what the serialiser must not lose is what it is
+    // applied to.
+    'check-standard': (rec) => delete rec.rows[0].roundsTask,
     'event-timing': (rec) => delete rec.rows[0].etVerdict,
     adjudication: (rec) => delete rec.rows[0].seamTask.rows,
   };
@@ -2338,7 +2412,9 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   for (const g of GATES) {
     t(`gate \`${g.id}\`: the record SATISFIES it, and erasing the field REFUSES again`, () => {
-      const ask = (rec) => (g.scope === 'dataset' ? g.why(rec) : g.why(rec.rows[0]));
+      // A ROW GATE RECEIVES THE ENVELOPE TOO (rf2-8a746) — the design it was
+      // taken under decides what its readings mean.
+      const ask = (rec) => (g.scope === 'dataset' ? g.why(rec) : g.why(rec.rows[0], rec));
       const green = produce();
       assert.strictEqual(ask(green), null, `the serialiser must write what \`${g.id}\` reads`);
 
@@ -2709,6 +2785,433 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(code(label).length, 1, 'a printed label is code, and must be searched');
     assert.match(code(label)[0][1], /frame-inclusive/);
     assert.deepStrictEqual(code(prose), [], 'a whole-line comment is prose, and must not be');
+  });
+}
+
+// --- rf2-8a746: THE CHECK STANDARD, AND WHAT MAY PUBLISH A MAGNITUDE ---------
+//
+// The 2026-08-07 ruling retired two rules at once and they are separate
+// defects, so they get separate pins.
+//
+//   THE THREE-POINT CONTROL, retired as a GATE — not re-sited. Its prediction
+//   is mis-derived on a clock that is not affine in the dirty set and its
+//   denominator sits ~2 sigma from zero, which is the Fieller ratio problem;
+//   it refused 42 of 42 bulk row-runs across two independent quiet-box
+//   ensembles. It still prints, labelled non-gating.
+//
+//   THE ALL-BLOCKS STRICT RULE, retired WITH it and for its own reason: the
+//   arithmetic is `p^18`, so a control fully MEETING its premise passes 4 of
+//   42 runs at an 83.5% per-block rate. Swapping controls while keeping "every
+//   block" would not have unblocked anything.
+//
+// What replaced them: a level-denominated, empirically calibrated, VERSIONED
+// check standard as the gate, and a run-preserving effect-size interval as the
+// publication rule. Both are pinned here, and the interval is pinned as a
+// PROCEDURE — the corpus case below asserts that a verdict is well formed and
+// that the 42 committed row-runs publish no magnitude, which is the ruling's
+// own fence, not a preferred answer.
+{
+  const {
+    STANDARD, checkStandard, checkStandardSelfTest, classOf,
+  } = require('./clock_check_standard.cjs');
+  const {
+    checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, EFFECT, reportable, refusals,
+  } = require('./clock_readjudicate.cjs');
+  const CLOCKSRC = fs.readFileSync(path.join(__dirname, 'clock_run.cjs'), 'utf8');
+  const RJSRC2 = fs.readFileSync(path.join(__dirname, 'clock_readjudicate.cjs'), 'utf8');
+  const t = (what, fn) => test(`rf2-8a746: ${what}`, fn);
+  const BULK = 'bulk300';
+
+  // The same synthetic world the standard's own fixtures use: a floor sample
+  // is `W + c`, `ctl-2x` builds `P` times the page, so a block reads
+  // `(P*W + c)/(W + c)`.
+  const W = 3.0;
+  const C = 1.1628;
+  const blocksAt = (P, jitter) =>
+    Array.from({ length: 18 }, (_, i) => (P * W + C + (jitter || 0) * (i % 2 ? -1 : 1) * (1 + (i % 3) / 3)) / (W + C));
+
+  // --- 1. THE STANDARD IS DATA, AND IT SAYS WHICH DATA ----------------------
+
+  t("the standard's own fixtures pass, every case — a standard nobody has seen refuse is not one", () => {
+    const { checks } = checkStandardSelfTest();
+    assert.ok(checks.length >= 10, `expected the standard's fixtures, got ${checks.length}`);
+    const bad = checks.filter((c) => !c.ok);
+    assert.deepStrictEqual(bad.map((c) => `${c.name}: ${c.detail}`), []);
+  });
+
+  t('the check standard lands as DATA — versioned, with a frozen centre and frozen limits', () => {
+    // Criterion 2's first half. The point of freezing it as data is that
+    // recalibrating is editing a file and bumping a version, so the version
+    // has to be a real number and the limits have to live in the JSON rather
+    // than in the code that reads it.
+    assert.ok(Number.isInteger(STANDARD.version) && STANDARD.version >= 1, JSON.stringify(STANDARD.version));
+    assert.strictEqual(STANDARD.ruling, 'rf2-8a746');
+    const bulk = STANDARD.classes.bulk;
+    assert.strictEqual(bulk.calibrated, true);
+    assert.strictEqual(typeof bulk.centre, 'number');
+    assert.strictEqual(bulk.location.limits.length, 2);
+    assert.ok(bulk.location.limits[0] < bulk.centre && bulk.centre < bulk.location.limits[1], 'the limits must bracket the centre');
+    assert.strictEqual(typeof bulk.dispersion.limit, 'number');
+    assert.ok(bulk.dispersion.limit > 0);
+    // and the file, not the reader, is where they live
+    const v = checkStandard(blocksAt(2, 0.05), BULK);
+    assert.deepStrictEqual(v.location.limits, bulk.location.limits);
+    assert.strictEqual(v.dispersion.limit, bulk.dispersion.limit);
+    assert.strictEqual(v.location.centre, bulk.centre);
+    // the JSON carries the source code no literal here duplicates
+    assert.ok(
+      !new RegExp(String(bulk.centre)).test(require('node:fs').readFileSync(path.join(__dirname, 'clock_check_standard.cjs'), 'utf8')),
+      'the frozen centre must not also be a literal in the module that reads it'
+    );
+  });
+
+  t('the centre is EMPIRICAL and the standard says so — 2.00x is arithmetic, not a reading', () => {
+    // The ruling's own reason for not reusing ctl-2x's literal prediction:
+    // asserting a theoretical value against a non-affine clock is the mistake
+    // being retired.
+    assert.ok(Math.abs(STANDARD.classes.bulk.centre - 2.0) > 0.2, 'the frozen centre is nowhere near 2.00x');
+    assert.match(STANDARD.notAPrediction, /EMPIRICAL/);
+    assert.ok(Array.isArray(STANDARD.recalibrateOn) && STANDARD.recalibrateOn.length >= 3, 'a check standard states when it must be recalibrated');
+    const prov = STANDARD.classes.bulk.provenance;
+    assert.strictEqual(prov.rowRuns, 42);
+    assert.deepStrictEqual(prov.datasets, ['data/clock-emvod/run1-8.json', 'data/clock-w3yxd/run1-6.json']);
+    assert.match(prov.independence, /NOT INDEPENDENT/, 'v1 is seeded from the runs it is quoted against, and must say so');
+  });
+
+  // --- 2. THE SABOTAGE FIXTURE (criterion 2) --------------------------------
+
+  t('THE SABOTAGE: an arm building 140 of the 300 boundaries it declares doubled is REFUSED', () => {
+    const healthy = checkStandard(blocksAt(2, 0.05), BULK);
+    assert.strictEqual(healthy.ok, true, 'the healthy world must pass, or every refusal below proves nothing');
+    const sabotaged = checkStandard(blocksAt(140 / 300, 0.05), BULK);
+    assert.strictEqual(sabotaged.ok, false);
+    assert.strictEqual(sabotaged.location.ok, false, 'refused on LOCATION');
+    assert.strictEqual(sabotaged.dispersion.ok, true, 'and not swept up by the dispersion term');
+    assert.match(sabotaged.why, /outside the frozen location limits/);
+  });
+
+  t('and the sabotage reaches the consumer — a dataset carrying it may not be pooled', () => {
+    // The fixture is only worth its name if it refuses where a run is
+    // actually adjudicated, so it is driven through `reportable` on a record
+    // shaped as `clock_run.cjs` writes one.
+    const CANON = { canonical: true, notCanonicalWhy: null, design: { tare: true } };
+    const ADJ = { unadjudicated: false, why: 'clears' };
+    const row = (rt) => ({
+      rowId: 'bulk300', pageErrors: [], guardRefuse: false, guardRefuseTask: false, parityOk: true,
+      ctl3Parity: null, kbWitness: null, tally: { writes: 10, unverified: 0 }, etVerdict: null,
+      roundsTask: rt, seam: { verdict: { ceilingBreached: false } },
+      seamTask: { ceilingBreached: false, band: 0.2, rows: { 'hicasso / reagent-subs': ADJ } },
+    });
+    assert.strictEqual(reportable(row(fixtureRoundsTask()), CANON), true, 'the clean record must still pool');
+    const bad = row(fixtureRoundsTask({ ctlScale: 140 / 300 }));
+    assert.strictEqual(reportable(bad, CANON), false);
+    assert.ok(refusals(bad, CANON).some((w) => /outside the frozen location limits/.test(w)), JSON.stringify(refusals(bad, CANON)));
+  });
+
+  t('the DISPERSION term refuses on its own — a box that could not reproduce its own work', () => {
+    const noisy = checkStandard(blocksAt(2, 1.4), BULK);
+    assert.strictEqual(noisy.ok, false);
+    assert.strictEqual(noisy.location.ok, true, 'the centre is untouched — this is the other term');
+    assert.strictEqual(noisy.dispersion.ok, false);
+    assert.match(noisy.why, /robust scale .* exceeds the frozen dispersion limit/);
+  });
+
+  // --- 3. THE ALL-BLOCKS RULE IS GONE, EVERYWHERE ON THIS INSTRUMENT --------
+
+  t('criterion 4: no verdict on this instrument is "every block inside the band" any more', () => {
+    const clockMod = require('./clock_run.cjs');
+    const { ctl3Verdict } = clockMod;
+    // `controlVerdict` is not exported, and that is the point: it describes a
+    // band, it takes no decision, and a test able to reach it would be a
+    // reader able to reach it.
+    assert.ok(!('controlVerdict' in clockMod), 'a description is not part of the decision surface');
+    // The three-point statistic no longer offers an `ok` to read ...
+    const D = [1, 100, 200];
+    const plan = ['ctl-d1', 'ctl-d100', 'ctl-d200'].map((id, i) => ({ id, dirty: D[i], ctl3: true, ctl3Witness: false, cells: 300 }));
+    const rs = [];
+    for (let r = 0; r < 3; r++) {
+      const per = {};
+      for (const seg of FIXTURE_SEGMENTS) {
+        per[seg] = { 'ctl-d1': [3.506], 'ctl-d100': [4.1], 'ctl-d200': [4.694], floor: [5.3], plumb: [0.7] };
+      }
+      rs.push(per);
+    }
+    const v = ctl3Verdict(rs, plan, 0.25);
+    assert.ok(!('ok' in v), 'a retired gate may not keep a field called `ok` — that is how one grows back');
+    assert.strictEqual(v.gating, false);
+    assert.strictEqual(typeof v.premiseMet, 'boolean');
+    assert.strictEqual(typeof v.allInBand, 'boolean', 'the retired rule survives as a DESCRIPTION, named for what it is');
+    assert.match(v.rule, /DIAGNOSTIC \/ NON-GATING \(rf2-8a746\)/);
+  });
+
+  t('criterion 4: the ^18 semantics are gone from both programs, and the survivor says why', () => {
+    // Grepped rather than reasoned about, because the ruling asks for the
+    // SEMANTICS to be gone rather than one call site. The one `strict — EVERY`
+    // left in the driver is `keystroke`'s fixed-work sensitivity floor, which
+    // is a one-sided threshold with a 10 ms margin on a 50 ms burn and carries
+    // no `p^n` at all; it is annotated in place, and rf2-swwud's regime
+    // depends on it.
+    const survivors = CLOCKSRC.split('\n')
+      .map((line, i) => [i + 1, line])
+      .filter(([, line]) => /strict — EVERY/.test(line));
+    assert.deepStrictEqual(
+      survivors.map(([, l]) => l.trim()),
+      ["rule: 'strict — EVERY segment-round (a one-sided sensitivity floor, not a tolerance band)',"],
+      'the only surviving every-block rule is the 50 ms sensitivity floor'
+    );
+    assert.match(CLOCKSRC, /THIS ONE KEEPS ITS EVERY-BLOCK RULE, and the reason is worth stating/);
+    assert.ok(!/strict — EVERY/.test(RJSRC2), 'and the readjudicator carries none at all');
+  });
+
+  t('criterion 4: the replacement states its error rates in the code comment', () => {
+    // Both of them, distinctly — the ruling's own term is that the tolerance
+    // band and the run-rejection rule get DIFFERENT calibrated rates.
+    const rates = STANDARD.classes.bulk.errorRates;
+    assert.match(rates.runRejectionNominal, /0\.4% per run/);
+    assert.match(rates.runRejectionEmpirical, /0 of 42/);
+    assert.match(rates.toleranceBandPerBlock, /8\.2% of blocks/);
+    assert.match(rates.retiredRuleForComparison, /4 of 42/);
+    assert.match(rates.retiredRuleForComparison, /0\.918\^18/);
+    assert.match(CLOCKSRC, /`0\.835\^18 = 3\.9%`/, 'the driver states the retired rule\'s arithmetic where it was removed');
+    assert.match(RJSRC2, /0\.835\^18 = 3\.9%/);
+  });
+
+  t('criterion 4: a run with out-of-band blocks now PASSES if its location and dispersion hold', () => {
+    // The inversion, which is the whole unblocking: the retired rule refused
+    // this run and the calibrated one does not, while the band still REPORTS
+    // the blocks it refused for.
+    const xs = blocksAt(2, 0.05);
+    xs[0] = 1.28;
+    xs[1] = 2.19;
+    const v = checkStandard(xs, BULK);
+    assert.strictEqual(v.ok, true);
+    assert.ok(v.tolerance.inBand < v.tolerance.of, 'blocks the retired rule would have refused for');
+    assert.strictEqual(v.tolerance.gating, false);
+  });
+
+  // --- 4. NO VERDICT PATH CONSULTS THE THREE-POINT STATISTIC (criterion 1) --
+
+  t('criterion 1: neither program reads the three-point statistic into a decision', () => {
+    // Source-level, because the strongest form of "it does not gate" is that
+    // the name a gate would read does not exist. `ctl3Parity` stays — it is a
+    // canonical-DOM refusal about whether the control's own arms built one
+    // page, which rf2-8a746 leaves in the UNCHANGED list.
+    assert.ok(!/ctl3\.ok|ctl3Layout\.ok|ctl3Net\.ok/.test(CLOCKSRC.replace(/^\s*\/\/.*$/gm, '')), 'the driver reads no ctl3 verdict');
+    assert.ok(!/r\.ctl3\b(?!Parity)/.test(RJSRC2.replace(/^\s*\/\/.*$/gm, '')), 'the readjudicator reads no ctl3 field but parity');
+    assert.match(CLOCKSRC, /const ctlBad = \(o\) => !\(o\.verdict\.checkStandard && o\.verdict\.checkStandard\.ok\);/);
+  });
+
+  t('criterion 1: and behaviourally — flipping the three-point record changes no verdict', () => {
+    const CANON = { canonical: true, notCanonicalWhy: null, design: { tare: true } };
+    const ADJ = { unadjudicated: false, why: 'clears' };
+    const base = {
+      rowId: 'bulk300', pageErrors: [], guardRefuse: false, guardRefuseTask: false, parityOk: true,
+      ctl3Parity: null, kbWitness: null, tally: { writes: 10, unverified: 0 }, etVerdict: null,
+      roundsTask: fixtureRoundsTask(), seam: { verdict: { ceilingBreached: false } },
+      seamTask: { ceilingBreached: false, band: 0.2, rows: { 'hicasso / reagent-subs': ADJ } },
+    };
+    const failing = { premiseMet: false, measured: { p50: 1.2 }, ok: false };
+    const passing = { premiseMet: true, measured: { p50: 2.01 }, ok: true };
+    assert.strictEqual(reportable({ ...base, ctl3: failing }, CANON), true, 'a failing three-point record refuses nothing');
+    assert.strictEqual(reportable({ ...base, ctl3: passing }, CANON), true);
+    assert.strictEqual(reportable({ ...base, ctl3: null }, CANON), true);
+    // and it cannot rescue a run the standard refused, either
+    const sab = { ...base, roundsTask: fixtureRoundsTask({ ctlScale: 140 / 300 }) };
+    assert.strictEqual(reportable({ ...sab, ctl3: passing }, CANON), false, 'nor may it vouch for one');
+  });
+
+  t('criterion 1: the printout is relabelled DIAGNOSTIC / NON-GATING and no re-siting code landed', () => {
+    assert.match(CLOCKSRC, /THREE-POINT STATISTIC \[DIAGNOSTIC, NON-GATING — rf2-8a746\]/);
+    assert.match(CLOCKSRC, /RETIRED {2}this statistic refuses nothing/);
+    // No re-siting: the ruling says the points are not to be moved, so the
+    // page's declared dirty counts are still the only source of the
+    // prediction and no alternative siting is computed anywhere.
+    assert.ok(!/100\s*\/\s*200\s*\/\s*300|resite|reSite/i.test(CLOCKSRC.replace(/^\s*\/\/.*$/gm, '')), 'no re-siting code');
+  });
+
+  t('the falsification knob survived the retirement — it refuses on its own now', () => {
+    // The coupling that retiring a gate would have silently broken: the knob
+    // used to refuse THROUGH the three-point control.
+    const { reportability } = require('./clock_run.cjs');
+    const clean = [{ rowId: 'bulk300', ctlOk: true, ctlNote: '', adjudicable: true }];
+    assert.strictEqual(reportability(clean).code, 0, 'the same rows without the knob exit 0');
+    const v = reportability(clean, { sabotage: 140 });
+    assert.strictEqual(v.code, 1, 'a falsification run may not exit 0 however clean its gates');
+    assert.match(v.lines[0], /HCLOCK_CTL3_SABOTAGE=140 WAS SET/);
+    assert.strictEqual(v.lines[v.lines.length - 1], '[clock] REPORTABLE: none.');
+  });
+
+  // --- 5. THE PUBLICATION RULE (criterion 3) --------------------------------
+
+  t('criterion 3: the interval is run-preserving — outer RUNS resampled before inner ROUNDS', () => {
+    // The load-bearing property, asserted rather than described. Five runs
+    // whose ROUNDS are identical within a run and whose runs differ: all the
+    // variance is BETWEEN runs, so a bootstrap that pooled the 30 rounds and
+    // ignored the run structure would return an interval roughly sqrt(30/5)
+    // times too narrow. The hierarchical one must see the whole of it.
+    const consts = [0.9, 0.95, 1.0, 1.05, 1.1].map(Math.log);
+    const runs = consts.map((c) => Array(6).fill(c));
+    const iv = effectInterval(runs);
+    assert.strictEqual(iv.runs, 5);
+    const width = iv.hi - iv.lo;
+    assert.ok(width > 0.05, `a between-run spread of 20% must reach the interval, got width ${width}`);
+    // ... and the inner resample is real too: with rounds that differ inside a
+    // run and runs that do not, the interval is still non-degenerate.
+    const inner = Array.from({ length: 5 }, () => [0.9, 0.95, 1.0, 1.05, 1.1, 1.0].map(Math.log));
+    assert.ok(effectInterval(inner).hi - effectInterval(inner).lo > 0, 'inner resampling must contribute');
+    // and identical runs of identical rounds collapse to a point
+    const flat = Array.from({ length: 5 }, () => Array(6).fill(Math.log(1.2)));
+    const fv = effectInterval(flat);
+    assert.ok(Math.abs(fv.hi - fv.lo) < 1e-9 && Math.abs(fv.point - 1.2) < 1e-9, 'no variance, no interval width');
+  });
+
+  t('criterion 3: the interval is REPRODUCIBLE — a seeded bootstrap, stated in the output', () => {
+    const runs = [0.9, 0.95, 1.0, 1.05, 1.1].map((c) => Array(6).fill(Math.log(c)));
+    assert.deepStrictEqual(effectInterval(runs), effectInterval(runs), 'two runs of the same program agree to the last place');
+    assert.strictEqual(EFFECT.seed, 20260807);
+    assert.match(EFFECT.method, /Kalibera & Jones 2013/);
+    assert.match(EFFECT.method, /outer RUNS resampled before inner ROUNDS/);
+  });
+
+  t('criterion 3: the WHOLE interval must clear the threshold, and the effect must clear the band', () => {
+    // Both conditions and neither alone, driven at the boundary in each
+    // direction. A lower ratio is faster: these are times.
+    const below = { runs: 8, rounds: [6], point: 0.6, lo: 0.55, hi: 0.65, draws: 1, seed: 1 };
+    assert.strictEqual(effectVerdict(below, 10).publishes, true, 'wholly below 1.0 and a 40% effect over a 10% band');
+    assert.match(effectVerdict(below, 10).verdict, /MAGNITUDE PUBLISHABLE/);
+    assert.strictEqual(effectVerdict(below, 50).publishes, false, 'the same interval inside a 50% band publishes nothing');
+    assert.match(effectVerdict(below, 50).why, /an effect inside the band is a difference this instrument cannot resolve/);
+    const straddles = { runs: 8, rounds: [6], point: 0.99, lo: 0.9, hi: 1.05, draws: 1, seed: 1 };
+    assert.strictEqual(effectVerdict(straddles, 1).publishes, false, 'an interval containing parity publishes nothing');
+    assert.match(effectVerdict(straddles, 1).verdict, /INSTRUMENT-LIMITED/);
+    const kill = { runs: 8, rounds: [6], point: 1.9, lo: 1.7, hi: 2.1, draws: 1, seed: 1 };
+    assert.strictEqual(effectVerdict(kill, 10).publishes, true);
+    assert.match(effectVerdict(kill, 10).verdict, /ARCHITECTURE-KILL/);
+    const nearKill = { runs: 8, rounds: [6], point: 1.5, lo: 1.4, hi: 1.6, draws: 1, seed: 1 };
+    assert.strictEqual(effectVerdict(nearKill, 10).publishes, false, 'an interval straddling 1.5 is not a kill');
+    // an unrecorded band is not a clear band
+    assert.strictEqual(effectVerdict(below, NaN).publishes, false, 'no band recorded is not a band cleared');
+    // and two runs are not an ensemble
+    assert.strictEqual(effectVerdict({ ...below, runs: 2 }, 1).publishes, false);
+    assert.match(effectVerdict({ ...below, runs: 2 }, 1).why, /is not an ensemble/);
+    assert.strictEqual(effectVerdict(null, 1).publishes, false, 'no interval is not a pass');
+  });
+
+  // --- 6. AND OVER THE COMMITTED 42-RUN CORPUS ------------------------------
+  //
+  // THE TEST PINS THE PROCEDURE, NOT THE ANSWER. What is asserted is that
+  // every pair of every bulk row comes back with a WELL-FORMED verdict
+  // carrying its own reason, and that none of them publishes a magnitude —
+  // which is rf2-8a746's own fence rather than a preferred result: the 42
+  // committed row-runs are calibration and diagnostic evidence and are NOT
+  // retroactively promoted. If the procedure ever published from them this
+  // test fails, and that failure is the finding.
+
+  const CORPORA = [
+    { dir: 'clock-emvod', runs: 8 },
+    { dir: 'clock-w3yxd', runs: 6 },
+  ];
+  const BULK_ROWS = ['bulk300', 'bulk100', 'narrow'];
+  const PAIRS_8a746 = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
+
+  t('the committed corpus is 42 bulk row-runs, and every one is IN CONTROL under the standard', () => {
+    let n = 0;
+    let inControl = 0;
+    for (const { dir } of CORPORA) {
+      const d = path.join(__dirname, 'data', dir);
+      if (!fs.existsSync(d)) return; // datasets are retained, not required to build
+      for (const f of fs.readdirSync(d)) {
+        const data = JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'));
+        for (const row of data.rows.filter((r) => BULK_ROWS.includes(r.rowId))) {
+          n += 1;
+          if (checkStandardFor(row, data).ok) inControl += 1;
+        }
+      }
+    }
+    assert.strictEqual(n, 42, 'the corpus rf2-8a746 calibrated from');
+    // The consistency check the standard's own provenance calls NOT
+    // INDEPENDENT: v1 was seeded from these medians, so 42 of 42 is what it
+    // must say, and a drift here means the limits and the corpus have parted.
+    assert.strictEqual(inControl, 42, `the frozen limits must still admit their own baseline — got ${inControl}`);
+  });
+
+  t('criterion 3: every pair of every bulk row gets a stated verdict over the committed corpus', () => {
+    for (const { dir } of CORPORA) {
+      const d = path.join(__dirname, 'data', dir);
+      if (!fs.existsSync(d)) return;
+      const datasets = fs.readdirSync(d).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')));
+      for (const rowId of BULK_ROWS) {
+        const rows = datasets.map((data) => ({ data, row: data.rows.find((r) => r.rowId === rowId) })).filter((x) => x.row);
+        const pooled = rows.filter(({ row, data }) => reportable(row, data));
+        for (const pair of PAIRS_8a746) {
+          const iv = effectInterval(pooled.map(({ row }) => pairedLogRatios(row, pair)).filter(Boolean));
+          const bands = pooled.map(({ row }) => row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
+          const ev = effectVerdict(iv, bands.length ? Math.max(...bands) : NaN);
+          assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/${rowId}/${pair}: a verdict must carry its reason`);
+          assert.ok(
+            /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL)/.test(ev.verdict),
+            `${dir}/${rowId}/${pair}: unrecognised verdict ${ev.verdict}`
+          );
+          assert.ok(iv, `${dir}/${rowId}/${pair}: the corpus must yield an interval to adjudicate`);
+          assert.ok(iv.lo <= iv.point && iv.point <= iv.hi, `${dir}/${rowId}/${pair}: the point must lie inside its own interval`);
+          assert.strictEqual(
+            ev.publishes,
+            false,
+            `${dir}/${rowId}/${pair} PUBLISHED a magnitude from the committed corpus — rf2-8a746 rules those 42 ` +
+              `row-runs calibration and diagnostic evidence, never retroactively promoted. Verdict: ${ev.verdict} — ${ev.why}`
+          );
+        }
+      }
+    }
+  });
+
+  t('and the program itself exits 0 over both committed ensembles, publishing no magnitude', () => {
+    const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
+    for (const { dir } of CORPORA) {
+      const d = path.join(__dirname, 'data', dir);
+      if (!fs.existsSync(d)) return;
+      const files = fs.readdirSync(d).map((f) => path.join(d, f));
+      const r = cp.spawnSync(process.execPath, [RJ, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      const out = `${r.stdout}${r.stderr}`;
+      assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
+      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746\)/.test(out), `${dir}: the interval must be printed`);
+      assert.ok(!/VERDICT MAGNITUDE PUBLISHABLE|VERDICT ARCHITECTURE-KILL/.test(out), `${dir}: no magnitude may be published from the corpus`);
+      assert.ok(/pooled means below are DIAGNOSTICS/.test(out), `${dir}: the pooled means must be labelled`);
+    }
+  });
+
+  // --- 7. CRITERION 5: EVERYTHING CITES THE RULING --------------------------
+
+  t('criterion 5: the ruling is cited by bead id in every surface it changed', () => {
+    for (const [name, src] of [
+      ['clock_run.cjs', CLOCKSRC],
+      ['clock_readjudicate.cjs', RJSRC2],
+      ['clock_check_standard.cjs', fs.readFileSync(path.join(__dirname, 'clock_check_standard.cjs'), 'utf8')],
+      ['clock_check_standard.json', fs.readFileSync(path.join(__dirname, 'clock_check_standard.json'), 'utf8')],
+      ['clock_app.cljs', fs.readFileSync(path.join(__dirname, 'clock_app.cljs'), 'utf8')],
+    ]) {
+      assert.ok(/rf2-8a746/.test(src), `${name} must cite the ruling that changed it`);
+    }
+    assert.strictEqual(classOf('bulk300'), 'bulk');
+    assert.strictEqual(classOf('M1'), 'mount');
+    assert.strictEqual(classOf('keystroke'), null);
+  });
+
+  t('the residual uncertainty is carried: no surface states paint causation', () => {
+    // rf2-8a746 carries it explicitly — "non-layout and saturating below
+    // d=100" is established; that PAINT causes the concavity is not, because
+    // the datasets have no paint counter.
+    for (const [name, src] of [
+      ['clock_run.cjs', CLOCKSRC],
+      ['clock_readjudicate.cjs', RJSRC2],
+      ['clock_app.cljs', fs.readFileSync(path.join(__dirname, 'clock_app.cljs'), 'utf8')],
+    ]) {
+      const claims = src
+        .split('\n')
+        .map((line, i) => [i + 1, line])
+        .filter(([, l]) => /mechanism is PAINT|paint is what|caused by paint|because paint/i.test(l));
+      assert.deepStrictEqual(claims.map(([n, l]) => `${name}:${n}: ${l.trim()}`), [], 'paint causation is an inference, not a finding');
+    }
   });
 }
 
