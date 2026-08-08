@@ -1118,6 +1118,632 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 }
 
+// --- rf2-pzqy8, half one: the ordinary row's CENTRE, re-specified empirically -
+//
+// rf2-y0pkh measured the census rig's run-rejection rule and RETAINED it, and
+// found the one thing the rule is not: `ordinary` refused 10 of 10 on its
+// CENTRE. Its block median is 1.2308x against an element-arithmetic prediction
+// of 1.7255x — 71.3% of P, and 5.2% below the strict band's own lower edge —
+// so no relaxation of the block count reaches it. That is the class rf2-8a746
+// diagnosed on ctl3, whose true centre sat 2.6% ABOVE its refusal edge where
+// this sits below, and its ruling's part 3 is the repair: a level-denominated,
+// EMPIRICALLY CALIBRATED, versioned check standard.
+//
+// EVERYTHING BELOW RECOMPUTES FROM THE COMMITTED DATASETS through the driver's
+// own `controlBlocks`, `checkStandardVerdict` and `controlAdjudication`. The
+// frozen limits are read out of `shapes/census_check_standard.json` and never
+// written here, so a recalibration moves the file and these witnesses follow
+// it; what they pin is that the numbers in the file are the numbers its own
+// `derivation` strings claim, taken over the corpus the file names.
+//
+// NO MEASUREMENT IS TAKEN. No census driver, no window.
+
+{
+  const CENSUS = DRIVERS[1].mod;
+  const { controlBlocks, controlAdjudication, checkStandardVerdict, CHECK_STANDARD: STD, robustScale } = CENSUS;
+  const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
+  const t = (what, fn) => test(`census check standard: ${what}`, fn);
+
+  const ORD = STD.rows.ordinary;
+  const p50 = (xs) => {
+    const v = [...xs].sort((a, b) => a - b);
+    return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  };
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = (xs) => Math.sqrt(xs.reduce((a, b) => a + (b - mean(xs)) ** 2, 0) / (xs.length - 1));
+  const r4 = (x) => Math.round(x * 10000) / 10000;
+
+  /** Every committed census row-run, adjudicated by the driver's real functions. */
+  const corpus = () => {
+    const dir = path.join(__dirname, 'data');
+    return fs
+      .readdirSync(dir)
+      .filter((d) => d.startsWith('censusclock-'))
+      .sort()
+      .flatMap((d) =>
+        fs
+          .readdirSync(path.join(dir, d))
+          .filter((f) => f.endsWith('.json'))
+          .sort()
+          .flatMap((f) => {
+            const data = JSON.parse(fs.readFileSync(path.join(dir, d, f), 'utf8'));
+            return data.rows.map((r) => {
+              const per = controlBlocks(r.blocksTask);
+              return {
+                set: d,
+                where: `${d}/${f}`,
+                rowId: r.rowId,
+                per,
+                adj: controlAdjudication(r.rowId, r.ctlPredicted, per, data.design.controlSlack),
+                stored: r.adjudication.ctl,
+              };
+            });
+          })
+      );
+  };
+  const ordinaries = () => corpus().filter((r) => r.rowId === 'ordinary');
+  const setsOf = (which) => (ORD.provenance[which].datasets || []).map((d) => path.basename(d));
+
+  // --- the standard is complete over the roster, and says which rows it holds -
+
+  t('every row this driver takes is either calibrated or declared OUT, by name', () => {
+    const roster = CSRC.match(/const ALL_ROWS = \[([^\]]*)\]/)[1].split(',').map((s) => s.trim().replace(/'/g, ''));
+    assert.deepStrictEqual(roster, ['large-template', 'feed', 'ordinary'], "the driver's roster is not what this test assumes");
+    for (const rowId of roster) {
+      const held = Object.keys(STD.rows).includes(rowId);
+      const out = STD.notInThisStandard.rows.includes(rowId);
+      assert.ok(held !== out, `${rowId} must be in exactly one of \`rows\` and \`notInThisStandard\``);
+    }
+  });
+
+  t('a row the standard has never heard of THROWS rather than being waved past', () => {
+    // Fail closed at the seat that decides WHETHER a row has a standard. A row
+    // silently returning `null` here would be adjudicated by the strict rule
+    // on nobody's decision, which is how a roster and a standard drift apart.
+    assert.throws(
+      () => checkStandardVerdict('a-row-nobody-calibrated', [1.2, 1.25]),
+      /is in neither `rows` nor `notInThisStandard`/
+    );
+    assert.throws(() => checkStandardVerdict('a-row-nobody-calibrated', [1.2]), /rf2-pzqy8/);
+  });
+
+  t('the two sibling rows are declared out and get NO standard, by name', () => {
+    for (const rowId of ['large-template', 'feed']) {
+      assert.strictEqual(checkStandardVerdict(rowId, [1.9, 2.0]), null, `${rowId} must have no standard`);
+    }
+    assert.match(STD.notInThisStandard.why, /MEETS its own element-arithmetic prediction/);
+    assert.match(STD.notInThisStandard.adjudicatedBy, /controlVerdict/);
+  });
+
+  // --- the frozen numbers are the numbers their own derivations claim --------
+
+  t('the CENTRE recomputes from the baseline the file names, and is not a literal in the code', () => {
+    // The load-bearing check on half one. The file says the centre is the
+    // median of its baseline row-runs' block medians; this recomputes exactly
+    // that, from the datasets the file names, through the driver's own
+    // `controlBlocks`. A centre typed into the JSON by hand would red here.
+    const base = ordinaries().filter((r) => setsOf('baseline').includes(r.set));
+    assert.strictEqual(base.length, ORD.provenance.baseline.rowRuns, 'the baseline is the row-runs the file declares');
+    assert.strictEqual(
+      base.reduce((a, r) => a + r.per.length, 0),
+      ORD.provenance.baseline.blocks
+    );
+    const meds = base.map((r) => p50(r.per));
+    assert.strictEqual(r4(p50(meds)), ORD.centre, 'the frozen centre is the baseline run medians\' median');
+    assert.strictEqual(r4(p50(meds)), ORD.provenance.baseline.observed.runMedianCentre);
+    assert.strictEqual(r4(mean(meds)), ORD.provenance.baseline.observed.runMedianMean);
+    assert.deepStrictEqual([r4(Math.min(...meds)), r4(Math.max(...meds))], ORD.provenance.baseline.observed.runMedianRange);
+    assert.strictEqual(r4(sd(meds)), ORD.provenance.baseline.observed.betweenRunSD);
+  });
+
+  t('NO LIMIT IS SPELLED IN THE DRIVER — recalibrating edits the JSON, never the code', () => {
+    // The prose above `checkStandardVerdict` quotes the centre, because a
+    // reader landing on the control needs the finding; the CODE must not,
+    // because a limit in two places is a limit that can be moved in one.
+    const CODE = CSRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.ok(CODE.includes('const spec = CHECK_STANDARD.rows[rowId];'), 'the comment stripper removed the code as well');
+    for (const [what, n] of [
+      ['the centre', ORD.centre],
+      ['a location limit', ORD.location.limits[0]],
+      ['a location limit', ORD.location.limits[1]],
+      ['the dispersion limit', ORD.dispersion.limit],
+    ]) {
+      assert.ok(!CODE.includes(String(n)), `${what} (${n}) is a literal in the driver's code`);
+    }
+    for (const read of ['spec.location.limits', 'spec.dispersion.limit', 'spec.centre', 'spec.tolerance.band']) {
+      assert.ok(CODE.includes(read), `the driver must read ${read} from the file`);
+    }
+  });
+
+  t('the LOCATION limits are centre +/- 3 x the between-run SD the file states', () => {
+    // Derived from the PUBLISHED figures rather than from full precision, in
+    // clock_check_standard.json's idiom — its own 1.7207 +/- 3 x 0.0566
+    // reproduces [1.5509, 1.8905] exactly — so a reader with the file alone
+    // can check the arithmetic without re-running the corpus.
+    const s = ORD.provenance.baseline.observed.betweenRunSD;
+    assert.match(ORD.location.derivation, /centre \+\/- 3 x between-run SD 0\.0632/);
+    assert.deepStrictEqual(ORD.location.limits, [r4(ORD.centre - 3 * s), r4(ORD.centre + 3 * s)]);
+    assert.ok(ORD.location.limits[0] < ORD.centre && ORD.centre < ORD.location.limits[1], 'the limits must bracket the centre');
+  });
+
+  t('the DISPERSION limit is the lognormal upper 3 sigma of the baseline robust scales', () => {
+    const base = ordinaries().filter((r) => setsOf('baseline').includes(r.set));
+    const scales = base.map((r) => robustScale(r.per));
+    const logs = scales.map(Math.log);
+    const mu = mean(logs);
+    const sigma = sd(logs);
+    assert.strictEqual(Number(mu.toFixed(4)), -2.104, 'the stated mu');
+    assert.strictEqual(Number(sigma.toFixed(4)), 0.3439, 'the stated sigma');
+    assert.strictEqual(r4(Math.exp(mu + 3 * sigma)), ORD.dispersion.limit);
+    assert.strictEqual(r4(p50(scales)), ORD.provenance.baseline.observed.robustScaleP50);
+    assert.strictEqual(r4(Math.max(...scales)), ORD.provenance.baseline.observed.robustScaleMax);
+    // ABOVE the widest observed draw rather than at it — a limit sitting on
+    // its own worst baseline draw refuses the next one by construction.
+    assert.ok(ORD.dispersion.limit > ORD.provenance.baseline.observed.robustScaleMax);
+    assert.match(ORD.dispersion.derivation, /44% above the widest of the 8 observed draws/);
+    assert.strictEqual(Math.round((ORD.dispersion.limit / ORD.provenance.baseline.observed.robustScaleMax - 1) * 100), 44);
+  });
+
+  // --- INDEPENDENCE, which is what makes it a check standard ----------------
+
+  t('the baseline and the HOLD-OUT are disjoint, and together they are the corpus', () => {
+    // rf2-8a746's v1 said in its own `independence` field that its limits were
+    // seeded from the 42 runs it was quoted against, so 0-of-42 was a
+    // consistency check and not a false-refusal measurement. This corpus is
+    // five sessions at five commits and therefore SPLITS, which is the one
+    // thing v1 could not do — NIST e-Handbook 2.3.5's doctrine kept rather
+    // than merely cited.
+    const base = setsOf('baseline');
+    const hold = setsOf('holdOut');
+    assert.strictEqual(base.length, 4);
+    assert.strictEqual(hold.length, 1);
+    for (const d of hold) assert.ok(!base.includes(d), `${d} may not be in both`);
+    const all = [...new Set(ordinaries().map((r) => r.set))].sort();
+    assert.deepStrictEqual(all, [...base, ...hold].sort(), 'a new censusclock-* dataset means the standard needs recalibrating');
+  });
+
+  t('the HOLD-OUT row-runs are IN CONTROL against limits derived WITHOUT them', () => {
+    // The false-refusal measurement, small but real: two row-runs taken five
+    // days after the last baseline session, at a different commit, judged by
+    // limits that never saw them.
+    const hold = ordinaries().filter((r) => setsOf('holdOut').includes(r.set));
+    assert.strictEqual(hold.length, ORD.provenance.holdOut.rowRuns);
+    assert.deepStrictEqual(hold.map((r) => r4(p50(r.per))), ORD.provenance.holdOut.observed.runMedians);
+    assert.deepStrictEqual(hold.map((r) => r4(robustScale(r.per))), ORD.provenance.holdOut.observed.robustScales);
+    for (const r of hold) {
+      assert.strictEqual(r.adj.standard.ok, true, `${r.where}: the hold-out must be in control`);
+      assert.strictEqual(r.adj.standard.location.ok, true);
+      assert.strictEqual(r.adj.standard.dispersion.ok, true);
+    }
+    assert.match(ORD.provenance.independence, /INDEPENDENT OF THE RUNS THEY ARE FIRST JUDGED ON/);
+    assert.match(ORD.errorRates.runRejectionHoldOut, /0 of 2 HOLD-OUT row-runs refused/);
+  });
+
+  // --- what the repair actually changed, and what it deliberately did not ----
+
+  t('the CENTRE was the defect: the same blocks refuse against 1.7255 and hold against 1.2308', () => {
+    const rows = ordinaries();
+    assert.strictEqual(rows.length, 10);
+    // The strict rule's OWN answer about the element arithmetic is untouched —
+    // still 0 of 10 — so nothing here widened a band to make a row pass.
+    assert.strictEqual(rows.filter((r) => r.adj.strictOk).length, 0, 'the strict rule about 1.7255 still refuses every row-run');
+    for (const r of rows) assert.strictEqual(r.adj.strictOk, r.stored.ok, `${r.where}: the strict answer must be what the run recorded`);
+    // And the calibrated standard holds every one of them.
+    assert.strictEqual(rows.filter((r) => r.adj.ok).length, 10, 'the empirical centre holds all ten committed row-runs');
+    assert.strictEqual(ORD.prediction, 1.7255);
+    assert.ok(ORD.centre < ORD.prediction, 'the empirical centre is BELOW the prediction — that is the whole finding');
+    assert.match(ORD.errorRates.retiredCentreForComparison, /56 of 180 blocks \(31\.1%\) inside/);
+    assert.match(ORD.errorRates.retiredCentreForComparison, /passed 0 of 10 row-runs/);
+  });
+
+  t('and the ADJUDICATOR is named on the row, so nobody has to infer which rule decided', () => {
+    for (const r of corpus()) {
+      if (r.rowId === 'ordinary') {
+        assert.ok(r.adj.standard, 'ordinary must carry a standard verdict');
+        assert.strictEqual(r.adj.ok, r.adj.standard.ok, 'a calibrated row is adjudicated by its standard');
+        assert.match(r.adj.adjudicator, /calibrated check standard `census-clock\/ctl-2x-level` v1 \(rf2-pzqy8\)/);
+      } else {
+        assert.strictEqual(r.adj.standard, null, `${r.rowId} must carry no standard`);
+        assert.strictEqual(r.adj.ok, r.adj.strictOk, 'a row with no standard is adjudicated by the strict rule');
+        assert.match(r.adj.adjudicator, /strict all-blocks rule/);
+      }
+    }
+  });
+
+  t('THE SIBLING ROWS ARE UNTOUCHED — rf2-y0pkh measured and retained the rule where it works', () => {
+    // The fence, asserted rather than promised. Their pass counts are the ones
+    // rf2-y0pkh measured three hours before this bead, and the rule that
+    // produced them is the same function with the same wording.
+    for (const [rowId, passed] of [['large-template', 8], ['feed', 7]]) {
+      const rows = corpus().filter((r) => r.rowId === rowId);
+      assert.strictEqual(rows.length, 10);
+      assert.strictEqual(rows.filter((r) => r.adj.ok).length, passed, `${rowId}: still ${passed} of 10`);
+      assert.strictEqual(rows.filter((r) => r.adj.strictOk).length, passed, `${rowId}: and the strict rule is what decided it`);
+      for (const r of rows) assert.strictEqual(r.adj.ok, r.stored.ok, `${r.where}: unchanged from what the run recorded`);
+    }
+    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(rf2-y0pkh: measured and retained\)'/);
+  });
+
+  t('the tolerance band is REPORTED on a calibrated row, and the all-blocks rule is why', () => {
+    // The other half of the diagnosis, and the reason re-centring ALONE is not
+    // the repair: about the empirical centre 90.0% of blocks are in band and
+    // `0.90^18 = 15%`, so the all-blocks rule would still pass 3 of 10. That is
+    // rf2-8a746's `p^n` arithmetic on this rig, at this n.
+    const rows = ordinaries();
+    const blocks = rows.flatMap((r) => r.per);
+    const [lo, hi] = ORD.tolerance.band;
+    assert.deepStrictEqual(ORD.tolerance.band, [r4(ORD.centre * (1 - ORD.tolerance.slack)), r4(ORD.centre * (1 + ORD.tolerance.slack))]);
+    const inBand = blocks.filter((x) => x >= lo && x <= hi).length;
+    assert.strictEqual(blocks.length, 180);
+    assert.strictEqual(inBand, 162, '90.0% of blocks in band about the empirical centre');
+    assert.strictEqual(((inBand / blocks.length) * 100).toFixed(1), '90.0');
+    assert.strictEqual(rows.filter((r) => r.per.every((x) => x >= lo && x <= hi)).length, 3, 'the all-blocks rule would pass 3 of 10');
+    assert.strictEqual((((inBand / blocks.length) ** 18) * 100).toFixed(0), '15', '0.90^18');
+    // ... and nothing reads it into the verdict.
+    for (const r of rows) {
+      assert.strictEqual(r.adj.standard.tolerance.gating, false);
+      assert.strictEqual(r.adj.standard.tolerance.of, 18);
+    }
+    assert.match(STD.whyNotTheAllBlocksRule, /0\.90\^18 = 15%/);
+    assert.match(STD.runRejection, /Nothing per-block rejects it/);
+  });
+
+  // --- what this standard can and cannot catch, stated as arithmetic ---------
+
+  t('the SENSITIVITY the file states is the sensitivity the frozen limits have', () => {
+    // A standard nobody has seen refuse is a standard of unmeasured
+    // sensitivity. This one refuses an arm that does not double at all and an
+    // arm that triples — and ADMITS the 140-of-300 sabotage rf2-8a746 proved
+    // its own standard against, because only 31.8% of this row's reading is
+    // page-proportional. That is prediction P4 restated as a number, and the
+    // file says so rather than leaving it to be discovered.
+    const k = 0.3181; // the page-proportional share, from the model in the file
+    const c = 0.6819;
+    assert.match(ORD.sensitivity.model, new RegExp(`R = ${k} \\* P_eff \\+ ${c}`));
+    assert.strictEqual(r4(k + c), 1, 'the two shares are one reading');
+    const reads = (pEff) => r4(k * pEff + c);
+    const admits = (R) => R >= ORD.location.limits[0] && R <= ORD.location.limits[1];
+    const pEffFor = (R) => r4((R - c) / k);
+    assert.match(
+      ORD.sensitivity.admits,
+      new RegExp(`P_eff in \\[${pEffFor(ORD.location.limits[0])}, ${pEffFor(ORD.location.limits[1])}\\]`)
+    );
+    // the declared doubling reads the frozen centre — the model and the
+    // corpus are the same instrument, which is what makes the rest of this
+    // arithmetic a statement about the row rather than about an analogy
+    assert.strictEqual(reads(ORD.prediction), ORD.centre, 'a declared doubling must read the frozen centre');
+    // CATCHES
+    assert.strictEqual(reads(1), 1, 'an arm that does not double reads 1.0000x');
+    assert.ok(!admits(reads(1)), 'and is REFUSED');
+    assert.strictEqual(reads(1 + 2 * (ORD.prediction - 1)), 1.4616);
+    assert.ok(!admits(reads(1 + 2 * (ORD.prediction - 1))), 'a TRIPLING is REFUSED');
+    assert.match(ORD.sensitivity.catches, /reads 1\.0000x and is REFUSED/);
+    assert.match(ORD.sensitivity.catches, /reads 1\.4616x and is REFUSED/);
+    // MISSES, and says so
+    const sabotage = reads(1 + (ORD.prediction - 1) * (140 / 300));
+    assert.strictEqual(sabotage, 1.1077);
+    assert.ok(admits(sabotage), 'the 140-of-300 sabotage is ADMITTED on this row');
+    assert.match(ORD.sensitivity.misses, /would read 1\.1077x on THIS row and be ADMITTED/);
+    assert.match(ORD.sensitivity.misses, /prediction P4 restated as a number/);
+  });
+
+  // --- fail closed at every seat --------------------------------------------
+
+  t('an empty, a partial, or a non-finite block set REFUSES rather than passing', () => {
+    assert.strictEqual(checkStandardVerdict('ordinary', []).ok, false);
+    assert.match(checkStandardVerdict('ordinary', []).why, /empty block set/);
+    assert.strictEqual(checkStandardVerdict('ordinary', undefined).ok, false);
+    assert.strictEqual(checkStandardVerdict('ordinary', null).ok, false);
+    const withNaN = [...Array.from({ length: 17 }, () => ORD.centre), NaN];
+    assert.strictEqual(checkStandardVerdict('ordinary', withNaN).ok, false);
+    assert.match(checkStandardVerdict('ordinary', withNaN).why, /not finite readings of a level ratio/);
+    // ... while the healthy world passes, so none of the above is vacuous.
+    assert.strictEqual(checkStandardVerdict('ordinary', Array.from({ length: 18 }, () => ORD.centre)).ok, true);
+  });
+
+  t('a row-run OUTSIDE either frozen limit refuses, and the refusal says which', () => {
+    const flat = (x) => Array.from({ length: 18 }, () => x);
+    const low = checkStandardVerdict('ordinary', flat(ORD.location.limits[0] - 0.01));
+    assert.strictEqual(low.ok, false);
+    assert.strictEqual(low.location.ok, false);
+    assert.strictEqual(low.dispersion.ok, true, 'a flat world has no dispersion — this must be the LOCATION rule');
+    assert.match(low.why, /outside the frozen location limits/);
+    const high = checkStandardVerdict('ordinary', flat(ORD.location.limits[1] + 0.01));
+    assert.strictEqual(high.ok, false, 'the limits are two-sided — an arm that OVERBUILDS is equally a fault');
+    // a world whose median sits dead on the centre and whose blocks scatter
+    const noisy = Array.from({ length: 18 }, (_, i) => ORD.centre + (i % 2 ? 1 : -1) * 0.9);
+    const n = checkStandardVerdict('ordinary', noisy);
+    assert.strictEqual(n.location.ok, true, 'the median is still the centre');
+    assert.strictEqual(n.dispersion.ok, false);
+    assert.strictEqual(n.ok, false);
+    assert.match(n.why, /exceeds the frozen dispersion limit/);
+  });
+
+  t('every verdict carries the standard it was taken against, by id and version', () => {
+    const v = checkStandardVerdict('ordinary', Array.from({ length: 18 }, () => ORD.centre));
+    assert.strictEqual(v.standard.id, STD.id);
+    assert.strictEqual(v.standard.version, STD.version);
+    assert.strictEqual(v.standard.bead, 'rf2-pzqy8');
+    assert.ok(Number.isInteger(STD.version), 'a version that is not an integer cannot be bumped');
+    assert.deepStrictEqual(v.location.limits, ORD.location.limits, 'the frozen limits are the JSON\'s, never a literal');
+    assert.strictEqual(v.location.centre, ORD.centre);
+    assert.strictEqual(v.dispersion.limit, ORD.dispersion.limit);
+    assert.ok(STD.recalibrateOn.length >= 4, 'a standard with no recalibration conditions is a constant');
+    assert.ok(STD.recalibrateOn.some((s) => /FRESH baseline/.test(s)));
+  });
+
+  t('the driver cites the bead and the standard where a reader of the control lands', () => {
+    assert.match(CSRC, /require\('\.\/census_check_standard\.json'\)/);
+    assert.match(CSRC, /rf2-pzqy8/);
+    // The finding itself, above `checkStandardVerdict`, where a reader of the
+    // control lands — the measured centre and the prediction it is not.
+    const note = CSRC.slice(CSRC.indexOf('THE CALIBRATED CHECK STANDARD, applied to one row-run'), CSRC.indexOf('function checkStandardVerdict('));
+    assert.ok(note.length > 0, 'the standard no longer carries the note this test pins');
+    assert.match(note, /1\.2308x/);
+    assert.match(note, /1\.7255x/);
+    assert.match(note, /mis-specified CENTRE/);
+    assert.match(note, /rf2-8a746/, 'and the ruling whose idiom this is');
+    assert.match(note, /rf2-y0pkh/, 'and the measurement it stands on');
+  });
+}
+
+// --- rf2-pzqy8, half two: a REFUSED ROW no longer refuses the RUN -----------
+//
+// The higher-leverage half, and it is a SCOPE defect rather than an arithmetic
+// one. `census_clock_run.cjs`'s prediction P4, registered before any clock,
+// says: "the ORDINARY row (51 elements) sits near this door's own floor; if
+// its control or band cannot hold, the ROW publishes a REFUSAL with the
+// reason, not a number." The implementation refused the RUN — `verdict`'s
+// `ctlFailed` exits 5 and `destination` then read that exit code and sent the
+// whole run's datasets to `.unpublished`, including the `large-template` and
+// `feed` rows that had passed every gate they have.
+//
+// Over the five committed sessions the ordinary row failed on both adapters
+// every time, so NO FULL-SHAPE CENSUS RUN COULD EVER BE CANONICAL — which is
+// why the mayor's 2026-08-07 ruling on rf2-jo60g specified work nobody could
+// have done, and why this half is the precondition for any future
+// recomputable census claim.
+//
+// THE REFUSAL IS NOT WEAKENED, IT IS PUT AT ITS OWN SCOPE. The exit code still
+// refuses the run and still names every offending row; each row now carries
+// its own `canonical` and `notCanonicalWhy`; the file indexes them; and the
+// directory is chosen by the run's SHAPE alone, which is what
+// `clock_run.cjs`'s `publication(shape)` has read all along.
+
+{
+  const CENSUS = DRIVERS[1].mod;
+  const { summarise, summariseRow, verdict, destination, datasetFor, rowPublication } = CENSUS;
+  const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
+  const t = (what, fn) => test(`census refusal scope: ${what}`, fn);
+
+  const CANON = '/data/censusclock-2rtt6-56';
+  const shape = (over = {}) => ({
+    dataDir: CANON,
+    dataDirOverridden: false,
+    rowsOnly: null,
+    runsOnly: null,
+    noBuild: false,
+    depthPublished: true,
+    skipQuiet: false,
+    ...over,
+  });
+  const PUBLISHED = () => destination(shape());
+
+  const DECOMP = () => ({ n: 10, task: 3, taskNet: 2, devtools: 1, script: 0.5, style: 0.4, layout: 0.6, layoutCount: 10, inPage: 1 });
+
+  /** One row as `drive` collects it, with its four gates settable one at a time. */
+  const resultRow = (rowId, gates = {}) => ({
+    runId: 'uix',
+    rowId,
+    armIds: ['plumb', 'floor', 'ctl-2x'],
+    canon: { floor: { hash: 'a', bytes: 10, control: true } },
+    ctlPredicted: 1.7255,
+    blocksTask: [[{ plumb: [0.7], floor: [2, 2.1], 'ctl-2x': [3, 3.1] }]],
+    blocksNet: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
+    blocksInPage: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
+    blocksDecomp: [[{ plumb: DECOMP(), floor: DECOMP(), 'ctl-2x': DECOMP() }]],
+    tally: { writes: 36, unverified: gates.unverified || 0 },
+    runtime: 'fixture',
+    quiet: { ok: true },
+    windowStart: '2026-08-08T00:00:00.000Z',
+    adjudication: {
+      ctl: { ok: gates.ctlOk !== false, measured: { mean: gates.ctlMeasured || 1.9943 } },
+      cAdditive: 0.96,
+      assessed: {
+        bandStats: { band: gates.band === undefined ? 0.12 : gates.band },
+        verdict: { ceilingBreached: gates.ceilingBreached === true },
+      },
+      bars: {},
+      verdicts: {},
+      guardRefuse: gates.guardRefuse === true,
+      plumb: 0.7683,
+      floorTared: 1.4076,
+    },
+  });
+
+  /** The full published shape: the three rows, in the order the driver takes them. */
+  const fullShape = (gatesByRow = {}) =>
+    ['large-template', 'feed', 'ordinary'].map((id) => resultRow(id, gatesByRow[id] || {}));
+  const META = (dest) => ({ sha: 'deadbeef', blobs: {}, dest });
+  const written = (rows, dest = PUBLISHED()) => JSON.parse(JSON.stringify(datasetFor(rows, META(dest))));
+
+  // --- the green case first, so nothing below is vacuously red ---------------
+
+  t('a full-shape run with every gate held is canonical, and every row is citable', () => {
+    const data = written(fullShape());
+    assert.strictEqual(data.canonical, true);
+    assert.strictEqual(data.notCanonicalWhy, null);
+    assert.deepStrictEqual(data.rowsRefused, []);
+    for (const row of data.rows) {
+      assert.strictEqual(row.canonical, true, `${row.rowId} must be citable`);
+      assert.strictEqual(row.notCanonicalWhy, null);
+    }
+    assert.strictEqual(verdict(summarise(null, fullShape())).code, 0);
+  });
+
+  // --- THE ONE THIS BEAD EXISTS FOR -----------------------------------------
+
+  t('ORDINARY REFUSED, THE OTHER TWO CLEAN: the two stay canonical and the run still refuses', () => {
+    // The state every one of the five committed sessions was in, on both
+    // adapters. Before rf2-pzqy8 this produced exit 5, dir
+    // `censusclock-2rtt6-56.unpublished`, and `canonical: false` over the
+    // whole file — the two rows that passed every gate discarded with the one
+    // that did not.
+    const rows = fullShape({ ordinary: { ctlOk: false, ctlMeasured: 1.2264 } });
+    const v = verdict(summarise(null, rows));
+
+    // 1. THE RUN STILL REFUSES. A run in which a row refused is not a clean
+    //    run; it is a run with a refused row, and the exit says so.
+    assert.strictEqual(v.code, 5, 'the run-level refusal is NOT weakened into nothing');
+    assert.strictEqual(v.lines.length, 1);
+    assert.match(v.lines[0], /uix\/ordinary \(measured 1\.2264x\)/);
+    assert.doesNotMatch(v.lines[0], /large-template|feed/, 'a clean row must not be blamed');
+    assert.match(v.lines[0], /the scope is the ROW \(rf2-pzqy8\)/);
+
+    // 2. THE FILE STAYS IN THE PUBLISHED SET, because the run's SHAPE is the
+    //    published one and a gate refusal is not a fact about the shape.
+    const dest = PUBLISHED();
+    assert.strictEqual(dest.dir, CANON, 'a refused ROW must not move the RUN off the canonical set');
+    assert.strictEqual(dest.canonical, true);
+
+    // 3. AND THE ROWS CARRY THE REFUSAL AT ITS OWN SCOPE.
+    const data = written(rows, dest);
+    assert.deepStrictEqual(data.rowsRefused, ['ordinary'], 'the file indexes exactly the row that refused');
+    const byId = Object.fromEntries(data.rows.map((r) => [r.rowId, r]));
+    for (const id of ['large-template', 'feed']) {
+      assert.strictEqual(byId[id].canonical, true, `${id} passed every gate and must remain canonical`);
+      assert.strictEqual(byId[id].notCanonicalWhy, null);
+    }
+    assert.strictEqual(byId.ordinary.canonical, false);
+    assert.match(byId.ordinary.notCanonicalWhy, /POSITIVE CONTROL did not hold \(measured 1\.2264x\)/);
+    assert.match(byId.ordinary.notCanonicalWhy, /prediction P4 promises the row publishes/);
+    // ... and the row's numbers are still in the file. A refusal is evidence;
+    // throwing the measurement away was never the refusal.
+    assert.ok(byId.ordinary.blocksTask, 'the refused row is recorded, not deleted');
+  });
+
+  t('the whole point, stated as a counterfactual: nothing citable used to survive this run', () => {
+    // If the write decision ever folds a gate refusal back in, this is the
+    // assertion that reds. `destination` takes ONE argument now — the shape —
+    // and a second one would have to come from somewhere.
+    assert.strictEqual(destination.length, 1, '`destination` must read the run SHAPE and nothing else');
+    const rows = fullShape({ ordinary: { ctlOk: false } });
+    const citable = written(rows).rows.filter((r) => r.canonical).map((r) => r.rowId);
+    assert.deepStrictEqual(citable, ['large-template', 'feed'], 'a full-shape run must be able to publish SOME row');
+  });
+
+  // --- each gate alone, at the row's scope ----------------------------------
+
+  for (const [what, gates, needle] of [
+    ['the ARM-ORDER GUARD', { guardRefuse: true }, /ARM-ORDER GUARD refused it/],
+    ['UNVERIFIED read-backs', { unverified: 4 }, /4 of 36 operations are UNVERIFIED/],
+    ['a BREACHED band ceiling', { ceilingBreached: true, band: 0.412 }, /band 41\.2% exceeds seam\.cjs's 35% ceiling/],
+    ['a FAILED positive control', { ctlOk: false, ctlMeasured: 1.2264 }, /POSITIVE CONTROL did not hold/],
+  ]) {
+    t(`${what} refuses THAT row and no other`, () => {
+      const data = written(fullShape({ feed: gates }));
+      assert.deepStrictEqual(data.rowsRefused, ['feed']);
+      const byId = Object.fromEntries(data.rows.map((r) => [r.rowId, r]));
+      assert.strictEqual(byId.feed.canonical, false);
+      assert.match(byId.feed.notCanonicalWhy, needle);
+      for (const id of ['large-template', 'ordinary']) {
+        assert.strictEqual(byId[id].canonical, true, `${id} must be untouched by ${what}`);
+      }
+      // ... and the run still refuses, so this cannot pass by going quiet.
+      assert.notStrictEqual(verdict(summarise(null, fullShape({ feed: gates }))).code, 0);
+      // ... and the same run WITHOUT that gate publishes every row, so it
+      // cannot pass by refusing everything either.
+      assert.deepStrictEqual(written(fullShape()).rowsRefused, []);
+    });
+  }
+
+  t('several gates on one row name every one of them', () => {
+    const data = written(fullShape({ ordinary: { ctlOk: false, ceilingBreached: true, band: 0.5, unverified: 2, guardRefuse: true } }));
+    const why = data.rows.find((r) => r.rowId === 'ordinary').notCanonicalWhy;
+    for (const needle of [/ARM-ORDER GUARD/, /UNVERIFIED/, /band 50\.0% exceeds/, /POSITIVE CONTROL/]) {
+      assert.match(why, needle);
+    }
+  });
+
+  // --- a row inherits the run's shape ---------------------------------------
+
+  t('NO row of a run that is not the published shape is citable, whatever its own gates did', () => {
+    // The composition that keeps the two scopes from drifting apart: the row's
+    // own gates are necessary and the run's shape is necessary, and neither is
+    // sufficient. A `--no-build` run whose every gate held publishes nothing.
+    const dest = destination(shape({ noBuild: true }));
+    assert.strictEqual(dest.canonical, false);
+    const data = written(fullShape(), dest);
+    assert.strictEqual(data.canonical, false);
+    assert.match(data.notCanonicalWhy, /--no-build/);
+    assert.deepStrictEqual(data.rowsRefused, ['large-template', 'feed', 'ordinary']);
+    for (const row of data.rows) {
+      assert.strictEqual(row.canonical, false);
+      assert.match(row.notCanonicalWhy, /the run itself is not the published evidence: --no-build/);
+    }
+  });
+
+  t('and the run-shape reason comes FIRST, so a reader sees the disqualifying fact first', () => {
+    const dest = destination(shape({ skipQuiet: true }));
+    const p = rowPublication(summariseRow(resultRow('ordinary', { ctlOk: false })), dest);
+    assert.strictEqual(p.canonical, false);
+    assert.match(p.why, /^the run itself is not the published evidence: a SKIPPED quiet gate/);
+    assert.match(p.why, /POSITIVE CONTROL did not hold/, 'and the row-level reason is still named');
+  });
+
+  // --- fail closed ----------------------------------------------------------
+
+  t('an absent row and an absent destination are each a REFUSAL, never a pass', () => {
+    assert.strictEqual(rowPublication(undefined, PUBLISHED()).canonical, false);
+    assert.match(rowPublication(undefined, PUBLISHED()).why, /an absent row is not a citable one/);
+    assert.strictEqual(rowPublication(null, PUBLISHED()).canonical, false);
+    const clean = summariseRow(resultRow('feed'));
+    assert.strictEqual(rowPublication(clean, undefined).canonical, false);
+    assert.match(rowPublication(clean, undefined).why, /no destination was decided for this run/);
+    // ... and the same row with a decided, published destination IS citable.
+    assert.strictEqual(rowPublication(clean, PUBLISHED()).canonical, true);
+    assert.strictEqual(rowPublication(clean, PUBLISHED()).why, null);
+  });
+
+  // --- the wiring: ONE mapper, so the two scopes cannot disagree -------------
+
+  t('the write path and the exit path read the SAME four refusal fields', () => {
+    // The fault this replaces was two readings of one fact. `summarise` and
+    // `rowPublication` now share `summariseRow`, so a row the exit refuses and
+    // a row the file marks refused are the same row by construction — and a
+    // renamed accessor breaks both at once instead of one silently.
+    // Newlines are normalised because this tree is checked out with CRLF.
+    const src = CSRC.replace(/\r\n/g, '\n');
+    assert.match(src, /^const summariseRow = \(r\) => \(\{/m);
+    assert.match(src, /function summarise\(failed, results\) \{\n\s*return \{ failed: failed \|\| null, rows: \(results \|\| \[\]\)\.map\(summariseRow\) \};/);
+    assert.match(src, /const publication = \(r\) => rowPublication\(summariseRow\(r\), meta\.dest\);/);
+    // and the summary the exit takes is built by that mapper
+    const s = summarise(null, [resultRow('ordinary', { ctlOk: false, ctlMeasured: 1.2264 })]);
+    assert.deepStrictEqual(s.rows[0], {
+      id: 'uix/ordinary',
+      guardRefuse: false,
+      unverified: 0,
+      writes: 36,
+      ctlOk: false,
+      ctlMeasured: 1.2264,
+      ceilingBreached: false,
+      band: 0.12,
+    });
+  });
+
+  t('the header says the scope, in the instrument\'s own words', () => {
+    const header = CSRC.slice(0, CSRC.indexOf("'use strict'"));
+    assert.match(header, /the ROW publishes a REFUSAL with the reason, not a number/);
+    assert.match(header, /A NONZERO EXIT IS A RUN-LEVEL FACT AND STAYS ONE/);
+    assert.match(header, /full-shape census run could ever be canonical/i);
+    assert.match(header, /rf2-pzqy8/);
+    // The write-path note must name both scopes and the idiom it follows.
+    const note = CSRC.slice(CSRC.indexOf('// WHERE A RUN\'S DATASETS MAY BE WRITTEN'), CSRC.indexOf('function destination('));
+    assert.match(note, /`clock_run\.cjs`'s `publication\(shape\)` has read shape and nothing else/);
+    assert.match(note, /A refusal is evidence/);
+  });
+}
+
 // --- hd8_clock_run.cjs: the WRITE path, not just the exit path ---------------
 //
 // rf2-2rtt6.31, the write-before-refuse ruling. The same fail-open as the block
