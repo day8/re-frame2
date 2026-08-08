@@ -38,7 +38,8 @@
     "mount": {
       "rows": ["M1"],
       "calibrated": false,
-      "why": "rf2-8a746 calibrated the BULK class only, from the 42 bulk row-runs it names. The mount half of the instrument question is rf2-t2flm's ruling, and one finding is handed to it by id: ctl-2x's true centre is empirical and differs by row class — 1.72x on bulk against 1.80x on the mount — so a mount decision function must state its expectation empirically too. Until that ruling lands this class FAILS CLOSED: an uncalibrated class cannot certify that a run was in control. M1 publishes DIRECTION and never a magnitude by rf2-jcm3p, so nothing turns on it.",
+      "why": "rf2-8a746 calibrated the BULK class only and hands the mount decision function to rf2-t2flm, so nothing has established what this instrument reads on a mount and no run of one can be certified in control",
+      "rationale": "The 42 row-runs rf2-8a746 names are bulk. The mount half of the instrument question is rf2-t2flm's ruling, concurrent and separate, and one finding is handed to it by id: ctl-2x's true centre is EMPIRICAL and differs by row class — 1.72x on bulk against 1.80x on the mount — so a mount decision function must state its expectation empirically too rather than assert 2.00x. Until that ruling lands this class fails closed, which costs nothing: M1 publishes DIRECTION and never a magnitude by rf2-jcm3p, so no magnitude is being withheld.",
       "observed": {
         "rowRuns": 14,
         "runMedianCentre": 1.7956,
@@ -52,7 +53,8 @@
   },
   "noStandard": {
     "rows": ["keystroke"],
-    "why": "this row's control burns a fixed 50 ms rather than doubling the page, so control/floor reads (F+50)/F and moves with F. It is a sensitivity control and not a check standard, and rf2-swwud adjudicates the row by Event Timing. A row with no proportional control arm cannot be certified in control by this standard, and the verdict says so rather than passing."
+    "why": "this row's control burns a fixed 50 ms rather than doubling the page, so control/floor reads (F+50)/F and moves with F — a sensitivity control and not a check standard, with rf2-swwud adjudicating the row by Event Timing instead",
+    "rationale": "A row with no proportional control arm cannot be certified in control by this standard, and the verdict says so rather than passing. Its own fixed-work control is untouched by rf2-8a746 and still refuses on its own terms in clock_run.cjs."
   },
   "recalibrateOn": [
     "any Chromium version change — the counters and the compositor are the instrument",

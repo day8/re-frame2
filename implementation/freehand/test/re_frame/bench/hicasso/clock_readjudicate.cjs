@@ -78,9 +78,41 @@
 // better explanation and the repair is a control that DIFFERENCES the
 // constant away rather than one that changes what is doubled.
 
+// ## WHAT ADJUDICATES A ROW, AND WHAT PUBLISHES ONE (rf2-8a746)
+//
+// The 2026-08-07 ruling replaced both halves of this program's verdict and
+// they are separate things.
+//
+//   THE GATE is a level-denominated, empirically calibrated, versioned CHECK
+//   STANDARD — `clock_check_standard.json`, applied by `clock_check_
+//   standard.cjs`, which this file and `clock_run.cjs` both require so there
+//   is one seat and not two. It replaced the three-point difference-of-
+//   differences control, which refused 42 of 42 bulk row-runs across two
+//   independent quiet-box ensembles because its prediction is mis-derived on
+//   a clock that is not affine in the dirty set AND its denominator sits ~2
+//   sigma from zero. It also replaced the all-blocks strict rule, which was a
+//   SEPARATE defect: `0.835^18 = 3.9%`, so a control fully meeting its premise
+//   passed 4 of 42 runs.
+//
+//   THE PUBLICATION RULE is an EFFECT-SIZE CONFIDENCE INTERVAL on the quantity
+//   the product claim actually asserts — the paired same-round Hicasso/donor
+//   LEVEL ratio at fixed witness and fixed K — computed by a run-preserving
+//   hierarchical bootstrap (Kalibera & Jones 2013: resample outer RUNS before
+//   inner ROUNDS). A magnitude publishes only when the WHOLE interval lies on
+//   the required side of 1.0, and the effect clears the same-run noise band.
+//   Otherwise the row publishes INSTRUMENT-LIMITED and never a magnitude.
+//
+// Every pooled mean this program prints is therefore a DIAGNOSTIC beneath that
+// verdict, and the 42 committed row-runs remain calibration evidence: they are
+// not retroactively promoted to published magnitudes by anything here.
+
 'use strict';
 
 const fs = require('node:fs');
+
+// ONE SEAT FOR THE GATE'S ARITHMETIC (rf2-8a746) — see `clock_run.cjs`, which
+// requires the same module. Two copies would be two adjudicators.
+const checkstd = require('./clock_check_standard.cjs');
 
 const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -89,6 +121,16 @@ function p50(xs) {
   const v = [...xs].sort((a, b) => a - b);
   if (v.length === 0) return NaN;
   return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+}
+
+/** Linear-interpolated quantile — the percentile-interval definition below. */
+function quantile(xs, q) {
+  const v = [...xs].sort((a, b) => a - b);
+  if (v.length === 0) return NaN;
+  const h = (v.length - 1) * q;
+  const lo = Math.floor(h);
+  const hi = Math.ceil(h);
+  return v[lo] + (v[hi] - v[lo]) * (h - lo);
 }
 
 /** mean / min / max over the runs of the ensemble — never a bare mean. */
@@ -148,6 +190,235 @@ function rawCrossSegment(rounds, pair) {
 }
 
 /**
+ * THE CHECK STANDARD, RE-APPLIED TO THE RUN'S OWN READINGS (rf2-8a746).
+ *
+ * RECOMPUTED, NOT READ BACK, and this is the one gate in the roster below that
+ * is — so the reason has to be here rather than inferred. Every other gate
+ * mirrors a verdict `clock_run.cjs` TOOK, and a taken verdict can be lost in a
+ * file, which is why absent is not clean. A check standard is not that kind of
+ * thing. It is versioned DATA that a READER applies, and applying today's
+ * standard to a dataset taken before it existed is the entire point of
+ * freezing limits as data instead of as a stored boolean: recalibrate, bump
+ * the version, and every retained run can be re-adjudicated without re-running
+ * the box. `clock_run.cjs` stores its own verdict beside the readings anyway,
+ * carrying the standard's id and version, so a reader can see which standard a
+ * run was taken under; nothing here reads it, because a run adjudicated under
+ * v1 and re-read under v2 must come back with v2's answer.
+ *
+ * FAIL CLOSED, at each seat: no design record, no raw readings, a missing arm,
+ * a block that is not a finite reading, a row whose class has no standard, and
+ * a class nobody has calibrated are each a REFUSAL.
+ */
+function checkStandardFor(row, dataset) {
+  const r = row || {};
+  const d = dataset || {};
+  // THE CLASS DECIDES BEFORE THE READINGS DO. A row whose class is
+  // uncalibrated cannot be certified in control however clean its blocks are,
+  // and asking for readings first would report the wrong refusal.
+  const klass = checkstd.classOf(r.rowId);
+  if (!klass || !checkstd.STANDARD.classes[klass].calibrated) return checkstd.checkStandard([], r.rowId);
+  if (!d.design || typeof d.design.tare !== 'boolean') {
+    return {
+      ok: false,
+      why: 'no design record — whether these readings are tared was not serialised, and a level ratio taken with the wrong tare is not that ratio',
+    };
+  }
+  if (!Array.isArray(r.roundsTask) || r.roundsTask.length === 0) {
+    return {
+      ok: false,
+      why: 'no raw per-sample TaskDuration readings — the check standard is applied to the readings themselves, so a record that did not store them cannot be shown to have been in control',
+    };
+  }
+  const xs = [];
+  for (const seg of SEGMENTS) {
+    for (const round of r.roundsTask) {
+      const s = round && round[seg];
+      const c = s && s['ctl-2x'];
+      const f = s && s.floor;
+      const t = s && s.plumb;
+      if (!Array.isArray(c) || !Array.isArray(f) || (d.design.tare && !Array.isArray(t))) {
+        return {
+          ok: false,
+          why: `the check standard's arms are not all in the record — segment \`${seg}\` is missing ctl-2x, floor or the tare`,
+        };
+      }
+      xs.push((p50(c) - (d.design.tare ? p50(t) : 0)) / (p50(f) - (d.design.tare ? p50(t) : 0)));
+    }
+  }
+  return checkstd.checkStandard(xs, r.rowId);
+}
+
+/**
+ * THE PUBLICATION RULE (rf2-8a746), and it is deliberately small.
+ *
+ * `bar` is the claim's threshold and `architectureKill` the other side of it.
+ * `draws` and `seed` are here rather than inline because a published interval
+ * a reader cannot reproduce is the fault this whole program exists to fix: the
+ * bootstrap is seeded, so running this file twice over the same datasets
+ * yields the same interval to the last place.
+ *
+ * `minRuns` is the lane's own standing sentence — two runs are not an ensemble
+ * — as arithmetic. A run-preserving bootstrap resamples OUTER units, and with
+ * one or two of them the outer distribution is essentially the observed runs
+ * themselves, so the interval understates by construction. Below the floor the
+ * row publishes INSTRUMENT-LIMITED rather than a narrow interval.
+ */
+const EFFECT = {
+  bead: 'rf2-8a746',
+  draws: 4000,
+  seed: 20260807,
+  alpha: 0.05,
+  bar: 1.0,
+  architectureKill: 1.5,
+  minRuns: 3,
+  method: 'paired log-ratios; hierarchical percentile bootstrap, outer RUNS resampled before inner ROUNDS (Kalibera & Jones 2013)',
+};
+
+/** A small deterministic PRNG, so a published interval is reproducible. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * ONE RUN'S PAIRED LOG-RATIOS, one per round — the quantity the product claim
+ * asserts, at fixed witness and fixed K.
+ *
+ * PAIRED AND SAME-ROUND, which is what makes it the right quantity: both arms
+ * are read in the same round of the same run, so whatever that round's box was
+ * doing is common to the pair. LEVEL over LEVEL, touching neither floor, for
+ * the reason the check standard is level-denominated — the floors are two
+ * different values and dividing by them injects a second term. And LOGS,
+ * because a ratio's sampling distribution is skewed and its log's is not, so
+ * the arithmetic is done where the mean is a summary.
+ *
+ * Returns `null` for a row that carries no usable readings, which is a
+ * refusal to state an interval rather than an interval over nothing.
+ */
+function pairedLogRatios(row, pair) {
+  const [num, den] = pair.split(' / ');
+  const out = [];
+  for (const round of (row && row.roundsTask) || []) {
+    const n = round && round[num] && round[num][num];
+    const d = round && round[den] && round[den][den];
+    if (!Array.isArray(n) || !Array.isArray(d) || n.length === 0 || d.length === 0) return null;
+    const q = p50(n) / p50(d);
+    if (!Number.isFinite(q) || q <= 0) return null;
+    out.push(Math.log(q));
+  }
+  return out.length ? out : null;
+}
+
+/**
+ * THE EFFECT-SIZE INTERVAL — a hierarchical percentile bootstrap that
+ * PRESERVES THE RUN (rf2-8a746, Kalibera & Jones 2013).
+ *
+ * Runs are the outer unit and rounds the inner one, and the order matters: a
+ * bootstrap that pooled every round of every run and resampled that pool would
+ * treat two rounds of one run as independent of each other, which they are
+ * not — a run is a box state, a browser process and a bundle — and would
+ * return an interval far too narrow. So each draw resamples RUNS with
+ * replacement first and then, within each drawn run, its ROUNDS.
+ *
+ * `runs` is `[[logRatio per round]]`. The point estimate is the mean over runs
+ * of each run's mean, which is the balanced-design estimator the bootstrap is
+ * the distribution of.
+ */
+function effectInterval(runs) {
+  const usable = (runs || []).filter((r) => Array.isArray(r) && r.length > 0);
+  if (usable.length === 0) return null;
+  const point = mean(usable.map(mean));
+  const rnd = mulberry32(EFFECT.seed);
+  const draws = [];
+  for (let b = 0; b < EFFECT.draws; b++) {
+    const outer = [];
+    for (let i = 0; i < usable.length; i++) {
+      const run = usable[Math.floor(rnd() * usable.length)];
+      const inner = [];
+      for (let j = 0; j < run.length; j++) inner.push(run[Math.floor(rnd() * run.length)]);
+      outer.push(mean(inner));
+    }
+    draws.push(mean(outer));
+  }
+  return {
+    runs: usable.length,
+    rounds: usable.map((r) => r.length),
+    point: Math.exp(point),
+    lo: Math.exp(quantile(draws, EFFECT.alpha / 2)),
+    hi: Math.exp(quantile(draws, 1 - EFFECT.alpha / 2)),
+    draws: EFFECT.draws,
+    seed: EFFECT.seed,
+    method: EFFECT.method,
+  };
+}
+
+/**
+ * MAY THIS ROW PUBLISH A MAGNITUDE? (rf2-8a746)
+ *
+ * Both conditions, and neither on its own. THE WHOLE INTERVAL must lie on one
+ * side of the threshold — an interval straddling it is a row that has not
+ * measured a direction, and quoting its point estimate is quoting the middle
+ * of a range that contains parity. AND THE EFFECT MUST CLEAR THE SAME-RUN
+ * NOISE BAND, because a confidence interval narrows with runs while the band
+ * says what a single run of this instrument can resolve at all: an effect
+ * inside the band is a difference the instrument cannot see in one sitting,
+ * however many sittings are pooled.
+ *
+ * `noiseBandPct` is the WIDEST band among the runs pooled — a claim must clear
+ * the noisiest run it is drawn from, which is the fail-closed direction and
+ * the same direction this program's other asymmetries take.
+ *
+ * A LOWER RATIO IS FASTER: these are times. So the ship claim is the whole
+ * interval BELOW 1.0 and the architecture-kill is the whole interval ABOVE
+ * 1.5.
+ */
+function effectVerdict(iv, noiseBandPct) {
+  if (!iv) return { publishes: false, verdict: 'INSTRUMENT-LIMITED', why: 'no usable paired readings in any pooled run — no interval was formed' };
+  if (iv.runs < EFFECT.minRuns) {
+    return {
+      publishes: false,
+      verdict: 'INSTRUMENT-LIMITED',
+      why:
+        `${iv.runs} pooled run(s) is not an ensemble — a run-preserving interval resamples OUTER units, and ` +
+        `below ${EFFECT.minRuns} the outer distribution is the observed runs themselves and the interval understates`,
+    };
+  }
+  const effectPct = Math.abs(iv.point - 1) * 100;
+  const clearsNoise = Number.isFinite(noiseBandPct) && effectPct > noiseBandPct;
+  const below = iv.hi < EFFECT.bar;
+  const above = iv.lo > EFFECT.architectureKill;
+  if (!below && !above) {
+    return {
+      publishes: false,
+      verdict: 'INSTRUMENT-LIMITED',
+      why:
+        `the interval [${fmt(iv.lo)} – ${fmt(iv.hi)}] does not lie wholly on one side of the ${EFFECT.bar} bar ` +
+        `or the ${EFFECT.architectureKill} architecture-kill threshold`,
+    };
+  }
+  if (!clearsNoise) {
+    return {
+      publishes: false,
+      verdict: 'INSTRUMENT-LIMITED',
+      why:
+        `the effect is ${fmt(effectPct, 1)}% and the widest same-run noise band among the pooled runs is ` +
+        `${Number.isFinite(noiseBandPct) ? fmt(noiseBandPct, 1) + '%' : 'not recorded'} — an effect inside the band ` +
+        `is a difference this instrument cannot resolve in one sitting, however many sittings are pooled`,
+    };
+  }
+  return {
+    publishes: true,
+    verdict: below ? 'MAGNITUDE PUBLISHABLE — the whole interval is below the 1.0 bar' : 'ARCHITECTURE-KILL — the whole interval is above 1.5',
+    why: `the interval [${fmt(iv.lo)} – ${fmt(iv.hi)}] clears the threshold and the ${fmt(effectPct, 1)}% effect clears the ${fmt(noiseBandPct, 1)}% same-run band`,
+  };
+}
+
+/**
  * IS EVERY BAR THIS RUN PUBLISHED ON THIS ROW ADJUDICATED?
  *
  * rf2-y7mw7's term, and the one this file was missing entirely: a row whose
@@ -198,7 +469,11 @@ function adjudicated(row) {
  * the handful someone remembered to write a case for.
  *
  * Each entry's `why` returns `null` for a pass and the refusal's own sentence
- * otherwise. `scope` says what it is handed: the dataset envelope, or one row.
+ * otherwise. `scope` says what it is PRIMARILY handed — the dataset envelope,
+ * or one row — and a row gate receives the envelope as a second argument,
+ * because the envelope carries the design a reading has to be interpreted
+ * under (`rf2-8a746`: whether the readings are tared decides what a level
+ * ratio taken from them means). Most row gates ignore it.
  */
 const GATES = [
   // --- the file's own two-tier verdict, before anything in it is read ------
@@ -309,24 +584,23 @@ const GATES = [
           ? "the run's own reproducibility band exceeds the ceiling on the published clock"
           : null,
   },
-  // THE CONTROL, MIRRORING `ctlBad` RATHER THAN RE-DECIDING IT. A row that has
-  // a three-point control is gated on it and `ctl-2x` is a reported diagnostic
-  // (rf2-7iqb5, rf2-5xrcd); a row that has none — `M1`, `keystroke` — is gated
-  // on `ctl-2x`, and on BOTH clocks, because the row is stated on one of them
-  // and was adjudicated on the other.
+  // THE CHECK STANDARD (rf2-8a746). It replaced two rules at once and the old
+  // gate's shape is worth recording, because a reader of an old dataset will
+  // meet it: this seat used to ask `ctl3.ok` on a bulk row and `ctlOk` /
+  // `ctlTask.ok` — the +/-25% band about a THEORETICAL 2.00x, every block —
+  // everywhere else. The three-point control read 0 of 42 bulk row-runs in
+  // band, on a mis-derived prediction and a denominator ~2 sigma from zero;
+  // and the all-blocks rule was a separate defect that would have refused just
+  // as hard behind any control, `0.835^18 = 3.9%`.
+  //
+  // The replacement is level over level, against an EMPIRICAL centre frozen
+  // with its provenance, with a run-rejection rule made of the run's own
+  // location and dispersion at stated error rates. The refusal is the
+  // standard's own sentence, so a reader is told which of the two terms went.
   {
-    id: 'control',
+    id: 'check-standard',
     scope: 'row',
-    why: (r) => {
-      if (!('ctl3' in r)) return 'no three-point-control record — which control gates this row was not serialised';
-      if (r.ctl3) return r.ctl3.ok === true ? null : 'the THREE-POINT control FAILED';
-      if (r.ctlOk !== true) return r.ctlOk === false ? 'ctl-2x FAILED on taskNet' : 'no ctl-2x verdict on taskNet';
-      return r.ctlTask && r.ctlTask.ok === true
-        ? null
-        : r.ctlTask
-          ? 'ctl-2x FAILED on the published clock'
-          : 'no ctl-2x verdict on the published clock';
-    },
+    why: (r, d) => checkStandardFor(r, d).why || null,
   },
   {
     id: 'event-timing',
@@ -375,7 +649,7 @@ function refusals(row, dataset) {
     } else if (!r) {
       why.push(`no row to read \`${g.id}\` from`);
     } else {
-      const w = g.why(r);
+      const w = g.why(r, d);
       if (w) why.push(w);
     }
   }
@@ -512,19 +786,26 @@ function main(argv) {
     console.log(`;; ======== ROW ${rowId} — ${runs.length} runs ========`);
 
     // --- gates, per run -------------------------------------------------------
-    console.log(';; run  guard(net/task)  ctl-2x task   ctlPASS  band(task)  band(net)  floor abs ms');
-    for (const { file, row } of runs) {
+    // THE COLUMN THAT DECIDES IS THE CHECK STANDARD'S (rf2-8a746), and the
+    // `ctl-2x` mean beside it is the raw reading it is taken from rather than
+    // a second verdict. The old `ctlPASS` column read `ctlTask.ok` — the
+    // all-blocks band about a theoretical 2.00x — and that rule no longer
+    // exists to be printed.
+    console.log(';; run  guard(net/task)  ctl-2x task  ctl2x/floor  STANDARD  band(task)  band(net)  floor abs ms');
+    for (const { file, data, row } of runs) {
       const floorAbs = p50(
         SEGMENTS.map((s) => {
           const d = row.decomposition[`${s}/floor`];
           return d ? d.task / d.n : NaN;
         }).filter(Number.isFinite)
       );
+      const cs = checkStandardFor(row, data);
       console.log(
         `;;  ${shortName(file).padEnd(6)} ${(row.guardRefuse ? 'REFUSE' : 'ok').padEnd(7)}` +
           `${(row.guardRefuseTask ? 'REFUSE' : 'ok').padEnd(8)}` +
-          `${row.ctlTask ? fmt(row.ctlTask.measured.mean, 3).padStart(10) : '       n/a'}` +
-          `${row.ctlTask ? (row.ctlTask.ok ? '   PASS' : '   FAIL') : '    n/a'}` +
+          `${row.ctlTask ? fmt(row.ctlTask.measured.mean, 3).padStart(9) : '      n/a'}` +
+          `${cs.location ? fmt(cs.location.measured, 3).padStart(13) : '          n/a'}` +
+          `${(cs.ok ? 'IN CTRL' : 'REFUSED').padStart(10)}` +
           `${row.bandTask === null || row.bandTask === undefined ? '       n/a' : (fmt(row.bandTask * 100, 1) + '%').padStart(10)}` +
           `${row.seam && row.seam.band !== null ? (fmt(row.seam.band * 100, 1) + '%').padStart(11) : '        n/a'}` +
           `${fmt(floorAbs, 3).padStart(13)}`
@@ -565,6 +846,15 @@ function main(argv) {
       const ei = ens(inPage);
       console.log('');
       console.log(`;;   PAIR ${pair}`);
+      // EVERY POOLED MEAN BELOW IS A DIAGNOSTIC (rf2-8a746). "reportable
+      // subset" means the runs that cleared every gate, which is a statement
+      // about eligibility and never about publication: what publishes a
+      // magnitude is the EFFECT-SIZE INTERVAL at the foot of this block, and a
+      // subset mean quoted above it would be exactly the un-adjudicated
+      // magnitude the ruling forbids.
+      console.log(
+        `;;     [pooled means below are DIAGNOSTICS — the interval at the foot of this block is what publishes]`
+      );
       console.log(
         `;;     raw TaskDuration (PUBLISHED)  ${fmt(e.mean)}x  [${fmt(e.min)} – ${fmt(e.max)}]  n=${e.n}` +
           (taskPass.length
@@ -630,8 +920,8 @@ function main(argv) {
           ? `BAND CEILING BREACHED — whole run refused before any control is consulted`
           : barUnadjudicated
             ? 'UNADJUDICATED — no proportional control on this row'
-            : !(row.ctlTask && row.ctlTask.ok)
-              ? `control FAILED — no magnitude reportable`
+            : !checkStandardFor(row, runs[i].data).ok
+              ? `check standard REFUSED — the run was not shown to be in control`
               : margin > bandPct
                 ? `clears its ${fmt(bandPct, 1)}% band`
                 : `INSIDE the band — instrument-limited`;
@@ -641,6 +931,45 @@ function main(argv) {
             ` ${(fmt(margin, 1) + '%').padStart(7)}   ${verdict}`
         );
       });
+
+      // --- THE EFFECT-SIZE INTERVAL, and the only thing here that publishes --
+      //
+      // rf2-8a746's fourth part. The rows above describe; this decides. It is
+      // computed over the REPORTABLE runs only — a run refused by any gate is
+      // not evidence about the page — and it is stated whichever way it falls,
+      // because a rule that only prints when it likes the answer is not one.
+      const ivRuns = passIdx.map((i) => pairedLogRatios(runs[i].row, pair)).filter(Boolean);
+      const iv = effectInterval(ivRuns);
+      const bands = passIdx
+        .map((i) => runs[i].row.seamTask && runs[i].row.seamTask.band)
+        .filter((b) => Number.isFinite(b))
+        .map((b) => b * 100);
+      const noise = bands.length ? Math.max(...bands) : NaN;
+      const ev = effectVerdict(iv, noise);
+      console.log(
+        `;;     EFFECT-SIZE INTERVAL (${EFFECT.bead}) — paired same-round LEVEL ratio at fixed witness and ` +
+          `fixed K, neither floor; ${EFFECT.method}`
+      );
+      if (iv) {
+        console.log(
+          `;;       point ${fmt(iv.point)}x   ${fmt((1 - EFFECT.alpha) * 100, 0)}% CI [${fmt(iv.lo)} – ${fmt(iv.hi)}]   ` +
+            `over ${iv.runs} reportable run(s) x ${iv.rounds[0]} rounds, ${iv.draws} draws, seed ${iv.seed}`
+        );
+        console.log(
+          `;;       effect |1 - point| ${fmt(Math.abs(iv.point - 1) * 100, 1)}%   widest same-run band among the ` +
+            `pooled runs ${Number.isFinite(noise) ? fmt(noise, 1) + '%' : 'n/a'}   ` +
+            `thresholds: bar ${EFFECT.bar} (whole interval below), architecture-kill ${EFFECT.architectureKill} (whole interval above)`
+        );
+      } else {
+        console.log(`;;       no interval — ${passIdx.length} run(s) cleared every gate and none carried usable paired readings`);
+      }
+      console.log(`;;       VERDICT ${ev.verdict} — ${ev.why}`);
+      if (!ev.publishes) {
+        console.log(
+          `;;       so this row publishes INSTRUMENT-LIMITED on this pair and NEVER a magnitude, and no mean ` +
+            `printed above may be quoted as one (${EFFECT.bead}).`
+        );
+      }
     }
 
     // --- the responsiveness regime, per run (rf2-swwud) -----------------------
@@ -860,7 +1189,16 @@ function shortName(f) {
 // DECISIONS a test must be able to drive. The raw estimator decides nothing —
 // it is a second description of a row printed beside the first — so exporting
 // it would widen a guard to accommodate a reporting helper.
-module.exports = { GATES, adjudicated, refusals, reportable, responsivenessRegime };
+//
+// rf2-8a746 adds four names and every one of them is a decision: the gate a
+// row now turns on, the quantity the product claim asserts, the interval over
+// it, and the rule that says whether that interval may publish. `EFFECT` is
+// exported with them because a test that could not read the seed could not
+// pin the procedure.
+module.exports = {
+  GATES, adjudicated, refusals, reportable, responsivenessRegime,
+  checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, EFFECT,
+};
 
 // Requiring this file must not run it: `clock_exit_path.test.cjs` drives the
 // two predicates above directly, which it cannot do if the module body reads
