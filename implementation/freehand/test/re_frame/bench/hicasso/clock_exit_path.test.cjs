@@ -3935,23 +3935,26 @@ function fixtureRoundsTask(over) {
     assert.match(EFFECT.method, /outer RUNS resampled before inner ROUNDS/);
   });
 
-  t('criterion 3: the WHOLE interval must clear the threshold, and the effect must clear the band', () => {
-    // Both conditions and neither alone, driven at the boundary in each
-    // direction. A lower ratio is faster: these are times.
+  t('criterion 3: the WHOLE interval must clear the threshold', () => {
+    // Driven at the boundary in each direction. A lower ratio is faster: these
+    // are times.
     //
-    // AMENDED BY rf2-diaud: the verdict is asked for a ROW and a PAIR rather
-    // than a bare limit, because the threshold belongs to the row class beside
-    // the estimand it was derived for. `bulk300` is the bulk class, whose path
-    // rf2-diaud (b) leaves unchanged — including its band veto, retained on
-    // this class alone pending rf2-vh0e3 — so every assertion below still
-    // reads exactly as rf2-8a746 froze it.
+    // AMENDED TWICE, AND THE SECOND CONDITION IS GONE. rf2-diaud asks the
+    // verdict for a ROW and a PAIR rather than for a bare limit, because the
+    // threshold belongs to the row class beside the estimand it was derived
+    // for — and `hicasso / reagent-subs` is the pair validation.md's bulk bar
+    // actually names (rf2-vp0j7). rf2-8a746's rule ALSO required the effect to
+    // exceed the widest same-run band; rf2-diaud (c) and rf2-vh0e3 retired that
+    // from publication authority on every class, so it no longer reaches this
+    // verdict. Asserted below rather than assumed.
     const P = 'hicasso / reagent-subs';
     const ev = (iv, bandPct) => effectVerdict(iv, BULK, P, { widestSameRunBandPct: bandPct });
     const below = { runs: 8, rounds: [6], point: 0.6, lo: 0.55, hi: 0.65, draws: 1, seed: 1 };
-    assert.strictEqual(ev(below, 10).publishes, true, 'wholly below 1.0 and a 40% effect over a 10% band');
+    assert.strictEqual(ev(below, 10).publishes, true, 'wholly below 1.0');
     assert.match(ev(below, 10).verdict, /MAGNITUDE PUBLISHABLE/);
-    assert.strictEqual(ev(below, 50).publishes, false, 'the same interval inside a 50% band publishes nothing');
-    assert.match(ev(below, 50).why, /the widest same-run noise band among the pooled runs/);
+    for (const b of [50, 99, 0.1, NaN, undefined]) {
+      assert.strictEqual(ev(below, b).publishes, true, `the retired band veto must not reach the bulk verdict either: ${b}`);
+    }
     const straddles = { runs: 8, rounds: [6], point: 0.99, lo: 0.9, hi: 1.05, draws: 1, seed: 1 };
     assert.strictEqual(ev(straddles, 1).publishes, false, 'an interval containing parity publishes nothing');
     assert.match(ev(straddles, 1).verdict, /INSTRUMENT-LIMITED/);
@@ -3960,8 +3963,6 @@ function fixtureRoundsTask(over) {
     assert.match(ev(kill, 10).verdict, /ARCHITECTURE-KILL/);
     const nearKill = { runs: 8, rounds: [6], point: 1.5, lo: 1.4, hi: 1.6, draws: 1, seed: 1 };
     assert.strictEqual(ev(nearKill, 10).publishes, false, 'an interval straddling 1.5 is not a kill');
-    // an unrecorded band is not a clear band
-    assert.strictEqual(ev(below, NaN).publishes, false, 'no band recorded is not a band cleared');
     // and two runs are not an ensemble
     assert.strictEqual(ev({ ...below, runs: 2 }, 1).publishes, false);
     assert.match(ev({ ...below, runs: 2 }, 1).why, /is not an ensemble/);
@@ -4019,8 +4020,12 @@ function fixtureRoundsTask(over) {
           const bands = pooled.map(({ row }) => row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
           const ev = effectVerdict(iv, rowId, pair, { widestSameRunBandPct: bands.length ? Math.max(...bands) : NaN });
           assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/${rowId}/${pair}: a verdict must carry its reason`);
+          // CO-INSTRUMENTED joins the roster under rf2-vp0j7: bulk's bar names
+          // `hicasso / reagent-subs`, so the other two pairs are reported and
+          // not adjudicated. The fence below is unchanged and is what matters
+          // here — an un-adjudicated pair publishes nothing either.
           assert.ok(
-            /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL)/.test(ev.verdict),
+            /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL|CO-INSTRUMENTED)/.test(ev.verdict),
             `${dir}/${rowId}/${pair}: unrecognised verdict ${ev.verdict}`
           );
           assert.ok(iv, `${dir}/${rowId}/${pair}: the corpus must yield an interval to adjudicate`);
@@ -4925,36 +4930,20 @@ function fixtureRoundsTask(over) {
     assert.ok(GATE_IDS.includes('ceiling-task') && GATE_IDS.includes('ceiling-net'), 'the run-eligibility ceilings stay');
   });
 
-  t('MUTATION: the veto is RETAINED on bulk, and rf2-vh0e3 is what that costs', () => {
-    // The collision this repair surfaced and did not decide. rf2-diaud (b)
-    // says bulk's path is unchanged; rf2-diaud (c) retires the veto. On the
-    // committed corpus they cannot both hold: retiring it on bulk promotes two
-    // DONOR-AGAINST-DONOR pairs out of the 42-run corpus rf2-8a746 fenced.
-    // Both directions are driven here so the operator's choice is one line and
-    // its price is a number.
-    const PAIR = 'uix-subs / reagent-subs';
-    const c = corpus('clock-emvod');
-    if (!c) return;
-    for (const rowId of ['bulk300', 'bulk100']) {
-      const pooled = c
-        .map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === rowId) }))
-        .filter((x) => x.row && reportable(x.row, x.data));
-      const iv = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, PAIR, data)).filter(Boolean));
-      const widest = Math.max(...pooled.map(({ row }) => row.seamTask.band * 100));
-      assert.ok(iv.hi < 1.0, `${rowId}: the whole interval is below the bar, so only the veto is holding it`);
-      const held = effectVerdict(iv, rowId, PAIR, { widestSameRunBandPct: widest });
-      assert.strictEqual(held.publishes, false, `${rowId}: retained, so no magnitude leaves the corpus`);
-      assert.match(held.why, /rf2-vh0e3/, 'and the refusal names the ruling it waits on');
-      const before = PUBLICATION.bulk.crossRunBandVeto;
-      let mutated;
-      try {
-        PUBLICATION.bulk.crossRunBandVeto = false;
-        mutated = effectVerdict(iv, rowId, PAIR, { widestSameRunBandPct: widest });
-      } finally {
-        PUBLICATION.bulk.crossRunBandVeto = before;
-      }
-      assert.strictEqual(mutated.publishes, true, `${rowId}: retiring it here WOULD publish — that is rf2-vh0e3's cost`);
-      assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, true, 'the fixture must leave the table as it found it');
+  t('criterion (c): the retirement ended up GENERAL, and every class says so as data', () => {
+    // As this repair shipped it, (c) was mount-only: (b) said "bulk's path
+    // unchanged", and retiring the veto on bulk promoted DONOR-AGAINST-DONOR
+    // pairs out of the 42-run corpus rf2-8a746 fenced. rf2-vh0e3 ruled that
+    // the collision dissolves once bulk gates the pair its own bar names —
+    // an un-adjudicated pair has no verdict for a retirement to promote it
+    // into. What belongs HERE is only that criterion (c) came out general,
+    // which is what its own three reasons say; the corpus mechanics, and the
+    // two-way mutation on the field, are pinned in the rf2-vp0j7/rf2-vh0e3
+    // block at the foot of this file.
+    const classes = Object.keys(PUBLICATION);
+    assert.deepStrictEqual(classes.sort(), ['bulk', 'mount'], 'every publication class is covered by this assertion');
+    for (const klass of classes) {
+      assert.strictEqual(PUBLICATION[klass].crossRunBandVeto, false, `${klass}: the cross-run maximum vetoes nothing`);
     }
   });
 
@@ -5039,6 +5028,274 @@ function fixtureRoundsTask(over) {
       path.join(STUDIO, 'rows-re-adjudicated-on-the-corrected-clock.md'),
     ]) {
       assert.ok(/rf2-diaud/.test(fs.readFileSync(f, 'utf8')), `${path.basename(f)} must cite the ruling that changed it`);
+    }
+  });
+}
+
+// --- rf2-vp0j7 / rf2-vh0e3: BULK GATES THE PAIR ITS BAR NAMES ----------------
+//
+// ONE CHANGE, NOT TWO, and the interlock is the whole content of the block.
+//
+// rf2-vp0j7 is a scope defect. `validation.md:17` states the bulk ship bar as
+// "<= 1.0x Reagent-on-subs, LIKE-FOR-LIKE, both sides reading re-frame2
+// subscriptions" — ONE comparison, exactly as `:15-16` state the mount's
+// against direct UIx-on-subs. The rule adjudicated all three pairs of a bulk
+// row against it, holding `hicasso / uix-subs` and `uix-subs / reagent-subs` to
+// a threshold written for a different question. That is the error `rf2-diaud`
+// fixed one class up, where it would otherwise have printed MOUNT SHIP BAR MET
+// on a donor-against-donor pair.
+//
+// rf2-vh0e3 is the collision it was masking. `rf2-diaud` (c) retires the
+// cross-run max-band second veto and gives three general reasons; (b) of the
+// same ruling says "bulk's path unchanged". Those could not both hold, because
+// retiring the veto on `bulk` promoted pairs of the 42-run corpus `rf2-8a746`
+// fenced. EVERY ONE OF THOSE PAIRS IS `uix-subs / reagent-subs` — donor against
+// donor — so once `gatedPairs` lands they are not adjudicated at all and there
+// is no verdict for the retirement to promote them into. The collision
+// dissolves rather than being decided, and `rf2-8a746`'s "not retroactively
+// promoted to published magnitudes" is honoured without a control statistic
+// standing in for a scope guard nobody designed it to be.
+//
+// THE LOAD-BEARING CHECK IS THAT THE GATED PAIR DOES NOT MOVE. If retiring the
+// veto flipped `hicasso / reagent-subs`, the ruling's premise would be wrong
+// and the fence would be breached. It does not: on all six row-ensemble
+// combinations that pair straddles `1.0` and is refused by the WHOLE-INTERVAL
+// rule, which sits ahead of the veto and is untouched by it. That is a fact
+// about this corpus and not a property of the rule, so it is driven here — and
+// if it ever stops being true, the failure is the finding.
+{
+  const {
+    pairedLogRatios, effectInterval, effectVerdict, reportable, PUBLICATION, publicationRule,
+  } = require('./clock_readjudicate.cjs');
+  const t = (what, fn) => test(`rf2-vp0j7/rf2-vh0e3: ${what}`, fn);
+  const GATED = 'hicasso / reagent-subs';
+  const UNGATED = ['hicasso / uix-subs', 'uix-subs / reagent-subs'];
+  const BULK_ROWS = ['bulk300', 'bulk100', 'narrow'];
+  const CORPORA = ['clock-emvod', 'clock-w3yxd'];
+
+  const corpus = (dir) => {
+    const d = path.join(__dirname, 'data', dir);
+    if (!fs.existsSync(d)) return null;
+    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')) }));
+  };
+
+  /** One bulk row of one ensemble, as the publication path sees it: interval + widest band. */
+  const bulkPooled = (dir, rowId, pair) => {
+    const c = corpus(dir);
+    if (!c) return null;
+    const pooled = c
+      .map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === rowId) }))
+      .filter((x) => x.row && reportable(x.row, x.data));
+    const bands = pooled.map(({ row }) => row.seamTask && row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
+    return {
+      iv: effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean)),
+      band: bands.length ? Math.max(...bands) : NaN,
+    };
+  };
+
+  // --- 1. rf2-vp0j7: A NON-GATED BULK PAIR REPORTS, AND ADJUDICATES NOTHING --
+
+  t('a non-gated bulk pair keeps its interval and loses only the VERDICT', () => {
+    // `validation.md`'s "co-instrumented and reported beside" language is why
+    // the interval survives. What the pair stops carrying is a ship/kill
+    // verdict against a bar stated for another comparison — the output is not
+    // deleted, it is un-adjudicated.
+    let seen = 0;
+    for (const dir of CORPORA) {
+      for (const rowId of BULK_ROWS) {
+        for (const pair of UNGATED) {
+          const p = bulkPooled(dir, rowId, pair);
+          if (!p) return;
+          assert.ok(p.iv, `${dir}/${rowId}/${pair}: the interval must still be formed`);
+          assert.ok(p.iv.lo <= p.iv.point && p.iv.point <= p.iv.hi, `${dir}/${rowId}/${pair}: and be well formed`);
+          const ev = effectVerdict(p.iv, rowId, pair, { widestSameRunBandPct: p.band });
+          assert.match(ev.verdict, /^CO-INSTRUMENTED/, `${dir}/${rowId}/${pair}: ${ev.verdict}`);
+          assert.strictEqual(ev.publishes, false, `${dir}/${rowId}/${pair}: a pair nobody gates cannot ship`);
+          assert.match(ev.why, /hicasso \/ reagent-subs/, 'the refusal must name the pair the bar does gate');
+          seen += 1;
+        }
+      }
+    }
+    assert.strictEqual(seen, 12, 'two ungated pairs of three bulk rows over two ensembles');
+  });
+
+  t("and it says so in the tool's own output, beside its own interval", () => {
+    // Read off stdout rather than asserted through the API, because "reported
+    // beside" is a claim about what a reader SEES.
+    const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
+    for (const dir of CORPORA) {
+      const c = corpus(dir);
+      if (!c) return;
+      const r = cp.spawnSync(process.execPath, [RJ, ...c.map((x) => x.file)], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      const out = `${r.stdout}${r.stderr}`;
+      assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
+      for (const rowId of BULK_ROWS) {
+        const at = out.indexOf(`;; ======== ROW ${rowId} `);
+        const next = out.indexOf(';; ======== ROW ', at + 1);
+        const rowBlock = out.slice(at, next < 0 ? undefined : next);
+        for (const pair of UNGATED) {
+          const from = rowBlock.indexOf(`;;   PAIR ${pair}`);
+          assert.ok(from >= 0, `${dir}/${rowId}: the ${pair} block must still be printed`);
+          const ends = [`;;   PAIR `, `;; ======== `].map((m) => rowBlock.indexOf(m, from + 1)).filter((i) => i > 0);
+          const block = rowBlock.slice(from, ends.length ? Math.min(...ends) : undefined);
+          assert.ok(/point .*95% CI \[/.test(block), `${dir}/${rowId}/${pair}: the interval must still print`);
+          assert.ok(/VERDICT CO-INSTRUMENTED/.test(block), `${dir}/${rowId}/${pair}: and carry no ship/kill verdict`);
+        }
+      }
+    }
+  });
+
+  // --- 2. rf2-vp0j7: THE GATED PAIR IS THE ONLY ONE THAT ADJUDICATES --------
+
+  t('the gated bulk pair still adjudicates, and is still INSTRUMENT-LIMITED on this corpus', () => {
+    // The fence. `hicasso / reagent-subs` is what `validation.md`'s bulk bar
+    // names, so it keeps its verdict — and that verdict is unchanged: on all
+    // six row-ensemble combinations the interval STRADDLES 1.0 and is refused
+    // by the whole-interval rule, which is the first condition and not the
+    // retired second one. The reason is asserted, not just the outcome,
+    // because "refused by the band" and "refused by the interval" answer the
+    // rf2-vh0e3 question differently.
+    assert.deepStrictEqual(publicationRule('bulk300').gatedPairs, [GATED], "bulk gates the pair validation.md:17 names");
+    let seen = 0;
+    for (const dir of CORPORA) {
+      for (const rowId of BULK_ROWS) {
+        const p = bulkPooled(dir, rowId, GATED);
+        if (!p) return;
+        assert.ok(p.iv.lo < 1.0 && p.iv.hi > 1.0, `${dir}/${rowId}: the gated interval must straddle the bar — [${p.iv.lo} – ${p.iv.hi}]`);
+        const ev = effectVerdict(p.iv, rowId, GATED, { widestSameRunBandPct: p.band });
+        assert.strictEqual(ev.publishes, false, `${dir}/${rowId}: ${ev.verdict}`);
+        assert.match(ev.verdict, /^INSTRUMENT-LIMITED/, `${dir}/${rowId}: a gated pair gets a threshold verdict, not a scope one`);
+        assert.match(ev.why, /does not lie wholly on one side of the 1 bar/, `${dir}/${rowId}: refused by the INTERVAL, not the band`);
+        seen += 1;
+      }
+    }
+    assert.strictEqual(seen, 6, 'three bulk rows over two ensembles');
+  });
+
+  t('MUTATION: the band veto is retired on bulk, and the gated pair does not move either way', () => {
+    // rf2-vh0e3's load-bearing check, driven in BOTH directions. Retiring the
+    // veto is what the ruling does; that the one adjudicated bulk pair returns
+    // a BYTE-IDENTICAL verdict with the veto forced back on is what makes the
+    // retirement safe to make — the whole-interval rule refuses it first, so
+    // the veto was never what was holding it.
+    assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, false, 'the entry says so as data');
+    for (const dir of CORPORA) {
+      for (const rowId of BULK_ROWS) {
+        const p = bulkPooled(dir, rowId, GATED);
+        if (!p) return;
+        const shipped = effectVerdict(p.iv, rowId, GATED, { widestSameRunBandPct: p.band });
+        const before = PUBLICATION.bulk.crossRunBandVeto;
+        let mutated;
+        try {
+          PUBLICATION.bulk.crossRunBandVeto = true;
+          mutated = effectVerdict(p.iv, rowId, GATED, { widestSameRunBandPct: p.band });
+        } finally {
+          PUBLICATION.bulk.crossRunBandVeto = before;
+        }
+        assert.deepStrictEqual(mutated, shipped, `${dir}/${rowId}: the veto must not reach the gated pair in either position`);
+        assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, false, 'the fixture must leave the table as it found it');
+      }
+    }
+  });
+
+  t('MUTATION: and the retired veto still REFUSES when it is switched back on', () => {
+    // The other direction, on a synthetic interval, because the corpus cannot
+    // show it: no bulk pair that is adjudicated ever reaches the veto. The
+    // refusal branch is kept live so the ruling is one line to overturn, and a
+    // branch nobody drives is a branch nobody can trust.
+    const iv = { runs: 8, rounds: [6], point: 0.9, lo: 0.85, hi: 0.95, draws: 1, seed: 1 };
+    const ev = () => effectVerdict(iv, 'bulk300', GATED, { widestSameRunBandPct: 40 });
+    assert.strictEqual(ev().publishes, true, 'retired: a 10% effect inside a 40% band publishes on the interval alone');
+    assert.match(ev().verdict, /MAGNITUDE PUBLISHABLE/);
+    const before = PUBLICATION.bulk.crossRunBandVeto;
+    let mutated;
+    try {
+      PUBLICATION.bulk.crossRunBandVeto = true;
+      mutated = ev();
+    } finally {
+      PUBLICATION.bulk.crossRunBandVeto = before;
+    }
+    assert.strictEqual(mutated.publishes, false, 'reinstated: the same interval is refused, or the mutation proves nothing');
+    assert.match(mutated.why, /the widest same-run noise band among the pooled runs/);
+    assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, false, 'the fixture must leave the table as it found it');
+    assert.strictEqual(ev().publishes, true, 'and the retirement holds again');
+  });
+
+  // --- 3. rf2-8a746's FENCE: NOTHING IS PROMOTED OUT OF THE 42-RUN CORPUS ----
+
+  t('nothing is promoted out of the 42-run corpus — no bulk pair publishes, on either ensemble', () => {
+    let seen = 0;
+    for (const dir of CORPORA) {
+      for (const rowId of BULK_ROWS) {
+        for (const pair of [GATED, ...UNGATED]) {
+          const p = bulkPooled(dir, rowId, pair);
+          if (!p) return;
+          const ev = effectVerdict(p.iv, rowId, pair, { widestSameRunBandPct: p.band });
+          assert.strictEqual(
+            ev.publishes,
+            false,
+            `${dir}/${rowId}/${pair} PUBLISHED a magnitude — rf2-8a746 rules the 42 committed row-runs calibration ` +
+              `and diagnostic evidence, NEVER retroactively promoted, and rf2-vh0e3 turns on that sentence still ` +
+              `holding. Verdict: ${ev.verdict} — ${ev.why}`
+          );
+          seen += 1;
+        }
+      }
+    }
+    assert.strictEqual(seen, 18, 'three pairs of three bulk rows over two ensembles');
+  });
+
+  t('MUTATION: and gatedPairs is WHY — without it the donor-against-donor pairs would publish', () => {
+    // rf2-vh0e3's cost, priced. These are the pairs the band veto was
+    // incidentally masking: `uix-subs / reagent-subs` is UIx-on-subs against
+    // Reagent-on-subs, whose whole interval sits below 1.0, and publishing a
+    // magnitude on it would assert that a DONOR meets the CANDIDATE's bulk
+    // ship bar. Scoping the rule is what stops that; the veto only ever hid it.
+    const PAIR = 'uix-subs / reagent-subs';
+    const would = [];
+    for (const dir of CORPORA) {
+      for (const rowId of BULK_ROWS) {
+        const p = bulkPooled(dir, rowId, PAIR);
+        if (!p) return;
+        const before = PUBLICATION.bulk.gatedPairs;
+        let mutated;
+        try {
+          PUBLICATION.bulk.gatedPairs = null;
+          mutated = effectVerdict(p.iv, rowId, PAIR, { widestSameRunBandPct: p.band });
+        } finally {
+          PUBLICATION.bulk.gatedPairs = before;
+        }
+        assert.deepStrictEqual(PUBLICATION.bulk.gatedPairs, [GATED], 'the fixture must leave the table as it found it');
+        if (mutated.publishes) would.push(`${dir}/${rowId}`);
+      }
+    }
+    // THE COUNT IS THE MEASUREMENT, and it is three rather than the two both
+    // beads record: rf2-vh0e3 named `clock-emvod`'s `bulk300` and `bulk100`,
+    // and `clock-w3yxd`'s `bulk300` is a third with the same shape (effect
+    // 9.6% against a 15.5% band, whole interval [0.8740 – 0.9373]). It was not
+    // measured because the mutation that found the other two read one ensemble.
+    // The ruling is unaffected — all three are donor against donor — but the
+    // number on the beads is wrong and this is where that is recorded.
+    assert.deepStrictEqual(
+      would,
+      ['clock-emvod/bulk300', 'clock-emvod/bulk100', 'clock-w3yxd/bulk300'],
+      'the pairs gatedPairs is holding back — if this list changes, the corpus has moved and rf2-vh0e3 needs re-reading'
+    );
+    // and every one of them is refused as UNADJUDICATED rather than as refused
+    for (const dir of CORPORA) {
+      for (const rowId of BULK_ROWS) {
+        const p = bulkPooled(dir, rowId, PAIR);
+        assert.match(effectVerdict(p.iv, rowId, PAIR, { widestSameRunBandPct: p.band }).verdict, /^CO-INSTRUMENTED/);
+      }
+    }
+  });
+
+  t('the rulings are cited by bead id in every surface they changed', () => {
+    for (const f of [path.join(__dirname, 'clock_readjudicate.cjs'), path.join(__dirname, 'clock_exit_path.test.cjs')]) {
+      const src = fs.readFileSync(f, 'utf8');
+      for (const bead of ['rf2-vp0j7', 'rf2-vh0e3']) {
+        assert.ok(new RegExp(bead).test(src), `${path.basename(f)} must cite ${bead}`);
+      }
     }
   });
 }
