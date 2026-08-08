@@ -980,9 +980,8 @@ async function ladderRow(chromium) {
 // is the check `b8-alloc` was built around after the sampling profiler
 // produced a wrong table on this surface.
 // `ALLOC_WRITES` — how many warm writes one measured window holds — is
-// NOT here. It is an answer to the masking bound rather than a number
-// chosen beside it, so it is derived below `ALLOC_MASK_BUDGET_B` together
-// with the arm it has to fit around (rf2-2rtt6.138).
+// NOT here. It is the averaging floor, and it is stated below beside the
+// floor it follows (rf2-2rtt6.140).
 const ALLOC_ROUNDS = Number(process.env.P0_ALLOC_ROUNDS || 6);
 const ALLOC_WARMUPS = Number(process.env.P0_ALLOC_WARMUPS || 3);
 // 8 B a double, so 1,000 doubles is a predicted 8,000 B of garbage per
@@ -1003,144 +1002,165 @@ const ALLOC_D2 = Number(process.env.P0_ALLOC_D2 || 400);
 const ALLOC_CONTROL_SLACK = Number(process.env.P0_ALLOC_CONTROL_SLACK || 0.75);
 // The threshold, MEASURED rather than assumed: the standalone probes put
 // the first falling step at roughly 600 KB of cumulative garbage in a
-// window, on both kinds of garbage and at every semi-space size tried. It
-// is recorded here because it is what decides whether a given arm is
-// measurable by this instrument at all, and a warm re-render of 1,200
-// boundaries is two to three times over it in ONE write.
+// window, on both kinds of garbage and at every semi-space size tried.
+//
+// IT GATES NOTHING (rf2-2rtt6.140). It is a RECORDED FACT ABOUT THIS RIG,
+// quoted in the summary because a window's `rise` as a fraction of it is a
+// useful thing for a reader to see, and it is NOT loosened — it stays at
+// the figure the probes read. What it may not do is certify a window: it is
+// an UPPER bound on where the first collection runs, and the safety
+// argument the retired masking budget built on it needed a LOWER one.
 const ALLOC_FALL_THRESHOLD_B = 600000;
 
-// THE MASKING BUDGET — what makes a masked collection UNREACHABLE rather
-// than merely unlikely (rf2-n6w7o).
+// THE OBSERVED-COLLECTION WITNESS — a certificate read off the window's own
+// samples (rf2-2rtt6.140, replacing rf2-n6w7o's masking budget).
 //
-// `allocSteps` below detects a collection by the SIGN of an adjacent step,
-// and a sign test is blind in exactly one direction. Where V8 collects
-// inside a leg that ALSO allocates at least as much as the collection
-// reclaimed, the observed step is >= 0: `falls` stays 0, the reclaimed
-// bytes are simply missing from `rise`, and the row prints a window that
-// looks clean and reads LOW. Under-reading allocation is the direction that
-// manufactures HD-002's predicted flat-at-zero, so it is the one direction
-// this row may not be able to fail in — and until this constant existed it
-// was the direction with no gate on it at all.
+// THE FAULT IT ADDRESSES IS UNCHANGED. `allocSteps` below detects a
+// collection by the SIGN of an adjacent step, and a sign test is blind in
+// exactly one direction. Where V8 collects inside a leg that ALSO allocates
+// at least as much as the collection reclaimed, the observed step is >= 0:
+// `falls` stays 0, the reclaimed bytes are simply missing from `rise`, and
+// the row prints a window that looks clean and reads LOW. Under-reading
+// allocation is the direction that manufactures HD-002's predicted
+// flat-at-zero, so it is the one direction this row may not be able to fail
+// in.
 //
-// THE REPAIR IS ARITHMETIC, NOT A SECOND DETECTOR, and it rests on one
-// property of the fault: MASKING CANNOT PRECEDE THE FIRST COLLECTION. Every
-// leg before it runs with no collector in it, so `rise` counts those legs
-// EXACTLY. And the first collection does not fire until roughly
-// `ALLOC_FALL_THRESHOLD_B` of cumulative garbage has built up since the
-// forced GC the driver takes on the window's near side. So if a collection
-// fired in leg k, writing A_k for that leg's own allocation:
+// WHY THE ARITHMETIC THAT USED TO GUARD IT IS RETIRED. The old bound charged
+// `rise + maxStep <= ALLOC_FALL_THRESHOLD_B / 2` and rested on two premises
+// the merged-PR audit of #7682 refuted and rf2-2rtt6.141 accepted:
 //
-//     rise  >=  (every leg before k)  >=  ALLOC_FALL_THRESHOLD_B - A_k
+//   - `ALLOC_FALL_THRESHOLD_B` is where the first VISIBLE fall appeared. A
+//     masked one would not have shown, so it is an UPPER bound on where the
+//     first collection runs — and the safety argument needs a LOWER one.
+//     Halving an upper bound does not produce a lower one.
+//   - `maxStep` was taken as a bound on a masked leg's true allocation, but
+//     `maxStep` sees only NET positive deltas, which is precisely what a
+//     masked leg does not produce.
 //
-// The legs are n repetitions of ONE work unit and every earlier leg is
-// counted exactly, so A_k is bounded by the largest rising step the window
-// shows. Contrapositive, and it is the gate:
+// The audit wrote two executable probes and the bound ADMITTED both, at
+// `headroom = 0`, with true allocations of 300 KB and 600 KB. Retiring is
+// therefore not widening: the mechanism did not do the job it named. It is
+// route (b) of rf2-2rtt6.140's ruling, which sanctions exactly this
+// replacement. Both probes are pinned in `p0_ladder_structural.test.cjs`.
 //
-//     rise + maxStep  <=  budget   =>   NO collection ran, masked or not.
+// THE REPLACEMENT ASKS THE DATA A QUESTION INSTEAD OF ASSERTING A MODEL.
+// The legs of one window are W repetitions of ONE work unit — the same
+// event, the same page, the same drain — so absent a collection they should
+// be alike. Let `m` be the MEDIAN of the window's work legs:
 //
-// Note which way net growth pushes here, because it is the whole point.
-// Masking REMOVES bytes from `rise`, so it can only move a window further
-// under budget — but the allocation that had to happen first, to give the
-// collector a reason to run, is already counted in full in the legs before
-// it, where no masking is possible. Growth cannot defeat this gate the way
-// it defeats the sign test. It can only make a window fail it sooner.
+//     REFUSE the window if any leg deviates from `m` by more than τ·m.
 //
-// THE BUDGET IS THE MEASURED THRESHOLD HALVED, and both halves of that are
-// stated rather than assumed:
+// Two-sided, on purpose, and the median rather than the mean because the
+// first leg of a window is the one most likely to sit high.
 //
-//   - `ALLOC_FALL_THRESHOLD_B` is where the first VISIBLE fall appeared in
-//     the standalone probes. A masked one would not have shown, so it is an
-//     UPPER bound on where the first collection actually runs, and a gate
-//     built on it has to take the conservative side.
-//   - The halved figure, ~300 KB, is a whisker above the largest window
-//     this instrument has a CORROBORATED clean reading for: the D=1,000
-//     control at 30 writes is 240 KB of cumulative garbage and
-//     reads 8.13 B/double against a predicted 8. A window that under-read
-//     would not hit its prediction, so the control is positive evidence of
-//     no collection at that scale — which a fall count of zero, on its own,
-//     is not.
+//   - A leg BELOW its cohort is a leg something removed bytes from. Nothing
+//     in the work unit removes bytes; the collector does. That is the
+//     observation, and it is why a masked leg — which under-reads by
+//     construction — is exactly what this rule catches.
+//   - A leg ABOVE its cohort is not evidence of a collection, but it is
+//     evidence that the one-work-unit premise the whole witness rests on has
+//     failed in this window. Refusing is then correct rather than merely
+//     conservative, and refusal is the safe reading either way.
 //
-// Deliberately not an env knob. Every other `P0_ALLOC_*` constant sizes the
-// measurement; this one decides whether a measurement may be PUBLISHED, and
-// a gate with a dial on it is a gate that gets dialled. Widening it would
-// retro-admit every window it exists to refuse.
+// WHAT AN ADMITTED WINDOW IS CERTIFIED TO BE, stated exactly, because a
+// witness that oversells itself is worse than none. Under the cohort premise
+// — that absent a collection each leg's true allocation lies within τ of `m`
+// — a leg can sit τ·m high on its own merits and still be admitted after
+// losing a further τ·m. So the certificate reads:
 //
-// WHAT IT DOES NOT CLOSE, stated because a bound that oversells itself is
-// worse than no bound. A window in which EVERY leg is masked — a collection
-// in each one, each reclaiming at least that leg's allocation, the heap
-// flat while megabytes pass through it — defeats both terms. `falls`
-// catches such a window the moment one collection overshoots; `maxStep`
-// catches it the moment one leg runs unmasked; nothing here catches it if
-// neither ever happens, and closing it properly would need a per-leg
-// allocation counter V8 does not expose in-page. It is also UNREACHABLE for
-// the arm this bound exists to license: an arm whose warm write allocates a
-// few KB cannot cross the threshold inside a single leg at all, so there is
-// no leg for a first collection to hide in. That is the shape
-// rf2-2rtt6.138's small-witness arm has to have, and this is the arithmetic
-// that says why.
-const ALLOC_MASK_BUDGET_B = ALLOC_FALL_THRESHOLD_B / 2;
+//     this window's `rise` under-reads its true allocation by at most 2τ,
+//     and here is the worst leg deviation actually observed.
+//
+// That is a weaker claim than "no collection ran" and a far stronger one
+// than the old bound could support, because it is CHECKABLE FROM THE WINDOW
+// ITSELF rather than from a premise about where V8 first collects. And it is
+// the right shape for this row: a bounded under-read with the bound printed
+// beside the figure is the guarantee the row needs.
+//
+// WHAT IT DOES NOT CLOSE. A window in which EVERY leg is masked by a similar
+// amount is homogeneous and passes. rf2-n6w7o already named that hole as
+// unreachable in-page — closing it needs a per-leg allocation counter V8
+// does not expose. Three things stand against it, none of them a proof: the
+// falls gate takes it the moment one collection overshoots; this gate takes
+// it the moment one leg runs unmasked; and the controls in the same round
+// would read low against their own 8 B/double prediction if the collector
+// were running that hard. Masking smaller than τ·m in a single leg is
+// invisible BY CONSTRUCTION — that is what the 2τ statement is for. It is a
+// bounded under-read, not a silent one.
+//
+// NOTHING ALLOCATES IN A GAP, so a collection between iterations cannot be
+// masked at all: it lands as a negative step and the untouched falls gate
+// takes it. `gaps` is recorded as a diagnostic and stays inside `rise`.
+//
+// τ IS NOT AN ENV KNOB, for `ALLOC_MASK_BUDGET_B`'s reason unchanged: every
+// other `P0_ALLOC_*` constant sizes the measurement, and this one decides
+// whether a measurement may be PUBLISHED. A gate with a dial on it is a gate
+// that gets dialled.
+//
+// >>> THIS VALUE IS AN UNCALIBRATED PLACEHOLDER. <<<
+//
+// rf2-2rtt6.141 carried an acceptance criterion into this package from the
+// audit's closing line — *a witness whose own reliability is unmeasured is a
+// second thing to distrust* — so τ is not chosen by taste. It is to be
+// calibrated by VALIDITY WITNESS V3 on windows that are INDEPENDENTLY
+// CORROBORATED CLEAN: a dropped `.slice` of D doubles costs a PREDICTED 8D
+// bytes, and a control that hit its prediction is positive evidence of no
+// collection in a way a zero fall count is not. The two control sizes
+// bracket the arms' own magnitude (D=1,000 is 8 KB a leg, D=400 is 3.2 KB),
+// so the natural spread is measured at the scale it is applied at. V3 sets τ
+// to a stated multiple of the observed worst deviation, records the observed
+// figure and the margin here, and this line stops saying PLACEHOLDER.
+//
+// V3 HAS NOT RUN — rf2-2rtt6.140 criterion 5 freezes every allocation window
+// until V1-V4 are green — so the figure below is a conservative stand-in and
+// no window may be published on it. Conservative in the direction that
+// matters: τ is a tolerance, so a SMALLER τ refuses MORE, and 0.25 refuses
+// strictly more than any larger value V3 might land on. Nothing in the
+// pinned probes depends on it: their offending legs read exactly zero
+// against a strictly positive median, so they refuse for every τ < 1, and
+// that property is itself a test.
+const ALLOC_LEG_TOLERANCE = 0.25;
 
 // ---------------------------------------------------------------------------
-// THE SMALL-WITNESS ARM (rf2-2rtt6.138) — the page sized TO the bound above
+// THE PAGE — MANDATORY, because no honest default survives (rf2-2rtt6.139)
 // ---------------------------------------------------------------------------
 //
-// The published witness is outside this instrument's range and the row is
-// right to refuse it. One warm write of the 1,200-boundary page allocates
-// 1.2-1.7 MB, two to three times the ~600 KB at which the first collection
-// appears; the 2026-08-07 quiet-box run put 36 falling steps inside 44
-// windows and a quiet box moved neither figure, because it was never
-// contention. It is the arm's SCALE against a fixed threshold.
+// `ALLOC_B_PER_BOUNDARY_WRITE = 1655` sized the whole allocation arm and is
+// RETIRED, effective rf2-2rtt6.139's ruling. Its stated provenance was the
+// 2026-08-07 quiet-box run — and that run REFUSED, at 36 falling steps
+// across 44 windows, whose own refusal text declares every figure from such
+// a window an under-estimate. Sizing off a lower bound licenses a page too
+// LARGE, and the 2026-08-08 window found exactly that: 3,731-23,192 B per
+// boundary per write measured at B=24 against the 1,655 the arm was sized
+// with, 2.3x to 14x.
 //
-// So the repair is the one the bead named: shrink the measured UNIT, not the
-// window. The quantity this row publishes is per BOUNDARY, so a page of a few
-// dozen boundaries puts a MANY-WRITE window under the threshold and leaves
-// the averaging a fit needs — where the other direction, one write on the
-// 300-boundary page, cleared the fall count and produced four fits at r2
-// 0.75 / 0.28 / 0.94 / 0.31 out of windows the bound above cannot certify
-// anyway (326-993 KB of rise+maxStep).
+// AND NO REPLACEMENT CONSTANT MAY BE SUBSTITUTED, because the old one
+// silently mixed two terms that run then separated: a FIXED per-write cost
+// F ~ 24.4 KB that does not scale with B (the floor arm reads it directly:
+// 24,108 B/write on reagent-subs, 24,730 on uix-subs) and a genuine
+// per-boundary term s(R) that does, and that swings 5x across the HD-002
+// ladder (2,031-4,067 B/bnd/write at R=1 up to 6,800-22,174 at R=20). A
+// scale-free `c` models neither and is valid only at the page it was
+// measured on.
 //
-// THE ARITHMETIC, and every term in it is either measured or derived:
+// SO THE PAGE IS STATED, NEVER DERIVED. With no sizing model there is no
+// honest default, and inventing a literal would be substituting the number
+// rf2-2rtt6.139 forbids. An unstated `P0_ALLOC_CELLS` is refused BY NAME in
+// `allocArmSizing` below — which has the additional virtue of making an
+// accidental publication run impossible while rf2-2rtt6.140 criterion 5's
+// measurement freeze is in force. `rf2-2rtt6.139` re-derives sizing PER RUNG
+// from V1's floor data and V2's per-rung signal, and may restore a derived
+// default on those grounds; this package derives none.
 //
-//   c   bytes one warm write allocates per mounted boundary. MEASURED, on
-//       the candidate arm, in that same quiet-box run: 544-1655 B across its
-//       rungs. The TOP of the range sizes the arm, because a page sized off
-//       the bottom would be refused rather than published.
-//   W   writes in one window. A window of one has no averaging in it, so the
-//       arm is sized to hold at least `ALLOC_MIN_WRITES` of them and then
-//       takes every further write the bound still admits — and the preflight
-//       REFUSES a window under that floor however it was configured, which
-//       the bound below cannot do for it (a small window is a small window,
-//       and the budget is a ceiling on size).
-//   B   boundaries on the page, = P0_ROOTS x cells-per-root.
-//
-//   rise ~ W.B.c and the largest single step is one write, ~B.c, so the
-//   bound `rise + maxStep <= ALLOC_MASK_BUDGET_B` reads
-//
-//       (W + 1).B.c  <=  ALLOC_MASK_BUDGET_B
-//
-//   and the two ways round it are the two knobs:
-//
-//       B  <=  budget / ((W + 1).c)        the page a window admits
-//       W  <=  budget / (B.c)  -  1        the window a page admits
-//
-// At the shipped constants that is 6 cells x 4 roots = 24 boundaries and 6
-// writes: 24 x 1,655 = 39,720 B a write, 278,040 B of rise+maxStep, 21,960 B
-// of headroom under the budget. The same page at the published 1,200
-// boundaries predicts 13.9 MB and the row would refuse it — which is the
-// whole reason this arm exists.
-//
-// WHAT THE ARITHMETIC DOES NOT MODEL, stated rather than glossed. `c` is
-// per-boundary, and `:p0/write-all` also rebuilds a 300-element vector and
-// drives the whole event pipeline whether one boundary is mounted or 1,200.
-// That fixed per-write cost is in every window and in no term above, and no
-// run on this rig has recorded it on its own — the floor arm measures it
-// directly and its figure has never been published. So the prediction below
-// is a SIZING aid and not a certificate: what certifies a window is
-// `allocSteps` reading the window's own samples, on the run, against the
-// same budget. The prediction is here so a configuration that cannot
-// possibly pass is refused before a measurement is spent on it, not so that
-// one which passes it may be trusted.
-const ALLOC_B_PER_BOUNDARY_WRITE = 1655;
+// Boundaries per root, and the reason it is a parameter at all: `fx/cells-n`
+// is compile-time, so `P0_ROOTS=1` floored B at 300 through the env surface.
+// `p0-heap/arm-for` takes it as `:cells`, so the driver states the page.
+// `null` — the env var unset or empty — is the unstated case, and it is a
+// refusal rather than a default.
+const ALLOC_CELLS =
+  process.env.P0_ALLOC_CELLS === undefined || process.env.P0_ALLOC_CELLS === ''
+    ? null
+    : Number(process.env.P0_ALLOC_CELLS);
 
 // The averaging floor. Six is the config the quiet-box run took the
 // published witness in, and the smallest window the bead's own re-costing
@@ -1151,165 +1171,126 @@ const ALLOC_B_PER_BOUNDARY_WRITE = 1655;
 // differential against a predicted 8 at exactly this window, so the claim
 // the controls exist to establish — that transient garbage is visible to
 // this counter at all — has been corroborated here as well as at the 30
-// writes `ALLOC_MASK_BUDGET_B` cites. A smaller control window is also a
-// further-under-budget one, which is the safe direction.
+// writes the retired masking budget cited.
 //
 // IT IS A FLOOR AND NOT ONLY A DEFAULT (rf2-2rtt6.142). It sized the page
-// below and adjudicated nothing, so the preflight admitted any window from
-// one write up: `P0_ROOTS=50` derives a 50-boundary page whose largest legal
-// window is two writes, and `P0_ALLOC_WRITES=1` sets a one-write window on
-// the shipped page. Both sit far under the masking budget — that budget is a
-// ceiling on a window's SIZE and has nothing to say about how few writes are
-// averaged inside it — so both reached every publication path. One write is
+// and adjudicated nothing, so the preflight admitted any window from one
+// write up: `P0_ROOTS=50` derived a 50-boundary page whose largest legal
+// window was two writes, and `P0_ALLOC_WRITES=1` set a one-write window on
+// the shipped page. Both sat far under the masking budget — that budget was
+// a ceiling on a window's SIZE and had nothing to say about how few writes
+// are averaged inside it — so both reached every publication path. The same
+// is true of the leg witness that replaced it, and for the same reason: it
+// asks whether the legs are alike, not how many there are. One write is
 // exactly the configuration whose four fits came back at r² 0.75 / 0.28 /
 // 0.94 / 0.31, against the 0.98 floor this row publishes under.
-// `allocArmSizing` now refuses below this number rather than only deriving
-// from it.
+// `allocArmSizing` refuses below this number rather than only deriving from
+// it, and rf2-2rtt6.140 leaves that untouched: the averaging floor is not a
+// budget question. A one-write window has no averaging in it whatever
+// certifies the window.
 const ALLOC_MIN_WRITES = 6;
 
-// Boundaries per root — the MEASURED UNIT, and the reason this arm is a code
-// change rather than a flag. `fx/cells-n` is compile-time, so `P0_ROOTS=1`
-// floored B at 300 through the env surface and no window on any page that
-// size can be certified. `p0-heap/arm-for` now takes it as `:cells`, so the
-// driver states the page and the dial exists for a measurement window that
-// wants to walk B — the bound below adjudicates whatever it is set to.
-const ALLOC_CELLS = Number(
-  process.env.P0_ALLOC_CELLS ||
-    Math.max(
-      1,
-      Math.floor(
-        ALLOC_MASK_BUDGET_B / ((ALLOC_MIN_WRITES + 1) * ROOTS * ALLOC_B_PER_BOUNDARY_WRITE)
-      )
-    )
-);
+// The window, which is now the averaging floor and nothing else. It used to
+// be inverted out of the masking budget — `budget / (B.c) - 1` — and with
+// the budget retired there is no bound left to invert. Taking MORE writes
+// than the floor is a measurement configuration's business, not a default's.
+const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || ALLOC_MIN_WRITES);
 
-// The largest window a page of `boundaries` admits, from the bound and
-// nothing else. `- 1` is `maxStep`: the bound charges one extra write's
-// worth for the leg a collection could have hidden in.
-function allocMaxWrites(boundaries) {
-  return Math.floor(ALLOC_MASK_BUDGET_B / (boundaries * ALLOC_B_PER_BOUNDARY_WRITE)) - 1;
-}
-
-const ALLOC_WRITES = Number(
-  process.env.P0_ALLOC_WRITES || allocMaxWrites(ROOTS * ALLOC_CELLS)
-);
-
-// The sizing, as a PURE FUNCTION of the config and the bound — the same
-// shape and for the same reason as `allocSteps` and `allocMaskableWindows`:
-// it needs neither a release build nor a Chromium, so it is pinned on every
-// PR by `p0_ladder_structural.test.cjs` instead of waiting for the next
-// opt-in run of this driver to notice that an arm drifted out of range.
+// The sizing, as a PURE FUNCTION of the config — the same shape and for the
+// same reason as `allocSteps` and `allocRefusedWindows`: it needs neither a
+// release build nor a Chromium, so it is pinned on every PR by
+// `p0_ladder_structural.test.cjs` instead of waiting for the next opt-in run
+// of this driver to notice that an arm drifted.
 //
-// Nothing here measures anything. `predictedWindowB` is `(W + 1).B.c`, the
-// left-hand side of the bound.
+// NOTHING HERE PREDICTS A WINDOW'S SIZE ANY MORE. `predictedWindowB`,
+// `headroom`, `maxBoundaries` and `floorBoundaries` went with the budget and
+// with `ALLOC_B_PER_BOUNDARY_WRITE`, because every one of them was that
+// constant's arithmetic wearing a different name. What is left refuses only
+// on grounds it can defend WITHOUT a sizing model — rf2-2rtt6.139's interim
+// posture, stated on that bead: a window spent on a page that then refuses
+// is acceptable; a gatekeeper enforcing a model the data contradicts is not.
 //
 // `refusals` IS THE VERDICT, one entry per thing wrong with the arm, and
 // `admissible` is just "none of them" (rf2-2rtt6.142). One boolean was not
-// enough because the two ways an arm can be wrong want OPPOSITE repairs: a
-// window over the masking budget is repaired by shrinking it, and a window
-// under the averaging floor is repaired by shrinking the PAGE so a bigger one
-// fits. An arm can be both at once, and a refusal that named only the budget
-// would send an operator to `P0_ALLOC_WRITES` — i.e. to configure the very
-// shape being refused.
-function allocArmSizing({ writes, roots, cells, bytesPerBoundaryWrite = ALLOC_B_PER_BOUNDARY_WRITE }) {
-  const boundaries = roots * cells;
-  const predictedMaxStep = boundaries * bytesPerBoundaryWrite;
-  const predictedRise = writes * predictedMaxStep;
-  const predictedWindowB = predictedRise + predictedMaxStep;
-  const headroom = ALLOC_MASK_BUDGET_B - predictedWindowB;
-  const maxWrites = allocMaxWrites(boundaries);
-  const maxBoundaries = Math.floor(ALLOC_MASK_BUDGET_B / ((writes + 1) * bytesPerBoundaryWrite));
-  // The largest page that still carries the averaging floor: `maxBoundaries`
-  // read at `ALLOC_MIN_WRITES` instead of at whatever this window happens to
-  // be. It is the number a below-floor arm has to be shrunk TO, so it is
-  // computed here rather than left for the reader to invert.
-  const floorBoundaries = Math.floor(
-    ALLOC_MASK_BUDGET_B / ((ALLOC_MIN_WRITES + 1) * bytesPerBoundaryWrite)
-  );
+// enough because the ways an arm can be wrong want different repairs, and an
+// arm can be wrong in more than one at once.
+function allocArmSizing({ writes, roots, cells }) {
+  // `null`/`undefined` is the page NOT STATED, which is distinct from a page
+  // stated as zero: one is a missing configuration and the other is a page
+  // with nothing on it. They refuse for different reasons and say so.
+  const stated = cells !== null && cells !== undefined;
+  const boundaries = stated ? roots * cells : null;
 
   const refusals = [];
-  if (boundaries < 1) {
-    // No per-boundary quantity to publish, and none of the terms below mean
-    // anything on an empty page — it would otherwise sail under the budget on
-    // zero bytes.
+  if (!stated) {
+    refusals.push(
+      `the allocation row's page is not derivable until rf2-2rtt6.139 re-derives sizing from ` +
+        `the new instrument's own floor data: STATE P0_ALLOC_CELLS (boundaries per root; the ` +
+        `page is P0_ROOTS x P0_ALLOC_CELLS). ALLOC_B_PER_BOUNDARY_WRITE was retired because it ` +
+        `was read off a run that itself refused, and no replacement constant may be substituted`
+    );
+  } else if (boundaries < 1) {
+    // No per-boundary quantity to publish. It would otherwise sail through on
+    // zero bytes, which is admitting nothing measured at all.
     refusals.push(
       `a page of ${boundaries} boundaries (${roots} roots x ${cells} cells) has no ` +
         `per-boundary quantity to publish: RAISE P0_ROOTS or P0_ALLOC_CELLS`
     );
-  } else {
-    if (writes < ALLOC_MIN_WRITES) {
-      // Two different arms land here and they want opposite repairs. If the
-      // page still admits the floor then the window alone was set too small
-      // and the window is the knob. If it does not, the window is not the
-      // knob at all — and naming what such a page DOES admit would be naming
-      // a below-floor window, i.e. advising the shape being refused. So that
-      // branch names only the page.
-      const repair =
-        maxWrites >= ALLOC_MIN_WRITES
-          ? `This page admits ${maxWrites} writes: RAISE P0_ALLOC_WRITES to at least ` +
-            `${ALLOC_MIN_WRITES}, or unset it and take the window the page derives`
-          : `${boundaries} boundaries cannot carry a ${ALLOC_MIN_WRITES}-write window under ` +
-            `the ${ALLOC_MASK_BUDGET_B} B masking budget, so the WINDOW IS NOT THE KNOB: ` +
-            `SHRINK THE PAGE — lower P0_ROOTS / P0_ALLOC_CELLS to at most ` +
-            `${floorBoundaries} boundaries`;
-      refusals.push(
-        `a window of ${writes} write(s) is under the ${ALLOC_MIN_WRITES}-write averaging floor ` +
-          `(ALLOC_MIN_WRITES) and has too little in it to average: at one write per window this ` +
-          `row's four fits came back at r² 0.75 / 0.28 / 0.94 / 0.31, under its 0.98 floor. ` +
-          repair
-      );
-    }
-    if (headroom < 0) {
-      // Naming `maxWrites` here is only a repair while the page can still
-      // carry the floor; below it the window is not the knob, and saying so
-      // would advise exactly the shape the refusal above exists to stop.
-      const windowKnob =
-        maxWrites >= ALLOC_MIN_WRITES
-          ? `, and this page at most ${maxWrites} writes (P0_ALLOC_WRITES)`
-          : '';
-      refusals.push(
-        `${boundaries} boundaries x ${writes} writes predicts ${predictedWindowB} B of ` +
-          `rise+maxStep at the measured ${bytesPerBoundaryWrite} B/boundary/write, against the ` +
-          `${ALLOC_MASK_BUDGET_B} B masking budget. ` +
-          `SHRINK THE MEASURED UNIT, DO NOT WIDEN THE BUDGET: this window admits at most ` +
-          `${maxBoundaries} boundaries (P0_ROOTS x P0_ALLOC_CELLS)${windowKnob}`
-      );
-    }
+  }
+  // Independent of the page, and deliberately so: with no page-size model
+  // there is nothing to say about what a given page admits, so this refusal
+  // no longer branches on one. rf2-2rtt6.142's endorsed property — never
+  // advise the operator to configure the very shape being refused — survives
+  // the collapse intact, because the collapsed message names no shape at all.
+  if (writes < ALLOC_MIN_WRITES) {
+    refusals.push(
+      `a window of ${writes} write(s) is under the ${ALLOC_MIN_WRITES}-write averaging floor ` +
+        `(ALLOC_MIN_WRITES) and has too little in it to average: at one write per window this ` +
+        `row's four fits came back at r² 0.75 / 0.28 / 0.94 / 0.31, under its 0.98 floor. ` +
+        `RAISE P0_ALLOC_WRITES to at least ${ALLOC_MIN_WRITES}, or unset it and take the floor`
+    );
   }
 
   return {
-    cells,
+    cells: stated ? cells : null,
     roots,
     boundaries,
     writes,
-    bytesPerBoundaryWrite,
-    predictedRise,
-    predictedMaxStep,
-    predictedWindowB,
-    headroom,
     refusals,
     admissible: refusals.length === 0,
-    maxWrites,
-    maxBoundaries,
-    floorBoundaries,
   };
 }
 
 const ALLOC_ARM = allocArmSizing({ writes: ALLOC_WRITES, roots: ROOTS, cells: ALLOC_CELLS });
 
+// The median of a window's work legs. The MEDIAN and not the mean, because
+// the first leg of a window is the one most likely to sit high and a mean
+// would let it drag the cohort toward whichever leg is the outlier.
+function median(xs) {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
 // Rising and falling steps, accumulated separately, from one window's raw
-// samples. The samples are `[s0, pre0, post0, pre1, post1, ...]`, so the
-// work legs are the (pre -> post) steps and the gaps between iterations
-// are the (post -> pre) steps; both are walked, because a collection can
-// fall in either.
+// samples — AND the leg cohort the certificate is read off.
 //
-// `maxStep`, `headroom` and `maskable` are the masking witness above:
-// `headroom` is the budget less what a collection would have had to hide
-// behind to go unseen, and `maskable` says the window is large enough to
-// have hidden one WHATEVER `falls` reports. The two gates are independent
-// and both are exits — a fall is a collection this counter saw, a maskable
-// window is one it could not have.
-function allocSteps(samples) {
+// The samples are `[s0, pre0, post0, pre1, post1, ...]`, so leg `k` is
+// `post_k - pre_k` (one per write, the work) and gap `k` is
+// `pre_k - post_{k-1}` (`pre0 - s0` for the first), where nothing happens
+// but a loop increment and two array stores. `rise` / `fall` / `falls` /
+// `maxStep` walk EVERY step exactly as they always did, because a collection
+// can fall in either kind — and note the property a gap has for free:
+// nothing allocates in a gap, so a collection there cannot be masked. It
+// lands as a negative step and the untouched falls gate takes it.
+//
+// `certified` is `refusals.length === 0`, mirroring `allocArmSizing` since
+// rf2-2rtt6.142 — one verdict shape across the preflight and the window
+// gate. `tolerance` is a parameter so the pinned probes can be swept across
+// τ; the driver never passes it, so the shipped gate is the module constant
+// and there is no dial anywhere on the measurement path.
+function allocSteps(samples, tolerance = ALLOC_LEG_TOLERANCE) {
   let rise = 0;
   let fall = 0;
   let falls = 0;
@@ -1324,61 +1305,100 @@ function allocSteps(samples) {
       falls++;
     }
   }
-  const headroom = ALLOC_MASK_BUDGET_B - (rise + maxStep);
+
+  const w = (samples.length - 1) >> 1;
+  const legs = [];
+  const gaps = [];
+  for (let k = 0; k < w; k++) {
+    gaps.push(samples[2 * k + 1] - samples[2 * k]);
+    legs.push(samples[2 * k + 2] - samples[2 * k + 1]);
+  }
+
+  const legMedian = median(legs);
+  // Stated in BYTES rather than as a ratio, so the rule is well defined at a
+  // zero median: an idle window is homogeneous at zero, every leg deviates
+  // from it by 0, and 0 is not MORE than 0 — so it certifies, which it has
+  // to, because the idle control is one of the three windows the row takes.
+  const allowed = tolerance * legMedian;
+  const refusals = [];
+  let worst = 0;
+  for (const [k, leg] of legs.entries()) {
+    const dev = leg - legMedian;
+    if (Math.abs(dev) > Math.abs(worst)) worst = dev;
+    if (Math.abs(dev) <= allowed) continue;
+    const why =
+      dev < 0
+        ? 'a leg BELOW its cohort is a leg something removed bytes from, and nothing in the ' +
+          'work unit removes bytes — the collector does'
+        : 'a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has ' +
+          'failed in this window, so refusing is correct rather than merely conservative';
+    refusals.push(
+      `leg ${k + 1} of ${w} read ${leg} B against a cohort median of ${legMedian} B ` +
+        `(${dev > 0 ? '+' : ''}${dev} B` +
+        (legMedian > 0 ? `, ${((dev / legMedian) * 100).toFixed(1)}%` : '') +
+        `), past the ±${(tolerance * 100).toFixed(0)}% leg tolerance (±${allowed} B): ${why}`
+    );
+  }
+
   return {
     rise,
     fall,
     falls,
     maxStep,
-    headroom,
-    maskable: headroom < 0,
     endpoints: samples[samples.length - 1] - samples[0],
+    legs,
+    gaps,
+    legMedian,
+    // Signed and RELATIVE, so it is comparable across windows of different
+    // magnitudes — and `null` at a zero median, because a relative deviation
+    // from zero is not a number and reporting a fabricated 0 would say the
+    // window was homogeneous when it may not have been.
+    legWorstDeviation: legMedian > 0 ? worst / legMedian : null,
+    legTolerance: tolerance,
+    refusals,
+    certified: refusals.length === 0,
   };
 }
 
-// The masking witness over a whole collected row, as a PURE FUNCTION of it
-// — the same shape and for the same reason as `ladderStructuralFailures`
-// below: it needs neither a release build nor a Chromium to adjudicate, so
-// it can be pinned on every PR by `p0_ladder_structural.test.cjs` instead of
-// waiting for the next opt-in run of this driver to notice.
+// The witness over a whole collected row, as a PURE FUNCTION of it — the
+// same shape and for the same reason as `ladderStructuralFailures` below: it
+// needs neither a release build nor a Chromium to adjudicate, so it can be
+// pinned on every PR by `p0_ladder_structural.test.cjs` instead of waiting
+// for the next opt-in run of this driver to notice.
 //
 // ARM WINDOWS ONLY, exactly as the falling-step gate counts only those. The
 // arms are what gets published; the controls adjudicate the arithmetic, and
 // a masked control would read LOW against its own 8 B/double prediction and
 // refuse through `controlVerdict` — the safe direction, already gated.
-function allocMaskableWindows(row) {
+//
+// EVERY REFUSED WINDOW IS NAMED WITH ITS REASON, on every round, because a
+// count of refusals tells an operator nothing about which leg misbehaved.
+function allocRefusedWindows(row) {
   const out = [];
   for (const r of row.perRound || []) {
     for (const [key, a] of Object.entries(r.arms || {})) {
-      if (!a.maskable) continue;
-      out.push(
-        `round ${r.round} ${key}: rise ${a.rise} B + largest step ${a.maxStep} B is ` +
-          `${-a.headroom} B over the ${ALLOC_MASK_BUDGET_B} B masking budget`
-      );
+      if (a.certified) continue;
+      for (const reason of a.refusals || []) out.push(`round ${r.round} ${key}: ${reason}`);
     }
   }
   return out;
 }
 
 async function allocRow(chromium) {
-  // THE SIZING REFUSAL, before a browser is launched and a byte is measured.
-  // The bound decides what may be published; this decides what is worth
-  // measuring at all, and it exists because the alternative is a twenty
-  // minute run whose every window the bound then refuses — which is exactly
-  // what the 2026-08-07 quiet-box run spent. It is a PREDICTION and not a
-  // certificate: passing it licenses nothing, and `allocSteps` still reads
-  // every window's own samples against the same budget on the way through.
+  // THE PREFLIGHT REFUSAL, before a browser is launched and a byte is
+  // measured. It refuses only on grounds it can defend WITHOUT a sizing model
+  // — rf2-2rtt6.139's interim posture — which is now two: an unstated page,
+  // and a window under the averaging floor.
   //
-  // The averaging floor is the half that `allocSteps` can NEVER catch up on
-  // (rf2-2rtt6.142). A window under `ALLOC_MIN_WRITES` is not over the budget
-  // — it is comfortably under it — so nothing downstream refuses it, and the
-  // r² floor sees only a fit it has no averaging to make. This is the one
-  // gate that can say so, and it says so here.
+  // The averaging floor is the half `allocSteps` can NEVER catch up on
+  // (rf2-2rtt6.142). A window under `ALLOC_MIN_WRITES` is not heterogeneous,
+  // so nothing downstream refuses it, and the r² floor sees only a fit it has
+  // no averaging to make. This is the one gate that can say so.
   if (!ALLOC_ARM.admissible) {
     throw new Error(
       `the allocation arm is refused by its own preflight before anything is measured — ` +
-        `${ALLOC_ARM.boundaries} boundaries (${ROOTS} roots x ${ALLOC_CELLS} cells) x ` +
-        `${ALLOC_ARM.writes} writes:\n` +
+        `${ALLOC_ARM.boundaries === null ? 'no page stated' : `${ALLOC_ARM.boundaries} boundaries ` +
+          `(${ROOTS} roots x ${ALLOC_CELLS} cells)`} x ${ALLOC_ARM.writes} writes:\n` +
         ALLOC_ARM.refusals.map((r) => `  - ${r}`).join('\n')
     );
   }
@@ -1464,7 +1484,19 @@ async function allocRow(chromium) {
     // --- the arms, in the order this round's parity dictates ------------
     const segs = round % 2 === 0 ? plan : [...plan].slice().reverse();
     for (const { segment, arms } of segs) {
-      await page.evaluate((s) => window.P0H.prepare(s), segment);
+      // THE GRID WIDTH IS B, AND IT IS SEEDED WITH THE FRAME (rf2-2rtt6.140).
+      // `:p0/write-page` rebuilds `:cells` at the width the mounted page
+      // actually reads — one cell per boundary — so the write's own machinery
+      // is O(mounted page) instead of the flat 300-element rebuild
+      // `:p0/write-all` performs whether one boundary is mounted or 1,200. On
+      // the 24-boundary page this row last ran, 276 of those 300 rebuilt cells
+      // were read by nothing at all.
+      //
+      // Passed here rather than set ambiently: the width has to be seeded
+      // BEFORE `make-frame`, and a parameter that is never ambient cannot be
+      // set in the wrong order relative to seeding. Every OTHER row passes
+      // nothing and seeds at `fx/cells-n`, so no published figure moves.
+      await page.evaluate(([s, gw]) => window.P0H.prepare(s, gw), [segment, B]);
       const drain = segment === 'reagent-subs' ? 'reagent' : 'react';
       const order = await page.evaluate(
         ([n, r]) => window.P0H.slotOrder(n, r),
@@ -1581,20 +1613,21 @@ async function allocRow(chromium) {
     preciseMemory: precise,
     controlDoubles: { d1: ALLOC_D, d2: ALLOC_D2 },
     controlSlack: ALLOC_CONTROL_SLACK,
+    write: ':p0/write-page — the grid is rebuilt at the width the mounted page reads',
     instrument:
       'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
       'rising steps accumulated separately from falling ones; --enable-precise-memory-info. ' +
-      'A falling step is a collection this counter SAW; a window over the masking budget is ' +
-      'one it could not have seen, and both refuse',
+      'A falling step is a collection this counter SAW; a leg that deviates from its cohort ' +
+      'median by more than the leg tolerance is a work unit that is not one, and both refuse',
     fallThresholdB: ALLOC_FALL_THRESHOLD_B,
-    maskBudgetB: ALLOC_MASK_BUDGET_B,
+    legTolerance: ALLOC_LEG_TOLERANCE,
     verification: { unverified, detail: unverifiedDetail },
     perRound: rounds,
     allocFits: fits,
   };
 }
 
-function summariseAlloc(row, maskable) {
+function summariseAlloc(row, refused) {
   const B = row.boundaries;
   console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — WARM 1/3/7/20 READS (rf2-2rtt6.76) ====');
   console.log(
@@ -1608,48 +1641,36 @@ function summariseAlloc(row, maskable) {
   console.log(';; The arm stays MOUNTED across the window: this is what a standing page');
   console.log(';; allocates when it is written to, not what a mount costs.');
 
-  // THE ARM'S SIZE, AND THE ARITHMETIC THAT CHOSE IT (rf2-2rtt6.138). Printed
-  // beside the figures rather than left in a source comment, because the one
-  // question a reader of this table has to be able to answer is which page it
-  // was taken on — the published 1,200-boundary witness is outside this
-  // instrument's range and its refusal is what put this arm here.
+  // THE ARM'S SIZE, AND WHERE IT CAME FROM (rf2-2rtt6.140). Printed beside the
+  // figures rather than left in a source comment, because the one question a
+  // reader of this table has to be able to answer is which page it was taken
+  // on — the published 1,200-boundary witness is outside this instrument's
+  // range and its refusal is what put this arm here.
   const a = row.arm;
   const publishedB = row.roots * row.publishedPerRoot.grid;
-  const publishedWindow = allocArmSizing({
-    writes: a.writes,
-    roots: row.roots,
-    cells: row.publishedPerRoot.grid,
-  });
   console.log(';;');
-  console.log(';; ==== THE SMALL-WITNESS ARM (rf2-2rtt6.138) ====');
+  console.log(';; ==== THE PAGE, AND THE WRITE (rf2-2rtt6.140) ====');
   console.log(
     `;;   ${a.cells} cells x ${a.roots} roots = ${a.boundaries} boundaries, ${a.writes} writes a ` +
-      'window. The measured unit is the BOUNDARY, so shrinking'
+      `window. STATED, never derived: rf2-2rtt6.139`
   );
   console.log(
-    ';;   the PAGE is what puts a many-write window under the fall threshold — not shrinking the'
-  );
-  console.log(';;   window, which is the direction that leaves a fit with nothing to average.');
-  console.log(
-    `;;   PREDICTED (W+1).B.c at the measured ${a.bytesPerBoundaryWrite} B/boundary/write: ` +
-      `${n0(a.predictedRise)} B rise + ${n0(a.predictedMaxStep)} B largest step = ` +
-      `${n0(a.predictedWindowB)} B,`
+    ';;   retired the sizing constant as read off a run that itself refused, and no replacement'
   );
   console.log(
-    `;;   against the ${ALLOC_MASK_BUDGET_B} B masking budget — headroom ${n0(a.headroom)} B. ` +
-      `The published ${publishedB}-boundary witness`
+    `;;   may be substituted, so P0_ALLOC_CELLS is mandatory. The published ${publishedB}-boundary`
+  );
+  console.log(';;   witness is what this row is NOT.');
+  console.log(
+    `;;   THE WRITE IS \`:p0/write-page\`, which rebuilds the grid at ${B} cells — one per mounted`
   );
   console.log(
-    `;;   predicts ${n0(publishedWindow.predictedWindowB)} B on the same window, and the row ` +
-      'would refuse it. That refusal is why this arm exists.'
+    ";;   boundary. `:p0/write-all` rebuilt 300 whatever was mounted, and that fixed cost was"
   );
   console.log(
-    ';;   A PREDICTION, NOT A CERTIFICATE: what certifies a window is the bound read off that'
+    ';;   57% of the retired budget before a single boundary had been measured. The clock and'
   );
-  console.log(
-    ";;   window's OWN samples, below. The fixed per-write cost of `:p0/write-all` is in every"
-  );
-  console.log(';;   window here and in no term of the prediction.');
+  console.log(';;   bulk rows still drive `:p0/write-all`, unchanged, at the published width.');
 
   // --- the controls, adjudicated ----------------------------------------
   console.log(';;');
@@ -1700,10 +1721,21 @@ function summariseAlloc(row, maskable) {
   );
   const wins = row.perRound.reduce((a, r) => a + Object.keys(r.arms).length, 0);
   console.log(';;');
+  // A RECORDED FACT, GATING NOTHING (rf2-2rtt6.140). It is an UPPER bound on
+  // where the first collection runs and the retired masking budget needed a
+  // LOWER one; it stays at its measured value and is printed because a
+  // window's rise as a fraction of it is a useful thing for a reader to see.
+  const risesSeen = row.perRound.flatMap((r) => Object.values(r.arms).map((x) => x.rise));
   console.log(
-    `;;   measured fall threshold: ~${row.fallThresholdB} B of cumulative garbage per window. ` +
-      'Enlarging the young generation does NOT move it (128 MB and 512 MB tried).'
+    `;;   measured fall threshold: ~${row.fallThresholdB} B of cumulative garbage per window ` +
+      '(RECORDED, gates nothing). Enlarging the young generation does NOT move it.'
   );
+  if (risesSeen.length) {
+    console.log(
+      `;;   largest arm-window rise seen: ${n0(Math.max(...risesSeen))} B = ` +
+        `${((Math.max(...risesSeen) / row.fallThresholdB) * 100).toFixed(0)}% of that threshold`
+    );
+  }
   console.log(
     `;;   collections seen inside arm windows: ${falls} falling steps across ${wins} windows ` +
       '(a fall is EXCLUDED from the rising sum, never netted against it)'
@@ -1720,28 +1752,36 @@ function summariseAlloc(row, maskable) {
   // predicted answer is zero.
   row.fallsInMeasuredWindows = falls;
 
-  // THE MASKING WITNESS (rf2-n6w7o), which is the fall gate's blind side and
-  // a SECOND exit, not a softening of the first. A collection that runs
-  // inside a leg allocating at least as much as it reclaims never turns a
-  // step negative, so the line above reports 0 and the window under-reads
-  // with nothing to say so. See ALLOC_MASK_BUDGET_B for the arithmetic that
-  // makes that case unreachable below the budget rather than merely
-  // improbable.
-  const headrooms = row.perRound.flatMap((r) => Object.values(r.arms).map((x) => x.headroom));
-  row.maskableWindows = maskable.length;
+  // THE OBSERVED-COLLECTION WITNESS (rf2-2rtt6.140), which is the fall gate's
+  // blind side and a SECOND exit, not a softening of the first. A collection
+  // that runs inside a leg allocating at least as much as it reclaims never
+  // turns a step negative, so the line above reports 0 and the window
+  // under-reads with nothing to say so. This one reads the window's own legs
+  // and asks whether they look like repetitions of one work unit.
+  const deviations = row.perRound.flatMap((r) =>
+    Object.values(r.arms)
+      .map((x) => x.legWorstDeviation)
+      .filter((x) => typeof x === 'number')
+  );
+  row.refusedWindows = refused.length;
   console.log(
-    `;;   masking budget: ${ALLOC_MASK_BUDGET_B} B per window (the measured fall threshold, ` +
-      'HALVED) on rise PLUS the largest single step. At or under it no collection can have'
+    `;;   leg tolerance τ = ${(row.legTolerance * 100).toFixed(0)}% of the window's own leg ` +
+      'MEDIAN, two-sided. The legs of a window are W repetitions of ONE'
   );
   console.log(
-    ';;   run at all, masked or otherwise; above it a collection can hide behind the window\'s ' +
-      'own growth and `falls` = 0 stops meaning the reading is clean'
+    ';;   work unit, so a leg below its cohort is a leg something removed bytes from and a leg'
   );
   console.log(
-    `;;   windows over budget: ${maskable.length} of ${wins}` +
-      (headrooms.length ? `  (tightest headroom ${n0(Math.min(...headrooms))} B)` : '')
+    ';;   above it is a window whose one-work-unit premise failed. An ADMITTED window under-reads'
   );
-  for (const m of maskable) console.log(`;;   MASKABLE ${m}`);
+  console.log(`;;   its true allocation by AT MOST 2τ = ${(row.legTolerance * 200).toFixed(0)}%.`);
+  console.log(
+    `;;   windows refused: ${refused.length} of ${wins}` +
+      (deviations.length
+        ? `  (worst leg deviation observed ${(Math.max(...deviations.map(Math.abs)) * 100).toFixed(1)}%)`
+        : '')
+  );
+  for (const m of refused) console.log(`;;   REFUSED ${m}`);
 
   console.log(
     `;;   verification: ${row.verification.unverified} unverified ` +
@@ -2282,11 +2322,11 @@ function summariseFanout(row) {
 module.exports = {
   ladderStructuralFailures,
   allocSteps,
-  allocMaskableWindows,
-  ALLOC_MASK_BUDGET_B,
+  allocRefusedWindows,
+  ALLOC_LEG_TOLERANCE,
+  ALLOC_FALL_THRESHOLD_B,
   ladderPlan,
   allocArmSizing,
-  allocMaxWrites,
   ALLOC_MIN_WRITES,
   ALLOC_ARM,
 };
@@ -2419,8 +2459,8 @@ if (require.main === module) (async () => {
     if (wantAlloc) {
       console.error('[p0] steady-state allocation row ...');
       out.alloc = await allocRow(chromium);
-      const maskable = allocMaskableWindows(out.alloc);
-      summariseAlloc(out.alloc, maskable);
+      const refusedWindows = allocRefusedWindows(out.alloc);
+      summariseAlloc(out.alloc, refusedWindows);
       if (out.alloc.verification.unverified > 0) {
         failures.push(
           `alloc: ${out.alloc.verification.unverified} unverified — ` +
@@ -2448,23 +2488,22 @@ if (require.main === module) (async () => {
             'refuses is the arms\' scale, not the method'
         );
       }
-      // AND ITS BLIND SIDE (rf2-n6w7o). The gate above sees a collection
-      // only when it turns a step negative. One that runs inside a leg
-      // allocating at least as much as it reclaimed turns nothing negative,
-      // so that gate reports a clean window while the reclaimed bytes are
-      // missing from `rise`. This one refuses any window merely LARGE ENOUGH
-      // for that to have happened, which is a bound rather than a detector —
-      // see ALLOC_MASK_BUDGET_B. It is additional to the falling-step gate
-      // and replaces none of it.
-      if (maskable.length > 0) {
+      // AND ITS BLIND SIDE (rf2-2rtt6.140, superseding rf2-n6w7o). The gate
+      // above sees a collection only when it turns a step negative. One that
+      // runs inside a leg allocating at least as much as it reclaimed turns
+      // nothing negative, so that gate reports a clean window while the
+      // reclaimed bytes are missing from `rise`. This one reads the window's
+      // OWN legs — W repetitions of one work unit — and refuses the window
+      // where one of them does not look like the others. It is additional to
+      // the falling-step gate and replaces none of it.
+      if (refusedWindows.length > 0) {
         failures.push(
-          `alloc: ${maskable.length} windows over the ${ALLOC_MASK_BUDGET_B} B masking ` +
-            'budget — at that scale a collection can run inside a leg that allocates at least as ' +
-            'much as it reclaims, so no step goes negative, the falling-step gate above reports a ' +
-            'clean window, and the reclaimed bytes are missing from `rise` with nothing to say ' +
-            'so. Every figure from such a window is an UNDER-estimate of unknown size, and ' +
-            'under-reading is the direction that manufactures HD-002\'s flat-at-zero. SHRINK THE ' +
-            `MEASURED UNIT, DO NOT WIDEN THE BUDGET. First: ${maskable[0]}`
+          `alloc: ${refusedWindows.length} windows have a work leg that deviates from its own ` +
+            'cohort median by more than the leg tolerance. A leg BELOW its cohort is a leg ' +
+            'something removed bytes from and nothing in the work unit removes bytes; a leg ' +
+            'ABOVE it is a window whose ONE WORK UNIT premise failed. Either way the window ' +
+            "under-reads by an unknown amount, and under-reading manufactures HD-002's " +
+            `flat-at-zero. DO NOT WIDEN THE TOLERANCE. First: ${refusedWindows[0]}`
         );
       }
     }

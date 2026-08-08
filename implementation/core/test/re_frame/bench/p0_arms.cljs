@@ -137,17 +137,25 @@
   `make-frame` and a seeding dispatch would price frame construction on
   whichever arm happened to own it.
 
+  `grid-width` is how many `:cells` the frame is seeded with, and it is an
+  ARGUMENT rather than an ambient volatile (rf2-2rtt6.140): a width set
+  after seeding would be a page whose sub graph and whose db disagree, and
+  a parameter that is never ambient cannot be set in the wrong order. It
+  defaults to `fx/cells-n`, so the clock rows and the retention rows —
+  which pass nothing — seed the published page to the byte.
+
   A teardown that throws STOPS the instrument and names the phase — see
   [[teardown!]]."
-  [{:keys [adapter]}]
-  (teardown! "destroy-frame!" #(rf/destroy-frame! frame-id))
-  (when (rf/current-adapter)
-    (teardown! "destroy-adapter!" #(rf/destroy-adapter!)))
-  (rf/init! adapter)
-  (fx/register!)
-  (rf/make-frame {:id frame-id :initial-events [[:p0/seed]]})
-  (reset! captured (rf/capture-frame frame-id))
-  nil)
+  ([segment] (enter-segment! segment fx/cells-n))
+  ([{:keys [adapter]} grid-width]
+   (teardown! "destroy-frame!" #(rf/destroy-frame! frame-id))
+   (when (rf/current-adapter)
+     (teardown! "destroy-adapter!" #(rf/destroy-adapter!)))
+   (rf/init! adapter)
+   (fx/register!)
+   (rf/make-frame {:id frame-id :initial-events [[:p0/seed (long grid-width)]]})
+   (reset! captured (rf/capture-frame frame-id))
+   nil))
 
 (defn- dispatch-sync! [ev]
   ((:dispatch-sync @captured) ev))
@@ -163,6 +171,25 @@
   the one the clock and heap rows measured."
   [v]
   (dispatch-sync! [:p0/write-all v])
+  nil)
+
+(defn write-page!
+  "The BOUNDARY-PROPORTIONAL write, as a public door beside [[write-all!]]
+  (rf2-2rtt6.140).
+
+  Same [[dispatch-sync!]], same event pipeline, same signal graph — the
+  allocation row's warm re-render still has to be the write a real
+  application pays for. What differs is that `:p0/write-page` rebuilds
+  `:cells` at the width the mounted page actually reads, where
+  `:p0/write-all` rebuilds `fx/cells-n` of them whatever is mounted. That
+  fixed cost measured 24.4 KB per write on this rig — 57% of the retired
+  masking budget before a single boundary had been measured — and it does
+  not shrink when the page does.
+
+  The clock and bulk rows keep driving [[write-all!]]: their rows are
+  published and their write stays byte-identical."
+  [v]
+  (dispatch-sync! [:p0/write-page v])
   nil)
 
 ;; ---------------------------------------------------------------------------
