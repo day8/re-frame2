@@ -4682,6 +4682,16 @@ function fixtureRoundsTask(over) {
   const M1_PAIRS = ['hicasso / reagent-subs', GATED, 'uix-subs / reagent-subs'];
   const STUDIO = path.join(__dirname, '..', '..', '..', '..', '..', '..', 'docs', 'design', 'hicasso', 'studio');
 
+  /**
+   * A page's prose with its line wrapping and blockquote markers removed, so a
+   * sentence can be asserted as a SENTENCE. Markdown wraps at 80 columns and
+   * prefixes quoted blocks with `> `, and a phrase that happens to straddle a
+   * line break is still the phrase — a test that missed it would be pinning the
+   * fill, not the claim.
+   */
+  const prose = (file) =>
+    fs.readFileSync(path.join(STUDIO, file), 'utf8').replace(/\r?\n>?[ \t]*/g, ' ').replace(/[ \t]+/g, ' ');
+
   /** The ruling's expected outcome, to 4 places — the tool's, not the note's. */
   const EXPECTED = {
     'clock-emvod': { runs: 8, point: '1.1718', lo: '1.1263', hi: '1.2190', widestBand: 22.34 },
@@ -4984,9 +4994,9 @@ function fixtureRoundsTask(over) {
   // --- 5. CRITERION (f) AND PART (3): WHAT THE PUBLISHED ROW MUST CARRY -----
 
   t('criterion (f): the published row carries its residual-uncertainty caveats', () => {
-    const src = fs.readFileSync(path.join(STUDIO, 'rows-re-adjudicated-on-the-corrected-clock.md'), 'utf8');
+    const src = prose('rows-re-adjudicated-on-the-corrected-clock.md');
     for (const [what, re] of [
-      ['8 and 6 outer runs only', /8 and 6 outer runs/],
+      ['eight and six outer runs only', /[Ee]ight and six outer runs only/],
       ['the limits were calibrated on these same 14 runs', /calibrated on these same 14 runs/],
       ['both ensembles record the same Chromium', /same Chromium/],
     ]) {
@@ -5000,13 +5010,26 @@ function fixtureRoundsTask(over) {
     // because a corroboration claim that survives only under a selection is not
     // corroboration. The honest statement replaces it.
     for (const f of fs.readdirSync(STUDIO).filter((x) => x.endsWith('.md'))) {
-      const src = fs.readFileSync(path.join(STUDIO, f), 'utf8');
+      const src = prose(f);
       assert.ok(!/0\.11 percentage points/.test(src), `${f} still claims the 0.11 pp agreement`);
       assert.ok(!/0\.11 pp/.test(src), `${f} still claims the 0.11 pp agreement`);
     }
-    const src = fs.readFileSync(path.join(STUDIO, 'rows-re-adjudicated-on-the-corrected-clock.md'), 'utf8');
-    assert.match(src, /2\.59 (?:pp|percentage points)/, 'and the honest distance replaces it');
+    const src = prose('rows-re-adjudicated-on-the-corrected-clock.md');
+    // THE HONEST DISTANCE IS COMPUTED, NOT QUOTED, and it is 2.58 pp rather
+    // than the ruling's 2.59. Both are right about different summaries of the
+    // same estimand: 2.59 pp is the gap between the whole-ensemble ARITHMETIC
+    // means of the per-round bar (1.1798 / 1.2057), which is what the ruling
+    // had in front of it; 2.58 pp is the gap between the figures this row now
+    // PUBLISHES (1.1718 / 1.1976), which are the bootstrap's balanced
+    // mean-of-logs. Criterion (e) says the tool's output is the record, so the
+    // page states the distance between its own published points and says which
+    // summary that is — quoting 2.59 beside them would be a splice one order
+    // smaller than the one this ruling exists to retire.
+    const gap = ((1.1976 - 1.1718) * 100).toFixed(2);
+    assert.strictEqual(gap, '2.58');
+    assert.match(src, new RegExp(`\\*\\*${gap} pp\\*\\*`), 'the distance between the PUBLISHED points, computed here');
     assert.match(src, /two independently launched ensembles/i);
+    assert.match(src, /overlapping intervals/i);
   });
 
   t('the ruling is cited by bead id in every surface it changed', () => {

@@ -322,6 +322,142 @@ ensemble was taken at, so it is filed rather than done here.
 
 ### 4.3 The published M1 row
 
+> **RULED AND PUBLISHED 2026-08-08 (`rf2-diaud`). THIS BLOCK IS THE LIVE ROW;
+> everything below it is the record of how it got here.** The magnitudes held by
+> the `rf2-x7x10` block that follows are **unheld** — and restated, because the
+> ruling found that they could not have published as they stood.
+>
+> **The defect was not a wrong number. It was two estimators in one figure.**
+> `validation.md` defines canonical `M1` as **floor-normalised** on the clock of
+> record; the effect-size interval was computed on the **level ratio that
+> touches neither floor**. Both are correct arithmetic and they are not the same
+> quantity. The publication proposed below spliced floor-normalised *points*
+> onto unfloored geometric *intervals*, and a point and an interval must
+> describe the same estimand. **No spliced figure ever publishes.**
+>
+> **So the tool now computes K1's own estimand and takes the point and the
+> interval from that one estimator.** Per round, per segment, tared:
+>
+> ```
+> ((H − plumbH) / (floorH − plumbH)) ÷ ((U − plumbU) / (floorU − plumbU))
+> ```
+>
+> through the same run-preserving bootstrap — outer runs resampled before inner
+> rounds, 4,000 draws, fixed seed `20260807`.
+>
+> **And the threshold is the mount's own.** `rf2-8a746`'s whole-interval
+> discipline is retained with no exceptions, but `1.0` and `1.5` are the *bulk*
+> row's bar and architecture-kill. `M1`'s decision threshold is **K1's `1.10×`
+> against direct UIx-on-subs**: ship only when the whole interval sits at or
+> below it, trip K1 only when the whole interval sits above it, otherwise
+> instrument-limited.
+>
+> #### The published row — K1 is MISSED, decisively
+>
+> | ensemble | outer runs | `hicasso / uix-subs`, floor-normalised | verdict against K1's `1.10×` |
+> |---|---:|---|---|
+> | `clock-emvod` | 8 | **1.1718×** [1.1263 – 1.2190] | whole interval above — **K1 MISSED** |
+> | `clock-w3yxd` | 6 | **1.1976×** [1.1504 – 1.2468] | whole interval above — **K1 MISSED** |
+>
+> Both intervals lie entirely above `1.10×` on the losing side, so the mount
+> premium is a **magnitude and not a direction**: the candidate mounts at
+> roughly **1.17 – 1.20× direct UIx-on-subs**, and K1's gate is missed on two
+> independently launched ensembles.
+>
+> #### Reagent-on-subs, co-instrumented and gating nothing
+>
+> `validation.md` states K1's gate against **direct UIx-on-subs** and says in
+> terms that Reagent-on-subs is *"co-instrumented and reported beside the mount
+> row, not gating it"*. These are the same estimand and the same bootstrap; they
+> adjudicate no threshold, and the tool labels them `CO-INSTRUMENTED` rather
+> than giving them a verdict.
+>
+> | pair | `clock-emvod` *(n=8)* | `clock-w3yxd` *(n=6)* |
+> |---|---|---|
+> | `hicasso / reagent-subs` | 1.1326× [1.0775 – 1.1955] | 1.1282× [1.0217 – 1.2301] |
+> | `uix-subs / reagent-subs` | 0.9665× [0.9179 – 1.0228] | 0.9420× [0.8517 – 1.0294] |
+>
+> #### The unfloored level ratio, kept as a labelled diagnostic
+>
+> It is a **different quantity** from the row above and never the headline. It
+> is printed because the two estimators agreeing on a row's direction is what
+> bounds what the floor normalisation is doing — and because the figures below
+> are the ones the superseded proposal drew its intervals from, so they are
+> where a reader checks the splice for themselves. **No figure in this table may
+> be quoted beside a figure in the tables above.**
+>
+> | pair | `clock-emvod` *(n=8)* | `clock-w3yxd` *(n=6)* |
+> |---|---|---|
+> | `hicasso / uix-subs` | 1.1679× [1.1259 – 1.2096] | 1.1621× [1.1209 – 1.2090] |
+> | `hicasso / reagent-subs` | 1.1142× [1.0238 – 1.1988] | 1.1151× [1.0314 – 1.1955] |
+> | `uix-subs / reagent-subs` | 0.9540× [0.8835 – 1.0139] | 0.9596× [0.8962 – 1.0209] |
+>
+> Every pair moves the same way on both estimators, and on the gated pair the
+> whole interval sits above `1.10×` under **either** — so the verdict does not
+> turn on the choice. What turned on it was the *citable figure*, which is why
+> the repair was owed before publication and not after.
+>
+> #### The cross-run max-band second veto is retired from publication authority
+>
+> `rf2-8a746`'s rule carried a second condition: the effect had to exceed the
+> **widest same-run reproducibility band** among the pooled runs. It is retired
+> here — not because it was inconvenient, but because it is not an interval for
+> the claimed effect, it borrows a control statistic belonging to *one* run of
+> *one* ensemble, and it grows **harder** to clear merely by adding runs.
+>
+> The corpus makes the objection concrete, and this is an argument the ruling
+> did not have. On `clock-emvod` the effect is 17.2% against a widest band of
+> **22.34%** — the retired condition **refuses**. On `clock-w3yxd` it is 19.8%
+> against **18.29%** — the retired condition **admits**. Two ensembles measuring
+> the same effect to within 2.6 pp are sent to *opposite verdicts* by it.
+>
+> **What is not retired:** the **35% band ceiling** remains a run-eligibility
+> guard that refuses a whole run before any interval is formed, and the same-run
+> bands are printed beside every verdict as sensitivity diagnostics.
+>
+> #### Residual uncertainty this row carries, and it is not optional
+>
+> - **Eight and six outer runs only.** The bootstrap resamples runs as the outer
+>   unit, and eight and six are thin ensembles for an outer distribution.
+> - **The mount check standard is not independent of this row.** Its limits were
+>   **calibrated on these same 14 runs** rather than on a separate baseline, so
+>   `14 of 14 in control` is a consistency check and not a false-refusal
+>   measurement. A check standard earns its name on a baseline it is not
+>   afterwards judged on, and this one has not had that yet.
+> - **Both ensembles record the same Chromium**, `147.0.7727.15`. They are
+>   independent of each other in launch, box state and session — not in browser
+>   build. A browser-level effect would appear in both and be invisible to the
+>   replication.
+>
+> #### What replication this row actually claims
+>
+> **Two independently launched ensembles, whole-ensemble figures, overlapping
+> intervals.** That is the whole of it, and it is the ruling's own wording. The
+> published points sit **2.58 pp** apart (1.1718× against 1.1976×), the two
+> intervals overlap over `[1.1504 – 1.2190]`, and each contains the other's
+> point. No selection stands behind either figure: `14 of 14` runs are in
+> control, so the reportable subset is the whole ensemble in both cases.
+>
+> The section below used to rest weight on a much tighter agreement between the
+> two ensembles on this pair. **That claim is withdrawn** (`rf2-diaud` part 3):
+> it was a property of the *selection* those figures were means over and not of
+> the measurement, and it disappears the moment the selection does. It is
+> withdrawn rather than restated, because a corroboration that survives only
+> under a selection is not corroboration.
+>
+> **Reproduce it.** Every figure in this block is arithmetic over the committed
+> corpus, printed by the canonical tool and quoted from nowhere else:
+>
+> ```bash
+> node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
+>   freehand/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
+> # exit 0 — ROW M1, PAIR hicasso / uix-subs:
+> #   point 1.1718x  95% CI [1.1263 – 1.2190]  over 8 reportable run(s)
+> #   VERDICT K1 MISSED, DECISIVELY — the whole interval is above the 1.1x mount gate
+> ```
+>
+> **No measurement was taken for any of this**, and no window was consumed.
+
 > **RE-ADJUDICATED 2026-08-08 UNDER A CALIBRATED MOUNT CLASS (`rf2-x7x10`), AND
 > THE CONDITIONING LABEL BELOW IS SUPERSEDED.** Nothing in this section is
 > erased and no figure in it was found wrong. What changed is the *rule* the
@@ -365,17 +501,24 @@ ensemble was taken at, so it is filed rather than done here.
 > headline.
 >
 > **And one claim below does not survive the change of subset.** The section
-> rests weight on the two ensembles "agreeing to **0.11 percentage points**" on
-> the UIx pair. That agreement was a property of the *selected* subsets:
-> unselected, the two ensembles sit **2.6 pp** apart (1.1798 against 1.2057).
-> The Reagent pair moves the other way — 3.0 pp apart on the subsets, **0.6 pp**
-> apart unselected. Neither direction was chosen; both are what removing a
-> selection on a control does, and the honest reading is that the selection was
-> making the UIx replication look tighter than it is and the Reagent
-> replication looser.
+> rested weight on the two ensembles agreeing to about a tenth of a percentage
+> point on the UIx pair. That agreement was a property of the *selected*
+> subsets: unselected, the two ensembles sit **2.6 pp** apart (1.1798 against
+> 1.2057). The Reagent pair moves the other way — 3.0 pp apart on the subsets,
+> **0.6 pp** apart unselected. Neither direction was chosen; both are what
+> removing a selection on a control does, and the honest reading is that the
+> selection was making the UIx replication look tighter than it is and the
+> Reagent replication looser. **The claim is retired everywhere on this page**
+> (`rf2-diaud` part 3), and the sentence that asserted it is gone rather than
+> struck: a corroboration figure left legible in strikethrough is still a figure
+> a reader can lift.
 >
 > **`rf2-8a746`'s publication rule now reaches this row, and it refuses a
-> magnitude.** It could not reach it before: with no run eligible, no interval
+> magnitude.** *(**Superseded 2026-08-08 by `rf2-diaud`** — see the block at the
+> head of this section. The refusal below is correct for the rule as it stood
+> and for the estimand it was computed on; the ruling replaced both. The table
+> that follows survives as the **labelled diagnostic** it is quoted as up
+> there.)* It could not reach it before: with no run eligible, no interval
 > was formed. With all 14 eligible the run-preserving effect-size interval
 > (paired same-round level ratios, outer runs resampled before inner rounds,
 > 4000 draws, at the fixed bootstrap seed 20260807) computes, and on **every
@@ -402,6 +545,15 @@ ensemble was taken at, so it is filed rather than done here.
 > disagree, and which governs is a **ruling** rather than a worker's call — the
 > same reason §7.2 stopped rather than published. Recorded, not decided.
 >
+> **THE RULING CAME (2026-08-08, `rf2-diaud`), AND THE HOLD IS LIFTED.** It went
+> further than the collision it was asked about: the whole-interval discipline
+> is kept but its threshold is **row-class-specific**, and the row is
+> re-computed on **K1's own floor-normalised estimand** rather than published
+> from the level-ratio interval quoted above. The magnitudes below are therefore
+> **superseded rather than restored** — the live row is at the head of this
+> section. Which is why holding rather than withdrawing was right: a withdrawal
+> would have thrown away the row that a corrected estimator went on to publish.
+>
 > **No measurement was taken for any of this.** Every figure in this block is
 > arithmetic over the committed 42-run corpus, reproduced by the command in
 > [§7.2](#72-the-re-take-that-was-taken-and-what-it-refuses) over each
@@ -421,8 +573,12 @@ not hold. It is published on the two retained quiet-box ensembles,
 | `clock-emvod` | **1.1837×** *(n=4)* | 1.1798× [1.1346 – 1.2347] *(n=8)* | 1.1561× *(n=4)* |
 | `clock-w3yxd` | **1.1848×** *(n=3)* | 1.2057× [1.1731 – 1.2390] *(n=6)* | 1.1537× *(n=3)* |
 
-Two independently launched ensembles agreeing to **0.11 percentage points** on
-the programme's floor-normalised `TaskDuration` estimator. The **raw quotient —
+Two independently launched ensembles on the programme's floor-normalised
+`TaskDuration` estimator. **The corroboration claim that stood here — that the
+two ensembles agreed to about a tenth of a percentage point — is RETIRED**
+(2026-08-08, `rf2-diaud` part 3): it was a property of the *selected subsets*
+rather than of the measurement, and unselected the two sit 2.6 pp apart. The
+honest replication statement is at the head of this section. The **raw quotient —
 the direct arm-to-arm comparison touching neither floor — reads `~1.155×`**, and
 it is stated here beside the headline rather than behind it: on the reportable
 subsets the two estimators differ by **2.8 pp** (`clock-emvod`) and **3.1 pp**
@@ -439,9 +595,12 @@ point.**
 | `clock-emvod` | **1.1402×** *(n=4)* | 1.1429× [1.0723 – 1.2640] *(n=8)* | 1.1545× *(n=4)* |
 | `clock-w3yxd` | **1.1100×** *(n=3)* | 1.1492× [1.0492 – 1.3339] *(n=6)* | 1.0969× *(n=3)* |
 
-The replication is **looser** on this pair — 3.0 pp apart floor-normalised and
-5.8 pp raw, against 0.11 pp on the UIx pair — so the two estimates are published
-side by side and **a single pooled figure is refused**. Averaging them would
+The replication was read as **looser** on this pair — 3.0 pp apart
+floor-normalised and 5.8 pp raw — so the two estimates are published side by
+side and **a single pooled figure is refused**. *(The comparison this sentence
+drew against the UIx pair is retired with the claim it rested on — `rf2-diaud`
+part 3. On the whole ensembles the ordering reverses: the Reagent pair is the
+**tighter** replication of the two.)* Averaging them would
 manufacture a precision the data does not carry, and the honest statement is that
 the candidate is above Reagent-on-subs on mount by something in the low tens of
 percent, measured twice, at two values.
