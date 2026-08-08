@@ -1,0 +1,92 @@
+{
+  "id": "census-clock/ctl-2x-level",
+  "version": 1,
+  "bead": "rf2-pzqy8",
+  "frozen": "2026-08-08",
+  "what": "The calibrated check standard for the census-real clock rows (shapes/census_clock_run.cjs). The measured quantity is the ctl-2x arm's TARED TaskDuration over the floor's TARED TaskDuration, in the same block — `controlBlocks`, one per (round, block), 18 per row-run. Both terms are LEVELS, which is the class rf2-8a746's ruling endorses; rf2-y0pkh measured this rig's denominators at 4.20 / 4.65 / 3.33 sigma from zero against the retired ctl3 denominator's 2.09. This standard does not replace that statistic. It replaces the CENTRE one row was judged against.",
+  "notAPrediction": "The expected centre is EMPIRICAL. `ctl-2x` builds twice the row's cards and the page computes the row's own element arithmetic as the prediction — 1.9759 / 1.9943 / 1.7255. On the two large rows the instrument reads that prediction (93.3% and 101.0% of it) and the prediction stands. On the `ordinary` row it does not: 51 elements is small enough that the per-sample work which does NOT scale with the page dominates the reading, so `R = (P*W + c)/(W + c)` sits far below `P` with no defect anywhere in the arithmetic. Asserting a theoretical value against a reading the constant dominates is the mistake rf2-8a746 retired on ctl3, and what is frozen below is what this instrument, on this page, through this door, WAS MEASURED to read.",
+  "statistics": {
+    "block": "one (round, block) pair — tared(ctl-2x) / tared(floor), the driver's own `controlBlocks`",
+    "location": "the row-run's MEDIAN over its 18 blocks (rf2-8bgqq: a ratio's headline is its median)",
+    "dispersion": "the row-run's robust scale over those blocks, IQR / 1.349 — the normal-consistent estimator, comparable with an SD without inheriting one wild block"
+  },
+  "runRejection": "a row-run is IN CONTROL when its block median lies inside the frozen location limits AND its robust scale is at or under the frozen dispersion limit. Nothing per-block rejects it.",
+  "toleranceBandIsNotTheRule": "The per-block tolerance band below is REPORTED and decides nothing on a row this standard calibrates. It is the same +/-25% band the strict rule uses, re-centred on the empirical centre, and it is printed because a reader wants to see where the blocks fell.",
+  "whyNotTheAllBlocksRule": "Because on THIS row it is `p^18` and nothing else. Re-centred on the empirical centre the ordinary row's per-block in-band fraction rises from 31.1% to 90.0%, and the all-blocks rule would still pass only 3 of 10 row-runs, because 0.90^18 = 15%. That is rf2-8a746's arithmetic exactly. THE RULE IS NOT TOUCHED WHERE rf2-y0pkh MEASURED AND RETAINED IT: on `large-template` and `feed` it costs 18.2% and 39.8% per-run false refusal and it remains those rows' adjudicator, unchanged. `ordinary` is the row rf2-y0pkh explicitly held out of that retention.",
+  "rows": {
+    "ordinary": {
+      "calibrated": true,
+      "prediction": 1.7255,
+      "centre": 1.2308,
+      "location": {
+        "limits": [1.0411, 1.4204],
+        "derivation": "centre +/- 3 x between-run SD 0.0632, over the 8 BASELINE row-runs"
+      },
+      "dispersion": {
+        "limit": 0.3422,
+        "derivation": "exp(mu + 3 sigma) of the 8 baseline log robust scales, mu = -2.1040, sigma = 0.3439 — a lognormal upper 3 sigma on a positive skewed quantity, 44% above the widest of the 8 observed draws rather than at it"
+      },
+      "tolerance": { "slack": 0.25, "band": [0.9231, 1.5385], "reported": true },
+      "errorRates": {
+        "runRejectionNominal": "0.4% per row-run — location 0.27% (two-sided 3 sigma, normal) plus dispersion 0.13% (one-sided 3 sigma, lognormal)",
+        "runRejectionBaseline": "0 of 8 baseline row-runs refused — a consistency check, since the limits are seeded from them",
+        "runRejectionHoldOut": "0 of 2 HOLD-OUT row-runs refused — and this one is a false-refusal measurement, because the limits were derived without them",
+        "toleranceBandPerBlock": "10.0% of blocks fall outside the reported band (162 of 180 inside; 136 of 144 on the baseline alone)",
+        "retiredCentreForComparison": "the element-arithmetic centre 1.7255 put 56 of 180 blocks (31.1%) inside its +/-25% band and passed 0 of 10 row-runs. rf2-y0pkh measured that no relaxation of the block count reaches it — allowing one, two or three out-of-band blocks per row-run still passes 0 of 10 — because the row's centre sat 5.2% BELOW that band's lower edge of 1.2941. The centre was the defect, and this file is the repair."
+      },
+      "sensitivity": {
+        "what": "WHAT THIS STANDARD CAN AND CANNOT CATCH, stated rather than left to be discovered. A standard nobody has seen refuse is a standard of unmeasured sensitivity, and this lane has found that defect nine times.",
+        "model": "R = 0.3181 * P_eff + 0.6819 — the row's reading as a function of the work its control arm actually builds, fitted from the baseline's own additive residual (c / floorTared p50 = 0.6819, so only 31.8% of this row's reading is page-proportional)",
+        "admits": "the location limits admit control arms building P_eff in [1.1293, 2.3217] against a declared 1.7255 — that is, an arm doing between 17.8% and 182.2% of the declared EXTRA work",
+        "catches": "an arm that does not double at all reads 1.0000x and is REFUSED; an arm building a TRIPLING reads 1.4615x and is REFUSED",
+        "misses": "an arm rendering 140 of the 300 boundaries it declares — the sabotage rf2-8a746 proved its own standard against — would read 1.1077x on THIS row and be ADMITTED. That is not a hole in the rule; it is prediction P4 restated as a number. 51 elements through this door leaves too little page-proportional signal for a control to resolve a half-built arm, and any row-level claim taken here carries that resolution."
+      },
+      "provenance": {
+        "baseline": {
+          "rowRuns": 8,
+          "blocks": 144,
+          "sessions": 4,
+          "datasets": [
+            "../data/censusclock-2rtt6-56",
+            "../data/censusclock-y1jkm",
+            "../data/censusclock-6c237",
+            "../data/censusclock-cno31"
+          ],
+          "taken": "2026-08-02, at four commits (7885a7c148, 8ccd9f4b41, ac09504d74, 08344cb500)",
+          "observed": {
+            "runMedianCentre": 1.2308,
+            "runMedianMean": 1.2193,
+            "runMedianRange": [1.1333, 1.3133],
+            "betweenRunSD": 0.0632,
+            "robustScaleP50": 0.1108,
+            "robustScaleMax": 0.2381
+          }
+        },
+        "holdOut": {
+          "rowRuns": 2,
+          "blocks": 36,
+          "datasets": ["../data/censusclock-jv36i"],
+          "taken": "2026-08-07, at commit 752b8069be — a different session on a different day, five days after the last baseline session",
+          "observed": { "runMedians": [1.1605, 1.1878], "robustScales": [0.165, 0.1985] },
+          "verdict": "both IN CONTROL against limits derived without them"
+        },
+        "independence": "THE LIMITS ARE INDEPENDENT OF THE RUNS THEY ARE FIRST JUDGED ON, and that is the difference from clock_check_standard.json v1, which said in its own `independence` field that it was not. NIST e-Handbook 2.3.5's doctrine is that the limits come from a baseline the standard is not afterwards judged on; the corpus here is five sessions at five commits, so it splits: the four 2026-08-02 sessions are the baseline and the 2026-08-07 session is held out. 0 of 2 hold-out refusals is a small false-refusal measurement rather than no measurement at all. It is small — two row-runs cannot bound a 0.4% nominal rate — and the next recalibration should take a fresh baseline rather than fold the hold-out in.",
+        "chromium": "147.0.7727.15 (one version across all five sessions)",
+        "design": "6 rounds x 3 blocks x (4 warmup + 10 samples), plumb tare on, controlSlack 0.25"
+      }
+    }
+  },
+  "notInThisStandard": {
+    "rows": ["large-template", "feed"],
+    "why": "their control MEETS its own element-arithmetic prediction — run-median centres 1.8433 and 2.0146 against predictions 1.9759 and 1.9943, i.e. 93.3% and 101.0% of P — and rf2-y0pkh measured the strict all-blocks rule on them at 18.2% and 39.8% per-run false refusal and RETAINED it on those grounds",
+    "adjudicatedBy": "`controlVerdict` in shapes/census_clock_run.cjs — the strict all-blocks rule about the row's own element arithmetic, untouched by rf2-pzqy8",
+    "rationale": "Calibrating a standard for a row whose prediction the instrument already meets would replace a working control with a seeded one, and rf2-8a746 rejects retiring a control merely because it shares a shape with one that failed. Absence from this file is a positive statement about those rows, not an omission — a row in NEITHER list is a fault, and the driver refuses to adjudicate one."
+  },
+  "recalibrateOn": [
+    "any Chromium version change — the counters and the compositor are the instrument",
+    "any change to the harness: the door an arm goes through, the plumb tare, the settle, the sample or round counts",
+    "any change to the `ordinary` page — its 5 comment cards, its 51 elements, its 7 boundaries, the shape of a card",
+    "any change to the published clock (the counter the rows are stated on)",
+    "and the recalibration takes a FRESH baseline: re-deriving limits from the runs they will judge is how a check standard stops being one"
+  ]
+}
