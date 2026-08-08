@@ -6,19 +6,24 @@ refused.** On raw `TaskDuration` — the arm's own JavaScript *and* the frame it
 causes — `hicasso / reagent-subs` on `M1` reads **1.4896×** [1.3488 – 1.5989] on
 ~~the ensemble that has standing~~ the ensemble this page was written against,
 against the **1.2107×** ~~the candidate's clock publishes~~ the candidate's
-clock read before the correction *(2026-08-06, `rf2-jcm3p`: that page publishes
+clock read before the correction *(2026-08-06, `rf2-jcm3p`: ~~that page publishes
 no mount magnitude either — both readings are annotated there as historical
-observations stated under a failing `ctl-2x`)*. This page's own
+observations stated under a failing `ctl-2x`~~ — superseded; that page's readings
+stay annotated as historical observations, but the row publishes a magnitude
+again and the published one is at [§4.3](#43-the-published-m1-row), 2026-08-08,
+`rf2-diaud`)*. This page's own
 seven runs, taken at a heavier load regime, read **1.3737×** [1.3289 – 1.4331]
 and are published as a second regime rather than as the magnitude, because the
 corroboration control they were pre-registered against **failed**
 ([§5](#5-what-this-ensemble-may-not-say)).
 
 ~~**AND NEITHER MOUNT FIGURE IS A MAGNITUDE ANY LONGER (`rf2-jcm3p`, ruled
-2026-08-06).**~~ **`M1` PUBLISHES A MAGNITUDE AGAIN, CONDITIONALLY LABELLED
-(`rf2-t2flm`, ruled 2026-08-07 — [§4.3](#43-the-published-m1-row)).** The
-regime-only statement is **superseded**, and the paragraph below is kept because
-the reasoning that fell is part of the record.
+2026-08-06).**~~ ~~**`M1` PUBLISHES A MAGNITUDE AGAIN, CONDITIONALLY LABELLED
+(`rf2-t2flm`, ruled 2026-08-07).**~~ **`M1` PUBLISHES A MAGNITUDE ON K1's OWN
+ESTIMAND, AND THE VERDICT IS `K1 MISSED, DECISIVELY` (`rf2-diaud`, ruled
+2026-08-08 — [§4.3](#43-the-published-m1-row)).** The regime-only statement is
+**superseded**, the conditional labelling with it, and the paragraphs below are
+kept because the reasoning that fell is part of the record.
 
 ~~`M1`'s own positive control fails — `ctl-2x` reads **1.8173×**
 against a predicted 2.00× on this very ensemble
@@ -45,6 +50,14 @@ and `rf2-8a746`'s publication rule — reaching this row for the first time —
 returns `INSTRUMENT-LIMITED` on every pair. The magnitudes are **held pending a
 ruling**, not withdrawn — [§4.3](#43-the-published-m1-row) carries the whole of
 it.)*
+**The ruling came and the hold is lifted** *(2026-08-08, `rf2-diaud`: the
+whole-interval discipline is kept and its thresholds made row-class-specific, so
+`M1` is adjudicated against K1's own `≤ 1.10×` rather than bulk's `1.0`/`1.5`;
+and the row is recomputed on K1's own floor-normalised estimand, point and
+interval from one estimator, rather than spliced from two. The magnitudes above
+are therefore **superseded rather than restored** — the live row, its
+co-instrumented pairs, its labelled unfloored diagnostic and its caveats are all
+at [§4.3](#43-the-published-m1-row), quoted from nowhere else.)*
 Both historical figures stay on this page as dated observations, annotated with
 the control status they were taken under; nothing is erased. The superseded
 restatement is on
@@ -249,7 +262,7 @@ reading 3 would be a container that survived its unmount *(2026-08-06,
 
 | row | `hicasso / reagent-subs`, raw `TaskDuration` | on `taskNet` | reportable runs | disposition |
 |---|---:|---:|---:|---|
-| **`M1` mount** | **1.3737×** [1.3289 – 1.4331] *(historical — see §4.3)* | 1.1143× | **7 of 7** | ~~every run clears its own band (margins 32.9–43.3% against bands 4.9–10.8%)~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ **A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm` — [§4.3](#43-the-published-m1-row))*: `~1.184×` against direct UIx-on-subs, `1.1402×` / `1.1100×` against Reagent-on-subs, on the two **retained** ensembles and under the labels §4.3 states. `1.3737×` in this table is **this** ensemble's own reading and stays as a dated historical observation — taken at a heavier load regime, and no figure in §4.3 derives from it. See also [§5](#5-what-this-ensemble-may-not-say) |
+| **`M1` mount** | **1.3737×** [1.3289 – 1.4331] *(historical — see §4.3)* | 1.1143× | **7 of 7** | ~~every run clears its own band (margins 32.9–43.3% against bands 4.9–10.8%)~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ ~~**A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm`)*: `~1.184×` against direct UIx-on-subs, `1.1402×` / `1.1100×` against Reagent-on-subs, on the two **retained** ensembles and under the labels §4.3 states.~~ **A MAGNITUDE ON K1's OWN FLOOR-NORMALISED ESTIMAND — `K1 MISSED, DECISIVELY`** *(2026-08-08, `rf2-diaud` — [§4.3](#43-the-published-m1-row))*, drawn from the two **retained** ensembles, with Reagent-on-subs co-instrumented and gating nothing. The figures are at §4.3 and nowhere else. `1.3737×` in this table is **this** ensemble's own reading and stays as a dated historical observation — taken at a heavier load regime, and no figure in §4.3 derives from it. See also [§5](#5-what-this-ensemble-may-not-say) |
 | `bulk300` | 1.1494× [1.1102 – 1.2032] | 1.0703× | 3 of 7 | **refused** — control failed on 4, ceiling breached on 1 |
 | `bulk100` | 1.1089× [1.0649 – 1.1545] | 0.9859× | 2 of 7 | **refused** — control failed on 5 |
 | `narrow` | 1.0236× [0.9855 – 1.0900] | 1.0352× | 4 of 7 | **parity, instrument-limited** — every reportable run's margin is inside its band |
@@ -780,8 +793,10 @@ Therefore:
   control did pass at `1.0011×` on a quiet box — but the row's own **positive**
   control fails there too, at `ctl-2x` `1.8173×` against `2.00×`, so the figure
   is a historical observation and the row publishes a regime.~~ **There IS a
-  published `M1` magnitude again** *(2026-08-07, `rf2-t2flm` —
-  [§4.3](#43-the-published-m1-row))*, and it is **not** `1.4896×`. It is drawn
+  published `M1` magnitude again** *(2026-08-07, `rf2-t2flm`; recomputed on K1's
+  own floor-normalised estimand and published as `K1 MISSED, DECISIVELY` on
+  2026-08-08, `rf2-diaud` — [§4.3](#43-the-published-m1-row))*, and it is
+  **not** `1.4896×`. It is drawn
   from the two **retained** ensembles, which no earlier statement on this row
   could use because their datasets did not exist. `1.4896×` and `1.3737×` both
   stay visible as dated historical observations; neither is withdrawn, and
@@ -821,7 +836,9 @@ any control was consulted.
 ## 6. What is refused, and what is not
 
 **Refused as magnitudes:** `bulk300`, `bulk100`, `narrow`, `keystroke` — and
-~~`M1`~~ **no longer `M1`** *(2026-08-07, `rf2-t2flm`)*. ~~*(2026-08-06,
+~~`M1`~~ **no longer `M1`** *(2026-08-07, `rf2-t2flm`; and since 2026-08-08,
+`rf2-diaud`, `M1` publishes on K1's own estimand and against K1's own threshold
+— [§4.3](#43-the-published-m1-row))*. ~~*(2026-08-06,
 `rf2-jcm3p`: the qualifier is spent. `M1` is refused as a magnitude on every
 ensemble, this one and the two landed ones, because its control cannot adjudicate
 it anywhere. It publishes a mount **regime**.)*~~ **`M1` is refused on THIS
@@ -831,7 +848,8 @@ been the correct one, and striking it was the error: the control's reach is a
 property of the *run*, not of the row.
 
 **What each refused row publishes instead** *(2026-08-06, `rf2-jcm3p`,
-`rf2-swwud`; `M1`'s entry superseded 2026-08-07, `rf2-t2flm`)*: ~~`M1` a **mount
+`rf2-swwud`; `M1`'s entry superseded 2026-08-07, `rf2-t2flm`, and the row
+published as a magnitude 2026-08-08, `rf2-diaud`)*: ~~`M1` a **mount
 regime** — direction only, materially slower than
 both adapters, `≤ 1.10×` not demonstrated.~~ `keystroke` a **responsiveness
 regime** — indistinguishable from both donors at Event Timing's resolution,
@@ -1050,7 +1068,11 @@ evidence bearing on a ruling, not a ruling; it is recorded here and left to be
 ruled on.~~
 
 **IT WAS RULED ON, AND `M1`'S FOUR REPORTABLE RUNS ARE NOW PART OF A PUBLISHED
-MAGNITUDE** *(2026-08-07, `rf2-t2flm`)*. The paragraph above was right to stop:
+MAGNITUDE** *(2026-08-07, `rf2-t2flm`; and since `rf2-x7x10`'s calibrated mount
+class all eight of this ensemble's runs are, the reportable subset having become
+the whole ensemble — the published row is at
+[§4.3](#43-the-published-m1-row) under `rf2-diaud`, 2026-08-08)*. The paragraph
+above was right to stop:
 whether a control passing on four of eight runs is the same claim as a control
 that can adjudicate the row is a **ruling**, and a worker holding a measurement
 is not the one to make it. The ruling went **for** adjudication — the passes are
