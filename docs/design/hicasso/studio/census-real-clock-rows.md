@@ -202,9 +202,13 @@ The operator's open question: does the candidate's p0 mount deficit —
 reproduce on census-real screens?
 
 > **THOSE TWO M1 FIGURES ARE STILL NOT THE PUBLISHED MAGNITUDE, BUT THERE IS
-> ONE AGAIN (`rf2-t2flm`, ruled 2026-08-07).** M1 mount publishes `~1.184×`
-> against direct UIx-on-subs, conditionally labelled, drawn from two retained
-> quiet-box ensembles — [`rf2-emvod`
+> ONE AGAIN (`rf2-t2flm`, ruled 2026-08-07; ruled again `rf2-diaud`,
+> 2026-08-08).** M1 mount publishes ~~`~1.184×`
+> against direct UIx-on-subs, conditionally labelled,~~ drawn from two retained
+> quiet-box ensembles — and since `rf2-diaud` it is recomputed on **K1's own
+> floor-normalised estimand**, adjudicated against **K1's own `≤ 1.10×`** rather
+> than bulk's `1.0`/`1.5`, and published unconditionally with the verdict
+> `K1 MISSED, DECISIVELY`. [`rf2-emvod`
 > §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
 > carries the figures and the labels, and this page does not restate them.
 > `1.5001×` and `1.4896×` stay visible here as what the programme read on
@@ -219,8 +223,12 @@ reproduce on census-real screens?
 > control fails (`ctl-2x` 1.8173× against a predicted 2.00×, explained by the
 > additive constant `c ≈ 1.04 ms`), so no magnitude is published
 > ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).~~
-> *(Superseded 2026-08-07 — the implemented rule tests per-block band
-> membership rather than the mean, and seven of fourteen runs pass it.)*
+> *(Superseded 2026-08-07 — the implemented rule tested per-block band
+> membership rather than the mean, and seven of fourteen runs passed it. That
+> rule is itself since retired by `rf2-8a746` — `ctl-2x` was never failing, so
+> the premise this ruling reasoned from was wrong — and under the mount check
+> standard `rf2-x7x10` calibrated, all fourteen come back in control, so no
+> selection stands behind the published figure.)*
 >
 > **The rows measured on THIS page are untouched by either ruling** — they
 > carry their own controls, adjudicated per row above — and this page remains
@@ -322,9 +330,10 @@ three *different pages* — not a function of boundary decomposition, which this
 instrument does not isolate (`rf2-2rtt6.62`). And the second half is a
 comparison of readings, not of magnitudes: ~~M1 publishes a regime rather than a
 number (`rf2-jcm3p`, 2026-08-06 — see the note above)~~ **the `~1.50×` readings
-compared here are not M1's published figure** *(2026-08-07, `rf2-t2flm`: M1 does
-publish a magnitude, conditionally labelled and drawn from the two retained
-ensembles —
+compared here are not M1's published figure** *(2026-08-07, `rf2-t2flm`, and
+2026-08-08, `rf2-diaud`: M1 does publish a magnitude, ~~conditionally labelled
+and~~ drawn from the two retained ensembles, recomputed on K1's own
+floor-normalised estimand and published as `K1 MISSED, DECISIVELY` —
 [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) —
 and it is neither of the readings named above; see the note earlier on this
 page)*, and what these rows corroborate is the **direction**. The ruling on what

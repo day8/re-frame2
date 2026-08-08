@@ -250,8 +250,10 @@ a **REGIME** and not an adjudicated magnitude, because its own `ctl-2x` fails
 explaining the undershoot); `1.4896×` remains visible here as a historical
 observation *stated under a failing `ctl-2x`; withdrawn as a magnitude
 2026-08-06*.~~ *(Superseded 2026-08-07, `rf2-t2flm`: the row does publish a
-magnitude, drawn from the two retained quiet-box ensembles and conditionally
-labelled —
+magnitude, drawn from the two retained quiet-box ensembles and ~~conditionally
+labelled~~ — and ruled again 2026-08-08, `rf2-diaud`, which recomputes it on
+K1's own floor-normalised estimand, adjudicates it against K1's own `≤ 1.10×`
+rather than bulk's `1.0`/`1.5`, and publishes `K1 MISSED, DECISIVELY` —
 [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
 `1.4896×` is not it, and stays here as what these eight runs read on
 2026-08-01.)* **The check above is unaffected**, because it turns on this clock
@@ -524,10 +526,15 @@ commits is the check.
   reading above the amended `≤ 1.10×` UIx gate, `≤ 1.10×` not demonstrated —
   because the row's `ctl-2x` fails. `1.4896×` above is a reading stated under
   that failing control, not a published magnitude.~~ **That adjudication has
-  since happened twice, and it publishes a magnitude** *(2026-08-07,
+  since happened three times, and it publishes a magnitude** *(2026-08-07,
   `rf2-t2flm`, superseding the 2026-08-06 regime statement struck above —
   `rf2-jcm3p` read `ctl-2x`'s mean against `2.00×` where the implemented rule
-  tests per-block band membership)*: the row and its conditional labels are at
+  tested per-block band membership; that per-block rule is itself since retired
+  by `rf2-8a746`, the mount check standard is calibrated by `rf2-x7x10` so all 14
+  committed row-runs come back in control, and `rf2-diaud` ruled on 2026-08-08 —
+  row-class-specific thresholds, the row recomputed on K1's own floor-normalised
+  estimand, verdict `K1 MISSED, DECISIVELY`)*: the row, and every label it
+  carries, is at
   [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
   `1.4896×` above is this ensemble's own reading and stays as such; it is not
   the published figure.

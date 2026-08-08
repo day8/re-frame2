@@ -22,9 +22,13 @@ the stronger claim — is that an outside driver and ours agree to 8.8% on one a
 on one clock, so the deficit is not a harness artefact.
 
 > **THAT `1.4896×` IS A READING, AND THE PUBLISHED MAGNITUDE IS ELSEWHERE
-> (`rf2-t2flm`, ruled 2026-08-07).** `M1` mount publishes `~1.184×` against
-> direct UIx-on-subs, conditionally labelled and drawn from two retained
-> quiet-box ensembles; the figures and their labels are at [`rf2-emvod`
+> (`rf2-t2flm`, ruled 2026-08-07; ruled again `rf2-diaud`, 2026-08-08).** `M1`
+> mount publishes ~~`~1.184×` against
+> direct UIx-on-subs, conditionally labelled and~~ drawn from two retained
+> quiet-box ensembles — and since `rf2-diaud` it is recomputed on **K1's own
+> floor-normalised estimand**, adjudicated against **K1's own `≤ 1.10×`** rather
+> than bulk's `1.0`/`1.5`, and published unconditionally with the verdict
+> `K1 MISSED, DECISIVELY`; the figures and their labels are at [`rf2-emvod`
 > §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
 > and are not restated here. `1.4896×` stays visible wherever it appears below
 > as what the corrected clock read on 2026-08-01.
@@ -38,8 +42,11 @@ on one clock, so the deficit is not a harness artefact.
 > predicted 2.00×, explained by the additive constant `c ≈ 1.04 ms`), so no
 > magnitude is published
 > ([the clock page's §4](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)).~~
-> *(Superseded 2026-08-07: the implemented control rule tests per-block band
-> membership rather than the mean, and seven of fourteen runs pass it.)*
+> *(Superseded 2026-08-07: the implemented control rule tested per-block band
+> membership rather than the mean, and seven of fourteen runs passed it. That
+> rule is itself since retired by `rf2-8a746` — `ctl-2x` was never failing, so
+> the premise this ruling reasoned from was wrong — and under the mount check
+> standard `rf2-x7x10` calibrated, all fourteen come back in control.)*
 >
 > **This page's OWN figures are untouched by either ruling** — §0 establishes
 > they are script-and-frame on an unaffected harness — and the corroboration
@@ -350,7 +357,8 @@ of our harness.**
 >
 > The decomposition is. Against the M1 witness re-taken on the corrected clock
 > — `1.4896×`, a reading and **not the published magnitude** (~~`rf2-jcm3p`,
-> 2026-08-06~~ `rf2-t2flm`, 2026-08-07; see the note at the top of this
+> 2026-08-06~~ ~~`rf2-t2flm`, 2026-08-07~~ `rf2-diaud`, 2026-08-08; see the note
+> at the top of this
 > page) — the two legs are
 > **workload** (`1.4896 → 1.2789`, our
 > instrument throughout) and **instrument 8.8%** (`1.2789 → 1.1756`, the same
@@ -638,12 +646,14 @@ comparable to the public leaderboard** — which is not what it is for.
   elsewhere**: ~~`rf2-jcm3p` restated `M1` mount as a **regime** on 2026-08-06 —
   its `ctl-2x` fails, so no mount magnitude is published — and named this
   benchmark as one of the three legs corroborating that direction.~~
-  *(Superseded 2026-08-07, `rf2-t2flm`: `M1` publishes a magnitude again,
-  conditionally labelled, at
+  *(Superseded 2026-08-07, `rf2-t2flm`, and ruled again 2026-08-08,
+  `rf2-diaud`: `M1` publishes a magnitude again — ~~conditionally labelled~~ on
+  K1's own floor-normalised estimand, adjudicated against K1's own `≤ 1.10×`,
+  with the verdict `K1 MISSED, DECISIVELY` — at
   [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
   What is unchanged is this page's part in it — an outside driver corroborating
   the direction, one of three legs, and no figure of this page's restated by
-  either ruling.)*
+  any of these rulings.)*
 - **The bulk-broad win is refused by a third instrument.** `UIx / Reagent` reads
   0.9740 on the benchmark's `replace all rows` and 1.1419 on `swap rows`, against
   a published 0.6291. No instrument that has looked past the `flushSync`
