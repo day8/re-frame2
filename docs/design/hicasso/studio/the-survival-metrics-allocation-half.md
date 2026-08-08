@@ -54,6 +54,16 @@ the cheaper mistake is the one that never ships.
   clean at 0 of 44 since `rf2-2kshh` landed. Detail, and why the
   small-witness arm was not built in that window, are under
   [The published witness is outside the instrument's range](#the-published-witness-is-outside-the-instruments-range).
+- **The small-witness arm was then built, and measured 2026-08-08 — it
+  refuses too, and it refuses for a reason nobody had measured.** At B = 24
+  boundaries and six writes a window it took **101 falling steps across 132
+  windows** and **98 of those 132 windows sit over the masking budget**. The
+  cause is a fixed per-write cost that does not shrink when the page does:
+  an *empty* write of this bench allocates **~24.4 KB**, which is **57% of
+  the entire per-write allowance** the bound leaves at the six-write
+  averaging floor. Shrinking the measured unit — the route this page named —
+  has a floor, and this run is where the floor became a number. Detail under
+  [The small-witness arm, measured](#the-small-witness-arm-measured).
 
 ## What the metric is, and why the reads ladder does not answer it
 
@@ -323,8 +333,8 @@ size that fixes this, because one write is the atom.
 of [What this hands the programme](#what-this-hands-the-programme) describes.
 Before building anything it re-ran the published witness unchanged, at
 `abcb34217c`, on a box granted quiet for the purpose — Processor Queue Length
-**0** on every sample before the run, 29–42% of 24 logical cores. The verdict
-is the same verdict:
+**0 / 1 / 1 / 0 / 0** across the five samples taken before the run, 29–42% of
+24 logical cores. The verdict is the same verdict:
 
 - **36 falling steps across 44 measured windows** (2026-08-07), against the
   32 across 44 this section already records. Runner exit `1`.
@@ -388,6 +398,139 @@ not a line at this scale. Whether that is noise the smaller unit will resolve
 or a real non-linearity is itself unmeasured, and the small-witness arm
 should be costed against that question rather than assumed to answer it.
 
+## The small-witness arm, measured
+
+The arm clause (4) asks for was built by `rf2-2rtt6.138` (PR #7688) and had
+never been executed. It was executed once, on 2026-08-08, on a box granted
+quiet for the purpose, at the **derived defaults and with no `P0_ALLOC_*`
+override at all** — 6 cells × 4 roots = **B = 24 boundaries**, **six writes**
+a window, six rounds. Runner exit **1**.
+
+**The controls pass, and this is the cleanest reading of them the row has
+taken.** Idle window 32 B/iteration [32–32]; D = 1,000 → **8.08 B/double**
+[8,080–8,096 B]; D = 400 → **8.20 B/double** [3,280–3,280 B]; **differential
+exactly 8.00 B/double** against a predicted 8. All three fit self-tests (A,
+B, C) ok, and the warm-write read-back is clean — **0 unverified across all
+132 windows**. The arithmetic is not what is in question here, and after
+three runs agreeing to within a few hundredths of a byte it is fair to say
+it is settled.
+
+**Both collector gates refuse anyway:**
+
+- **101 falling steps across 132 measured windows.** The published witness
+  managed 32 and then 36 across 44 — per window, 0.73 and 0.82 against
+  **0.77 here.** Shrinking the page by a factor of fifty did not move the
+  rate at all.
+- **98 of 132 windows sit over the 300 KB masking budget**, the tightest at
+  **−3,999,106 B of headroom**. The 34 windows that do certify are *exactly*
+  the ones with no subscription in them — every `grid/floor` and almost
+  every R = 0 anchor — and no window at any rung from R = 1 upward certifies
+  on either segment.
+
+The window predicted **278,040 B** of rise + largest step against a 300,000 B
+budget. It measured between **130,976 B and 3,425,342 B**, and its median arm
+window is several times the whole budget. The sizing was not slightly
+optimistic; it was out by an order of magnitude at the top of the ladder.
+
+### The fixed per-write cost, measured for the first time
+
+The bead that sized this arm named the one term its arithmetic did not
+model: `:p0/write-all` rebuilds a 300-element vector and drives the whole
+event pipeline **whether one boundary is mounted or 1,200**, and no run had
+ever recorded that cost on its own. This run does, because the floor arm is
+precisely a write with no subscription under it:
+
+| segment | floor, per write | at B = 24, per boundary | falls |
+|---|---|---|---|
+| `reagent-subs` | **24,108 B** | 1,005 B | 0 of 6 |
+| `uix-subs` | **24,730 B** | 1,030 B | 0 of 6 |
+
+Call it **F ≈ 24.4 KB per write**, and note the property that matters: **F
+does not shrink when B does.** The bound charges `(W + 1) · perWrite`, so at
+the six-write averaging floor it allows a per-write cost of `300,000 / 7 =`
+**42,857 B** — and **F alone is 57% of that**, spent before a single
+boundary has been measured. The remaining ~18.4 KB per write is the entire
+budget available for every boundary on the page at every rung.
+
+That is the finding this window exists to have produced. The route this page
+recommended — *shrink the measured unit, not the window* — has a floor set by
+a constant that shrinking the unit cannot touch, and until this run nobody
+knew where the floor was.
+
+### What the bound admits at these costs
+
+Modelling a window as `perWrite ≈ F + B·s(R)` and reading `s(R)` off this
+run's own arms, the largest page each rung admits is (worst arm at each
+rung, since a ladder holds **one** B fixed across all of them):
+
+| rung | measured s (B/boundary/write) | largest B at W = 1 | at W = 3 | at W = 6 |
+|---|---|---|---|---|
+| R = 1 | 2,031 – 4,067 | 30 | 12 | 4 |
+| R = 3 | 4,888 – 5,904 | 21 | 8 | 3 |
+| R = 7 | 9,246 – 10,158 | 12 | 4 | 1 |
+| R = 20 | 6,800 – 22,174 | 5 | 2 | **0** |
+
+A fixed-B ladder must be sized by its worst rung, so read the bottom row.
+**At the six-write averaging floor there is no page of one boundary or more
+that certifies the 1/3/7/20 ladder.** At W = 1 there is — B ≤ 5 — but W = 1
+is exactly the configuration that produced r² 0.75 / 0.28 / 0.94 / 0.31 for
+want of averaging, and at B = 5 the un-modelled constant is **F / B ≈ 4,884
+B per boundary per write**, close to *twice* the entire first-read signal it
+would have to be read against. Its round-to-round spread (the floor arm
+moves 21,840–24,432 B per write across six rounds) then lands on the fit as
+noise, on the rung with the least signal.
+
+These `s(R)` are themselves read off windows the run refused as
+under-reading, so each is a **lower** bound on the true cost, and every
+figure in the table is therefore an **over**-estimate of the page that would
+certify. The squeeze is at least this tight and may be tighter.
+
+### The fits, and the question the bead asked
+
+The bead asked one open question of this arm: whether six writes of
+averaging resolves rungs that came back non-monotone at r² 0.75 / 0.28 /
+0.94 / 0.31. **It substantially does, for three arms of four** — which is
+worth recording even though nothing here may be published, because it is the
+first evidence either way:
+
+| arm | r² (mean of 6 rounds) | 0.98 floor | rounds linear |
+|---|---|---|---|
+| `reagent-subs` \| reagent (donor) | 0.99456 | clears | 3 of 6 |
+| `reagent-subs` \| hicasso (candidate) | 0.98648 | clears | 5 of 6 |
+| `uix-subs` \| uix (donor) | 0.98240 | clears | 3 of 6 |
+| `uix-subs` \| hicasso (candidate) | **0.58995** | **fails** | 1 of 6 |
+
+Against 0 of 4 clearing the floor at B = 300 with one write, 3 of 4 is a
+large move and it is the averaging that bought it. But the fits do not
+certify the row, for two reasons that matter more than the count:
+
+- **The one arm that fails is a candidate**, and it fails in the familiar
+  direction. Its R = 20 rung reads **7,818 B/boundary/write against R = 7's
+  10,477** — *lower at more reads* — and R = 20 is also the rung where that
+  arm took **17 falls in 6 windows**. The non-monotonicity now tracks the
+  fall count rather than the substrate, which is direct support for the
+  third of the three candidate causes this page left open: **the
+  instrument**, not noise and not a real non-linearity.
+- **The candidate slope bands are not measurements.** Where the donors come
+  in at 728 B/read [569–770] and 767 B/read [651–917], the candidates come in
+  at 834 B/read **[32–1,022]** and 290 B/read **[35–1,029]** — a thirty-fold
+  spread across rounds of the same arm on the same page. An r² over a
+  six-round mean can clear a floor that per-round bands like these should
+  have refused.
+
+### No magnitude is published from this run
+
+Two of the three preconditions failed: the bound did not certify (98 of 132
+windows), and the fits did not clear the floor on every arm (1 of 4 under).
+The controls passed. So the arm figures are recorded above only where they
+bear on *why the instrument refused* — the floor's F, the per-rung `s`, the
+fall counts — and **no candidate slope, no donor slope and no
+candidate-minus-donor difference from this run is quoted as a property of
+any substrate.** For the record and so nobody reconstructs them later: the
+two segments disagree in sign on candidate-minus-donor, one reading +106
+B/read and the other −477 B/read out of the same run. That is not a result;
+it is two segments under-reading by different amounts.
+
 ## What this hands the programme
 
 1. **The rig has an allocation instrument it did not have**, gated on its
@@ -407,15 +550,24 @@ should be costed against that question rather than assumed to answer it.
    - at any witness the instrument can see, a single-write window is too
      noisy to fit, and at any window large enough to average, the collector
      is inside it.
-4. **The route through is to shrink the measured unit, not the window.**
-   The quantity the metric wants is *per boundary*, so an arm of a few
-   dozen boundaries would put a many-write window under the fall threshold
-   and restore the averaging a fit needs. That is a new arm on this row
-   rather than a new instrument, and it is the shape the next attempt
-   should take. **It is `rf2-2rtt6.138`, it is now blocked on `rf2-n6w7o`,
-   and its premise about averaging is questioned above on the strength of
-   the 2026-08-07 re-take** — settle the fail-open first, then cost the arm
-   against whether the candidate's ladder is noisy or genuinely non-monotone.
+4. **The route through was to shrink the measured unit, not the window —
+   and it has now been tried, and it has a floor.** The quantity the metric
+   wants is *per boundary*, so an arm of a few dozen boundaries should have
+   put a many-write window under the fall threshold and restored the
+   averaging a fit needs. `rf2-2rtt6.138` built exactly that arm and
+   `rf2-n6w7o` supplied the bound to adjudicate it; the measurement is
+   [above](#the-small-witness-arm-measured) and it refuses. **The averaging
+   half of the premise was right** — 3 of 4 fits clear the 0.98 floor where
+   0 of 4 did at one write. **The scale half was wrong**, and for a term
+   nobody had measured: an empty write costs ~24.4 KB whatever B is, which
+   is 57% of the per-write allowance the bound leaves at six writes, and no
+   page of one boundary or more certifies the R = 20 rung at that window.
+   Shrinking the unit further makes the fit worse, not better, because the
+   same constant then dominates the low rungs. **The next attempt is not a
+   smaller page.** It is either a cheaper write on this bench, so that F
+   stops consuming the budget, or an instrument whose bound does not have to
+   charge `(W + 1) · perWrite` — and that is a design question, not a
+   sizing one.
 5. **Nothing in [validation.md](../validation.md) moves.** The survival
    metric's allocation half is exactly as unwitnessed as it was, and no
    gate line, budget or verdict anywhere in the corpus is restated on the
@@ -443,6 +595,22 @@ All three live under `implementation/core/test/re_frame/bench/`.
 > `9f0e341c2deffffc5b4dc32cbcf6ad00f2a5c924` at that commit, carrying
 > `rf2-2kshh` (`9d01cd171e`), which is why the Reagent-segment read-back is
 > clean where this page's own run recorded 16 failures.
+
+> **The 2026-08-08 small-witness run carries its own pins, because the
+> instrument moved under it.** It ran at `42cf8db7da`, where `p0_run.cjs` is
+> `5bcccdb650dbda48b043f4657405f8bc4ebbb265` and `p0_heap.cljs` is
+> `48e2e737676f75a0f00367d0691cabf84cb5f949` — both changed by `rf2-n6w7o`
+> (the masking bound) and `rf2-2rtt6.138` (the `:cells` page and the derived
+> window). `p0_arms.cljs` is unchanged at the blob above. **This is why that
+> run is reported as a new section rather than folded into the two above:
+> it is a different instrument, on a different page, and the falls-per-window
+> agreement across all three is an agreement between instruments rather than
+> a repeat measurement.**
+>
+> | what | where, and what it says |
+> |---|---|
+> | **Retained dataset** | `implementation/freehand/test/re_frame/bench/hicasso/data/alloc-2rtt6-138/run1.json` — the whole run, every window's samples, from which every figure in [The small-witness arm, measured](#the-small-witness-arm-measured) recomputes |
+> | **Box** | Processor Queue Length **0 / 0 / 0 / 0 / 0** on the five samples before the run and **0 / 0 / 0 / 0 / 0** after, with a single **1** on one intermediate sample taken while the worktree was being prepared; `\Processor(_Total)\% Processor Time` 9–26% before and 5–13% after, of 24 logical cores. Zero `java.exe`, no shadow-cljs server, no other bench work. The only other processes on the box were idle MCP stdio servers under two of the operator's own CLI sessions, which drew **13.3 s of CPU in total** across the run — about 0.06 of one core — and were left alone |
 
 Measured
 at authored head `d31fdb5a069b5b5ff5541ff2878f60278dd61e7a` on branch
@@ -484,8 +652,12 @@ P0_ROOTS=1 P0_ALLOC_ROUNDS=4 P0_ALLOC_WRITES=1 P0_ALLOC_WARMUPS=2 \
 # the published witness — refused on the falling-step gate
 P0_ALLOC_ROUNDS=2 P0_ALLOC_WRITES=6 P0_ALLOC_WARMUPS=2 \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
+
+# the small-witness arm (2026-08-08) — refused on BOTH collector gates.
+# No override: the page and the window are derived from the masking bound.
+node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 ```
 
-Both exit **1**, and the exit is the point: this row's gates are what
+All three exit **1**, and the exit is the point: this row's gates are what
 stopped a slope being published, so a run of it that exited 0 would be the
 surprising outcome.
