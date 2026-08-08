@@ -880,7 +880,9 @@ this is not a contradiction — it is a lower-centred ensemble of three, and
 accepting it as the row's value would be a **restatement on thin evidence**,
 which is exactly what §3's own rule forbids. ~~`rf2-jcm3p`'s ruling also stands
 untouched: `M1` publishes a regime, not a magnitude.~~ *(2026-08-07,
-`rf2-t2flm`: `rf2-jcm3p` is **superseded** and `M1` publishes a magnitude again —
+`rf2-t2flm`, and ruled again 2026-08-08, `rf2-diaud`: `rf2-jcm3p` is
+**superseded** and `M1` publishes a magnitude on K1's own floor-normalised
+estimand, verdict `K1 MISSED, DECISIVELY` —
 see the section below. **The paragraph above is unaffected**, because it is about
 the `uix-subs ÷ reagent-subs` **donor bar**, which the new ruling does not
 restate. `0.9427×` and `0.9538×` stay recorded and unpublished exactly as
@@ -948,6 +950,23 @@ promised to usually do so.
 > tension with `rf2-t2flm`'s published magnitude; that collision is a ruling and
 > is recorded rather than decided. The full account, including the intervals, is
 > at [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
+
+> **THE COLLISION WAS RULED AND THE ROW PUBLISHES (2026-08-08, `rf2-diaud`).**
+> The whole-interval discipline is retained with **no exceptions**, but its
+> thresholds are **row-class-specific** — `1.0` and `1.5` are the *bulk* row's
+> bar and architecture-kill, and `M1` answers to **K1's own `≤ 1.10×` direct
+> UIx-on-subs**. And the row is recomputed on **K1's own floor-normalised
+> estimand**, point and interval from that one estimator rather than spliced from
+> two, which is why the magnitudes above are **superseded rather than restored**.
+> The verdict is `K1 MISSED, DECISIVELY`.
+>
+> **What this means for this page is the same as the banner above:** nothing on
+> it moves. `clock-w3yxd` contributes six of the fourteen runs, its own tables
+> are unchanged, and the published row — every figure, both bounds, every label
+> and every caveat — is at
+> [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row),
+> which states that its figures are quoted from nowhere else. This page keeps
+> that discipline and restates none of them.
 
 **`clock-w3yxd` is the ensemble this page carries**, so the section above
 contributes three of those seven eligible runs. Its own tables do not move: the
