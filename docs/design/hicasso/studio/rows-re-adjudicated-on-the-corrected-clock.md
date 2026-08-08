@@ -481,10 +481,25 @@ different one, and it is about the *limits* rather than the runs: v2 is seeded
 from the same 14 row-runs it is quoted against, so `14 of 14` is a **consistency
 check and not a false-refusal measurement** (`0.4%` nominal per run, from a
 two-sided 3σ location term and a one-sided 3σ dispersion term). A check standard
-earns its name on a baseline it is not afterwards judged on, and this one has
-not had that yet; the JSON's `provenance.independence` says so where a
-recalibrator will read it, and on this class 14 runs is thin for fixing the
-dispersion term's σ.
+earns its name on a baseline it is not afterwards judged on, and at the time of
+writing this one had not had that; the JSON's `provenance.independence` said so
+where a recalibrator will read it, and on this class 14 runs is thin for fixing
+the dispersion term's σ.
+
+*(2026-08-08, `rf2-c1974`: **the hold-out has since been taken, and on this class
+it came back split.** v3 of the standard replaces the admission above with a
+measurement. Limits fitted on `clock-emvod`'s 8 mount row-runs admit all 6 of
+`clock-w3yxd`; limits fitted on `clock-w3yxd`'s 6 **refuse 4 of `clock-emvod`'s
+8**, every refusal on location and none on dispersion. The cause is not a large
+shift between the sittings — their centres are 1.81% apart, *less* than the bulk
+rows' 2.44% — but `clock-w3yxd`'s own tightness: a between-run SD of `0.0113`
+against `clock-emvod`'s `0.0486`, so a ±3σ budget only `0.0678` wide, which the
+offset alone all but fills. **The limits quoted above are not the failing ones** —
+they pool both sittings, carry the between-session term in their `0.0397` SD, and
+still admit all 14. What the split impeaches is *single-sitting* calibration on
+this class, now a named recalibration trigger. And note what the hold-out is: it
+crosses a **sitting**, same day and same tree, ~90 minutes apart. Commit-level
+independence has still never been measured on this instrument.)*
 
 **For comparison, the retired rule's arithmetic on this row**, since it is what
 the struck labels quoted: every block inside `2.00× ± 25%` put 240 of 252 blocks

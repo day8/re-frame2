@@ -87,10 +87,46 @@
 // reader with the datasets can run the readjudicator and get the row back — and
 // what the row then says is the readjudicator's to state, not this file's.
 //
+// ## v3 — THE LIMITS, VALIDATED OUT OF SAMPLE (rf2-c1974, 2026-08-08)
+//
+// `rf2-8a746` part 3 asks for limits frozen from an INDEPENDENT baseline, and
+// v1 and v2 both said in their own `provenance.independence` fields that they
+// did not have one: seeded from the runs they were quoted against, so `0 of 42`
+// and `14 of 14` were consistency checks and not false-refusal measurements.
+// That was honest and it was also a gap, because the moment a NEW run is judged
+// in control the verdict rests on limits nobody has tested out of sample.
+//
+// WHAT THIS CORPUS CAN SUPPORT, AND WHAT IT CANNOT. `rf2-pzqy8`'s census
+// standard held out a genuinely later COMMIT — its corpus spans five days and a
+// code change. This one does not: every run in both clock ensembles carries a
+// `when` of 2026-08-07 and the two ensembles start 87 minutes apart, on the
+// evidence one tree. So the strongest hold-out available here is by SITTING —
+// derive each class's limits from ONE ensemble, judge the OTHER against them —
+// and the JSON claims exactly that and no more. It crosses a coffee break, not
+// a commit, and the residual is written into `recalibrateOn` as the next
+// ensemble's job rather than left to read as if the criterion were discharged.
+//
+// BOTH WAYS, because one direction's answer depends on which ensemble happened
+// to be picked. On BULK they agree and every held-out row-run is in control, 42
+// of 42. ON MOUNT THEY DISAGREE, and that is the finding: `clock-emvod`'s 8 runs
+// give limits that admit all 6 of `clock-w3yxd`, while `clock-w3yxd`'s 6 give
+// limits that refuse 4 of `clock-emvod`'s 8 — every refusal on LOCATION, none on
+// dispersion. The cause is not a large between-session shift (the centres are
+// 1.81% apart, less than bulk's 2.44%) but the w3yxd sitting's own tightness: a
+// between-run SD under a quarter of emvod's, so a +/-3 sigma budget too narrow
+// to contain the offset. NOTHING WAS WIDENED TO REPAIR IT — the fence this bead
+// was raised under — and nothing needed to be: the shipped limits pool both
+// sittings, so they already carry the between-session component and admit all
+// 14. What the failure impeaches is SINGLE-SITTING CALIBRATION on that class,
+// which is why `recalibrateOn` now names it.
+//
 // Every number above is in the JSON, once. Neither centre is written here, and
 // the fixtures below derive their worlds from the classes' own frozen values
 // for the same reason: a fixture carrying a copy of a limit is a second
-// calibration waiting to drift from the first.
+// calibration waiting to drift from the first. The hold-out is the same rule
+// applied to a hold-out record: the arithmetic that produced it is driven over
+// the committed corpus by `clock_exit_path.test.cjs`, which has the datasets;
+// the fixtures here stay synthetic and check the record's SHAPE and its claims.
 
 'use strict';
 
@@ -511,7 +547,107 @@ function checkStandardSelfTest() {
     'every calibrated class states its provenance and its error rates — a limit with no baseline is an assertion',
     Object.entries(STANDARD.classes)
       .filter(([, k]) => k.calibrated)
-      .every(([, k]) => k.provenance && k.provenance.rowRuns > 0 && /NOT INDEPENDENT/.test(k.provenance.independence || '') && k.errorRates)
+      .every(([, k]) => k.provenance && k.provenance.rowRuns > 0 && k.provenance.independence && k.errorRates)
+  );
+
+  // 8. THE INDEPENDENCE CLAIM IS A MEASUREMENT (rf2-c1974), and the fixtures
+  //    that hold it to that are here rather than only in the corpus test,
+  //    because the corpus is retained and not required to build. What is
+  //    checked here is the RECORD — its shape, its arithmetic against itself,
+  //    and that it claims no more than a session-level hold-out. The numbers
+  //    themselves are re-derived from the committed datasets by
+  //    `clock_exit_path.test.cjs`, which is where the data lives.
+  const calibrated = Object.entries(STANDARD.classes).filter(([, k]) => k.calibrated);
+  check(
+    'every calibrated class carries an out-of-sample hold-out, taken BOTH WAYS',
+    calibrated.every(([, k]) => {
+      const h = k.provenance.holdOut;
+      if (!h || !Array.isArray(h.directions) || h.directions.length !== 2) return false;
+      const bases = h.directions.map((d) => d.baseline).sort();
+      const held = h.directions.map((d) => d.heldOut).sort();
+      // each ensemble serves once as baseline and once as the held-out set —
+      // a "both ways" that reused one baseline would be one direction twice
+      return bases[0] !== bases[1] && JSON.stringify(bases) === JSON.stringify(held);
+    }),
+    calibrated.map(([n, k]) => `${n}:${(k.provenance.holdOut && k.provenance.holdOut.directions || []).length}`).join(' ')
+  );
+  check(
+    'the two baselines PARTITION the class\'s corpus — a hold-out that judged a run it was fitted on is not one',
+    calibrated.every(([, k]) => {
+      const h = k.provenance.holdOut;
+      const sum = h.directions.reduce((a, d) => a + d.baselineRowRuns, 0);
+      return sum === k.provenance.rowRuns && h.directions.every((d) => d.baselineRowRuns + d.heldOutRowRuns === k.provenance.rowRuns);
+    }),
+    calibrated.map(([n, k]) => `${n}: ${k.provenance.holdOut.directions.map((d) => d.baselineRowRuns).join('+')} of ${k.provenance.rowRuns}`).join('; ')
+  );
+  check(
+    'the claim is SESSION-LEVEL and says why it is not commit-level — the weaker claim, made in the file rather than in a PR body',
+    calibrated.every(([, k]) => /SESSION[- ]LEVEL/i.test(k.provenance.holdOut.level) && /does not split by commit/.test(k.provenance.holdOut.whyNotCommitLevel)) &&
+      calibrated.every(([, k]) => /SESSION LEVEL/i.test(k.provenance.independence)),
+    calibrated.map(([n, k]) => `${n}: ${k.provenance.holdOut.level.slice(0, 40)}`).join(' | ')
+  );
+  check(
+    'and the residual is the STANDARD\'s to state: commit-level independence is named as what the next ensemble is for',
+    STANDARD.recalibrateOn.some((r) => /COMMIT-LEVEL INDEPENDENCE HAS NEVER BEEN MEASURED/.test(r)),
+    STANDARD.recalibrateOn.length + ' recalibration triggers'
+  );
+  check(
+    '`agree` is the arithmetic and not an opinion — true exactly when every direction admitted every held-out run',
+    calibrated.every(([, k]) => {
+      const h = k.provenance.holdOut;
+      const allIn = h.directions.every((d) => d.inControl === d.heldOutRowRuns);
+      const totIn = h.directions.reduce((a, d) => a + d.inControl, 0);
+      const totOf = h.directions.reduce((a, d) => a + d.heldOutRowRuns, 0);
+      return h.agree === allIn && h.heldOutInControl === `${totIn} of ${totOf}`;
+    }),
+    calibrated.map(([n, k]) => `${n}: agree=${k.provenance.holdOut.agree} ${k.provenance.holdOut.heldOutInControl}`).join('; ')
+  );
+  check(
+    'a DISAGREEING class states the disagreement and names every refused run and its term — not averaged into a summary',
+    calibrated
+      .filter(([, k]) => k.provenance.holdOut.agree === false)
+      .every(([, k]) => {
+        const h = k.provenance.holdOut;
+        const refused = h.directions.flatMap((d) => d.refused || []);
+        return (
+          typeof h.disagreement === 'string' &&
+          h.disagreement.length > 0 &&
+          refused.length > 0 &&
+          refused.every((r) => r.run && Number.isFinite(r.median) && r.term) &&
+          h.directions.every((d) => (d.refused || []).length === d.heldOutRowRuns - d.inControl)
+        );
+      }),
+    calibrated.filter(([, k]) => k.provenance.holdOut.agree === false).map(([n]) => n).join(',') || 'no class disagreed'
+  );
+  check(
+    'THE FENCE: no hold-out fit became a shipped limit — the frozen limits are still the POOLED ones',
+    calibrated.every(([, k]) =>
+      k.provenance.holdOut.directions.every(
+        (d) =>
+          d.centre !== k.centre &&
+          d.limits[0] !== k.location.limits[0] &&
+          d.limits[1] !== k.location.limits[1] &&
+          d.dispersionLimit !== k.dispersion.limit
+      )
+    ),
+    'a shipped limit equal to a single-ensemble fit would mean the standard had been refitted to make a hold-out pass'
+  );
+  check(
+    'and the pooled limits are not simply the widest available — pooling carried the between-session term, it did not widen',
+    calibrated.every(([, k]) => {
+      const width = k.location.limits[1] - k.location.limits[0];
+      const widths = k.provenance.holdOut.directions.map((d) => d.limits[1] - d.limits[0]);
+      return width < Math.max(...widths) && width > Math.min(...widths);
+    }),
+    calibrated
+      .map(([n, k]) => `${n}: pooled ${r4(k.location.limits[1] - k.location.limits[0])} against [${k.provenance.holdOut.directions.map((d) => r4(d.limits[1] - d.limits[0])).join(', ')}]`)
+      .join('; ')
+  );
+  check(
+    'every hold-out direction\'s limits bracket its own derived centre, exactly as the shipped ones do',
+    calibrated.every(([, k]) =>
+      k.provenance.holdOut.directions.every((d) => d.limits[0] < d.centre && d.centre < d.limits[1] && d.betweenRunSD > 0 && d.dispersionLimit > 0)
+    )
   );
 
   return { checks };
