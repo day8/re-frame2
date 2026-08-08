@@ -396,6 +396,36 @@ and the two instrument repairs a refusing control forced:
 > agree to 0.3%. Full re-adjudication:
 > [the corrected clock's page](studio/rows-re-adjudicated-on-the-corrected-clock.md).
 
+> **Ruled 2026-08-08 — the `M1` mount row publishes a MAGNITUDE, and the verdict
+> against K1's gate is MISSED, DECISIVELY (`rf2-diaud`).** The conditional
+> labelling recorded below is **superseded**, and so is the ground it stood on:
+> `rf2-8a746` retired the every-block `ctl-2x` rule everywhere on this
+> instrument — `ctl-2x` was never failing, so the premise `rf2-jcm3p` reasoned
+> from was wrong — and under the mount check standard `rf2-x7x10` calibrated,
+> all fourteen committed row-runs come back in control, so the `7 of 14`
+> conditioning below names nothing the instrument implements. Two things then
+> changed, and both belong to this ruling. `rf2-8a746`'s whole-interval
+> discipline is retained with **no exceptions**, but its thresholds are
+> **row-class-specific** — `1.0` and `1.5` are the *bulk* row's bar and
+> architecture-kill, and `M1` is adjudicated against **K1's own `≤ 1.10×` direct
+> UIx-on-subs**: ship only when the whole interval sits at or below it, trip K1
+> only when the whole interval sits above it, instrument-limited otherwise. And
+> the row is recomputed on **K1's own floor-normalised estimand**, point and
+> interval from that one estimator, rather than spliced from two. On both
+> retained ensembles the whole interval sits above the gate on the losing side.
+> The figures, the co-instrumented Reagent-on-subs pairs, the labelled unfloored
+> diagnostic and the residual-uncertainty caveats are at
+> [`rf2-emvod` §4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+> and are **not** duplicated here. **K1's gate is untouched by the change** —
+> what changed is that the row now clears a whole interval past it. Whether that
+> trips the kill criterion as the table below writes it — which asks for the gate
+> to be missed *after two serious runtime iterations* — is not decided here.
+> Delegated ruling, operator-overturnable.
+
+> ***Superseded 2026-08-08 by `rf2-diaud` — see the banner immediately above.
+> Kept in full: it is the position that ruling composed, and its conditioning is
+> what the ruling had to retire.***
+>
 > **Amended again, 2026-08-07 — the `M1` mount row publishes a MAGNITUDE once
 > more, conditionally labelled (`rf2-t2flm`).** The withdrawal recorded below is
 > **superseded**, and not because anything was re-measured: `rf2-jcm3p` read
@@ -440,7 +470,7 @@ and the two instrument repairs a refusing control forced:
 
 | row | candidate | disposition |
 |---|---|---|
-| **M1 mount** | ~~1.2107× Reagent-on-subs~~ *(frame-only)* → ~~**1.4896×** [1.3488 – 1.5989] on script-and-frame~~ → ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ **A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm` — [§4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*; `1.4896×` [1.3488 – 1.5989] on script-and-frame remains a dated 2026-08-01 reading and is **not** the published figure | above the `≤ 1.0×` win condition and above the `1.0150×` red zone on either clock, and above the amended `≤ 1.10×` UIx gate on every corroborated reading — ~~**the direction is what publishes; the size is not** (`rf2-jcm3p`)~~ **the direction and a conditionally-labelled size both publish** (`rf2-t2flm`, §4.3). The frame-only range straddled 1.0 so a deficit was not *established* at n = 6; the corrected clock's interval does **not** straddle it, and the deficit is larger. ~~But an interval missing 1.0 establishes a *magnitude* only against a control that can adjudicate it, and this row's cannot.~~ *(This row's control can adjudicate it — the rule tests per-block band membership, and 7 of 14 runs pass.)* The deficit is the runtime hiccup **codec**, not the spine: the candidate pays +1.06 ms over its own floor where `uix-subs` — same spine, same adapter, same 300 reads, byte-identical DOM — pays +0.38 ms |
+| **M1 mount** | ~~1.2107× Reagent-on-subs~~ *(frame-only)* → ~~**1.4896×** [1.3488 – 1.5989] on script-and-frame~~ → ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ → ~~**A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm`)*~~ **A MAGNITUDE, ON K1's OWN ESTIMAND AND K1's OWN THRESHOLD — K1 MISSED, DECISIVELY** *(2026-08-08, `rf2-diaud` — [§4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*; `1.4896×` [1.3488 – 1.5989] on script-and-frame remains a dated 2026-08-01 reading and is **not** the published figure | above the `≤ 1.0×` win condition and above the `1.0150×` red zone on either clock, and above the amended `≤ 1.10×` UIx gate on every corroborated reading — ~~**the direction is what publishes; the size is not** (`rf2-jcm3p`)~~ ~~**the direction and a conditionally-labelled size both publish** (`rf2-t2flm`, §4.3)~~ **the direction and an unconditional size both publish, and the whole interval clears K1's gate on the losing side** (`rf2-diaud`, §4.3). The frame-only range straddled 1.0 so a deficit was not *established* at n = 6; the corrected clock's interval does **not** straddle it, and the deficit is larger. ~~But an interval missing 1.0 establishes a *magnitude* only against a control that can adjudicate it, and this row's cannot.~~ ~~*(This row's control can adjudicate it — the rule tests per-block band membership, and 7 of 14 runs pass.)*~~ *(That per-block rule is itself retired — `rf2-8a746` — and under `rf2-x7x10`'s calibrated mount check standard all 14 committed row-runs are in control, so the reportable subset is the whole ensemble and no selection stands behind the published figure.)* The deficit is the runtime hiccup **codec**, not the spine: the candidate pays +1.06 ms over its own floor where `uix-subs` — same spine, same adapter, same 300 reads, byte-identical DOM — pays +0.38 ms |
 | **per-keystroke** | one frame, as are both donors | Event Timing puts every arm at its 16 ms reporting floor; the finer clock reads 2.0–2.3 ms of main-thread work inside a 16.7 ms budget. Indistinguishable, and a pass for all three |
 | bulk K=100/300, narrow | **refused** | the doubling control failed the strict rule in every run, and the rows move more between runs (0.87 → 1.38 on one) than the effect they report. The page names three repairs, one of which is that `ctl-2x` is mis-specified for an *update* row — it doubles the page, and on an update the work does not follow |
 
@@ -452,8 +482,9 @@ and the clock holding both halves reads 1.4896× (three *readings* of one row on
 three clocks — none of them ~~a published magnitude since `rf2-jcm3p`, above~~
 **the published magnitude, which is at
 [§4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)**
-*(2026-08-07, `rf2-t2flm`)*; the finding here is the split between them, which
-neither ruling touches). It
+*(2026-08-07, `rf2-t2flm`; ruled and recomputed on K1's own estimand 2026-08-08,
+`rf2-diaud`)*; the finding here is the split between them, which
+no ruling on this row touches). It
 is not a scale error that cancels in a ratio. The pure-React control arms differ
 by only 6–13%, which is
 how a lane that checks only its controls in-page would never see it — and,
@@ -481,7 +512,7 @@ ours.
 
 | row | outside instrument | our published figure | disposition |
 |---|---|---|---|
-| **candidate mount** | `1.1756×` on create-1,000 | ~~`1.2107×`~~ `1.4896×` on M1 — ~~**no longer a published figure**, the row states a regime *(2026-08-06, `rf2-jcm3p`)*~~ **not the published figure, which is at [§4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)** *(2026-08-07, `rf2-t2flm`)* | **corroborated in direction** (`rf2-emvod`), and the direction is what an outside instrument on a different app can supply. `1.2107×` is a frame-**only** figure and the outside instrument's is script-and-frame, so "1.18–1.28" compared unlike things. On one clock the gap is **workload (~7–17%)** plus an **instrument-window 8.8%** with a named mechanism — and the leg that was previously invisible, the clock definition, is eliminated rather than estimated. The mount deficit is not a harness artefact and is **larger on our own witness** than this row read |
+| **candidate mount** | `1.1756×` on create-1,000 | ~~`1.2107×`~~ `1.4896×` on M1 — ~~**no longer a published figure**, the row states a regime *(2026-08-06, `rf2-jcm3p`)*~~ **not the published figure, which is at [§4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)** *(2026-08-07, `rf2-t2flm`; and that row is since ruled, recomputed on K1's own floor-normalised estimand and published as **K1 MISSED, DECISIVELY** — 2026-08-08, `rf2-diaud`)* | **corroborated in direction** (`rf2-emvod`), and the direction is what an outside instrument on a different app can supply. `1.2107×` is a frame-**only** figure and the outside instrument's is script-and-frame, so "1.18–1.28" compared unlike things. On one clock the gap is **workload (~7–17%)** plus an **instrument-window 8.8%** with a named mechanism — and the leg that was previously invisible, the clock definition, is eliminated rather than estimated. The mount deficit is not a harness artefact and is **larger on our own witness** than this row read |
 | **donor bulk broad** | `0.9740×` on replace-all, `1.1419×` on swap | ~~`0.6291×`~~ **withdrawn** | **refused a third time, and now [re-taken](studio/bulk-broad-re-taken.md).** No instrument that sees the whole operation reproduces the 37% win; the re-take reads `0.8602×`, keeps the direction and publishes no magnitude. It expected parity and did not find it either — the row is a real but much smaller win, at the edge of the instrument's resolution |
 | candidate bulk | `1.6216×` theirs / `1.4260×` ours on replace-all | **refused** by the clock page | the candidate's **worst** row, agreed by both instruments and materially worse than its mount |
 | candidate narrow | `0.7203×` theirs / `0.7583×` ours on partial-update | **refused** by the clock page | a **win** — 24–28% faster than Reagent-on-subs. UIx wins it slightly harder |
