@@ -3938,25 +3938,34 @@ function fixtureRoundsTask(over) {
   t('criterion 3: the WHOLE interval must clear the threshold, and the effect must clear the band', () => {
     // Both conditions and neither alone, driven at the boundary in each
     // direction. A lower ratio is faster: these are times.
+    //
+    // AMENDED BY rf2-diaud: the verdict is asked for a ROW and a PAIR rather
+    // than a bare limit, because the threshold belongs to the row class beside
+    // the estimand it was derived for. `bulk300` is the bulk class, whose path
+    // rf2-diaud (b) leaves unchanged — including its band veto, retained on
+    // this class alone pending rf2-vh0e3 — so every assertion below still
+    // reads exactly as rf2-8a746 froze it.
+    const P = 'hicasso / reagent-subs';
+    const ev = (iv, bandPct) => effectVerdict(iv, BULK, P, { widestSameRunBandPct: bandPct });
     const below = { runs: 8, rounds: [6], point: 0.6, lo: 0.55, hi: 0.65, draws: 1, seed: 1 };
-    assert.strictEqual(effectVerdict(below, 10).publishes, true, 'wholly below 1.0 and a 40% effect over a 10% band');
-    assert.match(effectVerdict(below, 10).verdict, /MAGNITUDE PUBLISHABLE/);
-    assert.strictEqual(effectVerdict(below, 50).publishes, false, 'the same interval inside a 50% band publishes nothing');
-    assert.match(effectVerdict(below, 50).why, /an effect inside the band is a difference this instrument cannot resolve/);
+    assert.strictEqual(ev(below, 10).publishes, true, 'wholly below 1.0 and a 40% effect over a 10% band');
+    assert.match(ev(below, 10).verdict, /MAGNITUDE PUBLISHABLE/);
+    assert.strictEqual(ev(below, 50).publishes, false, 'the same interval inside a 50% band publishes nothing');
+    assert.match(ev(below, 50).why, /the widest same-run noise band among the pooled runs/);
     const straddles = { runs: 8, rounds: [6], point: 0.99, lo: 0.9, hi: 1.05, draws: 1, seed: 1 };
-    assert.strictEqual(effectVerdict(straddles, 1).publishes, false, 'an interval containing parity publishes nothing');
-    assert.match(effectVerdict(straddles, 1).verdict, /INSTRUMENT-LIMITED/);
+    assert.strictEqual(ev(straddles, 1).publishes, false, 'an interval containing parity publishes nothing');
+    assert.match(ev(straddles, 1).verdict, /INSTRUMENT-LIMITED/);
     const kill = { runs: 8, rounds: [6], point: 1.9, lo: 1.7, hi: 2.1, draws: 1, seed: 1 };
-    assert.strictEqual(effectVerdict(kill, 10).publishes, true);
-    assert.match(effectVerdict(kill, 10).verdict, /ARCHITECTURE-KILL/);
+    assert.strictEqual(ev(kill, 10).publishes, true);
+    assert.match(ev(kill, 10).verdict, /ARCHITECTURE-KILL/);
     const nearKill = { runs: 8, rounds: [6], point: 1.5, lo: 1.4, hi: 1.6, draws: 1, seed: 1 };
-    assert.strictEqual(effectVerdict(nearKill, 10).publishes, false, 'an interval straddling 1.5 is not a kill');
+    assert.strictEqual(ev(nearKill, 10).publishes, false, 'an interval straddling 1.5 is not a kill');
     // an unrecorded band is not a clear band
-    assert.strictEqual(effectVerdict(below, NaN).publishes, false, 'no band recorded is not a band cleared');
+    assert.strictEqual(ev(below, NaN).publishes, false, 'no band recorded is not a band cleared');
     // and two runs are not an ensemble
-    assert.strictEqual(effectVerdict({ ...below, runs: 2 }, 1).publishes, false);
-    assert.match(effectVerdict({ ...below, runs: 2 }, 1).why, /is not an ensemble/);
-    assert.strictEqual(effectVerdict(null, 1).publishes, false, 'no interval is not a pass');
+    assert.strictEqual(ev({ ...below, runs: 2 }, 1).publishes, false);
+    assert.match(ev({ ...below, runs: 2 }, 1).why, /is not an ensemble/);
+    assert.strictEqual(ev(null, 1).publishes, false, 'no interval is not a pass');
   });
 
   // --- 6. AND OVER THE COMMITTED 42-RUN CORPUS ------------------------------
@@ -4006,9 +4015,9 @@ function fixtureRoundsTask(over) {
         const rows = datasets.map((data) => ({ data, row: data.rows.find((r) => r.rowId === rowId) })).filter((x) => x.row);
         const pooled = rows.filter(({ row, data }) => reportable(row, data));
         for (const pair of PAIRS_8a746) {
-          const iv = effectInterval(pooled.map(({ row }) => pairedLogRatios(row, pair)).filter(Boolean));
+          const iv = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean));
           const bands = pooled.map(({ row }) => row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
-          const ev = effectVerdict(iv, bands.length ? Math.max(...bands) : NaN);
+          const ev = effectVerdict(iv, rowId, pair, { widestSameRunBandPct: bands.length ? Math.max(...bands) : NaN });
           assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/${rowId}/${pair}: a verdict must carry its reason`);
           assert.ok(
             /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL)/.test(ev.verdict),
@@ -4027,7 +4036,15 @@ function fixtureRoundsTask(over) {
     }
   });
 
-  t('and the program itself exits 0 over both committed ensembles, publishing no magnitude', () => {
+  t('and the program itself exits 0 over both committed ensembles, publishing no BULK magnitude', () => {
+    // SCOPED TO THE BULK BLOCKS BY rf2-diaud, and the scoping is the fence
+    // rather than a relaxation of it. This assertion used to read the whole
+    // output because the whole output was bulk's answer; the mount row now
+    // publishes under its own ruling, so a whole-output grep would pin M1's
+    // verdict here by accident — in the block whose entire subject is that the
+    // 42 BULK row-runs are calibration evidence and are never retroactively
+    // promoted. The M1 verdict is pinned where it belongs, in the rf2-diaud
+    // block at the foot of this file.
     const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
     for (const { dir } of CORPORA) {
       const d = path.join(__dirname, 'data', dir);
@@ -4036,8 +4053,17 @@ function fixtureRoundsTask(over) {
       const r = cp.spawnSync(process.execPath, [RJ, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       const out = `${r.stdout}${r.stderr}`;
       assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
-      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746\)/.test(out), `${dir}: the interval must be printed`);
-      assert.ok(!/VERDICT MAGNITUDE PUBLISHABLE|VERDICT ARCHITECTURE-KILL/.test(out), `${dir}: no magnitude may be published from the corpus`);
+      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746, row-class estimand and threshold rf2-diaud\)/.test(out), `${dir}: the interval must be printed`);
+      for (const rowId of BULK_ROWS) {
+        const at = out.indexOf(`;; ======== ROW ${rowId} `);
+        assert.ok(at >= 0, `${dir}: the ${rowId} block must be printed`);
+        const next = out.indexOf(';; ======== ROW ', at + 1);
+        const block = out.slice(at, next < 0 ? undefined : next);
+        assert.ok(
+          !/VERDICT MAGNITUDE PUBLISHABLE|VERDICT ARCHITECTURE-KILL/.test(block),
+          `${dir}/${rowId}: no magnitude may be published from the committed corpus`
+        );
+      }
       assert.ok(/pooled means below are DIAGNOSTICS/.test(out), `${dir}: the pooled means must be labelled`);
     }
   });
@@ -4252,28 +4278,35 @@ function fixtureRoundsTask(over) {
       const rows = c.map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') })).filter((x) => x.row);
       const pooled = rows.filter(({ row, data }) => reportable(row, data));
       for (const pair of M1_PAIRS) {
-        const iv = effectInterval(pooled.map(({ row }) => pairedLogRatios(row, pair)).filter(Boolean));
-        const bands = pooled.map(({ row }) => row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
-        const ev = effectVerdict(iv, bands.length ? Math.max(...bands) : NaN);
+        const iv = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean));
+        const ev = effectVerdict(iv, 'M1', pair);
         assert.ok(iv, `${dir}/M1/${pair}: the corpus must now yield an interval to adjudicate`);
         assert.ok(iv.lo <= iv.point && iv.point <= iv.hi, `${dir}/M1/${pair}: the point must lie inside its own interval`);
         assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/M1/${pair}: a verdict must carry its reason`);
         assert.ok(
-          /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL)/.test(ev.verdict),
+          /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL|K1 MISSED|MOUNT SHIP BAR MET|CO-INSTRUMENTED)/.test(ev.verdict),
           `${dir}/M1/${pair}: unrecognised verdict ${ev.verdict}`
         );
-        // PINNED AS THE RULING'S FENCE, NOT AS A PREFERRED ANSWER, exactly as
-        // the bulk corpus case above is. These 14 row-runs are calibration
-        // evidence; promoting them to a published magnitude is a RULING —
-        // rf2-t2flm's magnitude and rf2-8a746's whole-interval rule currently
-        // disagree on this row — and no code here may do it silently. If this
-        // ever flips, the failure IS the finding.
+        // THE PIN FLIPPED, AND IT FLIPPED BY RULING (rf2-diaud, 2026-08-08).
+        //
+        // It used to read `publishes === false` on every pair, with a message
+        // saying that a flip is a ruling to be made and not a test to be
+        // updated. That was right, the ruling was made, and this is what it
+        // says: `M1` is adjudicated against K1's `1.10x` mount gate rather than
+        // against bulk's `1.0`/`1.5`, on K1's OWN floor-normalised estimand,
+        // and on the gated pair the whole interval sits above the gate. The
+        // magnitude is published — as a MISS, which is the honest direction.
+        //
+        // The other two pairs publish nothing, and not because they are noisy:
+        // `validation.md` states K1's gate against DIRECT UIx-on-subs and says
+        // in terms that Reagent-on-subs does not gate this row.
+        const gated = pair === 'hicasso / uix-subs';
         assert.strictEqual(
           ev.publishes,
-          false,
-          `${dir}/M1/${pair} PUBLISHED a magnitude from the committed corpus. That is a ruling to be made, not a ` +
-            `test to be updated: rf2-t2flm publishes a magnitude on this row and rf2-8a746 part 4 publishes one only ` +
-            `on a whole interval clearing the 1.0 bar or the 1.5 kill threshold. Verdict: ${ev.verdict} — ${ev.why}`
+          gated,
+          `${dir}/M1/${pair}: expected publishes === ${gated} under rf2-diaud — the gated pair trips K1 on a whole ` +
+            `interval above 1.10x, the co-instrumented pairs are reported beside it and gate nothing. ` +
+            `Verdict: ${ev.verdict} — ${ev.why}`
         );
       }
     }
@@ -4292,7 +4325,7 @@ function fixtureRoundsTask(over) {
       assert.ok(!/reportable subset: NONE/.test(m1), `${dir}: the M1 row must have a reportable subset — that is the defect rf2-x7x10 repairs`);
       assert.ok(new RegExp(`reportable subset [0-9.]+x n=${runs}`).test(m1), `${dir}: the subset must pool all ${runs} runs`);
       assert.ok(!/the `mount` class of the check standard is NOT CALIBRATED/.test(m1), `${dir}: the mount class is calibrated now`);
-      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746\)/.test(m1), `${dir}: the interval must be printed on M1 too`);
+      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746, row-class estimand and threshold rf2-diaud\)/.test(m1), `${dir}: the interval must be printed on M1 too`);
     }
   });
 
@@ -4620,6 +4653,369 @@ function fixtureRoundsTask(over) {
   t('the ruling is cited by bead id in every surface it changed', () => {
     for (const file of ['clock_check_standard.json', 'clock_check_standard.cjs']) {
       assert.ok(/rf2-c1974/.test(fs.readFileSync(path.join(__dirname, file), 'utf8')), `${file} must cite the ruling that changed it`);
+    }
+  });
+}
+
+// --- rf2-diaud: A POINT AND AN INTERVAL MUST DESCRIBE THE SAME ESTIMAND ------
+//
+// The defect this block pins is not a wrong number. Every figure `rf2-t2flm`
+// and `rf2-x7x10` published was correctly computed. The fault was that the
+// POINT and the INTERVAL came from two different estimators: `validation.md`
+// defines canonical `M1` as FLOOR-NORMALISED on the clock of record, while the
+// interval was computed on the level ratio that touches neither floor. The
+// proposed publication spliced floor-normalised points onto unfloored geometric
+// intervals — two correct figures making one incorrect claim.
+//
+// So the block below proves three things, and the third is the one that lasts:
+// that the tool computes K1's own estimand; that the row-specific threshold is
+// what adjudicates it; and that NO FIGURE CAN BE SPLICED, because the estimand
+// is bound to the threshold in one table entry and neither can be supplied by a
+// caller.
+{
+  const {
+    pairedLogRatios, counterpartLogRatios, effectInterval, effectVerdict,
+    reportable, PUBLICATION, publicationRule,
+  } = require('./clock_readjudicate.cjs');
+  const t = (what, fn) => test(`rf2-diaud: ${what}`, fn);
+  const GATED = 'hicasso / uix-subs';
+  const M1_PAIRS = ['hicasso / reagent-subs', GATED, 'uix-subs / reagent-subs'];
+  const STUDIO = path.join(__dirname, '..', '..', '..', '..', '..', '..', 'docs', 'design', 'hicasso', 'studio');
+
+  /** The ruling's expected outcome, to 4 places — the tool's, not the note's. */
+  const EXPECTED = {
+    'clock-emvod': { runs: 8, point: '1.1718', lo: '1.1263', hi: '1.2190', widestBand: 22.34 },
+    'clock-w3yxd': { runs: 6, point: '1.1976', lo: '1.1504', hi: '1.2468', widestBand: 18.29 },
+  };
+
+  const corpus = (dir) => {
+    const d = path.join(__dirname, 'data', dir);
+    if (!fs.existsSync(d)) return null;
+    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')) }));
+  };
+
+  /** Every reportable M1 run of an ensemble, as the publication path sees them. */
+  const pooledM1 = (dir) => {
+    const c = corpus(dir);
+    if (!c) return null;
+    return c
+      .map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') }))
+      .filter((x) => x.row && reportable(x.row, x.data));
+  };
+
+  const m1Interval = (dir, pair) => {
+    const pooled = pooledM1(dir);
+    return pooled && effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean));
+  };
+
+  // --- 1. CRITERION (a): THE TOOL COMPUTES K1's OWN ESTIMAND ----------------
+
+  t("criterion (a): the mount estimand IS validation.md's canonical M1, and the driver's own bar proves it", () => {
+    // The estimator is computed from `roundsTask` — the raw per-sample
+    // readings — and not read back from a stored summary. `clock_run.cjs`'s
+    // `crossSegment` computed the same quantity at capture time and stored it
+    // in `barTask[pair].perRound`, so the two agreeing to the last place is a
+    // WITNESS that this file implements the driver's own definition rather
+    // than an assumption that it does. If they ever part, one of them has
+    // silently changed what canonical `M1` means.
+    let checked = 0;
+    for (const dir of Object.keys(EXPECTED)) {
+      const c = corpus(dir);
+      if (!c) return;
+      for (const { data } of c) {
+        const row = data.rows.find((r) => r.rowId === 'M1');
+        for (const pair of M1_PAIRS) {
+          const mine = pairedLogRatios(row, pair, data).map((x) => Math.exp(x).toFixed(4));
+          const driver = row.barTask[pair].perRound.map((x) => x.toFixed(4));
+          assert.deepStrictEqual(mine, driver, `${dir}/M1/${pair}: the estimand and the driver's own bar must agree`);
+          checked += 1;
+        }
+      }
+    }
+    assert.strictEqual(checked, 42, 'three pairs over fourteen committed mount row-runs');
+  });
+
+  t('criterion (a): it is FLOOR-NORMALISED, so it is NOT the level ratio — and the difference is measurable', () => {
+    // The whole defect in one assertion. If these two agreed, the splice would
+    // have been harmless and there would have been nothing to repair.
+    for (const dir of Object.keys(EXPECTED)) {
+      const pooled = pooledM1(dir);
+      if (!pooled) return;
+      const floored = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, GATED, data)));
+      const level = effectInterval(pooled.map(({ row, data }) => counterpartLogRatios(row, GATED, data)));
+      assert.ok(floored && level);
+      assert.notStrictEqual(floored.point.toFixed(4), level.point.toFixed(4), `${dir}: the two estimands must differ`);
+      assert.notStrictEqual(floored.lo.toFixed(4), level.lo.toFixed(4));
+      assert.notStrictEqual(floored.hi.toFixed(4), level.hi.toFixed(4));
+    }
+  });
+
+  t('criterion (a): the estimand refuses a record that did not serialise its tare', () => {
+    // Fail-closed at the same seat `checkStandardFor` is: whether the readings
+    // are tared decides what a floor-normalised ratio taken from them MEANS.
+    const c = corpus('clock-emvod');
+    if (!c) return;
+    const { data } = c[0];
+    const row = data.rows.find((r) => r.rowId === 'M1');
+    assert.ok(pairedLogRatios(row, GATED, data), 'the design record is present and the estimand forms');
+    assert.strictEqual(pairedLogRatios(row, GATED, { ...data, design: undefined }), null, 'no design record, no estimand');
+    assert.strictEqual(
+      pairedLogRatios(row, GATED, { ...data, design: { ...data.design, tare: 'yes' } }),
+      null,
+      'a tare that is not a boolean has not been serialised'
+    );
+    assert.strictEqual(pairedLogRatios(row, GATED, undefined), null, 'and the dataset is not optional on this class');
+  });
+
+  // --- 2. CRITERION (b): THE THRESHOLD IS THE ROW CLASS'S -------------------
+
+  t('criterion (b): the estimand and the threshold live in ONE entry, so they cannot drift apart', () => {
+    const mount = publicationRule('M1');
+    const bulk = publicationRule('bulk300');
+    assert.strictEqual(mount.estimand, 'floorNormalised');
+    assert.strictEqual(mount.gate, 1.1);
+    assert.match(mount.governingRecord, /validation\.md:14\/:286/);
+    assert.match(mount.governingRecord, /FLOOR-NORMALISED/);
+    assert.strictEqual(bulk.estimand, 'level');
+    assert.strictEqual(bulk.bar, 1.0);
+    assert.strictEqual(bulk.architectureKill, 1.5);
+    assert.strictEqual(publicationRule('keystroke'), null, 'a row with no class has no rule, and publishes nothing');
+    assert.strictEqual(effectVerdict(null, 'keystroke', GATED).publishes, false);
+    assert.match(effectVerdict(null, 'keystroke', GATED).verdict, /NO PUBLICATION RULE/);
+  });
+
+  t("criterion (b): the mount rule's boundary, driven in both directions at 1.10x", () => {
+    const iv = (lo, hi) => ({ runs: 8, rounds: [6], point: (lo + hi) / 2, lo, hi, draws: 1, seed: 1 });
+    // ship: the WHOLE interval at or below the gate
+    assert.strictEqual(effectVerdict(iv(1.0, 1.1), 'M1', GATED).publishes, true, '1.10 exactly is at the gate, so it ships');
+    assert.match(effectVerdict(iv(1.0, 1.1), 'M1', GATED).verdict, /MOUNT SHIP BAR MET/);
+    assert.strictEqual(effectVerdict(iv(1.0, 1.1001), 'M1', GATED).publishes, false, 'a hair above and it no longer ships');
+    // trip: the WHOLE interval strictly above the gate
+    assert.strictEqual(effectVerdict(iv(1.1001, 1.3), 'M1', GATED).publishes, true);
+    assert.match(effectVerdict(iv(1.1001, 1.3), 'M1', GATED).verdict, /K1 MISSED, DECISIVELY/);
+    assert.strictEqual(effectVerdict(iv(1.1, 1.3), 'M1', GATED).publishes, false, 'a lower bound AT the gate is not above it');
+    // and the middle is instrument-limited, which is the discipline retained
+    assert.match(effectVerdict(iv(1.05, 1.2), 'M1', GATED).verdict, /INSTRUMENT-LIMITED/);
+    assert.match(effectVerdict(iv(1.05, 1.2), 'M1', GATED).why, /straddles K1's 1\.1x mount gate/);
+    // two runs are still not an ensemble, on any class
+    assert.strictEqual(effectVerdict({ ...iv(1.2, 1.3), runs: 2 }, 'M1', GATED).publishes, false);
+  });
+
+  t("MUTATION: adjudicate M1's own interval against BULK's thresholds and it stops publishing", () => {
+    // The pre-ruling behaviour, reproduced deliberately. `1.0`/`1.5` are the
+    // bulk row's lines; an interval at ~1.17x clears neither, which is exactly
+    // why rf2-8a746's rule returned INSTRUMENT-LIMITED on a row whose own gate
+    // it clears decisively. This is the mutation that proves the row-specific
+    // threshold is load-bearing rather than decorative.
+    for (const dir of Object.keys(EXPECTED)) {
+      const iv = m1Interval(dir, GATED);
+      if (!iv) return;
+      assert.strictEqual(effectVerdict(iv, 'M1', GATED).publishes, true, `${dir}: on its own gate it publishes`);
+      const asBulk = effectVerdict(iv, 'bulk300', 'hicasso / reagent-subs', { widestSameRunBandPct: 1 });
+      assert.strictEqual(asBulk.publishes, false, `${dir}: on bulk's thresholds the same interval publishes nothing`);
+      assert.match(asBulk.why, /does not lie wholly on one side of the 1 bar/);
+    }
+  });
+
+  t('MUTATION: without gatedPairs the mount rule would claim the SHIP BAR on a donor-against-donor pair', () => {
+    // `validation.md` states K1's gate against DIRECT UIx-on-subs and says in
+    // terms that Reagent-on-subs does not gate this row. Without that scoping
+    // the rule reads `uix-subs / reagent-subs` — UIx against Reagent, a
+    // comparison K1 does not ask — and, because that interval sits under
+    // 1.10x, announces that the MOUNT SHIP BAR IS MET. Proved by removing the
+    // scoping and putting it back.
+    const iv = m1Interval('clock-emvod', 'uix-subs / reagent-subs');
+    if (!iv) return;
+    assert.ok(iv.hi < 1.1, 'the donor pair does sit under the gate, which is what makes the mutation dangerous');
+    assert.strictEqual(effectVerdict(iv, 'M1', 'uix-subs / reagent-subs').publishes, false);
+    assert.match(effectVerdict(iv, 'M1', 'uix-subs / reagent-subs').verdict, /CO-INSTRUMENTED/);
+    const before = PUBLICATION.mount.gatedPairs;
+    let mutated;
+    try {
+      PUBLICATION.mount.gatedPairs = null;
+      mutated = effectVerdict(iv, 'M1', 'uix-subs / reagent-subs');
+    } finally {
+      PUBLICATION.mount.gatedPairs = before;
+    }
+    assert.strictEqual(mutated.publishes, true, 'the mutation must actually change the answer, or it proves nothing');
+    assert.match(mutated.verdict, /MOUNT SHIP BAR MET/);
+    assert.deepStrictEqual(PUBLICATION.mount.gatedPairs, before, 'the fixture must leave the table as it found it');
+    assert.strictEqual(effectVerdict(iv, 'M1', 'uix-subs / reagent-subs').publishes, false, 'and the scoping holds again');
+  });
+
+  t('MUTATION: swapping the mount estimand changes the published figure, which is the splice', () => {
+    // Both estimators are correct arithmetic. Which one the row publishes on is
+    // the RULING, and it is one field. Flipping it here and reading the figure
+    // back is the closest this file can get to committing the original fault on
+    // purpose and watching the test catch it.
+    const pooled = pooledM1('clock-emvod');
+    if (!pooled) return;
+    const floored = m1Interval('clock-emvod', GATED);
+    const before = PUBLICATION.mount.estimand;
+    let mutated;
+    try {
+      PUBLICATION.mount.estimand = 'level';
+      mutated = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, GATED, data)).filter(Boolean));
+    } finally {
+      PUBLICATION.mount.estimand = before;
+    }
+    assert.strictEqual(floored.point.toFixed(4), EXPECTED['clock-emvod'].point);
+    assert.strictEqual(mutated.point.toFixed(4), '1.1679', "the level estimand's own point, for the record");
+    assert.strictEqual(mutated.lo.toFixed(4), '1.1259');
+    assert.strictEqual(mutated.hi.toFixed(4), '1.2096');
+    assert.strictEqual(PUBLICATION.mount.estimand, before, 'the fixture must leave the table as it found it');
+    assert.strictEqual(m1Interval('clock-emvod', GATED).point.toFixed(4), EXPECTED['clock-emvod'].point);
+  });
+
+  // --- 3. CRITERION (c): THE CROSS-RUN MAX-BAND SECOND VETO -----------------
+
+  t('criterion (c): the retirement is LOAD-BEARING, and the veto SPLITS the two ensembles', () => {
+    // Stated as arithmetic rather than asserted, because a retirement that
+    // changed no outcome would not need a ruling. What the corpus actually
+    // shows is stronger than "it would have refused", and it is recorded here
+    // because it is an argument the ruling did not have:
+    //
+    //   clock-emvod  effect 17.2% against a widest same-run band of 22.34% —
+    //                the retired veto REFUSES.
+    //   clock-w3yxd  effect 19.8% against 18.29% — the retired veto ADMITS.
+    //
+    // Two independently launched ensembles measuring the same effect to within
+    // 2.6 pp, and the retired condition sends them to OPPOSITE verdicts —
+    // because it compares the effect to a control statistic belonging to one
+    // run of one ensemble rather than to any interval for the effect. That is
+    // criterion (c)'s three objections showing up as a disagreement.
+    const relation = {};
+    for (const [dir, want] of Object.entries(EXPECTED)) {
+      const pooled = pooledM1(dir);
+      if (!pooled) return;
+      const iv = m1Interval(dir, GATED);
+      const widest = Math.max(...pooled.map(({ row }) => row.seamTask.band * 100));
+      assert.strictEqual(widest.toFixed(2), want.widestBand.toFixed(2), `${dir}: the widest same-run band`);
+      relation[dir] = Math.abs(iv.point - 1) * 100 > widest ? 'admits' : 'refuses';
+      // and none of it reaches the verdict, which is the retirement itself
+      assert.strictEqual(effectVerdict(iv, 'M1', GATED, { widestSameRunBandPct: widest }).publishes, true, `${dir}: publishes regardless`);
+    }
+    assert.deepStrictEqual(
+      relation,
+      { 'clock-emvod': 'refuses', 'clock-w3yxd': 'admits' },
+      'the retired veto must still split the ensembles — if it stops doing so, this argument has changed and the note above is stale'
+    );
+    assert.strictEqual(PUBLICATION.mount.crossRunBandVeto, false, 'and the mount entry says so as data');
+  });
+
+  t('criterion (c): the band is a SENSITIVITY DIAGNOSTIC on the mount — no band at all changes nothing', () => {
+    const iv = m1Interval('clock-emvod', GATED);
+    if (!iv) return;
+    for (const d of [undefined, {}, { widestSameRunBandPct: NaN }, { widestSameRunBandPct: 0.1 }, { widestSameRunBandPct: 99 }]) {
+      assert.strictEqual(effectVerdict(iv, 'M1', GATED, d).publishes, true, `the band must not reach the mount verdict: ${JSON.stringify(d)}`);
+    }
+    // and the 35% CEILING is untouched — it is a GATE, not a veto, and it
+    // still refuses a whole run before any interval is formed.
+    const GATE_IDS = require('./clock_readjudicate.cjs').GATES.map((g) => g.id);
+    assert.ok(GATE_IDS.includes('ceiling-task') && GATE_IDS.includes('ceiling-net'), 'the run-eligibility ceilings stay');
+  });
+
+  t('MUTATION: the veto is RETAINED on bulk, and rf2-vh0e3 is what that costs', () => {
+    // The collision this repair surfaced and did not decide. rf2-diaud (b)
+    // says bulk's path is unchanged; rf2-diaud (c) retires the veto. On the
+    // committed corpus they cannot both hold: retiring it on bulk promotes two
+    // DONOR-AGAINST-DONOR pairs out of the 42-run corpus rf2-8a746 fenced.
+    // Both directions are driven here so the operator's choice is one line and
+    // its price is a number.
+    const PAIR = 'uix-subs / reagent-subs';
+    const c = corpus('clock-emvod');
+    if (!c) return;
+    for (const rowId of ['bulk300', 'bulk100']) {
+      const pooled = c
+        .map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === rowId) }))
+        .filter((x) => x.row && reportable(x.row, x.data));
+      const iv = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, PAIR, data)).filter(Boolean));
+      const widest = Math.max(...pooled.map(({ row }) => row.seamTask.band * 100));
+      assert.ok(iv.hi < 1.0, `${rowId}: the whole interval is below the bar, so only the veto is holding it`);
+      const held = effectVerdict(iv, rowId, PAIR, { widestSameRunBandPct: widest });
+      assert.strictEqual(held.publishes, false, `${rowId}: retained, so no magnitude leaves the corpus`);
+      assert.match(held.why, /rf2-vh0e3/, 'and the refusal names the ruling it waits on');
+      const before = PUBLICATION.bulk.crossRunBandVeto;
+      let mutated;
+      try {
+        PUBLICATION.bulk.crossRunBandVeto = false;
+        mutated = effectVerdict(iv, rowId, PAIR, { widestSameRunBandPct: widest });
+      } finally {
+        PUBLICATION.bulk.crossRunBandVeto = before;
+      }
+      assert.strictEqual(mutated.publishes, true, `${rowId}: retiring it here WOULD publish — that is rf2-vh0e3's cost`);
+      assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, true, 'the fixture must leave the table as it found it');
+    }
+  });
+
+  // --- 4. CRITERION (e): M1 PUBLISHES FROM THE CANONICAL TOOL'S OUTPUT ------
+
+  t('criterion (e): the figures come out of clock_readjudicate.cjs itself, on both ensembles', () => {
+    // NOT from the ruling note and not from any replay. The tool is spawned,
+    // its M1 block is read, and the point and BOTH bounds are asserted off the
+    // one printed line — which is the only way a splice cannot survive: a
+    // figure read from one line of one estimator's output has no second line
+    // to borrow a bound from.
+    const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
+    for (const [dir, want] of Object.entries(EXPECTED)) {
+      const c = corpus(dir);
+      if (!c) return;
+      const r = cp.spawnSync(process.execPath, [RJ, ...c.map((x) => x.file)], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      const out = `${r.stdout}${r.stderr}`;
+      assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
+      const m1 = out.slice(out.indexOf(';; ======== ROW M1'), out.indexOf(';; ======== ROW bulk300'));
+      const block = m1.slice(m1.indexOf(`;;   PAIR ${GATED}`), m1.indexOf(';;   PAIR uix-subs / reagent-subs'));
+      const line = block.split('\n').find((l) => /^;;\s+point /.test(l));
+      assert.ok(line, `${dir}: the gated pair must print a point and an interval`);
+      assert.ok(
+        new RegExp(`point ${want.point}x\\s+95% CI \\[${want.lo} – ${want.hi}\\]\\s+over ${want.runs} reportable run\\(s\\)`).test(line),
+        `${dir}: expected ${want.point}x [${want.lo} – ${want.hi}] n=${want.runs}, got: ${line.trim()}`
+      );
+      assert.match(line, /POINT AND INTERVAL FROM THE ONE ESTIMATOR, never spliced/);
+      assert.ok(/FLOOR-NORMALISED leg ratio/.test(block), `${dir}: the estimand must be named on the line that publishes`);
+      assert.ok(/VERDICT K1 MISSED, DECISIVELY/.test(block), `${dir}: the gated pair trips K1`);
+      // the unfloored table survives as a LABELLED DIAGNOSTIC, never a headline
+      assert.ok(/DIAGNOSTIC, NEVER THE HEADLINE — the unfloored LEVEL estimand reads/.test(block), `${dir}: the level estimand is kept and labelled`);
+      // and the co-instrumented pairs publish nothing
+      assert.ok(/VERDICT CO-INSTRUMENTED/.test(m1.slice(m1.indexOf(';;   PAIR uix-subs / reagent-subs'))), `${dir}: donor-vs-donor gates nothing`);
+    }
+  });
+
+  // --- 5. CRITERION (f) AND PART (3): WHAT THE PUBLISHED ROW MUST CARRY -----
+
+  t('criterion (f): the published row carries its residual-uncertainty caveats', () => {
+    const src = fs.readFileSync(path.join(STUDIO, 'rows-re-adjudicated-on-the-corrected-clock.md'), 'utf8');
+    for (const [what, re] of [
+      ['8 and 6 outer runs only', /8 and 6 outer runs/],
+      ['the limits were calibrated on these same 14 runs', /calibrated on these same 14 runs/],
+      ['both ensembles record the same Chromium', /same Chromium/],
+    ]) {
+      assert.match(src, re, `the published M1 row must carry the caveat: ${what}`);
+    }
+  });
+
+  t('part (3): the 0.11pp agreement sentence is retired everywhere', () => {
+    // It was a property of the SELECTION and not of the measurement — the
+    // whole-ensemble means sit 2.59 pp apart. Struck rather than argued with,
+    // because a corroboration claim that survives only under a selection is not
+    // corroboration. The honest statement replaces it.
+    for (const f of fs.readdirSync(STUDIO).filter((x) => x.endsWith('.md'))) {
+      const src = fs.readFileSync(path.join(STUDIO, f), 'utf8');
+      assert.ok(!/0\.11 percentage points/.test(src), `${f} still claims the 0.11 pp agreement`);
+      assert.ok(!/0\.11 pp/.test(src), `${f} still claims the 0.11 pp agreement`);
+    }
+    const src = fs.readFileSync(path.join(STUDIO, 'rows-re-adjudicated-on-the-corrected-clock.md'), 'utf8');
+    assert.match(src, /2\.59 (?:pp|percentage points)/, 'and the honest distance replaces it');
+    assert.match(src, /two independently launched ensembles/i);
+  });
+
+  t('the ruling is cited by bead id in every surface it changed', () => {
+    for (const f of [
+      path.join(__dirname, 'clock_readjudicate.cjs'),
+      path.join(__dirname, 'clock_exit_path.test.cjs'),
+      path.join(STUDIO, 'rows-re-adjudicated-on-the-corrected-clock.md'),
+    ]) {
+      assert.ok(/rf2-diaud/.test(fs.readFileSync(f, 'utf8')), `${path.basename(f)} must cite the ruling that changed it`);
     }
   });
 }
