@@ -889,6 +889,222 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 }
 
+// --- rf2-y0pkh: the census run-rejection rule's false-refusal rate, MEASURED --
+//
+// rf2-8a746 retired the all-blocks strict rule on the HICASSO CLOCK, and the
+// `^18` grep that ruling mandated also landed here — on a different
+// instrument, with a different driver, its own datasets, and a control whose
+// prediction is the row's own element arithmetic rather than a page doubling.
+// The ruling rejects retiring a control merely because it shares a shape with
+// one that failed, so the rule was MEASURED here before being decided on.
+// `1 - p^n` is a property of the rule and not of the clock, so only `p`
+// decides it — and this rig's `p` is not that rig's. The rule is RETAINED.
+//
+// Everything below recomputes from the committed datasets through the
+// driver's OWN `controlBlocks` and `controlVerdict`. That `controlVerdict` is
+// exported here where the clock's deliberately is not, and the asymmetry is
+// the point: on the clock it was retired and now decides nothing, so a test
+// able to reach it would be a reader able to reach it; here its `ok` is still
+// the decision, reaching `summarise` -> `verdict` -> exit 5. A rule a test
+// cannot drive is not a checked rule however exactly it is quoted.
+
+{
+  const { controlBlocks, controlVerdict } = DRIVERS[1].mod;
+  const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
+  const t = (what, fn) => test(`census run-rejection rate: ${what}`, fn);
+
+  // The corpus the rates are stated over, and the rates themselves. Stated as
+  // literals so that a new dataset, or an arithmetic change, reds this file
+  // rather than silently ageing the driver's comment into a false claim.
+  const CORPUS = { datasets: 5, rowRuns: 30, blocks: 540, n: 18, slack: 0.25 };
+  const RATES = {
+    'large-template': { rowRuns: 10, blocks: 180, inBand: 178, passed: 8, falseRefusalPct: '18.2' },
+    feed: { rowRuns: 10, blocks: 180, inBand: 175, passed: 7, falseRefusalPct: '39.8' },
+    ordinary: { rowRuns: 10, blocks: 180, inBand: 56, passed: 0, falseRefusalPct: '100.0' },
+  };
+
+  const med = (xs) => {
+    const v = [...xs].sort((a, b) => a - b);
+    return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  };
+  const choose = (n, k) => {
+    let x = 1;
+    for (let i = 0; i < k; i++) x = (x * (n - i)) / (i + 1);
+    return x;
+  };
+  const binom = (n, k, p) => choose(n, k) * p ** k * (1 - p) ** (n - k);
+  /** Exact two-sided p-value for k of n at probability p — no normal approximation at n=10. */
+  const exactTwoSided = (n, k, p) => {
+    const ceiling = binom(n, k, p) * (1 + 1e-7);
+    let s = 0;
+    for (let i = 0; i <= n; i++) if (binom(n, i, p) <= ceiling) s += binom(n, i, p);
+    return s;
+  };
+
+  /** Every committed census row-run, its statistic recomputed by the driver's own arithmetic. */
+  const corpus = () => {
+    const dir = path.join(__dirname, 'data');
+    return fs
+      .readdirSync(dir)
+      .filter((d) => d.startsWith('censusclock-'))
+      .sort()
+      .flatMap((d) =>
+        fs
+          .readdirSync(path.join(dir, d))
+          .filter((f) => f.endsWith('.json'))
+          .sort()
+          .flatMap((f) => {
+            const data = JSON.parse(fs.readFileSync(path.join(dir, d, f), 'utf8'));
+            return data.rows.map((r) => {
+              const per = controlBlocks(r.blocksTask);
+              return {
+                where: `${d}/${f} ${r.rowId}`,
+                rowId: r.rowId,
+                slack: data.design.controlSlack,
+                stored: r.adjudication.ctl,
+                // The band the run ACTUALLY adjudicated on, read back rather
+                // than re-derived: the run held the page's raw `ctlPredicted`
+                // and the dataset stores `r4` of it, so a re-derived edge can
+                // differ by one unit in the last stored place. Counting on the
+                // stored band measures the rate the runs experienced.
+                band: r.adjudication.ctl.band,
+                per,
+                verdict: controlVerdict(r.ctlPredicted, per, data.design.controlSlack),
+              };
+            });
+          })
+      );
+  };
+
+  t('the corpus the rates are stated over is the corpus on disk', () => {
+    const all = corpus();
+    const datasets = new Set(all.map((r) => r.where.split('/')[0]));
+    assert.strictEqual(datasets.size, CORPUS.datasets, 'a new censusclock-* dataset means the stated rates need recounting');
+    assert.strictEqual(all.length, CORPUS.rowRuns);
+    for (const r of all) {
+      assert.strictEqual(r.per.length, CORPUS.n, `${r.where}: n is the design's 6 rounds x 3 blocks`);
+      assert.strictEqual(r.slack, CORPUS.slack, `${r.where}: the tolerance band must be the one the rates were measured at`);
+    }
+    assert.strictEqual(
+      all.reduce((a, r) => a + r.per.length, 0),
+      CORPUS.blocks
+    );
+    // A per-row rate pools blocks across row-runs, which only means something
+    // if every row-run of that row was judged against the same band.
+    for (const rowId of Object.keys(RATES)) {
+      const bands = new Set(all.filter((r) => r.rowId === rowId).map((r) => r.band.join(':')));
+      assert.strictEqual(bands.size, 1, `${rowId}: its row-runs must share one band — ${[...bands].join(' / ')}`);
+    }
+  });
+
+  t('the live arithmetic and the stored verdicts are the same quantity', () => {
+    // Without this the rate would be a rate about the datasets rather than
+    // about the rule: a statistic recomputed differently from the one the
+    // driver adjudicated on would measure the recomputation.
+    for (const r of corpus()) {
+      assert.deepStrictEqual(r.verdict.perBlock, r.stored.perBlock, `${r.where}: recomputed blocks must match the stored ones`);
+      assert.strictEqual(r.verdict.ok, r.stored.ok, `${r.where}: same strict verdict`);
+      // The one place the two can legitimately differ, and by exactly one unit
+      // in the last stored place: `datasetFor` writes `r4(ctlPredicted)` while
+      // the run adjudicated on the page's raw value. Bounded rather than
+      // deep-equalled, because a wider drift would mean the band moved.
+      for (const i of [0, 1]) {
+        assert.ok(
+          Math.abs(r.verdict.band[i] - r.stored.band[i]) <= 1e-4 + Number.EPSILON,
+          `${r.where}: band edge ${i} drifted beyond the stored grain (${r.verdict.band[i]} vs ${r.stored.band[i]})`
+        );
+      }
+      assert.strictEqual(
+        r.per.every((x) => x >= r.band[0] && x <= r.band[1]),
+        r.stored.ok,
+        `${r.where}: the stored band and the stored verdict must agree`
+      );
+    }
+  });
+
+  t('the measured rate, per row — and it is survivable where the control meets its premise', () => {
+    const all = corpus();
+    for (const [rowId, want] of Object.entries(RATES)) {
+      const rows = all.filter((r) => r.rowId === rowId);
+      const blocks = rows.flatMap((r) => r.per);
+      const [lo, hi] = rows[0].band;
+      const inBand = blocks.filter((x) => x >= lo && x <= hi).length;
+      const passed = rows.filter((r) => r.verdict.ok).length;
+      assert.strictEqual(rows.length, want.rowRuns, `${rowId}: row-runs`);
+      assert.strictEqual(blocks.length, want.blocks, `${rowId}: blocks`);
+      assert.strictEqual(inBand, want.inBand, `${rowId}: per-block in band`);
+      assert.strictEqual(passed, want.passed, `${rowId}: runs the strict rule passed`);
+      const p = inBand / blocks.length;
+      assert.strictEqual(((1 - p ** CORPUS.n) * 100).toFixed(1), want.falseRefusalPct, `${rowId}: 1 - p^${CORPUS.n}`);
+    }
+    // The claim that decides the bead: on the two rows carrying the gated pair
+    // the rule costs 18-40% of runs, against the 90.5% empirical per-run false
+    // refusal that retired the clock's. A rate a run survives is not a defect.
+    assert.ok(Number(RATES['large-template'].falseRefusalPct) < 90.5);
+    assert.ok(Number(RATES.feed.falseRefusalPct) < 90.5);
+  });
+
+  t('the arithmetic and the empirical rate AGREE, so p^n is the right model here', () => {
+    // The bead asks whether `1 - p^n` predicts what the corpus actually did.
+    // Per row it does; POOLED it does not, and that disagreement is a fact
+    // about pooling a mis-centred row with two well-centred ones, not about
+    // the rule. Both halves are pinned so neither can be quoted alone.
+    const all = corpus();
+    for (const rowId of Object.keys(RATES)) {
+      const rows = all.filter((r) => r.rowId === rowId);
+      const blocks = rows.flatMap((r) => r.per);
+      const [lo, hi] = rows[0].band;
+      const p = blocks.filter((x) => x >= lo && x <= hi).length / blocks.length;
+      const pv = exactTwoSided(rows.length, rows.filter((r) => r.verdict.ok).length, p ** CORPUS.n);
+      assert.ok(pv > 0.05, `${rowId}: observed pass count is not what p^${CORPUS.n} predicts (exact two-sided p = ${pv.toFixed(3)})`);
+    }
+    const pooled = all.flatMap((r) => r.per.map((x) => ({ x, band: r.band })));
+    const p = pooled.filter((o) => o.x >= o.band[0] && o.x <= o.band[1]).length / pooled.length;
+    assert.strictEqual((p * 100).toFixed(1), '75.7', 'the pooled in-band fraction');
+    assert.strictEqual(((1 - p ** CORPUS.n) * 100).toFixed(1), '99.3', 'which predicts near-total refusal');
+    assert.strictEqual(all.filter((r) => r.verdict.ok).length, 15, 'against 15 of 30 observed — pooling is the wrong statistic, not the rule');
+  });
+
+  t('the ordinary row refuses on its CENTRE, and no relaxation of this rule reaches it', () => {
+    // The load-bearing assertion. `ordinary` is 0 of 10, and a reader who saw
+    // only that number would blame the rule the way rf2-8a746's clock evidence
+    // invites. It is the centre: the block median sits BELOW the band's own
+    // lower edge, so every run would refuse under any per-block count.
+    const rows = corpus().filter((r) => r.rowId === 'ordinary');
+    const [lo, hi] = rows[0].band;
+    const centre = med(rows.flatMap((r) => r.per));
+    assert.ok(centre < lo, `the ordinary centre ${centre.toFixed(4)}x must sit below the band's lower edge ${lo}`);
+    for (const k of [0, 1, 2, 3]) {
+      const passed = rows.filter((r) => r.per.filter((x) => x < lo || x > hi).length <= k).length;
+      assert.strictEqual(passed, 0, `allowing ${k} out-of-band blocks must still pass 0 of 10 — the rule is not the binding constraint`);
+    }
+    // And the two rows whose centre IS inside the band recover immediately, so
+    // the rule is doing real work exactly where it is not the constraint.
+    for (const rowId of ['large-template', 'feed']) {
+      const rs = corpus().filter((r) => r.rowId === rowId);
+      const [l, h] = rs[0].band;
+      assert.ok(med(rs.flatMap((r) => r.per)) > l, `${rowId}: its centre is inside the band`);
+      assert.strictEqual(rs.filter((r) => r.per.filter((x) => x < l || x > h).length <= 2).length, 10, `${rowId}: recovers within two blocks`);
+    }
+  });
+
+  t('the retained rule states its measured rates where the grep lands', () => {
+    // rf2-8a746's criterion 4 in the form this instrument needs it: the label
+    // a `^18`-semantics grep hits must say the rule was measured and kept, or
+    // the next grep re-files rf2-y0pkh. That is how this bead came to exist.
+    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(rf2-y0pkh: measured and retained\)'/);
+    for (const [rowId, want] of Object.entries(RATES)) {
+      assert.ok(CSRC.includes(`${want.inBand}/${want.blocks}`), `the comment states ${rowId}'s per-block count`);
+    }
+    assert.match(CSRC, /90\.5%/, "and the clock's retired rate it is measured against");
+    assert.match(CSRC, /rf2-pzqy8/, "the ordinary row's centre is handed on by bead id, not left as a shape");
+    // The rates are rates AT A SLACK. Widening the band would change every one
+    // of them, so the constant they were measured at is pinned beside them —
+    // otherwise the limits could move and the stated rates would quietly lie.
+    assert.match(CSRC, /const CONTROL_SLACK = 0\.25;/, 'the tolerance the rates were measured at');
+  });
+}
+
 // --- hd8_clock_run.cjs: the WRITE path, not just the exit path ---------------
 //
 // rf2-2rtt6.31, the write-before-refuse ruling. The same fail-open as the block

@@ -77,7 +77,13 @@
 //     double, so the prediction is the row's own element arithmetic
 //     (1.9759 / 1.9944 / 1.7255), not a flat 2.00 — the page computes it
 //     and this driver prints predicted vs measured, adjudicated STRICT
-//     (every block inside +/-25%). rf2-jcm3p records the mount-row
+//     (every block inside +/-25%). THAT STRICT RULE IS THE ONE rf2-8a746
+//     RETIRED ON THE CLOCK, and rf2-y0pkh measured it here before deciding:
+//     it costs 18.2% and 39.8% per-run false refusal on large-template and
+//     feed against the clock's 90.5%, so it is RETAINED — the arithmetic
+//     and the reasons are above `controlVerdict`. The `ordinary` row
+//     refuses 10 of 10 for a different reason (its centre, not the rule)
+//     and is rf2-pzqy8's. rf2-jcm3p records the mount-row
 //     undershoot (1.8173x against 2.00 over seven runs): an additive
 //     per-sample constant survives the tare in `(PW + c)/(W + c)`, and no
 //     changed-set control can reach a mount. So this control certifies
@@ -264,6 +270,50 @@ function band(xs) {
   };
 }
 
+/**
+ * The run-rejection rule: EVERY block inside the tolerance band.
+ *
+ * rf2-8a746 RETIRED this rule on the hicasso clock, and rf2-y0pkh asked
+ * whether it should be retired here too. It should not, and the reason is a
+ * measurement rather than a shape. `1 - p^n` on a per-block in-band rate `p`
+ * is a property of the RULE and not of the clock, so what decides the answer
+ * is `p` — and this rig's `p` is not that rig's.
+ *
+ * MEASURED over the 30 committed row-runs (540 blocks) in
+ * `../data/censusclock-{2rtt6-56,6c237,cno31,jv36i,y1jkm}` — five sessions at
+ * five commits — at this design's n = 18 blocks per row-run:
+ *
+ *     row              per-block in band    1 - p^18    runs passed
+ *     large-template   178/180 = 98.9%        18.2%       8 of 10
+ *     feed             175/180 = 97.2%        39.8%       7 of 10
+ *     ordinary          56/180 = 31.1%       100.0%       0 of 10
+ *
+ * On the two rows that carry the gated pair the arithmetic and the empirical
+ * rate agree (exact binomial two-sided p = 1.000 and 0.749), and 18–40% is a
+ * rate a run survives — against the 90.5% empirical per-run false refusal
+ * that retired the clock's. THE RULE IS RETAINED HERE ON MEASURED GROUNDS.
+ *
+ * The rig does not inherit the clock's ill-conditioning because this control
+ * is ALREADY LEVEL-DENOMINATED, which is the class rf2-8a746's ruling
+ * endorses: the tared floor reads 10.72 / 41.00 ms with a between-block SD of
+ * 2.55 / 8.82, i.e. 4.20 / 4.65 sigma from zero, against the retired ctl3
+ * denominator's 2.09. Block IQR is 7.7% of the centre on both rows.
+ *
+ * `ordinary` refuses 10 of 10 and THIS RULE IS NOT WHY. Its block median is
+ * 1.2264x against a predicted 1.7255x — 71.1% of P, and 5.2% BELOW the band's
+ * lower edge of 1.2941 — so the centre sits outside the band the rule
+ * enforces, and relaxing the rule cannot reach it: allowing up to three
+ * out-of-band blocks per run still passes 0 of 10. That is a mis-specified
+ * CENTRE, the same defect class rf2-8a746 diagnosed on ctl3, and it is
+ * rf2-pzqy8's to rule on — together with the fact that this row's failure
+ * refuses the whole RUN (`verdict` below) where prediction P4 promised a
+ * refusal of the ROW. Retiring a rule that is not the binding constraint
+ * would loosen a control on the two rows where it is doing real work.
+ *
+ * Every figure above recomputes from the committed datasets and is pinned by
+ * `../clock_exit_path.test.cjs`, which drives `controlBlocks` and this
+ * function rather than a copy of their arithmetic.
+ */
 function controlVerdict(predicted, per, slack) {
   const lo = predicted * (1 - slack);
   const hi = predicted * (1 + slack);
@@ -274,7 +324,7 @@ function controlVerdict(predicted, per, slack) {
     measured: b,
     perBlock: per.map(r4),
     ok: per.every((x) => x >= lo && x <= hi),
-    rule: 'strict — EVERY block inside the band',
+    rule: 'strict — EVERY block inside the band (rf2-y0pkh: measured and retained)',
   };
 }
 
@@ -762,6 +812,19 @@ function perBlock(blocks, f) {
   return out;
 }
 
+/**
+ * The control's per-block statistic — tared ctl-2x over tared floor, one per
+ * (round, block), which is what `controlVerdict` adjudicates and what a row's
+ * `adjudication.ctl.perBlock` records.
+ *
+ * Exported so a witness can drive the REAL arithmetic over a committed
+ * dataset rather than a copy of it (rf2-y0pkh). `report` used to spell this
+ * inline, and a rate measured against a reimplementation would be a rate
+ * about the reimplementation.
+ */
+const controlBlocks = (blocksTask) =>
+  perBlock(blocksTask, (r, b) => taredCell(blocksTask, r, b, CTL) / taredCell(blocksTask, r, b, FLOOR));
+
 function report(out) {
   const { runId, rowId, armIds, canon, ctlPredicted, blocksTask, blocksNet, blocksInPage, blocksDecomp, samplesTask, samplesNet, tally, runtime, granularity } = out;
   const decomposition = foldDecomposition(blocksDecomp, { armIds, rounds: ROUNDS, blocks: BLOCKS });
@@ -834,7 +897,7 @@ function report(out) {
   }
 
   // the control — predicted from the row's own element arithmetic
-  const ctlPer = perBlock(blocksTask, (r, b) => taredCell(blocksTask, r, b, CTL) / taredCell(blocksTask, r, b, FLOOR));
+  const ctlPer = controlBlocks(blocksTask);
   const ctl = controlVerdict(ctlPredicted, ctlPer, CONTROL_SLACK);
   const floorTared = p50(perBlock(blocksTask, (r, b) => taredCell(blocksTask, r, b, FLOOR)));
   const c = additiveConstant(floorTared, ctl.measured.mean, ctlPredicted);
@@ -1315,7 +1378,7 @@ async function drive() {
   return v.code;
 }
 
-module.exports = { summarise, verdict, destination, datasetFor, foldDecomposition };
+module.exports = { summarise, verdict, destination, datasetFor, foldDecomposition, controlBlocks, controlVerdict };
 
 if (require.main === module) {
   drive().then((code) => {
