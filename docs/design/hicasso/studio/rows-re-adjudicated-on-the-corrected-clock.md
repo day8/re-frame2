@@ -343,7 +343,7 @@ ensemble was taken at, so it is filed rather than done here.
 > ```
 >
 > through the same run-preserving bootstrap — outer runs resampled before inner
-> rounds, 4,000 draws, fixed seed `20260807`.
+> rounds, 4,000 draws, at the fixed bootstrap seed 20260807.
 >
 > **And the threshold is the mount's own.** `rf2-8a746`'s whole-interval
 > discipline is retained with no exceptions, but `1.0` and `1.5` are the *bulk*
