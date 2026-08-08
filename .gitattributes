@@ -56,3 +56,13 @@ skills/re-frame2-ui/references/ui-context.md text eol=lf
 # (core.autocrlf=true) checkout would CRLF-rewrite them and a reader there
 # would compute a different hash from the one the page names. Pin LF.
 implementation/freehand/test/re_frame/bench/hicasso/data/jsfb-rguy1/*.json text eol=lf
+
+# The beads tracker export (rf2-gsjfr). `bd` rewrites .beads/issues.jsonl with
+# LF endings on every invocation, so an unpinned Windows (core.autocrlf=true)
+# checkout CRLF-rewrites it straight back and the file never settles against
+# what the next export writes. A perpetually-dirty tracker export is the state
+# CLAUDE.md's beads-durability section documents as aborting `git pull` and
+# silently freezing HEAD at a stale base — and the `git checkout -- .beads` that
+# clears it reverts any `bd close` made in the same tick. Pin LF so the
+# checked-out bytes are the bytes `bd` writes.
+.beads/issues.jsonl text eol=lf
