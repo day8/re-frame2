@@ -12,7 +12,11 @@ control fails, so [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the
 mount as a **regime** — *Hicasso mounts materially slower than both adapters,
 and `≤ 1.10×` has not been demonstrated* — rather than as a number.~~
 **Superseded 2026-08-07 (`rf2-t2flm`): the row publishes a magnitude again**,
-`~1.184×` against direct UIx-on-subs and conditionally labelled. The figures and
+~~`~1.184×` against direct UIx-on-subs and conditionally labelled~~ — **and
+superseded once more 2026-08-08 (`rf2-diaud`): the magnitude is recomputed on
+K1's own floor-normalised estimand, adjudicated against K1's own `≤ 1.10×`
+threshold rather than bulk's `1.0`/`1.5`, and the row publishes
+`K1 MISSED, DECISIVELY`**. The figures and
 the labels they must carry are at
 [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
 and are not restated here. `1.4896×` remains what this programme read on
@@ -78,8 +82,10 @@ report.
 > better. *(2026-08-06, `rf2-jcm3p`: ~~neither mount figure is a published
 > magnitude any longer — both are stated under a failing `ctl-2x`, and
 > [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the row as a regime.~~
-> **Superseded 2026-08-07, `rf2-t2flm`**: the row publishes a magnitude again,
-> and it is neither of the two figures above — see
+> **Superseded 2026-08-07, `rf2-t2flm`**, and ruled again **2026-08-08,
+> `rf2-diaud`** — the row publishes a magnitude, now on K1's own
+> floor-normalised estimand and against K1's own `≤ 1.10×` threshold, verdict
+> `K1 MISSED, DECISIVELY`; it is neither of the two figures above — see
 > [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row).
 > Both stay here as dated readings of the corrected clock.)*
 > `ctl-2x` is untouched — it reads
@@ -523,10 +529,40 @@ be expected to buy the same pair of refusals.
 
 ## 4. The mount row — a REGIME, not a magnitude
 
+> ## THE ROW PUBLISHES A MAGNITUDE AND K1 IS MISSED, DECISIVELY (`rf2-diaud`, ruled 2026-08-08)
+>
+> **This is the layer in force; the two banners below are the record of how it
+> got here, and neither is erased.** `rf2-8a746`'s whole-interval discipline is
+> retained with **no exceptions**, but its thresholds are **row-class-specific**:
+> `1.0` and `1.5` are the *bulk* row's bar and architecture-kill, and `M1`
+> answers to **K1's own `≤ 1.10×` direct UIx-on-subs** — ship only when the whole
+> interval sits at or below it, trip K1 only when the whole interval sits above
+> it. The row is also recomputed on **K1's own floor-normalised estimand**, point
+> and interval from that one estimator, rather than spliced from two — which is
+> why the conditionally-labelled magnitude below is **superseded rather than
+> restored**. The published row, the co-instrumented Reagent-on-subs pairs, the
+> labelled unfloored diagnostic and the residual-uncertainty caveats are at
+> [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+> and are quoted from nowhere else.
+>
+> **The conditioning the banner below published under is gone too, and that is
+> the ground rather than the position.** `rf2-8a746` retired the every-block
+> `ctl-2x` rule everywhere on this instrument — `ctl-2x` was never failing, so
+> the premise `rf2-jcm3p` reasoned from was wrong — and under the mount check
+> standard `rf2-x7x10` calibrated, `14 of 14` committed row-runs come back in
+> control. There is no `7 of 14` selection behind the published figure.
+>
+> **The section keeps its title and its anchor**, for the reason the banner
+> below already states.
+
 > ## THE ROW PUBLISHES A MAGNITUDE AGAIN — THIS SECTION'S TITLE IS SUPERSEDED AND KEPT (`rf2-t2flm`, ruled 2026-08-07)
 >
-> **The regime-only statement below is superseded.** `M1` publishes `~1.184×`
-> against direct UIx-on-subs, conditionally labelled, on the two retained
+> ***Superseded 2026-08-08 by `rf2-diaud` — see the banner immediately above.
+> Kept in full: it is the position that ruling composed, and its conditioning is
+> what the ruling had to retire.***
+>
+> **The regime-only statement below is superseded.** `M1` publishes ~~`~1.184×`
+> against direct UIx-on-subs, conditionally labelled,~~ on the two retained
 > quiet-box ensembles. The figures, the estimators they are drawn on and the
 > labels every one of them must carry are at
 > [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row),
@@ -640,8 +676,8 @@ The bar arithmetic — two floor-normalised ratios, one against the other:
 
 | row | measured | range | disposition |
 |---|---:|---|---|
-| ~~**`hicasso / reagent-subs`**~~ | ~~1.2107×~~ | [0.9756 – 1.7208] | ~~**SUPERSEDED — frame-only.**~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ **A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. Read **1.4896×** [1.3488 – 1.5989] on the corrected clock and **1.3737×** [1.3289 – 1.4331] on `rf2-emvod`'s heavier-regime ensemble — both above the `≤ 1.0×` win condition and the `1.0150×` red zone, neither straddling 1.0, **both dated historical observations, and neither is the published figure** |
-| ~~**`hicasso / uix-subs`**~~ | ~~1.1865×~~ | [0.9753 – 1.3722] | ~~**SUPERSEDED.**~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ **A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. Read **1.5001×** on the corrected clock and **1.4656×** [1.3819 – 1.5088] on `rf2-emvod`'s ensemble; neither straddles 1.0, and both are dated readings rather than the published figure |
+| ~~**`hicasso / reagent-subs`**~~ | ~~1.2107×~~ | [0.9756 – 1.7208] | ~~**SUPERSEDED — frame-only.**~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ ~~**A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm`)*~~ **CO-INSTRUMENTED AND GATING NOTHING; the gated pair publishes a magnitude and `K1 MISSED, DECISIVELY`** *(2026-08-08, `rf2-diaud` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. Read **1.4896×** [1.3488 – 1.5989] on the corrected clock and **1.3737×** [1.3289 – 1.4331] on `rf2-emvod`'s heavier-regime ensemble — both above the `≤ 1.0×` win condition and the `1.0150×` red zone, neither straddling 1.0, **both dated historical observations, and neither is the published figure** |
+| ~~**`hicasso / uix-subs`**~~ | ~~1.1865×~~ | [0.9753 – 1.3722] | ~~**SUPERSEDED.**~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ ~~**A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm`)*~~ **A MAGNITUDE ON K1's OWN ESTIMAND, AND THIS IS THE PAIR K1 GATES — `K1 MISSED, DECISIVELY`** *(2026-08-08, `rf2-diaud` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. Read **1.5001×** on the corrected clock and **1.4656×** [1.3819 – 1.5088] on `rf2-emvod`'s ensemble; neither straddles 1.0, and both are dated readings rather than the published figure |
 
 **What that means against the gates.** The P1 win condition is *mount ≤ 1.0×
 Reagent-on-subs, same run and same instrument*, and the restated M1 red zone is
@@ -654,13 +690,22 @@ is established and its SIZE is not published** *(2026-08-06, `rf2-jcm3p`: an
 interval that misses 1.0 establishes a magnitude only against a control that can
 adjudicate it, and this row's cannot — see the banner above. What the readings
 jointly establish is the regime: above the `≤ 1.10×` UIx gate on every
-corroborated reading, with `≤ 1.10×` not demonstrated.)*~~ **Both the direction
+corroborated reading, with `≤ 1.10×` not demonstrated.)*~~ ~~**Both the direction
 and a size are published, the size conditionally** *(2026-08-07, `rf2-t2flm`:
 this row's control can adjudicate it after all — the rule tests per-block band
 membership, not the mean — so the deficit has a magnitude again, at
 [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
 and under the labels stated there. Neither figure struck above is that
-magnitude.)* ~~Its range straddles
+magnitude.)*~~ **Both the direction and a size are published, and the size is
+unconditional** *(2026-08-08, `rf2-diaud`: the per-block rule the layer struck
+above rested on is itself retired — `rf2-8a746` — and under `rf2-x7x10`'s
+calibrated mount check standard all 14 committed row-runs are in control, so no
+selection stands behind the figure. The row is recomputed on K1's own
+floor-normalised estimand and adjudicated against K1's own `≤ 1.10×`, and the
+whole interval sits above it:
+[§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+states the row and this page does not restate it. Neither figure struck above is
+that magnitude.)* ~~Its range straddles
 1.0, so at n = 6 the deficit is not *established*~~ — that was the frame-only
 reading's hedge and it is spent. What still holds either way is
 validation.md's own rule that *a margin under 5% is instrument-limited rather
@@ -712,7 +757,8 @@ reading under a failing `ctl-2x`; the row publishes no magnitude —
 [§4](#4-the-mount-row--a-regime-not-a-magnitude)~~ a dated reading, and not the
 published magnitude, which is at
 [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) —
-*2026-08-07, `rf2-t2flm`*). What this table is doing is comparing **windows**,
+*2026-08-07, `rf2-t2flm`; ruled and recomputed on K1's own estimand 2026-08-08,
+`rf2-diaud`*). What this table is doing is comparing **windows**,
 and that comparison is unaffected either way.
 
 > **THE SEPARATION IS REAL AND THIS MECHANISM STATEMENT IS WRONG (`rf2-yd52q`,
@@ -1261,7 +1307,7 @@ readings; the **magnitudes** are superseded row by row on
 
 | run 5 row *(all figures `taskNet`)* | margin from 1.0 | against | verdict |
 |---|---:|---|---|
-| `M1`, `hicasso / reagent-subs` ~~1.2107~~ | 21.1% | its own band, ≤ 11.7% | **clears the band** — ~~published, as it was; the magnitude is now **1.4896×**~~ ~~**and still publishes no magnitude** *(2026-08-06, `rf2-jcm3p`)*. The corrected clock read **1.4896×** [1.3488 – 1.5989] on this row, under a failing `ctl-2x`; clearing the band is not clearing the control, and [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the row as a regime~~ **and publishes a magnitude again, conditionally labelled** *(2026-08-07, `rf2-t2flm` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. The corrected clock read **1.4896×** [1.3488 – 1.5989] on this row, which stays a dated observation; the published figure is drawn from the two retained ensembles and stated at §4.3 |
+| `M1`, `hicasso / reagent-subs` ~~1.2107~~ | 21.1% | its own band, ≤ 11.7% | **clears the band** — ~~published, as it was; the magnitude is now **1.4896×**~~ ~~**and still publishes no magnitude** *(2026-08-06, `rf2-jcm3p`)*. The corrected clock read **1.4896×** [1.3488 – 1.5989] on this row, under a failing `ctl-2x`; clearing the band is not clearing the control, and [§4](#4-the-mount-row--a-regime-not-a-magnitude) states the row as a regime~~ ~~**and publishes a magnitude again, conditionally labelled** *(2026-08-07, `rf2-t2flm`)*~~ **and publishes a magnitude, unconditionally, on K1's own floor-normalised estimand — with this pair co-instrumented and the gated pair's verdict `K1 MISSED, DECISIVELY`** *(2026-08-08, `rf2-diaud` — [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))*. The corrected clock read **1.4896×** [1.3488 – 1.5989] on this row, which stays a dated observation; the published figure is drawn from the two retained ensembles and stated at §4.3 |
 | `bulk300` ~~1.0100~~ | 1.0% | smaller than every band ever measured here | instrument-limited — refused, as it was; **1.1494×** corrected |
 | `bulk100` ~~0.9902~~ | 1.0% | the same | instrument-limited — refused, as it was; **1.1089×** corrected, a sign change |
 | `narrow` 1.0369 | 3.7% | the same | instrument-limited — refused, as it was; **1.0236×** corrected |
@@ -1444,7 +1490,9 @@ inputs are gone; the durable path starts at the re-run and not before it.
 
 - **The candidate has clock rows.** It did not before.
 - **On mount it is materially slower than Reagent-on-subs, and the row publishes
-  a magnitude** *(2026-08-07, `rf2-t2flm`;
+  a magnitude** *(2026-08-07, `rf2-t2flm`; recomputed on K1's own
+  floor-normalised estimand and published as `K1 MISSED, DECISIVELY` on
+  2026-08-08, `rf2-diaud` —
   [§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row))* —
   ~~a REGIME, and not a magnitude *(2026-08-06, `rf2-jcm3p`;
   [§4](#4-the-mount-row--a-regime-not-a-magnitude))*~~. ~~On mount it is 1.4896×
@@ -1454,9 +1502,15 @@ inputs are gone; the durable path starts at the re-run and not before it.
   zone, as does every other corroborated reading. What the row now publishes,
   with the conditional labels it must carry, is stated at §4.3 and not here.
   This page's own `1.21×` is the frame-only reading of the same row, above
-  parity in all five of its runs; the correction moved the figure *up*. Still
+  parity in all five of its runs; the correction moved the figure *up*. ~~Still
   not a clear K1 kill — K1 asks for `> Reagent` *after two serious runtime
-  iterations* — but no longer a range that straddles parity, and the direction
+  iterations*~~ *(that trigger is the retired one — `rf2-hyd50` amended K1's
+  denominator on 2026-08-05 to `≤ 1.10×` direct UIx-on-subs — and on the amended
+  denominator the published row's verdict is `K1 MISSED, DECISIVELY`
+  ([§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row),
+  2026-08-08, `rf2-diaud`). Whether the criterion's remaining condition, **after
+  two serious runtime iterations**, is met is a ruling this page does not make)*
+  — but no longer a range that straddles parity, and the direction
   has never once come back the other way.
 - **The deficit's location is measured, not inferred.** The candidate pays
   +1.06 ms over its own floor where the identical spine under the identical
