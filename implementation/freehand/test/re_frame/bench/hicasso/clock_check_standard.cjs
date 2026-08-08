@@ -59,6 +59,38 @@
 // path was rebuilt to remove, so there is one function and both require it.
 // The JSON beside it is data on purpose: recalibrating is editing that file
 // and bumping its version, never editing this one.
+//
+// ## v2 — THE MOUNT CLASS IS CALIBRATED (rf2-x7x10, 2026-08-08)
+//
+// v1 froze the BULK class and left the MOUNT class uncalibrated and failing
+// closed, which was the correct restraint at the time: `rf2-8a746`'s ruling
+// seeded bulk only and the mount half was `rf2-t2flm`'s concurrent seat. The
+// consequence fell between the two rulings. `rf2-t2flm`'s published `M1` row is
+// conditioned on the every-block `ctl-2x` rule — the rule `rf2-8a746` retired
+// EVERYWHERE ON THIS INSTRUMENT — so after v1 the row carried a label naming a
+// rule nothing implements, and `clock_readjudicate.cjs`, which that ruling's
+// close reason records as reproducing every published figure exactly, returned
+// `reportable subset: NONE` on every `M1` pair instead.
+//
+// So v2 calibrates the mount from the mount's own 14 committed row-runs, in
+// v1's derivation with nothing changed but the data it is applied to. THE TWO
+// CLASSES SIT 4.4% APART on the identical statistic through the identical door
+// — 1.9 of the mount's own between-run SDs — and that gap is why there is a
+// second class rather than a second row list on the first. Importing bulk's
+// limits would have asserted against the mount a value never measured on it,
+// which is the mis-specification `rf2-8a746` retired, one row class over;
+// `rf2-8a746` saw it coming and handed the finding forward by id.
+//
+// WHAT THIS DOES NOT DO. It moves no published figure and it loosens nothing:
+// the mount's location limits are HALF the width of bulk's, because the mount's
+// between-run scatter is smaller. What it restores is the reproduction path — a
+// reader with the datasets can run the readjudicator and get the row back — and
+// what the row then says is the readjudicator's to state, not this file's.
+//
+// Every number above is in the JSON, once. Neither centre is written here, and
+// the fixtures below derive their worlds from the classes' own frozen values
+// for the same reason: a fixture carrying a copy of a limit is a second
+// calibration waiting to drift from the first.
 
 'use strict';
 
@@ -152,7 +184,11 @@ function checkStandard(perBlockRatios, rowId) {
     return base;
   }
   if (!klass.calibrated) {
-    base.why = `the \`${klassName}\` class of the check standard is NOT CALIBRATED — ${klass.why}`;
+    base.why =
+      `the \`${klassName}\` class of the check standard is NOT CALIBRATED — ` +
+      (klass.why ||
+        'no location or dispersion limits have ever been established for it, so nothing has established what ' +
+          'this instrument reads on that class and no run of one can be certified in control');
     return base;
   }
   if (finite.length === 0 || finite.length !== xs.length) {
@@ -258,19 +294,31 @@ function checkStandardSelfTest() {
   const checks = [];
   const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail: detail || '' });
   const BULK = 'bulk300';
+  const MOUNT = 'M1';
   const bulk = STANDARD.classes.bulk;
+  const mount = STANDARD.classes.mount;
 
   // A block world in the shape the instrument actually has: a floor sample is
   // `W + c`, where `W` is the page-proportional work and `c` is the part that
   // does not scale with the page. `ctl-2x` builds `P` times the page, so it
   // reads `P*W + c` and the block ratio is `(P*W + c)/(W + c)`.
+  //
+  // `c` IS SOLVED FOR THE CLASS'S OWN FROZEN CENTRE rather than written down —
+  // `(2W + c)/(W + c) = centre` gives `c = W(2 - centre)/(centre - 1)` — so a
+  // world sits on the limits it is meant to sit on by construction. A literal
+  // here would be a second copy of a calibrated number, and two copies of a
+  // calibration drift (rf2-x7x10, which exists because a justification drifted
+  // from the ruling it cited).
   const W = 3.0;
-  const C = 1.1628; // c/W = 0.3876, which puts the doubling arm on the frozen centre
-  const blocksAt = (P, n, jitter) =>
-    Array.from({ length: n || 18 }, (_, i) => {
+  const cFor = (centre) => (W * (2 - centre)) / (centre - 1);
+  const blocksAtIn = (klass, P, n, jitter) => {
+    const C = cFor(klass.centre);
+    return Array.from({ length: n || 18 }, (_, i) => {
       const j = jitter ? jitter * (i % 2 === 0 ? 1 : -1) * (1 + (i % 3) / 3) : 0;
       return (P * W + C + j) / (W + C);
     });
+  };
+  const blocksAt = (P, n, jitter) => blocksAtIn(bulk, P, n, jitter);
 
   // 1. THE HEALTHY WORLD PASSES, and it comes first in weight: every refusal
   //    below is worth nothing against a standard that refuses everything.
@@ -331,12 +379,92 @@ function checkStandardSelfTest() {
     JSON.stringify(survives.tolerance)
   );
 
-  // 5. FAIL CLOSED, at each seat.
-  const uncal = checkStandard(blocksAt(2), 'M1');
+  // 5. THE MOUNT CLASS (rf2-x7x10), and the case that matters is that it is
+  //    NOT THE BULK CLASS. The two centres are 4.4% apart, which is small
+  //    enough that copying bulk's limits across would have looked harmless and
+  //    large enough that it would have been the retired mis-specification
+  //    again — asserting against a row class a value never measured on it.
+  const mountHealthy = checkStandard(blocksAtIn(mount, 2, 18, 0.05), MOUNT);
   check(
-    'an UNCALIBRATED class refuses rather than abstains, and hands the mount to rf2-t2flm by id',
-    !uncal.ok && uncal.calibrated === false && /rf2-t2flm/.test(uncal.why || ''),
+    'a doubling arm on the MOUNT class\'s own frozen centre is IN CONTROL',
+    mountHealthy.ok && mountHealthy.why === null && mountHealthy.rowClass === 'mount' && mountHealthy.calibrated === true,
+    JSON.stringify(mountHealthy.location)
+  );
+  check(
+    'THE FENCE: the mount is judged by its OWN limits, and they are not bulk\'s',
+    mountHealthy.location.centre !== bulk.centre &&
+      mountHealthy.location.limits[0] !== bulk.location.limits[0] &&
+      mountHealthy.location.limits[1] !== bulk.location.limits[1] &&
+      mountHealthy.location.centre === mount.centre,
+    `mount ${mount.centre}x [${mount.location.limits}] against bulk [${bulk.location.limits}]`
+  );
+  check(
+    'and the mount\'s location limits are TIGHTER than bulk\'s — calibrating a class did not loosen one',
+    mount.location.limits[1] - mount.location.limits[0] < bulk.location.limits[1] - bulk.location.limits[0],
+    `mount width ${r4(mount.location.limits[1] - mount.location.limits[0])} against bulk ${r4(bulk.location.limits[1] - bulk.location.limits[0])}`
+  );
+  // WHERE THE TWO CLASSES ACTUALLY DECIDE DIFFERENTLY, stated as cases rather
+  // than asserted. They are NOT disjoint: the classes' location limits overlap
+  // heavily, and each class's centre sits comfortably inside the other's
+  // limits, so a run near either centre passes under either. The calibration
+  // earns its keep at the EDGES, one at each end, and a fixture that claimed
+  // more than that would be overselling it.
+  const reading = (r, jitter) => blocksAtIn({ centre: r }, 2, 18, jitter);
+  const overBulk = (bulk.location.limits[1] + mount.location.limits[1]) / 2; // above bulk's ceiling, under the mount's
+  const underMount = (bulk.location.limits[0] + mount.location.limits[0]) / 2; // above bulk's floor, under the mount's
+  check(
+    `a run reading ${r4(overBulk)}x is IN CONTROL on the mount and REFUSED on bulk — the mount's ceiling is higher`,
+    checkStandard(reading(overBulk, 0.02), MOUNT).ok === true && checkStandard(reading(overBulk, 0.02), BULK).ok === false,
+    `mount ceiling ${mount.location.limits[1]}, bulk ceiling ${bulk.location.limits[1]}`
+  );
+  check(
+    `a run reading ${r4(underMount)}x is IN CONTROL on bulk and REFUSED on the mount — the mount's floor is higher too`,
+    checkStandard(reading(underMount, 0.02), BULK).ok === true && checkStandard(reading(underMount, 0.02), MOUNT).ok === false,
+    `mount floor ${mount.location.limits[0]}, bulk floor ${bulk.location.limits[0]}`
+  );
+  // AND THE FENCE, AS A COUNT ON THE REAL CORPUS. The widest of the 14 mount
+  // row-runs reads above bulk's ceiling: had bulk's limits been imported here,
+  // that run would have been refused by a limit derived from a different row
+  // class on a different page. That is the mis-specification rf2-8a746 retired,
+  // and it is why this class was calibrated rather than borrowed.
+  check(
+    'the corpus proves the fence: the widest observed mount run sits ABOVE bulk\'s ceiling and inside the mount\'s',
+    mount.provenance.observed.runMedianRange[1] > bulk.location.limits[1] &&
+      mount.provenance.observed.runMedianRange[1] < mount.location.limits[1],
+    `widest mount run ${mount.provenance.observed.runMedianRange[1]}x, bulk ceiling ${bulk.location.limits[1]}, mount ceiling ${mount.location.limits[1]}`
+  );
+  // The sabotage, aimed at the mount's own arm: the standard has to be seen
+  // refusing on EVERY class it certifies, not on the first one written.
+  const mountSabotaged = checkStandard(blocksAtIn(mount, 140 / 300, 18, 0.05), MOUNT);
+  check(
+    'THE SABOTAGE ON THE MOUNT: an arm rendering 140 of the 300 boundaries it declares doubled REFUSES there too',
+    !mountSabotaged.ok && !mountSabotaged.location.ok && /outside the frozen location limits/.test(mountSabotaged.why || ''),
+    `${mountSabotaged.location && mountSabotaged.location.measured}x — ${mountSabotaged.why}`
+  );
+
+  // 6. FAIL CLOSED, at each seat.
+  //
+  // THE UNCALIBRATED SEAT HAS NO PRODUCTION INSTANCE any more — v2 calibrated
+  // the last class that had none — so the fixture makes one and puts it back,
+  // rather than leaving a fake row class in shipped data to keep a test alive.
+  // The seat is not dead code: it is what refuses the next class somebody adds
+  // to `classes` before its limits exist, and a branch nobody has seen refuse
+  // is a branch of unmeasured sensitivity.
+  let uncal;
+  try {
+    mount.calibrated = false;
+    uncal = checkStandard(blocksAtIn(mount, 2), MOUNT);
+  } finally {
+    mount.calibrated = true;
+  }
+  check(
+    'an UNCALIBRATED class refuses rather than abstains, and names the class it could not certify',
+    !uncal.ok && uncal.calibrated === false && uncal.location === null && /NOT CALIBRATED/.test(uncal.why || ''),
     uncal.why
+  );
+  check(
+    'and the flip was restored — a fixture that mutated the standard and left it mutated is a calibration change',
+    STANDARD.classes.mount.calibrated === true && checkStandard(blocksAtIn(mount, 2, 18, 0.05), MOUNT).ok === true
   );
   const noClass = checkStandard(blocksAt(2), 'keystroke');
   check(
@@ -352,8 +480,9 @@ function checkStandardSelfTest() {
   check('and a block that is not a finite reading refuses the run', !checkStandard([...blocksAt(2, 17, 0.05), NaN], BULK).ok);
   check('a missing block set is absent, not clean', !checkStandard(undefined, BULK).ok && !checkStandard(null, BULK).ok);
 
-  // 6. THE STANDARD IS DATA AND SAYS WHICH DATA IT IS. A verdict that did not
-  //    carry its version could not be re-read after a recalibration.
+  // 7. THE STANDARD IS DATA AND SAYS WHICH DATA IT IS. A verdict that did not
+  //    carry its version could not be re-read after a recalibration — and v2
+  //    is one, so this is now load-bearing rather than anticipatory.
   check(
     'every verdict carries the standard it was taken against, by id and version',
     healthy.standard.id === STANDARD.id &&
@@ -362,15 +491,27 @@ function checkStandardSelfTest() {
       Number.isInteger(STANDARD.version)
   );
   check(
-    'the frozen limits are the JSON\'s, never a literal here',
+    'the frozen limits are the JSON\'s, never a literal here — for EVERY calibrated class',
     healthy.location.limits[0] === bulk.location.limits[0] &&
       healthy.location.limits[1] === bulk.location.limits[1] &&
       healthy.dispersion.limit === bulk.dispersion.limit &&
-      healthy.location.centre === bulk.centre
+      healthy.location.centre === bulk.centre &&
+      mountHealthy.location.limits[0] === mount.location.limits[0] &&
+      mountHealthy.location.limits[1] === mount.location.limits[1] &&
+      mountHealthy.dispersion.limit === mount.dispersion.limit &&
+      mountHealthy.location.centre === mount.centre
   );
   check(
-    'and the limits bracket the centre rather than sitting to one side of it',
-    bulk.location.limits[0] < bulk.centre && bulk.centre < bulk.location.limits[1]
+    'and the limits bracket the centre rather than sitting to one side of it, in every class',
+    Object.values(STANDARD.classes)
+      .filter((k) => k.calibrated)
+      .every((k) => k.location.limits[0] < k.centre && k.centre < k.location.limits[1])
+  );
+  check(
+    'every calibrated class states its provenance and its error rates — a limit with no baseline is an assertion',
+    Object.entries(STANDARD.classes)
+      .filter(([, k]) => k.calibrated)
+      .every(([, k]) => k.provenance && k.provenance.rowRuns > 0 && /NOT INDEPENDENT/.test(k.provenance.independence || '') && k.errorRates)
   );
 
   return { checks };

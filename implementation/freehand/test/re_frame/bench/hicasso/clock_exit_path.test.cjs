@@ -1920,10 +1920,14 @@ function fixtureRoundsTask(over) {
   // fields this predicate reads — every whole-run verdict the driver exits on,
   // each at its passing value.
   //
-  // `bulk300` rather than `M1` (rf2-8a746): the check standard's mount class is
-  // deliberately UNCALIBRATED — the mount decision function is rf2-t2flm's —
-  // so an `M1` row can never be reportable and a roster fixture built on one
-  // would be asserting against a gate that is closed for an unrelated reason.
+  // `bulk300` rather than `M1`, and the reason has changed while the choice has
+  // not. Under rf2-8a746 the mount class was deliberately UNCALIBRATED, so an
+  // `M1` row could never be reportable and a roster fixture built on one would
+  // have been asserting against a gate closed for an unrelated reason.
+  // rf2-x7x10 calibrated it, so that hazard is gone — but the fixture stays on
+  // `bulk300` because its readings are built at the BULK centre, and a roster
+  // that swapped the row id without swapping the world would be certifying a
+  // mount against limits its blocks were never placed inside.
   const dsRow = (bars, over) => ({
     rowId: 'bulk300',
     pageErrors: [],
@@ -3428,6 +3432,280 @@ function fixtureRoundsTask(over) {
         .filter(([, l]) => /mechanism is PAINT|paint is what|caused by paint|because paint/i.test(l));
       assert.deepStrictEqual(claims.map(([n, l]) => `${name}:${n}: ${l.trim()}`), [], 'paint causation is an inference, not a finding');
     }
+  });
+}
+
+// --- rf2-x7x10: THE MOUNT CLASS, AND THE ROW IT PUTS BACK IN REACH ----------
+//
+// rf2-8a746 calibrated the BULK class and left the MOUNT class uncalibrated,
+// holding rf2-t2flm's seat. The consequence fell between the two rulings and is
+// what this block pins.
+//
+//   rf2-t2flm's published `M1` row is conditioned on the strict every-block
+//   `ctl-2x` rule. rf2-8a746 retired that rule EVERYWHERE ON THIS INSTRUMENT.
+//   So the row's label named a rule nothing implements, and
+//   `clock_readjudicate.cjs` — which rf2-t2flm's ruling records as reproducing
+//   every published figure exactly — returned `reportable subset: NONE` on all
+//   three `M1` pairs instead. No figure was wrong and the posture was stricter,
+//   not looser; what was lost was the REPRODUCTION PATH of a published claim.
+//
+// v2 calibrates the mount from the mount's own 14 committed row-runs. THE
+// FENCE IS THE POINT OF THE BLOCK: the mount is calibrated on its own data and
+// NOT on bulk's limits, because the two classes read 4.4% apart on the
+// identical statistic and importing bulk's would have asserted against the
+// mount a value never measured on it — the mis-specification rf2-8a746 retired,
+// one row class over. The corpus makes that concrete rather than rhetorical:
+// bulk's ceiling would have refused a mount run the mount's own limits admit.
+{
+  const { STANDARD, checkStandard, classOf } = require('./clock_check_standard.cjs');
+  const { checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, reportable, refusals } = require('./clock_readjudicate.cjs');
+  const t = (what, fn) => test(`rf2-x7x10: ${what}`, fn);
+  const bulk = STANDARD.classes.bulk;
+  const mount = STANDARD.classes.mount;
+  const CORPORA = [
+    { dir: 'clock-emvod', runs: 8 },
+    { dir: 'clock-w3yxd', runs: 6 },
+  ];
+  const M1_PAIRS = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
+
+  /** Every committed dataset of an ensemble, or `null` when the corpus is absent. */
+  const corpus = (dir) => {
+    const d = path.join(__dirname, 'data', dir);
+    if (!fs.existsSync(d)) return null;
+    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')) }));
+  };
+
+  // --- 1. THE CLASS IS DATA, LIKE THE OTHER ONE -----------------------------
+
+  t('the mount class lands as DATA — calibrated, with its own frozen centre and limits', () => {
+    assert.strictEqual(STANDARD.version, 2, 'calibrating a class is a version bump, or a stored verdict cannot be re-read');
+    assert.strictEqual(mount.calibrated, true);
+    assert.deepStrictEqual(mount.rows, ['M1']);
+    assert.strictEqual(classOf('M1'), 'mount');
+    assert.strictEqual(typeof mount.centre, 'number');
+    assert.strictEqual(mount.location.limits.length, 2);
+    assert.ok(mount.location.limits[0] < mount.centre && mount.centre < mount.location.limits[1], 'the limits must bracket the centre');
+    assert.ok(mount.dispersion.limit > 0);
+    // and the file, not the reader, is where they live
+    assert.ok(
+      !new RegExp(String(mount.centre)).test(fs.readFileSync(path.join(__dirname, 'clock_check_standard.cjs'), 'utf8')),
+      'the mount centre must not also be a literal in the module that reads it'
+    );
+  });
+
+  t('the mount centre is EMPIRICAL, with its provenance and its non-independence stated', () => {
+    assert.ok(Math.abs(mount.centre - 2.0) > 0.15, 'the frozen centre is not the arithmetic 2.00x');
+    const prov = mount.provenance;
+    assert.strictEqual(prov.rowRuns, 14);
+    assert.strictEqual(prov.calibratedBy, 'rf2-x7x10');
+    assert.deepStrictEqual(prov.datasets, ['data/clock-emvod/run1-8.json', 'data/clock-w3yxd/run1-6.json']);
+    assert.match(prov.independence, /NOT INDEPENDENT/, 'v2 is seeded from the runs it is quoted against, and must say so');
+    // the derivation is the bulk class's, restated on this class's numbers
+    assert.match(mount.location.derivation, /3 x between-run SD/);
+    assert.match(mount.dispersion.derivation, /exp\(mu \+ 3 sigma\)/);
+    assert.match(mount.errorRates.runRejectionEmpirical, /0 of 14/);
+    assert.match(mount.errorRates.retiredRuleForComparison, /7 of 14/, "the published row's own yield is where the label's arithmetic now lives");
+  });
+
+  // --- 2. THE FENCE ---------------------------------------------------------
+
+  t('THE FENCE: the mount is calibrated on its OWN data, not on the bulk class\'s limits', () => {
+    assert.notStrictEqual(mount.centre, bulk.centre);
+    assert.notDeepStrictEqual(mount.location.limits, bulk.location.limits);
+    assert.notStrictEqual(mount.dispersion.limit, bulk.dispersion.limit);
+    // and calibrating a class did not loosen one: the mount's location term is
+    // TIGHTER than bulk's, because its between-run scatter is smaller.
+    assert.ok(
+      mount.location.limits[1] - mount.location.limits[0] < bulk.location.limits[1] - bulk.location.limits[0],
+      `mount width ${mount.location.limits[1] - mount.location.limits[0]} against bulk ${bulk.location.limits[1] - bulk.location.limits[0]}`
+    );
+  });
+
+  t('THE BULK CLASS IS UNTOUCHED — rf2-8a746\'s frozen numbers, to the last place', () => {
+    // The fence's other half. A PR that calibrates one class is the easiest
+    // possible place to nudge another, so #7698's seed is asserted literally
+    // here rather than left to a reviewer's eye.
+    assert.strictEqual(bulk.calibrated, true);
+    assert.strictEqual(bulk.centre, 1.7207);
+    assert.deepStrictEqual(bulk.location.limits, [1.5509, 1.8905]);
+    assert.strictEqual(bulk.dispersion.limit, 0.568);
+    assert.deepStrictEqual(bulk.tolerance.band, [1.2905, 2.1509]);
+    assert.strictEqual(bulk.provenance.rowRuns, 42);
+    assert.deepStrictEqual(bulk.rows, ['bulk300', 'bulk100', 'narrow']);
+  });
+
+  t('and the corpus proves the fence rather than asserting it — bulk\'s ceiling would refuse a real mount run', () => {
+    const c = corpus('clock-emvod');
+    if (!c) return; // datasets are retained, not required to build
+    const medians = [];
+    for (const { data } of c) {
+      const row = data.rows.find((r) => r.rowId === 'M1');
+      if (row) medians.push(checkStandardFor(row, data).location.measured);
+    }
+    const widest = Math.max(...medians);
+    assert.ok(
+      widest > bulk.location.limits[1],
+      `a real mount run must sit above bulk's ceiling for the fence to be load-bearing — widest ${widest}, ceiling ${bulk.location.limits[1]}`
+    );
+    assert.ok(widest < mount.location.limits[1], `and inside the mount's own — widest ${widest}, ceiling ${mount.location.limits[1]}`);
+  });
+
+  // --- 3. THE 14 COMMITTED MOUNT ROW-RUNS -----------------------------------
+
+  t('the committed corpus is 14 mount row-runs, and every one is IN CONTROL under the standard', () => {
+    let n = 0;
+    let inControl = 0;
+    for (const { dir } of CORPORA) {
+      const c = corpus(dir);
+      if (!c) return;
+      for (const { data } of c) {
+        for (const row of data.rows.filter((r) => r.rowId === 'M1')) {
+          n += 1;
+          if (checkStandardFor(row, data).ok) inControl += 1;
+        }
+      }
+    }
+    assert.strictEqual(n, 14, 'the corpus rf2-x7x10 calibrated from');
+    // The same consistency check the bulk class carries, and the same caveat:
+    // v2 was seeded from these medians, so 14 of 14 is what it must say, and a
+    // drift here means the limits and the corpus have parted.
+    assert.strictEqual(inControl, 14, `the frozen limits must still admit their own baseline — got ${inControl}`);
+  });
+
+  // --- 4. THE REPRODUCTION PATH, WHICH IS THE DEFECT THIS BEAD REPAIRS ------
+
+  t('THE REPAIR: the M1 row has a reportable subset again, on both ensembles', () => {
+    // The regression this bead exists to prevent recurring. With the mount
+    // class uncalibrated every M1 run was refused by the gate, so
+    // `clock_readjudicate.cjs` printed `reportable subset: NONE` for a row the
+    // programme publishes — a claim a fresh clone could not recompute.
+    for (const { dir, runs } of CORPORA) {
+      const c = corpus(dir);
+      if (!c) return;
+      const rows = c.map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') })).filter((x) => x.row);
+      const pooled = rows.filter(({ row, data }) => reportable(row, data));
+      assert.strictEqual(
+        pooled.length,
+        runs,
+        `${dir}: every M1 run cleared every other gate before this bead, so all ${runs} must pool — ` +
+          `refusals on the first: ${JSON.stringify(refusals(rows[0].row, rows[0].data))}`
+      );
+    }
+  });
+
+  t('and the publication rule reaches M1 for the first time, with a stated verdict on every pair', () => {
+    // rf2-8a746's rule could not speak to this row while no run was
+    // reportable, because an interval needs a pooled run to be formed from.
+    for (const { dir } of CORPORA) {
+      const c = corpus(dir);
+      if (!c) return;
+      const rows = c.map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') })).filter((x) => x.row);
+      const pooled = rows.filter(({ row, data }) => reportable(row, data));
+      for (const pair of M1_PAIRS) {
+        const iv = effectInterval(pooled.map(({ row }) => pairedLogRatios(row, pair)).filter(Boolean));
+        const bands = pooled.map(({ row }) => row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
+        const ev = effectVerdict(iv, bands.length ? Math.max(...bands) : NaN);
+        assert.ok(iv, `${dir}/M1/${pair}: the corpus must now yield an interval to adjudicate`);
+        assert.ok(iv.lo <= iv.point && iv.point <= iv.hi, `${dir}/M1/${pair}: the point must lie inside its own interval`);
+        assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/M1/${pair}: a verdict must carry its reason`);
+        assert.ok(
+          /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL)/.test(ev.verdict),
+          `${dir}/M1/${pair}: unrecognised verdict ${ev.verdict}`
+        );
+        // PINNED AS THE RULING'S FENCE, NOT AS A PREFERRED ANSWER, exactly as
+        // the bulk corpus case above is. These 14 row-runs are calibration
+        // evidence; promoting them to a published magnitude is a RULING —
+        // rf2-t2flm's magnitude and rf2-8a746's whole-interval rule currently
+        // disagree on this row — and no code here may do it silently. If this
+        // ever flips, the failure IS the finding.
+        assert.strictEqual(
+          ev.publishes,
+          false,
+          `${dir}/M1/${pair} PUBLISHED a magnitude from the committed corpus. That is a ruling to be made, not a ` +
+            `test to be updated: rf2-t2flm publishes a magnitude on this row and rf2-8a746 part 4 publishes one only ` +
+            `on a whole interval clearing the 1.0 bar or the 1.5 kill threshold. Verdict: ${ev.verdict} — ${ev.why}`
+        );
+      }
+    }
+  });
+
+  t('and the program itself exits 0 over both ensembles, printing an M1 subset rather than NONE', () => {
+    const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
+    for (const { dir, runs } of CORPORA) {
+      const c = corpus(dir);
+      if (!c) return;
+      const r = cp.spawnSync(process.execPath, [RJ, ...c.map((x) => x.file)], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      const out = `${r.stdout}${r.stderr}`;
+      assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
+      const m1 = out.slice(out.indexOf(';; ======== ROW M1'), out.indexOf(';; ======== ROW bulk300'));
+      assert.ok(m1.length > 0, `${dir}: the M1 block must be printed`);
+      assert.ok(!/reportable subset: NONE/.test(m1), `${dir}: the M1 row must have a reportable subset — that is the defect rf2-x7x10 repairs`);
+      assert.ok(new RegExp(`reportable subset [0-9.]+x n=${runs}`).test(m1), `${dir}: the subset must pool all ${runs} runs`);
+      assert.ok(!/the `mount` class of the check standard is NOT CALIBRATED/.test(m1), `${dir}: the mount class is calibrated now`);
+      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746\)/.test(m1), `${dir}: the interval must be printed on M1 too`);
+    }
+  });
+
+  // --- 5. THE SUPERSEDED RATIONALE IS CORRECTED, NOT DELETED ---------------
+
+  t('v1\'s rationale cited a SUPERSEDED ruling, and the standard records that rather than erasing it', () => {
+    // The failure mode worth leaving on the record: a rationale can be sound,
+    // current at the hour it was written, and still rest on a ruling overturned
+    // the day before. v1 justified failing closed with "M1 publishes DIRECTION
+    // and never a magnitude by rf2-jcm3p, so no magnitude is being withheld";
+    // rf2-t2flm had superseded rf2-jcm3p's regime-only statement the previous
+    // day, so a magnitude WAS being withheld.
+    const a = mount.amendedFrom;
+    assert.ok(a, 'the mount class must carry what it was amended from');
+    assert.strictEqual(a.version, 1);
+    assert.match(a.citedASupersededRuling, /rf2-jcm3p/);
+    assert.match(a.citedASupersededRuling, /rf2-t2flm/);
+    assert.match(a.citedASupersededRuling, /ALREADY FALSE/);
+    assert.match(a.whatItActuallyCost, /REPRODUCTION PATH/);
+    assert.match(a.keptRatherThanDeleted, /[Aa]nnotate-never-erase/);
+    // and the superseded premise is no longer asserted anywhere as live
+    // rationale: it survives only inside the amendment that corrects it.
+    const json = fs.readFileSync(path.join(__dirname, 'clock_check_standard.json'), 'utf8');
+    const outsideAmendment = json.split('"amendedFrom"')[0];
+    assert.ok(!/rf2-jcm3p/.test(outsideAmendment), 'the superseded ruling may only appear inside the amendment that retires it');
+    // the standard also records the amendment at the top level, so a reader
+    // meeting v2 knows what changed between the versions without diffing.
+    assert.ok(Array.isArray(STANDARD.amendments) && STANDARD.amendments.length >= 1);
+    assert.strictEqual(STANDARD.amendments[0].version, 2);
+    assert.strictEqual(STANDARD.amendments[0].ruling, 'rf2-x7x10');
+  });
+
+  t('the ruling is cited by bead id in every surface it changed', () => {
+    for (const [name, file] of [
+      ['clock_check_standard.json', 'clock_check_standard.json'],
+      ['clock_check_standard.cjs', 'clock_check_standard.cjs'],
+      ['clock_readjudicate.cjs', 'clock_readjudicate.cjs'],
+      ['clock_run.cjs', 'clock_run.cjs'],
+    ]) {
+      assert.ok(/rf2-x7x10/.test(fs.readFileSync(path.join(__dirname, file), 'utf8')), `${name} must cite the ruling that changed it`);
+    }
+  });
+
+  t('the UNCALIBRATED seat survives its last live instance — a class with no limits still refuses', () => {
+    // Every declared class is calibrated as of v2, so the branch has no
+    // production instance. It is not dead code: it is what refuses the next
+    // class added to `classes` before its limits exist. Proved by making an
+    // instance and putting it back, which is also the shape of this PR's own
+    // mutation proof.
+    const before = JSON.stringify(STANDARD.classes.mount);
+    let v;
+    try {
+      STANDARD.classes.mount.calibrated = false;
+      v = checkStandard([1.79, 1.8, 1.81], 'M1');
+    } finally {
+      STANDARD.classes.mount.calibrated = true;
+    }
+    assert.strictEqual(v.ok, false, 'an uncalibrated class refuses rather than abstains');
+    assert.strictEqual(v.calibrated, false);
+    assert.strictEqual(v.location, null, 'and it refuses on the CLASS, before any reading is judged');
+    assert.match(v.why, /NOT CALIBRATED/);
+    assert.strictEqual(JSON.stringify(STANDARD.classes.mount), before, 'the fixture must leave the standard as it found it');
+    assert.strictEqual(checkStandard([1.79, 1.8, 1.81], 'M1').ok, true, 'and the class certifies again afterwards');
   });
 }
 

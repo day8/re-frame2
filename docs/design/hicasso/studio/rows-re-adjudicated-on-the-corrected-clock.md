@@ -37,6 +37,14 @@ passes predictable rather than lucky. The row now publishes **`~1.184×` against
 direct UIx-on-subs** and two ensemble-specific estimates against Reagent-on-subs,
 under the labels [§4.3](#43-the-published-m1-row) states — reportable-subset
 conditional, with the control yield and the raw quotient beside every figure.
+**That conditioning rule has since been retired and the row re-adjudicated
+under a calibrated mount check standard** *(2026-08-08, `rf2-x7x10`:
+`14 of 14` runs in control rather than 7 of 14, so the reportable subset is the
+whole ensemble; the figures move to the whole-ensemble column already tabled,
+and `rf2-8a746`'s publication rule — reaching this row for the first time —
+returns `INSTRUMENT-LIMITED` on every pair. The magnitudes are **held pending a
+ruling**, not withdrawn — [§4.3](#43-the-published-m1-row) carries the whole of
+it.)*
 Both historical figures stay on this page as dated observations, annotated with
 the control status they were taken under; nothing is erased. The superseded
 restatement is on
@@ -314,6 +322,90 @@ ensemble was taken at, so it is filed rather than done here.
 
 ### 4.3 The published M1 row
 
+> **RE-ADJUDICATED 2026-08-08 UNDER A CALIBRATED MOUNT CLASS (`rf2-x7x10`), AND
+> THE CONDITIONING LABEL BELOW IS SUPERSEDED.** Nothing in this section is
+> erased and no figure in it was found wrong. What changed is the *rule* the
+> figures are conditioned on, and therefore which runs they are means over.
+>
+> **What broke.** Every bolded figure below is labelled *reportable-subset
+> conditional*, and the subset is named as "the runs passing the strict
+> every-block `ctl-2x` rule on both clocks", yield `7 of 14`. `rf2-8a746`
+> retired that rule **everywhere on this instrument** — its arithmetic is
+> `p^18`, and a control fully meeting its premise passed 4 of 42 runs — and
+> PR #7698 landed the retirement. So from that merge the label named a rule
+> nothing implements, and `clock_readjudicate.cjs` — which `rf2-t2flm`'s own
+> ruling records as reproducing every figure below **exactly** — printed
+> `reportable subset: NONE` on all three `M1` pairs of both ensembles instead.
+> No number moved and nothing was invalidated; the new posture is *stricter*.
+> What was lost was the **reproduction path** of a published row.
+>
+> **What replaced it.** The check standard's `mount` class is calibrated (v2)
+> from the mount's own 14 committed row-runs, in the derivation `rf2-8a746`
+> froze `bulk` under and *not* by importing `bulk`'s limits: centre **1.7956×**
+> (the median of the 14 run medians), location limits **[1.6765 – 1.9147]**
+> (centre ± 3 × between-run SD `0.0397`), dispersion ≤ **0.577** (a lognormal
+> upper 3σ on the robust scale `IQR/1.349`). The classes are 4.4% apart on the
+> identical statistic through the identical door, and the gap is load-bearing:
+> `bulk`'s ceiling of `1.8905` would have refused `clock-emvod` run 3, whose
+> mount reads `1.8978×`, on a limit derived from a different row class.
+>
+> **The eligible subset therefore changed, so this row is re-adjudicated rather
+> than relabelled — `7 of 14` becomes `14 of 14`.** Every `M1` run in both
+> ensembles is `IN CONTROL` under the mount standard, and every other gate on
+> them was already clean, so **the reportable subset is now the whole ensemble**
+> and the two are the same number:
+>
+> | pair | `clock-emvod` published → now | `clock-w3yxd` published → now |
+> |---|---|---|
+> | `hicasso / uix-subs` | 1.1837× *(n=4)* → **1.1798× *(n=8)*** | 1.1848× *(n=3)* → **1.2057× *(n=6)*** |
+> | `hicasso / reagent-subs` | 1.1402× *(n=4)* → **1.1429× *(n=8)*** | 1.1100× *(n=3)* → **1.1492× *(n=6)*** |
+>
+> Both "now" columns are the whole-ensemble figures already tabled below, so
+> **no new number enters the record** — what changes is which column is the
+> headline.
+>
+> **And one claim below does not survive the change of subset.** The section
+> rests weight on the two ensembles "agreeing to **0.11 percentage points**" on
+> the UIx pair. That agreement was a property of the *selected* subsets:
+> unselected, the two ensembles sit **2.6 pp** apart (1.1798 against 1.2057).
+> The Reagent pair moves the other way — 3.0 pp apart on the subsets, **0.6 pp**
+> apart unselected. Neither direction was chosen; both are what removing a
+> selection on a control does, and the honest reading is that the selection was
+> making the UIx replication look tighter than it is and the Reagent
+> replication looser.
+>
+> **`rf2-8a746`'s publication rule now reaches this row, and it refuses a
+> magnitude.** It could not reach it before: with no run eligible, no interval
+> was formed. With all 14 eligible the run-preserving effect-size interval
+> (paired same-round level ratios, outer runs resampled before inner rounds,
+> 4000 draws, seed `20260807`) computes, and on **every pair of both ensembles**
+> the verdict is `INSTRUMENT-LIMITED`:
+>
+> | pair | `clock-emvod` | `clock-w3yxd` |
+> |---|---|---|
+> | `hicasso / uix-subs` | 1.1679× [1.1259 – 1.2096] *(n=8)* | 1.1621× [1.1209 – 1.2090] *(n=6)* |
+> | `hicasso / reagent-subs` | 1.1142× [1.0238 – 1.1988] *(n=8)* | 1.1151× [1.0314 – 1.1955] *(n=6)* |
+> | `uix-subs / reagent-subs` | 0.9540× [0.8835 – 1.0139] *(n=8)* | 0.9596× [0.8962 – 1.0209] *(n=6)* |
+>
+> The reason is stated precisely, because it is **not** that the row is noisy:
+> on the two `hicasso` pairs the whole interval lies **above 1.0** — the
+> direction is intact and parity is excluded — but the rule publishes a
+> magnitude only when the whole interval clears the `1.0` ship bar *below* or
+> the `1.5` architecture-kill *above*, and an interval at ~1.16× clears neither
+> **decision threshold**.
+>
+> **So the bolded magnitudes below are HELD, not withdrawn, and a ruling is
+> owed.** `rf2-t2flm` (2026-08-07) publishes a magnitude on this row;
+> `rf2-8a746` part 4 (2026-08-07, same day) says a row publishes a magnitude
+> only on a whole interval clearing a threshold. On `M1` those two rulings now
+> disagree, and which governs is a **ruling** rather than a worker's call — the
+> same reason §7.2 stopped rather than published. Recorded, not decided.
+>
+> **No measurement was taken for any of this.** Every figure in this block is
+> arithmetic over the committed 42-run corpus, reproduced by the command in
+> [§7.2](#72-the-re-take-that-was-taken-and-what-it-refuses) over each
+> ensemble's `run*.json`.
+
 **Ruled 2026-08-07, `rf2-t2flm`. `M1` regains a magnitude.** The regime-only
 statement of `rf2-jcm3p` (2026-08-06) is **superseded** — not because a new
 measurement was taken, but because the ground it stood on was re-examined and did
@@ -355,29 +447,66 @@ percent, measured twice, at two values.
 
 #### The labels these figures carry, and they are not optional
 
-**Reportable-subset conditional.** Every bolded figure above is a mean over the
+~~**Reportable-subset conditional.** Every bolded figure above is a mean over the
 runs that passed the **strict every-block `ctl-2x` rule on both clocks** — not
 over the ensemble. The subset is a *selection on a control*, and the
 whole-ensemble band is printed beside each one so the selection's effect is
-visible rather than asserted away.
+visible rather than asserted away.~~
 
-**The control yield, stated plainly: `7 of 14` runs eligible** — 4 of 8 on
+~~**The control yield, stated plainly: `7 of 14` runs eligible** — 4 of 8 on
 `clock-emvod`, 3 of 6 on `clock-w3yxd`. Wilson 95% on that proportion is
 **≈ 0.27 – 0.73**. The correct reading of this control is that it **CAN
 adjudicate `M1`** — not that it usually will. A third ensemble might yield two
-eligible runs or five, and nothing here promises otherwise.
+eligible runs or five, and nothing here promises otherwise.~~
+
+**BOTH LABELS ARE SUPERSEDED (2026-08-08, `rf2-x7x10`) — the rule they name no
+longer exists on this instrument.** They are struck rather than deleted because
+the *shape* of the caution was right and is worth keeping legible: a figure
+conditioned on a control's verdict is a selection, and a selection has to be
+declared. What replaces them:
+
+**Run-in-control conditional, under the mount check standard v2.** Every figure
+above is a mean over the runs certified `IN CONTROL` by
+`clock_check_standard.json`'s `mount` class — the run's own block **median**
+inside `[1.6765 – 1.9147]` about an empirical centre of `1.7956×`, and its
+robust scale `IQR/1.349` at or under `0.577`. Nothing per-block rejects a run;
+the ±25% tolerance band about the centre is **reported and decides nothing**,
+at 246 of 252 blocks inside.
+
+**The yield, stated plainly: `14 of 14` runs in control** — 8 of 8 on
+`clock-emvod`, 6 of 6 on `clock-w3yxd`, so **the reportable subset is the whole
+ensemble and there is no selection left to declare**. The honest rider is a
+different one, and it is about the *limits* rather than the runs: v2 is seeded
+from the same 14 row-runs it is quoted against, so `14 of 14` is a **consistency
+check and not a false-refusal measurement** (`0.4%` nominal per run, from a
+two-sided 3σ location term and a one-sided 3σ dispersion term). A check standard
+earns its name on a baseline it is not afterwards judged on, and this one has
+not had that yet; the JSON's `provenance.independence` says so where a
+recalibrator will read it, and on this class 14 runs is thin for fixing the
+dispersion term's σ.
+
+**For comparison, the retired rule's arithmetic on this row**, since it is what
+the struck labels quoted: every block inside `2.00× ± 25%` put 240 of 252 blocks
+(95.2%) in band and passed 9 of 14 runs on the published clock, `7 of 14` on
+both — the yield above. Re-centring the same band on the empirical `1.7956`
+raises the in-band fraction to 97.6% and still passes only 10 of 14, because
+`0.976^18 = 64.6%`. The mis-derived centre and the all-blocks rule were two
+separate defects here exactly as on the bulk rows; what differs is severity, and
+that is the whole reason this row kept a subset where the bulk rows kept none.
 
 **Disclosure — the row-level pool is looser than the run-level gate**
 *(`rf2-t2flm`, disclosed and deliberately not repaired)*. The readjudicator's
 row-level pool accepts a bar carrying an adjudication record **even when that bar
 is marked `clear:false`** — i.e. a run can contribute to a reportable subset on
 the strength of its run-level control while its own bar sits inside its noise
-band. Among the seven eligible runs:
+band. Among the ~~seven~~ **fourteen** *(2026-08-08, `rf2-x7x10`: the eligible
+set is now the whole of both ensembles, so the disclosure is restated over it —
+the wrinkle is unchanged and neither pool was tightened)* eligible runs:
 
 | pair | clears its own noise band | detail |
 |---|---:|---|
-| `hicasso / uix-subs` | **6 of 7** | `clock-w3yxd` 3 of 3; `clock-emvod` 3 of 4 |
-| `hicasso / reagent-subs` | **5 of 7** | `clock-emvod` 3 of 4; `clock-w3yxd` 2 of 3 |
+| `hicasso / uix-subs` | ~~6 of 7~~ **11 of 14** | `clock-w3yxd` 6 of 6; `clock-emvod` 5 of 8 |
+| `hicasso / reagent-subs` | ~~5 of 7~~ **10 of 14** | `clock-w3yxd` 5 of 6; `clock-emvod` 5 of 8 |
 
 Tightening the pool is **not** required by this ruling and is not done. It is a
 disclosed wrinkle, the disclosure is what the reader needs, and building new
@@ -752,12 +881,16 @@ that can adjudicate the row is a **ruling**, and a worker holding a measurement
 is not the one to make it. The ruling went **for** adjudication — the passes are
 mechanistic (`rf2-8a746`), the rule they pass was pre-registered six days before
 this ensemble, and a second independently launched ensemble replicates the result.
-This ensemble's four runs supply `hicasso / uix-subs` **1.1837×** and
-`hicasso / reagent-subs` **1.1402×** to the published row at
-[§4.3](#43-the-published-m1-row), where they are stated with their conditional
-labels, their whole-ensemble bands and their raw quotients. **Nothing on this
-page is restated by that** — §7.2's own sentence, *"the re-take does not restate
-one figure on this page"*, still holds: §4.3 publishes from the retained
+This ensemble's ~~four~~ **eight** runs supply `hicasso / uix-subs`
+~~**1.1837×**~~ **1.1798×** and `hicasso / reagent-subs` ~~**1.1402×**~~
+**1.1429×** to the published row at [§4.3](#43-the-published-m1-row), where they
+are stated with their conditional labels, their whole-ensemble bands and their
+raw quotients. *(2026-08-08, `rf2-x7x10`: the four-run subset was the
+every-block `ctl-2x` rule's, which `rf2-8a746` retired; under the calibrated
+mount check standard all eight of this ensemble's `M1` runs are in control, so
+the subset and the whole ensemble are now one set and one figure.)* **Nothing on
+this page is restated by that** — §7.2's own sentence, *"the re-take does not
+restate one figure on this page"*, still holds: §4.3 publishes from the retained
 ensembles, and the seven runs this page was written on are untouched.
 
 **The one command, over evidence it may publish from:**

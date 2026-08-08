@@ -3237,9 +3237,15 @@ async function main() {
   // expected centre is EMPIRICAL and frozen with its provenance, and whose
   // run-rejection rule is the run's own location and dispersion at stated
   // error rates (0.4% nominal per run, 0 of 42 empirical, against the retired
-  // rule's 90.5%). A row it cannot certify — `keystroke`, which has no
-  // proportional control arm, and `M1`, whose class rf2-8a746 deliberately
-  // left uncalibrated for rf2-t2flm — FAILS CLOSED and says which.
+  // rule's 90.5%). A row it cannot certify FAILS CLOSED and says which: today
+  // that is `keystroke`, which has no proportional control arm at all.
+  //
+  // `M1` USED TO BE THE OTHER ONE. rf2-8a746 deliberately left the mount class
+  // uncalibrated, holding the seat for rf2-t2flm; rf2-x7x10 calibrated it at
+  // v2 from the mount's own 14 committed row-runs — a different centre from
+  // bulk's, on its own between-run scatter, because the classes read 4.4%
+  // apart on the identical statistic and borrowing bulk's limits would have
+  // re-committed the mis-specification this ruling retired.
   //
   // The Event-Timing witness still refuses beside it, unchanged: the two make
   // different claims and a row can fail both.

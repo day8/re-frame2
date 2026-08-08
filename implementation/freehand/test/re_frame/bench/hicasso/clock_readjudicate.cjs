@@ -105,6 +105,30 @@
 // Every pooled mean this program prints is therefore a DIAGNOSTIC beneath that
 // verdict, and the 42 committed row-runs remain calibration evidence: they are
 // not retroactively promoted to published magnitudes by anything here.
+//
+// ## AND THE MOUNT ROW IS ADJUDICATED TOO, FROM v2 (rf2-x7x10)
+//
+// The check standard shipped with its `mount` class UNCALIBRATED and failing
+// closed, which was right at the hour — `rf2-8a746` seeded `bulk` and handed
+// the mount to `rf2-t2flm` — and wrong by the next one. `rf2-t2flm`'s published
+// `M1` row is conditioned on the every-block `ctl-2x` rule that `rf2-8a746`
+// retired, and its ruling records THIS PROGRAM as reproducing every figure of
+// that row exactly. With the class uncalibrated it printed `reportable subset:
+// NONE` on all three `M1` pairs instead. No figure was wrong and nothing was
+// invalidated — the posture was stricter, not looser — but a published claim
+// stopped being recomputable from a fresh clone, which is the one property this
+// file exists to hold.
+//
+// v2 calibrates the mount from the mount's own 14 committed row-runs and the
+// row adjudicates again. WHAT IT THEN SAYS IS NOT THIS FILE'S TO ARRANGE: all
+// 14 come back in control, so the reportable subset is the whole ensemble, and
+// the publication rule above — reaching `M1` for the first time, because an
+// interval needs a reportable run to be formed from — returns INSTRUMENT-LIMITED
+// on every pair. The intervals sit wholly above 1.0 and clear neither the ship
+// bar below nor the architecture-kill above. That is the rule doing its job on
+// a row it had never been applied to, and the tension it creates with
+// `rf2-t2flm`'s published magnitude is a RULING, recorded on the studio page
+// and not resolved by any code here.
 
 'use strict';
 
@@ -214,7 +238,11 @@ function checkStandardFor(row, dataset) {
   const d = dataset || {};
   // THE CLASS DECIDES BEFORE THE READINGS DO. A row whose class is
   // uncalibrated cannot be certified in control however clean its blocks are,
-  // and asking for readings first would report the wrong refusal.
+  // and asking for readings first would report the wrong refusal. Every class
+  // the standard declares is calibrated as of v2 (rf2-x7x10), so this seat has
+  // no live instance today; it stays because the next class added to `classes`
+  // will arrive before its limits do, and that class must refuse rather than
+  // be waved through by a branch nobody kept.
   const klass = checkstd.classOf(r.rowId);
   if (!klass || !checkstd.STANDARD.classes[klass].calibrated) return checkstd.checkStandard([], r.rowId);
   if (!d.design || typeof d.design.tare !== 'boolean') {

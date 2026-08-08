@@ -1,8 +1,17 @@
 {
   "id": "hicasso-clock/ctl-2x-level",
-  "version": 1,
+  "version": 2,
   "ruling": "rf2-8a746",
   "frozen": "2026-08-07",
+  "amendments": [
+    {
+      "version": 2,
+      "date": "2026-08-08",
+      "ruling": "rf2-x7x10",
+      "what": "The MOUNT class is calibrated, from its own 14 committed row-runs, in the same derivation the bulk class was frozen under. v1 left it uncalibrated and failing closed; see classes.mount.amendedFrom for what that cost and for the superseded ruling v1's rationale cited.",
+      "touches": "the mount class only. The bulk class's centre, limits, dispersion and error rates are byte-identical to v1, and no hard refusal (read-back, canonical-DOM, page-error, arm-order, quiet-box, band-ceiling) is involved either way."
+    }
+  ],
   "what": "The level-denominated check standard for the Hicasso clock (clock_run.cjs). The measured quantity is the ctl-2x arm's TARED TaskDuration over the floor's TARED TaskDuration, in the same round of the same segment — one per block, 18 per row-run. Both terms are LEVELS, so the ~0.4 ms of estimator error each arm's p50 carries is 9% of a ~4.5 ms denominator rather than 48% of a 1.2 ms difference. It replaces the three-point difference-of-differences control, which rf2-8a746 retired as a gate.",
   "notAPrediction": "The expected centre is EMPIRICAL, not theoretical. ctl-2x builds exactly twice the floor's page and the arithmetic prediction is 2.00x, but TaskDuration is not affine in the page either, and asserting a theoretical value against a non-affine clock is the exact mistake rf2-8a746 retired. What is frozen below is what this instrument, on this page, through this door, was MEASURED to read.",
   "statistics": {
@@ -37,17 +46,35 @@
     },
     "mount": {
       "rows": ["M1"],
-      "calibrated": false,
-      "why": "rf2-8a746 calibrated the BULK class only and hands the mount decision function to rf2-t2flm, so nothing has established what this instrument reads on a mount and no run of one can be certified in control",
-      "rationale": "The 42 row-runs rf2-8a746 names are bulk. The mount half of the instrument question is rf2-t2flm's ruling, concurrent and separate, and one finding is handed to it by id: ctl-2x's true centre is EMPIRICAL and differs by row class — 1.72x on bulk against 1.80x on the mount — so a mount decision function must state its expectation empirically too rather than assert 2.00x. Until that ruling lands this class fails closed, which costs nothing: M1 publishes DIRECTION and never a magnitude by rf2-jcm3p, so no magnitude is being withheld.",
-      "observed": {
+      "calibrated": true,
+      "centre": 1.7956,
+      "location": { "limits": [1.6765, 1.9147], "derivation": "centre +/- 3 x between-run SD 0.0397" },
+      "dispersion": { "limit": 0.577, "derivation": "exp(mu + 3 sigma) of the 14 log robust scales, mu = -2.0743, sigma = 0.508 — the bulk class's derivation, unchanged, on this class's own draws. It lands 102% above the widest of the 14 observed scales where bulk's lands 35% above the widest of its 42, because a lognormal sigma fitted on 14 draws is wider (0.508 against 0.370) and not because anything was widened to admit anything: the mount runs' observed scales are SMALLER than bulk's throughout (p50 0.120 against 0.192). LOCATION IS THE TERM THAT JUDGES THIS CLASS, and it is the tighter of the two — half the width of bulk's, because the mount's between-run SD is 0.0397 against 0.0566." },
+      "tolerance": { "slack": 0.25, "band": [1.3467, 2.2445], "reported": true },
+      "errorRates": {
+        "runRejectionNominal": "0.4% per run — location 0.27% (two-sided 3 sigma, normal) plus dispersion 0.13% (one-sided 3 sigma, lognormal). The same two terms as the bulk class, at the same nominal rates, computed on this class's own numbers.",
+        "runRejectionEmpirical": "0 of 14 committed M1 row-runs refused",
+        "toleranceBandPerBlock": "2.4% of blocks fall outside the reported band (246 of 252 inside)",
+        "retiredRuleForComparison": "the retired rule — every block inside a +/-25% band about the theoretical 2.00x — put 240 of 252 blocks (95.2%) inside and passed 9 of 14 runs on the published clock and 7 of 14 on BOTH clocks. That 7 of 14 is the yield rf2-t2flm's published M1 row states as its conditioning label, so this line is where the label's arithmetic is now kept. Re-centring the same band on the empirical 1.7956 raises the pooled in-band fraction to 97.6% and still passes only 10 of 14, because 0.976^18 = 64.6%: the mis-derived centre and the all-blocks rule are two separate defects on the mount exactly as they are on bulk. What differs is SEVERITY, not kind — the mount's per-block rate is 95.2% against bulk's 82.8%, which is the whole reason the retired rule left the mount a subset and left bulk none."
+      },
+      "provenance": {
+        "calibratedBy": "rf2-x7x10",
+        "frozen": "2026-08-08",
         "rowRuns": 14,
-        "runMedianCentre": 1.7956,
-        "runMedianRange": [1.7489, 1.8978],
-        "betweenRunSD": 0.0397,
-        "robustScaleP50": 0.12,
-        "robustScaleRange": [0.041, 0.2863],
-        "note": "evidence for rf2-t2flm, not limits. Nothing reads these."
+        "datasets": ["data/clock-emvod/run1-8.json", "data/clock-w3yxd/run1-6.json"],
+        "reading": "the M1 row of each of those 14 files — the same files the bulk class draws its 42 bulk row-runs from, and a disjoint set of rows within them",
+        "chromium": "147.0.7727.15",
+        "design": "6 rounds x (4 warmup + 10 samples), tare on, 3 segments",
+        "observed": { "runMedianCentre": 1.7956, "runMedianRange": [1.7489, 1.8978], "betweenRunSD": 0.0397, "robustScaleP50": 0.12, "robustScaleRange": [0.041, 0.2863] },
+        "notCopiedFromBULK": "and this is the point of the class existing at all. The bulk class reads 1.7207x and the mount reads 1.7956x on the identical statistic through the identical door — 4.4% apart, which is 1.9 of the mount's own between-run SDs. Importing bulk's [1.5509, 1.8905] here would have asserted against the mount a value never measured on it, which is the mis-specification rf2-8a746 retired, one row class over. rf2-8a746 saw this and handed the finding forward by id: ctl-2x's true centre is EMPIRICAL and differs by row class.",
+        "independence": "NOT INDEPENDENT OF ITS OWN BASELINE, on the bulk class's own terms and on a smaller baseline. v2 is seeded from the same 14 M1 row-runs it is quoted against, so 14 of 14 is a consistency check and not a false-refusal measurement. NIST e-Handbook 2.3.5's doctrine is that the limits come from a baseline the standard is not afterwards judged on; the next recalibration must take one, and on this class it wants more than 14 runs — 14 is what fixes sigma for the dispersion term, and it is thin."
+      },
+      "amendedFrom": {
+        "version": 1,
+        "was": "calibrated: false. v1 left this class uncalibrated and FAILING CLOSED, and that restraint was correct on its own terms: rf2-8a746's ruling seeded the bulk class only, and calibrating the mount inside it would have taken rf2-t2flm's seat on a concurrent ruling.",
+        "citedASupersededRuling": "v1's rationale closed with, verbatim: 'Until that ruling lands this class fails closed, which costs nothing: M1 publishes DIRECTION and never a magnitude by rf2-jcm3p, so no magnitude is being withheld.' THAT PREMISE WAS ALREADY FALSE. rf2-t2flm superseded rf2-jcm3p's regime-only statement on 2026-08-07 and gave M1 a magnitude — ~1.184x against direct UIx-on-subs, conditionally labelled — so a magnitude WAS being withheld and failing closed did not cost nothing.",
+        "whatItActuallyCost": "the REPRODUCTION PATH of a published figure, which is the defect rf2-x7x10 was raised on. rf2-t2flm's close reason records that clock_readjudicate.cjs over both ensembles reproduced every published M1 figure exactly; under v1 the same command over the same files printed 'reportable subset: NONE' on every M1 pair, because the class it was adjudicated by no longer existed to adjudicate it. No number moved and nothing was invalidated — the new posture is stricter, not looser — but a programme whose discipline is that a fresh clone can recompute the published claim had a published claim a fresh clone could not recompute.",
+        "keptRatherThanDeleted": "because the sentence is right about everything except which ruling was in force, and that is the failure mode worth leaving on the record: a rationale can be sound, current at the hour it was written, and still rest on a ruling overturned the day before. Annotate-never-erase applies to a justification as much as to a figure."
       }
     }
   },
