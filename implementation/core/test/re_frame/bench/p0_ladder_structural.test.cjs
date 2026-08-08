@@ -47,7 +47,9 @@ const {
   ladderStructuralFailures,
   allocSteps,
   allocMaskableWindows,
+  allocRefusedWindows,
   ALLOC_MASK_BUDGET_B,
+  ALLOC_LEG_TOLERANCE,
   ladderPlan,
   allocArmSizing,
   allocMaxWrites,
@@ -875,6 +877,140 @@ test('the window is DERIVED from the bound and the arm from the measured cost', 
   // The bound itself is still the untouched one, with no dial of its own.
   has(/const ALLOC_MASK_BUDGET_B = ALLOC_FALL_THRESHOLD_B \/ 2;/, 'unchanged by this arm');
   has(/const ALLOC_FALL_THRESHOLD_B = 600000;/, 'and so is the measured threshold under it');
+});
+
+// ===========================================================================
+// VALIDITY WITNESS V4 — THE PINNED PROBES (rf2-2rtt6.140, criterion 3)
+// ===========================================================================
+//
+// The merged-PR audit of #7682 wrote two executable probes and the old bound
+// ADMITTED both, at `headroom = 0`, with true allocations of 300 KB and
+// 600 KB. That is what retired the bound: it was not too loose, its premises
+// did not support it. `ALLOC_FALL_THRESHOLD_B` is an UPPER bound on where the
+// first collection runs where safety needs a LOWER one, and a masked leg's
+// true allocation is not bounded by the observed `maxStep`, which sees only
+// NET positive deltas.
+//
+// THE REPLACEMENT IS AN OBSERVATION, NOT ANOTHER MODEL. The legs of a window
+// are W repetitions of ONE work unit, so absent a collection they should be
+// alike. A leg materially BELOW its cohort is a leg something removed bytes
+// from, and nothing in the work unit removes bytes — the collector does. A
+// leg ABOVE its cohort is not evidence of a collection but is evidence that
+// the one-work-unit premise has failed in this window, so refusing is correct
+// rather than merely conservative.
+//
+// HERMETIC, exactly as the pins above: every window here is a synthetic
+// sample stream from `stream`, and NOTHING IN THIS FILE HAS EVER BEEN RUN
+// AGAINST A REAL PAGE.
+
+// The two audit probes, as the fixtures `stream` builds them. Each has its
+// offending leg at EXACTLY ZERO against a strictly positive cohort median,
+// which is what makes the refusal independent of the calibration.
+const PROBE_A = () => stream([60000, 60000, 60000, 60000, 60000], [0, 0, 0, 0, 60000]);
+const PROBE_B = () =>
+  stream([50000, 50000, 50000, 50000, 50000, 350000], [0, 0, 0, 0, 0, 350000]);
+
+test('V4 PROBE A — 300 KB of true allocation, admitted by the retired bound, is REFUSED', () => {
+  const s = allocSteps(PROBE_A());
+  // The old admission, reproduced AS FACT rather than described. These three
+  // are what the retired bound saw, and it let the window through on them.
+  assert.strictEqual(s.falls, 0, 'the sign test saw nothing — the fifth leg netted to zero');
+  assert.strictEqual(s.rise, 240000, 'and `rise` under-reads the true 300000 by the whole leg');
+  assert.strictEqual(s.maxStep, 60000);
+  // The new verdict, which names the leg.
+  assert.strictEqual(s.certified, false, 'the leg witness must refuse what the bound admitted');
+  assert.strictEqual(s.legMedian, 60000, 'four legs at 60000 and one at 0');
+  assert.deepStrictEqual(s.legs, [60000, 60000, 60000, 60000, 0]);
+  assert.strictEqual(s.refusals.length, 1, JSON.stringify(s.refusals));
+  assert.match(s.refusals[0], /leg 5 of 5/, 'the refusal must NAME the leg');
+  assert.match(s.refusals[0], /0 B against a cohort median of 60000 B/);
+});
+
+test('V4 PROBE B — 600 KB of true allocation, admitted by the retired bound, is REFUSED', () => {
+  const s = allocSteps(PROBE_B());
+  assert.strictEqual(s.falls, 0);
+  assert.strictEqual(s.rise, 250000, 'the sixth leg allocated 350000 and lost all of it');
+  assert.strictEqual(s.maxStep, 50000);
+  assert.strictEqual(s.certified, false);
+  assert.strictEqual(s.legMedian, 50000);
+  assert.deepStrictEqual(s.legs, [50000, 50000, 50000, 50000, 50000, 0]);
+  assert.strictEqual(s.refusals.length, 1, JSON.stringify(s.refusals));
+  assert.match(s.refusals[0], /leg 6 of 6/);
+});
+
+test('V4 — the net-growth masking case is refused on the LEG grounds', () => {
+  // The fixture this file has carried since rf2-n6w7o, re-pointed. It used to
+  // refuse for being over the budget; it now refuses because its third leg
+  // reads zero against a cohort of 200 KB, which is the observation rather
+  // than the arithmetic.
+  const s = allocSteps(stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]));
+  assert.strictEqual(s.falls, 0, 'the sign test is blind here — that IS the defect');
+  assert.strictEqual(s.rise, 600000, 'rise under-reads the true 800000 by the reclaimed 200000');
+  assert.strictEqual(s.certified, false);
+  assert.deepStrictEqual(s.legs, [200000, 200000, 0, 200000]);
+  assert.strictEqual(s.legMedian, 200000);
+  assert.match(s.refusals[0], /leg 3 of 4/);
+});
+
+test('V4 τ-INDEPENDENCE — both probes are refused for EVERY tolerance below 1', () => {
+  // The property that stops a later re-calibration silently re-admitting
+  // them. In both probes the offending leg reads exactly zero against a
+  // strictly positive median, so |0 − m| = m > τ·m for every τ < 1 — the
+  // refusal is a fact about the fixtures, not about the constant.
+  const taus = [0, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 0.999];
+  for (const tau of taus) {
+    for (const [name, probe] of [['A', PROBE_A], ['B', PROBE_B]]) {
+      const s = allocSteps(probe(), tau);
+      assert.strictEqual(s.certified, false, `probe ${name} must refuse at τ=${tau}`);
+    }
+    // And the sweep must not be vacuous: a clean cohort certifies at every
+    // one of the same tolerances, so what refuses the probes is the leg that
+    // deviates and not a gate that refuses everything.
+    assert.strictEqual(
+      allocSteps(stream([20000, 20000, 20000, 20000]), tau).certified,
+      true,
+      `a clean window must still certify at τ=${tau}`
+    );
+  }
+});
+
+test('V4 NOT VACUOUS — the clean small window and the idle window both certify', () => {
+  const clean = allocSteps(stream([20000, 20000, 20000, 20000]));
+  assert.strictEqual(clean.certified, true, 'four alike legs are one work unit repeated');
+  assert.deepStrictEqual(clean.refusals, []);
+  assert.strictEqual(clean.legMedian, 20000);
+  assert.strictEqual(clean.legWorstDeviation, 0);
+
+  // An idle window is homogeneous AT ZERO. `τ·0` is 0 and every leg deviates
+  // from the median by 0, which is not MORE than 0 — so it certifies, and it
+  // has to, because the idle control is one of the three the row takes.
+  const idle = allocSteps(stream([0, 0, 0]));
+  assert.strictEqual(idle.certified, true);
+  assert.strictEqual(idle.legMedian, 0);
+  assert.deepStrictEqual(idle.legs, [0, 0, 0]);
+  // A relative deviation from a zero median is not a number, and the field
+  // says so rather than reporting a fabricated 0 or an Infinity.
+  assert.strictEqual(idle.legWorstDeviation, null);
+});
+
+test('THE MANDATORY PAGE — an unstated P0_ALLOC_CELLS is refused BY NAME', () => {
+  // rf2-2rtt6.139 retired `ALLOC_B_PER_BOUNDARY_WRITE` as a sizing input and
+  // forbade substituting a replacement constant. With no sizing model there
+  // is no honest default page, so the page becomes MANDATORY — which also
+  // makes an accidental publication run impossible while criterion 5's
+  // measurement freeze is in force.
+  const arm = armUnderEnv({ P0_ALLOC_CELLS: '', P0_ALLOC_WRITES: '' });
+  assert.strictEqual(arm.admissible, false, 'an unstated page cannot be derived');
+  const page = arm.refusals.find((r) => r.includes('P0_ALLOC_CELLS'));
+  assert.ok(page, JSON.stringify(arm.refusals));
+  assert.match(page, /rf2-2rtt6\.139/, 'and it names what would make a default honest');
+  // A stated page derives an admissible arm, so the refusal is the missing
+  // page and not a preflight that refuses everything.
+  const stated = armUnderEnv({ P0_ALLOC_CELLS: '6', P0_ALLOC_WRITES: '' });
+  assert.strictEqual(stated.cells, 6);
+  assert.strictEqual(stated.boundaries, 24);
+  assert.deepStrictEqual(stated.refusals, []);
+  assert.ok(stated.admissible);
 });
 
 let failed = 0;
