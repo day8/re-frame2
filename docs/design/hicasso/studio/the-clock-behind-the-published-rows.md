@@ -846,7 +846,8 @@ reached for its own four in-page rows.
 
 **That is a bound on the comparisons selected here, not a property of the
 estimator.** `clock_readjudicate.cjs` forms the pair for every row, pair and
-window it can, which is forty-two comparisons, and four of them cross.
+window it can — five row blocks × three `PAIRS` × three estimator windows, so
+~~forty-two~~ **forty-five** comparisons — and four of them cross.
 `bulk100` · `uix-subs / reagent-subs` reads `1.0072×` normalised against
 `0.9949×` raw on the published clock; `narrow` · `hicasso / reagent-subs` reads
 `0.9659×` against `1.0065×` on `taskNet`; and `keystroke` ·
@@ -859,6 +860,14 @@ from parity, so no verdict on this page turns on which estimator is read. But
 agreement on the rows chosen is not agreement in general, and this paragraph
 used to claim the latter. That is a bound on what the normalisation does to a
 mean — it is not licence to quote a refused row's mean.
+
+*(2026-08-08, `rf2-w3yxd`: the count above read **forty-two** until the
+merged-PR audit of #7680 recounted it — the earlier pass counted comparisons off
+the reader's output instead of deriving them from the block structure, which is
+why it is now written as the product it is. All fifteen `PAIR` blocks carry a
+RAW quotient, so both estimators are present for every pair. Nothing else here
+moves: the nine tabulated comparisons, the four crossings, the corrected
+`−0.5 pp` cell and the 0.5–3.9 pp range all reproduce.)*
 
 ### What is NOT restated
 
