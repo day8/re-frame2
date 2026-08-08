@@ -1,0 +1,34 @@
+{
+  "bead": "rf2-rguy1",
+  "page": "docs/design/hicasso/studio/cross-checked-against-an-outside-instrument.md",
+  "why": "The two runs behind that page, retained byte-exact so a fresh clone can verify what it is reading. Neither binds itself to the bundles it measured: jsfb_ours_run.cjs declared a `provenance.bundles` field and never filled it, so both files carry `bundles: {}` and the three digests had to be carried by prose beside them. This sidecar binds them instead. The instrument was repaired at rf2-rguy1 (2026-08-08); a run taken after that writes its own bundle digests and needs no sidecar.",
+  "datasets": {
+    "ours3.json": {
+      "run": "the published run — 2026-08-02 00:01:09 to 00:06:59 AUSEST, exit 1",
+      "bytes": 6124,
+      "sha256": "eacd43ed782ac7a80d3b47bb4f92a4e1dfa46f8d0f68eee6f757442cbe84f136",
+      "gates": "DOM parity RED (parity.identical false, no rawLens key — this run predates the attribute-sorting gate); positive control failed; 0 unverified writes; 0 page errors"
+    },
+    "ours4.json": {
+      "run": "the DOM-parity re-take — 2026-08-07 18:33:08 to 18:39:47 AUSEST, exit 1, held solely by the positive control",
+      "bytes": 35553,
+      "sha256": "3e31fae2e408a2745b70bde6aa96cd242f9f9d17f8abf17af8e6e795577c5093",
+      "gates": "DOM parity IDENTICAL (firstDiff null, canonical and raw lengths 216066 on all three arms); positive control failed; 0 unverified writes; 0 page errors"
+    }
+  },
+  "bundles": {
+    "note": "One set of three, shared by both runs — the re-take was taken against the published bundles byte-for-byte rather than a rebuild, which is what isolates the parity question from implementation drift. Re-hashed from the surviving clone at %LOCALAPPDATA%\\Temp\\jsfb-rguy1\\repo, which is not vendored here.",
+    "rf2-reagent": {
+      "bytes": 636111,
+      "sha256": "300a273bd20d44fcc9a6ef6718a2366faf73d691b2a2122c43003d4fc0ce8ac6"
+    },
+    "rf2-hicasso": {
+      "bytes": 635677,
+      "sha256": "1cc9fef3bca6a6a85602361f807ff95d8338ffefba0dcad9ed04dc8ff343814f"
+    },
+    "rf2-uix": {
+      "bytes": 617997,
+      "sha256": "4594e3f11222a16e7ef47f3fb7c6827854ff3cd9e3fa4ea07682482adea1abc1"
+    }
+  }
+}
