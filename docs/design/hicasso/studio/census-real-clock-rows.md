@@ -267,7 +267,7 @@ own shapes.
 
 | | registered | outcome |
 |---|---|---|
-| P1 | ctl-2x reads below its arithmetic prediction on every row (`rf2-jcm3p`) | **CONFIRMED on large-template** (1.8650 / 1.8879 vs 1.9759) and **on ordinary**, where the additive residual `c` is 0.90 ms on a 1.14 ms tared floor — the constant is most of the signal. **REFUTED on feed** (2.0772 / 2.2450 vs 1.9943): at 10,229 elements the doubled floor costs *more* than the arithmetic — layout 2.06×, style 1.85×, script 2.3× in the decomposition — so the superlinearity of React's own mount at 10k elements outweighs the additive undershoot. Recorded, not smoothed over |
+| P1 | ctl-2x reads below its arithmetic prediction on every row (`rf2-jcm3p`) | **CONFIRMED on large-template** (1.8650 / 1.8879 vs 1.9759) and **on ordinary**, where the additive residual `c` is 0.90 ms on a 1.14 ms tared floor — the constant is most of the signal. **REFUTED on feed** (2.0772 / 2.2450 vs 1.9943): at 10,229 elements the doubled floor costs *more* than the arithmetic — layout 2.06×, style 1.85×, script 2.3× in the decomposition, **a dated 2026-08-02 observation that is not recomputable from any committed dataset** ([why](#refusals-and-instrument-limits-with-reasons)) — so the superlinearity of React's own mount at 10k elements outweighs the additive undershoot. Recorded, not smoothed over |
 | P2 | direction only: feed hicasso/uix wholly above 1.10 | **CONFIRMED in direction on the reagent run** (whole range above 1.10); **not resolved on the uix run** (range floor 1.0951). The magnitude *growth* the bead's scaling argument implied did not happen — the deficit shrank instead (see the workload leg above) |
 | P3 | large-template is the largest hicasso/uix of the three rows | **ORDERING CONFIRMED, REASONING NOT** — 1.3053 > 1.1646 > 1.1248 is what was measured. P3 was registered on the reasoning that the shell is held at one boundary while the interpreter term is maximal; the rows cannot separate that from large-template simply being a different page at a different size (`rf2-2rtt6.62`). The ordering is a fact about three numbers, not evidence for the mechanism that predicted it |
 | P4 | the ordinary row sits near this door's floor; if its control or band cannot hold, it publishes a refusal, not a number | **CONFIRMED** — both runs' ordinary controls FAILED (1.1511 / 1.2964 vs 1.7255 predicted); the row's gated magnitudes are published only as instrument-limited non-results carrying the control's failure |
@@ -290,6 +290,17 @@ own shapes.
   in the driver header and above.
 - The mount control cannot certify exactness, only page-proportional signal
   (`rf2-jcm3p`); the additive residual `c` is printed per row.
+- **P1's feed decomposition — `layout 2.06×`, `style 1.85×`, `script 2.3×` — is
+  a dated 2026-08-02 observation and is not recomputable from any committed
+  dataset** (`rf2-jo60g`). The driver collected the three durations per sample
+  and then dropped them when it wrote the dataset, so nothing on disk carries
+  them and no file here can reproduce them; they were real when taken and they
+  stand as read rather than as restatable. **This is a labelling correction and
+  not a withdrawal.** PR #7666 landed the per-block
+  `Script`/`RecalcStyle`/`Layout` persistence and PR #7681 made
+  `foldDecomposition` refuse partial evidence instead of zeroing it, so the
+  split becomes recomputable on the next canonical census run — whenever one is
+  taken for its own reasons.
 
 ## The verdict, as the bead states it
 
