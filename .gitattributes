@@ -49,3 +49,10 @@ tools/re-frame2-pair-mcp/tool-descriptors.edn text eol=lf
 # committed file on Linux. Pin LF — same rationale as the api-manifest above — so
 # a Windows checkout never CRLF-rewrites it and trips a spurious drift.
 skills/re-frame2-ui/references/ui-context.md text eol=lf
+
+# The outside-instrument evidence, retained byte-exact (rf2-rguy1). These two
+# files are cited by their SHA-256 on the studio page that reads them, so the
+# digest is the artefact and any re-writing destroys it. A Windows
+# (core.autocrlf=true) checkout would CRLF-rewrite them and a reader there
+# would compute a different hash from the one the page names. Pin LF.
+implementation/freehand/test/re_frame/bench/hicasso/data/jsfb-rguy1/*.json text eol=lf

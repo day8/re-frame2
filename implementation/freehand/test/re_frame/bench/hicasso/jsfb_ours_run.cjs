@@ -95,6 +95,7 @@
 //   0  every gate cleared.
 //   1  a gate did not, or the run threw. The report above names which.
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 
 const HOST = process.env.JSFB_HOST || 'localhost';
@@ -120,6 +121,28 @@ const BASE = ARMS[0];
 const OTHERS = ARMS.slice(1);
 
 const url = (arm) => `http://${HOST}:${PORT}/frameworks/keyed/${arm}/`;
+
+// WHICH BUNDLE PRODUCED THESE NUMBERS (rf2-rguy1).
+//
+// `jsfb_build.cjs` hashes every bundle it emits, because "a stale bundle
+// silently measured" is rf2-6t03c and a digest is the cheapest guard against
+// it. That guard stopped at the build log: this file declared a
+// `provenance.bundles` field and never filled it, so the two retained runs
+// (`data/jsfb-rguy1/`) name their node, their Playwright, their schedule and
+// their box, and cannot say which three bundles they measured — a claim the
+// studio page had to carry in prose beside them. A run now binds itself.
+//
+// Hashed from the bytes the SERVER hands the browser rather than from a path
+// this file guesses at, so the digest is of the artefact actually measured; a
+// clone whose `dist/` is stale or absent is refused here, before a Chromium is
+// launched, rather than measured.
+async function bundleDigest(arm) {
+  const at = `${url(arm)}dist/main.js`;
+  const res = await fetch(at);
+  if (!res.ok) throw new Error(`[ours] ${arm}: ${at} is HTTP ${res.status} — is the arm built and served?`);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  return { bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
+}
 
 // ---------------------------------------------------------------------------
 // The rows
@@ -543,6 +566,7 @@ async function main() {
     samples: SAMPLES,
     bundles: {},
   };
+  for (const arm of ARMS) provenance.bundles[arm] = await bundleDigest(arm);
 
   const browser = await chromium.launch({ headless: true });
   provenance.browser = browser.version();
@@ -656,6 +680,12 @@ async function main() {
   console.log(`;; schedule ${ROUNDS} rounds x (${WARMUP} warm-up + ${SAMPLES} samples), arms alternating, order flipping`);
   console.log(`;; runtime  ${provenance.browser}, playwright ${provenance.playwright}, node ${provenance.node}`);
   console.log(`;; box      hardware-concurrency ${provenance.hardwareConcurrency}, device-memory ${provenance.deviceMemory}`);
+  console.log('');
+  console.log(';; BUNDLES MEASURED — sha256 of the dist/main.js the server served');
+  for (const arm of ARMS) {
+    const b = provenance.bundles[arm];
+    console.log(`;;   ${arm.padEnd(14)} ${String(b.bytes).padStart(9)} bytes  ${b.sha256}`);
+  }
   console.log('');
   console.log(`;; DOM PARITY (canonical, attribute names sorted): ${parity.identical ? 'IDENTICAL' : 'DIFFERENT'}`);
   console.log(`;;   canonical lengths ${JSON.stringify(parity.lens)}`);
