@@ -2452,15 +2452,25 @@ function rowAdjudication(bars) {
  * licence to flip this flag would let a one-run capture announce a figure the
  * programme publishes only across an ensemble.
  *
- * WHAT THE LOG STILL SAYS, stated here because a comment nobody reads is not a
- * correction. The printed line remains `M1 [mount-regime, rf2-jcm3p] STATED —
- * DIRECTION ONLY ...`: both halves are pinned in `clock_exit_path.test.cjs`,
- * which a concurrent bead holds, so re-citing the LOG is a coordinated change
- * across two files and is filed as rf2-vr1hl rather than forced here. This
- * sweep changed no value, no threshold, no verdict, no roster entry and no
- * string this driver prints about a run. One `--selftest` CASE NAME was
- * corrected, in the fixtures below, because it asserted the premise rf2-8a746
- * retired; the case it names is unchanged and still passes.
+ * AND THE LOG SAYS IT TOO (rf2-vr1hl, 2026-08-08), because a comment nobody
+ * reads is not a correction. The printed line used to read `M1 [mount-regime,
+ * rf2-jcm3p] STATED — DIRECTION ONLY ...`, and both halves of it were pinned in
+ * `clock_exit_path.test.cjs`, so re-citing the LOG was a coordinated change
+ * across two files that rf2-owiis's sweep could not take alone. It reads now
+ *
+ *   `M1 [mount-regime, rf2-diaud superseding rf2-jcm3p] STATED — NO MAGNITUDE
+ *   FROM ONE RUN — ...`
+ *
+ * with the superseded citation kept in the bracket rather than dropped, and the
+ * three strings that compose it — `bead`, `publishes`, `why` — preserved
+ * verbatim beside their replacements below. NOTHING COMPUTED MOVED WITH THEM:
+ * `publishesMagnitude`, `statementNeedsControl` and `ROW_REGIME` are untouched,
+ * this run's exit code is what it was, and no threshold, estimand or verdict is
+ * this driver's to hold. The verdict in the new string is QUOTED from the row
+ * cited in it; the figures are not copied here, for the reason two paragraphs
+ * up. (rf2-owiis's own sweep moved no printed string at all; the one thing it
+ * did touch below is a `--selftest` CASE NAME that asserted the premise
+ * rf2-8a746 retired, and the case it names is unchanged and still passes.)
  *
  * A REGIME ROW REFUSES THE RUN, and that is not a change of temperature. This
  * run publishes no magnitude from it — by ruling rather than by accident — so
@@ -2476,28 +2486,49 @@ function rowAdjudication(bars) {
  */
 const REGIMES = {
   magnitude: { publishesMagnitude: true },
-  // EVERY STRING IN THIS ENTRY IS rf2-jcm3p's, AND rf2-jcm3p IS SUPERSEDED ON
-  // THIS ROW — the block above sets out by what, and rf2-vr1hl carries the
-  // re-citation of the printed line, which is pinned in
-  // `clock_exit_path.test.cjs` and therefore not this file's to take alone.
-  // The strings stay byte-identical: they are the record of the ruling this
-  // driver refused under, and rf2-owiis's sweep was of the prose around them.
+  // THIS ENTRY'S PRINTED STRINGS WERE rf2-jcm3p's UNTIL rf2-vr1hl, AND
+  // rf2-jcm3p IS SUPERSEDED ON THIS ROW — the block above sets out by what.
+  // The three strings the log prints are re-cited to the ruling in force; they
+  // are preserved verbatim immediately beside each one, because annotate-never-
+  // erase applies to a log line as much as to a figure, and because what this
+  // driver refused under is part of the record. Nothing else in the entry moved.
   'mount-regime': {
     // Still `false`, and now for rf2-diaud's reason rather than rf2-jcm3p's: a
     // single run cannot form the ensemble bootstrap the published M1 magnitude
     // is an estimate from. See the block above before changing this.
     publishesMagnitude: false,
-    bead: 'rf2-jcm3p',
-    // The statement is about DIRECTION, and direction does not turn on a
-    // control whose status is itself the published finding. (rf2-8a746: that
-    // status is not a FAILURE — the rule tests per-block band membership — but
-    // the regime's independence from it is what let the row state itself at
-    // all, and it is unaffected by the correction.)
+    // The bracket names the ruling IN FORCE and keeps the superseded citation
+    // beside it, so a reader of the log meets both without a git history.
+    // SUPERSEDED (rf2-vr1hl, 2026-08-08), was: 'rf2-jcm3p'
+    bead: 'rf2-diaud superseding rf2-jcm3p',
+    // The statement does not turn on a control whose status is itself part of
+    // the finding. (rf2-8a746: that status is not a FAILURE — the rule tests
+    // per-block band membership — but the regime's independence from it is what
+    // let the row state itself at all, and it is unaffected by the correction.)
     statementNeedsControl: false,
-    publishes: 'DIRECTION ONLY — hicasso mounts materially slower than both adapters; no magnitude',
+    // SUPERSEDED (rf2-vr1hl, 2026-08-08), was: 'DIRECTION ONLY — hicasso mounts
+    // materially slower than both adapters; no magnitude'. rf2-t2flm and then
+    // rf2-diaud gave the row a magnitude, so DIRECTION ONLY is no longer what
+    // it publishes; what this DRIVER can build from one run is what changed.
+    // The verdict is quoted; the figures are not, and must not be — they live
+    // in the cited row and are printed by `clock_readjudicate.cjs`.
+    publishes:
+      'NO MAGNITUDE FROM ONE RUN — M1 publishes a magnitude, but an ENSEMBLE one, and its verdict is ' +
+      'K1 MISSED, DECISIVELY (docs/design/hicasso/studio/rows-re-adjudicated-on-the-corrected-clock.md sec 4.3)',
+    // SUPERSEDED (rf2-vr1hl, 2026-08-08), was: 'ctl-2x undershoots 2.00x by the
+    // additive constant c ~ 1.04 ms and no changed-set control can reach a
+    // mount, so the control status is the published reason rather than a fault
+    // of this run'. Its first two clauses survive rf2-8a746 intact and are in
+    // the preserved roster entry above; its last clause is the one sentence
+    // that ruling killed — the control was never failing, so its status cannot
+    // be the published reason for anything. Moved with `publishes` rather than
+    // after it: this is the same printed statement's second line, and a bracket
+    // citing rf2-diaud above a reason citing rf2-jcm3p's dead premise would
+    // pin the lie the re-citation exists to remove.
     why:
-      'ctl-2x undershoots 2.00x by the additive constant c ~ 1.04 ms and no changed-set control ' +
-      'can reach a mount, so the control status is the published reason rather than a fault of this run',
+      'the published M1 magnitude is a floor-normalised leg ratio through a run-preserving bootstrap ' +
+      'whose OUTER unit is the RUN, so one run cannot form the interval it is adjudicated against; ' +
+      'clock_readjudicate.cjs forms it over a committed corpus, and this driver contributes one run to that corpus',
   },
   'responsiveness-regime': {
     publishesMagnitude: false,
@@ -2716,12 +2747,13 @@ function reportabilitySelfTest() {
   // the ones showing a regime row REFUSES — the temperature of the exit did
   // not change, only the sentence.
   //
-  // THESE CASES PIN A SENTENCE rf2-jcm3p WROTE AND LATER RULINGS SUPERSEDED,
-  // and they still pin it on purpose. What they are for is that the regimes
-  // did not soften the exit code, and that holds whichever ruling the printed
-  // bracket names; changing the sentence is rf2-vr1hl's, jointly with
-  // `clock_exit_path.test.cjs`. The supersession itself is set out beside
-  // `REGIMES` above.
+  // THESE CASES USED TO PIN A SENTENCE rf2-jcm3p WROTE AND LATER RULINGS
+  // SUPERSEDED. rf2-vr1hl re-cited it, here and in `clock_exit_path.test.cjs`
+  // together, which is why it had to be one bead: the print and its pins move
+  // in one change or the suite goes red on a true string. What the cases are
+  // FOR did not move with the sentence — that the regimes did not soften the
+  // exit code, which holds whichever ruling the printed bracket names. The
+  // supersession itself is set out beside `REGIMES` above.
   const mount = (over) => row({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
   const resp = (over) =>
     row({ rowId: 'keystroke', regime: 'responsiveness-regime', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY, ...over });
@@ -2735,7 +2767,7 @@ function reportabilitySelfTest() {
   check(
     'and it is refused as a REGIME rather than as a control that went wrong',
     m.lines.some((l) => /REGIME: these rows publish a regime and never a magnitude/.test(l)) &&
-      m.lines.some((l) => /M1 \[mount-regime, rf2-jcm3p\] STATED/.test(l)) &&
+      m.lines.some((l) => /M1 \[mount-regime, rf2-diaud superseding rf2-jcm3p\] STATED/.test(l)) &&
       !m.lines.some((l) => /the positive control did not see the change/.test(l)),
     m.lines.join(' | ')
   );

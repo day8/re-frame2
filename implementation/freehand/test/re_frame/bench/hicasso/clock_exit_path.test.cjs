@@ -2289,6 +2289,17 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // anything. rf2-y7mw7 had just made `HCLOCK_ONLY=keystroke` exit 1, and a
   // "relabelling" that let it exit 0 again would be that repair undone under
   // a nicer name. Every case below asserts the code as well as the sentence.
+  //
+  // THE MOUNT HALF IS SUPERSEDED AND THE MECHANISM IS NOT. Declaring a regime
+  // on the row rather than inferring it from the numbers is rf2-jcm3p's, and it
+  // stands. What that regime MEANS on `M1` does not: rf2-8a746 removed its
+  // ground (`ctl-2x` was never failing — the rule tests per-block band
+  // membership) and rf2-t2flm, then rf2-diaud, took its position (`M1` publishes
+  // a magnitude; K1 MISSED, DECISIVELY). The row still refuses HERE, for
+  // rf2-diaud's reason instead — the published magnitude is an ensemble
+  // estimate and one run cannot form it. The bracket the cases below pin was
+  // re-cited by rf2-vr1hl, jointly with the driver, because a print and its pin
+  // move together or one of them is a lie.
 
   const mountRow = (over) => clockRow({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
   const respRow = (over) =>
@@ -2344,10 +2355,60 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('the M1 refusal now states a REGIME rather than a control that went wrong', () => {
     const v = reportability([mountRow({ ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]);
     const all = v.lines.join('\n');
-    assert.match(all, /M1 \[mount-regime, rf2-jcm3p\] STATED/);
-    assert.match(all, /DIRECTION ONLY/);
+    assert.match(all, /M1 \[mount-regime, rf2-diaud superseding rf2-jcm3p\] STATED/);
+    assert.match(all, /NO MAGNITUDE FROM ONE RUN/);
     assert.match(all, /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — expected, and the reason no magnitude/);
     assert.doesNotMatch(all, /the positive control did not see the change/);
+  });
+
+  // --- THE BRACKET CITES THE RULING IN FORCE (rf2-vr1hl) --------------------
+  //
+  // rf2-owiis swept this driver's PROSE off rf2-jcm3p's superseded position and
+  // could not take the LOG, because the log was pinned here and this file was
+  // held by another bead. So for a day the source said one thing and the run
+  // printed another. These three cases are the pins that make the log's half
+  // true, and they are deliberately two-sided: naming the ruling in force is
+  // half of it, and NOT printing the retired sentence is the other half. A pin
+  // that only asserts the new string would pass on a line carrying both.
+
+  t('the printed bracket names the ruling IN FORCE and keeps the superseded citation beside it', () => {
+    const all = reportability([mountRow()]).lines.join('\n');
+    // rf2-diaud is what governs the row; rf2-jcm3p is retained rather than
+    // dropped, because annotate-never-erase reaches a log line too.
+    assert.match(all, /\[mount-regime, rf2-diaud superseding rf2-jcm3p\]/);
+    assert.doesNotMatch(
+      all,
+      /\[mount-regime, rf2-jcm3p\]/,
+      'the bracket must not name the superseded ruling alone — that is the state rf2-vr1hl retired'
+    );
+  });
+
+  t('and the retired regime-only sentence is GONE from the log, not merely joined', () => {
+    const all = reportability([mountRow()]).lines.join('\n');
+    assert.doesNotMatch(all, /DIRECTION ONLY/, "rf2-t2flm and rf2-diaud gave M1 a magnitude — it publishes no 'DIRECTION ONLY'");
+    assert.doesNotMatch(
+      all,
+      /the control status is the published reason/,
+      "rf2-8a746 established ctl-2x was never failing, so its status is the published reason for nothing"
+    );
+    // and what replaced it says why THIS DRIVER still refuses, which is
+    // rf2-diaud's reason and not rf2-jcm3p's: one run, no ensemble.
+    assert.match(all, /ENSEMBLE one/);
+    assert.match(all, /one run cannot form the interval it is adjudicated against/);
+  });
+
+  t('the driver CITES the published M1 row and copies no figure out of it', () => {
+    const all = reportability([mountRow()]).lines.join('\n');
+    assert.match(all, /K1 MISSED, DECISIVELY/, 'the verdict in force is quoted');
+    assert.match(all, /rows-re-adjudicated-on-the-corrected-clock\.md sec 4\.3/, 'and the row it comes from is named by path');
+    // THE DISCIPLINE THIS PINS. §4.3 says of itself that every figure in it is
+    // quoted from nowhere else, and a figure with two homes has two futures:
+    // this driver would be the second home, and it is not the file that
+    // computes them. `clock_readjudicate.cjs` is. So the point and both bounds
+    // of both ensembles must appear nowhere in this driver's source.
+    for (const fig of ['1.1718', '1.1263', '1.2190', '1.1976', '1.1504', '1.2468']) {
+      assert.ok(!SRC.includes(fig), `clock_run.cjs must cite the published M1 row, never restate its figures — found ${fig}`);
+    }
   });
 
   // --- MUTATION, BOTH DIRECTIONS -------------------------------------------
@@ -2380,10 +2441,12 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 
   t('a mount regime is NOT withheld by a failing control — the two regimes differ deliberately', () => {
-    // rf2-jcm3p's premise IS that ctl-2x fails, so a mount regime that waited
-    // on it could never be stated at all.
+    // rf2-jcm3p's premise WAS that ctl-2x fails, so a mount regime that waited
+    // on it could never be stated at all. rf2-8a746 removed the premise and
+    // rf2-diaud the position; the independence survives both, which is why the
+    // fixture still sets `ctlOk: false` and the row still STATES itself.
     const v = reportability([mountRow()]);
-    assert.match(v.lines.join('\n'), /M1 \[mount-regime, rf2-jcm3p\] STATED/);
+    assert.match(v.lines.join('\n'), /M1 \[mount-regime, rf2-diaud superseding rf2-jcm3p\] STATED/);
     assert.doesNotMatch(v.lines.join('\n'), /M1 .* WITHHELD/);
   });
 
