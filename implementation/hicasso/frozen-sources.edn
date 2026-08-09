@@ -37,6 +37,36 @@
 ;; every other, and `:whole-file?` false is what says the package file is not
 ;; expected to be a rename-only image of it.
 
+;; ## The first retirement: `arm1/runtime.cljs` (rf2-hic-009)
+;;
+;; The header above names the moment this file starts shedding rows, and
+;; rf2-hic-009 is it. That bead carved the copied 2,120-line runtime into six
+;; owned modules so Wave B's file fences are real files:
+;;
+;;   impl/collector.cljs   the render context, the cell table, the commit, the
+;;                         two read tiers, the read-set entries, the generation
+;;                         fence, the two shells and the two mint doors
+;;   impl/generation.cljs  the flush generation, the registry epoch, commit-basis
+;;   impl/frames.cljs      the two frame-locked memo tables and their invalidation
+;;   impl/roots.cljs       the hydration adoption window
+;;   impl/evidence.cljs    the dev-only sink seam
+;;   impl/inventory.cljs   the retention census, declared and measured
+;;
+;; There is no longer a package file that is `arm1/runtime.cljs` moved, so its
+;; row is RETIRED rather than re-pinned — the third of the header's three
+;; responses, and the one it names for exactly this bead. The consequence is
+;; stated rather than hidden: **the bench tree's `arm1/runtime.cljs` is no
+;; longer digest-pinned by anything.** It goes on running under
+;; `:hicasso-bench`, and a fix landing there is now a fix somebody has to port
+;; by reading, not by being told.
+;;
+;; Three rows SURVIVE with `:whole-file? false` newly on them —
+;; `arm1/mount.cljs`, `arm1/boundary.cljs` and `arm1/presence.cljs`. Each
+;; imported `arm1.runtime` and now imports the module that answers for the vars
+;; it used, so each differs from its donor by its `:require` block and by the
+;; prose that named the old namespace. Their donors stay pinned, which is the
+;; half of the row that still earns its keep.
+
 {:donor-root "implementation/freehand/test/re_frame/bench/hicasso"
 
  ;; The namespace rename the copy applied, in full. A reference to a bench
@@ -68,6 +98,9 @@
   re-frame.bench.hicasso.front.route-link re-frame.hicasso.impl.route-link
   re-frame.bench.hicasso.front.slot       re-frame.hicasso.impl.slot
   re-frame.bench.hicasso.front.state      re-frame.hicasso.impl.state
+  ;; RETIRED as a single target by rf2-hic-009 — the package side is now
+  ;; impl.{collector,generation,frames,roots,evidence,inventory}. Kept in the
+  ;; table because the table records what the COPY did, and the copy did this.
   re-frame.bench.hicasso.arm1.runtime     re-frame.hicasso.impl.runtime
   re-frame.bench.hicasso.arm1.boundary    re-frame.hicasso.impl.boundary
   re-frame.bench.hicasso.arm1.mount       re-frame.hicasso.impl.mount
@@ -118,26 +151,29 @@
    :ns      re-frame.hicasso.impl.state
    :lines   309
    :sha256  "d9c7561fc8a6a7bc717f3695b5321f050b7900c5b5d0eae78a9a71b26bca52dd"}
-  {:bench   "arm1/runtime.cljs"
-   :package "src/re_frame/hicasso/impl/runtime.cljs"
-   :ns      re-frame.hicasso.impl.runtime
-   :lines   2120
-   :sha256  "b363e260c8374755d125c832decc52bba8296ee58e4b6196ba4a4fbec09b4484"}
-  {:bench   "arm1/boundary.cljs"
-   :package "src/re_frame/hicasso/impl/boundary.cljs"
-   :ns      re-frame.hicasso.impl.boundary
-   :lines   214
-   :sha256  "09642a5c9893ac8e6acafb1718f9931aae4300c139f2bfb3b8d38b5adcef71a6"}
-  {:bench   "arm1/mount.cljs"
-   :package "src/re_frame/hicasso/impl/mount.cljs"
-   :ns      re-frame.hicasso.impl.mount
-   :lines   345
-   :sha256  "32c8085956a7b840f3b637a4345f833ec170197dfc1a9d8484357552fcb0977c"}
-  {:bench   "arm1/presence.cljs"
-   :package "src/re_frame/hicasso/impl/presence_react.cljs"
-   :ns      re-frame.hicasso.impl.presence-react
-   :lines   169
-   :sha256  "cc957212578406aa61b00f8b0bb513c28d5c02581c93a3bcf1f69492ac2b0ae1"}
+  {:bench       "arm1/boundary.cljs"
+   :package     "src/re_frame/hicasso/impl/boundary.cljs"
+   :ns          re-frame.hicasso.impl.boundary
+   :lines       214
+   ;; rf2-hic-009 re-pointed its `arm1.runtime` import at impl.collector.
+   :whole-file? false
+   :sha256      "09642a5c9893ac8e6acafb1718f9931aae4300c139f2bfb3b8d38b5adcef71a6"}
+  {:bench       "arm1/mount.cljs"
+   :package     "src/re_frame/hicasso/impl/mount.cljs"
+   :ns          re-frame.hicasso.impl.mount
+   :lines       345
+   ;; rf2-hic-009 re-pointed its `arm1.runtime` import at impl.collector and
+   ;; impl.roots.
+   :whole-file? false
+   :sha256      "32c8085956a7b840f3b637a4345f833ec170197dfc1a9d8484357552fcb0977c"}
+  {:bench       "arm1/presence.cljs"
+   :package     "src/re_frame/hicasso/impl/presence_react.cljs"
+   :ns          re-frame.hicasso.impl.presence-react
+   :lines       169
+   ;; rf2-hic-009 re-pointed its `arm1.runtime` import at impl.collector and
+   ;; impl.roots.
+   :whole-file? false
+   :sha256      "cc957212578406aa61b00f8b0bb513c28d5c02581c93a3bcf1f69492ac2b0ae1"}
   {:bench       "arm1/lang.clj"
    :package     "src/re_frame/hicasso.cljc"
    :ns          re-frame.hicasso

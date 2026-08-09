@@ -31,8 +31,9 @@
   door returns before the tree is adopted, and a witness for it waits for
   the closer instead of for a flush."
   (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.hicasso.impl.runtime :as rt]
             [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.roots :as roots]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
             ["react" :as react]
@@ -75,7 +76,7 @@
   An ordinary root gets no wrapper at all, which keeps the tree the whole
   bench lane measures exactly what it was — no extra fiber, no extra
   passive effect, and nothing new in
-  `re-frame.hicasso.impl.runtime/retained-inventory`."
+  `re-frame.hicasso.impl.inventory/retained-inventory`."
   [handle hiccup]
   (let [app (provider (:frame handle)
                       (codec/root-element (:frame handle) hiccup))]
@@ -121,11 +122,11 @@
   adds nothing for `hydrateRoot` to match and cannot itself mismatch.
 
   Public because that is what makes adoption OBSERVABLE without a probe:
-  `(rt/adopting?)` answering false is this effect having run, which is
+  `(roots/adopting?)` answering false is this effect having run, which is
   the completion signal a witness waits on in place of the `flushSync`
   [[hydrate-root!]] refuses to perform."
   [_props]
-  (react/useEffect (fn close-window [] (rt/close-adoption-window!) js/undefined)
+  (react/useEffect (fn close-window [] (roots/close-adoption-window!) js/undefined)
                    #js [])
   nil)
 
@@ -134,7 +135,7 @@
 ;; happens not to enforce. Both emit the same `(x["displayName"] = ...)`,
 ;; and it is the STRING key that keeps the property off Closure's renamer
 ;; under `:advanced` — the reason the arm's other stamps
-;; (`runtime/mint-view!`, `codec/memoize-boundary!`) are spelled this way.
+;; (`collector/mint-view!`, `codec/memoize-boundary!`) are spelled this way.
 (unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
 
 ;; ---------------------------------------------------------------------------
@@ -196,7 +197,7 @@
   "The `onRecoverableError` a hydrating root installs. **The callback
   itself, not a builder** — the spine builds one per root because its
   adoption window is root-local; this arm's window is module-level
-  (`runtime/adopting?`, and the reason is stated there), so there is
+  (`roots/adopting?`, and the reason is stated there), so there is
   nothing to close over.
 
   Emits the framework diagnostic ONLY while the adoption window is open,
@@ -211,7 +212,7 @@
   across the window boundary rather than a copy of it — the spine's own
   reason for publishing `native-hydration-reporter`."
   [error _error-info]
-  (when (rt/adopting?)
+  (when (roots/adopting?)
     (emit-hydration-mismatch! error))
   (report-recoverable-default! error))
 
@@ -281,7 +282,7 @@
   the adopted tree down and rebuilds it. [[tree]] is the one place that
   decision is made and `:hydrated?` is what it reads."
   [container frame-kw hiccup]
-  (rt/open-adoption-window!)
+  (roots/open-adoption-window!)
   (let [handle  {:frame frame-kw :container container :hydrated? true}
         element (tree handle hiccup)
         opts    (hydrate-root-options)]
@@ -319,15 +320,15 @@
   **Not the door a residue assertion takes** — see [[unmount!]]."
   [handle]
   (unmount! handle)
-  (rt/reset-runtime!)
+  (collector/reset-runtime!)
   nil)
 
 (defn dispatch!
   "Dispatch through the arm's synchronous door and commit the echo. The
   witness door; an intent written in a view reaches
-  `runtime/dispatch!` on its own."
+  `collector/dispatch!` on its own."
   [handle event]
-  (rt/dispatch! (:frame handle) event)
+  (collector/dispatch! (:frame handle) event)
   (settle!)
   nil)
 
