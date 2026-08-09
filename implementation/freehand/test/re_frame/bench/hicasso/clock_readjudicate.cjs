@@ -210,6 +210,40 @@
 // veto was never what was holding it. That is a fact about this corpus and not
 // a property of the rule, so `clock_exit_path.test.cjs` drives it in both
 // directions — and if it ever stops being true, the failure is the finding.
+//
+// ## AND THE EVIDENCE ITSELF IS COMPLETE, OR THE CONSUMER REFUSES (rf2-8a746,
+// merged-PR audits #7698 and #7700, 2026-08-10)
+//
+// Two audits of this ruling's own merged PRs found the same boundary open in
+// two places: eligibility was being decided on the serialised verdicts while
+// the RAW EVIDENCE behind them could be missing, and each consumer quietly
+// worked with whatever survived.
+//
+//   * #7698 — THE CHECK-STANDARD PATH. `checkStandardFor` asked only that
+//     `roundsTask` be non-empty, so a committed six-round row truncated to ONE
+//     round handed its three surviving segment blocks to a standard whose
+//     limits are statistics of the 18-block design — and passed. The boundary
+//     now refuses a record whose raw rounds disagree with its own declared
+//     `design.rounds` (observed and expected named), and `checkStandard`
+//     itself carries the expected-N contract (`STANDARD.evidence`, 18 blocks
+//     from the declared 6-round x 3-segment design), so a consistent-but-
+//     off-design count refuses too, before location or dispersion is computed.
+//
+//   * #7700 — THE INTERVAL PATH. `passIdx.map(pairedLogRatios).filter(Boolean)`
+//     dropped a reportable run whose raw pair readings were unusable, and
+//     `effectInterval` filtered again, so blanking one reading of one run
+//     still published "an interval over 7 reportable run(s)" where 8 had
+//     cleared every gate. The pool now forms only when every reportable run
+//     yields its declared round count of ratios (`ivRuns.length ===
+//     passIdx.length`); a loss suppresses the WHOLE interval with the file and
+//     pair named, `effectInterval` throws on an invalid member rather than
+//     shrinking the pool, and the program exits 4 — eligibility without its
+//     raw evidence is an integrity fault, not a quiet omission.
+//
+// NOTHING ADJUDICATIVE MOVED: the frozen centres and limits, the row-scoped
+// publication rules, the four-part 2026-08-07 ruling and every hard refusal
+// are byte-for-byte the rules above; both committed ensembles still read
+// complete and still exit 0.
 
 'use strict';
 
@@ -336,6 +370,33 @@ function checkStandardFor(row, dataset) {
     return {
       ok: false,
       why: 'no raw per-sample TaskDuration readings — the check standard is applied to the readings themselves, so a record that did not store them cannot be shown to have been in control',
+    };
+  }
+  // THE ROUND CARDINALITY, AGAINST THE FILE'S OWN DECLARED DESIGN (rf2-8a746,
+  // merged-PR audit #7698). Non-empty was never the contract: the audit
+  // truncated a committed six-round row to ONE round and this boundary handed
+  // its three surviving segment blocks to the standard, which certified them.
+  // A record whose raw rounds disagree with its own `design.rounds` is a
+  // truncated or padded record, and a design that does not declare a round
+  // count cannot be shown complete — absent is not clean. The 18-block
+  // contract itself is `checkStandard`'s (`STANDARD.evidence`), which refuses
+  // any consistent-but-off-design count with observed/expected; this seat
+  // refuses the file-level disagreement with both numbers named.
+  if (!Number.isFinite(d.design.rounds)) {
+    return {
+      ok: false,
+      why:
+        'the design record declares no round count — the check standard compares the raw readings against the ' +
+        'declared design, and a record that does not say how many rounds it took cannot be shown complete (rf2-8a746, audit #7698)',
+    };
+  }
+  if (r.roundsTask.length !== d.design.rounds) {
+    return {
+      ok: false,
+      why:
+        `the raw readings are TRUNCATED or PADDED — ${r.roundsTask.length} round(s) of TaskDuration readings against ` +
+        `the file's own declared design of ${d.design.rounds}, so this is a subset (or superset) of the run, not the run, ` +
+        'and a run judged on part of its declared evidence has not been judged (rf2-8a746, audit #7698)',
     };
   }
   const xs = [];
@@ -655,10 +716,33 @@ function counterpartLogRatios(row, pair, dataset) {
  * `runs` is `[[logRatio per round]]`. The point estimate is the mean over runs
  * of each run's mean, which is the balanced-design estimator the bootstrap is
  * the distribution of.
+ *
+ * AND IT REJECTS AN INVALID MEMBER RATHER THAN FILTERING IT (rf2-8a746,
+ * merged-PR audit #7700). This function used to `filter` out any member that
+ * was not a non-empty array, which made it the second half of a silent-subset
+ * defect: the caller's `.filter(Boolean)` dropped a reportable run whose raw
+ * pair readings were unusable, this filter would have dropped it again, and
+ * the output then called the survivors "reportable run(s)" — concealing that
+ * evidence was lost AFTER eligibility was decided. Completeness is the
+ * caller's to prove BEFORE pooling (every reportable run present, every run
+ * carrying its declared round count); handing this function an invalid member
+ * is therefore a caller bug, and it throws rather than shrinking the pool.
+ * An EMPTY pool stays `null` — nothing was pooled and nothing was lost.
  */
 function effectInterval(runs) {
-  const usable = (runs || []).filter((r) => Array.isArray(r) && r.length > 0);
-  if (usable.length === 0) return null;
+  const rs = Array.isArray(runs) ? runs : [];
+  if (rs.length === 0) return null;
+  const invalid = rs
+    .map((r, i) => (Array.isArray(r) && r.length > 0 && r.every(Number.isFinite) ? -1 : i))
+    .filter((i) => i >= 0);
+  if (invalid.length) {
+    throw new Error(
+      `effectInterval: member(s) ${invalid.join(', ')} of ${rs.length} carry no usable paired log-ratios — an invalid ` +
+        'member is REFUSED, never filtered into a smaller unstated subset; completeness is the caller\'s to prove ' +
+        'before pooling (rf2-8a746, merged-PR audit #7700)'
+    );
+  }
+  const usable = rs;
   const point = mean(usable.map(mean));
   const rnd = mulberry32(EFFECT.seed);
   const draws = [];
@@ -1112,6 +1196,13 @@ function main(argv) {
     for (const { file, data } of ineligible) console.log(`;; !!   ${file}: ${CANONICAL_GATE.why(data)}`);
   }
 
+  // RAW EVIDENCE LOST AFTER ELIGIBILITY (rf2-8a746, merged-PR audit #7700):
+  // every (file, row, pair) whose reportable run yielded no usable raw pair
+  // readings. Filled per pair below; drives EXIT 4 at the foot, because a
+  // record that grants eligibility while lacking the raw evidence behind it is
+  // an integrity fault a script must not exit 0 over.
+  const rawEvidenceLoss = [];
+
   for (const rowId of rowIds) {
     const runs = datasets
       .map(({ file, data }) => ({ file, data, row: data.rows.find((r) => r.rowId === rowId) }))
@@ -1214,11 +1305,20 @@ function main(argv) {
       const erN = ens(rawNet);
       const erI = ens(rawInPage);
       if (erT.n > 0) {
+        // A REPORTABLE RUN THAT YIELDS NO QUOTIENT IS SAID, NOT SHRUNK AWAY
+        // (rf2-8a746, audit #7700). This diagnostic used to filter a NaN out
+        // and still print "reportable subset" over the survivors — the same
+        // unstated-subset shape as the interval defect, one table up. The
+        // count is now stated against the reportable count whenever they part.
         const rawPass = passIdx.map((i) => rawTask[i]).filter(Number.isFinite);
+        const rawIncomplete =
+          rawPass.length && rawPass.length < passIdx.length
+            ? ` (INCOMPLETE — ${passIdx.length - rawPass.length} of ${passIdx.length} reportable run(s) yield no raw quotient; see the interval refusal below)`
+            : '';
         console.log(
           `;;     RAW quotient (neither floor) raw TaskDuration ${fmt(erT.mean)}x  [${fmt(erT.min)} – ${fmt(erT.max)}]  n=${erT.n}` +
             (rawPass.length
-              ? `   reportable subset ${fmt(ens(rawPass).mean)}x n=${rawPass.length}`
+              ? `   reportable subset ${fmt(ens(rawPass).mean)}x n=${rawPass.length}${rawIncomplete}`
               : '   reportable subset: NONE')
         );
         console.log(
@@ -1281,20 +1381,75 @@ function main(argv) {
       // heading with its own complete figure. Nothing here may be read across
       // the two lines.
       const rule = publicationRule(rowId);
-      const ivRuns = passIdx.map((i) => pairedLogRatios(runs[i].row, pair, runs[i].data)).filter(Boolean);
-      const iv = effectInterval(ivRuns);
+      // EVERY REPORTABLE RUN MUST YIELD ITS READINGS, OR THE INTERVAL IS
+      // SUPPRESSED (rf2-8a746, merged-PR audit #7700). This line used to read
+      // `passIdx.map(pairedLogRatios).filter(Boolean)`: a reportable run whose
+      // raw pair readings were absent or unusable was silently dropped, and
+      // the output then called the survivors "reportable run(s)" — an interval
+      // over 7 runs where 8 had cleared every gate, with nothing anywhere
+      // saying evidence was lost AFTER eligibility was decided. Eligibility is
+      // `reportable`'s to grant and only a NAMED refusal may shrink the pool,
+      // so each member is checked for usable ratios AND for its own declared
+      // round count, the pool forms only when `ivRuns.length === passIdx.length`,
+      // and a loss suppresses the whole interval with the file and pair named
+      // — never a smaller unstated subset. The loss also fails the program
+      // (exit 4 below): a record that grants eligibility while lacking the raw
+      // evidence behind it is an integrity fault, not a quiet omission.
+      const ivMembers = passIdx.map((i) => ({
+        file: runs[i].file,
+        declaredRounds: runs[i].data && runs[i].data.design ? runs[i].data.design.rounds : NaN,
+        ratios: pairedLogRatios(runs[i].row, pair, runs[i].data),
+      }));
+      const ivLost = ivMembers.filter(
+        (m) =>
+          !Array.isArray(m.ratios) ||
+          m.ratios.length === 0 ||
+          !(Number.isFinite(m.declaredRounds) && m.ratios.length === m.declaredRounds)
+      );
+      const ivRuns = ivLost.length === 0 ? ivMembers.map((m) => m.ratios) : [];
+      const iv = ivLost.length === 0 && ivRuns.length === passIdx.length ? effectInterval(ivRuns) : null;
       const bands = passIdx
         .map((i) => runs[i].row.seamTask && runs[i].row.seamTask.band)
         .filter((b) => Number.isFinite(b))
         .map((b) => b * 100);
       const noise = bands.length ? Math.max(...bands) : NaN;
-      const ev = effectVerdict(iv, rowId, pair, { widestSameRunBandPct: noise });
+      const ev = ivLost.length
+        ? {
+            publishes: false,
+            verdict: 'RAW EVIDENCE LOST AFTER ELIGIBILITY — the interval is SUPPRESSED, not formed over an unstated subset',
+            why:
+              `${ivLost.length} of ${passIdx.length} reportable run(s) carry no usable raw pair readings for \`${pair}\` ` +
+              `(${ivLost.map((m) => shortName(m.file)).join(', ')}) — refused by name rather than filtered ` +
+              '(rf2-8a746, merged-PR audit #7700)',
+          }
+        : effectVerdict(iv, rowId, pair, { widestSameRunBandPct: noise });
+      if (ivLost.length) {
+        rawEvidenceLoss.push(...ivLost.map((m) => ({ file: m.file, rowId, pair })));
+      }
       console.log(
         `;;     EFFECT-SIZE INTERVAL (${EFFECT.bead}, row-class estimand and threshold ${EFFECT.thresholdsRuling}) — ` +
           `${rule ? rule.estimandSays : 'no estimand of record for this row class'}; ${EFFECT.method}`
       );
       if (rule) {
         console.log(`;;       GOVERNING RECORD  ${rule.governingRecord}`);
+      }
+      if (ivLost.length) {
+        // THE LOSS, NAMED PER FILE AND PER PAIR (rf2-8a746, audit #7700) — a
+        // run that leaves the pool leaves it for a stated cause, or it is
+        // indistinguishable from one that was selected away.
+        console.log(
+          `;;       RAW EVIDENCE LOST AFTER ELIGIBILITY — no interval is formed on this pair, and the whole pool is ` +
+            `withheld rather than a subset pooled (rf2-8a746, merged-PR audit #7700):`
+        );
+        for (const m of ivLost) {
+          console.log(
+            `;;         ${m.file} is REPORTABLE and ` +
+              (!Array.isArray(m.ratios) || m.ratios.length === 0
+                ? `carries no usable raw readings for \`${pair}\``
+                : `yields ${m.ratios.length} paired round(s) for \`${pair}\` against its own declared design of ${m.declaredRounds}`) +
+              ' — eligibility without its raw evidence is an integrity fault in the record, and this program exits nonzero on it'
+          );
+        }
       }
       if (iv) {
         console.log(
@@ -1329,17 +1484,29 @@ function main(argv) {
                 `are added.`)
         );
         // THE OTHER ESTIMAND, COMPLETE AND LABELLED — never a headline, and
-        // never a bound to be read beside the point above.
-        const cIv = effectInterval(passIdx.map((i) => counterpartLogRatios(runs[i].row, pair, runs[i].data)).filter(Boolean));
+        // never a bound to be read beside the point above. COMPLETE is checked
+        // the same way as the headline's (rf2-8a746, audit #7700): the old
+        // `.filter(Boolean)` here would have printed "over the same runs" over
+        // a silently smaller set, so a member that yields no ratios suppresses
+        // the diagnostic with the loss stated instead.
+        const cMembers = passIdx.map((i) => counterpartLogRatios(runs[i].row, pair, runs[i].data));
+        const cLost = cMembers.filter((m) => !Array.isArray(m) || m.length === 0).length;
+        const cIv = cLost === 0 ? effectInterval(cMembers) : null;
         if (cIv) {
           console.log(
             `;;       DIAGNOSTIC, NEVER THE HEADLINE — the ${rule && rule.estimand === 'floorNormalised' ? 'unfloored LEVEL' : 'floor-normalised'} ` +
               `estimand reads ${fmt(cIv.point)}x [${fmt(cIv.lo)} – ${fmt(cIv.hi)}] over the same runs. It is a ` +
               `DIFFERENT quantity, so no figure on this line may be quoted beside a figure on the line above.`
           );
+        } else if (cLost) {
+          console.log(
+            `;;       [the counterpart estimand is SUPPRESSED — ${cLost} of ${passIdx.length} reportable run(s) yield no ` +
+              `usable readings for it, and a diagnostic pooled over an unstated subset would be the defect one line up ` +
+              `(rf2-8a746, audit #7700)]`
+          );
         }
-      } else {
-        console.log(`;;       no interval — ${passIdx.length} run(s) cleared every gate and none carried usable paired readings`);
+      } else if (!ivLost.length) {
+        console.log(`;;       no interval — no reportable run cleared the gates on this row, so there is nothing to pool`);
       }
       console.log(`;;       VERDICT ${ev.verdict} — ${ev.why}`);
       if (!ev.publishes) {
@@ -1546,6 +1713,15 @@ function main(argv) {
   // says so in the one place a script can be believed. Everything is printed
   // either way — a refusal is about what may be QUOTED, never about throwing a
   // measurement away (`rf2-2rtt6.31`).
+  if (rawEvidenceLoss.length) {
+    console.log('');
+    console.log(
+      `;; EXIT 4 — ${rawEvidenceLoss.length} reportable run/pair(s) LOST RAW EVIDENCE after eligibility was decided ` +
+        '(rf2-8a746, merged-PR audit #7700). Every affected interval above is SUPPRESSED rather than formed over an ' +
+        'unstated subset, and no figure on those pairs may be quoted:'
+    );
+    for (const l of rawEvidenceLoss) console.log(`;;   ${l.file}: row ${l.rowId}, pair \`${l.pair}\``);
+  }
   if (ineligible.length) {
     console.log('');
     console.log(
@@ -1554,6 +1730,7 @@ function main(argv) {
     );
     return 3;
   }
+  if (rawEvidenceLoss.length) return 4;
   return 0;
 }
 

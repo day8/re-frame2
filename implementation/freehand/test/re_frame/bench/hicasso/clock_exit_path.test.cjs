@@ -3881,7 +3881,10 @@ function fixtureRoundsTask(over) {
     // The fixture is only worth its name if it refuses where a run is
     // actually adjudicated, so it is driven through `reportable` on a record
     // shaped as `clock_run.cjs` writes one.
-    const CANON = { canonical: true, notCanonicalWhy: null, design: { tare: true } };
+    // `rounds` is here because the consumer now checks the raw readings against
+    // the file's own declared design (rf2-8a746, audit #7698) — a design that
+    // does not declare its round count refuses, absent is not clean.
+    const CANON = { canonical: true, notCanonicalWhy: null, design: { rounds: 6, tare: true } };
     const ADJ = { unadjudicated: false, why: 'clears' };
     const row = (rt) => ({
       rowId: 'bulk300', pageErrors: [], guardRefuse: false, guardRefuseTask: false, parityOk: true,
@@ -3989,7 +3992,10 @@ function fixtureRoundsTask(over) {
   });
 
   t('criterion 1: and behaviourally — flipping the three-point record changes no verdict', () => {
-    const CANON = { canonical: true, notCanonicalWhy: null, design: { tare: true } };
+    // `rounds` is here because the consumer now checks the raw readings against
+    // the file's own declared design (rf2-8a746, audit #7698) — a design that
+    // does not declare its round count refuses, absent is not clean.
+    const CANON = { canonical: true, notCanonicalWhy: null, design: { rounds: 6, tare: true } };
     const ADJ = { unadjudicated: false, why: 'clears' };
     const base = {
       rowId: 'bulk300', pageErrors: [], guardRefuse: false, guardRefuseTask: false, parityOk: true,
@@ -4506,10 +4512,13 @@ function fixtureRoundsTask(over) {
     // instance and putting it back, which is also the shape of this PR's own
     // mutation proof.
     const before = JSON.stringify(STANDARD.classes.mount);
+    // A FULL 18-block reading list (rf2-8a746 audit #7698 gave the helper an
+    // expected-N contract), so the only thing refusing below is the class.
+    const MREADS = Array.from({ length: 6 }, () => [1.79, 1.8, 1.81]).flat();
     let v;
     try {
       STANDARD.classes.mount.calibrated = false;
-      v = checkStandard([1.79, 1.8, 1.81], 'M1');
+      v = checkStandard(MREADS, 'M1');
     } finally {
       STANDARD.classes.mount.calibrated = true;
     }
@@ -4518,7 +4527,7 @@ function fixtureRoundsTask(over) {
     assert.strictEqual(v.location, null, 'and it refuses on the CLASS, before any reading is judged');
     assert.match(v.why, /NOT CALIBRATED/);
     assert.strictEqual(JSON.stringify(STANDARD.classes.mount), before, 'the fixture must leave the standard as it found it');
-    assert.strictEqual(checkStandard([1.79, 1.8, 1.81], 'M1').ok, true, 'and the class certifies again afterwards');
+    assert.strictEqual(checkStandard(MREADS, 'M1').ok, true, 'and the class certifies again afterwards');
   });
 }
 
@@ -4751,7 +4760,10 @@ function fixtureRoundsTask(over) {
   // --- 6. THE VERSION, THE AMENDMENT AND THE RESIDUAL -----------------------
 
   t('v3 is an amendment with its own entry, and the earlier admissions are replaced by measurements', () => {
-    assert.strictEqual(STANDARD.version, 3, 'replacing an independence claim is a version bump — a stored verdict must stay re-readable');
+    // The version has moved on since (v4, rf2-8a746 audit #7698), so the pin is
+    // on the amendment that records THIS change rather than on the head number
+    // — the same reading the rf2-x7x10 block gives its own v2.
+    assert.ok(STANDARD.version >= 3, 'replacing an independence claim is a version bump — a stored verdict must stay re-readable');
     const a = STANDARD.amendments.find((x) => x.ruling === 'rf2-c1974');
     assert.ok(a, 'the amendment log must carry this change');
     assert.strictEqual(a.version, 3);
@@ -5421,6 +5433,266 @@ function fixtureRoundsTask(over) {
       for (const bead of ['rf2-vp0j7', 'rf2-vh0e3']) {
         assert.ok(new RegExp(bead).test(src), `${path.basename(f)} must cite ${bead}`);
       }
+    }
+  });
+}
+
+// ============================================================================
+// rf2-8a746, MERGED-PR AUDITS #7698 AND #7700 — EVIDENCE COMPLETENESS AT THE
+// CONSUMER BOUNDARY
+// ============================================================================
+//
+// Two audits of this ruling's own merged PRs found the same seam open twice:
+// ELIGIBILITY was decided on the serialised verdicts while the RAW EVIDENCE
+// behind them could be missing, and each consumer quietly worked with whatever
+// survived.
+//
+//   #7698  `checkStandard` certified a ONE-ELEMENT ratio list at the frozen
+//          centre (`ok: true`, `n: 1`, `robustScale: 0`), and
+//          `checkStandardFor` accepted a committed six-round row TRUNCATED to
+//          one round — three segment blocks judged by limits that are
+//          statistics of the 18-block design. Retiring the all-blocks rule
+//          never meant allowing blocks to be ABSENT.
+//   #7700  `passIdx.map(pairedLogRatios).filter(Boolean)` dropped a reportable
+//          run whose raw pair readings were unusable, and `effectInterval`
+//          filtered again — blanking ONE reading of ONE run still published
+//          "an interval over 7 reportable run(s)" where 8 had cleared every
+//          gate, with nothing anywhere saying evidence was lost.
+//
+// The witnesses below are the audits' own demonstrations, driven against the
+// committed clock-emvod corpus where both defects were shown live, plus the
+// fence that nothing adjudicative moved: the frozen limits are byte-identical
+// (pinned to the last place by the rf2-x7x10 and rf2-c1974 blocks above) and
+// both committed ensembles still read COMPLETE and still exit 0 (pinned by the
+// corpus cases above). What changed is only that an INCOMPLETE evidence set
+// now refuses, by name, instead of shrinking silently.
+{
+  const { STANDARD, checkStandard } = require('./clock_check_standard.cjs');
+  const {
+    checkStandardFor, pairedLogRatios, effectInterval, reportable, refusals,
+  } = require('./clock_readjudicate.cjs');
+  const { reportability } = require('./clock_run.cjs');
+  const t = (what, fn) => test(`rf2-8a746 audits #7698/#7700: ${what}`, fn);
+  const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
+  const ROWS_WITH_STANDARD = ['bulk300', 'bulk100', 'narrow', 'M1'];
+  const PAIRS_ALL = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
+
+  const corpus = (dir) => {
+    const d = path.join(__dirname, 'data', dir);
+    if (!fs.existsSync(d)) return null;
+    return fs.readdirSync(d).sort().map((f) => ({
+      file: path.join(d, f),
+      name: f,
+      data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')),
+    }));
+  };
+
+  // --- #7698: THE DIRECT HELPER'S EXPECTED-N CONTRACT -----------------------
+
+  t('WITNESS (one block): a one-element list at the frozen centre is REFUSED, never certified with n: 1', () => {
+    // The audit's exact demonstration: the single reading sits DEAD ON the
+    // frozen centre, so only the cardinality can be what refuses it.
+    for (const [rowId, klass] of [['bulk300', STANDARD.classes.bulk], ['M1', STANDARD.classes.mount]]) {
+      const v = checkStandard([klass.centre], rowId);
+      assert.strictEqual(v.ok, false, `${rowId}: one block must not certify`);
+      assert.match(v.why, /1 block\(s\) observed/, `${rowId}: the refusal carries the observed count`);
+      assert.match(v.why, /exactly 18/, `${rowId}: and the expected count`);
+      assert.strictEqual(v.location, null, `${rowId}: refused BEFORE location was computed`);
+      assert.strictEqual(v.dispersion, null, `${rowId}: and before dispersion`);
+    }
+  });
+
+  t('missing and extra blocks refuse in both directions, and the boundary is exact at 18', () => {
+    const at = (n) => Array.from({ length: n }, () => STANDARD.classes.bulk.centre);
+    for (const n of [2, 3, 15, 17]) {
+      const v = checkStandard(at(n), 'bulk300');
+      assert.strictEqual(v.ok, false, `${n} blocks must refuse`);
+      assert.match(v.why, new RegExp(`${n} block\\(s\\) observed`), `${n}: observed count in the message`);
+      assert.match(v.why, /MISSING round/, `${n}: named as the missing direction`);
+    }
+    for (const n of [19, 21, 36]) {
+      const v = checkStandard(at(n), 'bulk300');
+      assert.strictEqual(v.ok, false, `${n} blocks must refuse`);
+      assert.match(v.why, /EXTRA round/, `${n}: named as the extra direction`);
+    }
+    assert.strictEqual(checkStandard(at(18), 'bulk300').ok, true, '18 at the centre still certifies — the contract is exact, not a floor');
+  });
+
+  t('the expected count is the STANDARD\'s own field, tied to the declared 6-round x 3-segment design', () => {
+    assert.strictEqual(STANDARD.evidence.expectedBlocks, 18);
+    assert.strictEqual(
+      STANDARD.evidence.design.rounds * STANDARD.evidence.design.segments,
+      STANDARD.evidence.expectedBlocks,
+      'the count is the design\'s arithmetic, stated once'
+    );
+    assert.strictEqual(STANDARD.evidence.ruling, 'rf2-8a746');
+    assert.strictEqual(STANDARD.version, 4, 'requiring completeness is a consumer-contract change — a version bump with its own amendment');
+    const a = STANDARD.amendments.find((x) => x.version === 4);
+    assert.ok(a && a.ruling === 'rf2-8a746' && /#7698/.test(a.what), 'the amendment names the audit');
+    assert.match(a.touches, /byte-identical to v3/, 'and swears the frozen numbers did not move');
+  });
+
+  // --- #7698: THE TRUNCATED-ROUND WITNESS, ON THE COMMITTED CORPUS ----------
+
+  t('WITNESS (truncated round, committed corpus): every row cut to one round is REFUSED — none still passes', () => {
+    // The audit's finding was that "several rows still pass the standard"
+    // after truncation. The count of survivors must now be ZERO, over every
+    // dataset of the ensemble the audit demonstrated on and every row that
+    // has a standard.
+    const c = corpus('clock-emvod');
+    if (!c) return; // datasets are retained, not required to build
+    let checked = 0;
+    let passed = 0;
+    for (const { data } of c) {
+      for (const rowId of ROWS_WITH_STANDARD) {
+        const row = data.rows.find((r) => r.rowId === rowId);
+        if (!row) continue;
+        const cut = { ...row, roundsTask: row.roundsTask.slice(0, 1) };
+        const v = checkStandardFor(cut, data);
+        checked += 1;
+        if (v.ok) passed += 1;
+        assert.match(v.why || '', /1 round\(s\) of TaskDuration readings/, `${rowId}: observed rounds in the message`);
+        assert.match(v.why || '', /declared design of 6/, `${rowId}: expected rounds in the message`);
+        // and the refusal reaches the POOLING decision: the run leaves the
+        // reportable subset for a stated cause — no pool.
+        assert.strictEqual(reportable(cut, data), false, `${rowId}: a truncated run may not be pooled`);
+        assert.ok(refusals(cut, data).some((w) => /TRUNCATED or PADDED/.test(w)), `${rowId}: and the refusal names itself`);
+      }
+    }
+    assert.strictEqual(checked, 32, 'four rows with a standard over eight committed datasets');
+    assert.strictEqual(passed, 0, `${passed} truncated row(s) still certified — the audit defect is back`);
+  });
+
+  t('a record whose OWN declared design is short cannot smuggle a smaller count past the boundary', () => {
+    // Internal consistency alone would wave this through: one round declared,
+    // one round present. The expected-N contract is the standard's, so the
+    // three consistent blocks still refuse with both counts named.
+    const c = corpus('clock-emvod');
+    if (!c) return;
+    const { data } = c[0];
+    const row = data.rows.find((r) => r.rowId === 'bulk300');
+    const cut = { ...row, roundsTask: row.roundsTask.slice(0, 1) };
+    const v = checkStandardFor(cut, { ...data, design: { ...data.design, rounds: 1 } });
+    assert.strictEqual(v.ok, false);
+    assert.match(v.why, /3 block\(s\) observed/);
+    assert.match(v.why, /exactly 18/);
+    // and a design that declares NO round count is absent, not clean
+    const noRounds = checkStandardFor(row, { ...data, design: { tare: data.design.tare } });
+    assert.strictEqual(noRounds.ok, false);
+    assert.match(noRounds.why, /declares no round count/);
+  });
+
+  t('and a truncation refusal is a NONZERO exit in the driver\'s own seat', () => {
+    // `clock_run.cjs` reads `checkStandard.ok` into `ctlOk`, and
+    // `reportability` is the one pure function its exit code comes from — so
+    // the cardinality refusal reaching it as `ctlOk: false` is what makes a
+    // truncated run red rather than quietly unreportable.
+    const rows = [{ rowId: 'bulk300', ctlOk: false, ctlNote: ' (check standard hicasso-clock/ctl-2x-level v4: 3 block(s) observed where the frozen standard\'s 6-round x 3-segment design requires exactly 18)', adjudicable: true }];
+    const v = reportability(rows);
+    assert.strictEqual(v.code, 1, 'a run the standard refused must not exit 0');
+  });
+
+  // --- #7700: THE INTERVAL CONSUMER REFUSES, NEVER FILTERS ------------------
+
+  t('effectInterval REJECTS an invalid member rather than filtering it, citing the ruling', () => {
+    const good = Array(6).fill(Math.log(1.2));
+    assert.throws(() => effectInterval([good, null]), /rf2-8a746/, 'a null member is refused, not dropped');
+    assert.throws(() => effectInterval([good, []]), /never filtered into a smaller unstated subset/, 'an empty member too');
+    assert.throws(() => effectInterval([good, [Math.log(1.2), NaN]]), /merged-PR audit #7700/, 'and a member with a non-finite entry');
+    const iv = effectInterval([good, good, good]);
+    assert.ok(iv && iv.runs === 3, 'a complete pool still forms its interval');
+    assert.strictEqual(effectInterval([]), null, 'an EMPTY pool is no interval, not a refusal — nothing was pooled and nothing was lost');
+    assert.strictEqual(effectInterval(undefined), null);
+  });
+
+  t('WITNESS (mutation, committed corpus): blanking one raw reading is caught, named, and exits 4', () => {
+    // Audit #7700's live witness, end to end: blank ONLY run1's
+    // `roundsTask[0].hicasso.hicasso` on M1. Every serialised gate verdict is
+    // untouched, so eligibility is UNCHANGED — which is exactly what made the
+    // old behaviour silent — and the raw evidence behind the hicasso pairs is
+    // gone.
+    const c = corpus('clock-emvod');
+    if (!c) return;
+    const mutated = JSON.parse(JSON.stringify(c[0].data));
+    const m1 = mutated.rows.find((r) => r.rowId === 'M1');
+    m1.roundsTask[0].hicasso.hicasso = [];
+    // eligibility survives the mutation — the defect's precondition, asserted
+    assert.strictEqual(reportable(m1, mutated), true, 'the run still clears every gate — evidence loss is NOT an eligibility question');
+    assert.strictEqual(pairedLogRatios(m1, 'hicasso / uix-subs', mutated), null, 'and the estimand refuses to form');
+    assert.strictEqual(pairedLogRatios(m1, 'hicasso / reagent-subs', mutated), null);
+    assert.ok(Array.isArray(pairedLogRatios(m1, 'uix-subs / reagent-subs', mutated)), 'the unblanked pair still forms');
+
+    // through the PROGRAM, which is where the audit found the silent subset:
+    // the same ensemble with run1 mutated, spawned from disk.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hic-8a746-'));
+    try {
+      const files = c.map(({ name, data }, i) => {
+        const p = path.join(tmp, name);
+        fs.writeFileSync(p, JSON.stringify(i === 0 ? mutated : data));
+        return p;
+      });
+      const r = cp.spawnSync(process.execPath, [RJ, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      const out = `${r.stdout}${r.stderr}`;
+      assert.strictEqual(r.status, 4, `the program must exit 4 on raw evidence lost after eligibility — got ${r.status}: ${out.slice(-1500)}`);
+      assert.match(out, /RAW EVIDENCE LOST AFTER ELIGIBILITY/, 'the loss is announced where the interval would have printed');
+      assert.match(out, /run1\.json: row M1, pair `hicasso \/ uix-subs`/, 'the exit roster names the file and the pair');
+      assert.match(out, /run1\.json: row M1, pair `hicasso \/ reagent-subs`/, 'both hicasso pairs of the blanked segment');
+      // THE AUDIT'S OWN SENTENCE, scoped to the row it demonstrated on: the M1
+      // block must not publish "an interval over 7 reportable run(s)" where 8
+      // cleared the gates. (`narrow` legitimately pools 7 of 8 on this
+      // ensemble — ONE run refused BY A GATE, with its reason printed in the
+      // refusal table — which is the stated-subset path and exactly the
+      // distinction this witness exists to draw.)
+      const m1Block = out.slice(out.indexOf(';; ======== ROW M1'), out.indexOf(';; ======== ROW bulk300'));
+      assert.ok(m1Block.length > 0, 'the M1 block must be printed');
+      assert.ok(!/over 7 reportable run\(s\)/.test(m1Block), 'no M1 interval claims 7 reportable runs where 8 cleared the gates — the silent subset is dead');
+      assert.match(m1Block, /INCOMPLETE — 1 of 8 reportable run\(s\) yield no raw quotient/, 'and the raw-quotient diagnostic states its loss instead of shrinking');
+      assert.match(out, /EXIT 4 — 2 reportable run\/pair\(s\) LOST RAW EVIDENCE/, 'and the exit block counts the losses');
+      // the unaffected pair still pools all 8 — suppression is per pair, not
+      // a blanket refusal of the ensemble — and the intact donor pair is
+      // nowhere in the loss roster
+      assert.match(m1Block, /over 8 reportable run\(s\)/, 'the intact M1 pair keeps its full pool');
+      assert.ok(!/run1\.json: row M1, pair `uix-subs \/ reagent-subs`/.test(out), 'the intact pair is not named as lost');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  t('the committed corpus itself is COMPLETE under the new boundary — nothing eligible was lost', () => {
+    // The fence, API-level: on both ensembles, every reportable run of every
+    // row yields its declared round count of paired ratios on every pair, so
+    // the pool the program forms is exactly the reportable set and the
+    // program's exit stays 0 (the corpus spawn cases above pin that).
+    for (const dir of ['clock-emvod', 'clock-w3yxd']) {
+      const c = corpus(dir);
+      if (!c) return;
+      const rowIds = [...new Set(c.flatMap(({ data }) => data.rows.map((r) => r.rowId)))].filter((id) => ROWS_WITH_STANDARD.includes(id));
+      for (const rowId of rowIds) {
+        const pooled = c
+          .map(({ file, data }) => ({ file, data, row: data.rows.find((r) => r.rowId === rowId) }))
+          .filter((x) => x.row && reportable(x.row, x.data));
+        assert.ok(pooled.length > 0, `${dir}/${rowId}: the corpus must still pool`);
+        for (const pair of PAIRS_ALL) {
+          for (const { file, data, row } of pooled) {
+            const ratios = pairedLogRatios(row, pair, data);
+            assert.ok(Array.isArray(ratios), `${dir}/${rowId}/${pair}: ${path.basename(file)} must yield ratios`);
+            assert.strictEqual(ratios.length, data.design.rounds, `${dir}/${rowId}/${pair}: ${path.basename(file)} must yield its declared round count`);
+          }
+        }
+      }
+    }
+  });
+
+  t('the ruling and both audits are cited at every changed seat', () => {
+    for (const [name, res] of [
+      ['clock_check_standard.json', /#7698/],
+      ['clock_check_standard.cjs', /audit #7698/],
+      ['clock_readjudicate.cjs', /audit #7700/],
+      ['clock_run.cjs', /#7698/],
+    ]) {
+      const src = fs.readFileSync(path.join(__dirname, name), 'utf8');
+      assert.ok(res.test(src), `${name} must cite the audit that changed it`);
+      assert.ok(/rf2-8a746/.test(src), `${name} must cite the ruling`);
     }
   });
 }
