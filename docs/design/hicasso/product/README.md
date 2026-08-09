@@ -23,7 +23,6 @@ d4f4b73de25d7d16db204b3475fb73c368433b7fcce2d16d1981e7de49c380a1 *synth.md
 22016a0f24a3876e669f143854504d16016aad8a8f6c8e7e07fc6e576a1740e9 *synth-codex.md
 5aada8dc5adfff72d8078912dff1bbd30de4e6caae471e21a0a9e9e45994625a *codex/README.md
 eedfc83cdf53246bd7c9effcf062d410e574c0c4603c8bff6cbce914917c2c7d *codex/adversarial-risks.md
-212b41dc4bffa3004e1220260554b543ec36a3b5b44120ff460682d3a717daeb *codex/beads-review.md
 11c7d5b4b346feeb7bae9c1403969c956d36a5662bc7a243b3832ccf20ba28c8 *codex/completeness-audit.md
 81bcabd307c3cc6703e093f1e11c1048057ada8a8d0d11a1eab8d3a1cbc7a80e *codex/corpus-insights.md
 18eb61ffcfec460b883ca75ca3c220adf8fa41eef01899285739f2bb0d2f5289 *codex/delivery-programme.md
@@ -36,6 +35,8 @@ a25e603d1f8aabb6ca6b5709ff61abd95864c702adc329de9a7df17bcffc2c2e *codex/react-co
 f479a12c5edc15f02a334616cc9c7d5b9e2588196fc87e3e97afa96d13f2aba5 *codex/testing-xray.md
 5904203883eae79c1b972e07c9ac7ca88228c0a0593c45480f61afd102a4da6f *codex/use-cases.md
 ```
+
+The lane index [`lanes/README.md`](lanes/README.md) is the manifest for that set: a source is published, and digested here, because the index names it as a concern owner — never because it sits in the source directory.
 
 ## Refresh contract
 

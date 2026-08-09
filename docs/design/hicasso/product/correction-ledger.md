@@ -2,7 +2,7 @@
 
 **Rule**: a checkpoint that finds a miss files a real `bd` issue and appends a row here. The row does not close when the fix merges — it closes when the affected checkpoint protocol section has been **re-run against the landed fix** and the result is written into the row. The final audit (rf2-hic-064) reads this file: zero unresolved correctness or coverage rows, or the audit returns a non-release verdict.
 
-This is the enforcement home the set review names as missing — see [`lanes/beads-review.md`](lanes/beads-review.md#6-checkpoint-design) items 1, 2 and 6, the obligations left homeless in [§7](lanes/beads-review.md#7-risks-kill-rules-and-budgets-without-an-enforcement-home), and blocker 3 of its [verdict](lanes/beads-review.md#verdict): *"corrective beads, dormant pilots, and the donor-surface disposition have no closure path into a later release decision."*
+This is the enforcement home the set review names as missing — see its §6 on checkpoint design, items 1, 2 and 6; the obligations left homeless in its §7, on risks, kill rules and budgets without an enforcement home; and blocker 3 of its verdict: *"corrective beads, dormant pilots, and the donor-surface disposition have no closure path into a later release decision."* That review is `codex/beads-review.md` — review-staging material in the operator-local set, deliberately not published in this tree.
 
 ## Severity
 
