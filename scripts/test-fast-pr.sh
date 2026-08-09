@@ -1374,10 +1374,14 @@ if [ "$run_node" = true ]; then
 
   # Hicasso freeze gate (rf2-8a6s).  implementation/hicasso/ IS the measured
   # prototype, moved — `frozen-sources.edn` pins every donor file in the bench
-  # tree by digest, and this gate is what keeps that sentence true (FROZEN),
-  # plus the seal that no package file imports a benchmark-tree namespace
-  # (SEALED).  Both properties stop holding SILENTLY, and until rf2-8a6s the
-  # gate ran only by hand.  Sub-second, pure Python stdlib.  It runs in the
+  # tree by digest (FROZEN), the gate RECONSTRUCTS each package file from its
+  # donor and requires the file on disk to equal it (MOVED), and no package
+  # file may import a benchmark-tree namespace (SEALED).  All three stop
+  # holding SILENTLY, and until rf2-8a6s the gate ran only by hand.  MOVED
+  # arrived later still: until rf2-hic-001's reopen the gate hashed the DONORS
+  # and merely checked that each package path EXISTED, so a package body could
+  # diverge arbitrarily and stay green while this spine advertised the gate as
+  # proof that it had not.  Sub-second, pure Python stdlib.  It runs in the
   # `cljs` job in CI for the same reason it sits in this tier: its two input
   # surfaces — implementation/hicasso/** and the freehand bench tree it was
   # copied from — both arm `cljs_node_test`.
