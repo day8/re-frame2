@@ -15,9 +15,11 @@ Nothing here was measured. Every line below is derived from the [specification](
 | Applied by | `rf2-hic-050`, mechanically |
 | Default verdict | STOP. ADOPT requires every criterion met on published, re-checkable evidence |
 | Amendment | Prospective only — see [Amendment rule](#amendment-rule) |
-| Pre-registration commit | `TO BE FILLED AFTER MERGE` |
+| Pre-registration commit | `c8b8de6d28` |
 
-**The commit hash is a deliverable of this file and must be back-filled once it merges.** It is the pre-registration proof: `rf2-hic-044` records its instrumentation against these criteria by citing it, and `rf2-hic-050` cites it again when it applies them. A verdict that cannot cite a criteria commit predating the report has not been pre-registered, whatever the dates claim.
+**That commit is the pre-registration proof**, back-filled by `rf2-mcwm` once the merge minted it. `rf2-hic-044` records its instrumentation against these criteria by citing it, and `rf2-hic-050` cites it again when it applies them. A verdict that cannot cite a criteria commit predating the report has not been pre-registered, whatever the dates claim.
+
+**Post-freeze edits, recorded here rather than made silently.** Two landed after that commit and before `rf2-hic-044` began, which is the window the [amendment rule](#amendment-rule) reserves: the row above was back-filled, and C2's closing sentence was corrected. That sentence had let unregistered defect classes count toward C2's threshold, contradicting the same criterion's statement that its classes are fixed in advance so no flattering class can be invented after the fact. Unregistered classes are still reported; they no longer count unless registered prospectively. No threshold moved, and nothing else changed.
 
 ## What is being decided
 
@@ -60,7 +62,7 @@ These are the pre-registered candidates, fixed here so that no flattering class 
 
 Each class the report claims carries three things: the mechanism, a reachability demonstration on the witness — a mutation that makes the hand-written answer actually exhibit the defect, so an accidentally unreachable class cannot pass — and a statement of whether demand makes the class unreachable *by construction* or merely easier to avoid.
 
-STOP unless at least two classes are killed by construction, at least one of them producing a wrong user-visible result or residue that survives teardown. "Easier to avoid" is never killed: a class whose only remedy is developer discipline or a documented step is exactly what a recipe is for, and `rf2-hic-054` already owns that answer. Unregistered classes may be added and count normally, but each carries the same reachability demonstration or is inadmissible.
+STOP unless at least two classes are killed by construction, at least one of them producing a wrong user-visible result or residue that survives teardown. "Easier to avoid" is never killed: a class whose only remedy is developer discipline or a documented step is exactly what a recipe is for, and `rf2-hic-054` already owns that answer. An unregistered class may still be reported, and carries the same reachability demonstration or is inadmissible; but it does not count toward this threshold unless it was added to the table above prospectively, under the [amendment rule](#amendment-rule), before the `rf2-hic-044` report exists. Otherwise the threshold could be met with classes chosen after the data, which is exactly what fixing the table in advance exists to prevent.
 
 ### C3 — Zero acquisition on abandoned renders
 
