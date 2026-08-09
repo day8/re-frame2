@@ -39,11 +39,27 @@
 
 {:donor-root "implementation/freehand/test/re_frame/bench/hicasso"
 
- ;; The namespace rename the copy applied, in full. Nothing else was changed.
- ;; A reference to a bench namespace NOT in this table — a test, a shape, a
- ;; bench app — was deliberately left verbatim in the copied docstrings: it is
- ;; provenance pointing into the frozen tree, and rewriting it would point at
- ;; a file the package does not contain.
+ ;; The namespace rename the copy applied, in full. A reference to a bench
+ ;; namespace NOT in this table — a test, a shape, a bench app — was
+ ;; deliberately left verbatim in the copied docstrings: it is provenance
+ ;; pointing into the frozen tree, and rewriting it would point at a file the
+ ;; package does not contain.
+ ;;
+ ;; ONE further textual change was applied, and it is enumerated here because
+ ;; "the package is the prototype, moved" has to survive contact with a reader
+ ;; who checks. `scripts/check_thrown_error_messages.py` reaches
+ ;; `implementation/*/src` but not the bench tree's `test/`, so six copied
+ ;; files met a gate their donors never did — each at the same shared
+ ;; `(defn- fail! [id where reason recovery extra] …)` helper. The gate's own
+ ;; documentation calls this shape its "computed discriminator" FALSE RED: the
+ ;; runtime message does carry the `[:rf.error/…]` token, `id` is simply a
+ ;; parameter, so the source cannot show what the message will say. Its
+ ;; prescribed remedy is the `rf2:builder-bypass-ok` marker comment, and that
+ ;; is what was added — four comment lines above each throw, in
+ ;; codec / intent / presence / route-link / runtime / state. No expression
+ ;; changed, no complaint text moved, no dependency was added. Making those
+ ;; helpers genuinely delegate to `re-frame.error` would change the complaint
+ ;; text, which is rf2-hic-021's (the complaint catalogue) to rule on.
  :renames
  {re-frame.bench.hicasso.front.codec      re-frame.hicasso.impl.codec
   re-frame.bench.hicasso.front.controlled re-frame.hicasso.impl.controlled
