@@ -28,15 +28,32 @@ Filing a fix is not evidence that the miss is fixed, and neither is merging it. 
 
 1. the corrective bead's PR is merged to `main`;
 2. **the protocol section that produced the finding is re-run** against that `main` — the section as written, not a narrower test authored by whoever wrote the fix;
-3. the re-run passes, and its evidence — date, section, commit, what was run, the result — is written into the row's Closure evidence cell.
+3. the re-run passes, and its evidence — date, section, the landed `main` commit it ran against, what was run, the result — is written into the row's Closure evidence cell.
 
-Who re-runs it depends on cost. **Trivial** (re-read one fixture, re-run one sabotage control, re-count one roster): the fixing worker does it inside the corrective PR and quotes the result. **Non-trivial** (a clean-checkout suite, a fresh reviewer, the physical reference profile, a whole sabotage family): the checkpoint files a **closure bead** depending on the corrective bead, and the ledger row names it. A closure bead is small and mechanical — re-run one named section, write one cell.
+**Who re-runs it is never the author of the fix** — a repair checked only by whoever wrote it is a second assertion, not evidence. Cost decides only *where* the re-run happens. **Trivial** (re-read one fixture, re-run one sabotage control, re-count one roster): the ledger keeper runs it as part of the closure write described below. **Non-trivial** (a clean-checkout suite, a fresh reviewer, the physical reference profile, a whole sabotage family): the checkpoint files a **closure bead** depending on the corrective bead, dispatched to someone who did not write the fix, and the ledger row names it. A closure bead is small and mechanical — re-run one named section, write one cell.
 
 Rows are never deleted. A finding that proves mistaken is `closed` with `withdrawn — <reason>` as its evidence, so the audit can see it was considered rather than lost.
 
+## Who writes the row, and in which commit
+
+Every transition after `open` records a fact about `main` that the corrective PR cannot know about itself. Before it merges it cannot show that it landed, and it cannot name the commit it will land as — this repository rebase-merges, so a branch's head commit is not the commit that reaches `main`. After it merges it is immutable, and can no longer touch the row it carried. **Corrective PRs therefore never edit this file**, which also means two fixes in flight at once cannot collide in it.
+
+One actor writes it: the **ledger keeper** — the checkpoint that filed the row for as long as that checkpoint is still running, and afterwards the mayor, who merges the corrective PRs and is therefore the first to see them land. The handover is the checkpoint's own closure, so there is exactly one keeper at any moment.
+
+| Transition | Who | On what evidence | Which commit carries it |
+|---|---|---|---|
+| — → `open` | the checkpoint | the finding | the checkpoint's report PR |
+| `open` → `resolved` | the ledger keeper | the corrective PR reads merged on the remote, and its landed commit is present on the pulled `main` | a ledger commit, touching this file alone |
+| `resolved` → `closed` (trivial) | the ledger keeper | the protocol section, re-run against that pulled `main` | the same ledger commit |
+| `resolved` → `closed` (non-trivial) | the closure bead's worker | the protocol section, re-run against `main` in the closure bead's own checkout | the closure bead's PR |
+
+For a trivial closure the keeper's single commit writes `closed` outright, its evidence cell carrying both facts — the landed commit, and the re-run. The row never displays `resolved`, and loses nothing by it: until that commit lands the row still reads `open` and still fails the rf2-hic-064 gate. This ledger lags `main`; it never leads it.
+
+A re-run that fails writes its failure into the evidence cell and leaves the row at `resolved`. `closed` is never written on a failed re-run — the finding takes a fresh corrective bead, and the row names it.
+
 ## The ledger
 
-Checkpoints append rows. Corrective workers flip `open` → `resolved` and cite the merged PR. The closure re-run flips `resolved` → `closed`.
+Checkpoints append rows. Every transition after `open` is the ledger keeper's, written in the commits set out above; what moves a row to `closed` is always a re-run performed after the fix landed — the keeper's, or a closure bead's.
 
 | Checkpoint | Protocol section | Finding | bd id | Severity | Status | Closure evidence |
 |---|---|---|---|---|---|---|
@@ -45,16 +62,18 @@ Checkpoints append rows. Corrective workers flip `open` → `resolved` and cite 
 
 ## Worked example (dry run)
 
-Illustrative only; `rf2-hic-9001` and `rf2-hic-9002` are not filed issues, and `<commit-sha>` below stands in for the SHA a real row would carry. rf2-hic-019 §2 Correctness re-runs the eight sabotage controls and finds the callback-identity control still passes with the sabotage applied — the witness never reaches the retained-host path.
+Illustrative only; `rf2-hic-9001` and `rf2-hic-9002` are not filed issues, and `<landed-commit>` below stands in for the commit on `main` a real row would carry. rf2-hic-019 §2 Correctness re-runs the eight sabotage controls and finds the callback-identity control still passes with the sabotage applied — the witness never reaches the retained-host path.
 
 | Step | What happens | Status | Closure evidence |
 |---|---|---|---|
 | 1. File | rf2-hic-019 runs `bd create` for `rf2-hic-9001` (surface fence and acceptance in its description) and appends the row. | `open` | — |
-| 2. Fix | The corrective worker rewrites the witness so the sabotage reddens; its PR merges to `main`. | `resolved` | PR merged; re-run outstanding |
+| 2. Fix, then record | The corrective worker rewrites the witness so the sabotage reddens; its PR touches the witness, never this file. Once it reads merged on the remote, the ledger keeper pulls `main` and flips the row in a ledger commit. | `resolved` | landed on `main`@`<landed-commit>`; re-run outstanding |
 | 3. Closure re-run | Re-running all eight controls from a clean checkout is non-trivial, so rf2-hic-019 had filed closure bead `rf2-hic-9002` depending on `rf2-hic-9001`. It re-runs §2 Correctness against `main`. | `resolved` | re-run in progress (rf2-hic-9002) |
-| 4. Close | All eight controls redden. The result goes into the row. | `closed` | 2026-09-02 · §2 re-run on `main`@`<commit-sha>` via rf2-hic-9002 · 8/8 controls reddened |
+| 4. Close | All eight controls redden. The result goes into the row. | `closed` | 2026-09-02 · §2 re-run on `main`@`<landed-commit>` via rf2-hic-9002 · 8/8 controls reddened |
 
 Between steps 2 and 3 the fix is on `main` and `rf2-hic-9001` is closed in the tracker, yet the ledger row still reads `resolved` and rf2-hic-064 would return a non-release verdict on it. That interval is the mechanism, not an inconvenience.
+
+Had the finding been trivial — one control rather than eight — steps 3 and 4 would collapse into step 2's ledger commit: the keeper pulls the merged `main`, re-runs that one control against it, and writes `closed` with both facts in the single cell. No closure bead, and still nobody marking their own homework, because the keeper is not the worker who wrote the fix.
 
 ## Deferred items and the release decision
 
@@ -70,4 +89,4 @@ rf2-hic-064 emits two verdicts separately: *implementation audit complete* (achi
 
 ## Where the checkpoints read this
 
-rf2-hic-019, rf2-hic-026, rf2-hic-038, rf2-hic-048 and rf2-hic-064 each carry the closure paragraph in their protocol: findings become real `bd` issues, the ids land here, and a landed fix closes only by re-running the affected protocol section. rf2-hic-064's green definition names this file directly — every §13 bullet green **and** zero unresolved correctness or coverage rows, or the audit says non-release and enumerates the misses.
+rf2-hic-019, rf2-hic-026, rf2-hic-038, rf2-hic-048 and rf2-hic-064 each carry the closure paragraph in their protocol: findings become real `bd` issues, the ids land here, and a landed fix closes only by re-running the affected protocol section — after the merge, by the ledger keeper or a closure bead, never inside the corrective PR. rf2-hic-064's green definition names this file directly — every §13 bullet green **and** zero unresolved correctness or coverage rows, or the audit says non-release and enumerates the misses.
