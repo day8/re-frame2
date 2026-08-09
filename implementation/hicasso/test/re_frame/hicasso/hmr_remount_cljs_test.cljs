@@ -147,12 +147,20 @@
   [head]
   (.-type (codec/as-element [head {:tag "t"}])))
 
+(defn- painted
+  "The text the boundary's emitted element carries — its `<p>`'s only
+  child. [[re-frame.hicasso.impl.collector/render-body]] answers the
+  element the body produced, so this is the boundary's real render
+  output rather than a value plucked from beside it."
+  [element]
+  (.. ^js element -props -children))
+
 (defn- mount-boundary!
   "Take React's place for one boundary of `body`: run it under the
   generation fence, then hand the resolved read set and a notifier to the
   same `subscribe` closure `useSyncExternalStore` would call. Answers the
-  value, the entry, the notification counter, this mount's registration
-  object, and React's own cleanup."
+  emitted element, the entry, the notification counter, this mount's
+  registration object, and React's own cleanup."
   [body]
   (let [value    (collector/render-body frame-id body {})
         entry    (collector/last-reads)
@@ -165,6 +173,28 @@
      ;; The registration this commit just installed: the newest reader on
      ;; the key's cell. It is the object the hand-over is judged by.
      :reg      (peek (inventory/cell-readers sub-key))}))
+
+(defn- same-object?
+  "`identical?`, answered as a plain boolean, and every identity assertion
+  below goes through it.
+
+  Not a flourish. `cljs.test` pr-strs a failing predicate's arguments, and
+  a registration object holds a cyclic reference — so a bare
+  `(is (identical? reg2 …))` that FAILS reports
+  `RangeError: Maximum call stack size exceeded` instead of a diagnosis.
+  Measured while proving these witnesses can go red: sabotaging the
+  runtime's `release-cell!` turned four of them into stack overflows. A
+  witness whose failure message is unreadable is most of the way to not
+  being a witness, so the identity is compared here and the boolean is
+  what the assertion prints."
+  [a b]
+  (identical? a b))
+
+(defn- holds-key?
+  "Is `reg` among the registrations currently reading the label key?
+  Answered as a boolean, for [[same-object?]]'s reason."
+  [reg]
+  (boolean (some #(same-object? % reg) (inventory/cell-readers sub-key))))
 
 (defn- settled
   "Run `f` once the runtime's own reapers have run — the only honest place
@@ -190,16 +220,16 @@
     ;; wrapper is minted once at definition and never per element, so two
     ;; elements from one head carry one type — if `element-type-of` allocated
     ;; per call, every comparison below would report "changed" vacuously.
-    (is (identical? (element-type-of g1) (element-type-of g1))
+    (is (true? (same-object? (element-type-of g1) (element-type-of g1)))
         "one head, one element type — the instrument can see sameness")
 
     (testing "a reload rebinds the var to a different object"
-      (is (not (identical? g1 g2))
+      (is (false? (same-object? g1 g2))
           "the head is re-minted, not refreshed in place"))
 
     (testing "and React meets a different element type at that position,
               which is the entire mechanism by which a save costs a subtree"
-      (is (not (identical? (element-type-of g1) (element-type-of g2)))))
+      (is (false? (same-object? (element-type-of g1) (element-type-of g2)))))
 
     (testing "the address survives the transition and the identity does not
               — the frame-incarnation rule rf2-hic-013 recorded, one level up
@@ -217,10 +247,11 @@
   ;; file therefore remounts every boundary that file defines.
   (let [g1 (collector/mint-view! view-name panel-body)
         g2 (collector/mint-view! view-name panel-body)]
-    (is (identical? panel-body panel-body) "the body is one object, by construction")
-    (is (not (identical? g1 g2))
+    (is (true? (same-object? panel-body panel-body))
+        "the body is one object, by construction")
+    (is (false? (same-object? g1 g2))
         "same name, same body, different head")
-    (is (not (identical? (element-type-of g1) (element-type-of g2)))
+    (is (false? (same-object? (element-type-of g1) (element-type-of g2)))
         "so React replaces the subtree for a view whose source did not change")))
 
 (deftest the-defview-macro-mints-what-a-reload-re-mints
@@ -238,7 +269,7 @@
         "and so is the reload's, so the two are the same kind of object")
     (is (= (.-displayName ^js panel) (.-displayName ^js reloaded) view-name)
         "minted under the identical name — same address")
-    (is (not (identical? panel reloaded))
+    (is (false? (same-object? panel reloaded))
         "and it is nonetheless a different head, which is the reload")))
 
 ;; ---------------------------------------------------------------------------
@@ -251,7 +282,8 @@
     (let [g1   (load-namespace! panel-body)
           m1   (mount-boundary! panel-body)
           reg1 (:reg m1)]
-      (is (= "A" (:value m1)) "the first generation painted the seeded value")
+      (is (= "A" (painted (:value m1)))
+          "the first generation painted the seeded value")
       (is (= one-boundary (retention))
           "and acquired exactly one cell and one reader membership")
       (is (some? reg1))
@@ -260,14 +292,14 @@
       ;; fiber and mounts a new one in the same commit: the deleted tree's
       ;; passive destroy runs, then the new tree's passive create.
       (let [g2 (load-namespace! panel-body)]
-        (is (not (identical? (element-type-of g1) (element-type-of g2)))
+        (is (false? (same-object? (element-type-of g1) (element-type-of g2)))
             "the save really did change the type — the premise of the remount")
         ((:release m1))
         (let [m2   (mount-boundary! panel-body)
               reg2 (:reg m2)]
 
-          (testing "the successor reads the state the save did not touch"
-            (is (= "A" (:value m2))
+          (testing "the successor paints the state the save did not touch"
+            (is (= "A" (painted (:value m2)))
                 "application state is not a React fact and survives the save"))
 
           (settled
@@ -281,9 +313,9 @@
                         rendered-markup assertion cannot make at all"
                 (let [readers (inventory/cell-readers sub-key)]
                   (is (= 1 (count readers)))
-                  (is (identical? reg2 (first readers))
+                  (is (true? (same-object? reg2 (first readers)))
                       "the survivor is the generation that is mounted")
-                  (is (not (some #(identical? % reg1) readers))
+                  (is (false? (holds-key? reg1))
                       "and the retired generation is gone from the reader list")))
 
               ((:release m2))
@@ -317,7 +349,7 @@
           (fn [_]
             (is (= one-boundary (retention))
                 "same terminal retention as destroy-then-create")
-            (is (identical? reg2 (first (inventory/cell-readers sub-key)))
+            (is (true? (same-object? reg2 (first (inventory/cell-readers sub-key))))
                 "and the successor still holds the key")
             ((:release m2))
             (settled (fn [_] (is (= nothing (retention))) (done)))))))))
@@ -359,9 +391,9 @@
                       which a count could not"
               (let [readers (inventory/cell-readers sub-key)]
                 (is (= 2 (count readers)))
-                (is (some #(identical? % reg1) readers)
+                (is (true? (holds-key? reg1))
                     "the retired generation is still reading the key")
-                (is (some #(identical? % reg2) readers))))
+                (is (true? (holds-key? reg2)))))
 
             (testing "RED — and the stale reader is still WIRED, so the leak
                       is a live subscription and not merely a dead slot: a
@@ -381,7 +413,7 @@
                           instrument reports the clean hand-over, so the red
                           above was the leak and not a broken witness"
                   (is (= one-boundary (retention)))
-                  (is (identical? reg2 (first (inventory/cell-readers sub-key)))))
+                  (is (true? (same-object? reg2 (first (inventory/cell-readers sub-key))))))
                 ((:release m2))
                 (settled (fn [_] (is (= nothing (retention))) (done)))))))))))
 
@@ -406,7 +438,7 @@
         (fn [_]
           (is (= one-boundary (retention))
               "three saves later, still exactly one cell, one reader, one edge")
-          (is (identical? (:reg @!live) (first (inventory/cell-readers sub-key)))
+          (is (true? (same-object? (:reg @!live) (first (inventory/cell-readers sub-key))))
               "and the holder is the newest generation")
           (is (= 1 (:entries (inventory/residue)))
               "one read-set entry, shared across every generation and handed
