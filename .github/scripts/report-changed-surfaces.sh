@@ -95,6 +95,7 @@ tenant_switcher_smoke=false
 skills_structural=false
 playground=false
 migration_hicasso_codemod=false
+hicasso_controlled=false
 
 mark_all() {
   implementation_jvm=true
@@ -125,6 +126,7 @@ mark_all() {
   skills_structural=true
   playground=true
   migration_hicasso_codemod=true
+  hicasso_controlled=true
 }
 
 # rf2-k9ekz — predicate: does `$1` look like a Story/Xray runtime
@@ -1145,6 +1147,20 @@ else
         # `-elision-prod-test$` namespace, no example resolves the
         # artefact, and it mounts no testbed the smokes drive.
         cljs_node_test=true
+        # rf2-ga8m — and, since the three-engine controlled-input gate
+        # landed (rf2-hic-016), `hicasso_controlled`. That gate compiles
+        # the `:hicasso/testbed` build off THIS tree — the testbed app
+        # and `hicasso/testbed/spec.cjs` both live under it — and drives
+        # the package's element-path converge in Chromium, Firefox and
+        # WebKit. It is the only lane that witnesses invariant I15's
+        # caret and composition clauses, and the caret is the ONLY
+        # observable in a real browser that separates this runtime from
+        # plain React: React's own end-of-event restore repairs a
+        # value-level misconduct inside the same discrete event, so the
+        # value assertions in the `cljs_node_test` suites above stay
+        # green under regressions these rows catch. A hicasso diff that
+        # did not run it would be relying on the weaker witness.
+        hicasso_controlled=true
         ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
@@ -1463,6 +1479,26 @@ else
         reagent_slim_bundle=true
         tenant_switcher_smoke=true
         ;;
+      implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs)
+        # rf2-ga8m — self-protection, mirroring the launcher cases above.
+        # This file IS the three-engine controlled-input gate: it compiles
+        # `:hicasso/testbed`, serves it, drives `hicasso/testbed/spec.cjs`
+        # once per engine, and owns the two pieces of verdict logic that
+        # make the run mean anything — the 50-check-per-engine floor, and
+        # the cross-engine comparator that reds an unlisted divergence in
+        # a RECORDED row. Both are exactly the sort of teeth a diff can
+        # soften. The generic `implementation/scripts/*` case below never
+        # arms `hicasso_controlled`, so without this case a PR could edit
+        # the gate's own floor while avoiding the job that runs it. The
+        # static-script surfaces it shares with the generic case stay
+        # armed too; this case widens coverage, it does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        hicasso_controlled=true
+        ;;
       implementation/scripts/check-freehand-evidence-elision.cjs)
         # rf2-xwa4n — self-protection, mirroring the launcher/checker cases
         # above. This script IS the F4g evidence-elision gate: the sentinel sets,
@@ -1592,6 +1628,20 @@ else
         case "$file" in
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
             ui_gates=true ;;
+        esac
+        # rf2-ga8m — the three-engine controlled-input gate is DEFINED by
+        # this trio in the same way, and scoped identically. shadow-cljs.edn
+        # declares the `:hicasso/testbed` build the gate compiles; package.json
+        # carries the `test:hicasso-controlled` script AND the `playwright`
+        # pin, which for this gate is not an ordinary dependency bump — the
+        # pin IS the three engine revisions under test, so bumping it changes
+        # the subject of every caret and composition witness. The lockfile
+        # fixes those revisions. `implementation/scripts/*` stays off, exactly
+        # as it does for ui_gates: the one script that drives this gate has
+        # its own case above.
+        case "$file" in
+          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
+            hicasso_controlled=true ;;
         esac
         # rf2-8m344 — the `:machines-viz-viewer` build is DECLARED here, in
         # implementation/shadow-cljs.edn, while the page it emits a bundle for
@@ -2074,3 +2124,4 @@ emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"
 emit migration_hicasso_codemod "$migration_hicasso_codemod"
+emit hicasso_controlled "$hicasso_controlled"

@@ -2972,6 +2972,154 @@ test('all-required-passed aggregator needs cljs-ui-g8 (rf2-vxgfnd.95.10)', () =>
   assert.match(block, /- cljs-ui-g8\r?\n/, 'aggregator must list cljs-ui-g8 in needs:');
 });
 
+// rf2-ga8m — the Hicasso three-engine controlled-input gate (rf2-hic-016),
+// scheduled at last. It landed green and ran NOWHERE: the PR that built it was
+// fenced out of .github/workflows/** while rf2-8a6s held that surface, so it
+// declared itself a known hole in scripts/check_gate_scheduling.py instead of
+// going quietly unrun. These rows are the other half of closing that hole.
+
+const HICASSO_CONTROLLED = {
+  job: 'cljs-hicasso-controlled',
+  output: 'hicasso_controlled',
+  // The gate's own launcher: it owns the check floor and the cross-engine
+  // comparator, so a diff can soften the verdict logic itself.
+  launcher: 'implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs',
+  spec: 'implementation/hicasso/testbed/spec.cjs',
+  // The gate's actual subject: the element-path converge.
+  src: 'implementation/hicasso/src/re_frame/hicasso/impl/controlled.cljs',
+};
+
+test('the hicasso controlled-input job is gated on its own output and runs the gate (rf2-ga8m)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, HICASSO_CONTROLLED.job);
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.hicasso_controlled == 'true'/,
+    `${HICASSO_CONTROLLED.job} must be gated on ${HICASSO_CONTROLLED.output}`,
+  );
+  assert.match(block, /npm run test:hicasso-controlled/);
+  // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty
+  // string and the job never runs.
+  assert.match(
+    workflow,
+    /hicasso_controlled: \$\{\{ steps\.detect\.outputs\.hicasso_controlled \}\}/,
+    `${HICASSO_CONTROLLED.output} must be declared as a detect_changed_surfaces output`,
+  );
+  // Required, not advisory: this is the only lane that witnesses I15's caret
+  // and composition clauses.
+  assert.ok(
+    jobBlock(workflow, 'all-required-passed').includes(`- ${HICASSO_CONTROLLED.job}`),
+    `aggregator must list ${HICASSO_CONTROLLED.job} in needs:`,
+  );
+});
+
+test('the hicasso controlled-input job installs the PINNED three engines (rf2-ga8m)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), HICASSO_CONTROLLED.job);
+
+  // All three, by name. Dropping one leaves a gate that still passes and no
+  // longer tests what it is for — and the cross-engine comparator in the
+  // runner is inert below two engines, so a single-engine run would go green
+  // having checked nothing about divergence.
+  assert.match(
+    block,
+    /playwright install --with-deps chromium firefox webkit/,
+    'the gate must install Chromium, Firefox AND WebKit',
+  );
+
+  // THE PIN IS STRUCTURAL, and these two assertions are the whole of it.
+  // `npx playwright` resolves implementation/node_modules/.bin/playwright —
+  // the version package.json pins — only because the job runs in
+  // `implementation` with `npm ci` already done. Move the step to the repo
+  // root or ahead of `npm ci` and npx resolves a NEWER Playwright from its own
+  // cache, fetches that release's browser revisions, and prunes the pinned
+  // WebKit out of the shared browser cache: a green job that never launched
+  // the engine it claims to. Measured while wiring this lane — 1.59.1 inside
+  // implementation/, 1.62.1 one directory up — so `--no-install` is no
+  // defence; only the working directory is.
+  assert.match(
+    block,
+    /working-directory: implementation/,
+    'the pin depends on the job running in implementation/',
+  );
+  const npmCi = block.indexOf('run: npm ci');
+  const install = block.indexOf('playwright install');
+  assert.ok(npmCi !== -1, 'the job must run npm ci');
+  assert.ok(
+    npmCi < install,
+    'npm ci must precede the playwright install, or npx resolves an unpinned Playwright',
+  );
+});
+
+test('the hicasso controlled-input lane arms on its tree, its launcher and the build config (rf2-ga8m)', () => {
+  for (const file of [
+    HICASSO_CONTROLLED.spec,
+    HICASSO_CONTROLLED.src,
+    HICASSO_CONTROLLED.launcher,
+    // The trio: shadow-cljs.edn declares the `:hicasso/testbed` build the gate
+    // compiles, and the playwright pin in package.json / the lockfile IS the
+    // three engine revisions under test.
+    'implementation/shadow-cljs.edn',
+    'implementation/package.json',
+    'implementation/package-lock.json',
+  ]) {
+    assert.equal(
+      classify(file)[HICASSO_CONTROLLED.output],
+      'true',
+      `${file} must arm ${HICASSO_CONTROLLED.output}`,
+    );
+  }
+  // The launcher case is placed before the generic implementation/scripts/*
+  // case, so it must not narrow what that case already gave the file.
+  const launcher = classify(HICASSO_CONTROLLED.launcher);
+  for (const output of [
+    'cljs_node_test',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'reagent_slim_bundle',
+  ]) {
+    assert.equal(
+      launcher[output],
+      'true',
+      `${HICASSO_CONTROLLED.launcher} must still arm ${output}`,
+    );
+  }
+});
+
+test('the hicasso controlled-input lane stays dark for unrelated surfaces (rf2-ga8m)', () => {
+  // A rule that matches everything is as useless as one that matches nothing.
+  // `implementation/core` matters most here: it fans out to almost every other
+  // output, and arming three browser launches from it would put this gate on
+  // nearly every PR in the repo.
+  for (const file of [
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/ui/src/re_frame/ui.cljs',
+    'spec/006-ReactiveSubstrate.md',
+    'tools/xray/src/day8/re_frame2_xray/core.cljs',
+    'migration/reagent-to-hicasso/codemod/deps.edn',
+  ]) {
+    assert.equal(
+      classify(file)[HICASSO_CONTROLLED.output],
+      'false',
+      `${file} has no edge into the hicasso controlled-input gate`,
+    );
+  }
+});
+
+test('a hicasso package change does NOT fire the browser or JVM tiers (rf2-ga8m)', () => {
+  // rf2-8a6s established what a hicasso diff schedules: cljs_node_test and
+  // nothing else. This lane adds one output to that, and must not quietly
+  // widen the rest — `cljs_browser` in particular, whose :browser-test build
+  // selects `-dom-cljs-test$` and would run not one line of the package.
+  const result = classify(HICASSO_CONTROLLED.spec);
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result[HICASSO_CONTROLLED.output], 'true');
+  for (const output of ['implementation_jvm', 'cljs_browser', 'cljs_prod', 'ui_gates']) {
+    assert.equal(result[output], 'false', `a hicasso-only diff must not arm ${output}`);
+  }
+});
+
 test('run-ui-g8.cjs launcher change arms ui_gates (rf2-vxgfnd.95.10)', () => {
   assert.equal(classify('implementation/scripts/run-ui-g8.cjs').ui_gates, 'true');
 });
