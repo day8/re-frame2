@@ -1372,6 +1372,18 @@ if [ "$run_node" = true ]; then
   run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
     bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
 
+  # Hicasso freeze gate (rf2-8a6s).  implementation/hicasso/ IS the measured
+  # prototype, moved — `frozen-sources.edn` pins every donor file in the bench
+  # tree by digest, and this gate is what keeps that sentence true (FROZEN),
+  # plus the seal that no package file imports a benchmark-tree namespace
+  # (SEALED).  Both properties stop holding SILENTLY, and until rf2-8a6s the
+  # gate ran only by hand.  Sub-second, pure Python stdlib.  It runs in the
+  # `cljs` job in CI for the same reason it sits in this tier: its two input
+  # surfaces — implementation/hicasso/** and the freehand bench tree it was
+  # copied from — both arm `cljs_node_test`.
+  run "hicasso freeze gate" "cd implementation && npm run test:hicasso-freeze" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-freeze"
+
   # Hicasso bench-lane compile coverage (rf2-2rtt6.73).  NO PR gate compiled
   # this lane: `:node-test` selects `cljs-test$` and `:browser-test` selects
   # `-dom-cljs-test$`, and nothing test-shaped requires the arms, so

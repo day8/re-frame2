@@ -1083,6 +1083,50 @@ else
         cljs_browser=true
         cljs_prod=true
         ;;
+      implementation/hicasso/*)
+        # rf2-8a6s — the Hicasso view substrate artefact (rf2-hic-001).
+        # The package landed with no case here at all, so a hicasso-ONLY
+        # diff classified to NOTHING: every output false, every job
+        # skipped, green. TESTING.md §Changed-surface classifier names
+        # that exact shape — a new artefact directory needs a classifier
+        # rule AND a workflow gate reading it, and either side missing is
+        # a silent hole. This is the rule half; the `cljs` job's two
+        # hicasso steps are the gate half.
+        #
+        # ONE output, deliberately, and NOT the four the
+        # `implementation/freehand/*` case above sets. The artefact's
+        # coverage today is exactly what `cljs_node_test` schedules:
+        #
+        #   - the package smoke `re-frame.hicasso.smoke-cljs-test`, which
+        #     rides the consolidated `:node-test` build (hicasso/src +
+        #     hicasso/test are on the global :source-paths and the ns
+        #     matches that build's `cljs-test$` regexp) in the `cljs` job;
+        #   - the FREEZE GATE, `npm run test:hicasso-freeze`, a step of
+        #     that same job — the donor digests in frozen-sources.edn plus
+        #     the no-bench-import seal;
+        #   - the bench-lane compile, already an unconditional step there.
+        #
+        # NOT implementation_jvm: the artefact's runtime requires React,
+        # so every suite it owns is CLJS. Its `:test` alias is a
+        # classpath probe with `--probe` waiving the test-count floor, it
+        # is deliberately absent from scripts/test-jvm-implementation.sh's
+        # roster, and check_jvm_lane_rosters.py fails BOTH ways — a roster
+        # entry with no required job is its own red. Arm this the same
+        # commit a JVM-runnable suite lands and the roster gains the row.
+        #
+        # NOT cljs_browser: hicasso IS on the `:browser-test` classpath
+        # (same global :source-paths), but that build selects
+        # `-dom-cljs-test$` and the package owns no such namespace, so
+        # arming it would schedule a Playwright job that runs not one
+        # line of the changed surface. Widen the moment a
+        # `*-dom-cljs-test` namespace lands — the freehand case above is
+        # the worked precedent for that widening, twice.
+        #
+        # NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke: no
+        # `-elision-prod-test$` namespace, no example resolves the
+        # artefact, and it mounts no testbed the smokes drive.
+        cljs_node_test=true
+        ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
         # above: run-ui-bench.cjs IS the executable orchestration for

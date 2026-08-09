@@ -3303,6 +3303,110 @@ test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa
 });
 
 // ---------------------------------------------------------------------------
+// rf2-8a6s — the Hicasso artefact surface.
+//
+// rf2-hic-001 created implementation/hicasso/ and was fenced out of .github/,
+// so the package landed matching NO classifier case: a hicasso-only diff set
+// every output false and every job skipped. TESTING.md §Changed-surface
+// classifier names the shape — a new artefact directory needs a classifier
+// rule AND a workflow gate reading it, and either side missing is a silent
+// hole. Both halves are pinned below, and the third test pins the SCOPE, so a
+// later widening is a deliberate edit here rather than a drift.
+// ---------------------------------------------------------------------------
+
+test('implementation/hicasso/** arms cljs_node_test (rf2-8a6s)', () => {
+  for (const file of [
+    'implementation/hicasso/src/re_frame/hicasso.cljc',
+    'implementation/hicasso/src/re_frame/hicasso/impl/runtime.cljs',
+    'implementation/hicasso/test/re_frame/hicasso/smoke_cljs_test.cljs',
+    'implementation/hicasso/deps.edn',
+    'implementation/hicasso/frozen-sources.edn',
+    'implementation/hicasso/scripts/check_freeze.py',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      `${file} must arm cljs_node_test — it is the ONLY output whose job runs `
+        + 'anything covering this artefact (the :node-test smoke, the freeze '
+        + 'gate, the bench-lane compile), and without it a hicasso-only PR '
+        + 'runs none of them',
+    );
+  }
+});
+
+test('the hicasso arm is ARTEFACT-ROOT matching, not an enumeration (rf2-8a6s)', () => {
+  // Same reasoning as the freehand case above: `implementation/hicasso/*)` is
+  // a POSIX `case` glob whose `*` spans `/`, so the artefact root is covered
+  // at any depth. rf2-hic-009 carves the runtime into owned modules, which is
+  // exactly the change that would rot an enumeration — silently, because a new
+  // file that classifies as nothing simply skips its gates.
+  //
+  // These paths do not exist. They are the shapes the carve-up will add,
+  // pinned so a future narrowing of the case reds here instead of in CI.
+  for (const file of [
+    'implementation/hicasso/src/re_frame/hicasso/impl/commit/deeply/nested.cljs',
+    'implementation/hicasso/test/re_frame/hicasso/impl/commit_cljs_test.cljs',
+    'implementation/hicasso/README.md',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      `future nested path must arm cljs_node_test: ${file}`,
+    );
+  }
+});
+
+test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf2-8a6s)', () => {
+  // Scope guard, and each entry has a named release condition — TESTING.md
+  // warns that a coarse rule clutters the matrix with skipping entries, and a
+  // gate that runs not one line of the changed surface is worse than none
+  // because it reads as coverage.
+  //
+  //   implementation_jvm — the runtime requires React, so every suite the
+  //     artefact owns is CLJS; its `:test` alias is a `--probe` classpath
+  //     check and it is deliberately off scripts/test-jvm-implementation.sh's
+  //     roster. Arm it the same commit a JVM-runnable suite and the roster row
+  //     land together (check_jvm_lane_rosters.py fails both ways).
+  //   cljs_browser — hicasso IS on the :browser-test classpath, but that build
+  //     selects `-dom-cljs-test$` and the package owns no such namespace.
+  //   cljs_prod — no `-elision-prod-test$` namespace.
+  //   bundle_isolation / ui_gates / ui_smoke — no example resolves the
+  //     artefact and it mounts no testbed those smokes drive.
+  const result = classify('implementation/hicasso/src/re_frame/hicasso.cljc');
+  for (const key of [
+    'implementation_jvm',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'ui_gates',
+    'ui_smoke',
+  ]) {
+    assert.equal(result[key], 'false', `hicasso must not arm ${key} yet`);
+  }
+});
+
+test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6s)', () => {
+  // The gate half of the classifier rule. The arm above is worthless if the
+  // job it lights stops running the artefact's checks, and the freeze gate in
+  // particular has no other scheduled home — before rf2-8a6s it ran only by
+  // hand.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
+  assert.match(
+    block,
+    /run: npm run test:hicasso-freeze$/m,
+    'the cljs job must run the hicasso freeze gate (FROZEN donor digests + the '
+      + 'no-bench-import seal); it runs nowhere else',
+  );
+  assert.match(
+    block,
+    /run: npm run test:hicasso-compile$/m,
+    'the cljs job must keep running the hicasso bench-lane compile (rf2-2rtt6.73)',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // rf2-kll2x — the production-elision lane.
 //
 // rf2-3slzz added the first Freehand namespace matching `-elision-prod-test$`,

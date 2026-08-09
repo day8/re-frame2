@@ -2562,8 +2562,40 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cljs-
 
+      # For the Hicasso freeze gate below — pure Python stdlib, no
+      # requirements.txt install. Same pinned action and same interpreter
+      # version as the two other python-running jobs in this workflow.
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
       - name: npm install
         run: npm ci
+
+      # THE HICASSO FREEZE GATE (rf2-8a6s). rf2-hic-001 established
+      # implementation/hicasso/ by copying the measured prototype out of the
+      # benchmark tree with namespaces renamed and nothing else changed, and
+      # `frozen-sources.edn` pins each donor file by digest so that sentence
+      # stays checkable. Until now the check was run BY HAND — the same shape
+      # as the bench-lane compile below before rf2-2rtt6.73, and the same
+      # failure: a divergence nobody ran the gate for is a divergence nobody
+      # notices, and Wave B builds on the false sentence.
+      #
+      # Two properties, both silent when they break: FROZEN (every donor file
+      # still hashes to its pinned digest, every package file the copy
+      # produced is still present) and SEALED (nothing under
+      # implementation/hicasso/ `:require`s a benchmark-tree namespace, which
+      # would make the shipped package depend on a test tree).
+      #
+      # Hosted in THIS job because its two input surfaces —
+      # implementation/hicasso/** (rf2-8a6s's new classifier case) and the
+      # freehand bench tree that is the donor — both arm `cljs_node_test` and
+      # nothing else in common; it is the same reasoning that put the
+      # bench-lane compile here. Early, before the ~10-minute compile: it is a
+      # sub-second static read and a divergence should red fast.
+      - name: Hicasso freeze gate
+        run: npm run test:hicasso-freeze
 
       - name: Compile and run node-test build (core + reagent)
         run: |
