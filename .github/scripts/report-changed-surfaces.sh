@@ -96,6 +96,7 @@ skills_structural=false
 playground=false
 migration_hicasso_codemod=false
 hicasso_controlled=false
+migration_v1_codemod=false
 
 mark_all() {
   implementation_jvm=true
@@ -127,6 +128,7 @@ mark_all() {
   playground=true
   migration_hicasso_codemod=true
   hicasso_controlled=true
+  migration_v1_codemod=true
 }
 
 # rf2-k9ekz — predicate: does `$1` look like a Story/Xray runtime
@@ -2082,6 +2084,36 @@ else
         # touch it, and still not run this suite.
         migration_hicasso_codemod=true
         ;;
+      migration/from-re-frame-v1/codemod/*)
+        # rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod
+        # (EP-0018 Slice E), and the identical hole one tree over from the
+        # case above. Measured on main: this artefact's deps.edn carried a
+        # working `:test` alias — 45 tests, 158 assertions — and the string
+        # `from-re-frame-v1` appeared ZERO times in this file, in
+        # .github/workflows/test.yml and in scripts/test-jvm-tools.sh. So a
+        # codemod-only diff classified to nothing and went green having run
+        # none of its own tests. `migration/**` does reach docs.yml, but that
+        # workflow stages the tree into the site and executes not one line of
+        # it. TESTING.md calls an unclassified surface a silent hole.
+        #
+        # ONE output, and its own, for the same reason its sibling has one:
+        # the artefact is a standalone JVM tool that rewrites consumer SOURCE
+        # TEXT through rewrite-clj and never loads, requires or executes
+        # re-frame2, so no job any other output gates would run it. Arming
+        # `implementation_jvm` would fire the whole implementation JVM tier
+        # for a diff that cannot touch it and STILL not run this suite.
+        #
+        # A separate output from `migration_hicasso_codemod` rather than a
+        # shared `migration_codemods` one: the two artefacts have no
+        # dependency on each other, and sharing would make each one's diff
+        # pay for the other's lane forever. Unlike its sibling this one has
+        # no cross-tree edge to mirror — `:paths ["src"]`, deps clojure and
+        # rewrite-clj only — so the arm is exactly the artefact's own tree.
+        # The arm is the codemod SUBTREE, not `migration/from-re-frame-v1/*`:
+        # that parent also holds five hand-written migration guides, and a
+        # prose edit has no business queueing a JVM lane.
+        migration_v1_codemod=true
+        ;;
     esac
   done <<< "$files"
 fi
@@ -2125,3 +2157,4 @@ emit skills_structural "$skills_structural"
 emit playground "$playground"
 emit migration_hicasso_codemod "$migration_hicasso_codemod"
 emit hicasso_controlled "$hicasso_controlled"
+emit migration_v1_codemod "$migration_v1_codemod"

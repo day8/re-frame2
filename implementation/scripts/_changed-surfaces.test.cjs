@@ -846,6 +846,104 @@ test('a codemod change does NOT fire the rest of the matrix (rf2-2rtt6.143)', ()
   }
 });
 
+// rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod (EP-0018
+// Slice E): the identical hole one tree over, and the same four-sided fix.
+// Measured on main, `from-re-frame-v1` appeared ZERO times in the classifier,
+// in test.yml and on scripts/test-jvm-tools.sh, while deps.edn carried a
+// working `:test` alias — 45 tests, 158 assertions — that nothing ran.
+
+const V1_CODEMOD_LANE = {
+  job: 'jvm-migration-v1-codemod',
+  output: 'migration_v1_codemod',
+  dir: 'migration/from-re-frame-v1/codemod',
+  armed: 'migration/from-re-frame-v1/codemod/src/re_frame/migration/reg_event_codemod.clj',
+};
+
+test('the v1 codemod JVM job is gated on its own output and runs the artefact (rf2-0qzh)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, V1_CODEMOD_LANE.job);
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.migration_v1_codemod == 'true'/,
+    `${V1_CODEMOD_LANE.job} must be gated on ${V1_CODEMOD_LANE.output}`,
+  );
+  assert.match(
+    block,
+    /working-directory: migration\/from-re-frame-v1\/codemod/,
+    `${V1_CODEMOD_LANE.job} must run in ${V1_CODEMOD_LANE.dir}`,
+  );
+  assert.match(
+    block,
+    /run: clojure -M:test/,
+    `${V1_CODEMOD_LANE.job} must invoke the artefact's own :test alias`,
+  );
+  // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty
+  // string and the job never runs.
+  assert.match(
+    workflow,
+    /migration_v1_codemod: \$\{\{ steps\.detect\.outputs\.migration_v1_codemod \}\}/,
+    `${V1_CODEMOD_LANE.output} must be declared as a detect_changed_surfaces output`,
+  );
+  // Required, not advisory. A job absent from the aggregator's needs: is a
+  // job a merge can skip past, which is where this artefact already was.
+  assert.ok(
+    jobBlock(workflow, 'all-required-passed').includes(`- ${V1_CODEMOD_LANE.job}`),
+    `aggregator must list ${V1_CODEMOD_LANE.job} in needs:`,
+  );
+});
+
+test('the v1 codemod lane arms on its own tree (rf2-0qzh)', () => {
+  for (const file of [
+    V1_CODEMOD_LANE.armed,
+    'migration/from-re-frame-v1/codemod/deps.edn',
+    'migration/from-re-frame-v1/codemod/test/re_frame/migration/reg_event_codemod_test.clj',
+  ]) {
+    assert.equal(
+      classify(file)[V1_CODEMOD_LANE.output],
+      'true',
+      `${file} must arm ${V1_CODEMOD_LANE.output}`,
+    );
+  }
+});
+
+test('the v1 codemod lane stays dark for surfaces it does not depend on (rf2-0qzh)', () => {
+  // A rule that matches everything is as useless as one that matches nothing.
+  // The prose siblings matter most: `migration/from-re-frame-v1/` also holds
+  // five hand-written migration guides, and the arm is the codemod SUBTREE,
+  // not the parent — a guide edit must not queue a JVM lane.
+  for (const file of [
+    'migration/from-re-frame-v1/README.md',
+    'migration/from-re-frame-v1/http-fx-to-managed-http.md',
+    'migration/reagent-to-hicasso/codemod/deps.edn',
+    'implementation/core/src/re_frame/core.cljc',
+    'spec/006-ReactiveSubstrate.md',
+  ]) {
+    assert.equal(
+      classify(file)[V1_CODEMOD_LANE.output],
+      'false',
+      `${file} has no edge into the v1 codemod's classpath`,
+    );
+  }
+});
+
+test('a v1 codemod change does NOT fire the rest of the matrix (rf2-0qzh)', () => {
+  // `:paths ["src"]`, deps clojure + rewrite-clj, and no cross-tree edge at
+  // all — unlike its sibling, which reaches into implementation/freehand/test.
+  // So this lane is the ONLY thing a codemod-only diff should queue.
+  const result = classify(V1_CODEMOD_LANE.armed);
+  assert.equal(result[V1_CODEMOD_LANE.output], 'true');
+  for (const output of [
+    'implementation_jvm',
+    'cljs_node_test',
+    'cljs_browser',
+    'tools_jvm',
+    'migration_hicasso_codemod',
+  ]) {
+    assert.equal(result[output], 'false', `a v1 codemod-only diff must not arm ${output}`);
+  }
+});
+
 // rf2-8m344 — the viewer PAGE lane, same three-part shape. The `:machines-viz-
 // viewer` build was declared in implementation/shadow-cljs.edn and compiled by
 // no workflow, npm script or gate, while README.md and spec/API.md documented
