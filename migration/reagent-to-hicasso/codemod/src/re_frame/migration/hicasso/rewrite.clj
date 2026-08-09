@@ -580,10 +580,55 @@
 ;; W4 — the non-fn IFn literal (§4.4), amended by (A)
 ;; ---------------------------------------------------------------------------
 
-(def ^:private w4-callee 'f__rf2)
-(def ^:private w4-rest   'args__rf2)
+(defn- site-symbols
+  "Every symbol occurring anywhere in this node's subtree.
 
-(defn- w4-binding [i] (symbol (str "a" i "__rf2")))
+  W4's reserved set. It has to be the WHOLE subtree rather than the
+  top-level argument forms, because a `let` binding shadows its name for
+  every initializer that FOLLOWS it — including one nested three levels
+  down inside a later argument. Quoted symbols are swept in with the rest:
+  a quoted symbol cannot actually be captured, but excluding it would buy
+  nothing except a subtler rule."
+  [node]
+  (cond
+    (n/inner? node) (into #{} (mapcat site-symbols) (n/children node))
+    (tag= node :token) (let [v (sexpr-safe node)] (if (symbol? v) #{v} #{}))
+    :else #{}))
+
+(defn- w4-names
+  "Deterministic generated names for W4's `let`, FRESH against `reserved`.
+
+  The `__rf2` suffix is a convention, not hygiene. A consumer may already
+  have a local spelled `f__rf2`, and because `let` binds sequentially, a
+  generated binding that shadows one silently rebinds every later
+  initializer that referred to it: `(r/partial vector :first f__rf2)`
+  inside an outer `f__rf2` emits `(let [f__rf2 vector a1__rf2 f__rf2] …)`,
+  whose second initializer now reads `vector` instead of the outer
+  binding. That is the fatal silent-behaviour-change class this tool
+  exists to delete, so the names are checked against the site.
+
+  Generation 0 is the bare `f__rf2` / `aN__rf2` / `args__rf2`, which is
+  what every site free of the suffix gets — the overwhelming majority, and
+  the reason the golden corpus can still assert output byte-for-byte. A
+  collision on ANY of the three bumps the whole family together
+  (`f__rf2__1`, `a0__rf2__1`, `args__rf2__1`) so the emitted form reads as
+  one generation rather than a mix. `reserved` is finite, so the search
+  terminates.
+
+  The rest name is checked even though `apply`'s argument list holds only
+  generated names and self-evaluating literals, so a shadow there cannot
+  currently be observed: emitting a binding the site already spells is a
+  latent trap for the next change to this shape, and it costs one `not-any?`
+  to not do it."
+  [reserved arg-indices]
+  (first
+   (for [g    (range)
+         :let [sfx    (if (zero? g) "" (str "__" g))
+               callee (symbol (str "f__rf2" sfx))
+               rst    (symbol (str "args__rf2" sfx))
+               args   (into {} (map (fn [i] [i (symbol (str "a" i "__rf2" sfx))])) arg-indices)]
+         :when (not-any? reserved (list* callee rst (vals args)))]
+     {:callee callee :rest rst :args args})))
 
 (defn w4-plan
   "**AMENDMENT (A).** Rewrite a literal `(r/partial f a …)` prop value.
@@ -610,9 +655,11 @@
   noise. Symbols ARE bound: re-reading a var on each invocation picks up a
   redefinition the donor's captured value would not have seen.
 
-  The `__rf2` suffix is what makes the binding hygienic, and the names are
-  FIXED rather than gensym'd so the golden corpus can assert output
-  byte-for-byte.
+  The names are DETERMINISTIC rather than gensym'd, so the golden corpus
+  can assert output byte-for-byte — but they are checked against the
+  site's own symbols and bumped on a collision, because deterministic and
+  fixed are not the same thing and only the first of the two is required.
+  See [[w4-names]].
 
   Law 2 holds by transcription: the wrapper is `apply`, so whatever `f`
   returned before it returns now. That is why W4 cannot blank a render
@@ -624,14 +671,18 @@
     (when callee
       (let [numbered (map-indexed (fn [i a] [i a (self-evaluating? a)]) args)
             bound    (remove (fn [[_ _ lit?]] lit?) numbered)
-            binds    (str/join " " (cons (str w4-callee " " (str/trim (n/string callee)))
+            nm       (w4-names (site-symbols call-node) (map first bound))
+            f-sym    (:callee nm)
+            rest-sym (:rest nm)
+            arg-sym  (:args nm)
+            binds    (str/join " " (cons (str f-sym " " (str/trim (n/string callee)))
                                          (for [[i a _] bound]
-                                           (str (w4-binding i) " " (str/trim (n/string a))))))
+                                           (str (arg-sym i) " " (str/trim (n/string a))))))
             applied  (str/join " " (for [[i a lit?] numbered]
-                                     (if lit? (str/trim (n/string a)) (str (w4-binding i)))))
-            body     (str "(fn [& " w4-rest "] (apply " w4-callee
+                                     (if lit? (str/trim (n/string a)) (str (arg-sym i)))))
+            body     (str "(fn [& " rest-sym "] (apply " f-sym
                           (when (seq applied) (str " " applied))
-                          " " w4-rest "))")]
+                          " " rest-sym "))")]
         {:node    (p/parse-string (str "(let [" binds "] " body ")"))
          :captured (vec (for [[_ a _] bound] (str/trim (n/string a))))}))))
 

@@ -156,9 +156,112 @@
       (is (= "(let [f__rf2 handler] (fn [& args__rf2] (apply f__rf2 args__rf2)))" text))))
 
   (testing "every argument that is not self-evaluating is bound, in source
-            order, and every binding carries the `__rf2` suffix that makes
-            the `let` hygienic against the forms it captures"
+            order, and every binding carries the `__rf2` suffix"
     (let [[_ text] (emitted "(r/partial (make-handler!) (next-id!) (log! \"x\"))")]
       (is (= (str "(let [f__rf2 (make-handler!) a0__rf2 (next-id!) a1__rf2 (log! \"x\")] "
                   "(fn [& args__rf2] (apply f__rf2 a0__rf2 a1__rf2 args__rf2)))")
+             text)))))
+
+;; ---------------------------------------------------------------------------
+;; Hygiene — the generated names are FRESH against the site
+;; ---------------------------------------------------------------------------
+;;
+;; The `__rf2` suffix is a convention, not a guarantee, and the first shipped
+;; version of this rewrite mistook one for the other. A consumer may already
+;; have a local spelled `f__rf2`; `let` binds SEQUENTIALLY; so a generated
+;; binding that shadows one silently rebinds every LATER initializer that
+;; referred to it. That is a silent behaviour change — the only fatal class —
+;; and it is what these witnesses pin.
+;;
+;; Each eval runs the emitted form inside an outer `let` binding the colliding
+;; name, which is exactly the shape the consumer file presents.
+
+(defn- emitted-under
+  "W4's output for `src`, evaluated inside an outer `let` binding `outer`.
+  Returns `[wrapper text]`."
+  [outer src]
+  (let [node (:node (rw/w4-plan (p/parse-string src)))]
+    [(eval-here (list 'let outer (n/sexpr node))) (n/string node)]))
+
+(defn- source-symbols
+  "Every symbol in `src`, read with `read-string` rather than through the
+  fixer — so the freshness pin cannot agree with the implementation by
+  sharing its idea of what a symbol is."
+  [src]
+  (->> (read-string src) (tree-seq coll? seq) (filter symbol?) set))
+
+(defn- generated-symbols
+  "The names W4 minted for `src`: the `let`'s binding names, plus the
+  wrapper's rest parameter."
+  [src]
+  (let [[_ binds body] (n/sexpr (:node (rw/w4-plan (p/parse-string src))))]
+    (set (concat (take-nth 2 binds) (remove #{'&} (second body))))))
+
+(defn- collisions
+  "The generated names `src` re-uses from its own source. Empty is the
+  whole requirement."
+  [src]
+  (sort (filter (source-symbols src) (generated-symbols src))))
+
+(def ^:private callee-clash "(r/partial vector :first f__rf2)")
+(def ^:private arg-clash    "(r/partial all-args (identity :zeroth) a0__rf2)")
+(def ^:private rest-clash   "(r/partial all-args args__rf2)")
+(def ^:private double-clash "(r/partial vector f__rf2 f__rf2__1)")
+
+(deftest the-callee-name-never-shadows-a-local-the-site-already-uses
+  (testing "THE AUDIT'S REPRODUCTION. Under the fixed-name scheme this
+            emitted `(let [f__rf2 vector a1__rf2 f__rf2] …)`, and the
+            second initializer read the callee that had just been bound
+            over it — the wrapper answered `[:first vector]` where Reagent
+            answered `[:first :outer]`."
+    (let [[wrapper text] (emitted-under '[f__rf2 :outer] callee-clash)]
+      (is (= [:first :outer] (wrapper))
+          (str "the outer binding must reach the wrapper intact; emitted " text))
+      (is (empty? (collisions callee-clash))
+          (str "no generated name may be one the site already spells; emitted " text)))))
+
+(deftest a-generated-argument-name-never-shadows-a-local-either
+  (testing "`a0__rf2` bound over the site's own `a0__rf2` corrupts the
+            NEXT argument's initializer, which is the same defect one
+            binding along: the fixed-name scheme answered
+            `[:zeroth :zeroth]`."
+    (let [[wrapper text] (emitted-under '[a0__rf2 :outer] arg-clash)]
+      (is (= [:zeroth :outer] (wrapper))
+          (str "argument 1 must still read the site's `a0__rf2`; emitted " text))
+      (is (empty? (collisions arg-clash)) text))))
+
+(deftest the-rest-parameter-is-fresh-too
+  (testing "The rest parameter scopes only over the `apply`, whose argument
+            list holds nothing but generated names and inlined literals —
+            so a shadow here is not observable TODAY, and this pin is
+            honest about being structural rather than behavioural. It is
+            here because emitting a binding the site already spells is a
+            trap laid for the next change to this shape."
+    (let [[wrapper text] (emitted-under '[args__rf2 :outer] rest-clash)]
+      (is (= [:outer] (wrapper)) text)
+      (is (empty? (collisions rest-clash))
+          (str "the rest parameter must not re-use a site symbol; emitted " text)))))
+
+(deftest the-whole-family-bumps-together-and-keeps-bumping
+  (testing "a collision moves the callee, every argument name and the rest
+            name to the same generation, so the emitted form reads as one
+            family rather than a mix"
+    (let [[_ text] (emitted-under '[f__rf2 :outer] callee-clash)]
+      (is (= (str "(let [f__rf2__1 vector a1__rf2__1 f__rf2] "
+                  "(fn [& args__rf2__1] (apply f__rf2__1 :first a1__rf2__1 args__rf2__1)))")
+             text))))
+
+  (testing "and a site that has taken generation 1 as well gets generation
+            2 — the search walks until the whole family is fresh"
+    (let [[wrapper text] (emitted-under '[f__rf2 :a f__rf2__1 :b] double-clash)]
+      (is (= (str "(let [f__rf2__2 vector a0__rf2__2 f__rf2 a1__rf2__2 f__rf2__1] "
+                  "(fn [& args__rf2__2] (apply f__rf2__2 a0__rf2__2 a1__rf2__2 args__rf2__2)))")
+             text))
+      (is (= [:a :b] (wrapper)))))
+
+  (testing "a site that spells no `__rf2` symbol is untouched by any of
+            this: generation 0 is the bare names, which is what every
+            corpus case still asserts"
+    (let [[_ text] (emitted "(r/partial handler @cart)")]
+      (is (= "(let [f__rf2 handler a0__rf2 @cart] (fn [& args__rf2] (apply f__rf2 a0__rf2 args__rf2)))"
              text)))))
