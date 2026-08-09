@@ -121,48 +121,48 @@ Each row carries both a **target policy** and an **operative disposition**. The 
 default in the [canonical matrix](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) — what the
 surface is expected to become once its behavior is proved. The operative disposition is what the surface is entitled to
 do *today*, and today it is Client-only for every row without exception, because no server witness exists for any
-Hicasso surface yet. The operative column is therefore the upgrade slot: see
-[2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
+Hicasso surface yet. The operative column is therefore the upgrade slot, owned by the per-surface SSR/hydration witness
+bead `rf2-hic-046`: see [2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
 
 ### 2.1 Surface inventory and dispositions
 
 | Id | Public surface | Source | Canonical matrix class | Target policy | Operative disposition (today) |
 |---|---|---|---|---|---|
-| HS-01 | `h/defview` boundary | 4 | `h/defview` with `h/sub` | Render | Client-only — refusal; witness owed |
-| HS-02 | `h/sub` read during a server render | 4 | `h/defview` with `h/sub` | Render | Client-only — refusal; witness owed |
-| HS-03 | `h/handler` and literal intent vectors | 4.1 | Intrinsic/fragment Hiccup | Render | Client-only — refusal; witness owed |
-| HS-04 | Intrinsic element head, including SVG and custom elements | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal; witness owed |
-| HS-05 | Fragment head | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal; witness owed |
-| HS-06 | Props map and canonical slot naming | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal; witness owed |
-| HS-07 | Reserved data vocabulary: event value, checked value, explicit prevention, controlled revision | 4 | Controlled DOM fields | Render | Client-only — refusal; witness owed |
-| HS-08 | Controlled DOM fields as a class (per-control rows in [2.3](#23-per-control-and-dom-conformance-dispositions)) | 4.2 | Controlled DOM fields | Render | Client-only — refusal; witness owed |
-| HS-09 | `h/error-boundary` | 4 | `h/error-boundary` | Render | Client-only — refusal; witness owed |
-| HS-10 | `h/mount!` | 4 | Root/frame provider | Client-only (client root creation; recovery is the server render entry plus `h/hydrate!`) | Client-only — refusal; witness owed |
-| HS-11 | `h/hydrate!` | 4 | Root/frame provider | Client-only (the adoption half of every Render row) | Client-only — refusal; witness owed |
-| HS-12 | `h/render!` | 4 | Root/frame provider | Client-only | Client-only — refusal; witness owed |
-| HS-13 | `h/unmount!` | 4 | Root/frame provider | Client-only | Client-only — refusal; witness owed |
-| HS-14 | Root and frame-provider element, including `identifierPrefix` | 4 | Root/frame provider | Render | Client-only — refusal; witness owed |
-| HS-15 | Attribute-merge helper (public only if a witness needs it) | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal; witness owed |
-| HS-16 | `h/defhost` declaration | 4.3 | Declared host | Client-only until the host declaration selects Render | Client-only — refusal; witness owed |
-| HS-17 | Declared ReactNode positions and named content slots | 4.3 | Declared host | Client-only until the host declaration selects Render | Client-only — refusal; witness owed |
-| HS-18 | Render-prop callback lowered through `h/as-element` | 4.3 | Declared host | Client-only until the host declaration selects Render | Client-only — refusal; witness owed |
-| HS-19 | Raw React element head | 4 | Raw React or opaque component | Client-only until classified by an enclosing view or host policy | Client-only — refusal; witness owed |
-| HS-20 | Portal helper | 4.3 | Portal helper | Client-only | Client-only — refusal; witness owed |
-| HS-21 | Outward bridge: a Hicasso view under a native React parent | 4.3 | Root/frame provider and outward bridge | Render | Client-only — refusal; witness owed |
-| HS-22 | `React.lazy` boundary-ABI bridge and Hiccup-aware Suspense host | 7 | Lazy/Suspense/error boundary | Client-only until every server branch and the selected React server API are declared | Client-only — refusal; witness owed |
-| HS-23 | Activity-hosted subtree | 8 | Declared host | Client-only | Client-only — refusal; witness owed |
-| HS-24 | `n/$` intrinsic form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Intrinsic `n/$` | Render | Client-only — refusal; witness owed |
-| HS-25 | `n/$` component-headed form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` and component-headed `n/$` | Client-only until the component declaration selects Render | Client-only — refusal; witness owed |
-| HS-26 | `n/props` marker | [n/$ grammar](lanes/ergonomics-api.md#provisional-n-grammar) | Intrinsic `n/$` | Render | Client-only — refusal; witness owed |
-| HS-27 | `n/defcomponent` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only unless the declaration selects `:render` | Client-only — refusal; witness owed |
-| HS-28 | `n/use-sub` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | Client-only — refusal; witness owed |
-| HS-29 | `n/use-frame` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | Client-only — refusal; witness owed |
-| HS-30 | Native ABI helpers: memo, lazy, ref, and both embedding directions | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Memo/lazy/ref helpers | Client-only until the component declaration selects Render | Client-only — refusal; witness owed |
-| HS-31 | Optional forms module | 4.2 | Optional module | Client-only until its module contract selects Render | Client-only — refusal; witness owed |
-| HS-32 | Optional overlay module (popover and modal) | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal; witness owed |
-| HS-33 | Optional motion and presence module | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal; witness owed |
-| HS-34 | Optional routing-integration module | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal; witness owed |
-| HS-35 | Committed-read resource-demand boundary (conditional on its graduating verdict) | 7 | Resource-demand boundary | Client-only until its module contract selects Render | Client-only — refusal; witness owed |
+| HS-01 | `h/defview` boundary | 4 | `h/defview` with `h/sub` | Render | Client-only — refusal until rf2-hic-046 |
+| HS-02 | `h/sub` read during a server render | 4 | `h/defview` with `h/sub` | Render | Client-only — refusal until rf2-hic-046 |
+| HS-03 | `h/handler` and literal intent vectors | 4.1 | Intrinsic/fragment Hiccup | Render | Client-only — refusal until rf2-hic-046 |
+| HS-04 | Intrinsic element head, including SVG and custom elements | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal until rf2-hic-046 |
+| HS-05 | Fragment head | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal until rf2-hic-046 |
+| HS-06 | Props map and canonical slot naming | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal until rf2-hic-046 |
+| HS-07 | Reserved data vocabulary: event value, checked value, explicit prevention, controlled revision | 4 | Controlled DOM fields | Render | Client-only — refusal until rf2-hic-046 |
+| HS-08 | Controlled DOM fields as a class (per-control rows in [2.3](#23-per-control-and-dom-conformance-dispositions)) | 4.2 | Controlled DOM fields | Render | Client-only — refusal until rf2-hic-046 |
+| HS-09 | `h/error-boundary` | 4 | `h/error-boundary` | Render | Client-only — refusal until rf2-hic-046 |
+| HS-10 | `h/mount!` | 4 | Root/frame provider | Client-only (client root creation; recovery is the server render entry plus `h/hydrate!`) | Client-only — refusal until rf2-hic-046 |
+| HS-11 | `h/hydrate!` | 4 | Root/frame provider | Client-only (the adoption half of every Render row) | Client-only — refusal until rf2-hic-046 |
+| HS-12 | `h/render!` | 4 | Root/frame provider | Client-only | Client-only — refusal until rf2-hic-046 |
+| HS-13 | `h/unmount!` | 4 | Root/frame provider | Client-only | Client-only — refusal until rf2-hic-046 |
+| HS-14 | Root and frame-provider element, including `identifierPrefix` | 4 | Root/frame provider | Render | Client-only — refusal until rf2-hic-046 |
+| HS-15 | Attribute-merge helper (public only if a witness needs it) | 4 | Intrinsic/fragment Hiccup | Render | Client-only — refusal until rf2-hic-046 |
+| HS-16 | `h/defhost` declaration | 4.3 | Declared host | Client-only until the host declaration selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-17 | Declared ReactNode positions and named content slots | 4.3 | Declared host | Client-only until the host declaration selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-18 | Render-prop callback lowered through `h/as-element` | 4.3 | Declared host | Client-only until the host declaration selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-19 | Raw React element head | 4 | Raw React or opaque component | Client-only until classified by an enclosing view or host policy | Client-only — refusal until rf2-hic-046 |
+| HS-20 | Portal helper | 4.3 | Portal helper | Client-only | Client-only — refusal until rf2-hic-046 |
+| HS-21 | Outward bridge: a Hicasso view under a native React parent | 4.3 | Root/frame provider and outward bridge | Render | Client-only — refusal until rf2-hic-046 |
+| HS-22 | `React.lazy` boundary-ABI bridge and Hiccup-aware Suspense host | 7 | Lazy/Suspense/error boundary | Client-only until every server branch and the selected React server API are declared | Client-only — refusal until rf2-hic-046 |
+| HS-23 | Activity-hosted subtree | 8 | Declared host | Client-only | Client-only — refusal until rf2-hic-046 |
+| HS-24 | `n/$` intrinsic form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Intrinsic `n/$` | Render | Client-only — refusal until rf2-hic-046 |
+| HS-25 | `n/$` component-headed form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` and component-headed `n/$` | Client-only until the component declaration selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-26 | `n/props` marker | [n/$ grammar](lanes/ergonomics-api.md#provisional-n-grammar) | Intrinsic `n/$` | Render | Client-only — refusal until rf2-hic-046 |
+| HS-27 | `n/defcomponent` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only unless the declaration selects `:render` | Client-only — refusal until rf2-hic-046 |
+| HS-28 | `n/use-sub` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-29 | `n/use-frame` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-30 | Native ABI helpers: memo, lazy, ref, and both embedding directions | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Memo/lazy/ref helpers | Client-only until the component declaration selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-31 | Optional forms module | 4.2 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-32 | Optional overlay module (popover and modal) | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-33 | Optional motion and presence module | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-34 | Optional routing-integration module | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-35 | Committed-read resource-demand boundary (conditional on its graduating verdict) | 7 | Resource-demand boundary | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
 
 Three notes on the target-policy column, so no reader mistakes a Client-only target for a defect:
 
@@ -203,8 +203,9 @@ as a class for *server rendering*; this table dispositions each control type for
 controlled-field law, across the three supported browser engines.
 
 The roster below is the countable one: every control and DOM conformance case named in
-[specification section 4.2](specification.md#42-controlled-fields) and in the control-conformance programme. No control
-may be silently unsupported, so a row that never acquires a policy is itself a failure.
+[specification section 4.2](specification.md#42-controlled-fields) and in the control-conformance programme, which is
+owned by `rf2-hic-040`. No control may be silently unsupported, so a row that never acquires a policy is itself a
+failure.
 
 | Control or conformance case | Support-or-refusal policy | Witness |
 |---|---|---|
@@ -230,8 +231,8 @@ may be silently unsupported, so a row that never acquires a policy is itself a f
 | Custom elements | Owed | Owed |
 
 Every cell reads Owed because Phase 0 precedes the conformance run. The rows exist now so the run has a fixed roster to
-fill and cannot quietly shrink; the control-conformance owner replaces the cells in place and adds a row only for a
-control case this roster missed.
+fill and cannot quietly shrink; `rf2-hic-040` replaces the cells in place and adds a row only for a control case this
+roster missed.
 
 ### 2.4 The default rule and how a row is upgraded
 
@@ -240,7 +241,8 @@ described as rendering because it plausibly would, because its class default say
 prove it. This is what keeps the Phase 4 witness matrix bounded: the matrix has to close over what is claimed, so
 nothing is claimed before it is shown.
 
-**The upgrade.** One route only. A surface moves from Client-only to Render when a witness proves, for that surface:
+**The upgrade.** One route only, owned by `rf2-hic-046`. A surface moves from Client-only to Render when a witness
+proves, for that surface:
 deterministic server bytes from an immutable request snapshot; matching hydration; deliberate mismatch attributed to
 source; two simultaneous hydrating roots with a stable `identifierPrefix`; and exact cleanup on unmount. Rows that read
 or demand resources additionally prove no duplicate acquisition. The witness id then replaces "witness owed" in the
@@ -258,9 +260,9 @@ those amendments from colliding.
 |---|---|---|
 | [1.1](#11-classification-table) | The coverage-matrix owner | Change a Gap to Claimed only when a bead actually owns the missing proof; never change a Home without a specification change behind it |
 | [1.2](#12-rows-without-a-complete-planned-witness) | The coverage-matrix owner | Remove a bullet when its gap is genuinely owned; add one when a new gap is found |
-| [2.1](#21-surface-inventory-and-dispositions) | The per-surface SSR/hydration witness owner | Rewrite the operative-disposition cell of an existing row; append a row for a surface created after Phase 0 |
-| [2.2](#22-public-surfaces-with-no-server-render-behavior) | The per-surface SSR/hydration witness owner | Append a row for a new non-rendering public surface |
-| [2.3](#23-per-control-and-dom-conformance-dispositions) | The control-conformance owner | Fill the policy and witness cells; append a row for a missed control case |
+| [2.1](#21-surface-inventory-and-dispositions) | Per-surface SSR/hydration witnesses (`rf2-hic-046`) | Rewrite the operative-disposition cell of an existing row; append a row for a surface created after Phase 0 |
+| [2.2](#22-public-surfaces-with-no-server-render-behavior) | Per-surface SSR/hydration witnesses (`rf2-hic-046`) | Append a row for a new non-rendering public surface |
+| [2.3](#23-per-control-and-dom-conformance-dispositions) | Control/DOM conformance (`rf2-hic-040`) | Fill the policy and witness cells; append a row for a missed control case |
 | [2.4](#24-the-default-rule-and-how-a-row-is-upgraded) | Product operator | Change the rule itself |
 
 Two constraints apply to every amendment. **Amend in place; do not restructure.** Two beads in the same wave write into
