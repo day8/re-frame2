@@ -731,14 +731,23 @@ adapter *registry*; overruled for the one-declaration-one-identity grain.
 > **Addendum, 2026-08-05 — the bar is PER-AXIS: the mount denominator moved to
 > UIx, the bulk denominator did not (`rf2-hyd50`).** The ruling below states
 > mount and bulk under a single Reagent-denominated number. That is superseded
-> **on the mount axis only**. The operative bar, as the operator-owned standard
-> `rf2-2rtt6.1` carries it:
+> **on the mount axis only**. The bar, as the operator-owned standard
+> `rf2-2rtt6.1` carried it on 2026-08-05:
 >
 > - **Mount** — **≤ 1.10× direct UIx-on-subs**, canonical `M1`,
 >   floor-normalised, on the clock of record (raw `TaskDuration`, script **and**
 >   frame). Reagent-on-subs stays co-instrumented and is **reported beside the
 >   mount row, not gating it**.
 > - **Bulk** — **≤ 1.0× Reagent-on-subs, like-for-like** — unchanged.
+>
+> **Superseded 2026-08-10.** `rf2-2rtt6.1` was closed as superseded by the new
+> governance set. The operative default is now the K1 price-acceptance
+> amendment `rf2-hic-003` (1.25× ceiling vs direct UIx, user-visible budgets);
+> the bulk verdict runs through protocol `rf2-hic-036`, budgets and the shell
+> line through `rf2-hic-006`/`rf2-hic-018` with gates `rf2-hic-089` and
+> `rf2-hic-071`, and the kill rules through
+> [the decision brief](product/decision-brief.md). The two lines above stand as
+> the bar this addendum recorded on 2026-08-05, not as today's gate.
 >
 > **What stands, so the conflict cannot be re-derived.** Everything else in the
 > ruling below: the clock-only ship *number*, browser-only figures, memory

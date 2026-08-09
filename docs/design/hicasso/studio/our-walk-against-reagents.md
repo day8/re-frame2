@@ -22,8 +22,10 @@ is the answer the P2 fork ruling needs, in the direction nobody had checked.
 > **DIAGNOSTIC, not published.** Every figure here is an in-page
 > `performance.now` over eight whole-page walks per sample. It attributes cost
 > BETWEEN interpreters and BETWEEN stages of one walk. It is **not** the clock
-> of record, no figure here is a gate row, and the mount verdict remains
-> `rf2-2rtt6.1`'s to issue against `census_clock_run.cjs`.
+> of record, no figure here is a gate row, and the mount verdict remains the
+> operator's to issue against `census_clock_run.cjs` — K1 price acceptance
+> `rf2-hic-003` ([the K1 record](../product/k1-price-acceptance.md)), after
+> `rf2-2rtt6.1` was superseded and closed on 2026-08-10.
 
 ## 1. The witness, and why the route-link term cannot reach it
 

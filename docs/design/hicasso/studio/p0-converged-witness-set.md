@@ -7,8 +7,12 @@ bar's rows and the red-zone thresholds a candidate is judged against can be
 read down one column.
 
 Bead **rf2-a4x1o**, re-published under a balanced design by **rf2-6i0i2**. The
-rows are appended to the operator-owned standard bead **rf2-2rtt6.1**; only the
-operator amends the bar, the budgets, the kill criteria or the red-zones.
+rows are appended to the P0 baseline record that superseded the operator-owned
+standard bead **rf2-2rtt6.1** on 2026-08-10 —
+[the evidence baseline](../product/lanes/evidence-baseline.md); only the
+operator amends the bar, the budgets, the kill criteria or the red-zones (K1
+price acceptance `rf2-hic-003`, budget gates `rf2-hic-089`/`rf2-hic-071`, kill
+rules in [the decision brief](../product/decision-brief.md)).
 Nothing here amends any of them.
 
 ## The extent of the mismatch, measured rather than feared
