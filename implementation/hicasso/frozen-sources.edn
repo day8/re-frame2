@@ -1,0 +1,130 @@
+;; THE FREEZE MANIFEST — what this package was copied from, pinned by digest
+;; (rf2-hic-001).
+;;
+;; rf2-hic-001's whole value is that Wave B can trust one sentence: *the
+;; package is the prototype, moved*. A sentence is not a check. This file is
+;; the check's data — every donor file the copy read, with the digest it had
+;; when it was read — and `scripts/check_freeze.py` beside it is the check.
+;;
+;; ## What a red run means
+;;
+;; A red row does NOT mean someone did something wrong. It means the bench
+;; tree and the package have diverged, and somebody has to say which one is
+;; now right:
+;;
+;;   - the fix landed in the BENCH tree and the package needs it too — port
+;;     it, then re-pin with `python scripts/check_freeze.py --update`;
+;;   - the fix landed in the PACKAGE and the bench tree is now the stale copy
+;;     — that is expected and permanent from the moment rf2-hic-009 starts
+;;     carving the runtime into owned modules, and the honest response is to
+;;     retire the row rather than to re-pin it;
+;;   - the divergence is nobody's intent — which is exactly the case this
+;;     file exists to catch, and it is caught before Wave B builds on it.
+;;
+;; ## Digests are line-ending normalised
+;;
+;; `:sha256` is taken over the file's bytes with CRLF collapsed to LF, because
+;; the same commit checks out with CRLF on Windows and LF on Mac and Linux. A
+;; raw-byte digest would be green on one maintainer's machine and red on
+;; another's for a file nobody touched.
+;;
+;; ## The one donor that is not a whole-file copy
+;;
+;; `arm1/lang.clj` holds three macros and no runtime. They are the AUTHORING
+;; surface, so the bead puts them in the public door `re-frame.hicasso`
+;; itself rather than in an `impl` namespace — a CLJS consumer cannot reach a
+;; macro through a plain `:require` any other way. Its row is pinned like
+;; every other, and `:whole-file?` false is what says the package file is not
+;; expected to be a rename-only image of it.
+
+{:donor-root "implementation/freehand/test/re_frame/bench/hicasso"
+
+ ;; The namespace rename the copy applied, in full. Nothing else was changed.
+ ;; A reference to a bench namespace NOT in this table — a test, a shape, a
+ ;; bench app — was deliberately left verbatim in the copied docstrings: it is
+ ;; provenance pointing into the frozen tree, and rewriting it would point at
+ ;; a file the package does not contain.
+ :renames
+ {re-frame.bench.hicasso.front.codec      re-frame.hicasso.impl.codec
+  re-frame.bench.hicasso.front.controlled re-frame.hicasso.impl.controlled
+  re-frame.bench.hicasso.front.intent     re-frame.hicasso.impl.intent
+  re-frame.bench.hicasso.front.presence   re-frame.hicasso.impl.presence
+  re-frame.bench.hicasso.front.route-link re-frame.hicasso.impl.route-link
+  re-frame.bench.hicasso.front.slot       re-frame.hicasso.impl.slot
+  re-frame.bench.hicasso.front.state      re-frame.hicasso.impl.state
+  re-frame.bench.hicasso.arm1.runtime     re-frame.hicasso.impl.runtime
+  re-frame.bench.hicasso.arm1.boundary    re-frame.hicasso.impl.boundary
+  re-frame.bench.hicasso.arm1.mount       re-frame.hicasso.impl.mount
+  re-frame.bench.hicasso.arm1.presence    re-frame.hicasso.impl.presence-react
+  re-frame.bench.hicasso.arm1.lang        re-frame.hicasso}
+
+ ;; Namespace prefixes no file under `implementation/hicasso/` may IMPORT.
+ ;; Prose may name them — a docstring citing the witness that pins a
+ ;; behaviour is worth more than a clean grep — but a `:require`,
+ ;; `:require-macros` or runtime `require` of one would make the package
+ ;; depend on the benchmark tree, which is the dependency this whole file
+ ;; exists to prevent.
+ :forbidden-import-prefixes ["re-frame.bench." "re-frame.freehand."]
+
+ :files
+ [{:bench   "front/codec.cljs"
+   :package "src/re_frame/hicasso/impl/codec.cljs"
+   :ns      re-frame.hicasso.impl.codec
+   :lines   2972
+   :sha256  "c08a71dd787fdedeb91b0cdd0b534b26df2be9af508e095370a4ed8105f52abc"}
+  {:bench   "front/controlled.cljs"
+   :package "src/re_frame/hicasso/impl/controlled.cljs"
+   :ns      re-frame.hicasso.impl.controlled
+   :lines   745
+   :sha256  "269270d698c1b4feac105117075cc91560bd70b23a263b5adc9eccd2d3630e58"}
+  {:bench   "front/intent.cljs"
+   :package "src/re_frame/hicasso/impl/intent.cljs"
+   :ns      re-frame.hicasso.impl.intent
+   :lines   1218
+   :sha256  "c771e60c2107dd04b39c75b6899fbd8ab1e087af146b5b92bc15432e36a4a9f4"}
+  {:bench   "front/presence.cljs"
+   :package "src/re_frame/hicasso/impl/presence.cljs"
+   :ns      re-frame.hicasso.impl.presence
+   :lines   365
+   :sha256  "801753c1323a520bb23469d05df85d295bc1d835f50c97fb307af3200bfdc67f"}
+  {:bench   "front/route_link.cljs"
+   :package "src/re_frame/hicasso/impl/route_link.cljs"
+   :ns      re-frame.hicasso.impl.route-link
+   :lines   217
+   :sha256  "b1f4f28fcf0e12259d601f766dffc19c93339b46d4e2a90ff8b4c11adb43fb46"}
+  {:bench   "front/slot.cljc"
+   :package "src/re_frame/hicasso/impl/slot.cljc"
+   :ns      re-frame.hicasso.impl.slot
+   :lines   109
+   :sha256  "5f8a2baa5bde605f2f28fd88a373df9d686bf23e3a3b59a1c06209bb92020d47"}
+  {:bench   "front/state.cljc"
+   :package "src/re_frame/hicasso/impl/state.cljc"
+   :ns      re-frame.hicasso.impl.state
+   :lines   309
+   :sha256  "d9c7561fc8a6a7bc717f3695b5321f050b7900c5b5d0eae78a9a71b26bca52dd"}
+  {:bench   "arm1/runtime.cljs"
+   :package "src/re_frame/hicasso/impl/runtime.cljs"
+   :ns      re-frame.hicasso.impl.runtime
+   :lines   2120
+   :sha256  "b363e260c8374755d125c832decc52bba8296ee58e4b6196ba4a4fbec09b4484"}
+  {:bench   "arm1/boundary.cljs"
+   :package "src/re_frame/hicasso/impl/boundary.cljs"
+   :ns      re-frame.hicasso.impl.boundary
+   :lines   214
+   :sha256  "09642a5c9893ac8e6acafb1718f9931aae4300c139f2bfb3b8d38b5adcef71a6"}
+  {:bench   "arm1/mount.cljs"
+   :package "src/re_frame/hicasso/impl/mount.cljs"
+   :ns      re-frame.hicasso.impl.mount
+   :lines   345
+   :sha256  "32c8085956a7b840f3b637a4345f833ec170197dfc1a9d8484357552fcb0977c"}
+  {:bench   "arm1/presence.cljs"
+   :package "src/re_frame/hicasso/impl/presence_react.cljs"
+   :ns      re-frame.hicasso.impl.presence-react
+   :lines   169
+   :sha256  "cc957212578406aa61b00f8b0bb513c28d5c02581c93a3bcf1f69492ac2b0ae1"}
+  {:bench       "arm1/lang.clj"
+   :package     "src/re_frame/hicasso.cljc"
+   :ns          re-frame.hicasso
+   :lines       147
+   :whole-file? false
+   :sha256      "0ff9453a0e8de648bbb144736f67d46273038164e3d6633fa21cd78d8c36c642"}]}

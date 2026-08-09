@@ -142,6 +142,21 @@
                 ;; `ui/` donor above.
                 "freehand/src"
                 "freehand/test"
+                ;; rf2-hic-001 — the Hicasso view substrate. src carries
+                ;; the runtime copied out of the benchmark tree
+                ;; (freehand/test/re_frame/bench/hicasso/{front,arm1}/)
+                ;; under re-frame.hicasso + re-frame.hicasso.impl.*; test
+                ;; carries the package smoke
+                ;; (re-frame.hicasso.smoke-cljs-test), which rides the
+                ;; always-on :node-test gate (`cljs-test$` matches) AND
+                ;; the focused :node-test-hicasso build below. The bench
+                ;; tree stays exactly where it is and keeps building under
+                ;; :hicasso-bench; nothing in the package imports it, and
+                ;; hicasso/scripts/check_freeze.py is what says so.
+                ;; Bundle-isolation holds: no production build :requires
+                ;; re-frame.hicasso.*.
+                "hicasso/src"
+                "hicasso/test"
                 ;; The build-time reader for committed `spec/` data
                 ;; (day8/re-frame2-spec-resource). Both macros named under
                 ;; the `../spec` root below go through it, and it is on
@@ -891,6 +906,37 @@
    ;; generated `->Box` shadowed cljs.core/->Box — is gone: the fixture
    ;; record is now `RoundTripBox`, so the build reports 0 warnings with
    ;; the class toggle removed rather than silenced.
+   :compiler-options {:infer-externs false}}
+
+  ;; rf2-hic-001 — the Hicasso PACKAGE's compile target. Mirrors
+  ;; :node-test-ui and :node-test-freehand above: the ns-regexp selects
+  ;; only `re-frame.hicasso.*` suites, and nothing else in the repo lives
+  ;; under that prefix. Those namespaces also match the always-on
+  ;; :node-test build's broader `cljs-test$` regex, so the package is
+  ;; covered on every PR whether or not this focused build is invoked —
+  ;; this is the *named* surface, not an additional required gate.
+  ;;
+  ;; Why a new build id rather than --config-merge onto an existing one,
+  ;; which is the house preference and what the bench lane's own
+  ;; :hicasso-bench comment recommends: --config-merge can add a source
+  ;; path or an entry to a build that already has the right SHAPE, and
+  ;; there is no existing id whose shape is "compile the hicasso package
+  ;; and run its suites". Riding :node-test-freehand would compile the
+  ;; package under the FREEHAND artefact's regexp and name, tying a new
+  ;; artefact's gate to a neighbour's; riding :hicasso-bench would compile
+  ;; the package under the BENCH tree's advanced browser build, which is
+  ;; the very coupling this extraction exists to end. One id, one
+  ;; artefact, matching the two siblings that came before it.
+  ;;
+  ;; The compile alone is half the acceptance: it is what proves the
+  ;; renamed impl.* graph loads with the bench tree off the classpath.
+  ;; Running it proves the other half, the defview + sub round-trip.
+  :node-test-hicasso
+  {:target    :node-test
+   :output-to "out/node-test-hicasso.js"
+   :ns-regexp "^re-frame\\.hicasso\\..+-cljs-test$"
+   :main      re-frame.test-quiet.shadow-node/main
+   ;; The load-bearing watch hook is inherited from :build-defaults.
    :compiler-options {:infer-externs false}}
 
   ;; rf2-8kas5 — the Freehand artefact's RELEASE build: the substrate
