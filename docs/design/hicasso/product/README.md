@@ -1,6 +1,6 @@
 # Published normative set (snapshot)
 
-Published from the operator-local working set by rf2-hic-000. This is the worker-facing snapshot; the refresh rule and the living-home question are recorded in the bead-set README (default #7). File map: decision-brief.md (= synth.md), specification.md (= synth-codex.md), lanes/ (= codex/).
+Published from the operator-local working set by rf2-hic-000. This is the worker-facing snapshot; the refresh rule and the living-home question are stated below, under [Refresh contract](#refresh-contract). File map: decision-brief.md (= synth.md), specification.md (= synth-codex.md), lanes/ (= codex/).
 
 The naming ledger (naming-ledger.md) is live and appended-to by beads; see rf2-hic-065.
 
@@ -36,3 +36,15 @@ a25e603d1f8aabb6ca6b5709ff61abd95864c702adc329de9a7df17bcffc2c2e *codex/react-co
 f479a12c5edc15f02a334616cc9c7d5b9e2588196fc87e3e97afa96d13f2aba5 *codex/testing-xray.md
 5904203883eae79c1b972e07c9ac7ca88228c0a0593c45480f61afd102a4da6f *codex/use-cases.md
 ```
+
+## Refresh contract
+
+The rule this snapshot lives under is stated here, in the tracked tree, so that a clean worktree checkout can read it. The operator-local bead-set README records the same default; it is not published, and nothing below depends on being able to open it.
+
+**The originals remain the working set.** These documents are written and revised under `ai/`, in the operator's sessions. This directory holds copies of them. Do not edit a document here: the next publication overwrites it, and the operator who owns the original never sees the change.
+
+**Refresh on material source change.** When a source changes in a way a reader could act on differently — a verdict, a budget, a facade spelling, a phase exit, an added lane — republish the affected files and update their digests above in the same change. Wording and typo repairs owe no republication.
+
+**What makes a stale snapshot fail loudly.** The digests above are recorded under the *source* file names, so the comparison runs source-against-manifest rather than copy-against-copy. Before filing a bead or dispatching a worker from the operator-local set, re-digest the sources being filed from and compare them with the list above. Equal means this snapshot says what the filer is reading. Unequal means it is stale for exactly the files that differ, and those are republished before the bead is filed or the brief goes out. That is the whole mechanism, and it needs no checker and no extra step in anyone's workflow: filing and dispatch are the only two moments at which a stale copy can mislead someone, so they are the only two moments the comparison has to happen.
+
+**Moving the living home into this tree permanently is an operator and Codex decision.** It is not a worker's to take, and not a side effect of a refresh. Until it is taken, this directory is a snapshot and the rule above stands.
