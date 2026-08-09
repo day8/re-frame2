@@ -1,6 +1,6 @@
 # Coverage proof suites
 
-[`../synth-codex.md`](../specification.md#7-complete-use-case-coverage) owns capability placement, phase deliverables, and release policy. This file owns the concrete proof suites: the finite witnesses and artifacts that demonstrate coverage. It does not maintain a second roadmap or paraphrase phase outcomes.
+[`../specification.md`](../specification.md#7-complete-use-case-coverage) owns capability placement, phase deliverables, and release policy. This file owns the concrete proof suites: the finite witnesses and artifacts that demonstrate coverage. It does not maintain a second roadmap or paraphrase phase outcomes.
 
 ## Canonical suites
 

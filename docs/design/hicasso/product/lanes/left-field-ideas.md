@@ -1,6 +1,6 @@
 # Left-field ideas
 
-[`../synth-codex.md`](../specification.md#11-innovation-portfolio) owns portfolio status and delivery order. This file defines the deciding protocols and kill conditions.
+[`../specification.md`](../specification.md#11-innovation-portfolio) owns portfolio status and delivery order. This file defines the deciding protocols and kill conditions.
 
 ## Product workflow
 
