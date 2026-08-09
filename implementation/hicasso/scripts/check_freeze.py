@@ -290,9 +290,7 @@ def definitions(src):
     Depth is counted over code spans only, so a `(def x)` written inside a
     docstring or commented out is not a definition.
     """
-    code = [(a, b) for kind, a, b in spans(src) if kind == "code"]
-    flat = "".join(src[a:b] if (a, b) in code else _blank(src[a:b])
-                   for kind, a, b in spans(src))
+    flat = code_only(src)
     found, depth, i, n = [], 0, 0, len(flat)
     while i < n:
         c = flat[i]
