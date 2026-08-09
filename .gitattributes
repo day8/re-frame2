@@ -57,6 +57,17 @@ skills/re-frame2-ui/references/ui-context.md text eol=lf
 # would compute a different hash from the one the page names. Pin LF.
 implementation/freehand/test/re_frame/bench/hicasso/data/jsfb-rguy1/*.json text eol=lf
 
+# The Reagent-to-Hicasso codemod's GOLDEN CORPUS (rf2-2rtt6.143). Each case
+# asserts its rewritten output BYTE FOR BYTE, so the fixture bytes must not
+# depend on who checked the tree out. The fixer itself now preserves whichever
+# convention it finds — that is the repair, and it is what makes the corpus
+# pass on a Windows (core.autocrlf=true) checkout — but a golden file whose
+# bytes change with the platform is not golden, and the CRLF path deserves a
+# witness that runs on the Linux CI lane too. So the fixtures are pinned to LF
+# and `newlines_test.clj` builds its CRLF sources in memory, where every
+# platform sees them.
+migration/reagent-to-hicasso/codemod/test/corpus/** text eol=lf
+
 # The beads tracker export (rf2-gsjfr). `bd` rewrites .beads/issues.jsonl with
 # LF endings on every invocation, so an unpinned Windows (core.autocrlf=true)
 # checkout CRLF-rewrites it straight back and the file never settles against

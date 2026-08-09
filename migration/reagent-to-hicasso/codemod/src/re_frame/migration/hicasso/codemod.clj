@@ -173,10 +173,47 @@
 
     :else (rw-children nd ctx)))
 
+;; ---------------------------------------------------------------------------
+;; Line endings
+;; ---------------------------------------------------------------------------
+;;
+;; rewrite-clj's parser normalizes every newline it reads to `\n`, so a tool
+;; that hands `n/string` straight back rewrites EVERY LINE of a CRLF file —
+;; the whole-file diff that the formatting-preservation posture exists to
+;; prevent, and a real hazard for the Windows consumers this codemod is aimed
+;; at. The convention is read off the input and re-applied to the output.
+
+(defn- crlf-source?
+  "Does this source use CRLF line endings?
+
+  Whichever of the two conventions the file uses MORE OFTEN wins, and a tie
+  — including a file with no newline at all — goes to LF, which is what
+  rewrite-clj already emits. A genuinely mixed file cannot be reproduced
+  exactly whatever we do, because the parser has already discarded the
+  distinction; the majority rule keeps the diff as small as that loss
+  allows."
+  [^String source]
+  (let [crlf (count (re-seq #"\r\n" source))
+        all  (count (re-seq #"\n" source))]
+    (> crlf (- all crlf))))
+
+(defn- with-newlines-of
+  "Give `out` the line-ending convention of `source`.
+
+  Normalize-then-apply rather than a bare `\\n` → `\\r\\n`, so a `\\r\\n`
+  that survived inside a multi-line string token is not doubled into
+  `\\r\\r\\n`. Idempotent by construction."
+  [^String out ^String source]
+  (if (crlf-source? source)
+    (-> out (str/replace "\r\n" "\n") (str/replace "\n" "\r\n"))
+    out))
+
 (defn transform
-  "Apply the fixer to a source string. Returns the rewritten text."
+  "Apply the fixer to a source string. Returns the rewritten text, in the
+  line-ending convention the input was written in."
   [source ctx]
-  (n/string (rw-node (p/parse-string-all source) ctx)))
+  (-> (n/string (rw-node (p/parse-string-all source) ctx))
+      (with-newlines-of source)))
 
 ;; ---------------------------------------------------------------------------
 ;; Public API
