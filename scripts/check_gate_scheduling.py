@@ -243,24 +243,17 @@ DISPOSITIONS: dict[str, dict] = {
                "DOES yield a verdict, which is why that one is scheduled "
                "(freehand-bench.yml) and pinned into the local rigorous sweep",
     },
-    "test:hicasso-controlled": {
-        "kind": "unscheduled",
-        "bead": "rf2-hic-016",
-        "why": "the Hicasso controlled-input gate — "
-               "scripts/serve-and-run-hicasso-controlled-testbed.cjs, driving "
-               "implementation/hicasso/testbed/spec.cjs across Chromium, Firefox "
-               "and WebKit. A real gate: a non-zero exit is a verdict about the "
-               "tree, so `not-a-gate` would be a lie and `covered-by` has nothing "
-               "true to point at (no other gate launches Firefox at all). It runs "
-               "nowhere yet because the PR that added it was fenced out of "
-               ".github/workflows/** — rf2-8a6s held that surface — so the job, "
-               "its classifier arm and the matching _changed-surfaces.test.cjs "
-               "rows are a separate change, sequenced after that bead. Declared "
-               "rather than silently unrun",
-    },
-    # ONE DECLARED HOLE REMAINS (`test:hicasso-controlled`, rf2-hic-016, above);
-    # it is a scheduling change deliberately deferred to a PR allowed to touch
-    # the workflows, not a gate without a home.
+    # NO DECLARED HOLE REMAINS.  The last one was `test:hicasso-controlled`
+    # (rf2-hic-016): the Hicasso three-engine controlled-input gate, declared
+    # `unscheduled` rather than left silently unrun because the PR that built
+    # it was fenced out of .github/workflows/** while rf2-8a6s held that
+    # surface.  rf2-ga8m landed the missing half — the `cljs-hicasso-
+    # controlled` job, its `hicasso_controlled` classifier arm, and the
+    # matching _changed-surfaces.test.cjs rows — so the entry is DELETED.
+    # That deletion is the point: a declared hole that outlives its gate's
+    # schedule is the same class of lie as an undeclared one, told in the
+    # other direction, and this checker would keep asserting the gate runs
+    # nowhere while it ran on every hicasso PR.
     #
     # The four this checker found on arrival all have homes: `test:perf-bundle` went
     # per-PR as `cljs-perf-bundle` (rf2-eegpw / #7530), `test:ui-warm-watch` +

@@ -90,6 +90,7 @@ jobs:
       skills_structural: ${{ steps.detect.outputs.skills_structural }}
       playground: ${{ steps.detect.outputs.playground }}
       migration_hicasso_codemod: ${{ steps.detect.outputs.migration_hicasso_codemod }}
+      hicasso_controlled: ${{ steps.detect.outputs.hicasso_controlled }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -1276,6 +1277,100 @@ jobs:
           name: ui-g8-json
           path: implementation/out/ui-g8.json
           if-no-files-found: error
+
+  cljs-hicasso-controlled:
+    name: CLJS hicasso controlled-input correctness (real Chromium + Firefox + WebKit)
+    # rf2-ga8m — invariant I15 in three real engines. The gate itself landed
+    # under rf2-hic-016 and could not schedule itself: .github/workflows/** was
+    # fenced for rf2-8a6s at the time, so it declared `test:hicasso-controlled`
+    # a KNOWN HOLE in scripts/check_gate_scheduling.py rather than leave the
+    # absence invisible. This job is the other half; that entry is deleted in
+    # the same change, which is what a closed hole looks like.
+    #
+    # THREE engines, and each is load-bearing. The mechanism under test is made
+    # of precisely the things engines differ on — caret and selection
+    # restoration, composition event carriage, and the order in which a
+    # discrete event's work is flushed. Nothing had ever driven Hicasso's
+    # element-path converge outside Chromium; Firefox is here because it is the
+    # one major engine this repo had never launched at all.
+    #
+    # WHY THE WHOLE GATE RUNS PER-PR rather than a one-engine smoke with the
+    # rest nightly. The runner does not merely run the same spec three times:
+    # it COMPARES its RECORDED rows across engines and reds any divergence no
+    # entry in NARROWINGS names, and that comparator is inert below two engines
+    # (`if (engines.length < 2) return problems`). A narrowed PR tier would
+    # keep the gate's name and silently drop its central claim. So it is
+    # changed-surface gated instead — TESTING.md's placement table puts slow
+    # essential coverage on exactly that tier, and it is where the nearest
+    # sibling already sits: cljs-ui-g8 is the same kind of gate (real-browser
+    # controlled-input correctness), runs two engines, and is per-PR only.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.hicasso_controlled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      # Its own cache key: this is the only job in the matrix that needs all
+      # THREE engines, and it must not be served a two-engine cache under a
+      # key that claims to hold them.
+      - name: Cache Playwright browser binaries
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-cfw-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-cfw-
+            ${{ runner.os }}-playwright-
+
+      # THE PIN, and the one step in this job to read carefully. `npx` resolves
+      # implementation/node_modules/.bin/playwright — the version
+      # implementation/package.json pins — because this job's working-directory
+      # is `implementation` AND `npm ci` has already run. Those two facts are
+      # the entire pin. Run this same line from the repo root, or ahead of
+      # `npm ci`, and npx resolves a NEWER Playwright out of its own cache,
+      # fetches that release's browser revisions, and PRUNES the pinned WebKit
+      # from ~/.cache/ms-playwright — leaving a green job that never launched
+      # one of the three engines this gate exists to exercise. Measured while
+      # wiring this lane: `playwright --version` reports the pinned 1.59.1
+      # inside implementation/ and 1.62.1 one directory up, from the npx cache,
+      # so `--no-install` does NOT save you — only the working directory does.
+      # Do not move this step out of `implementation`, and do not reorder it
+      # before `npm ci`.
+      - name: Install pinned Chromium + Firefox + WebKit
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: I15 three-engine controlled-input gate
+        run: npm run test:hicasso-controlled
 
   cljs-ui-facade-isolation:
     name: CLJS ui G-18 library facade isolation (:advanced single-view DCE)
@@ -5497,6 +5592,14 @@ jobs:
       - cljs-ui-g1
       - cljs-ui-g13
       - cljs-ui-g8
+      # rf2-ga8m — required, not advisory. This is the only lane that
+      # witnesses I15's caret and composition clauses, and the caret is the
+      # only observable in a real browser that separates this runtime from
+      # plain React (React's own end-of-event restore repairs value-level
+      # misconduct inside the same discrete event, so the value assertions
+      # stay green under regressions these rows catch). Advisory would leave
+      # the evidence one `if:` away from the nowhere it ran until now.
+      - cljs-hicasso-controlled
       - cljs-ui-facade-isolation
       - jvm-reagent
       - jvm-reagent-slim
