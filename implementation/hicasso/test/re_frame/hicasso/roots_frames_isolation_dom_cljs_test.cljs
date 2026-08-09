@@ -41,6 +41,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.inventory :as inventory]
@@ -195,12 +196,17 @@
         (testing "and the frame-locked ambient dispatch memoised for each body
                   is keyed by frame too — a second table saying the same thing
                   on a different axis"
-          (is (= #{frame-a frame-b} (sup/dispatch-memo-frames))
-              (str "got " (pr-str (sup/dispatch-memo-frames))))
-          (is (= #{} (sup/ops-memo-frames))
-              "and nothing has dispatched yet, so the `capture-frame` bundle
-               memo is still empty — which is what makes the reading above a
-               reading of RENDER and not of something a dispatch left behind"))
+          (is (= #{frame-a frame-b} (sup/frame-memo-frames))
+              (str "got " (pr-str (sup/frame-memo-frames))))
+          (is (= [true true]
+                 (mapv #(frame/frame-incarnation-live?
+                          % (:incarnation (sup/frame-memo-row %)))
+                       [frame-a frame-b]))
+              "and each row is pinned to the incarnation that is LIVE under its
+               id (rf2-x874) — the reading that replaced 'the bundle memo is
+               still empty'. Since the row is acquired during render, one row
+               per rendered frame is the reading of RENDER, and pinning is what
+               a dispatch could otherwise have left behind wrongly"))
 
         (testing "the markup corroborates, and it corroborates on BOTH frames
                   — a constant would satisfy either one alone"
@@ -220,7 +226,10 @@
     (sup/skip! ":node-test has no DOM")
     (let [_ (fresh!)
           a (mount/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-          b (mount/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+          b (mount/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])
+          ;; Sampled BEFORE the dispatch, because the property below is that
+          ;; the dispatch did not disturb it.
+          row-b-before (sup/frame-memo-row frame-b)]
       (try
         (testing "one dispatch into frame A re-runs exactly one body"
           (let [ran (sup/body-runs-delta! (fn [] (mount/dispatch! a [::bump])))]
@@ -232,10 +241,13 @@
           (is (= "1" (text-at a ".count")))
           (is (= "0" (text-at b ".count"))))
 
-        (testing "the `capture-frame` bundle memo now holds frame A alone —
-                  the dispatch pinned one incarnation, not both"
-          (is (= #{frame-a} (sup/ops-memo-frames))
-              (str "got " (pr-str (sup/ops-memo-frames)))))
+        (testing "and the dispatch touched frame A's memo row alone — B's row is
+                  the SAME object it was before, so one frame's traffic cannot
+                  re-pin another's"
+          (is (identical? row-b-before (sup/frame-memo-row frame-b))
+              "frame B's row was replaced by a dispatch into frame A")
+          (is (= #{frame-a frame-b} (sup/frame-memo-frames))
+              (str "got " (pr-str (sup/frame-memo-frames)))))
 
         (testing "the counter can read 2, so `1` above was a discrimination
                   and not a ceiling — both frames are exercised, which is

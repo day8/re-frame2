@@ -120,28 +120,32 @@
   [sub-key]
   (count (inventory/cell-readers sub-key)))
 
-(defn dispatch-memo-frames
-  "The frames the ambient-dispatch memo holds bundles for.
+(defn frame-memo-frames
+  "The frames the arm's frame memo holds a row for.
 
   Populated by RENDER: `impl.collector/run-once` binds
-  `(frame-dispatch frame-kw)` for each body's dynamic extent, and the
-  memo is `impl.frames/!frame-dispatch`. So two frames rendering is two
+  `(frame-dispatch frame-kw)` for each body's dynamic extent, and that
+  lookup is what mints the frame's row. So two frames rendering is two
   entries, and a runtime that resolved one frame for both mounts would
   hold one — a second frame-keyed table saying the same thing the cell
   keys say, on a different axis.
 
-  Its sibling `impl.frames/!frame-ops` is NOT this and must not be
-  confused with it: `capture-frame` bundles are minted by
-  `impl.collector/dispatch!`, so that table is empty until something
-  dispatches. `impl.inventory/stats`'s `:frames` counts that one."
-  []
-  (set (keys @frames/!frame-dispatch)))
-
-(defn ops-memo-frames
-  "The frames the `capture-frame` op-bundle memo holds — populated by
-  DISPATCH, not by render. See [[dispatch-memo-frames]]."
+  Since rf2-x874 `impl.frames/!frame-ops` is ONE row per frame rather
+  than two sibling tables: the row carries the incarnation, the
+  `capture-frame` bundle pinned to it, and the ambient dispatch closure
+  over that bundle. Acquiring the dispatch acquires the bundle in the
+  same act, which is what stops the two from ever describing different
+  incarnations — and which is why a render, not a dispatch, is now what
+  fills this. `impl.inventory/stats`'s `:frames` counts the same rows."
   []
   (set (keys @frames/!frame-ops)))
+
+(defn frame-memo-row
+  "The arm's memo row for `frame-kw`, or nil — `{:incarnation :ops
+  :dispatch}`. Read by IDENTITY, never by value: what a witness wants to
+  know is whether this is the same row it saw before."
+  [frame-kw]
+  (get @frames/!frame-ops frame-kw))
 
 (defn body-runs-delta!
   "Run `f`, answer how many boundary bodies ran while it did.
