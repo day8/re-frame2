@@ -20,7 +20,7 @@ The criterion has two conjuncts. They stand differently, and this record keeps t
 
 ### 2.1 The gate half: missed, decisively
 
-`rf2-diaud` (PR #7704) published the M1 mount row on K1's own floor-normalised estimand — point and interval drawn from one estimator through the same run-preserving bootstrap, 4,000 draws at the fixed seed 20260807 — and adjudicated it against K1's own threshold:
+`rf2-diaud` (PR #7704) published the M1 mount row on K1's own floor-normalised estimand — point and interval drawn from one estimator through the same run-preserving bootstrap, 4,000 draws at the fixed seed 20,260,807 — and adjudicated it against K1's own threshold:
 
 | Ensemble | Outer runs | `hicasso / uix-subs`, floor-normalised | Verdict against K1's `1.10×` |
 |---|---:|---|---|
