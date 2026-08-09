@@ -17,8 +17,8 @@ and so does the same question about `6f40304011`. The branch was rebase-merged,
 which mints a different landed SHA and strands the authored one: those two
 patches landed on main as `b3947377e0` and `58127c0f82` (identical
 `git patch-id --stable` in each case), which is where a reader who follows the
-old pins should end up. So the page was
-pinned to a commit its reader could not resolve, which is the hazard
+old pins should end up. So the page was pinned to a commit its reader could
+not resolve, which is the hazard
 [the-candidates-clock.md](the-candidates-clock.md) names and answers with a blob
 table. Pinning instead to a commit that was already on `main` *before* this page
 was edited closes it at the source: nothing this page's own merge does can move
