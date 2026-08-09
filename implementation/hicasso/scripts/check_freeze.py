@@ -89,8 +89,10 @@ the divergent rows are retired rather than re-pinned, and when the last row
 goes, so does this file.
 """
 import argparse
+import contextlib
 import difflib
 import hashlib
+import io
 import os
 import re
 import sys
@@ -714,7 +716,8 @@ def self_test():
 
         # And `--update` re-pins BOTH the digest and the line count, leaving a
         # manifest that is green for the right reason rather than by omission.
-        check(path, pkg, tmp, update=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            check(path, pkg, tmp, update=True)
         assert failures() == [], failures()
         assert read_edn(read_text(path))[":files"][0][":lines"] == 4
 
