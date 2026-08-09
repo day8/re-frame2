@@ -157,6 +157,16 @@
                 ;; re-frame.hicasso.*.
                 "hicasso/src"
                 "hicasso/test"
+                ;; rf2-hic-016 — the controlled-input testbed. A standalone
+                ;; app under hicasso/testbed/ whose fields are the §4.2
+                ;; policy family (accept / refuse / normalise / reset), and
+                ;; the only surface the three-engine controlled-input gate
+                ;; drives. Source path here so the :hicasso/testbed build's
+                ;; init-fn resolves; the gate is
+                ;; scripts/serve-and-run-hicasso-controlled-testbed.cjs,
+                ;; which compiles, serves and drives it in Chromium,
+                ;; Firefox and WebKit.
+                "hicasso/testbed"
                 ;; The build-time reader for committed `spec/` data
                 ;; (day8/re-frame2-spec-resource). Both macros named under
                 ;; the `../spec` root below go through it, and it is on
@@ -2726,6 +2736,22 @@
    :asset-path "."
    :modules    {:main {:init-fn ui-testbed.core/init}}
    :devtools   {:preloads [re-frame2-pair.runtime]}}
+
+  ;; rf2-hic-016 — the Hicasso controlled-input testbed. NOT in the shared
+  ;; adapter-smoke manifest and deliberately so: that runner is one engine
+  ;; (Chromium) over N specs, and this surface's whole contract is the
+  ;; SAME spec over three engines. It therefore carries its own
+  ;; orchestrator, scripts/serve-and-run-hicasso-controlled-testbed.cjs —
+  ;; the reagent-slim / tenant-switcher precedent — which compiles this
+  ;; build, serves it, and drives Chromium, Firefox and WebKit in turn.
+  ;; No :dev-http entry: the gate serves from http-server on a resolved
+  ;; port like every other browser gate, and nothing here is a
+  ;; `shadow-cljs watch` surface.
+  :hicasso/testbed
+  {:target     :browser
+   :output-dir "out/hicasso-testbed"
+   :asset-path "."
+   :modules    {:main {:init-fn hicasso-testbed.core/init}}}
 
   ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
   ;; substrate. Same minimal-counter shape as the Reagent/UIx
