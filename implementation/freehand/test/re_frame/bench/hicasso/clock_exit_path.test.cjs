@@ -1807,6 +1807,8 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     t(`${what} at the frozen centre REFUSES the row, and publishes nothing from it`, () => {
       const row = resultRow('ordinary', { blocks: n });
       const ctl = row.adjudication.ctl;
+      /** The full published shape, with the two complete rows beside this one. */
+      const beside = (ordinary) => ['large-template', 'feed'].map((id) => resultRow(id)).concat(ordinary);
 
       // 1. THE STANDARD REFUSED IT, ON THE COUNT, BEFORE COMPUTING A STATISTIC.
       assert.strictEqual(ctl.standard.ok, false, `${n} blocks must not be adjudicated in control`);
@@ -1833,7 +1835,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       assert.match(ctl.adjudicator, /calibrated check standard/);
 
       // 3. THE NONZERO EXIT PATH.
-      const rows = ['large-template', 'feed'].map((id) => resultRow(id)).concat(row);
+      const rows = beside(row);
       const v = verdict(summarise(null, rows));
       assert.strictEqual(v.code, 5, 'a row whose control does not hold exits 5');
       assert.match(v.lines[0], /uix\/ordinary/);
@@ -1849,11 +1851,11 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       for (const id of ['large-template', 'feed']) {
         assert.strictEqual(byId[id].canonical, true, `${id} must stay citable — the refusal's scope is the ROW`);
       }
-      // ... and the whole-evidence run publishes every row, so step 4 is not
-      // passing by refusing the world.
-      const clean = written(['large-template', 'feed'].map((id) => resultRow(id)).concat(resultRow('ordinary', { blocks: EXPECTED })));
-      assert.deepStrictEqual(clean.rowsRefused, []);
-      assert.strictEqual(verdict(summarise(null, ['large-template', 'feed'].map((id) => resultRow(id)).concat(resultRow('ordinary', { blocks: EXPECTED })))).code, 0);
+      // ... and the same run carrying WHOLE evidence publishes every row and
+      // exits 0, so neither step 3 nor step 4 passes by refusing the world.
+      const wholeRun = beside(resultRow('ordinary', { blocks: EXPECTED }));
+      assert.deepStrictEqual(written(wholeRun).rowsRefused, []);
+      assert.strictEqual(verdict(summarise(null, wholeRun)).code, 0);
     });
   }
 
