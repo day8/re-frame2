@@ -90,10 +90,10 @@ const ENGINES = ONLY
   : ALL_ENGINES;
 
 // The check floor (the discipline `ime_run.cjs` carries): a run that
-// asserted almost nothing must not exit 0. A full engine banks 43 checks;
-// 40 refuses a section that silently stopped running while leaving a little
-// room for a row to be retired.
-const MIN_CHECKS_PER_ENGINE = 40;
+// asserted almost nothing must not exit 0. A full engine banks 55 checks;
+// 50 refuses a section that silently stopped running — the smallest of the
+// nine is 6 rows — while leaving room for a row to be retired.
+const MIN_CHECKS_PER_ENGINE = 50;
 
 // ---------------------------------------------------------------------------
 // Cross-engine narrowings — every RECORDED row that is allowed to differ,

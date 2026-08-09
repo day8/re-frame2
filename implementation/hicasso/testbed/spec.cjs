@@ -115,9 +115,14 @@ window.__TB__ = (function () {
     };
   }
   function model() { return JSON.parse(window.__RF2_HIC_TB__.model()); }
+  // Let a concurrent root's sync lane land. A keystroke does not need this
+  // — \`converge!\` spends a \`flushSync\` so the echo is inside the turn —
+  // but an ordinary click spends none, so anything driven by a button is
+  // read on the next task rather than the next line.
+  function settle() { return new Promise(function (r) { setTimeout(r, 0); }); }
   return {
     el: el, nativeSet: nativeSet, fire: fire, composition: composition,
-    edit: edit, read: read, model: model,
+    edit: edit, read: read, model: model, settle: settle,
   };
 })();
 `;
@@ -262,7 +267,7 @@ async function caretUnderRealTyping(page, w) {
 // (rf2-n3dxw). What survives there is React's own selection restore, and
 // what it does is measured per engine rather than assumed.
 async function selectionAcrossAnOutOfBandWrite(page, w) {
-  const observed = await page.evaluate(() => {
+  const observed = await page.evaluate(async () => {
     const node = window.__TB__.el('upper');
     node.focus();
     node.setSelectionRange(1, 3, 'backward');
@@ -270,8 +275,18 @@ async function selectionAcrossAnOutOfBandWrite(page, w) {
     // A programmatic click never moves focus, so the field under
     // observation keeps it and React's restore is in scope.
     window.__TB__.el('correct-upper').click();
-    return { before, after: window.__TB__.read('upper') };
+    // Read on the next task, NOT the next line, and the difference is the
+    // whole of why an out-of-band write is a different path. A concurrent
+    // root flushes a discrete update's sync lane in a microtask; the
+    // keystroke rows above are inside the turn only because `converge!`
+    // spends a `flushSync` to put them there, and no `flushSync` is
+    // spent here because there is no caret to save.
+    const immediate = window.__TB__.read('upper');
+    await new Promise((r) => setTimeout(r, 0));
+    return { before, immediate, after: window.__TB__.read('upper') };
   });
+  w.record('out-of-band-write-lands-in-the-same-task',
+    observed.immediate.value === 'ZZZZZZ');
   w.eq(observed.before.end - observed.before.start, 2, 'a range was selected to begin with');
   w.eq(observed.after.value, 'ZZZZZZ', 'the out-of-band correction reached the field');
   w.eq(observed.after.active, true, 'the field still holds focus across the correction');
@@ -343,7 +358,7 @@ async function compositionSafety(page, w) {
 // that do not go through it.
 async function compositionReleaseEdges(page, w) {
   // Blur — the composition the browser abandoned with the focus.
-  const blurred = await page.evaluate(() => {
+  const blurred = await page.evaluate(async () => {
     const node = window.__TB__.el('digits');
     node.focus();
     window.__TB__.composition(node, 'compositionstart', '');
@@ -351,7 +366,11 @@ async function compositionReleaseEdges(page, w) {
       isComposing: true, inputType: 'insertCompositionText', data: 'あ',
     });
     const held = window.__TB__.read('digits').value;
+    // A blurred field has no caret worth restoring, so the release spends
+    // no `flushSync` and the model re-asserts on the next task rather than
+    // this line — the deliberate asymmetry `shadowed-props` states.
     node.blur();
+    await window.__TB__.settle();
     return { held, after: window.__TB__.read('digits').value };
   });
   w.eq(blurred.held, '123あ', 'the draft was held before the blur');
@@ -376,20 +395,28 @@ async function compositionReleaseEdges(page, w) {
 
   // Unmount — the shadow is one `useState` on a fiber and cannot outlive
   // it. There is no registry and no node property to strand.
-  const unmounted = await page.evaluate(() => {
+  const unmounted = await page.evaluate(async () => {
     const node = window.__TB__.el('mountable');
     node.focus();
     window.__TB__.composition(node, 'compositionstart', '');
-    window.__TB__.edit('mountable', 'draft', 5, {
-      isComposing: true, inputType: 'insertCompositionText', data: 'draft',
+    // A REFUSING field, so the draft in the element is one the model never
+    // took — without that the row below would pass on a model that had
+    // simply accepted the composition.
+    const draft = window.__TB__.edit('mountable', '9あ', 2, {
+      isComposing: true, inputType: 'insertCompositionText', data: 'あ',
     });
+    const midModel = window.__TB__.model().fields.mountable;
     window.__TB__.el('toggle-mounted').click();
+    await window.__TB__.settle();
     const gone = !!document.querySelector('[data-testid="mountable-gone"]');
     window.__TB__.el('toggle-mounted').click();
-    return { gone, back: window.__TB__.read('mountable').value };
+    await window.__TB__.settle();
+    return { draft: draft.value, midModel, gone, back: window.__TB__.read('mountable').value };
   });
+  w.eq(unmounted.draft, '9あ', 'the field held a draft the model had refused');
+  w.eq(unmounted.midModel, '9', 'and the model really had refused it');
   w.eq(unmounted.gone, true, 'the field unmounted mid-composition');
-  w.eq(unmounted.back, '', 'the remounted field shows the model, not a stranded draft');
+  w.eq(unmounted.back, '9', 'the remounted field shows the model, not a stranded draft');
 }
 
 // I15 — "reset is an explicit revision that preserves element identity".
@@ -408,6 +435,7 @@ async function revisionResetPreservesIdentity(page, w) {
     const modelBefore = window.__TB__.model();
 
     window.__TB__.el('bump-revision').click();
+    await window.__TB__.settle();
     const after = window.__TB__.read('revision');
     const same = window.__TB__.el('revision');
     return {
@@ -429,12 +457,14 @@ async function revisionResetPreservesIdentity(page, w) {
 // The owned `::h/checked` pair, whose `false` is a presence rather than a
 // truth. Read inside the click's own turn.
 async function ownedCheckedPair(page, w) {
-  const toggled = await page.evaluate(() => {
+  const toggled = await page.evaluate(async () => {
     const node = window.__TB__.el('flag');
     const before = { dom: node.checked, model: window.__TB__.model().flag };
     node.click();
+    await window.__TB__.settle();
     const on = { dom: node.checked, model: window.__TB__.model().flag };
     node.click();
+    await window.__TB__.settle();
     const off = { dom: node.checked, model: window.__TB__.model().flag };
     return { before, on, off };
   });
@@ -454,12 +484,13 @@ async function ownedCheckedPair(page, w) {
 // method and needs a profile), so the eventless write below is recorded as
 // its PROXY and named as one.
 async function formResetAndFillProxy(page, w) {
-  const reset = await page.evaluate(() => {
+  const reset = await page.evaluate(async () => {
     const a = window.__TB__.el('form-a');
     window.__TB__.edit('form-a', 'FORMx', 5, { data: 'x' });
     const typed = window.__TB__.read('form-a').value;
     const defaultBefore = a.defaultValue;
     window.__TB__.el('form-reset').click();
+    await window.__TB__.settle();
     return {
       typed,
       defaultBefore,
@@ -486,6 +517,7 @@ async function formResetAndFillProxy(page, w) {
     await new Promise((r) => setTimeout(r, 50));
     const silent = window.__TB__.read('form-b').value;
     window.__TB__.el('form-reset').click();
+    await window.__TB__.settle();
     return {
       withEvent: withEvent.value,
       withEventModel: window.__TB__.model().fields['form-b'],

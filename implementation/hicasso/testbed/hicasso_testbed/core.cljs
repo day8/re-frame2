@@ -86,6 +86,10 @@
     :revision typed
     :form-b   typed
     :digits   (if (re-matches #"[0-9]*" typed) typed old)
+    ;; Refusing, like `digits`, and deliberately: the unmount row needs the
+    ;; field to be showing a draft the MODEL NEVER TOOK, or "no stranded
+    ;; draft after a remount" is satisfied by the model having accepted it.
+    :mountable (if (re-matches #"[0-9]*" typed) typed old)
     :empty    old
     :grouped  (group-digits typed)
     :upper    (str/upper-case typed)
@@ -103,7 +107,7 @@
    :revision "keep"
    :form-a   "FORM"
    :form-b   "form"
-   :mountable ""})
+   :mountable "9"})
 
 ;; ---------------------------------------------------------------------------
 ;; Events and subscriptions — an ordinary re-frame2 app, nothing else
