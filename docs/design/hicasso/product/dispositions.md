@@ -52,60 +52,72 @@ the answer itself. The refusals that stand alone are catalogued in
 
 | Use case (section 7) | Primary home | Additional surfaces | Refusal or non-goal that bounds it | Planned witness | Source |
 |---|---|---|---|---|---|
-| Ordinary pages, conditional UI, dynamic lists | Core | None | No compiled Hiccup mode, no automatic specialization, no execution-mode flag | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | 7; [3.3](specification.md#33-dynamic-composition-is-a-feature) |
-| Forms and controlled fields | Core (controlled law and revision) | Optional forms module; forms recipes; buffered-draft helper at its second caller | Buffered drafts, touched/submit-attempt validation and mutation status stay out of the boundary shell | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | [4.2](specification.md#42-controlled-fields) |
+| Ordinary pages, conditional UI, dynamic lists | Core | None | No compiled Hiccup mode, no automatic specialization, no execution-mode flag | Claimed — `rf2-hic-025` and `rf2-hic-074` | 7; [3.3](specification.md#33-dynamic-composition-is-a-feature) |
+| Forms and controlled fields | Core (controlled law and revision) | Optional forms module; forms recipes; buffered-draft helper at its second caller | Buffered drafts, touched/submit-attempt validation and mutation status stay out of the boundary shell | Claimed — `rf2-hic-078` | [4.2](specification.md#42-controlled-fields) |
 | Validation and async normalization | Core (derived subscriptions and event data) | Validation-gating and settle-merge recipes | No adapter validation framework | Claimed | [4.2](specification.md#42-controlled-fields); 7 |
 | Routing and navigation | Optional module (routing integration) | Dirty-leave, scroll-restoration and focus-on-route recipes | No router in core; routing stays small | Claimed | 7; [`use-cases.md`](lanes/use-cases.md) |
 | Async resources and mutations | Core (the re-frame2 resource/event model, outside the adapter) | Mutation-status and settle-merge recipes; committed-read resource demand as a gated spike | No automatic fetching or Suspense inferred from reads; no second per-read ledger | Claimed | 7; [`completeness-audit.md`](lanes/completeness-audit.md) |
-| Errors | Core (`h/error-boundary`) | Expected failures remain data | No second exception model | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | 7; [4](specification.md#4-target-programming-model) |
+| Errors | Core (`h/error-boundary`) | Expected failures remain data | No second exception model | Claimed — `rf2-hic-074` | 7; [4](specification.md#4-target-programming-model) |
 | Foreign React ecosystem and native hot work | Host escape (`h/defhost`, raw element, `h/as-element`) | Optional Hicasso-native namespace; library-specific wrappers; optional UIx route; outward bridge | No general React wrapper language, no UIx clone, no host-schema language | Claimed | [4.3](specification.md#43-host-interop); [native-boundary law](lanes/design-laws.md#native-boundary) |
 | Large collections | Core (read topology and keys) | Blessed foreign virtualizer recipe | No keyed-list maintenance machinery before a red bulk verdict | Claimed | [Rung 2](specification.md#rung-2--tune-hicasso-topology); 7 |
 | Imperative SDKs | Host escape (declared host ownership) | Acquire/release recipe | No lifecycle or effect DSL | Claimed | [4.3](specification.md#43-host-interop) |
 | Overlays and focus | Core (native HTML where possible) | Optional popover/modal module on top-layer primitives | No overlay manager in core | Claimed | 7; [Phase 5](specification.md#phase-5--decide-differentiators-and-add-high-value-optional-products) |
-| Motion and high-rate input | Optional module (presence posture) | Native host-local animation and drag state | No animation system in core; high-rate mechanics stay host-private | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | 7; [6](specification.md#6-performance-contract) |
+| Motion and high-rate input | Optional module (presence posture) | Native host-local animation and drag state | No animation system in core; high-rate mechanics stay host-private | Claimed — `rf2-hic-053` | 7; [6](specification.md#6-performance-contract) |
 | Code splitting | Core (small `React.lazy` boundary-ABI bridge) | Hiccup-aware Suspense/error host | No late-bound view-id registry | Claimed | 7; [`completeness-audit.md`](lanes/completeness-audit.md) |
 | Multiple frames and roots | Core (shared frame context with isolated ownership) | Explicit independent root when isolation requires one | An independent root is an isolation choice, never a performance tier | Claimed | [Rung 5](specification.md#rung-5--native-screen); 7 |
 | Suspense and Activity | Host escape (React-owned lifecycle behind a declared host) | — | No Activity DSL; compatibility only | Claimed | 7; [Activity witness](lanes/react-compatibility-notes.md#activity-lifecycle-witness) |
 | SSR and hydration | Core (per-surface policy — section [2](#2-public-surface-ssrhydration-dispositions) of this document) | Optional Node service for a named caller | No JVM twin, no second renderer, no hydration-free inference | Claimed | 7; [8](specification.md#8-modern-react-compatibility); [Language 8](lanes/design-laws.md#language-and-interop) |
-| Accessibility | Core (semantic Hiccup and native controls) | Structural a11y assertions plus browser focus tests | No accessibility subsystem | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | 7 |
-| i18n and theming | Recipe (ordinary data, classes, CSS variables, context through hosts) | — | No adapter subsystem; parts registries and tree rewriting deferred | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | 7; [`use-cases.md`](lanes/use-cases.md) |
-| Testing | Core developer product (the supported test namespace, L0–L4) | Mounted DOM and browser tiers | No shallow renderer, no fake hooks runtime, no retired test renderer | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | [9](specification.md#9-testing-as-a-product-surface) |
-| Diagnostics | Core developer product (versioned evidence projection) | Xray/Pair causal and heat views | No parallel graph or history system; no production sentinels | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | [10](specification.md#10-xray-and-runtime-evidence) |
-| Migration | Developer product (reporter and explicit refusal classes) | Shadow DOM/intent comparison; cautious codemod only afterwards | No rewriting codemod before reporter and shadow evidence | Gap — see [1.2](#12-rows-without-a-complete-planned-witness) | 7; [Phase 5](specification.md#phase-5--decide-differentiators-and-add-high-value-optional-products) |
+| Accessibility | Core (semantic Hiccup and native controls) | Structural a11y assertions plus browser focus tests | No accessibility subsystem | Claimed — `rf2-hic-049` | 7 |
+| i18n and theming | Recipe (ordinary data, classes, CSS variables, context through hosts) | — | No adapter subsystem; parts registries and tree rewriting deferred | Claimed — `rf2-hic-025` | 7; [`use-cases.md`](lanes/use-cases.md) |
+| Testing | Core developer product (the supported test namespace, L0–L4) | Mounted DOM and browser tiers | No shallow renderer, no fake hooks runtime, no retired test renderer | Claimed — `rf2-hic-020` | [9](specification.md#9-testing-as-a-product-surface) |
+| Diagnostics | Core developer product (versioned evidence projection) | Xray/Pair causal and heat views | No parallel graph or history system; no production sentinels | Claimed — `rf2-hic-023` | [10](specification.md#10-xray-and-runtime-evidence) |
+| Migration | Developer product (reporter and explicit refusal classes) | Shadow DOM/intent comparison; cautious codemod only afterwards | No rewriting codemod before reporter and shadow evidence | Claimed — `rf2-hic-055` | 7; [Phase 5](specification.md#phase-5--decide-differentiators-and-add-high-value-optional-products) |
 
 The Source column cites specification sections by number; a bare number is a section of
-[`specification.md`](specification.md).
+[`specification.md`](specification.md). A bead id in the Planned witness column names the bead that *owns* that row's
+proof; it is never a statement that the proof exists. Section [1.2](#12-rows-without-a-complete-planned-witness) defines
+the two values that column takes.
 
 ### 1.2 Rows without a complete planned witness
 
-Nine of the twenty rows above are marked Gap. The distinction that column draws is deliberate and narrow:
+No row above currently stands as Gap. The distinction that column draws is deliberate and narrow, and it matters just as
+much when the count reaches zero:
 
 - **Claimed** means the programme names a bead that intends to witness the row. It does not mean the witness exists, and
   it does not mean the bead's acceptance covers the whole row.
 - **Gap** means that even after the programme's final coverage audit completes, the row can still lack the proof
   section 7 requires — because no bead owns that proof, or because the owning bead's acceptance does not reach it.
 
-The nine gaps and their causes are recorded in the bead-set review's
-[section 1.3](lanes/beads-review.md#13-7-rows-that-can-remain-unwitnessed-when-hic-064-completes), and are reproduced
-here only as a classification input:
+Nine rows stood as Gap when this document was first written, on the evidence of the bead-set review's
+[section 1.3](lanes/beads-review.md#13-7-rows-that-can-remain-unwitnessed-when-hic-064-completes). That review is a
+snapshot of one moment in the tracker, and the tracker has since moved: every proof it found unowned is now named in the
+deliverables of a specific bead. The reconciliation is recorded here rather than silently deleted, because the bar for
+the change is the strict one [section 3](#3-append-protocol-and-ownership) sets — the bead must *actually own* the
+missing proof, not merely sit adjacent to the row — and the next reader is entitled to re-check the arithmetic:
 
-- **Ordinary pages, conditional UI, dynamic lists** — one small article flow is named; no Todo flow is, and pagination
-  and runtime-selected content have no owner, so the required Todo and RealWorld-class coverage is not complete.
-- **Forms and controlled fields** — the browser control matrix is owned, but no bead owns the four-field editor and
-  100-cell grid as public-package applications; only their explanatory pages are owned.
-- **Errors** — thrown render and retry are covered; the nested error region that section 7 explicitly requires is not
-  witnessed by any bead.
-- **Motion and high-rate input** — interruption, rapid toggle and teardown are witnessed; the required frame budget is
-  never measured by the owning acceptance.
-- **Accessibility** — focus order and axe are named; keyboard conduct is not, and the virtualizer and overlay clauses
-  reference artifacts that have no ordering edge or later integration run.
-- **i18n and theming** — no bead owns runtime locale and theme-change evidence.
-- **Testing** — the L0 public contract and the L1 codec/intent/native-expansion surface have no owner, so the supported
-  ladder and its positive/sabotage controls at every tier are unproved.
-- **Diagnostics** — loss accounting and production erasure are owned; the core privacy projection has no mandatory
-  witness on the release path.
-- **Migration** — the owning bead permits in-repo Reagent examples as a substitute, which is weaker than the three
-  representative repositories section 7 requires.
+- **Ordinary pages, conditional UI, dynamic lists** — `rf2-hic-025` builds the RealWorld-class flow (routing, keyed list,
+  article edit, async mutation, controlled fields, error region), and `rf2-hic-074` extends it with the pagination and
+  runtime-selected content the review found unowned.
+- **Forms and controlled fields** — `rf2-hic-078` owns the four-field editor and the 100-cell grid as public-package
+  applications on public namespaces only, which is the form section 7 requires and the explanatory pages were not.
+- **Errors** — `rf2-hic-074` owns the nested error region, and its acceptance names the path: inner region catches, outer
+  survives, retry works.
+- **Motion and high-rate input** — `rf2-hic-053` folds the frame-budget measurement into the transition witness and into
+  its acceptance, alongside interruption, rapid toggle and teardown.
+- **Accessibility** — `rf2-hic-049` owns keyboard conduct across the slice, virtualizer and overlay surfaces, and depends
+  on the beads that build them; that dependency is the ordering edge and the later integration run the review found
+  missing.
+- **i18n and theming** — `rf2-hic-025` owns the runtime locale and theme-change witness: a live switch re-renders
+  correctly with strings and tokens as ordinary data, and no adapter subsystem.
+- **Testing** — `rf2-hic-020` owns the L0 public contract and the L1 codec/intent/native-expansion surface, with positive
+  and sabotage controls for every tier it delivers; the mounted tier's controls are `rf2-hic-027`'s.
+- **Diagnostics** — `rf2-hic-023` owns the privacy projector as a witnessed contract, proved by a seeded sensitive value
+  that must not leave unredacted.
+- **Migration** — `rf2-hic-055` requires three representative repositories — the in-repo census corpus plus two named
+  external re-frame v1 applications — and states that the in-repo-only fallback does not satisfy section 7.
+
+Every one of those beads is open and not one of those witnesses exists. An owner is not evidence: what changed is that
+each proof is now owed by name, and being owed by name is the whole of what Claimed asserts.
 
 Closing a gap is not this document's work. The classification is only honest if it says which rows are answered on paper
 and unproved in fact; making them proved belongs to the beads that own the coverage matrix.
