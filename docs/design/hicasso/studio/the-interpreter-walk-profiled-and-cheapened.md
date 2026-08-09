@@ -9,14 +9,19 @@ walk element-by-element on the acceptance shape, **cheapens** the phases the
 profile convicts with behaviour held fixed, and **re-takes** the census clock
 rows at the changed blobs on the clock of record.
 
-Bead **`rf2-y1jkm`**. The standard is **`rf2-2rtt6.1`** (mount ≤ 1.10× direct
-UIx-on-subs, floor-normalised, same run, raw `TaskDuration`); the before rows
+Bead **`rf2-y1jkm`**. Adjudicated against the mount gate as **`rf2-2rtt6.1`**
+carried it on 2026-08-02 — mount ≤ 1.10× direct UIx-on-subs, floor-normalised,
+same run, raw `TaskDuration`. That standard was superseded and closed on
+2026-08-10; the operative default is now K1 price acceptance `rf2-hic-003`
+([the K1 record](../product/k1-price-acceptance.md)). The before rows
 are `rf2-2rtt6.56`'s (`census-real-clock-rows.md`).
 
 > **THE CANONICAL MOUNT WITNESS IS M1 AND STAYS M1.** These rows corroborate
 > the amendment's line on census-real screens exactly as the before rows did;
 > nothing here re-baselines the canonical witness, and the ruling on any
-> verdict below is the operator's (`rf2-2rtt6.1`), never this page's.
+> verdict below is the operator's
+> ([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was
+> superseded and closed on 2026-08-10), never this page's.
 
 ## 1. The profile — where a 1,202-element walk actually pays
 
@@ -193,7 +198,13 @@ the lanes were designed to keep.
 **Before** (`rf2-2rtt6.56`, commit `7885a7c148`, 2026-08-02T06:03Z, this
 box): every measured blob byte-identical to this branch **except
 `front/codec.cljs`** — the intervention — so the recorded rows are the same
-pages on the same instrument on the same box.
+pages on the same instrument on the same box. **That authored SHA is on no
+branch and will not resolve in a fresh clone**; the patch landed on main as
+**`0c0839b368`** (identical `git patch-id --stable`), and all thirteen blobs
+in `census-real-clock-rows.md`'s measured-blob table are byte-identical at
+both. The full trees are not: `7885a7c148` stays the tree these rows were
+taken on, and `0c0839b368` is the resolvable carrier of the measured blobs
+rather than the measured commit.
 
 | row | hicasso/uix before | verdict before |
 |---|---|---|
@@ -202,7 +213,9 @@ pages on the same instrument on the same box.
 | ordinary | 1.1248× [0.8939 – 1.3504], band 20.8%, ctl FAIL | INSTRUMENT-LIMITED |
 
 **After** (this run, commit `8ccd9f4b41`, 2026-08-02T08:31Z, exit `0`, both
-runs to completion, arm-order guard clean on every row):
+runs to completion, arm-order guard clean on every row; authored and
+rebase-merged, so it too resolves in no fresh clone — it landed on main as
+**`a3ffe8380e`**, the row in the provenance table below):
 
 `uix` run — the gated run:
 

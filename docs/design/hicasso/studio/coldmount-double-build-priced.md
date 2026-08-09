@@ -8,8 +8,11 @@ HeadlessChrome 147.0.7727.15 (Chromium via Playwright), `:advanced`,
 
 > **The instrument is identified by content hash, not by commit SHA** — a rebase
 > moves SHAs and leaves blobs alone, which is how two earlier pages' citations
-> went stale. Authored at `0b482f385e` on `worker/coldmount-2rtt6-15`; if that
-> does not resolve, these blobs are what to trust
+> went stale. Authored at `0b482f385e` on `worker/coldmount-2rtt6-15`; that SHA
+> was rebase-merged and resolves in no fresh clone, and its patch landed on main
+> as `9161aad597` (identical `git patch-id --stable`) — a candidate to hand
+> `git rev-parse`, never the measured commit. These blobs stay what identifies
+> the instrument, and they are byte-identical at both
 > (`git rev-parse <candidate>:implementation/freehand/test/re_frame/bench/hicasso/<file>`):
 >
 > | file | blob |
@@ -321,14 +324,19 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 ## What this page does not claim
 
 * It does not claim a new red-zone. The layered ratios are context; the bar
-  and the red-zones are rf2-2rtt6.1's, and only the operator amends them.
+  and the red-zones belong to the governance set that superseded rf2-2rtt6.1 on
+  2026-08-10 — K1 price acceptance rf2-hic-003, budget gates rf2-hic-089 (early)
+  and rf2-hic-071 (late), kill rules in
+  [the decision brief](../product/decision-brief.md) — and only the operator
+  amends them.
 * It does not claim `uix-handoff` is shippable. It is the hand-off *shape*
   with the reaping question deliberately unanswered — the design pass the
   verdict feeds is where that question lives, under the correctness protocol
   on rf2-2rtt6.14.
 * It does not re-price retention. The 769 B / 23.0 obj term is
   [the decomposition page](uix-spine-per-read-decomposition.md)'s and is
-  untouched; no red-zone value moves, so rf2-2rtt6.1 gets nothing from here.
+  untouched; no red-zone value moves, so the budget gates that succeeded
+  rf2-2rtt6.1 (rf2-hic-089, rf2-hic-071) get nothing from here.
 
 ---
 
@@ -490,5 +498,6 @@ detector for exactly the reference this change introduces.
 * It does not re-run the fraction. `xcript − handoff` is still measured and
   still large, but the question it was built to answer is answered and the
   rule that consumed it has fired.
-* It does not amend a red zone. rf2-2rtt6.1 owns the bar; these are this
-  instrument's own rounds, and only the operator moves a published figure.
+* It does not amend a red zone. The bar is K1 price acceptance rf2-hic-003's,
+  under the governance set that superseded rf2-2rtt6.1 on 2026-08-10; these are
+  this instrument's own rounds, and only the operator moves a published figure.

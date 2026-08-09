@@ -1,9 +1,10 @@
 # The SSR spike witness — X1–X5 on the hydrated dogfood screen
 
 **Evidence for the P2 sitting. No verdict is published here and none is
-implied.** The sitting's decider is the operator (`rf2-2rtt6.1`); this page
-records what was measured, on what, with what command, and what each row could
-have lied about.
+implied.** The sitting's decider is the operator
+([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was
+superseded and closed on 2026-08-10); this page records what was measured, on
+what, with what command, and what each row could have lied about.
 
 Bead: `rf2-2rtt6.87`, re-measured in full for `rf2-zn7pj`. Producing commit:
 **`b557ed71f4`** — a commit already on `main`. Every row below was taken at that
@@ -13,7 +14,10 @@ commit, on one box, on 2026-08-06.
 carried until now, `952a3f2024` on `worker/spike-2rtt6-87`, is **not an ancestor
 of `main`** — `git merge-base --is-ancestor 952a3f2024 origin/main` answers no,
 and so does the same question about `6f40304011`. The branch was rebase-merged,
-which mints a different landed SHA and strands the authored one. So the page was
+which mints a different landed SHA and strands the authored one: those two
+patches landed on main as `b3947377e0` and `58127c0f82` (identical
+`git patch-id --stable` in each case), which is where a reader who follows the
+old pins should end up. So the page was
 pinned to a commit its reader could not resolve, which is the hazard
 [the-candidates-clock.md](the-candidates-clock.md) names and answers with a blob
 table. Pinning instead to a commit that was already on `main` *before* this page
@@ -165,7 +169,8 @@ SHA-256 rows above and below — and X1(b)'s canonical-DOM size — were taken o
 the pre-drift document and no longer reproduce at HEAD. The size row is repaired
 here because `rf2-2rtt6.121` ruled it a units defect and named the replacement.
 Re-taking the digests is a different job: every row on this page is pinned to
-`952a3f2024`, so new digests would need a new producing commit and a re-run of
+`952a3f2024` (stranded by the rebase; the patch landed on main as
+`b3947377e0`), so new digests would need a new producing commit and a re-run of
 the browser rows beside them. That is carried on `rf2-zn7pj`, and until it lands
 the size row is the only quantity here measured at HEAD.
 
@@ -182,7 +187,8 @@ narrower than the drift suggested. **What moved:** all three SHA-256 digests,
 and X1(b)'s canonical-DOM size, from 2,422 to 2,438. **What did not move at
 all:** every integer in X2, X4 and X5 — the 13/13/12/13 census, the three
 mutation proofs, 17 steps and 15 intents, the five zeros — together with X1(a)'s
-3,060 bytes and the shared `83b865f8`. So the drift changed the document's bytes
+3,060 bytes and the shared FNV-1a-32 render-tree hash `83b865f8`. So the drift
+changed the document's bytes
 and nothing about what the page claims those bytes prove, which is the outcome a
 reader should want and is not one this page was entitled to assume.
 
