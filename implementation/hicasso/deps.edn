@@ -1,0 +1,54 @@
+;; day8/re-frame2-hicasso — the Hicasso view substrate.
+;;
+;; Hicasso is a lean-React substrate: a boundary is a real React function
+;; component minted by `defview`, and the runtime owns exactly the three
+;; things React does not — which boundaries a commit must re-run, how a
+;; body reaches subscription values, and the fence that keeps one render
+;; pass on one commit. The public door is `re-frame.hicasso`; everything
+;; else is `re-frame.hicasso.impl.*` and is not a consumer surface.
+;;
+;; rf2-hic-001 established this artefact by copying the measured
+;; prototype out of the benchmark tree
+;; (implementation/freehand/test/re_frame/bench/hicasso/{front,arm1}/)
+;; with namespaces renamed and nothing else changed. `frozen-sources.edn`
+;; beside `src/` pins each donor file by digest so that claim stays true;
+;; `scripts/check_freeze.py` is what checks it.
+;;
+;; DEPENDENCIES. Core alone. Every substrate namespace the runtime reaches
+;; for — `re-frame.adapter.context`, `re-frame.live-frame`,
+;; `re-frame.late-bind`, `re-frame.registrar`, `re-frame.performance`,
+;; `re-frame.trace`, `re-frame.interop` — is core's, and routing is reached
+;; through core's late-bind registry rather than by dependency, so the
+;; packaging graph stays `hicasso -> core late-bind <- routing` with no
+;; cycle (Conventions §Packaging). React itself is an npm dependency,
+;; declared in implementation/package.json, not here.
+;;
+;; NO :clein / :clein/build, deliberately. This artefact is pre-publication:
+;; it carries no Maven coordinate and is absent from the lockstep array and
+;; the release deploy matrix, exactly as `ui` and `freehand` are. Release
+;; wiring is rf2-hic-008's, not this bead's, and the lockstep gate
+;; inventories publishable artefacts by the presence of `:aliases/:clein/build`
+;; — so adding one here would enlist an artefact that has nothing to ship.
+{:paths ["src"]
+ :deps  {day8/re-frame2 {:local/root "../core"}}
+
+ :aliases
+ ;; Classpath-probe-only, as the UIx adapter's lane is and for the same
+ ;; reason: the runtime requires React, so every suite this artefact owns
+ ;; is CLJS and runs on the Node lane (`re-frame.hicasso.*-cljs-test`,
+ ;; compiled by the `:node-test-hicasso` shadow-cljs build). Zero JVM tests
+ ;; is the CORRECT outcome here, so `--probe` waives the runner's
+ ;; test-count floor as a declared exemption rather than an accident. If a
+ ;; JVM-runnable suite ever lands in `test/`, drop `--probe` and take the
+ ;; floor.
+ {:test {:extra-paths ["test"]
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                       ;; The Node lane's substrate. The prototype's own
+                       ;; node-lane suites run on the UIx adapter and not on
+                       ;; plain-atom, because plain-atom has no reactivity
+                       ;; layer — a subscription under it never notifies, so
+                       ;; every commit assertion would pass vacuously by
+                       ;; never firing. Test-only: shipping source names no
+                       ;; adapter at all.
+                       day8/re-frame2-uix {:local/root "../adapters/uix"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "--probe"]}}}
