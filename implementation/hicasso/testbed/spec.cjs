@@ -162,8 +162,14 @@ class Witness {
 
 // I15 — "converge within the turn that edited them" and "echo only
 // committed state". Read on the line after the dispatch, before the task
-// yields: a runtime that converged a frame later would still show the
-// draft here.
+// yields.
+//
+// These rows are the invariant as stated, and each one's expectation was
+// flipped to confirm it is wired to a real reading. They do NOT attribute
+// the conduct to this runtime, and the runner's `## Coverage` block says
+// why it was measured rather than argued: React's own end-of-event restore
+// corrects any value the converge got wrong, in the same discrete event.
+// The rows that isolate this runtime are the caret rows below.
 async function sameTurnConvergence(page, w) {
   const grouped = await page.evaluate(() =>
     // "1,234" with the caret at the end; the user types "5".

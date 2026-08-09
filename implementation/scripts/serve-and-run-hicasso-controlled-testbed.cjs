@@ -47,6 +47,84 @@
  * The comparator and the check floor both carry mutation teeth that run
  * before any browser launches: a gate whose own verdict logic cannot fail
  * is worse than a gate that is red.
+ *
+ * ## Coverage — what these witnesses reach, and what they do not
+ *
+ * I15's clauses, and where each is proven:
+ *
+ * | clause | witnessed | isolates THIS runtime? |
+ * |---|---|---|
+ * | converge within the edit turn | yes, read inside the dispatching task | no — see below |
+ * | echo only committed state | yes, DOM and store both read | no — see below |
+ * | rejection / normalisation echo the committed value | yes, one field per policy | no — see below |
+ * | caret preserved across the echo | yes, mid-string edits, dispatched AND real-keyboard | YES |
+ * | in-flight composition preserved | yes, on a REFUSING field, plus blur / non-composing / unmount releases | YES |
+ * | reset is an explicit revision | yes, structurally — removing the revision read leaves the draft in place | YES |
+ * | reset preserves element identity | yes, an expando survives the bump; a `:key` bump destroys it | YES |
+ * | owned slots win by presence, not truthiness | partly — `value: ""` and `checked: false` are both proven live | no |
+ * | a forwarded attribute cannot replace an owned one | NO — see below |
+ *
+ * ### Why only some rows isolate this runtime, and how that was established
+ *
+ * Measured, not assumed. Three deliberate regressions were driven through
+ * the whole matrix — the converge deferred a task (the UIx-port conduct),
+ * the caret restored to the end of the string (plain React's conduct), and
+ * `converge-to!` handed the pre-flush record (the stale-value trap the
+ * namespace docstring names) — and ALL THREE were caught by the CARET rows
+ * and by nothing else. The value rows stayed green under every one of them.
+ *
+ * The reason is React's own end-of-event restore. `updateInput` assigns
+ * `element.value` whenever the DOM disagrees with the committed value, in
+ * the same discrete event, so any value-level misconduct of the converge is
+ * corrected before the next line runs. What React cannot undo is the caret:
+ * its own restore assigns the value, and assigning moves the cursor to the
+ * end. So in a real browser the caret is the only observable that separates
+ * this runtime from the two it was built to beat — which is exactly why
+ * this gate is a browser gate, and why the caret rows edit in the MIDDLE of
+ * the string.
+ *
+ * The value rows are still worth their place: they are the invariant as
+ * stated, and their negative controls (an expectation flipped per row) all
+ * bite. They just do not, on their own, attribute the conduct.
+ *
+ * ### Out of reach here, and where it lives instead
+ *
+ * - **A real IME.** `Input.imeSetComposition` is CDP, so real composition
+ *   ranges are Chromium-only and stay with `bench/hicasso/ime_run.cjs`.
+ *   The abort SIGNATURE that harness detects — a value write killing an
+ *   exchange with no `compositionend` — cannot be reproduced from page
+ *   script in any engine, so it is not claimed here.
+ * - **Autofill.** No cross-engine drive exists (Chromium's needs CDP and a
+ *   profile). The spec records the two shapes it CAN drive — a fill that
+ *   dispatches an input event, and one that dispatches nothing — and names
+ *   them a proxy. The conformance matrix is hic-040's.
+ * - **Owned-vs-forwarded attribute merge.** There is no public merge
+ *   surface on the door today, so a testbed asserting it would be
+ *   measuring its own helper. The presence-not-truthiness HALF is proven
+ *   (a `value: ""` field is controlled and converges; a `checked: false`
+ *   box tracks its model); the forwarding half is not, and is not claimed.
+ *
+ * ### What the three engines actually said
+ *
+ * Nothing diverged. Every RECORDED row is byte-identical in Chromium,
+ * Firefox and WebKit, so `NARROWINGS` is empty and no per-control
+ * refusal policy is owed to the hic-005 table from this bead. Three
+ * conducts worth carrying forward, all three-engine unanimous:
+ *
+ *   1. An out-of-band model write lands on the NEXT TASK, not the same
+ *      one. A keystroke is inside its turn only because `converge!` buys
+ *      that with a `flushSync`; a button buys none, and a concurrent root
+ *      flushes its sync lane in a microtask.
+ *   2. A RANGE selection does not survive an out-of-band write: it
+ *      collapses to a caret at the end of the new value. That is
+ *      rf2-n3dxw's stated limit, now measured in three engines rather
+ *      than one, and it is React's restore doing it rather than this
+ *      runtime.
+ *   3. `form.reset()` is VISUALLY INERT on a converged field, because
+ *      `defaultValue` — the record `controlled/last-rendered` reads — is
+ *      already the model. The one ordinary browser action that touches
+ *      the converge's own bookkeeping agrees with it in all three
+ *      engines, which is a direct check on that dependency.
  */
 
 const fs = require('fs');
