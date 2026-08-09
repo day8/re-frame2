@@ -78,6 +78,18 @@ The measured position sits between the two lines: above the registered `1.10x` g
 
 Ratification would record an accepted price. It would not convert the published miss into a pass, and **no evidence row may cite this record to colour K1 green**.
 
+### 5.1 The frozen comparison rule
+
+A ceiling is only as good as the test that reads a measurement against it. This rule is frozen here, prospectively, before the sitting and before the next row exists; it is derived from how this tree already adjudicates thresholds and not from any measurement. [§7.2](#72-revert-condition) carries no independent test — it applies this one.
+
+1. **What is compared.** Only a *canonical K1 row*: the mount ratio published on K1's own floor-normalised estimand against equivalent direct UIx on the clock of record, with point and interval drawn from one estimator through the same run-preserving bootstrap, as §2.1's row was. A diagnostic, unfloored, descendant, or co-instrumented figure is context and is never compared with the ceiling. The number compared is the published ratio itself: read-topology and capability differences travel beside it as §5 requires, and never adjust it.
+2. **The whole interval decides, not the point estimate.** §2.1 adjudicated the gate by asking whether the whole interval lay above the line, and the ceiling is read the same way. The ceiling is *cleared* only when the entire interval lies at or below `1.25x`, and *exceeded* only when the entire interval lies above it.
+3. **A straddling interval is inconclusive, and inconclusive is never a pass.** An interval containing `1.25x` neither clears the ceiling nor lapses the record on its own. It is a reopen under [§7.1](#71-reopen-conditions) and returns the record to the decider, who may lapse it; until that ruling no evidence row may cite this record as showing the ceiling holds. A missing decisive reading is recorded as absence of evidence, never as a flattering pass ([measurement posture](lanes/evidence-baseline.md#measurement-posture)).
+4. **Compared as published; the ceiling is inclusive.** The published values are compared as published. Nothing is rounded, truncated, or re-expressed at coarser precision beforehand, and no value is ever rounded toward the ceiling to bring it inside. A value exactly equal to `1.25x` is within the ceiling; only a strictly greater value exceeds it, which is the sense §7.2 carries.
+5. **One ensemble is not enough.** The gate miss was adjudicated on two independently launched ensembles that agreed, and the ceiling takes the same corroboration: at least two independently launched ensembles on the same estimand and clock of record, each satisfying clause 2 in the same direction, never pooled across programmes or instruments. A single ensemble, however clean, is inconclusive under clause 3, as are two ensembles that disagree.
+
+Read against §2.1's published row, the paragraph above is clause 2 applied: the whole interval, upper bound included, lies below the ceiling. That is a statement about the rule's reading of a known row, not the reason the rule is written this way.
+
 ## 6. The record
 
 The fields any governance change owes under the [measurement posture](lanes/evidence-baseline.md#measurement-posture), together with the additional fields the [performance contract](specification.md#6-performance-contract) requires of this one:
@@ -87,8 +99,9 @@ The fields any governance change owes under the [measurement posture](lanes/evid
 | Frozen registered criterion | The K1 row quoted verbatim in §1 — mount above `1.10x` direct UIx on the clock of record, after two serious runtime iterations |
 | Adjudicated status of that criterion | Gate half: **MISSED, DECISIVELY** (`rf2-diaud` / PR #7704), §2.1. Trigger half: **undecided**, open operator ruling `rf2-sza0w`, §2.2 |
 | Purchased use cases | The read-capability jobs of §3.2, at their census weights |
-| Accepted ceiling | `1.25x` cold mount versus equivalent direct UIx on the agreed representative witness — **proposed**, inoperative until ratified |
+| Accepted ceiling | `1.25x` cold mount versus equivalent direct UIx on the agreed representative witness — **proposed**, inoperative until ratified. A future row is read against it only by the comparison rule frozen in §5.1 |
 | Native escape | The five-rung gradient of §4, gated on the canonical native-tier acceptance checklist |
+| Named witnesses | The two ambient-read witnesses and the native-tier checklist, with their exact owners and their unwitnessed status, tabulated in §7.2 |
 | Decider | Mike Thompson, acting as re-frame2 product operator |
 | Evidence owner | [`lanes/evidence-baseline.md`](lanes/evidence-baseline.md#pinned-economic-evidence) for the pinned values; [corrected-clock §4.3](../studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) for the published figures and their labels |
 | Effective revision | *(left blank — the sitting fills this on ratification)* |
@@ -110,10 +123,20 @@ Any of these returns this record to the decider, whether or not it has been rati
 
 The record **lapses** — automatically, without amendment in place — on any of:
 
-- The purchased ambient-read capability fails its named witness.
-- The native escape fails its named witness; any red row on the canonical native-tier acceptance checklist is such a failure.
-- The canonical K1 row exceeds the accepted ceiling.
+- The purchased ambient-read capability fails either of its named witnesses below.
+- The native escape fails its named witness below; any red row on the canonical native-tier acceptance checklist is such a failure.
+- The canonical K1 row exceeds the accepted ceiling, decided by the comparison rule frozen in [§5.1](#51-the-frozen-comparison-rule) and by nothing else.
 - The witness or the estimator changes materially without re-ratification.
+
+The witnesses the first two conditions name, so that a red result has an address rather than a description:
+
+| What must hold | Named witness | Exact owner | Status at drafting |
+|---|---|---|---|
+| Ambient reads are legal exactly where the kernel says they are | The *Ambient-read extent* row of the [Phase 1 kernel risk register](lanes/adversarial-risks.md#phase-1-kernel-risks): `sub` works only during direct synchronous execution of the active body and every deferred crossing refuses with source and recovery, decided by the nested-helper, branch, loop, render-prop, event, promise, timer, lazy-sequence and module escape matrix. It runs inside the *Reactive kernel* suite of the [coverage proof suites](lanes/completeness-audit.md#canonical-suites), which is green only on zero stale reads, tears, cross-frame operations or residue | Bead `rf2-hic-011`, which owes the enforced ambient-read extent — the legality matrix and each refusal — to the recorded-freezes ledger of the [invariants record](invariants.md) | **Not yet recorded**, in the ledger's own words. Stating and enforcing the exact synchronous read extent is still an [open proof obligation](lanes/evidence-baseline.md#open-proof-obligations) |
+| Ambient reads carry an ordinary application, not one screen | The *Ordinary application* suite of the [coverage proof suites](lanes/completeness-audit.md#canonical-suites): Todo and RealWorld-class flows that use only public surfaces and contain no artificial boundary introduced for the harness, with the fixtures [named there](lanes/completeness-audit.md#concrete-witness-fixtures). It is the required proof of the ordinary-pages row of [specification §7](specification.md#7-complete-use-case-coverage), whose default answer is ambient reads | No bead owes it yet. It is the [Phase 2](specification.md#phase-2--ship-one-lovable-vertical-slice) deliverable and the [proof-suite lane](lanes/completeness-audit.md) is its home once it exists; naming an owner here would be inventing one | **Does not exist.** The dogfood screen is preference evidence for one list/form workload, and [evidence scope](lanes/use-cases.md#evidence-scope) names a full application and one serious vendor integration as the next useful witnesses |
+| The escape route is real | Every row of the [canonical native-tier acceptance checklist](lanes/hot-path-architecture.md#canonical-native-tier-acceptance-checklist), which is the only release checklist for the native tier; the *Host and native interop* suite applies it without restating it, and no variant gate list substitutes | The [hot-path lane](lanes/hot-path-architecture.md) owns the checklist and its acceptance evidence. A red row blocks publication of the native namespace, and no row is waived by success on another | **Unwitnessed.** Rungs 3 to 5 are Phase 3 work and the Hicasso-native namespace is a hypothesis |
+
+Two of the three are unwitnessed at drafting, which is the honest shape of this instrument: the price is proposed ahead of its proof, and a red result later is what makes the acceptance reversible. Unwitnessed is not green, and no row of this table may be cited as evidence that the capability holds. Lapse fires on a red result, not on the continued absence of one; a witness that is never run leaves the record standing but never discharges it, which is what makes §7.1's reopen conditions the live path in the meantime.
 
 On lapse the registered `1.10x` gate and its consequences resume immediately as the only adjudicated K1 line, with no grace band and no interim ceiling. A replacement acceptance requires a fresh prospective decision by the same decider. Rejection at the sitting has the same effect as a lapse from the outset.
 
@@ -123,6 +146,14 @@ On lapse the registered `1.10x` gate and its consequences resume immediately as 
 - **The other kill criteria are untouched.** Bulk (K2) remains unresolved and instrument-limited with a standing release-gate obligation; per-boundary heap (K3) keeps its three non-substitutable scoreboards and owes its own disposition at the same sitting; the WebKit control matrix (K4) is open.
 - **Thresholds never widen to turn a row green.** That is the kill rule this record is written under, and it binds this record itself.
 
+## 9. Amendments to this record
+
+This record is **proposed**, so it is not yet frozen: the commit that carries it into the sitting is what freezes it, and until then amendment is exactly the window a prospective instrument reserves. Amendments are prospective and never silent — each one is recorded below with its reason, in the manner the sibling [resource-demand criteria](resource-demand-criteria.md#amendment-rule) uses, and none may widen a threshold, recolour the published verdict, or settle a question this record deliberately holds open. After ratification the effective revision governs and `rf2-hic-085`, which owns that field, is the only route to a change.
+
+| Date | Bead | Amendment | Thresholds and verdicts touched |
+|---|---|---|---|
+| 2026-08-09 | `rf2-hic-003` | Made the lapse terms executable, on a merged-PR audit of the drafting PR. §5.1 freezes the prospective rule for reading a future canonical K1 row against the ceiling; §7.2 names the two ambient-read witnesses and the native-tier checklist with their exact owners, and records that two of the three are unwitnessed. | None. The registered `1.10x` gate, the proposed `1.25x` ceiling, the published `rf2-diaud` miss and the undecided `rf2-sza0w` conjunct all stand exactly as drafted. |
+
 ## Sources
 
 - [`decision-brief.md`](decision-brief.md) — Part I finding 4 (the priced mount premium and the amendment's role), the scoreboard, and the sitting's agenda.
@@ -131,4 +162,6 @@ On lapse the registered `1.10x` gate and its consequences resume immediately as 
 - [`../studio/rows-re-adjudicated-on-the-corrected-clock.md` §4.3](../studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) — `rf2-diaud` / PR #7704, the published M1 row and its labels.
 - [`../validation.md`](../validation.md) — the kill-criteria table and the `rf2-hyd50` denominator amendment.
 - [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md#canonical-native-tier-acceptance-checklist) — the ladder and the native-tier acceptance checklist.
+- [`lanes/adversarial-risks.md`](lanes/adversarial-risks.md#phase-1-kernel-risks) — the ambient-read-extent kernel risk, its required contract and its deciding witness.
+- [`lanes/completeness-audit.md`](lanes/completeness-audit.md#canonical-suites) — the reactive-kernel and ordinary-application proof suites that carry those witnesses, and their green conditions.
 - [`lanes/corpus-insights.md`](lanes/corpus-insights.md#the-performance-premium-must-buy-a-product-capability) and [`lanes/use-cases.md`](lanes/use-cases.md#evidence-scope) — the census, its weight, and its declared limits.
