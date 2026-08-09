@@ -12,14 +12,19 @@ cell construction, index write, reaction wiring — **cheapens** the phase the
 profile convicts with behaviour held fixed, and **re-takes** the census clock
 rows at the changed blobs on the clock of record.
 
-Bead **`rf2-6c237`**. The standard is **`rf2-2rtt6.1`** (mount ≤ 1.10× direct
-UIx-on-subs, floor-normalised, same run, raw `TaskDuration`); the before rows
+Bead **`rf2-6c237`**. Adjudicated against the mount gate as **`rf2-2rtt6.1`**
+carried it on 2026-08-02 — mount ≤ 1.10× direct UIx-on-subs, floor-normalised,
+same run, raw `TaskDuration`. That standard was superseded and closed on
+2026-08-10; the operative default is now K1 price acceptance `rf2-hic-003`
+([the K1 record](../product/k1-price-acceptance.md)). The before rows
 are `rf2-y1jkm`'s (`the-interpreter-walk-profiled-and-cheapened.md` §4).
 
 > **THE CANONICAL MOUNT WITNESS IS M1 AND STAYS M1.** These rows corroborate
 > the amendment's line on census-real screens exactly as the walk page's did;
 > nothing here re-baselines the canonical witness, and the ruling on any
-> verdict below is the operator's (`rf2-2rtt6.1`), never this page's.
+> verdict below is the operator's
+> ([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was
+> superseded and closed on 2026-08-10), never this page's.
 
 ## 1. The profile — where 141 cold reads actually pay
 

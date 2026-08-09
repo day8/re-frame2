@@ -27,7 +27,10 @@ falsification in which every other gate passes
 differencing the constant away also costs the statistic its
 [**sign**](#the-band-is-necessary-and-not-sufficient).
 
-Owner: the operator-owned standard bead `rf2-2rtt6.1`; this page `rf2-7iqb5` and
+Owner: the operator-owned governance set that superseded `rf2-2rtt6.1` on
+2026-08-10 — K1 price acceptance `rf2-hic-003`, budgets and shell line
+`rf2-hic-006`/`rf2-hic-018`, bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md); this page `rf2-7iqb5` and
 `rf2-5xrcd`.
 
 ---
