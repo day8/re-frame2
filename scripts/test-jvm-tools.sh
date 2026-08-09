@@ -40,6 +40,16 @@ tools=(
   # was built to be listed here; nobody listed it. Runs last because it is the
   # slowest of the set even with the emitted slice skipped.
   tools/template
+  # rf2-2rtt6.143 — the Reagent `[:>]` → Hicasso codemod, and the only entry
+  # here outside `tools/`. It is dev tooling by every other measure: a
+  # standalone JVM artefact that reads consumer SOURCE TEXT through rewrite-clj
+  # and loads no re-frame2 runtime, which is precisely what this roster
+  # collects. The two roster ARRAY NAMES are hard-coded in
+  # check_jvm_lane_rosters.py and check_test_lane_bijection.py, so a third
+  # roster would be invisible to both gates; of the two that exist, a codemod
+  # is a tool and is not an implementation artefact. Listed after tools/template
+  # because it is seconds and that one is minutes.
+  migration/reagent-to-hicasso/codemod
 )
 
 for tool in "${tools[@]}"; do

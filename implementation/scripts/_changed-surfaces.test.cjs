@@ -742,6 +742,110 @@ test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)
   }
 });
 
+// rf2-2rtt6.143 — the Reagent `[:>]` → Hicasso codemod lane, the same
+// three-part shape one tree over. Its own block rather than a row in
+// NEW_TOOLS_JVM_LANES above because the artefact is not under `tools/`: it is
+// the first `migration/` path to reach test.yml at all. Before it, a
+// codemod-only diff classified to NOTHING — `migration/**` reaches docs.yml,
+// which stages the tree into the site and executes none of it — so 22 tests
+// and the golden corpus that IS the tool's spec ran in no lane anywhere.
+
+const CODEMOD_LANE = {
+  job: 'jvm-migration-hicasso-codemod',
+  output: 'migration_hicasso_codemod',
+  dir: 'migration/reagent-to-hicasso/codemod',
+  armed: 'migration/reagent-to-hicasso/codemod/src/re_frame/migration/hicasso/rewrite.clj',
+  // The cross-tree `:paths` edge: the codemod puts
+  // `../../../implementation/freehand/test` on its classpath so it and the
+  // runtime door share ONE slot rule (rf2-ani6y), and shared_rule_test.clj
+  // pins the two `identical?`.
+  sharedRule: 'implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc',
+};
+
+test('the codemod JVM job is gated on its own output and runs the artefact (rf2-2rtt6.143)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, CODEMOD_LANE.job);
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    new RegExp(`if: needs\\.detect_changed_surfaces\\.outputs\\.${CODEMOD_LANE.output} == 'true'`),
+    `${CODEMOD_LANE.job} must be gated on ${CODEMOD_LANE.output}`,
+  );
+  assert.match(
+    block,
+    new RegExp(`working-directory: ${CODEMOD_LANE.dir}`),
+    `${CODEMOD_LANE.job} must run in ${CODEMOD_LANE.dir}`,
+  );
+  assert.match(
+    block,
+    /run: clojure -M:test/,
+    `${CODEMOD_LANE.job} must invoke the artefact's own :test alias`,
+  );
+  // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty
+  // string and the job never runs.
+  assert.match(
+    workflow,
+    new RegExp(
+      `${CODEMOD_LANE.output}: \\$\\{\\{ steps\\.detect\\.outputs\\.${CODEMOD_LANE.output} \\}\\}`,
+    ),
+    `${CODEMOD_LANE.output} must be declared as a detect_changed_surfaces output`,
+  );
+  // Required, not advisory. A job absent from the aggregator's needs: is a
+  // job a merge can skip past, which is the state this artefact was already in.
+  assert.ok(
+    jobBlock(workflow, 'all-required-passed').includes(`- ${CODEMOD_LANE.job}`),
+    `aggregator must list ${CODEMOD_LANE.job} in needs:`,
+  );
+});
+
+test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rtt6.143)', () => {
+  assert.equal(
+    classify(CODEMOD_LANE.armed)[CODEMOD_LANE.output],
+    'true',
+    `${CODEMOD_LANE.armed} must arm ${CODEMOD_LANE.output}`,
+  );
+  // The reverse edge: break the shared rule and shared_rule_test.clj is the
+  // assertion that catches it, so its lane has to run.
+  assert.equal(
+    classify(CODEMOD_LANE.sharedRule)[CODEMOD_LANE.output],
+    'true',
+    `${CODEMOD_LANE.sharedRule} is on the codemod's classpath and must arm its lane`,
+  );
+  // …and that file keeps every output it already had. The arm is shared with
+  // Freehand's, so a narrowing here would be silent.
+  const shared = classify(CODEMOD_LANE.sharedRule);
+  for (const output of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod']) {
+    assert.equal(shared[output], 'true', `${CODEMOD_LANE.sharedRule} must still arm ${output}`);
+  }
+});
+
+test('the codemod lane stays dark for surfaces it does not depend on (rf2-2rtt6.143)', () => {
+  // A rule that matches everything is as useless as one that matches nothing.
+  for (const file of [
+    'spec/006-ReactiveSubstrate.md',
+    'implementation/core/src/re_frame/core.cljc',
+    'tools/xray/src/day8/re_frame2_xray/core.cljs',
+    'migration/from-re-frame-v1/codemod/deps.edn',
+  ]) {
+    assert.equal(
+      classify(file)[CODEMOD_LANE.output],
+      'false',
+      `${file} has no declared edge into the codemod's classpath`,
+    );
+  }
+});
+
+test('a codemod change does NOT fire the rest of the matrix (rf2-2rtt6.143)', () => {
+  // The artefact loads no re-frame2 runtime — rewrite-clj over source text —
+  // so arming implementation_jvm or the CLJS tiers would be fan-out with no
+  // dependency behind it, and would still not have run this suite.
+  const result = classify(CODEMOD_LANE.armed);
+  assert.equal(result[CODEMOD_LANE.output], 'true');
+  for (const output of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'tools_jvm']) {
+    assert.equal(result[output], 'false', `a codemod-only diff must not arm ${output}`);
+  }
+});
+
 // rf2-8m344 — the viewer PAGE lane, same three-part shape. The `:machines-viz-
 // viewer` build was declared in implementation/shadow-cljs.edn and compiled by
 // no workflow, npm script or gate, while README.md and spec/API.md documented

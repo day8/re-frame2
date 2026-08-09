@@ -94,6 +94,7 @@ story_static_gate=false
 tenant_switcher_smoke=false
 skills_structural=false
 playground=false
+migration_hicasso_codemod=false
 
 mark_all() {
   implementation_jvm=true
@@ -123,6 +124,7 @@ mark_all() {
   tenant_switcher_smoke=true
   skills_structural=true
   playground=true
+  migration_hicasso_codemod=true
 }
 
 # rf2-k9ekz — predicate: does `$1` look like a Story/Xray runtime
@@ -1078,10 +1080,27 @@ else
         # block (where the examples_compile roster lives) rather than here:
         # examples/ui/minimal-counter is a standalone Freehand project now, so
         # Freehand is a framework artefact a standalone example build resolves.
+        #
+        # rf2-2rtt6.143 — migration_hicasso_codemod is the reverse edge of a
+        # declared `:paths` entry, spelled out the same way as the two
+        # `tools_jvm_*` booleans on the `implementation/core/*` arm above.
+        # `migration/reagent-to-hicasso/codemod/deps.edn` puts
+        # `../../../implementation/freehand/test` on its classpath so that the
+        # codemod and the runtime door share ONE slot rule (rf2-ani6y), and
+        # `shared_rule_test.clj` pins the two `identical?`. Break
+        # `bench/hicasso/front/slot.cljc` and that pin is the assertion that
+        # catches it — from a lane that would otherwise be skipped.
+        #
+        # The arm is COARSER than the edge: the shared file sits inside this
+        # tree, and an arm naming it alone would have to be placed before this
+        # one, where it would shadow the four outputs above and silently
+        # narrow Freehand's own coverage. Over-classifying a seconds-long pure
+        # JVM suite is the cheaper error, and TESTING.md says to prefer it.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
+        migration_hicasso_codemod=true
         ;;
       implementation/hicasso/*)
         # rf2-8a6s — the Hicasso view substrate artefact (rf2-hic-001).
@@ -1994,6 +2013,25 @@ else
         # docs/tools/playground/*).
         playground=true
         ;;
+      migration/reagent-to-hicasso/codemod/*)
+        # rf2-2rtt6.143 — the Reagent `[:>]` → Hicasso codemod (the FIXER).
+        # It shipped with no case here at all, so a codemod-only diff
+        # classified to NOTHING: 22 tests / 158 assertions, including the
+        # golden corpus that IS this tool's spec, running in no lane anywhere.
+        # `migration/**` reaches docs.yml, which stages the tree into the site
+        # and executes not one line of it. Same silent hole rf2-8a6s closed for
+        # `implementation/hicasso/*` and rf2-4hc9p / rf2-as6bg closed on the
+        # tools side; TESTING.md's Changed-surface classifier section names the
+        # shape and the two-sided fix.
+        #
+        # ONE output, and its own rather than an existing one: the artefact is
+        # a standalone JVM tool that reads consumer SOURCE TEXT through
+        # rewrite-clj and loads no re-frame2 runtime, so none of the jobs any
+        # other output gates would run it. Arming `implementation_jvm` instead
+        # would fire the whole implementation JVM tier for a diff that cannot
+        # touch it, and still not run this suite.
+        migration_hicasso_codemod=true
+        ;;
     esac
   done <<< "$files"
 fi
@@ -2035,3 +2073,4 @@ emit story_static_gate "$story_static_gate"
 emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"
+emit migration_hicasso_codemod "$migration_hicasso_codemod"
