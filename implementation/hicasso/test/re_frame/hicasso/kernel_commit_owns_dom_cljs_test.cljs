@@ -101,8 +101,9 @@
 (rf/reg-sub :kcod/left  (fn [db _] (:left db)))
 (rf/reg-sub :kcod/right (fn [db _] (:right db)))
 
-(rf/reg-event :kcod/seed      (fn [_ [_ db]] {:db db}))
-(rf/reg-event :kcod/bump-left (fn [{:keys [db]} _] {:db (update db :left inc)}))
+(rf/reg-event :kcod/seed       (fn [_ [_ db]] {:db db}))
+(rf/reg-event :kcod/bump-left  (fn [{:keys [db]} _] {:db (update db :left inc)}))
+(rf/reg-event :kcod/bump-right (fn [{:keys [db]} _] {:db (update db :right inc)}))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -177,6 +178,38 @@
 (defn- poll
   [pred label]
   (test-support/poll-until pred {:label label :timeout-ms 4000}))
+
+(defn- prove-live!
+  "Settle the commit's PASSIVE phase on a condition, never on a duration —
+  and prove the acquisition is real in the same act.
+
+  The DOM text appears at the mutation phase, but `useSyncExternalStore`
+  calls `subscribe` in a **passive** effect that React flushes later. A row
+  that read the reader count the moment its text appeared would be reading
+  it before the acquisition it is asserting about — measured: the
+  StrictMode row failed exactly there, at `0` readers, on a page already
+  showing the committed value.
+
+  Waiting a chosen number of milliseconds would fix that and would be the
+  assumption this file refuses to make. So the wait is a **write
+  round-trip**: dispatch, and poll until the boundary repaints. A boundary
+  React has not finished subscribing cannot repaint, so the new text is
+  proof the passive phase is done — and it is proof the surviving
+  registration is LIVE rather than merely present, which is a stronger
+  statement than the count alone.
+
+  It cannot deadlock on the race it closes. If the write lands before
+  `subscribe`, the notification reaches nobody — and the boundary heals
+  anyway, because the cell is then born at a later `commit-basis` than the
+  render's snapshot and React's post-subscribe re-read schedules the
+  correcting render. Both orders arrive at the same repaint.
+
+  It cannot mask a leak either, because the condition is orthogonal to the
+  quantity under test: the count is asserted afterwards, and a second
+  reader changes the count without changing the text."
+  [handle event expected label]
+  (mount/dispatch! handle event)
+  (poll #(= expected (text handle)) label))
 
 (defn- teardown-census!
   "Unmount, settle at the runtime's own horizon, ASSERT, and only then
@@ -274,6 +307,10 @@
                 (poll #(= "left=1" (text handle)) "the retry commits")))
             (.then
               (fn [_]
+                (prove-live! handle [:kcod/bump-left] "left=2"
+                             "the retried boundary is subscribed and live")))
+            (.then
+              (fn [_]
                 (testing "the retry committed the boundary React had thrown
                           away, and acquired its read set EXACTLY ONCE — two
                           readers here would paint the identical page and
@@ -349,6 +386,10 @@
                                 "the transition completes")))))))
             (.then
               (fn [_]
+                (prove-live! handle [:kcod/bump-right] "right=8"
+                             "the completed boundary is subscribed and live")))
+            (.then
+              (fn [_]
                 (testing "and the completion acquires the read set exactly
                           once — the abandoned attempt contributed no second
                           reader"
@@ -370,41 +411,50 @@
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             before (collector/body-runs)
+            ;; TWO boundaries reading DIFFERENT keys, and that is the whole
+            ;; design of this row rather than incidental scenery.
+            ;;
+            ;; With one boundary reading one key the additivity defect is
+            ;; INVISIBLE: a scratch that accumulated `[left left]` still
+            ;; resolves to the read SET `#{left}`, so the acquired edges are
+            ;; identical and the row passes with the reset defeated —
+            ;; measured, on the sabotage run that was supposed to red it.
+            ;; With two boundaries the second body's scratch accumulates the
+            ;; FIRST's key, so it acquires an edge it never read and `left`
+            ;; gains a reader nothing will ever release. That is the defect
+            ;; this row is named for, and this is the smallest tree in which
+            ;; it can be seen.
             handle (mount-concurrent!
                      (mount/fresh-container!)
                      (react/createElement (.-StrictMode react) nil
-                                          (app [left-line {}])))]
-        (-> (poll #(= "left=1" (text handle)) "the strict tree commits")
+                                          (app [:div
+                                                [left-line {}]
+                                                [right-line {}]])))]
+        (-> (poll #(= "left=1right=7" (text handle)) "the strict tree commits")
             (.then
               (fn [_]
+                ;; Taken BEFORE the write below, which would add further runs.
                 (testing "the premise, and it is the whole point of the row:
-                          StrictMode really did run the body TWICE. A green
-                          here with a delta of 1 would be a green for a
+                          StrictMode really did run BOTH bodies twice. A green
+                          here with a delta of 2 would be a green for a
                           StrictMode that never engaged"
-                  (is (= 2 (- (collector/body-runs) before))))
-
-                (testing "two body runs, and ONE acquisition. The scratch is
-                          reset by overwrite at the top of every body, so the
-                          second run replaces the first's reads instead of
-                          being appended to them"
-                  (is (= 1 (readers-of [:kcod/left])))
-                  (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                         (ownership))))
-
-                (testing "and StrictMode's mount/unmount/remount of every
-                          effect left exactly one live registration, not a
-                          stranded one beside it"
-                  (is (= 1 (:entries (inventory/residue)))))
-
-                (testing "the boundary is the LIVE one: a write still reaches
-                          it, so the surviving registration is the remounted
-                          one and not a detached first"
-                  (mount/dispatch! handle [:kcod/bump-left])
-                  (poll #(= "left=2" (text handle)) "the write reaches it"))))
+                  (is (= 4 (- (collector/body-runs) before))))
+                (prove-live! handle [:kcod/bump-left] "left=2right=7"
+                             "the strict boundaries are subscribed and live")))
             (.then
               (fn [_]
-                (is (= 1 (readers-of [:kcod/left]))
-                    "and the write added no reader")
+                (testing "four body runs, and ONE acquisition each. The
+                          scratch is reset by overwrite at the top of every
+                          body, so neither the second run of a body nor the
+                          body after it inherits the reads already taken —
+                          and StrictMode's mount/unmount/remount of every
+                          effect left one live registration per boundary
+                          rather than a stranded one beside it"
+                  (is (= 1 (readers-of [:kcod/left])))
+                  (is (= 1 (readers-of [:kcod/right])))
+                  (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
+                         (ownership)))
+                  (is (= 2 (:entries (inventory/residue)))))
                 (exercised! :strict-mode/double-invoke)
                 (teardown-census! handle)))
             (.then (fn [_] (done)))
@@ -445,6 +495,10 @@
                 ;; `:reset-key` clears the caught failure and remounts.
                 (.render ^js (:root handle) (guarded 1))
                 (poll #(= "right=7" (text handle)) "the retry commits")))
+            (.then
+              (fn [_]
+                (prove-live! handle [:kcod/bump-right] "right=8"
+                             "the retried boundary is subscribed and live")))
             (.then
               (fn [_]
                 (testing "and the retry acquires exactly its read set, with
