@@ -1508,8 +1508,18 @@ inputs are gone; the durable path starts at the re-run and not before it.
   denominator on 2026-08-05 to `≤ 1.10×` direct UIx-on-subs — and on the amended
   denominator the published row's verdict is `K1 MISSED, DECISIVELY`
   ([§4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row),
-  2026-08-08, `rf2-diaud`). Whether the criterion's remaining condition, **after
-  two serious runtime iterations**, is met is a ruling this page does not make)*
+  2026-08-08, `rf2-diaud`). ~~Whether the criterion's remaining condition, **after
+  two serious runtime iterations**, is met is a ruling this page does not make~~
+  — **that ruling has since been made elsewhere: the operator ruled the
+  two-iterations conjunct MET on 2026-08-10 (`rf2-sza0w`), so both conjuncts
+  stand and K1 is TRIPPED.** Its *stop or narrow* consequence is superseded by
+  the selection of Hicasso plus the scoped price-acceptance amendment — the
+  operative default, [`rf2-hic-003`](../product/k1-price-acceptance.md) — making
+  the outcome a formalized **narrow-and-price, not a stop**; that record's
+  `1.25×` ceiling is ratified at the 2026-08-27 sitting and colours no result
+  before then, and the published miss above is not recoloured by it. The kill
+  table carries the same record and is where the criterion lives:
+  [`validation.md`](../validation.md#kill-criteria-any-tripping--stop-or-narrow-adapters-only-is-success))*
   — but no longer a range that straddles parity, and the direction
   has never once come back the other way.
 - **The deficit's location is measured, not inferred.** The candidate pays

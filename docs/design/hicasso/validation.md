@@ -662,7 +662,7 @@ comparison this section schedules was originally written as
 
 | # | Kill if |
 |---|---|
-| K1 | Mount above the amended mount gate (1.10× direct UIx on the clock of record) after two serious runtime iterations |
+| K1 | Mount above the amended mount gate (1.10× direct UIx on the clock of record) after two serious runtime iterations — **TRIPPED, ruled 2026-08-10 (`rf2-sza0w`)**: the gate half is measured **MISSED, DECISIVELY** (`rf2-diaud`, PR #7704 — figures at [§4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)), and the two-serious-runtime-iterations conjunct is **ruled MET** that date. The criterion text above is as registered and the `1.10×` gate is untouched; what is superseded is the **consequence** — a formalized narrow-and-price, not a stop. See the note directly below |
 | K2 | Bulk (≥ ~100 boundaries, one commit) > 1.5× Reagent view work after those iterations |
 | K3 | Per-boundary heap worse than Reagent with no paper path to the floor |
 | K4 | Controlled text fails same-tick echo / IME on Chromium and WebKit for a simple form |
@@ -670,6 +670,37 @@ comparison this section schedules was originally written as
 | K7 | Six weeks (HD-014) with no path that is both preferable and ≤ Reagent on K1–K2 |
 
 Red gates shrink scope; they never expand features.
+
+**K1 IS TRIPPED — operator ruling, 2026-08-10 (`rf2-sza0w`).** Both conjuncts now
+stand, and the row above records it. **The gate half is measured MISSED,
+DECISIVELY**: `rf2-diaud` (PR #7704) published the `M1` mount row on K1's own
+floor-normalised estimand and adjudicated it against K1's own `1.10×` threshold,
+and on both retained ensembles the whole interval sits above the gate on the
+losing side. The figures, the co-instrumented Reagent-on-subs pairs and the
+residual-uncertainty caveats are at
+[§4.3](studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row)
+and are **not** duplicated here. **The two-serious-runtime-iterations conjunct is
+ruled MET** as of this date, on the basis the operator gave: `rf2-nld4g` closed
+with no admissible attack clearing the bar, and the interpreter was exonerated at
+`0.9636×` stock Reagent, locating the deficit outside it.
+
+**The consequence is superseded — the outcome is a formalized narrow-and-price,
+not a stop.** This section's heading names *stop or narrow* as what a tripping
+criterion asks, and that remains the general rule; for K1 it is superseded by the
+operator's [selection of Hicasso](product/decision-brief.md) together with the
+scoped price-acceptance amendment, the **operative default**, whose record is
+[`product/k1-price-acceptance.md`](product/k1-price-acceptance.md) (`rf2-hic-003`):
+a [`1.25×` product ceiling](product/k1-price-acceptance.md#5-the-proposed-ceiling)
+read by a frozen comparison rule, carrying this very ruling as the first of its
+[reconsideration triggers](product/k1-price-acceptance.md#71-reopen-conditions).
+That ceiling is **proposed, not operative** — it is ratified at the 2026-08-27
+sitting and may mark no result green before then, and **the published miss is not
+recoloured by any of this**. **Nothing in the criterion moved:** the row's text is
+as registered, the `1.10×` gate is untouched, and K2, K3, K4, K6 and K7 are
+unaffected. The sitting's K1 line is this annotated row plus ratification of the
+amendment; no tripped-criterion surprise remains. The clock page's
+[§8](studio/the-candidates-clock.md#8-what-this-hands-the-programme) carries the
+same record.
 
 **K1's denominator was amended — mount-gate amendment 2026-08-02, consistency
 edit 2026-08-05 (`rf2-hyd50`).** Its row read, verbatim: `Mount > Reagent on the
