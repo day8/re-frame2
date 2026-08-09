@@ -1386,7 +1386,7 @@ not offered as a `bulk300` result: `bulk300` is refused.
 | | |
 |---|---|
 | Landed whole-tree anchor | **`a878d71ab9`** — on main, so it resolves. Recovered from the authoring anchor by identical `git patch-id --stable`; every blob that commit contributed is unchanged there |
-| Authoring anchor | `fdff3fd48855e86b34ec88b5ebc07f62903a6c0a` on `worker/clock-0qj9w` — the tree the run executed on. The branch was rebase-merged, so this SHA is on no branch and **will not resolve in a fresh clone**; the landed anchor above is the one to check out, and the blob table below is what pins the instrument |
+| Authoring anchor | `fdff3fd48855e86b34ec88b5ebc07f62903a6c0a` on `worker/clock-0qj9w` — the tree the run executed on. The branch was rebase-merged, so this SHA is on no branch and **will not resolve in a fresh clone**; check out its landed counterpart `a878d71ab9` instead, and the blob table below is what pins the instrument |
 | Runtime | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), Playwright 1.59.1, React 19.2.0, node v24.13.0, `hardware-concurrency` 24, `device-memory` 32 |
 | Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
 | Reproduction | `cd implementation && npm ci && node freehand/test/re_frame/bench/hicasso/clock_run.cjs` |
