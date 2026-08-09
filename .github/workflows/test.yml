@@ -91,6 +91,7 @@ jobs:
       playground: ${{ steps.detect.outputs.playground }}
       migration_hicasso_codemod: ${{ steps.detect.outputs.migration_hicasso_codemod }}
       hicasso_controlled: ${{ steps.detect.outputs.hicasso_controlled }}
+      migration_v1_codemod: ${{ steps.detect.outputs.migration_v1_codemod }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -4779,6 +4780,58 @@ jobs:
       - name: Run JVM tests (reagent-to-hicasso codemod artefact)
         run: clojure -M:test
 
+  jvm-migration-v1-codemod:
+    name: JVM migration/from-re-frame-v1/codemod (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.migration_v1_codemod == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: migration/from-re-frame-v1/codemod
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-migration-v1-codemod-${{ hashFiles('migration/from-re-frame-v1/codemod/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-migration-v1-codemod-
+            ${{ runner.os }}-clj-
+
+      # rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod
+      # (EP-0018 Slice E): 45 tests, 158 assertions, and the FIRST lane this
+      # artefact has ever had. Measured on main before this change, the string
+      # `from-re-frame-v1` appeared zero times in this workflow, in
+      # .github/scripts/report-changed-surfaces.sh and in
+      # scripts/test-jvm-tools.sh, so a codemod-only diff classified to no
+      # surface and merged green having executed none of its own tests.
+      # `migration/**` does reach docs.yml, but that workflow stages the tree
+      # into the site and runs not one line of it.
+      #
+      # The suite is pure JVM — rewrite-clj over source text, no re-frame2
+      # runtime, no npm, no browser — so this is the whole gate, and it is
+      # seconds. What it protects is a REWRITER that edits a consumer's own
+      # source in place: `rewrite-file!` is the entry the atomic-flip slice
+      # calls corpus-wide, and its conservatism — what it declines to touch,
+      # and the formatting and comments it must preserve — is exactly the
+      # property that has no other witness anywhere in this repo.
+      - name: Run JVM tests (from-re-frame-v1 codemod artefact)
+        run: clojure -M:test
+
   node-test-tools-re-frame2-pair-mcp:
     name: Node tools/re-frame2-pair-mcp (shadow-cljs :server-test)
     needs: detect_changed_surfaces
@@ -5704,6 +5757,11 @@ jobs:
       # broken by a merge that never ran it. It shipped on no lane at all;
       # advisory would leave it one `if:` away from the same place.
       - jvm-migration-hicasso-codemod
+      # rf2-0qzh — required for the same reason, and it is the stronger case
+      # of the two: this codemod REWRITES a consumer's own source in place, so
+      # the conservatism its tests pin is a promise made to somebody else's
+      # repository. Advisory would leave it one `if:` from the nowhere it ran.
+      - jvm-migration-v1-codemod
       - node-test-tools-re-frame2-pair-mcp
       - node-test-tools-story-mcp
       - mcp-conformance-re-frame2-pair

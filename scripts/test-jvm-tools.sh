@@ -50,6 +50,16 @@ tools=(
   # is a tool and is not an implementation artefact. Listed after tools/template
   # because it is seconds and that one is minutes.
   migration/reagent-to-hicasso/codemod
+  # rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod (EP-0018
+  # Slice E), here for exactly the reasons the entry above is: a standalone
+  # JVM artefact reading consumer SOURCE TEXT through rewrite-clj, loading no
+  # re-frame2 runtime, which is what this roster collects — and the two roster
+  # ARRAY NAMES are hard-coded in check_jvm_lane_rosters.py and
+  # check_test_lane_bijection.py, so a third roster would be invisible to both.
+  # The roster line and the `jvm-migration-v1-codemod` job land TOGETHER: a
+  # rostered artefact with no required job running `clojure -M:test` fails R1,
+  # and a required job on no roster fails the same gate the other way.
+  migration/from-re-frame-v1/codemod
 )
 
 for tool in "${tools[@]}"; do
