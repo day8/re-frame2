@@ -44,9 +44,16 @@
  * quietly starts behaving differently is therefore a red gate rather than a
  * silently-updated record.
  *
- * The comparator and the check floor both carry mutation teeth that run
- * before any browser launches: a gate whose own verdict logic cannot fail
- * is worse than a gate that is red.
+ * Both verdicts rest on the suite having actually run, so the coverage
+ * floor is STRUCTURAL rather than a total: `REQUIRED_SECTIONS` pins the
+ * witnesses by name and `REQUIRED_RECORDS` pins the keys each measured row
+ * carries. A count alone was fail-open in both directions — a whole section
+ * could be deleted and still clear it, and three engines recording nothing
+ * agree perfectly. Neither passes now.
+ *
+ * The comparator, the section floor and the record schema all carry
+ * mutation teeth that run before any browser launches: a gate whose own
+ * verdict logic cannot fail is worse than a gate that is red.
  *
  * ## Coverage — what these witnesses reach, and what they do not
  *
@@ -167,11 +174,63 @@ const ENGINES = ONLY
   ? ALL_ENGINES.filter((e) => ONLY.split(',').map((s) => s.trim()).includes(e))
   : ALL_ENGINES;
 
-// The check floor (the discipline `ime_run.cjs` carries): a run that
-// asserted almost nothing must not exit 0. A full engine banks 55 checks;
-// 50 refuses a section that silently stopped running — the smallest of the
-// nine is 6 rows — while leaving room for a row to be retired.
-const MIN_CHECKS_PER_ENGINE = 50;
+// ---------------------------------------------------------------------------
+// The coverage floor — STRUCTURAL, not a total.
+//
+// A bare count cannot see a deleted section, and this gate learned that the
+// hard way: with a floor of 50 against a full engine's 55 checks, either of
+// the two three-row sections could be deleted WHOLE and the run still
+// banked 52 and exited 0. A floor that survives the deletion of what it
+// guards is decoration.
+//
+// So the pin is the section NAMES, each with the number of checks it banks
+// today. The names make a deleted section a red gate that says which one is
+// gone; the counts make a row quietly dropped from a surviving section red
+// too. Adding rows is free — these are minimums. The list is deliberately
+// in THIS file rather than beside the sections it names, so deleting a
+// witness means deliberately editing the gate that requires it.
+//
+// Sum today: 55, which is what each engine reports.
+// ---------------------------------------------------------------------------
+
+const REQUIRED_SECTIONS = {
+  'same-turn-convergence': 8,
+  'caret-across-the-echo': 9,
+  'caret-under-real-typing': 4,
+  'selection-across-an-out-of-band-write': 3,
+  'composition-safety': 7,
+  'composition-release-edges': 8,
+  'revision-reset-preserves-identity': 7,
+  'owned-checked-pair': 6,
+  'form-reset-and-fill-proxy': 3,
+};
+
+// The RECORDED rows, with the keys each must carry. Without this the
+// comparator was fail-open in the worst way available to it: three engines
+// all recording `{}` agree perfectly, so every measured conduct could
+// vanish at once and `divergenceReport` would raise nothing. Agreement is
+// only evidence when there is something to agree about.
+//
+// `[]` means a scalar row — the pin is that it is present and defined. A
+// row the spec records but nobody pinned is also a problem: a new
+// measurement joins the schema or it is not measured.
+const REQUIRED_RECORDS = {
+  'out-of-band-write-lands-in-the-same-task': [],
+  'selection-across-out-of-band-write': ['start', 'end', 'direction', 'collapsed'],
+  'form-reset': [
+    'default-value-mirrors-the-model',
+    'value-after-reset',
+    'model-after-reset',
+    'reset-is-visually-inert',
+  ],
+  'fill-proxy': [
+    'eventless-fill-leaves-a-draft',
+    'form-reset-clears-the-eventless-draft',
+    'value-after-reset',
+  ],
+};
+
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 // ---------------------------------------------------------------------------
 // Cross-engine narrowings — every RECORDED row that is allowed to differ,
@@ -227,6 +286,72 @@ function divergenceReport(perEngine, narrowings = NARROWINGS) {
   return problems;
 }
 
+/**
+ * Did this engine run the whole suite? Returns a list of problems — empty
+ * when every pinned section ran and banked at least the rows it banks
+ * today. A spec that reports no sections at all fails every entry, which is
+ * the fail-closed direction.
+ */
+function coverageReport(result, required = REQUIRED_SECTIONS) {
+  const problems = [];
+  const sections = (result && result.sections) || {};
+  for (const [name, min] of Object.entries(required)) {
+    if (!has(sections, name)) {
+      problems.push(
+        `required section "${name}" did not run — the suite reported ` +
+        `[${Object.keys(sections).join(', ') || 'nothing'}]. Deleting a ` +
+        `witness means deleting its entry in REQUIRED_SECTIONS too, ` +
+        `deliberately.`);
+    } else if (sections[name] < min) {
+      problems.push(
+        `section "${name}" banked ${sections[name]} checks, was ${min} — ` +
+        `rows were dropped from a section that still runs.`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * Are the RECORDED rows actually there, carrying what they claim to
+ * measure? Returns a list of problems. This is what stops the cross-engine
+ * comparator from passing on unanimous emptiness.
+ */
+function recordSchemaReport(recorded, required = REQUIRED_RECORDS) {
+  const problems = [];
+  const rows = recorded || {};
+  for (const [row, keys] of Object.entries(required)) {
+    if (!has(rows, row) || rows[row] === undefined) {
+      problems.push(
+        `RECORDED row "${row}" is missing — the comparator cannot find a ` +
+        `divergence in a measurement nobody took.`);
+      continue;
+    }
+    if (keys.length === 0) continue;
+    const value = rows[row];
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      problems.push(
+        `RECORDED row "${row}" should be an object carrying ` +
+        `[${keys.join(', ')}], got ${JSON.stringify(value)}.`);
+      continue;
+    }
+    const missing = keys.filter((k) => !has(value, k));
+    if (missing.length > 0) {
+      problems.push(
+        `RECORDED row "${row}" is missing key(s) [${missing.join(', ')}] — ` +
+        `got [${Object.keys(value).join(', ')}].`);
+    }
+  }
+  for (const row of Object.keys(rows)) {
+    if (!has(required, row)) {
+      problems.push(
+        `RECORDED row "${row}" is not pinned in REQUIRED_RECORDS — add it ` +
+        `with the keys it carries, so a new measurement cannot be dropped ` +
+        `again later without reddening.`);
+    }
+  }
+  return problems;
+}
+
 // ---------------------------------------------------------------------------
 // Mutation teeth — the gate's own verdict logic, proven able to fail before
 // a single browser is launched.
@@ -262,14 +387,55 @@ function runMutationTeeth() {
   bite('a single engine cannot diverge from itself', () =>
     divergenceReport({ chromium: { row: { a: 1 } } }, []).length === 0);
 
+  // A full run, as the spec reports it, and the same run with one thing
+  // taken away. Derived from the pins so a tooth cannot rot against them.
+  const fullSections = () => ({ ...REQUIRED_SECTIONS });
+  const fullRecords = () => Object.fromEntries(
+    Object.entries(REQUIRED_RECORDS).map(([row, keys]) => [
+      row,
+      keys.length === 0 ? true : Object.fromEntries(keys.map((k) => [k, 'x'])),
+    ]));
+
   bite('the check floor refuses a run that asserted almost nothing', () =>
-    belowFloor({ checks: 3 }) === true && belowFloor({ checks: MIN_CHECKS_PER_ENGINE }) === false);
+    coverageReport({ checks: 3, sections: {} }).length
+      === Object.keys(REQUIRED_SECTIONS).length
+    && coverageReport({ checks: 55, sections: fullSections() }).length === 0);
+
+  // The hole this gate was reopened for: 55 checks with a floor of 50 meant
+  // either three-row section could be deleted whole and still exit 0.
+  bite('deleting a whole section reds, and the message names it', () => {
+    const sections = fullSections();
+    delete sections['form-reset-and-fill-proxy'];
+    const problems = coverageReport({ checks: 52, sections });
+    return problems.length === 1
+      && problems[0].includes('form-reset-and-fill-proxy');
+  });
+
+  bite('a section that stopped banking rows reds', () => {
+    const sections = fullSections();
+    sections['selection-across-an-out-of-band-write'] -= 1;
+    return coverageReport({ checks: 54, sections }).length === 1;
+  });
+
+  // The second hole: unanimous emptiness is not agreement.
+  bite('an engine that recorded nothing reds', () =>
+    recordSchemaReport({}).length === Object.keys(REQUIRED_RECORDS).length
+    && divergenceReport({ chromium: {}, firefox: {}, webkit: {} }, []).length === 0);
+
+  bite('the record schema accepts the rows the spec records', () =>
+    recordSchemaReport(fullRecords()).length === 0);
+
+  bite('a recorded row missing a key reds', () => {
+    const records = fullRecords();
+    delete records['selection-across-out-of-band-write'].direction;
+    const problems = recordSchemaReport(records);
+    return problems.length === 1 && problems[0].includes('direction');
+  });
+
+  bite('a recorded row nobody pinned reds', () =>
+    recordSchemaReport({ ...fullRecords(), invented: 1 }).length === 1);
 
   return teeth;
-}
-
-function belowFloor(result) {
-  return result.checks < MIN_CHECKS_PER_ENGINE;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,10 +512,14 @@ async function driveEngine(engine, baseUrl) {
         `[${engine}] page emitted ${pageErrors.length} uncaught error(s); ` +
         `first: ${pageErrors[0].message}`);
     }
-    if (belowFloor(result)) {
+    const gaps = [
+      ...coverageReport(result),
+      ...recordSchemaReport(result.recorded),
+    ];
+    if (gaps.length > 0) {
       throw new Error(
-        `[${engine}] banked only ${result.checks} checks, floor is ` +
-        `${MIN_CHECKS_PER_ENGINE} — a section stopped running.`);
+        `[${engine}] banked ${result.checks} checks but the coverage floor ` +
+        `is not met:\n  - ${gaps.join('\n  - ')}`);
     }
     passed = true;
   } catch (err) {
@@ -360,7 +530,8 @@ async function driveEngine(engine, baseUrl) {
   }
   if (!passed) for (const ln of lines) console.log(ln);
   console.log(passed
-    ? `PASS  ${engine} — ${result.checks} checks`
+    ? `PASS  ${engine} — ${result.checks} checks across ` +
+      `${Object.keys(result.sections).length} sections`
     : `FAIL  ${engine}`);
   return { passed, result };
 }
@@ -448,7 +619,15 @@ async function main() {
   }
 }
 
-module.exports = { divergenceReport, runMutationTeeth, belowFloor, NARROWINGS };
+module.exports = {
+  divergenceReport,
+  runMutationTeeth,
+  coverageReport,
+  recordSchemaReport,
+  NARROWINGS,
+  REQUIRED_SECTIONS,
+  REQUIRED_RECORDS,
+};
 
 if (require.main === module) {
   main().then((code) => process.exit(code)).catch((error) => {
