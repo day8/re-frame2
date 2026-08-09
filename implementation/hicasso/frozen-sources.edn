@@ -28,14 +28,19 @@
 ;; raw-byte digest would be green on one maintainer's machine and red on
 ;; another's for a file nobody touched.
 ;;
-;; ## The one donor that is not a whole-file copy
+;; ## `:whole-file?` false, and why no row carries it today
 ;;
-;; `arm1/lang.clj` holds three macros and no runtime. They are the AUTHORING
-;; surface, so the bead puts them in the public door `re-frame.hicasso`
-;; itself rather than in an `impl` namespace — a CLJS consumer cannot reach a
-;; macro through a plain `:require` any other way. Its row is pinned like
-;; every other, and `:whole-file?` false is what says the package file is not
-;; expected to be a rename-only image of it.
+;; A row whose package file is not a rename-only image of its donor sets
+;; `:whole-file?` false, and is then held to its SHAPES instead: every
+;; top-level definition the DONOR makes must appear in the package with an
+;; identical READER FORM once renames are applied — same tokens, same
+;; strings, same docstrings, whitespace and comments set aside. The roster
+;; comes from the donor rather than from a list here, so such a row cannot be
+;; silently under-pinned.
+;;
+;; No row carries it as of the second retirement below. The field is contract
+;; rather than decoration — `check_freeze.py`'s self-test exercises it in both
+;; directions — and the next donor that is copied with a re-wrap will use it.
 
 ;; ## The first retirement: `arm1/runtime.cljs` (rf2-hic-009)
 ;;
@@ -66,6 +71,59 @@
 ;; it used, so each differs from its donor by its `:require` block and by the
 ;; prose that named the old namespace. Their donors stay pinned, which is the
 ;; half of the row that still earns its keep.
+
+;; ## The second retirement: everything under `arm1/` (rf2-hic-001)
+;;
+;; The paragraph directly above did not survive contact with a gate that
+;; actually reads the package. It was written against a `check_freeze.py` that
+;; hashed each DONOR and then checked only that the package path EXISTED —
+;; `:whole-file?` was read and never used, so setting it false cost nothing and
+;; those three rows went green without being compared to anything. rf2-hic-001
+;; was reopened over exactly that false green (audits #7735 and #7743), and
+;; with `:whole-file?` false now meaning "held to shapes", all four remaining
+;; `arm1/` rows fail.
+;;
+;; They fail for a reason that is not a defect, and the evidence says so
+;; precisely. Eleven shapes differ across the four rows, and **every one of the
+;; eleven differs only in a namespace segment — the var name after the `/` is
+;; identical in all eleven, and there are zero non-namespace differences**:
+;;
+;;   (rt/dispatch!            →  (collector/dispatch!
+;;   (rt/sub                  →  (collector/sub
+;;   (rt/adopting?)           →  (roots/adopting?)
+;;   impl.runtime/mint-view!  →  impl.collector/mint-view!    … and so on
+;;
+;; That is the split re-pointing call sites at the module that now answers for
+;; each var, and it corroborates rf2-hic-009's "0 dropped, 0 duplicated, no
+;; behaviour changed" mechanically rather than by reading. What it also shows
+;; is that `:renames` — a ONE-TO-ONE table from bench namespace to package
+;; namespace — can no longer express these files. `arm1.runtime` became six
+;; namespaces, and which one a given call site should name depends on the VAR
+;; being called, not on the file. No entry in a one-to-one table can say that.
+;;
+;; So the rows are stale rather than the code being wrong, and the header's
+;; third response applies for the second time: RETIRE, do not re-pin. Retired
+;; here are `arm1/boundary.cljs`, `arm1/mount.cljs`, `arm1/presence.cljs` and
+;; `arm1/lang.clj`. Seven rows remain, all `front/*`, all whole-file.
+;;
+;; ## What the second retirement COSTS, stated rather than hidden
+;;
+;; Retiring a row drops its donor digest along with its package comparison, so
+;; the sentence above about donors staying pinned stops being true for these
+;; four. Combined with the first retirement, **no file under the bench tree's
+;; `arm1/` is pinned by anything any more** — all five are now ported by
+;; reading, not by being told.
+;;
+;; The sharpest loss is `arm1/lang.clj`, and it deserves naming because it is
+;; not proportionate to the damage. Only ONE of its three macros re-points:
+;; `defview`, whose expansion target moved from `impl.runtime/mint-view!` to
+;; `impl.collector/mint-view!`. `hfn` and `defhost` still match their donor
+;; exactly. But a row is judged whole — the alternative is a per-shape
+;; exemption, which is the one thing this gate must never grow — so retiring it
+;; un-pins all three, and the AUTHORING SURFACE, the part of the package a
+;; consumer actually writes against, is now the least-checked thing here.
+;; Re-pinning that surface by some means other than a donor diff is worth a
+;; follow-up bead; it is not something this bead should invent schema for.
 
 {:donor-root "implementation/freehand/test/re_frame/bench/hicasso"
 
@@ -150,33 +208,4 @@
    :package "src/re_frame/hicasso/impl/state.cljc"
    :ns      re-frame.hicasso.impl.state
    :lines   309
-   :sha256  "d9c7561fc8a6a7bc717f3695b5321f050b7900c5b5d0eae78a9a71b26bca52dd"}
-  {:bench       "arm1/boundary.cljs"
-   :package     "src/re_frame/hicasso/impl/boundary.cljs"
-   :ns          re-frame.hicasso.impl.boundary
-   :lines       214
-   ;; rf2-hic-009 re-pointed its `arm1.runtime` import at impl.collector.
-   :whole-file? false
-   :sha256      "09642a5c9893ac8e6acafb1718f9931aae4300c139f2bfb3b8d38b5adcef71a6"}
-  {:bench       "arm1/mount.cljs"
-   :package     "src/re_frame/hicasso/impl/mount.cljs"
-   :ns          re-frame.hicasso.impl.mount
-   :lines       345
-   ;; rf2-hic-009 re-pointed its `arm1.runtime` import at impl.collector and
-   ;; impl.roots.
-   :whole-file? false
-   :sha256      "32c8085956a7b840f3b637a4345f833ec170197dfc1a9d8484357552fcb0977c"}
-  {:bench       "arm1/presence.cljs"
-   :package     "src/re_frame/hicasso/impl/presence_react.cljs"
-   :ns          re-frame.hicasso.impl.presence-react
-   :lines       169
-   ;; rf2-hic-009 re-pointed its `arm1.runtime` import at impl.collector and
-   ;; impl.roots.
-   :whole-file? false
-   :sha256      "cc957212578406aa61b00f8b0bb513c28d5c02581c93a3bcf1f69492ac2b0ae1"}
-  {:bench       "arm1/lang.clj"
-   :package     "src/re_frame/hicasso.cljc"
-   :ns          re-frame.hicasso
-   :lines       147
-   :whole-file? false
-   :sha256      "0ff9453a0e8de648bbb144736f67d46273038164e3d6633fa21cd78d8c36c642"}]}
+   :sha256  "d9c7561fc8a6a7bc717f3695b5321f050b7900c5b5d0eae78a9a71b26bca52dd"}]}
