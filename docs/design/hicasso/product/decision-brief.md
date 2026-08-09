@@ -2,9 +2,9 @@
 
 **The goal**: **Hicasso is the base** — an interpreted-hiccup view layer with clean ways to drop down to very efficient React for the hot parts of an app (1–2% of the code; often 0%). Good-enough performance. Excellent programming ergonomics: minimal, clean code; excellent testing; excellent Xray diagnostics. Complete coverage of the use-cases. The end state is an excellent **native re-frame2 adaptor that is better than the other adaptors** — more ergonomic, more complete.
 
-This document is the decision-grade analysis, review, and plan. It owns the forensic scoreboard, the selected-direction record, the scoped price amendment, the K3 disposition, the sitting agenda, and the kill rules—the same split `codex/README.md` states.
+This document is the decision-grade analysis, review, and plan. It owns the forensic scoreboard, the selected-direction record, the scoped price amendment, the K3 disposition, the sitting agenda, and the kill rules—the same split `lanes/README.md` states.
 
-Its sibling `synth-codex.md` is the detailed **product specification**: facade, budgets, coverage matrix, phase exits. It is maintained with the `codex/` lanes as a living normative spec set, indexed by `codex/README.md`. This page deliberately does not restate API spellings, budget tables, or coverage rows. The two are designed to be read together. History and evidence live in companion files; neither page retells them.
+Its sibling `specification.md` is the detailed **product specification**: facade, budgets, coverage matrix, phase exits. It is maintained with the `lanes/` documents as a living normative spec set, indexed by `lanes/README.md`. This page deliberately does not restate API spellings, budget tables, or coverage rows. The two are designed to be read together. History and evidence live in companion files; neither page retells them.
 
 ---
 
@@ -92,7 +92,7 @@ The biggest gaps sit on high-traffic jobs: forms, overlays on the native top lay
 
 The strategic differentiator among the gaps is **demand-driven resource ownership**: a committed `sub` that reads a resource may also declare demand — unmount or parameter change releases it; debounce, supersession, refresh-with-data, and cancellation remain explicit policies. Its fences are hard (reuse committed read membership; abandoned renders acquire nothing; no second per-read ledger — the failed-ledger mechanism class must not reappear here) and a typeahead witness decides whether it graduates.
 
-**Trust: the one blocker class.** The trust register in `codex/adversarial-risks.md` holds eleven risks. Eight belong to the kernel: module-global ownership including the shared hydration adoption window; same-id reincarnation dispatch; speculative-render leakage and false abandonment tests; the unstated ambient-read extent; controlled-input portability; HMR identity; callback retirement; and hydration isolation.
+**Trust: the one blocker class.** The trust register in `lanes/adversarial-risks.md` holds eleven risks. Eight belong to the kernel: module-global ownership including the shared hydration adoption window; same-id reincarnation dispatch; speculative-render leakage and false abandonment tests; the unstated ambient-read extent; controlled-input portability; HMR identity; callback retirement; and hydration isolation.
 
 Three belong to the native tier: native-language leakage (`n/$` never rewrites interpreted Hiccup), boundary-ABI drift across the three authoring routes, and native-tier rent (zero native runtime in interpreted-only bundles). “Better than the other adaptors” begins at “as trustworthy as them.”
 
@@ -130,14 +130,14 @@ Plus the working loop (reproduce → attribute with Xray → tune topology → t
 
 Comparative bands follow: an initial mount ceiling of 1.25x direct UIx; tuned broad updates at ≤1.25x the best relevant adapter, with 1.25–1.5x a warning and >1.5x forcing island analysis or reclassification; and native islands within 5% or 1 ms of the same component mounted directly through its chosen React route. Hicasso-native is co-instrumented against handwritten React and UIx. The same-instrument regression gate is 5%; an escape earns its keep at ≥20%, ≥2 ms, or by flipping a user-visible budget. Native-code percentage is **an observed census, never a quota**. Budgets ratify on named hardware before optimization; thresholds never widen to turn a row green.
 
-**The ideas ledger** (full designs in `fable/left-field-ideas.md` and `codex/left-field-ideas.md`):
+**The ideas ledger** (full designs in `lanes/left-field-ideas.md`, and in its operator-local source `fable/left-field-ideas.md`, which is not published in this tree):
 
 - *Adopt*: complaint catalogue, cause-aware hot advisor, direct React output with the Hicasso-owned native tier (`n/$` and companions; gates in Part II).
 - *Spike with deciding rules*: committed-read resource demand; pull-shaped reads; schema-driven generators; counterfactual topology advice; capability receipts; replayable view capsules after L2; MCP-queryable runtime and migration shadowing through existing tools; shared read-set notification groups after a census.
 - *Watch*: a read-free shell as a read-nothing optimization, not a heap fix; codec shape planning only when classification/lowering exceeds 10% of hot-boundary self time; intent replay through Story; keyed-list maintenance only after a red bulk verdict; a future React store seam.
 - *Reject*: compiler/JIT modes, second renderers, worker view runtimes, signals replacement, universal callback cells, and hydration-free inference.
 
-Every spike must retain the detailed fence and deciding witness in `codex/left-field-ideas.md`; this ledger is not permission to build an open-ended experiment.
+Every spike must retain the detailed fence and deciding witness in `lanes/left-field-ideas.md`; this ledger is not permission to build an open-ended experiment.
 
 **First moves now**: the reincarnation-dispatch witness; the `hicasso.test` extraction; the installable package spine; the hot-view advisor; the forms field recipe; the first lint checks; and at the sitting — the K3 disposition and the amendment that names the accepted mount price.
 
@@ -153,4 +153,4 @@ The residual governance is the amendment's reconsideration trigger. The plan is 
 
 ## Sources
 
-`synth-codex.md` (the product specification; §6 budgets, §7 coverage, §9 testing, §13 done) and the `codex/` specification set. Product evidence and rationale: `codex/evidence-baseline.md` and `codex/corpus-insights.md`. Source corpus: `fable/` and the three `lessons-*.md`; the current status of every scout idea is `fable/dispositions.md`. Normative implementation record: `docs/design/hicasso/` and the governance beads (K1: rf2-diaud / PR #7704; bulk gating: rf2-vp0j7; SSR: rf2-2rtt6.88).
+`specification.md` (the product specification; §6 budgets, §7 coverage, §9 testing, §13 done) and the `lanes/` specification set. Product evidence and rationale: `lanes/evidence-baseline.md` and `lanes/corpus-insights.md`. Source corpus — operator-local, deliberately not published here, and nothing in this tree substitutes for it: the `fable/` scout corpus, its three `lessons-*.md` files, and `fable/dispositions.md`, which carries the current status of every scout idea (a different ledger from this directory's `dispositions.md`). Normative implementation record: `docs/design/hicasso/` and the governance beads (K1: rf2-diaud / PR #7704; bulk gating: rf2-vp0j7; SSR: rf2-2rtt6.88).
