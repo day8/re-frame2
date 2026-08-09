@@ -102,6 +102,42 @@ hex and bare decimals stay invisible exactly as before.  The narrow reading is
 what keeps the whole idea affordable: it costs the corpus a handful of newly
 visible citations rather than a column of noise.
 
+A FOREIGN COMMIT IS DECLARED, NEVER INFERRED.  Some rows cite a commit of
+another repository — a benchmark this programme did not write, an upstream
+library — and no SHA of THIS repository belongs in them, so there is no
+accompaniment to add and the rule above has nothing to say about them.  The gate
+cannot guess that: "at commit `x`" reads identically whoever owns `x`.  What it
+honours is a citation the writer TYPED as foreign — the displayed token beside a
+canonical GitHub commit permalink, `https://github.com/<owner>/<repo>/commit/`
+followed by THE SAME full forty-hex SHA, in the same row or paragraph as the
+token it declares.  Same scope as accompaniment, and for the same reason: a
+reader must find the declaration where the claim is made, not three screens
+away.
+
+It is the TYPING that makes this safe, and prose is deliberately no part of it.
+Words — "foreign", "upstream", "belongs to another repository" — would be the
+first vocabulary in this file that turns the gate OFF for a token rather than
+saying what the token is, and a magic phrase is launderable by anyone who learns
+it.  A permalink is not: it names a repository mechanically, it binds the FULL
+SHA (an abbreviation is meaningful only inside one object database, so it is
+refused), and a reader can follow it.  A token sitting beside the words "foreign
+repository" and nothing else is still a finding — that is the sabotage case in
+the self-test, and it is what distinguishes this from sniffing prose.
+
+Two boundaries keep it from becoming an exemption mechanism.  A permalink naming
+THIS repository's own origin declares nothing and takes the ordinary local path,
+so a stranded local head cannot be laundered through a GitHub-shaped link;
+identity comes from `git remote get-url origin`, a config read, and when there is
+no GitHub origin to compare against no permalink is honoured at all — the
+refusal direction again.  And a foreign citation is not dropped from the
+population: it is counted and listed separately under `--verbose` so that green
+cannot mean silently ignored, and it may NOT stand in as the landed anchor for a
+local head beside it, because it is not in this object database at all.
+
+Nothing here reaches the network, and nothing here is a roster of blessed
+repositories.  The link records an existence its author confirmed once while
+writing it; CI re-reads the declaration, never the host.
+
 WHAT THIS DOES NOT DO: it never re-pins.  rf2-owq6p established that recovering
 the landed SHA restores the PATCH, not the TREE — where the rebase did not
 preserve every blob the commit contributed, the landed commit is not what was
@@ -209,6 +245,37 @@ _PATH_SPAN = re.compile(r"^[\w./~…*-]+\.[a-z]{2,5}$")
 # characters.  Overridden from `git rev-parse --show-object-format`.
 DEFAULT_MAX_ID_LEN = 40
 
+# A CANONICAL GitHub commit permalink, and nothing looser.  This is the only
+# form that declares a token foreign, so every part of it is load-bearing:
+#
+#   * HTTPS and `github.com` verbatim.  `www.`, `http://` and an ssh remote all
+#     fail to match and take the ordinary local path — refusal, not silence.
+#   * a repository that does not end in `.git`, because
+#     `github.com/day8/re-frame2.git/commit/…` would otherwise record an
+#     identity that compares unequal to this repository's own and launder a
+#     local head straight through the check below.
+#   * `/commit/` and a FULL forty-hex lowercase SHA.  An abbreviation is
+#     meaningful only inside a particular object database, so it cannot carry a
+#     claim about another one.
+#   * nothing after it: a trailing `/`, `?` or `#` means a query, a fragment or
+#     a deeper path, none of which is the canonical commit page.  A `.` is
+#     allowed only as sentence punctuation, the same boundary `_BARE_PROSE_HEX`
+#     draws, so a link may end a sentence but `…/commit/<sha>.diff` may not.
+_COMMIT_PERMALINK = re.compile(
+    r"https://github\.com"
+    r"/([A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"/([A-Za-z0-9][A-Za-z0-9._-]*)(?<!\.git)"
+    r"/commit/([0-9a-f]{40})"
+    r"(?![0-9A-Za-z/?#_-])(?!\.[0-9A-Za-z])"
+)
+
+# This repository's own identity, read out of `origin`.  Covers the three forms
+# a clone can carry it in; anything else yields no identity at all, and then no
+# permalink is honoured.
+_ORIGIN_URL = re.compile(
+    r"^(?:https://|ssh://git@|git@)github\.com[:/]([^/]+)/(.+?)(?:\.git)?/?$"
+)
+
 # A provenance anchor whose author promised to fill it after the merge and did
 # not.  Unambiguous, so it is reported on sight.
 _UNFILLED_ANCHOR = re.compile(r"\(\s*filled on merge", re.I)
@@ -229,6 +296,11 @@ class Citation(NamedTuple):
     scope: int
     token: str
     reason: str  # why it was read as a pin rather than a digest
+    # `owner/repo` when a canonical permalink in this same scope declares the
+    # token a commit of ANOTHER repository.  Such a citation is neither judged
+    # by the accompaniment rule nor able to satisfy it — it is not in this
+    # object database at all — but it stays in the population and is reported.
+    foreign: Optional[str] = None
 
 
 class Finding(NamedTuple):
@@ -404,12 +476,30 @@ def classify(
     return Verdict(True, "unclassified — read as a pin (fail toward refusal)", False)
 
 
+def github_identity(url: str) -> Optional[str]:
+    """`owner/repo` for a GitHub remote URL, or None when it is not one."""
+    match = _ORIGIN_URL.match(url.strip())
+    return "%s/%s" % (match.group(1), match.group(2)) if match else None
+
+
 def scan_file(
-    path: str, text: str, max_id_len: int = DEFAULT_MAX_ID_LEN
+    path: str,
+    text: str,
+    max_id_len: int = DEFAULT_MAX_ID_LEN,
+    local_repo: Optional[str] = None,
 ) -> Tuple[List[Citation], List[Finding]]:
+    """Read one page's citations.
+
+    `local_repo` is this repository's own `owner/repo`.  Without it no permalink
+    can be told from a link to ourselves, so none is honoured and every token
+    takes the local path — the refusal direction, and the reason it is not
+    defaulted to something convenient.
+    """
     lines = text.splitlines()
     citations: List[Citation] = []
     anchors: List[Finding] = []
+    # scope -> {full sha: owner/repo} declared by a canonical permalink there.
+    declared: Dict[int, Dict[str, str]] = {}
     in_fence = False
     scope = 0
     for i, line in enumerate(lines):
@@ -429,6 +519,15 @@ def scan_file(
             # than to the newline, because a wrapped cell continues on lines
             # that open no pipe and the anchor is often down there.
             scope += 1
+        for link in _COMMIT_PERMALINK.finditer(line):
+            # Collected AFTER the fence test on purpose: a permalink inside a
+            # reproduction command is an argument to an example, exactly as its
+            # SHAs are, and must not declare anything about the page's own
+            # citations.
+            declared.setdefault(scope, {})[link.group(3)] = "%s/%s" % (
+                link.group(1),
+                link.group(2),
+            )
         if _UNFILLED_ANCHOR.search(line):
             anchors.append(
                 Finding(
@@ -456,6 +555,15 @@ def scan_file(
                 citations.append(
                     Citation(path, i + 1, scope, token, verdict.reason + ", uncoded")
                 )
+
+    # Only now, with every scope's declarations in hand, because the permalink
+    # routinely follows the token it declares.  A declaration binds ONE exact
+    # SHA, which is what bounds its blast radius to the token it names.
+    if local_repo:
+        for index, citation in enumerate(citations):
+            repo = declared.get(citation.scope, {}).get(citation.token)
+            if repo and repo.lower() != local_repo.lower():
+                citations[index] = citation._replace(foreign=repo)
     return citations, anchors
 
 
@@ -498,6 +606,19 @@ class Git:
             for line in diff.stdout.splitlines()
             if line.strip().endswith(".md")
         }
+
+    def origin_repo(self) -> Optional[str]:
+        """This repository's own `owner/repo`, from `origin`.
+
+        A config read, so it stays offline and needs no allowlist: the only
+        repository this gate has an opinion about is itself, and it holds a
+        permalink naming itself to the ordinary local path.  None when there is
+        no GitHub origin, and then no permalink is honoured at all.
+        """
+        result = self._run("remote", "get-url", "origin")
+        if result.returncode != 0:
+            return None
+        return github_identity(result.stdout)
 
     def max_id_len(self) -> int:
         """Hex length of a full object id here — 40 for SHA-1, 64 for SHA-256.
@@ -543,6 +664,13 @@ def evaluate(citations: Iterable[Citation], git: Git) -> List[Finding]:
     """
     per_scope: Dict[Tuple[str, int], List[Citation]] = {}
     for c in citations:
+        if c.foreign:
+            # A commit of another repository, declared by a canonical permalink
+            # in this same scope.  There is no local anchor to add for it, so
+            # the rule has nothing to say — and it may not answer for a local
+            # head beside it either: a reader following it lands in a different
+            # object database, which is no anchor for this tree at all.
+            continue
         per_scope.setdefault((c.path, c.scope), []).append(c)
 
     findings: List[Finding] = []
@@ -633,13 +761,14 @@ def check(
         return 2
 
     max_id_len = git.max_id_len()
+    local_repo = git.origin_repo()
     citations: List[Citation] = []
     findings: List[Finding] = []
     for path in files:
         with io.open(path, encoding="utf-8") as handle:
             text = handle.read()
         rel = os.path.relpath(path, repo).replace(os.sep, "/")
-        cites, anchors = scan_file(rel, text, max_id_len)
+        cites, anchors = scan_file(rel, text, max_id_len, local_repo)
         citations.extend(cites)
         findings.extend(anchors)
 
@@ -647,20 +776,32 @@ def check(
     findings.sort(key=lambda f: (f.path, f.line, f.token))
 
     if verbose:
+        foreign = [c for c in citations if c.foreign]
         counts: Dict[str, int] = {}
         for c in citations:
+            if c.foreign:
+                continue
             counts[git.status(c.token)] = counts.get(git.status(c.token), 0) + 1
         stream.write(
             "check_provenance_pins: %d files, %d cited pins "
-            "(%d landed, %d stranded, %d unresolvable)\n"
+            "(%d landed, %d stranded, %d unresolvable, %d foreign)\n"
             % (
                 len(files),
                 len(citations),
                 counts.get("LANDED", 0),
                 counts.get("STRANDED", 0),
                 counts.get("UNRESOLVABLE", 0),
+                len(foreign),
             )
         )
+        # Listed, never merely subtracted: a foreign citation is exempt from the
+        # accompaniment rule, so it is the one class of token where green could
+        # otherwise mean "quietly ignored".
+        for c in sorted(foreign):
+            stream.write(
+                "  foreign: %s:%d  %s declared a commit of %s\n"
+                % (c.path, c.line, c.token, c.foreign)
+            )
 
     if not findings:
         if verbose:
@@ -978,6 +1119,219 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
 ]
 
 
+# --------------------------------------------------------------------------
+# The foreign-citation witnesses
+# --------------------------------------------------------------------------
+
+# The real citation this mechanism was built for, and the real origin it must
+# hold itself apart from.  Full forty hex throughout: an abbreviation is not a
+# claim about another object database, so the mechanism refuses one.
+_UPSTREAM = "krausest/js-framework-benchmark"
+_HERE = "day8/re-frame2"
+_FOREIGN_SHA = "247fafa22c1f2caeb4cad179aa64cf444398cbc7"
+_LOCAL_SHA = "19a3710bc9604684ddbc7b2b72ec901dcc0f0ea7"
+_PERMALINK = "https://github.com/%s/commit/%s"
+
+
+class _ForeignCase(NamedTuple):
+    """One witness, asserted at all three layers at once.
+
+    Extraction, declaration and adjudication have to be read together here:
+    "reported as foreign" and "passes without a local anchor" are different
+    claims, and a case that checked only the second would pass just as well if
+    the token had been dropped from the population altogether — which is the
+    fail-open shape this whole mechanism was ruled against.
+    """
+
+    label: str
+    lines: List[str]
+    local: Optional[str]  # this repository's own origin identity
+    status: Dict[str, str]  # what git says about each token
+    pins: List[str]  # tokens extracted as citations, in order
+    foreign: Dict[str, str]  # of those, the ones carrying a repository identity
+    findings: List[str]  # what the accompaniment rule then reports
+
+
+_FOREIGN_CASES: List[_ForeignCase] = [
+    # POSITIVE.  A canonical permalink, matching full SHA, and NO local anchor
+    # anywhere in the row — which is the point: before this, the only way to
+    # pass was to name a commit of this repository, and no commit of this
+    # repository belongs in a row citing somebody else's benchmark.
+    _ForeignCase(
+        "a canonical permalink declares its token a foreign commit, and it passes",
+        [
+            "| Benchmark revision | `%s` at commit **`%s`**, canonically at "
+            "[the commit page](%s). That SHA belongs to the benchmark's "
+            "repository, not to this one |"
+            % (_UPSTREAM, _FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA],
+        {_FOREIGN_SHA: _UPSTREAM},
+        [],
+    ),
+    # SABOTAGE, and the case that says what kind of mechanism this is.  The row
+    # carries the words a prose-sniffing gate would have honoured — "foreign
+    # repository", "belongs to", "not to this one" — and nothing typed.  It is
+    # still a finding.  If this ever passes, the gate has learned a magic
+    # phrase and the ruling has been undone.
+    _ForeignCase(
+        "prose calling a token foreign exempts nothing",
+        [
+            "| Benchmark revision | at commit **`%s`** — that SHA belongs to a "
+            "foreign repository, an upstream one, not to this one, so it "
+            "resolves there and nowhere else |" % _FOREIGN_SHA,
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA],
+        {},
+        [_FOREIGN_SHA],
+    ),
+    # EDGE: the label and the URL name different commits.  Only the URL's SHA
+    # is declared, and the displayed token is not it, so the token the reader
+    # actually sees keeps the local path.  A permalink vouches for one object,
+    # not for its neighbourhood.
+    _ForeignCase(
+        "a permalink to a DIFFERENT sha declares nothing about the token beside it",
+        [
+            "| Benchmark revision | at commit **`%s`**, see %s |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, "b" * 40)),
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA],
+        {},
+        [_FOREIGN_SHA],
+    ),
+    # EDGE: an abbreviated displayed token.  Ten hex characters are an index
+    # into ONE object database, so they cannot carry a claim about another; the
+    # abbreviation is not the SHA the permalink binds, and takes the local path.
+    _ForeignCase(
+        "an abbreviated token is not what the permalink bound",
+        [
+            "| Benchmark revision | at commit **`%s`**, canonically at %s |"
+            % (_FOREIGN_SHA[:10], _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA[:10]],
+        {},
+        [_FOREIGN_SHA[:10]],
+    ),
+    # EDGE: malformed URLs.  Each of these is a link a reader would follow
+    # happily and none is the canonical commit page, so none declares anything:
+    # plain HTTP, the plural `/commits/`, a trailing query, and a `.git`
+    # repository — that last one the sharpest, because `day8/re-frame2.git`
+    # compares unequal to `day8/re-frame2` and would otherwise launder a local
+    # head through the boundary below.
+    _ForeignCase(
+        "a malformed commit URL declares nothing",
+        [
+            "| A | at commit **`%s`**, at http://github.com/%s/commit/%s |"
+            % (_FOREIGN_SHA, _UPSTREAM, _FOREIGN_SHA),
+            "| B | at commit **`%s`**, at https://github.com/%s/commits/%s |"
+            % (_FOREIGN_SHA, _UPSTREAM, _FOREIGN_SHA),
+            "| C | at commit **`%s`**, at %s?diff=split |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| D | at commit **`%s`**, at https://github.com/%s.git/commit/%s |"
+            % (_LOCAL_SHA, _HERE, _LOCAL_SHA),
+        ],
+        _HERE,
+        {_LOCAL_SHA: "STRANDED"},
+        [_FOREIGN_SHA, _FOREIGN_SHA, _FOREIGN_SHA, _LOCAL_SHA],
+        {},
+        [_FOREIGN_SHA, _FOREIGN_SHA, _FOREIGN_SHA, _LOCAL_SHA],
+    ),
+    # EDGE, and the boundary that keeps this from being an exemption mechanism:
+    # a permalink naming THIS repository declares nothing.  Otherwise every
+    # stranded local head could be laundered by linking to it on github.com,
+    # where a stranded head resolves for nobody.  Case-insensitively, because
+    # GitHub is.
+    _ForeignCase(
+        "a permalink to our own origin takes the ordinary local path",
+        [
+            "| Authoring anchor | `%s` on `worker/x`, at %s |"
+            % (_LOCAL_SHA, _PERMALINK % ("Day8/RE-Frame2", _LOCAL_SHA)),
+        ],
+        _HERE,
+        {_LOCAL_SHA: "STRANDED"},
+        [_LOCAL_SHA],
+        {},
+        [_LOCAL_SHA],
+    ),
+    # A foreign citation is EXEMPT, not an ANCHOR.  The stranded local head one
+    # row down has no accompaniment, and a commit in somebody else's object
+    # database is no anchor for this tree — a reader who checks it out is not
+    # looking at the measured tree.  Both verdicts in one fixture: the foreign
+    # row passes, the local row still reds.
+    _ForeignCase(
+        "a foreign citation cannot stand in as the landed anchor",
+        [
+            "| Benchmark revision | at commit **`%s`**, canonically at %s |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| Authoring anchor | `%s` on `worker/x` |" % _LOCAL_SHA,
+        ],
+        _HERE,
+        {_LOCAL_SHA: "STRANDED"},
+        [_FOREIGN_SHA, _LOCAL_SHA],
+        {_FOREIGN_SHA: _UPSTREAM},
+        [_LOCAL_SHA],
+    ),
+    # A declaration reaches exactly as far as accompaniment does — its own row.
+    # A reader must find the declaration where the claim is made; a permalink
+    # two rows up is not beside the token it would exempt.
+    _ForeignCase(
+        "a declaration in a SIBLING ROW does not reach the row beside it",
+        [
+            "| Benchmark revision | canonically at %s |"
+            % (_PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| Restated | at commit **`%s`** |" % _FOREIGN_SHA,
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA],
+        {},
+        [_FOREIGN_SHA],
+    ),
+    # A permalink inside a reproduction command declares nothing, for the same
+    # reason its SHAs cite nothing: a fenced block is an example, not the page's
+    # own provenance.
+    _ForeignCase(
+        "a permalink inside a fenced block declares nothing",
+        [
+            "| Benchmark revision | at commit **`%s`** |" % _FOREIGN_SHA,
+            "```bash",
+            "git fetch %s" % (_PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "```",
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA],
+        {},
+        [_FOREIGN_SHA],
+    ),
+    # Without an identity for THIS repository there is nothing to compare a
+    # permalink against, so none is honoured.  The refusal direction, one last
+    # time: a checkout that cannot tell somebody else's repository from its own
+    # reds a page it might have passed, rather than passing one it should have
+    # red.
+    _ForeignCase(
+        "with no GitHub origin to compare against, no permalink is honoured",
+        [
+            "| Benchmark revision | at commit **`%s`**, canonically at %s |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+        ],
+        None,
+        {},
+        [_FOREIGN_SHA],
+        {},
+        [_FOREIGN_SHA],
+    ),
+]
+
+
 class _FakeGit(Git):
     def __init__(self, table: Dict[str, str]) -> None:  # noqa: D107
         self.table = table
@@ -1015,6 +1369,50 @@ def self_test(verbose: bool, stream) -> int:
                 % (label, sorted(expected), got)
             )
             failures += 1
+
+    for case in _FOREIGN_CASES:
+        cites, _ = scan_file(
+            "fixture.md", "\n".join(case.lines), DEFAULT_MAX_ID_LEN, case.local
+        )
+        got_pins = [c.token for c in cites]
+        got_foreign = {c.token: c.foreign for c in cites if c.foreign}
+        got_findings = sorted(f.token for f in evaluate(cites, _FakeGit(case.status)))
+        problems = []
+        if got_pins != case.pins:
+            problems.append("extracted %r, expected %r" % (got_pins, case.pins))
+        if got_foreign != case.foreign:
+            problems.append("foreign %r, expected %r" % (got_foreign, case.foreign))
+        if got_findings != sorted(case.findings):
+            problems.append(
+                "findings %r, expected %r" % (got_findings, sorted(case.findings))
+            )
+        if problems:
+            stream.write(
+                "self-test FAIL: foreign [%s] %s\n" % (case.label, "; ".join(problems))
+            )
+            failures += 1
+        elif verbose:
+            stream.write("self-test PASS: foreign [%s]\n" % case.label)
+
+    # The identity the boundary above compares against, in the three forms a
+    # clone can carry `origin` in — plus a non-GitHub remote, which yields no
+    # identity and so honours no permalink at all.
+    for url, expected in (
+        ("https://github.com/day8/re-frame2", _HERE),
+        ("https://github.com/day8/re-frame2.git", _HERE),
+        ("git@github.com:day8/re-frame2.git", _HERE),
+        ("ssh://git@github.com/day8/re-frame2.git", _HERE),
+        ("/srv/mirrors/re-frame2.git", None),
+    ):
+        got = github_identity(url)
+        if got != expected:
+            stream.write(
+                "self-test FAIL: origin identity of %r was %r, expected %r\n"
+                % (url, got, expected)
+            )
+            failures += 1
+        elif verbose:
+            stream.write("self-test PASS: origin identity of %r is %r\n" % (url, got))
 
     # The unfilled-anchor tooth.
     _, anchors = scan_file(
@@ -1061,7 +1459,9 @@ def self_test(verbose: bool, stream) -> int:
             )
             failures += 1
 
-    total = len(_EXTRACTION_CASES) + len(_RULE_CASES) + 4
+    total = (
+        len(_EXTRACTION_CASES) + len(_RULE_CASES) + len(_FOREIGN_CASES) + 5 + 4
+    )
     if failures:
         stream.write("\n%d self-test failure(s).\n" % failures)
         return 1
