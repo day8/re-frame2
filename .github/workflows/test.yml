@@ -89,6 +89,7 @@ jobs:
       tenant_switcher_smoke: ${{ steps.detect.outputs.tenant_switcher_smoke }}
       skills_structural: ${{ steps.detect.outputs.skills_structural }}
       playground: ${{ steps.detect.outputs.playground }}
+      migration_hicasso_codemod: ${{ steps.detect.outputs.migration_hicasso_codemod }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -4632,6 +4633,57 @@ jobs:
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
         run: clojure -M:test
 
+  jvm-migration-hicasso-codemod:
+    name: JVM migration/reagent-to-hicasso/codemod (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.migration_hicasso_codemod == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: migration/reagent-to-hicasso/codemod
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-migration-hicasso-codemod-${{ hashFiles('migration/reagent-to-hicasso/codemod/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-migration-hicasso-codemod-
+            ${{ runner.os }}-clj-
+
+      # rf2-2rtt6.143 — the Reagent `[:>]` → Hicasso codemod's 22 tests / 158
+      # assertions, and the FIRST lane this artefact has ever had. It shipped
+      # (PR #7736) classifying to zero CI outputs: `migration/**` reaches
+      # docs.yml, which stages the tree into the site and executes none of it,
+      # so the golden corpus that IS this tool's spec ran nowhere.
+      #
+      # The suite is pure JVM — rewrite-clj over source text, no re-frame2
+      # runtime, no npm, no browser — so this is the whole gate, and it is
+      # seconds. Two of its slices are the reason it cannot be advisory:
+      # `newlines_test.clj` witnesses CRLF preservation, which a Linux
+      # developer cannot fail locally and a Windows one cannot avoid; and
+      # `shared_rule_test.clj` pins the tool's slot resolver `identical?` to
+      # `front/slot.cljc`, the cross-tree `:paths` edge rf2-ani6y extracted so
+      # the tool and the runtime door share ONE rule. The classifier arms this
+      # output from that file's tree too, so the pin runs when its subject
+      # changes.
+      - name: Run JVM tests (reagent-to-hicasso codemod artefact)
+        run: clojure -M:test
+
   node-test-tools-re-frame2-pair-mcp:
     name: Node tools/re-frame2-pair-mcp (shadow-cljs :server-test)
     needs: detect_changed_surfaces
@@ -5545,6 +5597,10 @@ jobs:
       # same false promise in a different shape.
       - machines-viz-viewer-page
       - jvm-tools-template
+      # rf2-2rtt6.143 — required, so the codemod's golden corpus cannot be
+      # broken by a merge that never ran it. It shipped on no lane at all;
+      # advisory would leave it one `if:` away from the same place.
+      - jvm-migration-hicasso-codemod
       - node-test-tools-re-frame2-pair-mcp
       - node-test-tools-story-mcp
       - mcp-conformance-re-frame2-pair
