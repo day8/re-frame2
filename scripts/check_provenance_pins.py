@@ -21,6 +21,20 @@ heads; what it may not do is leave the reader with no resolvable anchor at all.
 Concretely: within one block, if any cited pin is not an ancestor of
 `origin/main`, then some other pin in that same block must be.
 
+A TABLE ROW IS A BLOCK OF ITS OWN, because the paragraph-sized scope was a
+fail-open (rf2-xlsh).  A record table is one unbroken run of non-blank lines, so
+every row in it shared a single scope and any one landed hash answered for all
+of them — a wrong pin in the operative row went unreported as long as some other
+row cited something that had landed.  That is precisely backwards from where the
+risk lives: on a pre-registration page the hash that matters most is the one in
+the table, beside a landed one, so the guard was blind in the field whose
+wrongness costs most.  Accompaniment is therefore scoped to the row that makes
+the claim.  A row ends where the NEXT row begins and not at the newline, because
+this corpus wraps a long cell across source lines and the anchor rescuing a head
+is routinely on the continuation.  Prose is untouched — a paragraph remains one
+scope, which is what keeps the census's repaired "authored at X … it landed on
+main as Y" sentences passing.
+
 FAILURE DIRECTION — this gate fails toward REFUSAL, never toward silence, and
 one asymmetry forces it.  The stranded pins are precisely the objects a fresh
 clone does NOT have, so from inside any checkout "git has never heard of this
@@ -106,7 +120,8 @@ Usage:
     python scripts/check_provenance_pins.py --self-test [--verbose]
 
 Exit codes:
-    0  every cited pin is landed or shares its block with a landed one
+    0  every cited pin is landed or shares its block — its table row, when it
+       sits in one — with a landed one
     1  findings — a human decides each; this tool never re-pins
     2  the check could not run (absent corpus, unresolvable baseline, bad ref).
        Never 0: a gate that cannot run must not report success for work it
@@ -196,11 +211,18 @@ _UNFILLED_ANCHOR = re.compile(r"\(\s*filled on merge", re.I)
 
 _FENCE = re.compile(r"^\s*(?:```|~~~)")
 
+# The start of a table row, which is where one accompaniment scope ends and the
+# next begins.  Deliberately only the OPENING pipe: a continuation line carries
+# no pipe of its own, so it stays with the row it belongs to.
+_TABLE_ROW = re.compile(r"^\s*\|")
+
 
 class Citation(NamedTuple):
     path: str
     line: int
-    block: int
+    # The scope accompaniment is judged in: a paragraph, or a single table row.
+    # Not called `block` any more because a table is one block and many scopes.
+    scope: int
     token: str
     reason: str  # why it was read as a pin rather than a digest
 
@@ -365,10 +387,10 @@ def scan_file(
     citations: List[Citation] = []
     anchors: List[Finding] = []
     in_fence = False
-    block = 0
+    scope = 0
     for i, line in enumerate(lines):
         if not line.strip():
-            block += 1
+            scope += 1
             continue
         if _FENCE.match(line):
             in_fence = not in_fence
@@ -377,6 +399,12 @@ def scan_file(
             # Fenced blocks are reproduction commands.  Their SHAs are
             # arguments to an example, not the page's own provenance.
             continue
+        if _TABLE_ROW.match(_strip_quote(line)):
+            # A row makes its own claim, so it may accompany only itself
+            # (rf2-xlsh).  The scope opens here and runs to the next row rather
+            # than to the newline, because a wrapped cell continues on lines
+            # that open no pipe and the anchor is often down there.
+            scope += 1
         if _UNFILLED_ANCHOR.search(line):
             anchors.append(
                 Finding(
@@ -392,7 +420,7 @@ def scan_file(
             for token in _split_span(match.group(1), max_id_len):
                 verdict = classify(lines, i, match.start(), match.end())
                 if verdict.is_pin:
-                    citations.append(Citation(path, i + 1, block, token, verdict.reason))
+                    citations.append(Citation(path, i + 1, scope, token, verdict.reason))
         # Then the same line with its code spans blanked out, so a token cannot
         # be read twice, and with the default reading switched off.
         for match in _BARE_PROSE_HEX.finditer(_mask_code_spans(line)):
@@ -402,7 +430,7 @@ def scan_file(
             verdict = classify(lines, i, match.start(), match.end())
             if verdict.is_pin and verdict.spoken:
                 citations.append(
-                    Citation(path, i + 1, block, token, verdict.reason + ", uncoded")
+                    Citation(path, i + 1, scope, token, verdict.reason + ", uncoded")
                 )
     return citations, anchors
 
@@ -475,20 +503,26 @@ class Git:
 
 
 def evaluate(citations: Iterable[Citation], git: Git) -> List[Finding]:
-    """Apply the accompaniment rule, one block at a time.
+    """Apply the accompaniment rule, one scope at a time.
 
-    A block is a maximal run of consecutive non-blank lines, which makes a
-    markdown table one block and a prose paragraph one block — the two shapes
-    this corpus writes provenance in.  That is the scope in which a reader
-    actually finds the fallback: the census's repairs all put the landed SHA in
-    the same table cell or the same sentence as the head it rescues.
+    A scope is a prose paragraph, or a SINGLE TABLE ROW — not the whole table.
+    Those are the two shapes this corpus writes provenance in, and they are the
+    scope in which a reader actually finds the fallback: the census's repairs
+    all put the landed SHA in the same table cell or the same sentence as the
+    head it rescues, never merely somewhere in the same table.
+
+    Scoping the table by row is what closes rf2-xlsh.  A table is one unbroken
+    run of non-blank lines, so judging it whole let any single landed hash
+    answer for every row around it, and a wrong pin in the operative row went
+    unreported — on the pages this guards, that row is the one that matters
+    most.  A row accompanies itself and nothing else.
     """
-    per_block: Dict[Tuple[str, int], List[Citation]] = {}
+    per_scope: Dict[Tuple[str, int], List[Citation]] = {}
     for c in citations:
-        per_block.setdefault((c.path, c.block), []).append(c)
+        per_scope.setdefault((c.path, c.scope), []).append(c)
 
     findings: List[Finding] = []
-    for (_path, _block), group in sorted(per_block.items()):
+    for (_path, _scope), group in sorted(per_scope.items()):
         statuses = {c.token: git.status(c.token) for c in group}
         landed = sorted({t for t, s in statuses.items() if s == "LANDED"})
         if landed:
@@ -608,13 +642,15 @@ def check(
         if verbose:
             stream.write(
                 "check_provenance_pins: every cited pin is an ancestor of %s or "
-                "shares its block with one.\n" % BASELINE_REF
+                "shares its block — its table row, when it sits in one — with "
+                "one.\n" % BASELINE_REF
             )
         return 0
 
     stream.write(
         "\ncheck_provenance_pins: %d finding(s). Every cited authored head must "
-        "be accompanied, in its own block, by a SHA that is an ancestor of %s.\n"
+        "be accompanied, in its own block — its own table ROW, when it sits in "
+        "a table — by a SHA that is an ancestor of %s.\n"
         "This tool does NOT re-pin: recovering the landed SHA restores the patch "
         "and not necessarily the measured tree, so a human decides each one "
         "(see rf2-owq6p).\n\n" % (len(findings), BASELINE_REF)
@@ -830,6 +866,44 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
     (
         "a bare landed id accompanies the stranded head beside it",
         ["Authored at aaaaaaaaaa on worker/x; it landed on main as bbbbbbbbbb."],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        [],
+    ),
+    # THE ROW SCOPE (rf2-xlsh).  The first case is the fail-open itself: a
+    # record table cited the operative pin in one row and a landed hash in
+    # another, and per-paragraph accompaniment let the neighbour answer for it,
+    # so a wrong hash in the field whose wrongness costs most went unreported.
+    (
+        "a landed hash in a SIBLING ROW does not rescue the row beside it",
+        [
+            "| Original freeze | `bbbbbbbbbb`, registering all seven criteria |",
+            "| Pre-registration commit | `aaaaaaaaaa` — this is the hash to cite |",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        ["aaaaaaaaaa"],
+    ),
+    # The counterweight, and the reason a row is not simply one line: this
+    # corpus wraps a long cell across source lines, and the anchor that rescues
+    # the head is routinely on the continuation.  `aaaa` is accompanied from the
+    # second line of its OWN row; `cccc`, a row down, is not.
+    (
+        "a cell wrapped across source lines is still one row",
+        [
+            "| Producing commit | `aaaaaaaaaa` on `worker/x` — authored, and",
+            "rebase-merged. It landed on main as **`bbbbbbbbbb`**. |",
+            "| Orphan row | `cccccccccc` |",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED", "cccccccccc": "STRANDED"},
+        ["cccccccccc"],
+    ),
+    # Prose is untouched by the row scope — the shape the census's repairs put
+    # the anchor in, which must keep passing.
+    (
+        "a paragraph is still one scope after the table split",
+        [
+            "Authored at `aaaaaaaaaa` on `worker/x`, before the rebase; the",
+            "same patch landed on main as `bbbbbbbbbb`.",
+        ],
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         [],
     ),

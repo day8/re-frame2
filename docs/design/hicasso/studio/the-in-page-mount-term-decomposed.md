@@ -116,7 +116,7 @@ measurement failure — see §5.
 | **Guard** | arm-order guard, tolerance 10%, by predecessor **and** by phase — **no refusal on any arm of any of the four runs** |
 | **Parity** | 14 of 15 arms canonical-DOM byte-identical to the candidate's page, all four runs; `ctl-2x` exempt by construction |
 | **Read-back** | harvest gate fatal unless the real page mounts 1,202 elements and resolves exactly 3 + 2 × 69 = 141 distinct reads — **passed on all four runs** |
-| **Windows** | announced on `rf2-409ab` before opening. Run A closed `2026-08-03 05:28:12 AUSEST`, runs B/C/D `05:29:17 – 05:32:13`. **Run A was taken from the working file that commit `b8e6da6681` then recorded unchanged**, so its blob is the producing commit's; B, C and D ran at the commit |
+| **Windows** | announced on `rf2-409ab` before opening. Run A closed `2026-08-03 05:28:12 AUSEST`, runs B/C/D `05:29:17 – 05:32:13`. **Run A was taken from the working file that commit `b8e6da6681` — landed on main as `4866dfa90c`, the row above — then recorded unchanged**, so its blob is the producing commit's; B, C and D ran at the commit |
 | **Quiet box** | **FAILED, and recorded rather than hidden** — see §8 |
 | **Exit codes** | four publication runs, **all exit `0`**; aggregator exit `0`; two deliberate mutations of the dataset each exit `1` (§7) |
 
