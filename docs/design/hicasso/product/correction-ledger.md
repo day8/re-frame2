@@ -45,14 +45,14 @@ Checkpoints append rows. Corrective workers flip `open` → `resolved` and cite 
 
 ## Worked example (dry run)
 
-Illustrative only; `rf2-hic-9001` and `rf2-hic-9002` are not filed issues. rf2-hic-019 §2 Correctness re-runs the eight sabotage controls and finds the callback-identity control still passes with the sabotage applied — the witness never reaches the retained-host path.
+Illustrative only; `rf2-hic-9001` and `rf2-hic-9002` are not filed issues, and `<commit-sha>` below stands in for the SHA a real row would carry. rf2-hic-019 §2 Correctness re-runs the eight sabotage controls and finds the callback-identity control still passes with the sabotage applied — the witness never reaches the retained-host path.
 
 | Step | What happens | Status | Closure evidence |
 |---|---|---|---|
 | 1. File | rf2-hic-019 runs `bd create` for `rf2-hic-9001` (surface fence and acceptance in its description) and appends the row. | `open` | — |
 | 2. Fix | The corrective worker rewrites the witness so the sabotage reddens; its PR merges to `main`. | `resolved` | PR merged; re-run outstanding |
 | 3. Closure re-run | Re-running all eight controls from a clean checkout is non-trivial, so rf2-hic-019 had filed closure bead `rf2-hic-9002` depending on `rf2-hic-9001`. It re-runs §2 Correctness against `main`. | `resolved` | re-run in progress (rf2-hic-9002) |
-| 4. Close | All eight controls redden. The result goes into the row. | `closed` | 2026-09-02 · §2 re-run on `main`@`abc1234` via rf2-hic-9002 · 8/8 controls reddened |
+| 4. Close | All eight controls redden. The result goes into the row. | `closed` | 2026-09-02 · §2 re-run on `main`@`<commit-sha>` via rf2-hic-9002 · 8/8 controls reddened |
 
 Between steps 2 and 3 the fix is on `main` and `rf2-hic-9001` is closed in the tracker, yet the ledger row still reads `resolved` and rf2-hic-064 would return a non-release verdict on it. That interval is the mechanism, not an inconvenience.
 
