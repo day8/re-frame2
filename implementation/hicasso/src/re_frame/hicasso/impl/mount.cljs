@@ -63,27 +63,34 @@
   tree's SHAPE is decided**, and the reason it is a function of the
   handle rather than of its two callers.
 
-  A hydrated root carries [[adoption-window-closer]] as a Fragment
-  sibling of the app subtree, and it has to carry it on EVERY subsequent
-  render: React reconciles a root by its top element, so handing a
-  hydrated root a bare provider where a Fragment stood would not be a
-  cheaper render, it would be a different tree — React unmounts the
-  adopted subtree and mounts a fresh one, discarding every node, cell and
-  subscription the adoption just established. Measured: the first
-  `render!` after a hydration re-ran all four boundary bodies and
-  replaced all four DOM nodes.
+  A hydrated root carries [[adoption-window-closer]] and its own
+  adoption-window provider as a Fragment around the app subtree, and it
+  has to carry them on EVERY subsequent render: React reconciles a root
+  by its top element, so handing a hydrated root a bare provider where a
+  Fragment stood would not be a cheaper render, it would be a different
+  tree — React unmounts the adopted subtree and mounts a fresh one,
+  discarding every node, cell and subscription the adoption just
+  established. Measured: the first `render!` after a hydration re-ran all
+  four boundary bodies and replaced all four DOM nodes.
+
+  **The window is what says a root is hydrated** (rf2-6tmu). The handle
+  used to carry a separate `:hydrated?` boolean to drive this branch;
+  now the presence of `:adoption` says the same thing and is the thing
+  the wrapper is FOR, so there is one fact here rather than two that
+  could disagree.
 
   An ordinary root gets no wrapper at all, which keeps the tree the whole
   bench lane measures exactly what it was — no extra fiber, no extra
-  passive effect, and nothing new in
+  passive effect, no context provider, and nothing new in
   `re-frame.hicasso.impl.inventory/retained-inventory`."
   [handle hiccup]
   (let [app (provider (:frame handle)
                       (codec/root-element (:frame handle) hiccup))]
-    (if (:hydrated? handle)
+    (if-some [window (:adoption handle)]
       (react/createElement (.-Fragment react) nil
-                           (react/createElement adoption-window-closer nil)
-                           app)
+                           (react/createElement adoption-window-closer
+                                                #js {:rfWindow window})
+                           (roots/with-adoption window app))
       app)))
 
 (defn render!
@@ -112,21 +119,28 @@
     handle))
 
 (defn adoption-window-closer
-  "The component that CLOSES the adoption window, on the hydration commit
-  and not before (rf2-2rtt6.84).
+  "The component that CLOSES **its own root's** adoption window, on that
+  root's hydration commit and not before (rf2-2rtt6.84, rf2-6tmu).
 
-  Lifted verbatim in shape from the spine's own
-  `re-frame.substrate.spine/adoption-window-closer`: a passive
-  `useEffect` with empty deps, so it runs exactly once and strictly AFTER
-  the commit that adopted the server DOM. Renders nil — no DOM, so it
-  adds nothing for `hydrateRoot` to match and cannot itself mismatch.
+  Lifted in shape from the spine's own
+  `re-frame.substrate.spine/adoption-window-closer`, down to taking the
+  window off a prop: a passive `useEffect` with empty deps, so it runs
+  exactly once and strictly AFTER the commit that adopted the server DOM.
+  Renders nil — no DOM, so it adds nothing for `hydrateRoot` to match and
+  cannot itself mismatch.
+
+  The window arrives as `rfWindow` rather than being read from a module
+  slot, and that prop IS the repair: a closer can only shut the window
+  its own root minted, so a sibling root still adopting stays adopting.
 
   Public because that is what makes adoption OBSERVABLE without a probe:
-  `(roots/adopting?)` answering false is this effect having run, which is
-  the completion signal a witness waits on in place of the `flushSync`
-  [[hydrate-root!]] refuses to perform."
-  [_props]
-  (react/useEffect (fn close-window [] (roots/close-adoption-window!) js/undefined)
+  `(roots/adopting? (:adoption handle))` answering false is this effect
+  having run, which is the completion signal a witness waits on in place
+  of the `flushSync` [[hydrate-root!]] refuses to perform."
+  [^js props]
+  (react/useEffect (fn close-window []
+                     (roots/close-adoption-window! (.-rfWindow props))
+                     js/undefined)
                    #js [])
   nil)
 
@@ -194,30 +208,44 @@
                 :recovery :warned-and-replaced}))
 
 (defn hydration-reporter
-  "The `onRecoverableError` a hydrating root installs. **The callback
-  itself, not a builder** — the spine builds one per root because its
-  adoption window is root-local; this arm's window is module-level
-  (`roots/adopting?`, and the reason is stated there), so there is
-  nothing to close over.
+  "BUILD the `onRecoverableError` for the root that owns `window`
+  (rf2-6tmu). A builder, exactly as the spine's
+  `re-frame.substrate.spine/native-hydration-reporter` is a builder, and
+  for the spine's reason: the window it consults belongs to ONE root, so
+  the callback has to close over it.
 
-  Emits the framework diagnostic ONLY while the adoption window is open,
-  then ALWAYS reports. React holds this callback for the root's whole
-  lifetime and fires it for post-hydration recoverable errors too — a
-  concurrent render it retried and recovered — and emitting outside the
-  window would label one of those a hydration mismatch. The window shuts
-  on the hydration commit, from [[adoption-window-closer]]'s passive
-  effect.
+  Emits the framework diagnostic ONLY while THAT root's window is open,
+  then ALWAYS reports. Both halves matter and they fail in opposite
+  directions:
+
+    - React holds this callback for the root's whole lifetime and fires
+      it for post-hydration recoverable errors too — a concurrent render
+      it retried and recovered. Emitting outside the window would label
+      one of those a hydration mismatch. **Reading a page-wide window
+      here would mislabel a completed root's later recovery whenever any
+      sibling was still adopting** — which is what a page-global
+      reference count would have bought.
+    - Never emitting is the other failure, and it is the one that was
+      shipping: a page-wide boolean let root A's closer silence root B's
+      genuine mismatch.
+
+  The delegation is unconditional in both cases — installing ANY
+  `onRecoverableError` takes React's default off, so `rf2-mwx08`'s
+  fail-open is preserved by reporting whether or not the framework
+  emitted.
 
   Public because that is what lets a witness drive the REAL callback
   across the window boundary rather than a copy of it — the spine's own
   reason for publishing `native-hydration-reporter`."
-  [error _error-info]
-  (when (roots/adopting?)
-    (emit-hydration-mismatch! error))
-  (report-recoverable-default! error))
+  [^js window]
+  (fn on-recoverable [error _error-info]
+    (when (roots/adopting? window)
+      (emit-hydration-mismatch! error))
+    (report-recoverable-default! error)))
 
 (defn- hydrate-root-options
-  "The `react-dom/client` root options for a hydrating root, or nil.
+  "The `react-dom/client` root options for the root owning `window`, or
+  nil.
 
   Nil in production, where the emit DCEs behind `interop/debug-enabled?`
   and the only thing left to install would be a replica of the default
@@ -226,9 +254,9 @@
   way, one clause wider: it also installs for a host-authored
   `:on-recoverable-error`, and this arm has no host-authored callback to
   compose with."
-  []
+  [window]
   (when interop/debug-enabled?
-    #js {:onRecoverableError hydration-reporter}))
+    #js {:onRecoverableError (hydration-reporter window)}))
 
 (defn hydrate-root!
   "Associate `container`'s **existing server-rendered DOM** with
@@ -274,18 +302,31 @@
   [[hydrate-root-options]] answers nil and this call is the bare
   two-argument one it always was.
 
-  ## The handle carries `:hydrated?`, and it has to
+  ## The handle carries `:adoption` — this root's OWN window (rf2-6tmu)
 
   [[root!]]'s three keys are all here and every door takes this handle
-  unchanged. The fourth key is not decoration: the wrapper above is part
-  of the ROOT's shape, so [[render!]] has to reproduce it or React tears
-  the adopted tree down and rebuilds it. [[tree]] is the one place that
-  decision is made and `:hydrated?` is what it reads."
+  unchanged. The fourth key is not decoration and it is not a flag: it is
+  the window itself, minted here and reachable from nowhere else. Three
+  things need it and each gets the same object — the closer, the
+  reporter, and the provider presence reads — so \"this root is adopting\"
+  is one fact with one owner rather than a page-wide slot four callers
+  race for.
+
+  It is also what [[tree]] branches on, because the wrapper is part of the
+  ROOT's shape and [[render!]] has to reproduce it or React tears the
+  adopted tree down and rebuilds it.
+
+  **Minted unconditionally, unlike the spine's** — which mints only when
+  it is going to install a reporter, because its window has no other
+  reader. This arm's window has a PRODUCTION reader: presence starts an
+  adopted child `:present` rather than `:mounting`, which is behaviour a
+  release build must keep. So the window and its provider ride in
+  production and only the reporter is debug-gated."
   [container frame-kw hiccup]
-  (roots/open-adoption-window!)
-  (let [handle  {:frame frame-kw :container container :hydrated? true}
+  (let [window  (roots/open-adoption-window!)
+        handle  {:frame frame-kw :container container :adoption window}
         element (tree handle hiccup)
-        opts    (hydrate-root-options)]
+        opts    (hydrate-root-options window)]
     (assoc handle :root (if opts
                           (react-dom-client/hydrateRoot container element opts)
                           (react-dom-client/hydrateRoot container element)))))
@@ -302,8 +343,19 @@
   wants to assert on teardown therefore calls this, waits one macrotask
   for the cell and entry reapers, asserts, and resets afterwards.
 
-  Idempotent, for the same reason [[release!]] is."
+  **Shuts this root's adoption window first** (rf2-6tmu). A root torn
+  down before its passive effects ever ran never gets its closer, and an
+  open window that outlives its root is a window nothing can ever shut.
+  Root teardown owns root state, so it is this door's job and not a
+  page-wide reset's — closing a sibling's window from a reset is exactly
+  the cross-root reach this bead removed.
+
+  Idempotent, for the same reason [[release!]] is —
+  `roots/close-adoption-window!` is idempotent and nil-tolerant, so an
+  ordinary handle (which carries no window) and a second call are both
+  no-ops."
   [handle]
+  (roots/close-adoption-window! (:adoption handle))
   (when-some [r (:root handle)]
     (react-dom/flushSync (fn [] (.unmount r))))
   (when-some [c (:container handle)]

@@ -21,7 +21,7 @@
   | **this one** | the render context, the cell table, the commit, the two read tiers, the read-set entries, the generation fence, the two shells and the two mint doors |
   | [[re-frame.hicasso.impl.generation]] | the flush generation, the registry epoch and `commit-basis` |
   | [[re-frame.hicasso.impl.frames]] | the two frame-locked memo tables and their invalidation |
-  | [[re-frame.hicasso.impl.roots]] | the hydration adoption window |
+  | [[re-frame.hicasso.impl.roots]] | the hydration adoption window — one per root, and NOT this module's to empty (rf2-6tmu) |
   | [[re-frame.hicasso.impl.evidence]] | the dev-only sink seam |
   | [[re-frame.hicasso.impl.inventory]] | what the runtime RETAINS: the declared census and the measured one |
 
@@ -401,7 +401,6 @@
             [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.generation :as generation]
             [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.roots :as roots]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.live-frame :as live-frame]
@@ -1809,7 +1808,18 @@
   It lives here because the collector holds most of what it drops, and it
   calls each sibling's own door for the rest — a module that owns state
   owns the act of emptying it, so this fn cannot silently miss a slot
-  somebody adds elsewhere."
+  somebody adds elsewhere.
+
+  **It does NOT touch the hydration adoption window** (rf2-6tmu). It used
+  to, because the window was one boolean for the whole page and a fixture
+  that threw mid-hydration would otherwise leave the page permanently
+  adopting. A window now belongs to the root that minted it and is
+  reachable only from that root's handle, so there is nothing page-wide
+  left to rescue: a root whose construction threw left an unreachable
+  object, and a root that is torn down is closed by
+  `impl.mount/unmount!`. Reaching in from here would be the opposite of
+  the repair — a reset in one root shutting a sibling root's window while
+  it is still adopting."
   []
   (doseq [[_ cell] @!cells] (dispose-cell! cell))
   (reset! !cells {})
@@ -1822,8 +1832,6 @@
   (set! (.-frame rstate) nil)
   (set! (.-probe rstate) nil)
   (set! (.-length scratch) 0)
-  ;; A fixture that threw mid-hydration must not leave the page adopting.
   ;; `bodyRuns` is deliberately NOT reset here — see [[body-runs]].
-  (roots/close-adoption-window!)
   (frames/forget-frame-ops!)
   nil)
