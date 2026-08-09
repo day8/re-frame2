@@ -186,9 +186,12 @@ const ENGINES = ONLY
 // So the pin is the section NAMES, each with the number of checks it banks
 // today. The names make a deleted section a red gate that says which one is
 // gone; the counts make a row quietly dropped from a surviving section red
-// too. Adding rows is free — these are minimums. The list is deliberately
-// in THIS file rather than beside the sections it names, so deleting a
-// witness means deliberately editing the gate that requires it.
+// too. Adding rows is free — these are minimums — but adding a SECTION is
+// not: the set must match exactly, so a witness added tomorrow is required
+// from the moment it lands instead of being deletable again silently. The
+// list is deliberately in THIS file rather than beside the sections it
+// names, so deleting a witness means deliberately editing the gate that
+// requires it.
 //
 // Sum today: 55, which is what each engine reports.
 // ---------------------------------------------------------------------------
@@ -306,6 +309,14 @@ function coverageReport(result, required = REQUIRED_SECTIONS) {
       problems.push(
         `section "${name}" banked ${sections[name]} checks, was ${min} — ` +
         `rows were dropped from a section that still runs.`);
+    }
+  }
+  for (const name of Object.keys(sections)) {
+    if (!has(required, name)) {
+      problems.push(
+        `section "${name}" ran but is not pinned in REQUIRED_SECTIONS — add ` +
+        `it with the rows it banks, or it is a witness that can be deleted ` +
+        `again silently.`);
     }
   }
   return problems;
@@ -434,6 +445,12 @@ function runMutationTeeth() {
 
   bite('a recorded row nobody pinned reds', () =>
     recordSchemaReport({ ...fullRecords(), invented: 1 }).length === 1);
+
+  // Both pins are bijections, so a witness added tomorrow is required from
+  // the moment it lands rather than being deletable again silently.
+  bite('a section nobody pinned reds', () =>
+    coverageReport({ checks: 56, sections: { ...fullSections(), invented: 1 } })
+      .length === 1);
 
   return teeth;
 }
