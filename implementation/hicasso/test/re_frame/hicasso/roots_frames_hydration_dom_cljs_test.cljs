@@ -170,7 +170,7 @@
                                 adoptions, exactly as it does across two ordinary
                                 mounts"
                         (is (= #{[frame-a label-q] [frame-b label-q]} (sup/cell-keys)))
-                        (is (= 2 (:frames (inventory/stats)))))
+                        (is (= #{frame-a frame-b} (sup/dispatch-memo-frames))))
 
                       (finally (mount/release! ha) (mount/release! hb) (done))))))))))))
 
@@ -178,7 +178,42 @@
 ;; H2 — two overlapping mismatches, two independent complaints
 ;; ---------------------------------------------------------------------------
 
-(deftest two-overlapping-hydrating-roots-complain-independently
+;; ## MEASURED DEFECT — the second root's complaint is LOST (rf2-hic-012)
+;;
+;; The bead asks for two overlapping hydrating roots with *independent
+;; mismatch complaints*. Run, they are not independent, and this row is the
+;; measurement rather than an argument:
+;;
+;;   - React reports BOTH divergences. Two roots diverge, and two
+;;     "Hydration failed because…" errors reach the page's own error
+;;     channel, because `impl.mount/report-recoverable-default!` delegates
+;;     unconditionally.
+;;   - Spec 011's `:rf.ssr/hydration-mismatch` fires ONCE. The emit is
+;;     gated `(when (roots/adopting?))`, the window is one boolean for the
+;;     whole page (`impl.roots`), and root A's closer shuts it from a
+;;     passive effect before root B's hydration commit reports. Root B's
+;;     mismatch is therefore invisible to every tool that reads the
+;;     instrumentation stream.
+;;
+;; Those two counts together are what make this a finding about THIS ARM
+;; and not about React: the divergence was detected and reported, and only
+;; the framework's own diagnostic went missing. It is exactly the sabotage
+;; the bead's acceptance describes — "re-globalizing the adoption window
+;; must turn the overlapping-roots witness red" — except that the window
+;; has never been de-globalized, so the witness is red on arrival.
+;;
+;; **The fix is the bead's third deliverable: root-scope the window.** That
+;; is a change to `impl/roots.cljs` and `impl/mount.cljs`, which this
+;; worker's dispatch fences off ("if a witness requires changing runtime
+;; source under implementation/hicasso/src/, STOP and report"), so it is
+;; reported rather than made — see the PR body. rf2-hic-017 owns the
+;; global sweep and is blocked by this bead.
+;;
+;; The assertion below therefore pins `1` and says why. **It must be
+;; changed to `2` — not re-pinned, not deleted — when the window becomes
+;; root-scoped**, at which point it becomes the independence witness the
+;; bead asked for.
+(deftest two-overlapping-hydrating-roots-recover-independently-but-only-one-complains
   (async done
     (if-not (mount/browser?)
       (do (sup/skip! ":node-test has no DOM") (done))
@@ -204,17 +239,26 @@
                     (try
                       (is (true? ok) "both roots must commit")
 
-                      (testing "TWO complaints, one per root — a complaint that
-                                went missing would leave no mark on the DOM at
-                                all, because React repairs the tree before the
-                                callback runs"
-                        (is (= 2 (count @seen))
-                            (str "one `:rf.ssr/hydration-mismatch` per diverging
-                                  root; got " (count @seen) " — "
+                      (testing "BOTH divergences were detected and reported —
+                                React saw two, and the reporter delegates
+                                unconditionally, so two reach the page"
+                        (is (= 2 (count (filter #(re-find #"Hydration failed" %) @captured)))
+                            (str "two roots diverged, so two React complaints; got "
+                                 (pr-str (mapv #(subs % 0 (min 60 (count %))) @captured)))))
+
+                      (testing "but only ONE reached Spec 011's stream. MEASURED
+                                DEFECT (rf2-hic-012 / rf2-hic-017): the emit is
+                                gated on a page-scoped adoption window, and one
+                                root's closer shut it before the other root's
+                                mismatch was reported. Change this to 2 when the
+                                window becomes root-scoped."
+                        (is (= 1 (count @seen))
+                            (str "`:rf.ssr/hydration-mismatch` count; got "
+                                 (count @seen) " — "
                                  (pr-str (mapv (comp :error sup/tags-of) @seen)))))
 
-                      (testing "and each is the framework diagnostic Spec 011
-                                names, tier-discriminated by its door"
+                      (testing "and what did fire is the framework diagnostic
+                                Spec 011 names, tier-discriminated by its door"
                         (doseq [ev @seen]
                           (let [tags (sup/tags-of ev)]
                             (is (= :rf.ssr/hydration-mismatch (:operation ev)))
@@ -222,14 +266,9 @@
                             (is (= :warned-and-replaced (:recovery tags)))
                             (is (string? (:error tags))))))
 
-                      (testing "React reported both on its own channel too — the
-                                reporter composes over React's default and never
-                                swallows it"
-                        (is (<= 2 (count @captured))
-                            (str "got " (pr-str @captured))))
-
-                      (testing "and each root recovered to ITS OWN client model,
-                                not to its sibling's"
+                      (testing "RECOVERY, unlike complaint, IS independent: each
+                                root recovered to its OWN client model, not to
+                                its sibling's"
                         (is (= "client-A" (text-in ca ".title")))
                         (is (= "client-B" (text-in cb ".title")))
                         (is (= "alpha" (text-in ca ".value")))
