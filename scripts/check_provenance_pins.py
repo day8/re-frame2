@@ -61,7 +61,11 @@ roster of known digests (which rots) and never by asking git (see above):
     "landed on main as `x`" and "authored at `x` on `worker/…`" say pin.
     Nearest rather than any-match, because a sentence about a commit routinely
     ends by naming a blob and vice versa, and the word beside the token is the
-    one describing it.  A FILE PATH in a code span counts as a digest word: "|
+    one describing it.  That reach STOPS AT THE START OF THE TOKEN'S OWN ROW,
+    which is the other half of rf2-xlsh: a "| Blob hash | … |" row above
+    otherwise repaints the row below it as a digest, no citation is created,
+    and the row scope below never gets to adjudicate what was never extracted.
+    A FILE PATH in a code span counts as a digest word: "|
     `lane.cljs` | `x` |" and "`front/codec.cljs` is `x`" are how a blob is
     written when no noun is spare.  A branch is not a path — `worker/x` and
     `origin/main` carry no extension — so they stay commit words.
@@ -180,8 +184,8 @@ _BARE_PROSE_HEX = re.compile(
 _SPAN_SPLIT = re.compile(r"[=/:,\s]+")
 
 # Left-context vocabulary.  These decide what the WRITER said the token is, and
-# they are read only from the token's own line, so a neighbouring sentence
-# cannot repaint it.
+# they are read no further back than the claim the token stands in — its own
+# paragraph, or its own table row — so a neighbouring ROW cannot repaint it.
 _DIGEST_WORDS = re.compile(
     r"blob|digest|sha-?256|fnv|checksum|hash", re.I
 )
@@ -315,7 +319,7 @@ _RIGHT_APPOSITION = 14
 
 def _left_context(lines: Sequence[str], index: int, span_start: int) -> str:
     """The token's left context: everything before it on its own line, plus up
-    to two whole lines above.
+    to two whole lines above, STOPPING AT THE START OF ITS OWN TABLE ROW.
 
     It has to cross lines: this corpus hard-wraps at about eighty columns, so
     the word describing a token routinely sits on the line above it, and a run
@@ -323,18 +327,38 @@ def _left_context(lines: Sequence[str], index: int, span_start: int) -> str:
     stops at a blank line, because that is a different block and a different
     claim.
 
+    IT STOPS AT A PRIOR ROW FOR THE SAME REASON, and not stopping there was the
+    second half of rf2-xlsh.  Scoping accompaniment by row fixed adjudication
+    but left EXTRACTION reading whatever the rows above happened to say, so a
+    "| Blob hash | … |" row one line up repainted the next row's token as a
+    digest and no citation was created at all — `evaluate` never saw it, and the
+    row scope it could not see had nothing to enforce.  A digest word describes
+    the cell it stands in; the row below makes its own claim.  So the context
+    may reach the line that OPENS the token's row — the corpus wraps a long cell
+    across source lines and the word describing the token is routinely up
+    there — and it may not reach past it.
+
     WHOLE lines, never a character slice.  Cutting the context mid-line can cut
     a code span in half, after which the surviving backtick re-pairs with the
     wrong partner and the file path that would have identified the token as a
     blob stops being visible — which is how the first cut of this function
     reported a column of blob hashes as unresolvable pins.
     """
-    parts = [_strip_quote(lines[index][:span_start])]
+    own = _strip_quote(lines[index][:span_start])
+    if _TABLE_ROW.match(_strip_quote(lines[index])):
+        # The token's own line opens the row, so everything above it is a
+        # previous row's claim.
+        return own
+    parts = [own]
     i = index - 1
     taken = 0
     while taken < _LEFT_LINES and i >= 0 and lines[i].strip():
         parts.append(_strip_quote(lines[i]))
         taken += 1
+        if _TABLE_ROW.match(_strip_quote(lines[i])):
+            # That line opened the row this token wrapped out of; the row ends
+            # here going up.
+            break
         i -= 1
     return " ".join(reversed(parts))
 
@@ -799,6 +823,36 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ],
         [],
     ),
+    # THE SIBLING DIGEST (rf2-xlsh, second half).  Scoping accompaniment by row
+    # guards adjudication; this guards EXTRACTION, which ran first and so ran
+    # unguarded.  The digest word in the row above used to reach down and
+    # repaint the row below, and a token classified as a digest is never a
+    # citation, so `evaluate` was handed nothing and the operative pin failed
+    # open with the row scope already in place.  Both rows are asserted: the
+    # digest must stay a digest, and the pin beside it must be seen.
+    (
+        "a digest word in the row above does not repaint the next row",
+        [
+            "| Field | Value |",
+            "|---|---|",
+            "| Blob hash | `bbbbbbbbbb` |",
+            "| Original freeze | `aaaaaaaaaa` |",
+        ],
+        ["aaaaaaaaaa"],
+    ),
+    # The counterweight, and the reason the boundary is the row START and not
+    # the newline: a long cell wraps across source lines, and the word
+    # describing the token is up on the line that opened the row.  `0642815dc2`
+    # has no vocabulary of its own, so it is a digest only if the context still
+    # reaches its own row's first line — cut that and it defaults to a pin.
+    (
+        "a wrapped cell still reads the word that opened its own row",
+        [
+            "| Instrument blob | `0304f489bb`, and the follow-up",
+            "`0642815dc2` for the same lane |",
+        ],
+        [],
+    ),
 ]
 
 # (label, lines, {token: status}, expected finding tokens)
@@ -895,6 +949,20 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         ],
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED", "cccccccccc": "STRANDED"},
         ["cccccccccc"],
+    ),
+    # THE SIBLING DIGEST, end to end.  The row scope alone left this at exit 0:
+    # the `Blob hash` row above repainted `aaaaaaaaaa` as a digest during
+    # extraction, so there was no citation for the row scope to adjudicate and
+    # the operative pin failed open.  An empty expectation here would be a pass
+    # for the wrong reason, so the finding is the assertion.
+    (
+        "a digest row above neither repaints nor rescues the row beside it",
+        [
+            "| Blob hash | `bbbbbbbbbb` |",
+            "| Original freeze | `aaaaaaaaaa` |",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        ["aaaaaaaaaa"],
     ),
     # Prose is untouched by the row scope — the shape the census's repairs put
     # the anchor in, which must keep passing.
