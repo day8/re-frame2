@@ -1,0 +1,48 @@
+[{:line 9,
+  :col 3,
+  :class :named-value,
+  :action :rewrote,
+  :head "Btn",
+  :detail {:prop ":variant", :was ":contained", :now "contained"},
+  :note
+  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}
+ {:line 13,
+  :col 3,
+  :class :named-value,
+  :action :rewrote,
+  :head "Btn",
+  :detail {:prop ":variant", :was "my-sym", :now "my-sym"},
+  :note
+  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}
+ {:line 21,
+  :col 3,
+  :class :computed-value,
+  :action :refused,
+  :head "Btn",
+  :detail {:props [":variant" ":on-click"]},
+  :note
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}
+ {:line 24,
+  :col 3,
+  :class :namespaced-named-value,
+  :action :rewrote,
+  :head "Provider",
+  :detail {:prop ":theme", :was ":theme/dark", :now "dark"},
+  :note
+  "Preserved exactly, and the preservation bakes in a collision. Reagent answered `(name :theme/dark)`, so `:theme/dark` and any other namespace's `dark` reached the library as ONE string. Hicasso keeps the namespace, which is what rf2-vrvv9 changed it to do. Writing the string preserves your current behaviour; if the namespace was carrying meaning, this is where it was already being lost."}
+ {:line 34,
+  :col 3,
+  :class :named-ref,
+  :action :refused,
+  :head "Btn",
+  :detail {:prop ":ref", :value ":my-ref"},
+  :note
+  "Reagent's `(name …)` here produced a STRING REF, which React 19 removed and now throws on — so preserving Reagent would restore a crash. Replace it with a callback ref (a function taking the node) or a `useRef`-style handle."}
+ {:line 37,
+  :col 3,
+  :class :key-slot-named-value,
+  :action :skipped,
+  :head "Row",
+  :detail {:prop ":key", :value ":foo"},
+  :note
+  "NOT REWRITTEN, DELIBERATELY, AND IT COSTS YOU SOMETHING. Reagent converted this key like any prop and React received \"foo\"; Hicasso lifts it raw and React coerces it to \":foo\". Writing \"foo\" here would restore a defect: two sibling elements keyed `:foo` and `\"foo\"` collided under Reagent and are distinct under Hicasso. The cost of leaving it is that the key CHANGES at the migration, so on the first render after it React treats this element as a new one — it unmounts the existing subtree and mounts a fresh one, DISCARDING ITS STATE (uncontrolled input values, scroll position, component state). It is a one-time cost and the key is stable thereafter."}]

@@ -100,9 +100,11 @@
                 (recur (conj out k) (rest ks) (inc j))))))))))
 
 (defn- remove-element
-  "Remove the `i`-th semantic child of `node` together with the single
-  whitespace node that preceded it, so a removal does not leave a double
-  space behind."
+  "Remove the `i`-th semantic child of `node` along with ONE adjacent
+  whitespace node, so a removal leaves neither a double space nor a
+  leading one. The preceding space goes when there is one; for the first
+  child — which has nothing before it but the opening delimiter — the
+  FOLLOWING space goes instead."
   [node i]
   (let [kept (loop [out [], ks (n/children node), j 0]
                (if (empty? ks)
@@ -111,10 +113,15 @@
                    (if (n/whitespace-or-comment? k)
                      (recur (conj out k) (rest ks) j)
                      (if (= j i)
-                       (recur (if (and (seq out) (n/whitespace-or-comment? (peek out)))
-                                (pop out)
-                                out)
-                              (rest ks) (inc j))
+                       (if (and (seq out) (n/whitespace-or-comment? (peek out)))
+                         (recur (pop out) (rest ks) (inc j))
+                         ;; nothing to drop behind us: drop the space ahead
+                         (let [ks' (rest ks)]
+                           (recur out
+                                  (if (and (seq ks') (n/whitespace-or-comment? (first ks')))
+                                    (rest ks')
+                                    ks')
+                                  (inc j))))
                        (recur (conj out k) (rest ks) (inc j)))))))]
     (n/replace-children node kept)))
 
@@ -146,6 +153,33 @@
          (or (keyword? v) (string? v) (number? v) (boolean? v)
              (nil? v) (char? v) (instance? java.util.regex.Pattern v)))))
 
+(defn- literal-named-value
+  "The keyword or symbol this prop value **is**, or `nil`.
+
+  A bare symbol token is a VARIABLE REFERENCE, not a symbol value:
+  `handler` names whatever `handler` is bound to, and at a prop that is
+  overwhelmingly a function. Only a keyword literal and a QUOTED symbol
+  are named values the donor's `(name x)` arm ever saw.
+
+  This distinction is the difference between W3 and a catastrophe.
+  Reading a bare symbol as a symbol value rewrites `{:on-click handler}`
+  to `{:on-click \"handler\"}` — a live handler replaced by a string,
+  silently, which is precisely the fatal class this whole tool exists to
+  delete. Everything reached through a symbol is invisible to a source
+  reader and falls to `:computed-value` (§4.4's \"scope, stated
+  honestly\")."
+  [v]
+  (cond
+    (and (tag= v :token) (keyword? (sexpr-safe v)))
+    (sexpr-safe v)
+
+    (tag= v :quote)
+    (let [inner (element-at v 0)]
+      (when (and inner (tag= inner :token) (symbol? (sexpr-safe inner)))
+        (sexpr-safe inner)))
+
+    :else nil))
+
 (defn- fn-literal?
   "Is this form SYNTACTICALLY a function — `(fn …)`, `(fn* …)`, `#(…)`,
   or a `let` whose body ends in one (which is W4's own output shape)?
@@ -163,6 +197,19 @@
               (or (contains? '#{fn fn* clojure.core/fn} s)
                   (and (= 'let s)
                        (some-> (last (elements node)) fn-literal?))))))))
+
+(defn- read-off-the-text?
+  "Can this prop value's crossing be decided from the text alone? True for
+  a non-symbol token, a literal collection, a quoted form, a reader
+  literal such as `#js {…}`, and a function literal. False for a bare
+  symbol and for any call — those are `:computed-value`, which is exactly
+  what §4.4 says of \"anything arriving through a symbol\"."
+  [v]
+  (boolean
+   (or (and (tag= v :token) (not (symbol? (sexpr-safe v))))
+       (map-node? v) (vector-node? v) (tag= v :set)
+       (tag= v :quote) (tag= v :reader-macro)
+       (fn-literal? v))))
 
 ;; ---------------------------------------------------------------------------
 ;; The `^{:key k}` wrapper (W1's other half)
@@ -634,9 +681,9 @@
                               "deliberately whether you want that.")))
 
          ;; ---- §5.2 `:named-ref` ----------------------------------------------
-         (and (= dest/ref-slot slot)
-              (tag= v :token)
-              (let [vv (sexpr-safe v)] (or (keyword? vv) (symbol? vv))))
+         ;; A bare symbol at `:ref` is a CALLBACK ref and is fine; only a
+         ;; keyword or quoted symbol made the donor produce a string ref.
+         (and (= dest/ref-slot slot) (literal-named-value v))
          (add acc (entry :named-ref :refused {:prop ktext :value (str/trim (n/string v))}
                          (str "Reagent's `(name …)` here produced a STRING REF, which React 19 "
                               "removed and now throws on — so preserving Reagent would restore a "
@@ -687,9 +734,8 @@
            acc)
 
          ;; ---- W3 (§4.3), amended by (C) ---------------------------------------
-         (and (tag= v :token)
-              (let [vv (sexpr-safe v)] (or (keyword? vv) (symbol? vv))))
-         (let [vv (sexpr-safe v)]
+         (literal-named-value v)
+         (let [vv (literal-named-value v)]
            (cond
              ;; W6 landed this site on a NATIVE tag, whose Hicasso walk carries
              ;; the `(name v)` arm itself — so W3 is a fixpoint here and firing
@@ -721,9 +767,7 @@
   [props-node ctx]
   (let [unread (->> (pairs props-node)
                     (remove (fn [[_ v _]]
-                              (or (tag= v :token) (map-node? v) (vector-node? v)
-                                  (fn-literal? v)
-                                  (tag= v :quote)
+                              (or (read-off-the-text? v)
                                   ;; W4 read this one and rewrote it; a tool that
                                   ;; reports its own rewrite as undecidable is
                                   ;; crying wolf.

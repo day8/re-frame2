@@ -1,0 +1,88 @@
+[{:line 9,
+  :col 3,
+  :class :intent-needs-a-declaration,
+  :action :refused,
+  :head "C",
+  :detail {:prop ":on-click", :value "[:save!]"},
+  :note
+  "MIGRATION BLOCKER, and the one place Hicasso refuses something Reagent accepted. `host-entry` refuses an intent vector or key-map at an event-spelled prop the declaration does not name, and a `[:>]` crossing declares nothing — so this site will THROW at render. Know first that it never fired under Reagent either: it crossed as an inert array. Either declare the crossing with `defhost` and name this prop in `:callbacks`, or hand it a plain function."}
+ {:line 12,
+  :col 3,
+  :class :intent-needs-a-declaration,
+  :action :refused,
+  :head "C",
+  :detail {:prop ":on-key-down", :value "{\"Enter\" [:save!]}"},
+  :note
+  "MIGRATION BLOCKER, and the one place Hicasso refuses something Reagent accepted. `host-entry` refuses an intent vector or key-map at an event-spelled prop the declaration does not name, and a `[:>]` crossing declares nothing — so this site will THROW at render. Know first that it never fired under Reagent either: it crossed as an inert array. Either declare the crossing with `defhost` and name this prop in `:callbacks`, or hand it a plain function."}
+ {:line 15,
+  :col 3,
+  :class :dangerous-html,
+  :action :refused,
+  :head "C",
+  :detail {:prop ":dangerouslySetInnerHTML"},
+  :note
+  "MIGRATION BLOCKER. Reagent's `convert-props` DELETED this prop unless its value was an `UnsafeHTML` instance, so under Reagent it very likely did nothing at all. Hicasso passes it through, so the migration RESURRECTS it and the HTML starts being injected. Decide deliberately whether you want that."}
+ {:line 18,
+  :col 3,
+  :class :amp-key,
+  :action :refused,
+  :head "C",
+  :detail {:prop ":&"},
+  :note
+  "Reagent emitted a prop LITERALLY NAMED \"&\"; Hicasso reads `:&` as its one attribute merge, folding the map into this element's own attributes under the owned-literal law. Two unrelated meanings for one literal and your intent is unrecoverable from the text — decide which you meant."}
+ {:line 21,
+  :col 3,
+  :class :as-element-island,
+  :action :refused,
+  :head "Grid",
+  :detail {},
+  :note
+  "An `r/as-element` inside a callback body at this site. Port it by hand: the closure runs when the library calls it, OUTSIDE the owner's render window, so swapping Reagent's lowering for Hicasso's is not a text substitution."}
+ {:line 24,
+  :col 3,
+  :class :reagent-api-residue,
+  :action :refused,
+  :head "C",
+  :detail {},
+  :note
+  "Reagent API — `r/atom`, `r/cursor`, `r/track`, a form-2 or form-3 shape — inside this site. That is outside this tool's fence entirely; it is named here so you are not surprised by it later."}
+ {:line 24,
+  :col 3,
+  :class :computed-value,
+  :action :refused,
+  :head "C",
+  :detail {:props [":value"]},
+  :note
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}
+ {:line 27,
+  :col 3,
+  :class :computed-props,
+  :action :refused,
+  :head "C",
+  :detail {:slot "(merge base extra)"},
+  :note
+  "The slot after the head is neither a literal map nor obviously a child, so the tool could not tell props from a child and left the whole site alone. Every prop-level repair is unavailable here — check this site by hand."}
+ {:line 30,
+  :col 3,
+  :class :computed-value,
+  :action :refused,
+  :head "C",
+  :detail {:props [":variant" ":other"]},
+  :note
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}
+ {:line 33,
+  :col 3,
+  :class :r>-site,
+  :action :refused,
+  :head "C",
+  :detail {},
+  :note
+  "Port this by hand. Hicasso reads `r>` as an ordinary tag keyword and renders an unknown element — nothing throws, nothing warns, and the component never mounts."}
+ {:line 36,
+  :col 3,
+  :class :f>-site,
+  :action :refused,
+  :head "C",
+  :detail {},
+  :note
+  "Port this by hand. Hicasso reads `f>` as an ordinary tag keyword and renders an unknown element — nothing throws, nothing warns, and the component never mounts."}]

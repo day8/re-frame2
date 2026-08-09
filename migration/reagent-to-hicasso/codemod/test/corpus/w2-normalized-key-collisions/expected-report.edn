@@ -1,0 +1,56 @@
+[{:line 13,
+  :col 3,
+  :class :normalized-key-collision,
+  :action :refused,
+  :head "C",
+  :detail
+  {:path [":opts"],
+   :collisions [{:slot "fooBar", :keys [":foo-bar" ":fooBar"]}]},
+  :note
+  "Reagent wrote each of these keys under `cached-prop-name`, so the siblings named here COLLAPSED onto one JS property and an iteration-order winner decided which value the library saw. Respelling them would either mint a duplicate map key or silently pick a winner this tool cannot know was the one that won. The map is left exactly as written: decide which key you meant, delete the other, and re-run."}
+ {:line 16,
+  :col 3,
+  :class :normalized-key-collision,
+  :action :refused,
+  :head "C",
+  :detail
+  {:path [":opts"],
+   :collisions [{:slot "className", :keys [":class" ":className"]}]},
+  :note
+  "Reagent wrote each of these keys under `cached-prop-name`, so the siblings named here COLLAPSED onto one JS property and an iteration-order winner decided which value the library saw. Respelling them would either mint a duplicate map key or silently pick a winner this tool cannot know was the one that won. The map is left exactly as written: decide which key you meant, delete the other, and re-run."}
+ {:line 19,
+  :col 3,
+  :class :normalized-key-collision,
+  :action :refused,
+  :head "C",
+  :detail
+  {:path [":opts"],
+   :collisions [{:slot "fooBar", :keys ["\"fooBar\"" ":foo-bar"]}]},
+  :note
+  "Reagent wrote each of these keys under `cached-prop-name`, so the siblings named here COLLAPSED onto one JS property and an iteration-order winner decided which value the library saw. Respelling them would either mint a duplicate map key or silently pick a winner this tool cannot know was the one that won. The map is left exactly as written: decide which key you meant, delete the other, and re-run."}
+ {:line 24,
+  :col 3,
+  :class :normalized-key-collision,
+  :action :refused,
+  :head "C",
+  :detail
+  {:path [":opts"],
+   :collisions [{:slot "fooBar", :keys [":foo-bar" ":fooBar"]}]},
+  :note
+  "Reagent wrote each of these keys under `cached-prop-name`, so the siblings named here COLLAPSED onto one JS property and an iteration-order winner decided which value the library saw. Respelling them would either mint a duplicate map key or silently pick a winner this tool cannot know was the one that won. The map is left exactly as written: decide which key you meant, delete the other, and re-run."}
+ {:line 27,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "C",
+  :detail {:path ":opts", :respelled [[":page-size" ":pageSize"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+ {:line 27,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "C",
+  :detail {:path ":other", :respelled [[":first-name" ":firstName"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}]
