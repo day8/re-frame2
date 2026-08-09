@@ -1,17 +1,26 @@
 (ns re-frame.hicasso.roots-frames-hydration-dom-cljs-test
   "TWO OVERLAPPING HYDRATING ROOTS — independent adoption, independent
-  complaints, independent teardown; and the ONE remaining process-global
-  in the way (rf2-hic-012).
+  complaints, independent presence, independent teardown (rf2-hic-012,
+  rf2-6tmu).
 
-  The bead's second and third deliverables. The second is a property:
-  two roots adopting server markup at the same time must not corrupt or
-  silence one another. The third is a decision: the shared hydration
-  adoption window is moved to root scope, *or* the remaining global is
-  justified in writing, feeding rf2-hic-017 (\"the mutable-global sweep —
-  root-scope or justify every one\"). This suite takes the second branch,
-  and it takes it by MEASURING the global rather than by arguing about
-  it — see [[the-adoption-window-is-one-boolean-for-the-whole-page]],
-  which is the row rf2-hic-017 inherits.
+  The property: two roots adopting server markup at the same time must
+  not corrupt or silence one another. rf2-hic-012 wrote these rows and
+  found the property FALSE — the hydration adoption window was one
+  boolean for the whole page, so root A's closer shut the window root B
+  was still adopting in, and root B's mismatch diagnostic was silently
+  discarded. That worker was fenced off runtime source, so it measured
+  the global rather than repairing it and left in-file instructions for
+  the repair to follow.
+
+  rf2-6tmu is that repair: one window per root, minted by
+  `hydrate-root!`, reachable only from that root's handle, and carried to
+  that root's closer, its reporter and its presence subtree. The rows
+  below are the same rows with their measurements turned into
+  properties — H2's two counts are now equal, and the row that existed
+  only to record the global (`the-adoption-window-is-one-boolean-for-the-whole-page`)
+  is deleted rather than re-pinned, exactly as its own comment
+  instructed. H4 replaces it with the property it was standing in for,
+  and H5 covers the window's second reader.
 
   ## Why adoption cannot be witnessed on the markup
 
@@ -93,6 +102,47 @@
    [:p.value (h/sub label-q)]])
 
 ;; ---------------------------------------------------------------------------
+;; The presence app — H5's, and the observable that makes a PHASE readable
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private !phases
+  ;; `tag -> [phase …]`, every phase each probe was rendered with, in
+  ;; order. Reset at the top of the row that reads it.
+  (atom {}))
+
+(h/defview phase-probe
+  "A presence child that is a BOUNDARY, so the machine hands it its phase
+  as the ordinary prop `:rf/phase` (`impl.presence/with-phase`) instead of
+  merging attribute overrides into a node.
+
+  **That prop is why this row has an observable at all.** A NATIVE
+  presence child wears its phase as `::h/mounting` attributes, which React
+  patches in place and which are gone a macrotask later when the enter
+  flip lands — so a row that waited for a commit and then read the DOM
+  could not tell a child that was BORN present from one that entered and
+  settled. Both end as the same markup, which is the same trap node
+  identity exists to escape elsewhere in this file. Recording the phase
+  where the machine computes it records the FIRST one, and the first one
+  is the entire question.
+
+  Recorded as a sequence rather than a last-value, so a body that runs
+  twice cannot turn a `:mounting` first render into a `:present` one."
+  [{:keys [tag] :as props}]
+  (let [phase (:rf/phase props)]
+    (swap! !phases update tag (fnil conj []) phase)
+    [:span.probe (name phase)]))
+
+(h/defview tray-screen
+  "A screen with a presence tray in it. Reads the label subscription as
+  [[screen]] does, so this root acquires a frame-keyed cell and its commit
+  is observable; the tray is what the row is about."
+  [{:keys [tag]}]
+  [:div.screen
+   [:p.value (h/sub label-q)]
+   [h/presence {:timeout-ms 50}
+    [phase-probe {:key "one" :tag tag}]]])
+
+;; ---------------------------------------------------------------------------
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
@@ -139,10 +189,15 @@
                 hb (mount/hydrate-root! cb frame-b [screen {:title "B"}])]
             ;; The overlap is a CONSTRUCTION, not a timing guess: both
             ;; roots were handed to React before either had adopted, and
-            ;; the window being open on this line is what says so.
-            (is (true? (roots/adopting?))
-                "both roots are in flight — `hydrate-root!` returns before
-                 the tree is adopted, so the window outlives both calls")
+            ;; each root's OWN window being open on this line is what says
+            ;; so. Two windows, because since rf2-6tmu there are two —
+            ;; asserting one page-wide flag here would have been satisfied
+            ;; by either root alone.
+            (is (true? (roots/adopting? (:adoption ha)))
+                "root A is in flight — `hydrate-root!` returns before the
+                 tree is adopted, so its window outlives the call")
+            (is (true? (roots/adopting? (:adoption hb)))
+                "and so is root B, in its own window")
             (-> (sup/wait-until! both-committed?)
                 (.then
                   (fn [ok]
@@ -178,42 +233,47 @@
 ;; H2 — two overlapping mismatches, two independent complaints
 ;; ---------------------------------------------------------------------------
 
-;; ## MEASURED DEFECT — the second root's complaint is LOST (rf2-hic-012)
+;; ## THE INDEPENDENCE WITNESS — two divergences, two complaints EACH WAY
+;; (rf2-hic-012 measured it; rf2-6tmu repaired it)
 ;;
-;; The bead asks for two overlapping hydrating roots with *independent
-;; mismatch complaints*. Run, they are not independent, and this row is the
-;; measurement rather than an argument:
+;; The bead asked for two overlapping hydrating roots with *independent
+;; mismatch complaints*. As shipped they were not independent, and the
+;; version of this row that PR #7751 landed was the measurement:
 ;;
-;;   - React reports BOTH divergences. Two roots diverge, and two
+;;   - React reported BOTH divergences. Two roots diverge, and two
 ;;     "Hydration failed because…" errors reach the page's own error
 ;;     channel, because `impl.mount/report-recoverable-default!` delegates
 ;;     unconditionally.
-;;   - Spec 011's `:rf.ssr/hydration-mismatch` fires ONCE. The emit is
-;;     gated `(when (roots/adopting?))`, the window is one boolean for the
-;;     whole page (`impl.roots`), and root A's closer shuts it from a
-;;     passive effect before root B's hydration commit reports. Root B's
-;;     mismatch is therefore invisible to every tool that reads the
-;;     instrumentation stream.
+;;   - Spec 011's `:rf.ssr/hydration-mismatch` fired ONCE. The emit was
+;;     gated on a window that was one boolean for the whole page, and root
+;;     A's closer shut it from a passive effect before root B's hydration
+;;     commit reported. Root B's mismatch was invisible to every tool that
+;;     reads the instrumentation stream.
 ;;
-;; Those two counts together are what make this a finding about THIS ARM
-;; and not about React: the divergence was detected and reported, and only
-;; the framework's own diagnostic went missing. It is exactly the sabotage
-;; the bead's acceptance describes — "re-globalizing the adoption window
-;; must turn the overlapping-roots witness red" — except that the window
-;; has never been de-globalized, so the witness is red on arrival.
+;; Those two counts together are what made it a finding about THIS ARM and
+;; not about React: the divergence was detected and reported, and only the
+;; framework's own diagnostic went missing.
 ;;
-;; **The fix is the bead's third deliverable: root-scope the window.** That
-;; is a change to `impl/roots.cljs` and `impl/mount.cljs`, which this
-;; worker's dispatch fences off ("if a witness requires changing runtime
-;; source under implementation/hicasso/src/, STOP and report"), so it is
-;; reported rather than made — see the PR body. rf2-hic-017 owns the
-;; global sweep and is blocked by this bead.
+;; rf2-6tmu root-scoped the window — one per `hydrate-root!`, reachable
+;; only from that root's handle, carried to that root's closer, reporter
+;; and presence subtree — so the two counts are now EQUAL and this row
+;; asserts that. **The row PR #7751 left carried in-file instructions to
+;; replace both of its assertions with `(= 2 (count @seen))`, and that is
+;; what happened**: the strict-inequality assertion became an equality
+;; against the React count, and the `1` became `2`. Neither was re-pinned
+;; and neither was deleted.
 ;;
-;; The assertion below therefore pins `1` and says why. **It must be
-;; changed to `2` — not re-pinned, not deleted — when the window becomes
-;; root-scoped**, at which point it becomes the independence witness the
-;; bead asked for.
-(deftest two-overlapping-hydrating-roots-recover-independently-but-only-one-complains
+;; Both halves are load-bearing and they fail in opposite directions. The
+;; equality catches a diagnostic going missing again — the defect that was
+;; here. The absolute `2` catches the opposite repair, a window that is
+;; never shut at all, which would keep both counts equal while making
+;; every later recoverable error on either root a "hydration mismatch";
+;; H4 below is the row that separates those two.
+;;
+;; SABOTAGE (run by hand, PR body records it): mint ONE window in
+;; `hydrate-root!` and hand it to both roots, and this row goes red on the
+;; count — one root's closer shuts the other's window again.
+(deftest two-overlapping-hydrating-roots-recover-and-complain-independently
   (async done
     (if-not (mount/browser?)
       (do (sup/skip! ":node-test has no DOM") (done))
@@ -250,19 +310,18 @@
                             (str "two roots diverged, so two React complaints; got "
                                  (pr-str (mapv #(subs % 0 (min 60 (count %))) @captured)))))
 
-                      (testing "but the framework's own stream carried FEWER than
-                                the page did. MEASURED DEFECT (rf2-hic-012 /
-                                rf2-hic-017): the Spec 011 emit is gated on a
-                                page-scoped adoption window, and one root's
-                                closer shut it before the other root's mismatch
-                                was reported. Root-scope the window and these two
-                                counts become equal — at which point BOTH
-                                assertions below must be replaced by
-                                `(= 2 (count @seen))`."
-                        (is (< (count @seen) (count react-complaints))
-                            "a divergence React reported went missing from the
-                             instrumentation stream")
-                        (is (= 1 (count @seen))
+                      (testing "and the framework's own stream carried exactly
+                                what the page did. This is the rf2-6tmu repair:
+                                each root's Spec 011 emit is gated on the window
+                                THAT root minted, so no root's closer can shut
+                                another root's window and no divergence React
+                                reported goes missing"
+                        (is (= (count react-complaints) (count @seen))
+                            (str "every divergence React reported reached the
+                                  instrumentation stream; React said "
+                                 (count react-complaints) ", the framework said "
+                                 (count @seen)))
+                        (is (= 2 (count @seen))
                             (str "`:rf.ssr/hydration-mismatch` count; got "
                                  (count @seen) " — "
                                  (pr-str (mapv (comp :error sup/tags-of) @seen)))))
@@ -343,57 +402,245 @@
                                 (done)))))))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; H4 — the remaining global, MEASURED. rf2-hic-017's row.
+;; H4 — a COMPLETED root's later recovery is not a mismatch, however many
+;;      siblings are still adopting. THE ROW THAT RULES OUT A COUNTER.
 ;; ---------------------------------------------------------------------------
 
-;; **This row exists to be DELETED**, and saying so is the point.
+;; The row that stood here measured the page-global — two opens shut by one
+;; close — and carried an in-file instruction to be DELETED rather than
+;; re-pinned once the window became root-scoped (rf2-hic-012 → rf2-6tmu).
+;; It is deleted. What follows is not a re-pin of it: it is the property
+;; that measurement was standing in for, and it discriminates against a
+;; strictly larger set of wrong answers.
 ;;
-;; rf2-hic-012's third deliverable is to move the hydration adoption window
-;; to root scope *or* to justify the remaining global in writing. This is
-;; the justification, in the only form worth having: a measurement, taken
-;; through the shipping doors, of exactly what the global does.
+;; **H2 alone would pass under a page-global REFERENCE COUNT.** Two opens,
+;; one close, count still one — both roots' mismatches emit and the two
+;; numbers match. What a count cannot do is tell root A's window from root
+;; B's, and React makes that difference matter: it holds
+;; `onRecoverableError` for a root's WHOLE LIFETIME and fires it for
+;; post-hydration recoveries too, a concurrent render it retried. Once A has
+;; committed, an error arriving on A is not a hydration mismatch. Under a
+;; count it would be labelled one for as long as B kept the page-wide window
+;; open — one interference bug traded for another.
 ;;
-;; `impl.roots` holds ONE boolean. `impl.mount/hydrate-root!` opens it per
-;; root, and each root's `adoption-window-closer` shuts it from a passive
-;; effect on that root's hydration commit. So N overlapping roots perform N
-;; opens and the FIRST close ends the window for all of them. The readers
-;; are `impl.presence-react`, during render, and
-;; `impl.mount/hydration-reporter`, which emits the Spec 011 diagnostic
-;; only `(when (roots/adopting?))`.
+;; So this row completes A, leaves B adopting, and sends one error to each:
 ;;
-;; The consequence is a conditional, and the condition is React's: while
-;; React commits two same-tick hydrations before flushing either root's
-;; passive effects, no complaint is lost, and H2 above measures that it is
-;; not. **The property therefore holds today by React's scheduling and not
-;; by this runtime's design** — a root whose hydration commit landed after
-;; another root's closer had run would have its mismatch diagnostic
-;; silently dropped, and nothing in this arm prevents that ordering. That
-;; is the whole of the case for rf2-hic-017, and the two rows together are
-;; its evidence: H2 says the property holds, this row says what it rests
-;; on.
+;;   | root | its window        | the error it gets         | must emit |
+;;   |---|---|---|---|
+;;   | A    | committed, closed | a later recoverable error | NO        |
+;;   | B    | still adopting    | its hydration mismatch    | YES       |
 ;;
-;; When the window becomes root-scoped this row goes RED, because two opens
-;; will no longer be shut by one close. That is its job. Re-pinning it
-;; would be the wrong repair; deleting it is the right one.
-(deftest the-adoption-window-is-one-boolean-for-the-whole-page
+;; Three shapes fail it and only root-scoping passes. A page-global BOOLEAN
+;; emits nothing, because A's close shut B's window too. A page-global
+;; COUNT emits twice, because A's later error arrives inside a page window B
+;; is still holding open. One shared ref does whichever of those its last
+;; write said.
+;;
+;; The doors are called DIRECTLY — `open-adoption-window!`, the real
+;; `hydration-reporter` builder over the real window, `close-adoption-window!`
+;; — which is exactly what `hydrate-root!` does per root with React's
+;; schedule removed. That is deliberate rather than a shortcut: the two
+;; orderings this row separates are orderings React does not let a caller
+;; choose, so a version that waited for them would be measuring the
+;; scheduler and would go green or red on timing. It is the same technique
+;; the deleted row used, turned on the property instead of on the defect.
+(deftest a-completed-roots-later-recovery-is-not-a-mismatch-while-a-sibling-adopts
   (if-not (mount/browser?)
     (sup/skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (try
-        (is (false? (roots/adopting?)) "premise: no adoption is in flight")
-        ;; The two doors a hydrating root takes, called directly — this is
-        ;; what `hydrate-root!` does per root, with React's schedule
-        ;; removed so the arity is the only variable left.
-        (roots/open-adoption-window!)
-        (roots/open-adoption-window!)
-        (is (true? (roots/adopting?)) "two roots, adopting")
-        ;; What ONE root's closer does, on ONE root's hydration commit.
-        (roots/close-adoption-window!)
-        (is (false? (roots/adopting?))
-            "MEASURED (rf2-hic-017): one root's closer shuts the window for
-             every root. The window is page-scoped, so a second root still
-             adopting is no longer adopting as far as every reader is
-             concerned. This assertion must be DELETED, not re-pinned, when
-             the window becomes root-scoped.")
-        (finally (roots/close-adoption-window!))))))
+      (let [{:keys [seen stop!]}      (sup/watch-mismatches!)
+            ;; MANUFACTURED here and asserted on here — the only shape of
+            ;; call site at which swallowing an uncaught error is not the
+            ;; fail-open rf2-mwx08 forbids.
+            {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})
+            window-a (roots/open-adoption-window!)
+            window-b (roots/open-adoption-window!)
+            report-a (mount/hydration-reporter window-a)
+            report-b (mount/hydration-reporter window-b)
+            later-a  (js/Error. "a concurrent render root A recovered from")
+            genuine-b (js/Error. "Hydration failed on root B")]
+        (try
+          (is (true? (roots/adopting? window-a)) "premise: root A is adopting")
+          (is (true? (roots/adopting? window-b)) "premise: root B is adopting")
+
+          ;; Root A's hydration commits. Its closer shuts ITS window.
+          (roots/close-adoption-window! window-a)
+
+          (testing "one root's closer shuts one root's window"
+            (is (false? (roots/adopting? window-a)) "root A has completed")
+            (is (true? (roots/adopting? window-b))
+                "and root B is STILL ADOPTING — this single pair of readings
+                 is the whole repair, and it is what the deleted row
+                 measured going the other way"))
+
+          (testing "a LATER recoverable error on the completed root A is not a
+                    hydration mismatch, however many siblings are adopting —
+                    the assertion a page-global reference count fails"
+            (report-a later-a nil)
+            (is (= 0 (count @seen))
+                (str "nothing should have been emitted; got "
+                     (pr-str (mapv (comp :error sup/tags-of) @seen)))))
+
+          (testing "while root B's genuine mismatch, arriving while B is still
+                    adopting, DOES emit — the assertion a page-global boolean
+                    fails"
+            (report-b genuine-b nil)
+            (is (= 1 (count @seen)) "exactly one diagnostic")
+            (is (= "Hydration failed on root B"
+                   (:error (sup/tags-of (first @seen))))
+                "and it is B's error, not A's"))
+
+          (testing "IN-ROW DISCRIMINATION: the same later error on A, read
+                    against a window some OTHER root is still holding open, is
+                    mislabelled a mismatch. So the zero above is a property of
+                    the scoping and not of the error"
+            ((mount/hydration-reporter window-b) later-a nil)
+            (is (= 2 (count @seen))
+                "a page-wide window still open elsewhere would have labelled
+                 A's later recovery a hydration mismatch")
+            (is (= "a concurrent render root A recovered from"
+                   (:error (sup/tags-of (last @seen))))))
+
+          (testing "and rf2-mwx08's fail-open is untouched in every case: the
+                    reporter ALWAYS delegates, emit or no emit"
+            (is (= 3 (count (filterv #(re-find #"root A|root B" %) @captured)))
+                (str "all three errors reached the page's own error channel: "
+                     (pr-str @captured))))
+          (finally
+            (close!)
+            (stop!)
+            (roots/close-adoption-window! window-b)))))))
+
+;; ---------------------------------------------------------------------------
+;; H5 — presence isolation: adoption belongs to a SUBTREE, not to the page
+;; ---------------------------------------------------------------------------
+
+;; The mismatch diagnostic was the LOUD half of the page-global. This is the
+;; quiet half, and it is the one an application would have felt: presence is
+;; a second reader of the same window, and it reads it during a RENDER.
+;;
+;; While ANY root hydrated, the window answered true for every presence tray
+;; on the page — including one in an ORDINARY root that had nothing to do
+;; with the hydration and was not adopting anything. Such a tray was told its
+;; children were already on the screen, so it started them `:present` and
+;; skipped the enter transition its author wrote. Nothing complained; the
+;; animation simply did not play, and only when a sibling root happened to be
+;; hydrating.
+;;
+;; The construction makes that overlap a FACT rather than a race, the way H1
+;; does: `hydrate-root!` returns before its tree is adopted, so root A's
+;; window is provably open on the line where root B mounts, and `root!`
+;; commits inside a `flushSync` so root B's first render is readable on the
+;; line after it. No timer stands between the two.
+;;
+;; SABOTAGE (run by hand, PR body records it): point `impl.presence-react`
+;; back at a page-wide window and the ordinary root's first phase becomes
+;; `:present` — this row reds on that assertion, which is the assertion the
+;; shipped code failed.
+(deftest presence-adoption-belongs-to-a-subtree-not-to-the-page
+  (async done
+    (if-not (mount/browser?)
+      (do (sup/skip! ":node-test has no DOM") (done))
+      (do
+        (fresh!)
+        (reset! !phases {})
+        (-> (sup/settled-server-html!
+              frame-a [tray-screen {:tag :hydrated}]
+              (fn [c] (= "present" (text-in c ".probe"))))
+            (.then
+              (fn [html]
+                (is (re-find #"present" html)
+                    (str "premise: the server's bytes show the child already
+                          PRESENT — " html))
+                ;; The server render's own phases are not this row's subject.
+                (reset! !phases {})
+                (collector/reset-runtime!)
+                (let [ca (sup/stamp-server-nodes! (sup/server-dom! html))
+                      cb (mount/fresh-container!)
+                      {:keys [seen stop!]} (sup/watch-mismatches!)
+                      ha (mount/hydrate-root! ca frame-a [tray-screen {:tag :hydrated}])]
+                  (is (true? (roots/adopting? (:adoption ha)))
+                      "premise: root A is adopting on THIS line, so what follows
+                       happens inside its window by construction")
+                  ;; An ORDINARY root, mounted inside root A's adoption window.
+                  (let [hb (mount/root! cb frame-b [tray-screen {:tag :ordinary}])]
+                    (testing "the ordinary sibling gets its ENTER phase, even
+                              though a hydration is in flight elsewhere on the
+                              page — the row the shipped page-global failed"
+                      (is (= :mounting (first (get @!phases :ordinary)))
+                          (str "root B's first render must see :mounting; saw "
+                               (pr-str (get @!phases :ordinary))))
+                      (is (= "mounting" (text-in cb ".probe"))
+                          "and it reached the DOM that way"))
+
+                    (testing "an ordinary root has no adoption window at all —
+                              nil, which `adopting?` reads as closed. That is
+                              what makes the repair free for it: no object, no
+                              provider, no branch"
+                      (is (nil? (:adoption hb)))
+                      (is (false? (roots/adopting? (:adoption hb)))))
+
+                    (-> (sup/adopted! ha)
+                        (.then
+                          (fn [ok]
+                            (stop!)
+                            (try
+                              (is (true? ok) "root A's own closer ran")
+
+                              (testing "root A was BORN PRESENT: its tray never
+                                        rendered a :mounting phase at all, so no
+                                        enter transition replayed over DOM the
+                                        user already watched arrive"
+                                (is (= :present (first (get @!phases :hydrated)))
+                                    (str "root A's first render; saw "
+                                         (pr-str (get @!phases :hydrated))))
+                                (is (not (contains? (set (get @!phases :hydrated))
+                                                    :mounting))
+                                    "and no later render entered one either"))
+
+                              (testing "so the client's first pass AGREED with the
+                                        server's bytes — the adopted nodes are the
+                                        server's own, and nothing diverged"
+                                (is (sup/every-server-node? ca ".screen, .probe"))
+                                (is (= 0 (count @seen))
+                                    (str "no hydration mismatch; got "
+                                         (pr-str (mapv (comp :error sup/tags-of)
+                                                       @seen)))))
+
+                              (testing "closing root A's window changed nothing
+                                        about root B: B still completed its own
+                                        enter transition, on its own clock"
+                                (is (false? (roots/adopting? (:adoption ha))))
+                                (is (= [:mounting :present]
+                                       (vec (distinct (get @!phases :ordinary))))
+                                    (str "root B entered and then settled; saw "
+                                         (pr-str (get @!phases :ordinary))))
+                                (is (= "present" (text-in cb ".probe"))))
+
+                              (testing "and TEARDOWN BEFORE THE PASSIVE EFFECT
+                                        leaves no open window behind. A root
+                                        unmounted before its hydration commit
+                                        never gets its closer, so `unmount!`
+                                        owns the shut — driven here on a handle
+                                        with no root, which is what a closer
+                                        that never ran leaves behind (the
+                                        `:root nil` idiom `teardown-census!`
+                                        uses), rather than on a live root whose
+                                        mid-hydration teardown would be
+                                        measuring React's unmount instead"
+                                (let [window (roots/open-adoption-window!)
+                                      orphan {:frame     frame-a
+                                              :container (mount/fresh-container!)
+                                              :root      nil
+                                              :adoption  window}]
+                                  (is (true? (roots/adopting? window))
+                                      "premise: open, and its closer has not run")
+                                  (mount/unmount! orphan)
+                                  (is (false? (roots/adopting? window))
+                                      "teardown shut it")))
+
+                              (finally
+                                (mount/release! ha)
+                                (mount/release! hb)
+                                (done)))))))))))))))
