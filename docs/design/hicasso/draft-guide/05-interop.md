@@ -445,19 +445,143 @@ which is the composition intended — but a `:render` return still crosses
 unconverted, so today the subtree has to be written where children lower
 ([Not settled yet](#not-settled-yet)).
 
+### The codemod
+
+Arriving from Reagent is the direction that needs a tool. Your `[:> …]` sites
+already work — `[:>]` is legal here — but Reagent *converted* their props on the
+way across and Hicasso does not, so a site can keep rendering while quietly
+meaning something else. The codemod repairs that dialect in place, wherever the
+repair is decidable from the source text.
+
+```bash
+cd migration/reagent-to-hicasso/codemod
+
+clojure -M:run src/                     # scan: report only, touch nothing
+clojure -M:run --rewrite src/           # dry run: what would change
+clojure -M:run --rewrite --write src/   # apply it
+clojure -M:run --report out.edn src/    # choose where the report goes
+```
+
+Files or directories in, `.cljs` and `.cljc`; a rewritten tree and one EDN
+report out (`reagent-to-hicasso-report.edn` by default). It writes whole files
+through rewrite-clj, so formatting, comments and line endings all survive — a
+CRLF file comes back CRLF. Exit is `0` for any run that completed and `1` only
+when a file could not be read or written, because a migration tool that fails
+your build over a decision only you can make is a tool you run once.
+
+**Scan first, read the report, then rewrite.** Both passes address the *input*
+file, so a coordinate in the report is the one you grep for either way. And
+every output is outside its own rewrite's input language, so a second run
+changes nothing — asserted byte for byte, in both line-ending conventions.
+
+#### What it rewrites
+
+| | At | Written | Preserving |
+|---|---|---|---|
+| W1 | `^{:key k}` on the vector | `:key k` inside the props map | Reagent read the metadata key *after* converting props, so it beat a props `:key`. Hicasso reads `(:key props)` and never looks at metadata, so left alone the key goes dead |
+| W2 | a literal map reached from the props map through map values | the same map, its literal keys respelled | Reagent camelCased *nested* keys ([No deep conversion](#defaults)); Hicasso does not. Top-level prop names need nothing — both sides camelCase those |
+| W3 | a keyword, or a **quoted** symbol, at a prop value | its `name`, as a string | Reagent's `(name x)` arm. A namespaced keyword loses its namespace here, exactly as it already did |
+| W4 | `(r/partial f a …)` at a prop value | a `let` capture, then Reagent's own wrapper | Reagent's `ifn?` wrapper — its return *and* its evaluation time |
+| W5 | `[(r/adapt-react-class X) …]` | `[:> X …]` | The same `native-element` path, spelled the way Hicasso accepts. Left alone it is a head Hicasso refuses |
+| W6 | `[:> "tag" …]` with a plain tag string | `[:tag …]` | Reagent's controlled-input wrapper becomes [Hicasso's controlled door](04-controlled-inputs.md) |
+
+**A bare symbol is never a named value.** `handler` in `{:on-click handler}` is a
+variable reference, and reading it as a symbol value would replace a live
+handler with the string `"handler"`. Only a literal keyword and a quoted symbol
+reach W3; anything arriving through a symbol is reported instead of guessed at.
+
+**W4's `let` is the part to read twice**, because the obvious rewrite is wrong.
+`r/partial` evaluated its callee and every argument **once**, when the prop was
+built. A bare `(fn [& args] (apply f a … args))` re-evaluates them on each call,
+so `@snapshot` stops being a snapshot and `(next-id!)` mints a fresh id per
+click:
+
+```clojure
+[:> Btn {:on-pick (r/partial handler @cart)}]
+;; =>
+[:> Btn {:on-pick (let [f__rf2 handler a0__rf2 @cart]
+                    (fn [& args__rf2] (apply f__rf2 a0__rf2 args__rf2)))}]
+```
+
+Self-evaluating arguments are inlined rather than bound. The names are
+deterministic rather than gensym'd, so what lands in your diff is a name you can
+read — and they are checked against every symbol the site spells, so if one
+would collide the whole family bumps together (`f__rf2__1`, `a0__rf2__1`,
+`args__rf2__1`) until it is fresh. `let` binds sequentially, so a shadowed
+binding would otherwise reach every later initializer in the same form.
+
+#### What it refuses
+
+**Silent behaviour change is the only fatal class.** Everything the tool cannot
+rewrite behaviour-preservingly is *reported* rather than guessed at. `[:>]` is
+legal, so leaving a site exactly as written is a valid outcome — a refused site
+still works, and the report is what turns the refusal from silence into an
+instruction. **The report is as much the product as the rewrite is.** It is
+written on a clean run too and carries the count of sites left untouched, so
+*not in the report* is never ambiguous.
+
+Refusals come in three kinds, and the kind tells you how urgent the line is.
+
+| Kind | Classes | What it means |
+|---|---|---|
+| Undecidable from the source text | `:computed-props`, `:computed-value`, `:computed-nested-key`, `:adapt-def-site`, `:cljc-site`, `:parse-error` | The tool cannot see what crosses. A computed value may be a keyword, a nested map, or an `r/partial` reached through a symbol, and each of those diverges differently |
+| Decidable, but the rewrite would itself change behaviour | `:event-carrier-goes-live`, `:key-conflict`, `:string-tag-unparseable`, `:normalized-key-collision`, `:css-var-repair`, `:named-ref`, `:amp-key` | Several are places Reagent was already broken and the move *repairs* them. Check that the behaviour you are about to start getting is the one you want |
+| Decidable, and Hicasso refuses at runtime | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | Migration blockers. These need a person before the page runs |
+
+Three are worth knowing before you read your first report.
+
+**An intent vector at a `[:>]` prop is a blocker.** It is the one thing Hicasso
+refuses that Reagent accepted ([Every prop is unclaimed](#every-prop-is-unclaimed)),
+and the site throws at render. Know first that it never fired under Reagent
+either — it crossed as an inert array — so what the site needs is a decision
+about what it was for: a `defhost` naming that prop in `:callbacks`, or a plain
+function.
+
+**Colliding nested keys refuse the whole map.** Reagent wrote `:foo-bar` and
+`:fooBar` to the same JS property, with an iteration-order winner. Respelling
+both would mint a duplicate map key or silently pick a winner the tool cannot
+know was the one that won, so W2 stands down for that map — including the keys
+in it that *were* rewritable, because a partial rewrite of an already-ambiguous
+map is worse than none — and the report names every colliding source key. Delete
+the one you did not mean and re-run.
+
+**The `:key` slot is reported, never rewritten.** Reagent converted a key like
+any other prop, so sibling `:foo` and `"foo"` keys collided; Hicasso lifts the
+key raw and they are distinct. Rewriting would restore that defect, so the tool
+leaves the slot alone — and says what leaving it costs, because the key
+*changes* at the migration, and React reconciles a changed key by unmounting the
+subtree and mounting a fresh one, discarding its state. One-time, and stable
+after.
+
+The report also lists candidate callback slots as a **suggestions** block, and
+it is labelled as guesses because that is what it is: Fluent's `onRenderCell`
+and Ant's `onRow` are event-*spelled* render props whose *return value* the
+caller reads, so declaring one as an `:event` would blank your cell renderer
+with nothing thrown. You choose the contract. The tool never synthesizes a
+`:callbacks` map and there is no flag to make it.
+
+Full reference, including every refusal class and the corpus that pins them:
+[`migration/reagent-to-hicasso/codemod/`](../../../../migration/reagent-to-hicasso/codemod/README.md).
+
 ### Migrating off it
 
 A hand migration from Reagent is three moves per namespace: collect `[:> X …]`,
 emit `defhost`, rewrite call sites. `[:> X props]` → `(defhost x X {})` is
 behaviour-preserving by construction, because the escape's prop walk *is* the
 door's with an empty roster — whatever is ruled at the door, the escape does the
-same thing. A codemod is planned and not built.
+same thing.
+
+**That hoist is by hand.** The codemod mints no declaration, hoists nothing and
+edits no `ns` form: it repairs the sites you have and leaves them `[:>]`.
+Building the hoist is demand-gated — it happens when a migrator reports the
+hand-written declarations as the pain, rather than the crossings themselves.
 
 ## Troubleshooting
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Prop arrives as `on-change` and the library ignores it | Nested keys expected camelCase; deep conversion is not offered | Convert the nested map yourself before it crosses |
+| A prop that worked under Reagent behaves differently after the move | Reagent converted prop values and nested keys on the way across; Hicasso does not, so the site renders and quietly means something else | Run [the codemod](#the-codemod) — it repairs the decidable cases and reports the rest |
 | The library ignored a keyword prop value | A keyword crosses a host prop unchanged; only HTML-attribute names stringify | Write the string at the call site — `"compact"`, or `(name :compact)` |
 | Hiccup passed *in a prop* renders as its own tag name and text | Only children lower; a prop value crosses as data, so `[:h2 "Tasks"]` arrives as the array `["h2" "Tasks"]` — silently, with no error | Pass the subtree as a child where the library takes one; at a prop there is nothing to reach for yet |
 | React refuses an object as a child, from a `:render` body | The body returned hiccup; a `:render` return crosses unconverted | Return a string, or keep the subtree on the Hicasso side of the crossing |
@@ -589,7 +713,7 @@ path. Nothing in the reserved vector will rescue that later.
 | Turning hiccup into an element at a prop or a `:render` return | **Open, and a real gap.** The mechanism exists inside the codec; nothing on the taught `h/` roster reaches it, so today the answer is to write the subtree where children lower — or to write it twice |
 | Declarable conversion defaults on `defhost` | Open — `:callbacks` and `:ssr` are the two options today |
 | A provider whose *value* is client-only | Open, and named rather than solved. `:ssr :render` renders the component server-side, but the value it carries is computed in the caller's body — so a `window`-derived value has no server story and the host stays `:client-only` |
-| Migration codemod | Planned, unbuilt |
+| Migration codemod | The dialect **fixer** is built — [The codemod](#the-codemod). The `defhost` **hoist** is demand-gated and unbuilt: it gets written when the hand-written declarations are what a migrator reports as the pain |
 | When `{:ref [id config]}` lands, and what registers an id | Reserved, not designed |
 | Which React version the product pins | Not pinned by the product; cleanup-returning refs need React 19; this repo currently pins 19.2 |
 | Embedding Hicasso inside a React-primary app | Named as a use case; no API designed |
