@@ -1137,18 +1137,36 @@ else
         # entry with no required job is its own red. Arm this the same
         # commit a JVM-runnable suite lands and the roster gains the row.
         #
-        # NOT cljs_browser: hicasso IS on the `:browser-test` classpath
-        # (same global :source-paths), but that build selects
-        # `-dom-cljs-test$` and the package owns no such namespace, so
-        # arming it would schedule a Playwright job that runs not one
-        # line of the changed surface. Widen the moment a
-        # `*-dom-cljs-test` namespace lands — the freehand case above is
-        # the worked precedent for that widening, twice.
-        #
         # NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke: no
         # `-elision-prod-test$` namespace, no example resolves the
         # artefact, and it mounts no testbed the smokes drive.
         cljs_node_test=true
+        # rf2-8a6s — cljs_browser, AND THE CONDITION FOR IT HAS NOW BEEN
+        # MET. This arm originally read "NOT cljs_browser … the package
+        # owns no `-dom-cljs-test$` namespace, so arming it would
+        # schedule a Playwright job that runs not one line of the changed
+        # surface. Widen the moment a `*-dom-cljs-test` namespace lands."
+        # Three have landed — kernel_commit_owns, roots_frames_hydration
+        # and roots_frames_isolation, under implementation/hicasso/test/
+        # (rf2-hic-010, rf2-hic-012) — so the narrowing expired and this
+        # is the widening it asked for.
+        #
+        # The failure it closes wore a GREEN BADGE, which is why it is
+        # worth spelling out. `:browser-test` selects
+        # `^(?!re-frame\.freehand\.bench\.).*-dom-cljs-test$`, so those
+        # three namespaces are already IN the browser lane; the lane just
+        # never ran on a diff that touched them. The consolidated node
+        # build compiles the same namespaces, and each DOM row there
+        # reports a STATED GREEN SKIP — so the surface reported success
+        # having executed none of its DOM assertions. An unclassified
+        # surface at least fails loudly the first time somebody looks;
+        # this one did not.
+        #
+        # This ADDS to the node arm rather than replacing it. Both still
+        # matter and they cover different things: `cljs_node_test` is the
+        # only output that schedules the package smoke and the freeze
+        # gate, neither of which the browser lane runs.
+        cljs_browser=true
         # rf2-ga8m — and, since the three-engine controlled-input gate
         # landed (rf2-hic-016), `hicasso_controlled`. That gate compiles
         # the `:hicasso/testbed` build off THIS tree — the testbed app

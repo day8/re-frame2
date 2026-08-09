@@ -3205,16 +3205,93 @@ test('the hicasso controlled-input lane stays dark for unrelated surfaces (rf2-g
   }
 });
 
-test('a hicasso package change does NOT fire the browser or JVM tiers (rf2-ga8m)', () => {
-  // rf2-8a6s established what a hicasso diff schedules: cljs_node_test and
-  // nothing else. This lane adds one output to that, and must not quietly
-  // widen the rest — `cljs_browser` in particular, whose :browser-test build
-  // selects `-dom-cljs-test$` and would run not one line of the package.
+test('a hicasso package change does NOT fire the JVM or prod tiers (rf2-ga8m)', () => {
+  // The hicasso arm stays narrow everywhere it has no suite: the runtime
+  // requires React so every suite it owns is CLJS, no `-elision-prod-test$`
+  // namespace exists, and it mounts no testbed the ui gates drive.
   const result = classify(HICASSO_CONTROLLED.spec);
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result[HICASSO_CONTROLLED.output], 'true');
-  for (const output of ['implementation_jvm', 'cljs_browser', 'cljs_prod', 'ui_gates']) {
+  for (const output of ['implementation_jvm', 'cljs_prod', 'ui_gates', 'bundle_isolation']) {
     assert.equal(result[output], 'false', `a hicasso-only diff must not arm ${output}`);
+  }
+});
+
+// rf2-8a6s — the regression that would have caught this arm going stale.
+//
+// rf2-8a6s originally set `cljs_node_test` for `implementation/hicasso/*` and
+// deliberately NOT `cljs_browser`, on a premise that was true when written:
+// the package owned no `-dom-cljs-test$` namespace, so the browser lane would
+// have run not one line of it. That premise EXPIRED when rf2-hic-010 and
+// rf2-hic-012 landed DOM suites, and nothing noticed — a rule with no
+// regression is exactly how a narrowing goes stale in silence.
+//
+// The failure mode was worse than a skipped job. `:browser-test` selects
+// `^(?!re-frame\.freehand\.bench\.).*-dom-cljs-test$`, so these namespaces
+// were already in the browser lane; the lane simply never ran on a diff that
+// touched them, while the consolidated node build compiled the same
+// namespaces and reported each DOM row as a STATED GREEN SKIP. The surface
+// passed having executed none of its DOM assertions.
+
+const HICASSO_DOM_TESTS = [
+  'implementation/hicasso/test/re_frame/hicasso/kernel_commit_owns_dom_cljs_test.cljs',
+  'implementation/hicasso/test/re_frame/hicasso/roots_frames_hydration_dom_cljs_test.cljs',
+  'implementation/hicasso/test/re_frame/hicasso/roots_frames_isolation_dom_cljs_test.cljs',
+];
+
+test('a hicasso DOM-test diff lights the browser job (rf2-8a6s)', () => {
+  for (const file of HICASSO_DOM_TESTS) {
+    assert.equal(
+      classify(file).cljs_browser,
+      'true',
+      `${file} is selected by the :browser-test build and must arm cljs_browser`,
+    );
+  }
+});
+
+test('widening hicasso to cljs_browser did not cost it the node lane (rf2-8a6s)', () => {
+  // The reviewer's constraint, pinned: cljs_browser is IN ADDITION TO
+  // cljs_node_test, not instead of it. `cljs_node_test` is the only output
+  // that schedules the package smoke and the freeze gate, and the browser
+  // lane runs neither, so trading one for the other would close this hole by
+  // opening two.
+  for (const file of [...HICASSO_DOM_TESTS, HICASSO_CONTROLLED.spec, HICASSO_CONTROLLED.src]) {
+    const result = classify(file);
+    assert.equal(result.cljs_node_test, 'true', `${file} must still arm cljs_node_test`);
+    assert.equal(result.cljs_browser, 'true', `${file} must arm cljs_browser`);
+  }
+});
+
+test('the hicasso DOM suites really are in the browser lane (rf2-8a6s)', () => {
+  // NON-VACUITY. Arming cljs_browser is worth nothing unless the job it
+  // schedules actually selects these namespaces, so this does not assert that
+  // in prose: it lifts the SELECTOR out of shadow-cljs.edn and runs it against
+  // the namespaces derived from the files themselves. Narrow the selector, or
+  // rename a suite out of the pattern, and the classifier arm becomes a lie —
+  // this row is what says so.
+  const shadow = fs.readFileSync(path.join(IMPL_ROOT, 'shadow-cljs.edn'), 'utf8');
+  const header = /\n {2}:browser-test\r?\n/.exec(shadow);
+  assert.notEqual(header, null, ':browser-test build not found in shadow-cljs.edn');
+  const rest = shadow.slice(header.index + 1);
+  const nextBuild = rest.search(/\n {2}:[A-Za-z]/);
+  const build = nextBuild === -1 ? rest : rest.slice(0, nextBuild);
+
+  const m = /:ns-regexp\s+"((?:[^"\\]|\\.)*)"/.exec(build);
+  assert.notEqual(m, null, ':browser-test must declare an :ns-regexp');
+  // EDN string escaping: `\\.` in the file is one backslash + a dot.
+  const selector = new RegExp(m[1].replace(/\\\\/g, '\\'));
+
+  for (const file of HICASSO_DOM_TESTS) {
+    assert.ok(fs.existsSync(path.join(REPO_ROOT, file)), `${file} must exist`);
+    const ns = file
+      .replace('implementation/hicasso/test/', '')
+      .replace(/\.cljs$/, '')
+      .replace(/_/g, '-')
+      .replace(/\//g, '.');
+    assert.ok(
+      selector.test(ns),
+      `${ns} must be selected by :browser-test's ${selector} for cljs_browser to mean anything`,
+    );
   }
 });
 
@@ -3719,15 +3796,20 @@ test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf
   //     check and it is deliberately off scripts/test-jvm-implementation.sh's
   //     roster. Arm it the same commit a JVM-runnable suite and the roster row
   //     land together (check_jvm_lane_rosters.py fails both ways).
-  //   cljs_browser — hicasso IS on the :browser-test classpath, but that build
-  //     selects `-dom-cljs-test$` and the package owns no such namespace.
   //   cljs_prod — no `-elision-prod-test$` namespace.
   //   bundle_isolation / ui_gates / ui_smoke — no example resolves the
   //     artefact and it mounts no testbed those smokes drive.
+  //
+  // `cljs_browser` USED TO BE ON THIS LIST, and its removal is the point of
+  // the rf2-8a6s widening. The entry read "hicasso IS on the :browser-test
+  // classpath, but that build selects `-dom-cljs-test$` and the package owns
+  // no such namespace" — true when written, and false from the moment
+  // rf2-hic-010 and rf2-hic-012 landed three such namespaces. This row is
+  // where the stale premise was pinned, so this row is where the correction
+  // belongs; the arm is now asserted positively by the rf2-8a6s block above.
   const result = classify('implementation/hicasso/src/re_frame/hicasso.cljc');
   for (const key of [
     'implementation_jvm',
-    'cljs_browser',
     'cljs_prod',
     'bundle_isolation',
     'ui_gates',
