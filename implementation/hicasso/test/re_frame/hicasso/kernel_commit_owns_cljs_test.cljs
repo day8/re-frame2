@@ -151,14 +151,6 @@
   (collector/render-body frame-id body-fn {})
   (collector/last-reads))
 
-(defn- macrotask
-  "One turn of the event loop, for the rows that assert on the CELL reaper
-  specifically (armed at 0 ms by `arm-cell-reaper!`). The entry reaper's
-  horizon is longer and is never waited on by hand — that is
-  `inventory/quiesced!`'s job."
-  []
-  (js/Promise. (fn [resolve] (js/setTimeout (fn [] (resolve nil)) 0))))
-
 ;; ---------------------------------------------------------------------------
 ;; A real React render that never commits
 ;; ---------------------------------------------------------------------------
@@ -253,16 +245,14 @@
                   and the cell survives only until its reaper"
           (is (= {:cells 1 :cell-refs 0 :boundaries 0 :edges 0} (ownership)))))
 
-      (.then (macrotask)
+      (.then (inventory/quiesced!)
              (fn [_]
-               (testing "the reaped cell leaves the ownership census empty"
-                 (is (= nothing-owned (ownership))))
-               (.then (inventory/quiesced!)
-                      (fn [_]
-                        (testing "and quiescence is total"
-                          (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                                 (inventory/residue))))
-                        (done))))))))
+               (testing "and at the runtime's own horizon — which is strictly
+                         past every reaper armed before it, the cell reapers
+                         included — teardown is exact: total zero"
+                 (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
+                        (inventory/residue))))
+               (done))))))
 
 (deftest a-branch-not-taken-contributes-no-edge
   (seeded!)
