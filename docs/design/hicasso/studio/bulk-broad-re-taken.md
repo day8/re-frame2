@@ -26,7 +26,10 @@ frame-only clock reads that row 4% high and the in-page clock 10% low. One
 instrument, two rows, and it lands on the published value for the row the audit
 independently found robust while landing far from it on the row under question.
 
-Owner: the operator-owned standard bead `rf2-2rtt6.1`; this page `rf2-yd52q`.
+Owner: the operator-owned governance set that superseded `rf2-2rtt6.1` on
+2026-08-10 — K1 price acceptance `rf2-hic-003`, budgets and shell line
+`rf2-hic-006`/`rf2-hic-018`, bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md); this page `rf2-yd52q`.
 
 ---
 

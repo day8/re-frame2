@@ -108,7 +108,10 @@ report.
 > [outside cross-check](cross-checked-against-an-outside-instrument.md), which
 > clicks rather than evaluates, needs no restatement either.
 
-Owner: the operator-owned standard bead `rf2-2rtt6.1`; this page `rf2-0qj9w`.
+Owner: the operator-owned governance set that superseded `rf2-2rtt6.1` on
+2026-08-10 — K1 price acceptance `rf2-hic-003`, budgets and shell line
+`rf2-hic-006`/`rf2-hic-018`, bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md); this page `rf2-0qj9w`.
 
 ---
 

@@ -14,7 +14,10 @@ Two rungs, because the two halves of the claim have to be priced apart.
 | **Rung 2** | plus the **product shell** — one frame-context hook, and **native event-vector lowering** (`:on-click [:hd8/touch i]` lowered by the codec, not by the author) | 2 |
 
 Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
-**`rf2-2rtt6.1`**.
+the governance set that superseded **`rf2-2rtt6.1`** on 2026-08-10 — K1 price
+acceptance `rf2-hic-003`, budgets and shell line `rf2-hic-006`/`rf2-hic-018`,
+bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md).
 
 > **THE STOP/CONTINUE RULING IS NOT ISSUED HERE, AND NOT BY THIS PAGE.**
 > Per HD-013 and HD-014 it is a *delegated advisory* ruling — one adversarial

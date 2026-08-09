@@ -10,7 +10,10 @@ between the arms (8.254 against 8.246), so the whole `+2.2 ms` lives in the
 decomposes the 6.100 ms, term by term, and then does the same to the twin's
 3.900 so the two are comparable line for line.
 
-Bead **`rf2-409ab`**. The standard is **`rf2-2rtt6.1`**.
+Bead **`rf2-409ab`**. The standard is the governance set that superseded
+**`rf2-2rtt6.1`** on 2026-08-10 — K1 price acceptance `rf2-hic-003`, budgets and
+shell line `rf2-hic-006`/`rf2-hic-018`, bulk verdict protocol `rf2-hic-036`,
+kill rules in [the decision brief](../product/decision-brief.md).
 
 > **DIAGNOSTIC, NOT PUBLISHED.** Every figure here is an **in-page
 > `flushSync` window**, and `rf2-8nqsl` established that such a window
@@ -18,8 +21,9 @@ Bead **`rf2-409ab`**. The standard is **`rf2-2rtt6.1`**.
 > sees only the script half of a mount. That is exactly why it is the right
 > instrument for this question: **the quantity being decomposed IS the script
 > half**. No figure on this page is a gate row, no verdict here re-baselines
-> HD-012, and the ruling on any of it is the operator's (`rf2-2rtt6.1`),
-> never this page's.
+> HD-012, and the ruling on any of it is the operator's
+> ([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was
+> superseded and closed on 2026-08-10), never this page's.
 
 ## 1. The instrument — one door, one window, fifteen arms
 

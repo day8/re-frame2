@@ -77,7 +77,10 @@ the wrong thing, but one label — `taskNet` — denoting two different quantiti
 on two harnesses, and two pages quoting them against each other as though it
 denoted one ([§3](#3-the-three-mount-numbers)).
 
-Owner: the operator-owned standard bead `rf2-2rtt6.1`; this page `rf2-emvod`.
+Owner: the operator-owned governance set that superseded `rf2-2rtt6.1` on
+2026-08-10 — K1 price acceptance `rf2-hic-003`, budgets and shell line
+`rf2-hic-006`/`rf2-hic-018`, bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md); this page `rf2-emvod`.
 
 ---
 

@@ -10,14 +10,18 @@ floor-normalised, same run, on raw `TaskDuration`** — script AND frame,
 frame-settled, plumb-tared, Reagent-on-subs co-instrumented beside the gate and
 never a second gate.
 
-Bead **`rf2-2rtt6.56`**. The standard is **`rf2-2rtt6.1`**.
+Bead **`rf2-2rtt6.56`**. The standard is the governance set that superseded
+**`rf2-2rtt6.1`** on 2026-08-10 — K1 price acceptance `rf2-hic-003`, budgets and
+shell line `rf2-hic-006`/`rf2-hic-018`, bulk verdict protocol `rf2-hic-036`,
+kill rules in [the decision brief](../product/decision-brief.md).
 
 > **THE CANONICAL MOUNT WITNESS IS M1 AND STAYS M1.** The amendment is
 > explicit that census-page rows **corroborate** the canonical witness and do
 > not silently redefine it. These rows are the diagnostic ladder the roster's
 > pages suggest, and the bar rows stay on their own instrument. Nothing here
 > re-baselines HD-012, and the ruling on any verdict below is the operator's
-> (`rf2-2rtt6.1`), never this page's.
+> ([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was
+> superseded and closed on 2026-08-10), never this page's.
 
 > **RETRACTED, 2026-08-07 (`rf2-2rtt6.62`).** This page previously described
 > the large-template and feed rows as *the same screen at two boundary
@@ -337,8 +341,9 @@ floor-normalised estimand and published as `K1 MISSED, DECISIVELY` —
 [`rf2-emvod` §4.3](rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) —
 and it is neither of the readings named above; see the note earlier on this
 page)*, and what these rows corroborate is the **direction**. The ruling on what
-that means for the programme is the operator's (`rf2-2rtt6.1`); this page
-measures.
+that means for the programme is the operator's
+([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was
+superseded and closed on 2026-08-10); this page measures.
 
 ## 2026-08-07 the re-take on the current tree (rf2-jv36i)
 

@@ -11,14 +11,19 @@ It is not. Roughly half of it was work the synthesis performed and discarded,
 and **77% of it was not Hicasso's at all** — it was routing's, on a path every
 re-frame2 link surface runs.
 
-Bead **`rf2-cno31`**. The standard is **`rf2-2rtt6.1`** (mount ≤ 1.10× direct
-UIx-on-subs, floor-normalised, same run, raw `TaskDuration`); the before rows
+Bead **`rf2-cno31`**. Adjudicated against the mount gate as **`rf2-2rtt6.1`**
+carried it on 2026-08-02 — mount ≤ 1.10× direct UIx-on-subs, floor-normalised,
+same run, raw `TaskDuration`. That standard was superseded and closed on
+2026-08-10; the operative default is now K1 price acceptance `rf2-hic-003`
+([the K1 record](../product/k1-price-acceptance.md)). The before rows
 are `rf2-6c237`'s ([the cold-read page](the-cold-read-mount-term.md) §6).
 
 > **THE CANONICAL MOUNT WITNESS IS M1 AND STAYS M1.** These rows corroborate
 > the amendment's line on census-real screens exactly as the before rows did;
 > nothing here re-baselines the canonical witness, and the ruling on any verdict
-> below is the operator's (`rf2-2rtt6.1`), never this page's.
+> below is the operator's
+> ([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was
+> superseded and closed on 2026-08-10), never this page's.
 
 ## 1. The profile — where 8.21 µs actually goes
 

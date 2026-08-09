@@ -18,7 +18,10 @@ the same instrument, in the same runs, on the same witnesses, under the same
 gates.
 
 Bead **`rf2-2rtt6.29`**. Decision **[HD-008](../decisions.md)**. The standard is
-**`rf2-2rtt6.1`**.
+the governance set that superseded **`rf2-2rtt6.1`** on 2026-08-10 — K1 price
+acceptance `rf2-hic-003`, budgets and shell line `rf2-hic-006`/`rf2-hic-018`,
+bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md).
 
 > **NO BAR VERDICT IS ISSUED HERE, AND NONE MAY BE READ OUT OF THIS PAGE.**
 > The mount win condition is suspended as a gate pending an operator amendment:
@@ -68,7 +71,8 @@ git rev-parse $A:implementation/freehand/test/re_frame/bench/hicasso/hd8_witness
 **The spine stamp that qualifies the sibling page does not qualify this one.**
 Every column here — including the `donor-r1`, `donor-r2`, `uix`, `reagent` and
 `reagent-slim` columns — was re-taken in these two sweeps, on today's spine
-(`1384ae1285`), on a plan that now has one more arm in it. **Nothing on this page
+blob (`1384ae1285`, the `spine.cljs` blob stamped in the table above), on a plan
+that now has one more arm in it. **Nothing on this page
 is quoted from
 [hd8-composed-donor-arm.md](hd8-composed-donor-arm.md)**, and nothing here amends
 it: adding a fifth or sixth arm changes `k` in the interleaving schedule, so
