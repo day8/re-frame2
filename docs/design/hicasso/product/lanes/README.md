@@ -26,6 +26,11 @@ Quantitative claims stay attached to their witness, revision, runtime, substrate
 | Phase dependencies and exit signals | [`delivery-programme.md`](delivery-programme.md) |
 | Candidate-idea protocols and kill criteria | [`left-field-ideas.md`](left-field-ideas.md) |
 | Corpus-derived rationale and cautions | [`corpus-insights.md`](corpus-insights.md) |
+| Use-case coverage classification and per-surface server/hydration dispositions | [`../dispositions.md`](../dispositions.md) |
+| Per-job corpus evidence: frequency, failure modes, and the witness each recurring job owes | [`../requirements-mine.md`](../requirements-mine.md) |
+| Open naming questions and their consolidation | [`../naming-ledger.md`](../naming-ledger.md) |
+| Pre-registered adopt/stop criteria for demand-driven resource ownership | [`../resource-demand-criteria.md`](../resource-demand-criteria.md) |
+| Checkpoint findings and their closure into the release verdict | [`../correction-ledger.md`](../correction-ledger.md) |
 
 ## Product documents
 

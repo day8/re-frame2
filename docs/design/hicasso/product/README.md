@@ -4,6 +4,18 @@ Published from the operator-local working set by rf2-hic-000. This is the worker
 
 The naming ledger (naming-ledger.md) is live and appended-to by beads; see rf2-hic-065.
 
+## Records
+
+Standalone ledgers and decision records kept beside the snapshot. Each states in its own opening what it owns and which document governs it.
+
+- [`invariants.md`](invariants.md) — one page to check a change against: every invariant the product commits to, every capability and the rent it pays, and the provisional `h` and `n` facades. Wholly transcribed from the governing documents, so where a row and its owner disagree the owner governs and the row is the defect.
+- [`dispositions.md`](dispositions.md) — the two ledgers Phase 0 owes: which layer answers each [specification §7](specification.md#7-complete-use-case-coverage) use case, and the server/hydration disposition of every proposed public surface. It mints the permanent inventory id each surface carries, so no surface can be added, shipped or forgotten without a row.
+- [`requirements-mine.md`](requirements-mine.md) — one row per recurring application job: how often the corpus actually does it, how it fails, where the answer lives, who is accountable, and the executable artefact that would prove it. Frequency is what justifies syntax and standing cost.
+- [`naming-ledger.md`](naming-ledger.md) — every naming question any bead finds, consolidated in one place so that nobody renames mid-flow. Recommendations apply as defaults immediately; the operator's sitting overrides rows asynchronously.
+- [`resource-demand-criteria.md`](resource-demand-criteria.md) — the adopt-or-stop criteria for demand-driven resource ownership, frozen before the typeahead witness produced any data. The default verdict is STOP and amendment is prospective only, so read it before reading any resource-demand result.
+- [`k1-price-acceptance.md`](k1-price-acceptance.md) — the scoped amendment instrument for the K1 mount gate: what the measured mount premium buys, and what ratification would and would not carry. PROPOSED and not operative — the registered gate stands until the sitting ratifies it.
+- [`correction-ledger.md`](correction-ledger.md) — every checkpoint finding and what it takes to close one. A row does not close when the fix merges, only when the protocol section that produced the finding has been re-run against the landed fix; the final audit reads this file.
+
 ## Source hashes at publication
 
 ```
