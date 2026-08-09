@@ -45,11 +45,11 @@
   with no keyword changing value."
   #?(:cljs
      (:require [re-frame.hicasso.impl.boundary :as impl-boundary]
+               [re-frame.hicasso.impl.collector :as impl-collector]
                [re-frame.hicasso.impl.intent :as impl-intent]
                [re-frame.hicasso.impl.mount :as impl-mount]
                [re-frame.hicasso.impl.presence-react :as impl-presence-react]
                [re-frame.hicasso.impl.route-link :as impl-route-link]
-               [re-frame.hicasso.impl.runtime :as impl-runtime]
                [re-frame.hicasso.impl.state :as impl-state]))
   #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost hfn]])))
 
@@ -82,7 +82,7 @@
            view-name (str (ns-name *ns*) "/" sym)
            body-name (symbol (str sym "-body"))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
-          (re-frame.hicasso.impl.runtime/mint-view!
+          (re-frame.hicasso.impl.collector/mint-view!
             ~view-name
             (fn ~body-name ~argv ~@body))))))
 
@@ -192,14 +192,14 @@
   from anywhere inside a body, including inside a `when`, a `for` or an
   inlined helper. The edge is recorded where the read happens, so a branch
   not taken contributes no edge.
-  [[re-frame.hicasso.impl.runtime/sub]]."}
-       sub impl-runtime/sub)
+  [[re-frame.hicasso.impl.collector/sub]]."}
+       sub impl-collector/sub)
 
      (def ^{:doc "**Grouped — the control.** One fixed site takes the whole
   query collection and returns the snapshot the body destructures, so a
   boundary's edge set is a function of its declaration rather than of its
-  control flow. [[re-frame.hicasso.impl.runtime/use-subs]]."}
-       use-subs impl-runtime/use-subs)
+  control flow. [[re-frame.hicasso.impl.collector/use-subs]]."}
+       use-subs impl-collector/use-subs)
 
      (def ^{:doc "`h/frame` in the authoring surface — the frame id KEYWORD
   of the boundary currently rendering, for the handful of core doors that

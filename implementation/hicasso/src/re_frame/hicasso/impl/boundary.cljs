@@ -64,7 +64,7 @@
   boundary reports from one lifecycle rather than three.
 
   The frame reaches the class through `contextType` — the substrate's one
-  internal React context, the same object `runtime/shell` reads with
+  internal React context, the same object `collector/shell` reads with
   `useContext` — so `:on-error`'s intent lands in the frame the boundary
   was mounted under rather than in whatever happened to be ambient when
   the throw arrived.
@@ -95,7 +95,7 @@
   has [[frame-of]] through `contextType`. So there is no new hook and no
   new accessor — only HD-020(a)'s rule applied where the lowering
   actually happens rather than where the hiccup was written, with
-  `runtime/frame-dispatch`'s memoised frame-locked dispatch so a child
+  `collector/frame-dispatch`'s memoised frame-locked dispatch so a child
   here lowers *identically* to one written in the parent's body and
   nothing is allocated per render.
 
@@ -116,8 +116,8 @@
   throws lands in the browser's error channel, not here. That is React's
   boundary, not this arm's, and the arm inherits it exactly."
   (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.hicasso.impl.runtime :as rt]
             [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.intent :as intent]
             ["react" :as react]))
 
@@ -143,7 +143,7 @@
   (let [on-error (:on-error (props-of this))]
     (cond
       (vector? on-error) (when-some [frame-kw (frame-of this)]
-                           (rt/dispatch! frame-kw (conj on-error error)))
+                           (collector/dispatch! frame-kw (conj on-error error)))
       (fn? on-error)     (on-error error)
       :else              nil))
   nil)
@@ -206,7 +206,7 @@
                 ;; binding is unconditional so the branch does not exist, and
                 ;; an intent written under a frameless boundary still lands on
                 ;; the existing loud error naming the intent.
-                (intent/with-frame frame-kw (when frame-kw (rt/frame-dispatch frame-kw))
+                (intent/with-frame frame-kw (when frame-kw (collector/frame-dispatch frame-kw))
                   (fn []
                     (if (some? error)
                       (codec/as-element (if (fn? fallback) (fallback error) fallback))

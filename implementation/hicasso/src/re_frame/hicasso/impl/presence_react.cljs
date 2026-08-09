@@ -9,7 +9,7 @@
   **Three React hooks — `useContext`, `useState` and `useEffect` — in
   THIS component.** The ≤2-hook budget HD-020(b) polices is the *boundary
   shell's*, and this is not a boundary shell: it reads no subscription,
-  mounts no registration and takes no cell. `runtime/shell` is untouched
+  mounts no registration and takes no cell. `collector/shell` is untouched
   and the dispatcher-level ledger still counts exactly two there.
 
   The two lifecycle hooks are legitimate under HD-003's placement rule
@@ -39,9 +39,9 @@
   the control an exiting toast wants.
 
   The frame is therefore resolved once, from the substrate's single
-  internal context — the same object `runtime/shell` reads and
+  internal context — the same object `collector/shell` reads and
   `arm1.boundary` takes through `contextType` — and re-bound around the
-  one `as-element` call below, with `runtime/frame-dispatch`'s memoised
+  one `as-element` call below, with `collector/frame-dispatch`'s memoised
   frame-locked dispatch. That is HD-020(a)'s rule applied where the
   lowering actually happens rather than where the hiccup was written.
 
@@ -71,14 +71,15 @@
 
   A hydrating tree's children are already on the screen, so they start
   `:present` rather than `:mounting` — the machine's own `settle`,
-  applied one render earlier, gated on `runtime/adopting?`. It costs no
+  applied one render earlier, gated on `roots/adopting?`. It costs no
   hook, changes no transform, and is scoped to the adoption window; see
   the comment at the binding below."
   (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.hicasso.impl.runtime :as rt]
             [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.presence :as presence]
+            [re-frame.hicasso.impl.roots :as roots]
             ["react" :as react]))
 
 (defn- now [] (js/Date.now))
@@ -118,7 +119,7 @@
         ;; HTML and the client's first pass agree by construction; that
         ;; agreement is the whole reason the flag is read here in the
         ;; RENDER rather than in the effect below.
-        next       (if (rt/adopting?) (presence/settle stepped) stepped)]
+        next       (if (roots/adopting?) (presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the
     ;; equality test converges rather than looping.
@@ -146,7 +147,7 @@
     ;; the tray — the binding is unconditional so the branch does not
     ;; exist, and an intent written under a frameless tray still lands on
     ;; the existing loud error naming the intent.
-    (intent/with-frame frame-kw (when frame-kw (rt/frame-dispatch frame-kw))
+    (intent/with-frame frame-kw (when frame-kw (collector/frame-dispatch frame-kw))
       (fn [] (codec/as-element (into [:<>] (presence/render next)))))))
 
 (def presence
@@ -155,7 +156,7 @@
   `::h/unmounting` attribute overrides while it is in that phase.
 
       [presence {:timeout-ms 300}
-       (for [t (rt/sub [:toasts/visible])]
+       (for [t (collector/sub [:toasts/visible])]
          [:div.toast {:key (:id t)
                       ::h/unmounting {:class \"toast toast--exit\"
                                       :inert true :aria-hidden true}}

@@ -27,7 +27,7 @@
   the same machinery are the bench tree's `*_dom_cljs_test` suites.
 
   The three harness namespaces reached below the door (`impl.mount`'s
-  provider, `impl.codec`'s root element, `impl.runtime`'s reset) are the
+  provider, `impl.codec`'s root element, `impl.collector`'s reset) are the
   server-render harness, not authoring surface. Mounting is
   [[re-frame.hicasso/root!]]'s job and needs a DOM; wiring a consumer app
   and an SSR entry to the package is rf2-hic-008's."
@@ -37,8 +37,9 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.runtime :as runtime]
             [re-frame.test-support :as test-support]
             ["react-dom/server" :as react-dom-server]))
 
@@ -59,7 +60,7 @@
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (runtime/reset-runtime!))}))
+     :init-fn       (fn [] (collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The consumer's whole source file
@@ -116,3 +117,22 @@
     (let [markup (html [greeting-line {:tag "greet"}])]
       (is (re-find #"HELLO" markup))
       (is (nil? (re-find #">hello<" markup))))))
+
+(deftest the-module-graph-loads-and-a-server-render-acquires-nothing
+  ;; rf2-hic-009 split the copied runtime into six owned modules, and
+  ;; `impl.inventory` is the one nothing else requires — its readers reach
+  ;; ACROSS the split, into the collector's tables, the frame memo and the
+  ;; generation counters. Requiring it here is what puts it on the build at
+  ;; all; asserting through it is what says those reaches resolve.
+  ;;
+  ;; The property asserted is the simplest true statement about the render
+  ;; phase: `renderToString` runs bodies and never commits — React calls
+  ;; `getServerSnapshot`, never `subscribe` — so the runtime acquires no
+  ;; cell, takes no reference and records no edge. The real
+  ;; commit-owns/abandonment witnesses are rf2-hic-010's; this one only has
+  ;; to fail when the module graph is wrong.
+  (testing "a render that never commits leaves the retention tables empty"
+    (seeded! "hello")
+    (html [greeting-line {:tag "greet"}])
+    (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
+           (dissoc (inventory/residue) :entries)))))
