@@ -10,7 +10,13 @@
     "location": "the row-run's MEDIAN over its 18 blocks (rf2-8bgqq: a ratio's headline is its median)",
     "dispersion": "the row-run's robust scale over those blocks, IQR / 1.349 — the normal-consistent estimator, comparable with an SD without inheriting one wild block"
   },
-  "runRejection": "a row-run is IN CONTROL when its block median lies inside the frozen location limits AND its robust scale is at or under the frozen dispersion limit. Nothing per-block rejects it.",
+  "evidence": {
+    "rounds": 6,
+    "blocks": 3,
+    "why": "THE CARDINALITY THIS STANDARD'S LIMITS DESCRIBE, and a PRECONDITION rather than a description (rf2-pzqy8). Every limit below is a statistic OF row-runs of exactly 6 x 3 = 18 blocks: the between-run SD the location limits are three of, and the lognormal fit the dispersion limit is the upper 3 sigma of, are both taken over 18-block row-runs. A median over fewer blocks has a different sampling distribution, so judging it against these limits judges a different quantity — and at n = 1 it is not a judgement at all, because the robust scale of one reading is 0 and the dispersion rule cannot fail. `checkStandardVerdict` therefore refuses a row-run that does not carry exactly this many finite readings, with the observed and expected counts, BEFORE computing either statistic. `recalibrateOn` already makes a change to the round or block counts a recalibration; this is that requirement made enforceable rather than trusted.",
+    "expectedReadings": "rounds x blocks — derived in the driver, never spelled there, so re-deepening the design is editing this file like every other limit"
+  },
+  "runRejection": "a row-run is IN CONTROL when it carries exactly the evidence above AND its block median lies inside the frozen location limits AND its robust scale is at or under the frozen dispersion limit. Nothing per-block rejects it.",
   "toleranceBandIsNotTheRule": "The per-block tolerance band below is REPORTED and decides nothing on a row this standard calibrates. It is the same +/-25% band the strict rule uses, re-centred on the empirical centre, and it is printed because a reader wants to see where the blocks fell.",
   "whyNotTheAllBlocksRule": "Because on THIS row it is `p^18` and nothing else. Re-centred on the empirical centre the ordinary row's per-block in-band fraction rises from 31.1% to 90.0%, and the all-blocks rule would still pass only 3 of 10 row-runs, because 0.90^18 = 15%. That is rf2-8a746's arithmetic exactly. THE RULE IS NOT TOUCHED WHERE rf2-y0pkh MEASURED AND RETAINED IT: on `large-template` and `feed` it costs 18.2% and 39.8% per-run false refusal and it remains those rows' adjudicator, unchanged. `ordinary` is the row rf2-y0pkh explicitly held out of that retention.",
   "rows": {

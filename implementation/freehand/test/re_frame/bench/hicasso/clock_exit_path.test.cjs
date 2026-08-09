@@ -1512,9 +1512,30 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
 {
   const CENSUS = DRIVERS[1].mod;
-  const { summarise, summariseRow, verdict, destination, datasetFor, rowPublication } = CENSUS;
+  const {
+    summarise, summariseRow, verdict, destination, datasetFor, rowPublication,
+    controlBlocks, controlAdjudication, checkStandardVerdict, CHECK_STANDARD: STD,
+  } = CENSUS;
   const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
   const t = (what, fn) => test(`census refusal scope: ${what}`, fn);
+
+  const ORD = STD.rows.ordinary;
+  const EXPECTED = STD.evidence.rounds * STD.evidence.blocks;
+
+  /**
+   * A capture of exactly `n` control blocks, every block reading the frozen
+   * CENTRE — the most favourable evidence this standard has, so anything that
+   * refuses it can only be refusing the COUNT. Laid out in rounds of
+   * `evidence.blocks`, the way a capture truncated part-way actually arrives.
+   */
+  const centreBlocks = (n) => {
+    const rounds = [];
+    for (let i = 0; i < n; i += STD.evidence.blocks) {
+      const width = Math.min(STD.evidence.blocks, n - i);
+      rounds.push(Array.from({ length: width }, () => ({ plumb: [0], floor: [1], 'ctl-2x': [ORD.centre] })));
+    }
+    return rounds;
+  };
 
   const CANON = '/data/censusclock-2rtt6-56';
   const shape = (over = {}) => ({
@@ -1531,35 +1552,54 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   const DECOMP = () => ({ n: 10, task: 3, taskNet: 2, devtools: 1, script: 0.5, style: 0.4, layout: 0.6, layoutCount: 10, inPage: 1 });
 
-  /** One row as `drive` collects it, with its four gates settable one at a time. */
-  const resultRow = (rowId, gates = {}) => ({
-    runId: 'uix',
-    rowId,
-    armIds: ['plumb', 'floor', 'ctl-2x'],
-    canon: { floor: { hash: 'a', bytes: 10, control: true } },
-    ctlPredicted: 1.7255,
-    blocksTask: [[{ plumb: [0.7], floor: [2, 2.1], 'ctl-2x': [3, 3.1] }]],
-    blocksNet: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
-    blocksInPage: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
-    blocksDecomp: [[{ plumb: DECOMP(), floor: DECOMP(), 'ctl-2x': DECOMP() }]],
-    tally: { writes: 36, unverified: gates.unverified || 0 },
-    runtime: 'fixture',
-    quiet: { ok: true },
-    windowStart: '2026-08-08T00:00:00.000Z',
-    adjudication: {
-      ctl: { ok: gates.ctlOk !== false, measured: { mean: gates.ctlMeasured || 1.9943 } },
-      cAdditive: 0.96,
-      assessed: {
-        bandStats: { band: gates.band === undefined ? 0.12 : gates.band },
-        verdict: { ceilingBreached: gates.ceilingBreached === true },
+  /**
+   * One row as `drive` collects it, with its four gates settable one at a time.
+   *
+   * A `blocks` gate is the fifth, and it is different in kind: instead of
+   * handing the row a stated control verdict it hands it a real capture of that
+   * many blocks and adjudicates it through the driver's OWN
+   * `controlAdjudication`, so a witness can drive the evidence-cardinality
+   * precondition end to end rather than assert a hand-set answer (rf2-pzqy8).
+   */
+  const resultRow = (rowId, gates = {}) => {
+    const ctlPredicted = 1.7255;
+    const blocksTask =
+      gates.blocks === undefined
+        ? [[{ plumb: [0.7], floor: [2, 2.1], 'ctl-2x': [3, 3.1] }]]
+        : centreBlocks(gates.blocks);
+    const ctl =
+      gates.blocks === undefined
+        ? { ok: gates.ctlOk !== false, measured: { mean: gates.ctlMeasured || 1.9943 } }
+        : controlAdjudication(rowId, ctlPredicted, controlBlocks(blocksTask), ORD.tolerance.slack);
+    return {
+      runId: 'uix',
+      rowId,
+      armIds: ['plumb', 'floor', 'ctl-2x'],
+      canon: { floor: { hash: 'a', bytes: 10, control: true } },
+      ctlPredicted,
+      blocksTask,
+      blocksNet: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
+      blocksInPage: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
+      blocksDecomp: [[{ plumb: DECOMP(), floor: DECOMP(), 'ctl-2x': DECOMP() }]],
+      tally: { writes: 36, unverified: gates.unverified || 0 },
+      runtime: 'fixture',
+      quiet: { ok: true },
+      windowStart: '2026-08-08T00:00:00.000Z',
+      adjudication: {
+        ctl,
+        cAdditive: 0.96,
+        assessed: {
+          bandStats: { band: gates.band === undefined ? 0.12 : gates.band },
+          verdict: { ceilingBreached: gates.ceilingBreached === true },
+        },
+        bars: {},
+        verdicts: {},
+        guardRefuse: gates.guardRefuse === true,
+        plumb: 0.7683,
+        floorTared: 1.4076,
       },
-      bars: {},
-      verdicts: {},
-      guardRefuse: gates.guardRefuse === true,
-      plumb: 0.7683,
-      floorTared: 1.4076,
-    },
-  });
+    };
+  };
 
   /** The full published shape: the three rows, in the order the driver takes them. */
   const fullShape = (gatesByRow = {}) =>
@@ -1741,6 +1781,105 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const note = CSRC.slice(CSRC.indexOf('// WHERE A RUN\'S DATASETS MAY BE WRITTEN'), CSRC.indexOf('function destination('));
     assert.match(note, /`clock_run\.cjs`'s `publication\(shape\)` has read shape and nothing else/);
     assert.match(note, /A refusal is evidence/);
+  });
+
+  // --- rf2-pzqy8: the standard requires its DECLARED EVIDENCE CARDINALITY ----
+  //
+  // MERGED-PR AUDIT #7701. The calibrated standard's limits are statistics OF
+  // 18-block row-runs, but `checkStandardVerdict` accepted any non-empty
+  // all-finite array and never compared its length against the design. On the
+  // landed helper `checkStandardVerdict('ordinary', [1.2308])` reported `n: 1`,
+  // `scale: 0`, location ok, dispersion ok and final `ok: true` — and because
+  // `controlAdjudication` makes the standard THE adjudicator on a calibrated
+  // row, one block at the centre made the row citable as in control while the
+  // strict rule was failing it. Truncated capture evidence could publish.
+  //
+  // The two witnesses are the audit's own: a ONE-BLOCK row-run and a
+  // SEVENTEEN-BLOCK one. Each is driven through the driver's real
+  // `controlBlocks` and `controlAdjudication` and out through BOTH consumers of
+  // that verdict — the nonzero exit and the row publication — and each asserts
+  // its EIGHTEEN-block twin green in the same test, so neither can pass by
+  // refusing everything.
+  //
+  // NO MEASUREMENT IS TAKEN. Cardinality and arithmetic over fixture blocks.
+
+  for (const [what, n] of [['ONE BLOCK', 1], ['SEVENTEEN BLOCKS', 17]]) {
+    t(`${what} at the frozen centre REFUSES the row, and publishes nothing from it`, () => {
+      const row = resultRow('ordinary', { blocks: n });
+      const ctl = row.adjudication.ctl;
+
+      // 1. THE STANDARD REFUSED IT, ON THE COUNT, BEFORE COMPUTING A STATISTIC.
+      assert.strictEqual(ctl.standard.ok, false, `${n} blocks must not be adjudicated in control`);
+      assert.strictEqual(ctl.standard.measured.n, n, 'the observed count is reported');
+      assert.strictEqual(ctl.standard.measured.expected, EXPECTED, 'and so is the expected one');
+      assert.strictEqual(ctl.standard.measured.finite, n, 'every block here IS a finite reading');
+      assert.strictEqual(ctl.standard.location, null, 'no location statistic may be computed on partial evidence');
+      assert.strictEqual(ctl.standard.dispersion, null, 'nor a dispersion one');
+      assert.match(ctl.standard.why, new RegExp(`^${n} finite blocks where this standard's evidence is ${EXPECTED} `));
+      assert.match(ctl.standard.why, new RegExp(`${EXPECTED - n} MISSING`));
+
+      // ... and it is the COUNT and nothing else: the same blocks at the same
+      // centre, eighteen of them, are in control.
+      const whole = resultRow('ordinary', { blocks: EXPECTED }).adjudication.ctl;
+      assert.strictEqual(whole.standard.ok, true, 'the eighteen-block twin must PASS, or this witness is vacuous');
+      assert.strictEqual(whole.standard.location.ok, true);
+      assert.strictEqual(whole.standard.dispersion.ok, true);
+      assert.strictEqual(whole.ok, true);
+
+      // 2. `controlAdjudication` CARRIES THE REFUSAL — this is the seat the
+      //    audit found, where a passing standard overrode a failing strict rule.
+      assert.strictEqual(ctl.ok, false, 'the standard adjudicates a calibrated row, so the row does not hold');
+      assert.strictEqual(ctl.strictOk, false, 'the strict rule was failing all along; it must not be what saves this');
+      assert.match(ctl.adjudicator, /calibrated check standard/);
+
+      // 3. THE NONZERO EXIT PATH.
+      const rows = ['large-template', 'feed'].map((id) => resultRow(id)).concat(row);
+      const v = verdict(summarise(null, rows));
+      assert.strictEqual(v.code, 5, 'a row whose control does not hold exits 5');
+      assert.match(v.lines[0], /uix\/ordinary/);
+      assert.doesNotMatch(v.lines[0], /large-template|feed/, 'a clean row must not be blamed');
+
+      // 4. THE ROW-PUBLICATION PATH — refused at the ROW's scope, the two
+      //    complete rows still citable, per the fence this bead may not move.
+      const data = written(rows);
+      assert.deepStrictEqual(data.rowsRefused, ['ordinary']);
+      const byId = Object.fromEntries(data.rows.map((r) => [r.rowId, r]));
+      assert.strictEqual(byId.ordinary.canonical, false);
+      assert.match(byId.ordinary.notCanonicalWhy, /POSITIVE CONTROL did not hold/);
+      for (const id of ['large-template', 'feed']) {
+        assert.strictEqual(byId[id].canonical, true, `${id} must stay citable — the refusal's scope is the ROW`);
+      }
+      // ... and the whole-evidence run publishes every row, so step 4 is not
+      // passing by refusing the world.
+      const clean = written(['large-template', 'feed'].map((id) => resultRow(id)).concat(resultRow('ordinary', { blocks: EXPECTED })));
+      assert.deepStrictEqual(clean.rowsRefused, []);
+      assert.strictEqual(verdict(summarise(null, ['large-template', 'feed'].map((id) => resultRow(id)).concat(resultRow('ordinary', { blocks: EXPECTED })))).code, 0);
+    });
+  }
+
+  t('EXTRA blocks refuse too, and the refusal counts them', () => {
+    // The precondition is EXACTLY the declared evidence, not a floor. A row-run
+    // deeper than the design is not the run these limits were calibrated on
+    // either, and a standard that adjudicates any depth has an unmeasured rate.
+    const v = checkStandardVerdict('ordinary', controlBlocks(centreBlocks(EXPECTED + 1)));
+    assert.strictEqual(v.ok, false);
+    assert.strictEqual(v.measured.n, EXPECTED + 1);
+    assert.strictEqual(v.measured.expected, EXPECTED);
+    assert.match(v.why, /1 EXTRA/);
+    assert.strictEqual(v.location, null);
+  });
+
+  t('the expected count is the STANDARD\'s design field, not a literal in the driver', () => {
+    // One field, one place. `18` is nowhere in the driver's code: it is
+    // `evidence.rounds x evidence.blocks`, so re-deepening the design is
+    // editing the JSON exactly as moving a limit is — and `recalibrateOn`
+    // already says a change to the round or block counts is a recalibration.
+    assert.deepStrictEqual([STD.evidence.rounds, STD.evidence.blocks], [6, 3]);
+    assert.strictEqual(EXPECTED, 18, 'the published design is 6 rounds x 3 blocks');
+    const CODE = CSRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.match(CODE, /CHECK_STANDARD\.evidence\.rounds \* CHECK_STANDARD\.evidence\.blocks/);
+    assert.ok(!/=\s*18\b/.test(CODE), 'the expected count must not be assigned as a literal in the driver');
+    assert.match(STD.recalibrateOn.join(' '), /the sample or round counts/);
   });
 }
 
