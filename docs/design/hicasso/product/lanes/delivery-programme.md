@@ -1,6 +1,6 @@
 # Delivery dependency and exit index
 
-[`../synth-codex.md`](../specification.md#12-action-programme) owns phase order, scope, and product decisions. This index exposes dependencies and exits without creating a second roadmap.
+[`../specification.md`](../specification.md#12-action-programme) owns phase order, scope, and product decisions. This index exposes dependencies and exits without creating a second roadmap.
 
 | Phase | Depends on | Canonical evidence | Exit signal |
 |---|---|---|---|
