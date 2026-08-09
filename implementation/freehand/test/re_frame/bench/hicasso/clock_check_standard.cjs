@@ -127,6 +127,28 @@
 // applied to a hold-out record: the arithmetic that produced it is driven over
 // the committed corpus by `clock_exit_path.test.cjs`, which has the datasets;
 // the fixtures here stay synthetic and check the record's SHAPE and its claims.
+//
+// ## v4 — THE EVIDENCE CARDINALITY IS PART OF THE STANDARD (rf2-8a746,
+// merged-PR audit #7698, 2026-08-10)
+//
+// Retiring the all-blocks rule (v1) retired a PER-BLOCK VERDICT, and this
+// module then read that retirement as licence to accept ANY number of blocks:
+// a one-element list at the frozen centre came back `ok: true` with `n: 1` and
+// `robustScale: 0`, and a committed six-round row truncated to one round still
+// passed on its three surviving segment blocks. That confuses retiring
+// all-blocks-in-band with allowing blocks to be ABSENT. The frozen limits are
+// statistics OF the declared design — a location band of run MEDIANS over 18
+// blocks, a dispersion limit of 18-block robust scales — so a smaller or
+// larger block set is not the quantity the limits were calibrated on, and
+// certifying it "in control" asserts against it a value never measured on it,
+// which is the exact mis-specification this whole standard exists to retire.
+//
+// So `checkStandard` — the direct helper both consumers share — now carries an
+// EXPECTED-N CONTRACT: exactly `STANDARD.evidence.expectedBlocks` finite
+// readings (18, from the declared 6-round x 3-segment design, stated once in
+// the JSON), refused otherwise with observed and expected counts. It is a
+// completeness rule on the evidence, not a per-block verdict: no block's own
+// VALUE rejects anything, so the v1 retirement stands untouched.
 
 'use strict';
 
@@ -232,6 +254,23 @@ function checkStandard(perBlockRatios, rowId) {
       xs.length === 0
         ? 'no blocks — an empty block set is an absent reading, not a run in control'
         : `${xs.length - finite.length} of ${xs.length} blocks are not finite readings of a level ratio`;
+    return base;
+  }
+  // THE EXPECTED-N CONTRACT (rf2-8a746, merged-PR audit #7698). The frozen
+  // limits are statistics of the declared 6-round x 3-segment design — a
+  // location band of run medians over 18 blocks, a dispersion limit of
+  // 18-block robust scales — so a run is judged only when it carries EXACTLY
+  // that many readings. Before this check, a one-element list at the frozen
+  // centre certified with `n: 1` and `robustScale: 0`. This is a completeness
+  // rule and not a per-block verdict: no block's VALUE rejects anything here,
+  // so the v1 all-blocks retirement stands.
+  const expected = STANDARD.evidence.expectedBlocks;
+  if (finite.length !== expected) {
+    base.why =
+      `${finite.length} block(s) observed where the frozen standard's ${STANDARD.evidence.design.rounds}-round x ` +
+      `${STANDARD.evidence.design.segments}-segment design requires exactly ${expected} — ` +
+      `${finite.length < expected ? 'a MISSING round or block' : 'an EXTRA round or block'} is an incomplete or ` +
+      'foreign evidence set, and limits calibrated on the full design certify nothing about it (rf2-8a746, audit #7698)';
     return base;
   }
 
@@ -515,6 +554,55 @@ function checkStandardSelfTest() {
   check('an EMPTY block set is not a pass', !checkStandard([], BULK).ok && /empty block set/.test(checkStandard([], BULK).why));
   check('and a block that is not a finite reading refuses the run', !checkStandard([...blocksAt(2, 17, 0.05), NaN], BULK).ok);
   check('a missing block set is absent, not clean', !checkStandard(undefined, BULK).ok && !checkStandard(null, BULK).ok);
+
+  // 6b. THE EVIDENCE CARDINALITY (rf2-8a746, merged-PR audit #7698). The
+  //     audit's own demonstration comes first: ONE block sitting dead on the
+  //     frozen centre used to certify with `n: 1` and `robustScale: 0`,
+  //     because a single reading trivially has no dispersion and is its own
+  //     median. The refusal must carry observed and expected counts, and it
+  //     must be the CARDINALITY refusing — not the block's value, which is
+  //     deliberately unimpeachable here.
+  const oneBlock = checkStandard(blocksAt(2, 1), BULK);
+  check(
+    'THE AUDIT WITNESS: one block at the frozen centre is REFUSED for incompleteness, never certified with n: 1',
+    !oneBlock.ok && /1 block\(s\) observed/.test(oneBlock.why || '') && /exactly 18/.test(oneBlock.why || ''),
+    oneBlock.why
+  );
+  const oneRound = checkStandard(blocksAt(2, 3, 0.02), BULK);
+  check(
+    'a row TRUNCATED to one round — three segment blocks of the six-round design — is refused with the counts',
+    !oneRound.ok && /3 block\(s\) observed/.test(oneRound.why || '') && /MISSING round/.test(oneRound.why || ''),
+    oneRound.why
+  );
+  check(
+    'a single MISSING round (15 of 18) refuses, and a single EXTRA round (21 of 18) refuses too',
+    !checkStandard(blocksAt(2, 15, 0.02), BULK).ok &&
+      /15 block\(s\) observed/.test(checkStandard(blocksAt(2, 15, 0.02), BULK).why || '') &&
+      !checkStandard(blocksAt(2, 21, 0.02), BULK).ok &&
+      /EXTRA round/.test(checkStandard(blocksAt(2, 21, 0.02), BULK).why || '')
+  );
+  check(
+    'the boundary is exact: 17 refuses, 18 certifies, 19 refuses — on the same healthy world',
+    !checkStandard(blocksAt(2, 17, 0.02), BULK).ok &&
+      checkStandard(blocksAt(2, 18, 0.02), BULK).ok &&
+      !checkStandard(blocksAt(2, 19, 0.02), BULK).ok
+  );
+  check(
+    'the cardinality contract holds on EVERY calibrated class, not the first one written',
+    !checkStandard(blocksAtIn(mount, 2, 1), MOUNT).ok && /exactly 18/.test(checkStandard(blocksAtIn(mount, 2, 1), MOUNT).why || '')
+  );
+  check(
+    "the expected count is the JSON's, derived from the declared design rather than written twice",
+    STANDARD.evidence.expectedBlocks === 18 &&
+      STANDARD.evidence.design.rounds * STANDARD.evidence.design.segments === STANDARD.evidence.expectedBlocks &&
+      /rf2-8a746/.test(STANDARD.evidence.ruling),
+    JSON.stringify(STANDARD.evidence.design)
+  );
+  check(
+    'and the completeness refusal is NOT the retired per-block rule returning: an in-band count still decides nothing',
+    oneRound.location === null && oneRound.tolerance === null,
+    'a cardinality refusal happens before location, dispersion or the reported band are computed'
+  );
 
   // 7. THE STANDARD IS DATA AND SAYS WHICH DATA IT IS. A verdict that did not
   //    carry its version could not be re-read after a recalibration — and v2
