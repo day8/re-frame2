@@ -192,9 +192,15 @@
                   (sup/readers-of [frame-b label-q]) (sup/readers-of [frame-b count-q])])
               (str "reader counts: " (pr-str (inventory/residue)))))
 
-        (testing "two frame-op bundles, not one — `capture-frame` pins an
-                  incarnation, and the memo is keyed by frame"
-          (is (= 2 (:frames (inventory/stats)))))
+        (testing "and the frame-locked ambient dispatch memoised for each body
+                  is keyed by frame too — a second table saying the same thing
+                  on a different axis"
+          (is (= #{frame-a frame-b} (sup/dispatch-memo-frames))
+              (str "got " (pr-str (sup/dispatch-memo-frames))))
+          (is (= #{} (sup/ops-memo-frames))
+              "and nothing has dispatched yet, so the `capture-frame` bundle
+               memo is still empty — which is what makes the reading above a
+               reading of RENDER and not of something a dispatch left behind"))
 
         (testing "the markup corroborates, and it corroborates on BOTH frames
                   — a constant would satisfy either one alone"
@@ -226,6 +232,11 @@
           (is (= "1" (text-at a ".count")))
           (is (= "0" (text-at b ".count"))))
 
+        (testing "the `capture-frame` bundle memo now holds frame A alone —
+                  the dispatch pinned one incarnation, not both"
+          (is (= #{frame-a} (sup/ops-memo-frames))
+              (str "got " (pr-str (sup/ops-memo-frames)))))
+
         (testing "the counter can read 2, so `1` above was a discrimination
                   and not a ceiling — both frames are exercised, which is
                   what stops this row passing vacuously"
@@ -251,8 +262,13 @@
       (try
         (testing "a click on root A's button — the shipped intent path, on a
                   real discrete browser event — reaches frame A alone"
+          ;; `settle!` inside the measured region: the intent drains
+          ;; synchronously inside the discrete event, but React schedules
+          ;; the store notification at the SYNC lane rather than committing
+          ;; it inline, and the body-run happens on that commit.
           (let [ran (sup/body-runs-delta!
-                      (fn [] (.click (.querySelector (:container a) ".bump"))))]
+                      (fn [] (.click (.querySelector (:container a) ".bump"))
+                             (mount/settle!)))]
             (is (= 1 ran) "one body ran"))
           (is (= "1" (text-at a ".count")))
           (is (= "0" (text-at b ".count"))))

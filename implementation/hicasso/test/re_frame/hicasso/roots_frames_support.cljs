@@ -58,6 +58,7 @@
   forms, not docstrings."
   (:require [cljs.test :refer-macros [is]]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
@@ -118,6 +119,29 @@
   keys."
   [sub-key]
   (count (inventory/cell-readers sub-key)))
+
+(defn dispatch-memo-frames
+  "The frames the ambient-dispatch memo holds bundles for.
+
+  Populated by RENDER: `impl.collector/run-once` binds
+  `(frame-dispatch frame-kw)` for each body's dynamic extent, and the
+  memo is `impl.frames/!frame-dispatch`. So two frames rendering is two
+  entries, and a runtime that resolved one frame for both mounts would
+  hold one — a second frame-keyed table saying the same thing the cell
+  keys say, on a different axis.
+
+  Its sibling `impl.frames/!frame-ops` is NOT this and must not be
+  confused with it: `capture-frame` bundles are minted by
+  `impl.collector/dispatch!`, so that table is empty until something
+  dispatches. `impl.inventory/stats`'s `:frames` counts that one."
+  []
+  (set (keys @frames/!frame-dispatch)))
+
+(defn ops-memo-frames
+  "The frames the `capture-frame` op-bundle memo holds — populated by
+  DISPATCH, not by render. See [[dispatch-memo-frames]]."
+  []
+  (set (keys @frames/!frame-ops)))
 
 (defn body-runs-delta!
   "Run `f`, answer how many boundary bodies ran while it did.
