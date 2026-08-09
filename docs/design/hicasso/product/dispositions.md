@@ -39,6 +39,9 @@ Each of the twenty rows in [specification section 7](specification.md#7-complete
 additional surfaces that complete the answer and the refusals that bound it. The primary home is where an application
 finds the answer first; the additional-surface column carries the rest.
 
+This table is the normative record of that classification. [`requirements-mine.md`](requirements-mine.md) repeats each
+job's layer in its Home column so that a ledger row reads on its own, and this table governs wherever the two disagree.
+
 No row's primary home is a didactic refusal. That is a finding, not an omission: section 7 exists precisely because every
 recurring job has a maintained answer somewhere, so refusals in this table appear as bounds on an answer rather than as
 the answer itself. The refusals that stand alone are catalogued in
