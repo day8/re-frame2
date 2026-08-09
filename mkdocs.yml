@@ -32,6 +32,7 @@ site_dir: site
 exclude_docs: |
   tools/playground/
   migration/from-re-frame-v1/codemod/
+  migration/reagent-to-hicasso/codemod/
   design/freehand/
   design/hicasso/
 
