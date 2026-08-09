@@ -21,6 +21,8 @@ A witness cell always names the proof, not just its status: a reader should be a
 
 ## The ledger
 
+The Home column is repeated here so that a row reads on its own. The layer classification itself is owned by [`dispositions.md` §1.1](dispositions.md#11-classification-table), which governs wherever the two disagree.
+
 | Job | Observed frequency | Failure modes | Home | Owner | Executable witness |
 |---|---|---|---|---|---|
 | Ordinary pages, conditional UI, dynamic lists | 231 reads across 85 files; ~140 `reg-view` across 38 files; 48 `for` with 35 `^{:key}`; 52 reads (23%) parameterised | Stale read surviving commit; a read escaping the synchronous extent through a callback, promise or timer; key identity unstable across re-render; attribution lost through a plain helper. P5 argues the answer is plain Hiccup, not a layout DSL | Core: Hiccup, helpers, ambient reads, keyed boundaries. No escape | rf2-hic-010, rf2-hic-011 | Commit-basis fence exists — `implementation/freehand/test/re_frame/bench/hicasso/generation_fence_coverage_cljs_test.cljs`. Todo and RealWorld-class flow on the public API only: owed by rf2-hic-025, extended by rf2-hic-074 |
