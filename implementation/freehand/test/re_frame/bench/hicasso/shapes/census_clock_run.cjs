@@ -176,10 +176,23 @@ const seamlib = require('../seam.cjs');
 // is editing that file and bumping its `version`; nothing here holds a limit.
 const CHECK_STANDARD = require('./census_check_standard.json');
 
-// The evidence that standard's limits are statistics OF, taken from its own
-// `evidence` design field and multiplied out in ONE place, so no `18` is
-// spelled anywhere in this driver — re-deepening the design is editing that
-// file, exactly like moving a limit is (rf2-pzqy8).
+// THE CENSUS RIG'S EVIDENCE CARDINALITY (rf2-pzqy8) — how MANY control blocks
+// this instrument's calibrated standard requires before it will adjudicate a
+// row-run. Taken from that standard's own `evidence` design field and
+// multiplied out in ONE place, so no `18` is spelled anywhere in this driver:
+// re-deepening the design is editing that file, exactly like moving a limit.
+//
+// THIS IS NOT THE ALL-BLOCKS RULE, and the two must never be conflated. The
+// strict per-block unanimity rule — `controlVerdict` below, "EVERY block
+// inside the band" — is about WHERE each block falls, and its cost is the
+// `p^n` arithmetic rf2-8a746 reasoned about on the hicasso clock. This is
+// about HOW MANY blocks exist at all, and it is a precondition of the
+// calibrated standard that REPLACED unanimity as the `ordinary` row's
+// adjudicator. Retiring unanimity and requiring the whole evidence are
+// orthogonal, and on this rig they ALREADY coexist — which is the proof that
+// they are two rules and not one. A reader arriving from the clock-side
+// instrument should read this `18` as the census design's 6 x 3, never as the
+// `p^18` exponent in that rule's false-refusal arithmetic.
 const EXPECTED_READINGS = CHECK_STANDARD.evidence.rounds * CHECK_STANDARD.evidence.blocks;
 
 const IMPL = path.resolve(__dirname, '../../../../../..');

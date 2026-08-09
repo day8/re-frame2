@@ -1801,6 +1801,14 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // its EIGHTEEN-block twin green in the same test, so neither can pass by
   // refusing everything.
   //
+  // SCOPE, for anyone rebasing the clock-side instrument onto this file: these
+  // witnesses are the CENSUS rig's (`shapes/census_clock_run.cjs`), and the
+  // rule they pin is a cardinality PRECONDITION on the calibrated limits in
+  // `shapes/census_check_standard.json`. It is NOT the per-block all-blocks
+  // rule, and its 18 is the census design's 6 x 3 — never the `p^18` exponent
+  // in that rule's false-refusal arithmetic. See the note above
+  // `EXPECTED_READINGS` in the driver for why the two are orthogonal.
+  //
   // NO MEASUREMENT IS TAKEN. Cardinality and arithmetic over fixture blocks.
 
   for (const [what, n] of [['ONE BLOCK', 1], ['SEVENTEEN BLOCKS', 17]]) {
