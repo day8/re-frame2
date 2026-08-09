@@ -29,11 +29,13 @@
   context, the commit and the shells are one strongly-connected
   component: `flush!` has to know whether a body is running (it must not
   call React's `onStoreChange` from inside somebody's render), which is a
-  read of [[rstate]]; [[with-commit]] is `flush!`'s window; [[dispatch!]]
-  is `with-commit` applied to a frame's `:dispatch-sync`;
-  [[frame-dispatch]] is `dispatch!` memoised per frame; and [[run-once]]
-  — which owns `rstate` — binds `frame-dispatch` for the body's dynamic
-  extent. Cut that chain anywhere and the two halves require each other.
+  read of [[rstate]]; [[with-commit]] is `flush!`'s window;
+  [[frame-dispatch]] is `with-commit` applied to a captured frame's
+  `:dispatch-sync`, memoised per frame INCARNATION; [[dispatch!]] is that
+  closure applied; and [[run-once]] — which owns `rstate` — binds
+  `frame-dispatch` for the body's dynamic extent, which is how a lowered
+  callback comes to hold one incarnation's dispatch for the rest of its
+  life (rf2-x874). Cut that chain anywhere and the two halves require each other.
   So the chain is one namespace, and what left are the parts with an edge
   in one direction only.
 
@@ -464,42 +466,67 @@
   (some? (.-frame rstate)))
 
 ;; ---------------------------------------------------------------------------
-;; The ambient dispatch a body binds — the memo table is
+;; The ambient dispatch a body binds — the memo row is
 ;; `re-frame.hicasso.impl.frames`'s; the closure in it is this file's,
-;; because it is `dispatch!` partially applied
+;; because it is `with-commit` partially applied
 ;; ---------------------------------------------------------------------------
 
-(declare dispatch!)
+(declare with-commit)
+
+(defn- mint-frame-dispatch
+  "Mint the ambient dispatch closure for ONE frame incarnation, over the
+  `capture-frame` bundle that incarnation was pinned with.
+
+  It closes over `ops` and never over the frame keyword, and that is the
+  whole of rf2-x874. A callback lowered under incarnation A calls A's own
+  `:dispatch-sync`, so once A is destroyed core's `capture-frame` fence
+  refuses it (recover-but-emit `:rf.error/frame-destroyed`) instead of
+  resolving the address a second time and finding whoever occupies it now.
+  Before the fix the closure re-resolved the keyword at fire time, which
+  silently wrote the successor whenever the memo was cold.
+
+  `:dispatch-sync` is destructured once, at mint, rather than on every
+  event: the row is per incarnation, so there is nothing left to look up."
+  [ops]
+  (let [dispatch-sync (:dispatch-sync ops)]
+    (fn dispatch-for-frame [event]
+      (with-commit (fn [] (dispatch-sync event)))
+      nil)))
+
+(defn frame-row
+  "The arm's one memo row for `frame-kw` — `{:incarnation :ops :dispatch}`,
+  pinned to the incarnation live right now.
+
+  [[re-frame.hicasso.impl.frames/frame-row]] owns the table and the
+  incarnation discipline; this is the door that supplies the closure factory,
+  so every caller in the arm reads the SAME row and the bundle can never
+  describe a different incarnation than the closure that calls it."
+  [frame-kw]
+  (frames/frame-row frame-kw mint-frame-dispatch))
 
 (defn frame-dispatch
   "The ambient dispatch a boundary binds for its render's dynamic extent
-  (HD-020(a)), memoised per frame so binding it allocates nothing.
+  (HD-020(a)), memoised per frame INCARNATION so binding it allocates
+  nothing.
 
   **Public because a boundary shell is not the only thing that lowers
   hiccup** (rf2-2rtt6.66). `impl.presence-react` renders retained
   children inside its OWN React render, after the parent body's dynamic
   extent has unwound, so it must re-bind the ambient frame before it
   hands them to the codec — and the dispatch it binds has to be *this*
-  one. Handing it a private route of its own (a fresh
-  `(fn [e] (dispatch! frame-kw e))` per render) would allocate a closure
-  per presence render and would make \"a presence child lowers exactly as
-  it would in the parent's body\" an approximation rather than an
-  identity. Nothing new is exported: the memo, the `capture-frame` pin
-  and the [[with-commit]] batching are the ones `run-once` already binds,
-  and [[re-frame.hicasso.impl.frames/frame-ops]] beside it has been
-  public for the same reason.
+  one. Handing it a private route of its own (a fresh closure per render)
+  would allocate a closure per presence render and would make \"a presence
+  child lowers exactly as it would in the parent's body\" an approximation
+  rather than an identity. Nothing new is exported: the memo, the
+  `capture-frame` pin and the [[with-commit]] batching are the ones
+  `run-once` already binds.
 
-  **The table it memoises into is
-  [[re-frame.hicasso.impl.frames/!frame-dispatch]]**, because
-  `forget-frame-ops!` has to empty it in the same act it empties the op
-  bundles; the closure is minted here because it is [[dispatch!]]
-  partially applied, and `dispatch!` is [[with-commit]] partially
-  applied."
+  The identity it hands back is stable across repeated renders of one
+  incarnation and CHANGES when the same public id names a new one — which
+  is the point, because that identity is what every lowered callback
+  retains."
   [frame-kw]
-  (or (get @frames/!frame-dispatch frame-kw)
-      (let [f (fn dispatch-for-frame [event] (dispatch! frame-kw event))]
-        (swap! frames/!frame-dispatch assoc frame-kw f)
-        f)))
+  (:dispatch (frame-row frame-kw)))
 
 ;; ---------------------------------------------------------------------------
 ;; THE CELL TABLE — one cell per unique (frame, query), shared by every
@@ -966,10 +993,16 @@
   "The arm's frame-locked dispatch — HD-019's synchronous door. The event
   drains synchronously inside the caller's turn (the discrete browser
   event, for an intent) and the store notification runs before that turn
-  ends, so React commits the echo in the same turn."
+  ends, so React commits the echo in the same turn.
+
+  It is [[frame-dispatch]] applied, not a second route to the same place:
+  resolving the keyword and dispatching are ONE act, taken now, against the
+  incarnation live now. A caller handing it a bare keyword is asking for the
+  frame at that ADDRESS, and that is what it gets — whereas a callback
+  lowered into markup holds the closure itself and stays pinned to the
+  incarnation it was lowered under."
   [frame-kw event]
-  (with-commit (fn [] ((:dispatch-sync (frames/frame-ops frame-kw)) event)))
-  nil)
+  ((frame-dispatch frame-kw) event))
 
 ;; ---------------------------------------------------------------------------
 ;; The two read tiers (HD-002) — the render phase mutates nothing global
