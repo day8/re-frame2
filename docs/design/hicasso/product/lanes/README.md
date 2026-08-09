@@ -8,7 +8,7 @@ These documents define the current target for the native interpreted-Hiccup adap
 2. [`../specification.md`](../specification.md) is the normative product target for that selected direction. It owns product verdicts, budgets, capability placement, the public-surface target, and phase order.
 3. [`design-laws.md`](design-laws.md) states the non-negotiable design constraints; [`evidence-baseline.md`](evidence-baseline.md) records what is actually demonstrated and what still needs proof.
 4. The focused specifications below own protocols, risk detail, and acceptance tests only. If one conflicts with either governing document, update it rather than preserving a second verdict or sequence.
-5. The sibling lesson reports and `fable/` material are source corpus. They contribute evidence and ideas but are not normative product documents.
+5. The `lessons-*.md` reports and the `fable/` material are source corpus — operator-local, deliberately not published here, and nothing in this tree substitutes for them. They contribute evidence and ideas but are not normative product documents.
 
 Quantitative claims stay attached to their witness, revision, runtime, substrate, and instrument. Results from different instruments are not presented as one continuous benchmark series.
 
