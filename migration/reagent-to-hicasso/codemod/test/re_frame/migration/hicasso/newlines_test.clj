@@ -96,10 +96,16 @@
             comment are not rewrite sites, so they must come back
             byte-for-byte in both conventions."
     (doseq [[label src] [["LF" lf-source] ["CRLF" crlf-source]]]
-      (let [out   (rewritten src)
-            head  (fn [s] (->> (str/split-lines s) (take 5) vec))]
-        (is (= (head src) (head out))
-            (str label ": the ns form and the comment must survive verbatim"))))))
+      ;; The prefix is compared with its ENDINGS attached, not through
+      ;; `split-lines` — which normalizes `\r\n` away and would have called
+      ;; the defect being repaired here a pass.
+      (let [nl     (if (str/includes? src "\r\n") "\r\n" "\n")
+            prefix (str (str/join nl (take 5 (str/split src (re-pattern nl)))) nl)]
+        (is (str/starts-with? src prefix)
+            (str label ": rig error — the prefix is not a prefix of the input"))
+        (is (str/starts-with? (rewritten src) prefix)
+            (str label ": the ns form and the comment must survive byte for byte, "
+                 "line endings included"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Idempotence, in both conventions (§4.7)

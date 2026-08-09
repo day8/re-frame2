@@ -131,6 +131,16 @@ Self-evaluating arguments are inlined rather than bound; symbols are bound,
 because re-reading a var per invocation picks up a redefinition the donor's
 captured value never saw.
 
+The names are *hygienic* in the load-bearing sense: `__rf2` is a convention, so
+the generated set is checked against every symbol the site spells and the whole
+family is bumped — `f__rf2__1`, `a0__rf2__1`, `args__rf2__1` — until it is
+fresh. Without that check a consumer's own `f__rf2` gets shadowed, and because
+`let` binds sequentially the shadow reaches every *later* initializer:
+`(r/partial vector :first f__rf2)` inside an outer `f__rf2` answered
+`[:first vector]` where Reagent answered `[:first :outer]`. The names stay
+deterministic — that is what lets the corpus assert output byte for byte — and
+generation 0 is the bare names, which is what a site free of the suffix gets.
+
 **(B) W2 refuses normalized-key collisions.** Reagent's `kv-conv` writes each
 nested-map key under `cached-prop-name`, so `:foo-bar`/`:fooBar`,
 `:class`/`:className` and `:foo-bar`/`"fooBar"` siblings each collapse onto one
@@ -156,6 +166,13 @@ holds an input namespace, the expected output and the expected report, and every
 case asserts the rewrite byte for byte, the report including its full `:note`
 prose, idempotence, and determinism. Set `RF2_CODEMOD_REGEN=1` to author a new
 case; regenerating is never how one is fixed.
+
+The fixtures are pinned to LF in the repo's `.gitattributes`, because a golden
+file whose bytes depend on who checked the tree out is not golden. The fixer
+itself preserves whichever convention it finds — rewrite-clj normalizes every
+newline it parses to LF, so without that the tool rewrote every line of every
+CRLF file it touched — and that path is witnessed by `newlines_test.clj`, which
+builds its CRLF sources in memory so they run on every platform.
 
 Two suites sit beside it. `amendment_a_test.clj` **executes** W4's output —
 plain `let`/`fn`/`apply`, with no Reagent left in it — and asserts the capture
