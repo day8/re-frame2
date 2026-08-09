@@ -225,7 +225,7 @@
                                 adoptions, exactly as it does across two ordinary
                                 mounts"
                         (is (= #{[frame-a label-q] [frame-b label-q]} (sup/cell-keys)))
-                        (is (= #{frame-a frame-b} (sup/dispatch-memo-frames))))
+                        (is (= #{frame-a frame-b} (sup/frame-memo-frames))))
 
                       (finally (mount/release! ha) (mount/release! hb) (done))))))))))))
 

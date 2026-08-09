@@ -35,13 +35,20 @@
   *refused* from *silently delivered to the wrong frame*, which no other
   observable here distinguishes.
 
-  ## Section 4 records a DEFECT, not a contract
+  ## Sections 4–8 are the lowered callback's contract (rf2-x874)
 
-  Sections 1–3 are contracts. Section 4 is a measurement of behaviour that
-  is wrong, recorded because the remedy is a runtime change outside this
-  bead's surface. It is written so that it FAILS when the defect is fixed,
-  and its docstring says what to replace it with. See
-  `docs/design/hicasso/product/invariants.md` §7.
+  Section 4 recorded a DEFECT when this suite landed: the ambient dispatch a
+  boundary lowered into its callbacks closed over the frame KEYWORD and
+  resolved its bundle when the callback FIRED, so where a delayed callback
+  landed was decided by the memo's warmth at that instant. rf2-x874 pinned the
+  incarnation into the closure at mint time, and the sections below are the
+  positive contract that replaced the recording — safety (a retained callback
+  refuses) and liveness (a fresh one routes) asserted together in every cache
+  posture, because cache warmth is precisely what used to choose between two
+  different failures. Section 8 is the negative control: it rebuilds the old
+  late-binding mechanism out of the documented seam and reproduces BOTH
+  failures, so nothing here can be passing because the instruments are dead.
+  See `docs/design/hicasso/product/invariants.md` §7.
 
   ## Companion
 
@@ -56,6 +63,8 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.generation :as generation]
+            [re-frame.hicasso.impl.intent :as intent]
+            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::reincarnation)
@@ -190,9 +199,10 @@
                        [:dispatch      (fn [h] ((:dispatch h)      [:reinc/mark :stale-handle]))]]]
     (testing (str "a stale " (name op) " is refused, never retargeted")
       (let [_        (incarnate! "A")
-            ;; Exactly what a render leaves behind: the memoised bundle
-            ;; `re-frame.hicasso.impl.frames/frame-ops` hands every boundary.
-            handle-a (frames/frame-ops frame-id)
+            ;; Exactly what a render leaves behind: the memoised bundle in the
+            ;; arm's one frame row, which every boundary of that incarnation
+            ;; shares.
+            handle-a (:ops (collector/frame-row frame-id))
             _        (reincarnate! "B")
             _        (is (nil? (marked)) "sanity: the successor starts unmarked")
             {:keys [refusals]} (with-refusals #(invoke handle-a))]
@@ -209,7 +219,7 @@
             successor's app-db nor leave a reaction in the successor's
             sub-cache"
     (let [_        (incarnate! "A")
-          handle-a (frames/frame-ops frame-id)
+          handle-a (:ops (collector/frame-row frame-id))
           _        (reincarnate! "B")
           {:keys [result refusals]} (with-refusals #((:subscribe handle-a) [:reinc/who]))]
       (is (nil? result) "the recovery is nil, never the successor's value")
@@ -246,84 +256,275 @@
         (is (empty? refusals) "and nothing is refused, because nothing was pinned")))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. DEFECT — a lowered callback's destination is decided when it FIRES
+;; 4. THE CONTRACT — a lowered callback's destination is decided when it is
+;;    MINTED, in every state the memo can be in when it fires (rf2-x874)
 ;; ---------------------------------------------------------------------------
 
-;; **This test records a defect and is expected to FAIL when it is fixed.**
+;; This section replaces the DEFECT recording PR #7749 shipped here. That
+;; recording measured a callback that closed over the frame KEYWORD and
+;; resolved its bundle at FIRE time, and it had three branches because the
+;; memo's state at that instant chose which of two different wrong answers you
+;; got. The repair pins the incarnation into the closure at mint time, so the
+;; memo's state stops being an input — and the way to say that is to assert the
+;; SAME contract in all three states rather than to assert it once.
 ;;
-;; `re-frame.hicasso.impl.intent` captures the ambient dispatch at LOWERING
-;; time and the browser invokes it long after the render's dynamic extent
-;; has unwound. That closure is
-;; [[re-frame.hicasso.impl.collector/frame-dispatch]]'s, and it closes over
-;; the frame KEYWORD — so `dispatch!` resolves
-;; [[re-frame.hicasso.impl.frames/frame-ops]] when the user CLICKS, not
-;; when the body rendered. The closure carries no incarnation.
-;;
-;; What it reaches is therefore whatever the memo happens to hold at that
-;; instant, and the memo is filled lazily by the first dispatch and evicted
-;; by nothing on a frame destroy. The three branches below are the three
-;; states that produces, and only the first looks like the law:
-;;
-;;   warm    — a dispatch happened under the predecessor, so the memo still
-;;             holds its pinned bundle: the click is REFUSED. Correct, and
-;;             correct by accident.
-;;   cold    — the boundary rendered and lowered its callback but nobody
-;;             clicked before the teardown, so the memo is empty: the click
-;;             captures a bundle pinned to the SUCCESSOR and writes it,
-;;             silently. This is the revival the bead forbids, and it needs
-;;             no unusual sequence — a first click after a reincarnation is
-;;             an ordinary thing for a user to do.
-;;   evicted — the memo was warm and then cleared, which is what *exact
-;;             eviction on destruction* (one of the two remedies the bead
-;;             names) would do on every destroy: the same silent revival.
-;;
-;; So eviction alone is not the remedy — it converts the one correct branch
-;; into the broken one. The incarnation has to be pinned into what lowering
-;; captures, which is the bead's other named option (incarnation-keyed
-;; operation bundles) and a change to
-;; `implementation/hicasso/src/re_frame/hicasso/impl/frames.cljs`, outside
-;; this bead's declared surface.
-;;
-;; **When the remedy lands**, delete this test and assert the contract in
-;; its place: all three branches leave `(marked)` nil and fan exactly one
-;; `:rf.error/frame-destroyed`.
-(deftest DEFECT-a-retained-callback-can-revive-the-successor
-  (testing "WARM memo — refused, which is the only branch that looks correct"
-    (let [_        (incarnate! "A")
-          on-click (collector/frame-dispatch frame-id)]
-      (collector/dispatch! frame-id [:reinc/mark :under-a])   ; warms !frame-ops
-      (is (contains? @frames/!frame-ops frame-id) "the memo is warm")
-      (reincarnate! "B")
-      (is (identical? (frames/frame-ops frame-id) (frames/frame-ops frame-id))
-          "and survives the destroy — nothing evicts it")
-      (let [{:keys [refusals]} (with-refusals #(on-click [:reinc/mark :warm]))]
-        (is (nil? (marked)) "the retained click is refused")
-        (is (= 1 (count refusals)) "loudly"))))
+;; The two halves are asserted together on purpose. Before the repair, cache
+;; warmth traded them off: a warm memo refused the retained callback (safe) AND
+;; refused the live successor's fresh one (dead controls); a cold or evicted
+;; memo routed the fresh one AND silently revived the successor through the
+;; retained one. A suite asserting only the refusals would be green on a
+;; runtime where nothing dispatches at all.
 
-  (testing "COLD memo — the SAME retained closure writes the successor, silently.
-            The defect: nothing about the callback changed, only whether some
-            earlier click had happened to fill the memo"
-    (let [_        (incarnate! "A")
-          on-click (collector/frame-dispatch frame-id)]
-      (is (not (contains? @frames/!frame-ops frame-id))
-          "no dispatch has happened under the predecessor, so the memo is cold")
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(on-click [:reinc/mark :cold]))]
-        (is (= :cold (marked))
-            "REVIVAL — a predecessor-era callback wrote the successor's app-db")
+(defn- render-dispatch
+  "The ambient dispatch a boundary acquires during its render — exactly what
+  `impl.collector/run-once` binds for a body's dynamic extent, and therefore
+  exactly what every callback that body lowers retains."
+  []
+  (collector/frame-dispatch frame-id))
+
+(def ^:private postures
+  "The three states the arm's one frame row can be in when a retained callback
+  fires, established AFTER the successor has seated. Each was a different wrong
+  answer before rf2-x874, which is why all three are asserted:
+
+    :cold   nothing has touched the row since the successor seated, so it still
+            describes the PREDECESSOR. Pre-fix this was the single
+            accidentally-correct branch — the refusal was the stale memo's
+            doing rather than any check — and the branch that
+            eviction-on-destruction would have destroyed.
+    :warm   the successor has rendered, so the row describes the SUCCESSOR.
+            Pre-fix a retained keyword-closure read this row and wrote B.
+    :reset  the row was dropped outright. Pre-fix the fire-time
+            `capture-frame` pinned B and wrote it with nothing emitted, which
+            is the ordinary case: a boundary that rendered but that nobody
+            clicked before the teardown."
+  [[:cold  (fn [])]
+   [:warm  (fn [] (collector/frame-dispatch frame-id))]
+   [:reset (fn [] (frames/forget-frame-ops! frame-id))]])
+
+(deftest a-retained-callback-is-pinned-to-the-incarnation-that-lowered-it
+  (doseq [[posture establish!] postures]
+    (testing (str "SAFETY, " (name posture)
+                  " — a callback minted under A refuses once A is destroyed")
+      (let [_        (incarnate! "A")
+            on-click (render-dispatch)]
+        (reincarnate! "B")
+        (establish!)
+        (let [{:keys [refusals]} (with-refusals #(on-click [:reinc/mark posture]))]
+          (is (nil? (marked))
+              "the successor's app-db is UNTOUCHED by a predecessor-era callback")
+          (is (= 1 (count refusals))
+              "and the drop is LOUD — exactly one always-on
+               :rf.error/frame-destroyed, the only observable separating
+               refused from silently delivered to the wrong frame")
+          (is (= frame-id (:frame (first refusals)))
+              "attributed to the captured id")
+          (is (= :reinc/mark (:event-id (first refusals)))
+              "carrying the refused event's head"))))
+
+    (testing (str "LIVENESS, " (name posture)
+                  " — a callback minted under B dispatches, with no refusal")
+      (let [_ (incarnate! "A")
+            ;; A render under the PREDECESSOR, so the row genuinely describes A
+            ;; when the successor seats. Without it the `:cold` posture would be
+            ;; an empty table rather than a stale row, and the stale row is the
+            ;; case that used to leave the successor's own controls dead.
+            _        (render-dispatch)
+            _        (reincarnate! "B")
+            _        (establish!)
+            on-click (render-dispatch)
+            {:keys [refusals]} (with-refusals #(on-click [:reinc/mark posture]))]
+        (is (= posture (marked))
+            "the live incarnation's own control WRITES its own app-db — the
+             half that was red on main whenever the memo was warm")
         (is (empty? refusals)
-            "and nothing was emitted, which is the worse half: the write is
+            "and nothing is refused, because the closure was minted against
+             the incarnation it is dispatching into")))))
+
+;; ---------------------------------------------------------------------------
+;; 5. One handler identity per incarnation — the property the perf budget and
+;;    the fix both rest on
+;; ---------------------------------------------------------------------------
+
+(deftest the-ambient-dispatch-has-one-identity-per-live-incarnation
+  (let [_     (incarnate! "A")
+        a1    (render-dispatch)
+        a2    (render-dispatch)
+        ops-a (:ops (collector/frame-row frame-id))
+        _     (reincarnate! "B")
+        b1    (render-dispatch)
+        b2    (render-dispatch)
+        ops-b (:ops (collector/frame-row frame-id))]
+    (is (identical? a1 a2)
+        "repeated renders of ONE incarnation share one handler — the memo is
+         still a memo, and a boundary re-render allocates nothing")
+    (is (not (identical? a1 b1))
+        "the same public id naming a NEW incarnation hands back a new one, and
+         this lazy replacement is what makes a destruction hook unnecessary")
+    (is (identical? b1 b2)
+        "and it is stable again under the successor")
+    (is (not (identical? ops-a ops-b))
+        "the captured bundle underneath moved with it — the row is ONE record,
+         so the closure and the bundle cannot describe different incarnations")
+    (is (true? (frame/frame-incarnation-live?
+                 frame-id (:incarnation (collector/frame-row frame-id))))
+        "and the row answering now is pinned to the incarnation live now")))
+
+;; ---------------------------------------------------------------------------
+;; 6. Every lowering path inherits the same pinned ambient dispatch
+;; ---------------------------------------------------------------------------
+
+;; Four spellings reach the ambient closure by four different routes through
+;; `impl.intent`, and all four capture `*dispatch*` at LOWERING time. One table
+;; rather than four tests, because they share the mechanism and the question
+;; asked of each is identical — if they ever stop sharing it, the table is
+;; where that shows up.
+(def ^:private lowering-paths
+  [[:intent-vector
+    (fn [tag] (intent/lower-prop :on-click [:reinc/mark tag]))]
+   [:h-fn-returning-an-intent
+    (fn [tag] (intent/lower-prop :on-click (intent/callback (fn [_e] [:reinc/mark tag]))))]
+   [:key-map-branch
+    (fn [tag] (intent/lower-prop :on-key-down {"Enter" [:reinc/mark tag]}))]
+   [:handler-inside-a-render-callback
+    ;; The render callback is lowered under the boundary, then INVOKED — which
+    ;; is when its inner handler is lowered, against the gate — and the handler
+    ;; it returned is what fires later. The gate forwards to the SUPPLYING
+    ;; boundary's dispatch once the call has returned, so this path inherits
+    ;; the pin one level deeper than the other three.
+    (fn [tag]
+      ((intent/lower-prop :row-render
+                          (intent/callback
+                            (fn [] (intent/lower-prop :on-click [:reinc/mark tag]))))))]])
+
+(defn- lower-under-boundary
+  "Lower through `f` inside the render-time ambient binding a boundary body
+  runs under — `impl.collector/run-once`'s, spelled out."
+  [f]
+  (intent/with-frame frame-id (render-dispatch) f))
+
+(defn- fire!
+  "Invoke a lowered handler the way its position's invoker would. One event
+  object serves all four: the key-map branch reads `.key`, and the other three
+  ignore the argument."
+  [h]
+  (h #js {:key "Enter"}))
+
+(deftest every-lowering-path-inherits-the-pinned-ambient-dispatch
+  (doseq [[path lower] lowering-paths]
+    (testing (str "SAFETY — " (name path) " lowered under A refuses once A dies")
+      (incarnate! "A")
+      (let [h (lower-under-boundary #(lower :stale))]
+        (reincarnate! "B")
+        (let [{:keys [refusals]} (with-refusals #(fire! h))]
+          (is (nil? (marked))
+              (str (name path) " reached the successor's app-db"))
+          (is (= 1 (count refusals))
+              (str (name path) " did not fan exactly one refusal"))
+          (is (= :reinc/mark (:event-id (first refusals)))))))
+
+    (testing (str "LIVENESS — " (name path) " lowered under B dispatches")
+      (incarnate! "A")
+      (lower-under-boundary #(lower :under-a))
+      (reincarnate! "B")
+      (let [h (lower-under-boundary #(lower :live))
+            {:keys [refusals]} (with-refusals #(fire! h))]
+        (is (= :live (marked))
+            (str (name path) " did not reach the LIVE incarnation"))
+        (is (empty? refusals))))))
+
+;; ---------------------------------------------------------------------------
+;; 7. Reset still empties the inventory
+;; ---------------------------------------------------------------------------
+
+(deftest reset-empties-the-frame-memo
+  (incarnate! "A")
+  (render-dispatch)
+  (is (contains? @frames/!frame-ops frame-id)
+      "a render leaves exactly one row behind — the bundle and the ambient
+       dispatch are one record now, so acquiring the dispatch acquires both")
+  (is (= 1 (:frames (inventory/stats)))
+      "which is what the residue census counts under its `:frame-ops` token")
+  (collector/reset-runtime!)
+  (is (= {} @frames/!frame-ops) "and the whole-runtime reset empties it")
+  (is (= 0 (:frames (inventory/stats)))))
+
+;; ---------------------------------------------------------------------------
+;; 8. NEGATIVE CONTROL — restore late keyword resolution and BOTH failures
+;;    come back
+;; ---------------------------------------------------------------------------
+
+;; A control that showed only a stale callback going inert would be incomplete:
+;; a cache in which nothing resolves at all would pass it too. So this one
+;; asserts a positive WRITE in one branch and a positive REFUSAL in the other —
+;; the two failures the defect actually had — and then runs the same two
+;; scenarios through the runtime under test, which must answer the opposite way
+;; in both.
+
+(defn- late-binding-dispatch
+  "**The mechanism as it stood before rf2-x874**, rebuilt out of the documented
+  seam rather than by redefining a runtime var.
+
+  `!memo` stands in for the arm's frame table as it then was, and the returned
+  closure for `impl.collector/frame-dispatch`'s: it closes over the frame
+  KEYWORD and resolves a `rf/capture-frame` bundle when it FIRES. The commit
+  window is the arm's real [[re-frame.hicasso.impl.collector/with-commit]] — it
+  batches notifications and has no say in where a write lands, but using the
+  real door keeps this a reconstruction rather than a paraphrase."
+  [!memo]
+  (fn late-frame-dispatch [frame-kw]
+    (fn late-dispatch-for-frame [event]
+      (collector/with-commit
+        (fn []
+          (let [ops (or (get @!memo frame-kw)
+                        (let [captured (rf/capture-frame frame-kw)]
+                          (swap! !memo assoc frame-kw captured)
+                          captured))]
+            ((:dispatch-sync ops) event)))))))
+
+(deftest NEGATIVE-CONTROL-late-keyword-resolution-reproduces-both-failures
+  (testing "COLD memo — a retained PREDECESSOR callback silently writes the
+            successor, which is the revival the contract forbids"
+    (incarnate! "A")
+    (let [!memo    (atom {})
+          on-click ((late-binding-dispatch !memo) frame-id)]
+      (reincarnate! "B")
+      (let [{:keys [refusals]} (with-refusals #(on-click [:reinc/mark :late-cold]))]
+        (is (= :late-cold (marked))
+            "the predecessor's callback WROTE the successor's app-db")
+        (is (empty? refusals)
+            "and nothing was emitted, which is the worse half — the write is
              indistinguishable from a legitimate one"))))
 
-  (testing "EVICTED memo — what eviction-on-destruction would produce on every
-            destroy, and the reason it is refused as a remedy on its own"
-    (let [_        (incarnate! "A")
-          on-click (collector/frame-dispatch frame-id)]
-      (collector/dispatch! frame-id [:reinc/mark :under-a])
+  (testing "WARM memo — a callback minted AFTER the successor seated is refused
+            by the stale bundle: perfect markup above a dead control"
+    (incarnate! "A")
+    (let [!memo (atom {})
+          late  (late-binding-dispatch !memo)]
+      ((late frame-id) [:reinc/mark :under-a])       ; fills the memo with A's bundle
       (reincarnate! "B")
-      (frames/forget-frame-ops! frame-id)
-      (let [{:keys [refusals]} (with-refusals #(on-click [:reinc/mark :evicted]))]
-        (is (= :evicted (marked))
-            "the warm branch's refusal was the STALE MEMO's doing; evict it and
-             the same click revives")
-        (is (empty? refusals))))))
+      (let [on-click (late frame-id)                 ; minted AFTER B seated
+            {:keys [refusals]} (with-refusals #(on-click [:reinc/mark :late-warm]))]
+        (is (nil? (marked))
+            "the LIVE incarnation's own control does not write its own app-db")
+        (is (= 1 (count refusals))
+            "it is refused — the liveness half of the same defect"))))
+
+  (testing "and the runtime under test answers the OPPOSITE way in both, which
+            is what makes the two branches above a control on the FIX rather
+            than two more measurements of a dead cache"
+    (incarnate! "A")
+    (let [retained (render-dispatch)]
+      (reincarnate! "B")
+      (let [{:keys [refusals]} (with-refusals #(retained [:reinc/mark :repaired-cold]))]
+        (is (nil? (marked)) "the silent write is REFUSED here")
+        (is (= 1 (count refusals)) "loudly")))
+
+    (incarnate! "A")
+    (render-dispatch)
+    (reincarnate! "B")
+    (let [fresh (render-dispatch)
+          {:keys [refusals]} (with-refusals #(fresh [:reinc/mark :repaired-warm]))]
+      (is (= :repaired-warm (marked)) "and the dead control ROUTES here")
+      (is (empty? refusals)))))
+
