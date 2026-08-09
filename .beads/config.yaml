@@ -15,6 +15,8 @@
 # DIRECTORY name and come up "re-frame2". Pinning it here makes the recovery
 # path reproduce the ids we already have. Do not change this value.
 issue-prefix: "rf2"
+sync:
+    remote: "https://github.com/day8/re-frame2-beads.git"
 
 # Custom issue statuses (status.custom) — DELIBERATELY NONE (rf2-gtynf).
 #
