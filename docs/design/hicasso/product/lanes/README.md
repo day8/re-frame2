@@ -4,8 +4,8 @@ These documents define the current target for the native interpreted-Hiccup adap
 
 ## Authority
 
-1. [`../synth.md`](../decision-brief.md) is the decision instrument. It owns the forensic scoreboard, selected-direction record, scoped-amendment adjudication, K3 disposition, sitting agenda, and kill rules.
-2. [`../synth-codex.md`](../specification.md) is the normative product target for that selected direction. It owns product verdicts, budgets, capability placement, the public-surface target, and phase order.
+1. [`../decision-brief.md`](../decision-brief.md) is the decision instrument. It owns the forensic scoreboard, selected-direction record, scoped-amendment adjudication, K3 disposition, sitting agenda, and kill rules.
+2. [`../specification.md`](../specification.md) is the normative product target for that selected direction. It owns product verdicts, budgets, capability placement, the public-surface target, and phase order.
 3. [`design-laws.md`](design-laws.md) states the non-negotiable design constraints; [`evidence-baseline.md`](evidence-baseline.md) records what is actually demonstrated and what still needs proof.
 4. The focused specifications below own protocols, risk detail, and acceptance tests only. If one conflicts with either governing document, update it rather than preserving a second verdict or sequence.
 5. The sibling lesson reports and `fable/` material are source corpus. They contribute evidence and ideas but are not normative product documents.
@@ -17,7 +17,7 @@ Quantitative claims stay attached to their witness, revision, runtime, substrate
 | Concern | Canonical owner |
 |---|---|
 | Current measurements and their admissibility | [`evidence-baseline.md`](evidence-baseline.md) |
-| Product budgets, capability placement, portfolio status, and phase deliverables | [`../synth-codex.md`](../specification.md) |
+| Product budgets, capability placement, portfolio status, and phase deliverables | [`../specification.md`](../specification.md) |
 | Native-tier semantic laws | [`design-laws.md#native-boundary`](design-laws.md#native-boundary) |
 | Native authoring grammar and examples | [`ergonomics-api.md#optional-native-surface`](ergonomics-api.md#optional-native-surface) |
 | Native-tier acceptance checklist and performance protocols | [`hot-path-architecture.md#canonical-native-tier-acceptance-checklist`](hot-path-architecture.md#canonical-native-tier-acceptance-checklist) |
