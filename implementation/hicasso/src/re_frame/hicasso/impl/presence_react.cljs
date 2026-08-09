@@ -6,11 +6,14 @@
 
   ## What this costs, stated rather than buried
 
-  **Three React hooks — `useContext`, `useState` and `useEffect` — in
-  THIS component.** The ≤2-hook budget HD-020(b) polices is the *boundary
-  shell's*, and this is not a boundary shell: it reads no subscription,
-  mounts no registration and takes no cell. `collector/shell` is untouched
-  and the dispatcher-level ledger still counts exactly two there.
+  **Four React hooks — two `useContext`, one `useState` and one
+  `useEffect` — in THIS component.** The ≤2-hook budget HD-020(b)
+  polices is the *boundary shell's*, and this is not a boundary shell: it
+  reads no subscription, mounts no registration and takes no cell.
+  `collector/shell` is untouched and the dispatcher-level ledger still
+  counts exactly two there. The second `useContext` is the root-scoped
+  adoption window (rf2-6tmu); it is paid HERE, by the optional component
+  that reads it, and nowhere else in the arm.
 
   The two lifecycle hooks are legitimate under HD-003's placement rule
   rather than in spite of it: presence is animation lifecycle, which is
@@ -71,9 +74,18 @@
 
   A hydrating tree's children are already on the screen, so they start
   `:present` rather than `:mounting` — the machine's own `settle`,
-  applied one render earlier, gated on `roots/adopting?`. It costs no
-  hook, changes no transform, and is scoped to the adoption window; see
-  the comment at the binding below."
+  applied one render earlier, gated on `roots/adopting-here?`. It changes
+  no transform, and it is scoped to the adoption window of **the root
+  this tray is actually in** (rf2-6tmu).
+
+  That scoping is the fourth hook, and it is the one cost this component
+  grew. It reads a context whose default is `nil`, so a tray in an
+  ordinary root — including a tray mounted while some *other* root is
+  hydrating — reads no provider and answers false. Before rf2-6tmu the
+  gate was a page-wide boolean, and an unrelated ordinary root's tray was
+  told it was adopting for as long as any root anywhere was hydrating:
+  it skipped its enter transition for a hydration it had nothing to do
+  with. The window it reads now can only be its own root's."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
@@ -111,15 +123,15 @@
         ;; earlier. So this is ADOPTION BEHAVIOUR — a different starting
         ;; phase for a tree that is being adopted — and not a second
         ;; render mode: the transform, the overrides, the deadlines and
-        ;; the terminal bound are all unchanged, and `adopting?` is false
-        ;; for every ordinary mount and false again the moment the
-        ;; closer commits.
+        ;; the terminal bound are all unchanged, and `adopting-here?` is
+        ;; false for every ordinary mount and false again the moment
+        ;; THIS root's closer commits.
         ;;
-        ;; A SERVER render entry opens the same window, so the server's
-        ;; HTML and the client's first pass agree by construction; that
-        ;; agreement is the whole reason the flag is read here in the
-        ;; RENDER rather than in the effect below.
-        next       (if (roots/adopting?) (presence/settle stepped) stepped)]
+        ;; A SERVER render entry opens a window of its own around its own
+        ;; request, so the server's HTML and the client's first pass agree
+        ;; by construction; that agreement is the whole reason the window
+        ;; is read here in the RENDER rather than in the effect below.
+        next       (if (roots/adopting-here?) (presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the
     ;; equality test converges rather than looping.
