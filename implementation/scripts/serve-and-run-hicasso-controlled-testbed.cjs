@@ -184,10 +184,6 @@ const NARROWINGS = [
   // list is the honest starting state: nothing is excused in advance.
 ];
 
-function narrowingFor(row) {
-  return NARROWINGS.find((n) => n.row === row) || null;
-}
-
 /**
  * Compare the RECORDED rows across engines. Returns a list of problems —
  * empty when every row either agrees everywhere or is covered by a
