@@ -137,6 +137,9 @@ class Witness {
     this.engine = engine;
     this.checks = 0;
     this.recorded = {};
+    // What each named section banked, so the runner can require the
+    // sections BY NAME rather than by a total a deleted section survives.
+    this.sections = {};
   }
 
   eq(actual, expected, what) {
@@ -542,25 +545,35 @@ async function formResetAndFillProxy(page, w) {
 
 // ---------------------------------------------------------------------------
 
+// Every witness that must run, in order, under the name the runner pins it
+// by. The order matters — several sections read fields the previous ones
+// left — and the NAMES matter, because the runner's coverage floor requires
+// this exact set and reds naming whatever is absent. A section deleted from
+// this list therefore fails the gate rather than shrinking a total.
+const SECTIONS = [
+  ['same-turn-convergence', sameTurnConvergence],
+  ['caret-across-the-echo', caretAcrossTheEcho],
+  ['caret-under-real-typing', caretUnderRealTyping],
+  ['selection-across-an-out-of-band-write', selectionAcrossAnOutOfBandWrite],
+  ['composition-safety', compositionSafety],
+  ['composition-release-edges', compositionReleaseEdges],
+  ['revision-reset-preserves-identity', revisionResetPreservesIdentity],
+  ['owned-checked-pair', ownedCheckedPair],
+  ['form-reset-and-fill-proxy', formResetAndFillProxy],
+];
+
 module.exports = {
   name: 'Hicasso controlled input (I15) — three engines',
   url: '/index.html',
   pageHelpers: PAGE_HELPERS,
 
-  // Every row that must hold in every engine, in order. The runner reports
-  // the check count and refuses a run that banked too few, so a section
-  // that silently stopped running cannot pass as green.
   run: async (page, ctx) => {
     const w = new Witness(ctx.engine);
-    await sameTurnConvergence(page, w);
-    await caretAcrossTheEcho(page, w);
-    await caretUnderRealTyping(page, w);
-    await selectionAcrossAnOutOfBandWrite(page, w);
-    await compositionSafety(page, w);
-    await compositionReleaseEdges(page, w);
-    await revisionResetPreservesIdentity(page, w);
-    await ownedCheckedPair(page, w);
-    await formResetAndFillProxy(page, w);
-    return { checks: w.checks, recorded: w.recorded };
+    for (const [name, section] of SECTIONS) {
+      const before = w.checks;
+      await section(page, w);
+      w.sections[name] = w.checks - before;
+    }
+    return { checks: w.checks, recorded: w.recorded, sections: w.sections };
   },
 };
