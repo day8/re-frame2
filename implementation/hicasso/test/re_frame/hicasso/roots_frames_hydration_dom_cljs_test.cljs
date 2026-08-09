@@ -239,19 +239,29 @@
                     (try
                       (is (true? ok) "both roots must commit")
 
+                      ;; What REACT complained about, on the page's own error
+                      ;; channel — the control the row is read against.
+                      (let [react-complaints (filterv #(re-find #"Hydration failed" %) @captured)]
+
                       (testing "BOTH divergences were detected and reported —
                                 React saw two, and the reporter delegates
                                 unconditionally, so two reach the page"
-                        (is (= 2 (count (filter #(re-find #"Hydration failed" %) @captured)))
+                        (is (= 2 (count react-complaints))
                             (str "two roots diverged, so two React complaints; got "
                                  (pr-str (mapv #(subs % 0 (min 60 (count %))) @captured)))))
 
-                      (testing "but only ONE reached Spec 011's stream. MEASURED
-                                DEFECT (rf2-hic-012 / rf2-hic-017): the emit is
-                                gated on a page-scoped adoption window, and one
-                                root's closer shut it before the other root's
-                                mismatch was reported. Change this to 2 when the
-                                window becomes root-scoped."
+                      (testing "but the framework's own stream carried FEWER than
+                                the page did. MEASURED DEFECT (rf2-hic-012 /
+                                rf2-hic-017): the Spec 011 emit is gated on a
+                                page-scoped adoption window, and one root's
+                                closer shut it before the other root's mismatch
+                                was reported. Root-scope the window and these two
+                                counts become equal — at which point BOTH
+                                assertions below must be replaced by
+                                `(= 2 (count @seen))`."
+                        (is (< (count @seen) (count react-complaints))
+                            "a divergence React reported went missing from the
+                             instrumentation stream")
                         (is (= 1 (count @seen))
                             (str "`:rf.ssr/hydration-mismatch` count; got "
                                  (count @seen) " — "
@@ -272,7 +282,7 @@
                         (is (= "client-A" (text-in ca ".title")))
                         (is (= "client-B" (text-in cb ".title")))
                         (is (= "alpha" (text-in ca ".value")))
-                        (is (= "beta"  (text-in cb ".value"))))
+                        (is (= "beta"  (text-in cb ".value")))))
 
                       (finally (mount/release! ha) (mount/release! hb) (done))))))))))))
 
