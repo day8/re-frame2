@@ -221,6 +221,11 @@ SPINE_LANES = (
         "spine node tier: 'hicasso bench-lane compile'",
     ),
     Lane(
+        "hicasso-freeze",
+        r"^npm run test:hicasso-freeze$",
+        "spine node tier: 'hicasso freeze gate'",
+    ),
+    Lane(
         "mkdocs-strict",
         r"^mkdocs build --strict$",
         "spine docs tier -- SOFT-SKIPS (loudly) where mkdocs resolves neither as a "
