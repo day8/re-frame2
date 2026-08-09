@@ -491,4 +491,4 @@ Client v0 does not wait for an unused production SSR deployment, but the hydrati
 
 ## Supporting specifications
 
-The complete supporting specification set and its concern-ownership map are maintained in [`codex/README.md`](lanes/README.md). This document does not maintain a second index.
+The complete supporting specification set and its concern-ownership map are maintained in [`lanes/README.md`](lanes/README.md). This document does not maintain a second index.
