@@ -176,6 +176,12 @@ const seamlib = require('../seam.cjs');
 // is editing that file and bumping its `version`; nothing here holds a limit.
 const CHECK_STANDARD = require('./census_check_standard.json');
 
+// The evidence that standard's limits are statistics OF, taken from its own
+// `evidence` design field and multiplied out in ONE place, so no `18` is
+// spelled anywhere in this driver — re-deepening the design is editing that
+// file, exactly like moving a limit is (rf2-pzqy8).
+const EXPECTED_READINGS = CHECK_STANDARD.evidence.rounds * CHECK_STANDARD.evidence.blocks;
+
 const IMPL = path.resolve(__dirname, '../../../../../..');
 const REPO = path.resolve(IMPL, '..');
 
@@ -423,12 +429,27 @@ function controlVerdict(predicted, per, slack) {
  * TOUCHED WHERE rf2-y0pkh MEASURED AND RETAINED IT — on the two rows above
  * it is still the adjudicator, with the same band and the same wording.
  *
- * FAIL CLOSED AT EVERY SEAT: a row-run with no blocks, a block that is not a
- * finite reading, and a row the standard declares `calibrated: false` are
- * each a REFUSAL and never a pass. A row that appears in NEITHER list is a
- * fault and THROWS — the standard is complete over the roster by
- * construction, so a row it has never heard of may not be adjudicated by it
- * or waved past it.
+ * ## And the evidence has to be all there
+ *
+ * The limits are statistics OF 18-block row-runs — the between-run SD the
+ * location limits are three of, and the lognormal fit the dispersion limit
+ * caps, are both taken over row-runs of exactly `evidence.rounds x
+ * evidence.blocks`. So that count is a PRECONDITION and not a description.
+ * Truncated capture evidence judged against these limits is a different
+ * quantity judged against the wrong sampling distribution, and at `n = 1` it
+ * is not a judgement at all: the robust scale of one reading is 0, so the
+ * dispersion rule cannot fail, and a single block sitting at the centre
+ * reported `ok: true` with `n: 1` — which `controlAdjudication` then made the
+ * gate verdict, citing a row as in control on one block. MISSING OR EXTRA
+ * BLOCKS REFUSE, with the observed and the expected count, BEFORE either
+ * statistic is computed.
+ *
+ * FAIL CLOSED AT EVERY SEAT: a row-run with no blocks, one with fewer or more
+ * than the declared evidence, a block that is not a finite reading, and a row
+ * the standard declares `calibrated: false` are each a REFUSAL and never a
+ * pass. A row that appears in NEITHER list is a fault and THROWS — the
+ * standard is complete over the roster by construction, so a row it has never
+ * heard of may not be adjudicated by it or waved past it.
  */
 function checkStandardVerdict(rowId, per) {
   const spec = CHECK_STANDARD.rows[rowId];
@@ -451,6 +472,7 @@ function checkStandardVerdict(rowId, per) {
     measured: {
       n: xs.length,
       finite: finite.length,
+      expected: EXPECTED_READINGS,
       p50: r4(p50(finite)),
       scale: r4(robustScale(finite)),
     },
@@ -466,11 +488,24 @@ function checkStandardVerdict(rowId, per) {
     out.why = `the \`${rowId}\` row of the check standard is NOT CALIBRATED — ${spec.why || 'nothing has established what this instrument reads on it'}`;
     return out;
   }
-  if (finite.length === 0 || finite.length !== xs.length) {
+  if (finite.length !== xs.length) {
+    out.why = `${xs.length - finite.length} of ${xs.length} blocks are not finite readings of a level ratio`;
+    return out;
+  }
+  // THE CARDINALITY PRECONDITION, before either statistic exists to be read.
+  if (finite.length !== EXPECTED_READINGS) {
+    const short = EXPECTED_READINGS - finite.length;
     out.why =
-      xs.length === 0
-        ? 'no blocks — an empty block set is an absent reading, not a row-run in control'
-        : `${xs.length - finite.length} of ${xs.length} blocks are not finite readings of a level ratio`;
+      `${finite.length} finite blocks where this standard's evidence is ${EXPECTED_READINGS} ` +
+      `(${CHECK_STANDARD.evidence.rounds} rounds x ${CHECK_STANDARD.evidence.blocks} blocks) — ` +
+      (finite.length === 0
+        ? 'no blocks at all, and an empty block set is an absent reading, not a row-run in control'
+        : short > 0
+          ? `${short} MISSING. These limits are the location and dispersion OF ${EXPECTED_READINGS}-block ` +
+            'row-runs, so a statistic over truncated evidence is a different quantity judged against the ' +
+            'wrong sampling distribution'
+          : `${-short} EXTRA. A row-run deeper than the declared design is not the run these limits were ` +
+            'calibrated on either, and a standard that adjudicates any depth has an unmeasured rate');
     return out;
   }
 
