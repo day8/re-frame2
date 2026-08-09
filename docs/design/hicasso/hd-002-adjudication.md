@@ -1,7 +1,10 @@
 # HD-002 — the collector adjudication
 
 > **Delegated advisory, operator-overturnable.** The operator-owned standard bead
-> `rf2-2rtt6.1` requires HD-002's four clauses pinned before P1 code. A delegated
+> `rf2-2rtt6.1` required HD-002's four clauses pinned before P1 code; it was
+> superseded and closed on 2026-08-10, and HD-002 adjudication now runs through
+> the kernel witnesses `rf2-hic-010`/`rf2-hic-011`, the design-laws lane, and the
+> substrate adjudication `rf2-hic-018`. A delegated
 > ruling recorded on that bead (mayor, 2026-07-30) makes this a written advisory
 > rather than an operator gate, on the pattern HD-013 already uses for the donor
 > gate: produced by a worker, adversarially reviewed, recorded on the standard
@@ -103,9 +106,11 @@ is not a pass"):
 
 1. **Stop collector work on that arm.** Do not redesign around it quietly. The
    firing is the result.
-2. **Record it** on the arm bead (`rf2-2rtt6.9`) and on the standard bead
-   (`rf2-2rtt6.1`): the construct you reached for, the correctness obligation that
-   demanded it, and the commit SHA where the need became visible.
+2. **Record it** on the arm bead (`rf2-2rtt6.9`) and on the substrate
+   adjudication `rf2-hic-018`, which carries the tripwire clause now that
+   `rf2-2rtt6.1` is superseded and closed (2026-08-10): the construct you
+   reached for, the correctness obligation that demanded it, and the commit SHA
+   where the need became visible.
 3. **The arm continues on grouped.** A fired tripwire kills the *collector tier*,
    not the lean-React arm and not the programme. Grouped is the product default
    and has been dogfooded since P1 start precisely so this is a promotion, not a

@@ -1,9 +1,13 @@
 # Hicasso — studio
 
 The programme's measured record. Every number Hicasso publishes lands here and
-on its bead; the operator-owned standard bead (`rf2-2rtt6.1`) carries the bar,
-the budgets and the kill criteria, and this tree carries the evidence those
-rulings are made against.
+on its bead; the operator-owned governance set that superseded the standard bead
+`rf2-2rtt6.1` on 2026-08-10 carries the bar, the budgets and the kill criteria —
+K1 price acceptance `rf2-hic-003`, budgets and shell line
+`rf2-hic-006`/`rf2-hic-018` with gates `rf2-hic-089` (early) and `rf2-hic-071`
+(late), bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md) — and this tree carries the
+evidence those rulings are made against.
 
 Minted by the first P0 worker per [HD-017](../decisions.md). **The Freehand
 studio at `docs/design/freehand/studio/` is frozen and is never extended** — it

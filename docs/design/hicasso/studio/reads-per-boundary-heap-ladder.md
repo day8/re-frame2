@@ -1,7 +1,9 @@
 # What does a *subscribing* boundary cost in memory, at 1, 3, 7 and 20 reads?
 
 Seat: EVIDENCE SPIKE, EP-0038 Wave 0. Bead `rf2-2rtt6.5`; numbers appended to
-the operator-owned standard `rf2-2rtt6.1`.
+the P0 baseline record that superseded the operator-owned standard
+`rf2-2rtt6.1` on 2026-08-10 —
+[the evidence baseline](../product/lanes/evidence-baseline.md).
 
 **Two measurements live on this page, on two instruments, and they are kept
 apart.** §§1–5 are the donor ladder of `rf2-2rtt6.5`, taken on the freehand
@@ -446,8 +448,10 @@ any candidate that misses it is missing something both donors already have.
 ## 5. What this hands the programme
 
 **The red-zones for this witness family — distinct-query (Q = E), the
-operative upper-envelope family.** Under the delegated ruling on `rf2-2rtt6.1`
-as regime-qualified by the heap-regime ruling (rf2-2rtt6.16), the UIx
+operative upper-envelope family.** Under the delegated ruling recorded on
+`rf2-2rtt6.1` — superseded and closed on 2026-08-10, with red-zones now running
+through budget gates `rf2-hic-089` (early) and `rf2-hic-071` (late) — as
+regime-qualified by the heap-regime ruling (rf2-2rtt6.16), the UIx
 retained-heap figure on this witness *is* the red-zone threshold. Witness stamp
 B = 1,200 · E = 1,200·R · Q = E. **The rows are stated for the tree that ships
 today** (Mike's ruling of 2026-07-31, option (a), on `rf2-e3flf`): a gate

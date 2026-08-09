@@ -15,8 +15,12 @@ banner below. **Red is not fail** — the ship bar (HD-012: mount AND bulk
 ≤ 1.0× Reagent, like-for-like, clock only) is independent, and a row can clear
 the bar and still be red. That tension is intended.
 
-Bead **rf2-2rtt6.4**. Rows are appended to rf2-2rtt6.1; only the operator amends
-the bar, the budgets, the kill criteria, or these thresholds.
+Bead **rf2-2rtt6.4**. Rows are appended to the P0 baseline record that
+superseded rf2-2rtt6.1 on 2026-08-10 —
+[the evidence baseline](../product/lanes/evidence-baseline.md); only the operator
+amends the bar, the budgets, the kill criteria, or these thresholds (K1 price
+acceptance `rf2-hic-003`, budget gates `rf2-hic-089`/`rf2-hic-071`, kill rules in
+[the decision brief](../product/decision-brief.md)).
 
 > **Superseded on the clock axis only — rf2-a4x1o, PR #7268.** The clock
 > thresholds in the first red-zone table below are superseded *as thresholds* by
@@ -468,7 +472,8 @@ precise wrong number first. They are recorded because the next arm will meet the
     blind under `:advanced` and carries no information in either direction, so
     it decides nothing in either direction. **Exit 0 still means the probe ran
     and its readings are valid — never that the heap is clean.** Rows on this
-    programme stay operator-owned (rf2-2rtt6.1).
+    programme stay operator-owned ([the decision brief](../product/decision-brief.md)
+    — rf2-2rtt6.1 was superseded and closed on 2026-08-10).
 - **The witness set does not match rf2-2rtt6.2's.** That arm's branch (not yet
   merged) uses a 901-element M1 list reading `[:p0/cell i]` and a 51-element M2
   form reading the same sub; this page uses a 1,203-element W1 reading

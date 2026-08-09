@@ -8,9 +8,12 @@ through an `r/cursor`, which is Reagent's own idiom but is a denominator no
 re-frame2 application has. This page supplies the one the bar names, and prices
 the difference between the two.
 
-Bead **rf2-2rtt6.2**. The rows are appended to the operator-owned standard bead
-**rf2-2rtt6.1**; only the operator amends the bar, the budgets, the kill criteria
-or the red-zones.
+Bead **rf2-2rtt6.2**. The rows are appended to the P0 baseline record that
+superseded the operator-owned standard bead **rf2-2rtt6.1** on 2026-08-10 —
+[the evidence baseline](../product/lanes/evidence-baseline.md); only the operator
+amends the bar, the budgets, the kill criteria or the red-zones (K1 price
+acceptance `rf2-hic-003`, budget gates `rf2-hic-089`/`rf2-hic-071`, kill rules in
+[the decision brief](../product/decision-brief.md)).
 
 > **Re-certified on main, 2026-07-31 — the rows below reproduce.** This page was
 > the last P0 arm whose producing SHA was not on main, whose instruments carried
