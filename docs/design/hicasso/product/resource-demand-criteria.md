@@ -15,11 +15,14 @@ Nothing here was measured. Every line below is derived from the [specification](
 | Applied by | `rf2-hic-050`, mechanically |
 | Default verdict | STOP. ADOPT requires every criterion met on published, re-checkable evidence |
 | Amendment | Prospective only — see [Amendment rule](#amendment-rule) |
-| Pre-registration commit | `c8b8de6d28` |
+| Original freeze | `c8b8de6d28`, registering all seven criteria |
+| Pre-registration commit | `afbb58febc`, the effective revision after C2's amendment — this is the hash to cite |
 
-**That commit is the pre-registration proof**, back-filled by `rf2-mcwm` once the merge minted it. `rf2-hic-044` records its instrumentation against these criteria by citing it, and `rf2-hic-050` cites it again when it applies them. A verdict that cannot cite a criteria commit predating the report has not been pre-registered, whatever the dates claim.
+**The effective revision is the pre-registration proof.** `rf2-hic-044` records its instrumentation against these criteria by citing `afbb58febc`, and `rf2-hic-050` cites it again when it applies them, because that is the revision carrying the criteria text they actually apply. The original freeze `c8b8de6d28` remains the provenance of C1 and C3–C7, which have not changed a byte since it; only C2 was amended, and only prospectively. A verdict that cannot cite a criteria commit predating the report has not been pre-registered, whatever the dates claim.
 
-**Post-freeze edits, recorded here rather than made silently.** Two landed after that commit and before `rf2-hic-044` began, which is the window the [amendment rule](#amendment-rule) reserves: the row above was back-filled, and C2's closing sentence was corrected. That sentence had let unregistered defect classes count toward C2's threshold, contradicting the same criterion's statement that its classes are fixed in advance so no flattering class can be invented after the fact. Unregistered classes are still reported; they no longer count unless registered prospectively. No threshold moved, and nothing else changed.
+**Post-freeze edits, recorded here rather than made silently.** Two landed after the original freeze and before `rf2-hic-044` began, which is the window the [amendment rule](#amendment-rule) reserves, and both landed as `afbb58febc4e0a28e67a2a172bb604f0570472b5`: the commit row was back-filled, and C2's closing sentence was corrected. That sentence had let unregistered defect classes count toward C2's threshold, contradicting the same criterion's statement that its classes are fixed in advance so no flattering class can be invented after the fact. Unregistered classes are still reported; they no longer count unless registered prospectively. No threshold moved, and nothing else changed. C2's correction is a prospective amendment, so the file re-froze there, and the rows above now name that revision.
+
+**A back-fill is not an amendment.** Those rows were themselves written afterwards, by `rf2-mcwm`, because no commit can contain its own hash — the same reason the original freeze could not carry `c8b8de6d28`. Recording provenance touches no criterion, so it does not re-freeze the file: the effective revision stays `afbb58febc`, whose criteria text is byte-for-byte the text below. Only a change to a criterion moves it.
 
 ## What is being decided
 
