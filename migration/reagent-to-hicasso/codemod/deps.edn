@@ -1,0 +1,59 @@
+;; The Reagent `[:>]` → Hicasso migration codemod, FIXER half (rf2-2rtt6.143).
+;;
+;; Designed at
+;;   docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md
+;; and built as amended by rf2-2rtt6.143's three ratified acceptance criteria
+;; (W4 captures at prop-evaluation time; W2 refuses normalized-key collisions;
+;; the key slot gets a dedicated report entry).
+;;
+;; Residence and skeleton are cloned from `migration/from-re-frame-v1/codemod/`
+;; per the design's §1 — a standalone JVM artefact that reads consumer SOURCE
+;; TEXT through rewrite-clj and never loads, requires or executes re-frame2.
+;; That keeps it runnable against any Reagent corpus on a bare JVM.
+;;
+;; Programmatic entry points:
+;;   (re-frame.migration.hicasso.codemod/scan-paths   paths)      -> [entry ...]
+;;   (re-frame.migration.hicasso.codemod/rewrite-string s opts)   -> {:source .. :entries ..}
+;;   (re-frame.migration.hicasso.codemod/rewrite-file! path opts) -> {:changed? .. :entries ..}
+{:paths
+ ["src"
+
+  ;; THE ONE EXCEPTION TO "never loads re-frame2", AND IT IS THE WHOLE POINT
+  ;; OF rf2-ani6y.
+  ;;
+  ;; The design's §9.5 charge — "the tool reimplements `prop-name`, and nothing
+  ;; pins the two together" — survived its own adversarial pass UNREPAIRED, and
+  ;; §10.2's third recommendation was the only structural answer: extract the
+  ;; slot rule to `.cljc` so the tool and the door share ONE implementation.
+  ;; rf2-ani6y did exactly that. `front/slot.cljc` names this codemod, by name,
+  ;; as its second consumer.
+  ;;
+  ;; So this path is not a convenience. Dropping it and transcribing
+  ;; `prop-name` into `src/` would re-open §10.3's open question — a corpus
+  ;; pinning the tool, a DOM suite pinning the runtime, and nothing pinning
+  ;; them equal, with the drift silent in both directions. The namespace
+  ;; requires nothing but `clojure.string`, so the JVM cost is one small pure
+  ;; file; `slot_pin_test.clj` asserts we are loading THAT file and not a copy.
+  ;;
+  ;; Note the direction: the bundle-isolation law forbids `implementation/`
+  ;; requiring from `tools/`. This is a `migration/` artefact reading a shared
+  ;; `.cljc` rule out of `implementation/`, which is the direction the rule was
+  ;; extracted to serve.
+  "../../../implementation/freehand/test"]
+
+ :deps {org.clojure/clojure       {:mvn/version "1.12.4"}
+        rewrite-clj/rewrite-clj   {:mvn/version "1.1.49"}}
+
+ :aliases
+ {;; `clojure -M:test` — the golden-file corpus (which IS the spec, per the
+  ;; design's §5), the executable amendment-A semantics pin, and the shared
+  ;; slot-rule pin. Plain cognitect test-runner, matching the sibling
+  ;; artefact, so the test JVM never pulls the implementation build.
+  :test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; `clojure -M:run <path> ...`            — scan, write the report, touch nothing.
+  ;; `clojure -M:run --rewrite <path> ...`  — apply the fixer.
+  :run {:main-opts ["-m" "re-frame.migration.hicasso.codemod"]}}}
