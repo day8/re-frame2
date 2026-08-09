@@ -1,0 +1,32 @@
+[{:line 9,
+  :col 3,
+  :class :adapt-react-class-head,
+  :action :rewrote,
+  :head "Foo",
+  :detail {:head "Foo"},
+  :note
+  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Hicasso accepts; left alone it is a head Hicasso answers with `:rf.error/hicasso-bad-head`."}
+ {:line 9,
+  :col 3,
+  :class :named-value,
+  :action :rewrote,
+  :head "Foo",
+  :detail {:prop ":variant", :was ":big", :now "big"},
+  :note
+  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}
+ {:line 12,
+  :col 3,
+  :class :adapt-react-class-head,
+  :action :rewrote,
+  :head "Foo",
+  :detail {:head "Foo"},
+  :note
+  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Hicasso accepts; left alone it is a head Hicasso answers with `:rf.error/hicasso-bad-head`."}
+ {:line 17,
+  :col 1,
+  :class :adapt-def-site,
+  :action :refused,
+  :head "Adapted",
+  :detail {:def "Adapted", :call-sites-in-this-file [20]},
+  :note
+  "`(def Adapted (r/adapt-react-class …))` is left alone, and W5 cannot take it. Rewriting the def would change the conversion regime of EVERY call site at once, and this run found 1 in this file (line 20). CALL SITES IN OTHER NAMESPACES ARE INVISIBLE TO THIS TOOL — it only saw the files it was pointed at. Either convert it by hand, or inline the `adapt-react-class` at each call site and re-run so W5 can take them individually."}]

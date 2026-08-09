@@ -1,0 +1,16 @@
+[{:line 8,
+  :col 3,
+  :class :cljc-site,
+  :action :refused,
+  :head "Btn",
+  :detail {},
+  :note
+  "This crossing is in a `.cljc` file. `[:>]` is a ClojureScript-only node — the JVM side of this file has no React to cross into — so check that this branch is reader-conditioned to `:cljs`."}
+ {:line 8,
+  :col 3,
+  :class :named-value,
+  :action :rewrote,
+  :head "Btn",
+  :detail {:prop ":variant", :was ":contained", :now "contained"},
+  :note
+  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}]
