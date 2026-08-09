@@ -182,6 +182,25 @@ implementation/
                                    (defview / sub / mount land with the F1 spine).
     test/re_frame/                 Classpath + build-wiring probe (npm run test:freehand).
 
+  hicasso/                   day8/re-frame2-hicasso — the Hicasso view substrate: a
+                             boundary is a real React function component minted by
+                             `defview`, and the runtime owns only what React does not.
+                             Extracted by rf2-hic-001 as a mechanical copy of the
+                             measured prototype in freehand/test/re_frame/bench/hicasso/,
+                             which stays where it is and keeps running.
+    deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
+                             so no :clein deploy aliases).
+    frozen-sources.edn       Every donor file the copy read, pinned by digest, plus the
+                             rename table and the forbidden import prefixes.
+    scripts/check_freeze.py  The gate over that pin: the bench tree has not drifted, and
+                             nothing in the package imports it. --self-test included.
+    src/re_frame/hicasso.cljc      Public door — the three macros (defview, hfn, defhost)
+                                   and the author-facing vars, each an alias.
+    src/re_frame/hicasso/impl/     The copied runtime: codec, controlled, intent, slot,
+                                   state, presence, route-link, runtime, boundary, mount.
+    test/re_frame/                 Package smoke: a defview reads a sub through the door
+                                   (shadow-cljs build :node-test-hicasso).
+
   ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
                              (rf2-ny6v7).
     deps.edn                 :local/root deps on ../core and ../ssr (Ring is test-only).

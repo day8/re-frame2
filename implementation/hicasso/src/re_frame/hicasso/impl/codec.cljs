@@ -218,6 +218,10 @@
   "The codec's one refusal shape, matching the arm runtime's: an id a test
   can assert on, the position that refused, why, and what to do instead."
   [id where reason recovery extra]
+  ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
+  ;; message carries the `[:rf.error/...]` token the source cannot show
+  ;; (the gate's own "computed discriminator" case). Re-routing the
+  ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
   (throw (ex-info (str reason " [" id "]")
                   (merge {:rf.error/id id :where where
                           :reason reason :recovery recovery}
