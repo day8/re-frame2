@@ -2,7 +2,7 @@
 
 **Status: PROPOSED. Not operative.** This is the scoped amendment instrument prepared in Phase 0 and held for the sitting of **2026-08-27**, where **Mike Thompson, acting as re-frame2 product operator, is the decider**. Nothing on this page is in force until he ratifies it. Until then the registered `1.10x` K1 gate remains the only adjudicated mount line, the proposed `1.25x` ceiling may not mark any result green, and rejection at the sitting leaves the registered gate and its consequences in force. The [primary performance contract](specification.md#6-performance-contract) owns the proposed ceiling and the sitting rule; the [evidence baseline](lanes/evidence-baseline.md#k1-price-proposal) records the same pending status; the [decision brief](decision-brief.md) owns the selection this record is the honest bill for.
 
-Three things this record deliberately does not do. It does not recolour the measured result: the miss in §2 is quoted as published, and no threshold anywhere in this tree widens to accommodate it. It does not decide whether the K1 *kill criterion* has tripped — that criterion is a conjunction and only one half is adjudicated. And it does not waive the red read-free boundary-shell row, which the performance contract keeps as a separate prospective disposition that this sitting does not pre-authorize.
+Three things this record deliberately does not do. It does not recolour the measured result: the miss in §2 is quoted as published, and no threshold anywhere in this tree widens to accommodate it. It does not decide whether the K1 *kill criterion* has tripped — at drafting that conjunction had only one half adjudicated, and the operator has since ruled the other half MET (2026-08-10, `rf2-sza0w`), so this record carries the trip in §2.2 rather than deciding it; what the trip asks of the accepted price is §7.1's first reopen condition, now fired, with the answer owed by the decider and pending. And it does not waive the red read-free boundary-shell row, which the performance contract keeps as a separate prospective disposition that this sitting does not pre-authorize.
 
 ## 1. The frozen registered criterion
 
@@ -31,11 +31,17 @@ Both intervals lie entirely above the gate on the losing side, so the mount prem
 
 The figures, the co-instrumented Reagent-on-subs pairs, the labelled unfloored diagnostic, and the residual-uncertainty caveats live at [§4.3 of the corrected-clock re-adjudication](../studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) and are quoted from nowhere else. Those caveats travel with the row into this record: eight and six outer runs are thin ensembles, the mount check standard was calibrated on the same fourteen runs it then judges, and both ensembles record the same Chromium build. The [evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence) owns the pinned values.
 
-### 2.2 The trigger half: undecided
+### 2.2 The trigger half: ruled MET on 2026-08-10
 
-Whether the candidate has had **two serious runtime iterations** is a programme judgement rather than a measurement, and no document in this tree decides it. It is an open operator ruling, tracked as `rf2-sza0w`, which also owes what K1's "stop or narrow" consequence would mean in practice were the condition found met.
+**Ruled MET, 2026-08-10 (`rf2-sza0w`).** The operator ruled that the candidate has had **two serious runtime iterations**, on the basis the [validation register](../validation.md#kill-criteria-any-tripping--stop-or-narrow-adapters-only-is-success) records: `rf2-nld4g` closed with no admissible attack clearing the bar, and the interpreter was exonerated at `0.9636x` stock Reagent, locating the deficit outside it. Both conjuncts therefore stand and **K1 is TRIPPED**. The criterion text is as registered, the `1.10x` gate is untouched, and the published miss in §2.1 is not recoloured by the ruling: what the trip supersedes is K1's *stop or narrow* consequence, which the selection of Hicasso together with this scoped record make a formalized narrow-and-price rather than a stop. The [clock page §8](../studio/the-candidates-clock.md#8-what-this-hands-the-programme) carries the same record.
 
-This record neither decides that question nor depends on its answer. What it prices is the measured mount premium in §2.1 — a fact independent of whether the kill criterion is later ruled to have tripped.
+**What the ruling asks of this record, and what is still owed.** What this record prices is the measurement in §2.1, and that fact never depended on the ruling. The record's *standing* does: the ruling is the first of [§7.1](#71-reopen-conditions)'s reopen conditions, and firing it returns this record to the decider. **Whether the accepted price stands or changes, having been reconsidered in that light, is an open operator question and it is pending.** It is not decided here, in either direction, and nothing on this page may be read as deciding it.
+
+Kept rather than erased — the reading this section carried at drafting, superseded on 2026-08-10:
+
+> **2.2 The trigger half: undecided.** Whether the candidate has had **two serious runtime iterations** is a programme judgement rather than a measurement, and no document in this tree decides it. It is an open operator ruling, tracked as `rf2-sza0w`, which also owes what K1's "stop or narrow" consequence would mean in practice were the condition found met.
+>
+> This record neither decides that question nor depends on its answer. What it prices is the measured mount premium in §2.1 — a fact independent of whether the kill criterion is later ruled to have tripped.
 
 ## 3. What the premium buys
 
@@ -97,7 +103,7 @@ The fields any governance change owes under the [measurement posture](lanes/evid
 | Field | Value |
 |---|---|
 | Frozen registered criterion | The K1 row quoted verbatim in §1 — mount above `1.10x` direct UIx on the clock of record, after two serious runtime iterations |
-| Adjudicated status of that criterion | Gate half: **MISSED, DECISIVELY** (`rf2-diaud` / PR #7704), §2.1. Trigger half: **undecided**, open operator ruling `rf2-sza0w`, §2.2 |
+| Adjudicated status of that criterion | Gate half: **MISSED, DECISIVELY** (`rf2-diaud` / PR #7704), §2.1. Trigger half: **ruled MET on 2026-08-10** (`rf2-sza0w`), §2.2 — this field read *undecided, open operator ruling* at drafting. Both conjuncts stand, so **K1 is TRIPPED**; the criterion text and its `1.10x` gate are untouched, and the published miss is not recoloured |
 | Purchased use cases | The read-capability jobs of §3.2, at their census weights |
 | Accepted ceiling | `1.25x` cold mount versus equivalent direct UIx on the agreed representative witness — **proposed**, inoperative until ratified. A future row is read against it only by the comparison rule frozen in §5.1 |
 | Native escape | The five-rung gradient of §4, gated on the canonical native-tier acceptance checklist |
@@ -105,7 +111,7 @@ The fields any governance change owes under the [measurement posture](lanes/evid
 | Decider | Mike Thompson, acting as re-frame2 product operator |
 | Evidence owner | [`lanes/evidence-baseline.md`](lanes/evidence-baseline.md#pinned-economic-evidence) for the pinned values; [corrected-clock §4.3](../studio/rows-re-adjudicated-on-the-corrected-clock.md#43-the-published-m1-row) for the published figures and their labels |
 | Effective revision | *(left blank — the sitting fills this on ratification)* |
-| Reopen conditions | §7.1 |
+| Reopen conditions | §7.1. Its first condition **fired on 2026-08-10** with the ruling above; the reconsideration of the accepted price that it calls for is **the decider's, and pending** |
 | Revert condition | §7.2 |
 
 ## 7. Reopen and revert
@@ -115,6 +121,7 @@ The fields any governance change owes under the [measurement posture](lanes/evid
 Any of these returns this record to the decider, whether or not it has been ratified:
 
 - `rf2-sza0w` rules on the two-serious-runtime-iterations conjunct. A ruling that K1 has tripped changes what "stop or narrow" asks of the programme, and the accepted price must be reconsidered in that light.
+    - **FIRED — 2026-08-10.** `rf2-sza0w` ruled the conjunct MET; both conjuncts stand and K1 is TRIPPED (§2.2). This condition is therefore satisfied on its own terms, and the record is returned to the decider. **Whether the accepted price stands or changes, having been reconsidered in that light, is an open operator question and it is pending** — it is not answered here, in either direction. No figure moved when the ruling landed: §5's proposed `1.25x` reads exactly as drafted **because the reconsideration has not been made**, not because it was made and came back unchanged. Until the decider answers, nothing discharges this reopen, and no evidence row may cite the record as though something had.
 - A new clean clock-of-record acceptance row is published on the mount estimand.
 - A named lever plausibly worth the registered `45.7–49.4%` threshold of the measured deficit appears, or the compiler / render-phase / witness-set fences change explicitly. These are the baseline's own reopen conditions for the bounded irreducibility conclusion, and they reopen the price with it.
 - The comparative budgets are ratified against named reference hardware and the representative witness changes as a result.
@@ -148,12 +155,13 @@ On lapse the registered `1.10x` gate and its consequences resume immediately as 
 
 ## 9. Amendments to this record
 
-This record is **proposed**, so it is not yet frozen: the commit that carries it into the sitting is what freezes it, and until then amendment is exactly the window a prospective instrument reserves. Amendments are prospective and never silent — each one is recorded below with its reason, in the manner the sibling [resource-demand criteria](resource-demand-criteria.md#amendment-rule) uses, and none may widen a threshold, recolour the published verdict, or settle a question this record deliberately holds open. After ratification the effective revision governs and `rf2-hic-085`, which owns that field, is the only route to a change.
+This record is **proposed**, so it is not yet frozen: the commit that carries it into the sitting is what freezes it, and until then amendment is exactly the window a prospective instrument reserves. Amendments are prospective and never silent — each one is recorded below with its reason, in the manner the sibling [resource-demand criteria](resource-demand-criteria.md#amendment-rule) uses, and none may widen a threshold, recolour the published verdict, or settle a question this record deliberately holds open. After ratification the effective revision governs and `rf2-hic-085`, which owns that field, is the only route to a change. A **back-fill is not an amendment** — the rule `rf2-mcwm` established for that same sibling record: recording a fact decided elsewhere touches no threshold, verdict or rule, so it does not re-freeze this one. Back-fills are logged in the same table and marked as such, because the discipline this record keeps is that no change to it is silent, not that only amendments are written down.
 
 | Date | Bead | Amendment | Thresholds and verdicts touched |
 |---|---|---|---|
 | 2026-08-09 | `rf2-hic-003` | Made the lapse terms executable, on a merged-PR audit of the drafting PR. §5.1 freezes the prospective rule for reading a future canonical K1 row against the ceiling; §7.2 names the two ambient-read witnesses and the native-tier checklist with their exact owners, and records that two of the three are unwitnessed. | None. The registered `1.10x` gate, the proposed `1.25x` ceiling, the published `rf2-diaud` miss and the undecided `rf2-sza0w` conjunct all stand exactly as drafted. |
 | 2026-08-09 | `rf2-hic-003` | Named the ordinary-application owners, on a merged-PR audit of the amendment above. That row read "no bead owes it yet", which was already stale when it merged: `rf2-hic-025` and `rf2-hic-074` own this proof jointly and are now cited in §7.2. The witness itself is unchanged and still does not exist. | None. No witness was added, no status was promoted, and the sentence that lapse fires on a red result rather than on a missing one is unchanged. |
+| 2026-08-10 | `rf2-hr9s` | **A back-fill, not an amendment.** The operator's K1 ruling of 2026-08-10 (`rf2-sza0w`) is recorded where this record was silent about it: §2.2 now reads *ruled MET* and keeps its drafting text verbatim beneath, the §6 adjudicated-status and reopen-condition rows follow it, §7.1's first condition is marked **fired**, and the preamble's "only one half is adjudicated" is dated to drafting. Nothing here decides what the fired condition asks. | None. The registered `1.10x` gate, the proposed `1.25x` ceiling, the frozen §5.1 comparison rule and the published `rf2-diaud` miss are untouched, and no criterion changed, so the record does not re-freeze. Whether the reconsidered price stands or changes is the decider's, is unanswered in either direction, and is now recorded as pending rather than left silent. |
 
 ## Sources
 

@@ -1,0 +1,74 @@
+[{:line 9,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "Chart",
+  :detail
+  {:path ":options",
+   :respelled
+   [[":first-name" ":firstName"] [":page-size" ":pageSize"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+ {:line 12,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "Chart",
+  :detail
+  {:path ":cfg",
+   :respelled
+   [[":charset" ":charSet"]
+    [":class" ":className"]
+    [":for" ":htmlFor"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+ {:line 15,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "Chart",
+  :detail {:path ":cfg", :respelled [[":other-key" ":otherKey"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+ {:line 21,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "Chart",
+  :detail
+  {:path ":outer",
+   :respelled [[":deep-key" ":deepKey"] [":inner-map" ":innerMap"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+ {:line 29,
+  :col 3,
+  :class :css-var-repair,
+  :action :refused,
+  :head "Chart",
+  :detail {:path [":style" ":--brand-color"]},
+  :note
+  "Reagent's `dash-to-prop-name` mangled this CSS custom property into a style key nothing reads, so the declaration never took effect. Hicasso preserves it and React routes a `--`-prefixed key through `setProperty`. The key is left alone and THE SITE STARTS WORKING — check that the style it now applies is the one you want."}
+ {:line 29,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "Chart",
+  :detail {:path ":style", :respelled [[":font-size" ":fontSize"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+ {:line 32,
+  :col 3,
+  :class :computed-nested-key,
+  :action :refused,
+  :head "Chart",
+  :detail {:path [":cfg" "(key-for x)"]},
+  :note
+  "This map key is not a literal keyword, symbol or string, so the tool cannot compute what Reagent spelled it as. It keeps the spelling you wrote, and the collision check above could not see it either."}
+ {:line 32,
+  :col 3,
+  :class :nested-map-keys,
+  :action :rewrote,
+  :head "Chart",
+  :detail {:path ":cfg", :respelled [[":page-size" ":pageSize"]]},
+  :note
+  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}]

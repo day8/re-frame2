@@ -1762,6 +1762,15 @@ function report(out) {
   // rule is the run's own location and dispersion — never "every block inside
   // a band", which is the rule rf2-8a746 retired with the three-point control
   // for a separate reason: `0.835^18 = 3.9%`.
+  //
+  // AND THE HELPER CARRIES AN EXPECTED-N CONTRACT (rf2-8a746, merged-PR audit
+  // #7698): exactly `STANDARD.evidence.expectedBlocks` finite readings — 18,
+  // from the declared 6-round x 3-segment design — or it refuses with observed
+  // and expected counts. At the published depth this list is 3 segments x
+  // `ROUNDS` rounds = 18 by construction; an `HCLOCK_ROUNDS` override now
+  // refuses here as well as in `depthPublished`, which is the correct
+  // fail-closed reading — limits calibrated on the full design certify nothing
+  // about a shorter run.
   const checkStandard = ctl2xBlocks ? checkstd.checkStandard(ctl2xBlocks, rowId) : null;
   if (checkStandard) {
     console.log(`;; ---- CHECK STANDARD: is this run IN CONTROL? (rf2-8a746) ----`);

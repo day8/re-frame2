@@ -88,12 +88,13 @@ much when the count reaches zero:
 - **Gap** means that even after the programme's final coverage audit completes, the row can still lack the proof
   section 7 requires — because no bead owns that proof, or because the owning bead's acceptance does not reach it.
 
-Nine rows stood as Gap when this document was first written, on the evidence of the bead-set review's
-[section 1.3](lanes/beads-review.md#13-7-rows-that-can-remain-unwitnessed-when-hic-064-completes). That review is a
-snapshot of one moment in the tracker, and the tracker has since moved: every proof it found unowned is now named in the
-deliverables of a specific bead. The reconciliation is recorded here rather than silently deleted, because the bar for
-the change is the strict one [section 3](#3-append-protocol-and-ownership) sets — the bead must *actually own* the
-missing proof, not merely sit adjacent to the row — and the next reader is entitled to re-check the arithmetic:
+Nine rows stood as Gap when this document was first written, on the evidence of section 1.3 of the bead-set review —
+`codex/beads-review.md`, review-staging material in the operator-local set, deliberately not published in this tree.
+That review is a snapshot of one moment in the tracker, and the tracker has since moved: every proof it found unowned
+is now named in the deliverables of a specific bead. The reconciliation is recorded here rather than silently deleted,
+because the bar for the change is the strict one [section 3](#3-append-protocol-and-ownership) sets — the bead must
+*actually own* the missing proof, not merely sit adjacent to the row — and the next reader is entitled to re-check the
+arithmetic:
 
 - **Ordinary pages, conditional UI, dynamic lists** — `rf2-hic-025` builds the RealWorld-class flow (routing, keyed list,
   article edit, async mutation, controlled fields, error region), and `rf2-hic-074` extends it with the pagination and

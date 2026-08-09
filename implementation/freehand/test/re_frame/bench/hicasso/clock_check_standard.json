@@ -1,6 +1,6 @@
 {
   "id": "hicasso-clock/ctl-2x-level",
-  "version": 3,
+  "version": 4,
   "ruling": "rf2-8a746",
   "frozen": "2026-08-07",
   "amendments": [
@@ -17,6 +17,13 @@
       "ruling": "rf2-c1974",
       "what": "The limits are VALIDATED OUT OF SAMPLE, to the strongest independence this corpus supports — a SESSION-level hold-out. Each class's limits are re-derived from ONE ensemble and the OTHER is judged against them, both ways, and each provenance.independence field now carries what that measured in place of v1 and v2's honest admission that it had never been measured. Bulk passes both ways; the MOUNT DIRECTIONS DISAGREE, and that is recorded as the finding rather than averaged away.",
       "touches": "the two provenance.independence fields, a new provenance.holdOut record on each class, and one recalibrateOn entry naming the residual. NO NUMBER THAT DECIDES ANYTHING MOVED: every centre, location limit, dispersion limit, tolerance band and error rate is byte-identical to v2, and no hard refusal is involved. Nothing was widened to make a hold-out pass — the fence rf2-c1974 was raised under."
+    },
+    {
+      "version": 4,
+      "date": "2026-08-10",
+      "ruling": "rf2-8a746",
+      "what": "The consumer boundary requires the frozen design's EVIDENCE CARDINALITY before it computes anything. Merged-PR audit #7698 found checkStandard certifying a one-element ratio list at the frozen centre (ok: true with n: 1 and robustScale: 0) and checkStandardFor accepting a row truncated to one round — three segment blocks judged by limits calibrated on eighteen. Retiring the per-block unanimity rule (v1) never meant allowing blocks to be ABSENT: a location limit derived from 18-block run medians says nothing about the median of a 3-block subset of one. The new top-level `evidence` field states the expected count once — 18 blocks, from the declared 6-round x 3-segment design — and every consumer refuses a missing or extra round/block with observed and expected counts in the refusal.",
+      "touches": "adds the top-level `evidence` field and this amendment entry only. Every centre, location limit, dispersion limit, tolerance band and error rate is byte-identical to v3; no hard refusal (read-back, canonical-DOM, page-error, arm-order, quiet-box, band-ceiling) is involved; the location/dispersion run-rejection rule is unchanged — a run now simply has to be COMPLETE before that rule is consulted."
     }
   ],
   "what": "The level-denominated check standard for the Hicasso clock (clock_run.cjs). The measured quantity is the ctl-2x arm's TARED TaskDuration over the floor's TARED TaskDuration, in the same round of the same segment — one per block, 18 per row-run. Both terms are LEVELS, so the ~0.4 ms of estimator error each arm's p50 carries is 9% of a ~4.5 ms denominator rather than 48% of a 1.2 ms difference. It replaces the three-point difference-of-differences control, which rf2-8a746 retired as a gate.",
@@ -28,6 +35,13 @@
   },
   "runRejection": "a run is IN CONTROL when its block median lies inside the frozen location limits AND its robust scale is at or under the frozen dispersion limit. Nothing per-block rejects a run: the retired rule required all 18 blocks inside a tolerance band, and 0.835^18 = 3.9% is why a control that fully met its premise still passed only 4 of 42 runs.",
   "toleranceBandIsNotTheRule": "The per-block tolerance band below is REPORTED and decides nothing. rf2-8a746 ruled that the tolerance band and the run-rejection rule get distinct, calibrated error rates; these are they.",
+  "evidence": {
+    "ruling": "rf2-8a746",
+    "audit": "merged-PR audit #7698 (2026-08-09)",
+    "design": { "rounds": 6, "segments": 3 },
+    "expectedBlocks": 18,
+    "rule": "a run's block list must carry EXACTLY expectedBlocks finite readings — one (round, segment) pair per block of the declared 6-round x 3-segment design — before location or dispersion is computed. A missing or extra round/block refuses with observed and expected counts: retiring the per-block unanimity rule never meant allowing blocks to be absent, and a location limit calibrated on 18-block run medians says nothing about the median of a smaller or larger set. This is a COMPLETENESS requirement on the evidence, not a per-block verdict — no block's own value rejects anything here."
+  },
   "classes": {
     "bulk": {
       "rows": ["bulk300", "bulk100", "narrow"],
