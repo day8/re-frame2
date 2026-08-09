@@ -245,10 +245,12 @@
   ;; type still changes, because `mint-view!` allocates a fresh component and
   ;; a fresh memo wrapper on every call. Editing one line anywhere in a source
   ;; file therefore remounts every boundary that file defines.
+  ;;
+  ;; `panel-body` is passed to both mints by name, so the "same body" premise
+  ;; is carried by the code rather than by an assertion — asserting a var is
+  ;; identical to itself would pass without exercising anything.
   (let [g1 (collector/mint-view! view-name panel-body)
         g2 (collector/mint-view! view-name panel-body)]
-    (is (true? (same-object? panel-body panel-body))
-        "the body is one object, by construction")
     (is (false? (same-object? g1 g2))
         "same name, same body, different head")
     (is (false? (same-object? (element-type-of g1) (element-type-of g2)))
