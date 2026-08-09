@@ -205,15 +205,24 @@
 (defn server-html!
   "The bytes an SSR route would deliver for `hiccup` under `frame-kw`.
 
-  Rendered under an OPEN adoption window, which is the state a server
-  render is in, and released afterwards so the runtime the hydration is
-  measured on is empty. The prototype's
-  `arm1.hydration-support/server-html!` does exactly this, and the
-  honesty caveat is the same: these are the client tier's own bytes, so
-  a row that cares about a *particular* string reads it back out of the
-  captured markup rather than assuming it."
+  Rendered on an ordinary root and released afterwards, so the runtime
+  the hydration is measured on is empty. The prototype's
+  `arm1.hydration-support/server-html!` does the same, and the honesty
+  caveat is the same: these are the client tier's own bytes, so a row
+  that cares about a *particular* string reads it back out of the
+  captured markup rather than assuming it.
+
+  **It no longer opens an adoption window** (rf2-6tmu). It used to, on
+  the grounds that an open window is the state a server render is in —
+  but the window was page-global then, so \"opening\" one was a free
+  module write. A window is now minted per root and reaches a subtree
+  only through the provider `impl.mount` installs for a HYDRATING root,
+  and there is no product door that opens one around an ordinary render;
+  giving the harness a private one would be inventing product API for a
+  test. Nothing is lost, because the only reader is presence and the
+  trees rendered through this fn carry none — see
+  [[settled-server-html!]] for the ones that do."
   [frame-kw hiccup]
-  (roots/open-adoption-window!)
   (let [container (mount/fresh-container!)
         handle    (mount/root! container frame-kw hiccup)
         html      (.-innerHTML container)]
@@ -261,28 +270,32 @@
     (and (seq ns') (every? server-node? ns'))))
 
 (defn adopted!
-  "Wait for the adoption window to shut — the closer component's passive
-  effect — and then for the reapers. Answers a promise of true, or of
-  false if the window never shut inside `budget-ms`.
+  "Wait for `handle`'s OWN adoption window to shut — that root's closer
+  component's passive effect — and then for the reapers. Answers a
+  promise of true, or of false if the window never shut inside
+  `budget-ms`.
 
   Real timers only: no `act`, no `flushSync`. `impl.mount/hydrate-root!`
   deliberately does not force hydration synchronously, so there is no
   flush that would make this a straight line, and manufacturing one
   would manufacture a schedule no shipped caller has.
 
-  **The window it polls is one boolean for the whole page**
-  (`impl.roots`), so in a two-root row this answers *some* root's closer
-  and not a named one. Where that distinction matters, the hydration
-  suite says so at the call site and reads a per-root observable
-  instead."
-  ([] (adopted! 3000))
-  ([budget-ms]
+  **This is a NAMED root's completion signal, and before rf2-6tmu it
+  could not be one.** The window it polls used to be one boolean for the
+  whole page, so it answered *some* root's closer and never said which —
+  which is why the two-root rows below were written against
+  [[wait-until!]] and the cell table instead. Now the window is the one
+  this root minted and nothing else can shut it, so waiting on it is
+  waiting on this root."
+  ([handle] (adopted! handle 3000))
+  ([handle budget-ms]
    (js/Promise.
      (fn [resolve]
-       (let [deadline (+ (js/Date.now) budget-ms)]
+       (let [deadline (+ (js/Date.now) budget-ms)
+             window   (:adoption handle)]
          (letfn [(tick []
                    (cond
-                     (not (roots/adopting?))
+                     (not (roots/adopting? window))
                      ;; Past the closer AND past the entry reap horizon,
                      ;; so a reading of the entry cache is taken on the
                      ;; far side of the race.
@@ -298,12 +311,11 @@
   "Poll `pred?` on real timers until it answers truthy. Answers a promise
   of true, or of false if `budget-ms` elapses first.
 
-  **This is how a two-root row waits, and [[adopted!]] is not.** The
-  adoption window is one boolean for the whole page, so `(adopting?)`
-  going false says *some* root's closer ran and never says which. A
-  per-root completion signal has to come from something the root itself
-  produced — its cells, which are acquired at COMMIT and therefore cannot
-  appear before that root committed."
+  How a two-root row waits on something that is not a window: the cell
+  table, which acquires at COMMIT and therefore cannot mention a frame
+  before that frame's root committed. [[adopted!]] is the other per-root
+  signal and since rf2-6tmu it is a genuine one; the rows below use
+  whichever names the fact they are about."
   ([pred?] (wait-until! pred? 3000))
   ([pred? budget-ms]
    (js/Promise.
@@ -315,6 +327,39 @@
                      (< deadline (js/Date.now)) (resolve false)
                      :else                     (js/setTimeout tick 4)))]
            (tick)))))))
+
+(defn settled-server-html!
+  "The bytes an SSR route delivers for a tree that contains a PRESENCE
+  tray: every child already PRESENT, which is what a server emits because
+  a server has no enter transition to play. Answers a promise of the
+  html; `settled?` is called with the container and says when the tray
+  has stopped moving.
+
+  Down here rather than beside [[server-html!]] only because it waits,
+  and [[wait-until!]] is what it waits with.
+
+  [[server-html!]] cannot be used for such a tree. It reads `innerHTML`
+  on the line after a `flushSync` render, and on an ordinary root that is
+  the FIRST pass — every child `:mounting`, wearing its `::h/mounting`
+  overrides. Hydrating against those bytes would compare a settled client
+  tree with an entering server tree and manufacture a divergence no row
+  here is about.
+
+  So the harness lets the client tier's own enter flip land and reads
+  afterwards. That is the honest way to get settled bytes out of a client
+  renderer, and it needs no adoption window: the tray reaches `:present`
+  by PLAYING its transition, which is precisely the thing the hydrated
+  root must not do."
+  [frame-kw hiccup settled?]
+  (let [container (mount/fresh-container!)
+        handle    (mount/root! container frame-kw hiccup)]
+    (-> (wait-until! (fn [] (settled? container)))
+        (.then (fn [ok]
+                 (is (true? ok)
+                     "premise: the server tree settled before its bytes were read")
+                 (let [html (.-innerHTML container)]
+                   (mount/release! handle)
+                   html))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The two complaint channels
