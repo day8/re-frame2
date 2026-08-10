@@ -388,7 +388,8 @@ produces both sides, so there is nothing for two tables to disagree about.
   resolver, no browser". That is the same structural-render core with a
   different resolver: a snapshot for SSR, an override map for tests. The
   co-discharge is real, and the door is genuinely absent —
-  [draft-guide/08-testing.md](draft-guide/08-testing.md) says so three times
+  `draft-guide/08-testing.md` (the draft-era testing chapter, since replaced
+  by the end-state `draft-guide/14-testing.md`) said so three times
   over: *"Not built yet — the sketch below is the intended shape, not a call you
   can make today"*, *"Headless (sketch — not built)"*, and of the resolver
   itself *"This half is the headless path's, and it does not exist yet."*

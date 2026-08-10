@@ -616,7 +616,7 @@ server HTML that produced it.
   — §4 (the provider use case) and §Needs a ruling R1, where this was found
 - [`studio/raw-escape-spec.md`](studio/raw-escape-spec.md) — R2, and the
   standing instruction that the escape grows no `:ssr` spelling of its own
-- [`draft-guide/05-interop.md`](draft-guide/05-interop.md) — the Defaults table
+- [`draft-guide/09-interop.md`](draft-guide/09-interop.md) — the Defaults table
   and the Providers section
-- [`draft-guide/10-server-side-rendering.md`](draft-guide/10-server-side-rendering.md)
+- [`draft-guide/17-ssr-and-hydration.md`](draft-guide/17-ssr-and-hydration.md)
   — the tier's mismatch story and the `:ssr` teaching block
