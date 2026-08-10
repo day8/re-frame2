@@ -199,7 +199,7 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   fan-out, findings keep landing on files a worker already holds — from a
   merged-PR audit, from another worker's report, from your own reading. Filing a
   bead for one puts a second worker on that file; waiting for the holder to
-  finish loses the context the finding was found in. So route it: message the
+  finish loses the context it was found in. So route it: message the
   worker that holds the file, and the fix lands inside the PR that is already
   open. Six routed findings landed that way here in one evening, none
   conflicting, several fixed minutes after they were found. What routing does not
