@@ -2545,303 +2545,235 @@ malformed CSS selector;
 `:reason :rf.error/read-ui-failed` (with `:message`) on any other
 failure.
 
-## The Freehand tool tier — read-view-manifest / read-view-dependencies / read-view-event-sites / read-mounted-views / explain-render
+## The Hicasso evidence door — read-mounted-boundaries / read-read-attribution / explain-render
 
-Five read-only projections of the **Freehand tool tier**
-(`re-frame.freehand.tool`) — the same view evidence Xray and Story read,
-exposed from a **running** re-frame2 app so a pairing agent inspects a
-Freehand view WITHOUT reaching a private React / cell / scheduler
-handle. Every read answers inside the four-axis evidence projection
-(`:scope`, `:basis`, `:complete?`, `:loss`), **versioned** (stamps
-`:schema`, and `:read` naming which read answered), **deterministic**,
-**serializable**, and egresses only bounded plain data — no cell or React
-object crosses the wire.
+Three read-only projections of the **adapter-neutral Hicasso evidence
+door** (`re-frame.hicasso.tool`) — the same evidence Xray's Hicasso tab
+reads, exposed from a **running** re-frame2 app so a pairing agent
+inspects what is mounted, who reads what, and which reads moved WITHOUT
+reaching a private React / cell / scheduler handle. Every read answers
+inside the four-axis evidence projection (`:scope`, `:basis`,
+`:complete?`, `:loss`), **versioned** (stamps `:schema`, and `:read`
+naming which read answered), **deterministic**, **serializable**, and
+egresses only bounded plain data — no cell or React object crosses the
+wire, and **no read value at all**.
 
-| MCP wire tool             | `re-frame.freehand.tool` read | arg        |
-|---------------------------|-------------------------------|------------|
-| `read-view-manifest`      | `read-view-manifest`          | `view-id`  |
-| `read-view-dependencies`  | `read-view-dependencies`      | `view-id`  |
-| `read-view-event-sites`   | `read-view-event-sites`       | `view-id`  |
-| `read-mounted-views`      | `read-mounted-views`          | —          |
-| `explain-render`          | `explain-render`              | `view-id?` |
+| MCP wire tool             | `re-frame.hicasso.tool` read | arg |
+|---------------------------|------------------------------|-----|
+| `read-mounted-boundaries` | `read-mounted-boundaries`    | —   |
+| `read-read-attribution`   | `read-read-attribution`      | —   |
+| `explain-render`          | `explain-render`             | —   |
 
-The wire names and the framework fn names **agree**, and both satisfy
-[`NAMING.md`](../../mcp-conformance/NAMING.md)'s verb-prefix rule.
-Freehand's id-taking reads carry their own `read-` prefix because
-`view-manifest` is the value-taking sweep door and could not be the
-id-taking one's arity — so the reads an inspector calls are spelled
-`read-view-manifest` on both sides of the wire. `explain-render` needs no
-prefix; it is already a verb.
+The wire names and the framework fn names agree exactly, and every read
+is **nullary** — this runtime has no id to narrow by, which is the next
+section.
 
-### The fidelity this tier states — four axes, not a lifetime summary
+### Three, because the door answers a different question set
 
-Freehand's tool tier is deliberately **thinner** than the donor
-compiled-view tier it replaces, and that difference is **stated** rather
-than papered over: the donor's cumulative per-occurrence evidence
-accumulator does not graduate into Freehand. What a pairing agent gets
-instead is honesty about the difference, which is what makes a thinner
-tier a usable one:
+This family replaced five tools aimed at `re-frame.freehand.tool`
+(rf2-n3mb), and that was **not a rename**. Freehand published a view
+registry and a compiler manifest, so it could answer
+`read-view-manifest`, `read-view-dependencies` and
+`read-view-event-sites` — static questions about a view named by its
+declared id, answerable *before* mount.
 
-- `read-mounted-views` answers what is **connected right now** — one row
-  per connected occurrence, dropped at disconnect. It is not a lifetime
-  roster, so there is no render total, no batch total, no
-  hide-versus-unmount interval ledger and no accumulated union of every
-  target ever observed. The projection's `:occurrence-facts` set names
-  exactly what a row does state, so an absent fact is visible as absent
-  rather than inferred from silence.
-- `explain-render` **folds Spec 009's retained window at read time** and
-  keeps nothing of its own. There is no second history store, no second
-  window and no second knob — retention is `:rf.trace/events-retained`.
-- an **interpreted** declaration answers the roster reads on an
-  `:opaque` basis with `{:reason :no-static-analysis :dropped :unknown}`
-  rather than an empty roster, because *unknown must not look like
-  none*.
+**Hicasso mints no boundary identity and keeps no registry.** A
+registration is its read set, React's notifier and the acquired cells;
+`:view` and `:source` are stated as `:unknown` under an `:opaque` naming
+projection, permanently and by design, because naming every live
+boundary would need a registry or a field on the priced registration —
+a standing memory cost the producer will not levy for a panel's benefit.
+So there is no id to ask about and no manifest to read. **Those three
+questions are unanswerable from this door**, which is a fact about the
+provider rather than a shortfall here, and they are not shipped as tools
+that would answer them with a fabricated emptiness.
 
-A read that cannot state a fact degrades it to an explicit unknown. It
-never fabricates one.
+What replaces them is a different way in. A boundary is keyed by its
+**edge set**, so `read-read-attribution` — *which boundaries read this
+subscription* — is how an agent gets from a subscription it can name to
+a boundary it cannot, and `:reads` on every mounted row is the forward
+direction of the same edge.
 
-### Tier presence — direct eval, no preload coupling
+`re-frame.hicasso.tool/read-intents` is deliberately **not** shipped as a
+fourth tool: it folds Spec 009's retained event ring, which is the
+question `trace-window` already answers under richer projection, with
+cursor pagination and the elision walker. A second, thinner window read
+under a new name would be surface without a question of its own.
 
-Unlike the `read-ui` / `read-dom` wrapper pattern, these tools **do not**
-route through a `re-frame2-pair.runtime` fn. `re-frame.freehand.tool`
-lives in `day8/re-frame2-freehand` — the **optional** Freehand view
-substrate; a re-frame2 app built on the Reagent or UIx adapter never has
-it on its classpath, so requiring it in the generic preload would make
-the preload uncompilable there. Each tool instead evals a self-contained
-form guarded by `cljs.core/exists?`: the read is called only when the
-tier is present, and its absence is surfaced **honestly** as `:reason
-:view-tier-unavailable` — the "tolerate absent evidence explicitly"
-discipline, not a fabricated emptiness. The tier is present whenever
-Xray is active, or when the app itself loads `re-frame.freehand.tool`.
+### Door presence — direct eval, no preload coupling
 
-### Absent / older evidence
+Unlike the `read-ui` / `read-dom` wrapper pattern, these tools do **not**
+route through a `re-frame2-pair.runtime` fn. `re-frame.hicasso.tool`
+lives in `day8/re-frame2-hicasso`, and **nothing in `re-frame.hicasso`
+requires it** — that is how the substrate keeps the door out of a
+production build entirely. An app on the Reagent or UIx adapter never has
+it at all. Requiring it in the generic preload would make the preload
+uncompilable in those apps.
 
-Each guarded form resolves to one of:
+So each tool evals a self-contained form guarded by
+`cljs.core/exists?`: the door is called only when present, and its
+absence is surfaced honestly as `:reason :evidence-tier-unavailable` —
+*tolerate absent evidence explicitly*, not a fabricated emptiness.
 
-- `{:ok? true …projection…}` — the projection, `:schema` stamped,
-  forwarded verbatim. The consumer-owned schema **gate** compares that
-  stamp against the schema this Pair build was written to forward, and a
-  stamp it does not recognise becomes `{:ok? false :reason
-  :view-tier-version-mismatch :expected … :actual …}` rather than a
-  successful read of a shape it cannot parse — Pair reaches an
-  arbitrarily old or new app, so the producer's stamp does not define
-  support;
-- `{:ok? false :reason :view-tier-unavailable}` —
-  `re-frame.freehand.tool` is not loaded (the optional substrate is
-  absent);
-- `{:ok? false :reason :view-not-available :view-id …}` — no Freehand
-  view is declared under that id (a nil read);
-- `{:ok? false :reason :view-tier-inactive}` — a production build
-  nil-gates the whole tier;
-- `{:ok? false :reason :view-tier-error :message …}` — the read threw.
+### The coupling is a wire STRING, and it has a witness
 
-Every `:ok? false` rides `isError:true` (the universal §"Every `:ok?
-false` response is `isError: true`" contract), so a degraded read is
-never cached and never masquerades as a successful empty answer. The
-`view-id`-taking reads also short-circuit `{:ok? false :reason
-:missing-view-id}` **before any nREPL round-trip** when `:view-id` is
-absent.
+`re-frame2-pair-mcp.tools.hicasso-tool/tier-ns` holds the string
+`"re-frame.hicasso.tool"`, and it is interpolated into every form these
+tools emit. Pair has **no `:require` of the provider and no `deps.edn`
+coordinate**, so no compiler, no clj-kondo run and no classpath scan can
+see this dependency: an audit reports Pair clean of the provider while
+every tool in this family calls it.
+
+`test/re_frame2_pair_mcp/hicasso_wire_test.cljs` is what holds the other
+side. It parses the reader name out of an **actually emitted form** and
+asserts the provider's own source publishes it as a public `defn`, and
+that `consumed-evidence-schema` equals the literal
+`re-frame.hicasso.evidence/schema` stamps. The conformance corpus cannot
+do this: its stubs are keyed on the wire string, so a form naming a read
+no provider publishes matches a stub just as happily as a real one.
+
+### Envelope and the schema gate
+
+The eval form resolves to an `{:ok? …}` envelope, which the shared
+`versioned-envelope-result` gates against `consumed-evidence-schema` —
+currently `:re-frame.hicasso.evidence/v2` — before it reaches the wire:
+
+- `{:ok? true …projection…}` — the projection, `:schema` **matching**,
+  forwarded verbatim;
+- `{:ok? false :reason :evidence-tier-version-mismatch :expected …
+  :actual …}` — stamped a schema this build was not written against.
+  Pair connects to an arbitrary running app, so the producer's stamp
+  cannot define support. `re-frame.hicasso.evidence` states there is no
+  v1 acceptance path and no compatibility adapter, so this gate is the
+  consumer half of a boundary the producer means literally;
+- `{:ok? false :reason :evidence-tier-unavailable}` —
+  `re-frame.hicasso.tool` is not loaded;
+- `{:ok? false :reason :evidence-tier-inactive}` — every read answers
+  `nil` under `:advanced` with `goog.DEBUG` false. The door is dev-only;
+- `{:ok? false :reason :evidence-tier-error :message …}` — the read
+  threw.
+
+Every `:ok? false` rides `isError: true` (§*Every `:ok? false` response
+is `isError: true`*), so a degraded read is never cached and never
+masquerades as a successful answer.
 
 ### Sensitive-data projection
 
-These reads project a view's compiler **manifest** + bounded render
-**evidence** (structure, declared sites, occurrence identity, cause and
-loss accounting, authored event vectors) — **not app-db values**. A
-commit's `:reads` carry the **queries** without the values they
-returned, deliberately: a value is application data, and an evidence
-read is not a second egress path for it. They carry no
-app-db-classified slot, so — like the registrar reads `handler-meta` /
-`list-handlers` — they need no elision / sensitive walker: the "normal
-projection" for a non-app-db read is verbatim bounded data. An authored
-event vector shows its id + literal args exactly as `handler-meta`
-surfaces a handler's source coordinate.
+These reads carry **no read value and no event vector**, at any
+classification. That is uniform rather than declared: EP-0025's model is
+fail-open, so a door that shipped an undeclared event's arguments while
+promising *no application data* would be making the promise falsely.
+Query vectors ride **pre-projected** through
+`re-frame.elision/elide-wire-value` on the producer side, including
+inside every exported boundary key. So this family needs no elision
+walker of its own — the projection is done before the value reaches the
+wire, and a second walk here would imply the first is not trusted.
 
-### read-view-manifest
+### read-mounted-boundaries
 
-What the compiler statically knows about a Freehand view — what CAN
-happen, useful **before** mount. Requires `:view-id` (the view's declared
-id, colon-tolerant string / keyword). The declaration's manifest rides
-**verbatim** under `:manifest` — source coord, per-prop docs / defaults /
-schema, the subscription / event / render-slot / trusted-markup /
-crossing rosters, capability bits, the ViewCell verdict, and the
-compile-tier `:diagnostics` findings including the **suppressed** ones
-carrying the author's reason. One value published twice cannot drift; two
-projections of one value eventually do.
+Every Hicasso boundary **mounted right now**. No arg, deliberately: the
+question is *what is mounted*.
 
-```clojure
-;; read-view-manifest {:view-id ":my.app/counter"}
-{:ok? true :schema :re-frame.freehand.evidence/v1 :read :view-manifest
- :view-id :my.app/counter :lowering :compiled
- :scope :possible-sites :basis :static-proof :complete? true :loss nil
- :manifest {:view-id :my.app/counter :grammar :re-frame.freehand/v1
-            :subscriptions [...] :events [...] :capabilities #{:sub}
-            :diagnostics [...]}}
-```
-
-An interpreted declaration answers `:manifest nil` with `:basis :opaque`,
-`:complete? false` and `:loss {:reason :no-static-analysis :dropped
-:unknown}` — never an empty roster that would read as a clean bill of
-health.
-
-### read-view-dependencies
-
-The reactive dependency **sites** (`v/sub` sites) a Freehand view
-declares, with literal-vs-`:dynamic` query-shape honesty: a fully-literal
-query is projected verbatim (`:dynamic? false`); a query carrying a
-captured local is `:dynamic? true` (its literal `:query-id` is still
-shown — the runtime argument is not fabricated). **Sites, not reads** —
-one entry per lexical site, so a site inside a keyed list is one entry
-however many times it runs. Read from the manifest, so available before
-mount. Requires `:view-id`.
+`:complete? true` is a claim about **under-reporting** and it is exact —
+a boundary whose body read nothing still claims an entry, so it is
+counted where the cell table cannot see it at all. An **empty** roster
+says exactly one thing: no boundary holds a live read edge right now. It
+does not say nothing is retained above (an Activity-hidden subtree that
+released its reads leaves the same empty census as an unmounted one),
+and a row is **not** proof the boundary is on screen (a
+Suspense-fallback-hidden subtree stays subscribed). The `:host`
+projection states both.
 
 ```clojure
-;; read-view-dependencies {:view-id ":my.app/row"}
-{:ok? true :schema :re-frame.freehand.evidence/v1 :read :view-dependencies
- :view-id :my.app/row :lowering :compiled
- :basis :static-proof :complete? true :loss nil
- :subscriptions [{:query [:total] :dynamic? false :path [0]}
-                 {:query-id :item :dynamic? true :path [1]}]}
+;; read-mounted-boundaries {}
+{:ok? true :schema :re-frame.hicasso.evidence/v2
+ :producer :re-frame/hicasso :read :mounted-boundaries
+ :scope :mounted-boundaries :basis :observation :complete? true :loss nil
+ :boundaries [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]}
+               :view :unknown :source :unknown
+               :instances 3 :read-orders 1 :frame :app/main
+               :reads [{:sub-id :todo :query [:todo 7]
+                        :frame-id :app/main :epoch 4}]}]
+ :generation 12
+ :naming {:basis :opaque :complete? false :view :unknown :source :unknown}
+ :host   {:basis :host-opaque :complete? false
+          :commit :unknown :paint :unknown}}
 ```
 
-### read-view-event-sites
+### read-read-attribution
 
-The event-handler **sites** a Freehand view declares (its `:on-*`
-handlers), each stating **where** it dispatches from **and what** it
-dispatches. A fully-literal handler is projected verbatim; a handler
-carrying a captured local, a call, or a callback body projects as
-`:handler :opaque` — the tier never claims a raw callback's internals are
-inspectable — while `:event-id` still shows the literal event id where the
-authored form has one.
+Which boundaries read each subscription — **the reverse edge, exactly**.
+No arg.
 
-`:classification` is a **closed vocabulary** — `:vector`, `:options`,
-`:ui-event`, `:handler`, `:fn`, `:dynamic`, `:spread` — and it is what
-keeps the two opaque cases apart: `:vector` / `:options` carry an event
-vector, so an `:opaque` handler on one of those is an event vector with a
-runtime argument, while on any other classification it is a callback.
+This is the one read that is exact without qualification: it prints a
+table rather than folding a window or naming what it cannot see. Every
+cell's reader array *is* the reverse edge, maintained by the same commit
+and cleanup that acquire and release the reference, so there is no
+derivation to be stale.
 
-`:serializable?` and `:sync?` ride each site. `:sync? true` is the
-controlled-input **synchronous door**, and it is reachable only on
-`:vector` / `:options` / `:ui-event` — the roles whose outcome is
-statically known to be one event vector or `nil` — on a controlled tag,
-in a door slot, and not behind `:capture` / `:passive`. `:handler` and
-`:fn` are excluded on purpose: not because they cannot dispatch, but
-because what they dispatch, and whether they dispatch at all or later
-from a promise, is unknowable at the moment the door would have to open.
-So a site cannot carry `:sync? true` and an opaque callback
-classification at once, and a reader that sees the pair should distrust
-the producer rather than the law.
-
-`:site-facts` names the **closed** set of facts a row states, so an
-absent fact is visible as absent. Requires `:view-id`.
+It is also **the way in**. Boundaries carry no name here, so an agent
+that can name a subscription uses this read to reach the boundary it
+cannot name, then takes the `:key` onward to `explain-render`.
+`:readers` are the same keys `read-mounted-boundaries` states, derived
+by the same total order, so the two rosters join with no correlation
+step. A key nothing holds is **absent** rather than present with zero
+readers — it is not a subscription with no readers, it is one this
+runtime is not holding.
 
 ```clojure
-;; read-view-event-sites {:view-id ":my.app/form"}
-{:ok? true :schema :re-frame.freehand.evidence/v1 :read :view-event-sites
- :view-id :my.app/form :basis :static-proof :complete? true :loss nil
- :event-sites [{:prop :on-click :classification :vector
-                :handler [:submit] :event-id :submit
-                :serializable? true :sync? false}
-               {:prop :on-change :classification :options
-                :handler {:event [:field/set]} :event-id :field/set
-                :serializable? true :sync? true}
-               {:prop :on-blur :classification :fn
-                :handler :opaque :event-id nil
-                :serializable? false :sync? false}]
- :site-facts #{:sid :source-coord :path :prop :classification
-               :serializable? :sync? :handler :event-id}}
+;; read-read-attribution {}
+{:ok? true :schema :re-frame.hicasso.evidence/v2 :read :read-attribution
+ :scope :read-edges :basis :observation :complete? true :loss nil
+ :edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
+          :epoch 4 :fan-out 3
+          :readers [{:parent nil :key [[:app/main :todo [:todo 7]]]}]}]
+ :host  {:basis :host-opaque :complete? false}}
 ```
-
-### read-mounted-views
-
-Every Freehand occurrence **connected right now** — no arg,
-deliberately, because the question is *what is mounted*. Per occurrence:
-its `:view-id`, an `:occurrence` key distinguishing two live instances of
-one view, the `:lowering`, the `:generation`, the live `:connection`
-state, and the selected `:commit` (its `:frame` plus the queries that
-commit read, **without** the values they returned).
-
-This is **current state, not a lifetime roster**: rows drop at
-disconnect. `:occurrence-facts` names the closed set a row states, so a
-lifetime quantity is visibly not a fact the row is missing but a fact it
-does not have. `:complete? true` is exact about **under**-reporting — the
-index holds every connected occurrence that has published a selected
-commit. Over-reporting is bounded and stated rather than claimed away: a
-host torn down without disconnecting its cells leaves rows behind, and
-each row's `:generation` and `:at` are what let a reader see a stale one
-for what it is.
-
-It is also the **hot-swap** read. There is no new reload protocol: a
-pairing agent edits a Freehand view, lets shadow-cljs recompile over its
-normal watch (the existing [`tail-build`](#tail-build) HMR path), and
-re-reads `read-mounted-views` — a **compatible** body swap retains the
-occurrence (its `:generation` advances), an **incompatible** change
-remounts it (a fresh `:occurrence` key).
-
-```clojure
-;; read-mounted-views {}
-{:ok? true :schema :re-frame.freehand.evidence/v1 :read :mounted-views
- :scope :connected-occurrences :basis :observation :complete? true :loss nil
- :occurrences [{:view-id :my.app/row :occurrence {:parent nil :key 71}
-                :lowering :compiled :generation 4 :connection :connected
-                :root :unknown :at 18422.7
-                :commit {:frame :rf/default
-                         :reads [{:query [:person 7] :owned? true}]}}]
- :occurrence-facts #{:view-id :occurrence :lowering :generation
-                     :connection :root :dispatch-id :at :commit}}
-```
-
-`:occurrences []` is the one empty answer that **is** a clean bill of
-health: the current-occurrence index is authoritative about what is
-connected.
 
 ### explain-render
 
-Why did a Freehand view's live occurrences render? The fold runs against
-Spec 009's **retained window** at read time and keeps nothing of its own.
-Per occurrence: the `:commit`, the `:dispatch-id` it was correlated to,
-and `:cause` — the **join**, not a guess — naming the run, the
-`:cause-event-id` that started it, and the `:sub-ids` it recomputed that
-this commit reads. Optional `:view-id` narrows to one view; omitted,
-every current occurrence.
+Which of a boundary's reads moved most recently, and which retained runs
+**could** have driven it. No arg: it spans every mounted boundary.
 
-The **outer** roster is complete because the index knows every connected
-occurrence; an **inner** explanation is `:complete? true` only when the
-correlated run is still in the window. The three ways it cannot be are
-each reported as `:loss` with `:dropped :unknown`, because a window
-cannot say how many runs it never held:
+**Two halves, never blended.** *Proven*: `:latest-reads` names the reads
+standing at the boundary's own `:peak-epoch`, read off the cells' epoch
+stamps, and `:snapshot` is the exact sum React compares — so *which of
+my reads moved* has an answer. *Uncorrelated*: the commit seam records no
+cascade id, so `:cause` is `:unknown` **structurally** — not
+occasionally, not when the ring is short, and not fixable with a bigger
+ring — and `:candidates` are the retained runs that recomputed a
+subscription this boundary reads, offered as **leads**. Presenting a lead
+as a cause is exactly the fabrication `:uncorrelated` exists to refuse.
 
-- `{:reason :cap}` — the window holds nothing for the frame (retention
-  off, nothing dispatched, or the frame released its ring), **or** the
-  commit named a run the ring no longer holds. Provably evicted: the id
-  is right there and the window does not have it. A bigger buffer is the
-  remedy;
-- `{:reason :uncorrelated}` — the commit named **no** run. A Freehand
-  commit usually lands in a post-settle React batch with no cascade on
-  the stack, so there was no correlation to record. A different reason
-  and a different remedy from a full buffer, which is why it is its own
-  member of the vocabulary.
+**The two loss reasons are drivable.** `{:reason :uncorrelated}` means
+the lead search really ran, so `:candidates []` is an honest survey
+result. `{:reason :cap}` means the boundary's own frames had an empty
+window, so no search happened and `:candidates` is `:unknown` — an `[]`
+in that state would be the fail-open shape the schema refuses. Both
+halves are scoped to the boundary's **own** frames, and a candidate must
+match a read on `[frame-id sub-id]`, never on the sub-id alone.
 
-`:candidates` is offered in **every** case and is deliberately **not**
-the answer: the runs the window still holds that recomputed a
-subscription this commit reads. With no correlation those are leads, and
-presenting a lead as a cause is exactly what a confidently-empty answer
-would do.
+Whether the boundary then **ran** is `:host-opaque` — a notification
+delivered is not a render performed, and React's memo comparator and
+scheduler sit above this runtime.
 
 ```clojure
-;; explain-render {:view-id ":my.app/row"}
-{:ok? true :schema :re-frame.freehand.evidence/v1 :read :explain-render
- :view-id :my.app/row :scope :connected-occurrences :basis :observation
- :complete? true :loss nil
- :explanations [{:view-id :my.app/row :occurrence {:parent nil :key 71}
-                 :lowering :compiled :generation 4
-                 :frame :rf/default :dispatch-id 41
-                 :scope {:retained-runs 12 :spans-commit? true
-                         :window-starts-at 17980.2}
-                 :basis :observation :complete? true :loss nil
-                 :commit {...}
-                 :cause {:dispatch-id 41 :cause-event-id :people/loaded
-                         :sub-ids #{:person/by-id}}
-                 :candidates [...]}]}
+;; explain-render {}
+{:ok? true :schema :re-frame.hicasso.evidence/v2 :read :explain-render
+ :scope :mounted-boundaries :basis :observation
+ :complete? false :loss {:reason :uncorrelated :dropped :unknown}
+ :explanations [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]}
+                 :frame :app/main :instances 1
+                 :snapshot 9 :peak-epoch 5
+                 :latest-reads [{:sub-id :todo :query [:todo 7]
+                                 :frame-id :app/main}]
+                 :cause :unknown
+                 :candidates [{:dispatch-id 41 :event-id :todo/toggle
+                               :frame-id :app/main :sub-id :todo}]
+                 :basis :observation :complete? false
+                 :loss {:reason :uncorrelated :dropped :unknown}}]
+ :window {:frames [:app/main] :retained-runs 12}
+ :host   {:basis :host-opaque :complete? false}}
 ```
 
 ## record
