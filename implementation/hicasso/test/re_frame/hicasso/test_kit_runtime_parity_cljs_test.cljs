@@ -30,9 +30,21 @@
 
   **Refusals are asserted as identity, never as `thrown?`.** A bare
   `(is (thrown? …))` is green for a throw from any layer carrying any id,
-  and two rows here are specifically about WHICH refusal is raised. The
-  rows compare the ex-data map."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  and several rows here are specifically about WHICH refusal is raised.
+  The rows compare the ex-data map — id, `:where` and `:recovery`.
+
+  **Where a row's refusal is the RUNTIME's, the table says so in
+  `:where`.** A second audit (PR #7796) found the covered corpus stopping
+  one layer short: it held a VALID raw escape, for which opacity is the
+  honest answer, and no malformed one — so the claim that the two sides
+  cannot disagree quietly was not load-bearing on that arm, and in fact
+  they did. An empty vector and a malformed `[:> …]` are refused by the
+  runtime, and the kit now raises those refusals rather than its own by
+  running the runtime's guards (`codec/vector-kind`). Asserting `:where`
+  is what makes that structural rather than coincidental: a kit
+  paraphrase would carry `re-frame.hicasso.test` and red."
+  (:require [clojure.string :as str]
+            [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
@@ -83,12 +95,18 @@
       [:element tag]  is a native element
       [:fragment]     is a fragment
       [:opaque]       is an element only React can interpret
-      [:refused id]   is a loud error, with its id"
+      [:refused id r] is a loud error, with its id and its recovery
+
+  The refusal token carries the RECOVERY as well as the id, because the
+  advice is half of what a refusal is: the audit that reopened this bead
+  found the kit answering a malformed raw escape with a pointer to L3,
+  which is not merely a different id but the wrong instruction. A column
+  that named only the id would have called that a near miss."
   [x]
   (let [o (outcome #(intent/with-frame frame-id (collector/frame-dispatch frame-id)
                       (fn [] (codec/as-element x))))]
     (if-some [d (:refused o)]
-      [:refused (:rf.error/id d)]
+      [:refused (:rf.error/id d) (:recovery d)]
       (let [v (:returned o)]
         (cond
           (nil? v)    [:nothing]
@@ -166,11 +184,15 @@
 
    {:case    "a `true` child RAISES, and raises the runtime's own id"
     :form    [:div true]
-    :runtime [:refused :rf.error/hicasso-true-child]
-    :refuses {:rf.error/id :rf.error/hicasso-true-child}
+    :runtime [:refused :rf.error/hicasso-true-child :use-nil-or-false]
+    :refuses {:rf.error/id :rf.error/hicasso-true-child
+              :recovery    :use-nil-or-false}
     :why     (str "codec/as-element — nil and false render nothing; true is an "
                   "error (HD-016). Dropping it silently teaches a spelling the "
-                  "runtime rejects.")}
+                  "runtime rejects. 004B §Child normalization drops a `true` "
+                  "that reaches TREE BUILD; Hicasso's grammar refuses it "
+                  "upstream of that, so one never arrives — see the namespace "
+                  "docstring's §Scope of the 004B claim.")}
 
    {:case    "a `false` child renders nothing — the true child's legal twin"
     :form    [:div false "x"]
@@ -178,22 +200,94 @@
     :tree    {:rf.ui/tree-version v :tag :div :children ["x"]}
     :why     "codec/as-element — `(false? x) nil`."}
 
-   {:case    "`[:> …]` is the raw-React escape, and refuses to L3"
+   {:case    "a VALID `[:> …]` is the raw-React escape, and refuses to L3"
     :form    [:div [:> raw-component]]
     :subject [:> raw-component]
     :runtime [:opaque]
-    :refuses {:rf.error/id :rf.error/hicasso-test-react-is-opaque}
+    :refuses {:rf.error/id :rf.error/hicasso-test-react-is-opaque
+              :recovery    :assert-it-at-l3}
     :why     (str "codec/raw-head? — `[:> C]` hands C to React untouched "
                   "(HD-011). The namespace docstring promises anything the "
                   "codec hands to React untouched refuses with a pointer to "
-                  "L3; a generic malformed says the author wrote nonsense.")}
+                  "L3; a generic malformed says the author wrote nonsense. "
+                  "This row is the CONTROL for the three below: opacity is "
+                  "the answer only when the escape is well formed.")}
+
+   ;; ---- The seam's own rows (rf2-hic-020, audit of PR #7796) --------------
+   ;;
+   ;; `:opaque` is a claim about a form the kit CANNOT read, and it is only
+   ;; honest where the runtime can. For a MALFORMED escape the runtime cannot
+   ;; either — it refuses — so a kit that answered `:assert-it-at-l3` sent the
+   ;; programmer to write a browser test for a hiccup vector that will never
+   ;; render anywhere. Same for an empty vector, which the runtime refuses
+   ;; before it classifies a head at all. Both are the RUNTIME's refusal,
+   ;; raised by the runtime's own guards through `codec/vector-kind`, so these
+   ;; rows assert `:where` as well: a kit paraphrase would name
+   ;; `re-frame.hicasso.test` and red here.
+
+   {:case    "an EMPTY VECTOR raises the runtime's own empty-vector refusal"
+    :form    [:div []]
+    :subject []
+    :runtime [:refused :rf.error/hicasso-empty-vector :supply-a-hiccup-head]
+    :refuses {:rf.error/id :rf.error/hicasso-empty-vector
+              :where       'front.codec/vec->element
+              :recovery    :supply-a-hiccup-head}
+    :why     (str "codec/vec->element refuses an empty vector AHEAD of any "
+                  "head classification, because every branch below reads "
+                  "position 0. A kit that asks `head-kind` about the nil it "
+                  "found there answers `:invalid` and reports a generic "
+                  "malformed head — a second identity for one fault.")}
+
+   {:case    "`[:>]` with NO component raises the runtime's own refusal"
+    :form    [:div [:>]]
+    :subject [:>]
+    :runtime [:refused :rf.error/hicasso-raw-no-component
+              :hand-the-escape-a-real-component]
+    :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
+              :where       'front.codec/raw-element
+              :recovery    :hand-the-escape-a-real-component}
+    :why     (str "codec/raw-component — the escape's Component slot is empty. "
+                  "Opacity is not the answer: there is nothing for React to "
+                  "interpret, so `:assert-it-at-l3` sends the programmer to "
+                  "mount a form that cannot mount.")}
+
+   {:case    "`[:> nil]` — the broken-import spelling — raises the same id"
+    :form    [:div [:> nil]]
+    :subject [:> nil]
+    :runtime [:refused :rf.error/hicasso-raw-no-component
+              :hand-the-escape-a-real-component]
+    :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
+              :where       'front.codec/raw-element
+              :recovery    :hand-the-escape-a-real-component}
+    :why     (str "codec/raw-component — a `:default` import that resolved "
+                  "nothing is the usual cause, and it is the case a test kit "
+                  "is most likely to meet first. Distinct SPELLING from `[:>]` "
+                  "(the ex-data's `:argv-count` differs), same fault.")}
+
+   {:case    "`[:> :div]` — a keyword in the Component slot — raises the runtime's own refusal"
+    :form    [:div [:> :div]]
+    :subject [:> :div]
+    :runtime [:refused :rf.error/hicasso-raw-not-a-component
+              :hand-the-escape-a-component-react-accepts]
+    :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
+              :where       'front.codec/raw-element
+              :recovery    :hand-the-escape-a-component-react-accepts}
+    :why     (str "codec/raw-component — the GRAMMAR owns tags, so a keyword "
+                  "is one of the escape's three deliberate narrowings. The "
+                  "second refusal id on this arm, which is why the arm needs "
+                  "two rows and not one.")}
 
    {:case    "a `defhost` crossing refuses to L3 — the escape's neighbour"
     :form    [:div [a-host]]
     :subject [a-host]
     :runtime [:opaque]
-    :refuses {:rf.error/id :rf.error/hicasso-test-host-is-opaque}
-    :why     "The kit's stated opacity, and the row that keeps it distinct."}
+    :refuses {:rf.error/id :rf.error/hicasso-test-host-is-opaque
+              :where       're-frame.hicasso.test
+              :recovery    :assert-it-at-l3}
+    :why     (str "The kit's stated opacity, and the row that keeps it "
+                  "distinct. `:where` is the KIT here, deliberately: L2's own "
+                  "opacity is the kit's claim to make, and the rows above show "
+                  "what it looks like when a refusal is the runtime's instead.")}
 
    {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
     :form    [:svg {:view-box "0 0 1 1"}
@@ -267,3 +361,17 @@
     (is (seq (filter :refuses rows)))
     (is (seq (filter :tree rows)))
     (is (every? (fn [r] (or (:refuses r) (contains? r :tree))) rows))))
+
+(deftest the-table-covers-forms-BOTH-sides-refuse
+  (testing "the corpus holds rows where the RUNTIME refuses too, and the kit
+            answers with the runtime's own id, recovery and raising site —
+            the coverage PR #7796's audit found missing"
+    (let [shared (filter (fn [{:keys [runtime refuses]}]
+                           (and (= :refused (first runtime))
+                                (= (second runtime) (:rf.error/id refuses))
+                                (= (nth runtime 2) (:recovery refuses))))
+                         rows)]
+      (is (seq shared))
+      (is (seq (filter #(str/starts-with? (str (:where (:refuses %))) "front.codec/")
+                       shared))
+          "at least one row's refusal is raised by the runtime's own guard"))))
