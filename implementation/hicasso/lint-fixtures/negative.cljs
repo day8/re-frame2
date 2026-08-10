@@ -213,3 +213,92 @@
   [:div
    (try (attempt) (catch :default retry (retry)))
    (as-> attempt retry (retry))])
+
+;; ---------------------------------------------------------------------------
+;; direct-view-call — the `letfn` GRAMMAR, one row per production
+;;
+;; The row above drives a `letfn` NAME, and the repair that added it claimed
+;; `letfn` parameters generally. It had read a fnspec as `[nm params]` and
+;; collected `params` only where that second node was a VECTOR — true of the
+;; single-arity spelling and of nothing else, because a MULTI-ARITY fnspec's
+;; second node is the first arity LIST. No arity's parameters were read at all,
+;; so every use of one reported at ERROR and clj-kondo exited 3 (merged-PR
+;; audit #7804). The claim was wider than the one shape the witness drove.
+;;
+;; So these rows come from the GRAMMAR rather than from the repair. A fnspec is
+;; a `fn` tail — `letfn` expands each one to `(fn nm …)` — and that grammar is
+;;
+;;   fnspec => (name [params*] prepost-map? exprs*)
+;;           | (name ([params*] prepost-map? exprs*)+)
+;;
+;; every production of which is written out below, with the local spelled like
+;; the enclosing view. Not driven, and deliberately: a `&` REST name in head
+;; position, because a rest seq is never a legal callee, so there is no correct
+;; program to protect.
+;; ---------------------------------------------------------------------------
+
+;; Multi-arity — the shape the audit reproduced.
+(h/defview arity-lists [_]
+  (letfn [(apply-it
+            ([arity-lists] (arity-lists))
+            ([arity-lists x] (arity-lists x)))]
+    [:div (apply-it (fn [& _] "ok"))]))
+
+;; A prepost map sits exactly where a beginner's eye expects the next arity, so
+;; a walker that counts positions rather than reading them goes wrong here.
+(h/defview arity-prepost [_]
+  (letfn [(guarded
+            ([arity-prepost] {:pre [(some? arity-prepost)]} (arity-prepost))
+            ([arity-prepost x] (arity-prepost x)))]
+    [:div (guarded (fn [& _] "ok"))]))
+
+;; Destructuring inside an arity list binds the same names it binds anywhere.
+(h/defview arity-destructured [_]
+  (letfn [(unpack
+            ([{:keys [arity-destructured]}] (arity-destructured))
+            ([{:keys [arity-destructured] :as m} x]
+             (str (arity-destructured x) m)))]
+    [:div (unpack {:arity-destructured (fn [& _] "ok")})]))
+
+;; A variadic arity beside a fixed one: the FIXED parameters of the variadic
+;; arity are ordinary locals, `&` notwithstanding.
+(h/defview arity-variadic [_]
+  (letfn [(spread
+            ([arity-variadic] (arity-variadic))
+            ([arity-variadic & xs] (arity-variadic (count xs))))]
+    [:div (spread (fn [& _] "ok")) (spread (fn [& _] "ok") 1 2)]))
+
+;; An arity can bind nothing at all, and an EMPTY parameter vector beside a
+;; binding one must not stop the binding one being read.
+(h/defview zero-arity [_]
+  (letfn [(maybe
+            ([] "ok")
+            ([zero-arity] (zero-arity)))]
+    [:div (maybe) (maybe (fn [] "also ok"))]))
+
+;; `fn` has no docstring, so a leading string is an ordinary body expression —
+;; and an expression sitting where the next arity might have gone.
+(h/defview string-first [_]
+  (letfn [(described
+            ([string-first] "one argument" (string-first))
+            ([string-first x] "two arguments" (string-first x)))]
+    [:div (described (fn [& _] "ok"))]))
+
+;; Several fnspecs, mutually recursive. A binding in ANY fnspec silences the
+;; whole `letfn`, so only the multi-arity one binds the name here — otherwise
+;; the row would pass on its neighbour's coverage rather than its own.
+(h/defview mutual [_]
+  (letfn [(evens [f n] (if (zero? n) (f) (odds f (dec n))))
+          (odds
+            ([mutual] (mutual))
+            ([mutual n] (evens mutual n)))]
+    [:div (evens (fn [& _] "ok") 2)]))
+
+;; And a multi-arity fnspec nested inside another fnspec's body.
+(h/defview nested [_]
+  (letfn [(outer [x]
+            (letfn [(inner
+                      ([nested] (nested))
+                      ([nested y] (nested y)))]
+              (str (inner (fn [& _] x)) (inner (fn [& _] x) 1))))]
+    [:div (outer "ok")]))

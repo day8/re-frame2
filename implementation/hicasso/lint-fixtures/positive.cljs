@@ -124,3 +124,21 @@
 
 (h/defview nameless-qualified-keyword-button [_]
   [:div [:app/button {:on-click [:panel/close]}]])
+
+;; ---------------------------------------------------------------------------
+;; A genuine self-call inside a MULTI-ARITY `letfn` still reports.
+;;
+;; Reading every arity's parameters (merged-PR audit #7804) has one risk in the
+;; opposite direction: a repair that treated a whole fnspec as "bound" would
+;; blind the check inside every `letfn` and nothing would notice, because
+;; silence is what this check does when it declines. `wrap` binds nothing
+;; spelled like the view, so this call is still a self-call and still an ERROR.
+;; ---------------------------------------------------------------------------
+
+(h/defview self-calling-through-letfn [{:keys [depth]}]
+  (letfn [(wrap
+            ([x] [:li x])
+            ([x y] [:li x y]))]
+    (if (zero? depth)
+      (wrap "leaf")
+      [:ul (wrap "deep" (self-calling-through-letfn {:depth (dec depth)}))])))
