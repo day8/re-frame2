@@ -26,7 +26,18 @@ standing verdict.** rf2-b6ja found that `arm1/host_ssr_dom_cljs_test` (670) and
 standing verdict is **15 PORT (6,154) · 9 RE-AUTHORED (3,236) · 45 STAYS (18,645)** — still 69 files
 and 28,035 lines. Both rows keep their single home in STAYS (vi), where the bullet now carries the
 PORT verdict and the correction; see
-[The three sequencing questions, settled](#the-three-sequencing-questions-settled).
+[The three sequencing questions, settled](#the-three-sequencing-questions-settled). **Both have
+since been ported** (PR #7842); a verdict says where a suite belongs, so executing one changes no
+count here.
+
+**And every count in this document is a dated census, not a live inventory.** It was taken over 69
+files; read on `origin/main` at 2026-08-11 the bench tree holds **63** of them (25,268 lines),
+because a PORT executes as a *move* and the six `front/*` rows — the first wave the PORT table's
+sequencing paragraph names — have gone. The arithmetic closes exactly: their six line counts sum to
+2,767, and 28,035 − 2,767 = 25,268. The counts are deliberately left at their census values rather
+than tracked, because the verdicts are what this document is for and a decision record that
+renumbers itself every time a row is acted on is a ledger nobody can audit. **Read the counts as of
+the census; read the tree for what is in it now.**
 
 ## The three facts that decide most rows
 
@@ -122,6 +133,12 @@ should be transcribed.
 | `arm1/first_registration_cljs_test.cljs` | 308 | The other registry transition — an id that had **no** handler and got one. Same module, same gap, one bead with the row above. |
 | `arm1/hook_ledger_dom_cljs_test.cljs` | 173 | **The ≤2-hook budget, counted at React's own dispatcher** (HD-020(b)). A hard architectural line with no package witness. Cannot port: it needs `arm1.hook-probe`, which proxies React's internal dispatcher slot and has no package counterpart. A package version must bring its own probe or the claim stays unmade. |
 | `arm1/frame_prop_dom_cljs_test.cljs` | 300 | That the frame reaches a boundary as an ordinary prop, so the second hook is not structural. Same `hook-probe` blocker; same remedy; one bead with the row above. |
+
+**Since: the `hook-probe` blocker in the last two rows is discharged.** rf2-wjag brought the package
+its own probe — `re-frame.hicasso.hook-probe`, in `35e8fecc1d` — so "a package version must bring
+its own probe" is now satisfied rather than pending, and the remedy those two rows name is available
+to whoever takes them. The rows themselves are unchanged: they are still re-authorings, because what
+made them re-authorings was never the probe alone.
 
 ---
 
@@ -228,9 +245,10 @@ Four are blocked on something concrete, and the block is the interesting part:
   `front.codec-cljs-test`'s corpus; queued behind it for the same reason.
 - **`arm1/host_ssr_dom_cljs_test.cljs`** (670) and **`arm1/fallback_contents_cljs_test.cljs`** (376)
   — `defhost`'s `:ssr` policy in all three places it has to hold, and the contract for what an
-  `:ssr` fallback may contain. Genuine package behaviour, and `implementation/hicasso/` has no
-  `:ssr` witness of its own, so **this pair is the answer to rf2-6rw9** and whoever takes that bead
-  should start here rather than write a new one. ~~Blocked twice over: the two files `:require` each
+  `:ssr` fallback may contain. Genuine package behaviour, and at census time
+  `implementation/hicasso/` had no `:ssr` witness of its own, so **this pair was the answer to
+  rf2-6rw9** — and it is the answer that was taken: **both are now on the package** (PR #7842), and
+  the package's `:ssr` gap is closed. ~~Blocked twice over: the two files `:require` each
   other, so they move together; and both reach `re-frame.bench.hicasso.ssr.entry`, which has no
   package counterpart. Porting them means giving the package an SSR entry first — which is
   rf2-6rw9's work, not a triage's.~~ **CORRECTED (rf2-b6ja): neither block exists. The files do not
@@ -240,7 +258,8 @@ Four are blocked on something concrete, and the block is the interesting part:
   `arm1/host_hatch_dom_cljs_test.cljs` (1,259) is **not** the third member of that bead: it is the
   only one of the three that needs `arm1.hook-probe`, which is the RE-AUTHORED blocker
   `hook_ledger_dom_cljs_test` and `frame_prop_dom_cljs_test` already carry, and it belongs with
-  those rather than with the `:ssr` pair. It stays here, blocked on the probe.
+  those rather than with the `:ssr` pair. It stays here — no longer blocked on the probe, which
+  rf2-wjag has since landed, but owned by that bead and not by this row.
 - **`front/slot_cljs_test.cljc`** (140) — blocked on a hot-zone change, and the block is worth
   naming precisely. It is `.cljc` on purpose: `scripts/check_test_lane_bijection.py` rule B2
   requires a `.cljc` suite under a CLJS-owned test root to be selected by a CLJS lane as well as a
@@ -273,7 +292,9 @@ stronger than the suite.
 **The number that decides it is zero.** Nothing follows this file into a JVM lane. It is the *only*
 `.cljc` test file among the 69; the other 62 are `.cljs`, and a `.cljs` file is not loadable by a
 JVM lane at all — `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes `.clj` and `.cljc`
-and nothing else. `implementation/hicasso/test/` is 35 test files, every one of them `.cljs`. So the
+and nothing else. `implementation/hicasso/test/` carries not one `.cljc`: all 61 files under it are
+`.cljs`, read on `origin/main` at 2026-08-11 — the triage counted 35 and the tree has grown since,
+while the extension has not, which is the half of the claim that is load-bearing. So the
 lane would open for one file and stay at one file until somebody *authors* a `.cljc` suite, and the
 package offers only three namespaces to author one against — `impl/slot.cljc`, `impl/state.cljc`,
 `impl/error.cljc` — of which only `slot` requires nothing but `clojure.string` (`state` reaches
@@ -283,12 +304,22 @@ package offers only three namespaces to author one against — `impl/slot.cljc`,
 **And the cheap answer holds, which is what makes the no comfortable rather than merely thrifty.**
 The cross-host claim is armed four ways already, none of them a new lane:
 
-- **The pin runs on both hosts today.** Asking the bijection gate's own lane model which lanes
-  select this file — `select()` in `check_test_lane_bijection.py`, roots and all — answers exactly
-  two: `implementation::node-test` (the always-on CLJS lane) and `implementation/freehand` (the JVM
-  lane, on `scripts/test-jvm-implementation.sh`'s roster with its matching `test.yml` job). One
-  corpus, one implementation, two runtimes — which is the whole mechanism the file's own docstring
-  claims, and it is intact.
+- **The pin runs on both hosts today — measured from the compiler, not read off a path filter.**
+  PR #7823's method is to enumerate a thing's inputs from the compiler's *own analysis cache* rather
+  than guess them from predicates, and applied here the closure is exactly **two repo files**: the
+  suite `front/slot_cljs_test.cljc` and the rule it pins, `front/slot.cljc`. `:node-test`'s
+  `dev/ana` tree carries a cache entry for each, which is that build having compiled them; the only
+  other namespaces in the closure are `cljs.core`, `cljs.test`, `cljs.pprint`, `clojure.string` and
+  eight `goog.*`, every one of which comes from a jar rather than from the tree. Nothing in
+  `implementation/core` is on the path at all. Hand those two paths to
+  `.github/scripts/report-changed-surfaces.sh` — the classifier `test.yml` gates on — and they arm
+  **both** `cljs_node_test=true` and `implementation_jvm=true`: the `cljs` job, whose
+  `npm run test:cljs` is the compile that wrote the cache, and the per-artefact JVM jobs, which
+  include `jvm-freehand`. The JVM half is confirmed by running it rather than by reading a lane
+  model — `clojure -M:test -n re-frame.bench.hicasso.front.slot-cljs-test` in
+  `implementation/freehand` gives **3 tests, 92 assertions, 0 failures, exit 0**. One corpus, one
+  implementation, two runtimes, two jobs it already rides, and no predicate anybody maintains for
+  it.
 - **The package's copy is held identical to the pinned one.** `frozen-sources.edn` has exactly one
   surviving row and it is this rule: `front/slot.cljc` → `src/re_frame/hicasso/impl/slot.cljc`,
   `:whole-file?` unset, so `check_freeze.py`'s MOVED rule applies — it *reconstructs* the package
@@ -305,6 +336,17 @@ The cross-host claim is armed four ways already, none of them a new lane:
   `(identical? dest/canonical-slot slot/prop-name)` — plus that the file came off
   `implementation/freehand/test/…` and not a copy inside the tool. Since rf2-erjv that lane is armed
   from `implementation/hicasso/*` as well as from `implementation/freehand/*`.
+
+**And the move is what would break the ride — the measurement that actually settles it.** Ask the
+same classifier about the destination instead of the origin and the asymmetry is stark:
+`implementation/hicasso/*` arms `cljs_node_test`, `cljs_browser`, `hicasso_controlled`,
+`hicasso_hmr` and `migration_hicasso_codemod`, and it does **not** arm `implementation_jvm` —
+there is no JVM job behind that tree, by the same deliberate `--probe` decision quoted above. So
+porting this file would not merely fail to *gain* a JVM lane; it would **surrender the one it
+already has**, and the only thing that could give it back is the job this verdict declines to open.
+A port whose measured effect is to take a cross-host claim from two hosts down to one is not a port
+worth sequencing a hot-zone change for. That is the difference between this row and the twelve other
+PORT rows, and it is why the verdict here is not merely "later".
 
 **The precedent is on the record, and it is the same wall.** rf2-hic-022 walked this exact chain and
 backed out of it: `140620d291` landed a JVM-runnable suite in `implementation/hicasso/test/` and
@@ -349,12 +391,15 @@ are both misreadings. Read off the files on `origin/main`, 2026-08-11:
   docstring `[[wiki-link]]` — `host_ssr` line 31, `fallback_contents` line 57. A cross-reference in
   prose is not a dependency.
 - **Neither reaches `re-frame.bench.hicasso.ssr.entry`.** Neither file mentions the namespace at
-  all. `ssr.entry` has exactly seven requirers in the tree, and they are the five `ssr/*` suites
-  already parked in STAYS (iii) — `entry_cljs_test`, `hframe_ssr_cljs_test`,
-  `instance_key_payload_dom_cljs_test`, `spike_cljs_test`, `spike_dom_cljs_test` — plus the entry's
-  own `ssr/node.cljs` driver and `ssr/fixtures.cljs` corpus. **These two render to string with
-  React's own `react-dom/server`**, which they import directly. The bake driver is not on their
-  path, and the package needs no SSR entry to receive them.
+  all. `ssr.entry` has exactly **six** semantic consumers in the tree — six `:require` forms,
+  counted outside strings and comments — and they are the five `ssr/*` suites already parked in
+  STAYS (iii): `entry_cljs_test`, `hframe_ssr_cljs_test`, `instance_key_payload_dom_cljs_test`,
+  `spike_cljs_test` and `spike_dom_cljs_test`, plus the entry's own `ssr/node.cljs` driver.
+  **`ssr/fixtures.cljs` is not among them.** The corpus names `ssr.entry` twice, at lines 7 and 198,
+  and both are docstring `[[wiki-links]]`; its `:require` vector does not contain the namespace.
+  **These two suites render to string with React's own `react-dom/server`**, which they import
+  directly. The bake driver is not on their path, and the package needs no SSR entry to receive
+  them.
 
 So the pair is an `arm1/*` port of exactly the shape the PORT table's sequencing paragraph
 describes: re-point `arm1.runtime` at the six modules, `arm1.lang`'s macros at the public door
@@ -366,18 +411,45 @@ require: each is written as the other's arm, and the bare arm is the one that ma
 that only ever supplies a fallback proves nothing about the default, and `:client-only` is what an
 author gets by writing nothing.
 
-**`arm1/host_hatch_dom_cljs_test.cljs` (1,259) is blocked, on something else.** It is the only one
-of the three whose `ns` form requires `arm1.hook-probe`, and it uses it — `probe/install!`,
-`probe/record!`. Hook-probe proxies React's internal dispatcher slot and has no package
-counterpart, which is precisely the blocker RE-AUTHORED already records for
-`hook_ledger_dom_cljs_test` and `frame_prop_dom_cljs_test`. **It belongs with that bead**, whose
-deliverable is the probe. Bundling it with the `:ssr` pair would have held two unblocked suites
-behind a probe neither of them needs — on top of an SSR entry none of the three needs.
+**How that six was arrived at — and this section has now been caught by its own lesson.** The first
+draft of the second bullet said *seven* and counted `ssr/fixtures.cljs`, whose two mentions are
+docstring `[[wiki-links]]` — precisely the false-dependency class the two bullets exist to correct.
+The same trap wrote a false premise onto rf2-6rw9 ("the two files `:require` each other and both
+reach `ssr.entry`"), where both halves were wiki-links and the bead stalled for hours on a blocker
+that was not there. `git grep` returns requires, docstrings, comments and prose identically, and
+nothing in this repo distinguishes them mechanically. So, stated once for the whole document:
+**every dependency count here counts `:require` forms, outside strings and comments** — and a count
+that does not say which question it answers is not worth reading. Grep to find candidates; read each
+hit before counting it.
 
-**rf2-6rw9's content changes accordingly.** The bead reads "give the package an SSR entry, then port
+**`arm1/host_hatch_dom_cljs_test.cljs` (1,259) was blocked, on something else — and that block has
+since been discharged.** It is the only one of the three whose `ns` form requires `arm1.hook-probe`,
+and it uses it: `probe/install!`, `probe/record!`. Hook-probe proxies React's internal dispatcher
+slot, and when this section was written it had no package counterpart — precisely the blocker
+RE-AUTHORED records for `hook_ledger_dom_cljs_test` and `frame_prop_dom_cljs_test`. **It belongs
+with that bead**, whose deliverable was the probe, and that is exactly how it resolved:
+`re-frame.hicasso.hook-probe` landed under **rf2-wjag** in `35e8fecc1d`, at
+`implementation/hicasso/test/re_frame/hicasso/hook_probe.cljs`, and four package suites already
+require it. So the third member is unblocked, its port is **rf2-wjag's and not this row's**, and
+that bead is in flight — nothing here to sequence. What the split bought is what it was for:
+bundling `host_hatch` with the `:ssr` pair would have held two unblocked suites behind a probe
+neither of them needs, on top of an SSR entry none of the three needs.
+
+**rf2-6rw9's content changes accordingly.** The bead read "give the package an SSR entry, then port
 the pair onto it". The entry is not on the path: give the package the pair. Whether the package ever
 wants an SSR entry of its own is a separate question, and the rows that would answer it are the five
 `ssr/*` suites in STAYS (iii), which genuinely do reach one.
+
+**Landed — and the blocker that was recorded never bound.** Both suites are on the package now, at
+`implementation/hicasso/test/re_frame/hicasso/host_ssr_dom_cljs_test.cljs` and
+`fallback_contents_cljs_test.cljs`, ported by rf2-6rw9 in `d5657428cf` and re-pointed at their
+package siblings by rf2-a15c in `26f55428b3`, both in PR #7842. **The correction that outlasts the
+status is the premise.** This trio was parked on "the package must gain an SSR entry first", and
+`implementation/hicasso/src` *still* has no SSR namespace of any kind — a search of that tree for
+any `*ssr*` file returns nothing — yet both witnesses landed anyway, Client-only, on
+`react-dom/server` directly. A condition that the work satisfied without ever meeting it was never
+the condition. **Nobody should wait on it**, and no bead should be written as though the entry were
+a prerequisite for SSR-adjacent package coverage.
 
 ### 3. The `render_measure` couple — already in the tier that runs measurements
 
@@ -407,6 +479,17 @@ nightly build, and its OFF half by `:node-test`'s `cljs-test$` — **no new buil
 `:node-test-hicasso`'s `^re-frame\.hicasso\..+-cljs-test$` does not reach it either). This is read
 off the build config rather than run.
 
+**Why the tier matters more than this one couple: the spine is deliberately clock-free.** Keeping a
+measurement pair off the PR spine is not a scheduling preference, it is a standing repo position
+with a written rationale — `tools/story/src/re_frame/story/budgets.cljc` says its latency budgets
+are documented targets and that **"the CI gate does NOT assert wall-clock time (flaky in CI)"**,
+enforcing instead "the *shape* that makes the targets achievable (bounded output, no O(n²) pass),
+not the clock". A measurement couple on the spine would make every PR's wall-clock a gate and
+reintroduce that flakiness by the back door, one artefact at a time. The same posture is what puts
+rf2-hic-006 and rf2-hic-029 on a quiet machine rather than under concurrent CI load. So the answer
+to "which tier owns a measurement pair" is settled repo-wide, and this row only had to be read
+against it.
+
 The couple is therefore portable whenever somebody wants the *package's* `mint-view!` measured
 rather than the prototype's, and the port carries no hot-zone edge. **Until somebody wants that, it
 stays**: what it measures today is the prototype, and the STAYS reasoning above is unchanged. **This
@@ -428,4 +511,11 @@ row needs no follow-up bead** — it needed the tier named, and the tier is name
   `render_measure` nightly couple, and `front/slot_cljs_test.cljc`'s workflow-gated `.cljc` lane.
   **All three are now settled** — rf2-b6ja, above. Two of them cost nothing to close: the
   `render_measure` couple was already in the tier it belongs to, and the `:ssr` pair was never
-  blocked. The third is a documented no with a named revisit trigger.
+  blocked and has since been ported. The third is a documented no, and the measurement behind it is
+  the one worth carrying forward — the file already rides two jobs where it sits, and the move is
+  what would cost it one.
+- **It does not distinguish a `[[wiki-link]]` from a `:require` by tooling, because nothing here
+  can.** Three of this document's blockers turned out to be docstring cross-references read as
+  dependencies, and one of them was in a correction of the other two. The counts are stated as
+  `:require` counts for that reason; see
+  [2. the `:ssr` trio](#2-the-ssr-trio--not-blocked-and-the-third-member-is-a-different-bead).
