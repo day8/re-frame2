@@ -35,7 +35,9 @@
   The handle is the runtime's own root handle (`impl.mount`) with this
   namespace's bookkeeping added beside it, so `(:container m)` and
   `(:frame m)` are the real container node and the real frame id rather
-  than accessors over a wrapper.
+  than accessors over a wrapper. Every door in `impl.mount` takes it
+  unchanged, including the one [[mount!]] mints for itself
+  ([[catching-root!]]).
 
   ## `mount!` OWNS its frame, and takes no frame argument
 
@@ -80,7 +82,7 @@
   reads the page. After a door returns, the next line sees the DOM a user
   would have seen. [[hydrate!]] is the one exception and says why.
 
-  ## Refusals: this namespace mints none
+  ## Refusals: this namespace mints none, and PROPAGATES the runtime's
 
   Every other file in the kit refuses loudly, and this one deliberately
   does not, for two reasons that agree.
@@ -91,15 +93,23 @@
   established (§Children, and the runtime-parity suite). A guard here
   would paraphrase a refusal that already exists.
 
+  What this facade owes that refusal is DELIVERY. [[mount!]] re-throws it
+  and [[hydrate!]] rejects with it, each having put the page back first,
+  so a refusal raised inside React's render reaches the caller as data
+  instead of as an uncaught page error beside a handle for a root that
+  rendered nothing. That was PR #7822's audit finding and it is the one
+  thing this section used to overstate: the runtime refused all along;
+  the facade swallowed it.
+
   And a residue finding is not a refusal at all: it is a TEST FAILURE, so
   [[assert-clean!]] reports it through `cljs.test/do-report` rather than
   throwing. That distinction is the useful one — the kit REFUSES misuse of
   the instrument and REPORTS a fact about the code under test — and it is
   also what keeps this file free of new `:rf.error/*` ids.
-  (`:rf.error/hicasso-test-residue-after-quiescence` is RESERVED in the
-  complaint register for a raising variant; promoting a reservation is a
-  deliberate act across `spec/009` and the register, and this bead does
-  not take it.)
+  (`:rf.error/hicasso-test-residue-after-quiescence` was reserved for a
+  raising variant of that report and is now a TOMBSTONE in the complaint
+  register: residue is settled as a reported test failure, so the
+  spelling is retired and will never be raised.)
 
   ## Scope
 
@@ -113,7 +123,8 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.roots :as roots]))
+            [re-frame.hicasso.impl.roots :as roots]
+            ["react-dom/client" :as react-dom-client]))
 
 ;; ---------------------------------------------------------------------------
 ;; Bookkeeping
@@ -262,6 +273,11 @@
     [frame-kw ordinal]))
 
 (defn- handle-for
+  "The runtime's root handle, made this facade's — and the moment a
+  construction BECOMES a mount. Nothing before this line counts against
+  the standing or the unread census, which is what lets [[abandon!]]
+  restore the page without touching either: a mount that never was is
+  not a mount that came down."
   [root ordinal baseline]
   (swap! !standing inc)
   (swap! !open inc)
@@ -269,6 +285,87 @@
          baseline-key baseline
          ordinal-key  ordinal
          state-key    (volatile! :mounted)))
+
+;; ---------------------------------------------------------------------------
+;; Construction is TRANSACTIONAL
+;; ---------------------------------------------------------------------------
+;;
+;; A mount allocates three things before it can be a mount — a frame, a
+;; container, a React root — and until PR #7822's merged-PR audit the failure
+;; of the third left the first two standing.
+;;
+;; The audit drove it. A valid registered view whose body holds a plain
+;; function child head is a genuine `:rf.error/hicasso-bad-head`; React 19
+;; does not re-throw a failed render out of `flushSync`, it hands the error
+;; to the root's `onUncaughtError`, whose default reports it globally and
+;; returns. So `mount!` answered a handle for a root that had rendered
+;; nothing, the page carried an uncaught error a browser runner treats as
+;; fatal, and the programmer had neither the refusal's data nor a teardown
+;; that would have found the leftovers.
+;;
+;; `hydrate!` had the same shape twice over: a refusal raised on
+;; `hydrate-root!`'s own stack escaped a promise-returning door
+;; SYNCHRONOUSLY, past every `.catch` a caller could attach, and its timeout
+;; branch rejected without taking the half-adopted root down.
+;;
+;; So both doors now either complete or leave nothing. [[abandon!]] is the
+;; allocation order run backwards, and it is the whole of the machinery:
+;; there is no lifecycle here and nothing tracks a resource. Each door knows
+;; what it allocated because it allocated it three lines earlier.
+
+(defn- catching-root!
+  "`impl.mount/root!`, with THIS root's uncaught render errors handed to
+  `catch!` instead of to React's default. Answers the handle either way,
+  because a root whose first render failed still has to be taken down.
+
+  Minted here rather than taken from `impl.mount` because the divergence
+  is the INSTRUMENT's and not the runtime's. A shipped root wants React's
+  default — the error reported at the window, where a host's own reporter
+  and the browser console can see it — and a test facade wants it
+  returned, so that [[mount!]] can put the page back and re-throw the
+  runtime's own refusal on the caller's stack. Installing any
+  `onUncaughtError` takes React's default off, which is both halves of
+  that: the refusal is captured, and the page never carries the uncaught
+  error.
+
+  Two channels reach `catch!` and both are real. A body that throws is
+  caught by React and arrives through the root option. A root FORM the
+  codec refuses — `[]`, a head it will not classify — throws on this
+  call's own stack, before React is handed an element, so the `try` is
+  the other half. Joining them here is what lets a caller read one
+  volatile."
+  [container frame-kw hiccup catch!]
+  (let [handle {:root      (react-dom-client/createRoot
+                             container
+                             #js {:onUncaughtError (fn [error _info] (catch! error))})
+                :frame     frame-kw
+                :container container}]
+    (try (mount/render! handle hiccup)
+         (catch :default e (catch! e)))
+    handle))
+
+(defn- abandon!
+  "Put the page back as the call found it, after a construction that never
+  became a mount. Answers nil.
+
+  The allocation order, backwards: the root comes down — which also shuts
+  an adoption window whose closer will now never run — a container this
+  facade appended is removed, and the frame is destroyed and forgotten.
+
+  A container the CALLER supplied is left exactly where it was, with
+  whatever it held. That is [[unmount!]]'s rule and it is the same rule
+  for the same reason: a teardown may not delete a node it did not
+  create (rf2-31xm).
+
+  Neither counter is here, and that is deliberate rather than an omission
+  — see [[handle-for]]."
+  [frame-kw node supplied? root]
+  (when (some? root) (mount/unmount! root))
+  (when-not supplied?
+    (when-some [p (.-parentNode node)] (.removeChild p node)))
+  (swap! !facade-frames disj frame-kw)
+  (rf/destroy-frame! frame-kw)
+  nil)
 
 (defn mount!
   "Mount `form` on a fresh React root under a frame of this mount's own,
@@ -304,13 +401,36 @@
   it.
 
   The frame is this facade's — minted, made and destroyed here. See the
-  namespace docstring on why there is no `:frame` option."
+  namespace docstring on why there is no `:frame` option.
+
+  ## It either mounts or it THROWS, and a throw leaves nothing behind
+
+  A form the runtime refuses is refused here too, with the runtime's own
+  `ex-info` re-thrown unchanged — same id, same reason, same recovery,
+  same offending value — and the page put back exactly as this call found
+  it: no frame registered, no container appended, no counter moved. So
+  `(try (hm/mount! form) (catch :default e (ex-data e)))` is the whole of
+  a refusal witness, and there is no handle to be given because there is
+  nothing left to tear down.
+
+  React 19 is why this needs saying: a body that throws does not re-throw
+  out of `flushSync`, so before PR #7822's audit this door answered a
+  handle for a root that had rendered nothing and reported the error at
+  the window instead. See [[catching-root!]]."
   ([form] (mount! form {}))
   ([form {:keys [initial-events container]}]
    (let [[frame-kw ordinal] (mint-frame! initial-events)
          baseline           (census)
-         node               (or container (mount/fresh-container!))]
-     (handle-for (mount/root! node frame-kw form) ordinal baseline))))
+         node               (or container (mount/fresh-container!))
+         !refusal           (volatile! nil)
+         root               (catching-root! node frame-kw form
+                                            (fn [error]
+                                              (when (nil? @!refusal)
+                                                (vreset! !refusal error))))]
+     (if-some [refusal @!refusal]
+       (do (abandon! frame-kw node (some? container) root)
+           (throw refusal))
+       (handle-for root ordinal baseline)))))
 
 (defn hydrate!
   "Mount `form` by ADOPTING server-rendered bytes already in the
@@ -345,36 +465,59 @@
   `budget-ms` (default 3000) bounds the wait. Exceeding it REJECTS rather
   than resolving with a handle whose adoption never happened — a hydration
   that silently timed out and then asserted green is the exact failure
-  this door exists to prevent."
+  this door exists to prevent.
+
+  ## Every failure is a REJECTION, and every failure leaves nothing behind
+
+  Both of them: a form the codec refuses while `hydrate-root!` is still
+  building its element, which raises on this call's own stack, and an
+  adoption that never completes. A promise-returning door that threw
+  synchronously would throw past every `.catch` a caller had attached and
+  hang the test rather than fail it, so the refusal is handed to the
+  promise — the runtime's own `ex-info` unchanged for the first, this
+  door's timeout for the second.
+
+  In both cases the page is put back as the call found it: the frame
+  destroyed, the root taken down with its adoption window shut, and a
+  container this facade minted removed. One the CALLER supplied is left
+  where it is (see [[abandon!]])."
   ([form] (hydrate! form {}))
   ([form opts] (hydrate! form opts 3000))
   ([form {:keys [initial-events container html]} budget-ms]
    (let [[frame-kw ordinal] (mint-frame! initial-events)
-         baseline (census)
-         node     (or container (mount/fresh-container!))
-         _        (when (some? html) (set! (.-innerHTML node) html))
-         handle   (handle-for (mount/hydrate-root! node frame-kw form)
-                              ordinal baseline)
-         window   (:adoption handle)
-         deadline (+ (js/Date.now) budget-ms)]
-     (js/Promise.
-       (fn [resolve reject]
-         (letfn [(tick []
-                   (cond
-                     (not (roots/adopting? window))
-                     ;; Past the closer AND past the reap horizon, so the
-                     ;; handle a caller receives is one whose tables have
-                     ;; settled.
-                     (js/setTimeout (fn [] (resolve handle)) 16)
+         baseline  (census)
+         node      (or container (mount/fresh-container!))
+         supplied? (some? container)
+         _         (when (some? html) (set! (.-innerHTML node) html))
+         !refusal  (volatile! nil)
+         root      (try (mount/hydrate-root! node frame-kw form)
+                        (catch :default e (vreset! !refusal e) nil))]
+     (if-some [refusal @!refusal]
+       (do (abandon! frame-kw node supplied? nil)
+           (js/Promise.reject refusal))
+       (let [window   (:adoption root)
+             deadline (+ (js/Date.now) budget-ms)]
+         (js/Promise.
+           (fn [resolve reject]
+             (letfn [(tick []
+                       (cond
+                         (not (roots/adopting? window))
+                         ;; Past the closer AND past the reap horizon, so the
+                         ;; handle a caller receives is one whose tables have
+                         ;; settled. This is also where the construction
+                         ;; becomes a MOUNT — see [[handle-for]].
+                         (js/setTimeout
+                           (fn [] (resolve (handle-for root ordinal baseline))) 16)
 
-                     (< deadline (js/Date.now))
-                     (reject (ex-info (str "hydrate! waited " budget-ms
-                                           "ms and this root's adoption window "
-                                           "never shut — the tree was not adopted.")
-                                      {:frame frame-kw :budget-ms budget-ms}))
+                         (< deadline (js/Date.now))
+                         (do (abandon! frame-kw node supplied? root)
+                             (reject (ex-info (str "hydrate! waited " budget-ms
+                                                   "ms and this root's adoption window "
+                                                   "never shut — the tree was not adopted.")
+                                              {:frame frame-kw :budget-ms budget-ms})))
 
-                     :else (js/setTimeout tick 4)))]
-           (tick)))))))
+                         :else (js/setTimeout tick 4)))]
+               (tick)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Driving
