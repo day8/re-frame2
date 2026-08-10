@@ -125,9 +125,11 @@
 
 (defn- k [query-v] [frame-id query-v])
 
-(def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
-
-(defn- ownership [] (dissoc (inventory/residue) :entries))
+(defn- ownership
+  "The census with the entry cache projected out. A read-set entry is a
+  render-phase cache, not ownership."
+  []
+  (dissoc (inventory/residue) :entries))
 
 (defn- reader-count
   "How many registrations read `query-v`.
