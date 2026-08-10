@@ -292,7 +292,20 @@
                      ;; Restore: the orphan is this row's, and it does not
                      ;; belong to the next one.
                      (mount/release! orphan)
-                     (done))))))))
+
+                     ;; And FINALISE. `residue` reads; only `assert-clean!`
+                     ;; records the verdict and releases this mount's private
+                     ;; bookkeeping, so a sabotage row that stops at the
+                     ;; reading leaves the facade holding a mount that will
+                     ;; never be read — and holds the reset gate off zero for
+                     ;; every row after it. The tests for a cleanliness
+                     ;; instrument have to be clean themselves (PR #7822's
+                     ;; audit).
+                     (-> (hm/assert-clean! m)
+                         (.then (fn [after]
+                                  (is (true? (:clean? after))
+                                      "the induced fault was repaired before the verdict")
+                                  (done)))))))))))
 
 (deftest l3-assert-clean-sees-a-frame-the-app-left-behind
   (if-not (mount/browser?)
@@ -315,7 +328,13 @@
                                subscription that is not there"
                        (is (= [:frames] (keys (:leaked report)))))
                      (rf/destroy-frame! ::spawned)
-                     (done))))))))
+
+                     ;; And FINALISE — see the row above.
+                     (-> (hm/assert-clean! m)
+                         (.then (fn [after]
+                                  (is (true? (:clean? after))
+                                      "the spawned frame was destroyed before the verdict")
+                                  (done)))))))))))
 
 (deftest l3-assert-clean-sees-a-root-that-was-never-unmounted
   (if-not (mount/browser?)
