@@ -117,7 +117,16 @@ Every check below is observable **from the screen**, and that is deliberate: Pla
 minimal browser shell with no devtools, so a checklist that depended on a JavaScript console would be unrunnable in
 exactly the engine it most needs to cover.
 
-The testbed makes the store visible through its fields instead. Three of them are the instrument:
+The testbed puts the store on screen instead. Two instruments do it, and each check below names which one it reads.
+
+**The trace table** (`data-testid="trace"`) carries one row per field, with two columns that answer different
+questions: the **committed** value, `pr-str`-ed so that `""` and a trailing space are visible
+(`trace-<field>-value`), and the number of `:tb/edit` intents that have **arrived** for that field
+(`trace-<field>-edits`). Checks 3 and 6 turn on the difference between them. An intent that arrived and did not move
+the committed value is a model that **refused** it — which, on a page of `<input>`s, looks exactly like an intent that
+was never dispatched at all. Only the arrival count separates the two, and it is the reason the table exists.
+
+**The fields themselves**, whose model policies are the rest of the instrument:
 
 | Field | Model policy | What it shows you |
 |---|---|---|
@@ -125,9 +134,14 @@ The testbed makes the store visible through its fields instead. Three of them ar
 | `digits` | refuses anything that is not a digit | the model **refused** — the field snaps back to its committed value |
 | `empty` | refuses everything; the model stays `""` | the same, at the hardest setting |
 
-So "the store did not move" is not something you have to take on trust: type kana into `digits`, and if the field is
-still showing `123` afterwards, the model refused it. If a draft is on screen while `digits` still reads its committed
-value underneath the composition, that is the carve-out working — the draft is the IME's, and the model never saw it.
+So "the model refused it" is not something you have to take on trust: compose kana into `digits`, and watch its trace
+row show the arrival count climbing while **committed** stays `123`. The draft on screen is the IME's, held in front
+of React's own restore; the model saw every update of it and kept none.
+
+The trace table and the armed buttons of checks 7 and 8 arrived with **PR #7815**, which measured the composition
+conduct these checks now assert. Its `an-accepting-model-during-a-composition` and
+`a-revision-arriving-mid-composition` sections are the reference for what the runtime does; this checklist asks only
+whether a **real** IME behaves the same way.
 
 Where a build does offer devtools (Firefox's usually does; WebKit's does not), `window.__RF2_HIC_TB__.model()` returns
 the store as JSON and is a direct cross-check. Treat it as a convenience, never as the check itself.
@@ -145,32 +159,57 @@ model refuses every character of it.
 *Pass:* the draft appears at the caret, not at the end of the string, and the caret stays inside the draft as it grows.
 The end-of-string jump is the failure this check exists to catch.
 
-**3 — app-db clean until commit.** With a composition open in `digits`, look at the field before committing.
-*Pass:* nothing has been written to the model — no flicker of `123` replacing the draft, no snap-back mid-composition.
-The field holds the draft until the exchange closes.
+**3 — The draft survives the model, mid-composition.** With a composition open in `digits`, watch the field and its
+trace row before committing.
+*Pass:* the draft stays on screen — no flicker of `123` replacing it, no snap-back before the exchange closes — while
+the row's **intents arrived** count climbs and **committed** stays `123`. Every composing update reached the store and
+the model refused every one of them.
+
+*Not a pass criterion: a still store.* Hicasso does not withhold composing updates from the handler you wrote; it
+withholds the **write-back to the screen**. Compose in `plain`, whose model accepts, and its committed cell moves with
+every composing keystroke. That is correct, and it is what #7815 measured
+(`an-accepting-model-during-a-composition`). A tester who expects a frozen store here will read a working
+implementation as broken.
 
 **4 — Commit echo.** Commit the composition (Enter or a candidate selection) in `digits`, then repeat in `plain`.
 *Pass:* `digits` snaps back to `123` — the committed value, echoed in the same turn. `plain` keeps the committed kanji.
 Two fields, two policies, one law.
 
 **5 — Escape / abort mid-composition.** Begin composing in `plain`, then press Escape before committing.
-*Pass:* the draft is discarded, the field returns to `abc`, and no fragment of the abandoned composition is left in the
-field or written to the model.
+*Pass:* the draft is discarded, the field returns to `abc`, and the trace row's **committed** cell reads `"abc"` again
+— no fragment of the abandoned composition survives anywhere. This is an **end-state** claim, per check 3: an accepting
+model took each composing update on the way in, so the arrival count will not go back down, and it should not. The
+abort signature is the one part of a composition no page script can produce in any engine, which is why this check
+needs a human and a real IME.
 
-**6 — `compositionend` ordering.** Compose in `plain` and watch the moment of commit.
-*Pass:* the committed text arrives exactly once, at the close of the exchange — not progressively during composition,
-and not a second time after. A double-application (the committed text appearing twice, or the draft and the commit both
-landing) is the failure.
+**6 — `compositionend` adds no intent of its own.** Compose in `plain` and watch its trace row across the moment of
+commit.
+*Pass:* the **intents arrived** count rises **once per composing keystroke** while the exchange is open, and the commit
+adds **none** to it. What the close does is converge the field to whatever the model then holds. The failure is a
+double-application: the count jumping at the commit, or the committed text landing twice in the field.
 
-**7 — Revision reset during and after composition.** Click into `revision`, begin composing, and press the **bump**
-button while the composition is still open. Then repeat, pressing **bump** *after* committing.
-*Pass:* mid-composition the reset **defers to the exchange's close** — the composition is not destroyed under the
-user. After commit, the reset re-baselines the field to the model on the same DOM node.
+Note what this check does *not* claim, and check 3 explains why: the committed text does not arrive once at the close.
+It arrives progressively, one intent per composing `input`, and `compositionend` contributes nothing further.
 
-**8 — Blur mid-composition.** Begin composing in `mountable`, then click away (or Tab) without committing. Then repeat,
-pressing **toggle** to unmount the field mid-composition.
-*Pass:* no stranded draft — the field (or its replacement) shows committed state, the model is unmoved, and nothing
-throws.
+**7 — Revision reset during and after composition.** Press **arm bump (5s)** — the `armed` readout says so — then
+click into `revision` and begin composing before it fires. Repeat with the immediate **bump** button *after*
+committing.
+*Pass:* mid-composition the reset **defers to the exchange's close**: the draft is untouched while the composition is
+open, and it is not destroyed under the user. After commit, the reset re-baselines the field to the model on the same
+DOM node.
+*What is not claimed:* that the reset wins. `revision`'s model **accepts**, so the composing updates it kept taking
+supersede the reset by ordinary event order, and the field converges to the composed text rather than to `keep`. The
+deferral cannot strand the field; it does not make the reset unlosable (#7815,
+`a-revision-arriving-mid-composition`).
+*Why armed:* a real pointer-down on a button closes the composition before the click can land inside it, so the
+mid-composition arm is not reachable by hand any other way.
+
+**8 — Blur and unmount mid-composition.** Begin composing in `mountable`, then click away (or Tab) without committing.
+Then reload, press **arm unmount (5s)**, and begin composing in `mountable` before it fires.
+*Pass:* no stranded draft — the field (or its replacement) shows committed state, and nothing throws. `mountable`
+refuses non-digits, so its trace row's **committed** cell still reads `9` while its arrival count records the updates
+it turned down; that is what makes "no stranded draft" a claim about the teardown rather than about a model that
+happened to accept the draft.
 
 ## 6. The result table
 
@@ -180,10 +219,10 @@ Tick both engines for each check. A cross is as valuable as a tick — it is the
 |---|---|---|---|---|
 | 1 | Draft text visible during composition | [ ] | [ ] | |
 | 2 | Caret correct | [ ] | [ ] | |
-| 3 | app-db clean until commit | [ ] | [ ] | |
+| 3 | Draft survives the model, mid-composition | [ ] | [ ] | |
 | 4 | Commit echo | [ ] | [ ] | |
 | 5 | Escape / abort mid-composition | [ ] | [ ] | |
-| 6 | `compositionend` ordering | [ ] | [ ] | |
+| 6 | `compositionend` adds no intent of its own | [ ] | [ ] | |
 | 7 | Revision reset during / after composition | [ ] | [ ] | |
 | 8 | Blur / unmount mid-composition | [ ] | [ ] | |
 
