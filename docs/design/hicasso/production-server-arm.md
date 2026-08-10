@@ -649,13 +649,14 @@ leaned on the hash. Three corrections, none of which move a figure:
   **omits** the key rather than stamping a nil, because the schema slot is
   `{:optional true} :string` and not `[:maybe :string]` — a present-and-nil key
   is not a legal spelling of absence.
-- **`83b865f8` was never a Hicasso fact.** It is the FNV-1a-32 of the canonical
-  EDN `[#fn[] {}]` — the *unresolved* `[<minted head> {props}]` root, in which
-  canonical EDN renders every function identically. **Any** `[<fn> {}]` root
-  takes the same value, which is exactly why the dogfood screen and the
-  ~1,200-element Conduit feed agreed. The degeneracy is a fact about hashing an
-  unresolved root form, not about either arm's renderer — which is also why it
-  never separated the two arms and never could have.
+- **The render-tree hash `83b865f8` was never a Hicasso fact.** It is the
+  FNV-1a-32 of the canonical EDN `[#fn[] {}]` — the *unresolved*
+  `[<minted head> {props}]` root, in which canonical EDN renders every function
+  identically. **Any** `[<fn> {}]` root takes the same value, which is exactly
+  why the dogfood screen and the ~1,200-element Conduit feed agreed. The
+  degeneracy is a fact about hashing an unresolved root form, not about either
+  arm's renderer — which is also why it never separated the two arms and never
+  could have.
 - **The figures above remain exactly reproducible.** The repair deliberately
   kept the measurement live: the witness rows that *chose* byte digests now take
   the hash from `ssr-hash/render-tree-hash` directly rather than from the
@@ -702,8 +703,9 @@ outstanding** (2026-08-06, `rf2-8smbe`). The witness now publishes
 `Buffer` is not reachable — with `fs.statSync` used at the sites that really are
 Node. The figure moved **3,101 → 3,060** as it did so, and both halves of that
 move are separated in the witness's own dated addendum: `+18` from the ruler, and
-`−59` because the document itself drifted after `952a3f2024`. It is still used
-here only as an identity claim (render #1 equals render #2), never as a size.
+`−59` because the document itself drifted after `952a3f2024` (stranded by the
+rebase; the patch landed on main as `b3947377e0`). It is still used here only as
+an identity claim (render #1 equals render #2), never as a size.
 
 ## 7. What the spike corpus licenses, and what it does not
 
