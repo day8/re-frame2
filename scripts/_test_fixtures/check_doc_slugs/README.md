@@ -38,4 +38,10 @@ Fixtures:
 | `wrapped_link_block_bound`         | 0               | False-positive control: the join stops at a block boundary, so `[text` … blank … `](x.md)` is not a link (rf2-vpc4c) |
 | `multiline_code_span_not_a_link`   | 1               | A code span crossing a line ending is masked whole, so the link-shaped text inside it yields nothing; the 1 is a real broken wrapped link (rf2-8wcbe) |
 | `non_blank_block_bound`            | 1               | The join stops at every NON-blank boundary — heading (before and after), thematic break, list item, table row, blockquote entry; the 1 is a real wrapped link inside one list item (rf2-8wcbe) |
+| `indented_fence_link_ignored`      | 0               | A fence carrying its container's indentation — list item, admonition — is still a fence, so the sample inside it carries no links to resolve (rf2-mmyc) |
+| `indented_fence_negative_control`  | 1               | Widening the fence matcher must not quieten the gate: the 1 is a real broken link in prose after an indented fence, and an unclosed fence ends with its container (rf2-mmyc) |
+| `fenced_doc_link_in_scope`         | 1               | A doc link INSIDE a fence, in a `FENCED_DOC_LINK_TREES` tree — it resolves, so only the assertion can see it (rf2-mmyc) |
+| `fenced_doc_link_out_of_scope`     | 0               | The identical sample under a sibling tree stays silent — the assertion is scoped, not corpus-wide (rf2-mmyc) |
+| `fenced_doc_link_blockquoted`      | 1               | The same assertion on a BLOCKQUOTED fence (`> ```clojure`) — the shape `docs/design/hicasso/studio/` actually writes (rf2-1cpt) |
+| `blockquoted_fence_not_indexed`    | 2               | A `###` line and an `<a id>` inside a blockquoted fence mint no fragment target, so links to them are broken; the real heading and the blockquoted heading below must still resolve (rf2-1cpt) |
 | `compat_anchor_teeth`              | driven directly | The compat-anchor manifest, placement, and source-comment teeth — invoked with explicit fixture inputs, not from this table (rf2-57k74 / rf2-zq5i6 / rf2-k30r7) |

@@ -47,8 +47,9 @@ Notes on what is and isn't checked:
     * Pure section-anchor permalinks (e.g. #fragment-only-anchor) and link
       definitions inside fenced code blocks are skipped.  A fence counts as a
       fence wherever its container puts it — indented inside a list item or an
-      admonition as readily as at column 0 (rf2-mmyc).  See `_strip_fences` for
-      what that recognition covers and, just as importantly, what it does not.
+      admonition as readily as at column 0 (rf2-mmyc), and inside a blockquote
+      (`> ```clojure`) as readily as outside one (rf2-1cpt).  See `_strip_fences`
+      for what that recognition covers and, just as importantly, what it does not.
     * In the trees listed in FENCED_DOC_LINK_TREES a markdown doc link inside a
       fence is itself reported (rf2-mmyc).  Everywhere else it is merely
       skipped: 88 links in `spec/Spec-Schemas.md` alone sit legitimately inside
@@ -307,10 +308,17 @@ _LIST_ITEM_START_RE = re.compile(
     re.VERBOSE,
 )
 
-# Leading blockquote markers, e.g. `> ` or `> > `.  The count of `>` is the
-# quote depth; the remainder is the quoted line's own content, which is what
-# `_BLOCK_START_RE` must be tested against (a `> # Heading` is still a heading).
-_QUOTE_PREFIX_RE = re.compile(r"^(?:[ ]{0,3}>[ \t]?)+")
+# ONE leading blockquote marker, e.g. `> ` or `>`.  Applied repeatedly by
+# `_quote_depth_and_body`: the number of markers consumed is the quote depth and
+# the remainder is the quoted line's own content, which is what `_BLOCK_START_RE`
+# and `_FENCE_RE` must be tested against (a `> # Heading` is still a heading, and
+# a `> ```clojure` is still a fence).
+#
+# The optional trailing space is the blockquote's own content column — which is
+# why `>` + four spaces is a fence indented three (the renderer's allowance) and
+# `>` + five is an indented code block.  Consuming it here is what makes the
+# in-quote indent directly comparable to a column-0 one.
+_QUOTE_MARKER_RE = re.compile(r"[ ]{0,3}>[ \t]?")
 
 
 # rf2-t0ituo / rf2-57k74 — cross-handbook compatibility-anchor manifest +
@@ -557,30 +565,63 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
     from the fence to EOF — a gate going silent, which is the same failure as
     the one being fixed, pointing the other way.
 
+    A BLOCKQUOTE is a container too (rf2-1cpt).  `> ```clojure` opens a real
+    fence — python-markdown renders the lines under it as a code block, mints no
+    heading id for a `> ### Title` inside it, and resolves no link written there
+    — so quote depth joins the marker and the indentation as part of a fence's
+    identity.  The quote's markers ARE the container: the in-quote indent is
+    measured after them (each `>` absorbing one following space), so a fence sits
+    at the quote's content column exactly as an unquoted one sits at its list
+    item's.  A quoted fence closes only at its own depth, and ends with its
+    blockquote — an unclosed one cannot reach the prose below the quote.
+
     Bounded deliberately, and these are the edges:
 
-    * A fence inside a BLOCKQUOTE (`> ```clojure`) is not recognised, exactly as
-      before.  The renderer does treat it as a fence; the corpus has 28 such
-      lines.  Teaching the stack about quote depth is a separate change with a
-      far larger blast radius (measured: 138 lines flipping back to prose and 36
-      rendered ids appearing), so it stays out of a gate-correctness fix.
     * An INDENTED code block's content is still scanned as prose.  This function
       recognises where a fence is, not where an indented code block is; telling
       one from a paragraph continuation needs paragraph state this scanner does
       not keep.  Measured across the corpus: zero markdown links live in one.
+      Inside a blockquote the same bound applies, and the renderer agrees:
+      superfences opens a fence at any indent but RESTORES the literal source
+      when an indented block swallows it, so `>` + five spaces renders the fence
+      markers as text.
+    * List items and admonitions nested INSIDE a blockquote do not push a content
+      column; a quoted fence is measured from the quote's own.  Within the
+      renderer's three-space allowance that agrees (`> - item` / `>   ```clj` is
+      still a fence); past it the fence simply does not register, which costs
+      recognition rather than inventing it.  The corpus has no such fence.
     * Indentation is counted in SPACES.  The corpus has no tab-indented fence.
     """
     out: list[tuple[int, str]] = []
     open_columns: list[int] = []
-    fence: tuple[str, int] | None = None  # (opening marker, its indentation)
+    # (opening marker, its indentation, its blockquote depth)
+    fence: tuple[str, int, int] | None = None
     for i, raw in enumerate(lines, start=1):
         if fence is not None:
-            marker, fence_indent = fence
+            marker, fence_indent, fence_depth = fence
             if not raw.strip():
+                # A blank line neither closes a fence nor ends a blockquote for
+                # fence purposes — superfences counts it and reads on.
                 out.append((i, ""))
                 continue
             indent = len(raw) - len(raw.lstrip(" "))
-            if indent >= (open_columns[-1] if open_columns else 0):
+            if fence_depth:
+                depth, body = _quote_depth_and_body(raw[indent:], limit=fence_depth)
+                if depth == fence_depth:
+                    m = _FENCE_RE.match(body)
+                    if (
+                        m
+                        and m.group("marker") == marker
+                        and len(m.group("indent")) == fence_indent
+                        and not m.group("info").strip()
+                    ):
+                        fence = None
+                    out.append((i, ""))
+                    continue
+                # Shallower than the fence: the blockquote holding it ended, so
+                # the fence ended with it.
+                fence = None
+            elif indent >= (open_columns[-1] if open_columns else 0):
                 m = _FENCE_RE.match(raw)
                 if (
                     m
@@ -591,9 +632,10 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
                     fence = None
                 out.append((i, ""))
                 continue
-            # The container holding the fence ended, so the fence ended with it.
-            # Fall through and read this line as ordinary source.
-            fence = None
+            else:
+                # The container holding the fence ended, so the fence ended with
+                # it.  Fall through and read this line as ordinary source.
+                fence = None
 
         if not raw.strip():
             out.append((i, ""))
@@ -604,9 +646,18 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
             open_columns.pop()
         content_column = open_columns[-1] if open_columns else 0
 
+        if indent <= content_column + 3:
+            quote_depth, quoted_body = _quote_depth_and_body(raw[indent:])
+            if quote_depth:
+                qm = _FENCE_RE.match(quoted_body)
+                if qm and len(qm.group("indent")) <= 3:
+                    fence = (qm.group("marker"), len(qm.group("indent")), quote_depth)
+                    out.append((i, ""))
+                    continue
+
         m = _FENCE_RE.match(raw)
         if m and content_column <= indent <= content_column + 3:
-            fence = (m.group("marker"), indent)
+            fence = (m.group("marker"), indent, 0)
             out.append((i, ""))
             continue
 
@@ -853,12 +904,27 @@ def _strip_inline_code(line: str) -> str:
     return _INLINE_CODE_RE.sub(lambda m: " " * (m.end() - m.start()), line)
 
 
-def _quote_depth_and_body(content: str) -> tuple[int, str]:
-    """Split a line into its blockquote depth and the quoted line's own content."""
-    m = _QUOTE_PREFIX_RE.match(content)
-    if not m:
-        return 0, content
-    return m.group(0).count(">"), content[m.end():]
+def _quote_depth_and_body(content: str, limit: int | None = None) -> tuple[int, str]:
+    """Split a line into its blockquote depth and the quoted line's own content.
+
+    `limit` caps how many markers are consumed, which is what a line INSIDE an
+    open blockquoted fence needs (rf2-1cpt).  superfences parses a content
+    line's prefix only as far as the OPENING line's prefix reached
+    (`parse_fence_line` stops at the opener's width), so a line quoted more
+    deeply than the fence is ordinary content rather than a nested quote — the
+    extra `>` is simply the first character of a line of code.  Passing the
+    fence's own depth as `limit` reproduces that; the default (`None`) consumes
+    every marker, which is what block-boundary detection wants.
+    """
+    depth = 0
+    pos = 0
+    while limit is None or depth < limit:
+        m = _QUOTE_MARKER_RE.match(content, pos)
+        if m is None:
+            break
+        depth += 1
+        pos = m.end()
+    return depth, content[pos:]
 
 
 def _inline_blocks(
@@ -1701,6 +1767,19 @@ def _run_self_tests(verbose: bool = False) -> int:
         # a sibling tree stays silent.
         ("fenced_doc_link_in_scope",         1),
         ("fenced_doc_link_out_of_scope",     0),
+        # rf2-1cpt — the same assertion, on a BLOCKQUOTED fence.  The guarded
+        # tree writes its samples this way (two files under
+        # docs/design/hicasso/studio/), and the assertion could not see them
+        # while the scanner read a quoted fence as prose.  The link resolves, so
+        # again only the assertion can find it.
+        ("fenced_doc_link_blockquoted",      1),
+        # rf2-1cpt — the id side of the same blind spot, and the one that fails
+        # in BOTH directions.  The 2 are links to a `###` line and an `<a id>`
+        # that live INSIDE a blockquoted fence and therefore mint no fragment
+        # target: the count rises to 0 if the fence is still read as prose (both
+        # links then resolve against phantom ids), and to 3 if blanking runs past
+        # the blockquote and takes the real heading below it.
+        ("blockquoted_fence_not_indexed",    2),
     ]
 
     failures = 0
@@ -2243,6 +2322,177 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after, back at column zero."],
          [1, 6]),
+        # ------------------------------------------------------------------
+        # rf2-1cpt — BLOCKQUOTED fences.  A blockquote is a container like any
+        # other, and superfences opens a fence at the column its prefix leaves
+        # (`parse_whitespace` consumes `>`, spaces and tabs alike).  These
+        # expectations were read off python-markdown + pymdownx.superfences
+        # directly, case by case.
+        # ------------------------------------------------------------------
+        ("blockquoted fence blanks its body",
+         ["> Prose before.",
+          ">",
+          "> ```clojure",
+          "> [not a link](missing.md)",
+          "> ```",
+          ">",
+          "> Prose after."],
+         [1, 2, 6, 7]),
+        ("heading inside a blockquoted fence is not a heading",
+         ["> ```clojure",
+          "> ### Heading inside a quoted fence",
+          "> ```",
+          "",
+          "Prose after."],
+         [5]),
+        ("nested-blockquote fence is a fence",
+         ["> > ```clojure",
+          "> > [not a link](missing.md)",
+          "> > ```",
+          "",
+          "Prose after."],
+         [5]),
+        # `>` is a prefix character in its own right — superfences does not
+        # require a space after it.
+        ("blockquote marker with no following space",
+         [">```clojure",
+          ">[not a link](missing.md)",
+          ">```",
+          "",
+          "Prose after."],
+         [5]),
+        ("three-space slack after the quote marker is still a fence",
+         [">    ```clojure",
+          ">    [not a link](missing.md)",
+          ">    ```",
+          "",
+          "Prose after."],
+         [5]),
+        # THE CONTROL THAT REJECTS AN UNBOUNDED QUOTE MATCHER.  Four spaces past
+        # the quote's content column is an INDENTED CODE BLOCK inside the quote,
+        # exactly as it is at column 0: superfences opens a fence greedily and
+        # then RESTORES the literal source when an indented block consumes it
+        # (`_store` / `restore_raw_text`).  The rendered page shows the fence
+        # markers as text, so lines 3-5 are not a fence and stay visible.
+        ("four spaces after the quote marker is an indented code block",
+         ["> Prose.",
+          ">",
+          ">     ```clojure",
+          ">     [not a link](missing.md)",
+          ">     ```",
+          "",
+          "Prose after."],
+         [1, 2, 3, 4, 5, 7]),
+        ("blockquoted fence inside an admonition",
+         ["!!! note",
+          "",
+          "    > ```clojure",
+          "    > [not a link](missing.md)",
+          "    > ```",
+          "",
+          "Prose after."],
+         [1, 7]),
+        # A blank line does not end a blockquote for fence purposes: superfences
+        # counts it as an empty line and keeps the fence open (`eval_quoted`
+        # treats empty content as OK), so the closer four lines down still
+        # closes THIS fence.  The renderer emits one code block holding `(code)`.
+        ("unquoted blank line does not break a blockquoted fence",
+         ["> ```clojure",
+          "> (code)",
+          "",
+          "> ```",
+          "",
+          "Prose after."],
+         [6]),
+        ("quoted blank line does not break a blockquoted fence",
+         ["> ```clojure",
+          "> (code)",
+          ">",
+          "> (more code)",
+          "> ```",
+          "",
+          "Prose after."],
+         [7]),
+        # THE CONTROL THAT REJECTS "STRIP THE `>` AND REUSE THE OLD MATCHER".
+        # A quote-stripping pre-pass turns line 3 into a bare closing fence and
+        # ends the block early, flipping lines 4-5 back to prose.  The renderer
+        # disagrees: a fence opened at quote depth 0 measures a content line's
+        # depth only within its OWN prefix width, which here is zero — so the
+        # `>` is just the first character of a code line.  One code block,
+        # lines 1-5, and only line 7 is prose.
+        ("a quoted closer does not close a column-0 fence",
+         ["```clojure",
+          "(code)",
+          "> ```",
+          "(still code)",
+          "```",
+          "",
+          "Prose after."],
+         [7]),
+        # The closing rules inside a quote are superfences' usual strict ones:
+        # the closer must be the opener's EXACT marker run with nothing after
+        # it.  Neither of these closes, so each fence runs to the end of its
+        # blockquote — and no further.
+        ("longer closing run does not close a blockquoted fence",
+         ["> ```clojure",
+          "> (code)",
+          "> ````",
+          "",
+          "Prose after at column zero."],
+         [5]),
+        ("closer with an info string does not close a blockquoted fence",
+         ["> ```clojure",
+          "> (code)",
+          "> ```clojure",
+          "",
+          "Prose after at column zero."],
+         [5]),
+        # A line quoted MORE deeply than the fence is content, not a nested
+        # quote: superfences reads a content line's prefix only as far as the
+        # opener's reached, so the extra `>` is the first character of a line of
+        # code.  The renderer puts `&gt;` inside the <code> for both of these.
+        ("deeper-quoted line inside a blockquoted fence is content",
+         ["> ```clojure",
+          "> > (deeper-quoted line, still code)",
+          "> ```",
+          "",
+          "Prose after."],
+         [5]),
+        ("deeper-quoted closer does not close a blockquoted fence",
+         ["> ```clojure",
+          "> (code)",
+          "> > ```",
+          "> ```",
+          "",
+          "Prose after."],
+         [6]),
+        # ...and the converse: a SHALLOWER non-blank line is the quote ending,
+        # which ends the fence with it.  The line itself is ordinary source
+        # again, so it stays visible.
+        ("shallower line ends a nested blockquoted fence",
+         ["> > ```clojure",
+          "> > (code)",
+          "> shallower prose",
+          "",
+          "Prose after."],
+         [3, 5]),
+        # RUNAWAY GUARD for the quoted case.  An unclosed blockquoted fence must
+        # not blank the document below it; the blockquote bounds it, exactly as
+        # a list item bounds an indented one.
+        ("unclosed blockquoted fence ends with its blockquote",
+         ["> ```clojure",
+          "> (unclosed",
+          "",
+          "Prose after at column zero."],
+         [4]),
+        # POSITIVE CONTROL — the blockquoted HEADING support added by rf2-869k9m
+        # must survive.  `> #### Foo` is a real `<h4 id="quoted-heading">`, so
+        # the line stays prose and the indexer keeps minting its slug.
+        ("blockquoted heading outside a fence is still prose",
+         ["> #### Quoted heading",
+          ">",
+          "> Quoted prose."],
+         [1, 2, 3]),
     ]
     for label, lines, expected_visible in fence_cases:
         got_visible = [n for n, content in _strip_fences(lines) if content.strip()]
