@@ -3959,7 +3959,7 @@ of the [operating-frame resolution table][resolve] — and are the escape
 from the tier-4 `:ambiguous-frame` refusal a multi-frame app otherwise
 traps an agent in.
 
-[resolve]: ../../../spec/Tool-Pair.md#operating-frame-resolution
+[resolve]: ../../../spec/Tool-Pair.md#operating-frame--multi-frame-resolution
 
 ### Why these ship (rf2-zomfq)
 
