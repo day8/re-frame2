@@ -156,3 +156,20 @@
 (h/defview a-vector-of-callbacks [_]
   (let [handlers [(fn [] :a) (fn [] :b)]]
     [:div (str (count handlers))]))
+
+;; ---------------------------------------------------------------------------
+;; A QUALIFIED keyword head is tagged data, not a tag. `[:app/button …]` is
+;; not a `<button>`, and reading a base tag out of one would invent an
+;; element wherever an app spells its own data that way.
+;; ---------------------------------------------------------------------------
+
+(h/defview qualified-keyword-heads [{:keys [rows]}]
+  [:div
+   (str [:app/button {:id 1}])
+   (str (for [r rows] [:app/row r]))
+   (str [:app/a {:href "/x"}])])
+
+;; Quoted hiccup is data an author wrote down, not hiccup the runtime will
+;; interpret, so nothing judges inside a quotation.
+(h/defview quoted-hiccup [_]
+  [:div (str '[:button {:& [:not :a :map]}])])
