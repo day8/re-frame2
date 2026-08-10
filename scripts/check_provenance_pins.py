@@ -798,7 +798,12 @@ def iter_markdown(root: str) -> List[str]:
 
 
 def check(
-    repo: str, root: str, verbose: bool, stream, changed_since: Optional[str] = None
+    repo: str,
+    root: str,
+    verbose: bool,
+    stream,
+    changed_since: Optional[str] = None,
+    git: Optional["Git"] = None,
 ) -> int:
     root_abs = os.path.join(repo, root)
     if not os.path.isdir(root_abs):
@@ -816,7 +821,7 @@ def check(
         )
         return 2
 
-    git = Git(repo)
+    git = git or Git(repo)
 
     if changed_since is not None:
         if not git.rev_exists(changed_since):
@@ -1495,6 +1500,46 @@ class _FakeGit(Git):
         return self.table.get(token, "UNRESOLVABLE")
 
 
+class _BusyGit(Git):
+    """A repository that answers everything except one subcommand.
+
+    This is the state observed in the field (rf2-dmrm), and its shape is what
+    made it dangerous: while another process held the object store, `rev-parse`
+    needed no lock and answered normally, so every guard upstream of the diff
+    was satisfied — and only `git diff` failed, leaving the empty stdout that
+    read as "no page changed".  A repository that failed EVERYTHING would have
+    been caught by the baseline and ref guards years ago; it is the partial
+    failure that walks through them.
+    """
+
+    def __init__(self, repo: str, failing: str) -> None:  # noqa: D107
+        Git.__init__(self, repo)
+        self.failing = failing
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:  # noqa: D102
+        if args and args[0] == self.failing:
+            return subprocess.CompletedProcess(
+                args, 128, "", "fatal: Unable to create 'index.lock': File exists.\n"
+            )
+        return Git._run(self, *args)
+
+
+class _ShallowGit(Git):
+    """A clone truncated at a shallow boundary.
+
+    Ancestry is the one question such a clone answers WRONGLY rather than not
+    at all: `merge-base --is-ancestor` says NO for every commit past the
+    boundary, so the corpus reads as one made entirely of stranded pins.  That
+    is why it must be refused up front and cannot be left to the per-token
+    path — there is no failure there to notice.
+    """
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:  # noqa: D102
+        if args[:2] == ("rev-parse", "--is-shallow-repository"):
+            return subprocess.CompletedProcess(args, 0, "true\n", "")
+        return Git._run(self, *args)
+
+
 def self_test(verbose: bool, stream) -> int:
     failures = 0
 
@@ -1599,15 +1644,36 @@ def self_test(verbose: bool, stream) -> int:
     # THE REFUSAL PATHS.  A gate whose can't-run path exits 0 reports success
     # for work it never did, so every way this script can fail to do its job is
     # asserted to leave rc=2.
+    #
+    # The last three are rf2-dmrm, and they differ in kind from the first two:
+    # there the CORPUS is missing, here the REPOSITORY cannot answer.  They are
+    # presented through the oracle rather than staged on disk because the states
+    # are transient (a held index lock) or expensive (a second, truncated
+    # clone), and `evaluate` already takes the oracle the same way.  `HEAD` is
+    # the baseline they compare against so that they assert the same thing in a
+    # checkout with no `origin/main` — otherwise they could pass on the earlier
+    # ref guard and prove nothing.
     repo = _repo_root()
-    for label, kwargs, root in (
+    refusals = (
         ("absent corpus root", {}, "no/such/corpus/root"),
         (
             "unresolvable --changed-since ref",
             {"changed_since": "refs/heads/no-such-ref-rf2-kqac1"},
             DEFAULT_ROOT,
         ),
-    ):
+        (
+            "a `git diff` that could not run",
+            {"changed_since": "HEAD", "git": _BusyGit(repo, "diff")},
+            DEFAULT_ROOT,
+        ),
+        (
+            "no merge base to compare --changed-since against",
+            {"changed_since": "HEAD", "git": _BusyGit(repo, "merge-base")},
+            DEFAULT_ROOT,
+        ),
+        ("a shallow clone", {"git": _ShallowGit(repo)}, DEFAULT_ROOT),
+    )
+    for label, kwargs, root in refusals:
         rc = check(repo, root, False, _DevNull(), **kwargs)
         if rc == 2:
             if verbose:
@@ -1618,8 +1684,14 @@ def self_test(verbose: bool, stream) -> int:
             )
             failures += 1
 
+    # 6 origin identities, 2 anchor teeth, and the refusal paths.
     total = (
-        len(_EXTRACTION_CASES) + len(_RULE_CASES) + len(_FOREIGN_CASES) + 6 + 4
+        len(_EXTRACTION_CASES)
+        + len(_RULE_CASES)
+        + len(_FOREIGN_CASES)
+        + 6
+        + 2
+        + len(refusals)
     )
     if failures:
         stream.write("\n%d self-test failure(s).\n" % failures)
