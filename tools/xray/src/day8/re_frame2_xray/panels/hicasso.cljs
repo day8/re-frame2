@@ -17,11 +17,14 @@
   collection, and this panel's whole design follows from taking that
   seriously one layer further out. Three things fall out of it:
 
-  1. **Three empties, three sentences.** *Not running Hicasso*, *running a
-     schema this build cannot parse* and *running with nothing mounted*
+  1. **Every empty is its own sentence.** *Not running Hicasso*, *running
+     a schema this build cannot parse* and *running with an empty roster*
      are unrelated facts with unrelated remedies, and each renders under
      its own testid with its own prose. A tab that showed one blank table
-     for all three would verify the absence of bad news.
+     for all three would verify the absence of bad news. The last of them
+     splits again PER VIEW: an empty mounted census is a survey result, an
+     empty intent stream is a capped window, and one sentence covering
+     both would be false of one of them (audit #7789).
   2. **Every absence is a CHIP, and the five chips differ.** `capped`,
      `opaque`, `host-opaque`, `uncorrelated` and `unknown` render with
      different words under different testids, so the distinction survives
@@ -139,21 +142,49 @@
 ;; ---- the three non-live states -------------------------------------------
 
 (defn- presence-note
-  "The honest empty. Three states, three testids, three sentences — see
-  the ns docstring for why collapsing them would undo the schema."
-  [state]
-  (when-some [{:keys [testid-suffix says]} (get hh/presence-copy state)]
+  "The honest empty. Each state gets its own testid and its own sentence —
+  see the ns docstring for why collapsing them would undo the schema.
+
+  `view` is passed because an EMPTY roster is a different fact in each of
+  the four, so the sentence and the testid come from the view's own entry
+  in `hh/empty-copy` rather than from one shared line that could only ever
+  be true of one view (audit #7789)."
+  [state view]
+  (when-some [{:keys [testid-suffix says]} (hh/state-copy state view)]
     [:div {:data-testid (str "rf-xray-" panel-id "-" testid-suffix)
            :style       (if (= :mismatch state) mismatch-style state-style)}
      says]))
 
 ;; ---- view 1 — mounted boundaries -----------------------------------------
 
+(defn- visibility-note
+  "Mounted means SUBSCRIBED, and this view says so rather than letting a
+  reader supply the other word.
+
+  The real-React lifecycle witness (audit #7792) established that this
+  census cannot distinguish three states React owns: an Activity-hidden
+  subtree that released its reads leaves the same census as an unmounted
+  one, and a Suspense-fallback-hidden subtree stays subscribed and so
+  stays in this table while absent from the screen. The producer states
+  both as `:host-opaque`; the panel's job is to make sure the reader is
+  told before they infer otherwise, which is why it renders with the rows
+  and not only when the roster is empty."
+  [envelope]
+  (when (hh/supported? envelope)
+    (let [chip (hh/loss-chip (:loss (:host envelope)) (:visibility (:host envelope)))]
+      [:div {:data-testid (str "rf-xray-" panel-id "-mounted-visibility")
+             :style       (assoc detail-style :margin-top "6px")}
+       (str (:short chip) " — these rows are about SUBSCRIPTION, not about the "
+            "screen. A hidden-but-retained subtree that released its reads is "
+            "indistinguishable here from an unmounted one, and a "
+            "Suspense-fallback-hidden subtree stays subscribed and stays "
+            "listed. React DevTools is the authority on what is visible.")])))
+
 (defn- mounted-view
   [{:keys [envelope rows]}]
   (let [[shown over? hidden] (ch/cap-rows rows)]
     [:div {:data-testid (str "rf-xray-" panel-id "-mounted")}
-     (or (presence-note (hh/presence envelope (empty? rows)))
+     (or (presence-note (hh/presence envelope (empty? rows)) :mounted)
          [:<>
           (into [:ul {:style {:list-style "none" :margin 0 :padding 0}}]
                 (concat
@@ -176,11 +207,18 @@
                                               (str "frame " (hh/format-id (:frame row))))
                                             (str (count (:reads row)) " read"
                                                  (when (not= 1 (count (:reads row))) "s"))]))]])
-                  [(overflow/overflow-row {:panel-id panel-id :over-cap? over? :hidden-count hidden})]))
-          (absence-note (str "rf-xray-" panel-id "-mounted-naming")
-                        (hh/loss-chip (:loss (:naming envelope)) hh/unknown))
-          (absence-note (str "rf-xray-" panel-id "-mounted-host")
-                        (hh/loss-chip (:loss (:host envelope)) hh/unknown))])]))
+                  [(overflow/overflow-row {:panel-id panel-id :over-cap? over? :hidden-count hidden})]))])
+     ;; The qualifications are stated whether or not there are rows. A view
+     ;; that showed them only when it had something to qualify would drop
+     ;; them exactly where the reader has least else to go on — which is the
+     ;; empty roster the audit found reading as a clean bill of health.
+     (when (hh/supported? envelope)
+       [:<>
+        (absence-note (str "rf-xray-" panel-id "-mounted-naming")
+                      (hh/loss-chip (:loss (:naming envelope)) hh/unknown))
+        (absence-note (str "rf-xray-" panel-id "-mounted-host")
+                      (hh/loss-chip (:loss (:host envelope)) hh/unknown))
+        (visibility-note envelope)])]))
 
 ;; ---- view 2 — read attribution -------------------------------------------
 
@@ -188,7 +226,7 @@
   [{:keys [envelope rows]}]
   (let [[shown over? hidden] (ch/cap-rows rows)]
     [:div {:data-testid (str "rf-xray-" panel-id "-attribution")}
-     (or (presence-note (hh/presence envelope (empty? rows)))
+     (or (presence-note (hh/presence envelope (empty? rows)) :attribution)
          (into [:ul {:style {:list-style "none" :margin 0 :padding 0}}]
                (concat
                  (for [row shown]
@@ -210,26 +248,36 @@
   [{:keys [envelope rows]}]
   (let [[shown over? hidden] (ch/cap-rows rows)]
     [:div {:data-testid (str "rf-xray-" panel-id "-intents")}
-     (or (presence-note (hh/presence envelope (empty? rows)))
-         [:<>
-          (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
-                (concat
-                  (for [[i row] (map-indexed vector shown)]
-                    ^{:key i}
-                    [:li {:data-testid (str "rf-xray-" panel-id "-intent-" (:slug row))
-                          :style       row-style}
-                     [:div [:span {:style {:font-family mono-stack}}
-                            (hh/format-id (:event-id row))]
-                      [:span {:style (assoc detail-style :display "inline" :margin-left "8px")}
-                       (str (:arg-count row) " arg"
-                            (when (not= 1 (:arg-count row)) "s")
-                            " (not carried)")]]
-                     (when (seq (:sub-ids row))
-                       [:div {:style detail-style}
-                        (str "recomputed " (string/join ", " (map hh/format-id (:sub-ids row))))])])
-                  [(overflow/overflow-row {:panel-id (str panel-id "-intents") :over-cap? over? :hidden-count hidden})]))
-          (absence-note (str "rf-xray-" panel-id "-intents-origin")
-                        (hh/loss-chip (:loss (:origin envelope)) hh/unknown))])]))
+     (or (presence-note (hh/presence envelope (empty? rows)) :intents)
+         (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
+               (concat
+                 (for [[i row] (map-indexed vector shown)]
+                   ^{:key i}
+                   [:li {:data-testid (str "rf-xray-" panel-id "-intent-" (:slug row))
+                         :style       row-style}
+                    [:div [:span {:style {:font-family mono-stack}}
+                           (hh/format-id (:event-id row))]
+                     [:span {:style (assoc detail-style :display "inline" :margin-left "8px")}
+                      (str (:arg-count row) " arg"
+                           (when (not= 1 (:arg-count row)) "s")
+                           " (not carried)")]]
+                    [:div {:style detail-style}
+                     (string/join " · "
+                                  (remove nil?
+                                          [(str "dispatch " (hh/format-id (:dispatch-id row)))
+                                           (when (seq (:frames row))
+                                             (str "frame" (when (not= 1 (count (:frames row))) "s")
+                                                  " " (string/join ", " (map hh/format-id (:frames row)))))
+                                           (when (seq (:sub-ids row))
+                                             (str "recomputed "
+                                                  (string/join ", " (map hh/format-id (:sub-ids row)))))]))]])
+                 [(overflow/overflow-row {:panel-id (str panel-id "-intents") :over-cap? over? :hidden-count hidden})])))
+     ;; The window is ALWAYS a cap, so the cap and the opaque origin are
+     ;; stated even when the stream is empty — an empty window with its
+     ;; loss hidden is the shape that reads as "nothing was dispatched".
+     (when (hh/supported? envelope)
+       (absence-note (str "rf-xray-" panel-id "-intents-origin")
+                     (hh/loss-chip (:loss (:origin envelope)) hh/unknown)))]))
 
 ;; ---- view 4 — explain render ---------------------------------------------
 
@@ -237,7 +285,7 @@
   [{:keys [envelope rows]}]
   (let [[shown over? hidden] (ch/cap-rows rows)]
     [:div {:data-testid (str "rf-xray-" panel-id "-explain")}
-     (or (presence-note (hh/presence envelope (empty? rows)))
+     (or (presence-note (hh/presence envelope (empty? rows)) :explain)
          (into [:ul {:style {:list-style "none" :margin 0 :padding 0}}]
                (concat
                  (for [row shown]
@@ -250,7 +298,9 @@
                            :style       detail-style}
                      (if (:proven? row)
                        (str "moved most recently: "
-                            (string/join ", " (map hh/format-id (:latest-reads row)))
+                            ;; Already rendered per READ by the helpers, so two
+                            ;; parameterizations of one sub stay two entries.
+                            (string/join ", " (:latest-reads row))
                             " · snapshot " (:snapshot row)
                             " · epoch " (:peak-epoch row))
                        "this boundary reads nothing, so no epoch moved for it")]
