@@ -73,13 +73,26 @@ Missing one is the only way this check is allowed to be wrong.
 
 **Refuses to know** — and this direction is the one that costs you something —
 that a form *outside its roster* binds anything. Having no scope table, the
-hook recognises binding forms by name, and the roster is `let`-shaped forms
-(`let`, `loop`, `when-let`, `if-let`, `when-some`, `if-some`, `when-first`,
-`doseq`, `for`, `with-open`, `with-local-vars`, `binding`, `with-redefs`),
-`fn`/`fn*`/`hfn`, `letfn`, `catch` and `as->`. A local introduced by anything
-else — `dotimes`, `this-as`, a `reify` / `specify!` / `extend-type` method
-parameter, a `defmethod` parameter — is not seen, so calling one *does* report.
-Name your local something other than the view, or switch the check off.
+hook recognises binding forms by **name**, and the roster is:
+
+* the **`let`-shaped** forms, whose first argument is a binding vector —
+  `let`, `loop`, `when-let`, `if-let`, `when-some`, `if-some`, `when-first`,
+  `doseq`, `dotimes`, `for`, `with-open`, `with-local-vars`, `binding`,
+  `with-redefs`;
+* the **`fn` tails** — `fn`, `fn*`, `hfn`, every fnspec of a `letfn`, every
+  method of a `reify`, `specify!`, `extend-type` or `extend-protocol`, and a
+  `defmethod`'s tail. Every parameter of every arity, in each case, and a
+  local function's or method's own name;
+* the **single names** bound by `catch`, `as->` and `this-as`.
+
+A local introduced by anything else is not seen, so calling one *does* report.
+The notable absentees are `deftype`, `defrecord`, `proxy` and `specify` — the
+last because clj-kondo does not read it as a spec-bearing form either, so its
+method parameters are not locals to kondo's own analysis, and the first three
+because a hook fires only at registered call sites: it never sees anything but
+a `defview`, `defhost` or `hfn` form, and a type defined inside a view body is
+not a program anyone has. If you have one, name your local something other
+than the view, or switch the check off.
 
 ### `:re-frame.hicasso/deferred-read` — warning
 
