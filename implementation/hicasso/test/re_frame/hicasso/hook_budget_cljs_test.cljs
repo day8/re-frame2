@@ -26,7 +26,7 @@
   all three, by name and in call order. The two below are the same
   instrument, on the same page, in the same run.
 
-  ## Three claims, and the third is the one that matters
+  ## Four claims, and the third is the one that matters
 
   1. a boundary's shell calls exactly the two hooks its ledger declares,
      and neither is `useRef` or `useState`;
@@ -37,7 +37,12 @@
      twenty — all cost two. That is the whole argument for the ambient
      collector over a per-read hook: N reads = N hooks cannot satisfy this
      budget on any rung, and no amount of care about the other two claims
-     substitutes for it.
+     substitutes for it;
+  4. and a `defhost` crossing costs the DOOR one hook under a gated `:ssr`
+     policy and none under `:ssr :render`, while the hosted component's
+     own hooks stay its own affair and the shell's ledger does not move
+     (§5, re-authored from `arm1/host_hatch_dom_cljs_test` — the one row
+     of that suite that needed this probe).
 
   ## Why a server render is the right lane for this
 
@@ -147,6 +152,44 @@
   (react/createElement "p" nil "control"))
 
 ;; ---------------------------------------------------------------------------
+;; The host crossing under the probe (rf2-wjag, ported from
+;; `arm1/host_hatch_dom_cljs_test`'s hook-budget row)
+;; ---------------------------------------------------------------------------
+
+(def ^:private theme-context (react/createContext "unthemed"))
+
+(defn- hosted-widget
+  "A foreign React component of the kind the door exists for — its own
+  context read, its own state, its own effect. Three hooks, none of them
+  Hicasso's, and the point of the two rows below is that the door does
+  not know or care that they are there."
+  [^js props]
+  (react/useContext theme-context)
+  (react/useState 0)
+  (react/useEffect (fn [] js/undefined) #js [])
+  (react/createElement "p" #js {:className "hosted"} (.-label props)))
+
+(h/defhost gated-host
+  "The RULED DEFAULT policy, `:client-only`, which mints a gate."
+  hosted-widget)
+
+(h/defhost render-host
+  "The same component under `:ssr :render` — the policy that mints NO
+  gate, so the head's slot carries the foreign component itself."
+  hosted-widget
+  {:ssr :render})
+
+(h/defview gated-page
+  "One boundary, one read, one gated crossing."
+  [_]
+  [:div.page (str (h/sub [:hookbudget/item 0])) [gated-host {:label "hi"}]])
+
+(h/defview render-page
+  "The same page with the crossing's policy the only thing changed."
+  [_]
+  [:div.page (str (h/sub [:hookbudget/item 0])) [render-host {:label "hi"}]])
+
+;; ---------------------------------------------------------------------------
 ;; 1. The instrument can count, and can count past the budget
 ;; ---------------------------------------------------------------------------
 
@@ -239,3 +282,86 @@
 
       (testing (str n " reads still cost exactly the same two hooks")
         (is (= ["useContext" "useSyncExternalStore"] hooks))))))
+
+;; ---------------------------------------------------------------------------
+;; 5. The host crossing — the door's own cost, and whose the rest are
+;; ---------------------------------------------------------------------------
+;;
+;; `arm1/host_hatch_dom_cljs_test`'s hook-budget row, re-authored package-side
+;; (rf2-wjag). It was the ONE row in that 1300-line suite that needed the
+;; dispatcher probe, which is why it was the row the port waited on; everything
+;; else there is contract coverage this package already owns
+;; (`intent_cljs_test`, `callback_form_dom_cljs_test`, `host_ssr_dom_cljs_test`,
+;; the residue witnesses).
+;;
+;; It is re-authored rather than copied because the lane changed, and the lane
+;; change makes the claim SHARPER rather than weaker. The prototype mounted a
+;; browser root, where the gate's client snapshot is `true` and the door's one
+;; hook and the widget's own three arrive in a single indistinguishable
+;; sequence. A server render separates them: the gate's server snapshot is
+;; `false`, so under `:client-only` the count isolates the DOOR with the
+;; foreign component provably not rendered, and `:ssr :render` — the policy
+;; that mints no gate at all — supplies the arm where the widget's hooks DO
+;; run. Two policies, one page shape, and the difference between them is the
+;; whole of what a crossing costs.
+
+(deftest a-gated-crossing-costs-the-door-exactly-one-hook
+  (seeded!)
+  (armed!)
+  (let [{:keys [html hooks]} (server-render! [gated-page {}])]
+
+    (testing "the premise: the boundary rendered and the gate withheld the
+              foreign component, which is what `:client-only` MEANS on the
+              server — so the count below is the door's alone"
+      (is (some? (re-find #"page" html)))
+      (is (nil? (re-find #"hosted" html))))
+
+    (testing "three hooks on the whole page: the boundary's two, then the
+              door's ONE — the gate's adoption read. HD-020(b)'s budget is
+              about boundary SHELLS and the gate is not a boundary; it holds
+              no subscription and reads no frame, which is why the ledger
+              below is untouched by it"
+      (is (= ["useContext" "useSyncExternalStore" "useSyncExternalStore"] hooks)))
+
+    (testing "and the door's hook is the gate's, not a second boundary's:
+              exactly TWO `useSyncExternalStore` on the page, no third"
+      (is (= 2 (count (filter #{"useSyncExternalStore"} hooks)))))
+
+    (testing "nothing else. No `useRef`, no `useState`, no `useMemo`, no
+              `useEffect` — a door that memoised its converted props, or
+              held them in a ref, would show here"
+      (is (= [] (filterv #{"useRef" "useState" "useMemo" "useEffect"} hooks))))
+
+    (testing "and the shell's ledger is what it was: the crossing added a
+              fiber and a hook to the PAGE, not to the boundary"
+      (is (= 2 (count collector/shell-hook-ledger))))))
+
+(deftest an-ssr-render-crossing-costs-no-hook-and-the-hosted-hooks-are-its-own
+  (seeded!)
+  (armed!)
+  (let [{:keys [html hooks]} (server-render! [render-page {}])
+        beyond-the-shell     (vec (drop 2 hooks))]
+
+    (testing "the premise, and the one that makes this arm worth having:
+              the foreign component really did render, so its own hooks are
+              in the reading below"
+      (is (some? (re-find #"hosted" html))))
+
+    (testing "the boundary's two come first and nothing of the door's
+              follows them — `:ssr :render` mints no gate, so a crossing
+              under it costs ZERO hooks, which is the half of the price
+              statement the gated row cannot show"
+      (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 hooks))))
+      (is (= 1 (count (filter #{"useSyncExternalStore"} hooks)))))
+
+    (testing "everything after them is the WIDGET'S own roster. This is the
+              distinction the door exists to draw: a hosted component's
+              hooks are its own affair, they are not charged against
+              HD-020(b)'s budget, and no amount of them adds a hook of
+              Hicasso's"
+      (is (= ["useContext" "useState" "useEffect"] beyond-the-shell)))
+
+    (testing "and the budget is still the budget — the component brought
+              three hooks through the door and the shell's ledger did not
+              move"
+      (is (= 2 (count collector/shell-hook-ledger))))))
