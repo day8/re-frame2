@@ -61,11 +61,11 @@ HOOK_FILE = os.path.join(EXPORT_DIR, "hooks", "re_frame", "hicasso.clj")
 EXPECTED = {
     # ERRORS -- true invariants (operator ruling, rf2-hic-022).
     "direct-view-call":             [25, 144, 162, 167, 170, 174, 181, 186,
-                                     191, 195],
+                                     191, 195, 199, 202, 218, 222],
     "function-in-head-position":    [99, 102, 105, 110, 114],
     # WARNINGS -- heuristics and assistance. Nothing blocks a build.
     "deferred-read":                [32, 37, 43],
-    "parked-read":                  [52, 56, 60, 208, 217],
+    "parked-read":                  [52, 56, 60, 235, 244],
     "unkeyed-mapped-child":         [68, 73, 76, 79],
     "nameless-interactive-element": [86, 89, 92, 123, 126],
 }
@@ -267,8 +267,8 @@ def self_test():
         # read and every use of one blocked the build again. Hand `fn-locals`
         # the name alone and the grammar rows in the negative half must red.
         ("a letfn fnspec read past its NAME reds", "hook",
-         "(fn-locals (:children %))",
-         "(fn-locals (take 1 (:children %)))",
+         "(each-list fn-locals (:children (first more)))",
+         "(each-list #(fn-locals (take 1 %)) (:children (first more)))",
          "direct-view-call"),
         # The same claim, one notch narrower, and the reason a shape is not a
         # witness (merged-PR audit #7818). "Every parameter of every arity"
@@ -279,8 +279,8 @@ def self_test():
         # is what this mutation reds; `zero-arity`, whose first arity binds
         # nothing, reds the opposite narrowing.
         ("a letfn arity SKIPPED reds", "hook",
-         "(keep #(when (api/list-node? %) (first (:children %))) forms))]",
-         "(keep #(when (api/list-node? %) (first (:children %))) (rest forms)))]",
+         "(first (:children %))) forms)",
+         "(first (:children %))) (rest forms))",
          "direct-view-call"),
         # A binding form MISSING FROM THE ROSTER (rf2-ka4d). The hook has no
         # scope table, so it knows a binding form by name; six were absent and
@@ -290,9 +290,43 @@ def self_test():
         # `dotimes` in the let-shaped set, `this-as`, `defmethod` -- are one
         # mechanism with this one, and their rows pin them individually.
         ("a binding form dropped from the roster reds", "hook",
-         "(fn-tail-locals (rest more))",
+         "(each-list method-locals (rest more))",
          "(do more #{})",
          "direct-view-call"),
+        # The array pair, which the roster still had no name for after the six
+        # above went in (merged-PR audit #7829). `areduce` and `amap` expand
+        # into a `loop` binding an index and an accumulator, and an accumulator
+        # may be a function -- so calling one is ordinary code and was reported
+        # at ERROR. One arm reads both, because the two names sit at the same
+        # positions in both forms; drop the arm and the four grammar rows in
+        # the negative half must red.
+        ("the array-macro binding pair dropped from the roster reds", "hook",
+         "(contains? '#{areduce amap} core)",
+         "(contains? '#{} core)",
+         "direct-view-call"),
+        # The FALSE SILENCE a repair introduced (merged-PR audit #7829), and
+        # the reason a method is read differently from a fnspec. `letfn`
+        # expands a fnspec to `(fn f ...)`, so its name is a local; NOTHING
+        # binds a `reify` / `extend` method's name. Reading a method as a named
+        # `fn` tail invented that binding, and a binding silences the form it
+        # heads, so every genuine self-call inside such a form went unreported
+        # -- with no message, no failing build and nothing to notice. Hand the
+        # methods to `fn-locals` again and the two same-name POSITIVE rows must
+        # stop firing.
+        ("a method NAME read as a binding reds", "hook",
+         "(each-list method-locals (rest more))",
+         "(each-list fn-locals (rest more))",
+         "direct-view-call"),
+        # The opposite error, which repairing that one invites: a method's name
+        # sits in head position of a list, exactly where a callee sits, so a
+        # walk that reads every list head reports the DEFINITION as a call --
+        # a fresh false ERROR, at the level that stops a build. Walk the raw
+        # children and the two method-definition rows in the negative half must
+        # red.
+        ("a method NAME read as a call reds", "hook",
+         "(mapcat #(self-call-nodes nm %) (call-positions node))",
+         "(mapcat #(self-call-nodes nm %) (:children node))",
+         "negative.cljs"),
         # A READ whose door a local has taken (rf2-c6t6). Same blindness, at
         # warning level: `:refer [sub]` leaves a simple symbol and a local may
         # be named `sub`, but `api/resolve` reads the ns form and never sees

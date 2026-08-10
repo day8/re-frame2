@@ -488,6 +488,15 @@
 (h/defview step [{:keys [xs]}]
   [:div (str (areduce xs step total 0 (+ total (step))))])
 
+;; The accumulator DESTRUCTURED, which the `loop` it expands into accepts and
+;; clj-kondo's own analysis reads — so a rule that read the symbol production
+;; alone would leave the same hole one shape further in. Folding an array into a
+;; function and a count is the ordinary reason to want two accumulators. REDS
+;; UNDER an arm reading a symbol rather than a binding TARGET.
+(h/defview pair [{:keys [xs]}]
+  [:div (str (areduce xs i [pair n] [identity 0]
+                      [(fn [y] (pair ((aget xs i) y))) (inc n)]))])
+
 ;; `(amap a idx ret expr)` is the same grammar one argument shorter — the
 ;; accumulator arrives as `(aclone a)` rather than from an `init` — and its two
 ;; names sit at the SAME two positions, which is why one arm reads both forms.

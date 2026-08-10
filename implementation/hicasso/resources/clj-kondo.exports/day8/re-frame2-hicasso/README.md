@@ -79,10 +79,24 @@ hook recognises binding forms by **name**, and the roster is:
   `let`, `loop`, `when-let`, `if-let`, `when-some`, `if-some`, `when-first`,
   `doseq`, `dotimes`, `for`, `with-open`, `with-local-vars`, `binding`,
   `with-redefs`;
-* the **`fn` tails** — `fn`, `fn*`, `hfn`, every fnspec of a `letfn`, every
-  method of a `reify`, `specify!`, `extend-type` or `extend-protocol`, and a
-  `defmethod`'s tail. Every parameter of every arity, in each case, and a
-  local function's or method's own name;
+* the **array pair**, `areduce` and `amap`, which write their index and their
+  accumulator as bare arguments rather than in a vector and expand into a
+  `loop` binding both. An accumulator is an ordinary value and may well be a
+  function — `(areduce steps i f identity …)` folds an array of steps into
+  one — so calling it is ordinary code;
+* the **`fn` tails** — `fn`, `fn*`, `hfn`, every fnspec of a `letfn`, and a
+  `defmethod`'s tail: every parameter of every arity, and for a `letfn` the
+  local function's own **name** as well, because `letfn` expands each fnspec to
+  `(fn f …)` and `f` is in scope throughout;
+* the **parameters of every method** of a `reify`, `specify!`, `extend-type` or
+  `extend-protocol`, every arity's, exactly as above. A method's **name** is
+  deliberately *not* in that list: a method is written like a fnspec and is not
+  one, and no expansion of these four forms puts its name in scope, so a body
+  that mentions the name means the var. Reading it as a binding is what made a
+  genuine self-call inside such a method go unreported — the check's only
+  permitted failure is silence, so a silence that is *wrong* has nothing to
+  surface it. The name is not read as a **call** either: it sits in head
+  position of a list, but writing one defines a method and invokes nothing;
 * the **single names** bound by `catch`, `as->` and `this-as`.
 
 A local introduced by anything else is not seen, so calling one *does* report.

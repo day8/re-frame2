@@ -548,36 +548,68 @@
                  (keyword? kw) acc
                  :else         (conj acc target)))))))
 
+(defn- params-locals
+  "Every name the ARITIES of a `fn` tail bind — `forms` being everything after
+  the optional name.
+
+  Both productions are read here: `([params*] body*)` writes its vector first,
+  and `(([params*] body*)+)` writes one per arity list. Both ends of that are
+  pinned by fixtures, because both have been got wrong — reading only the first
+  form blocked every use of a multi-arity `letfn` (merged-PR audit #7804), and
+  reading only the later arities was invisible to rows that bound the same name
+  in each of them (merged-PR audit #7818)."
+  [forms]
+  (into #{}
+        (comp (filter api/vector-node?) (mapcat bound-symbols))
+        (if (api/vector-node? (first forms))
+          [(first forms)]
+          (keep #(when (api/list-node? %) (first (:children %))) forms))))
+
 (defn- fn-locals
   "The names a `fn` / `fn*` / `hfn` binds: its own optional name, and every
   parameter of every arity.
 
   `children` is a `fn` TAIL — everything after the head — which is also
   exactly what a `letfn` fnspec is, so `letfn` asks this rather than
-  re-deriving it."
+  re-deriving it. The NAME is read because a fnspec's name is a local
+  function: `letfn` expands each spec to `(fn f …)` and `f` is in scope
+  throughout."
   [children]
-  (let [self   (token-sexpr (first children))
-        forms  (if self (rest children) children)
-        params (if (api/vector-node? (first forms))
-                 [(first forms)]
-                 (keep #(when (api/list-node? %) (first (:children %))) forms))]
-    (into (if self #{self} #{})
-          (comp (filter api/vector-node?) (mapcat bound-symbols))
-          params)))
+  (let [self  (token-sexpr (first children))
+        forms (if self (rest children) children)]
+    (into (if self #{self} #{}) (params-locals forms))))
 
-(defn- fn-tail-locals
-  "The names a SEQUENCE of NAMED `fn` tails binds.
+(defn- method-locals
+  "The names ONE METHOD binds: the parameters of every arity, and NOTHING else.
 
-  Two families write one. A `letfn` binding vector holds fnspecs, which are
-  `fn` tails by construction. The specs of `reify`, `specify!`, `extend-type`
-  and `extend-protocol` hold methods, `(name [params*] body*)` — the same
-  production, so the same reading answers both.
+  A method is written like a fnspec — `(name [params*] body*)` — and is not
+  one, which is the whole of the difference. `letfn` expands a fnspec to
+  `(fn f …)`, so its name is a local; a method compiles into a protocol
+  implementation and no expansion puts its name in scope at all. Reading a
+  method as a named `fn` tail therefore INVENTED a binding, and because a
+  binding silences the entire form it heads, every genuine self-call anywhere
+  inside a `reify` / `extend` whose method happened to share the view's name
+  went unreported (merged-PR audit #7829).
 
-  Only LIST nodes are read, which is what lets one function serve five forms:
-  the protocol and type NAMES a spec also carries are tokens, and a token
-  binds nothing."
-  [nodes]
-  (into #{} (mapcat #(when (api/list-node? %) (fn-locals (:children %)))) nodes))
+  That direction is the one to be careful about. Silence is the only failure
+  this file permits, which is exactly why a silence that is WRONG is invisible:
+  no build fails, no message appears, and nothing but a reading of the grammar
+  will ever raise it."
+  [children]
+  (params-locals (rest children)))
+
+(defn- each-list
+  "`read-locals` applied to the children of every LIST in `nodes`, unioned.
+
+  Only lists are read, which is what lets one call serve four spec forms: the
+  protocol and type NAMES a spec also carries are tokens, and a token binds
+  nothing."
+  [read-locals nodes]
+  (into #{} (mapcat #(when (api/list-node? %) (read-locals (:children %)))) nodes))
+
+(def ^:private spec-forms
+  "The forms that write METHOD SPECS after one leading argument."
+  '#{reify specify! extend-type extend-protocol})
 
 (defn- locals-bound-by
   "The names this node binds over its own subforms, when it is a form that
@@ -615,27 +647,44 @@
         ;; read and every use of one reported at ERROR (merged-PR audit #7804).
         (= 'letfn core)
         (if (api/vector-node? (first more))
-          (fn-tail-locals (:children (first more)))
+          (each-list fn-locals (:children (first more)))
           #{})
 
         ;; `(reify P (m [v] …))` and the three forms that write the same specs
-        ;; somewhere else: a METHOD is a named `fn` tail exactly as a fnspec
-        ;; is, so its parameters are locals exactly as theirs are.
+        ;; somewhere else: a METHOD's PARAMETERS are locals exactly as a
+        ;; fnspec's are — and its NAME, unlike a fnspec's, is not one. See
+        ;; `method-locals`.
         ;;
         ;; The first argument is dropped for all four, which is uniform rather
         ;; than clever. `reify`, `extend-type` and `extend-protocol` name a
         ;; protocol or a type there and a name binds nothing, so dropping it
         ;; costs them nothing. `specify!` takes an ordinary EXPRESSION —
         ;; `(specify! (js-obj) …)` — sitting precisely where a method sits,
-        ;; and reading THAT as a method would bind its head symbol and silence
-        ;; the whole form, self-call and all.
-        (contains? '#{reify specify! extend-type extend-protocol} core)
-        (fn-tail-locals (rest more))
+        ;; and reading THAT as a method would bind its parameters and, worse,
+        ;; hide the call in it from the walk below.
+        (contains? spec-forms core)
+        (each-list method-locals (rest more))
 
         ;; `(defmethod area :square [{:keys [side]}] …)` — everything past the
         ;; multimethod and the dispatch value is a `fn` tail, arity lists
         ;; included, and `fn` is what `defmethod` hands it to.
         (= 'defmethod core) (fn-locals (drop 2 more))
+
+        ;; `(areduce a idx ret init expr)` and `(amap a idx ret expr)` bind two
+        ;; names each, and write neither in a binding vector: both expand into
+        ;; a `loop`, so the index and the accumulator are in scope over `expr`.
+        ;; The accumulator is an ORDINARY VALUE and may perfectly well be a
+        ;; function — `(areduce steps i f identity …)` folds an array of steps
+        ;; into one — so calling it is ordinary code, and it reported at ERROR
+        ;; (merged-PR audit #7829). `amap` is here beside it because the two
+        ;; names sit at the SAME positions in both forms, so this is one arm
+        ;; rather than two, and `amap` reproduced identically at the pin.
+        ;;
+        ;; Binding TARGETS rather than symbols: the `loop` accepts
+        ;; destructuring at the accumulator and clj-kondo's own analysis reads
+        ;; it, so a symbol-only reading would leave the same hole one shape in.
+        (contains? '#{areduce amap} core)
+        (into #{} (mapcat bound-symbols) (take 2 (rest more)))
 
         (= 'catch core)   (if-let [s (token-sexpr (second more))] #{s} #{})
         (= 'as-> core)    (if-let [s (token-sexpr (second more))] #{s} #{})
@@ -658,6 +707,31 @@
         (comp (mapcat subforms) (mapcat locals-bound-by))
         body))
 
+(defn- call-positions
+  "The children of `node` a CALL may be found in — all of them, unless `node`
+  writes method specs.
+
+  A method puts its NAME in head position of a list, which is exactly where a
+  callee sits, and that name is a DEFINITION rather than a call: nothing is
+  invoked by `(reify Object (toString [_] …))`. It is not a binding either (see
+  `method-locals`), so it cannot be quietened by binding it — the walk has to
+  skip it and read the method's tail, which it does here.
+
+  The head and the FIRST ARGUMENT are kept, because `specify!` writes an
+  ordinary expression there and a view called in it is a real self-call.
+
+  The question does not arise for `letfn`, whose fnspec name IS a local and so
+  silences its own form, nor for `defmethod`, whose multimethod name is an
+  argument rather than a head."
+  [node]
+  (let [cs (:children node)]
+    (if (and (api/list-node? node)
+             (contains? spec-forms (core-var (first cs))))
+      (into (vec (take 2 cs))
+            (mapcat #(if (api/list-node? %) (rest (:children %)) [%]))
+            (drop 2 cs))
+      cs)))
+
 (defn- self-call-nodes
   "Every `(nm …)` under `node` that is NOT inside a form binding `nm`.
 
@@ -673,7 +747,7 @@
     (concat (when (and (api/list-node? node)
                        (= nm (token-sexpr (first (:children node)))))
               [node])
-            (mapcat #(self-call-nodes nm %) (:children node)))))
+            (mapcat #(self-call-nodes nm %) (call-positions node)))))
 
 (defn- check-direct-view-call!
   "A view called like a function, where that is decidable.
