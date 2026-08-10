@@ -678,13 +678,14 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
             # fence and restores the source, so this line is ordinary prose and
             # so is everything below it.  Fall through.
 
-        lm = _LIST_ITEM_OPEN_RE.match(raw)
-        if lm:
-            open_columns.append(
-                len(lm.group("indent")) + len(lm.group("marker")) + len(lm.group("gap"))
-            )
-        elif _MKDOCS_BLOCK_OPEN_RE.match(raw):
-            open_columns.append(indent + _MKDOCS_BLOCK_CONTENT_INDENT)
+        if indent <= content_column + 3:
+            lm = _LIST_ITEM_OPEN_RE.match(raw)
+            if lm:
+                open_columns.append(
+                    len(lm.group("indent")) + len(lm.group("marker")) + len(lm.group("gap"))
+                )
+            elif _MKDOCS_BLOCK_OPEN_RE.match(raw):
+                open_columns.append(indent + _MKDOCS_BLOCK_CONTENT_INDENT)
         out.append((i + 1, raw))
         i += 1
     return out
@@ -2777,6 +2778,36 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 4, 5, 7]),
+        # THE CONTAINER-PUSH GUARD, which had no coverage until the lookahead
+        # refactor above went looking for it.  A list marker four or more spaces
+        # past the current content column is an INDENTED CODE BLOCK, not a list
+        # item, so it must not push a content column — otherwise the fence two
+        # lines down is measured against a phantom container and recognised
+        # where the renderer sees literal text.  MkDocs emits ONE indented code
+        # block spanning lines 3-6 here, markers and all.
+        ("a four-space list marker is an indented code block, not a container",
+         ["Prose.",
+          "",
+          "    - a bullet four spaces in",
+          "      ```clojure",
+          "      [a real link](missing.md)",
+          "      ```",
+          "",
+          "Prose after."],
+         [1, 3, 4, 5, 6, 8]),
+        # ...and the control at three spaces, where the marker IS a list item and
+        # the fence indented to its content column is a real fence.
+        ("a three-space list marker is a container",
+         ["Prose.",
+          "",
+          "   - a bullet three spaces in",
+          "",
+          "     ```clojure",
+          "     [not a link](missing.md)",
+          "     ```",
+          "",
+          "Prose after."],
+         [1, 3, 9]),
     ]
     for label, lines, expected_visible in fence_cases:
         got_visible = [n for n, content in _strip_fences(lines) if content.strip()]
