@@ -38,6 +38,7 @@
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
+            [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.test :as ht]
@@ -115,6 +116,28 @@
 
 (defn- greeting-body [{:keys [who]}] [:p (str "hi " who)])
 (h/defview greeting [props] (greeting-body props))
+
+;; The pair the minted-head render rows below run. The helper is NOT named
+;; `farewell-body`, and that is deliberate: `h/defview` names its emitted
+;; body fn `<sym>-body`, and a named `fn` binds its own name in its body —
+;; so `(h/defview farewell [p] (farewell-body p))` expands to
+;; `(fn farewell-body [p] (farewell-body p))`, which recurses forever. That
+;; is a defect in the public door macro rather than in this suite, and it is
+;; filed as its own finding; `greeting` above carries it and is never run.
+(defn- farewell-text [{:keys [who]}] [:p (str "bye " who)])
+(h/defview farewell [props] (farewell-text props))
+
+(def ^:private unretained-head
+  "A boundary head carrying NO retained body — which is exactly what an
+  `:advanced` + `goog.DEBUG=false` mint produces, because
+  `collector/mint-view!` writes the body property inside
+  `(when ^boolean js/goog.DEBUG …)` and nothing else writes it ever.
+
+  Marked through the codec's own door, so what is under test is the
+  runtime's notion of a boundary head rather than this file's."
+  (doto (codec/mark-boundary! (fn [_] [:p "never runs at L2"]))
+    (unchecked-set "displayName"
+                   "re-frame.hicasso.test-kit-cljs-test/unretained-head")))
 
 (deftest the-abi-predicates-discriminate-rather-than-restate-fn?
   (testing "a `defview` var is a boundary and its own body function is not —
@@ -363,22 +386,42 @@
 ;; L2 — honest opacity. Every refusal, with its legal twin.
 ;; ---------------------------------------------------------------------------
 
-(deftest a-minted-boundary-head-refuses-because-its-body-is-not-retained
-  (testing "the refusal names the view and points at the tier that can
-            answer"
-    (let [o (outcome #(ht/render [greeting {:who "ada"}]))]
+(deftest a-minted-boundary-head-renders-the-body-the-dev-build-retained
+  ;; The inversion of `a-minted-boundary-head-refuses-because-its-body-is-not-
+  ;; retained`, under the rf2-kjf5 ruling: `mint-view!` now keeps the body ON
+  ;; the head under one dev-only property, so L2 renders `[some-view …]`.
+  ;; The refusal is not gone — the last row below is it, reached the one way
+  ;; it can still be reached.
+  (testing "a minted `h/defview` head renders, and answers the body's tree"
+    (let [tree (ht/render [farewell {:who "ada"}])]
+      (is (= :p (:tag tree)))
+      (is (= "bye ada" (ht/text tree)))))
+
+  (testing "and it is the SAME tree the body answers when named directly —
+            which is what running a view AS WRITTEN has to mean, and rules
+            out a second rendering path that merely agrees on the text"
+    (is (= (ht/render [farewell-text {:who "ada"}])
+           (ht/render [farewell {:who "ada"}]))))
+
+  (testing "what it cost is ONE own property on the head: the head is still
+            the function `defview` defined and still a boundary, so no memo
+            object escaped as the public representation (rf2-2rtt6.52)"
+    (is (fn? farewell))
+    (is (true? (ht/boundary? farewell)))
+    (is (fn? (codec/retained-body farewell))))
+
+  (testing "the retention is DEV-ONLY, so the refusal is still live and still
+            named: a boundary head with no retained body — an `:advanced` +
+            `goog.DEBUG=false` mint — refuses with the id, the view and the
+            L3 pointer it always carried"
+    (let [o (outcome #(ht/render [unretained-head {:who "ada"}]))]
       (is (= {:rf.error/id :rf.error/hicasso-test-boundary-body-not-retained
               :where       're-frame.hicasso.test
               :recovery    :render-the-body-fn-or-mount-at-l3
-              :view        "re-frame.hicasso.test-kit-cljs-test/greeting"}
+              :view        "re-frame.hicasso.test-kit-cljs-test/unretained-head"}
              (refusal o [:view])))
       (is (re-find #"L3 owns React lifecycle" (:message o))
-          "the message points up the ladder rather than restating the tier")))
-
-  (testing "and the legal twin: the SAME view, rendered through the body it
-            is minted from, answers its tree — so the refusal is about the
-            head and not about a body that could not run"
-    (is (= "hi ada" (ht/text (ht/render [greeting-body {:who "ada"}]))))))
+          "the message points up the ladder rather than restating the tier"))))
 
 (deftest a-host-crossing-is-opaque-at-l2
   (testing "at the root"

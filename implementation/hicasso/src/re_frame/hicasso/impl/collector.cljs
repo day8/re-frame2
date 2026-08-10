@@ -1855,7 +1855,23 @@
                     (error/traced-boundary view-name component)
                     component)]
     (unchecked-set component "displayName" view-name)
-    (codec/memoize-boundary! (codec/mark-boundary! component))))
+    (let [head (codec/memoize-boundary! (codec/mark-boundary! component))]
+      ;; rf2-kjf5 — the body, kept ON the head, for the test kit alone.
+      ;; A minted head is a React component and its body is reachable only
+      ;; through `shell`, so `re-frame.hicasso.test` — which mounts nothing
+      ;; and runs no hook — had no route back to the function the author
+      ;; wrote and refused a minted head outright. The operator ruled that
+      ;; L2 should render one, so the head carries it.
+      ;;
+      ;; ONE own property, and nothing else changes: no registry, no map,
+      ;; no per-view object, and the returned value is still the function
+      ;; (rf2-2rtt6.52). `goog.DEBUG` is the same gate the `displayName`
+      ;; stamp above uses, so under `:advanced` + `goog.DEBUG=false` this
+      ;; folds away with `codec/retain-body!` behind it and a production
+      ;; head answers nil — asserted in
+      ;; `re-frame.hicasso.error-source-coord-elision-prod-test`.
+      (when ^boolean js/goog.DEBUG (codec/retain-body! head body-fn))
+      head)))
 
 (defn mint-frame-prop-view!
   "[[mint-view!]]'s frame-fed twin (rf2-2rtt6.39): the same boundary, the
