@@ -235,10 +235,10 @@ and a residue guarantee:
       (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))))
 ```
 
-Every door takes the handle first and answers it, so a teardown threads. The
-test is `async` because the cleanliness verdict is: `assert-clean!` waits for
-the runtime's own quiescence before it reads, so a synchronous `deftest` would
-finish before the report arrived.
+Every door takes the handle first and answers it, so a whole teardown threads
+in one expression. The test is `async` because the verdict is: `assert-clean!`
+waits for the runtime's own quiescence before it reads, and a synchronous
+`deftest` would finish before the report arrived.
 
 The facade brings no selector language of its own, because that job already
 has an owner. `(:container m)` is a real DOM node, so Testing Library
