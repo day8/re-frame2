@@ -133,6 +133,7 @@ was never dispatched at all. Only the arrival count separates the two, and it is
 | `plain` | takes what is typed | the model **accepted** — the field keeps what you committed |
 | `digits` | refuses anything that is not a digit | the model **refused** — the field snaps back to its committed value |
 | `empty` | refuses everything; the model stays `""` | the same, at the hardest setting |
+| `revision-strict` | refuses anything that is not a digit, and carries `::h/revision` | a revision reset whose **target differs from the draft on screen** — which is what makes check 7 readable at all |
 
 So "the model refused it" is not something you have to take on trust: compose kana into `digits`, and watch its trace
 row show the arrival count climbing while **committed** stays `123`. The draft on screen is the IME's, held in front
@@ -143,13 +144,20 @@ conduct these checks now assert. Its `an-accepting-model-during-a-composition` a
 `a-revision-arriving-mid-composition` sections are the reference for what the runtime does; this checklist asks only
 whether a **real** IME behaves the same way.
 
+The `revision-strict` field and the event-naming `armed` readout arrived with the follow-up to that PR, and both are
+here because of the same finding: a check has to be able to FAIL. On the accepting `revision` field the reset's target
+and the composing draft are the same string, so watching the draft stay put proves nothing — check 7 therefore reads
+`revision-strict`, whose model refuses. The `armed` readout now names the event it has queued
+(`armed: unmount -> [:tb/toggle-mounted] fires in 5s`) rather than only that something is queued, so an arm wired to
+the wrong thing is visible before the five seconds elapse.
+
 Where a build does offer devtools (Firefox's usually does; WebKit's does not), `window.__RF2_HIC_TB__.model()` returns
 the store as JSON and is a direct cross-check. Treat it as a convenience, never as the check itself.
 
 ## 5. The checks
 
-The seed values are `plain` = `abc`, `digits` = `123`, `upper` = `ABC`, `revision` = `keep`, `mountable` = `9`.
-Reload the page between checks if you lose track of state.
+The seed values are `plain` = `abc`, `digits` = `123`, `upper` = `ABC`, `revision` = `keep`,
+`revision-strict` = `42`, `mountable` = `9`. Reload the page between checks if you lose track of state.
 
 **1 — Draft text visible during composition.** Click into `digits` and begin composing kana (e.g. type `nihongo`).
 *Pass:* the composing draft is visible in the field, underlined, while the candidate window is open — even though the
@@ -191,21 +199,28 @@ double-application: the count jumping at the commit, or the committed text landi
 Note what this check does *not* claim, and check 3 explains why: the committed text does not arrive once at the close.
 It arrives progressively, one intent per composing `input`, and `compositionend` contributes nothing further.
 
-**7 — Revision reset during and after composition.** Press **arm bump (5s)** — the `armed` readout says so — then
-click into `revision` and begin composing before it fires. Repeat with the immediate **bump** button *after*
-committing.
+**7 — Revision reset during and after composition.** Press **arm bump (5s)** — the `armed` readout should read
+`armed: bump -> [:tb/bump-revision] fires in 5s` — then click into **`revision-strict`** and begin composing kana
+before it fires. Repeat with the immediate **bump** button *after* committing.
 *Pass:* mid-composition the reset **defers to the exchange's close**: the draft is untouched while the composition is
 open, and it is not destroyed under the user. After commit, the reset re-baselines the field to the model on the same
 DOM node.
-*What is not claimed:* that the reset wins. `revision`'s model **accepts**, so the composing updates it kept taking
-supersede the reset by ordinary event order, and the field converges to the composed text rather than to `keep`. The
-deferral cannot strand the field; it does not make the reset unlosable (#7815,
-`a-revision-arriving-mid-composition`).
+*Read `revision-strict`, not `revision`, and the reason is the whole of what makes this check readable.*
+`revision-strict` **refuses** the kana, so while you compose, its committed cell still reads `"42"` and the reset has
+`42` to write while the field is showing `42あ…`. A reset that landed immediately would put `42` on the screen under
+you and kill the composition, so watching the draft stand IS the observation. On the accepting `revision` field the
+model has already taken the draft, so a deferred reset and an immediate one write the identical string and nothing you
+can see distinguishes them — which is the non-discriminating criterion the #7815/#7817 audits caught here.
+*What is not claimed:* that the reset wins. Compose in `revision` afterwards to see the limit: its model **accepts**,
+so the composing updates it kept taking supersede the reset by ordinary event order and the field converges to the
+composed text rather than to `keep`. The deferral cannot strand the field; it does not make the reset unlosable
+(#7815, `a-revision-arriving-mid-composition`).
 *Why armed:* a real pointer-down on a button closes the composition before the click can land inside it, so the
 mid-composition arm is not reachable by hand any other way.
 
 **8 — Blur and unmount mid-composition.** Begin composing in `mountable`, then click away (or Tab) without committing.
-Then reload, press **arm unmount (5s)**, and begin composing in `mountable` before it fires.
+Then reload, press **arm unmount (5s)** — the readout should read `armed: unmount -> [:tb/toggle-mounted] fires in 5s`
+— and begin composing in `mountable` before it fires.
 *Pass:* no stranded draft — the field (or its replacement) shows committed state, and nothing throws. `mountable`
 refuses non-digits, so its trace row's **committed** cell still reads `9` while its arrival count records the updates
 it turned down; that is what makes "no stranded draft" a claim about the teardown rather than about a model that
@@ -223,7 +238,7 @@ Tick both engines for each check. A cross is as valuable as a tick — it is the
 | 4 | Commit echo | [ ] | [ ] | |
 | 5 | Escape / abort mid-composition | [ ] | [ ] | |
 | 6 | `compositionend` adds no intent of its own | [ ] | [ ] | |
-| 7 | Revision reset during / after composition | [ ] | [ ] | |
+| 7 | Revision reset during / after composition (`revision-strict`) | [ ] | [ ] | |
 | 8 | Blur / unmount mid-composition | [ ] | [ ] | |
 
 Session date: ______________  Firefox build: ______________  WebKit build: ______________
