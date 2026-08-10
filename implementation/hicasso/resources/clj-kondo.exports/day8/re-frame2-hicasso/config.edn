@@ -1,0 +1,38 @@
+;; clj-kondo export for day8/re-frame2-hicasso (rf2-hic-022).
+;;
+;; A consumer picks this up with clj-kondo's ordinary dependency import —
+;; nothing here is re-frame2-specific plumbing:
+;;
+;;   clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs
+;;
+;; which copies this directory to `.clj-kondo/day8/re-frame2-hicasso/` and
+;; adds it to the consumer's `:config-paths`. See README.md beside this file
+;; for what each check knows, and — the more useful half — what it refuses to
+;; know.
+;;
+;; LEVELS. The three errors are forms the RUNTIME already refuses, so lint is
+;; only telling the author sooner: a `:&` that cannot merge, a read in the one
+;; position that is deferred by construction, and a function where a head
+;; belongs. The three warnings are advice: two are correctness heuristics that
+;; a reader might have meant, and one (`parked-read`) is conduct the project
+;; has explicitly declined to enforce (rf2-djxr). Every level is a consumer's
+;; to change, and turning one off is a supported answer.
+{:linters
+ {:re-frame.hicasso/merge-not-a-map              {:level :error}
+  :re-frame.hicasso/deferred-read                {:level :error}
+  :re-frame.hicasso/function-in-head-position    {:level :error}
+  :re-frame.hicasso/parked-read                  {:level :warning}
+  :re-frame.hicasso/unkeyed-mapped-child         {:level :warning}
+  :re-frame.hicasso/nameless-interactive-element {:level :warning}}
+
+ ;; `defview`, `hfn` and `defhost` are `defn`-, `fn`- and `def`-shaped. The
+ ;; hooks rewrite them so kondo's own arglist / arity / lexical-binding
+ ;; analysis applies, which is what stops a view's name and every destructured
+ ;; prop reading as `Unresolved symbol`. `:lint-as` cannot do this job for
+ ;; `defview` — the checks need the body — and would be a second, divergent
+ ;; description of the same three shapes if it did half of it.
+ :hooks
+ {:analyze-call
+  {re-frame.hicasso/defview hooks.re-frame.hicasso/defview
+   re-frame.hicasso/hfn     hooks.re-frame.hicasso/hfn
+   re-frame.hicasso/defhost hooks.re-frame.hicasso/defhost}}}
