@@ -1181,6 +1181,34 @@ else
         # green under regressions these rows catch. A hicasso diff that
         # did not run it would be relying on the weaker witness.
         hicasso_controlled=true
+        # rf2-erjv — migration_hicasso_codemod, the SECOND reverse edge into
+        # the codemod's JVM lane. The `implementation/freehand/*` arm above
+        # carries the first and states the shape; this is the same shape by a
+        # different mechanism, and it was missing.
+        #
+        # There the edge is a CLASSPATH one: the codemod's deps.edn puts
+        # `../../../implementation/freehand/test` on `:paths` so the tool and
+        # the door share ONE slot rule (rf2-ani6y). Here it is a SOURCE-TEXT
+        # one. `shared_rule_test.clj`'s `the-callback-contracts-are-the-doors`
+        # (rf2-vi11) reaches back up the tree with a relative `io/file` and
+        # slurps `implementation/hicasso/src/re_frame/hicasso/impl/codec.cljs`,
+        # because that roster is `.cljs` this JVM cannot load but CAN read —
+        # then asserts the door's own `callback-contracts` set equals the one
+        # the codemod PRINTS into the `defhost` sketch it invites a migrator to
+        # paste. Add a fourth contract at the door, or rename one, and the
+        # tool's advice goes wrong; that pin is the assertion that says so, and
+        # before this line it lived in a lane a hicasso-only diff never ran.
+        # The pin also asserts the file EXISTS where it looks, so a MOVE of
+        # codec.cljs reds it rather than silently skipping — which is only
+        # worth having if the move's own PR schedules the lane.
+        #
+        # COARSER than the edge, for the reason the freehand arm gives: the
+        # read file sits inside this tree, and an arm naming it alone would
+        # have to precede this one, where it would shadow the three outputs
+        # above and silently narrow the package's own coverage. Over-
+        # classifying a seconds-long pure JVM suite is the cheaper error, and
+        # TESTING.md says to prefer it.
+        migration_hicasso_codemod=true
         ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
