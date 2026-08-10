@@ -425,6 +425,7 @@ preserving first-seen order.
 | `:examples/login-form` | http://localhost:8043/ · `/#/stories` |
 | `:examples/linearlite` | http://localhost:8044/ |
 | `:testbeds/tenant-switcher` | http://localhost:8060/ |
+| `:hicasso/hmr-testbed` | http://localhost:8061/ |
 
 The build→port table mirrors the `:dev-http` map in `shadow-cljs.edn`.
 
