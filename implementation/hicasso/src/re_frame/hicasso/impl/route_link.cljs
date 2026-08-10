@@ -73,7 +73,8 @@
   One click, one semantic event — the navigation, or the app intent that
   cancelled it. See intent.cljs §The navigate head for the click-time
   half."
-  (:require [re-frame.hicasso.impl.intent :as intent]
+  (:require [re-frame.hicasso.impl.error :refer [fail!]]
+            [re-frame.hicasso.impl.intent :as intent]
             [re-frame.late-bind :as late-bind]))
 
 (def ^:private routing-artefact
@@ -86,15 +87,10 @@
    :maven         "day8/re-frame2-routing"
    :require-ns    "re-frame.routing"})
 
-(defn- fail! [id where reason recovery extra]
-  ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
-  ;; message carries the `[:rf.error/...]` token the source cannot show
-  ;; (the gate's own "computed discriminator" case). Re-routing the
-  ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
-  (throw (ex-info (str reason " [" id "]")
-                  (merge {:rf.error/id id :where where
-                          :reason reason :recovery recovery}
-                         extra))))
+;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
+;; package, and the ambient view and source coordinate come with it
+;; (rf2-hic-007). The eight lines that stood here were one of six identical
+;; copies.
 
 (def control-keys
   "The keys `route-link` owns. Everything else on the props map is a

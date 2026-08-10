@@ -249,6 +249,7 @@
   namespace produced, after it has produced it, and nothing about the
   lowering changes because of it (rf2-fki5d)."
   (:require [re-frame.frame :as frame]
+            [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.late-bind :as late-bind]))
 
 ;; ---------------------------------------------------------------------------
@@ -367,15 +368,10 @@
                                              frame-kw (assoc :extent-frame frame-kw))]
      (body-fn))))
 
-(defn- fail! [id where reason recovery extra]
-  ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
-  ;; message carries the `[:rf.error/...]` token the source cannot show
-  ;; (the gate's own "computed discriminator" case). Re-routing the
-  ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
-  (throw (ex-info (str reason " [" id "]")
-                  (merge {:rf.error/id id :where where
-                          :reason reason :recovery recovery}
-                         extra))))
+;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
+;; package, and the ambient view and source coordinate come with it
+;; (rf2-hic-007). The eight lines that stood here were one of six identical
+;; copies.
 
 (defn- require-dispatch
   "The frame-locked dispatch this lowering needs, or the loud refusal.
@@ -401,22 +397,20 @@
   frame, and declaring it is the whole of the repair."
   [intent]
   (or *dispatch*
-      (throw (ex-info (str "Intent " (pr-str intent) " was lowered with no ambient frame. "
-                           "Either the form is outside any boundary's render — a "
-                           "declaration, a fallback, a module-level def — in which case "
-                           "lower it inside a body; or it is inside a function a foreign "
-                           "component invokes after that render returned, which is what a "
-                           "function prop on a [:>] crossing is: the escape carries no "
-                           "declaration, so nothing claims the slot and nothing forwards "
-                           "to the owner. Declare the crossing instead — defhost with "
-                           ":callbacks {<the prop> :render} — and the position owns the "
-                           "frame. "
-                           "[:rf.error/hicasso-intent-outside-boundary]")
-                      {:rf.error/id :rf.error/hicasso-intent-outside-boundary
-                       :where       'front.intent/lower-prop
-                       :reason      "No frame-locked dispatch is bound for this render."
-                       :recovery    :lower-intents-inside-a-boundary-render
-                       :intent      intent}))))
+      (fail! :rf.error/hicasso-intent-outside-boundary
+             'front.intent/lower-prop
+             (str "No frame-locked dispatch is bound for this render. Intent "
+                  (pr-str intent) " was lowered with no ambient frame. Either the "
+                  "form is outside any boundary's render — a declaration, a "
+                  "fallback, a module-level def — in which case lower it inside a "
+                  "body; or it is inside a function a foreign component invokes "
+                  "after that render returned, which is what a function prop on a "
+                  "[:>] crossing is: the escape carries no declaration, so nothing "
+                  "claims the slot and nothing forwards to the owner. Declare the "
+                  "crossing instead — defhost with :callbacks {<the prop> :render} "
+                  "— and the position owns the frame.")
+             :lower-intents-inside-a-boundary-render
+             {:intent intent})))
 
 ;; ---------------------------------------------------------------------------
 ;; The author-facing frame read — `h/frame` (rf2-841vn)

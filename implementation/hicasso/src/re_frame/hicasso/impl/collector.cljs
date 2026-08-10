@@ -399,6 +399,7 @@
   hole, or writes the DOM."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.error :as error :refer [fail!]]
             [re-frame.hicasso.impl.evidence :as evidence]
             [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.generation :as generation]
@@ -412,18 +413,13 @@
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
-;; Errors
+;; Errors — `fail!` is `re-frame.hicasso.impl.error`'s (rf2-hic-007)
 ;; ---------------------------------------------------------------------------
-
-(defn- fail! [id where reason recovery extra]
-  ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
-  ;; message carries the `[:rf.error/...]` token the source cannot show
-  ;; (the gate's own "computed discriminator" case). Re-routing the
-  ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
-  (throw (ex-info (str reason " [" id "]")
-                  (merge {:rf.error/id id :where where
-                          :reason reason :recovery recovery}
-                         extra))))
+;;
+;; It used to be eight lines here, and the same eight lines in five sibling
+;; modules. The shape those copies agreed on is now one constructor, and
+;; `:refer`ring it keeps every call site below spelled exactly as it was
+;; while the ns form says, once, where the shape lives.
 
 ;; ---------------------------------------------------------------------------
 ;; The render context
@@ -1847,7 +1843,17 @@
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
   (let [component (fn hicasso-boundary [js-props]
                     (performance/mark-and-measure :render view-name
-                      (shell body-fn js-props)))]
+                      (shell body-fn js-props)))
+        ;; rf2-hic-007 — the refusal shape's ambient half. The wrapper makes
+        ;; this boundary the origin for the duration of its render, so a
+        ;; refusal raised anywhere below can name the view and resolve the
+        ;; source coordinate `defview` captured. `interop/debug-enabled?` is
+        ;; `^boolean goog.DEBUG`, so under `:advanced` + `goog.DEBUG=false`
+        ;; this `if` folds to `component` and what React calls is the
+        ;; component fn above, unchanged.
+        component (if interop/debug-enabled?
+                    (error/traced-boundary view-name component)
+                    component)]
     (unchecked-set component "displayName" view-name)
     (codec/memoize-boundary! (codec/mark-boundary! component))))
 
@@ -1873,7 +1879,14 @@
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
   (let [component (fn hicasso-frame-prop-boundary [js-props]
                     (performance/mark-and-measure :render view-name
-                      (frame-prop-shell body-fn js-props)))]
+                      (frame-prop-shell body-fn js-props)))
+        ;; The same dev-only origin wrapper [[mint-view!]] applies, and here
+        ;; for the reason its docstring gives about the `:render` bucket: a
+        ;; shape wired to one of the arm's two view-substrate wrappers and
+        ;; not the other would attribute half a page's refusals to nothing.
+        component (if interop/debug-enabled?
+                    (error/traced-boundary view-name component)
+                    component)]
     (unchecked-set component "displayName" view-name)
     (codec/memoize-boundary!
       (codec/mark-frame-prop! (codec/mark-boundary! component)))))

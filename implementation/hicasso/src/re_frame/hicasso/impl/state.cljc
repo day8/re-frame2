@@ -82,6 +82,7 @@
   delete, so there is no sentinel here and no \"convenience\" arity that
   accepts one."
   (:require [re-frame.events :as events]
+            [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.subs :as subs]))
 
 ;; ---------------------------------------------------------------------------
@@ -103,15 +104,10 @@
 ;; Errors — the lane's shape (front.presence/fail!)
 ;; ---------------------------------------------------------------------------
 
-(defn- fail! [id where reason recovery extra]
-  ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
-  ;; message carries the `[:rf.error/...]` token the source cannot show
-  ;; (the gate's own "computed discriminator" case). Re-routing the
-  ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
-  (throw (ex-info (str reason " [" id "]")
-                  (merge {:rf.error/id id :where where
-                          :reason reason :recovery recovery}
-                         extra))))
+;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
+;; package, and the ambient view and source coordinate come with it
+;; (rf2-hic-007). The eight lines that stood here were one of six identical
+;; copies.
 
 ;; ---------------------------------------------------------------------------
 ;; Instance keys

@@ -132,6 +132,60 @@
 ;; package is the artefact from that commit forward, and the door is held to
 ;; its CONTRACT instead, by `public_door_macros_cljs_test`.
 
+;; ## The third retirement: the six `front/*` files that raise refusals
+;; ## (rf2-hic-007, 2026-08-10 17:49 AUSEST)
+;;
+;; rf2-hic-007 gave the package ONE error-shape constructor —
+;; `re-frame.hicasso.impl.error/fail!` — and migrated every refusal in the
+;; package to it. That reaches six of the seven rows below, because six of
+;; them carried a copy of the eight-line `fail!` helper (the copy the header
+;; paragraph above already had to explain) and four of them additionally
+;; carried a refusal built inline. What each of the six now has instead is a
+;; `:require` of the shared constructor and a comment where its copy stood.
+;;
+;; This is the header's SECOND response, and the manifest's third occasion for
+;; it: the fix landed in the PACKAGE, the bench tree is now the stale copy,
+;; and the honest answer is to retire the row rather than re-pin it. Re-pinning
+;; would be worse than useless here — it would record the bench tree as having
+;; received a change it did not receive, and a `--update` cannot manufacture
+;; the MOVED green anyway.
+;;
+;; Porting the change BACKWARDS into the bench tree was considered and
+;; rejected. The prototype under `implementation/freehand/test/.../hicasso/`
+;; is a MEASURED artefact — the clock rows, the ladders and the SSR spike are
+;; all readings taken from that exact source — and editing it to carry a
+;; diagnostic facility invented afterwards would invalidate the readings the
+;; package's own budgets are set against, to buy a digest.
+;;
+;; ### What it costs, stated rather than hidden
+;;
+;; Retiring a row drops the donor digest along with the package comparison, so
+;; `front/codec.cljs`, `front/controlled.cljs`, `front/intent.cljs`,
+;; `front/presence.cljs`, `front/route_link.cljs` and `front/state.cljc` are no
+;; longer pinned by anything. Combined with the first two retirements, the only
+;; bench-tree file this gate still watches is `front/slot.cljc` — one row, and
+;; it survives for the honest reason that `slot.cljc` raises no refusal and so
+;; needed no edit, not because anybody arranged for a row to remain.
+;;
+;; The gate is NOT hollow at one row. SEALED still scans every file under
+;; `implementation/hicasso/` for a benchmark-tree import, which is the property
+;; that keeps the shipped package independent of a test tree, and it is the one
+;; of the three that was always package-wide. FROZEN and MOVED now answer for
+;; `front/slot.cljc` and say so.
+;;
+;; What replaces the retired rows is the same kind of instrument that replaced
+;; `arm1/lang.clj`'s: a CONTRACT check rather than a provenance diff.
+;; `re-frame.hicasso.error-shape-cljs-test` holds the refusal shape itself —
+;; that every refusal carries an id, an emitting fn, a reason and a recovery,
+;; and that the constructor refuses to mint one that does not. A donor digest
+;; could only ever have said the six files still agreed with a prototype; the
+;; shape test says the thing a consumer actually needs, which is that the
+;; diagnostics are complete.
+;;
+;; The SUNSET clause in `scripts/check_freeze.py` is now within sight: one row
+;; remains, and when `front/slot.cljc` diverges for its own reasons, the
+;; manifest and the gate go together.
+
 {:donor-root "implementation/freehand/test/re_frame/bench/hicasso"
 
  ;; The namespace rename the copy applied, in full. A reference to a bench
@@ -180,39 +234,13 @@
  ;; exists to prevent.
  :forbidden-import-prefixes ["re-frame.bench." "re-frame.freehand."]
 
+ ;; ONE row. `front/codec.cljs`, `front/controlled.cljs`, `front/intent.cljs`,
+ ;; `front/presence.cljs`, `front/route_link.cljs` and `front/state.cljc` were
+ ;; retired by rf2-hic-007 — see "The third retirement" above for why, and for
+ ;; what stands in their place.
  :files
- [{:bench   "front/codec.cljs"
-   :package "src/re_frame/hicasso/impl/codec.cljs"
-   :ns      re-frame.hicasso.impl.codec
-   :lines   2972
-   :sha256  "c08a71dd787fdedeb91b0cdd0b534b26df2be9af508e095370a4ed8105f52abc"}
-  {:bench   "front/controlled.cljs"
-   :package "src/re_frame/hicasso/impl/controlled.cljs"
-   :ns      re-frame.hicasso.impl.controlled
-   :lines   745
-   :sha256  "269270d698c1b4feac105117075cc91560bd70b23a263b5adc9eccd2d3630e58"}
-  {:bench   "front/intent.cljs"
-   :package "src/re_frame/hicasso/impl/intent.cljs"
-   :ns      re-frame.hicasso.impl.intent
-   :lines   1218
-   :sha256  "c771e60c2107dd04b39c75b6899fbd8ab1e087af146b5b92bc15432e36a4a9f4"}
-  {:bench   "front/presence.cljs"
-   :package "src/re_frame/hicasso/impl/presence.cljs"
-   :ns      re-frame.hicasso.impl.presence
-   :lines   365
-   :sha256  "801753c1323a520bb23469d05df85d295bc1d835f50c97fb307af3200bfdc67f"}
-  {:bench   "front/route_link.cljs"
-   :package "src/re_frame/hicasso/impl/route_link.cljs"
-   :ns      re-frame.hicasso.impl.route-link
-   :lines   217
-   :sha256  "b1f4f28fcf0e12259d601f766dffc19c93339b46d4e2a90ff8b4c11adb43fb46"}
-  {:bench   "front/slot.cljc"
+ [{:bench   "front/slot.cljc"
    :package "src/re_frame/hicasso/impl/slot.cljc"
    :ns      re-frame.hicasso.impl.slot
    :lines   109
-   :sha256  "5f8a2baa5bde605f2f28fd88a373df9d686bf23e3a3b59a1c06209bb92020d47"}
-  {:bench   "front/state.cljc"
-   :package "src/re_frame/hicasso/impl/state.cljc"
-   :ns      re-frame.hicasso.impl.state
-   :lines   309
-   :sha256  "d9c7561fc8a6a7bc717f3695b5321f050b7900c5b5d0eae78a9a71b26bca52dd"}]}
+   :sha256  "5f8a2baa5bde605f2f28fd88a373df9d686bf23e3a3b59a1c06209bb92020d47"}]}

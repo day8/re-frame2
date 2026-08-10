@@ -204,6 +204,7 @@
   page explains the denial except this paragraph."
   (:require [clojure.string :as str]
             [re-frame.hicasso.impl.controlled :as controlled]
+            [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.slot :as slot]
             ["react" :as react]))
@@ -211,21 +212,13 @@
 (declare as-element)
 
 ;; ---------------------------------------------------------------------------
-;; Errors
+;; Errors — `fail!` is `re-frame.hicasso.impl.error`'s (rf2-hic-007)
 ;; ---------------------------------------------------------------------------
-
-(defn- fail!
-  "The codec's one refusal shape, matching the arm runtime's: an id a test
-  can assert on, the position that refused, why, and what to do instead."
-  [id where reason recovery extra]
-  ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
-  ;; message carries the `[:rf.error/...]` token the source cannot show
-  ;; (the gate's own "computed discriminator" case). Re-routing the
-  ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
-  (throw (ex-info (str reason " [" id "]")
-                  (merge {:rf.error/id id :where where
-                          :reason reason :recovery recovery}
-                         extra))))
+;;
+;; This file's `fail!` was the general one, and rf2-hic-007 generalised it
+;; the rest of the way: the same id / position / reason / recovery a test
+;; can assert on, plus the ambient view and source coordinate no call site
+;; is in a position to supply.
 
 ;; ---------------------------------------------------------------------------
 ;; Cache hygiene — the own-property guard both caches share
@@ -2862,11 +2855,11 @@
   "Interpret one hiccup vector."
   [argv]
   (when (zero? (count argv))
-    (throw (ex-info (str "Empty hiccup vector. [:rf.error/hicasso-empty-vector]")
-                    {:rf.error/id :rf.error/hicasso-empty-vector
-                     :where       'front.codec/vec->element
-                     :reason      "A hiccup vector must have a head."
-                     :recovery    :supply-a-hiccup-head})))
+    (fail! :rf.error/hicasso-empty-vector
+           'front.codec/vec->element
+           "A hiccup vector must have a head."
+           :supply-a-hiccup-head
+           {}))
   (let [head (nth argv 0)]
     (cond
       (fragment-head? head)   (fragment-element argv)
@@ -2875,21 +2868,20 @@
       (boundary-head? head)   (boundary-element argv)
       (host-head? head)       (host-element argv)
       :else
-      (throw (ex-info (str "Hiccup head " (pr-str head) " is not a valid element head; "
-                           "use a tag keyword, :<>, :>, a view minted by defview, or a "
-                           "host minted by defhost. "
-                           "A plain function in head position is never a silent "
-                           "embedding — call it, or make it a view. A raw JS "
-                           "component is never a silent embedding either — "
-                           "declare it with defhost, or write the escape "
-                           "[:> Component …] (HD-011). "
-                           "[:rf.error/hicasso-bad-head]")
-                      {:rf.error/id :rf.error/hicasso-bad-head
-                       :where       'front.codec/vec->element
-                       :reason      (if (fn? head)
-                                      "A plain function in head position is a loud error (HD-016)."
-                                      "Hiccup head must be a tag keyword, :<>, :>, a defview product, or a defhost product.")
-                       :recovery    (if (fn? head) :call-it-or-make-it-a-view :supply-a-valid-hiccup-head)})))))
+      (fail! :rf.error/hicasso-bad-head
+             'front.codec/vec->element
+             (if (fn? head)
+               (str "A plain function in head position is a loud error (HD-016). "
+                    "Hiccup head " (pr-str head) " is not a valid element head; use a "
+                    "tag keyword, :<>, :>, a view minted by defview, or a host minted "
+                    "by defhost. A plain function in head position is never a silent "
+                    "embedding — call it, or make it a view.")
+               (str "Hiccup head must be a tag keyword, :<>, :>, a defview product, "
+                    "or a defhost product. Hiccup head " (pr-str head) " is none of "
+                    "them. A raw JS component is never a silent embedding — declare "
+                    "it with defhost, or write the escape [:> Component …] (HD-011)."))
+             (if (fn? head) :call-it-or-make-it-a-view :supply-a-valid-hiccup-head)
+             {:head head}))))
 
 (defn as-element
   "Interpret any hiccup form. `nil` and `false` render nothing; `true` is
@@ -2923,12 +2915,11 @@
     (vector? x)      (vec->element x)
     (number? x)      x
     (seq? x)         (expand-seq x)
-    (true? x)        (throw (ex-info (str "`true` is not a renderable child. "
-                                          "[:rf.error/hicasso-true-child]")
-                                     {:rf.error/id :rf.error/hicasso-true-child
-                                      :where       'front.codec/as-element
-                                      :reason      "nil and false render nothing; true is an error (HD-016)."
-                                      :recovery    :use-nil-or-false}))
+    (true? x)        (fail! :rf.error/hicasso-true-child
+                            'front.codec/as-element
+                            "nil and false render nothing; true is an error (HD-016)."
+                            :use-nil-or-false
+                            {})
     (react/isValidElement x) x
     (keyword? x)     (name x)
     (symbol? x)      (name x)
