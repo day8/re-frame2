@@ -234,6 +234,89 @@ Four are blocked on something concrete, and the block is the interesting part:
   needs an artefact-roster entry, which is only legal with a matching `test.yml` job, and
   `.github/workflows/` is hot zone. **Sequential access required — this one file cannot move
   without an operator-sequenced workflow change.**
+  **ANSWERED: no lane, and the row is closed rather than pending** — the claim is already armed on
+  both hosts and the package's copy is held identical to the armed one. See
+  [1. `front/slot_cljs_test.cljc` — no JVM lane](#1-frontslot_cljs_testcljc--no-jvm-lane).
+
+---
+
+## The three sequencing questions, settled
+
+**rf2-b6ja**, 2026-08-11 04:01 AUSEST. The triage stopped at three rows rather than take decisions
+that were not a triage's to take. All three are decided here, each with the measurement it rests on,
+so that the next reader inherits the answer instead of the question. Two are a **no**; the third
+turns out to rest on a premise that does not hold.
+
+### 1. `front/slot_cljs_test.cljc` — no JVM lane
+
+**The verdict: do not open a `jvm-hicasso` lane. The suite stays in the bench tree, and this row is
+closed rather than pending.** The claim it makes is already asserted on both hosts, and the
+package's copy of the rule is held identical to the copy being asserted — by a checker that is
+stronger than the suite.
+
+**The number that decides it is zero.** Nothing follows this file into a JVM lane. It is the *only*
+`.cljc` test file among the 69; the other 62 are `.cljs`, and a `.cljs` file is not loadable by a
+JVM lane at all — `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes `.clj` and `.cljc`
+and nothing else. `implementation/hicasso/test/` is 35 test files, every one of them `.cljs`. So the
+lane would open for one file and stay at one file until somebody *authors* a `.cljc` suite, and the
+package offers only three namespaces to author one against — `impl/slot.cljc`, `impl/state.cljc`,
+`impl/error.cljc` — of which only `slot` requires nothing but `clojure.string` (`state` reaches
+`re-frame.events` and `re-frame.subs`; `error` is the complaint catalogue's, already gated by
+`check_complaint_catalogue.py`). A whole CI job for one file, and no queue behind it.
+
+**And the cheap answer holds, which is what makes the no comfortable rather than merely thrifty.**
+The cross-host claim is armed four ways already, none of them a new lane:
+
+- **The pin runs on both hosts today.** Asking the bijection gate's own lane model which lanes
+  select this file — `select()` in `check_test_lane_bijection.py`, roots and all — answers exactly
+  two: `implementation::node-test` (the always-on CLJS lane) and `implementation/freehand` (the JVM
+  lane, on `scripts/test-jvm-implementation.sh`'s roster with its matching `test.yml` job). One
+  corpus, one implementation, two runtimes — which is the whole mechanism the file's own docstring
+  claims, and it is intact.
+- **The package's copy is held identical to the pinned one.** `frozen-sources.edn` has exactly one
+  surviving row and it is this rule: `front/slot.cljc` → `src/re_frame/hicasso/impl/slot.cljc`,
+  `:whole-file?` unset, so `check_freeze.py`'s MOVED rule applies — it *reconstructs* the package
+  file from donor text with `:renames` applied at symbol boundaries and compares line by line. That
+  is not a digest of the donor alone; it is an equality between the two files. So a cross-host
+  assertion about the bench rule is an assertion about the package rule, and the equality is checked
+  rather than believed.
+- **That checker is armed from the package's own surface.** `npm run test:hicasso-invariants` runs
+  it, `implementation/hicasso/*` sets `cljs_node_test=true` in `report-changed-surfaces.sh`, and
+  that arm's own comment names the invariants gate as one of the three things the output schedules.
+  It also runs unconditionally in `scripts/test-fast-pr.sh`.
+- **The JVM consumer the pin exists for is armed too.** The codemod's `deps.edn` puts
+  `../../../implementation/freehand/test` on `:paths` and `shared_rule_test.clj` asserts
+  `(identical? dest/canonical-slot slot/prop-name)` — plus that the file came off
+  `implementation/freehand/test/…` and not a copy inside the tool. Since rf2-erjv that lane is armed
+  from `implementation/hicasso/*` as well as from `implementation/freehand/*`.
+
+**The precedent is on the record, and it is the same wall.** rf2-hic-022 walked this exact chain and
+backed out of it: `140620d291` landed a JVM-runnable suite in `implementation/hicasso/test/` and
+dropped `--probe`; `b18bc8e1ad` found that `check_jvm_lane_rosters.py` R1 refuses a roster entry with
+no `test.yml` job and reverted the roster half; `dd9f31bbc4` re-expressed the witness as
+`scripts/check_lint_export.py`, in a lane it already had. The long comment at the foot of
+`scripts/test-jvm-implementation.sh` still narrates the middle state and is the artefact of it. A
+second bead arriving at the same wall is not new information about the wall.
+
+**The revisit trigger, because a no without one is exactly the rf2-hic-021 defect restated.**
+Everything above rests on one row in `frozen-sources.edn`, and that file's entire history is rows
+retiring as the package diverges — five `front/*` rows and every `arm1/*` row are already gone. Its
+own header anticipates the last one: *"when `front/slot.cljc` diverges for its own reasons"*. On the
+day that row is retired the package's slot rule has no cross-host assertion left, and **nothing will
+say so** — the freeze gate will go green having stopped looking. So: **whoever retires that row owns
+the replacement**, and the replacement is still not a `jvm-hicasso` lane. The cheap shape is to
+repoint the codemod's `:paths` entry at `implementation/hicasso/src` — a `migration/` artefact
+reading a shared `.cljc` out of `implementation/` is the direction the rule was extracted to serve,
+and the codemod's JVM lane already has a `test.yml` job and is already armed from
+`implementation/hicasso/*`.
+
+**What this leaves for the two rows queued behind it.** `front/codec_cljs_test.cljs` (1,593) and
+`arm1/raw_escape_dom_cljs_test.cljs` (403) are queued behind this file's `corpus` var, not behind
+its JVM half, and the corpus needs no lane. A namespace under `implementation/hicasso/test/` that
+defines no `deftest` is not a test file, so B1 and B2 never reach it — the bijection gate's universe
+is files that evaluate a test-defining form at the top level. Port the corpus as an ordinary support
+namespace beside the codec suite and both rows unblock as plain CLJS ports. **That is a follow-up
+dispatch, not this row.**
 
 ---
 
