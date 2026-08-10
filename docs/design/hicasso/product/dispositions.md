@@ -28,9 +28,9 @@ required to become, not what it does. Both tables carry an explicit status colum
 that is the truth.
 
 **The default is refusal with recovery.** Where server behavior is not yet proven, the operative disposition is
-Client-only: refuse at the declaration source and name a deterministic fallback. This is what keeps the Phase 4 witness
-matrix bounded. Section [2.4](#24-the-default-rule-and-how-a-row-is-upgraded) states the rule and the only route out of
-it.
+Client-only: refuse at the declaration source, and recover on the client — behind a deterministic fallback where the
+declaration names one. This is what keeps the Phase 4 witness matrix bounded. Section
+[2.4](#24-the-default-rule-and-how-a-row-is-upgraded) states the rule and the only route out of it.
 
 ## 1. Coverage classification — specification section 7
 
@@ -130,8 +130,10 @@ with a unique inventory id. The two policies are the canonical ones:
 
 - **Render** — produce deterministic React server output from an immutable request frame or snapshot, and support
   matching hydration.
-- **Client-only** — refuse server use at the declaration source and name an explicit deterministic fallback or recovery.
-  Returning a silent `nil` is not a policy.
+- **Client-only** — refuse server use at the declaration source. What stands in the server bytes is a deterministic
+  fallback if the declaration carries one, and otherwise nothing: the fallback is optional, and bare Client-only is the
+  default. Either way the live surface arrives on the client after adoption. An empty region is conservative rather
+  than broken, but it is genuinely empty, so a surface whose absence would show wants a fallback declared.
 
 Each row carries both a **target policy** and an **operative disposition**. The target policy is the surface class's
 default in the [canonical matrix](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) — what the

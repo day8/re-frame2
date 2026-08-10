@@ -11,7 +11,7 @@ The [native-boundary design law](design-laws.md#native-boundary) owns semantics 
 This is the canonical matrix for the core server/hydration contract. Phase 0 assigns every proposed public surface a unique inventory id and one of two v0 policies:
 
 - **Render**: produce deterministic React server output from an immutable request frame/snapshot and support matching hydration.
-- **Client-only**: refuse server use at the declaration source and name an explicit deterministic fallback or recovery. Returning silent `nil` is not a policy.
+- **Client-only**: refuse server use at the declaration source. A deterministic fallback stands in the server bytes if the declaration carries one, and otherwise nothing does — the fallback is optional, and bare Client-only is the default. The live surface arrives on the client after adoption either way; an empty region is conservative rather than broken, but it is genuinely empty, so a surface whose absence would show wants a fallback declared.
 
 Built-in Hicasso data surfaces default to Render. Opaque foreign components, portals, browser-only code, and unclassified native component heads default to Client-only until a declaration and witness earn Render. This default keeps the initial matrix bounded without weakening the requirement that every surface has a disposition.
 
