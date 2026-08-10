@@ -983,13 +983,34 @@
     (when (seq dirty)
       (vreset! !dirty #{})
       (generation/bump-generation!)
-      ;; Re-STAMP rather than increment, so a cell's epoch is always a
-      ;; `commit-basis` reading and never drifts into a private
-      ;; numbering the staged term could not be compared against. It
-      ;; still strictly increases: the generation was just bumped and
-      ;; the frame's install epoch never falls, so the new stamp is
-      ;; above the one this cell last carried.
-      (doseq [^js c dirty] (set! (.-epoch c) (generation/commit-basis (.-frameKw c))))
+      ;; Re-STAMP rather than increment, so a cell's epoch is a
+      ;; `commit-basis` reading and does not drift into a private
+      ;; numbering the staged term could not be compared against —
+      ;; floored at one above the stamp it carried, because across a
+      ;; same-id frame reincarnation the basis alone can FAIL TO MOVE.
+      ;;
+      ;; This comment used to argue the floor was unnecessary: *the
+      ;; generation was just bumped and the frame's install epoch never
+      ;; falls*. The second half is false, and `generation/commit-basis`
+      ;; says so itself — a same-id reincarnation RESTARTS
+      ;; `frame-commit-epoch`. Measured in Chromium (rf2-2l17, W1): a
+      ;; boundary mounted across an A→B switch had epoch 3 from
+      ;; basis (gen 1 + frame 2); the successor seated at frame epoch 1;
+      ;; the repair bumped the generation to 2 and re-stamped to
+      ;; 1 + 2 = 3 — the SAME NUMBER. `getSnapshot` tied, React's
+      ;; `checkIfSnapshotChanged` found nothing, no body re-ran, and the
+      ;; predecessor's value stayed on screen indefinitely. The
+      ;; notification was delivered and ignored, which is the one
+      ;; failure a re-stamp is supposed to make impossible.
+      ;;
+      ;; The floor restores exactly the property the old comment
+      ;; claimed. It can only raise the stamp, never lower it, so a
+      ;; staged key's `commit-basis` reading stays comparable with a
+      ;; held key's stamp in the direction that matters, and the sum
+      ;; stays monotone.
+      (doseq [^js c dirty]
+        (set! (.-epoch c) (max (inc (.-epoch c))
+                               (generation/commit-basis (.-frameKw c)))))
       (let [boundaries (dirty-readers dirty)]
         (when-some [sink @evidence/!evidence-sink]
           (sink {:event            :commit
