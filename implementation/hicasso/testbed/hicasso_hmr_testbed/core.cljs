@@ -27,6 +27,12 @@
   [[destroy-and-remake!]] is that transition, exposed as the routing row's
   negative control rather than as the hook's behaviour.
 
+  **Both halves of the hook are PUBLIC calls** (rf2-e2al). The re-render
+  used to reach `impl.mount/render!`, because the door had no re-render
+  on it — which meant this file demonstrated a hot-reload hook a consumer
+  could not have written. `h/render!` is that door now, and
+  [[render-all!]] is spelled the way a consumer's own hook is.
+
   ## The door, and what it refuses to do
 
   `window.__RF2_HMR__` answers three kinds of question:
@@ -53,8 +59,7 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
-            [re-frame.hicasso.impl.mount :as mount]))
+            [re-frame.hicasso.impl.inventory :as inventory]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two frames — the routing row's whole premise
@@ -275,7 +280,7 @@
   []
   (doseq [{:keys [frame]} frames]
     (when-some [handle (get @!handles frame)]
-      (mount/render! handle [views/app {:ref-sink (get ref-sinks frame)}]))))
+      (h/render! handle [views/app {:ref-sink (get ref-sinks frame)}]))))
 
 (defn- seed!
   [frame-kw label]
