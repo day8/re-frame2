@@ -85,7 +85,7 @@ The whole fence fits in one table. The left column is why rung 3 is cheap to ado
 |---|---|
 | The frame — and [`h/sub`](glossary.md#hsub) anywhere in the body | Hiccup interpretation — a vector is not markup here |
 | The props ABI, value-equality memo, and the parent's `:key` | Intent lowering — an event vector in a prop is an error |
-| Lifecycle, HMR identity, and the view's name in Xray | Controlled repair — no [`::h/value`](glossary.md#hvalue), [`::h/checked`](glossary.md#hchecked), [`::h/prevent`](glossary.md#hprevent), [`::h/revision`](glossary.md#hrevision) |
+| Lifecycle, HMR conduct, and the view's name in Xray | Controlled repair — no [`::h/value`](glossary.md#hvalue), [`::h/checked`](glossary.md#hchecked), [`::h/prevent`](glossary.md#hprevent), [`::h/revision`](glossary.md#hrevision) |
 | Server rendering — intrinsic-headed output produces the same deterministic bytes | Structural assertions and key diagnostics — the element is opaque to the pure test tiers, which refuse with a pointer to the mounted tier ([Testing](14-testing.md)) |
 
 Two consequences deserve their own sentences. First, form fields stay interpreted. An `<input>` inside [`n/$`](glossary.md#n-dollar) is a raw React [controlled input](glossary.md#controlled-field): you do all of React's manual controlled-input work, and you get none of [Hicasso](glossary.md#hicasso)'s caret, IME, or same-turn guarantees ([Controlled inputs](04-controlled-inputs.md)). Second, hooks still do not belong in the body. A [`defview`](glossary.md#defview) body is dynamically composed — branches and loops are legal, and that is exactly the environment where hook order breaks. The wish for a hook in a `defview` body is the signal that you are at rung 4, not rung 3.
@@ -197,13 +197,13 @@ From native code, a component is a head as-is: `(n/$ col-resizer {:col :px})`. B
 
 ## Keeping the marker: the ABI helpers
 
-[`n/defcomponent`](glossary.md#ndefcomponent) stamps its component with stable identity, source and display metadata, and HMR conduct — the marker. The marker lets Xray name the [boundary](glossary.md#boundary), lets hot reload replace the implementation without remounting the island, and lets the embedding seams recognize the head. Raw React wrappers erase it:
+[`n/defcomponent`](glossary.md#ndefcomponent) stamps its component with a display name and a tier marker carrying that name and the declared server policy. The marker lets Xray name the [boundary](glossary.md#boundary), and it is the seam every ABI helper and every embedding direction reads to recognize a native head. What it does not do is carry the component across a hot reload, and it is not meant to. Minting a component is allocation, never a lookup by name: a save re-evaluates the module, the component is allocated afresh, the element type at that position is a new object, and React replaces the subtree. **A clean remount across a save is the designed conduct, not a fault** — a component's name is an address, not an identity, exactly as [`defview`](glossary.md#defview)'s is. Raw React wrappers erase the marker:
 
 ```clojure
 ;; given (n/defcomponent quote-cell* …) — a pure display cell worth memoizing:
 
 ;; Don't: works at runtime, but the marker is gone — Xray shows an anonymous
-;; boundary and HMR now remounts the island on every edit.
+;; boundary, and the embedding seams no longer recognize the head.
 (def quote-cell (react/memo quote-cell*))
 
 ;; Do: same React.memo semantics, marker intact.
@@ -240,5 +240,6 @@ Xray stays honest on both sides of the fence. It names and times the native [bou
 | Refusal: `:children` in the props map | There is one child channel — trailing forms | Pass children after the props operand |
 | Refusal: two keys normalize to one slot (`:class` and `"className"`) | Canonical-slot collision — the grammar refuses rather than letting map order pick a winner | Keep one spelling per slot |
 | `:rf.error/no-frame-context` from [`n/use-sub`](glossary.md#nuse-sub) or [`n/use-frame`](glossary.md#nuseframe) | The island rendered outside any frame provider — a separate root, a [portal](glossary.md#portal) outside the app, or a test without the harness | Mount under the app root, or use the [test kit](glossary.md#test-kit)'s provider ([Testing](14-testing.md)) |
-| Xray shows an anonymous [boundary](glossary.md#boundary); HMR remounts the island | The component marker was erased by a raw wrapper (`react/memo`, `React.lazy`) | Use [`n/memo`](glossary.md#nmemo) / [`n/lazy`](glossary.md#nlazy) — same semantics, marker intact |
+| Xray shows an anonymous [boundary](glossary.md#boundary) where a named island should be | The component marker was erased by a raw wrapper (`react/memo`, `React.lazy`) — the display name and the declared server policy went with it | Use [`n/memo`](glossary.md#nmemo) / [`n/lazy`](glossary.md#nlazy) — same semantics, marker intact |
+| Local state inside an island resets whenever you save | Nothing is wrong. A reload allocates a fresh component, so the element type changes and React remounts the subtree — the designed HMR conduct, and [`defview`](glossary.md#defview)'s too | Nothing to fix. State that must outlive a save belongs in `app-db`, read back through [`n/use-sub`](glossary.md#nuse-sub) |
 | Went native, numbers did not move | The cost owner was never construction — usually reads or event volume | Back to loop step 2; expect the fix at rung 2, and take the unearned escape out |
