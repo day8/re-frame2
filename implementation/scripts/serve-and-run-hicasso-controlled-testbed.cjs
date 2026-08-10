@@ -140,6 +140,35 @@
  * because the point of it is what the gate looked like BEFORE, and because
  * the two Chromium-only real-IME rows do not move.
  *
+ * ### The third pass: two witnesses that ran but could not red
+ *
+ * The #7815 audit then asked the sharper version of the same question of
+ * the rows the second pass had just added — not "did this run?" but "what
+ * single narrowing of the implementation would let it pass while the law
+ * is broken?" — and two of them had no answer:
+ *
+ * 1. **The mid-composition revision** drove the ACCEPTING `revision`
+ *    field. Its composing `:tb/edit` has already moved that field's model
+ *    to `keepあ` before the bump, so a reset that deferred and a reset
+ *    that reasserted immediately had the SAME string to write: React finds
+ *    nothing differing, and the row reads `keepあ` under either conduct.
+ *    The repair is a model policy rather than machinery — the testbed
+ *    gained `revision-strict`, the same `::h/revision` on a field that
+ *    REFUSES the kana, so mid-exchange the reset's target is `42` while
+ *    the draft is `42あ`. The row now reds on exactly the mutation
+ *    `controlled.cljs` names as the alternative it rejected: an immediate
+ *    `element.value` write. The accepting field keeps its rows for the
+ *    other half — the deferral's honest limit, that the reset can be lost.
+ * 2. **`armed-edges-are-wired` clicked one of the two arms.** A dead
+ *    `arm-unmount`, or an arm firing an event nobody registered, stayed
+ *    green while the section's name and the PR both claimed the pair.
+ *    Waiting the five seconds out per arm per engine is not the answer;
+ *    resolving the event at ARM time is. `:tb/arm` now looks its event up
+ *    when it is armed, carries it in the `:dispatch-later` payload and
+ *    puts it in the on-screen readout, so both arms are witnessed in the
+ *    turn they are clicked — and the operator's readout says what is
+ *    queued instead of only that something is.
+ *
  * ### The clauses of I15, and where each is proven
  *
  * I15's clauses, and where each is proven:
@@ -296,7 +325,7 @@ const ENGINES = ONLY
 // names, so deleting a witness means deliberately editing the gate that
 // requires it.
 //
-// Sum today: 79, which is what each engine reports.
+// Sum today: 91, which is what each engine reports.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_SECTIONS = {
@@ -309,10 +338,10 @@ const REQUIRED_SECTIONS = {
   'composition-release-edges': 8,
   'an-accepting-model-during-a-composition': 8,
   'revision-reset-preserves-identity': 7,
-  'a-revision-arriving-mid-composition': 6,
+  'a-revision-arriving-mid-composition': 15,
   'owned-checked-pair': 6,
   'form-reset-and-fill-proxy': 3,
-  'armed-edges-are-wired': 2,
+  'armed-edges-are-wired': 5,
 };
 
 // The RECORDED rows, with the keys each must carry. Without this the
@@ -517,14 +546,14 @@ function runMutationTeeth() {
   bite('the check floor refuses a run that asserted almost nothing', () =>
     coverageReport({ checks: 3, sections: {} }).length
       === Object.keys(REQUIRED_SECTIONS).length
-    && coverageReport({ checks: 79, sections: fullSections() }).length === 0);
+    && coverageReport({ checks: 91, sections: fullSections() }).length === 0);
 
   // The hole this gate was reopened for: 55 checks with a floor of 50 meant
   // either three-row section could be deleted whole and still exit 0.
   bite('deleting a whole section reds, and the message names it', () => {
     const sections = fullSections();
     delete sections['form-reset-and-fill-proxy'];
-    const problems = coverageReport({ checks: 76, sections });
+    const problems = coverageReport({ checks: 88, sections });
     return problems.length === 1
       && problems[0].includes('form-reset-and-fill-proxy');
   });
@@ -532,7 +561,7 @@ function runMutationTeeth() {
   bite('a section that stopped banking rows reds', () => {
     const sections = fullSections();
     sections['selection-across-an-out-of-band-write'] -= 1;
-    return coverageReport({ checks: 78, sections }).length === 1;
+    return coverageReport({ checks: 90, sections }).length === 1;
   });
 
   // The second hole: unanimous emptiness is not agreement.
@@ -556,7 +585,7 @@ function runMutationTeeth() {
   // Both pins are bijections, so a witness added tomorrow is required from
   // the moment it lands rather than being deletable again silently.
   bite('a section nobody pinned reds', () =>
-    coverageReport({ checks: 80, sections: { ...fullSections(), invented: 1 } })
+    coverageReport({ checks: 92, sections: { ...fullSections(), invented: 1 } })
       .length === 1);
 
   return teeth;

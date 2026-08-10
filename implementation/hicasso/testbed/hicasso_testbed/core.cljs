@@ -29,6 +29,7 @@
   | `upper` | upper-cases | caret preservation at a length the normalisation preserves, so a caret failure cannot hide behind a length change |
   | `notes` (`<textarea>`) | collapses whitespace runs | the same law on the other convergeable tag |
   | `revision` | takes what is typed | `::h/revision` re-baselines the field to the model, on the SAME DOM node |
+  | `revision-strict` | refuses any value containing a non-digit | the same trigger with an OBSERVABLY DISTINCT target: mid-composition the model holds `\"42\"` while the field shows a kana draft, so a reset that wrote immediately would be visible as the draft disappearing. On the accepting `revision` field the model has already taken the draft, so an immediate write and a deferred one put the same string on screen and the row cannot red on the defect it names (#7815 audit) |
   | `flag` (checkbox) | toggles | the owned `::h/checked` pair, whose `false` is likewise a presence rather than a truth |
 
   `form-a` / `form-b` sit in a real `<form>` with a real reset button,
@@ -70,6 +71,15 @@
     driver has no need of them (a programmatic click never moves focus),
     which is why they are the operator's instruments rather than the
     gate's.
+
+    The arm RESOLVES the event it will fire at the moment it is armed,
+    puts it in the readout, and carries it in the `:dispatch-later`
+    payload. That is not decoration: it is the only way a driver can
+    witness both arms without spending the five seconds, and the #7815
+    audit found the gate pinning one arm while claiming both. An arm whose
+    event is missing or wrong now reads wrong on screen immediately,
+    which is also what the operator wants — the readout says what is
+    queued rather than merely that something is.
 
   Both are ordinary re-frame2: a counter in the reducer, and
   `:dispatch-later`. Neither reaches past the authoring surface, and
@@ -117,6 +127,10 @@
     :revision typed
     :form-b   typed
     :digits   (if (re-matches #"[0-9]*" typed) typed old)
+    ;; Refusing, and the refusal is the whole point: it is what makes the
+    ;; reset's TARGET differ from the draft the field is showing while a
+    ;; composition is live. See the table in the namespace docstring.
+    :revision-strict (if (re-matches #"[0-9]*" typed) typed old)
     ;; Refusing, like `digits`, and deliberately: the unmount row needs the
     ;; field to be showing a draft the MODEL NEVER TOOK, or "no stranded
     ;; draft after a remount" is satisfied by the model having accepted it.
@@ -136,6 +150,7 @@
    :upper    "ABC"
    :notes    "one two"
    :revision "keep"
+   :revision-strict "42"
    :form-a   "FORM"
    :form-b   "form"
    :mountable "9"})
@@ -195,20 +210,31 @@
   one."
   5000)
 
-;; Arming dispatches the SAME event the button dispatches — the deferral is
-;; the only difference, so an armed edge cannot drift from the immediate
-;; one.
+(def ^:private armed-events
+  "What each arm fires. The SAME events the immediate buttons dispatch —
+  the deferral is the only difference, so an armed edge cannot drift from
+  the immediate one — and a roster rather than a `case` inside the firing
+  handler, because a lookup can be RESOLVED at arm time and a branch taken
+  five seconds later cannot."
+  {:bump    [:tb/bump-revision]
+   :unmount [:tb/toggle-mounted]})
+
+;; The arm resolves its event NOW and carries it both ways: into `:armed`
+;; so the readout can say what is queued, and into the `:dispatch-later`
+;; payload so two arms in flight cannot fire each other's event. Resolving
+;; at arm time is what lets a driver witness both arms in the turn it
+;; clicks them; before it, only the arm that was waited out was witnessed
+;; at all, and the other could have been wired to nothing (#7815 audit).
 (rf/reg-event :tb/arm
   (fn [{:keys [db]} [_ what]]
-    {:db             (assoc db :armed what)
-     :dispatch-later {:ms arm-delay-ms :event [:tb/fire-armed what]}}))
+    (let [event (armed-events what)]
+      {:db             (assoc db :armed {:what what :event event})
+       :dispatch-later {:ms arm-delay-ms :event [:tb/fire-armed event]}})))
 
 (rf/reg-event :tb/fire-armed
-  (fn [{:keys [db]} [_ what]]
+  (fn [{:keys [db]} [_ event]]
     {:db       (assoc db :armed nil)
-     :dispatch (case what
-                 :bump    [:tb/bump-revision]
-                 :unmount [:tb/toggle-mounted])}))
+     :dispatch event}))
 
 ;; ---------------------------------------------------------------------------
 ;; The views — every field written the way authoring.md writes one
@@ -236,14 +262,20 @@
 (h/defview revision-field
   "The reset trigger, carried as the author carries it: one `::h/revision`
   on the element's own attribute map. It is never an attribute, and the
-  field is otherwise an ordinary controlled field."
-  [_]
-  [:input {:data-testid   "revision"
-           :id            "revision"
-           :type          "text"
-           ::h/revision   (h/sub [:tb/revision])
-           :value         (h/sub [:tb/field :revision])
-           :on-input      [:tb/edit :revision ::h/value]}])
+  field is otherwise an ordinary controlled field.
+
+  Two instances, on the one counter, differing only in the MODEL POLICY
+  behind them — which is the difference the mid-composition witness turns
+  on. `revision` accepts, so a reset arriving mid-exchange has nothing
+  different to write; `revision-strict` refuses, so it has."
+  [{:keys [field]}]
+  (let [id (name field)]
+    [:input {:data-testid   id
+             :id            id
+             :type          "text"
+             ::h/revision   (h/sub [:tb/revision])
+             :value         (h/sub [:tb/field field])
+             :on-input      [:tb/edit field ::h/value]}]))
 
 (h/defview flag-box
   "The owned `::h/checked` pair. `false` is a presence here, not a
@@ -287,8 +319,8 @@
 (def ^:private traced-fields
   "Every field, in a stable order, so the trace is a complete reading of
   the store rather than a curated one."
-  [:plain :digits :empty :grouped :upper :notes :revision :form-a :form-b
-   :mountable])
+  [:plain :digits :empty :grouped :upper :notes :revision :revision-strict
+   :form-a :form-b :mountable])
 
 (h/defview trace-row
   "One field's committed value and the number of intents that have reached
@@ -316,16 +348,25 @@
 
 (h/defview armed-edges
   "The two mid-composition edges, reachable without a pointer-down that
-  would close the composition first."
+  would close the composition first.
+
+  The readout names the EVENT that is queued, not merely that something
+  is. It is the operator's confirmation that they armed the edge they
+  meant to, and it is the only thing a driver can read about an arm
+  without waiting five seconds for it to fire."
   [_]
-  (let [armed (h/sub [:tb/armed])]
+  (let [armed (h/sub [:tb/armed])
+        what  (:what armed)
+        event (:event armed)]
     [:p
      [:button {:data-testid "arm-bump" :on-click [:tb/arm :bump]}
       "arm bump (5s)"]
      [:button {:data-testid "arm-unmount" :on-click [:tb/arm :unmount]}
       "arm unmount (5s)"]
      [:span {:data-testid "armed"}
-      (if armed (str "armed: " (name armed) " fires in 5s") "idle")]]))
+      (if what
+        (str "armed: " (name what) " -> " (pr-str event) " fires in 5s")
+        "idle")]]))
 
 (h/defview app
   [_]
@@ -337,7 +378,8 @@
    [text-field {:field :grouped}]
    [text-field {:field :upper}]
    [notes-field {}]
-   [revision-field {}]
+   [revision-field {:field :revision}]
+   [revision-field {:field :revision-strict}]
    [flag-box {}]
    [reset-form {}]
    [mountable-field {}]

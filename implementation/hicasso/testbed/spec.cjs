@@ -581,10 +581,98 @@ async function revisionResetPreservesIdentity(page, w) {
 // the Chromium-only `:browser-test` lane. A deferral is a claim about the
 // order an engine flushes a discrete event's work, so it belongs here.
 //
+// ## Why it takes two fields, and what one of them alone could not say
+//
+// The section shipped on the ACCEPTING `revision` field and the #7815
+// audit found it non-discriminating there, correctly: by the time the bump
+// fires, the composing `:tb/edit` has already moved that field's model to
+// `keepあ`, so an immediate reassertion and a deferred one have the SAME
+// string to write and the row reads `keepあ` under either. A witness whose
+// expected value does not move when the law is broken is decoration.
+//
+// `revision-strict` is the repair, and the whole of it is a model policy:
+// it REFUSES the kana, so while the draft is on screen the reset's target
+// is `42` and the draft is `42あ`. Now the two conducts are two different
+// strings, and the mutation the row names — implementing the reset as the
+// immediate `element.value` write `controlled.cljs` rejects — turns it red
+// on the line that reads the field mid-exchange.
+//
+// What is NOT claimed, because a refusing field cannot show it: that the
+// reset "landed" at the close. Every release path converges the field to
+// the then-current model whether a revision moved or not, so on a refusing
+// field the reset's own contribution at the close is not separable from
+// the ordinary release converge. The deferral's observable content is that
+// the exchange survived it, and that is what these rows read.
+//
+// The accepting field keeps its rows, because they carry the other half:
+// `controlled.cljs`'s honest limit, that the deferral cannot promise the
+// reset survives.
+//
 // The bump is a PROGRAMMATIC click, which never moves focus; the operator's
 // equivalent is the armed button below, because a real pointer-down would
 // close the composition before the reset could arrive mid-exchange.
 async function aRevisionArrivingMidComposition(page, w) {
+  // (1) The REFUSING field — where the reset has something different to
+  // write, so the deferral is observable at all.
+  const strict = await page.evaluate(async () => {
+    const node = window.__TB__.el('revision-strict');
+    node.focus();
+    const seen = [];
+    node.addEventListener('compositionstart', () => seen.push('start'));
+    node.addEventListener('compositionend', () => seen.push('end'));
+    const before = window.__TB__.model();
+
+    window.__TB__.composition(node, 'compositionstart', '');
+    const draft = window.__TB__.edit('revision-strict', '42あ', 3, {
+      isComposing: true, inputType: 'insertCompositionText', data: 'あ',
+    });
+    const mid = window.__TB__.model();
+
+    window.__TB__.el('bump-revision').click();
+    await window.__TB__.settle();
+    const during = window.__TB__.read('revision-strict');
+
+    window.__TB__.composition(node, 'compositionend', 'あ');
+    const after = window.__TB__.model();
+    return {
+      revisionBefore: before.revision,
+      editsBefore: before.edits['revision-strict'] || 0,
+      draft: draft.value,
+      midModel: mid.fields['revision-strict'],
+      midEdits: mid.edits['revision-strict'],
+      during,
+      revision: after.revision,
+      model: after.fields['revision-strict'],
+      value: window.__TB__.read('revision-strict').value,
+      startCount: seen.filter((t) => t === 'start').length,
+      endCount: seen.filter((t) => t === 'end').length,
+    };
+  });
+
+  w.eq(strict.draft, '42あ', 'the field held the composing draft');
+  // The PREMISE that makes this field different from the accepting one:
+  // the update reached the store and the store turned it down, so the
+  // reset's target and the draft are two different strings.
+  w.eq(strict.midEdits, strict.editsBefore + 1, 'the composing update reached the store');
+  w.eq(strict.midModel, '42', 'and the refusing model kept none of it');
+  w.eq(strict.revision, strict.revisionBefore + 1, 'the revision really did advance mid-exchange');
+  // THE DEFERRAL, on the only field that can red on it. A reset that
+  // landed immediately would have written `42` over a live composition —
+  // the abort the carve-out exists to prevent, and the conduct the
+  // accepting field below cannot distinguish.
+  w.eq(strict.during.value, '42あ',
+    'the reset deferred: the draft is untouched while the exchange is open');
+  // …and the exchange it did not disturb is intact: a mid-composition
+  // value write is what mints a second `compositionstart` in the CDP
+  // harness.
+  w.eq(strict.startCount, 1, 'still exactly one compositionstart');
+  w.eq(strict.endCount, 1, 'and exactly one compositionend');
+  w.eq(strict.value, strict.model, 'and the field converges to the model at the close');
+  w.eq(strict.model, '42', 'which is the value the refusal left standing');
+
+  // (2) The ACCEPTING field — `controlled.cljs`'s honest limit. Nothing
+  // here can red on the deferral (that is (1)'s job); what it pins is the
+  // sentence the namespace refuses to overclaim.
   const observed = await page.evaluate(async () => {
     const node = window.__TB__.el('revision');
     node.focus();
@@ -610,12 +698,8 @@ async function aRevisionArrivingMidComposition(page, w) {
   });
 
   w.eq(observed.draft, 'keepあ', 'the field held the composing draft');
-  w.eq(observed.revision, observed.revisionBefore + 1, 'the revision really did advance mid-exchange');
-  // THE DEFERRAL. A reset that landed immediately would have written
-  // `element.value` under a live composition, which is the abort the
-  // carve-out exists to prevent.
-  w.eq(observed.during.value, 'keepあ',
-    'the reset deferred: the draft is untouched while the exchange is open');
+  w.eq(observed.revision, observed.revisionBefore + 1, 'a second revision advanced mid-exchange');
+  w.eq(observed.during.value, 'keepあ', 'the draft is untouched here too');
   w.eq(observed.after.value, observed.model, 'and the field converges at the close');
   // The honest limit, as `controlled.cljs` states it: on an ACCEPTING field
   // the composing updates the model kept taking supersede the reset by
@@ -714,18 +798,43 @@ async function formResetAndFillProxy(page, w) {
 // section above already uses the programmatic one. What would rot silently
 // is the wiring, so the wiring is what this pins.
 //
-// It runs LAST deliberately: the armed dispatch lands five seconds later,
-// which is a wait no gate should spend and a bump no later section should
-// receive. The page closes long before it fires.
+// BOTH arms, and that is the #7815 audit's finding: this pinned `arm-bump`
+// alone while the section and the PR claimed both instruments were held,
+// so a dead `arm-unmount` button — or an arm firing an event nobody
+// registered — stayed green. Spending five seconds per arm per engine to
+// find out is not the answer either. The answer is that the arm RESOLVES
+// its event when it is armed and puts it in the readout, so the queued
+// event is a thing on screen rather than a branch that will be taken
+// later, and both arms are witnessed in the turn they are clicked.
+//
+// It still runs LAST deliberately: the armed dispatches land five seconds
+// later, which is a wait no gate should spend and a bump no later section
+// should receive. The page closes long before either fires.
 async function armedEdgesAreWired(page, w) {
-  const before = await page.evaluate(() => window.__TB__.model().revision);
+  const before = await page.evaluate(() => ({
+    label: window.__TB__.el('armed').textContent,
+    revision: window.__TB__.model().revision,
+    mounted: !!document.querySelector('[data-testid="mountable"]'),
+  }));
+  w.eq(before.label, 'idle', 'nothing is armed to begin with');
+
   await page.locator('[data-testid="arm-bump"]').click();
-  const armed = await page.evaluate(() => ({
+  const bump = await page.evaluate(() => ({
     label: window.__TB__.el('armed').textContent,
     revision: window.__TB__.model().revision,
   }));
-  w.eq(armed.label, 'armed: bump fires in 5s', 'the page says what is armed');
-  w.eq(armed.revision, before, 'and nothing has happened yet — that is the whole point');
+  w.eq(bump.label, 'armed: bump -> [:tb/bump-revision] fires in 5s',
+    'the page names the event the bump arm will fire');
+  w.eq(bump.revision, before.revision, 'and nothing has happened yet — that is the whole point');
+
+  await page.locator('[data-testid="arm-unmount"]').click();
+  const unmount = await page.evaluate(() => ({
+    label: window.__TB__.el('armed').textContent,
+    mounted: !!document.querySelector('[data-testid="mountable"]'),
+  }));
+  w.eq(unmount.label, 'armed: unmount -> [:tb/toggle-mounted] fires in 5s',
+    'and the event the unmount arm will fire, which nothing pinned before');
+  w.eq(unmount.mounted, before.mounted, 'the field is still mounted — this one is deferred too');
 }
 
 // ---------------------------------------------------------------------------
