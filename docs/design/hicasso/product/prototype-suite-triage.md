@@ -290,9 +290,10 @@ package's copy of the rule is held identical to the copy being asserted — by a
 stronger than the suite.
 
 **The number that decides it is zero.** Nothing follows this file into a JVM lane. It is the *only*
-`.cljc` test file among the 69; the other 62 are `.cljs`, and a `.cljs` file is not loadable by a
-JVM lane at all — `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes `.clj` and `.cljc`
-and nothing else. `implementation/hicasso/test/` carries not one `.cljc`: all 61 files under it are
+`.cljc` test file in the bench tree — the other 62 suites there are `.cljs`, and a `.cljs` file is
+not loadable by a JVM lane at all: `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes
+`.clj` and `.cljc` and nothing else. (1 + 62 = 63, the tree's live count, not the census's 69 — see
+the note under the verdict totals at the top.) `implementation/hicasso/test/` carries not one `.cljc`: all 61 files under it are
 `.cljs`, read on `origin/main` at 2026-08-11 — the triage counted 35 and the tree has grown since,
 while the extension has not, which is the half of the claim that is load-bearing. So the
 lane would open for one file and stay at one file until somebody *authors* a `.cljc` suite, and the
@@ -345,8 +346,9 @@ there is no JVM job behind that tree, by the same deliberate `--probe` decision 
 porting this file would not merely fail to *gain* a JVM lane; it would **surrender the one it
 already has**, and the only thing that could give it back is the job this verdict declines to open.
 A port whose measured effect is to take a cross-host claim from two hosts down to one is not a port
-worth sequencing a hot-zone change for. That is the difference between this row and the twelve other
-PORT rows, and it is why the verdict here is not merely "later".
+worth sequencing a hot-zone change for. That is what separates this row from every row in the PORT
+table above — those gain package coverage and lose nothing — and it is why the verdict here is a no
+rather than a "later".
 
 **The precedent is on the record, and it is the same wall.** rf2-hic-022 walked this exact chain and
 backed out of it: `140620d291` landed a JVM-runnable suite in `implementation/hicasso/test/` and
