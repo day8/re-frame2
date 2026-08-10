@@ -165,10 +165,10 @@ law holds through both, because commit owns acquisition
   from state:
 
   ```clojure
-  ([h/defhost](glossary.md#defhost) activity react/Activity)
+  (h/defhost activity react/Activity)
 
-  activity {:mode (if ([h/sub](glossary.md#hsub) :inbox/visible?]) "visible" "hidden")}
-   inbox-pane {}]]
+  [activity {:mode (if (h/sub [:inbox/visible?]) "visible" "hidden")}
+   [inbox-pane {}]]
   ```
 
   While the pane is hidden, React cleans up effects, and the subtree's

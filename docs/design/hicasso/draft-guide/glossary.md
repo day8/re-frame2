@@ -338,6 +338,7 @@ Hiccup renders by default.
 
 Related: [SSR and hydration](17-ssr-and-hydration.md), [Interop](09-interop.md#server-policy-per-declaration).
 
+<a id="raw-escape"></a>
 ### **raw escape** (`:>`)
 
 Hiccup head that passes a React component through without a lasting
@@ -429,11 +430,11 @@ Related: [Native tier](10-native-tier.md#keeping-the-marker-the-abi-helpers),
 Five explicit rungs from ordinary Hicasso to a full native screen. No
 `:fast` flag and no second meaning for Hiccup:
 
-1. Ordinary Hicasso  
-2. Tuned [read topology](#read-topology)  
-3. Direct native return (`n/$` from a `defview`)  
-4. [Named native island](#native-island)  
-5. Native screen  
+1. Ordinary Hicasso
+2. Tuned [read topology](#read-topology)
+3. Direct native return (`n/$` from a `defview`)
+4. [Named native island](#native-island)
+5. Native screen
 
 Related: [Performance](18-performance.md), [Native tier](10-native-tier.md).
 

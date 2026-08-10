@@ -103,13 +103,13 @@ The authoring shape is deliberately small:
 
     ```clojure
     ;; Don't: a dynamic map in second position is a CHILD, not props.
-    (let cell-props {:class "px" :dir "ltr"}]
-      ([n/$](glossary.md#n-dollar) :td cell-props px))   ;; refuses — a map is not a valid React child,
-                                 ;; and the recovery names ([n/props](glossary.md#nprops) …)
+    (let [cell-props {:class "px" :dir "ltr"}]
+      (n/$ :td cell-props px))   ;; refuses — a map is not a valid React child,
+                                 ;; and the recovery names (n/props …)
 
-    ;; Do: mark the operand. [n/props](glossary.md#nprops) emits no wrapper — it only classifies.
-    (let cell-props {:class "px" :dir "ltr"}]
-      ([n/$](glossary.md#n-dollar) :td ([n/props](glossary.md#nprops) cell-props) px))
+    ;; Do: mark the operand. n/props emits no wrapper — it only classifies.
+    (let [cell-props {:class "px" :dir "ltr"}]
+      (n/$ :td (n/props cell-props) px))
     ```
 
     A dynamic ClojureScript map inside [`n/props`](glossary.md#nprops) converts shallowly under the same slot-name rule; a JavaScript object passes by identity.
