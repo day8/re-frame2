@@ -53,7 +53,7 @@
    :test-kit-refusal "rf.error/hicasso-test-"
    :complaint-guard  "hicasso-refusal-incomplete"
    :evidence-schema  "re-frame.hicasso.evidence"
-   :key-warning      "A boundary body began lowering while"})
+   :console-prefix   "[hicasso]"})
 
 (def controls
   "The scan's positive controls that this namespace can produce itself."
@@ -106,8 +106,8 @@
         "every envelope carries it, so a projection in a consumer bundle
          cannot hide")))
 
-(deftest the-key-warning-prints-the-sentence-the-scan-names
-  (testing "the codec's unbalanced set/clear warning carries its text"
+(deftest the-console-diagnostics-print-the-prefix-the-scan-names
+  (testing "`[hicasso]` opens the codec's dev console messages"
     (let [said     (atom [])
           original (.-warn js/console)]
       (try
@@ -117,8 +117,10 @@
         (finally
           (set! (.-warn js/console) original)
           (codec/set-lowering-owner! nil)))
-      (is (some #(str/includes? % (:key-warning sentinels)) @said)
-          "the message string the scan requires the bundle not to carry"))))
+      (is (some #(str/starts-with? % (:console-prefix sentinels)) @said)
+          "the prefix the scan requires the bundle not to carry — the
+           unbalanced set/clear warning is the member reached from here,
+           and all four are written with it"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The positive controls
