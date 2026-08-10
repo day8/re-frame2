@@ -65,9 +65,20 @@
         :else                                      nil))))
 
 (defn- reads-hicasso-state?
-  "Does this node name one of the two reading doors?"
-  [node]
-  (contains? #{'sub 'use-subs} (hicasso-var node)))
+  "Does this node name one of the two reading doors — and does that spelling
+  still MEAN the door here?
+
+  `:refer [sub]` leaves an ordinary simple symbol behind, and a local may be
+  named `sub` like anything else, at which point `(sub …)` is somebody's own
+  function. `api/resolve` answers with the var either way: it reads the ns
+  form and never sees locals, which is the same limit the self-call check
+  ran into (rf2-c6t6). So `locals` is consulted, and it is the SAME roster
+  that check reads — `locals-bound-by`, through `lexical-locals` — rather
+  than a second notion of what a binding is. A qualified `h/sub` is never in
+  it, because nothing is named `h/sub`."
+  [locals node]
+  (and (not (contains? locals (token-sexpr node)))
+       (contains? #{'sub 'use-subs} (hicasso-var node))))
 
 ;; ---------------------------------------------------------------------------
 ;; Walking — every node under `node`, quoted data excepted
@@ -218,11 +229,11 @@
   circumstance, and the runtime refuses it with
   `:rf.error/hicasso-sub-outside-render`. This is the ONLY deferred-read
   shape that is a syntactic fact; see README."
-  [body]
+  [locals body]
   (doseq [node (mapcat subforms body)
           :when (api/list-node? node)
           :let  [head (first (:children node))]
-          :when (reads-hicasso-state? head)]
+          :when (reads-hicasso-state? locals head)]
     (finding! node :re-frame.hicasso/deferred-read
               (str "A subscription is read inside `hfn`, which runs AFTER the body "
                    "that wrote it, so the read has no boundary to belong to and "
@@ -250,11 +261,11 @@
 (defn- parked-thunk?
   "Does this node defer a Hicasso read, written out in full at this
   position?"
-  [node]
+  [locals node]
   (boolean
     (when-let [body (thunk-body node)]
       (some #(and (api/list-node? %)
-                  (reads-hicasso-state? (first (:children %))))
+                  (reads-hicasso-state? locals (first (:children %))))
             (mapcat subforms body)))))
 
 (defn- check-parked-read!
@@ -266,12 +277,12 @@
   undefined conduct rather than an error, so this is a WARNING and nothing
   here enforces anything. It is syntactic in the strictest sense: the thunk
   must be written literally as the argument of the `reset!`."
-  [body]
+  [locals body]
   (doseq [node (mapcat subforms body)
           :when (api/list-node? node)
           :let  [[head _target & args] (:children node)]
           :when (contains? #{'reset! 'vreset! 'swap!} (core-var head))
-          value (filter parked-thunk? args)]
+          value (filter #(parked-thunk? locals %) args)]
     (finding! value :re-frame.hicasso/parked-read
               (str "A subscription read is parked in a mutable reference. The "
                    "read-extent law covers the structure a body RETURNS, so a "
@@ -474,7 +485,7 @@
 
   Read extent in general remains the RUNTIME's law (I7 / hic-011); this
   never pretends otherwise, which is why it does not block a build."
-  [body]
+  [locals body]
   (doseq [node (mapcat subforms body)
           :when (api/list-node? node)
           :let  [callee (core-var (first (:children node)))]
@@ -487,7 +498,7 @@
           :when (and (function-literal? arg)
                      (not= 'hfn (hicasso-var (first (:children arg)))))
           :when (some #(and (api/list-node? %)
-                            (reads-hicasso-state? (first (:children %))))
+                            (reads-hicasso-state? locals (first (:children %))))
                       (mapcat subforms (or (thunk-body arg) [])))]
     (finding! arg :re-frame.hicasso/deferred-read
               (str "A subscription is read inside a function that nothing here "
@@ -632,6 +643,21 @@
 
         :else #{}))))
 
+(defn- lexical-locals
+  "Every name bound ANYWHERE under these forms, plus the ones the enclosing
+  argument vector binds.
+
+  The self-call check reads the same roster per SUBTREE, which is sharper:
+  a binding silences only the form it heads. This reads it bluntly — one set
+  for the whole body — and the two read rules below are what use it. They are
+  WARNINGS, the cost of the blunt reading is silence, and silence is the only
+  failure this file permits, so the sharper answer would buy precision in the
+  one direction nobody is harmed by."
+  [argv body]
+  (into (bound-symbols argv)
+        (comp (mapcat subforms) (mapcat locals-bound-by))
+        body))
+
 (defn- self-call-nodes
   "Every `(nm …)` under `node` that is NOT inside a form binding `nm`.
 
@@ -683,14 +709,14 @@
 
 (defn- check-body!
   "Every hiccup-shaped check, over one body."
-  [body]
+  [locals body]
   (let [elements (mapcat element-subforms body)]
     (run! check-unkeyed-children! elements)
     (run! check-nameless-interactive! elements)
     (run! check-function-head! elements))
   (check-root-head! (last body))
-  (check-deferred-read-in-fn! body)
-  (check-parked-read! body))
+  (check-deferred-read-in-fn! locals body)
+  (check-parked-read! locals body))
 
 (defn defview
   "`(defview sym doc? [props] body+)` -> `(defn sym doc? [props] body+)`,
@@ -701,7 +727,7 @@
                                 [(first more) (rest more)]
                                 [nil more])
         [argv & body]         more]
-    (check-body! body)
+    (check-body! (lexical-locals argv body) body)
     (check-direct-view-call! sym argv body)
     {:node (api/list-node
              (concat [(api/token-node 'clojure.core/defn) sym]
@@ -714,7 +740,7 @@
   check the callback form makes decidable."
   [{:keys [node]}]
   (let [[_hfn argv & body] (:children node)]
-    (check-read-in-callback! body)
+    (check-read-in-callback! (lexical-locals argv body) body)
     {:node (api/list-node
              (list* (api/token-node 'clojure.core/fn) argv body))}))
 

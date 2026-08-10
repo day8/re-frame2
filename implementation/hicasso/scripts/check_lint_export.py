@@ -293,6 +293,15 @@ def self_test():
          "(fn-tail-locals (rest more))",
          "(do more #{})",
          "direct-view-call"),
+        # A READ whose door a local has taken (rf2-c6t6). Same blindness, at
+        # warning level: `:refer [sub]` leaves a simple symbol and a local may
+        # be named `sub`, but `api/resolve` reads the ns form and never sees
+        # locals. Stop consulting the shadow roster and the read rows in the
+        # negative half must red.
+        ("a read rule blind to a shadowed door reds", "hook",
+         "  (and (not (contains? locals (token-sexpr node)))",
+         "  (and (do locals true)",
+         "parked-read"),
     ]
 
     ok = True
