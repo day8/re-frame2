@@ -10,7 +10,7 @@ Testing and diagnostics are product surfaces, not documentation afterthoughts. S
 |---|---|---|
 | L0 | event handlers, subscriptions, state transitions | pure CLJ/CLJS tests |
 | L1 | codecs, intents, controlled-field/presence laws, native-form expansion and ABI helpers | pure data/property and macro-expansion tests |
-| L2 | hook-free Hicasso bodies and owned Hicasso children | restricted semantic-tree harness |
+| L2 | one hook-free Hicasso body; it expands no children of its own, and a nested boundary is recorded as the call it is | restricted semantic-tree harness |
 | L3 | React lifecycle, hooks, context, refs, foreign hosts and native components | mounted React DOM tests |
 | L4 | IME, caret, focus, hydration, layout, performance | Chromium, Firefox, and WebKit witnesses |
 
