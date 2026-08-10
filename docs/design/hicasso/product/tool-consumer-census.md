@@ -197,8 +197,9 @@ that a later reader who repeats the grep can reconcile 48 against 24 without re-
 distinction, and so that none of them is ever counted as a dependency.
 
 `registry.cljs` was on this list until `rf2-kqls` and is now row **X13**: eight of its ten hits are
-comments, but two are a runtime `js/console.warn` string. A reader repeating the grep should expect
-to land where the census did before the correction, and should not.
+comments, but two are a runtime `js/console.warn` string. The mistake is an easy one to repeat — a
+reader running the grep sees ten hits in a file carrying no `:require`, which is precisely what this
+census concluded before the correction.
 
 Two deserve a note because their prose is load-bearing *documentation of a live row* rather than
 incidental:
