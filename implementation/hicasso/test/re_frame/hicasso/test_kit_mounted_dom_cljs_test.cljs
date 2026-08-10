@@ -69,6 +69,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.test.mounted :as hm]
@@ -91,6 +92,23 @@
                                    (range n))}}))
 (rf/reg-event ::toggle (fn [{:keys [db]} [_ id]]
                          {:db (update-in db [:todos id :done?] not)}))
+
+(defn- plain-child
+  "An ORDINARY function, and that is the whole of it: in child head
+  position the runtime refuses a plain function outright (HD-016,
+  `:rf.error/hicasso-bad-head`) rather than calling it. Deliberately not
+  a `defview`, and deliberately referred to through its var so nothing
+  can decide the question before the render does."
+  [_props]
+  [:span.unreachable "never rendered"])
+
+(h/defview row-with-a-plain-function-child
+  "A VALID registered view whose BODY is malformed — PR #7822's audit
+  witness, kept. The view itself mounts; what the runtime refuses is the
+  child head inside its body, from inside React's own render, which is
+  the reason the refusal used to be lost."
+  [_]
+  [:li.row [plain-child {}]])
 
 (h/defview row
   "One to-do, with a toggle button. Reads exactly ONE subscription, which
@@ -397,3 +415,176 @@
                          (.then (fn [report]
                                   (is (true? (:clean? report)))
                                   (done)))))))))))
+
+;; ---------------------------------------------------------------------------
+;; W6 — construction is TRANSACTIONAL: a refused mount leaves NOTHING behind
+;; ---------------------------------------------------------------------------
+;;
+;; Three rows, one claim: a `mount!` or a `hydrate!` that does not become a
+;; mount puts the page back exactly as it found it and hands the caller the
+;; runtime's own refusal.
+;;
+;; Each row drives a DIFFERENT failure channel, because the three fail in
+;; three places and a repair to one says nothing about the others:
+;;
+;;   | row | fails in | reaches the caller as |
+;;   |---|---|---|
+;;   | W6a | a body's render, which React swallows | a throw |
+;;   | W6b | the codec, on `hydrate-root!`'s own stack | a rejection |
+;;   | W6c | adoption, which never completes | a rejection |
+;;
+;; And every row asserts the RESTORED STATE as well as the refusal, which is
+;; the difference between a row that would have caught PR #7822's audit
+;; finding and one that would not: the fault there was never that nothing
+;; was refused — React reported the error at the window — it was that
+;; `mount!` answered a handle and left a registered frame and an attached
+;; container behind. A row that merely observed a refusal passes against
+;; every one of those leaks.
+
+(defn- body-children [] (.-childElementCount js/document.body))
+
+(deftest l3-mount-propagates-the-runtimes-refusal-and-leaves-nothing-behind
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM")
+    (async done
+      (let [before   (hm/census)
+            children (body-children)
+            outcome  (try (hm/mount! [row-with-a-plain-function-child {}])
+                          (catch :default e e))]
+
+        (testing "the refusal reached the CALLER, carrying the runtime's own id,
+                  recovery and offending value — not a paraphrase minted here,
+                  and not the handle a mount that rendered nothing used to
+                  answer. React 19 does not re-throw a failed render out of
+                  `flushSync`: it hands the error to the root's
+                  `onUncaughtError`, whose default reports it at the window and
+                  returns — which is exactly how a mount could refuse and
+                  succeed at the same time (PR #7822's audit)"
+          (is (instance? ExceptionInfo outcome)
+              (str "mount! answered " (pr-str outcome) " instead of refusing"))
+          (when (instance? ExceptionInfo outcome)
+            (let [data (ex-data outcome)]
+              (is (= :rf.error/hicasso-bad-head (:rf.error/id data)))
+              (is (= :call-it-or-make-it-a-view (:recovery data)))
+              (is (identical? plain-child (:head data))
+                  "the offending head is the one the body wrote"))))
+
+        (-> (inventory/quiesced!)
+            (.then
+              (fn [_]
+                (testing "and the page is as the call found it. The frame this
+                          mount minted is gone, the container it appended is
+                          gone, and every residue counter is back — so a
+                          programmer who catches this refusal has nothing left
+                          to clean up and no handle they would have had to be
+                          given one"
+                  (is (= before (hm/census))
+                      (str "the census moved: " (pr-str before) " → "
+                           (pr-str (hm/census))))
+                  (is (= children (body-children))
+                      "the container the failed mount appended is still attached"))
+
+                (testing "and the facade's own bookkeeping is untouched: the next
+                          mount reports no standing peer and goes clean. A
+                          `!standing` left incremented by the failed call shows
+                          up here and nowhere else"
+                  (let [m (seeded)]
+                    (hm/unmount! m)
+                    (-> (hm/assert-clean! m)
+                        (.then (fn [report]
+                                 (is (zero? (:standing report)))
+                                 (is (true? (:clean? report)))
+                                 (done)))))))))))))
+
+(deftest l3-hydrate-rejects-a-form-the-codec-refuses-and-leaves-nothing-behind
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM")
+    (async done
+      (let [;; The caller's OWN container, carrying the caller's own bytes —
+            ;; the arm where the rollback must NOT tidy up, because the node is
+            ;; not the facade's to delete (rf2-31xm, the same rule `unmount!`
+            ;; follows).
+            container (js/document.createElement "div")
+            _         (set! (.-innerHTML container) "<li class=\"row\">server</li>")
+            _         (.appendChild js/document.body container)
+            before    (hm/census)
+            children  (body-children)]
+        ;; THE FAULT: an empty hiccup vector has no head, and the codec refuses
+        ;; it while `hydrate-root!` is still building its root element — on
+        ;; that call's own stack, before React is handed anything.
+        (-> (hm/hydrate! [] {:container container})
+            (.then (fn [m]
+                     (is false (str "hydrate! resolved with " (pr-str m)
+                                    " for a form the codec refuses")))
+                   (fn [e]
+                     (testing "a promise-returning door refuses by REJECTING.
+                               A synchronous throw would land outside every
+                               `.catch` the caller attached and hang the async
+                               test instead of failing it"
+                       (is (instance? ExceptionInfo e))
+                       (is (= :rf.error/hicasso-empty-vector
+                              (:rf.error/id (ex-data e)))))))
+            (.then (fn [_] (inventory/quiesced!)))
+            (.then (fn [_]
+                     (testing "the frame is destroyed and no counter moved"
+                       (is (= before (hm/census))
+                           (str "the census moved: " (pr-str before) " → "
+                                (pr-str (hm/census)))))
+                     (testing "and the caller's container is EXACTLY where they
+                               left it, with the bytes they put in it. A
+                               rollback that removed it would delete a node the
+                               facade did not create"
+                       (is (true? (.-isConnected container)))
+                       (is (= children (body-children)))
+                       (is (= "<li class=\"row\">server</li>" (.-innerHTML container))))
+                     (.removeChild js/document.body container)
+                     (done))))))))
+
+(deftest l3-hydrate-that-never-adopts-rejects-and-leaves-nothing-behind
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM")
+    (async done
+      (let [bytes-frame ::timeout-server
+            _           (rf/make-frame {:id bytes-frame
+                                        :initial-events [[::seed 3]]})
+            html        (sup/server-html! bytes-frame [row {:id 1}])
+            _           (rf/destroy-frame! bytes-frame)
+            _           (collector/reset-runtime!)
+            before      (hm/census)
+            children    (body-children)]
+        ;; THE FAULT: a budget already spent when the first poll runs, which is
+        ;; the deterministic way into the timeout branch. The alternative — a
+        ;; body that throws during adoption — never resolves EITHER, but it
+        ;; also reports an uncaught error at the window, and that is a
+        ;; different fault with a channel of its own.
+        (-> (hm/hydrate! [row {:id 1}] {:html html :initial-events [[::seed 3]]} -1)
+            (.then (fn [m]
+                     (is false (str "hydrate! resolved with " (pr-str m)
+                                    " on a spent budget")))
+                   (fn [e]
+                     (testing "it rejects rather than resolving with a handle
+                               whose adoption never happened"
+                       (is (instance? ExceptionInfo e))
+                       (is (some? (re-find #"never shut" (ex-message e)))
+                           (str "got " (pr-str (ex-message e)))))
+
+                     (testing "and the frame it minted is DESTROYED. This is
+                               what a rejection-only row cannot see: before the
+                               repair the timeout branch rejected and did
+                               nothing else — the frame stayed registered, the
+                               container stayed attached, the root stayed up
+                               with its adoption window open"
+                       (let [frame (:frame (ex-data e))]
+                         (is (keyword? frame))
+                         (is (not (contains? (set (rf/frame-ids)) frame))
+                             (str frame " is still registered"))))))
+            (.then (fn [_] (inventory/quiesced!)))
+            (.then (fn [_]
+                     (is (= before (hm/census))
+                         (str "the census moved: " (pr-str before) " → "
+                              (pr-str (hm/census))))
+                     (testing "and the container the facade minted for the
+                               server bytes is gone, because this one IS the
+                               facade's to remove"
+                       (is (= children (body-children))))
+                     (done))))))))
