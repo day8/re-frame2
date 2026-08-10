@@ -160,19 +160,28 @@ never the message:
 
 ```clojure
 ;; ht is the test kit from 14-testing.md
-(defn badge [_props] [:span.badge "hi"])   ;; a plain defn — not a view
+(defn badge [_props] [:span.badge "hi"])       ;; a plain defn — not a view
+(defn card  [_props] [:div.card [badge {}]])   ;; …and here it is, in a head
 
 (defn refusal-id [f]
   (try (f) ::did-not-throw
        (catch :default e (:rf.error/id (ex-data e)))))
 
-(deftest plain-defn-head-refuses
-  (is (= :rf.error/hicasso-bad-head
-         (refusal-id #(ht/tree [badge {}] {:subs {}})))))
+(deftest plain-defn-child-head-refuses
+  (is (= :rf.error/hicasso-test-plain-fn-head
+         (refusal-id #(ht/tree [card {}] {:subs {}})))))
 ```
 
 Message text improves between releases; ids are frozen. A string assertion
 tests the message text, not the refusal.
+
+**The head that refuses is a child's.** `ht/tree`'s root form is headed by
+the body function the kit is about to run, so `[badge {}]` written as the
+root form is the accepted spelling — it runs, and nothing refuses. Only a
+plain `defn` reached *inside* the tree is a mistake, and which id you catch
+tells you which layer caught it: at L2 the kit answers with its own
+`:rf.error/hicasso-test-plain-fn-head`, and the same child mounted at L3 is
+the runtime's `:rf.error/hicasso-bad-head` from the table above.
 
 ## Production erasure
 

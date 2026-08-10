@@ -142,7 +142,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-test-not-a-native-form` | gave an L1 projection a form whose head is not a tag keyword | — |
 | `:rf.error/hicasso-test-not-a-render-form` | gave an L2 render something other than a hiccup form | — |
 | `:rf.error/hicasso-test-not-an-intent` | gave the L1 marker materializer something other than an intent vector | — |
-| `:rf.error/hicasso-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | — |
+| `:rf.error/hicasso-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch15 |
 | `:rf.error/hicasso-test-position-is-not-a-handler` | fired at a position that lowers to something other than a function | — |
 | `:rf.error/hicasso-test-react-is-opaque` | let a raw React element reach the L2 semantic tree | — |
 | `:rf.error/no-frame-context` | (corpus-owned) rendered a Hicasso boundary whose React context carries no frame | ch03, ch09, ch10, ch17, ch19 |
