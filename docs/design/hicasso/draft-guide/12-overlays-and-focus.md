@@ -80,6 +80,18 @@ native `<dialog>` through `showModal`, and that call is the source of the
 focus contract:
 
 ```clojure
+(rf/reg-sub :invoice/confirm-delete?
+  (fn [db [_ id]] (get-in db [:ui :invoice/confirm-delete id] false)))
+
+(rf/reg-event :invoice/delete-cancelled
+  (fn [{:keys [db]} [_ id]]
+    {:db (assoc-in db [:ui :invoice/confirm-delete id] false)}))
+
+(rf/reg-event :invoice/delete-confirmed
+  (fn [{:keys [db]} [_ id]]
+    {:db (assoc-in db [:ui :invoice/confirm-delete id] false)
+     :fx [[:dispatch [:invoice/delete id]]]}))
+
 (h/defview confirm-delete [{:keys [invoice-id]}]
   [overlay/modal {:open?      (h/sub [:invoice/confirm-delete? invoice-id])
                   :on-dismiss [:invoice/delete-cancelled invoice-id]

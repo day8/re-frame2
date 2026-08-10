@@ -113,8 +113,9 @@ refresh replaces the whole set.
 The parent reads only the ids; each row reads its own entity. When one order's
 status changes, one subscription's value changes, one row body runs, and one
 `<td>` commits. The parent does not re-render, because the ids did not move.
-The narrow-update budget describes this shape: **body work scales with
-changed rows, not mounted rows** ([Performance](18-performance.md)).
+That is the shape you want for sparse edits: **body work scales with
+changed rows, not mounted rows** (the narrow-update idea
+[Performance](18-performance.md) calls out for list updates).
 
 The price is retention. A thousand mounted rows hold a thousand row reads, and
 mount establishes each of them. For a few hundred rows that cost is noise.

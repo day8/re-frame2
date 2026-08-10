@@ -11,7 +11,7 @@ The path is three tools and one rule:
 1. **The reporter** maps the work. It classifies every foreign crossing —
    converts mechanically, needs your hands, or will refuse at runtime — and
    it puts a named class and a recovery sentence on each line.
-2. **Shadow mode** proves that a ported screen behaves identically to the
+2. **[Shadow comparison](glossary.md#shadow-comparison)** (shadow mode) proves that a ported screen behaves identically to the
    original. It is a dev-only dual mount that live-diffs [canonical DOM](glossary.md#canonical-dom) and
    [intent](glossary.md#intent) streams.
 3. **The codemod** repairs the `[:>]` props dialect mechanically. It applies
@@ -100,9 +100,10 @@ event-vector and [`h/event`](glossary.md#hevent) spellings. An [intent](glossary
 inert array is what Reagent silently did, and the handler never fired there
 either.
 
-## Step 3 — prove it in shadow mode
+## Step 3 — prove it with shadow comparison
 
-A port that "looks right" is a guess. Shadow mode is the proof: mount the
+A port that "looks right" is a guess. [Shadow comparison](glossary.md#shadow-comparison)
+is the proof: mount the
 Reagent original and the [Hicasso](glossary.md#hicasso) port together, against isolated copies of
 the same seeded frame; drive both with one script; diff the [canonical DOM](glossary.md#canonical-dom)
 plus the [intent](glossary.md#intent) streams at every checkpoint.

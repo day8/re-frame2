@@ -1,5 +1,8 @@
 # Views and reads
 
+After [Getting started](01-getting-started.md)'s counter, this page is why
+re-renders stay fine-grained and why one read form is enough.
+
 Views that re-render too coarsely, and subscription reads that cannot live
 where you use them, are the same problem twice. Either you hoist a value high
 in the tree and re-render many sibling views, or you invent a second way to
@@ -30,8 +33,10 @@ the point of use:
 [`h/sub`](glossary.md#hsub) is the only read form. There is no second spelling for helpers. A
 bare `rf/subscribe` in a body is not a fallback: it refuses instead of
 resolving, and it names the read that went around the [collector](glossary.md#collector) — the
-runtime mechanism that records each [boundary](glossary.md#boundary)'s reads. (The event vectors in
-those attributes — *[intents](glossary.md#intent)* — and [`::h/value`](glossary.md#hvalue) belong to
+runtime mechanism that records which subscriptions each
+[boundary](glossary.md#boundary) (one independently re-rendering view) took
+during its body. (The event vectors in those attributes —
+*[intents](glossary.md#intent)* — and [`::h/value`](glossary.md#hvalue) belong to
 [Events as data](03-events-as-data.md).)
 
 ## Boundaries and inlining
@@ -51,7 +56,8 @@ boundary owns four things:
 - React's identity for the boundary.
 - The [`h/sub`](glossary.md#hsub) reads that its body makes.
 - Its value-equality bail-out.
-- The frame to which the [intents](glossary.md#intent) in its hiccup dispatch.
+- The re-frame2 frame (isolated app-db and queue) that its
+  [intents](glossary.md#intent) dispatch into.
 
 Native tags, fragments, and [`h/defhost`](glossary.md#defhost) heads also sit in vector position.
 None of them is a boundary.
@@ -97,6 +103,9 @@ whole entity) is the law of
 [Lists and collections](06-lists-and-collections.md).
 
 ## The component ABI
+
+The [component ABI](glossary.md#component-abi) is the props/children contract
+for a head — what converts, what is opaque, where keys live.
 
 | Head | Props | Children | `:key` | `:ref` |
 |---|---|---|---|---|
@@ -209,6 +218,9 @@ word teaches it ([events](03-events-as-data.md),
 
 ## Forwarding attributes: owned wins
 
+The [owned-wins](glossary.md#owned-wins) rule is simple: keys you write on the
+element always beat a forwarded map.
+
 A reusable field takes caller attributes and still owns its control keys.
 The merge is a pure recipe — a plain `merge`, with the attributes that you
 own written last:
@@ -238,7 +250,8 @@ map must never supply the value, checked, handler, key, or revision slots.
 
 ## The read-extent law
 
-[`h/sub`](glossary.md#hsub) is legal during the **direct synchronous execution** of the active
+The [read-extent law](glossary.md#read-extent-law): [`h/sub`](glossary.md#hsub)
+is legal during the **direct synchronous execution** of the active
 body. Branches, loops, and ordinary helpers are included. Reads inside a
 lazy `for` count as direct: the same pass that turns hiccup into elements
 forces them, so they land in the [boundary](glossary.md#boundary) that is rendering.

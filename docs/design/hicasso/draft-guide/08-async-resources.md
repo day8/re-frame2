@@ -1,20 +1,15 @@
 # Async resources
 
-Async replies arrive late. They arrive out of order. They arrive for screens
-that no longer exist. This page teaches the [Hicasso](glossary.md#hicasso) patterns for that problem
-class:
+Async replies arrive late, out of order, and for screens that no longer exist.
+The transport is the core resource model (`re-frame.resources`); that corpus
+teaches registered reads, causes, status maps you can subscribe to, and
+mutations that invalidate by tag. This page owns the [Hicasso](glossary.md#hicasso)
+patterns on top — starting with the race that eats draft edits. Later sections
+cover per-instance mutation status, cancellation, and
+[demand-driven committed reads](glossary.md#demand-driven-committed-read).
 
-- the settle-merge, which stops a late reply from overwriting newer edits
-- per-instance mutation status, with optimistic rollback
-- the owners of cancellation and supersession
-- [demand-driven committed reads](glossary.md#demand-driven-committed-read), shown in a full typeahead example
-
-The transport is the core resource/event model (`re-frame.resources`). That
-model supplies registered reads with scope and tags, causes, the five-status
-projection, and mutations that invalidate by tag. The corpus under
-`docs/resources/` teaches that model. This page assumes it and owns the
-patterns on top of it. In a Hicasso view, you read a resource with the same
-[`h/sub`](glossary.md#hsub) as any subscription.
+In a Hicasso view, you read a resource with the same [`h/sub`](glossary.md#hsub)
+as any subscription.
 
 > **The read owns the lifetime, you own the policy, and the runtime owns the race.**
 

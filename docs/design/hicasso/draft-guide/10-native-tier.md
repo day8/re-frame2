@@ -1,6 +1,10 @@
 # The native tier
 
-Most applications never need this page. Ordinary [Hicasso](glossary.md#hicasso) — interpreted hiccup, [`h/sub`](glossary.md#hsub) where you read, events as data — is the product, and it is the right choice for roughly 98% of the view code you will ever write. This page is for the other 1–2%: the row that repaints on every market tick, the drag handle that tracks a pointer at display rate, the vendor widget with hooks at its core. For that code Hicasso keeps an explicit exit to native React. Take it and you write React directly — direct element construction, real hooks, full native speed — and your frame, your app-db, and your React root all come with you.
+Most apps never need this page. Ordinary [Hicasso](glossary.md#hicasso) —
+hiccup, [`h/sub`](glossary.md#hsub) where you read, events as data — is the
+product. This page is the exit for the thin slice that is not: market-tick
+rows, display-rate drag, vendor widgets that are hooks all the way down. You
+write React directly; frame, app-db, and root stay the same.
 
 > **`[...]` is always interpreted Hiccup. [`n/$`](glossary.md#n-dollar) is always native React. Neither form ever changes the other's meaning — and nothing, anywhere, compiles hiccup.**
 
@@ -8,7 +12,8 @@ That sentence is the whole architecture. There is no compiler tier, no `:fast` f
 
 ## The ladder
 
-The hot path is a gradient of explicit choices. You climb it one rung at a time, with a measurement at every step.
+The [performance ladder](glossary.md#performance-ladder) is a gradient of
+explicit choices. You climb it one rung at a time, with a measurement at every step.
 
 | Rung | You write | What changes | Climb when |
 |---|---|---|---|
@@ -20,7 +25,12 @@ The hot path is a gradient of explicit choices. You climb it one rung at a time,
 
 Rungs 1 and 2 are the ordinary product — [Views and reads](02-views-and-reads.md) and [Lists and collections](06-lists-and-collections.md) own them. This page owns rungs 3 to 5, and the rule that disciplines all three:
 
-**An escape stays only if it recovers at least 20% of the measured interaction, saves at least 2 ms at p95, or converts a failed [user-visible budget](glossary.md#user-visible-budget) into a pass — otherwise it comes out.** Native code that cannot meet that rule is a permanent cost with no return. Reverting a rung-3 escape is a five-minute diff, so the rule has no exceptions.
+**[Escape-benefit rule](glossary.md#escape-benefit-rule):** an escape stays
+only if it recovers at least 20% of the measured interaction, saves at least
+2 ms at p95, or converts a failed [user-visible budget](glossary.md#user-visible-budget)
+into a pass — otherwise it comes out. Native code that cannot meet that rule
+is a permanent cost with no return. Reverting a rung-3 escape is a five-minute
+diff, so the rule has no exceptions.
 
 ## Rung 3 — return native React from a boundary
 

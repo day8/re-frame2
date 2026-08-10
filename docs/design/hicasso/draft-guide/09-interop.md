@@ -221,8 +221,9 @@ mechanism for containers that you do not control.
 
 ## The escape: `[:>]`
 
-`[:> Component props & children]` is the raw element escape. It is the same
-foreign path as [`h/defhost`](glossary.md#defhost), with the declaration erased. It exists for two
+`[:> Component props & children]` is the [raw escape](glossary.md#raw-escape):
+the same foreign path as [`h/defhost`](glossary.md#defhost), with the
+declaration erased. It exists for two
 cases. Migration is the first: Reagent codebases arrive full of `[:>]` sites,
 and those sites are legal here. The second is the one-off crossing that a
 declaration cannot express, such as a component selected at runtime from data:

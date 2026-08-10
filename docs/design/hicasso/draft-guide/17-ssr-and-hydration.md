@@ -3,9 +3,10 @@
 You want real HTML in the first response, and you want the same app to take
 over in the browser. You do not want to write the UI twice, and you do not
 want a second HTML emitter that drifts from what the client renders.
-[Hicasso](glossary.md#hicasso)'s answer is a contract, not a mode. Every public surface either
-renders deterministic React server bytes or refuses at its source with a
-recovery. The browser adopts the server's DOM; it does not repaint over it.
+[Hicasso](glossary.md#hicasso) renders the same views on the server that you
+mount in the browser. Each host and native component either renders
+deterministic HTML or declares Client-only with a fallback — no silent empty
+hole. The browser adopts the server's DOM; it does not repaint over it.
 
 > **One renderer runs in two places, and React's own adoption judges the
 > result.**

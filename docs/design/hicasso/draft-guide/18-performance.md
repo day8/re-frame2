@@ -1,7 +1,8 @@
 # Performance
 
-"Is it fast enough?" is not a feeling. [Hicasso](glossary.md#hicasso) ships with budgets stated in
-user-visible terms, and performance work is the method that meets them:
+"Is it fast enough?" is not a feeling. [Hicasso](glossary.md#hicasso) ships with
+[user-visible budgets](glossary.md#user-visible-budget), and performance work
+is the method that meets them:
 measure, attribute, change the smallest thing, then verify again. This
 chapter gives you the budgets, the ladder, the loop, and one example with
 every cost counted, so that you can compute a cost instead of guessing at
@@ -62,6 +63,10 @@ ladder continues downward, explicitly and locally. The share is an observed
 outcome, never a quota. An escape is a local island, never a general style.
 
 ## The ladder
+
+The [performance ladder](glossary.md#performance-ladder) is the same gradient
+as [the native tier](10-native-tier.md): ordinary Hicasso first, explicit
+escapes only when measurement names them.
 
 One table shows the whole gradient. Every rung is code that is visible in a
 diff. There is no `:fast` flag, no compile mode, and no setting that changes

@@ -1,5 +1,8 @@
 # Events as data
 
+With reads in place from [Views and reads](02-views-and-reads.md), this page
+makes handlers data so trees stay inspectable.
+
 Handler attributes are the place where a data-oriented view layer usually
 stops being data. You write pure data down the whole tree. Then `:on-click`
 needs a function, so you write `#(rf/dispatch [:todo/toggle id])`. That node
@@ -14,10 +17,12 @@ stops being inspectable, comparable, or assertable by equality.
 This is not syntactic sugar for a closure that you could write yourself. The
 tree still holds data at that node, so a test asserts the node with `=`, and
 a tool reads it off the tree. When the user clicks the button, the runtime
-dispatches the vector to the frame of the rendering [boundary](glossary.md#boundary). The runtime
-built that callback at render, and the callback carries the frame with it.
+dispatches the vector into the re-frame2 frame owned by the rendering
+[boundary](glossary.md#boundary) (the independently re-rendering view that
+produced this hiccup). The runtime built that callback at render, and the
+callback carries the frame with it.
 
-Lowering — the step that turns an attribute into a React prop — works by
+[Lowering](glossary.md#lowering) — the step that turns an attribute into a React prop — works by
 shape, not by a roster. Any prop whose name is `on-` plus a letter is an
 event position. CamelCase `onClick` also works, for the migrating author.
 There is no list of approved event names to keep in step with the DOM. An
@@ -43,7 +48,8 @@ At dispatch, the handler receives `[:todo.ui/edit 7 "milk"]` or
 `[:todo/set-done 7 true]`. These are ordinary event vectors, the same as
 vectors that you dispatch by hand. Substitution happens at the [intent](glossary.md#intent)
 vector's top level only. The runtime does not look for a marker in nested
-structure. An intent that carries no marker never reads its event.
+structure. If the vector has no marker, the runtime never peeks at the DOM event — so
+nothing is substituted, and nothing is read "for free."
 
 These two words, plus [`::h/prevent`](glossary.md#hprevent) below and [`::h/revision`](glossary.md#hrevision)
 ([Controlled inputs](04-controlled-inputs.md)), are the entire reserved
@@ -79,8 +85,8 @@ modifier-click on a real link must still open a tab:
     on submit, the [`::h/prevent`](glossary.md#hprevent) head is missing. The rare form that wants a
     real browser submission omits the head.
 
-The grammar is closed: exactly one inner intent vector, and that vector is
-what the runtime dispatches. Two payloads, a keyword instead of a vector, a
+The shape is fixed: exactly one inner intent vector. That inner vector is what
+actually gets dispatched. Two payloads, a keyword instead of a vector, a
 decorator inside a decorator — each is
 `:rf.error/hicasso-malformed-prevent`. The error names the attribute and
 fires at render time, not at the click. Markers still work inside the head:
@@ -179,8 +185,8 @@ question at render, once.
 
 ## Keyboard as data
 
-Keyboard handling is a map from key name to [intent](glossary.md#intent), not a `case` over
-`.-key`:
+A [keyboard map](glossary.md#keyboard-map) is a data map from DOM `.key` string to
+[intent](glossary.md#intent) — not a `case` over `.-key`:
 
 ```clojure
 [:input {:value       (h/sub [:todo.ui/draft id])

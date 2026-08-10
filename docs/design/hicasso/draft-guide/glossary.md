@@ -54,6 +54,8 @@ A function from a props map to markup, registered with [`defview`](#defview).
 In head position of a Hiccup vector it is a [boundary](#boundary). Plain
 `defn` helpers are not views: call them as functions so they [inline](#inline-helper).
 
+Related: [Views and reads](02-views-and-reads.md).
+
 <a id="boundary"></a>
 ### **boundary**
 
@@ -259,9 +261,10 @@ Related: [Forms](05-forms.md).
 <a id="keyboard-map"></a>
 ### **keyboard map**
 
-Data map on a keyboard prop (e.g. `:on-key-down`) from key chord → intent.
-IME composition is explicit: Enter during composition commits nothing.
-Richer chords use [`h/event`](#hevent).
+Data map on a keyboard prop (e.g. `:on-key-down`) from DOM `.key` string →
+intent. Unlisted keys are ignored. There is no modifier DSL — richer cases use
+[`h/event`](#hevent). IME composition is central: Enter during composition
+commits nothing.
 
 Related: [Events as data](03-events-as-data.md#keyboard-as-data).
 
@@ -382,6 +385,8 @@ Related: [Native tier](10-native-tier.md#the-n-grammar).
 Marker that classifies a dynamic expression as the props operand of
 [`n/$`](#n-dollar). Emits no runtime wrapper — classification only. An unmarked
 dynamic map in second position is a **child**, not props.
+
+Related: [Native tier](10-native-tier.md#the-n-grammar).
 
 <a id="ndefcomponent"></a>
 ### **n/defcomponent**
@@ -663,9 +668,10 @@ Related: [Getting started](01-getting-started.md).
 <a id="hydrate"></a>
 ### **hydrate!**
 
-Client adoption of server-rendered HTML for a root: install the payload and
-attach listeners instead of repainting over the server DOM. Server and client
-share one React renderer; mismatches surface as hydration errors.
+Two verbs on one job. **`re-frame.ssr/hydrate!`** installs the server payload
+into the client frame (state half). **`h/hydrate!`** adopts the server DOM for
+a Hicasso root (DOM half). Server and client share one React renderer;
+mismatches surface as hydration errors.
 
 Related: [SSR and hydration](17-ssr-and-hydration.md).
 
@@ -692,8 +698,9 @@ Related: [Performance](18-performance.md#the-budgets).
 <a id="shadow-comparison"></a>
 ### **shadow comparison**
 
-Migration witness: dual-render canonical DOM / intent diff against a Reagent
-(or other) twin so conversion preserves behaviour before codemod. Refusals
-are named classes, not silent drift.
+Also called **shadow mode**. Migration witness: dual-render
+[canonical DOM](#canonical-dom) / [intent](#intent) diff against a Reagent (or
+other) twin so conversion preserves behaviour before codemod. Refusals are
+named classes, not silent drift.
 
 Related: [Migration from Reagent](19-migration-from-reagent.md).
