@@ -82,9 +82,13 @@
   declarations are applied. It fails CLOSED: a frameless or destroyed-frame
   read redacts the whole query rather than shipping it under no policy.
 
-  Retained-window events pass
-  `re-frame.classification/redact-event-by-registration`, the single
-  event-vector egress chokepoint.
+  Retained-window events are carried as an event ID and an argument
+  COUNT. The event vector itself is not carried at any classification,
+  because the classification model is fail-open — an event that declared
+  nothing ships its arguments raw through the egress chokepoint — and a
+  door that promised *no application data* while routing an undeclared
+  payload through would be making the promise falsely. The suite's
+  seeded-value row caught exactly that before this door shipped.
 
   **No read VALUE is carried by any read here, at all.** What a boundary
   read is a fact about the boundary; what it read AS is arbitrary
@@ -103,8 +107,7 @@
 
   Normative owner: `docs/design/hicasso/product/specification.md` §10,
   `docs/design/hicasso/product/lanes/testing-xray.md` §Evidence contract."
-  (:require [re-frame.classification :as classification]
-            [re-frame.elision :as elision]
+  (:require [re-frame.elision :as elision]
             [re-frame.hicasso.evidence :as evidence]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
@@ -405,25 +408,39 @@
   (vec (sort-by pr-str (keys @frames/!frame-ops))))
 
 (defn- intent-row
-  "One retained run, as an intent row.
+  "One retained run, as an intent row: WHICH event, and how many arguments
+  it carried — never the arguments themselves.
 
-  `:event` is the dispatched vector through
-  `classification/redact-event-by-registration`, the single event-vector
-  egress chokepoint — applied HERE rather than trusted to the emit-time
-  trace projection upstream, because the guarantee this door owes its
-  reader is about what leaves THIS door. The chokepoint is idempotent, so
-  applying it to an already-projected vector substitutes nothing twice.
+  **This is the one place the door was measurably wrong before its own
+  witness ran, and the correction is worth stating.** Carrying the
+  dispatched VECTOR through
+  `classification/redact-event-by-registration` — the single event-vector
+  egress chokepoint, and the obvious thing to reach for — leaks. The
+  chokepoint applies the classification the event's REGISTRATION declared,
+  and EP-0025's model is fail-open: an event that declared nothing ships
+  its arguments raw. So a seeded secret dispatched under an unclassified
+  event id reached this envelope verbatim, and the suite's seeded-value
+  row caught it.
+
+  An id and an arity are enough for the question this read answers —
+  *what was dispatched, in what order* — and they make the door's promise
+  uniform and absolute: **no read here carries application data, under any
+  classification, declared or not.** A developer who needs the arguments
+  has the Trace surface, which is where Spec 015 governs that egress and
+  where a reader knows they are looking at application data.
 
   `:sub-ids` is what that run recomputed, which is the axis an
   [[explain-render]] candidate is matched on."
   [frame-id bundle]
-  {:frame-id    frame-id
-   :dispatch-id (:dispatch-id bundle)
-   :event       (classification/redact-event-by-registration (:event bundle))
-   :sub-ids     (vec (sort-by pr-str
-                              (into #{}
-                                    (keep #(get-in % [:tags :rf.sub/id]))
-                                    (:subs bundle))))})
+  (let [event (:event bundle)]
+    {:frame-id    frame-id
+     :dispatch-id (:dispatch-id bundle)
+     :event-id    (if (vector? event) (nth event 0) evidence/unknown)
+     :arg-count   (if (vector? event) (dec (count event)) evidence/unknown)
+     :sub-ids     (vec (sort-by pr-str
+                                (into #{}
+                                      (keep #(get-in % [:tags :rf.sub/id]))
+                                      (:subs bundle))))}))
 
 (defn read-intents
   "What was dispatched inside Spec 009's RETAINED WINDOW, oldest first,
@@ -436,7 +453,8 @@
       ;;     :basis :observation :complete? false
       ;;     :loss  {:reason :cap :dropped :unknown}
       ;;     :intents [{:frame-id :app/main :dispatch-id 41
-      ;;                :event [:todo/toggle 7] :sub-ids [:todo]}]
+      ;;                :event-id :todo/toggle :arg-count 1
+      ;;                :sub-ids [:todo]}]
       ;;     :origin  {…:basis :opaque :intent-origin :unknown}}
 
   NOTHING IS RETAINED TO ANSWER THIS. The stream is the per-frame
