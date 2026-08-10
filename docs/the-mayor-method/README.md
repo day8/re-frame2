@@ -191,7 +191,7 @@ the remote afterwards. So merge with `gh pr merge --rebase --delete-branch`
 (this repo rebases — `--squash` would collapse a worker's commits into one),
 verify `MERGED`, then `git push origin --delete <branch>` yourself. None of
 that needs `--admin`: none of the six used it, and a branch-cleanup annoyance
-is not grounds to bypass a merge criterion. Then leave
+is not grounds to bypass the merge criterion. And leave
 local cleanup until the worker has **reported done**. Not until it looks
 done: a merged PR and a clean tree are both routinely true of a worker
 still running its gates, and reaping on either destroys that run. Full
