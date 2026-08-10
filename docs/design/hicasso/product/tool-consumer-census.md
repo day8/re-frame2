@@ -102,7 +102,7 @@ instead of, the donor: the Hicasso tab reads `re-frame.hicasso.tool`, while the 
 | X10 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_helpers.cljc` | pins `:re-frame.hicasso.evidence/v2` (L66) as the consumer-owned schema literal | MIGRATED |
 | X11 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_cljs_test.cljs` | requires `re-frame.hicasso`, `.evidence`, `.impl.collector`, `.tool` | MIGRATED |
 | X12 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_helpers_cljs_test.cljc` | names `:re-frame/freehand` once (L175) **only to assert `supported?` returns false for it** — the donor appears as the rejected case | MIGRATED |
-| X13 | `tools/xray/src/day8/re_frame2_xray/registry.cljs` | the schema-4 reload warning (`js/console.warn`, L268-278) names `re-frame.ui` (L270, L273) and `re-frame.freehand.tool` (L273) in the sentence a developer reads when it fires — a runtime string the code actually uses, load-bearing on the same footing as P2's shipped `:description` prose. The file's other eight donor hits are docstrings and comments | STILL-LIVE |
+| X13 | `tools/xray/src/day8/re_frame2_xray/registry.cljs` | the schema-4 reload warning (`js/console.warn`, L268-277, in `warn-donor-ownership-resident!` at L260) names `re-frame.ui` (L270, L273) and `re-frame.freehand.tool` (L273) in the sentence a developer reads when it fires — a runtime string the code actually uses, load-bearing on the same footing as P2's shipped `:description` prose. The file's other eight donor hits are docstrings and comments | STILL-LIVE |
 
 **How X2's liveness was established** — not from its `:require`, which proves nothing on its own. The
 chain is: `panels/reactive_panel_subs.cljs` L131 requires `day8.re-frame2-xray.mounted-views` and
