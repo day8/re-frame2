@@ -502,9 +502,14 @@
 
   `binding` and `with-redefs` rebind VARS rather than introducing locals, and
   they are here anyway for the same reason: inside one, the name no longer
-  denotes the view either."
+  denotes the view either.
+
+  `dotimes` takes the same pair and was simply absent (rf2-ka4d). It is the
+  one member no correct program needs — a counter is an integer, and calling
+  one throws whatever the linter says — but a roster with a hole in it is the
+  entire defect class, and this family is now complete."
   '#{let let* loop loop* when-let if-let when-some if-some when-first
-     with-open with-local-vars doseq for binding with-redefs})
+     with-open with-local-vars doseq dotimes for binding with-redefs})
 
 (defn- bound-symbols
   "Every symbol a binding TARGET binds, destructuring included.
@@ -549,6 +554,20 @@
           (comp (filter api/vector-node?) (mapcat bound-symbols))
           params)))
 
+(defn- fn-tail-locals
+  "The names a SEQUENCE of NAMED `fn` tails binds.
+
+  Two families write one. A `letfn` binding vector holds fnspecs, which are
+  `fn` tails by construction. The specs of `reify`, `specify!`, `extend-type`
+  and `extend-protocol` hold methods, `(name [params*] body*)` — the same
+  production, so the same reading answers both.
+
+  Only LIST nodes are read, which is what lets one function serve five forms:
+  the protocol and type NAMES a spec also carries are tokens, and a token
+  binds nothing."
+  [nodes]
+  (into #{} (mapcat #(when (api/list-node? %) (fn-locals (:children %)))) nodes))
+
 (defn- locals-bound-by
   "The names this node binds over its own subforms, when it is a form that
   binds names at all — and `#{}` for everything else, which is most nodes.
@@ -585,13 +604,31 @@
         ;; read and every use of one reported at ERROR (merged-PR audit #7804).
         (= 'letfn core)
         (if (api/vector-node? (first more))
-          (into #{}
-                (mapcat #(when (api/list-node? %) (fn-locals (:children %))))
-                (:children (first more)))
+          (fn-tail-locals (:children (first more)))
           #{})
 
-        (= 'catch core)  (if-let [s (token-sexpr (second more))] #{s} #{})
-        (= 'as-> core)   (if-let [s (token-sexpr (second more))] #{s} #{})
+        ;; `(reify P (m [v] …))` and the three forms that write the same specs
+        ;; somewhere else: a METHOD is a named `fn` tail exactly as a fnspec
+        ;; is, so its parameters are locals exactly as theirs are.
+        ;;
+        ;; The first argument is dropped for all four, which is uniform rather
+        ;; than clever. `reify`, `extend-type` and `extend-protocol` name a
+        ;; protocol or a type there and a name binds nothing, so dropping it
+        ;; costs them nothing. `specify!` takes an ordinary EXPRESSION —
+        ;; `(specify! (js-obj) …)` — sitting precisely where a method sits,
+        ;; and reading THAT as a method would bind its head symbol and silence
+        ;; the whole form, self-call and all.
+        (contains? '#{reify specify! extend-type extend-protocol} core)
+        (fn-tail-locals (rest more))
+
+        ;; `(defmethod area :square [{:keys [side]}] …)` — everything past the
+        ;; multimethod and the dispatch value is a `fn` tail, arity lists
+        ;; included, and `fn` is what `defmethod` hands it to.
+        (= 'defmethod core) (fn-locals (drop 2 more))
+
+        (= 'catch core)   (if-let [s (token-sexpr (second more))] #{s} #{})
+        (= 'as-> core)    (if-let [s (token-sexpr (second more))] #{s} #{})
+        (= 'this-as core) (if-let [s (token-sexpr (first more))] #{s} #{})
 
         :else #{}))))
 

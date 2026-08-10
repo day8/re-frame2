@@ -173,6 +173,14 @@
   [:div (str (specify! (js-obj) Applies
                (apply-to [_ f] (f (self-call-in-specify {})))))])
 
+;; The view called in `specify!`'s OBJECT position — the one place a self-call
+;; can hide behind a first argument. This is what makes DROPPING that argument
+;; load-bearing rather than tidy: read as a method spec instead, its head
+;; symbol would be a local, and the whole form would go quiet.
+(h/defview self-calling-specify-target [_]
+  [:div (str (specify! (self-calling-specify-target {}) Applies
+               (apply-to [_ f] (f))))])
+
 (h/defview self-call-in-extend-type [_]
   (extend-type string Applies
     (apply-to [_ f] (f (self-call-in-extend-type {}))))

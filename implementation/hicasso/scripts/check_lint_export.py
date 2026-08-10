@@ -60,12 +60,12 @@ HOOK_FILE = os.path.join(EXPORT_DIR, "hooks", "re_frame", "hicasso.clj")
 # cannot see.
 EXPECTED = {
     # ERRORS -- true invariants (operator ruling, rf2-hic-022).
-    "direct-view-call":             [25, 144, 162, 167, 170, 174, 178, 183,
-                                     187],
+    "direct-view-call":             [25, 144, 162, 167, 170, 174, 181, 186,
+                                     191, 195],
     "function-in-head-position":    [99, 102, 105, 110, 114],
     # WARNINGS -- heuristics and assistance. Nothing blocks a build.
     "deferred-read":                [32, 37, 43],
-    "parked-read":                  [52, 56, 60, 200, 209],
+    "parked-read":                  [52, 56, 60, 208, 217],
     "unkeyed-mapped-child":         [68, 73, 76, 79],
     "nameless-interactive-element": [86, 89, 92, 123, 126],
 }
@@ -281,6 +281,17 @@ def self_test():
         ("a letfn arity SKIPPED reds", "hook",
          "(keep #(when (api/list-node? %) (first (:children %))) forms))]",
          "(keep #(when (api/list-node? %) (first (:children %))) (rest forms)))]",
+         "direct-view-call"),
+        # A binding form MISSING FROM THE ROSTER (rf2-ka4d). The hook has no
+        # scope table, so it knows a binding form by name; six were absent and
+        # each one blocked a build on correct code. Blind the arm that reads
+        # method parameters and the reify / specify! / extend-type /
+        # extend-protocol rows must red. The other arms of the same class --
+        # `dotimes` in the let-shaped set, `this-as`, `defmethod` -- are one
+        # mechanism with this one, and their rows pin them individually.
+        ("a binding form dropped from the roster reds", "hook",
+         "(fn-tail-locals (rest more))",
+         "(do more #{})",
          "direct-view-call"),
     ]
 

@@ -25,6 +25,9 @@
 (defprotocol Applies
   (apply-to [this f]))
 
+(defprotocol Twice
+  (apply-twice [this f]))
+
 (defmulti dispatch-on :kind)
 
 ;; ---------------------------------------------------------------------------
@@ -342,73 +345,109 @@
 ;; at ERROR, which stops the build. Six such forms were measured live at the CI
 ;; pin after the `letfn` repair landed (rf2-ka4d).
 ;;
-;; So, once more, from the GRAMMAR rather than from the repair: one row per
-;; production of each form, with the local spelled like the enclosing view and
-;; nothing else in that row bound, so that no row passes on a neighbour's
-;; coverage.
+;; So, once more, from the GRAMMAR rather than from the repair — and past
+;; where grammar alone stops (merged-PR audit #7818): a shape answers "did I
+;; test this form?", and a POSITION answers "can this row tell the
+;; difference?". Only the second makes a row a witness. So each row below
+;; binds the view's name in the position hardest to reach, with some OTHER
+;; name bound in the position an easier reading would find, and the comment
+;; names the narrowing it reds under.
 ;; ---------------------------------------------------------------------------
 
 ;; `(dotimes [name n] body*)` is the whole grammar — one pair, the target a
-;; symbol, no second production. It is the one row here that no correct program
-;; reaches: a counter is an integer, and calling one throws whatever the linter
-;; says. The hole is closed anyway, because the roster it was missing from is
-;; otherwise the COMPLETE `let`-shaped family, and a hole in a roster is what
-;; all of this is made of.
+;; symbol, no second production, so there is no harder position to reach. It
+;; is also the one row here that no correct program needs: a counter is an
+;; integer, and calling one throws whatever the linter says. REDS UNDER the
+;; only narrowing available, `dotimes` dropped from the `let`-shaped roster —
+;; and it is in that roster because the roster is otherwise the complete
+;; family, and a hole in a roster is what all of this is made of.
 (h/defview tick [_]
   (dotimes [tick 3] (tick))
   [:div "ticked"])
 
-;; `(this-as name body*)`, and `this` in a JS callback may perfectly well be a
-;; function — that is what makes this one a program somebody writes.
+;; `(this-as name body*)` binds at the FIRST position, where `catch` and `as->`
+;; — its neighbours in the same `cond` — bind at the second. `this` in a JS
+;; callback may perfectly well be a function, which is what makes this a
+;; program somebody writes. REDS UNDER reading the second position, which
+;; finds `(handler)`: a list, and a list binds nothing.
 (h/defview handler [_]
   [:div {:ref (fn [] (this-as handler (handler)))}])
 
 ;; A `reify` method is a `fn` tail with its name in front, exactly as a `letfn`
-;; fnspec is, and its parameters are ordinary locals.
+;; fnspec is. The binding method is FIRST here with another method after it, so
+;; this row REDS UNDER keeping only the last spec; `second-group` binds behind
+;; both a spec NAME and another method, so that one REDS UNDER keeping only the
+;; first. Neither can pass on the other's coverage.
 (h/defview boxed [_]
-  [:div (str (reify Applies (apply-to [_ boxed] (boxed))))])
+  [:div (str (reify
+               Applies (apply-to    [_ boxed] (boxed))
+               Twice   (apply-twice [_ g] (g))))])
 
-;; The binding method in the SECOND protocol group, behind another method and
-;; behind a bare protocol NAME: a reader that stops at the first spec, or that
-;; mistakes a token for a method, does not reach this one.
 (h/defview second-group [_]
   [:div (str (reify
                Object  (toString [_] "first")
                Applies (apply-to [_ second-group] (second-group))))])
 
-;; `specify!` takes an ordinary EXPRESSION where the others take a name, and
-;; that expression is written as a LIST here on purpose: it sits exactly where
-;; a method sits, and reading it as one is the mistake available.
+;; `specify!` takes an ordinary EXPRESSION where the other three take a name,
+;; and it is written as a LIST here on purpose: it sits exactly where a method
+;; sits. The binding method is LAST, behind a whole other spec group, so this
+;; REDS UNDER keeping only the first. That the first argument is DROPPED
+;; rather than read is not witnessed here — reading it could only bind an
+;; extra name, and an extra name only silences — so `self-calling-specify-
+;; target` in the positive half carries that half.
+;;
+;; `specify`, the non-mutating twin, is deliberately NOT driven and not in the
+;; roster: clj-kondo does not read it as a spec-bearing form at all, so its
+;; method parameters are not locals to kondo's OWN analysis either, and a row
+;; for it reports `invalid-arity` before any check here is consulted.
 (h/defview marked [_]
-  [:div (str (specify! (js-obj) Applies (apply-to [_ marked] (marked))))])
+  [:div (str (specify! (js-obj)
+               Twice   (apply-twice [_ g] (g))
+               Applies (apply-to    [_ marked] (marked))))])
 
-;; `extend-type` names a type and then the same method lists.
+;; `extend-type` names a type and then the same method lists. REDS UNDER
+;; keeping only the first method, and under reading the TYPE as a binding —
+;; which would bind `string`.
 (h/defview extended [_]
-  (extend-type string Applies (apply-to [_ extended] (extended)))
+  (extend-type string
+    Twice   (apply-twice [_ g] (g))
+    Applies (apply-to    [_ extended] (extended)))
   [:div "extended"])
 
-;; `extend-protocol` inverts that — one protocol, then a type before each
-;; group — so the binding method here follows both a token and another method.
+;; `extend-protocol` inverts that — one protocol, a type before each group —
+;; so this binding follows both a spec token and another method. REDS UNDER
+;; stopping at the first group.
 (h/defview spread-out [_]
   (extend-protocol Applies
     string (apply-to [_ f] (f))
     number (apply-to [_ spread-out] (spread-out)))
   [:div "spread"])
 
-;; `(defmethod multifn dispatch-val & fn-tail)`, first production: the tail
-;; written flat. A `defmethod` inside a body is unusual code, and it is the
-;; only place a hook can see one — a top-level `defmethod` is not inside any
-;; view, so nothing here ever reads it.
+;; `(defmethod multifn dispatch-val & fn-tail)`, tail written flat. The
+;; multimethod's own NAME sits at position 0 and the dispatch value at 1, so
+;; this REDS UNDER reading the tail from either — position 0 binds
+;; `dispatch-on`, position 1 finds a keyword. A `defmethod` inside a body is
+;; unusual code and it is the only place a hook can see one: a top-level
+;; `defmethod` is inside no view, so nothing here ever reads it.
 (h/defview run-it [_]
   (defmethod dispatch-on :fn [run-it] (run-it))
   [:div "registered"])
 
-;; Second production: the tail written as arity lists. Both arities bind, and
-;; both must go quiet.
+;; The tail written as arity lists, and — per rf2-hic-022 — one row per arity
+;; POSITION rather than one per shape. Bound by the FIRST arity alone here, so
+;; it REDS UNDER skipping the first arity ...
 (h/defview run-any [_]
   (defmethod dispatch-on :any
     ([run-any] (run-any))
-    ([run-any x] (run-any x)))
+    ([x y] (str x y)))
+  [:div "registered"])
+
+;; ... and by the LAST alone here, the first arity binding nothing at all, so
+;; it REDS UNDER reading only the first.
+(h/defview run-last [_]
+  (defmethod dispatch-on :last
+    ([] "none")
+    ([run-last] (run-last)))
   [:div "registered"])
 
 ;; ---------------------------------------------------------------------------
