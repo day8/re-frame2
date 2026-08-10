@@ -2006,12 +2006,34 @@
   "The registrations currently reading `sub-key` — the cell's own reader
   list, which is the whole of the fused table's reverse edge.
 
-  A witness reader, answered as a vector so a caller cannot mutate the
-  live list. It replaces the retired index's `readers-of`, and it is what
-  the reader-counting rows assert against."
+  A witness reader, answered as a SNAPSHOT: the cell's live array is
+  cloned before it is wrapped, so a caller may hold the result across a
+  mount, an unmount or a remount and read back what it captured. That is
+  the guarantee the reader-counting rows assert against, and it replaces
+  the retired index's `readers-of`.
+
+  **The clone is load-bearing and `vec` alone was not it (rf2-0oy4).**
+  `cljs.core/vec` says so in its own docstring — *\"JavaScript arrays will
+  be aliased and should not be modified\"* — because on an array it calls
+  `PersistentVector.fromArray` with `no-clone` true, and below length 32,
+  which is every fan-out this table sees, the vector's TAIL *is* the array
+  handed in. [[acquire-cell!]] and [[release-cell!]] then `.push` and
+  `.splice` that array in place, and the result is not a stale value but
+  an INCOHERENT one: `count` and `nth` stay bounded by the `cnt` frozen at
+  construction while `reduce` walks each chunk by the tail's live
+  `alength`, so the same vector answers 2 to `count` and `[b b]` to
+  `mapv`. A baseline that mutates into the result is a witness that cannot
+  see a leak, and by symmetry a leaking runtime that reads clean — which
+  is how this presented, as rf2-vsgq's HMR baseline.
+
+  This file is the PACKAGE's donor and is no longer digest-pinned to it
+  (`hicasso/frozen-sources.edn`, \"the first retirement\"), so the two
+  copies are kept in step by hand. The package's own
+  `re-frame.hicasso.impl.inventory/cell-readers` carries this fix, and
+  `re-frame.hicasso.inventory-snapshot-cljs-test` pins it."
   [sub-key]
   (if-some [^js c (get @!cells sub-key)]
-    (vec (.-readers c))
+    (vec (aclone (.-readers c)))
     []))
 
 (defn boundary-reads
