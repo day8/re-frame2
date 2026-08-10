@@ -13,7 +13,7 @@
   `re_frame/hicasso/lint_export_test.clj` is what reads it. Every form
   carries the finding type it must produce, so a row that stops firing is
   read as a broken rule rather than as tidy code."
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.hicasso :as h :refer [use-subs]]))
 
 ;; ---------------------------------------------------------------------------
 ;; :re-frame.hicasso/direct-view-call -- a view called like a function
@@ -34,7 +34,7 @@
 
 (h/defview grouped-read-inside-a-callback [_]
   [:button {:on-click (h/hfn [_e]
-                        (let [{:keys [id]} (h/use-subs {:id [:todo/current]})]
+                        (let [{:keys [id]} (use-subs {:id [:todo/current]})]
                           [:todo/toggle id]))}
    "toggle"])
 
@@ -57,7 +57,7 @@
   [:div "parked"])
 
 (h/defview parked-in-a-volatile [{:keys [cache]}]
-  (vreset! cache (delay (h/use-subs {:x [:todo/expensive]})))
+  (vreset! cache (delay (use-subs {:x [:todo/expensive]})))
   [:div "parked"])
 
 ;; ---------------------------------------------------------------------------
@@ -142,3 +142,69 @@
     (if (zero? depth)
       (wrap "leaf")
       [:ul (wrap "deep" (self-calling-through-letfn {:depth (dec depth)}))])))
+
+;; ---------------------------------------------------------------------------
+;; A genuine self-call inside each binding form rf2-ka4d added still reports.
+;;
+;; This is the other direction of that repair, and the one nothing would notice
+;; if it broke: an arm that read a whole `reify` or `defmethod` as "bound"
+;; would blind the check inside every one of them, and silence is what this
+;; check does when it declines. No construct below binds anything spelled like
+;; its view, so every call in it is still a self-call and still an ERROR.
+;; ---------------------------------------------------------------------------
+
+(defprotocol Applies
+  (apply-to [this f]))
+
+(defmulti dispatch-on :kind)
+
+(h/defview self-call-in-dotimes [{:keys [depth]}]
+  (dotimes [_i depth] (js/console.log (self-call-in-dotimes {:depth 0})))
+  [:div "counted"])
+
+(h/defview self-call-in-this-as [_]
+  [:div {:ref (fn [] (this-as me
+                       (js/console.log me (self-call-in-this-as {}))))}])
+
+(h/defview self-call-in-reify [_]
+  [:div (str (reify Applies (apply-to [_ f] (f (self-call-in-reify {})))))])
+
+(h/defview self-call-in-specify [_]
+  [:div (str (specify! (js-obj) Applies
+               (apply-to [_ f] (f (self-call-in-specify {})))))])
+
+(h/defview self-call-in-extend-type [_]
+  (extend-type string Applies
+    (apply-to [_ f] (f (self-call-in-extend-type {}))))
+  [:div "extended"])
+
+(h/defview self-call-in-extend-protocol [_]
+  (extend-protocol Applies
+    string (apply-to [_ f] (f (self-call-in-extend-protocol {}))))
+  [:div "extended"])
+
+(h/defview self-call-in-defmethod [_]
+  (defmethod dispatch-on :self [f] (f (self-call-in-defmethod {})))
+  [:div "registered"])
+
+;; ---------------------------------------------------------------------------
+;; A READING DOOR that no local has taken still reports (rf2-c6t6).
+;;
+;; The repair that stopped the read rules firing on a shadowed `sub` fails in
+;; the other direction by going quiet everywhere, and the corpus would not
+;; notice: it is quiet already. Both rows below park a real read.
+;; ---------------------------------------------------------------------------
+
+;; The door REFERRED and not shadowed: a bare spelling is still the door.
+(h/defview parked-referred-read [{:keys [cache]}]
+  (reset! cache (delay (use-subs {:x [:todo/expensive]})))
+  [:div "parked"])
+
+;; And a QUALIFIED read in a body that binds a local named `sub` somewhere
+;; else. Nothing is ever named `h/sub`, so a shadow read by SPELLING cannot
+;; reach this one — and a repair that compared the door's bare name instead
+;; would silence it.
+(h/defview parked-read-beside-a-shadow [{:keys [cache]}]
+  (let [sub (fn [_] "ordinary")] (js/console.log (sub :x)))
+  (reset! cache (delay (h/sub [:todo/expensive])))
+  [:div "parked"])

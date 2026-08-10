@@ -14,9 +14,18 @@
   `for` whose body is a call, an element whose props are a symbol. That
   silence is the design, not a gap: see the export's README for what each
   check refuses to know."
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.hicasso :as h :refer [sub use-subs]]))
 
 (declare row-view sanitize icon-node props)
+
+;; A protocol and a multimethod for the method-parameter rows at the end of
+;; this file. They are declared here rather than borrowed because a method
+;; parameter that is a FUNCTION is what makes calling it ordinary code rather
+;; than a mistake, and `Object`'s only method takes nothing but `this`.
+(defprotocol Applies
+  (apply-to [this f]))
+
+(defmulti dispatch-on :kind)
 
 ;; ---------------------------------------------------------------------------
 ;; An EVENT VECTOR is not an element. `[:button]` at a prop and the element
@@ -37,10 +46,10 @@
 ;; `mapv` calls its fn during this body, so these reads are this boundary's
 ;; edges. An "fn literal inside a body" is NOT evidence of deferral.
 (h/defview reads-inside-a-mapv [{:keys [ids]}]
-  [:ul (mapv (fn [id] [:li {:key id} (h/sub [:todo/label id])]) ids)])
+  [:ul (mapv (fn [id] [:li {:key id} (sub [:todo/label id])]) ids)])
 
 (h/defview reads-inside-a-for [{:keys [ids]}]
-  [:ul (for [id ids] [:li {:key id} (h/sub [:todo/label id])])])
+  [:ul (for [id ids] [:li {:key id} (sub [:todo/label id])])])
 
 ;; A callback that dispatches is exactly what the callback form is for.
 (h/defview dispatch-inside-a-callback [_]
@@ -50,7 +59,7 @@
 ;; A read at the top of a body, then used inside a callback, is correct: the
 ;; READ happened during the body and the callback closes over its value.
 (h/defview read-then-close-over-it [_]
-  (let [id (h/sub [:todo/current])]
+  (let [id (sub [:todo/current])]
     [:button {:on-click (h/hfn [_e] [:todo/toggle id])} "toggle"]))
 
 ;; ---------------------------------------------------------------------------
@@ -58,7 +67,7 @@
 ;; ---------------------------------------------------------------------------
 
 (h/defview reset-of-a-plain-value [{:keys [cache]}]
-  (reset! cache (h/sub [:todo/current]))
+  (reset! cache (sub [:todo/current]))
   [:div "fine"])
 
 (h/defview reset-of-a-delay-that-reads-nothing [{:keys [cache]}]
@@ -302,3 +311,120 @@
                       ([nested y] (nested y)))]
               (str (inner (fn [& _] x)) (inner (fn [& _] x) 1))))]
     [:div (outer "ok")]))
+
+;; ---------------------------------------------------------------------------
+;; direct-view-call — the binding forms that are neither `let`-shaped nor a
+;; `fn` tail
+;;
+;; The rows above drive the roster. A ROSTER is also the whole defect: the hook
+;; has no scope table, so it recognises a binding form by NAME, and a local
+;; introduced by a form nobody wrote down is not seen — so calling it reports,
+;; at ERROR, which stops the build. Six such forms were measured live at the CI
+;; pin after the `letfn` repair landed (rf2-ka4d).
+;;
+;; So, once more, from the GRAMMAR rather than from the repair: one row per
+;; production of each form, with the local spelled like the enclosing view and
+;; nothing else in that row bound, so that no row passes on a neighbour's
+;; coverage.
+;; ---------------------------------------------------------------------------
+
+;; `(dotimes [name n] body*)` is the whole grammar — one pair, the target a
+;; symbol, no second production. It is the one row here that no correct program
+;; reaches: a counter is an integer, and calling one throws whatever the linter
+;; says. The hole is closed anyway, because the roster it was missing from is
+;; otherwise the COMPLETE `let`-shaped family, and a hole in a roster is what
+;; all of this is made of.
+(h/defview tick [_]
+  (dotimes [tick 3] (tick))
+  [:div "ticked"])
+
+;; `(this-as name body*)`, and `this` in a JS callback may perfectly well be a
+;; function — that is what makes this one a program somebody writes.
+(h/defview handler [_]
+  [:div {:ref (fn [] (this-as handler (handler)))}])
+
+;; A `reify` method is a `fn` tail with its name in front, exactly as a `letfn`
+;; fnspec is, and its parameters are ordinary locals.
+(h/defview boxed [_]
+  [:div (str (reify Applies (apply-to [_ boxed] (boxed))))])
+
+;; The binding method in the SECOND protocol group, behind another method and
+;; behind a bare protocol NAME: a reader that stops at the first spec, or that
+;; mistakes a token for a method, does not reach this one.
+(h/defview second-group [_]
+  [:div (str (reify
+               Object  (toString [_] "first")
+               Applies (apply-to [_ second-group] (second-group))))])
+
+;; `specify!` takes an ordinary EXPRESSION where the others take a name, and
+;; that expression is written as a LIST here on purpose: it sits exactly where
+;; a method sits, and reading it as one is the mistake available.
+(h/defview marked [_]
+  [:div (str (specify! (js-obj) Applies (apply-to [_ marked] (marked))))])
+
+;; `extend-type` names a type and then the same method lists.
+(h/defview extended [_]
+  (extend-type string Applies (apply-to [_ extended] (extended)))
+  [:div "extended"])
+
+;; `extend-protocol` inverts that — one protocol, then a type before each
+;; group — so the binding method here follows both a token and another method.
+(h/defview spread-out [_]
+  (extend-protocol Applies
+    string (apply-to [_ f] (f))
+    number (apply-to [_ spread-out] (spread-out)))
+  [:div "spread"])
+
+;; `(defmethod multifn dispatch-val & fn-tail)`, first production: the tail
+;; written flat. A `defmethod` inside a body is unusual code, and it is the
+;; only place a hook can see one — a top-level `defmethod` is not inside any
+;; view, so nothing here ever reads it.
+(h/defview run-it [_]
+  (defmethod dispatch-on :fn [run-it] (run-it))
+  [:div "registered"])
+
+;; Second production: the tail written as arity lists. Both arities bind, and
+;; both must go quiet.
+(h/defview run-any [_]
+  (defmethod dispatch-on :any
+    ([run-any] (run-any))
+    ([run-any x] (run-any x)))
+  [:div "registered"])
+
+;; ---------------------------------------------------------------------------
+;; parked-read / deferred-read — a READING DOOR that a local has taken
+;;
+;; `:refer [sub]` leaves an ordinary simple symbol behind, and a local may be
+;; named `sub` like anything else. `api/resolve` answers with the var either
+;; way — it reads the ns form and never sees locals — so all three read rules
+;; reported somebody's own function as a subscription read (rf2-c6t6). Warning
+;; level, unlike the rows above, which is why this half is smaller: a spurious
+;; warning is noise, and a spurious error stops a programmer working.
+;;
+;; The doors are referred here, and read once unshadowed, so that the shadowed
+;; rows below are shadowing something real.
+;; ---------------------------------------------------------------------------
+
+(h/defview referred-doors [_]
+  [:div (sub [:todo/current]) (str (use-subs {:x [:todo/current]}))])
+
+(h/defview shadowed-parked-read [{:keys [cache]}]
+  (let [sub (fn [_] "ordinary")]
+    (reset! cache (delay (sub [:x]))))
+  [:div "fine"])
+
+(h/defview shadowed-deferred-read [_]
+  (let [sub (fn [_] "ordinary")]
+    (js/setTimeout (fn [] (sub [:x])) 100))
+  [:div "fine"])
+
+;; The callback form's own PARAMETER is a binding like any other, and it is
+;; outside the body the check walks.
+(h/defview shadowed-in-a-callback [_]
+  [:button {:on-click (h/hfn [sub] [:todo/toggle (sub :value)])} "Save"])
+
+;; The second door shadows the same way.
+(h/defview shadowed-use-subs [{:keys [cache]}]
+  (let [use-subs (fn [_] {:x 1})]
+    (reset! cache (delay (use-subs {:x [:y]}))))
+  [:div "fine"])
