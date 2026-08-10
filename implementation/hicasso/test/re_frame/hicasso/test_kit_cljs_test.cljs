@@ -581,6 +581,56 @@
            (refusal (outcome #(ht/tree [greeting-body {}] {:subs [:not :a :map]}))
                     [])))))
 
+(deftest the-option-roster-is-closed-so-a-key-nothing-reads-cannot-look-set
+  ;; rf2-0ckh's residue. `{fixtures :subs}` reads one key off the options
+  ;; map and ignores every other, so a roster check is the only thing that
+  ;; can tell an author their option did nothing. The two rows below are the
+  ;; two ways that silence used to be reachable, and neither is caught by
+  ;; the missing-read detection above.
+  (testing "the RETIRED spelling on a body that reads NOTHING. This is the
+            row the rename left uncovered: `{:reads …}` supplies no
+            fixtures, the body needs none, so the render used to succeed
+            outright and the author's fixture map was never read by anything"
+    (is (= {:rf.error/id :rf.error/hicasso-test-bad-option
+            :where       're-frame.hicasso.test
+            :recovery    :remove-the-unknown-option
+            :unknown     [:reads]}
+           (refusal (outcome #(ht/tree [greeting-body {:who "ada"}]
+                                       {:reads {[:tk/todo 1] {:text "milk"}}}))
+                    [:unknown]))))
+
+  (testing "and on a body that DOES read, where the old behaviour named the
+            wrong problem — the fixtures were ignored and the refusal
+            reported a missing read fixture rather than the bad option"
+    (is (= :rf.error/hicasso-test-bad-option
+           (:rf.error/id
+            (:refused (outcome #(ht/tree [todo-row-body {:id 3}]
+                                         {:reads {[:tk/todo 3] {:text "bread"}}})))))))
+
+  (testing "an unrecognised key is refused whatever it is spelled, and the
+            refusal NAMES what it did not recognise — sorted, so two typos
+            read the same way twice"
+    (is (= [:sbus :subz]
+           (:unknown (:refused (outcome #(ht/tree [greeting-body {:who "ada"}]
+                                                  {:subz {} :sbus {}})))))))
+
+  (testing "options that are not a map at all"
+    (is (= {:rf.error/id :rf.error/hicasso-test-bad-option
+            :where       're-frame.hicasso.test
+            :recovery    :pass-a-map-of-options
+            :value       [:subs {}]}
+           (refusal (outcome #(ht/tree [greeting-body {:who "ada"}] [:subs {}]))
+                    [:value]))))
+
+  (testing "and the legal twins, which are what say the roster refuses the
+            unknown rather than everything: the one-arg default still
+            renders, and so does a correctly spelled :subs"
+    (is (= "hi ada" (ht/text (ht/tree [greeting-body {:who "ada"}]))))
+    (is (= "hi ada" (ht/text (ht/tree [greeting-body {:who "ada"}] {}))))
+    (is (= "milk"
+           (ht/text (ht/tree [todo-row-body {:id 1}]
+                             {:subs {[:tk/todo 1] {:text "milk"}}}))))))
+
 (deftest the-read-resolver-is-discardable
   (testing "the fixture cells exist for the body run and are gone when it
             returns — nothing subscribed, nothing watched, nothing left to
