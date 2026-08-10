@@ -1156,36 +1156,60 @@ def _inline_blocks(
        thematic break or a table row, so the following line opens a fresh unit
        and a stray `[` in a heading cannot reach into the paragraph under it.
        A list item is a container that DOES continue, so it only opens a unit.
-    4. Entering a blockquote (or nesting one level deeper).  A quote interrupts
-       the paragraph above it.  The converse is not a boundary: an unprefixed
-       line after a quoted one is CommonMark lazy continuation of the SAME
-       quoted paragraph, and a `>`-prefixed continuation line inside one quote
-       keeps the depth unchanged — which is why the corpus's blockquoted
+    4. Nesting DEEPER into a blockquote than the unit was opened at.  A quote
+       interrupts the paragraph above it.  The converse is not a boundary: an
+       unprefixed line after a quoted one is CommonMark lazy continuation of the
+       SAME quoted paragraph, and a `>`-prefixed continuation line inside one
+       quote keeps the depth unchanged — which is why the corpus's blockquoted
        wrapped links still join.
+
+       Deeper than THE UNIT, not deeper than the line before it (rf2-skpf).
+       Lazy continuation makes the two differ: in
+
+           > Per the note, see [§Compiled
+           views and the
+           > rest](API.md#compiled-views).
+
+       the middle line is lazy continuation, so the third line RESUMES a quote
+       that never closed — `BlockQuoteProcessor` cleans all three lines into one
+       paragraph and emits the link.  Comparing against the previous line's
+       depth read the resume as an entry, split the unit, and dropped a real
+       link on the floor unchecked; comparing against the depth the unit was
+       opened at is what makes this docstring's rule and the code agree.
+
+    A line whose content is nothing but blockquote markers — `>`, `>   `, `> >`
+    — is a BLANK LINE inside the quote, not a continuation line (rf2-skpf).
+    `BlockQuoteProcessor.clean` maps it to the empty string, so it ends the
+    quoted paragraph exactly as a blank line ends an unquoted one.  Testing
+    blankness on the marker-stripped body rather than the raw line is the whole
+    of that: without it the join reached across a paragraph break and a code
+    span pairing two stray backtick runs either side of it swallowed a link the
+    renderer really does emit.  569 such lines are in the corpus.
 
     The block tests run against the line's content with any blockquote markers
     removed, so `> ## Heading` bounds a unit just as `## Heading` does.
     """
     block: list[tuple[int, str]] = []
-    prev_depth = 0
+    block_depth = 0
     ended = False
     for line_no, content in pairs:
-        if not content.strip():
+        depth, body = _quote_depth_and_body(content)
+        if not body.strip():
             if block:
                 yield block
                 block = []
-            prev_depth = 0
+            block_depth = 0
             ended = False
             continue
-        depth, body = _quote_depth_and_body(content)
         leaf = bool(_LEAF_LINE_BLOCK_RE.match(body))
         if block and (
-            ended or leaf or depth > prev_depth or _LIST_ITEM_START_RE.match(body)
+            ended or leaf or depth > block_depth or _LIST_ITEM_START_RE.match(body)
         ):
             yield block
             block = []
+        if not block:
+            block_depth = depth
         block.append((line_no, content))
-        prev_depth = depth
         ended = leaf
     if block:
         yield block
@@ -2528,6 +2552,88 @@ def _run_self_tests(verbose: bool = False) -> int:
           (2, "### a real heading to python-markdown"),
           (3, "[in](in-target.md)` closing here.")],
          [(3, "in-target.md")]),
+        # ------------------------------------------------------------------
+        # rf2-skpf — the two blockquote boundaries `_inline_blocks` did not
+        # have.  Renderer-derived, via mkdocs.config.load_config('mkdocs.yml')
+        # into a markdown.Markdown against python-markdown 3.10 + pymdownx
+        # 10.21.3, one case per verdict the renderer actually returned.
+        #
+        # FIRST: a line of nothing but blockquote markers.
+        # `BlockQuoteProcessor.clean` maps it to the empty string, so it ends
+        # the quoted paragraph — 569 of them are in this corpus.  Reading it as
+        # a continuation line let the join reach across a paragraph break.
+        #
+        # FALSE GREEN, the expensive direction: the two backtick runs are in
+        # DIFFERENT paragraphs, so neither opens a span, and the renderer emits
+        # `<a href="in-target.md">`.  Joining across the break paired them and
+        # masked a real link out of existence — unchecked, silently.
+        ("a bare > ends the quoted paragraph, so no span swallows the link",
+         [(1, "> Prose with `a code span"),
+          (2, ">"),
+          (3, "> [in](in-target.md)` closing here.")],
+         [(3, "in-target.md")]),
+        ("...spelled with trailing spaces, which clean() also empties",
+         [(1, "> Prose with `a code span"),
+          (2, ">   "),
+          (3, "> [in](in-target.md)` closing here.")],
+         [(3, "in-target.md")]),
+        # FALSE POSITIVE, the same boundary from the other side.
+        ("a bare > ends the quoted paragraph, so the wrap is not one link",
+         [(1, "> A stray [opening"),
+          (2, ">"),
+          (3, "> ](missing.md)")],
+         []),
+        # CONTROLS.  Without these both cases above are satisfied by a rule
+        # that bounds at EVERY quoted line, which would undo rf2-vpc4c's
+        # blockquoted wrapped links.
+        ("a quoted continuation line does not end the span",
+         [(1, "> Prose with `a code span"),
+          (2, "> continues"),
+          (3, "> [in](in-target.md)` closing here.")],
+         []),
+        ("a quoted continuation line does not end the paragraph",
+         [(1, "> A stray [opening"),
+          (2, "> and more"),
+          (3, "> ](missing.md)")],
+         [(3, "missing.md")]),
+        # SECOND: lazy continuation RESUMES a quote, it does not enter one.
+        # The unit's depth is the depth it OPENED at, not the previous line's —
+        # after an unmarked middle line the previous line's depth is 0, so a
+        # `>`-marked third line read as an entry and split a paragraph the
+        # renderer keeps whole.
+        #
+        # FALSE GREEN: `BlockQuoteProcessor` cleans all three lines into one
+        # paragraph and emits `<a href="API.md#compiled-views">`.  The split
+        # dropped it unchecked.
+        ("a re-marked line after lazy continuation is not a new quote",
+         [(1, "> Per the note, see [§Compiled"),
+          (2, "views and the"),
+          (3, "> rest](API.md#compiled-views).")],
+         [(3, "API.md#compiled-views")]),
+        # FALSE POSITIVE, same boundary: with a code span in play the three
+        # lines are one run, the span closes on line 3, and the renderer
+        # resolves nothing.  The split saw two unpaired runs and invented a
+        # link to check.
+        ("...and a span across that resume still masks",
+         [(1, "> Prose with `a code span"),
+          (2, "lazy continuation"),
+          (3, "> [in](in-target.md)` closing here.")],
+         []),
+        # CONTROLS for the depth rule — entering ("blockquote entry is not
+        # bridged" above) is one; these are the other three.
+        ("nesting deeper still bounds",
+         [(1, "> A paragraph holding a stray ["),
+          (2, ">> and a deeper quote](missing.md) interrupts it.")],
+         []),
+        ("nesting deeper after lazy continuation still bounds",
+         [(1, "> A paragraph holding a stray ["),
+          (2, "lazy continuation"),
+          (3, ">> deeper](missing.md)")],
+         []),
+        ("a shallower quoted line after a deeper one still joins",
+         [(1, ">> Per the note, see [§Compiled"),
+          (2, "> views](API.md#compiled-views).")],
+         [(2, "API.md#compiled-views")]),
     ]
     for label, lines, expected_links in extraction_cases:
         got_links = list(_iter_inline_links(lines))
