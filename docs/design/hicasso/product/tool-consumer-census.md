@@ -90,10 +90,13 @@ inside one runtime `js/console.warn` string, which is why every hit had to be re
 classified by shape — those two are row X13.
 
 The count moves in **both** directions, and neither direction is safe to read off the grep. A
-`[[wiki-link]]` or a historical note inside a docstring reads as a dependency and **over**-counts —
-all three of Pair's new hits are that shape. A wire-protocol string is invisible to every static
-tool and **under**-counts, which is the dangerous direction, because under-counting is what makes a
-*deletion* look safe. Every hit is therefore classified from the consumer code, never from the grep.
+`[[wiki-link]]` or a historical note inside a docstring reads as a dependency and **over**-counts;
+so, more sharply, does a **prohibition** — Pair's two new test hits name the donor precisely to
+assert it is absent, and a grep cannot tell an assertion apart from a call. All three of Pair's
+current hits are one of those two shapes. In the other direction, a wire-protocol string is
+invisible to every static tool and **under**-counts, which is the dangerous direction, because
+under-counting is what makes a *deletion* look safe. Every hit is therefore classified from the
+consumer code, never from the grep.
 
 So each hit was read. A consumer row is a file that names a donor **in a load-bearing position** — a
 `:require`, a classpath coordinate, a runtime string or keyword the code actually uses, or a build /
@@ -106,9 +109,9 @@ which caught two requires a line-oriented regex missed
 The counts, each with the question it answers:
 
 - **43 files name a donor** under `tools/` — the grep surface, prose included.
-- **22 of those 43 are consumer rows**; the other **21 name a donor only in a comment, a docstring
-  or a spec sentence** and are listed in [Named, not consumed](#named-not-consumed) so no later
-  reader mistakes them for dependencies.
+- **22 of those 43 carry a consumer row**; the other **21 name a donor only in a comment, a
+  docstring or a spec sentence** and are listed in [Named, not consumed](#named-not-consumed) so no
+  later reader mistakes them for dependencies.
 - **29 consumer rows** — the 22 row-bearing files, plus one extra row because
   `tools/story/deps.edn` carries two independent donor coordinates with different verdicts, plus the
   **6 target-only MIGRATED files** that name **no** donor at all and therefore never appear in the
