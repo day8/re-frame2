@@ -153,17 +153,34 @@ _HTML_ANCHOR_RE = re.compile(
 ANCHOR_MECHANISM = "explicit <a id>"
 HEADING_MECHANISM = "heading"
 
-# Markdown inline link.  Captures destination only.  Reference-style links
-# ([text][ref]) are ignored — and the corpus DOES have them, which the
-# "none per spot-check" this comment used to claim did not (rf2-skpf).
-# Rendering all 718 in-scope files through mkdocs' own markdown.Markdown and
-# diffing the emitted hrefs against this extractor finds ten links the
-# renderer emits from `[ref]: dest` definitions and this gate never checks:
-# seven in tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md, one in
-# tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md, two in
-# tools/story-mcp/spec/002-Tool-Registry.md.  A live false negative, its own
-# defect, and NOT this surface — recorded here so the next reader of this
-# regex starts from the measurement rather than the spot-check.
+# Markdown INLINE link.  Captures destination only.  Reference-style links
+# (`[text][ref]`, `[ref][]`, `[ref]`) are handled by `_REF_DEF_RE` /
+# `_REF_USE_RE` below, not here — see the grammar block above them.
+#
+# THE COUNT, AND A CORRECTION TO IT (rf2-2ryk).  This comment claimed for a
+# long time that the corpus had no reference-style links "per spot-check"; PR
+# #7811 (rf2-skpf) measured that it does and recorded "ten links … seven in
+# 003-Tool-Catalogue.md, one in DESIGN-RATIONALE.md, two in
+# 002-Tool-Registry.md".  Ten was the size of a MULTISET DIFF between the
+# renderer's hrefs and this extractor's, and the diff is not the same
+# question: a reference link whose destination is ALSO written inline
+# elsewhere in the same file cancels out of it, and a link the extractor
+# misses for some OTHER reason lands in it.  Both happened.
+#
+# Counted at the source instead — marking `ReferenceInlineProcessor.makeTag`,
+# the one place python-markdown builds an `<a>` out of `md.references`, and
+# rendering all 719 in-scope files — the corpus holds NINE reference-emitted
+# links, from seven definitions:
+#
+#   6  tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md   ([tsobl] ×3,
+#      [1], [2], [resolve])
+#   1  tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md     ([tp-tsobl])
+#   2  tools/story-mcp/spec/002-Tool-Registry.md             ([conv], [s009])
+#
+# The tenth miss in that diff was not reference-style at all: it is the
+# AUTOLINK `<http://localhost:8020>` in docs/resources/tutorial/index.md,
+# which this gate would skip as external even if it extracted it.  Autolinks
+# remain unextracted and that is the whole of what is left in the corpus.
 #
 # The link TEXT may contain newlines: markdown wraps a paragraph freely, so
 # `[§Compiled\nviews](Doc.md#anchor)` is one rendered link.  The negated
@@ -176,6 +193,77 @@ HEADING_MECHANISM = "heading"
 # (`[^)\s]+`): CommonMark does not permit a bare destination to wrap, so a
 # newline there is not a link the renderer would produce either.
 _LINK_RE = re.compile(r"\[(?:[^\]\\]|\\.)*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+
+# THE REFERENCE-LINK GRAMMAR (rf2-2ryk), read off the renderer rather than off
+# CommonMark — the two disagree, and the gate has to match the renderer.  Every
+# claim below was driven through `mkdocs.config.load_config('mkdocs.yml')` into
+# a real `markdown.Markdown` (python-markdown 3.10, pymdownx 10.21.3), one
+# input per claim, and the two regexes here are ports of the two places
+# python-markdown implements it: `blockprocessors.ReferenceProcessor` for the
+# DEFINITION and `inlinepatterns.ReferenceInlineProcessor` (plus its
+# `ShortReferenceInlineProcessor` subclass) for the USE.
+#
+# A DEFINITION is `[label]: destination "optional title"`:
+#   * indented at most three spaces — four is an indented code block, and
+#     defines nothing;
+#   * the label may not contain `[` or `]` AT ALL, escaped or not, so
+#     `[a[b]]: x` is prose;
+#   * the destination may sit on the FOLLOWING line, and may be wrapped in
+#     angle brackets, which are stripped;
+#   * blockquote markers are cleaned off first, so `>    [q]: x` defines `q`;
+#   * the LAST definition of a label wins — `md.references[id] = …` is a plain
+#     assignment, not a `setdefault`, so CommonMark's first-wins rule is not
+#     what happens here;
+#   * the definition is REMOVED from the inline stream: the block processor
+#     splits the text around it, which is why `[label]` on the definition line
+#     is not itself a shortcut use.
+#
+# A USE is one of three forms — full `[text][label]`, collapsed `[text][]`
+# (the label falls back to the text) and shortcut `[text]`:
+#   * a bare `[text]` IS a link when, and only when, a matching definition
+#     exists; with none it renders as literal square brackets, which is what
+#     makes resolution-before-reporting mandatory rather than a nicety —
+#     `[1]`, `[x]` and Clojure vectors are all over this corpus;
+#   * at most ONE whitespace character may sit between `]` and `[`
+#     (`RE_LINK` is `\s?\[…\]`), and it may be a newline;
+#   * an INLINE link wins: `[foo](a.md)` with a `[foo]: b.md` definition in
+#     scope renders `a.md`, because the inline pattern outranks the reference
+#     one.
+#
+# LABEL MATCHING IS ASYMMETRIC, and this is the trap.  CommonMark folds both
+# sides the same way; python-markdown does not.  The definition side is
+# `label.strip().lower()` — stripped, never folded.  The use side is
+# `label.lower()` with `\s+` collapsed to a single space — folded, never
+# stripped.  So `[text][a  b]` and `[text][a\nb]` both resolve to `[a b]: x`,
+# while `[a  b]: x` is unreachable by any use and `[text][  x  ]` resolves to
+# nothing.  Case-insensitivity is the only part both sides agree on.
+#
+# NOT reference links, and left alone: `[^1]` is a footnote (the `footnotes`
+# extension consumes both the use and its `[^1]: body` definition before
+# either processor here runs), and `![alt][ref]` builds an `<img>`, never an
+# `<a>`.
+#
+# Port of `ReferenceProcessor.RE`.  The title alternative is carried, unused,
+# because `$` is anchored: drop it and a definition that has a title stops
+# matching.  Group 1 is the label, group 2 the destination.
+_REF_DEF_RE = re.compile(
+    r"""^[ ]{0,3}\[([^\[\]]*)\]:[ ]*\n?[ ]*(\S+)[ ]*
+        (?:\n[ ]*)?(?:(["'])(?:.*)\3[ ]*|\((?:.*)\)[ ]*)?$""",
+    re.MULTILINE | re.VERBOSE,
+)
+
+# All three USE forms in one pattern: group 1 is the text, group 2 the explicit
+# label (`None` for the shortcut form, empty for the collapsed one — both fall
+# back to the text).  The text excludes BOTH brackets where `_LINK_RE` excludes
+# only the closing one: python-markdown balances nested brackets with a
+# scanner, this file does not have one, and excluding `[` is the reading that
+# declines to match rather than mismatching.  `[[a] more][b]` therefore yields
+# `b` alone where the renderer emits both — declared, and absent from the
+# corpus.
+_REF_USE_RE = re.compile(r"\[((?:[^\[\]\\]|\\.)*)\](?:\s?\[((?:[^\[\]\\]|\\.)*)\])?")
+
+# `ReferenceInlineProcessor.NEWLINE_CLEANUP_RE`, applied after `.lower()`.
+_REF_ID_WS_RE = re.compile(r"\s+")
 
 # Fenced code block delimiter — a run of three or more backticks or tildes,
 # its leading indentation, and its info string (rf2-mmyc).
