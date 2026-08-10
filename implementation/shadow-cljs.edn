@@ -1011,10 +1011,18 @@
   ;; served. The SERVED Hicasso builds are :hicasso/testbed and
   ;; :hicasso/hmr-testbed, further down.
   ;;
-  ;; NOT YET on an npm script or a CI job: implementation/package.json and
-  ;; .github/workflows/ were held by another worker when this landed, so
-  ;; `build:hicasso-release` and its gate are sequenced behind that. Built
-  ;; meanwhile with `npx shadow-cljs release hicasso-release`.
+  ;; Run by `npm run build:hicasso-release`, as the last step of test.yml's
+  ;; `cljs` job (rf2-qy1j — it landed here with no script and no job, since
+  ;; both files were held when rf2-hic-008 built it). It has no changed-
+  ;; surface predicate of its own and wants none: every repo-source input
+  ;; this build has — implementation/core, implementation/adapters and
+  ;; implementation/hicasso, plus this file and the npm pins — already arms
+  ;; that job's `cljs_node_test`, so a condition here would be one more
+  ;; thing to keep in step for no coverage. It is also the ONLY Closure-
+  ;; optimised compile these namespaces get: `:node-test`, `:browser-test`
+  ;; and the bench lane are all `:none`, so what `:advanced` decides —
+  ;; renaming, externs inference, DCE-sensitive interop — is decided here
+  ;; and nowhere else.
   :hicasso-release
   {:target     :browser
    :output-dir "out/hicasso-release"
