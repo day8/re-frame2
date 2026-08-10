@@ -21,8 +21,8 @@ name: lint
 #     style warnings stay informational — the same shape as the
 #     clj-kondo job's `--fail-level error`.
 #
-#   - ESLint (rf2-2rtt6.78): bug-class linter over the ~205 tracked
-#     `.cjs` / `.mjs` / `.js` files — bench drivers, gate runners,
+#   - ESLint (rf2-2rtt6.78): bug-class linter over EVERY tracked
+#     `.cjs` / `.mjs` / `.js` file — bench drivers, gate runners,
 #     browser harnesses, MCP conformance suites — which until it landed
 #     were checked by NOTHING, so a syntax error or a typo'd `require`
 #     surfaced the first time somebody ran the file. Config lives in
@@ -307,11 +307,25 @@ jobs:
       #
       # It costs about a second: pure Python driving the binary above over two
       # fixture files. No JDK, no Node modules, no shadow-cljs. `--self-test`
-      # runs first and mutates the export FOUR ways to prove the gate's RED —
-      # three at the shipped hook, one at the positive fixture — restoring each
-      # in a `finally`; then the gate itself runs. The fourth arrived with
-      # rf2-hic-022's lexical-shadowing fix (PR #7804); this line said "three"
-      # until rf2-zzdg.
+      # runs first: it mutates the shipped export — at the hook and at the
+      # positive fixture — requires each mutation to turn the gate RED, and
+      # restores every one in a `finally`; then the gate itself runs.
+      #
+      # HOW MANY mutations is deliberately not written here (rf2-93u6), and
+      # the history is the whole argument. rf2-zzdg corrected "three" to
+      # "four" (#7813); #7818 added another case one tick later, so the
+      # correction was stale before it was a day old; #7829 adds more still.
+      # Nothing links a count kept in THIS file to a case list kept in ANOTHER
+      # one, and nothing ever will, so the next correction is already
+      # scheduled and the one after that. The only fix that holds is to stop
+      # writing the number down — which is why this paragraph names no current
+      # value, and why adding one back would re-open the defect rather than
+      # tidy it. The self-test names its own cases as it runs, which is the
+      # copy that cannot drift; `check_lint_export.py`
+      # dropped the count from its docstring for the same reason, and its
+      # `EXPECTED` table pins fixture ROWS rather than a total on exactly this
+      # reasoning — a check that fires the right NUMBER of times in the wrong
+      # PLACE is the collapse a count cannot see.
       - name: Hicasso lint export — fixture witness
         working-directory: implementation
         run: npm run test:hicasso-lint
@@ -375,7 +389,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # ESLint over the JS corpus (rf2-2rtt6.78).
   #
-  # The Clojure counterpart of the two jobs above, for the ~205 tracked
+  # The Clojure counterpart of the two jobs above, for the tracked
   # `.cjs` / `.mjs` / `.js` files that no gate looked at before this landed.
   # Everything about the rule set — what it catches, what it deliberately
   # refuses to police, and why it is not `js.configs.recommended` — is
@@ -384,8 +398,8 @@ jobs:
   # This is the cheapest job in the workflow by a wide margin: the root
   # `package.json` carries ESLint and `globals` and NOTHING else (the CLJS
   # build toolchain lives in `implementation/package.json` and is not
-  # installed here), so `npm ci` resolves ~70 packages in a few seconds and
-  # the lint pass over the whole corpus takes a few more.
+  # installed here), so `npm ci` resolves in a few seconds and the lint pass
+  # over the whole corpus takes a few more.
   #
   # No `|| true`, no `continue-on-error`, and no `--max-warnings` override:
   # every rule in the config is an error, so any finding fails the job, while
