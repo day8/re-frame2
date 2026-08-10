@@ -639,13 +639,17 @@ jobs:
       # test:perf-bundle` existed, did real work, appeared in NO workflow, and
       # its positive control had therefore never once been executed by CI. It
       # was found only because somebody went looking. This checker closes the
-      # CLASS — every `test:*` / `bench:*` command must be reachable from a `npm
-      # run` in some workflow (the closure is walked through script bodies, so a
-      # chaining script counts for everything it chains) or carry a DISPOSITIONS
-      # entry whose premise the checker then verifies: `covered-by` names a
-      # script that must itself still be scheduled, `ci-runs-it-directly` names
-      # a literal the workflow corpus must still contain. A gate that is neither
-      # is a hard failure, so the next unscheduled gate reds on arrival.
+      # CLASS — every `test:*` / `bench:*` / `build:*` command must be reachable
+      # from a `npm run` in some workflow (the closure is walked through script
+      # bodies, so a chaining script counts for everything it chains) or carry a
+      # DISPOSITIONS entry whose premise the checker then verifies:
+      # `covered-by` names a script that must itself still be scheduled,
+      # `ci-runs-it-directly` names a literal the workflow corpus must still
+      # contain. A gate that is neither is a hard failure, so the next
+      # unscheduled gate reds on arrival. `build:*` joined the scanned families
+      # under rf2-rbdc: the `build:hicasso-release` step further down this file
+      # was the artefact's only `:advanced` compile and the checker could not
+      # see it, so deleting the step would have complained to nobody.
       #
       # It ran in expensive-tests.yml until now, for one reason only: this
       # workflow was fenced off by an open PR the day it was written. A ~0.3s
