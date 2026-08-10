@@ -2,7 +2,7 @@
 
 This gate imports `_extract_links` from `check_doc_slugs.py` rather than
 carrying its own copy, so the block bound and the multiline code-span mask
-must reach it too (rf2-8wcbe). Both samples below are link-SHAPED text that
+must reach it too (rf2-skpf). Both samples below are link-SHAPED text that
 no renderer turns into a link.
 
 A code span may contain a line ending, so this is one `<code>` element:
