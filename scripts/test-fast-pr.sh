@@ -1372,7 +1372,7 @@ if [ "$run_node" = true ]; then
   run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
     bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
 
-  # Hicasso freeze gate (rf2-8a6s).  implementation/hicasso/ IS the measured
+  # Hicasso invariants gate (rf2-8a6s).  implementation/hicasso/ IS the measured
   # prototype, moved — `frozen-sources.edn` pins every donor file in the bench
   # tree by digest (FROZEN), the gate RECONSTRUCTS each package file from its
   # donor and requires the file on disk to equal it (MOVED), and no package
@@ -1385,8 +1385,13 @@ if [ "$run_node" = true ]; then
   # `cljs` job in CI for the same reason it sits in this tier: its two input
   # surfaces — implementation/hicasso/** and the freehand bench tree it was
   # copied from — both arm `cljs_node_test`.
-  run "hicasso freeze gate" "cd implementation && npm run test:hicasso-freeze" \
-    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-freeze"
+  #
+  # FREEZE IS ONE OF THREE (rf2-ibje, hence the name).  The same npm script also
+  # runs the optional-module reachability check and the complaint-catalogue
+  # round trip — sibling static reads of the same artefact, each with its own
+  # `--self-test`, sharing this lane because they share its input surface.
+  run "hicasso invariants gate" "cd implementation && npm run test:hicasso-invariants" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-invariants"
 
   # Hicasso lint export gate (rf2-hic-022).  The artefact publishes six
   # clj-kondo checks from `resources/clj-kondo.exports/`, and this is their
