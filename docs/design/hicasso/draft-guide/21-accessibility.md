@@ -127,14 +127,14 @@ discipline are the same as everything else in [Testing](14-testing.md):
 (deftest toggle-announces-its-state
   (let [tree (ht/tree [views/filter-toggle {:id 7}]
                       {:subs {[:filter-menu/open? 7] true}})
-        btn  (ht/attrs (ht/find tree :button))]
+        btn  (ht/attrs (ht/find tree #(= :button (:tag %))))]
     (is (= "menu" (:aria-haspopup btn)))
     (is (true? (:aria-expanded btn)))))
 
 (deftest toggle-announces-its-state--sabotage-twin
   (let [tree (ht/tree [views/filter-toggle {:id 7}]
                       {:subs {[:filter-menu/open? 7] false}})]
-    (is (false? (:aria-expanded (ht/attrs (ht/find tree :button)))))))
+    (is (false? (:aria-expanded (ht/attrs (ht/find tree #(= :button (:tag %)))))))))
 ```
 
 Data cannot prove focus and traversal: where focus lands after a route

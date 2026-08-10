@@ -50,7 +50,7 @@ Related: [Views and reads](02-views-and-reads.md).
 <a id="view"></a>
 ### **view**
 
-A function from a props map to markup, registered with [`defview`](#defview).
+A function from a props map to markup, defined with [`defview`](#defview).
 In head position of a Hiccup vector it is a [boundary](#boundary). Plain
 `defn` helpers are not views: call them as functions so they [inline](#inline-helper).
 
@@ -535,7 +535,7 @@ Five rungs; use the lowest that can prove the claim:
 |---|---|---|
 | L0 | handlers, subs, transitions | pure functions |
 | L1 | intents, codecs, revision laws, `n/$` expansion | pure data / property tests |
-| L2 | registered hook-free bodies | [semantic harness](#semantic-harness) |
+| L2 | one hook-free body, as a semantic tree | [semantic harness](#semantic-harness) |
 | L3 | lifecycle, hooks, hosts, errors | mounted React DOM |
 | L4 | IME, caret, focus, hydration, perf | real browsers |
 
@@ -546,8 +546,9 @@ Related: [Testing](14-testing.md).
 <a id="semantic-harness"></a>
 ### **semantic harness**
 
-L2: `ht/tree` runs a registered hook-free body under injected read fixtures
-and returns a semantic tree. Hosts, hooks, raw React, and [`n/$`](#n-dollar) results
+L2: `ht/tree` runs one hook-free body under injected read fixtures and
+returns a semantic tree. A nested view is recorded as the call it is and its
+body does not run. Hosts, hooks, raw React, and [`n/$`](#n-dollar) results
 are **opaque** and refuse — mount those at L3.
 
 Related: [Testing](14-testing.md#l2--the-semantic-harness).

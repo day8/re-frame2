@@ -22,7 +22,7 @@ as `ht`.
 |---|---|---|
 | **L0** | event handlers, subscriptions, state transitions | pure function calls |
 | **L1** | [intents](glossary.md#intent), prevent and navigate decisions, codecs, control and revision laws, native-form expansion | pure data, property, and macro-expansion tests |
-| **L2** | registered hook-free view bodies | the [semantic harness](glossary.md#semantic-harness) — `ht/tree` under injected read fixtures |
+| **L2** | one hook-free view body, as a semantic tree | the [semantic harness](glossary.md#semantic-harness) — `ht/tree` under injected read fixtures |
 | **L3** | React lifecycle, hooks, context, refs, errors, hosts | the [mounted facade](glossary.md#mounted-facade), with Testing Library and user-event |
 | **L4** | IME, caret, focus, layout, hydration, performance | Chromium, Firefox, and WebKit |
 
@@ -137,10 +137,12 @@ Advanced).
 
 A [`defview`](glossary.md#defview) body is not directly callable. It needs a render extent to read
 in, and a direct call refuses with a source-located recovery. The harness
-supplies that extent without React. `ht/tree` invokes a registered hook-free
-body under a discardable read resolver — your fixtures — and returns a
-versioned semantic tree. Four small helpers assert on the tree: `ht/find`,
-`ht/attrs`, `ht/text`, and `ht/intents`.
+supplies that extent without React. `ht/tree` runs one hook-free body under a
+discardable read resolver — your fixtures — and returns a versioned
+semantic tree. Four small helpers assert on the tree: `ht/find`,
+`ht/attrs`, `ht/text`, and `ht/intents`. `ht/find` takes a **predicate over
+the tree's node maps** — `(:tag %)` names an element, `(:view-id %)` a child
+view call — so a selector language is one function away and none is minted.
 
 ```clojure
 (ns todo.views-test
@@ -152,11 +154,15 @@ versioned semantic tree. Four small helpers assert on the tree: `ht/find`,
   (let [tree (ht/tree [views/todo-row {:id 7}]
                       {:subs {[:todo/by-id 7]
                               {:id 7 :title "Buy milk" :done? false}}})]
-    (is (= "Buy milk" (ht/text (ht/find tree :label))))
+    (is (= "Buy milk" (ht/text (ht/find tree #(= :label (:tag %))))))
     (is (= [:todo/toggle 7]
-           (:on-change (ht/attrs (ht/find tree :input)))))
+           (:on-change (ht/attrs (ht/find tree #(= :input (:tag %)))))))
     (is (= [[:todo/toggle 7]] (ht/intents tree)))))
 ```
+
+The head may be the [`defview`](glossary.md#defview) itself, as above, or the body function it was
+minted from. Either runs the body as written: no React element is created, no
+hook runs, and nothing is mounted or painted.
 
 The fixtures replace the whole subscription layer. The body's [`h/sub`](glossary.md#hsub) calls
 resolve against the map. The harness never touches the real cache, and it
@@ -164,15 +170,18 @@ discards the resolver afterwards. Fixture identity is the same as sub
 identity — `(query-id, args)` under value equality — so `[:todo/by-id 7]`
 and `[:todo/by-id "7"]` are different fixtures.
 
-Registered hook-free children expand in place. A list view whose rows are
-`[todo-row {:key id :id id}]` produces a tree with the rows expanded under
-the same fixtures. One `ht/tree` call can therefore cover a whole owned
-subtree.
+**A child view does not expand.** A nested `[todo-row {:key id :id id}]` is
+recorded as the call it is — its view id, the props the call site passed, and
+the children the call site wrote — and its body does not run, so the node
+claims nothing about what that child would render. That is the tier's
+definition and not a reach that failed: L2 is one body, and a tree spanning
+two views cannot say which of them a red belongs to. Assert a child's props
+where it is called; render the child's own form to assert its contents.
 
 **The harness is honest about what it cannot know.** L2 is an assertion
 model, not a renderer. It refuses to fake the facts it does not have:
 
-- A body (or expanded child) that reaches a **hook**, a **raw React
+- A body that reaches a **hook**, a **raw React
   element**, an **[`n/$`](glossary.md#n-dollar) result**, or a **[`defhost`](glossary.md#defhost) crossing** refuses with a
   structured, source-located complaint that points at L3. React facts belong
   to React.
@@ -286,23 +295,23 @@ instrument can fail.
      [todo-row {:key id :id id}])])
 
 ;; in the test namespace
-(def three-todos
-  {[:todo/visible-ids] [1 2 3]
-   [:todo/by-id 1]     {:id 1 :title "One"   :done? false}
-   [:todo/by-id 2]     {:id 2 :title "Two"   :done? true}
-   [:todo/by-id 3]     {:id 3 :title "Three" :done? false}})
+(deftest every-visible-todo-gets-a-row
+  (let [tree (ht/tree [views/todo-list {}]
+                      {:subs {[:todo/visible-ids] [1 2 3]}})
+        rows (:children tree)]
+    (is (= 3 (count rows)))
+    (is (= [{:id 1} {:id 2} {:id 3}] (mapv ht/attrs rows)))))
 
-(deftest every-row-carries-a-toggle
-  (let [tree (ht/tree [views/todo-list {}] {:subs three-todos})]
-    (is (= 3 (count (filter #(= :todo/toggle (first %))
-                            (ht/intents tree)))))))
-
-(deftest every-row-carries-a-toggle--sabotage-twin
+(deftest every-visible-todo-gets-a-row--sabotage-twin
   ;; Prove the gate can fail: empty the list and the population collapses.
   (let [tree (ht/tree [views/todo-list {}]
-                      {:subs (assoc three-todos [:todo/visible-ids] [])})]
-    (is (empty? (ht/intents tree)))))
+                      {:subs {[:todo/visible-ids] []}})]
+    (is (empty? (:children tree)))))
 ```
+
+The list view's own claim is that it calls one row per visible id, with the
+right props — which is what these assert. What a row then renders is the row's
+claim, proved by rendering the row's own form, as the L2 example above does.
 
 The kit's own release gates carry the same discipline: every important
 witness has a negative or [sabotage control](glossary.md#sabotage-control). A test that cannot fail
@@ -312,8 +321,9 @@ verifies nothing.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| `ht/tree` refuses, pointing at L3 | The body (or an expanded child) reaches a hook, raw React element, [`n/$`](glossary.md#n-dollar) result, or [`defhost`](glossary.md#defhost) crossing | Honest opacity, working as designed. Mount that view at L3; if you want L2 coverage for the rest, split the hook-free part into its own view or helper |
+| `ht/tree` refuses, pointing at L3 | The body reaches a hook, raw React element, [`n/$`](glossary.md#n-dollar) result, or [`defhost`](glossary.md#defhost) crossing | Honest opacity, working as designed. Mount that view at L3; if you want L2 coverage for the rest, split the hook-free part into its own view or helper |
 | `ht/tree` refuses, naming a query | A read the body made has no fixture | Add it. Fixture identity is `(query-id, args)` under value equality — the args must match exactly |
+| `ht/tree` refuses a [`defview`](glossary.md#defview) head, pointing at L3 | An `:advanced` build with `goog.DEBUG` false: the mint carries the body on the head under a dev-only property, and that property was compiled away | Run view tests in a dev build, or pass the body function instead of the minted head |
 | `:rf.error/hicasso-sub-outside-render` in a plain test | A reading helper was called with no render extent (a direct [`defview`](glossary.md#defview) call refuses at the call itself, naming the view) | L2 supplies the extent; L0 targets handlers and subs, not bodies |
 | `:rf.error/hicasso-deferred-read-at-boundary` | A stored closure, stashed lazy seq, or unforced `delay` carried a read past the render | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
 | `assert-clean!` fails after unmount | Something outlived the root — a retained subscription, listener, or scheduled task | A bug, not a tolerance: fix the leak. A foreign host retaining a callback is the common culprit ([Interop](09-interop.md)) |
