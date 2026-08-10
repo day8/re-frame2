@@ -250,7 +250,16 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   the kill; and finally "clean AND merged" together, which still took two spine
   runs. The signals that have never lied are reads rather than inferences: the
   agent's own completion report, and whether the messaging tool finds a live task
-  to deliver to. So wait for the report. A stale directory is the entire cost of
+  to deliver to. So wait for the report — **and the report has to say the work is
+  finished**, because an interim status, a progress note, a partial hand-off and a
+  PR-opened announcement are all the agent speaking rather than the agent
+  reporting done: a worktree was reaped, `.git` and all, while the last message
+  its worker had sent read *"Holding for the spine — not done yet, and I won't
+  report a colour I don't have."* The test is therefore whether you can quote the
+  sentence where this agent says it is done, and a gate the worker backgrounded is
+  still that worker running — the harness's ten-minute foreground ceiling against
+  a twenty-five-minute spine means long gates are always backgrounded, so that is
+  the common case rather than an edge one. A stale directory is the entire cost of
   waiting. And one worker is not one worktree — it may build a second for its
   gate run, so an unfamiliar worktree belongs to someone until its agent reports.
 - *A stale progress string is not a dead worker.* The rule above says when you may
