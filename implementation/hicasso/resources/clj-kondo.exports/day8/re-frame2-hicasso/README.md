@@ -116,6 +116,17 @@ exempt. `(some-helper (fn [] (h/sub …)))` may well call its argument during th
 body too, and this cannot know; if it does, ignore the warning. Proving read
 extent in general is the runtime's law, not lint's.
 
+It also refuses a read whose **door has been rebound**, and so does
+`parked-read`. `:refer [sub]` leaves an ordinary simple symbol behind, and a
+local may take that name like any other; `api/resolve` answers with the var
+either way, because it reads your `ns` form and never sees locals. Both read
+checks therefore consult the same shadowing roster the self-call check above
+uses — bluntly, though: a body that binds `sub` anywhere silences the bare
+spelling for that **whole body**, rather than for the form that binds it. The
+blunt reading costs a missed warning and nothing else, which is the only
+direction these are allowed to be wrong. A qualified `h/sub` is untouched,
+because nothing is ever named `h/sub`.
+
 ### `:re-frame.hicasso/function-in-head-position` — error
 
 A `(fn …)`, `#(…)` or `(hfn …)` written as the head of a vector that sits in a
@@ -142,7 +153,9 @@ enforces it. It is assistance, and it is the whole of the assistance.
 
 **Refuses to know:** anything that needs a binding followed.
 `(let [d (delay (h/sub …))] (reset! r d))` is invisible, and so is
-`(reset! r (make-thunk))`, and so is a `swap!` that assoc's a thunk into a map.
+`(reset! r (make-thunk))`, and so is a `swap!` that assoc's a thunk into a map;
+and so, per the note under `deferred-read` above, is any read written through a
+door spelling some local in the same body has taken.
 Catching those means following bindings and resolving symbols across forms,
 which is whole-program analysis wearing a lint hat — and the ruling that asked
 for this check forbids building it.
