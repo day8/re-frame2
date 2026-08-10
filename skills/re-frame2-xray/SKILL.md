@@ -64,7 +64,12 @@ This skill answers three questions, and only three:
 1. **How do I launch Xray?** — inline panel, pop-out, programmatic entry
  points, wired hotkeys, the Dynamic ↔ Static mode toggle.
 2. **Which tab shows X?** — a one-line purpose per tab across both modes
- (9 Dynamic event-spine + 5 Static registry-browse).
+ (10 Dynamic event-spine + 5 Static registry-browse). In `:order`, with
+ mnemonics `e a v t m r s g u h`: **Epoch · app-db · Views · Trace ·
+ Machine · Routes · Resources · Graph · Frames · Hicasso** — the last of
+ which is the Hicasso view substrate's evidence lens (mounted boundaries,
+ read attribution, the intent stream, and explain-render, each naming what
+ it cannot know rather than showing an empty list).
 3. **What's the chrome around the tabs for?** — time-travel inspect /
  `Reset`-rewind, the filter pills, the command palette, the Settings popup.
 
