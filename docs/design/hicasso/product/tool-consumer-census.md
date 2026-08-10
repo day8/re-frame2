@@ -150,7 +150,7 @@ target too — but wholly, with nothing left behind on the donor.)
 | X10 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_helpers.cljc` | pins `:re-frame.hicasso.evidence/v2` (L66) as the consumer-owned schema literal | MIGRATED |
 | X11 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_cljs_test.cljs` | requires `re-frame.hicasso`, `.evidence`, `.impl.collector`, `.tool` | MIGRATED |
 | X12 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_helpers_cljs_test.cljc` | names `:re-frame/freehand` once (L175) **only to assert `supported?` returns false for it** — the donor appears as the rejected case | MIGRATED |
-| X13 | `tools/xray/src/day8/re_frame2_xray/registry.cljs` | the schema-4 reload warning (`js/console.warn`, L268-277, in `warn-donor-ownership-resident!` at L260) names `re-frame.ui` (L270, L273) and `re-frame.freehand.tool` (L273) in the sentence a developer reads when it fires — a runtime string the code actually uses, load-bearing on the same footing as P2's shipped `:description` prose. The file's other eight donor hits are docstrings and comments | STILL-LIVE |
+| X13 | `tools/xray/src/day8/re_frame2_xray/registry.cljs` | the schema-4 reload warning (`js/console.warn`, L268-277, in `warn-donor-ownership-resident!` at L260) names `re-frame.ui` (L270, L273) and `re-frame.freehand.tool` (L273) in the sentence a developer reads when it fires — a runtime string the code actually uses, load-bearing on the same footing as the shipped `:description` prose of Pair's descriptor rows. The file's other eight donor hits are docstrings and comments | STILL-LIVE |
 
 **How X2's liveness was established** — not from its `:require`, which proves nothing on its own. The
 chain is: `panels/reactive_panel_subs.cljs` L131 requires `day8.re-frame2-xray.mounted-views` and
@@ -168,17 +168,19 @@ Freehand's absence, it is built against its presence.
 
 **Why X13 counts, and why it is the row most easily lost** (`rf2-kqls`). A `js/console.warn`
 argument is a runtime string the code actually uses, which the verdict table already calls
-load-bearing, and P2 is the same species one tool over — a donor name shipped as prose a human or an
-agent reads. What makes X13 the dangerous one is the direction its absence errs in: no require, no
-coordinate, so a `:require` scan and clj-kondo both pronounce the file clean, and unlike every other
-Xray row it *survives* the deletion of every cluster in the disposition table — which is precisely
-the moment someone consults this census to learn what is left. Under-counting here is what would
-make that deletion look safe. The census filed it as "ten mentions, all comments" until `rf2-kqls`.
+load-bearing, and Pair's descriptor prose was the same species one tool over — a tier name shipped
+as prose a human or an agent reads. What makes X13 the dangerous one is the direction its absence
+errs in: no require, no coordinate, so a `:require` scan and clj-kondo both pronounce the file
+clean, and unlike every other Xray row it *survives* the deletion of every cluster in the
+disposition table — which is precisely the moment someone consults this census to learn what is
+left. Under-counting here is what would make that deletion look safe. The census filed it as "ten
+mentions, all comments" until `rf2-kqls`.
 
-**P1 was the same species one tool over, and its migration is the standing counter-example.** Pair's
-donor coupling was a wire string too, invisible to every static tool, and it was fixed only because
-this census read the consumer code rather than the grep. `hicasso_wire_test.cljs` (P6) is the guard
-that shape earned; Xray's X13 has no equivalent, which is why it is written down here instead.
+**Pair's old donor wire string was the same species again, and its migration is the standing
+counter-example.** That coupling was invisible to every static tool too, and it was caught only
+because this census read the consumer code rather than the grep. `hicasso_wire_test.cljs` (row P6)
+is the guard that shape earned — it now fails if a donor name returns to Pair's `src/`. Xray's X13
+has no equivalent, which is why it is written down here instead.
 
 ## Story — 10 rows (5 STILL-LIVE, 5 FIXTURE-ONLY)
 
