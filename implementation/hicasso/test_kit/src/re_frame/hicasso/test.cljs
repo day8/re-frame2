@@ -725,7 +725,15 @@
         props    (form-props form)
         recorded (walk-props props)
         children (walk-children form (if (map? (nth form 1 nil)) 2 1))]
-    (cond-> {:view-id (or (view-name head) :rf.hicasso/anonymous-boundary)}
+    ;; `mint-view!` stamps `displayName` on the component unconditionally
+    ;; — not behind `goog.DEBUG` — so a head minted through `h/defview`
+    ;; always names itself and the fallback is unreachable through the
+    ;; public door. It is a placeholder for a head marked by hand through
+    ;; the impl surface, and deliberately a plain string rather than a
+    ;; framework keyword: the tree is data a consumer reads, and minting
+    ;; a reserved id for an unreachable case would be vocabulary nobody
+    ;; can encounter.
+    (cond-> {:view-id (or (view-name head) "<unnamed boundary>")}
       (seq recorded)         (assoc :props recorded)
       (contains? props :key) (assoc :key (:key props))
       (some? children)       (assoc :children children))))
