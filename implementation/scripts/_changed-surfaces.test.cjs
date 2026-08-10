@@ -4089,9 +4089,10 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
   assert.match(
     block,
-    /run: npm run test:hicasso-freeze$/m,
-    'the cljs job must run the hicasso freeze gate (FROZEN donor digests + the '
-      + 'no-bench-import seal); it runs nowhere else',
+    /run: npm run test:hicasso-invariants$/m,
+    'the cljs job must run the hicasso invariants gate (FROZEN donor digests, '
+      + 'the no-bench-import seal, optional-module reachability and the '
+      + 'complaint-catalogue round trip); it runs nowhere else',
   );
   assert.match(
     block,

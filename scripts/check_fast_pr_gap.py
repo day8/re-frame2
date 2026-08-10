@@ -221,9 +221,9 @@ SPINE_LANES = (
         "spine node tier: 'hicasso bench-lane compile'",
     ),
     Lane(
-        "hicasso-freeze",
-        r"^npm run test:hicasso-freeze$",
-        "spine node tier: 'hicasso freeze gate'",
+        "hicasso-invariants",
+        r"^npm run test:hicasso-invariants$",
+        "spine node tier: 'hicasso invariants gate'",
     ),
     Lane(
         "mkdocs-strict",

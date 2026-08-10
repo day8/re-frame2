@@ -1131,9 +1131,10 @@ else
         #     rides the consolidated `:node-test` build (hicasso/src +
         #     hicasso/test are on the global :source-paths and the ns
         #     matches that build's `cljs-test$` regexp) in the `cljs` job;
-        #   - the FREEZE GATE, `npm run test:hicasso-freeze`, a step of
-        #     that same job — the donor digests in frozen-sources.edn plus
-        #     the no-bench-import seal;
+        #   - the INVARIANTS GATE, `npm run test:hicasso-invariants`, a step
+        #     of that same job — the donor digests in frozen-sources.edn plus
+        #     the no-bench-import seal, and beside them the optional-module
+        #     reachability check and the complaint-catalogue round trip;
         #   - the bench-lane compile, already an unconditional step there.
         #
         # NOT implementation_jvm: the artefact's runtime requires React,
