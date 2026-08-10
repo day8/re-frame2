@@ -331,7 +331,7 @@
     (is (nil? (codec/as-element false)))
     (is (= [nil nil "x"] (child-vec (codec/as-element [:p nil false "x"])))))
   (testing "true is an error"
-    (is (thrown-with-msg? js/Error #"not a renderable child" (codec/as-element true)))
+    (is (thrown-with-msg? js/Error #"true is an error" (codec/as-element true)))
     (try
       (codec/as-element true)
       (is false "should have thrown")
@@ -408,8 +408,16 @@
         (is (= :call-it-or-make-it-a-view (:recovery (ex-data e))))))))
 
 (deftest an-empty-hiccup-vector-and-a-nonsense-head-are-loud-errors
-  (is (thrown-with-msg? js/Error #"Empty hiccup vector" (codec/as-element [])))
-  (is (thrown-with-msg? js/Error #"not a valid element head" (codec/as-element [42 {}]))))
+  ;; The prose is the CATALOGUED prose (rf2-hic-007 moved the package's
+  ;; refusals to `impl.error/fail!` under `check_complaint_catalogue.py`),
+  ;; so each row pins the id — the stable contract — beside the wording.
+  (is (thrown-with-msg? js/Error #"must have a head" (codec/as-element [])))
+  (is (= :rf.error/hicasso-empty-vector
+         (try (codec/as-element []) nil (catch :default e (:rf.error/id (ex-data e))))))
+  (is (thrown-with-msg? js/Error #"Hiccup head must be a tag keyword"
+                        (codec/as-element [42 {}])))
+  (is (= :rf.error/hicasso-bad-head
+         (try (codec/as-element [42 {}]) nil (catch :default e (:rf.error/id (ex-data e)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:&` — one merge, and the owned-literal law unconditional
