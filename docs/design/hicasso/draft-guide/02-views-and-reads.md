@@ -1,137 +1,122 @@
 # Views and reads
 
-> **Draft.** No `implementation/hicasso/` package yet. Names marked **[unfrozen]** may change. Mechanisms are proven under `implementation/freehand/test/re_frame/bench/hicasso/`; product spellings and some call shapes are still settling.
+Views that re-render too coarsely, and subscription reads that cannot live
+where you use them, are the same problem twice. Either you hoist a value high
+in the tree and re-render many sibling views, or you invent a second way to
+read so that a helper can see the current filter.
 
-Views that re-render too coarse, and subscription reads that can't live where
-you use them, are the same pain twice. Either you hoist a value and re-render a
-room full of siblings, or you invent a second way to read just so a helper can
-see the current filter.
-
-Hicasso's answer is a view that is a function from a props map to hiccup, and
-**one** way to read — `sub`, an ordinary function call at the point of use:
+Hicasso's answer has two parts. A view is a function from a props map to
+hiccup. There is **one** way to read — `h/sub`, an ordinary function call at
+the point of use:
 
 ```clojure
 (ns todo.views
-  (:require [re-frame.hicasso :as h :refer [defview sub]]))
+  (:require [re-frame.hicasso :as h]))
 
-(defview todo-row [{:keys [id]}]
-  (let [todo     (sub [:todo/by-id id])
-        editing? (sub [:todo.ui/editing? id])]
+(h/defview todo-row [{:keys [id]}]
+  (let [todo     (h/sub [:todo/by-id id])
+        editing? (h/sub [:todo.ui/editing? id])]
     [:li
      [:span (:title todo)]
      [:button {:on-click [:todo/toggle id]} "✓"]
      (when editing?
-       [:input {:value    (sub [:todo.ui/draft id])   ;; read inside a conditional
+       [:input {:value    (h/sub [:todo.ui/draft id])   ;; a read inside a conditional
                 :on-input [:todo.ui/edit id ::h/value]}])]))
 ```
 
-> **`sub` is legal anywhere in the body** — inside a `let`, a `when`, a helper
-> call. Read where you need the value.
+> **Read where you use.** `h/sub` is legal anywhere in the body — inside a
+> `let`, a `when`, a `for`, an ordinary helper call.
 
-`sub` is the only read form. There is no second spelling for helpers, and a bare
-`rf/subscribe` in a body is not a fallback: it refuses, under every adapter,
-naming the collector it went around.
+`h/sub` is the only read form. There is no second spelling for helpers. A
+bare `rf/subscribe` in a body is not a fallback: it refuses instead of
+resolving, and it names the read that went around the collector — the
+runtime mechanism that records each boundary's reads. (The event vectors in
+those attributes — *intents* — and `::h/value` belong to
+[Events as data](03-events-as-data.md).)
 
 ## Boundaries and inlining
 
-Two ways to reach another function from a view body. The difference is in the
-syntax:
+There are two ways to use another function from a view body, and the
+difference is visible in the syntax:
 
 ```clojure
 [todo-row {:key id :id id}]   ;; a vector — a BOUNDARY child
-(todo-row {:id id})           ;; a call — INLINED into the enclosing boundary
+(row-icon {:kind :urgent})    ;; a call to a plain defn — INLINED into this boundary
 ```
 
-A **view in head position** mints a **boundary** — Hicasso's unit of independent
-re-rendering, and the thing `defview` exists to make. A boundary owns four
-things: React's identity for it, the `sub` reads its body makes, its
-[value-equality bail-out](#boundaries-memoize-by-default), and the frame the
-intents in its hiccup dispatch to. Native tags, fragments and `defhost` heads are
-elements in vector position too, and none of them is a boundary.
+A **view in head position** mints a **boundary** — Hicasso's unit of
+independent re-rendering, and the thing `h/defview` exists to make. A
+boundary owns four things:
 
-A **plain call** is just a function call, and owns none of the four. Its hiccup is
-spliced into the caller's tree, and any `sub` it performs donates that read
-*upward* to the enclosing boundary. Helpers cost nothing at runtime and buy no
-re-render granularity. Because reads are ordinary calls, **helpers can read**: a
-`filter-button` that needs the current filter just reads it, and the read belongs
-to whichever boundary is rendering — no value threaded down as an argument.
+- React's identity for the boundary.
+- The `h/sub` reads that its body makes.
+- Its value-equality bail-out.
+- The frame to which the intents in its hiccup dispatch.
 
-One rule, one visible distinction. Re-render granularity should be obvious from
-the source. Keys go in the props map (no Reagent `^{:key}` metadata):
+Native tags, fragments, and `h/defhost` heads also sit in vector position.
+None of them is a boundary.
+
+A **plain `defn` call** is only a function call, and it owns none of the
+four. The runtime splices its hiccup into the caller's tree. Any `h/sub`
+that the helper performs gives that read *upward* to the enclosing boundary.
+Helpers cost nothing at runtime, and they add no re-render granularity.
+Because reads are ordinary calls, **helpers can read**: a `filter-button`
+that needs the current filter reads it, and the read belongs to the boundary
+that is rendering. You do not thread the value down as an argument.
+
+The two spellings do not cross, and both crossings fail with a named error:
 
 ```clojure
-(defview todo-list [_]
+;; Don't — a plain defn in head position
+[row-icon {:kind :urgent}]   ;; :rf.error/hicasso-bad-head: call it, or make it a view
+
+;; Don't — a view called directly
+(todo-row {:id 7})           ;; refuses at the call, naming the view; write [todo-row {:id 7}]
+```
+
+Re-render granularity should be visible in the source. A boundary is always
+a vector, and an inline helper is always a call. A `defview` never degrades
+into an inline function because you invoked it differently.
+
+## Keys go in the props map
+
+```clojure
+(h/defview todo-list [_]
   [:ul
-   (for [id (sub [:todo/visible-ids])]
+   (for [id (h/sub [:todo/visible-ids])]
      [todo-row {:key id :id id}])])
 ```
 
-A bare seq of children needs keys whatever the head. Forget one on a boundary
-child and development gives you two warnings: React's own, and
-`:rf.warning/hicasso-missing-key`, which names the enclosing view, the child
-head, the index of the first offender, and the `:key` spelling that fixes it.
-Neither suppresses the other, and the second earns its keep because React dedupes
-its key warning per parent tag name for the life of the page — under a `:ul`,
-every list after the first is silent. Hicasso's fires once per site instead:
-enclosing view, child head, hazard. A `^{:key id}` carried over from Reagent is
-the commonest way to trip it, because the metadata is not read here.
+A seq of children needs keys, whatever the head is. The key lives **in the
+props map**. Hicasso does not read `^{:key id}` metadata here (the most
+common Reagent carry-over), and no `for`-lowering invents a key for you. If
+you miss a key, development warns with `:rf.warning/hicasso-missing-key` and
+names the view and the child. That is all this page teaches about keys. What
+makes a key *good* (a stable domain identity, never an index, never the
+whole entity) is the law of
+[Lists and collections](06-lists-and-collections.md).
 
-It fires at a crossing too — `[a-view {…} (for …)]`, where the seq becomes the
-view's children. Flattening one level turns those members into direct children,
-which React marks validated and never warns about, so there the Hicasso line is
-the only signal that shape gets. Both call sites are development-only: the check
-and its message strings are absent from a production build.
-
-Putting a plain `defn` in head position — `[badge {...}]` where `badge` was never
-minted by `defview` — raises `:rf.error/hicasso-bad-head`.
-
-**You write `:key` yourself, and that is the answer** rather than a gap waiting
-on sugar. A `for`-lowering would have to assume the binding value *is* the
-identity, which stops being true the moment you iterate whole entities: React
-coerces a non-primitive key to a string, so editing a row would quietly change
-its key and remount it. And it could not retire the explicit `:key` anyway, so
-every list would carry two spellings forever in exchange for saving about a dozen
-characters. Write a whole entity at `:key` yourself and you get
-`:rf.warning/hicasso-entity-key` for that same coercion, naming the child and
-pointing you at a stable identifier.
-
-### The component ABI
+## The component ABI
 
 | Head | Props | Children | `:key` | `:ref` |
 |---|---|---|---|---|
-| Native tag — `[:div …]` | attribute map | trailing forms | `:key` in the attribute map | callback ref, legal |
-| Hicasso view — `[todo-row …]` | one props map | trailing forms, arriving as `(:children props)` | in the props map, **extracted before your body sees props** | not yet — use ids |
+| Native tag — `[:div …]` | attribute map | trailing forms | in the attribute map | callback ref, legal |
+| Hicasso view — `[todo-row …]` | one props map | trailing forms, arriving as `(:children props)` | in the props map, **extracted before your body sees props** | not a view surface — use ids |
 | Fragment — `[:<> …]` | — | trailing forms | on the fragment's props map | — |
-| Foreign — `defhost` and `[:>]` | converted per declaration | hiccup children become elements | `:key` in props | callback ref, legal |
+| Foreign — `h/defhost` and `[:>]` | converted per declaration | hiccup children become elements | in props | callback ref, legal |
 
-Children arrive realized and predictably flattened: nested and lazy sequences
-are realized once and flattened one level, `nil` and `false` render nothing,
-`true` is an error, and an existing React element is a legal child anywhere. A
-view may return `nil`, a single root, or a fragment.
+Children arrive realized and flattened in a predictable way. The runtime
+realizes nested and lazy sequences once and flattens them one level. `nil`
+and `false` render nothing. `true` is an error
+(`:rf.error/hicasso-true-child`). An existing React element is a legal child
+anywhere. A view can return `nil`, a single root, or a fragment. `:key`
+never reaches your body; that is React's contract, not a Hicasso choice.
 
-`(:children props)` is a **vector of hiccup forms**, so splice it rather than
-dropping it in whole — `(into [:ul.nested] children)`, or `(into [:<>] children)`
-when you have nothing to wrap it in. A raw vector in child position is read as
-hiccup, and a vector whose head is itself a vector is not a legal element.
-
-`:key` never reaches your body. That is React's contract, not a Hicasso choice.
-
-**Fragments and multi-root returns.** A view may return a fragment when it has
-no single wrapper to offer:
+`(:children props)` is a **vector of hiccup forms**. Splice it into your
+hiccup; do not insert it as one child:
 
 ```clojure
-(defview toolbar [_]
-  [:<>
-   [save-button {}]
-   [cancel-button {}]])
-```
-
-**Trailing children become `(:children props)`.** A parent that wraps markup
-around its children splices that vector — it does not drop the whole vector in
-as one hiccup child:
-
-```clojure
-(defview card [{:keys [title children]}]
+(h/defview card [{:keys [title children]}]
   (into [:section.card
          [:h2 title]]
         children))
@@ -141,198 +126,208 @@ as one hiccup child:
  [message-row {:id 2}]]
 ```
 
-### Bodies are pure and re-runnable
+A view that has no single wrapper returns a fragment:
 
-React StrictMode runs your body twice in development. That is fine — bodies are
-pure by contract. Anything that would break under a second run (mutating a
-captured atom, kicking off a fetch, counting renders) does not belong in a body.
+```clojure
+(h/defview toolbar [_]
+  [:<>
+   [save-button {}]
+   [cancel-button {}]])
+```
 
-### Boundaries memoize by default
+**Bodies are pure and re-runnable.** React StrictMode runs your body twice
+in development, and that is safe, because bodies are pure by contract.
+Anything that breaks under a second run does not belong in a body. Examples:
+mutation of a captured atom, the start of a fetch, a render counter.
 
-A value-equality bail-out is the boundary **default**: every head `defview` mints
-carries one stable internal memo wrapper comparing the whole props map with CLJS
-`=`. If a boundary's props compare equal to last render, its body does not run —
-even though its parent's did. Heads that are not boundaries do not carry one, and
-a `defhost` crossing is the case you will meet ([Interop](05-interop.md#memo-and-hosted-components)).
+## Boundaries memoize by default
 
-Two things still outrank the bail-out, and both are the boundary's **own**
-invalidation. A subscription or context read that boundary made itself always
-wins: React checks for a boundary's own pending update *before* it ever asks the
-comparator, so a boundary whose reads moved re-renders regardless of what its
-props say. And a function-valued prop compares unequal by identity, deliberately
-— a freshly allocated closure is never `=` to the last one, so an inline handler
-defeats the bail-out every time it is passed fresh.
+Every head that `h/defview` mints carries one stable memo wrapper. The
+wrapper compares the whole props map with CLJS `=`. If a boundary's props
+compare equal to the last render, its body does not run, even when its
+parent's body ran. There is no mode flag and no public opt-out. A boundary
+that must re-run with its parent takes a prop that changes.
 
-If you are coming from Reagent this should feel familiar — Reagent has compared
-argv and skipped for a decade, and this is the same shape. There is no public
-opt-out: a boundary that genuinely wants to re-run every time its parent does
-takes an explicit changing revision prop, not a `:memo false` switch.
+Two channels outrank the bail-out, and both are the boundary's **own**
+invalidation. First, a subscription read or a context read that the boundary
+made itself always wins. React checks for the boundary's own pending update
+*before* it asks the comparator, so a boundary whose reads changed
+re-renders regardless of its props. Second, a function-valued prop compares
+unequal by identity, and that is deliberate. A fresh closure is never `=` to
+the last one, so an inline handler passed as a prop defeats the bail-out
+every time.
 
-Reading a subscription high in the tree and passing the value down as a prop
-does **not** lose an update: the boundary that reads is the boundary that
-invalidates, and every boundary the changed value actually reaches receives
-unequal props at that hop. What the default buys you is that a boundary the
-value does **not** reach skips instead of re-rendering for nothing. Moving the
-read down is a granularity fix, not a correctness fix.
-
-Whether the bail-out stays the *default* is still open; see **Not settled yet**.
-Nothing you write changes either way; what may change is whether you have to ask
-for it.
+A subscription read high in the tree, with the value passed down, does
+**not** lose an update. The boundary that reads is the boundary that
+invalidates, and every boundary that the changed value reaches receives
+unequal props at that hop. The benefit of the default is this: a boundary
+that the value does *not* reach skips instead of re-rendering for nothing.
+To move a read down is a granularity fix, not a correctness fix.
 
 ## Attributes
 
-The attribute map is ordinary hiccup, with the conversions React wants done for
-you.
+The attribute map is ordinary hiccup. The runtime does the conversions that
+React wants:
 
 ```clojure
-(defview title-input [_]
-  (let [invalid? (sub [:editor/title-invalid?])]
+(h/defview title-input [_]
+  (let [invalid? (h/sub [:editor/title-invalid?])]
     [:input#title.form-control
      {:type        :text
-      :value       (sub [:editor/title])
+      :value       (h/sub [:editor/title])
       :placeholder "Article Title"
       :aria-label  "Title"
-      :data-testid "title"
       :style       {:margin-top 8}
       :class       ["is-wide" (when invalid? "is-invalid")]
       :on-input    [:editor/set-title ::h/value]}]))
 ```
 
-Five rules cover it.
+Five rules cover the conversions.
 
-**Names go kebab to camel.** `:on-click` emits `onClick` and `:default-value`
-emits `defaultValue`. `:aria-*` and `:data-*` pass through exactly as written,
-and a `--custom-property` is preserved verbatim. Three attributes React spells
-differently from HTML are renamed for you: `:class` → `className`,
-`:for` → `htmlFor`, `:charset` → `charSet`.
+- **Names go from kebab-case to camelCase.** `:on-click` emits `onClick`.
+  `:aria-*` and `:data-*` pass through as written. A `--custom-property`
+  stays verbatim. `:class` → `className`, `:for` → `htmlFor`, `:charset` →
+  `charSet`.
+- **Values convert one level deep.** A nested map, such as `:style`, has its
+  own keys converted to camelCase, so `{:margin-top 8}` arrives as
+  `marginTop`. Keywords and symbols become their names (`:type :text` is
+  `type="text"`). Functions cross by identity.
+- **`:class` takes more than a string.** It also takes a keyword, a symbol,
+  or a collection of those. The runtime drops `nil`s and joins the rest with
+  spaces, so the `(when …)` above contributes nothing when it is false.
+- **The tag's `#id.class` shorthand composes.** Write the id first:
+  `:input#title.form-control`, never `:input.form-control#title`. An
+  explicit `:id` in the map wins over `#title`. `.form-control` on the tag
+  joins whatever `:class` brings.
+- **`:key` is not an attribute.** The runtime reads it off the map and never
+  emits it as a prop.
 
-**Values convert one level deep.** A nested map — `:style` and its kin — has its
-own keys camelCased, so `{:margin-top 8}` arrives as `marginTop`. Keywords and
-symbols become their names, which is why `:type :text` is `type="text"`.
-Functions cross by identity: rewrapping them would defeat the default
-value-equality bail-out.
+The reserved-data vocabulary is deliberately small: `::h/value`,
+`::h/checked`, `::h/prevent`, and `::h/revision`. The chapter that owns each
+word teaches it ([events](03-events-as-data.md),
+[controlled inputs](04-controlled-inputs.md)).
 
-**`:class` takes more than a string.** A keyword, a symbol, or a collection of
-those, with `nil`s dropped and the rest joined by spaces — so the `(when …)`
-above contributes nothing when it is false, and you never build a class string
-by hand.
+## Forwarding attributes: owned wins
 
-**The tag's `#id` and `.class` shorthand composes** — id first, as in every
-hiccup dialect: `:input#title.form-control`, never
-`:input.form-control#title`. An explicit `:id` in the map wins over `#title`,
-and `.form-control` on the tag is joined with whatever `:class` brings.
+A reusable field takes caller attributes and still owns its control keys.
+The merge is a pure recipe — a plain `merge`, with the attributes that you
+own written last:
 
-**`:key` is not an attribute.** It is React's identity contract: it is read off
-the map, it never reaches your body, and it is not emitted as a prop.
+```clojure
+(h/defview search-field [{:keys [id] :as attrs}]
+  [:input.form-control
+   (merge (dissoc attrs :id)
+          {:value    (h/sub [:search/text id])
+           :on-input [:search/set-text id ::h/value]})])
+```
 
-One further key is reserved, and it is the only attribute merge Hicasso has.
-`:&` carries a map of attributes from somewhere else — a caller's forwarded
-remainder, a theme's part attributes — and **the literal keys you write always
-win over it**. The case that makes the law worth having is a controlled input, so
-[Controlled inputs](04-controlled-inputs.md#forwarding-attributes)
-teaches it in full.
+**The literal keys that you write always win over anything forwarded — by
+presence, not truthiness.** A forwarded map can add a `:placeholder`, an
+`:aria-label`, or a `:data-testid`. It can never displace the `:value` or
+the handler that the field owns, because the owned keys merge last. Classes
+still compose: `.form-control` on the tag joins whatever `:class` survives
+the merge, so a caller's class adds to the element's own class instead of
+replacing it. When a caller's value *should* win, do not write the literal.
+One risk: `merge` works by key, so forward maps spelled the way you write
+attributes — kebab keywords — not a foreign props object's `"className"`
+strings.
 
-## How `sub` works
+The case that makes this law necessary is a controlled input: a forwarded
+map must never supply the value, checked, handler, key, or revision slots.
+[Controlled inputs](04-controlled-inputs.md) teaches that case in full.
 
-Four operational claims:
+## The read-extent law
 
-1. One fixed runtime hook per boundary collects the reads the body actually made,
-   and the commit installs exactly that edge set — so **a branch not taken
-   contributes no edge**.
-2. Reads inside a lazy `for` are forced by the same pass that turns hiccup into
-   elements, so they land in the right boundary's window.
-3. **A read that escapes the render is loud, never silently stale**: a stored
-   handler, a stashed lazy seq, or a `delay` forced later fails naming the
-   query; an unforced `delay` crossing a boundary is refused at the crossing.
-4. The edge set is a function of what the body *did*, so a body whose control
-   flow changes its reads from render to render re-subscribes the whole set, not
-   just the changed key.
+`h/sub` is legal during the **direct synchronous execution** of the active
+body. Branches, loops, and ordinary helpers are included. Reads inside a
+lazy `for` count as direct: the same pass that turns hiccup into elements
+forces them, so they land in the boundary that is rendering.
 
-That last point is the one to design around. Dynamic control flow is legal; when
-taken branches change, the price is a whole-set refresh. See **Advanced** for
-the collector mechanics.
+A read **deferred past the render** refuses, with source and recovery. It
+does not go silently stale. A callback, a promise, a timer, a stashed lazy
+seq, a `delay` forced later — each raises
+`:rf.error/hicasso-sub-outside-render` and names the query. The runtime
+refuses an unforced `delay` that crosses into a boundary's props at the
+crossing (`:rf.error/hicasso-deferred-read-at-boundary`), before it can
+freeze a child. Hicasso never guesses which render owns a deferred read. The
+alternative is a value that looks correct on screen and never updates again,
+with no error to point to.
 
-## Rules every read obeys
+```clojure
+;; Don't — a read deferred into a timer callback
+(js/setTimeout
+  #(export! (h/sub [:report/rows]))    ;; :rf.error/hicasso-sub-outside-render
+  1000)
 
-- **Reading outside a render is an error.** There is no `@`-anywhere. In an event
-  handler, declare the read as a coeffect with `:rf.cofx/requires`, so it belongs
-  to the handler's contract rather than happening as a side effect in its body.
-  Free-standing code — a utility, an effect body — uses `rf/subscribe-once`, a
-  one-shot read that retains no reactive handle, and names the frame it wants:
+;; Do — read during the render; close over the value
+(let [rows (h/sub [:report/rows])]
+  (js/setTimeout #(export! rows) 1000))
+```
 
-  ```clojure
-  ;; Outside a render and outside any frame scope, so the frame is explicit.
-  (let [rows (rf/subscribe-once [:report/rows] {:frame :main})]
-    (export/write! rows))
-  ```
+The recovery always has the same shape: read during the render and close
+over the **value**, or move the work to the event layer. An event handler
+that needs current state declares that state as a coeffect with
+`:rf.cofx/requires`. The read then becomes part of the handler's contract,
+not a side effect in a body. There is no `@`-anywhere form and no second
+read form for free-standing code.
 
-  The one-argument form resolves an ambient frame instead, which is what a test
-  or a REPL session sitting inside a scope already has.
-- **Framework subscriptions read identically to your own** — machine tags,
-  resource and mutation state, route identity. They are first-class in the
-  index, not a special case.
-- **Sub-key identity is `(query-id, args)` under value equality.** A *freshly
-  allocated* map or vector is not a problem: two structurally equal persistent
-  values are one cache key, so rebuilding `{:scope :all}` inside the query on
-  every render hits the same entry. What thrashes the index: an argument whose
-  **value** genuinely moved (a timestamp, a sort order that really changed),
-  and an argument carrying **reference** identity (a function, a JS object or
-  array, a host object) — for those `=` is identity, so they are unequal to
-  themselves between renders. Documented, programmer-trusted, not policed.
+## How `h/sub` tracks reads
+
+There are four operational claims:
+
+1. Each boundary opens one collection window for the duration of its body.
+   The commit installs **exactly** the edge set that the body made. A branch
+   not taken contributes no edge.
+2. Framework subscriptions — machine tags, resource status, route identity —
+   read identically to your own subscriptions. They are rows in the same
+   index, not special cases.
+3. Sub-key identity is `(query-id, args)` under **value equality**. A
+   rebuilt `{:scope :all}` inside the body hits the same cache entry on
+   every render: two structurally equal persistent values are one key. Two
+   argument kinds cause constant re-creation: an argument whose value
+   changed (a timestamp), and an argument that carries reference identity (a
+   function, a JS object). For those, `=` is identity.
+4. The edge set is a function of what the body *did*. A body whose taken
+   branches change re-subscribes the whole set, not only the changed key.
+   Dynamic reads are legal; a whole-set refresh is their price.
 
 ## Troubleshooting
 
-| Symptom | What went wrong | Fix |
+| Symptom | Error | Fix |
 |---|---|---|
-| Boundary doesn't re-render though the screen should have changed | Props still `=` last render and no own read moved — bail-out working as designed | `sub` the changing value inside the boundary that displays it, or thread it as a prop so the value differs there |
-| Boundary re-renders every time though props look unchanged | A prop carries reference identity (inline `fn`, JS object/array, host object) | Hoist the function, or use a persistent value. Two equal persistent values are `=` however freshly built |
-| One cell changes and 300 boundaries re-render | The read lives too high | Push the read down into the boundary that displays it |
-| One value changes and a whole subtree re-renders | Value read in an ancestor and passed as a prop — coarse invalidation, not a missed one | Read at the point of use |
-| A read after the render throws, naming the query | A handler closure, stashed lazy seq, or `delay` deferred a `sub` past the render | Read during the render and close over the value |
-| Index thrash, subscriptions constantly re-created | Query args not *value*-stable (timestamp, real sort-order change, or JS/fn identity) | Make the args equal under `=` between renders; allocation of equal persistent values is fine |
-| A body's side effect fires twice | StrictMode double-invoke | Bodies are pure; move the effect out |
-| `:rf.warning/hicasso-missing-key` names a view and a child head | A seq of boundary children has no `:key` — absent, or an expression that computed `nil` | Put a `:key` in each member's props map. A Reagent `^{:key}` on the form is not read |
-| `:rf.warning/hicasso-entity-key`, and a row remounts when you edit it | `:key` holds a value React has to coerce. The classification is total: strings, numbers, keywords, uuids and symbols pass; a collection, a foreign object, a `js/Date`, a JS array, a boolean or a function is named. A content-derived coercion moves with the content, and React itself says nothing — distinct keys never collide, so its duplicate-key warning never fires | Key on a stable identifier: `{:key (:id todo)}` |
+| A read after the render throws, naming the query | `:rf.error/hicasso-sub-outside-render` | Read during the render; close over the value. Handlers declare state with `:rf.cofx/requires` |
+| An unforced `delay` in props refuses at the boundary | `:rf.error/hicasso-deferred-read-at-boundary` | Hand a function, or force the delay in your own body |
+| A plain `defn` in head position throws | `:rf.error/hicasso-bad-head` | Call it — `(row-icon …)` — or mint it with `h/defview` |
+| Calling a view directly throws, naming the view | refusal at the call site | Write the head: `[todo-row {:id 7}]` |
+| Console warns about a missing key, naming view and child | `:rf.warning/hicasso-missing-key` | Put `:key` in each member's props map; `^{:key}` metadata is not read ([Lists and collections](06-lists-and-collections.md) owns key quality) |
+| First render throws naming a query id | `:rf.error/no-such-sub` | Registration happens on namespace load; require the subs namespace at boot |
+| Boundary re-renders although props look unchanged | none — bail-out defeated | A prop carries reference identity (inline `fn`, JS object). Hoist it, or pass a persistent value |
+| One cell changes and 300 boundaries re-render | none — reads live too high | Push the read down into the boundary that displays it |
+| A body's side effect fires twice in development | none — StrictMode double-invoke | Bodies are pure; move the effect out |
+| Subscriptions constantly re-created | none — args not value-stable | Make query args `=` between renders; fresh-but-equal persistent values are fine |
 
-## When not to use a boundary
+## When not to mint a boundary
 
-Not every function needs to be a view. If a piece of markup has no reads of its
-own and always re-renders with its parent anyway, a plain function is cheaper
-and simpler. Reach for a boundary when you want something to update
-independently, not because the markup got long.
-
-When a measured island is in the **~2%** (cost, host edge, foreign component) —
-not the default 98% — see [Performance](11-performance.md).
+Not every function needs to be a view. If markup has no reads of its own and
+always re-renders with its parent, a plain function is cheaper and simpler.
+Mint a boundary when you want a part of the tree to update independently,
+not because the markup became long. When a measured hot region outgrows
+boundary tuning — the ~2% case, not the default 98% — the escape ladder in
+[Performance](18-performance.md) owns the next step.
 
 ## Advanced
 
-### The sub collector
+### The collector
 
-Each boundary owns one fixed runtime hook that opens a collection window for the
-duration of the body. Every `sub` call in that window records its query. At
-commit, the runtime installs **exactly** the edge set the body just made —
-nothing from a branch not taken, nothing from a previous render that no longer
-applies.
+The mechanism behind the four operational claims is one fixed runtime hook
+per boundary. The hook opens a collection window for the duration of the
+body. The claims imply two more facts. First, abandoned renders install
+nothing: the render probes reads, and the commit owns them, so a render that
+React retries or discards leaves no subscriptions behind. Second, reads
+inside lazy seqs land correctly, because the hiccup-to-element pass forces
+them while the window is open, not later when other code walks the seq.
 
-Reads inside a lazy `for` (or any other lazy seq) are forced by the same pass
-that lowers hiccup to React elements. That is why they still land in the right
-boundary: the force happens while the window is open, not later when something
-else walks the seq.
-
-Escape is loud on purpose. If you close over a `sub` call site (rather than its
-value), stash an unforced lazy seq that contains a read, or force a `delay`
-after the render, the runtime fails naming the query. An unforced `delay` that
-would cross a boundary is refused at the crossing. The alternative in each case
-is a value that looks right on screen and freezes thereafter, with nothing to
-blame.
-
-Because the edge set tracks control flow, a body that sometimes reads three
-queries and sometimes five pays a full re-subscribe when the taken set changes —
-not a surgical add/remove of one key. That is the cost of legal dynamic reads.
-
-## Not settled yet
-
-| Question | Status |
-|---|---|
-| `sub` and `defview` spellings | Working names; **[unfrozen]** until API freeze |
-| Whether value-equality bail-out stays the **default** | **Open.** Runtime implements memo-by-default today; explicit opt-in is still on the table |
+An escaped read fails loudly by design. A closed-over `h/sub` call site
+(rather than its value), a stashed unforced seq, or a `delay` forced after
+the render — each fails and names the query, because the collector can no
+longer say which boundary owns the read.

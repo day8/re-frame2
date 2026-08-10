@@ -1365,7 +1365,7 @@ map or chart instance) or spending an effect. The recommended later shape is
 therefore **attach/detach only, config immutable for the connection's life, and
 steady-state change routed through a command effect**, which is already data.
 This limit is taught in the guide
-([Interop](draft-guide/05-interop.md#the-reserved-vector-and-the-gap-it-does-not-close))
+([Interop](draft-guide/09-interop.md#imperative-sdks))
 rather than left to be discovered.
 **Reopens** when the component-library tier is chartered — the reservation exists
 to make that reopening non-breaking.

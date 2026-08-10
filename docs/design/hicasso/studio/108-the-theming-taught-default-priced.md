@@ -278,7 +278,7 @@ sentence on A's SSR bullet rather than an unqualified *"no flash by construction
 
 `:ssr :render` landed on 2026-08-05 (`rf2-l0wfx`, `rf2-nv07k`), and with it guide
 10 §[`:render` — when the region has to be in the
-response](../draft-guide/10-server-side-rendering.md#render--when-the-region-has-to-be-in-the-response).
+response](../draft-guide/17-ssr-and-hydration.md#render-and-client-only-at-the-host).
 The load-bearing fact for theming is the one that ruling states about the other
 two policies: `:client-only` (**the default**) and `{:fallback …}` render *instead
 of* the component, so *"a provider at a crossing takes every descendant out of the

@@ -306,7 +306,7 @@ the sites, emit the `defhost`, rewrite the call sites — and all three are by
 hand. The shipped migration codemod is a props-dialect **fixer**: it repairs the
 crossings you already have and leaves them `[:>]`, minting no declaration and
 hoisting nothing. The hoist that would mint them is demand-gated and unbuilt
-([the codemod](draft-guide/05-interop.md#the-codemod)).
+([the codemod](draft-guide/19-migration-from-reagent.md#step-4--run-the-codemod)).
 **The one raw escape** (HD-011), explicitly secondary to the declaration:
 `[:> Component props & children]` — same foreign lowering path, same default
 conversions, `.cljs`-only at that node, reduced structural identity; for
@@ -395,7 +395,7 @@ in implementation, not yet landed):
 The instance key is authored data — domain ids first, entity-qualified id
 values when one widget serves two entity types, placement-like vs value-like
 sharing, "a good React `:key` is a good instance key" — four rules taught in
-[the guide](draft-guide/07-ephemeral-state.md), not policed. What HD-009 froze
+[the guide](draft-guide/11-ephemeral-state.md), not policed. What HD-009 froze
 about any such sugar still holds under the ruled design: it mints a **named**
 setter event rather than a generic `ui/set`, and it is sugar rather than a
 state system — no runtime state, no hooks, no context.
