@@ -138,6 +138,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-true-child` | let `true` reach child position | ch02 |
 | `:rf.error/hicasso-unknown-callback-contract` | named a callback contract outside `:event` / `:handler` / `:render` | — |
 | `:rf.error/no-frame-prop` | mounted a frame-fed boundary with no frame in its props | — |
+| `:rf.error/hicasso-test-bad-option` | gave an L2 `tree` non-map options, or an option outside its closed roster `#{:subs}` | — |
 | `:rf.error/hicasso-test-bad-reads` | gave an L2 render a `:reads` option that is not a query-to-value map | — |
 | `:rf.error/hicasso-test-boundary-body-not-retained` | rendered a minted head at L2 in a build that erased its body | — |
 | `:rf.error/hicasso-test-host-is-opaque` | let a `defhost` crossing reach the L2 semantic tree | — |

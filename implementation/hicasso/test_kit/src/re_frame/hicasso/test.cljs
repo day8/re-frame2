@@ -1131,8 +1131,19 @@
       ;;     :children [\"milk\"]}
 
   `form` is `[body-fn props & children]` — the ordinary hiccup call
-  spelling, with the **body function** in head position. `opts` carries
-  one key, `:subs`, the fixture map from query vector to value.
+  spelling, with the **body function** in head position. `opts` is a map
+  whose roster is CLOSED at one key, `:subs`, the fixture map from query
+  vector to value.
+
+  **Closed, because an option that is quietly ignored is a setting its
+  author believes is in force.** Map destructuring validates neither the
+  options map nor its key set, so before rf2-0ckh a misspelled key — and
+  `{:reads …}`, the spelling this option carried until naming-ledger row
+  23 settled it — was accepted in silence: a body with no reads rendered
+  outright, and a reading body ignored the fixtures it was handed and
+  refused with `:rf.error/hicasso-test-missing-read-fixture`, naming the
+  wrong problem. Pre-alpha there is no alias and no deprecation path; the
+  retired spelling is simply an unknown key, and it is refused as one.
 
   ## What it is
 
@@ -1168,6 +1179,8 @@
   - **A `h/defhost` crossing, a raw React element, an unforced `delay`**,
     anywhere in the tree — opaque, with a pointer to L3.
   - **A read no fixture answers** — see `:subs` above.
+  - **Options that are not a map, or carry a key outside `#{:subs}`** —
+    see the closed roster above.
 
   ## Frame scope
 
@@ -1176,13 +1189,32 @@
   for the events and subscriptions AROUND a view test stays the
   programmer's ordinary `rf/with-new-frame` / `rf/with-frame` bracket."
   ([form] (tree form {}))
-  ([form {fixtures :subs :or {fixtures {}}}]
+  ([form {fixtures :subs :or {fixtures {}} :as opts}]
    (when-not (and (vector? form) (seq form))
      (refuse! :rf.error/hicasso-test-not-a-render-form
               (str "tree takes a hiccup form `[body-fn props & children]`; "
                    "it was given " (pr-str form) ".")
               :pass-a-hiccup-form
               {:value form}))
+   ;; THE CLOSED ROSTER (rf2-0ckh). The destructuring above reads `:subs`
+   ;; off anything and ignores everything else, so without these two an
+   ;; unknown key is accepted in silence — and `{:reads …}`, the spelling
+   ;; this option carried until row 23 settled it, would still "work" for
+   ;; a body with no reads. `:where` and the tier are the same door's;
+   ;; only the roster is new.
+   (when-not (map? opts)
+     (refuse! :rf.error/hicasso-test-bad-option
+              (str "tree's options are a map; they were " (pr-str opts) ".")
+              :pass-a-map-of-options
+              {:value opts}))
+   (when-let [unknown (seq (disj (set (keys opts)) :subs))]
+     (refuse! :rf.error/hicasso-test-bad-option
+              (str "tree accepts :subs and nothing else; it was given "
+                   (pr-str (vec (sort-by str unknown)))
+                   ". An option that is quietly ignored is a setting its "
+                   "author believes is in force.")
+              :remove-the-unknown-option
+              {:unknown (vec (sort-by str unknown))}))
    (let [minted (nth form 0)
          ;; A minted head runs its body inside the shell and nowhere else,
          ;; so the mint attaches that body to the head under a DEV-ONLY
