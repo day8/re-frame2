@@ -2,9 +2,23 @@
   "ARM 1's ROOT — one operation, an idempotent teardown (HD-021(b)).
 
   `root!` associates a DOM node, a frame, and a hiccup tree, and returns
-  the handle `release!` takes. That is the whole execution contract this
-  arm needs; the names stay unfrozen (HD-021 pins the semantics, not the
-  spelling) and nothing here is a public API.
+  the handle every other door here takes. That is the whole execution
+  contract this arm needs; the names stay unfrozen (HD-021 pins the
+  semantics, not the spelling).
+
+  ## Three of these vars ARE the public door (rf2-31xm, rf2-e2al)
+
+  `re-frame.hicasso` re-exports [[root!]], [[render!]] and [[unmount!]]
+  under their own names, so a consumer's whole root lifecycle — mount,
+  re-render after a hot reload, tear down — is spelled here. Each of the
+  three is root-scoped: it takes a handle (or makes one) and reaches
+  nothing another root owns.
+
+  [[release!]] is NOT among them. It is [[unmount!]] plus a detached
+  container plus a page-wide `collector/reset-runtime!` — the fixture
+  door, correct where one app owns the page and wrong on a public
+  facade, where tearing down one of two roots would empty the runtime
+  under the other.
 
   The frame reaches the tree through the substrate's single internal
   React context — the same object every React-shaped adapter reads
@@ -94,7 +108,26 @@
       app)))
 
 (defn render!
-  "Render `hiccup` into an existing root, synchronously.
+  "Render `hiccup` into an existing root, synchronously. Answers the
+  handle.
+
+  **The public door's re-render, and the whole of a consumer's hot-reload
+  hook** (rf2-e2al):
+
+      (defonce ^:private !root (atom nil))
+
+      (defn ^:export init []
+        (reset! !root (h/root! node ::frame [app {}])))
+
+      (defn ^:dev/after-load reload! []
+        (h/render! @!root [app {}]))
+
+  It re-renders the root React already has, so React reconciles against
+  the tree on the page and the reloaded view code meets its own DOM.
+  Calling [[root!]] again instead would `createRoot` a second time and
+  REPLACE the tree — every node discarded, every subscription re-made,
+  every scrap of component state and scroll position lost, which is
+  exactly what a hot reload must not do.
 
   The root hiccup is interpreted through
   [[re-frame.hicasso.impl.codec/root-element]] rather than
@@ -332,46 +365,66 @@
                           (react-dom-client/hydrateRoot container element)))))
 
 (defn unmount!
-  "Unmount the root and detach its container, and **touch nothing the
-  runtime holds**. Whatever edges, cells and cached closures survive are
-  the ones React's own cleanup failed to release.
+  "Take THIS root down, and touch nothing else. `re-frame.hicasso`'s
+  public teardown door and [[root!]]'s exact inverse.
 
-  This is the half a residue gate has to be able to read. [[release!]]
-  also resets the runtime, and a reading taken after that reset is a
-  reading of an emptied table: it answers `0` whether teardown worked or
-  not, which is a gate that cannot go red (rf2-2rtt6.48). A witness that
-  wants to assert on teardown therefore calls this, waits one macrotask
-  for the cell and entry reapers, asserts, and resets afterwards.
+  Two things it deliberately does not do, and each is a fault that was
+  once shipped through the public facade (rf2-31xm):
+
+  **It touches nothing the runtime holds.** Whatever edges, cells and
+  cached closures survive are the ones React's own cleanup failed to
+  release, which is what makes this the half a residue gate can read: a
+  teardown that emptied the tables first answers `0` whether it released
+  anything or not, and that is a gate that cannot go red (rf2-2rtt6.48).
+  It is also what makes teardown ROOT-scoped in a multi-root page —
+  every table this arm holds is one-per-page and keyed by frame, so a
+  door that reset them would tear down every sibling root's state along
+  with its own.
+
+  **It does not remove the container from the document.** The container
+  is the CALLER's node, handed to [[root!]], and a teardown door may not
+  delete a node it did not create — React's own `root.unmount()` empties
+  a container and leaves it where it is, which is the contract every
+  consumer already knows. Detaching is [[release!]]'s, where the
+  container is one [[fresh-container!]] minted for the occasion.
 
   **Shuts this root's adoption window first** (rf2-6tmu). A root torn
   down before its passive effects ever ran never gets its closer, and an
   open window that outlives its root is a window nothing can ever shut.
   Root teardown owns root state, so it is this door's job and not a
   page-wide reset's — closing a sibling's window from a reset is exactly
-  the cross-root reach this bead removed.
+  the cross-root reach that bead removed.
 
-  Idempotent, for the same reason [[release!]] is —
-  `roots/close-adoption-window!` is idempotent and nil-tolerant, so an
-  ordinary handle (which carries no window) and a second call are both
-  no-ops."
+  Idempotent: `roots/close-adoption-window!` is idempotent and
+  nil-tolerant, so an ordinary handle (which carries no window) and a
+  second call are both no-ops."
   [handle]
   (roots/close-adoption-window! (:adoption handle))
   (when-some [r (:root handle)]
     (react-dom/flushSync (fn [] (.unmount r))))
-  (when-some [c (:container handle)]
-    (when-some [p (.-parentNode c)] (.removeChild p c)))
   nil)
 
 (defn release!
-  "Unmount the root and drop every edge, cell and cached closure the arm
-  held. The fixture door: it ends with a runtime that holds nothing,
-  whatever this test left behind. Idempotent: releasing twice is not an
-  error, because a teardown door that throws on the second call is a
-  teardown door test fixtures route around.
+  "Unmount the root, drop its container, and empty the runtime. **The
+  fixture door, and it is not on the public facade** (rf2-31xm): it ends
+  with a page that holds nothing, whatever this test left behind, which
+  is right when one app owns the page and wrong for a consumer who has
+  two roots and meant to tear down one.
+
+  The two acts [[unmount!]] refuses are both here, and each is legitimate
+  for a fixture: the container it detaches is a [[fresh-container!]] this
+  same fixture appended, and the runtime it empties is a page the fixture
+  owns end to end.
+
+  Idempotent: releasing twice is not an error, because a teardown door
+  that throws on the second call is a teardown door test fixtures route
+  around.
 
   **Not the door a residue assertion takes** — see [[unmount!]]."
   [handle]
   (unmount! handle)
+  (when-some [c (:container handle)]
+    (when-some [p (.-parentNode c)] (.removeChild p c)))
   (collector/reset-runtime!)
   nil)
 

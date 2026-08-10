@@ -49,17 +49,29 @@
   `^re-frame\\.hicasso\\..+-cljs-test$`, and this namespace does not end
   in `-cljs-test`.
 
-  ## What is deliberately absent
+  ## The reload hook, and why it is here now (rf2-e2al)
 
-  A `^:dev/after-load` hook. The HMR path is demonstrated by
-  `hicasso/testbed/hmr` under the `test:hicasso-hmr` gate, which drives a
-  real shadow-cljs watch and a real reload; inventing a second one here
-  would add machinery without adding a witness. Writing the hook's body
-  on public namespaces only is a separate matter and currently cannot be
-  done — the door exposes no re-render, and its `release!` is a fixture
-  door that resets the page-wide runtime and removes the container from
-  the document. That is reported as a follow-up rather than papered over
-  with a hook this file cannot honestly recommend copying."
+  It was deliberately absent, and its absence was the evidence: writing
+  the hook's body on public namespaces only *could not be done*, because
+  the door exposed no re-render and its `release!` was a fixture door
+  that reset the page-wide runtime and removed the container from the
+  document. Rather than paper over that with a hook this file could not
+  honestly recommend copying, it was reported.
+
+  [[re-frame.hicasso/render!]] is that door now, so the hook below is
+  three ordinary lines and every one of them is public. It re-renders the
+  root React already has, which is what lets the reloaded view code meet
+  its own DOM; a second `h/root!` would `createRoot` again and replace
+  the tree, discarding every node and every scrap of component state.
+
+  The handle is held in a `defonce` for the reason any hot-reloadable app
+  holds one: a plain `def` is re-evaluated by the reload, and the handle
+  would be replaced by the event it is there to survive.
+
+  This is an exemplar, not a gate. The HMR path is still MEASURED by
+  `hicasso/testbed/hmr` under `test:hicasso-hmr`, which drives a real
+  shadow-cljs watch and a real reload; inventing a second gate here would
+  add machinery without adding a witness."
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]))
@@ -109,8 +121,25 @@
    [:p.echo "Committed: " (h/sub [::greeting])]])
 
 ;; ---------------------------------------------------------------------------
-;; The mount
+;; The mount, and the reload
 ;; ---------------------------------------------------------------------------
+
+(defonce ^:private !root
+  ;; `defonce`, because the reload re-evaluates this namespace and a plain
+  ;; `def` would replace the handle the reload exists to re-render.
+  (atom nil))
+
+(defn ^:dev/after-load reload!
+  "Re-render the mounted root after a hot reload — the whole hook, and
+  the shape to copy.
+
+  Nothing is torn down and nothing is remade: React reconciles the new
+  tree against the one on the page, so the DOM, the subscriptions and
+  every scrap of component state survive the reload and only the changed
+  view code is different."
+  []
+  (when-some [root @!root]
+    (h/render! root [app {}])))
 
 (defn ^:export -main
   "The `:hicasso-release` build's `:init-fn`, and the three lines that
@@ -126,11 +155,11 @@
   notify nothing at all.
 
   Then the frame, seeded; then the root, which is where a container, a
-  frame id and a hiccup tree meet. `h/root!` returns a handle, and this
-  app has no use for one: it mounts once and lives for the life of the
-  page."
+  frame id and a hiccup tree meet. `h/root!` returns a handle, and the
+  handle is what [[reload!]] re-renders — the one reason a mount-once
+  application keeps hold of it."
   []
   (rf/init! uix-adapter/adapter)
   (rf/make-frame {:id frame-id :initial-events [[::seed]]})
-  (h/root! (js/document.getElementById "app") frame-id [app {}])
+  (reset! !root (h/root! (js/document.getElementById "app") frame-id [app {}]))
   nil)

@@ -1913,9 +1913,15 @@
 
 (defn reset-runtime!
   "Drop every cell, every edge, every cached entry and every frame bundle.
-  The root-teardown and test-fixture door; disposing each cell releases
-  its sub-cache reference, so this is the leak check's reset rather than
-  a way to hide one.
+  Disposing each cell releases its sub-cache reference, so this is the
+  leak check's reset rather than a way to hide one.
+
+  **The PAGE-WIDE fixture door, and not part of root teardown**
+  (rf2-31xm). Every table it empties is one-per-page and keyed by frame,
+  so calling it to tear a root down empties the runtime under every other
+  root on the page too. `impl.mount/unmount!` is root teardown and
+  reaches none of this; `impl.mount/release!` is the fixture pairing that
+  ends with a page holding nothing.
 
   It lives here because the collector holds most of what it drops, and it
   calls each sibling's own door for the rest — a module that owns state

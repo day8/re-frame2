@@ -335,12 +335,34 @@
   [[re-frame.hicasso.impl.route-link/route-link]]."}
        route-link impl-route-link/route-link)
 
+     ;; ---- the root lifecycle: mount, re-render, tear down ----------------
+     ;;
+     ;; Three doors, one handle, and every one of them ROOT-SCOPED — a page
+     ;; may hold as many roots as it likes and no call here reaches a root
+     ;; the caller did not name. That is the property rf2-31xm restored and
+     ;; the reason `release!` is no longer among them.
+
      (def ^{:doc "Associate a DOM container, a frame keyword and a hiccup
-  tree; returns the handle [[release!]] takes. HD-021(b)'s whole execution
-  contract. [[re-frame.hicasso.impl.mount/root!]]."}
+  tree; returns the handle [[render!]] and [[unmount!]] take. HD-021(b)'s
+  whole execution contract. [[re-frame.hicasso.impl.mount/root!]]."}
        root! impl-mount/root!)
 
-     (def ^{:doc "Unmount the root and drop every edge, cell and cached
-  closure the runtime held. Idempotent.
-  [[re-frame.hicasso.impl.mount/release!]]."}
-       release! impl-mount/release!)))
+     (def ^{:doc "Re-render a mounted root in place, synchronously, and
+  answer its handle — **the hot-reload door** (rf2-e2al):
+
+      (defn ^:dev/after-load reload! []
+        (h/render! @!root [app {}]))
+
+  React reconciles the new tree against the one on the page, so the
+  reloaded view code meets its own DOM. Calling [[root!]] again would
+  `createRoot` a second time and replace the tree instead, discarding
+  every node, subscription and scrap of component state.
+  [[re-frame.hicasso.impl.mount/render!]]."}
+       render! impl-mount/render!)
+
+     (def ^{:doc "Take THIS root down — [[root!]]'s inverse, and
+  idempotent. Unmounts the root and leaves everything else exactly where
+  it was: the sibling roots' subscriptions and frames, and the container
+  you handed [[root!]], which React empties but does not remove.
+  [[re-frame.hicasso.impl.mount/unmount!]]."}
+       unmount! impl-mount/unmount!)))
