@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.revision-dom-cljs-test
+(ns re-frame.hicasso.revision-dom-cljs-test
   "THE REVISION PROP ON A CONTROLLED ELEMENT (rf2-zq8kh, the shape ruled in
   `docs/design/hicasso/studio/revision-prop-spec.md`).
 
@@ -16,7 +16,7 @@
   the codec mints per render (HD-004 refuses prop-object caching). Three
   React behaviours carry it and none of them is a public contract —
   the same class as the `defaultValue` mirror
-  [[re-frame.bench.hicasso.front.controlled/last-rendered]] leans on.
+  [[re-frame.hicasso.impl.controlled/last-rendered]] leans on.
   If they do not hold, the prop needs real machinery and the design does
   not survive contact. So §0 pins them before anything else runs, as
   DESIGN-VALIDATION rows rather than as regression rows. **They hold**:
@@ -62,8 +62,8 @@
   Runtime: `-dom-cljs-test`. Every row needs a real React tree over a real
   document; under `:node-test` each degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.controlled :as controlled]
+            [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.controlled :as controlled]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
