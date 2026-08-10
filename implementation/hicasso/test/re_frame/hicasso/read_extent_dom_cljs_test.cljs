@@ -616,8 +616,11 @@
                   (reset! !set-visible nil))
             handle (mount-concurrent!
                      (mount/fresh-container!)
-                     (react/createElement activity-host
-                                          #js {:child (app [activity-deferring-line {}])}))]
+                     (react/createElement
+                       activity-host
+                       #js {:child (app [:div
+                                         [activity-deferring-line {}]
+                                         [sibling-line {}]])}))]
         ;; The host's own effect is the sync point rather than any text:
         ;; a hidden Activity subtree IS committed to the DOM, so reading
         ;; text here would not distinguish hidden from revealed.
@@ -652,9 +655,17 @@
                   (is (zero? (readers-of [:red/escaped])))
                   (is (nil? (inventory/cell-reaction (k [:red/escaped])))))
 
-                (testing "while the revealed boundary holds exactly its own
-                          read, once"
-                  (is (= 1 (readers-of [:red/painted]))))
+                (testing "while each revealed boundary holds exactly its own
+                          read, once. Measured: with one boundary here this
+                          block could not go red under a defeated scratch
+                          reset — a single body's `[painted painted]` still
+                          resolves to `#{painted}` — so the reveal carries
+                          [[sibling-line]] for the same reason the other two
+                          rows do"
+                  (is (= 1 (readers-of [:red/painted])))
+                  (is (= 1 (readers-of [:red/sibling])))
+                  (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
+                         (ownership))))
 
                 (exercised! :activity/reveal)
                 (teardown-census! handle)))
