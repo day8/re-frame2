@@ -417,6 +417,14 @@
   twice rather than a leak, because the only global write is inside
   `subscribe` and React calls it at commit and nowhere else.
 
+  Two calls in one component are two subscriptions, where a `defview`
+  body's several `h/sub` reads are ONE. That is React's arithmetic and
+  not a choice: a store subscription is a hook, so `n` reads cost `n` of
+  them, and the tool tier will show `n` single-edge boundaries rather
+  than one with `n` edges. Nothing is incorrect about it and the cost is
+  a hook cell each; it is simply the shape, and an island reading a
+  dozen keys is an island that wanted a `defview`.
+
   ## The external-store ceiling, stated rather than papered over
 
   React's own `useSyncExternalStore` documentation is explicit that
@@ -447,7 +455,8 @@
              ;; and a render that throws never reaches React's hook
              ;; reconciliation, so no count can disagree with a previous
              ;; render's.
-             ^js entry (collector/hook-entry [frame-kw query-v])]
+             sub-key   [frame-kw query-v]
+             ^js entry (collector/hook-entry sub-key)]
          ;; The epoch, not the value: `getSnapshot` answers one monotone
          ;; number, React compares it with `Object.is`, and the value is
          ;; read after — from the same synchronous instant, since a
@@ -456,7 +465,7 @@
          ;; same closure for the same reason it is there.
          (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry)
                                      (.-snapshot entry))
-         (collector/hook-read frame-kw query-v)))))
+         (collector/hook-read sub-key)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The macros
