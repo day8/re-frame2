@@ -470,11 +470,14 @@
                                 [(first more) (rest more)]
                                 [nil more])
         [component opts]      more
+        ;; `do` and `def` are SPECIAL FORMS, so they are spelled bare: a
+        ;; qualified `clojure.core/do` reads as a var that does not exist and
+        ;; kondo says so, at the call site, in the consumer's file.
         value                 (if opts
                                 (api/list-node
-                                  [(api/token-node 'clojure.core/do) opts component])
+                                  [(api/token-node 'do) opts component])
                                 component)]
     {:node (api/list-node
-             (concat [(api/token-node 'clojure.core/def) sym]
+             (concat [(api/token-node 'def) sym]
                      (when doc [doc])
                      [value]))}))
