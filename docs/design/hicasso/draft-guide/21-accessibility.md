@@ -1,7 +1,7 @@
 # Accessibility
 
 A screen reader announces "clickable, group" where you meant "Delete, button",
-and Tab skips your busiest control. Hicasso ships no accessibility subsystem
+and Tab skips your busiest control. [Hicasso](glossary.md#hicasso) ships no accessibility subsystem
 to fix that, because the fix is not a subsystem. Semantic Hiccup and native
 controls carry names, roles, and keyboard behaviour on their own. Your job is
 mostly to keep those behaviours in place — and then prove it in tests.
@@ -27,7 +27,7 @@ hand is a copy of one platform behaviour, minus the ones you forgot:
 
 The same trade repeats across the vocabulary:
 
-- `:a` for navigation — `route-link` returns a real anchor, so middle-click
+- `:a` for navigation — [`route-link`](glossary.md#route-link) returns a real anchor, so middle-click
   and copy-link work.
 - `:label` wrapping its control, or pointing at it with `:for`.
 - `:ul`/`:li` for lists, and `:table` for tabular data.
@@ -64,7 +64,7 @@ share one address, and they break the same way.
 
 `:aria-*` attributes pass through exactly as written
 ([Views and reads](02-views-and-reads.md)), so there is nothing
-Hicasso-specific to learn — including on `h/defhost` crossings, where
+Hicasso-specific to learn — including on [`h/defhost`](glossary.md#defhost) crossings, where
 `aria-*` stays hyphenated.
 
 ## State assistive tech reads is the state you already have
@@ -90,7 +90,7 @@ The chapters that own each widget already write this shape:
 `:aria-hidden` ride [an exiting node](11-ephemeral-state.md). What those
 chapters never do is mirror platform state back into app-db. Focus in
 particular belongs to the platform
-([Ephemeral state](11-ephemeral-state.md)): you express intent once, and the
+([Ephemeral state](11-ephemeral-state.md)): you express [intent](glossary.md#intent) once, and the
 restore contracts do the rest.
 
 Error display pairs the message to the field the same way — derived, per
@@ -112,7 +112,7 @@ already has its owner page, and this table is the inventory:
 | Moment | Conduct | Owner |
 |---|---|---|
 | Route change | Focus the keyed main region, `:tab-index -1`, `preventScroll` | [Routing and navigation](07-routing-and-navigation.md) |
-| Overlay opens / closes | `:auto-focus` intent in; platform trap; restore on close | [Overlays and focus](12-overlays-and-focus.md) |
+| Overlay opens / closes | `:auto-focus` [intent](glossary.md#intent) in; platform trap; restore on close | [Overlays and focus](12-overlays-and-focus.md) |
 | Composite widget (menu, listbox) | Focus stays on the trigger; `:aria-activedescendant` walks options | [Overlays and focus](12-overlays-and-focus.md) |
 | Exit animation | `:inert` + `:aria-hidden` ride the unmounting phase | [Ephemeral state](11-ephemeral-state.md) |
 | Virtualized list | The keyboard cannot reach rows that do not exist — decide, then verify in a browser | [Lists and collections](06-lists-and-collections.md) |
@@ -138,7 +138,7 @@ discipline are the same as everything else in [Testing](14-testing.md):
 ```
 
 Data cannot prove focus and traversal: where focus lands after a route
-change, whether Tab is trapped in a modal, whether a virtualized grid is
+change, whether Tab is trapped in a [modal](glossary.md#overlay), whether a virtualized grid is
 walkable. Those are engine facts, so they live in the browser tier, next to
 an automated axe pass over each screen's mounted state. The axe run is a
 floor, not the test. It catches missing names and broken pairings, and it
@@ -156,7 +156,7 @@ walk yourself for the screens where it matters.
 | Validation errors appear silently | The message div is not announced and not paired | `:role "alert"` on the message; `:aria-invalid` and `:aria-describedby` on the field |
 | Focus goes nowhere after navigating | The main region is not keyed and focusable | The route-focus recipe ([Routing and navigation](07-routing-and-navigation.md)) |
 | A fading toast still takes focus and clicks | The exit override lacks the a11y pair | `:inert` and `:aria-hidden` in `::motion/unmounting` ([Ephemeral state](11-ephemeral-state.md)) |
-| The modal traps focus but the page behind still scrolls | A hand-written dialog, not the native modal path | `overlay/modal` ([Overlays and focus](12-overlays-and-focus.md)) |
+| The [modal](glossary.md#overlay) traps focus but the page behind still scrolls | A hand-written dialog, not the native modal path | `overlay/modal` ([Overlays and focus](12-overlays-and-focus.md)) |
 | axe flags nothing but keyboard users are lost | axe checks attributes, not traversal order | Script the Tab walk in the browser tier for that screen |
 
 ## When not to add more

@@ -1,9 +1,9 @@
 # Overlays and focus
 
 You need a filter menu anchored to its button, and a delete confirmation that
-blocks the page behind it. The classic build — a portal, a z-index ladder, a
+blocks the page behind it. The classic build — a [portal](glossary.md#portal), a z-index ladder, a
 document click listener, hand-rolled focus management — leaks and breaks in
-known ways. `re-frame.hicasso.overlay` gives you two primitives, popover and
+known ways. `re-frame.hicasso.overlay` gives you two primitives, [popover](glossary.md#overlay) and
 modal, that mount on the browser's **native top layer** (`popover` /
 `<dialog>`). The platform owns stacking, dismissal, and focus. Your app owns
 exactly one thing: the data.
@@ -51,11 +51,11 @@ The caller owns the open flag, as ordinary state at an address
 
 What the module does with those four options:
 
-- **`:open?` is the one owner.** While the flag is false, the popover renders
+- **`:open?` is the one owner.** While the flag is false, the [popover](glossary.md#overlay) renders
   *nothing*: no DOM node, no listener, and the body's reads never run. When
   the flag goes true, the panel mounts directly onto the top layer. There the
   panel sits above every stacking context, and no ancestor `overflow: hidden`
-  or `transform` can affect it. There is no portal and no z-index anywhere.
+  or `transform` can affect it. There is no [portal](glossary.md#portal) and no z-index anywhere.
 - **`:on-dismiss` is how the platform reports.** Outside click and Esc are
   the popover's native light-dismiss. There is no document listener. The
   browser closes the panel, and the module dispatches your event. Your
@@ -75,7 +75,7 @@ What the module does with those four options:
 
 ## A modal
 
-A modal has the same shape and stronger conduct. `overlay/modal` drives a
+A [modal](glossary.md#overlay) has the same shape and stronger conduct. `overlay/modal` drives a
 native `<dialog>` through `showModal`, and that call is the source of the
 focus contract:
 
@@ -106,11 +106,11 @@ focus contract:
 ## Focus is a one-shot intent
 
 Focus is platform state. You never mirror "what has focus" into app-db
-([Ephemeral state](11-ephemeral-state.md)). What you *can* express is intent,
+([Ephemeral state](11-ephemeral-state.md)). What you *can* express is [intent](glossary.md#intent),
 as data, exactly once per open:
 
 - **Mount focus.** Put `:auto-focus true` on the element that must receive
-  focus when the overlay opens — the Delete button above, or the search field
+  focus when the [overlay](glossary.md#overlay) opens — the Delete button above, or the search field
   in a command palette. The attribute fires when the overlay opens, never
   again on a re-render, and it is inert markup on the server. A modal with no
   `:auto-focus` focuses the dialog itself. A popover leaves focus on the
@@ -125,7 +125,7 @@ as data, exactly once per open:
 
 A popover can sit inside a modal, and a submenu inside a menu. The native top
 layer is a stack, so nesting is last-in-first-out by construction. Esc closes
-only the innermost open overlay. An outside click on an inner popover
+only the innermost open [overlay](glossary.md#overlay). An outside click on an inner popover
 light-dismisses that popover and does not touch the modal under it. Your side
 of the contract is one address and one `:on-dismiss` per overlay. If two
 overlays share one dismiss event, you rebuild the problem the stack solves.
@@ -142,13 +142,13 @@ A closed overlay costs nothing. Not a small amount — nothing:
   overlay, restores focus, and leaves zero residue.
 
 A table of five hundred rows, each with a closed row-menu, is exactly as
-heavy as the same table without menus. Design with overlays freely; you pay
+heavy as the same table without menus. Design with [overlays](glossary.md#overlay) freely; you pay
 only for the open one.
 
 ## Compose a dropdown from the popover
 
 Dropdowns, comboboxes, and toggletips are not separate primitives. Each is
-the popover plus your own semantics as ordinary events and subs. Here is a
+the [popover](glossary.md#overlay) plus your own semantics as ordinary events and subs. Here is a
 single-select with full keyboard support:
 
 ```clojure
@@ -215,11 +215,11 @@ Note what is *not* here:
   the panel and `:on-dismiss` fires;
 - no focus moves — focus stays on the trigger;
 - no document listener;
-- no portal.
+- no [portal](glossary.md#portal).
 
 The whole open/move/commit/dismiss policy is events over an address. A test
 can prove the policy headlessly and seed it directly, and Xray shows it. A
-toggletip — a click-to-open rich hint — is the same popover with a single
+toggletip — a click-to-open rich hint — is the same [popover](glossary.md#overlay) with a single
 dismiss event and no listbox.
 
 ## When you don't need the module
@@ -233,7 +233,7 @@ placement and focus conduct.
   of hover through any state system costs a re-render per pointer-move.
 - **Disclosure is `<details>`.** The platform tracks open; the triangle
   costs nothing.
-- **A presentational hint can be a bare popover.** `[:button {:popovertarget "help-tip"} "?"]`
+- **A presentational hint can be a bare [popover](glossary.md#overlay).** `[:button {:popovertarget "help-tip"} "?"]`
   with `[:div {:id "help-tip" :popover "auto"} …]` — the browser does
   everything, and the app never knows. That is DOM-owned state as a declared
   choice ([Ephemeral state](11-ephemeral-state.md)). When a test or another
@@ -269,7 +269,7 @@ leak, no stacking context to lose to, no z-index contest.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Panel clipped by `overflow: hidden` or stuck under a sticky header | The panel is an in-flow positioned div, not on the top layer | Render it through `overlay/popover` |
-| Outside click closes the popover but it re-opens | Light-dismiss fired and `:on-dismiss` was dispatched, but the handler never wrote the flag — the module re-shows to match the owner | Make the `:on-dismiss` handler set open to false |
+| Outside click closes the [popover](glossary.md#overlay) but it re-opens | Light-dismiss fired and `:on-dismiss` was dispatched, but the handler never wrote the flag — the module re-shows to match the owner | Make the `:on-dismiss` handler set open to false |
 | Esc closes the whole stack at once | The layers share one dismiss event or one address | One address and one `:on-dismiss` per overlay; the platform unwinds innermost-first |
 | Focus lands on `<body>` after close | The opener unmounted while the overlay was open — usually unstable list keys remounting the trigger | Stable `:key` on the trigger's row; restore targets the element focused at open, if it still exists |
 | `:rf.error/hicasso-overlay-anchor-missing` at open | `:anchor` names an id that is not in the document — or two instances share one id | Per-instance anchor ids: `(str "combo-" id "-trigger")` |
@@ -278,7 +278,7 @@ leak, no stacking context to lose to, no z-index contest.
 | Every row's menu opens at once | One shared address | Key the address per instance ([Ephemeral state](11-ephemeral-state.md#choosing-the-address)) |
 
 ??? info "If you're coming from Reagent or UIx"
-    The instinct is a portal + z-index + floating-ui + a `with-let` document
+    The instinct is a [portal](glossary.md#portal) + z-index + floating-ui + a `with-let` document
     listener. Here the panel never leaves its place in the tree — the top
     layer changes *paint* order, not *tree* order. So frame context,
     subscriptions, SSR, and hydration need no special path, and light-dismiss

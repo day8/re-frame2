@@ -5,8 +5,8 @@ where you use them, are the same problem twice. Either you hoist a value high
 in the tree and re-render many sibling views, or you invent a second way to
 read so that a helper can see the current filter.
 
-Hicasso's answer has two parts. A view is a function from a props map to
-hiccup. There is **one** way to read — `h/sub`, an ordinary function call at
+[Hicasso](glossary.md#hicasso)'s answer has two parts. A view is a function from a props map to
+hiccup. There is **one** way to read — [`h/sub`](glossary.md#hsub), an ordinary function call at
 the point of use:
 
 ```clojure
@@ -24,14 +24,14 @@ the point of use:
                 :on-input [:todo.ui/edit id ::h/value]}])]))
 ```
 
-> **Read where you use.** `h/sub` is legal anywhere in the body — inside a
+> **Read where you use.** [`h/sub`](glossary.md#hsub) is legal anywhere in the body — inside a
 > `let`, a `when`, a `for`, an ordinary helper call.
 
-`h/sub` is the only read form. There is no second spelling for helpers. A
+[`h/sub`](glossary.md#hsub) is the only read form. There is no second spelling for helpers. A
 bare `rf/subscribe` in a body is not a fallback: it refuses instead of
-resolving, and it names the read that went around the collector — the
-runtime mechanism that records each boundary's reads. (The event vectors in
-those attributes — *intents* — and `::h/value` belong to
+resolving, and it names the read that went around the [collector](glossary.md#collector) — the
+runtime mechanism that records each [boundary](glossary.md#boundary)'s reads. (The event vectors in
+those attributes — *[intents](glossary.md#intent)* — and [`::h/value`](glossary.md#hvalue) belong to
 [Events as data](03-events-as-data.md).)
 
 ## Boundaries and inlining
@@ -44,20 +44,20 @@ difference is visible in the syntax:
 (row-icon {:kind :urgent})    ;; a call to a plain defn — INLINED into this boundary
 ```
 
-A **view in head position** mints a **boundary** — Hicasso's unit of
-independent re-rendering, and the thing `h/defview` exists to make. A
+A **view in head position** mints a **[boundary](glossary.md#boundary)** — [Hicasso](glossary.md#hicasso)'s unit of
+independent re-rendering, and the thing [`h/defview`](glossary.md#defview) exists to make. A
 boundary owns four things:
 
 - React's identity for the boundary.
-- The `h/sub` reads that its body makes.
+- The [`h/sub`](glossary.md#hsub) reads that its body makes.
 - Its value-equality bail-out.
-- The frame to which the intents in its hiccup dispatch.
+- The frame to which the [intents](glossary.md#intent) in its hiccup dispatch.
 
-Native tags, fragments, and `h/defhost` heads also sit in vector position.
+Native tags, fragments, and [`h/defhost`](glossary.md#defhost) heads also sit in vector position.
 None of them is a boundary.
 
 A **plain `defn` call** is only a function call, and it owns none of the
-four. The runtime splices its hiccup into the caller's tree. Any `h/sub`
+four. The runtime splices its hiccup into the caller's tree. Any [`h/sub`](glossary.md#hsub)
 that the helper performs gives that read *upward* to the enclosing boundary.
 Helpers cost nothing at runtime, and they add no re-render granularity.
 Because reads are ordinary calls, **helpers can read**: a `filter-button`
@@ -74,8 +74,8 @@ The two spellings do not cross, and both crossings fail with a named error:
 (todo-row {:id 7})           ;; refuses at the call, naming the view; write [todo-row {:id 7}]
 ```
 
-Re-render granularity should be visible in the source. A boundary is always
-a vector, and an inline helper is always a call. A `defview` never degrades
+Re-render granularity should be visible in the source. A [boundary](glossary.md#boundary) is always
+a vector, and an [inline helper](glossary.md#inline-helper) is always a call. A [`defview`](glossary.md#defview) never degrades
 into an inline function because you invoked it differently.
 
 ## Keys go in the props map
@@ -88,7 +88,7 @@ into an inline function because you invoked it differently.
 ```
 
 A seq of children needs keys, whatever the head is. The key lives **in the
-props map**. Hicasso does not read `^{:key id}` metadata here (the most
+props map**. [Hicasso](glossary.md#hicasso) does not read `^{:key id}` metadata here (the most
 common Reagent carry-over), and no `for`-lowering invents a key for you. If
 you miss a key, development warns with `:rf.warning/hicasso-missing-key` and
 names the view and the child. That is all this page teaches about keys. What
@@ -96,14 +96,14 @@ makes a key *good* (a stable domain identity, never an index, never the
 whole entity) is the law of
 [Lists and collections](06-lists-and-collections.md).
 
-## The component ABI
+## The [component ABI](glossary.md#component-abi)
 
 | Head | Props | Children | `:key` | `:ref` |
 |---|---|---|---|---|
 | Native tag — `[:div …]` | attribute map | trailing forms | in the attribute map | callback ref, legal |
-| Hicasso view — `[todo-row …]` | one props map | trailing forms, arriving as `(:children props)` | in the props map, **extracted before your body sees props** | not a view surface — use ids |
+| [Hicasso](glossary.md#hicasso) view — `[todo-row …]` | one props map | trailing forms, arriving as `(:children props)` | in the props map, **extracted before your body sees props** | not a view surface — use ids |
 | Fragment — `[:<> …]` | — | trailing forms | on the fragment's props map | — |
-| Foreign — `h/defhost` and `[:>]` | converted per declaration | hiccup children become elements | in props | callback ref, legal |
+| Foreign — [`h/defhost`](glossary.md#defhost) and `[:>]` | converted per declaration | hiccup children become elements | in props | callback ref, legal |
 
 Children arrive realized and flattened in a predictable way. The runtime
 realizes nested and lazy sequences once and flattens them one level. `nil`
@@ -142,8 +142,8 @@ mutation of a captured atom, the start of a fetch, a render counter.
 
 ## Boundaries memoize by default
 
-Every head that `h/defview` mints carries one stable memo wrapper. The
-wrapper compares the whole props map with CLJS `=`. If a boundary's props
+Every head that [`h/defview`](glossary.md#defview) mints carries one stable memo wrapper. The
+wrapper compares the whole props map with CLJS `=`. If a [boundary](glossary.md#boundary)'s props
 compare equal to the last render, its body does not run, even when its
 parent's body ran. There is no mode flag and no public opt-out. A boundary
 that must re-run with its parent takes a prop that changes.
@@ -202,12 +202,12 @@ Five rules cover the conversions.
 - **`:key` is not an attribute.** The runtime reads it off the map and never
   emits it as a prop.
 
-The reserved-data vocabulary is deliberately small: `::h/value`,
-`::h/checked`, `::h/prevent`, and `::h/revision`. The chapter that owns each
+The reserved-data vocabulary is deliberately small: [`::h/value`](glossary.md#hvalue),
+[`::h/checked`](glossary.md#hchecked), [`::h/prevent`](glossary.md#hprevent), and [`::h/revision`](glossary.md#hrevision). The chapter that owns each
 word teaches it ([events](03-events-as-data.md),
 [controlled inputs](04-controlled-inputs.md)).
 
-## Forwarding attributes: owned wins
+## Forwarding attributes: [owned wins](glossary.md#owned-wins)
 
 A reusable field takes caller attributes and still owns its control keys.
 The merge is a pure recipe — a plain `merge`, with the attributes that you
@@ -232,16 +232,16 @@ One risk: `merge` works by key, so forward maps spelled the way you write
 attributes — kebab keywords — not a foreign props object's `"className"`
 strings.
 
-The case that makes this law necessary is a controlled input: a forwarded
+The case that makes this law necessary is a [controlled input](glossary.md#controlled-field): a forwarded
 map must never supply the value, checked, handler, key, or revision slots.
 [Controlled inputs](04-controlled-inputs.md) teaches that case in full.
 
-## The read-extent law
+## The [read-extent law](glossary.md#read-extent-law)
 
-`h/sub` is legal during the **direct synchronous execution** of the active
+[`h/sub`](glossary.md#hsub) is legal during the **direct synchronous execution** of the active
 body. Branches, loops, and ordinary helpers are included. Reads inside a
 lazy `for` count as direct: the same pass that turns hiccup into elements
-forces them, so they land in the boundary that is rendering.
+forces them, so they land in the [boundary](glossary.md#boundary) that is rendering.
 
 A read **deferred past the render** refuses, with source and recovery. It
 does not go silently stale. A callback, a promise, a timer, a stashed lazy
@@ -249,7 +249,7 @@ seq, a `delay` forced later — each raises
 `:rf.error/hicasso-sub-outside-render` and names the query. The runtime
 refuses an unforced `delay` that crosses into a boundary's props at the
 crossing (`:rf.error/hicasso-deferred-read-at-boundary`), before it can
-freeze a child. Hicasso never guesses which render owns a deferred read. The
+freeze a child. [Hicasso](glossary.md#hicasso) never guesses which render owns a deferred read. The
 alternative is a value that looks correct on screen and never updates again,
 with no error to point to.
 
@@ -271,11 +271,11 @@ that needs current state declares that state as a coeffect with
 not a side effect in a body. There is no `@`-anywhere form and no second
 read form for free-standing code.
 
-## How `h/sub` tracks reads
+## How [`h/sub`](glossary.md#hsub) tracks reads
 
 There are four operational claims:
 
-1. Each boundary opens one collection window for the duration of its body.
+1. Each [boundary](glossary.md#boundary) opens one collection window for the duration of its body.
    The commit installs **exactly** the edge set that the body made. A branch
    not taken contributes no edge.
 2. Framework subscriptions — machine tags, resource status, route identity —
@@ -296,8 +296,8 @@ There are four operational claims:
 | Symptom | Error | Fix |
 |---|---|---|
 | A read after the render throws, naming the query | `:rf.error/hicasso-sub-outside-render` | Read during the render; close over the value. Handlers declare state with `:rf.cofx/requires` |
-| An unforced `delay` in props refuses at the boundary | `:rf.error/hicasso-deferred-read-at-boundary` | Hand a function, or force the delay in your own body |
-| A plain `defn` in head position throws | `:rf.error/hicasso-bad-head` | Call it — `(row-icon …)` — or mint it with `h/defview` |
+| An unforced `delay` in props refuses at the [boundary](glossary.md#boundary) | `:rf.error/hicasso-deferred-read-at-boundary` | Hand a function, or force the delay in your own body |
+| A plain `defn` in head position throws | `:rf.error/hicasso-bad-head` | Call it — `(row-icon …)` — or mint it with [`h/defview`](glossary.md#defview) |
 | Calling a view directly throws, naming the view | refusal at the call site | Write the head: `[todo-row {:id 7}]` |
 | Console warns about a missing key, naming view and child | `:rf.warning/hicasso-missing-key` | Put `:key` in each member's props map; `^{:key}` metadata is not read ([Lists and collections](06-lists-and-collections.md) owns key quality) |
 | First render throws naming a query id | `:rf.error/no-such-sub` | Registration happens on namespace load; require the subs namespace at boot |
@@ -310,24 +310,24 @@ There are four operational claims:
 
 Not every function needs to be a view. If markup has no reads of its own and
 always re-renders with its parent, a plain function is cheaper and simpler.
-Mint a boundary when you want a part of the tree to update independently,
+Mint a [boundary](glossary.md#boundary) when you want a part of the tree to update independently,
 not because the markup became long. When a measured hot region outgrows
 boundary tuning — the ~2% case, not the default 98% — the escape ladder in
 [Performance](18-performance.md) owns the next step.
 
 ## Advanced
 
-### The collector
+### The [collector](glossary.md#collector)
 
 The mechanism behind the four operational claims is one fixed runtime hook
-per boundary. The hook opens a collection window for the duration of the
+per [boundary](glossary.md#boundary). The hook opens a collection window for the duration of the
 body. The claims imply two more facts. First, abandoned renders install
 nothing: the render probes reads, and the commit owns them, so a render that
 React retries or discards leaves no subscriptions behind. Second, reads
 inside lazy seqs land correctly, because the hiccup-to-element pass forces
 them while the window is open, not later when other code walks the seq.
 
-An escaped read fails loudly by design. A closed-over `h/sub` call site
+An escaped read fails loudly by design. A closed-over [`h/sub`](glossary.md#hsub) call site
 (rather than its value), a stashed unforced seq, or a `delay` forced after
 the render — each fails and names the query, because the collector can no
 longer say which boundary owns the read.

@@ -1,17 +1,17 @@
 # Testing
 
 You have a feature to test. You must decide which tests to write, and how
-much machinery each test needs. In a Hicasso app, the answer is a ladder of
+much machinery each test needs. In a [Hicasso](glossary.md#hicasso) app, the answer is a ladder of
 five rungs, and most of the ladder runs without a browser. Handlers and
 subscriptions are plain functions. Markup helpers return plain data. View
-bodies run under a semantic harness with no DOM and no React — other view
+bodies run under a [semantic harness](glossary.md#semantic-harness) with no DOM and no React — other view
 layers make you mount them. The browser is the top rung. Keep it for the
 facts that only a browser knows.
 
 > **Test at the lowest rung that can prove the claim. Know which equality
 > that rung proves.**
 
-The test kit is one namespace, `re-frame.hicasso.test`. It is a supported
+The [test kit](glossary.md#test-kit) is one namespace, `re-frame.hicasso.test`. It is a supported
 product surface, not a loose collection of utilities. This page aliases it
 as `ht`.
 
@@ -20,9 +20,9 @@ as `ht`.
 | Rung | What it proves | Mechanism |
 |---|---|---|
 | **L0** | event handlers, subscriptions, state transitions | pure function calls |
-| **L1** | intents, prevent and navigate decisions, codecs, control and revision laws, native-form expansion | pure data, property, and macro-expansion tests |
-| **L2** | registered hook-free view bodies | the semantic harness — `ht/tree` under injected read fixtures |
-| **L3** | React lifecycle, hooks, context, refs, errors, hosts | the mounted facade, with Testing Library and user-event |
+| **L1** | [intents](glossary.md#intent), prevent and navigate decisions, codecs, control and revision laws, native-form expansion | pure data, property, and macro-expansion tests |
+| **L2** | registered hook-free view bodies | the [semantic harness](glossary.md#semantic-harness) — `ht/tree` under injected read fixtures |
+| **L3** | React lifecycle, hooks, context, refs, errors, hosts | the [mounted facade](glossary.md#mounted-facade), with Testing Library and user-event |
 | **L4** | IME, caret, focus, layout, hydration, performance | Chromium, Firefox, and WebKit |
 
 Each rung proves a different equality. L1 proves authored data. L2 proves
@@ -74,7 +74,7 @@ toggle.
 
 ## L0 — handlers and subscriptions are plain functions
 
-Nothing here is specific to Hicasso, and that is the point: the logic layer
+Nothing here is specific to [Hicasso](glossary.md#hicasso), and that is the point: the logic layer
 tests the same under every view layer. Take the handler from the registrar.
 Call it with literal values. Check the map it returns:
 
@@ -120,21 +120,21 @@ function. Call it. The whole assertion is `=`:
 
 The same method covers every data spelling in the product, because each
 spelling is a value in an attribute map that some function returned: an
-intent vector, a `::h/prevent` head, a route link's navigate decision. You
+[intent](glossary.md#intent) vector, a [`::h/prevent`](glossary.md#hprevent) head, a [route link](glossary.md#route-link)'s navigate decision. You
 never mount and click to learn what a button means. The meaning is a value
 that you compare.
 
 L1 is also the rung for property tests: laws that hold for all inputs, such
 as a codec round-trip or the owned-wins attribute merge. When you own a
-native island, `n/$` macro-expansion tests belong here too
+[native island](glossary.md#native-island), [`n/$`](glossary.md#n-dollar) macro-expansion tests belong here too
 ([Native tier](10-native-tier.md)). The canonical-DOM comparator,
 `ht/canonical-dom`, also lives at this rung. It is a pure serializer that
 you apply to mounted nodes when a claim compares two pages (mechanics under
 Advanced).
 
-## L2 — the semantic harness
+## L2 — the [semantic harness](glossary.md#semantic-harness)
 
-A `defview` body is not directly callable. It needs a render extent to read
+A [`defview`](glossary.md#defview) body is not directly callable. It needs a render extent to read
 in, and a direct call refuses with a source-located recovery. The harness
 supplies that extent without React. `ht/tree` invokes a registered hook-free
 body under a discardable read resolver — your fixtures — and returns a
@@ -157,7 +157,7 @@ versioned semantic tree. Four small helpers assert on the tree: `ht/find`,
     (is (= [[:todo/toggle 7]] (ht/intents tree)))))
 ```
 
-The fixtures replace the whole subscription layer. The body's `h/sub` calls
+The fixtures replace the whole subscription layer. The body's [`h/sub`](glossary.md#hsub) calls
 resolve against the map. The harness never touches the real cache, and it
 discards the resolver afterwards. Fixture identity is the same as sub
 identity — `(query-id, args)` under value equality — so `[:todo/by-id 7]`
@@ -172,7 +172,7 @@ subtree.
 model, not a renderer. It refuses to fake the facts it does not have:
 
 - A body (or expanded child) that reaches a **hook**, a **raw React
-  element**, an **`n/$` result**, or a **`defhost` crossing** refuses with a
+  element**, an **[`n/$`](glossary.md#n-dollar) result**, or a **[`defhost`](glossary.md#defhost) crossing** refuses with a
   structured, source-located complaint that points at L3. React facts belong
   to React.
 - A read with **no fixture** refuses and names the query. The harness never
@@ -186,10 +186,10 @@ model, not a renderer. It refuses to fake the facts it does not have:
     keep the semantic half as data you can compare with `=`, and mount-test
     the mechanics once.
 
-## L3 — the mounted facade
+## L3 — the [mounted facade](glossary.md#mounted-facade)
 
 When the claim is about React or the DOM — lifecycle, hooks, a real error
-boundary, real nodes — mount the view. The facade gives every test an
+[boundary](glossary.md#boundary), real nodes — mount the view. The facade gives every test an
 isolated frame (its own app-db, queue, and subscription cache), a real root,
 and a residue guarantee:
 
@@ -198,7 +198,7 @@ and a residue guarantee:
 | `ht/mount!` | mounts a view under a fresh isolated frame; records the residue baseline first; returns a handle |
 | `ht/hydrate!` | mounts by adopting server bytes ([SSR and hydration](17-ssr-and-hydration.md)) |
 | `ht/rerender!` | renders a new element into the same root — for props-change tests |
-| `ht/dispatch-and-settle!` | dispatches into the mount's frame and returns once Hicasso and React are quiescent |
+| `ht/dispatch-and-settle!` | dispatches into the mount's frame and returns once [Hicasso](glossary.md#hicasso) and React are quiescent |
 | `ht/settle!` | waits for quiescence after outside stimulation — a user-event pointer or keyboard sequence |
 | `ht/unmount!` | tears the root down |
 | `ht/assert-clean!` | after unmount: compares exact post-quiescence residue with the pre-mount baseline, then resets |
@@ -240,7 +240,7 @@ sequence, call `(ht/settle! m)` before you assert.
 
 Use L3 when the claim needs it:
 
-- a real error boundary that catches a real throw ([Errors](16-errors.md));
+- a real [error boundary](glossary.md#error-boundary) that catches a real throw ([Errors](16-errors.md));
 - StrictMode double-invoke, and renders that React abandoned;
 - keyed insert, delete, and reorder against real nodes;
 - a foreign component's hooks, context, or refs ([Interop](09-interop.md));
@@ -265,15 +265,15 @@ measurement discipline live in [Performance](18-performance.md).
 
 One more entry completes the kit: `ht/shadow!`, the migration harness. It is
 a dev-only dual mount. It drives a ported view and its Reagent original with
-one script, and it diffs canonical DOM and intent streams at every
+one script, and it diffs [canonical DOM](glossary.md#canonical-dom) and [intent](glossary.md#intent) streams at every
 checkpoint. [Migrating from Reagent](19-migration-from-reagent.md) owns it.
 
-## The sabotage twin
+## The [sabotage twin](glossary.md#sabotage-control)
 
 An assertion that quantifies over a collection can pass because the
 collection was empty by accident — `every?` over nothing is vacuously true.
 Two habits close that hole. First, pin the population with a count. Second,
-give an important test a **sabotage twin**: break the input deliberately and
+give an important test a **[sabotage twin](glossary.md#sabotage-control)**: break the input deliberately and
 confirm that the measurement moves. A moved measurement proves the
 instrument can fail.
 
@@ -304,21 +304,21 @@ instrument can fail.
 ```
 
 The kit's own release gates carry the same discipline: every important
-witness has a negative or sabotage control. A test that cannot fail
+witness has a negative or [sabotage control](glossary.md#sabotage-control). A test that cannot fail
 verifies nothing.
 
 ## Troubleshooting
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| `ht/tree` refuses, pointing at L3 | The body (or an expanded child) reaches a hook, raw React element, `n/$` result, or `defhost` crossing | Honest opacity, working as designed. Mount that view at L3; if you want L2 coverage for the rest, split the hook-free part into its own view or helper |
+| `ht/tree` refuses, pointing at L3 | The body (or an expanded child) reaches a hook, raw React element, [`n/$`](glossary.md#n-dollar) result, or [`defhost`](glossary.md#defhost) crossing | Honest opacity, working as designed. Mount that view at L3; if you want L2 coverage for the rest, split the hook-free part into its own view or helper |
 | `ht/tree` refuses, naming a query | A read the body made has no fixture | Add it. Fixture identity is `(query-id, args)` under value equality — the args must match exactly |
-| `:rf.error/hicasso-sub-outside-render` in a plain test | A reading helper was called with no render extent (a direct `defview` call refuses at the call itself, naming the view) | L2 supplies the extent; L0 targets handlers and subs, not bodies |
+| `:rf.error/hicasso-sub-outside-render` in a plain test | A reading helper was called with no render extent (a direct [`defview`](glossary.md#defview) call refuses at the call itself, naming the view) | L2 supplies the extent; L0 targets handlers and subs, not bodies |
 | `:rf.error/hicasso-deferred-read-at-boundary` | A stored closure, stashed lazy seq, or unforced `delay` carried a read past the render | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
 | `assert-clean!` fails after unmount | Something outlived the root — a retained subscription, listener, or scheduled task | A bug, not a tolerance: fix the leak. A foreign host retaining a callback is the common culprit ([Interop](09-interop.md)) |
 | Data-level test passes, mounted test fails | Real React does things data does not — effect order, StrictMode double-invoke, commit timing | The mounted result is the truth for lifecycle |
 | Assertion fails on a `nil` in a tree | A `when` produced `nil` — it renders nothing but is still in the data | Assert the `nil`, or filter before comparing |
-| A list test stays green with an empty list | Quantified assertion over an empty population | Pin the count; add the sabotage twin |
+| A list test stays green with an empty list | Quantified assertion over an empty population | Pin the count; add the [sabotage twin](glossary.md#sabotage-control) |
 
 ## When not to test through the view
 
@@ -361,7 +361,7 @@ attribute names sorted. `innerHTML` preserves insertion order, and two
 front ends write props in different orders — a comparison of `innerHTML`
 compares the serializer, not the page. A comparison of the sorted output
 compares the DOM. Use `ht/canonical-dom` whenever the claim is "these two
-mounts built the same page": before and after a refactor, a Hicasso view
+mounts built the same page": before and after a refactor, a [Hicasso](glossary.md#hicasso) view
 against its Reagent original during migration
 ([Migration](19-migration-from-reagent.md)), or an island against its
-pre-extraction boundary ([Native tier](10-native-tier.md)).
+pre-extraction [boundary](glossary.md#boundary) ([Native tier](10-native-tier.md)).

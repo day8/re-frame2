@@ -1,7 +1,7 @@
 # Controlled inputs
 
 A controlled text field keeps its value in app-db. The value comes in from a
-subscription, and an intent goes out on every keystroke. That is the whole
+subscription, and an [intent](glossary.md#intent) goes out on every keystroke. That is the whole
 required path.
 
 ```clojure
@@ -68,8 +68,8 @@ element commits. Events that land after unmount find nothing. A blur
 delivered to a field that has just left the tree is a no-op, with zero
 residue.
 
-Every keystroke on a controlled field is a full pipeline run: state write,
-subscription recomputation, boundary run, React commit, painted echo. The
+Every keystroke on a [controlled field](glossary.md#controlled-field) is a full pipeline run: state write,
+subscription recomputation, [boundary](glossary.md#boundary) run, React commit, painted echo. The
 [performance chapter](18-performance.md) publishes that path, with counts for
 the four-field editor and the controlled grid. This page owns the law; that
 page owns the cost.
@@ -89,13 +89,13 @@ platform gives you a value:
 
 | Control | Value in | Intent out |
 |---|---|---|
-| `:input` (text, email, password, search, url, tel) | `:value` | `:on-input` with `::h/value` |
-| `:textarea` | `:value` | `:on-input` with `::h/value` |
-| `:input` number, date, time, range | `:value` | `:on-input` with `::h/value` — the DOM hands you strings; parse in the handler |
-| `:input` checkbox | `:checked` | `:on-change` with `::h/checked` |
+| `:input` (text, email, password, search, url, tel) | `:value` | `:on-input` with [`::h/value`](glossary.md#hvalue) |
+| `:textarea` | `:value` | `:on-input` with [`::h/value`](glossary.md#hvalue) |
+| `:input` number, date, time, range | `:value` | `:on-input` with [`::h/value`](glossary.md#hvalue) — the DOM hands you strings; parse in the handler |
+| `:input` checkbox | `:checked` | `:on-change` with [`::h/checked`](glossary.md#hchecked) |
 | `:input` radio | `:checked` per option | `:on-change` carrying the option's own value literally |
-| `:select` | `:value` on the select | `:on-change` with `::h/value` |
-| `:input` file | none — the platform owns a file input's value | `:on-change` with `h/event`, reading `.files` off the event |
+| `:select` | `:value` on the select | `:on-change` with [`::h/value`](glossary.md#hvalue) |
+| `:input` file | none — the platform owns a file input's value | `:on-change` with [`h/event`](glossary.md#hevent), reading `.files` off the event |
 
 ```clojure
 [:select {:value     (h/sub [:cart/shipping])
@@ -138,21 +138,21 @@ where a key lands, not on its spelling. A forwarded `:onInput` against your
 matters. A forwarded map can never replace the owned value, checked, handler,
 key, or revision slots of a control. When you *want* a caller's value to win,
 do not write your literal. Put the element's own classes on the tag
-(`[:input.form-control …]`). Never forward `:key` or `::h/revision`: these
+(`[:input.form-control …]`). Never forward `:key` or [`::h/revision`](glossary.md#hrevision): these
 keys address the element *you* wrote, and the runtime reads them only from
 the map you wrote.
 
 ## Resets are by revision, never by value
 
 To force a field back to a value — a form reset, a revert, a
-server-normalized write that comes back — is a real intent, and it has its
+server-normalized write that comes back — is a real [intent](glossary.md#intent), and it has its
 own door: an **explicit revision** from the caller. The runtime never infers
 a reset from a comparison of the incoming value with a target. With a
 value-equality reset, a user who types the "reset" value loses the edit in
 progress. Also, a same-value reassertion (the caller rejects a draft and
 restores the old value) becomes invisible.
 
-`::h/revision` is that one door. The view reads it like any other value,
+[`::h/revision`](glossary.md#hrevision) is that one door. The view reads it like any other value,
 beside `:value`:
 
 ```clojure
@@ -202,7 +202,7 @@ map, so a caller cannot force a re-baseline on a field whose author did not
 write one. The prop never reaches the DOM as an attribute, on the client or
 on the server.
 
-This is the single prop and nothing more: no commit or cancel intents, no
+This is the single prop and nothing more: no commit or cancel [intents](glossary.md#intent), no
 acknowledgement that a reset landed, no caret-policy options. When you want
 draft-and-commit behavior — free edits, commit on Enter or blur, cancel on
 Escape — use the [forms module](05-forms.md). The module *consumes* this
@@ -214,13 +214,13 @@ trigger; it does not extend it.
 |---|---|---|
 | Characters drop when typing fast | Something async sat between keystroke and commit — debounce, `setTimeout`, a queued effect | Keep the controlled write synchronous; debounce *consumers* of the value, not the write itself |
 | Caret jumps to the end on every keystroke | Value reasserted without caret preservation | Runtime bug, not your view — report it |
-| Enter commits half-typed text mid-composition | A hand-written key handler bypassed the intent path | Use the data key map ([Events as data](03-events-as-data.md)); the composition check lives there |
+| Enter commits half-typed text mid-composition | A hand-written key handler bypassed the [intent](glossary.md#intent) path | Use the data key map ([Events as data](03-events-as-data.md)); the composition check lives there |
 | Composition dies when the model refuses mid-draft | On the controlled path this cannot happen — composition is left alone until it ends. Something else wrote the field: a ref, a foreign script, an uncontrolled sibling | Find the second writer; the controlled element must have one |
 | An IME commit lands stale text, then corrects itself | Something async sat between keystroke and commit, so the composition's close reconciled against a model the deferred write had not reached | Keep the controlled write synchronous; the composition survives either way — only what it commits is late |
-| Typing the "reset" value clears the field | A reset keyed on value equality somewhere in your code | Move `::h/revision`; a value comparison is not a reset |
+| Typing the "reset" value clears the field | A reset keyed on value equality somewhere in your code | Move [`::h/revision`](glossary.md#hrevision); a value comparison is not a reset |
 | The field resets on every render | A revision minted in render — `random-uuid`, a render-order index, a counter the body increments | Read a revision your *events* wrote into app-db |
-| The field never resets, and devtools shows a `revision="…"` attribute | A bare `:revision`. The match is the exact namespaced keyword. Every other spelling flows through as an ordinary attribute, silently. A namespaced value loses its namespace on the way, so two distinct revisions can collapse to one | Write `::h/revision` |
-| `:rf.error/hicasso-revision-not-controlled` at render | `::h/revision` on something that is not controlled text — a `:div`, a `:select`, a value-less checkbox | Put the revision on the controlled `input`/`textarea` whose draft it re-baselines; a select or checkbox resets by writing the model |
+| The field never resets, and devtools shows a `revision="…"` attribute | A bare `:revision`. The match is the exact namespaced keyword. Every other spelling flows through as an ordinary attribute, silently. A namespaced value loses its namespace on the way, so two distinct revisions can collapse to one | Write [`::h/revision`](glossary.md#hrevision) |
+| `:rf.error/hicasso-revision-not-controlled` at render | [`::h/revision`](glossary.md#hrevision) on something that is not controlled text — a `:div`, a `:select`, a value-less checkbox | Put the revision on the controlled `input`/`textarea` whose draft it re-baselines; a select or checkbox resets by writing the model |
 | Focus lost after validation fails | Something remounted the node | Never remount to reset — that is exactly what destroys focus |
 
 ## When not to control an input
@@ -233,7 +233,7 @@ If the user's edit must be a *draft* — commit on Enter or blur, revert on
 Escape, reject without loss of the field — do not build that yourself on top
 of this page. That is the [forms module](05-forms.md).
 
-If no other code needs the intermediate values — a scratch field in a modal,
+If no other code needs the intermediate values — a scratch field in a [modal](glossary.md#overlay),
 a filter box that only feeds a debounced query — leave the input uncontrolled
 (`:default-value` to seed it, no `:value`) and commit on blur. DOM-owned
 state is a legitimate explicit choice. The cost is this: app-db, tests, and
@@ -255,7 +255,7 @@ turn — including when the model rejected or normalized the keystroke. That
 path runs once per keystroke, on controlled text entry only (an `input` that
 has a caret, or a `textarea`, with a non-nil `:value`). It also runs once at
 the close of an IME composition. Everywhere else it is inert, and a page with
-no controlled input pays nothing for it. If your own code needs `flushSync`
+no [controlled input](glossary.md#controlled-field) pays nothing for it. If your own code needs `flushSync`
 for anything else, that is a design problem, not a feature.
 
 ### Rejection and React's restore

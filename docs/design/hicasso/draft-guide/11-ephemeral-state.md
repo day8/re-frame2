@@ -3,7 +3,7 @@
 Is this dropdown open? Is this row selected? Where do the half-typed draft, the
 in-flight drag position, and the vendor SDK handle go?
 
-In Reagent you use `r/atom`. In React you use `useState`. Hicasso has neither:
+In Reagent you use `r/atom`. In React you use `useState`. [Hicasso](glossary.md#hicasso) has neither:
 no component-local reactive cell, no local-state tier. These cells are not
 discouraged; they do not exist. Most of the "local state" a view layer teaches
 you to want came from machinery Hicasso does not have — reaction capture, argv
@@ -24,8 +24,8 @@ click, mount a component, or start a timer. The full open/close/dismiss policy
 of a widget is provable headlessly ([Testing](14-testing.md)). A private cell
 would move every one of those tests into a browser.
 
-**Xray can attribute work.** The causal lens runs *event → subscriptions →
-boundaries → commit → paint*. Every re-render has a cause that Xray can name,
+**Xray can attribute work.** The [causal lens](glossary.md#causal-lens) runs *event → subscriptions →
+[boundaries](glossary.md#boundary) → commit → paint*. Every re-render has a cause that Xray can name,
 because every application write goes through the one write clock: the
 re-frame2 state commit. A second reactive store invalidates views on a clock
 Xray cannot see. That work has no cause, permanently
@@ -105,9 +105,9 @@ spend an event, a subscription pass, and a paint per pointer-move on a fact
 with no meaning.
 
 That state stays **inside a native host** — a named native component (or a
-`defhost` edge) where ordinary React state and hooks are the correct tool
+[`defhost`](glossary.md#defhost) edge) where ordinary React state and hooks are the correct tool
 ([The native tier](10-native-tier.md), [Interop](09-interop.md)). The host is
-**diagnostic-opaque by contract**. Xray names and times the island's boundary.
+**diagnostic-opaque by contract**. Xray names and times the island's [boundary](glossary.md#boundary).
 It labels the inside `opaque`; it does not pretend to know it. You trade
 visibility for locality, on purpose, in a fenced place.
 
@@ -141,11 +141,11 @@ The law at the edge: *motion stays inside; meaning leaves as one event.*
                        :on-drop (h/event [col] [:card/dropped id col])})))
 ```
 
-The drop is semantic, so it commits. `h/event` captures the frame and
+The drop is semantic, so it commits. [`h/event`](glossary.md#hevent) captures the frame and
 dispatches `[:card/dropped id col]` when the host calls the callback. The end
 of a drag reaches app-db. The moves of a drag do not.
 
-One boundary rule applies. A `defview` body is a real React function
+One [boundary](glossary.md#boundary) rule applies. A [`defview`](glossary.md#defview) body is a real React function
 component, so a hook physically runs there. But dynamic composition makes
 hook order your problem, and a hook body falls out of headless testing. Hook
 mechanics belong in a separately defined native component, where hook order
@@ -227,17 +227,17 @@ server HTML never carries entry-phase attributes
 |---|---|---|
 | Dropdown open | App-db, explicit address (the [overlay module](12-overlays-and-focus.md) reconciles the platform to it) | It changes what the user can do next; tests and Xray need it |
 | Draft text in a field | App-db through the [forms module](05-forms.md) | Validation, submit gating, dirty-leave and replay all read it |
-| Drag position, mid-drag | Host-private, inside the native island | 60–240 Hz mechanics; only the widget cares. The drop dispatches one event |
+| Drag position, mid-drag | Host-private, inside the [native island](glossary.md#native-island) | 60–240 Hz mechanics; only the widget cares. The drop dispatches one event |
 | Scroll offset | The DOM owns it; the [routing module](07-routing-and-navigation.md) restores it per route | Nobody re-renders per scrolled pixel. If the app cares ("read 80%"), commit thresholds as events |
 | Animation phase | CSS for the animation itself; `motion/presence` for leave-retention; host-private for rAF mechanics | App-db says what is true, not what is still painted |
-| Focus | The platform. One-shot intent as data — `:auto-focus`, [overlay focus conduct](12-overlays-and-focus.md) — never mirrored | A mirror of "what has focus" drifts from reality and re-renders per Tab |
+| Focus | The platform. One-shot [intent](glossary.md#intent) as data — `:auto-focus`, [overlay focus conduct](12-overlays-and-focus.md) — never mirrored | A mirror of "what has focus" drifts from reality and re-renders per Tab |
 | Selected tab | App-db — or the route, when a reload should land on the same tab | Semantic; other views, tests and deep links care |
 | WebGL context, vendor handle | Host-private, inside its declared host, acquired and released at the edge ([Interop](09-interop.md)) | An object identity, not application data; unmount must release it |
 
 ## Choosing the address
 
 Valves 1 and 2 need an instance key — the `panel-id` above — so a hundred
-panels do not share one `expanded?`. Hicasso mints no identity for you.
+panels do not share one `expanded?`. [Hicasso](glossary.md#hicasso) mints no identity for you.
 React's `useId` does not fit: its ids are render-order counters, they do not
 survive a remount, and address-resident state cannot tolerate that loss. The
 key is authored data: a keyword, a string, a number, or a flat vector of
@@ -300,7 +300,7 @@ exactly one memory.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Reaching for `useState` / `r/atom` to hold "is this open?" | Application-visible state headed for a private store | An app-db address (valve 1), or the overlay module's reconciled flag |
+| Reaching for `useState` / `r/atom` to hold "is this open?" | Application-visible state headed for a private store | An app-db address (valve 1), or the [overlay](glossary.md#overlay) module's reconciled flag |
 | A view's atom resets every render, or never repaints | Bodies re-run and are abandoned; render-minted cells are re-minted, and nothing tracks them | Move the fact to its valve; if it is genuinely widget mechanics, move it into a native host |
 | Searching for `:on-mount`, `componentDidMount`, a mount `useEffect` | There is none | Name the job and use its home — the table above |
 | Every panel in a list opens at once | One shared address | Key the address per instance — [Choosing the address](#choosing-the-address) |
@@ -312,7 +312,7 @@ exactly one memory.
 | A test simulates clicks to open a dropdown | The state is data | Seed the address with a `:db` write ([Testing](14-testing.md)) |
 
 ??? info "If you're coming from Reagent"
-    `r/atom` was necessary against machinery Hicasso does not have. In the
+    `r/atom` was necessary against machinery [Hicasso](glossary.md#hicasso) does not have. In the
     idiomatic corpus this model was distilled from — 85 files, ~140 views —
     the count of view-local reactive cells is zero. The machinery
     manufactured the demand. The valves absorb what was real: addresses for

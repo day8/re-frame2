@@ -2,7 +2,7 @@
 
 You want a dark mode and a second language. In most React stacks each arrives
 with machinery: a ThemeProvider, an i18n context, a hook per consumer.
-Hicasso ships neither, because neither job needs adapter support. Tokens live
+[Hicasso](glossary.md#hicasso) ships neither, because neither job needs adapter support. Tokens live
 in CSS, strings are ordinary values, and the current choice — theme or locale
 — is one key in app-db that ordinary subs read.
 
@@ -33,7 +33,7 @@ is a subtree, and the mechanism is platform-native. Put your tokens on
 }
 ```
 
-The `--app-*` prefix is not Hicasso's. Name your custom properties the way
+The `--app-*` prefix is not [Hicasso](glossary.md#hicasso)'s. Name your custom properties the way
 your stylesheet already does. `:root` *is* the light theme, so nobody writes
 a `[data-theme="light"]` block.
 
@@ -80,12 +80,12 @@ Three placement details carry the rest:
   element and nothing above it, so `data-theme` goes on `theme-scope`'s own
   `div`. That is what frame isolation needs. Two frames on one page, one
   light and one dark, is an ordinary page.
-- **Keep a `defview` head immediately below the scope.** The scope re-renders
-  on every switch — one boundary, a known cost. `[app {}]` below the scope
+- **Keep a [`defview`](glossary.md#defview) head immediately below the scope.** The scope re-renders
+  on every switch — one [boundary](glossary.md#boundary), a known cost. `[app {}]` below the scope
   bails out, because `app` is a `defview` and its props are unchanged
   ([Views and reads](02-views-and-reads.md)). A native-tag subtree, or a view
   called as a plain function, in that position re-runs with the scope.
-- **Keep the scope at the frame's root, above any `defhost` crossing.** On
+- **Keep the scope at the frame's root, above any [`defhost`](glossary.md#defhost) crossing.** On
   the server, a Client-only crossing renders its fallback instead of its
   subtree. A scope below such a crossing is absent from the response,
   together with everything the scope covered
@@ -126,7 +126,7 @@ cosmetic:
     (.setAttribute js/document.documentElement "data-page-theme" (name theme))))
 ```
 
-The top layer needs no echo. An overlay's `::backdrop` pseudo-element
+The top layer needs no echo. An [overlay](glossary.md#overlay)'s `::backdrop` pseudo-element
 inherits custom properties from the element that opened it, so a modal opened
 inside `theme-scope` takes the scope's tokens. Style the backdrop with the
 same variables ([Overlays and focus](12-overlays-and-focus.md)).
@@ -201,7 +201,7 @@ provider with a hook per consumer — and the sub already is the provider.
 
 A component library that themes itself through React context gets its
 provider the way any foreign component arrives: declared once with
-`h/defhost`, used as an ordinary head, with children lowered where they
+[`h/defhost`](glossary.md#defhost), used as an ordinary head, with children lowered where they
 render ([Interop](09-interop.md)).
 
 ```clojure
@@ -231,7 +231,7 @@ the door; your own app's theming never needed context.
 |---|---|---|
 | Blank page on first load; console shows `Doesn't support name:` | Nobody had chosen a theme, the sub read `nil`, and `(name nil)` threw at the root | Give the sub a default: `(:theme/current db :light)` |
 | The theme key changes in app-db and nothing on screen changes | No view renders the attribute — the cascade keys off the DOM, not app-db | Mount `theme-scope` (or your equivalent) at the frame root |
-| Theme switch re-renders the whole app | What sits below the scope carries no boundary — a native-tag subtree, or a view called as a plain function | Keep a `defview` head immediately below the scope, as `[app {}]` is |
+| Theme switch re-renders the whole app | What sits below the scope carries no [boundary](glossary.md#boundary) — a native-tag subtree, or a view called as a plain function | Keep a [`defview`](glossary.md#defview) head immediately below the scope, as `[app {}]` is |
 | Locale switches but some strings stay in the old language | Those strings were captured once — in a `def`, a prop computed at load, a memoized helper — instead of read at render | Read strings where you use them: `(h/sub [:i18n/t k])` |
 | A missing translation renders as the key's name | The sub's miss fallback, working as designed | Add the key to the table; the fallback names it so you can find it |
 | The hydrated page keeps the server's theme | The hydration payload did not carry the choice, and an attribute-only divergence is the one class React never reports | Carry `:theme/current` in the payload ([SSR and hydration](17-ssr-and-hydration.md)) |

@@ -1,7 +1,7 @@
 # Routing and navigation
 
 Your views are Hiccup and your events are vectors; navigation should not bring
-ceremony back. This page wires a Hicasso app to the re-frame2 router. It covers
+ceremony back. This page wires a [Hicasso](glossary.md#hicasso) app to the re-frame2 router. It covers
 the link you render, the warm-up before the click, scroll and focus after the
 route changes, and the "unsaved changes" guard. All of it is data and ordinary
 state.
@@ -40,7 +40,7 @@ Views require the integration module:
 
 ## Route links
 
-Spell an in-app link as `route-link`: name the route and its params, never a
+Spell an in-app link as [`route-link`](glossary.md#route-link): name the route and its params, never a
 URL. It is a plain function. Use it inline, inside the view that already owns
 the region:
 
@@ -59,7 +59,7 @@ the region:
 The call returns one real `<a>`, so hover preview, copy-link, and middle-click
 all behave. The router synthesizes the `:href`. The `:on-click` carries the
 click decision as data, under the routing module's reserved head. This is the
-second reserved head in the intent grammar, beside `::h/prevent` from
+second reserved head in the [intent](glossary.md#intent) grammar, beside [`::h/prevent`](glossary.md#hprevent) from
 [Events as data](03-events-as-data.md):
 
 ```clojure
@@ -77,19 +77,19 @@ second reserved head in the intent grammar, beside `::h/prevent` from
 
 Two renders of one link are equal under `=`, so a structural test reads the
 click decision straight off the tree ([Testing](14-testing.md)). Because
-`route-link` is a plain function, not a boundary, it inlines. There is no
+[`route-link`](glossary.md#route-link) is a plain function, not a [boundary](glossary.md#boundary), it inlines. There is no
 hook, no subscription read, and no row in any boundary count. A nav bar of
 thirty links costs what thirty anchors cost.
 
 The click law is the router's, and the link restates none of it:
 
-- A plain left-click: `preventDefault` runs, then the routing intent
+- A plain left-click: `preventDefault` runs, then the routing [intent](glossary.md#intent)
   dispatches to the frame captured at render.
 - A modifier or auxiliary click belongs to the browser — a new tab opens, and
   nothing dispatches.
 - A `:target` or `:download` anchor navigates natively, untouched.
 
-You never write `[::h/navigate …]` by hand. `route-link` mints it, and the
+You never write `[::h/navigate …]` by hand. [`route-link`](glossary.md#route-link) mints it, and the
 grammar is closed: exactly `:frame`, `:payload`, `:native?`, and `:veto`. Any
 other key refuses at render with `:rf.error/hicasso-malformed-navigate`,
 naming the position. A link rendered while the routing artefact is absent
@@ -99,7 +99,7 @@ through to the `<a>`: classes, `:data-*`, ARIA attributes.
 
 ### The active link
 
-`route-link` computes no active state. "Am I on this page?" is a comparison
+[`route-link`](glossary.md#route-link) computes no active state. "Am I on this page?" is a comparison
 against a route subscription, read once where the nav renders:
 
 ```clojure
@@ -115,7 +115,7 @@ against a route subscription, read once where the nav renders:
      (nav :app/articles "Articles")]))
 ```
 
-One boundary, one read, and a plain local helper — links stay inline.
+One [boundary](glossary.md#boundary), one read, and a plain local helper — links stay inline.
 `:aria-current "page"` is what a screen reader announces; the class is what you
 style.
 
@@ -123,8 +123,8 @@ style.
 
 A link may need to cancel its own navigation and do something else — for
 example, confirm before it discards a scratch pane. The `:on-click` you pass
-to `route-link` is that veto. Its roster is closed: `nil`,
-`[::h/prevent [:app/event]]`, an `h/event` form, or a plain function.
+to [`route-link`](glossary.md#route-link) is that veto. Its roster is closed: `nil`,
+`[::h/prevent [:app/event]]`, an [`h/event`](glossary.md#hevent) form, or a plain function.
 
 ```clojure
 (route-link {:to       :app/inbox
@@ -134,7 +134,7 @@ to `route-link` is that veto. Its roster is closed: `nil`,
 ```
 
 The prevent form is the declarative veto: it cancels the navigation and
-dispatches your intent instead. The link refuses a *bare* intent vector
+dispatches your [intent](glossary.md#intent) instead. The link refuses a *bare* intent vector
 there, loudly. The click already produces the one routing intent, and one
 user action must not yield two semantic events.
 
@@ -156,7 +156,7 @@ then lands on a fetch already in flight:
 hover delay. A passive link (no `:prefetch` key at all) dispatches nothing. A
 `:prefetch` key present with any other value fails loud at render. The
 reason: a link that should warm but does not looks exactly like one that
-does. Internally the intent handlers dispatch
+does. Internally the [intent](glossary.md#intent) handlers dispatch
 `[:rf.route/prefetch {:to … :params …}]` — an ordinary event that you can
 also dispatch yourself from any handler.
 
@@ -165,7 +165,7 @@ runs with every ensure ownerless and `:blocking?` inert. No route state
 moves: no slice write, no URL, no scroll, no guards, no `:on-match`. Click
 through, and the ordinary resource dedupe reuses the warmed work. Never
 click, and the warmed work stays garbage-collectable. Prefetch is a
-performance hint, not an authorization boundary. To warm a destination whose
+performance hint, not an authorization [boundary](glossary.md#boundary). To warm a destination whose
 `:can-enter` would refuse is permitted and means nothing, because activation
 still evaluates the guard.
 
@@ -227,8 +227,8 @@ the scroll policy above: routing owns scroll, and this recipe owns focus. If
 "a new page" means more than the route id to you — article 7 to article 9 —
 widen the key with the identifying param: `{:key (str route "|" article-id)}`.
 
-Focus for overlays — modals, popovers — is a different job with its own owner:
-the focus intent in [Overlays and focus](12-overlays-and-focus.md).
+Focus for [overlays](glossary.md#overlay) — modals, popovers — is a different job with its own owner:
+the focus [intent](glossary.md#intent) in [Overlays and focus](12-overlays-and-focus.md).
 
 ## The dirty-leave guard
 
@@ -254,7 +254,7 @@ changes* recipe is the full treatment:
 
 When the guard returns `false`, nothing commits: the URL and state do not
 change, and the attempt parks in `[:rf/pending-navigation]`. Render the
-prompt off that value, with the choices as intent vectors that carry the
+prompt off that value, with the choices as [intent](glossary.md#intent) vectors that carry the
 pending id:
 
 ```clojure
@@ -270,7 +270,7 @@ Mount it once near the root; it renders nothing until an attempt parks.
 `:rf.route/continue` replays exactly the navigation the user asked for —
 destination, `:replace?`, scroll policy. `:rf.route/cancel` drops it. Both
 take the pending id, so a stale click on an already-resolved dialog is a safe
-no-op. In a real app, render the box through the overlay module's modal, so
+no-op. In a real app, render the box through the [overlay](glossary.md#overlay) module's modal, so
 focus is trapped and restored ([Overlays and focus](12-overlays-and-focus.md)).
 The state shape here does not change.
 
@@ -324,7 +324,7 @@ boot, and Back/Forward are history inputs. Both run the same match → validate
 ??? info "Coming from React Router?"
 
     Three instincts mislead here. There is no `<Link>` component:
-    `route-link` is a plain function that returns an anchor with data on it.
+    [`route-link`](glossary.md#route-link) is a plain function that returns an anchor with data on it.
     There is no `useBlocker` or `usePrompt`: the blocked attempt is app state
     you render. There is no `router.prefetch()` call: warming is an event.
     Everything you would reach into router context for is a subscription.
@@ -334,9 +334,9 @@ boot, and Back/Forward are history inputs. Both run the same match → validate
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Rendering a link throws `:rf.error/routing-artefact-missing` | The core routing artefact is not loaded | `(:require [re-frame.routing])` at boot, before first render |
-| A link full-page reloads | A hand-written `[:a {:href …}]` bypasses interception | Use `route-link`, or the document-level click listener recipe from the routing corpus |
-| `:rf.error/hicasso-malformed-navigate` at render | A hand-built or edited `::h/navigate` head | Don't write the head; `route-link` mints it |
-| A `route-link` refuses your `:on-click` intent vector | One click must not yield two semantic events | Wrap it: `[::h/prevent [:app/event]]` — cancel-and-replace |
+| A link full-page reloads | A hand-written `[:a {:href …}]` bypasses interception | Use [`route-link`](glossary.md#route-link), or the document-level click listener recipe from the routing corpus |
+| `:rf.error/hicasso-malformed-navigate` at render | A hand-built or edited `::h/navigate` head | Don't write the head; [`route-link`](glossary.md#route-link) mints it |
+| A [`route-link`](glossary.md#route-link) refuses your `:on-click` [intent](glossary.md#intent) vector | One click must not yield two semantic events | Wrap it: `[::h/prevent [:app/event]]` — cancel-and-replace |
 | A link carrying `:prefetch` refuses at render | Only `:intent` is accepted; passivity must be visible | Remove the key, or spell `:prefetch :intent` |
 | Leaving always blocks, and an error names the guard | The `:can-leave` sub returned a non-boolean — fail-closed | `:rf.error/can-leave-non-boolean`: return a strict `true`/`false` |
 | Back lands at the top of a long page | Restore ran before the page had its height | Make the page's data blocking route `:resources`, or keep previous data on screen |
@@ -348,5 +348,5 @@ boot, and Back/Forward are history inputs. Both run the same match → validate
 |---|---|
 | Single-screen app, no shareable URLs | No routing artefact at all — there is nothing to integrate |
 | In-memory UI steps that shouldn't touch the URL — wizard panes, non-linkable tabs | app-db state, or a machine |
-| External links | A plain `[:a {:href …}]` — `route-link` is for the route table |
+| External links | A plain `[:a {:href …}]` — [`route-link`](glossary.md#route-link) is for the route table |
 | Guarding one button, not a page's exits | The veto roster on that link, or ordinary app logic |

@@ -3,10 +3,10 @@
 Every app has a table that started at twenty rows and now holds two thousand.
 At that size, a plain map over the data is no longer the whole answer. Two
 decisions govern how a collection behaves from there: **what identifies a row**
-(keys) and **which rows find out when a row changes** (read topology). This
+(keys) and **which rows find out when a row changes** ([read topology](glossary.md#read-topology)). This
 chapter owns both decisions.
 
-> **A key states which row this is. The read topology states which rows an
+> **A key states which row this is. The [read topology](glossary.md#read-topology) states which rows an
 > update reaches.**
 
 ## Keys are identity
@@ -48,7 +48,7 @@ running at all.
     booleans and functions.
 
 Forget a key entirely and development gives you two warnings: React's own, and
-`:rf.warning/hicasso-missing-key`. The Hicasso warning names the enclosing
+`:rf.warning/hicasso-missing-key`. The [Hicasso](glossary.md#hicasso) warning names the enclosing
 view, the child head, and the index of the first offender. The second warning
 exists because React dedupes its own warning per parent tag for the life of
 the page — under a `:ul`, every list after the first is silent. Hicasso's
@@ -66,12 +66,12 @@ neither.
     most common trigger of `:rf.warning/hicasso-missing-key`, and the message
     says exactly that.
 
-Keys are one half of list identity. The other half is the read topology:
+Keys are one half of list identity. The other half is the [read topology](glossary.md#read-topology):
 which rows *re-render*. That half is a genuine design choice.
 
-## Choosing a read topology
+## Choosing a [read topology](glossary.md#read-topology)
 
-`h/sub` is legal anywhere in a body, so you choose *where* the reads sit. For
+[`h/sub`](glossary.md#hsub) is legal anywhere in a body, so you choose *where* the reads sit. For
 a collection, that position decides what an update costs. Four shapes cover
 real workloads:
 
@@ -162,7 +162,7 @@ plus the view-model recompute itself. At 300 rows the sweep is cheap. At
 Two rules keep the bail-out honest here. First, rows must receive **values**.
 Persistent maps built with `select-keys` compare `=` across renders; a row
 that receives a freshly built closure re-renders on every sweep, which is one
-more reason event intents are data. Second, the row map should carry only
+more reason event [intents](glossary.md#intent) are data. Second, the row map should carry only
 what the row shows. A `:updated-at` timestamp that nobody renders defeats `=`
 on every touch.
 
@@ -192,7 +192,7 @@ sweep spans more than a block:
      [order-chunk {:key i :ids (vec ids)}])])
 ```
 
-A sparse update now changes one chunk's output. One chunk boundary re-renders,
+A sparse update now changes one chunk's output. One chunk [boundary](glossary.md#boundary) re-renders,
 and the sweep is 50 compares instead of the whole table. Mount retains one
 read per block instead of one per row. The equality gate on subscriptions
 keeps the untouched chunks quiet: their selects re-run cheaply, their outputs
@@ -212,7 +212,7 @@ Past a few thousand rows, ask why the DOM for row 8,000 exists at all. A
 one you already have: pagination. The page number is app-db state, and
 `(h/sub [:orders/page n])` is a windowed read whose bounds move at click
 rate. When the product wants continuous scrolling instead, bring a
-virtualizer through `h/defhost` and let it own the window:
+virtualizer through [`h/defhost`](glossary.md#defhost) and let it own the window:
 
 ```clojure
 ;; A .cljs host namespace — JS requires stay out of .cljc bodies.
@@ -243,11 +243,11 @@ Read the shape closely. Every piece does a job:
   cost.
 - **`:item-content` is declared `:render`** — the library calls it during its
   own render, and the body stays pure. The returned hiccup crosses through
-  `h/as-element`, which lowers it under the frame of the boundary that
+  [`h/as-element`](glossary.md#as-element), which lowers it under the frame of the [boundary](glossary.md#boundary) that
   supplied the callback. Intents inside the row later dispatch to the right
   frame, exactly as they would outside the host.
 - **The closure closes over `ids`, not over a read.** `(h/sub ...)` ran in the
-  body; the callback captures the *value*. A `h/sub` call inside the callback
+  body; the callback captures the *value*. A [`h/sub`](glossary.md#hsub) call inside the callback
   would be a deferred read, and the runtime refuses it loudly.
 - **`:compute-item-key` carries the keys law across the crossing.** When a
   virtualizer owns the list, it owns item identity too. Hand it the same
@@ -257,10 +257,10 @@ Read the shape closely. Every piece does a job:
   mechanics ([Ephemeral state](11-ephemeral-state.md)). Your state sees reads,
   not scrolling.
 
-The virtualizer's server policy is the host default, Client-only. That
+The virtualizer's [server policy](glossary.md#server-policy) is the host default, Client-only. That
 default is what a DOM-measuring component wants;
 [chapter 17](17-ssr-and-hydration.md) owns the SSR story.
-[Interop](09-interop.md) owns full `defhost` mechanics, including callback
+[Interop](09-interop.md) owns full [`defhost`](glossary.md#defhost) mechanics, including callback
 contracts. Also verify focus and keyboard behavior in a browser test. The
 keyboard cannot reach rows that do not exist, and that is a product decision,
 not a bug.
@@ -277,7 +277,7 @@ a filter that changes which rows are visible. Every keystroke of the filter
 then costs a hundreds-wide re-subscribe.
 
 The fix is structural, and you already saw both arms. Either push per-row
-reads down into row boundaries: each row's set is then small and stable, and
+reads down into row [boundaries](glossary.md#boundary): each row's set is then small and stable, and
 membership churn costs only the rows that actually enter or leave. Or go
 coarse, where the set is one read that never churns. Xray shows reads per
 boundary and read-set churn directly ([Diagnostics](15-diagnostics.md)), so
@@ -292,9 +292,9 @@ you observe this cost instead of guessing at it.
 | Input state or animation jumps to a different row after insert/reorder | Index keys — position renamed the rows | Key on domain ids |
 | One order changes and every row re-renders | The read lives too high — coarse topology where the workload is sparse | Fine reads: rows read their own entity; or accept the sweep knowingly |
 | A page-wide write runs every row body despite the bail-out | Row props are not `=` — a fresh closure, a JS object, or dead weight in the row map | Intents as data, persistent values, `select-keys` to what the row shows |
-| Filter typing is heavy on a large list | A large oscillating read set in one boundary, or a whole-table view-model recomputing per keystroke | Rows own their reads, chunk the table, or move the filter into the subscription |
-| A plain function — CLJS or a JS component — in head position is refused | `:rf.error/hicasso-bad-head` — only minted views, native tags, fragments and hosts are heads | Mint views with `h/defview`; declare foreign components once with `h/defhost` ([Interop](09-interop.md)) |
-| Virtualized list renders but rows are inert or mis-framed | Row hiccup returned raw from the render callback | Return it through `h/as-element` so it lowers under the captured frame |
+| Filter typing is heavy on a large list | A large oscillating read set in one [boundary](glossary.md#boundary), or a whole-table view-model recomputing per keystroke | Rows own their reads, chunk the table, or move the filter into the subscription |
+| A plain function — CLJS or a JS component — in head position is refused | `:rf.error/hicasso-bad-head` — only minted views, native tags, fragments and hosts are heads | Mint views with [`h/defview`](glossary.md#defview); declare foreign components once with [`h/defhost`](glossary.md#defhost) ([Interop](09-interop.md)) |
+| Virtualized list renders but rows are inert or mis-framed | Row hiccup returned raw from the render callback | Return it through [`h/as-element`](glossary.md#as-element) so it lowers under the captured frame |
 
 ## When not to tune a list
 
