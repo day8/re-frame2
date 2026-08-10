@@ -108,28 +108,41 @@
   (let [v (first (scalar node))]
     (when (keyword? v) v)))
 
+(defn- native-tag
+  "The tag a node names when it is a LITERAL native head, else nil.
+
+  Taken from the runtime rather than guessed: `codec/hiccup-tag?` is
+  `(or (keyword? head) (symbol? head) (string? head))` and `parse-tag`
+  reads it through `name`. So a STRING head is a tag, and a QUALIFIED
+  keyword is one too — `[:app/button …]` renders a `<button>`, because
+  `(name :app/button)` is \"button\". An earlier draft of this file claimed
+  the opposite and was simply wrong about shipped behaviour.
+
+  Only a literal answers. A symbol head is a runtime VALUE — a view or a
+  host — and is not decidable here."
+  [node]
+  (let [v (first (scalar node))]
+    (cond
+      (keyword? v) (name v)
+      (string? v)  v
+      :else        nil)))
+
 (defn- hiccup-vector?
-  "Is this node a vector whose head is a LITERAL keyword — `[:div …]`,
-  `[:button.icon …]`, `[:<> …]`, `[:> Foo …]`?
+  "Is this node a vector whose head is a literal native tag — `[:div …]`,
+  `[:button.icon …]`, `[\"button\" …]`, `[:app/button …]`, `[:<> …]`?
 
-  A keyword head is what makes a vector unambiguously hiccup. A SYMBOL
-  head — a view, a host, or an ordinary two-element data vector — is not
-  decidable here, so nothing below judges one.
-
-  The head must be UNQUALIFIED. A hiccup tag never carries a namespace, and
-  a qualified keyword at the head of a vector is ordinary tagged data —
-  `[:app/button 1]` is not a `<button>`, and `base-tag` would happily read
-  one out of it."
+  A literal head is what makes a vector decidably hiccup. A SYMBOL head (a
+  view or a host) is a value this cannot resolve, so nothing below judges
+  one."
   [node]
   (boolean (and (api/vector-node? node)
-                (when-let [kw (tag-keyword (first (:children node)))]
-                  (nil? (namespace kw))))))
+                (native-tag (first (:children node))))))
 
 (defn- base-tag
-  "`:button.icon#close` -> \"button\". The selector shorthand is sugar for
-  attributes and never changes which element is being written."
-  [kw]
-  (first (str/split (name kw) #"[.#]")))
+  "`\"button.icon#close\"` -> `\"button\"`. The selector shorthand is sugar
+  for attributes and never changes which element is being written."
+  [tag]
+  (first (str/split tag #"[.#]")))
 
 (defn- props-node
   "The props map a hiccup vector writes, or nil when it writes none.
@@ -195,44 +208,6 @@
   [node type message]
   (api/reg-finding! (assoc (meta node) :type type :message message)))
 
-;; --- `:&` carries a caller's attribute map and nothing else ----------------
-
-(defn- merge-value-problem
-  "A one-word description of what `:&` was literally given, when that is a
-  literal of a type it can never accept; nil otherwise.
-
-  A symbol or a call answers nil on purpose: `{:& attrs}` is the ordinary
-  spelling and its value is unknowable here. `nil` answers nil too — the
-  runtime folds it away."
-  [node]
-  (cond
-    (api/vector-node? node) "a vector"
-    (api/set-node? node)    "a set"
-    :else
-    (when-let [[v] (scalar node)]
-      (cond
-        (nil? v)     nil
-        (string? v)  "a string"
-        (keyword? v) "a keyword"
-        (number? v)  "a number"
-        (boolean? v) "a boolean"
-        (char? v)    "a character"
-        :else        nil))))
-
-(defn- check-merge-key!
-  "`:&` carrying a literal the runtime will refuse
-  (`:rf.error/hicasso-merge-not-a-map`)."
-  [node]
-  (when (api/map-node? node)
-    (let [children (:children node)]
-      (doseq [[k v] (partition 2 children)
-              :when (= :& (tag-keyword k))
-              :let  [problem (merge-value-problem v)]
-              :when problem]
-        (finding! v :re-frame.hicasso/merge-not-a-map
-                  (str ":& carries a caller's attribute map and nothing else. "
-                       "It was given " problem ". Forward a map, or drop the key."))))))
-
 ;; --- a read in the one position that is deferred by construction ----------
 
 (defn- check-read-in-callback!
@@ -294,9 +269,9 @@
   [body]
   (doseq [node (mapcat subforms body)
           :when (api/list-node? node)
-          :let  [[head _target value] (:children node)]
-          :when (contains? #{'reset! 'vreset!} (core-var head))
-          :when (parked-thunk? value)]
+          :let  [[head _target & args] (:children node)]
+          :when (contains? #{'reset! 'vreset! 'swap!} (core-var head))
+          value (filter parked-thunk? args)]
     (finding! value :re-frame.hicasso/parked-read
               (str "A subscription read is parked in a mutable reference. The "
                    "read-extent law covers the structure a body RETURNS, so a "
@@ -390,7 +365,7 @@
   way — the name may be in there."
   [node]
   (when (hiccup-vector? node)
-    (let [tag      (tag-keyword (first (:children node)))
+    (let [tag      (native-tag (first (:children node)))
           children (child-nodes node)
           props    (props-node node)
           at-1     (second (:children node))]
@@ -428,28 +403,130 @@
   same vector written as a child of `[:div …]` is a head, and a function is
   never a legal one (`:rf.error/hicasso-bad-head`)."
   [node]
-  (when (hiccup-vector? node)
-    (doseq [child (child-nodes node)
-            :when (api/vector-node? child)
-            :let  [head (first (:children child))]
-            :when (function-literal? head)]
-      (finding! head :re-frame.hicasso/function-in-head-position
-                (str "A function in head position is never a silent embedding. "
-                     "Call it, or make it a view with `defview`: a view is a "
-                     "real component and is a legal head; a function is not.")))))
+  (doseq [child (if (hiccup-vector? node) (child-nodes node) nil)
+          :when (api/vector-node? child)
+          :let  [head (first (:children child))]
+          :when (function-literal? head)]
+    (finding! head :re-frame.hicasso/function-in-head-position
+              (str "A function in head position is never a silent embedding. "
+                   "Call it, or make it a view with `defview`: a view is a "
+                   "real component and is a legal head; a function is not."))))
+
+(defn- check-root-head!
+  "The same law at the ROOT of a body.
+
+  `(defview root [_] [(fn [] …)])` is the identical mistake, and the
+  children-position rule above cannot see it: the offending vector is what
+  the body RETURNS rather than a child of anything. A body's return value
+  is a hiccup position by construction — that is what a boundary is — so
+  the head of a literal vector there is decidable without guessing.
+
+  Applied to the last form of the body, and through the tails of the
+  ordinary wrappers a body's return threads out of."
+  [node]
+  (when node
+    (cond
+      (api/vector-node? node)
+      (let [head (first (:children node))]
+        (when (function-literal? head)
+          (finding! head :re-frame.hicasso/function-in-head-position
+                    (str "A function in head position is never a silent "
+                         "embedding, and this one is what the body RETURNS. "
+                         "Call it, or make it a view with `defview`."))))
+
+      ;; `let`, `when`, `if`, `do`, `when-let`… — a body's return threads
+      ;; out through the tail of each, so the same position is still a
+      ;; hiccup position one level in. Only the TAIL: a non-tail form is an
+      ;; ordinary expression and none of this check's business.
+      (api/list-node? node)
+      (let [nm (some-> (core-var (first (:children node))) str)]
+        (when (contains? #{"let" "when" "when-let" "when-some" "if-let"
+                           "if-some" "do" "when-not" "with-redefs" "binding"}
+                         nm)
+          (check-root-head! (last (:children node))))
+        (when (= "if" nm)
+          (let [[_if _test then else] (:children node)]
+            (check-root-head! then)
+            (check-root-head! else)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The hooks
 ;; ---------------------------------------------------------------------------
 
+(def ^:private synchronous-iteration
+  "Core forms that call their function DURING the body. A `sub` inside a fn
+  literal handed to one of these is an ordinary read of the boundary that
+  wrote it, not a deferred one, and the codec's eager walk is what makes it
+  so. Naming them is what keeps the check below off correct code."
+  '#{map mapv keep keep-indexed map-indexed mapcat filter remove
+     reduce reduce-kv some every? sort-by group-by run! doseq for})
+
+(defn- check-deferred-read-in-fn!
+  "`h/sub` inside a plain `(fn …)` / `#(…)` written in a body, unless that
+  function is handed straight to a synchronous iteration form.
+
+  Roster item 3 (operator ruling): the obviously-deferred read, at WARNING.
+  A warning rather than an error because the judgement is a HEURISTIC —
+  `(some-helper (fn [] (h/sub …)))` may well call its argument during the
+  body, and this cannot know. What it can see is that nothing standard is
+  about to call it synchronously, which is where the mistake actually
+  lives: a callback, a timer, a promise, a thunk stashed for later.
+
+  Read extent in general remains the RUNTIME's law (I7 / hic-011); this
+  never pretends otherwise, which is why it does not block a build."
+  [body]
+  (doseq [node (mapcat subforms body)
+          :when (api/list-node? node)
+          :let  [callee (core-var (first (:children node)))]
+          ;; `parked-read` owns the mutable-reference shape and says
+          ;; something sharper about it. Two warnings on one site is
+          ;; nagging, so this one yields.
+          :when (not (contains? synchronous-iteration callee))
+          :when (not (contains? #{'reset! 'vreset! 'swap!} callee))
+          arg   (rest (:children node))
+          :when (and (function-literal? arg)
+                     (not= 'hfn (hicasso-var (first (:children arg)))))
+          :when (some #(and (api/list-node? %)
+                            (reads-hicasso-state? (first (:children %))))
+                      (mapcat subforms (or (thunk-body arg) [])))]
+    (finding! arg :re-frame.hicasso/deferred-read
+              (str "A subscription is read inside a function that nothing here "
+                   "calls during this body, so the read is very likely deferred "
+                   "— and a deferred read has no boundary to belong to. Read "
+                   "during the body and close over the value. If this function "
+                   "IS called synchronously, ignore this: read extent is the "
+                   "runtime's law, not lint's."))))
+
+(defn- check-direct-view-call!
+  "A view called like a function, where that is decidable.
+
+  `defview` mints a React component and it is used as a HEAD:
+  `[todo-row {…}]`, never `(todo-row {…})`. The general check needs to know
+  that a symbol resolves to a var minted by `defview`, usually in another
+  namespace, and a hook sees one form — so the decidable slice is the view
+  calling ITSELF, whose name this hook is holding. Narrow, but always right
+  and editor-reliable, which the wider version is not (see README)."
+  [sym body]
+  (when-let [nm (token-sexpr sym)]
+    (doseq [node (mapcat subforms body)
+            :when (api/list-node? node)
+            :when (= nm (token-sexpr (first (:children node))))]
+      (finding! node :re-frame.hicasso/direct-view-call
+                (str "`" nm "` is a view, so it is a hiccup HEAD rather than a "
+                     "function: write [" nm " {…}]. Called directly it returns "
+                     "the runtime's component object instead of rendering, and "
+                     "no boundary is minted, so its reads belong to whichever "
+                     "body called it.")))))
+
 (defn- check-body!
   "Every hiccup-shaped check, over one body."
   [body]
-  (run! check-merge-key! (mapcat subforms body))
   (let [elements (mapcat element-subforms body)]
     (run! check-unkeyed-children! elements)
     (run! check-nameless-interactive! elements)
     (run! check-function-head! elements))
+  (check-root-head! (last body))
+  (check-deferred-read-in-fn! body)
   (check-parked-read! body))
 
 (defn defview
@@ -462,6 +539,7 @@
                                 [nil more])
         [argv & body]         more]
     (check-body! body)
+    (check-direct-view-call! sym body)
     {:node (api/list-node
              (concat [(api/token-node 'clojure.core/defn) sym]
                      (when doc [doc])

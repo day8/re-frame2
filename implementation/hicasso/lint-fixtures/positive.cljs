@@ -16,17 +16,13 @@
   (:require [re-frame.hicasso :as h]))
 
 ;; ---------------------------------------------------------------------------
-;; :re-frame.hicasso/merge-not-a-map — `:&` carrying a literal non-map
+;; :re-frame.hicasso/direct-view-call -- a view called like a function
 ;; ---------------------------------------------------------------------------
 
-(h/defview merge-carrying-a-vector [_]
-  [:div {:& [:a :b]} "x"])
-
-(h/defview merge-carrying-a-string [_]
-  [:div {:& "class-string"} "x"])
-
-(h/defview merge-carrying-a-keyword [_]
-  [:input {:& :caller}])
+(h/defview self-calling-view [{:keys [depth]}]
+  (if (zero? depth)
+    [:li "leaf"]
+    [:ul (self-calling-view {:depth (dec depth)})]))
 
 ;; ---------------------------------------------------------------------------
 ;; :re-frame.hicasso/deferred-read — a read inside the one callback form
@@ -41,6 +37,11 @@
                         (let [{:keys [id]} (h/use-subs {:id [:todo/current]})]
                           [:todo/toggle id]))}
    "toggle"])
+
+;; A plain fn literal that nothing here calls during the body -- roster item 3.
+(h/defview read-in-a-deferred-fn [_]
+  (js/setTimeout (fn [] (h/sub [:todo/current])) 100)
+  [:div "later"])
 
 ;; ---------------------------------------------------------------------------
 ;; :re-frame.hicasso/parked-read — a read parked in a mutable reference
@@ -102,3 +103,24 @@
 
 (h/defview callback-form-in-head [_]
   [:div [(h/hfn [_e] [:noop])]])
+
+;; The RETURNED ROOT vector is itself the illegal head -- the children-position
+;; rule cannot see this one (merged-PR audit #7784).
+(h/defview fn-literal-at-the-root [_]
+  [(fn [] [:span "hi"])])
+
+(h/defview fn-literal-at-the-root-through-a-let [{:keys [x]}]
+  (let [y (inc x)]
+    [(fn [] [:span y])]))
+
+;; ---------------------------------------------------------------------------
+;; A STRING head and a QUALIFIED-KEYWORD head are both native tags: the runtime
+;; accepts them (`codec/hiccup-tag?`) and reads them through `name`, so these
+;; really are nameless <button>s (merged-PR audit #7784).
+;; ---------------------------------------------------------------------------
+
+(h/defview nameless-string-head-button [_]
+  [:div ["button" {:on-click [:panel/close]}]])
+
+(h/defview nameless-qualified-keyword-button [_]
+  [:div [:app/button {:on-click [:panel/close]}]])

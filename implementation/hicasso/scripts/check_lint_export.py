@@ -59,12 +59,14 @@ HOOK_FILE = os.path.join(EXPORT_DIR, "hooks", "re_frame", "hicasso.clj")
 # still firing the right NUMBER of times is precisely the collapse a count
 # cannot see.
 EXPECTED = {
-    "merge-not-a-map":              [23, 26, 29],
-    "deferred-read":                [36, 41],
-    "parked-read":                  [51, 55, 59],
-    "unkeyed-mapped-child":         [67, 72, 75, 78],
-    "nameless-interactive-element": [85, 88, 91],
-    "function-in-head-position":    [98, 101, 104],
+    # ERRORS -- true invariants (operator ruling, rf2-hic-022).
+    "direct-view-call":             [25],
+    "function-in-head-position":    [99, 102, 105, 110, 114],
+    # WARNINGS -- heuristics and assistance. Nothing blocks a build.
+    "deferred-read":                [32, 37, 43],
+    "parked-read":                  [52, 56, 60],
+    "unkeyed-mapped-child":         [68, 73, 76, 79],
+    "nameless-interactive-element": [86, 89, 92, 123, 126],
 }
 
 
@@ -216,10 +218,10 @@ def self_test():
          "(mapcat element-subforms body)", "(mapcat subforms body)",
          "negative.cljs"),
         # Rows, not counts: deleting one positive case must red even though
-        # the check itself still fires twice.
+        # the check itself still fires four more times.
         ("a check firing at the wrong ROWS reds", "fixture",
-         '  [:div {:& [:a :b]} "x"])', '  [:div "x"])',
-         "merge-not-a-map"),
+         '  [:a {:href "/help"}])', '  [:a {:href "/help"} "Help"])',
+         "nameless-interactive-element"),
     ]
 
     ok = True
