@@ -1225,9 +1225,14 @@
   ;; was, the first sub-key.
   (atom {}))
 
-(defn- scratch-bucket-key
-  "The bucket the scratch's current read sequence belongs to: an
-  **order-sensitive hash of the whole sequence**.
+(defn- bucket-key-of
+  "The bucket a read sequence belongs to: an **order-sensitive hash of
+  the whole sequence**.
+
+  Two callers hand it two arrays and neither is special-cased — the
+  scratch a body just filled ([[entry-for]]), and the one-key array a
+  React hook reads with ([[hook-entry]]). A bucket rule that knew which
+  of the two it was answering for would be two rules.
 
   It selects a bucket and is never an equality test — [[entry-matches?]]
   still compares every key pairwise before an entry is reused. That
@@ -1257,15 +1262,15 @@
   the bucket a function of the read set rather than of its first element,
   and `the-bucket-scan-does-not-grow-with-the-number-of-boundaries`
   holds it there."
-  []
-  (let [n (alength scratch)]
+  [^js ks]
+  (let [n (alength ks)]
     (loop [i 0 h 1]
       (if (== i n)
         h
         (recur (inc i)
                ;; h*31 + hash(k), truncated to int32 — order-sensitive,
                ;; allocation-free, and the arithmetic is JS-exact.
-               (bit-or 0 (+ (bit-shift-left h 5) (- h) (hash (aget scratch i)))))))))
+               (bit-or 0 (+ (bit-shift-left h 5) (- h) (hash (aget ks i)))))))))
 
 (defn- drop-entry! [^js entry]
   (let [bucket-key (.-bucketKey entry)]
@@ -1328,41 +1333,46 @@
   nil)
 
 (defn- entry-matches?
-  "Ordered pairwise compare of an entry's key array against the scratch.
+  "Ordered pairwise compare of an entry's key array against `ks`.
   Allocates nothing. A false negative — same set, different order — costs
   a second entry and a symmetric difference that removes and re-adds the
   same edges; it is never a wrong answer, which is why the hash in
-  [[scratch-bucket-key]] chooses the bucket and this decides the match."
-  [^js entry]
-  (let [ks (.-keys entry)
-        n  (alength ks)]
-    (and (== n (alength scratch))
+  [[bucket-key-of]] chooses the bucket and this decides the match."
+  [^js entry ^js ks]
+  (let [eks (.-keys entry)
+        n   (alength eks)]
+    (and (== n (alength ks))
          (loop [i 0]
            (cond
-             (== i n)                          true
-             (= (aget ks i) (aget scratch i))  (recur (inc i))
-             :else                             false)))))
+             (== i n)                    true
+             (= (aget eks i) (aget ks i)) (recur (inc i))
+             :else                       false)))))
 
 (declare make-subscribe make-snapshot)
 
 (defn- entry-for
-  "The read-set entry for the scratch's current contents — the cached
+  "The read-set entry for the read sequence `ks` — the cached
   `subscribe` / `getSnapshot` pair React sees. A hit allocates nothing and
   keeps `subscribe`'s identity, so React does not re-subscribe and the
   commit does no work; a miss materialises the key array, the key set and
   the two closures **once**, for every boundary that will ever read that
   set.
 
-  The bucket is [[scratch-bucket-key]]'s hash of the whole read sequence,
+  The bucket is [[bucket-key-of]]'s hash of the whole read sequence,
   so what a lookup scans is the set of read sequences that COLLIDE — not,
   as it once was, the set of live boundaries that happen to share a first
   key. `drop-entry!`'s rebuild of the bucket vector is O(1) for the same
-  reason."
-  []
-  (let [bucket-key (scratch-bucket-key)
+  reason.
+
+  `ks` is the scratch when a boundary body resolves its reads, and a
+  one-key array when a React hook does ([[hook-entry]]). The array is
+  never retained: a miss `.slice`s it, and a hit reads nothing off it
+  after the compare."
+  [^js ks]
+  (let [bucket-key (bucket-key-of ks)
         bucket     (get @!entries bucket-key)]
-    (or (some (fn [^js e] (when (entry-matches? e) e)) bucket)
-        (let [ks    (.slice scratch)
+    (or (some (fn [^js e] (when (entry-matches? e ks) e)) bucket)
+        (let [ks    (.slice ks)
               ^js entry #js {"keys"      ks
                          "set"       (into #{} ks)
                          "refs"      0
@@ -1474,6 +1484,74 @@
   ((.-subscribe entry) notify))
 
 ;; ---------------------------------------------------------------------------
+;; The hook seam — one read, from a React component that is not a boundary
+;; ---------------------------------------------------------------------------
+;;
+;; `re-frame.hicasso.native/use-sub` is a real React hook inside a real
+;; React function component (rf2-hic-031), and a component is not a
+;; boundary: no shell ran, no body ran, `rstate` names no frame and the
+;; scratch holds somebody else's reads or none. So the hook cannot take
+;; [[sub]], and the two doors below are what it takes instead.
+;;
+;; **They are doors onto this module's tables, never a second copy of
+;; them.** [[hook-entry]] mints its entry from the same cache, with the
+;; same `subscribe` and the same `getSnapshot`, so a hook and a boundary
+;; reading one key SHARE one entry, one registration shape and one cell —
+;; which is why `re-frame.hicasso.tool`'s rosters see a hook's reads
+;; without knowing hooks exist, and why the residue census counts them.
+;; A private table here would have bought a hook that leaked invisibly.
+
+(defn hook-entry
+  "The read-set entry for the SINGLE key `sub-key` — what a hook hands
+  `useSyncExternalStore`.
+
+  **Identity is the whole point.** React re-subscribes whenever the
+  `subscribe` it is given is a new function, so a hook that built its
+  closure per render would tear the subscription down and rebuild it on
+  every re-render — releasing and re-acquiring the cell, and doing it
+  invisibly, because the value on screen would be right the whole time.
+  The entry cache already answers that: the same key hits the same
+  entry, so `subscribe` is identical across re-renders and React does
+  not call it again. A hook therefore needs no `useMemo` and no
+  `useRef`, and holds to the shell's own hook budget.
+
+  A one-key read set is an ordinary read set. Nothing below this line
+  knows the difference, and a boundary whose body reads exactly this one
+  key shares this very entry."
+  [sub-key]
+  (entry-for #js [sub-key]))
+
+(defn hook-read
+  "The value of `[frame-kw query-v]`, read from OUTSIDE every boundary
+  body — [[read-key!]]'s two tiers with the scratch and the ambient
+  frame taken away.
+
+  Warm is the same pure deref: once the hook's `subscribe` has run, the
+  cell exists and holds the reaction, so every render after the first is
+  a `get` and an `@`. Cold is [[cold-read!]]'s probe, unchanged and
+  still retaining nothing — which is what the render→commit gap needs,
+  because a hook's first render happens before React has called
+  `subscribe` and therefore before any cell exists.
+
+  **The probe box is scoped to this call, and that is not tidiness.**
+  `cold-read!` shares one frame-state snapshot across a body run and
+  [[run-once]] is what resets it; a hook read that left the box behind
+  would hand the NEXT hook read, arbitrarily later, a snapshot of a
+  world that has since moved. Saving and restoring costs one local and
+  makes the question unaskable. The saved value is nil in every path
+  that exists today — React renders a component after its parent body
+  has returned, never inside one — so what the restore protects is the
+  invariant rather than a caller."
+  [frame-kw query-v]
+  (if-some [^js r (some-> ^js (get @!cells [frame-kw query-v]) (.-reaction))]
+    @r
+    (let [saved (.-probe rstate)]
+      (set! (.-probe rstate) nil)
+      (try
+        (cold-read! frame-kw query-v)
+        (finally (set! (.-probe rstate) saved))))))
+
+;; ---------------------------------------------------------------------------
 ;; The body run, and the generation fence
 ;; ---------------------------------------------------------------------------
 
@@ -1540,7 +1618,7 @@
           element (run-once frame-kw body-fn props)]
       (cond
         (= before (generation/commit-basis frame-kw))
-        (do (set! (.-entry rstate) (entry-for)) element)
+        (do (set! (.-entry rstate) (entry-for scratch)) element)
 
         (< attempt max-fence-retries)
         (recur (inc attempt))
@@ -1630,10 +1708,29 @@
   fails a test rather than a review."
   [:use-context/frame :use-sync-external-store/subscription-epoch])
 
-(defn- resolve-frame! [frame-kw]
+(defn resolve-frame!
+  "The frame a React component is IN, taken from the one context every
+  React-shaped substrate in this repo writes — or the refusal, when
+  nothing above it wrote one.
+
+  Public, and `where`-taking, because the boundary shell is no longer
+  its only caller: the native tier's hooks (rf2-hic-031) resolve their
+  frame HERE rather than through a second chain of their own. That is
+  the property `frames are isolated contexts` reduces to in code — an
+  island and the boundary beside it ask one question of one context and
+  cannot be told different answers, so `n/use-sub` has no door onto a
+  frame the surrounding tree is not already in.
+
+  Deliberately NOT `frame/require-current-frame!`'s dynamic-var →
+  context chain, which is what the UIx-adapter hooks use. A body's
+  dynamic extent has unwound by the time React renders the component it
+  returned, so the var tier can only ever answer for a *different*
+  render than the one asking — and answering from it would let an
+  island read a frame its own subtree is not under."
+  [frame-kw where]
   (if (or (nil? frame-kw) (= adapter-context/no-provider-sentinel frame-kw))
     (fail! :rf.error/no-frame-context
-           're-frame.hicasso.impl.collector/shell
+           where
            (str "A Hicasso boundary rendered with no frame in scope. Mount the "
                 "tree under a frame boundary — `arm1.mount/root!` installs one.")
            :mount-under-a-frame
@@ -1646,7 +1743,8 @@
   position of ordinary code around them, and it is what lets the
   subscription hook close over the reads the body just made."
   [body-fn js-props]
-  (let [frame-kw (resolve-frame! (react/useContext adapter-context/frame-context))
+  (let [frame-kw (resolve-frame! (react/useContext adapter-context/frame-context)
+                                 're-frame.hicasso.impl.collector/shell)
         props    (or (unchecked-get js-props "rfProps") {})
         element  (render-body frame-kw body-fn props)
         ^js entry (.-entry rstate)]
