@@ -54,6 +54,13 @@
  ;; over the artefact's own lint export — no React, no DOM, no CLJS compile,
  ;; and nothing about it belongs on the Node lane. So the floor is taken.
  ;;
+ ;; NO AUTOMATED LANE RUNS THIS YET, and that is recorded rather than
+ ;; papered over: there is no `jvm-hicasso` job in `.github/workflows/
+ ;; test.yml`, and the roster↔CI bijection gate (rf2-as6bg) correctly refuses
+ ;; a `scripts/test-jvm-implementation.sh` entry without one. `test.yml` is
+ ;; hot-zone, so that pairing is a scheduling decision. Until it lands, run
+ ;; this suite by hand: `cd implementation/hicasso && clojure -M:test`.
+ ;;
  ;; clj-kondo is TEST-ONLY and pinned to the version CI's own lint job
  ;; installs (`.github/workflows/lint.yml`), because two clj-kondo versions
  ;; disagree about which findings are errors, and a suite that asserts on
