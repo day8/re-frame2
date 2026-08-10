@@ -20,9 +20,9 @@ deliberately does not restate what a complaint means or what it carries.
 
 One owner per fact, bound by id. `implementation/hicasso/scripts/check_complaint_catalogue.py`
 is what keeps the binding true: every live row is emitted by the package
-and rowed in Spec 009, every reservation is genuinely unbuilt, no id holds
-two statuses, and every guide chapter a row cites names that id. Its header
-states the eight rules and why each exists.
+and rowed in Spec 009, every reservation is genuinely unbuilt, no id is
+live and reserved and retired at once, and every guide chapter a row cites
+names that id. Its header states the eight rules and why each exists.
 
 ## What every complaint carries
 
@@ -78,9 +78,12 @@ meaning, the payload and the recovery for each; the chapter column points
 at the guide page that teaches how not to hit it (`—` means no page names
 it yet).
 
-Four ids here are **corpus-owned** — Hicasso reuses a spelling the wider
+Three ids here are **corpus-owned** — Hicasso reuses a spelling the wider
 framework already defines rather than minting a private twin — and are
-rowed in Spec 009's main catalogue rather than in its Hicasso section.
+rowed in Spec 009's main catalogue rather than in its Hicasso section. A
+fourth, `:rf.error/no-frame-prop`, only looks like one: it is Hicasso's,
+rowed in the Hicasso section, and is the single live id without the
+`hicasso-` prefix (see *Open, and not settled here*).
 
 <!-- rf2-hic-021: status=live -->
 
