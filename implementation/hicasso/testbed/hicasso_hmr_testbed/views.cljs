@@ -136,7 +136,7 @@
   "AN IMPERATIVE HOST — a `forwardRef` component publishing a handle
   through `useImperativeHandle`.
 
-  `note!` writes `textContent` on a node the component owns, DIRECTLY.
+  `note` writes `textContent` on a node the component owns, DIRECTLY.
   That is the point of the row: the write is invisible to React, so no
   re-render restores it and no subscription repaints it. If the text is
   gone after a save, the only thing that can have removed it is the node
@@ -154,7 +154,7 @@
           ref
           (fn []
             #js {"instanceId" id
-                 "note!"      (fn [text]
+                 "note"       (fn [text]
                                 (when-some [n (.-current node-ref)]
                                   (set! (.-textContent n) text))
                                 id)})
@@ -166,13 +166,19 @@
 ;; The crossings and the views
 ;; ---------------------------------------------------------------------------
 
-(h/defhost hook-host HookChild
+;; `defhost` takes its docstring BETWEEN the name and the component —
+;; `(defhost sym "doc" Component opts?)`. Written the other way round the
+;; docstring lands in the `opts` position and `mint-host!` walks a string
+;; as an option map.
+(h/defhost hook-host
   "The host crossing the hook child sits inside, so the row is `child hook
-  state IN A HOST` and not merely `hook state somewhere on the page`.")
+  state IN A HOST` and not merely `hook state somewhere on the page`."
+  HookChild)
 
-(h/defhost note-host imperative-note
+(h/defhost note-host
   "The imperative host. Its instance arrives through a callback `:ref` —
-  HD-022's v0 spelling, a function and never a vector.")
+  HD-022's v0 spelling, a function and never a vector."
+  imperative-note)
 
 (h/defview field
   "The focused controlled input. An ordinary `:value` off a subscription

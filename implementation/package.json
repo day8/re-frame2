@@ -66,6 +66,7 @@
     "test:adapter-smokes": "node adapters/scripts/serve-and-run-adapter-smokes.cjs",
     "test:testbed-tenant-switcher": "node scripts/serve-and-run-tenant-switcher-testbed.cjs",
     "test:hicasso-controlled": "node scripts/serve-and-run-hicasso-controlled-testbed.cjs",
+    "test:hicasso-hmr": "node scripts/serve-and-run-hicasso-hmr-testbed.cjs",
     "dev:example": "node ../examples/scripts/serve-example.cjs",
     "story:build": "node scripts/story-build.cjs",
     "test:story-feature-load": "node ../examples/scripts/serve-and-run-story-feature-load-tests.cjs",
