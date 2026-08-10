@@ -3678,6 +3678,107 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
+(defn assert-use-frame-retargets-across-a-same-id-reincarnation
+  "rf2-40kv: the hook's render-phase memo is keyed on the frame's
+  INCARNATION, not on its keyword — so destroying the resolved frame and
+  creating another under the same id makes the memo MISS and the next
+  render carries ops pinned to the successor.
+
+  WHY A KEYWORD KEY IS NOT ENOUGH, which is the whole of this row. A frame
+  keyword is an ADDRESS: `:f` is `=` to `:f` across a reincarnation, while
+  `capture-frame` PINS the exact incarnation live when it ran (rf2-9pyles /
+  rf2-tdjv7p) and every op on the bundle refuses a superseded target. So a
+  memo keyed on the keyword alone passes the stability row above and fails
+  here — silently, because the bundle it keeps handing out still reports
+  `:frame :f` and still compares `=` to a live one. THAT is why nothing
+  below is an equality assertion: the dead and the live bundle are `=`.
+  What separates them is object identity and what a dispatch through them
+  DOES.
+
+  Four things pinned, in one mount so the control and the law share a
+  fiber (and therefore share the one `useRef` cell the memo lives in):
+
+    1. PREMISE — destroy + same-id create yields a DIFFERENT incarnation
+       token under one public keyword.
+    2. CONTROL — a re-render that changed no frame still returns the
+       IDENTICAL map. Without this row a fix that simply rebuilt every
+       render would pass 3 and 4 while destroying the reference stability
+       `useEffect` deps and memoised child props depend on.
+    3. IDENTITY — after the reincarnation the map is a DIFFERENT object.
+    4. THE OBSERVABLE — a `dispatch-sync` off the post-reincarnation map
+       moves the LIVE frame's app-db, and one off the pre-reincarnation
+       map moves nothing (core's fence recovers it rather than letting it
+       write whoever occupies the address now).
+
+  cfg keys: `:name`, `:substrate-kw`, `:frame-provider-mount-element`,
+  `:probe-use-frame-element`, `:use-frame-observed` — the same probe the
+  stability assertion above drives; nothing substrate-specific is added."
+  [{:keys [name substrate-kw frame-provider-mount-element
+           probe-use-frame-element use-frame-observed]}]
+  (testing (str name " — use-frame retargets across a same-id reincarnation (rf2-40kv)")
+    (with-browser-act
+     (fn [act-fn]
+      ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
+      ;; provider tier is the genuine decider (the rf2-4mi2zj masking note).
+      (binding [frame/*current-frame* nil]
+        (let [uf-frame (mint-kw substrate-kw "use-frame-reincarnation")]
+          (reset! use-frame-observed [])
+          (rf/reg-event ::reincarnation-set (fn [_ [_ n]] {:db {:n n}}))
+          (rf/make-frame {:id uf-frame :doc "use-frame reincarnation probe — incarnation A"})
+          (rf/dispatch-sync [::reincarnation-set 1] {:frame uf-frame})
+          (let [mount-node (make-mount-node!)
+                root       (react-dom-client/createRoot mount-node)
+                render!    #(act-fn (fn [] (.render root (frame-provider-mount-element
+                                                           uf-frame (probe-use-frame-element)))))]
+            (try
+              (render!)
+              (let [ops-1   (peek @use-frame-observed)
+                    token-1 (frame/frame-incarnation-token uf-frame)]
+                ;; 2. CONTROL — a re-render under the SAME incarnation must
+                ;; still hit the memo. Runs before the reincarnation so the
+                ;; two outcomes are read off one mount and one ref cell.
+                (render!)
+                (is (identical? ops-1 (peek @use-frame-observed))
+                    "same incarnation ⇒ IDENTICAL ops map (the memo still hits)")
+
+                ;; The reincarnation. Same public id, different object — and
+                ;; the mounted probe is told nothing by it, which is exactly
+                ;; what makes the defect silent.
+                (rf/destroy-frame! uf-frame)
+                (rf/make-frame {:id uf-frame :doc "use-frame reincarnation probe — incarnation B"})
+                (rf/dispatch-sync [::reincarnation-set 100] {:frame uf-frame})
+                (let [token-2 (frame/frame-incarnation-token uf-frame)]
+                  ;; 1. PREMISE.
+                  (is (not (identical? token-1 token-2))
+                      "a DIFFERENT incarnation now occupies the same public id")
+
+                  (render!)
+                  (let [ops-2 (peek @use-frame-observed)]
+                    ;; 3. IDENTITY — never `=`: the two bundles compare equal
+                    ;; on every readable key, which is the defect's disguise.
+                    (is (not (identical? ops-1 ops-2))
+                        (str "the ops map RETARGETED. A `useRef` memo keyed on the "
+                             "resolved frame by `=` alone hits here — the keyword is "
+                             "`=` across a reincarnation — and serves incarnation A's "
+                             "bundle for the rest of the mount"))
+                    (is (= uf-frame (:frame ops-2))
+                        "and it is still the provider's frame")
+
+                    ;; 4. THE OBSERVABLE — the live incarnation moves.
+                    (act-fn (fn [] ((:dispatch-sync ops-2) [::reincarnation-set 7])))
+                    (is (= 7 (:n (rf/app-db-value uf-frame)))
+                        "the post-reincarnation bundle WRITES the live incarnation")
+
+                    ;; …and the dead one does not. Core's capture fence
+                    ;; (rf2-9pyles) recovers it; the point here is that a hook
+                    ;; still handing this bundle out is not a harmless memo
+                    ;; hit — it is a consumer whose every dispatch is dropped.
+                    (act-fn (fn [] ((:dispatch-sync ops-1) [::reincarnation-set 999])))
+                    (is (= 7 (:n (rf/app-db-value uf-frame)))
+                        "the pre-reincarnation bundle writes NOTHING — it is pinned to a frame that no longer exists"))))
+              (finally
+                (try (.unmount root) (catch :default _ nil)))))))))))
+
 (defn assert-use-subscribe-2-arg-pins-explicit-frame
   "rf2-rcgsc / rf2-y0db2: use-subscribe's 2-arg form
   `(use-subscribe frame-kw query-v)` reads from the named frame's app-db,
