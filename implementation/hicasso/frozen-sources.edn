@@ -52,7 +52,9 @@
 ;;                         two read tiers, the read-set entries, the generation
 ;;                         fence, the two shells and the two mint doors
 ;;   impl/generation.cljs  the flush generation, the registry epoch, commit-basis
-;;   impl/frames.cljs      the two frame-locked memo tables and their invalidation
+;;   impl/frames.cljs      the one frame-locked memo row per frame id —
+;;                         incarnation, captured bundle and ambient dispatch
+;;                         coupled — its lazy replacement and the reset door
 ;;   impl/roots.cljs       the hydration adoption window
 ;;   impl/evidence.cljs    the dev-only sink seam
 ;;   impl/inventory.cljs   the retention census, declared and measured

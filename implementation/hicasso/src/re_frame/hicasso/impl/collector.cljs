@@ -20,7 +20,7 @@
   |---|---|
   | **this one** | the render context, the cell table, the commit, the two read tiers, the read-set entries, the generation fence, the two shells and the two mint doors |
   | [[re-frame.hicasso.impl.generation]] | the flush generation, the registry epoch and `commit-basis` |
-  | [[re-frame.hicasso.impl.frames]] | the two frame-locked memo tables and their invalidation |
+  | [[re-frame.hicasso.impl.frames]] | the one frame-locked memo row per id — incarnation, captured bundle and ambient dispatch coupled — its lazy replacement and the reset door |
   | [[re-frame.hicasso.impl.roots]] | the hydration adoption window — one per root, and NOT this module's to empty (rf2-6tmu) |
   | [[re-frame.hicasso.impl.evidence]] | the dev-only sink seam |
   | [[re-frame.hicasso.impl.inventory]] | what the runtime RETAINS: the declared census and the measured one |

@@ -529,4 +529,3 @@
           {:keys [refusals]} (with-refusals #(fresh [:reinc/mark :repaired-warm]))]
       (is (= :repaired-warm (marked)) "and the dead control ROUTES here")
       (is (empty? refusals)))))
-
