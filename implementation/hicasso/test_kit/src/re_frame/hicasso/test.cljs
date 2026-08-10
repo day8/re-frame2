@@ -213,15 +213,24 @@
   The ex-data is the ASSERTABLE identity — `:rf.error/id`, `:where`,
   `:reason`, `:recovery` and whatever the site adds — because
   `(is (thrown? …))` is not a witness: it is green for a throw from any
-  layer with any id. A test of a refusal asserts the map."
+  layer with any id. A test of a refusal asserts the map.
+
+  **`extra` merges UNDER the identity, never over it**, exactly as the
+  package's own `impl.error/fail!` does (rf2-hic-007). `extra` carries
+  the refusal CLASS's own slots — the offending value, the key, the
+  path — and a spelling of an identity field in it loses. It used to
+  merge last, so a payload could hand a catch site a different
+  `:rf.error/id` from the one in the message beside it, and this kit's
+  whole reason to exist is that its refusal is the runtime's refusal:
+  an id a payload can rewrite is a parity claim nobody can rely on."
   [id reason recovery extra]
   ;; rf2:builder-bypass-ok - `id` is a PARAMETER, so the message carries the
   ;; `[:rf.error/...]` token the source cannot show. Same shape as
   ;; `re-frame.hicasso.impl.collector/fail!`.
   (throw (ex-info (str reason " [" id "]")
-                  (merge {:rf.error/id id :where where
-                          :reason reason :recovery recovery}
-                         extra))))
+                  (merge extra
+                         {:rf.error/id id :where where
+                          :reason reason :recovery recovery}))))
 
 ;; ---------------------------------------------------------------------------
 ;; L0 — the ladder, as data
