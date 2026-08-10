@@ -51,9 +51,11 @@ Notes on what is and isn't checked:
       (`> ```clojure`) as readily as outside one (rf2-1cpt).  See `_strip_fences`
       for what that recognition covers and, just as importantly, what it does not.
     * In the trees listed in FENCED_DOC_LINK_TREES a markdown doc link inside a
-      fence is itself reported (rf2-mmyc).  Everywhere else it is merely
+      fence is itself reported (rf2-mmyc).  Everywhere else it is SILENTLY
       skipped: 88 links in `spec/Spec-Schemas.md` alone sit legitimately inside
-      schema samples as `;;` commentary.
+      schema samples as `;;` commentary.  The roster is scoped to trees with
+      evidence, so a green on a fence-heavy file outside it asserts nothing
+      about the fence — which is why `docs/the-mayor-method/` joined (rf2-qdqf).
 
 The script is intentionally dependency-light. Beyond pymdown-extensions
 (already pinned in requirements.txt for the MkDocs build) it relies only
@@ -1645,7 +1647,27 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # a defensible extension, deliberately not taken here: it had no incident, and
 # widening a new gate past its evidence is how gates acquire a reputation for
 # arbitrary friction.
-FENCED_DOC_LINK_TREES = ("docs/design/hicasso",)
+#
+# rf2-qdqf added `docs/the-mayor-method/` on exactly that evidence standard, and
+# the evidence is a measurement: `bootstrap.md` is 99.7% fenced by non-blank line
+# (334 of 335), because the file IS a pasteable prompt and the fence is the
+# deliverable.  A worker proving gate coverage planted two bogus anchors in it,
+# one outside the fence and one inside; the gate reported exactly the first and
+# was silent on the second.  A green on that file therefore said nothing about
+# the block holding the document, which is worse than a skip because the file is
+# demonstrably in the corpus.  Widening puts the whole file back under an
+# assertion that can fail.  The tree measures clean today (0 fenced doc links
+# across its three files) and its established idiom is already the right one —
+# bare paths in backticks, `README.md` and `dispatch-prompt-template.md`, never
+# markdown links, which inside a `text` fence would render literally and reach a
+# reader as noise pasted into a prompt.
+#
+# Corpus-wide inversion stays rejected, on the same 109 links; and ANNOUNCING the
+# skip instead was measured and rejected too — 538 of the 721 corpus files carry
+# a fence, so the announcement fires on three quarters of the corpus, and its
+# text is identical before and after a doc link is added inside a fence.  A
+# signal that cannot change when the defect appears is not a signal.
+FENCED_DOC_LINK_TREES = ("docs/design/hicasso", "docs/the-mayor-method")
 
 
 def _is_doc_destination(dest: str) -> bool:
@@ -1866,8 +1888,9 @@ def check(
                               anchor written INSIDE a code fence, in the trees
                               listed in FENCED_DOC_LINK_TREES. Such a link
                               resolves perfectly and is still a defect: it
-                              renders literally and the sample stops being
-                              valid code.
+                              renders literally, so the block stops being valid
+                              to copy — as code in a sample, or as the pasteable
+                              text of a prompt (rf2-qdqf).
 
     The compat-anchor manifest, source-comment scan, and placement rules default
     to the production inventory (HANDBOOK_COMPAT_ANCHORS / the tracked Clojure tree
@@ -2156,12 +2179,13 @@ def check(
                 f"  LINK INSIDE A FENCE: {rel}:{line_no} -> {dest}\n"
             )
         sys.stderr.write(
-            "\nFix: a fenced block is code, so a markdown link inside one "
-            "renders literally and makes the sample invalid to copy — and "
-            "markdown reads the sample's own square brackets as link text, so "
+            "\nFix: a fenced block is verbatim — code in a sample, the "
+            "pasteable text in a prompt — so a markdown link inside one "
+            "renders literally and makes the block invalid to copy, and "
+            "markdown reads the block's own square brackets as link text, so "
             "the rewrite that adds one often eats an opening bracket too "
-            "(rf2-re0m). Restore the plain code and put the cross-reference in "
-            "the prose around the fence.\n"
+            "(rf2-re0m). Restore the plain block and put the cross-reference "
+            "in the prose around the fence.\n"
         )
 
     if total == 0 and verbose:
@@ -2298,6 +2322,16 @@ def _run_self_tests(verbose: bool = False) -> int:
         # a sibling tree stays silent.
         ("fenced_doc_link_in_scope",         1),
         ("fenced_doc_link_out_of_scope",     0),
+        # rf2-qdqf — the same assertion on the shape that motivated widening the
+        # roster: a file that is a pasteable PROMPT, so the fence is the
+        # deliverable and holds the whole document.  Fails in both directions.
+        # Down to 0 if `docs/the-mayor-method` leaves FENCED_DOC_LINK_TREES, and
+        # down to 0 again if fence recognition regresses — the fenced link
+        # resolves, so a scanner that reads the block as prose is satisfied by
+        # it and the assertion never runs.  Up to 2 if `_is_doc_destination`
+        # loosens back to a bare `](`, which the fixture's `(fn [x](inc x))`
+        # would then match.
+        ("fenced_doc_link_prompt_tree",      1),
         # rf2-1cpt — the same assertion, on a BLOCKQUOTED fence.  The guarded
         # tree writes its samples this way (two files under
         # docs/design/hicasso/studio/), and the assertion could not see them
