@@ -161,6 +161,29 @@ WRONG one, which fails silently.  Two of eleven repaired pins were in exactly
 that state and were annotated rather than re-pinned.  A checker may REPORT; a
 human decides.
 
+THE REPOSITORY IS PART OF WHAT IS CHECKED, and for four revisions it was not.
+Everything above reasons about the corpus; none of it asked whether this
+checkout can answer the question being put to it, and an unanswerable question
+was being read as a clean answer.  A `git diff` that failed left empty stdout,
+which read as "no page changed" — observed in the field, exiting 0 over
+twenty-eight changed pages while another process held the object store.  A
+clone truncated at a shallow boundary is worse still, because nothing fails at
+all: `merge-base --is-ancestor` answers NO for every commit past the boundary,
+so the corpus reads as 354 stranded pins where the deep clone reads 253 landed
+and 7 findings.  A verdict of that kind is more dangerous than a crash, since a
+reader would conclude a CORRECT fix had failed and might re-pin what was never
+broken.
+
+So a non-zero exit is an ANSWER in exactly two places — `rev-parse --verify
+--quiet` reporting "no such object", and `merge-base --is-ancestor` reporting
+"no" — and both are parsed for the specific status that means it, never for
+"not zero".  Anywhere else, a command that fails raises `Unusable` and the run
+exits 2.  Silent substitution counts as failing open too, and is gone with it:
+a failed merge base no longer quietly re-bases the comparison on the ref
+itself, and a failed `--show-toplevel` no longer continues against the current
+directory.  Answering a different question is not a safer outcome than
+answering none — it is an unsafer one, because it looks like an answer.
+
 HOW IT IS ARMED.  The corpus is red today — the census repaired eleven pins and
 left thirty-odd standing, deliberately, because re-pinning is a judgement each
 one needs individually.  So the blocking gate is `--changed-since`, which holds
@@ -178,9 +201,11 @@ Exit codes:
     0  every cited pin is landed or shares its block — its table row, when it
        sits in one — with a landed one
     1  findings — a human decides each; this tool never re-pins
-    2  the check could not run (absent corpus, unresolvable baseline, bad ref).
-       Never 0: a gate that cannot run must not report success for work it
-       never did.
+    2  the check could not run — an absent corpus, an unresolvable baseline or
+       ref, or a repository that cannot answer: a shallow clone, an object
+       store a command could not read, no git repository at all.  Never 0 and
+       never 1: a gate that cannot run must not report success for work it
+       never did, and must not be mistaken for a page needing repair either.
 """
 
 from __future__ import annotations
@@ -656,9 +681,34 @@ def scan_file(
 # --------------------------------------------------------------------------
 
 
+class Unusable(Exception):
+    """The repository cannot answer the question this gate asks.
+
+    Distinct from a finding, and it must stay distinct.  A finding is a fact
+    about the corpus; this is the absence of any fact at all, and the two exit
+    differently — 1 against 2 — so that a red pipeline cannot be read as a page
+    needing repair when what it means is that nothing was checked.
+    """
+
+
 class Git:
     """Object-status oracle.  Answers exactly one question per token, and
-    answers UNRESOLVABLE rather than guessing."""
+    answers UNRESOLVABLE rather than guessing.
+
+    A NON-ZERO EXIT IS AN ANSWER IN EXACTLY TWO PLACES HERE, and everywhere else
+    it is a refusal.  `rev-parse --verify --quiet` reports "no such object"
+    through its status, and `merge-base --is-ancestor` reports "no" through its
+    status; git documents both, and both are parsed positively — the specific
+    code that means no, never merely "not zero".  Every other call asks a
+    question git can only succeed at or fail to answer, and those raise
+    `Unusable`.
+
+    The distinction is the whole of rf2-dmrm, the fifth fail-open found in this
+    file.  Reading a failure as an answer is how a `git diff` that could not run
+    became "no page changed", and how a clone truncated at a shallow boundary
+    became a corpus of stranded pins.  Both produced a confident verdict from a
+    question the repository never answered.
+    """
 
     def __init__(self, repo: str, baseline: str = BASELINE_REF) -> None:
         self.repo = repo
@@ -672,22 +722,123 @@ class Git:
             text=True,
         )
 
+    def _answer(self, *args: str, why: str) -> str:
+        """stdout of a command whose failure means the repository could not
+        answer — never that the answer was no.  git's own words are carried
+        into the refusal, because the operator needs them to tell a locked
+        object store from a missing one."""
+        result = self._run(*args)
+        if result.returncode != 0:
+            raise Unusable(
+                "`git %s` failed (exit %d): %s\n%s"
+                % (
+                    " ".join(args),
+                    result.returncode,
+                    result.stderr.strip() or "(no message)",
+                    why,
+                )
+            )
+        return result.stdout
+
+    def assert_usable(self) -> None:
+        """Refuse a repository that cannot support a verdict, BEFORE one is formed.
+
+        SHALLOWNESS is what forces this check to exist, and it is worse than any
+        crash.  `merge-base --is-ancestor` answers NO for every commit past a
+        shallow boundary, so a truncated clone does not fail — it reports a
+        corpus made entirely of stranded pins.  Measured on this checkout while
+        it was shallow: 0 landed, 354 stranded, 360 findings, against 253 landed
+        and 7 findings on the same tree once unshallowed.  A reader trusting
+        that would conclude a CORRECT fix had failed and might "repair" pins
+        that were never broken — and the header above says why that is the worst
+        outcome available: re-pinning swaps an unresolvable pin for a resolvable
+        WRONG one, which fails silently forever after.
+
+        Parsed positively: "false" is the only answer that lets a run proceed.
+        The probe doubles as the is-this-a-repository check, since git exits
+        non-zero for it outside one.
+        """
+        shallow = self._answer(
+            "rev-parse",
+            "--is-shallow-repository",
+            why="This gate decides every verdict by reading ancestry, so it "
+            "cannot run outside a git repository.",
+        ).strip()
+        if shallow == "false":
+            return
+        if shallow == "true":
+            raise Unusable(
+                "this is a SHALLOW clone. `merge-base --is-ancestor` answers NO "
+                "for every commit past the shallow boundary, so every pin here "
+                "would read as stranded and the verdict would be fiction rather "
+                "than a finding.\nRun `git fetch --unshallow --no-tags origin "
+                "main`. (CI checks out with fetch-depth: 0 and is unaffected.)"
+            )
+        raise Unusable(
+            "`git rev-parse --is-shallow-repository` answered %r, which is "
+            "neither \"true\" nor \"false\", so whether ancestry can be trusted "
+            "in this checkout is unknown." % shallow
+        )
+
     def baseline_exists(self) -> bool:
+        # Deliberately tolerant: the exit status IS the question, and the one
+        # caller turns False into a refusal, so a failure of any kind here
+        # already lands on rc=2.
         return self._run("rev-parse", "--verify", "--quiet", self.baseline).returncode == 0
 
     def rev_exists(self, ref: str) -> bool:
+        # Tolerant for the same reason, and fail-closed for the same reason:
+        # False is a refusal at the only call site.
         return self._run("rev-parse", "--verify", "--quiet", ref).returncode == 0
 
     def changed_markdown(self, since: str, root: str) -> set:
         """Corpus pages this branch touches, against the merge base with `since`
         so that commits landing on the baseline meanwhile are not attributed
-        here."""
-        base = self._run("merge-base", since, "HEAD")
-        ref = base.stdout.strip() if base.returncode == 0 and base.stdout.strip() else since
-        diff = self._run("diff", "--name-only", "--diff-filter=d", ref, "--", root)
+        here.
+
+        BOTH COMMANDS MUST SUCCEED, and neither used to be checked.  A failing
+        `git diff` leaves stdout empty, the empty set reads as "no page under
+        the corpus root changed", and the driver exits 0 having verified
+        nothing.  Observed, not theorised: while another process held this
+        repository, the spine's `--changed-since` step reported no page changed
+        with twenty-eight pages changed (rf2-dmrm).
+
+        THE MERGE-BASE FALLBACK IS RETIRED rather than made loud.  It answered a
+        DIFFERENT question — "what differs from the baseline" instead of "what
+        this branch changed" — and answered it silently, which is the same
+        defect in a quieter register.  It also cannot be reached by the case it
+        was presumably written for: `since` has already been proved to resolve
+        by the time this runs, so a failure here means the two histories share
+        no ancestor or the repository cannot be read, and neither of those is a
+        set of pages to check.  A substituted question is not a safer answer
+        than none; it is an unsafer one, because it looks like an answer.
+        """
+        base = self._answer(
+            "merge-base",
+            since,
+            "HEAD",
+            why="Without a merge base between HEAD and %r there is no basis to "
+            "compare against, so the set of pages to check is unknown." % since,
+        ).strip()
+        if not base:
+            raise Unusable(
+                "`git merge-base %s HEAD` succeeded but named no commit, so the "
+                "basis to compare against is unknown." % since
+            )
+        diff = self._answer(
+            "diff",
+            "--name-only",
+            "--diff-filter=d",
+            base,
+            "--",
+            root,
+            why="The set of pages this branch changed is therefore unknown. An "
+            "empty answer here is indistinguishable from 'nothing changed', "
+            "which is how this gate once passed twenty-eight unchecked pages.",
+        )
         return {
             line.strip()
-            for line in diff.stdout.splitlines()
+            for line in diff.splitlines()
             if line.strip().endswith(".md")
         }
 
@@ -698,6 +849,15 @@ class Git:
         repository this gate has an opinion about is itself, and it holds a
         permalink naming itself to the ordinary local path.  None when there is
         no GitHub origin, and then no permalink is honoured at all.
+
+        THE ONE TOLERANT RETURN CODE LEFT IN THIS CLASS, and it is tolerant
+        because it is provably fail-closed rather than because failure is
+        unlikely.  Losing the identity honours NO permalink, which turns every
+        declared-foreign citation back into an ordinary local one; that can only
+        ADD findings, never remove one.  A failure here cannot manufacture a
+        green run, so refusing on it would trade a safe outcome for a noisier
+        one.  It is also all but unreachable: a checkout with no `origin` has no
+        `origin/main` either, and the baseline guard refuses first.
         """
         result = self._run("remote", "get-url", "origin")
         if result.returncode != 0:
@@ -707,21 +867,75 @@ class Git:
     def max_id_len(self) -> int:
         """Hex length of a full object id here — 40 for SHA-1, 64 for SHA-256.
         Anything longer in the corpus is a digest of something that is not a
-        git object, and needs no vocabulary to be excluded."""
-        result = self._run("rev-parse", "--show-object-format")
-        return 64 if result.stdout.strip() == "sha256" else DEFAULT_MAX_ID_LEN
+        git object, and needs no vocabulary to be excluded.
+
+        Read positively, because that exclusion rests on the answer being real.
+        An unanswered probe used to fall through to 40, which in a SHA-256
+        repository would silently drop every full-length citation in the corpus
+        from the population — a fail-open of exactly the shape above, arriving
+        as a shorter list rather than as an error.
+        """
+        fmt = self._answer(
+            "rev-parse",
+            "--show-object-format",
+            why="The object format decides which hex runs can be object ids "
+            "here at all, so the population cannot be settled without it.",
+        ).strip()
+        if fmt == "sha256":
+            return 64
+        if fmt == "sha1":
+            return DEFAULT_MAX_ID_LEN
+        raise Unusable(
+            "`git rev-parse --show-object-format` answered %r, which is neither "
+            "\"sha1\" nor \"sha256\", so the longest hex run that could be an "
+            "object id here is unknown." % fmt
+        )
 
     def status(self, token: str) -> str:
-        """LANDED | STRANDED | UNRESOLVABLE."""
+        """LANDED | STRANDED | UNRESOLVABLE.
+
+        Both exit statuses read here are ANSWERS, and both are parsed
+        positively so that a failure cannot pass for one.  `rev-parse --verify
+        --quiet` exits 1 for "no such object"; `merge-base --is-ancestor` exits
+        0 for yes and 1 for no, and git documents that "errors are signaled by a
+        non-zero status that is not 1".  Anything else from either is the
+        repository failing to answer.
+
+        Filing such a token as STRANDED — which is what "not zero" used to do —
+        would be a finding invented out of a failed process, and on a shallow
+        clone it was 354 of them.
+        """
         if token in self._cache:
             return self._cache[token]
         resolved = self._run("rev-parse", "--verify", "--quiet", token + "^{commit}")
-        if resolved.returncode != 0:
+        if resolved.returncode == 1:
             value = "UNRESOLVABLE"
-        elif self._run("merge-base", "--is-ancestor", token, self.baseline).returncode == 0:
-            value = "LANDED"
+        elif resolved.returncode != 0:
+            raise Unusable(
+                "`git rev-parse --verify --quiet %s^{commit}` failed (exit %d): "
+                "%s\nThat is neither a commit nor 'no such object', so whether "
+                "this token is a pin at all is unknown."
+                % (token, resolved.returncode, resolved.stderr.strip() or "(no message)")
+            )
         else:
-            value = "STRANDED"
+            ancestry = self._run("merge-base", "--is-ancestor", token, self.baseline)
+            if ancestry.returncode == 0:
+                value = "LANDED"
+            elif ancestry.returncode == 1:
+                value = "STRANDED"
+            else:
+                raise Unusable(
+                    "`git merge-base --is-ancestor %s %s` failed (exit %d): %s\n"
+                    "git signals errors here with a status that is not 1, so "
+                    "this is not the answer 'no' — whether %s landed is unknown."
+                    % (
+                        token,
+                        self.baseline,
+                        ancestry.returncode,
+                        ancestry.stderr.strip() or "(no message)",
+                        token,
+                    )
+                )
         self._cache[token] = value
         return value
 
@@ -797,13 +1011,44 @@ def iter_markdown(root: str) -> List[str]:
     return sorted(out)
 
 
+def _refuse(stream, exc: Unusable) -> int:
+    """One shape for every refusal, and one exit code for all of them: 2, never
+    1 and never 0.  A findings-failure says the corpus is wrong; this says the
+    check did not run, and the two must never be confused for one another."""
+    stream.write("check_provenance_pins: %s\n" % exc)
+    return 2
+
+
 def check(
     repo: str,
     root: str,
     verbose: bool,
     stream,
     changed_since: Optional[str] = None,
-    git: Optional["Git"] = None,
+    git: Optional[Git] = None,
+) -> int:
+    """Drive the corpus and return an exit code.
+
+    The oracle is a parameter — as it already is for `evaluate` — so the
+    self-test can present the repository states this gate must refuse without
+    staging one on disk: an object store another process is holding, and a
+    clone truncated at a shallow boundary.  Neither can be produced by a fixture
+    on the filesystem, and both are the reason this function has a refusal path
+    at all.
+    """
+    try:
+        return _check(repo, root, verbose, stream, changed_since, git or Git(repo))
+    except Unusable as exc:
+        return _refuse(stream, exc)
+
+
+def _check(
+    repo: str,
+    root: str,
+    verbose: bool,
+    stream,
+    changed_since: Optional[str],
+    git: Git,
 ) -> int:
     root_abs = os.path.join(repo, root)
     if not os.path.isdir(root_abs):
@@ -821,7 +1066,10 @@ def check(
         )
         return 2
 
-    git = git or Git(repo)
+    # Before any verdict is formed: can this repository support one?  Every
+    # answer below is ancestry, and a truncated clone gets ancestry WRONG rather
+    # than refusing it, so there is no later failure to notice.
+    git.assert_usable()
 
     if changed_since is not None:
         if not git.rev_exists(changed_since):
@@ -1710,12 +1958,26 @@ class _DevNull:
 
 
 def _repo_root() -> str:
+    """The working tree this run is about.
+
+    The old fallback to the current directory was the same silent substitution
+    as the retired merge-base one: when git could not say where the repository
+    was, the run continued against somewhere else and reported whatever it found
+    there.  It happened to land on rc=2 by way of a missing corpus root, but it
+    got there with a message about the corpus when the truth was about the
+    repository, and a diagnostic that names the wrong thing is how the next
+    fail-open gets missed.
+    """
     result = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
     )
-    if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    return os.getcwd()
+    if result.returncode != 0 or not result.stdout.strip():
+        raise Unusable(
+            "`git rev-parse --show-toplevel` failed (exit %d): %s\nThis gate "
+            "reads ancestry from the repository it checks, so it must be run "
+            "from inside that working tree." % (result.returncode, result.stderr.strip() or "(no message)")
+        )
+    return result.stdout.strip()
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -1736,9 +1998,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True
     )
 
-    if args.self_test:
-        return self_test(args.verbose, stream)
-    return check(_repo_root(), args.root, args.verbose, stream, args.changed_since)
+    try:
+        if args.self_test:
+            return self_test(args.verbose, stream)
+        return check(_repo_root(), args.root, args.verbose, stream, args.changed_since)
+    except Unusable as exc:
+        # `check` catches its own so that the self-test can assert rc=2 by
+        # calling it; this catches the one raised before there is a repo to
+        # hand it, and gives it the identical shape and code.
+        return _refuse(stream, exc)
 
 
 if __name__ == "__main__":
