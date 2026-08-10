@@ -177,18 +177,64 @@
 ;; THE HONEST EMPTIES — three states, three renderings
 ;; ---------------------------------------------------------------------------
 
-(deftest a-running-runtime-with-nothing-mounted-is-IDLE-not-absent
+(deftest a-running-runtime-with-nothing-mounted-is-EMPTY-not-absent
   (setup!)
-  (let [ids (testids (show! :mounted))]
-    (is (contains? ids "rf-xray-hicasso-idle")
-        "Hicasso answered and nothing is mounted — the one empty that is a
-         clean bill of health")
+  (let [tree (show! :mounted)
+        ids  (testids tree)]
+    (is (contains? ids "rf-xray-hicasso-empty-mounted")
+        "Hicasso answered and no boundary holds a read edge — a survey result")
     (is (not (contains? ids "rf-xray-hicasso-absent"))
-        "an idle runtime must NOT render as `no Hicasso on this host` — those
+        "an empty runtime must NOT render as `no Hicasso on this host` — those
          are unrelated facts with unrelated remedies")
-    (is (string/includes? (text-of (show! :mounted)) "clean bill of health"))))
+    (is (string/includes? (text-of tree) "survey result"))))
 
-(deftest a-host-without-hicasso-is-ABSENT-not-idle
+(deftest an-empty-roster-says-something-different-in-each-view
+  ;; AUDIT #7789, CORRECTNESS 3, on the page. One `:idle` note — "nothing is
+  ;; mounted, a clean bill of health" — rendered under all four views. Under
+  ;; Intents it told the reader a CAPPED window proved nothing had been
+  ;; dispatched. The four empties are now four testids and four sentences,
+  ;; and this drives the real panel to prove it.
+  (setup!)
+  (let [by-view (into {} (map (fn [v] [v (show! v)])) [:mounted :attribution
+                                                       :intents :explain])]
+    (testing "each view renders its OWN empty testid and no other view's"
+      (doseq [[view suffix] [[:mounted     "rf-xray-hicasso-empty-mounted"]
+                             [:attribution "rf-xray-hicasso-empty-attribution"]
+                             [:intents     "rf-xray-hicasso-empty-intents"]
+                             [:explain     "rf-xray-hicasso-empty-explain"]]]
+        (let [ids (testids (get by-view view))]
+          (is (contains? ids suffix)
+              (str view " must render its own empty note"))
+          (is (= 1 (count (filter #(string/starts-with? % "rf-xray-hicasso-empty-") ids)))
+              (str view " must render exactly one empty note — not a second view's")))))
+
+    (testing "the Intents empty is a CAP, and never a clean bill of health"
+      (let [txt (text-of (get by-view :intents))]
+        (is (string/includes? txt "CAP"))
+        (is (string/includes? txt "cannot say whether anything was dispatched"))
+        (is (not (string/includes? txt "clean bill of health"))
+            (str "the mounted census's verdict must not be read out here — an "
+                 "empty ring is a knob setting, not a finding"))))
+
+    (testing "and the cap's own loss note is rendered even with no rows at all"
+      (is (contains? (testids (get by-view :intents)) "rf-xray-hicasso-intents-origin")
+          (str "a view that showed its qualifications only when it had rows would "
+               "drop them exactly where the reader has least else to go on")))))
+
+(deftest the-mounted-census-does-not-claim-the-screen
+  ;; AUDIT #7792. The census cannot distinguish Activity-hidden from
+  ;; unmounted, and lists a Suspense-fallback-hidden subtree though it is
+  ;; off screen. The panel states that beside the rows rather than leaving
+  ;; the reader to supply the word "visible".
+  (setup!)
+  (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))
+        tree    (show! :mounted)]
+    (is (contains? (testids tree) "rf-xray-hicasso-mounted-visibility"))
+    (is (string/includes? (text-of tree) "SUBSCRIPTION"))
+    (is (string/includes? (text-of tree) "Suspense"))
+    (release)))
+
+(deftest a-host-without-hicasso-is-ABSENT-not-empty
   (setup!)
   (with-redefs [reads/evidence (constantly {:mounted-boundaries nil
                                             :read-attribution   nil
@@ -196,7 +242,7 @@
                                             :explain-render     nil})]
     (let [ids (testids (show! :mounted))]
       (is (contains? ids "rf-xray-hicasso-absent"))
-      (is (not (contains? ids "rf-xray-hicasso-idle"))))))
+      (is (not (contains? ids "rf-xray-hicasso-empty-mounted"))))))
 
 (deftest an-unparseable-schema-is-MISMATCH-and-suppresses-rows
   (setup!)
@@ -215,7 +261,7 @@
       (let [tree (show! :mounted)
             ids  (testids tree)]
         (is (contains? ids "rf-xray-hicasso-mismatch"))
-        (is (not (contains? ids "rf-xray-hicasso-idle")))
+        (is (not (contains? ids "rf-xray-hicasso-empty-mounted")))
         (is (string/includes? (text-of tree) "not taught to parse"))))
     (release)))
 
@@ -232,7 +278,7 @@
         txt  (text-of tree)
         ids  (testids tree)]
     (is (contains? ids "rf-xray-hicasso-mounted"))
-    (is (not (contains? ids "rf-xray-hicasso-idle")))
+    (is (not (contains? ids "rf-xray-hicasso-empty-mounted")))
     (is (string/includes? txt "2 instances")
         "the two boundaries with one edge set report as one row of two")
     (is (string/includes? txt "[:htab/left]"))
@@ -327,6 +373,52 @@
             "and the leads are not rendered as an empty list, which would read
              as `nothing recomputed anything`")))
     (release)))
+
+;; ---------------------------------------------------------------------------
+;; A SENSITIVE QUERY ARGUMENT REACHES NEITHER THE TEXT NOR A TESTID
+;; ---------------------------------------------------------------------------
+
+(def ^:private the-secret
+  "A value that exists nowhere else in this process, so finding it in the
+  rendered tree is proof of egress rather than a coincidence of spelling."
+  "RF2-HIC-023-PANEL-SECRET-4c1e8a07")
+
+(deftest a-sensitive-query-argument-reaches-neither-the-page-nor-a-testid
+  ;; AUDIT #7789, CORRECTNESS 1 — the half a data-only assertion cannot
+  ;; reach. The producer's key carried raw query arguments, and these
+  ;; helpers then PRINTED them in a boundary label and hashed them into a
+  ;; DOM testid. So the escape was observable on the page, under a
+  ;; `data-testid` a screenshot or a browser assertion would carry off the
+  ;; developer's box. An envelope-only control would have missed it, which
+  ;; is exactly what happened.
+  ;;
+  ;; Frame destruction is the forcing function: there the door PROMISES to
+  ;; fail closed, so nothing derived from the query may render.
+  (setup!)
+  (mount! (fn [_] (h/sub [:htab/left the-secret]) nil))
+  (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
+
+  (testing "NON-VACUITY: with the frame alive the argument really is on the page"
+    (is (string/includes? (text-of (show! :mounted)) the-secret)
+        (str "the classification model is fail-open, so an undeclared argument "
+             "rides as itself while the frame lives. If this row fails, the "
+             "assertions below are passing against a panel that was never "
+             "shown the value at all")))
+
+  (rf/destroy-frame! app-frame)
+  (doseq [view [:mounted :attribution :explain]]
+    (let [tree (show! view)]
+      (is (not (string/includes? (text-of tree) the-secret))
+          (str "the " view " view rendered a redacted query's argument as text"))
+      (is (not-any? #(string/includes? % the-secret) (testids tree))
+          (str "the " view " view put a redacted query's argument in a DOM "
+               "testid — which is where it leaves the box"))))
+
+  (testing "and the rows are still THERE, so the redaction is not merely an empty page"
+    (let [ids (testids (show! :mounted))]
+      (is (not (contains? ids "rf-xray-hicasso-empty-mounted"))
+          (str "a panel that rendered nothing would pass every assertion above "
+               "while proving none of them")))))
 
 ;; ---------------------------------------------------------------------------
 ;; BYTE-FOR-BYTE

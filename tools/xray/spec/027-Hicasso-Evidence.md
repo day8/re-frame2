@@ -125,6 +125,30 @@ every live boundary would need a registry or a field on the priced
 registration — a standing memory cost this producer will not levy for a
 panel's benefit.
 
+**The EXPORTED key is projected, element by element.** Each element is
+`[frame-id sub-id projected-query]` — never a raw sub-key. A key built from
+raw sub-keys carries every query ARGUMENT past the projector that had just
+been applied to the `:query` field, and carries it further than any field
+does: a key is what joins two rosters, what a panel prints in a boundary
+label, and what a DOM testid is derived from. It shipped that way in the
+first increment and the merged-PR audit of #7789 caught it.
+
+Two properties survive the change and both are load-bearing. The **join** is
+untouched, because both rosters derive keys through the one function and
+identical read sets still project to identical keys. The **registration id**
+rides beside the query because it is the one spelling redaction cannot take:
+where a frame's policy elides a query whole, `[:cart/item …]` and
+`[:user/token …]` project to the same sentinel and only the sub-id keeps them
+apart.
+
+The identity is therefore as fine as the egress policy allows and no finer.
+Where an application has declared the arguments that told two boundaries
+apart sensitive, those boundaries are ONE row here and `:read-orders` counts
+what folded in. That is the correct place for the collapse: the alternatives
+are a census keyed on data the door has promised not to carry, or two rows
+sharing one exported identity — which gives a panel duplicate DOM ids and a
+consumer an ambiguous join.
+
 ### Causality is never inferred from adjacency
 
 The Why view has a proven half and an uncorrelated half, and they are separate
@@ -133,7 +157,11 @@ fields on the row and separate lines on the screen.
 - **Proven.** A cell's `epoch` is re-stamped by every commit that moved its
   value, so `:latest-reads` — the boundary's reads at its highest epoch — are
   the ones that moved most recently. `:snapshot` is the exact number React
-  compares in `checkIfSnapshotChanged`.
+  compares in `checkIfSnapshotChanged`. Each entry names the READ
+  (`{:sub-id :query :frame-id}`, the query projected), not a bare sub-id:
+  `[:row 1]` and `[:row 2]` are one registration and two different reads, and
+  a Why view that answered ":row moved" to a developer looking at eight rows
+  would be collapsing an identity the door already held (audit #7789).
 - **Uncorrelated.** Hicasso's commit seam records no cascade id, so nothing in
   the retained window can be JOINED to a boundary's re-run. `:cause` is
   `:unknown` every time — structurally, not circumstantially: a bigger ring
@@ -146,6 +174,31 @@ fields on the row and separate lines on the screen.
 An empty window flips the row's loss from `:uncorrelated` to `:cap` and its
 `:candidates` from `[]` to `:unknown`, because no search happened — a
 distinction the tab renders and the suite drives.
+
+**Both halves are scoped to the boundary's own frames.** The window a row
+searches is the rings of the frames that row's reads actually name, and a
+candidate must match a read on `[frame-id sub-id]`. Counting retained runs
+globally lets activity in frame B report that frame A's window was searched —
+converting A's honest `:cap` into a false `:uncorrelated` — and matching on
+the sub-id alone then offers B's runs as A's leads for no better reason than
+that two frames registered the same sub id, which is a lead fabricated from a
+coincidence. Two mounted apps is the ordinary case, not the exotic one.
+`tool_reads_cljs_test/explain-render-scopes-its-window-and-its-leads-to-the-boundarys-own-frames`
+drives two frames sharing a sub id with asymmetric windows.
+
+### The intent stream is ordered by dispatch, not by frame
+
+Spec 009's rings are per frame; the stream is one. Rows are ordered by the
+process-monotonic `:dispatch-id` the router allocates at queue time, which IS
+the dispatch order across every frame — so the read can promise order and mean
+it. Concatenating whole per-frame rings in frame-id order asserts a sequence
+that never happened, alphabetically, the moment a second frame is live.
+
+A dispatch that touched two frames is captured in both rings, so fragments
+sharing a `:dispatch-id` are merged into the one row they describe: a row
+names `:frames` (plural) and the union of what it recomputed. Two rows would
+print one user action as two events; keeping the first would drop half of what
+it did.
 
 ### No read carries application data
 
@@ -164,21 +217,70 @@ Spec 015 governs that egress. `tool_reads_cljs_test`'s seeded-value witness
 proves the hazard is real (a cell's live reaction derefs to the seeded secret)
 before asserting the secret reaches none of the four envelopes.
 
+That witness covers a secret RETURN VALUE. A second pair covers a secret
+QUERY ARGUMENT, which is a different path and was the one that leaked:
+`a-sensitive-query-argument-never-reaches-a-key-a-reader-or-an-explanation`
+spans the mounted, attribution and Why envelopes, and
+`hicasso_cljs_test/a-sensitive-query-argument-reaches-neither-the-page-nor-a-testid`
+spans the rendered tree — text AND `data-testid`, because the helpers printed
+the raw query in a label and hashed it into a DOM id, so an envelope-only
+control cannot see the escape. Both use frame destruction as the forcing
+function (there the door promises to fail closed) and both carry a
+non-vacuity row proving the argument really was reachable first.
+
 ---
 
 ## Rendering contract
 
-### Three empties, three sentences
+### Every empty is its own sentence
 
-A tab showing no rows can mean three unrelated things with three unrelated
-remedies. Collapsing them would undo the schema one level up, so each renders
-under its own testid with its own prose.
+A tab showing no rows can mean unrelated things with unrelated remedies.
+Collapsing them would undo the schema one level up, so each renders under its
+own testid with its own prose.
 
 | Presence | testid | Means |
 |---|---|---|
 | `:absent` | `rf-xray-hicasso-absent` | the door answered `nil` — not running Hicasso, or a production build |
 | `:mismatch` | `rf-xray-hicasso-mismatch` | Hicasso answered, stamping a schema/producer this build was not taught |
-| `:idle` | `rf-xray-hicasso-idle` | Hicasso is running and nothing is mounted — the one empty that is a clean bill of health |
+| `:idle` | per view, below | Hicasso answered with an EMPTY roster — which is a different fact in each view |
+
+**The empty roster is four facts, not one.** The original single sentence —
+*nothing is mounted, the one empty that is a clean bill of health* — was
+written for the mounted census and then shown under all four views, where it
+told a reader that a capped intent window proved nothing had been dispatched
+(audit #7789). A confident wrong answer is worse than a visible gap, so each
+view answers for its own scope:
+
+| View | testid | What an empty roster means there |
+|---|---|---|
+| Mounted | `rf-xray-hicasso-empty-mounted` | no boundary holds a live read edge — a survey result, about SUBSCRIPTION rather than the screen |
+| Reads | `rf-xray-hicasso-empty-attribution` | no cell is held; compatible with mounted boundaries that read nothing |
+| Intents | `rf-xray-hicasso-empty-intents` | the retained window is empty — a CAP, which cannot say whether anything was dispatched |
+| Why | `rf-xray-hicasso-empty-explain` | there is no mounted boundary to explain; it follows the census and inherits its qualifications |
+
+Each view's loss and remedy render whether or not there are rows. A view that
+showed its qualifications only when it had something to qualify would drop
+them exactly where the reader has least else to go on.
+
+### Mounted means subscribed, and the tab says so
+
+The real-React lifecycle witness (audit #7792) established two facts this
+census cannot see, and the tab states both rather than letting a reader
+supply them:
+
+- an **Activity-hidden** subtree that has released its reads leaves the same
+  census as an **unmounted** one, and only a later 0-to-1 re-subscribe
+  distinguishes them, retrospectively;
+- a **Suspense-fallback-hidden** subtree stays SUBSCRIBED, so it is listed
+  here while absent from the screen.
+
+The producer names `:visibility` and `:hidden-retained` on the `:host`
+projection as `:unknown` on a `:host-opaque` basis, and the Mounted view
+renders the distinction beside the rows under
+`rf-xray-hicasso-mounted-visibility`. No observable is invented for it: the
+governing promise is amended instead, which is the honest half of the choice
+the audit offered. Hidden-retained is never inferred from an empty census, and
+a subscribed row is never labelled visible.
 
 ### Every absence is a chip, and the five chips differ
 
@@ -246,7 +348,7 @@ Adding it moved six governance pins, each of which fails the build on drift:
 | Suite | Tier | Proves |
 |---|---|---|
 | `re-frame.hicasso.evidence-schema-cljs-test` | node | every shape in which a projection would claim more than it knows is refused, each with a positive control |
-| `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; the seeded-value privacy witness; determinism; the production-nil arm |
-| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the three empties are pairwise distinct; the schema pin; row projections |
-| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; the loss states render under distinct testids, driven between two real window states; the seam reshapes nothing |
+| `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
+| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the four per-view empties; labels and testids are built from the projected key; two query variants do not collapse; the schema pin; row projections |
+| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; each view renders its own empty; the seam reshapes nothing |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |
