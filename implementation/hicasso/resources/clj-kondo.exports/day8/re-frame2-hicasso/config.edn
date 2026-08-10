@@ -36,6 +36,21 @@
   :re-frame.hicasso/nameless-interactive-element   {:level :warning}
   :re-frame.hicasso/parked-read                    {:level :warning}}
 
+ ;; The native tier's defining macro (rf2-hic-030). `defcomponent` is
+ ;; `defn`-shaped ALREADY — `(defcomponent sym doc? decl-map? [argv] body+)`
+ ;; is exactly `clojure.core/defn`'s `name doc-string? attr-map? [params*]
+ ;; body` — so it needs a rewrite rather than a hook: nothing about the
+ ;; native tier is checkable beyond the var it defines and the body it
+ ;; carries, and inventing a check here would be the lint layer growing a
+ ;; semantics the runtime does not have.
+ ;;
+ ;; `n/$` and `n/props` deliberately get NOTHING. They are ordinary macro
+ ;; calls whose operands are ordinary expressions, so clj-kondo already
+ ;; reads them correctly; a hook that re-stated the grammar would be a
+ ;; second, drifting copy of the one in `re-frame.hicasso.native`.
+ :lint-as
+ {re-frame.hicasso.native/defcomponent clojure.core/defn}
+
  :hooks
  {:analyze-call
   {re-frame.hicasso/defview hooks.re-frame.hicasso/defview
