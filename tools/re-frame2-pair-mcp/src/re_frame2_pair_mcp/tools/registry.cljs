@@ -23,7 +23,7 @@
             [re-frame2-pair-mcp.tools.orient :as orient]
             [re-frame2-pair-mcp.tools.read-dom :as read-dom]
             [re-frame2-pair-mcp.tools.read-ui :as read-ui]
-            [re-frame2-pair-mcp.tools.view-tool :as view-tool]
+            [re-frame2-pair-mcp.tools.hicasso-tool :as hicasso-tool]
             [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]
             [re-frame2-pair-mcp.tools.subscribe :as subscribe]
@@ -127,30 +127,22 @@
     ;; mutation, so a cache keyed on app-db would serve stale render reads.
     :cacheable? false
     :descriptor data/read-ui}
-   ;; The five read-only re-frame.freehand.tool reads — the Freehand view
+   ;; The three read-only re-frame.hicasso.tool reads — the adapter-neutral
    ;; evidence a pairing agent reads from a running app. NOT cacheable: the
-   ;; manifest can move on an HMR body swap and the current-occurrence index
-   ;; moves with every commit — neither bumps the app-db precheck hash the cache
-   ;; keys on, so a cache would serve stale view reads (the read-ui / read-dom
-   ;; posture).
-   {:name       "read-view-manifest"
-    :handler    (ignoring-extra #(view-tool/read-view-manifest-tool %1 %2))
+   ;; read-set entry cache, the cell table and their epochs move with every
+   ;; commit and every mount, none of which bumps the app-db precheck hash the
+   ;; cache keys on, so a cache would serve stale evidence (the read-ui /
+   ;; read-dom posture).
+   {:name       "read-mounted-boundaries"
+    :handler    (ignoring-extra #(hicasso-tool/read-mounted-boundaries-tool %1 %2))
     :cacheable? false
-    :descriptor data/read-view-manifest}
-   {:name       "read-view-dependencies"
-    :handler    (ignoring-extra #(view-tool/read-view-dependencies-tool %1 %2))
+    :descriptor data/read-mounted-boundaries}
+   {:name       "read-read-attribution"
+    :handler    (ignoring-extra #(hicasso-tool/read-read-attribution-tool %1 %2))
     :cacheable? false
-    :descriptor data/read-view-dependencies}
-   {:name       "read-view-event-sites"
-    :handler    (ignoring-extra #(view-tool/read-view-event-sites-tool %1 %2))
-    :cacheable? false
-    :descriptor data/read-view-event-sites}
-   {:name       "read-mounted-views"
-    :handler    (ignoring-extra #(view-tool/read-mounted-views-tool %1 %2))
-    :cacheable? false
-    :descriptor data/read-mounted-views}
+    :descriptor data/read-read-attribution}
    {:name       "explain-render"
-    :handler    (ignoring-extra #(view-tool/explain-render-tool %1 %2))
+    :handler    (ignoring-extra #(hicasso-tool/explain-render-tool %1 %2))
     :cacheable? false
     :descriptor data/explain-render}
    {:name       "record"
