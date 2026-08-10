@@ -308,7 +308,8 @@
   by requiring `cljs.tagged-literals`, which would put ClojureScript on
   this artefact's JVM classpath for one predicate."
      [form]
-     (= "cljs.tagged_literals.JSValue" (.getName (class form)))))
+     (and (some? form)
+          (= "cljs.tagged_literals.JSValue" (.getName (class form))))))
 
 #?(:clj
    (defn- macro-target
