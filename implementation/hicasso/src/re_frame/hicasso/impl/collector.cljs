@@ -712,16 +712,46 @@
   all a correct read needs: [[read-key!]] treats a cell with no reaction
   exactly as it treats a key with no cell and goes through
   [[cold-read!]]'s probe, so every render from this instant on computes
-  against the new registration and the live frame. **On a macrotask** the durable
-  attachment is rebuilt, so later writes notify again — deferred because
-  this callback runs inside the registrar's replacement hook, inside its
-  registration hook and inside frame teardown, and none of them is a
-  place to subscribe. A frame that did not come back has nothing to
-  rebuild against, and the cell is disposed instead."
+  against the new registration and the live frame. **At the microtask
+  checkpoint** the durable attachment is rebuilt, so later writes notify
+  again — deferred because this callback runs inside the registrar's
+  replacement hook, inside its registration hook and inside frame
+  teardown, and none of them is a place to subscribe. A frame that did
+  not come back has nothing to rebuild against, and the cell is disposed
+  instead.
+
+  **The deferral is a microtask, and that is a correctness requirement
+  rather than a preference** (rf2-2l17). Design law React 3 requires a
+  render/commit tear to be corrected *before visible paint*, and the
+  `mark-dirty!` below IS that correction: `commit-basis` ties across a
+  same-id reincarnation — the frame term restarts and neither of the
+  other two is a frame fact — so `getSnapshot` ties, React schedules
+  nothing at the instant the successor seats, and the committed fiber
+  goes on holding the predecessor's value until the rebuild moves the
+  number. This was a `setTimeout 0`, which hands the correction to a
+  LATER task, and the event loop is free to update the rendering between
+  tasks: the predecessor's value could reach the screen, and on a
+  tenant or account switch that is another tenant's data, briefly, with
+  no trace left by the time anyone looks. The microtask checkpoint
+  cannot be skipped that way. It drains before the same task's
+  update-the-rendering step, and it drains microtasks queued *while*
+  draining — which is how React's own microtask-scheduled sync-lane
+  flush for the `useSyncExternalStore` notification gets in — so the
+  rebuild, the re-stamp, the notification, and React's render and commit
+  all complete ahead of the next paint.
+
+  What it may not become is *no* deferral. Rewiring in-stack re-enters
+  the three hooks named above and was measured red; the unwound stack is
+  the whole of what the deferral buys, and the microtask checkpoint is
+  the earliest moment the stack is unwound. The narrowing that costs is
+  that the rewire window is now the current checkpoint rather than a
+  whole task, so a successor seated in a LATER task finds the cell
+  disposed — and recovers, through [[cold-read!]]'s probe on the next
+  render, which is the same recovery a key that never had a cell gets."
   [^js cell]
   (when-not (.-disposed cell)
     (set! (.-reaction cell) nil)
-    (js/setTimeout
+    (js/queueMicrotask
       (fn []
         (when-not (.-disposed cell)
           (if (nil? (frame/frame-incarnation-token (.-frameKw cell)))
@@ -730,8 +760,7 @@
                 ;; Re-stamp and notify: a boundary that painted before the
                 ;; disposal painted the retired computation, and this is the
                 ;; commit that corrects it.
-                (mark-dirty! cell)))))
-      0))
+                (mark-dirty! cell)))))))
   nil)
 
 (defn- first-registration!

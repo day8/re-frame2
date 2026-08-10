@@ -1,18 +1,27 @@
 (ns re-frame.hicasso.reincarnation-cells-cljs-test
   "SAME-PUBLIC-ID FRAME REINCARNATION, COMMITTED SIDE — the held cell, the
-  number React re-reads, and the repair that arrives on a timer
-  (rf2-hic-013).
+  number React re-reads, and the repair that lands before control returns
+  to the event loop (rf2-hic-013, rescheduled by rf2-2l17).
 
   `reincarnation_routing_cljs_test` takes the transition on the WRITE
   path. This file takes it on the committed READ path, where the delayed
   operation is the runtime's own: frame teardown disposes the frame's
   cached reactions, `re-frame.hicasso.impl.collector/invalidate-cell!`
   drops the reference SYNCHRONOUSLY and defers rebuilding the durable
-  attachment to a MACROTASK — and that deferred callback has to decide,
-  one tick later, which incarnation it is rebuilding against. Its own
+  attachment to a MICROTASK — and that deferred callback has to decide,
+  at the checkpoint, which incarnation it is rebuilding against. Its own
   docstring names the case: *a frame destruction, whose teardown disposes
   the frame's cached reactions — including across a same-id
   reincarnation*.
+
+  **The deferral used to be a `setTimeout 0`, and rf2-2l17 moved it.**
+  Design law React 3 requires a render/commit tear to be corrected
+  before visible paint, and a later task carries no such ordering
+  promise. So every wait below is [[re-frame.hicasso.checkpoint-support/drain-checkpoint]]
+  rather than a timer: it asserts the repair completed *inside the
+  current microtask checkpoint*, which is the property the law needs and
+  a duration cannot express. `reincarnation_paint_dom_cljs_test` is the
+  same claim read in a real browser, where the paint is.
 
   ## Why the DOM cannot see this and `snapshot-of` can
 
@@ -28,8 +37,9 @@
   `re-frame.hicasso.impl.generation/commit-basis`, whose three terms are
   all structurally blind to the transition. So at the instant the
   successor seats, React has been told nothing, the committed boundary
-  still holds the predecessor's value, and no re-render is scheduled. One
-  macrotask later the deferred repair fires and the number moves.
+  still holds the predecessor's value, and no re-render is scheduled. At
+  the microtask checkpoint the deferred repair fires and the number moves
+  — still inside the task that seated the successor.
 
   That window is the whole fault, and it is invisible to a rendered-markup
   assertion in both directions: read the DOM inside the window and a
@@ -37,7 +47,10 @@
   and blames its own timing; read it after the window and the repair has
   already run, so it sees the correct value and reports green. Only the
   snapshot number, the notification count and the cell's reaction
-  reference distinguish *repaired* from *never broken*.
+  reference distinguish *repaired* from *never broken* — at this seam.
+  Where the value can actually reach a screen, the DOM read at the first
+  rendering opportunity distinguishes them too, and that is what the
+  `_paint_dom_` companion is for.
 
   ## The harness is the commit seam, not a browser
 
@@ -52,6 +65,7 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::reincarnation-cells)
@@ -61,7 +75,7 @@
 
 ;; `:async? true` — `cljs.test` hard-errors on a fn-form fixture in a namespace
 ;; containing an `(async done …)` test, and the deferred repair under witness
-;; here is only observable across a macrotask.
+;; here is only observable across a promise turn.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
@@ -94,12 +108,12 @@
         release  (collector/commit-boundary! entry (fn [] (vswap! notified inc)))]
     {:value value :entry entry :notified notified :release release}))
 
-(defn- after-macrotask
-  "Run `f` strictly after the repair's own `setTimeout 0`. 30 ms rather
-  than 0 so the wait is not a race against the runtime's own timer
-  ordering."
-  [f]
-  (js/setTimeout f 30))
+(def ^:private at-the-checkpoint
+  "Every wait in this file. See
+  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] — it is the
+  30 ms timer's replacement, and the reason for the replacement is that a
+  duration was green for both schedulings."
+  support/at-the-checkpoint)
 
 ;; ---------------------------------------------------------------------------
 ;; 1. React's own change-detection number ties across the transition
@@ -148,12 +162,16 @@
                   throughout this window"
           (is (= "B" (collector/render-body frame-id body {}))))
 
-        (after-macrotask
-          (fn []
-            (testing "one macrotask later the deferred repair has routed to the
-                      LIVE incarnation: the attachment is rebuilt, the number
-                      moves, and the boundary is notified so it can correct
-                      what it painted"
+        (at-the-checkpoint
+          #(some? (inventory/cell-reaction sub-key))
+          "the reincarnation repair"
+          done
+          (fn [_turns]
+            (testing "inside the SAME microtask checkpoint — so before the
+                      event loop can take a rendering opportunity — the
+                      deferred repair has routed to the LIVE incarnation: the
+                      attachment is rebuilt, the number moves, and the
+                      boundary is notified so it can correct what it painted"
               (is (some? (inventory/cell-reaction sub-key))
                   "the cell is re-wired rather than left deaf")
               (is (> (collector/snapshot-of entry) snapshot-before)
@@ -161,8 +179,7 @@
               (is (> @notified notified-before)
                   "the committed boundary is notified — the repair is
                    delivered, not merely performed"))
-            (release)
-            (done)))))))
+            (release)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. No successor — the same delayed callback routes to disposal instead
@@ -183,19 +200,22 @@
         (is (nil? (inventory/cell-reaction sub-key)))
         (is (= 1 (:cells (inventory/residue)))))
 
-      (after-macrotask
-        (fn []
-          (testing "one macrotask later, with nothing to rebuild against, the
+      (at-the-checkpoint
+        #(zero? (:cells (inventory/residue)))
+        "the no-successor disposal"
+        done
+        (fn [_turns]
+          (testing "at the checkpoint, with nothing to rebuild against, the
                     same deferred callback DISPOSES rather than re-wiring — the
                     exact, testable teardown invariant 5 requires, with zero
-                    residue after quiescence"
+                    residue after quiescence, and the rescheduling in rf2-2l17
+                    moved when that happens without changing what happens"
             (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
                    (dissoc (inventory/residue) :entries))
                 "no cell, no reader membership, no dependency edge survives a
                  frame that did not come back")
             (is (nil? (inventory/cell-reaction sub-key))))
-          (release)
-          (done))))))
+          (release))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. The reincarnation branch is chosen by the frame's LIVENESS, not by the
@@ -205,10 +225,17 @@
 (deftest the-deferred-repair-branches-on-the-successor-existing
   ;; Sections 1 and 2 run the identical deferred callback and reach opposite
   ;; outcomes. This asserts they are opposite for the stated reason — the
-  ;; successor's existence at the moment the timer fires — rather than by two
+  ;; successor's existence when the deferred phase fires — rather than by two
   ;; coincidences. The frame is recreated INSIDE the window, after the
   ;; synchronous phase has already dropped the reference and before the
   ;; deferred phase runs.
+  ;;
+  ;; rf2-2l17 narrowed that window from a whole macrotask to the current
+  ;; microtask checkpoint, and the row keeps its meaning unchanged because it
+  ;; seats the successor SYNCHRONOUSLY: only the fire time moved earlier. A
+  ;; successor seated in a later task now finds the cell disposed and recovers
+  ;; through `cold-read!`'s probe on the next render instead, which is the
+  ;; recovery a key that never had a cell already gets.
   (async done
     (incarnate! "A")
     (let [{:keys [entry release]} (render+commit!)]
@@ -218,14 +245,16 @@
       ;; Seat the successor while the deferred phase is still pending.
       (rf/make-frame {:id frame-id})
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc-cell/seed "B"]))
-      (after-macrotask
-        (fn []
+      (at-the-checkpoint
+        #(some? (inventory/cell-reaction sub-key))
+        "the liveness branch"
+        done
+        (fn [_turns]
           (testing "a successor seated INSIDE the deferral window flips the
                     branch from dispose to re-wire — so the two outcomes are
-                    the frame's liveness, read when the timer fires"
+                    the frame's liveness, read when the deferred phase fires"
             (is (some? (inventory/cell-reaction sub-key)))
             (is (= 1 (:cells (inventory/residue)))))
           (testing "and the re-wired cell answers for the SUCCESSOR"
             (is (= "B" (collector/render-body frame-id body {}))))
-          (release)
-          (done))))))
+          (release))))))

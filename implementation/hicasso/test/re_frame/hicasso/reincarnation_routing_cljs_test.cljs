@@ -54,7 +54,9 @@
 
   `reincarnation_cells_cljs_test` takes the same transition on the
   committed side: the held cell, React's own change-detection number, and
-  the macrotask-deferred repair."
+  the repair deferred to the microtask checkpoint.
+  `reincarnation_paint_dom_cljs_test` takes it in a real browser, where
+  the ordering of that repair against paint is what is at stake."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]

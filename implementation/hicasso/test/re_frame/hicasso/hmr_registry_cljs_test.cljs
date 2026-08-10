@@ -51,6 +51,7 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.generation :as generation]
             [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::hmr-registry)
@@ -98,12 +99,14 @@
   [a b]
   (identical? a b))
 
-(defn- after-macrotask
-  "Run `f` strictly after the deferred repair's own `setTimeout 0`. 30 ms
-  rather than 0 so the wait is not a race against the runtime's timers —
-  the number the sibling reincarnation suites use, for the same reason."
-  [f]
-  (js/setTimeout f 30))
+(def ^:private at-the-checkpoint
+  "The wait for the deferred repair. See
+  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]]: rf2-2l17
+  moved the repair from a `setTimeout 0` to a microtask, so the 30 ms
+  timer this used to be is no longer a statement about anything — it was
+  green for either scheduling. The sibling reincarnation suites wait the
+  same way, on the same instrument, for the same reason."
+  support/at-the-checkpoint)
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The counter a reload moves
@@ -215,15 +218,17 @@
     ((:release held))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. The edited subscription: deaf for one macrotask, then repaired
+;; 4. The edited subscription: deaf for the rest of the stack, then repaired
 ;; ---------------------------------------------------------------------------
 
-(deftest editing-a-sub-and-saving-repairs-its-readers-one-macrotask-later
+(deftest editing-a-sub-and-saving-repairs-its-readers-at-the-microtask-checkpoint
   ;; The reload a developer actually performs: change the body of a `reg-sub`
   ;; and hit save. The re-registration arrives at the arm as a disposal, so
   ;; `invalidate-cell!` drops the held reference SYNCHRONOUSLY and defers the
-  ;; rebuild to a macrotask — the same two-phase repair rf2-hic-013 measured
-  ;; from the reincarnation side, reached here by the registry route.
+  ;; rebuild to a microtask — the same two-phase repair rf2-hic-013 measured
+  ;; from the reincarnation side, reached here by the registry route, and
+  ;; rescheduled by rf2-2l17 so the correction lands before visible paint
+  ;; (design law React 3) rather than in some later task.
   (async done
     (seeded! "hello")
     (let [{:keys [entry notified release value]} (mount-boundary! label-body)]
@@ -264,20 +269,23 @@
                   can see none of this"
           (is (= "HELLO" (collector/render-body frame-id label-body {}))))
 
-        (after-macrotask
-          (fn []
-            (testing "one macrotask later the deferred phase has re-wired the
-                      cell against the new registration, moved the number and
-                      delivered the notification — so a boundary that painted
-                      before the save is told to correct itself"
+        (at-the-checkpoint
+          #(some? (inventory/cell-reaction label-key))
+          "the edited-sub repair"
+          done
+          (fn [_turns]
+            (testing "at the microtask checkpoint — still inside the task that
+                      saved — the deferred phase has re-wired the cell against
+                      the new registration, moved the number and delivered the
+                      notification, so a boundary that painted before the save
+                      is told to correct itself before the next paint"
               (is (some? (inventory/cell-reaction label-key))
                   "re-wired rather than left deaf")
               (is (> (collector/snapshot-of entry) snapshot-before)
                   "the number React re-reads has moved")
               (is (> @notified notified-before)
                   "the repair is delivered, not merely performed"))
-            (release)
-            (done)))))))
+            (release)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. The frame across a reload
