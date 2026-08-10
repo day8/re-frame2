@@ -26,7 +26,7 @@
             [[host?]], [[callback?]], [[view-name]], [[host-policy]],
             [[canonical-dom]], [[capture-intents]], [[fire!]].
       L2  one hook-free Hicasso body, run for its semantic tree
-          → [[render]] + [[find]] / [[find-all]] / [[attrs]] / [[text]] /
+          → [[tree]] + [[find]] / [[find-all]] / [[attrs]] / [[text]] /
             [[intents]].
       L3  React lifecycle, context, hooks, refs, errors, foreign hosts
           → the mounted facade (rf2-hic-027). NOT here.
@@ -66,7 +66,7 @@
 
   ## The tree is Spec 004B version 1, not a second schema
 
-  [[render]] answers the **versioned structural tree** that
+  [[tree]] answers the **versioned structural tree** that
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../../spec/004B-UI-Tree-and-Conversion.md)
   §The node schema already pins — the same closed node set, the same
   discrimination order, the same `:rf.ui/tree-version` root gate, the
@@ -109,7 +109,7 @@
 
   ## What L2 runs, and what it refuses
 
-  [[render]] takes a hiccup form whose head is **a body function** — the
+  [[tree]] takes a hiccup form whose head is **a body function** — the
   `(fn [props] …)` a `defview` is minted from — or the minted view
   itself:
 
@@ -120,8 +120,8 @@
       (h/defview todo-row [props] (todo-row-body props))
 
       (deftest the-row-carries-its-toggle-intent
-        (let [tree (ht/render [todo-row-body {:id 1}]
-                              {:reads {[:todo/by-id 1] {:text \"milk\"}}})
+        (let [tree (ht/tree [todo-row-body {:id 1}]
+                            {:subs {[:todo/by-id 1] {:text \"milk\"}}})
               li   (ht/find tree #(= :li (:tag %)))]
           (is (= \"milk\" (ht/text li)))
           (is (= [:todo/toggle 1] (:on-click (ht/attrs li))))))
@@ -136,7 +136,7 @@
   `goog.DEBUG=false`
   carries no such property and a minted head refuses there, which costs
   nothing because a production bundle may not `:require` this namespace
-  at all. See [[render]] for the full statement.
+  at all. See [[tree]] for the full statement.
 
   That is the ROOT form's rule. A boundary reached as a CHILD records
   the call rather than expanding it, whatever the build — see §Children.
@@ -178,9 +178,9 @@
     unforced `delay`, which Hicasso itself refuses at a boundary
     crossing. A MALFORMED escape is not opaque — see above.
 
-  ### Reads
+  ### Subs
 
-  `:reads` is the injected fixture map — query vector to value. A read
+  `:subs` is the injected fixture map — query vector to value. A read
   the fixtures do not answer is a **refusal**, never a nil: an unanswered
   read that returned nil would make a body that reads the wrong key look
   exactly like a body that reads the right one and finds nothing.
@@ -189,7 +189,7 @@
   a probe frame keyword minted for the one call, and removed when it
   returns, so nothing subscribes, nothing is watched, no ref-count moves
   and no disposal obligation is left behind. Frame scope stays the
-  programmer's ordinary bracket: [[render]] takes no frame and binds
+  programmer's ordinary bracket: [[tree]] takes no frame and binds
   none.
 
   ## Scope
@@ -266,7 +266,7 @@
     :mechanism "pure data and property assertions"}
    {:tier :l2 :here? true
     :proves    "one hook-free Hicasso body, as a semantic tree"
-    :mechanism "re-frame.hicasso.test/render under injected read fixtures"}
+    :mechanism "re-frame.hicasso.test/tree under injected read fixtures"}
    {:tier :l3 :here? false
     :proves    "React lifecycle, context, hooks, refs, errors, foreign hosts"
     :mechanism "the mounted React DOM facade (rf2-hic-027) with Testing Library"}
@@ -662,7 +662,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def tree-version
-  "The structural-tree schema version [[render]] stamps on its root —
+  "The structural-tree schema version [[tree]] stamps on its root —
   Spec 004B version 1. Validated first by every consumer, which is what
   makes a tree from a future emitter fail loud rather than read wrong."
   1)
@@ -923,7 +923,7 @@
   reach that failed: L2 is ONE body, run for its semantic tree, and it
   expands no children of its own. The child's body is perfectly
   reachable — the mint retains it on the head under a dev-only own
-  property, which is how [[render]] accepts a minted head at the ROOT —
+  property, which is how [[tree]] accepts a minted head at the ROOT —
   so expanding it here would be L2 quietly becoming a renderer, and a
   tree spanning two views cannot say which of them a red belongs to.
   Render the child's own form to assert its contents."
@@ -997,7 +997,7 @@
                       "refuses that outright (HD-016) rather than embedding it "
                       "silently, so this kit refuses it too. Mint the boundary "
                       "with `h/defview`, or — to run this body at L2 — pass it "
-                      "as the ROOT form of `render`.")
+                      "as the ROOT form of `tree`.")
                  :mint-the-boundary-or-render-it-as-the-root
                  {:value form})
         (refuse! :rf.error/ui-tree-malformed
@@ -1073,9 +1073,9 @@
   runtime's own read path — no second resolver, no branch in the
   collector, and nothing for a fixture to be inconsistent with. The frame
   keyword is minted per call, so an installed key cannot collide with a
-  live cell, and [[render]] removes every one of them on the way out."
-  [frame-kw reads]
-  (let [keys' (mapv (fn [[query-v _]] [frame-kw query-v]) reads)]
+  live cell, and [[tree]] removes every one of them on the way out."
+  [frame-kw fixtures]
+  (let [keys' (mapv (fn [[query-v _]] [frame-kw query-v]) fixtures)]
     (swap! collector/!cells
            (fn [cells]
              (reduce-kv (fn [m query-v v]
@@ -1090,7 +1090,7 @@
                           (assoc m [frame-kw query-v]
                                  #js {"reaction" (atom v) "epoch" 0}))
                         cells
-                        reads)))
+                        fixtures)))
     keys'))
 
 (defn- verify-fixtures!
@@ -1101,8 +1101,8 @@
   than what its source appears to read — a read inside a `when` that was
   not taken is correctly absent, and a read from an inlined helper is
   correctly present."
-  [frame-kw reads entry]
-  (let [supplied (into #{} (map (fn [[q _]] [frame-kw q])) reads)
+  [frame-kw fixtures entry]
+  (let [supplied (into #{} (map (fn [[q _]] [frame-kw q])) fixtures)
         missing  (remove supplied (collector/reads-of entry))]
     (when (seq missing)
       (refuse! :rf.error/hicasso-test-missing-read-fixture
@@ -1116,15 +1116,15 @@
                     "nothing.")
                :add-the-query-to-reads
                {:missing   (mapv second missing)
-                :supplied  (mapv first reads)
+                :supplied  (mapv first fixtures)
                 :phase     :after-body-run}))))
 
-(defn render
+(defn tree
   "Run one hook-free Hicasso **body** under injected read fixtures, and
   answer its versioned semantic tree.
 
-      (ht/render [todo-row-body {:id 1}]
-                 {:reads {[:todo/by-id 1] {:text \"milk\"}}})
+      (ht/tree [todo-row-body {:id 1}]
+               {:subs {[:todo/by-id 1] {:text \"milk\"}}})
       ;; => {:rf.ui/tree-version 1
       ;;     :tag :li
       ;;     :events {:on-click [:todo/toggle 1]}
@@ -1132,7 +1132,7 @@
 
   `form` is `[body-fn props & children]` — the ordinary hiccup call
   spelling, with the **body function** in head position. `opts` carries
-  one key, `:reads`, the fixture map from query vector to value.
+  one key, `:subs`, the fixture map from query vector to value.
 
   ## What it is
 
@@ -1167,7 +1167,7 @@
 
   - **A `h/defhost` crossing, a raw React element, an unforced `delay`**,
     anywhere in the tree — opaque, with a pointer to L3.
-  - **A read no fixture answers** — see [[render]]'s `:reads`.
+  - **A read no fixture answers** — see `:subs` above.
 
   ## Frame scope
 
@@ -1175,11 +1175,11 @@
   keyword minted for this call and removed when it returns; frame scope
   for the events and subscriptions AROUND a view test stays the
   programmer's ordinary `rf/with-new-frame` / `rf/with-frame` bracket."
-  ([form] (render form {}))
-  ([form {:keys [reads] :or {reads {}}}]
+  ([form] (tree form {}))
+  ([form {fixtures :subs :or {fixtures {}}}]
    (when-not (and (vector? form) (seq form))
      (refuse! :rf.error/hicasso-test-not-a-render-form
-              (str "render takes a hiccup form `[body-fn props & children]`; "
+              (str "tree takes a hiccup form `[body-fn props & children]`; "
                    "it was given " (pr-str form) ".")
               :pass-a-hiccup-form
               {:value form}))
@@ -1216,17 +1216,17 @@
                        {:host (view-name head)}))
      (when-not (fn? head)
        (refuse! :rf.error/hicasso-test-not-a-body
-                (str "render's head is the BODY FUNCTION a `h/defview` is "
+                (str "tree's head is the BODY FUNCTION a `h/defview` is "
                      "minted from — `(fn [props] …)`. It was given "
                      (pr-str head) ".")
                 :pass-the-body-fn
                 {:value head}))
-     (when-not (map? reads)
+     (when-not (map? fixtures)
        (refuse! :rf.error/hicasso-test-bad-reads
-                (str ":reads is the fixture map from query vector to value; it "
-                     "was given " (pr-str reads) ".")
+                (str ":subs is the fixture map from query vector to value; it "
+                     "was given " (pr-str fixtures) ".")
                 :pass-a-map-of-query-to-value
-                {:value reads}))
+                {:value fixtures}))
      (let [frame-kw (keyword "re-frame.hicasso.test"
                              (str "probe-" (swap! !probe-seq inc)))
            has-props? (map? (nth form 1 nil))
@@ -1242,7 +1242,7 @@
                       (assoc props :children cs)
                       props)
            !tree    (volatile! nil)
-           keys'    (install-fixtures! frame-kw reads)]
+           keys'    (install-fixtures! frame-kw fixtures)]
        (try
          (collector/render-body
            frame-kw
@@ -1250,7 +1250,7 @@
              (vreset! !tree (canonical-children [(head p)] nil))
              nil)
            props)
-         (verify-fixtures! frame-kw reads (collector/last-reads))
+         (verify-fixtures! frame-kw fixtures (collector/last-reads))
          ;; 004B §Versioning — the emitter returns the ROOT NODE, always a
          ;; map, carrying the version. A body that answered ONE node roots
          ;; in it; a body that answered text, several nodes, or NOTHING
@@ -1303,7 +1303,7 @@
   [got]
   (refuse! :rf.error/ui-tree-malformed
            (str "not a structural tree node — a projection takes a node (the "
-                "value ht/render returns, or any node reached by traversing it "
+                "value ht/tree returns, or any node reached by traversing it "
                 "with (tree-seq map? :children tree)); got " (pr-str got) ".")
            :no-recovery
            {:value got}))
