@@ -60,7 +60,7 @@ HOOK_FILE = os.path.join(EXPORT_DIR, "hooks", "re_frame", "hicasso.clj")
 # cannot see.
 EXPECTED = {
     # ERRORS -- true invariants (operator ruling, rf2-hic-022).
-    "direct-view-call":             [25],
+    "direct-view-call":             [25, 144],
     "function-in-head-position":    [99, 102, 105, 110, 114],
     # WARNINGS -- heuristics and assistance. Nothing blocks a build.
     "deferred-read":                [32, 37, 43],
