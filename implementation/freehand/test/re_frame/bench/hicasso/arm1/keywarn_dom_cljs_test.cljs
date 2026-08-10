@@ -28,7 +28,8 @@
   A `window` `error` listener rides alongside the two channel spies
   because React routes a throw during a commit to `reportError`, where
   `cljs.test` reads 0 failures over a live exception — the same guard
-  `host-ssr-dom-cljs-test`'s `watch-errors!` carries.
+  `re-frame.hicasso.host-ssr-dom-cljs-test`'s `watch-errors!` carries
+  (that suite is the package's now — a port is a move, rf2-c78g).
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every claim degrades to a stated skip."

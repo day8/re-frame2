@@ -33,18 +33,48 @@ count here.
 **And every count in this document is a dated census, not a live inventory.** It was taken over 69
 files; read on `origin/main` at 2026-08-11 the bench tree holds **63** of them (25,268 lines). The
 six `front/*` rows — the first wave the PORT table's sequencing paragraph names — have gone, and the
-arithmetic closes exactly: their six line counts sum to 2,767, and 28,035 − 2,767 = 25,268. The
+arithmetic closes exactly: their six line counts sum to 2,767, and 28,035 − 2,767 = 25,268. The two
+`:ssr` rows below have since gone the same way (rf2-c78g), taking the tree to **61** files and
+24,222 lines — 25,268 − 670 − 376. The
 counts are deliberately left at their census values rather than tracked, because the verdicts are
 what this document is for and a decision record that renumbers itself every time a row is acted on
 is a ledger nobody can audit. **Read the counts as of the census; read the tree for what is in it
 now.**
 
-**A port is not reliably a move, though, and that is worth someone's attention.** The six `front/*`
-ports deleted their bench originals; the two `:ssr` ports did not, so
-`arm1/host_ssr_dom_cljs_test.cljs` and `arm1/fallback_contents_cljs_test.cljs` now exist in **both**
-trees. This document's own STAYS reasoning says why that matters — *"a second copy doubles the
-maintenance and the two drift"* — so the two conventions cannot both be right. Deciding which is not
-this row's to take, and it is flagged here rather than settled.
+## Executing a verdict: a port is a move
+
+**rf2-c78g**, ruled 2026-08-11. A verdict says where a suite belongs. This section says what
+*executing* one does to the original, and it is written here once so that no later port has to
+re-derive it. The tree was briefly inconsistent about it — the six `front/*` ports deleted their
+bench originals and the two `:ssr` ports did not — and this is the settlement.
+
+**The default: a port deletes the original.** Executing a PORT verdict *moves* the suite; it does
+not copy it. That matches what six of the eight ports already did, and it is the only option that
+cannot rot: one copy, so there is nothing to drift out of step with.
+
+**Why the default goes this way rather than the other.** A duplicated suite drifts **silently**. The
+two copies compile in different lanes against different hosts, so a fix applied to one and not the
+other leaves a green build with a stale witness still asserting the old behaviour — and the stale
+one keeps **passing**. Nothing goes red to announce it, which is the worst shape of test rot. It is
+the reasoning the STAYS table already runs on its own account: *"a second copy doubles the
+maintenance and the two drift."*
+
+**The exception: a port may leave the original standing, and it has to justify itself in the row.**
+Both halves are required — **a recorded reason**, and **a named condition** under which the original
+is deleted later. *"We might still want it"* is not a reason. A reason is **a capability the package
+copy does not have**, and the capability that has actually occurred is a **host**:
+`implementation/hicasso/*` does not arm `implementation_jvm`, so a bench original can be riding a
+JVM lane the package copy has none for. That is what decided
+[`front/slot_cljs_test.cljc`](#1-frontslot_cljs_testcljc--no-jvm-lane), and it is what the exception
+exists for. An exception written down is cheap; a silent duplicate is not.
+
+**And the exception is measured, not assumed.** Before leaving an original standing, measure both
+copies' lanes rather than reading the path filters: derive which builds select each namespace from
+`implementation/shadow-cljs.edn`'s own `:ns-regexp`s, hand both paths to
+`.github/scripts/report-changed-surfaces.sh`, and where a JVM lane is in question, *run* it. The two
+`:ssr` rows were put through exactly that; neither had a host of its own and both originals are
+deleted. The measurements are in
+[2. the `:ssr` trio](#2-the-ssr-trio--not-blocked-and-the-third-member-is-a-different-bead).
 
 ## The three facts that decide most rows
 
@@ -255,7 +285,8 @@ Four are blocked on something concrete, and the block is the interesting part:
   `:ssr` fallback may contain. Genuine package behaviour, and at census time
   `implementation/hicasso/` had no `:ssr` witness of its own, so **this pair was the answer to
   rf2-6rw9** — and it is the answer that was taken: **both are now on the package** (PR #7842), and
-  the package's `:ssr` gap is closed. ~~Blocked twice over: the two files `:require` each
+  the package's `:ssr` gap is closed. **The bench originals are deleted** (rf2-c78g): a port is a
+  move, and neither copy carried a host the package copy could not reach. ~~Blocked twice over: the two files `:require` each
   other, so they move together; and both reach `re-frame.bench.hicasso.ssr.entry`, which has no
   package counterpart. Porting them means giving the package an SSR entry first — which is
   rf2-6rw9's work, not a triage's.~~ **CORRECTED (rf2-b6ja): neither block exists. The files do not
@@ -297,9 +328,9 @@ package's copy of the rule is held identical to the copy being asserted — by a
 stronger than the suite.
 
 **The number that decides it is zero.** Nothing follows this file into a JVM lane. It is the *only*
-`.cljc` test file in the bench tree — the other 62 suites there are `.cljs`, and a `.cljs` file is
+`.cljc` test file in the bench tree — the other 60 suites there are `.cljs`, and a `.cljs` file is
 not loadable by a JVM lane at all: `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes
-`.clj` and `.cljc` and nothing else. (1 + 62 = 63, the tree's live count, not the census's 69 — see
+`.clj` and `.cljc` and nothing else. (1 + 60 = 61, the tree's live count, not the census's 69 — see
 the note under the verdict totals at the top.) `implementation/hicasso/test/` carries not one `.cljc`: all 61 files under it are
 `.cljs`, read on `origin/main` at 2026-08-11 — the triage counted 35 and the tree has grown since,
 while the extension has not, which is the half of the claim that is load-bearing. So the
@@ -464,6 +495,45 @@ any `*ssr*` file returns nothing — yet both witnesses landed anyway, Client-on
 `react-dom/server` directly. A condition that the work satisfied without ever meeting it was never
 the condition. **Nobody should wait on it**, and no bead should be written as though the entry were
 a prerequisite for SSR-adjacent package coverage.
+
+**And the bench originals are now deleted, which is what a port means (rf2-c78g).** Both were left
+standing when the pair was ported, so for a few days each suite existed twice. Under
+[the convention above](#executing-a-verdict-a-port-is-a-move) that is allowed only with a written
+reason, and the only reason that counts is a capability the package copy lacks. Neither copy had
+one, measured four ways:
+
+- **Same claims, same size.** Each pair is one suite re-pointed at package namespaces: identical
+  line counts (670 and 376) and identical `deftest` counts (12 and 7), and in the lane that ran
+  both, identical results — each `host-ssr-dom-cljs-test` **12 tests, 43 assertions**, each
+  `fallback-contents-cljs-test` **7 tests, 37 assertions**.
+- **The package copy rides a strict SUPERSET of the bench copy's lanes.** Derived from
+  `shadow-cljs.edn`'s own `:ns-regexp`s, the way
+  `implementation/scripts/_browser-dom-lane-partition.test.cjs` derives them rather than by reading
+  the patterns off the page: `host_ssr` bench is selected by `:node-test` and `:browser-test`,
+  `host_ssr` package by those two **and** `:node-test-hicasso`; `fallback_contents` bench by
+  `:node-test`, package by that **and** `:node-test-hicasso`. Every host the original reached, the
+  port reaches, and one more.
+- **The `implementation_jvm` case — the one the exception exists for — does not reach these two,
+  because they are `.cljs`.** The bench paths do arm `implementation_jvm=true` in
+  `report-changed-surfaces.sh`, deliberately coarsely, as that arm's own comment says. But arming a
+  job is not running a file: `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes `.clj`
+  and `.cljc` and nothing else. Run in `implementation/freehand`,
+  `clojure -M:test -n re-frame.bench.hicasso.arm1.host-ssr-dom-cljs-test` answers **0 tests, 0
+  assertions** and fails the test-quiet floor rather than passing vacuously, and so does the
+  `fallback-contents-cljs-test` namespace — against **3 tests, 92 assertions** from the same command
+  on `front/slot-cljs-test`. The whole difference between this row and that one is the file
+  extension.
+- **Neither closure reaches the other's tree.** Read off the compiler's own analysis cache
+  (`.shadow-cljs/builds/node-test/dev/ana/**`) rather than off the `ns` forms, the two closures
+  differ by exactly the prototype↔package re-pointing — `arm1.{runtime,mount}`, `front.codec` and
+  `lane` against `impl.{collector,mount,codec}`, the door and `checkpoint-support` — and agree on
+  every external: `re-frame.core`, `re-frame.adapter.uix`, `re-frame.test-support`,
+  `react-dom/server`, plus `react-dom/client` for `host_ssr`. Neither names `ssr.entry`, which is
+  the correction above arrived at a second way.
+
+So both rows were the default case, and what the bench tree gives up is a second copy of a claim the
+package makes better: on the package the claim is about the shipped code path, and it rides one more
+lane while making it.
 
 ### 3. The `render_measure` couple — already in the tier that runs measurements
 
