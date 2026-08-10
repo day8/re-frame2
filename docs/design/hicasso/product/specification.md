@@ -312,11 +312,11 @@ Ship a supported `re-frame.hicasso.test` namespace with a deliberately layered c
 |---|---|---|
 | L0 | subscriptions, handlers, state transitions | Pure CLJ/CLJS functions |
 | L1 | codecs, intents, control/revision, optional-module laws, native-form expansion and boundary-ABI helpers | Pure data, property, and macro-expansion tests |
-| L2 | Registered hook-free Hicasso bodies | Restricted semantic-tree assertion harness with injected read fixtures |
+| L2 | One hook-free Hicasso body | Restricted semantic-tree assertion harness with injected read fixtures |
 | L3 | React lifecycle, context, hooks, refs, errors, hosts | Mounted React DOM and Testing Library/user-event |
 | L4 | IME, caret, focus, layout, hydration, performance | Chromium, Firefox, and WebKit |
 
-L2 is an assertion model, not a renderer or React-parity oracle. It invokes a hook-free body under a discardable resolver and expands only hook-free Hicasso children. A test may name the body function or write the minted `defview` head: the mint attaches the body to the head under one dev-only own property — no registry and no map — so a harness that runs no hook can reach it, and an `:advanced` build with `goog.DEBUG` false carries no such property and refuses a minted head there. Hosts, raw React, hooks, identity, lifecycle, Suspense, and errors are opaque/L3; missing fixtures and escaped reads refuse.
+L2 is an assertion model, not a renderer or React-parity oracle. It invokes one hook-free body under a discardable resolver and expands no children of its own: a nested Hicasso boundary is recorded as the CALL it is — its view id, the props the call site passed and the children the call site wrote — and its body does not run, so the node claims nothing about what that child would render. A test may name the body function or write the minted `defview` head: the mint attaches the body to the head under one dev-only own property — no registry and no map — so a harness that runs no hook can reach it, and an `:advanced` build with `goog.DEBUG` false carries no such property and refuses a minted head there. Hosts, raw React, hooks, identity, lifecycle, Suspense, and errors are opaque/L3; missing fixtures and escaped reads refuse.
 
 The mounted facade provides isolated-frame mount, hydrate, rerender, dispatch-and-settle, settle, unmount, and assert-clean. Cleanup waits for quiescence and compares residue with the pre-mount baseline before reset.
 
