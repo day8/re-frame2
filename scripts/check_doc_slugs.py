@@ -45,7 +45,14 @@ Notes on what is and isn't checked:
     * Anchors are decoded before comparison — links written as #foo%20bar
       are compared as #foo bar (rare in this corpus but defensive).
     * Pure section-anchor permalinks (e.g. #fragment-only-anchor) and link
-      definitions inside fenced code blocks are skipped.
+      definitions inside fenced code blocks are skipped.  A fence counts as a
+      fence wherever its container puts it — indented inside a list item or an
+      admonition as readily as at column 0 (rf2-mmyc).  See `_strip_fences` for
+      what that recognition covers and, just as importantly, what it does not.
+    * In the trees listed in FENCED_DOC_LINK_TREES a markdown doc link inside a
+      fence is itself reported (rf2-mmyc).  Everywhere else it is merely
+      skipped: 88 links in `spec/Spec-Schemas.md` alone sit legitimately inside
+      schema samples as `;;` commentary.
 
 The script is intentionally dependency-light. Beyond pymdown-extensions
 (already pinned in requirements.txt for the MkDocs build) it relies only
@@ -155,8 +162,51 @@ _HTML_ANCHOR_RE = re.compile(
 # newline there is not a link the renderer would produce either.
 _LINK_RE = re.compile(r"\[(?:[^\]\\]|\\.)*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
-# Fenced code block delimiter (``` or ~~~ optionally followed by language).
-_FENCE_RE = re.compile(r"^(```|~~~)")
+# Fenced code block delimiter — a run of three or more backticks or tildes,
+# its leading indentation, and its info string (rf2-mmyc).
+#
+# The predecessor was anchored at column 0 (`^(```|~~~)`), so a fence carrying
+# its container's indentation was not recognised as a fence AT ALL and the
+# sample inside it was scanned as ordinary prose.  That is how rf2-re0m shipped:
+# a bulk link pass rewrote six lines inside three Clojure samples, adding seven
+# markdown links that render literally — and because markdown read the samples'
+# own square brackets as link text, the rewrite ate opening brackets, leaving
+# three fences unbalanced.  This gate passed throughout, correctly by its own
+# lights: every one of those links RESOLVED.  It asks whether a link has a
+# target, never whether the text should be a link at all — and could not ask the
+# second question while it believed it was reading prose.
+_FENCE_RE = re.compile(
+    r"^(?P<indent>[ ]*)(?P<marker>(?P<char>[`~])(?P=char){2,})(?P<info>.*)$"
+)
+
+# Block containers whose content column is what a fence inside them is indented
+# to.  `_strip_fences` tracks these so it can tell a fence from an INDENTED CODE
+# BLOCK: four or more spaces past the current content column is the latter, a
+# different construct with no closing delimiter, and a matcher relaxed to `^\s*`
+# would open a never-closed fence on one and blank the rest of the file.
+#
+# A list item's content column is the column after its marker and the spaces
+# following it (CommonMark caps that run at four; a wider one starts an indented
+# code block inside the item, which we do not model — the item simply does not
+# register, which costs recognition rather than inventing it).
+_LIST_ITEM_OPEN_RE = re.compile(
+    r"^(?P<indent>[ ]*)(?P<marker>[-+*]|\d{1,9}[.)])(?P<gap>[ \t]{1,4})(?=\S)"
+)
+
+# `admonition` (`!!! note`), `pymdownx.details` (`??? note` / `???+ note`) and
+# `pymdownx.tabbed` (`=== "Tab"`) are all enabled in mkdocs.yml and all indent
+# their content by four spaces.  `===` needs the quote to tell a content tab
+# from a setext H1 underline.
+_MKDOCS_BLOCK_OPEN_RE = re.compile(
+    r"""^(?P<indent>[ ]*)(?:
+          !!![ \t]
+        | \?{3}\+?[ \t]
+        | ===[ \t]+["']
+    )""",
+    re.VERBOSE,
+)
+
+_MKDOCS_BLOCK_CONTENT_INDENT = 4
 
 # Inline-code span (CommonMark §6.1).  A span opens with a run of N
 # backticks and closes with the next run of EXACTLY N backticks on the same
@@ -484,25 +534,106 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
 
     Lines inside a fenced block are replaced with empty strings (preserving
     line numbering) so heading-pattern lines inside code samples don't get
-    indexed as real headings.
+    indexed as real headings, and links inside code samples are not resolved as
+    cross-references.  This is the scanner's only notion of "code, not prose":
+    every other check in this file inherits whatever it gets wrong.
+
+    A fence is recognised at the indentation its CONTAINER gives it (rf2-mmyc).
+    `_LIST_ITEM_OPEN_RE` and `_MKDOCS_BLOCK_OPEN_RE` maintain a stack of open
+    content columns, and a fence opens at up to three spaces past the innermost
+    one — CommonMark's allowance, which the renderer honours.  Four or more
+    spaces past it is an indented code block instead, and opens nothing.
+
+    Closing is RENDERER-DERIVED rather than read off CommonMark, because
+    pymdownx.superfences (what MkDocs runs) is stricter than the spec: it closes
+    a fence only on the opener's EXACT marker, at the opener's EXACT
+    indentation, with no info string.  CommonMark's ≤3-space slack would end a
+    ```markdown sample at the first nested bare fence inside it — which the
+    corpus has, in skills/re-frame2-implementor/references/output-format.md.
+
+    A fence also ends with the container that holds it: a non-blank line
+    indented less than the fence's content column closes both.  rf2-re0m shipped
+    three UNBALANCED fences, so without that an authoring slip blanks a document
+    from the fence to EOF — a gate going silent, which is the same failure as
+    the one being fixed, pointing the other way.
+
+    Bounded deliberately, and these are the edges:
+
+    * A fence inside a BLOCKQUOTE (`> ```clojure`) is not recognised, exactly as
+      before.  The renderer does treat it as a fence; the corpus has 28 such
+      lines.  Teaching the stack about quote depth is a separate change with a
+      far larger blast radius (measured: 138 lines flipping back to prose and 36
+      rendered ids appearing), so it stays out of a gate-correctness fix.
+    * An INDENTED code block's content is still scanned as prose.  This function
+      recognises where a fence is, not where an indented code block is; telling
+      one from a paragraph continuation needs paragraph state this scanner does
+      not keep.  Measured across the corpus: zero markdown links live in one.
+    * Indentation is counted in SPACES.  The corpus has no tab-indented fence.
     """
     out: list[tuple[int, str]] = []
-    in_fence = False
-    fence_marker = ""
+    open_columns: list[int] = []
+    fence: tuple[str, int] | None = None  # (opening marker, its indentation)
     for i, raw in enumerate(lines, start=1):
-        m = _FENCE_RE.match(raw)
-        if m:
-            marker = m.group(1)
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-                fence_marker = ""
+        if fence is not None:
+            marker, fence_indent = fence
+            if not raw.strip():
+                out.append((i, ""))
+                continue
+            indent = len(raw) - len(raw.lstrip(" "))
+            if indent >= (open_columns[-1] if open_columns else 0):
+                m = _FENCE_RE.match(raw)
+                if (
+                    m
+                    and m.group("marker") == marker
+                    and len(m.group("indent")) == fence_indent
+                    and not m.group("info").strip()
+                ):
+                    fence = None
+                out.append((i, ""))
+                continue
+            # The container holding the fence ended, so the fence ended with it.
+            # Fall through and read this line as ordinary source.
+            fence = None
+
+        if not raw.strip():
             out.append((i, ""))
             continue
-        out.append((i, "" if in_fence else raw))
+
+        indent = len(raw) - len(raw.lstrip(" "))
+        while open_columns and indent < open_columns[-1]:
+            open_columns.pop()
+        content_column = open_columns[-1] if open_columns else 0
+
+        m = _FENCE_RE.match(raw)
+        if m and content_column <= indent <= content_column + 3:
+            fence = (m.group("marker"), indent)
+            out.append((i, ""))
+            continue
+
+        if indent <= content_column + 3:
+            lm = _LIST_ITEM_OPEN_RE.match(raw)
+            if lm:
+                open_columns.append(
+                    len(lm.group("indent")) + len(lm.group("marker")) + len(lm.group("gap"))
+                )
+            elif _MKDOCS_BLOCK_OPEN_RE.match(raw):
+                open_columns.append(indent + _MKDOCS_BLOCK_CONTENT_INDENT)
+        out.append((i, raw))
     return out
+
+
+def _fenced_lines(lines: list[str]) -> Iterable[tuple[int, str]]:
+    """Yield (1-based line-number, source content) for every line INSIDE a fence.
+
+    Derived from `_strip_fences` rather than re-scanning, so the two can never
+    disagree about where a fence is: a line is fenced exactly when the scanner
+    blanked it and the source line was not itself blank.  One scanner, one
+    answer — a second implementation of the fence model is precisely the sort of
+    drift this gate exists to catch.
+    """
+    for (line_no, stripped), raw in zip(_strip_fences(lines), lines):
+        if raw.strip() and not stripped.strip():
+            yield line_no, raw
 
 
 def _mask_html_comments(
@@ -929,6 +1060,72 @@ def _is_ai_findings_link(path_part: str) -> bool:
     return False
 
 
+# rf2-mmyc — trees in which a markdown link inside a code fence is always a
+# defect.  This is the check that would have caught rf2-re0m at the gate: the
+# seven links that bulk pass added all RESOLVED, so link validation had nothing
+# to say about them, and the damage (samples that render a literal `](...)` and
+# no longer read as Clojure) was only visible to a reader.
+#
+# SCOPED, NOT CORPUS-WIDE, and the corpus is why: 109 in-repo links live inside
+# fences elsewhere in this repo — 88 of them in `spec/Spec-Schemas.md`, as
+# ordinary `;;` commentary cross-referencing other specs from inside a schema
+# sample, which is a good idiom and not something to legislate away.  Making the
+# assertion corpus-wide would need an allowlist for those, and an allowlist is
+# how a gate stops meaning anything.  `docs/design/hicasso/` is a working design
+# record whose fences are Clojure, bash and captured output; it measures clean
+# today, so the check lands green.
+#
+# `docs/design/freehand/` measures clean too and is the same class of artefact —
+# a defensible extension, deliberately not taken here: it had no incident, and
+# widening a new gate past its evidence is how gates acquire a reputation for
+# arbitrary friction.
+FENCED_DOC_LINK_TREES = ("docs/design/hicasso",)
+
+
+def _is_doc_destination(dest: str) -> bool:
+    """True if a link destination names an in-repo markdown page or a fragment.
+
+    Deliberately narrower than "contains `](`" (rf2-mmyc).  A bare `](` is legal
+    Clojure — `(fn [x](inc x))` closes a vector and opens a list — and a gate
+    that nags valid code for its spacing is worse than no gate.  A destination
+    ending `.md`, or a pure `#fragment`, is the signature of a documentation
+    link pass and cannot be produced by the Clojure, EDN, bash and captured
+    output these fences actually hold.
+    """
+    if dest.startswith(("http://", "https://", "mailto:", "tel:", "//")):
+        return False
+    path_part = dest.partition("#")[0].split("?", 1)[0]
+    if not path_part:
+        return dest.startswith("#")
+    return path_part.endswith(".md")
+
+
+def _check_fenced_doc_links(
+    repo_root: Path,
+    files: Iterable[Path],
+    trees: tuple[str, ...] = FENCED_DOC_LINK_TREES,
+) -> list[tuple[Path, int, str]]:
+    """Find markdown doc links written INSIDE a code fence (rf2-mmyc).
+
+    Returns (source-file, line-no, destination) for each one, in the covered
+    trees only.  Runs off `_fenced_lines`, so it inherits the one fence model
+    this file has rather than carrying a second opinion about where code starts.
+    """
+    prefixes = tuple(f"{tree.rstrip('/')}/" for tree in trees)
+    if not prefixes:
+        return []
+    found: list[tuple[Path, int, str]] = []
+    for path in files:
+        if not path.relative_to(repo_root).as_posix().startswith(prefixes):
+            continue
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line_no, raw in _fenced_lines(lines):
+            for m in _LINK_RE.finditer(raw):
+                if _is_doc_destination(m.group(1)):
+                    found.append((path, line_no, m.group(1)))
+    return found
+
+
 def _check_compat_anchors(
     repo_root: Path,
     counts_for,
@@ -1088,6 +1285,12 @@ def check(
         * BROKEN SOURCE-COMMENT LINK — (default scope, rf2-57k74) a
                               `docs/<handbook>/*.md#anchor` reference embedded in
                               a non-markdown source comment does not resolve.
+        * LINK INSIDE A FENCE — (rf2-mmyc) a markdown link to a doc page or
+                              anchor written INSIDE a code fence, in the trees
+                              listed in FENCED_DOC_LINK_TREES. Such a link
+                              resolves perfectly and is still a defect: it
+                              renders literally and the sample stops being
+                              valid code.
 
     The compat-anchor manifest, source-comment scan, and placement rules default
     to the production inventory (HANDBOOK_COMPAT_ANCHORS / the tracked Clojure tree
@@ -1199,6 +1402,9 @@ def check(
         source_files=source_files,
         link_re=source_comment_re,
     )
+    # rf2-mmyc — links written INSIDE a code fence, in the trees where a fenced
+    # sample is only ever code.
+    fenced_doc_links = _check_fenced_doc_links(repo_root, files)
 
     total = (
         len(broken_anchor)
@@ -1209,6 +1415,7 @@ def check(
         + len(compat_duplicate)
         + len(compat_misplaced)
         + len(source_comment_broken)
+        + len(fenced_doc_links)
     )
 
     if broken_target:
@@ -1339,6 +1546,25 @@ def check(
             "\nFix: point the comment at a live canonical heading, or restore a "
             "compatibility anchor on the target page (and list it in "
             "HANDBOOK_COMPAT_ANCHORS).\n"
+        )
+
+    if fenced_doc_links:
+        sys.stderr.write(
+            f"\n{len(fenced_doc_links)} markdown link(s) inside a code fence "
+            "found (rf2-mmyc):\n\n"
+        )
+        for src, line_no, dest in fenced_doc_links:
+            rel = src.relative_to(repo_root)
+            sys.stderr.write(
+                f"  LINK INSIDE A FENCE: {rel}:{line_no} -> {dest}\n"
+            )
+        sys.stderr.write(
+            "\nFix: a fenced block is code, so a markdown link inside one "
+            "renders literally and makes the sample invalid to copy — and "
+            "markdown reads the sample's own square brackets as link text, so "
+            "the rewrite that adds one often eats an opening bracket too "
+            "(rf2-re0m). Restore the plain code and put the cross-reference in "
+            "the prose around the fence.\n"
         )
 
     if total == 0 and verbose:
