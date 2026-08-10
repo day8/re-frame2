@@ -20,6 +20,14 @@ Three verdicts, defined once:
 **13 PORT (5,108 lines) · 9 RE-AUTHORED (3,236) · 47 STAYS (19,691).** The three sum to 69 files and
 28,035 lines; every suite is named exactly once below, and line counts are `wc -l`.
 
+**Two rows have moved since, and the counts below are the census as it landed rather than the
+standing verdict.** rf2-b6ja found that `arm1/host_ssr_dom_cljs_test` (670) and
+`arm1/fallback_contents_cljs_test` (376) were parked in STAYS on a block that does not exist, so the
+standing verdict is **15 PORT (6,154) · 9 RE-AUTHORED (3,236) · 45 STAYS (18,645)** — still 69 files
+and 28,035 lines. Both rows keep their single home in STAYS (vi), where the bullet now carries the
+PORT verdict and the correction; see
+[The three sequencing questions, settled](#the-three-sequencing-questions-settled).
+
 ## The three facts that decide most rows
 
 ### 1. All 69 already run on every PR
@@ -219,12 +227,17 @@ Four are blocked on something concrete, and the block is the interesting part:
   — `defhost`'s `:ssr` policy in all three places it has to hold, and the contract for what an
   `:ssr` fallback may contain. Genuine package behaviour, and `implementation/hicasso/` has no
   `:ssr` witness of its own, so **this pair is the answer to rf2-6rw9** and whoever takes that bead
-  should start here rather than write a new one. Blocked twice over: the two files `:require` each
+  should start here rather than write a new one. ~~Blocked twice over: the two files `:require` each
   other, so they move together; and both reach `re-frame.bench.hicasso.ssr.entry`, which has no
   package counterpart. Porting them means giving the package an SSR entry first — which is
-  rf2-6rw9's work, not a triage's. `arm1/host_hatch_dom_cljs_test.cljs` (1,259), `defhost` end to
-  end, is the natural third member of that bead: 21 deftests deep in `arm1.hook-probe` and
-  `arm1.lane`, and pointless to move without the `:ssr` half.
+  rf2-6rw9's work, not a triage's.~~ **CORRECTED (rf2-b6ja): neither block exists. The files do not
+  `:require` each other and neither reaches `ssr.entry`; both readings came from docstring
+  `[[wiki-links]]`.** The pair is an ordinary `arm1/*` port and is **PORT**, not STAYS — see
+  [2. the `:ssr` trio](#2-the-ssr-trio--not-blocked-and-the-third-member-is-a-different-bead).
+  `arm1/host_hatch_dom_cljs_test.cljs` (1,259) is **not** the third member of that bead: it is the
+  only one of the three that needs `arm1.hook-probe`, which is the RE-AUTHORED blocker
+  `hook_ledger_dom_cljs_test` and `frame_prop_dom_cljs_test` already carry, and it belongs with
+  those rather than with the `:ssr` pair. It stays here, blocked on the probe.
 - **`front/slot_cljs_test.cljc`** (140) — blocked on a hot-zone change, and the block is worth
   naming precisely. It is `.cljc` on purpose: `scripts/check_test_lane_bijection.py` rule B2
   requires a `.cljc` suite under a CLJS-owned test root to be selected by a CLJS lane as well as a
@@ -317,6 +330,51 @@ defines no `deftest` is not a test file, so B1 and B2 never reach it — the bij
 is files that evaluate a test-defining form at the top level. Port the corpus as an ordinary support
 namespace beside the codec suite and both rows unblock as plain CLJS ports. **That is a follow-up
 dispatch, not this row.**
+
+### 2. The `:ssr` trio — not blocked, and the third member is a different bead
+
+**The verdict: `arm1/host_ssr_dom_cljs_test` + `arm1/fallback_contents_cljs_test` are PORT and are
+not waiting on anything. `arm1/host_hatch_dom_cljs_test` is not their third member.** The two
+blockers this triage recorded, and which rf2-6rw9's note then restated as that bead's real content,
+are both misreadings. Read off the files on `origin/main`, 2026-08-11:
+
+- **They do not `:require` each other.** `host_ssr_dom_cljs_test`'s `ns` form requires
+  `cljs.test`, `re-frame.adapter.uix`, `arm1.mount`, `arm1.runtime`, `front.codec`, `lane`,
+  `re-frame.core`, `re-frame.test-support`, `react`, `react-dom/client` and `react-dom/server`, with
+  `defview` / `defhost` from `arm1.lang`. `fallback_contents_cljs_test`'s is the same list without
+  `react-dom/client`. Neither names the other. Each *mentions* the other exactly once, in a
+  docstring `[[wiki-link]]` — `host_ssr` line 31, `fallback_contents` line 57. A cross-reference in
+  prose is not a dependency.
+- **Neither reaches `re-frame.bench.hicasso.ssr.entry`.** Neither file mentions the namespace at
+  all. `ssr.entry` has exactly seven requirers in the tree, and they are the five `ssr/*` suites
+  already parked in STAYS (iii) — `entry_cljs_test`, `hframe_ssr_cljs_test`,
+  `instance_key_payload_dom_cljs_test`, `spike_cljs_test`, `spike_dom_cljs_test` — plus the entry's
+  own `ssr/node.cljs` driver and `ssr/fixtures.cljs` corpus. **These two render to string with
+  React's own `react-dom/server`**, which they import directly. The bake driver is not on their
+  path, and the package needs no SSR entry to receive them.
+
+So the pair is an `arm1/*` port of exactly the shape the PORT table's sequencing paragraph
+describes: re-point `arm1.runtime` at the six modules, `arm1.lang`'s macros at the public door
+`re-frame.hicasso`, `arm1.mount` at `impl.mount`, `front.codec` at `impl.codec`. Their only `lane`
+call is `lane/leave-act-environment!`, once each, and its package counterpart already exists —
+`re-frame.hicasso.roots-frames-support/leave-act-environment!`, which cites the prototype by name.
+**They still move together**, but for the reason their own docstrings give rather than for a
+require: each is written as the other's arm, and the bare arm is the one that matters. A witness
+that only ever supplies a fallback proves nothing about the default, and `:client-only` is what an
+author gets by writing nothing.
+
+**`arm1/host_hatch_dom_cljs_test.cljs` (1,259) is blocked, on something else.** It is the only one
+of the three whose `ns` form requires `arm1.hook-probe`, and it uses it — `probe/install!`,
+`probe/record!`. Hook-probe proxies React's internal dispatcher slot and has no package
+counterpart, which is precisely the blocker RE-AUTHORED already records for
+`hook_ledger_dom_cljs_test` and `frame_prop_dom_cljs_test`. **It belongs with that bead**, whose
+deliverable is the probe. Bundling it with the `:ssr` pair would have held two unblocked suites
+behind a probe neither of them needs — on top of an SSR entry none of the three needs.
+
+**rf2-6rw9's content changes accordingly.** The bead reads "give the package an SSR entry, then port
+the pair onto it". The entry is not on the path: give the package the pair. Whether the package ever
+wants an SSR entry of its own is a separate question, and the rows that would answer it are the five
+`ssr/*` suites in STAYS (iii), which genuinely do reach one.
 
 ---
 
