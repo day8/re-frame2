@@ -2,9 +2,9 @@
 //
 // WHAT THIS IS FOR, AND WHAT IT DELIBERATELY IS NOT.
 //
-// Before this file the repo had ~205 tracked `.cjs` / `.mjs` / `.js` files —
-// bench drivers, gate runners, browser harnesses, MCP conformance suites — and
-// NOTHING checked any of them. A syntax error or a typo'd identifier was
+// Before this file NOTHING checked the repo's tracked `.cjs` / `.mjs` / `.js`
+// files — bench drivers, gate runners, browser harnesses, MCP conformance
+// suites, in every tool tree. A syntax error or a typo'd identifier was
 // discovered the first time somebody ran the file, which for a nightly bench
 // driver can be days. clj-kondo and Splint cover the Clojure trees; this closes
 // the JS hole with the same shape: a BUG-CLASS linter, not a style linter.
@@ -187,9 +187,11 @@ export default [
       '**/target/**',
       '**/classes/**',
       // shadow-cljs compile output: `release/externs.shadow.js` plus the
-      // `{dev,release}/{goog-js,shadow-js}/` trees. 8811 JS files in a fully
-      // built checkout of this repo, against 215 tracked JS files in the
-      // whole tree.
+      // `{dev,release}/{goog-js,shadow-js}/` trees. A fully built checkout
+      // carries more than an ORDER OF MAGNITUDE more JS under here than the
+      // whole tracked tree contains, so this one entry is the difference
+      // between a gate that reads the repo and one that reads the compiler's
+      // output.
       '**/.shadow-cljs/**',
       // shadow-cljs `:output-dir`s. Empty in a fresh checkout, which is the
       // only reason neither surfaced as a symptom alongside the externs file;
