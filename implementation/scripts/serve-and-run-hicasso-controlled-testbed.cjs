@@ -76,14 +76,13 @@
  * | caret preserved (the browser's own trusted keystrokes) | ✓ | ✓ | ✓ | `spec.cjs` `caret-under-real-typing` |
  * | composition — the event SEQUENCE, on a refusing field | ✓ | ✓ | ✓ | `spec.cjs` `composition-safety` |
  * | composition — release on `compositionend` / blur / non-composing change / unmount | ✓ | ✓ | ✓ | `spec.cjs` `composition-release-edges` |
- * | composition — `beforeinput` DISPATCHED | ✓ | ✓ | ✓ | `spec.cjs` helper `edit()` |
- * | composition — `beforeinput` ASSERTED | — | — | — | **nothing.** GAP 4 below |
- * | composition — an ACCEPTING model takes every composing update | ✓ | — | — | `front/revision_dom_cljs_test:575`, Chromium lane. GAP 2 |
- * | composition — a revision arriving MID-exchange defers to its close | ✓ | — | — | `front/revision_dom_cljs_test:512`, Chromium lane. GAP 1 |
+ * | composition — `beforeinput` carried, and not what drives the converge | — | — | — | **nothing.** GAP 4 below; now `spec.cjs` `beforeinput-does-not-drive-the-converge` |
+ * | composition — an ACCEPTING model takes every composing update | ✓ | — | — | `front/revision_dom_cljs_test:575`, Chromium lane. GAP 2; now `spec.cjs` `an-accepting-model-during-a-composition` |
+ * | composition — a revision arriving MID-exchange defers to its close | ✓ | — | — | `front/revision_dom_cljs_test:512`, Chromium lane. GAP 1; now `spec.cjs` `a-revision-arriving-mid-composition` |
  * | composition — the browser's real composition RANGE and candidate window | ✓ | — | — | `bench/hicasso/ime_run.cjs` (CDP, so Chromium by construction) |
  * | composition — the ABORT signature (a value write killing an exchange with no `compositionend`) | ✓ | — | — | `bench/hicasso/ime_run.cjs`; unreachable from page script in any engine |
  * | selection — a RANGE across an out-of-band write | ✓ | ✓ | ✓ | `spec.cjs` `selection-across-an-out-of-band-write` |
- * | selection — DIRECTION across an out-of-band write | ~ | ~ | ~ | same section, RECORDED — but vacuously. GAP 3 |
+ * | selection — DIRECTION across an out-of-band write | ~ | ~ | ~ | same section, RECORDED — but vacuously. GAP 3; the premise is now asserted |
  * | revision reset at rest, preserving element identity | ✓ | ✓ | ✓ | `spec.cjs` `revision-reset-preserves-identity` |
  * | blur / unmount edges | ✓ | ✓ | ✓ | `spec.cjs` `composition-release-edges` |
  * | form reset | ✓ | ✓ | ✓ | `spec.cjs` `form-reset-and-fill-proxy` (RECORDED) |
@@ -132,6 +131,14 @@
  *    `{ beforeinput: false }` knob no caller used. Carrying an event is not
  *    witnessing it: nothing distinguished a run with `beforeinput` from a
  *    run without, in any engine.
+ *
+ * All four are filled: `REQUIRED_SECTIONS` gained
+ * `beforeinput-does-not-drive-the-converge`,
+ * `an-accepting-model-during-a-composition` and
+ * `a-revision-arriving-mid-composition`, and the direction row's premise is
+ * asserted rather than assumed. The table keeps its as-measured columns
+ * because the point of it is what the gate looked like BEFORE, and because
+ * the two Chromium-only real-IME rows do not move.
  *
  * ### The clauses of I15, and where each is proven
  *
@@ -271,19 +278,23 @@ const ENGINES = ONLY
 // names, so deleting a witness means deliberately editing the gate that
 // requires it.
 //
-// Sum today: 55, which is what each engine reports.
+// Sum today: 79, which is what each engine reports.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_SECTIONS = {
   'same-turn-convergence': 8,
+  'beforeinput-does-not-drive-the-converge': 7,
   'caret-across-the-echo': 9,
   'caret-under-real-typing': 4,
-  'selection-across-an-out-of-band-write': 3,
+  'selection-across-an-out-of-band-write': 4,
   'composition-safety': 7,
   'composition-release-edges': 8,
+  'an-accepting-model-during-a-composition': 8,
   'revision-reset-preserves-identity': 7,
+  'a-revision-arriving-mid-composition': 6,
   'owned-checked-pair': 6,
   'form-reset-and-fill-proxy': 3,
+  'armed-edges-are-wired': 2,
 };
 
 // The RECORDED rows, with the keys each must carry. Without this the
@@ -488,14 +499,14 @@ function runMutationTeeth() {
   bite('the check floor refuses a run that asserted almost nothing', () =>
     coverageReport({ checks: 3, sections: {} }).length
       === Object.keys(REQUIRED_SECTIONS).length
-    && coverageReport({ checks: 55, sections: fullSections() }).length === 0);
+    && coverageReport({ checks: 79, sections: fullSections() }).length === 0);
 
   // The hole this gate was reopened for: 55 checks with a floor of 50 meant
   // either three-row section could be deleted whole and still exit 0.
   bite('deleting a whole section reds, and the message names it', () => {
     const sections = fullSections();
     delete sections['form-reset-and-fill-proxy'];
-    const problems = coverageReport({ checks: 52, sections });
+    const problems = coverageReport({ checks: 76, sections });
     return problems.length === 1
       && problems[0].includes('form-reset-and-fill-proxy');
   });
@@ -503,7 +514,7 @@ function runMutationTeeth() {
   bite('a section that stopped banking rows reds', () => {
     const sections = fullSections();
     sections['selection-across-an-out-of-band-write'] -= 1;
-    return coverageReport({ checks: 54, sections }).length === 1;
+    return coverageReport({ checks: 78, sections }).length === 1;
   });
 
   // The second hole: unanimous emptiness is not agreement.
@@ -527,7 +538,7 @@ function runMutationTeeth() {
   // Both pins are bijections, so a witness added tomorrow is required from
   // the moment it lands rather than being deletable again silently.
   bite('a section nobody pinned reds', () =>
-    coverageReport({ checks: 56, sections: { ...fullSections(), invented: 1 } })
+    coverageReport({ checks: 80, sections: { ...fullSections(), invented: 1 } })
       .length === 1);
 
   return teeth;

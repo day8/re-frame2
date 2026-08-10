@@ -204,6 +204,53 @@ async function sameTurnConvergence(page, w) {
   w.eq(model.fields.empty, '', 'the store did not move on the empty field');
 }
 
+// `beforeinput` is CARRIED by every edit this spec dispatches, and until
+// rf2-hic-016's second pass nothing distinguished a run with it from a run
+// without — the `{ beforeinput: false }` knob on `edit` had no caller.
+// Carrying an event is not witnessing it, so this section makes the knob
+// load-bearing in both directions: `beforeinput` alone moves nothing, and
+// an `input` with no `beforeinput` in front of it converges exactly as one
+// with. That is what makes the composition SEQUENCE below faithful rather
+// than decorative — the sequence is the browser's, and the converge hangs
+// off the `input` in it.
+async function beforeinputDoesNotDriveTheConverge(page, w) {
+  const alone = await page.evaluate(() => {
+    const node = window.__TB__.el('plain');
+    node.focus();
+    const before = window.__TB__.model();
+    const draft = before.fields.plain + 'Z';
+    // The keystroke, up to but NOT including the `input` event.
+    window.__TB__.nativeSet(node, draft);
+    node.setSelectionRange(draft.length, draft.length);
+    window.__TB__.fire(node, 'beforeinput', { inputType: 'insertText', data: 'Z' });
+    const held = window.__TB__.read('plain').value;
+    const mid = window.__TB__.model();
+    // …and now the rest of it, so the field is not left diverged and the
+    // contrast is the same event pair completed.
+    window.__TB__.fire(node, 'input', { inputType: 'insertText', data: 'Z' });
+    return {
+      base: before.fields.plain, editsBefore: before.edits.plain, draft, held,
+      midModel: mid.fields.plain, midEdits: mid.edits.plain,
+      after: window.__TB__.read('plain').value,
+      afterModel: window.__TB__.model().fields.plain,
+      afterEdits: window.__TB__.model().edits.plain,
+    };
+  });
+  w.eq(alone.midModel, alone.base, 'a beforeinput alone does not move the model');
+  w.eq(alone.midEdits, alone.editsBefore, 'and dispatches no intent at all');
+  w.eq(alone.held, alone.draft, 'nor does it converge the field out from under the draft');
+  w.eq(alone.afterModel, alone.draft, 'the `input` that follows is what moves the model');
+  w.eq(alone.afterEdits, alone.editsBefore + 1, 'exactly one intent, from the `input`');
+
+  // The other direction: no `beforeinput` at all. "12,345" with the caret
+  // after "12,3"; the user types "9" -> field "12,3945" caret 5 -> model
+  // "123,945", and the caret is still after the 9 at 5.
+  const grouped = await page.evaluate(() =>
+    window.__TB__.edit('grouped', '12,3945', 5, { data: '9', beforeinput: false }));
+  w.eq(grouped.value, '123,945', 'an input with no beforeinput converges all the same');
+  w.eq(grouped.start, 5, 'with the caret where the edit left it');
+}
+
 // I15 — "preserve caret across that echo". The caret is the property that
 // separates this runtime from plain React, which converges in the same
 // discrete event and throws the caret to the end of the control. Every row
@@ -297,6 +344,14 @@ async function selectionAcrossAnOutOfBandWrite(page, w) {
   w.record('out-of-band-write-lands-in-the-same-task',
     observed.immediate.value === 'ZZZZZZ');
   w.eq(observed.before.end - observed.before.start, 2, 'a range was selected to begin with');
+  // The PREMISE of the recorded direction below, which went unread until
+  // rf2-hic-016's second pass. An engine that had never honoured
+  // `'backward'` would have recorded the same post-write direction as the
+  // others and agreed with them perfectly — three engines agreeing about a
+  // selection that was never directional. Recording an outcome whose
+  // premise is unread is the cross-engine comparator's one blind spot.
+  w.eq(observed.before.direction, 'backward',
+    'the selection really was directional before the write');
   w.eq(observed.after.value, 'ZZZZZZ', 'the out-of-band correction reached the field');
   w.eq(observed.after.active, true, 'the field still holds focus across the correction');
   w.record('selection-across-out-of-band-write', {
@@ -428,6 +483,62 @@ async function compositionReleaseEdges(page, w) {
   w.eq(unmounted.back, '9', 'the remounted field shows the model, not a stranded draft');
 }
 
+// What the carve-out does NOT claim, measured rather than left to the
+// prose. The shadow holds the DRAFT, but the author's handler still runs on
+// every composing `input` — `controlled.cljs`'s `shadowed-props` calls
+// `inner` before it branches on `composing-input?` — so a model that
+// ACCEPTS moves right through the exchange. That is stated in
+// `controlled.cljs` as the deferral's honest limit and was witnessed in
+// Chromium alone (`front/revision_dom_cljs_test`), which is the wrong
+// number of engines for a claim about how a discrete event is flushed.
+//
+// It is also the fact the manual native-IME checklist's "app-db clean
+// until commit" and "arrives exactly once" contradict, and the arrival
+// counter is what makes the difference visible: on a REFUSING field the
+// snap-back looks the same whether the composing updates were dispatched
+// or not, and on an ACCEPTING one a progressive write is visually
+// idempotent. Only the count separates them.
+async function anAcceptingModelDuringAComposition(page, w) {
+  const run = await page.evaluate(() => {
+    const node = window.__TB__.el('plain');
+    node.focus();
+    const before = window.__TB__.model();
+    const base = before.fields.plain;
+    window.__TB__.composition(node, 'compositionstart', '');
+
+    const d1 = window.__TB__.edit('plain', base + 'あ', base.length + 1, {
+      isComposing: true, inputType: 'insertCompositionText', data: 'あ',
+    });
+    const m1 = window.__TB__.model();
+    const d2 = window.__TB__.edit('plain', base + 'あい', base.length + 2, {
+      isComposing: true, inputType: 'insertCompositionText', data: 'あい',
+    });
+    const m2 = window.__TB__.model();
+
+    window.__TB__.composition(node, 'compositionend', 'あい');
+    return {
+      base,
+      edits0: before.edits.plain,
+      d1: d1.value, m1: { v: m1.fields.plain, e: m1.edits.plain },
+      d2: d2.value, m2: { v: m2.fields.plain, e: m2.edits.plain },
+      ended: window.__TB__.read('plain').value,
+      m3: window.__TB__.model(),
+    };
+  });
+
+  w.eq(run.d1, run.base + 'あ', 'the first composing update stands in the field');
+  w.eq(run.m1.v, run.base + 'あ', 'AND the accepting model took it — mid-composition');
+  w.eq(run.m1.e, run.edits0 + 1, 'exactly one intent arrived for it');
+  w.eq(run.d2, run.base + 'あい', 'the second composing update stands too');
+  w.eq(run.m2.v, run.base + 'あい', 'and the model took that one as well');
+  w.eq(run.m2.e, run.edits0 + 2, 'one intent per composing input, no more and no fewer');
+  // So the committed text does not "arrive once, at the close": it arrived
+  // progressively, and `compositionend` adds nothing to it. What the close
+  // does is converge the field to whatever the model then holds.
+  w.eq(run.m3.edits.plain, run.edits0 + 2, 'compositionend dispatches no intent of its own');
+  w.eq(run.ended, run.m3.fields.plain, 'and the field converges to the model at the close');
+}
+
 // I15 — "reset is an explicit revision that preserves element identity".
 // The divergence is created the way a password manager creates one: a value
 // write with no event, which no handler sees and no commit is scheduled for.
@@ -461,6 +572,58 @@ async function revisionResetPreservesIdentity(page, w) {
   w.eq(observed.revision, 1, 'exactly one revision advance');
   w.eq(observed.mark, 'M1', 'the DOM node survived the reset — no remount');
   w.eq(observed.identical, true, 'and it is the same node the document still holds');
+}
+
+// The reset's other half: a revision that arrives while a composition is
+// LIVE. `controlled.cljs` documents the deferral at length — there is no
+// cancel primitive, and the only immediate write available (`element.value`)
+// aborts the exchange — and `front/revision_dom_cljs_test` asserted it on
+// the Chromium-only `:browser-test` lane. A deferral is a claim about the
+// order an engine flushes a discrete event's work, so it belongs here.
+//
+// The bump is a PROGRAMMATIC click, which never moves focus; the operator's
+// equivalent is the armed button below, because a real pointer-down would
+// close the composition before the reset could arrive mid-exchange.
+async function aRevisionArrivingMidComposition(page, w) {
+  const observed = await page.evaluate(async () => {
+    const node = window.__TB__.el('revision');
+    node.focus();
+    const revisionBefore = window.__TB__.model().revision;
+    window.__TB__.composition(node, 'compositionstart', '');
+    const draft = window.__TB__.edit('revision', 'keepあ', 5, {
+      isComposing: true, inputType: 'insertCompositionText', data: 'あ',
+    });
+
+    window.__TB__.el('bump-revision').click();
+    await window.__TB__.settle();
+    const during = window.__TB__.read('revision');
+
+    window.__TB__.composition(node, 'compositionend', 'あ');
+    const model = window.__TB__.model();
+    return {
+      revisionBefore, draft: draft.value, during,
+      after: window.__TB__.read('revision'),
+      model: model.fields.revision,
+      revision: model.revision,
+      mark: window.__TB__.el('revision').__tbMark,
+    };
+  });
+
+  w.eq(observed.draft, 'keepあ', 'the field held the composing draft');
+  w.eq(observed.revision, observed.revisionBefore + 1, 'the revision really did advance mid-exchange');
+  // THE DEFERRAL. A reset that landed immediately would have written
+  // `element.value` under a live composition, which is the abort the
+  // carve-out exists to prevent.
+  w.eq(observed.during.value, 'keepあ',
+    'the reset deferred: the draft is untouched while the exchange is open');
+  w.eq(observed.after.value, observed.model, 'and the field converges at the close');
+  // The honest limit, as `controlled.cljs` states it: on an ACCEPTING field
+  // the composing updates the model kept taking supersede the reset by
+  // ordinary event order. "The deferral cannot strand the field" is what is
+  // true; "the reset cannot be lost" is not.
+  w.eq(observed.model, 'keepあ',
+    'an accepting model kept the composing update, so the reset did not win');
+  w.eq(observed.mark, 'M1', 'and the DOM node survived the whole exchange');
 }
 
 // The owned `::h/checked` pair, whose `false` is a presence rather than a
@@ -543,6 +706,28 @@ async function formResetAndFillProxy(page, w) {
   });
 }
 
+// The operator's two instruments, and the only thing a driver can say
+// about them: they are wired, and the action really is deferred. Their
+// POINT — that a real pointer-down does not close the composition the
+// action is meant to arrive inside — is not witnessable from here, because
+// the click below is the only kind of click this harness has and the
+// section above already uses the programmatic one. What would rot silently
+// is the wiring, so the wiring is what this pins.
+//
+// It runs LAST deliberately: the armed dispatch lands five seconds later,
+// which is a wait no gate should spend and a bump no later section should
+// receive. The page closes long before it fires.
+async function armedEdgesAreWired(page, w) {
+  const before = await page.evaluate(() => window.__TB__.model().revision);
+  await page.locator('[data-testid="arm-bump"]').click();
+  const armed = await page.evaluate(() => ({
+    label: window.__TB__.el('armed').textContent,
+    revision: window.__TB__.model().revision,
+  }));
+  w.eq(armed.label, 'armed: bump fires in 5s', 'the page says what is armed');
+  w.eq(armed.revision, before, 'and nothing has happened yet — that is the whole point');
+}
+
 // ---------------------------------------------------------------------------
 
 // Every witness that must run, in order, under the name the runner pins it
@@ -552,14 +737,18 @@ async function formResetAndFillProxy(page, w) {
 // this list therefore fails the gate rather than shrinking a total.
 const SECTIONS = [
   ['same-turn-convergence', sameTurnConvergence],
+  ['beforeinput-does-not-drive-the-converge', beforeinputDoesNotDriveTheConverge],
   ['caret-across-the-echo', caretAcrossTheEcho],
   ['caret-under-real-typing', caretUnderRealTyping],
   ['selection-across-an-out-of-band-write', selectionAcrossAnOutOfBandWrite],
   ['composition-safety', compositionSafety],
   ['composition-release-edges', compositionReleaseEdges],
+  ['an-accepting-model-during-a-composition', anAcceptingModelDuringAComposition],
   ['revision-reset-preserves-identity', revisionResetPreservesIdentity],
+  ['a-revision-arriving-mid-composition', aRevisionArrivingMidComposition],
   ['owned-checked-pair', ownedCheckedPair],
   ['form-reset-and-fill-proxy', formResetAndFillProxy],
+  ['armed-edges-are-wired', armedEdgesAreWired],
 ];
 
 module.exports = {
