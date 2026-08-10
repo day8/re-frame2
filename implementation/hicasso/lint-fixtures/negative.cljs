@@ -343,7 +343,9 @@
 ;; has no scope table, so it recognises a binding form by NAME, and a local
 ;; introduced by a form nobody wrote down is not seen — so calling it reports,
 ;; at ERROR, which stops the build. Six such forms were measured live at the CI
-;; pin after the `letfn` repair landed (rf2-ka4d).
+;; pin after the `letfn` repair landed (rf2-ka4d), and the array pair `areduce`
+;; / `amap` was measured the same way after THAT repair landed (merged-PR audit
+;; #7829) — a roster is only ever as good as its last reading of the grammar.
 ;;
 ;; So, once more, from the GRAMMAR rather than from the repair — and past
 ;; where grammar alone stops (merged-PR audit #7818): a shape answers "did I
@@ -423,6 +425,24 @@
     number (apply-to [_ spread-out] (spread-out)))
   [:div "spread"])
 
+;; A method's own NAME, which is the one thing in a spec form that is NOT a
+;; binding. `reify` compiles its methods into a type's prototype and the four
+;; spec forms expand the same way; nothing in any expansion puts the method name
+;; in scope, so a body that mentions it means the var, not the method.
+;;
+;; It still sits in HEAD POSITION of a list, exactly where a callee sits, so a
+;; walk that reads every list head reports the DEFINITION as a call. That is the
+;; false ERROR the repair for the false silence would otherwise introduce, which
+;; is why it is witnessed here rather than argued about. REDS UNDER a walk that
+;; does not skip a method's name.
+(h/defview toString [_]
+  [:div (str (reify Object (toString [_] "a definition, not a call")))])
+
+(h/defview valueOf [_]
+  (extend-type string Object
+    (valueOf [_] "also a definition"))
+  [:div "extended"])
+
 ;; `(defmethod multifn dispatch-val & fn-tail)`, tail written flat. The
 ;; multimethod's own NAME sits at position 0 and the dispatch value at 1, so
 ;; this REDS UNDER reading the tail from either — position 0 binds
@@ -449,6 +469,35 @@
     ([] "none")
     ([run-last] (run-last)))
   [:div "registered"])
+
+;; `(areduce a idx ret init expr)` binds TWO names, and neither is written in a
+;; binding vector: macroexpansion puts both into a `loop`, so `idx` and `ret`
+;; are in scope over `expr`. The accumulator is an ORDINARY VALUE and may
+;; perfectly well be a function — folding an array of steps into one function is
+;; a program somebody writes, and calling the accumulator is the whole point of
+;; it. Reported at ERROR (merged-PR audit #7829). REDS UNDER an arm that reads
+;; the index position alone.
+(h/defview folded [{:keys [steps]}]
+  [:div (str (areduce steps i folded identity
+                      (fn [x] ((aget steps i) (folded x)))))])
+
+;; The INDEX position, pinned separately so neither row passes on the other's
+;; coverage. No correct program calls this one — an index is an integer, and
+;; calling one throws whatever the linter says — exactly as for `dotimes`'s
+;; counter above. REDS UNDER an arm that reads the accumulator position alone.
+(h/defview step [{:keys [xs]}]
+  [:div (str (areduce xs step total 0 (+ total (step))))])
+
+;; `(amap a idx ret expr)` is the same grammar one argument shorter — the
+;; accumulator arrives as `(aclone a)` rather than from an `init` — and its two
+;; names sit at the SAME two positions, which is why one arm reads both forms.
+;; Neither of ITS positions is a program somebody calls (an index is an integer
+;; and the accumulator is an array), so this row pins MEMBERSHIP rather than a
+;; position: it REDS UNDER an arm naming `areduce` alone. The positions are
+;; pinned by the two rows above, which the identical expression reads. Measured
+;; live at the pin alongside `areduce`, and left out only by being unnamed.
+(h/defview slot [{:keys [xs]}]
+  [:div (str (amap xs i slot (do (slot) (aget xs i))))])
 
 ;; ---------------------------------------------------------------------------
 ;; parked-read / deferred-read — a READING DOOR that a local has taken
