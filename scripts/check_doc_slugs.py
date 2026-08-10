@@ -1362,6 +1362,86 @@ def _mask_code_spans(text: str) -> str:
     return _INLINE_CODE_SPAN_RE.sub(_blank, text)
 
 
+def _blank_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """Blank the given spans, preserving length and line endings.
+
+    Same contract as `_mask_code_spans`: a position in the result still maps
+    back to its source line.
+    """
+    if not spans:
+        return text
+    out = list(text)
+    for start, end in spans:
+        for i in range(start, end):
+            if out[i] != "\n":
+                out[i] = " "
+    return "".join(out)
+
+
+def _reference_id(label: str) -> str:
+    """Normalise a reference label the way a USE site is normalised (rf2-2ryk).
+
+    `.lower()` then `\\s+` → one space, matching
+    `ReferenceInlineProcessor.NEWLINE_CLEANUP_RE`.  Deliberately NOT stripped:
+    the renderer does not strip the use side, so `[text][  x  ]` resolves to
+    nothing and this must agree.  The DEFINITION side is stripped and not
+    folded — see `_reference_definitions`, and the grammar block by
+    `_REF_DEF_RE` for why the asymmetry is real rather than an oversight here.
+    """
+    return _REF_ID_WS_RE.sub(" ", label.lower())
+
+
+def _reference_definitions(
+    pairs: list[tuple[int, str]],
+) -> tuple[dict[str, tuple[int, str]], set[int]]:
+    """Collect `[label]: destination` definitions (rf2-2ryk).
+
+    Returns ({id: (line-of-destination, destination)}, {lines the definitions
+    occupy}).  The line set is what the caller blanks before scanning for
+    inline content: the renderer's block processor REMOVES a definition from
+    the document, so `[tsobl]` on its own definition line is not a shortcut
+    use of itself, and blanking is how that stays true here.
+
+    Scanned over the whole file at once, not per block, because a definition's
+    destination may sit on the following line.  Blockquote markers come off
+    first — `> [q]: x` defines `q` — and fenced lines arrived blank, so a
+    definition inside a code sample defines nothing.
+
+    `[^label]: …` is a FOOTNOTE, consumed by the `footnotes` extension long
+    before the block parser sees it, so it is skipped here rather than
+    registered as a reference with a destination of "the first word of the
+    footnote body".
+
+    Later definitions overwrite earlier ones, which is what python-markdown
+    does (`md.references[id] = …`) and the opposite of CommonMark's
+    first-wins rule.
+    """
+    bodies: list[str] = []
+    for _, content in pairs:
+        _, body = _quote_depth_and_body(content)
+        bodies.append(body)
+    text = "\n".join(bodies)
+    line_starts: list[int] = []
+    offset = 0
+    for body in bodies:
+        line_starts.append(offset)
+        offset += len(body) + 1
+
+    defs: dict[str, tuple[int, str]] = {}
+    lines: set[int] = set()
+    for m in _REF_DEF_RE.finditer(text):
+        label = m.group(1)
+        if label.startswith("^"):
+            continue
+        first = bisect.bisect_right(line_starts, m.start()) - 1
+        last = bisect.bisect_right(line_starts, max(m.end() - 1, m.start())) - 1
+        for i in range(first, last + 1):
+            lines.add(pairs[i][0])
+        dest_line = pairs[bisect.bisect_right(line_starts, m.start(2)) - 1][0]
+        defs[label.strip().lower()] = (dest_line, m.group(2).lstrip("<").rstrip(">"))
+    return defs, lines
+
+
 def _iter_inline_links(
     pairs: Iterable[tuple[int, str]],
 ) -> Iterable[tuple[int, str]]:
@@ -1389,7 +1469,39 @@ def _iter_inline_links(
     destination's line is the line an author edits to fix the anchor, and it is
     the more robust of the two — an unclosed stray `[` earlier in the block can
     drag the match start backwards, but never the destination.
+
+    REFERENCE-STYLE links are resolved here too (rf2-2ryk), against the
+    definitions `_reference_definitions` collected from the same lines.  Three
+    properties of that, each renderer-derived and each load-bearing:
+
+    * A use is reported at its DEFINITION's line, not its own, because that is
+      where the destination is written and therefore the line an author edits
+      to fix it — the same rule the inline case already follows.  It is
+      reported ONCE per definition however many times the label is used: three
+      uses of one broken `[tsobl]` are one broken destination on one line, and
+      three identical diagnostics would be noise, not coverage.
+    * Inline links are matched and BLANKED first, so `[foo](a.md)` cannot also
+      be read as a shortcut use of a `[foo]:` definition.  That is the
+      renderer's precedence — its inline link pattern outranks its reference
+      patterns — and blanking is length-preserving, so line mapping survives.
+    * A use is only a link once its label RESOLVES.  Without that gate a bare
+      `[1]` in prose becomes a link, which is exactly what the renderer
+      refuses to do, and this corpus is full of bracketed text that is not a
+      link.
+
+    A definition never used yields nothing: the renderer emits no `<a>` for
+    it, so there is nothing to check, and flagging it would be a lint this
+    gate has no business running.
     """
+    pairs = list(pairs)
+    refs, ref_def_lines = _reference_definitions(pairs)
+    if ref_def_lines:
+        pairs = [
+            (line_no, "" if line_no in ref_def_lines else content)
+            for line_no, content in pairs
+        ]
+    seen_refs: set[str] = set()
+
     for block in _inline_blocks(pairs):
         joined = _mask_code_spans("\n".join(content for _, content in block))
         # Offset of each line's first character within `joined`, for mapping a
@@ -1400,9 +1512,20 @@ def _iter_inline_links(
         for _, content in block:
             line_starts.append(offset)
             offset += len(content) + 1  # +1 for the joining newline
+        inline_spans: list[tuple[int, int]] = []
         for m in _LINK_RE.finditer(joined):
+            inline_spans.append((m.start(), m.end()))
             i = bisect.bisect_right(line_starts, m.start(1)) - 1
             yield block[i][0], m.group(1)
+        if not refs:
+            continue
+        for m in _REF_USE_RE.finditer(_blank_spans(joined, inline_spans)):
+            explicit = m.group(2)
+            ref_id = _reference_id(explicit if explicit else m.group(1))
+            if ref_id in seen_refs or ref_id not in refs:
+                continue
+            seen_refs.add(ref_id)
+            yield refs[ref_id]
 
 
 def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
@@ -2171,6 +2294,16 @@ def _run_self_tests(verbose: bool = False) -> int:
         # links then resolve against phantom ids), and to 3 if blanking runs past
         # the blockquote and takes the real heading below it.
         ("blockquoted_fence_not_indexed",    2),
+        # rf2-2ryk — reference-style links, which the extractor matched not at
+        # all.  The 2 are a broken TARGET and a broken ANCHOR, each reached
+        # through a `[label]: destination` definition, so the count fails in
+        # both directions: down to 0 if reference extraction regresses, and up
+        # past 2 the moment resolution stops gating — the page is full of
+        # bracketed prose (`[nolink]`, `[a[b]]`, a footnote, a padded label)
+        # that the renderer refuses to make a link of, plus an UNUSED
+        # definition pointing at a missing file, which is a finding only for an
+        # extractor that has stopped asking whether a link is emitted at all.
+        ("reference_style_links",            2),
     ]
 
     failures = 0
@@ -2766,6 +2899,153 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, ">> Per the note, see [§Compiled"),
           (2, "> views](API.md#compiled-views).")],
          [(2, "API.md#compiled-views")]),
+        # ------------------------------------------------------------------
+        # rf2-2ryk — REFERENCE-STYLE links, which this extractor matched not at
+        # all: nine links the renderer emits from `[label]: dest` definitions
+        # were never checked, and a link checker's false negatives are the
+        # expensive direction.
+        #
+        # The cases are driven from the GRAMMAR — every legal form, each
+        # position a definition may take relative to its use, and the label
+        # normalisation on both sides — not from the repair, and every verdict
+        # is what mkdocs' own markdown.Markdown returned for that exact input.
+        # A reference use is reported at its DEFINITION's line, because that is
+        # where the destination is written, and ONCE per definition however
+        # many times the label is used.
+        #
+        # THE THREE FORMS.
+        ("full form [text][label] resolves",
+         [(1, "See [the doc][t] for detail."), (2, ""), (3, "[t]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        ("collapsed form [label][] resolves",
+         [(1, "See [t][] for detail."), (2, ""), (3, "[t]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        ("shortcut form [label] resolves",
+         [(1, "See [t] for detail."), (2, ""), (3, "[t]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        # THE SHORTCUT FORM'S GATE, and the reason resolution runs before
+        # reporting: with no definition the renderer emits literal brackets,
+        # and this corpus is full of bracketed prose and Clojure vectors.
+        ("shortcut with no definition is not a link",
+         [(1, "The path [1] and a stray [nolink] are prose.")],
+         []),
+        ("full form with no definition is not a link",
+         [(1, "See [the doc][missing] for detail.")],
+         []),
+        ("collapsed form with no definition is not a link",
+         [(1, "See [missing][] for detail.")],
+         []),
+        # DEFINITION POSITION — before the use, after it, in the middle of a
+        # paragraph, and with the destination on its own line.  All four are
+        # one `md.references` dictionary to the renderer, which is document-
+        # wide and order-free.
+        ("definition BEFORE the use resolves",
+         [(1, "[t]: target.md#anchor"), (2, ""), (3, "See [t] for detail.")],
+         [(1, "target.md#anchor")]),
+        ("definition interrupting a paragraph resolves",
+         [(1, "See [t] for detail."), (2, "[t]: target.md#anchor")],
+         [(2, "target.md#anchor")]),
+        ("destination on the line below the label resolves",
+         [(1, "See [t] for detail."), (2, ""), (3, "[t]:"),
+          (4, "    target.md#anchor")],
+         [(4, "target.md#anchor")]),
+        ("definition indented three spaces resolves",
+         [(1, "See [t] for detail."), (2, ""), (3, "   [t]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        # ...and four spaces is an indented code block, which defines nothing.
+        ("definition indented four spaces defines nothing",
+         [(1, "See [t] for detail."), (2, ""), (3, "    [t]: target.md#anchor")],
+         []),
+        # A DEFINITION IS REMOVED FROM THE INLINE STREAM.  Without blanking it
+        # the label on the definition line reads as a shortcut use of itself,
+        # and one definition reports twice.
+        ("a definition line is not a shortcut use of itself",
+         [(1, "[t]: target.md#anchor")],
+         []),
+        # ONE REPORT PER DEFINITION.  Three uses of one label are one broken
+        # destination on one line; three identical diagnostics would be noise.
+        ("three uses of one definition report once",
+         [(1, "See [t], then [the doc][t], then [t][] again."), (2, ""),
+          (3, "[t]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        # LABEL NORMALISATION, and the asymmetry CommonMark does not have.  The
+        # definition side is `.strip().lower()`; the use side is `.lower()`
+        # with `\s+` folded to one space and NO strip.
+        ("label matching is case-insensitive on both sides",
+         [(1, "See [the doc][HeLLo] for detail."), (2, ""),
+          (3, "[hEllO]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        ("a whitespace run in the USE label folds to one space",
+         [(1, "See [the doc][a  b] for detail."), (2, ""),
+          (3, "[a b]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        ("a use label wrapping across a newline folds the same way",
+         [(1, "See [the doc][a"), (2, "b] for detail."), (3, ""),
+          (4, "[a b]: target.md#anchor")],
+         [(4, "target.md#anchor")]),
+        ("the USE label is folded but NOT stripped, so padding kills it",
+         [(1, "See [the doc][  t  ] for detail."), (2, ""),
+          (3, "[t]: target.md#anchor")],
+         []),
+        ("the DEFINITION label is stripped but NOT folded, so a run kills it",
+         [(1, "See [the doc][a b] for detail."), (2, ""),
+          (3, "[a  b]: target.md#anchor")],
+         []),
+        # LAST DEFINITION WINS — `md.references[id] = …` is an assignment, the
+        # opposite of CommonMark's first-wins rule.
+        ("the LAST definition of a label wins",
+         [(1, "See [t] for detail."), (2, ""), (3, "[t]: first.md#a"),
+          (4, "[t]: second.md#b")],
+         [(4, "second.md#b")]),
+        # PRECEDENCE — the inline pattern outranks the reference one, so an
+        # inline link is never also read as a shortcut use of a definition that
+        # happens to share its text.
+        ("an inline link outranks a definition of the same name",
+         [(1, "See [t](inline.md#a) for detail."), (2, ""),
+          (3, "[t]: reference.md#b")],
+         [(1, "inline.md#a")]),
+        # A WRAPPED full-form use, the shape 003-Tool-Catalogue.md actually
+        # writes: the text wraps and the label lands on the following line.
+        ("a full-form use wrapping across a newline resolves",
+         [(1, "**Returns** the shape (per [Tool-Pair §Tool-surface"),
+          (2, "obligations][tsobl] — `:frames` and the rest."), (3, ""),
+          (4, "[tsobl]: Tool-Pair.md#tool-surface-obligations")],
+         [(4, "Tool-Pair.md#tool-surface-obligations")]),
+        # BLOCKQUOTES.  Markers come off before the definition is matched, and
+        # `md.references` is document-wide, so a definition written inside a
+        # quote serves a use outside it.
+        ("a definition inside a blockquote resolves",
+         [(1, "> See [q] for detail."), (2, ">"),
+          (3, "> [q]: target.md#anchor")],
+         [(3, "target.md#anchor")]),
+        ("a definition inside a blockquote serves a use outside it",
+         [(1, "> [q]: target.md#anchor"), (2, ""), (3, "See [q] for detail.")],
+         [(1, "target.md#anchor")]),
+        # AN UNUSED DEFINITION EMITS NO LINK, so there is nothing to check.
+        # Reporting it would be a lint about dead markup, not a link check.
+        ("a definition that is never used yields nothing",
+         [(1, "Just prose."), (2, ""), (3, "[unused]: target.md#anchor")],
+         []),
+        # CODE, in both directions.  A use inside a code span is code; a
+        # definition inside a fence arrives already blanked by `_strip_fences`,
+        # so it defines nothing.
+        ("a reference use inside a code span is not a link",
+         [(1, "See `[t][]` for detail."), (2, ""), (3, "[t]: target.md#anchor")],
+         []),
+        ("a definition inside a fence defines nothing",
+         [(1, "See [t] for detail."), (2, ""), (3, ""), (4, ""), (5, "")],
+         []),
+        # NOT REFERENCE LINKS.  A footnote is consumed by the `footnotes`
+        # extension before either processor runs, and a label may not contain
+        # brackets at all.
+        ("a footnote is not a reference link",
+         [(1, "See the note[^1] for detail."), (2, ""),
+          (3, "[^1]: target.md#anchor is only prose here.")],
+         []),
+        ("a label containing brackets defines nothing",
+         [(1, "See [the doc][a[b]] for detail."), (2, ""),
+          (3, "[a[b]]: target.md#anchor")],
+         []),
     ]
     for label, lines, expected_links in extraction_cases:
         got_links = list(_iter_inline_links(lines))
