@@ -1114,7 +1114,7 @@
                     "because a nil would make a body that reads the wrong key "
                     "look exactly like one that reads the right key and finds "
                     "nothing.")
-               :add-the-query-to-reads
+               :add-the-query-to-subs
                {:missing   (mapv second missing)
                 :supplied  (mapv first fixtures)
                 :phase     :after-body-run}))))
