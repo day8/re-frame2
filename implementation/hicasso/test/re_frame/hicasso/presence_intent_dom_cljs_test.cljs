@@ -33,7 +33,9 @@
      absence;
   5. a tray with no frame above it is still legal until a child writes an
      intent, and that intent is still the loud error, **named**;
-  6. presence's roster is three hooks and `runtime/shell`'s is still two —
+  6. presence's roster is four hooks — three distinct names, with
+     `useContext` read twice for the frame and for the root-scoped
+     adoption window — and `collector/shell`'s is still two —
      counted at React's own dispatcher, so the budget claim is a reading
      rather than a docstring. It also reads two things off the same log
      that nothing measured before: presence's body runs exactly **twice**
@@ -407,7 +409,7 @@
                  (pr-str 're-frame.hicasso.hook-probe)
                  " rather than reading this as a pass.")))
 
-(deftest presence-costs-three-hooks-and-the-shell-still-costs-two
+(deftest presence-costs-four-hooks-and-the-shell-still-costs-two
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
     (if-not (probe/install!)
@@ -432,23 +434,31 @@
             (is (= (count collector/shell-hook-ledger) (count (take 2 names)))
                 "and the declared shell ledger is the measured one")
             (is (= ["useContext" "useState" "useEffect"] (vec (distinct tail)))
-                (str "presence's own roster is three, in call order: the frame "
-                     "hook this repair added, the retention state, and the "
-                     "clock. `distinct`, because the RAW list is a log of "
-                     "dispatcher reads rather than of calls — see the two "
-                     "claims below for why. Raw tail: " (pr-str tail)))
+                (str "presence's own roster, in call order: the frame hook, "
+                     "the retention state, the ROOT-SCOPED ADOPTION WINDOW "
+                     "(a second useContext, rf2-6tmu) and the clock — four "
+                     "calls over three distinct names. `distinct`, because "
+                     "the RAW list is a log of dispatcher reads rather than "
+                     "of calls — see the two claims below for why. Raw tail: "
+                     (pr-str tail)))
             (is (empty? (filter #{"useRef" "useMemo" "useCallback"
                                   "useSyncExternalStore"}
                                 tail))
                 "and nothing else — no useRef, and no second subscription")
             (testing "the raw log's two multiplicities, both measured rather
                       than assumed"
-              (is (= 2 (get freq "useContext") (get freq "useState"))
+              (is (= 2 (get freq "useState"))
                   "presence's body ran TWICE on this mount, which is the
                    docstring's convergence claim read off React's own
                    dispatcher: `step` is adjusted during render, so React
                    re-runs the body, and `step`'s idempotence is what makes
                    that ONE extra pass rather than a loop")
+              (is (= (* 2 (get freq "useState")) (get freq "useContext"))
+                  "and TWO contexts are read per pass, not one — the frame
+                   hook and the root-scoped adoption window. Stated as a
+                   ratio against the pass count rather than as a bare 4, so
+                   the row keeps saying `two contexts per pass` if the
+                   convergence pass count ever changes")
               (is (= 4 (get freq "useEffect"))
                   "twice per pass, against one call in the body: React 19.2's
                    DEV dispatcher is read more than once per `useEffect` call,
