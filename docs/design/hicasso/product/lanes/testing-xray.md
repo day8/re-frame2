@@ -14,7 +14,7 @@ Testing and diagnostics are product surfaces, not documentation afterthoughts. S
 | L3 | React lifecycle, hooks, context, refs, foreign hosts and native components | mounted React DOM tests |
 | L4 | IME, caret, focus, hydration, layout, performance | Chromium, Firefox, and WebKit witnesses |
 
-The L2 harness is not a JVM renderer or alternate execution semantics. It invokes the stored view body under a discardable subscription resolver and returns a versioned semantic tree with small `find`, `attrs`, `text`, and `intents` helpers.
+The L2 harness is not a JVM renderer or alternate execution semantics. It invokes the view body under a discardable subscription resolver and returns a versioned semantic tree with small `find`, `attrs`, `text`, and `intents` helpers. The body is the function itself when a test names it, and otherwise the one the minted `defview` head carries: the mint attaches it to the head under a dev-only property so a hook-free harness can reach it, which is a single own property and not a registry. That property does not survive an `:advanced` build with `goog.DEBUG` false, so a minted head refuses there.
 
 Before defining another schema, audit the existing versioned structural-tree and Spec-011 assertion utilities and reuse compatible data/helpers only; do not inherit another renderer, SSR authority, or simulated React lifecycle. Hooks, `n/$` results, native components, and raw/foreign hosts are opaque and refuse with a pointer to L3. Missing fixtures refuse; they are never replaced with fake React dispatchers.
 
