@@ -4079,3 +4079,23 @@ Maintenance: the text lives in
 Edit it when the catalogue grows or shrinks. The structural peer
 is the `re-frame2-pair-mcp.tools/tool-descriptors` docstring;
 keep the two in lockstep when adding or removing tools.
+
+**The prose has a hard budget, and it is the wire cap** (rf2-3dmj). The
+response egresses through the universal wire-boundary cap like any
+other, so once it exceeds `default-max-tokens` the entire payload is
+replaced by the `{:rf.mcp/overflow ...}` marker — the first call an agent
+makes on a fresh session returns no onboarding text at all, and the
+marker's "re-call with narrower args" hint cannot help, because this
+tool takes no narrowing args. So the budget is enforced where the prose
+is written: `test/re_frame2_pair_mcp/instructions_budget_test.cljs` runs
+the production `cap/apply-cap` over the real result and fails with the
+budget, the current usage and the remaining margin named in the message.
+
+Note the exchange rate when estimating headroom. `wire/ok-text` writes
+the same payload into BOTH `:content[0].text` (the `pr-str` EDN) and
+`:structuredContent` (the JSON projection), and the cap counts both —
+correctly, since both ride the wire. The prose is therefore measured
+**twice**: one character of prose costs ~0.5 tokens of budget, so the
+effective prose budget is about half the nominal cap. Sizing a draft
+from the raw character count of `instructions-text` is wrong by a factor
+of two.
