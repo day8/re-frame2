@@ -2924,6 +2924,60 @@ jobs:
       - name: Hicasso bench-lane compile coverage gate
         run: npm run test:hicasso-compile
 
+      # THE HICASSO RELEASE BUILD (rf2-qy1j). rf2-hic-008 added
+      # `:hicasso-release` to shadow-cljs.edn — the artefact's first and only
+      # `:advanced` / `goog.DEBUG false` compile, entry `re-frame.hicasso.
+      # consumer-app` — and correctly stopped there, because package.json and
+      # this file were both held. So the build shipped with no npm script and
+      # no job: exactly the shape the bench-lane compile above was in before
+      # rf2-2rtt6.73 and the invariants gate before rf2-8a6s, and with the same
+      # consequence — Phase 0's claim that a clean consumer's application
+      # compiles for production could stop being true on main and nothing
+      # would say so.
+      #
+      # WHAT IT CATCHES THAT NOTHING ELSE HERE DOES. Every other compile of
+      # these namespaces in the repo is `:none`: `:node-test`, `:browser-test`
+      # and the bench-lane step above all run the ClojureScript compiler and
+      # never the Closure one. `:advanced` is where renaming, externs
+      # inference and DCE-sensitive interop are decided, and a construct only
+      # Closure rejects is invisible to all three. Measured rather than
+      # assumed — with one bad `js*` form in `re-frame.hicasso`, the SAME
+      # build id under `shadow-cljs compile` completed green (162 files, 0
+      # warnings) while `shadow-cljs release` failed with a Closure parse
+      # error. The dev lanes were the control and they did not notice.
+      #
+      # NO NEW SURFACE PREDICATE, DELIBERATELY (the rf2-hic-021 lesson). A
+      # job gated on a changed-surface condition is correct exactly until the
+      # thing it guards grows one more input, and nothing makes anyone revisit
+      # the condition then; that is how the complaint-catalogue gate ended up
+      # unreachable from three of its four input families. The build's
+      # repo-source inputs are three trees and the build-config trio —
+      # implementation/core/** (68 namespaces), implementation/adapters/**
+      # (the UIx adapter the entry installs), implementation/hicasso/** (src,
+      # plus the `consumer-app` entry under test/), and shadow-cljs.edn /
+      # package.json / package-lock.json, which declare the build id and pin
+      # the Closure version whose output this is. EVERY one of those already
+      # arms `cljs_node_test`, so hosting the build here needs no classifier
+      # arm of its own and adds no condition to keep in sync. It also cannot
+      # silently outgrow one: a new input can only arrive as a `:require`
+      # added to `consumer-app` or to something already on those trees, and
+      # every `implementation/*` artefact case in the classifier arms this
+      # output too, so the surface widens by construction rather than by
+      # somebody remembering to widen it.
+      #
+      # NOT `cljs_prod`, which is the elision / bundle-probe family. The
+      # classifier's `implementation/hicasso/*` arm keeps the package off it
+      # in terms, and routing this build there would mean widening that arm —
+      # a classifier edit — to reach a build whose every input already arms
+      # the job it is standing in.
+      #
+      # LAST in the job because it is the most expensive step here: 36.8s of
+      # Closure measured cold on a Windows laptop, on a runner that has
+      # already paid for the JVM, the Maven cache and `npm ci`. The
+      # sub-second static reads and the node-test lane above red first.
+      - name: Hicasso release build (:advanced, goog.DEBUG false)
+        run: npm run build:hicasso-release
+
   js-harness-self-tests:
     name: JS harness self-tests (quiet reporters + path policy)
     runs-on: ubuntu-latest
