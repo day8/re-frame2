@@ -296,11 +296,15 @@ not loadable by a JVM lane at all: `check_test_lane_bijection.py`'s `loadable_by
 the note under the verdict totals at the top.) `implementation/hicasso/test/` carries not one `.cljc`: all 61 files under it are
 `.cljs`, read on `origin/main` at 2026-08-11 — the triage counted 35 and the tree has grown since,
 while the extension has not, which is the half of the claim that is load-bearing. So the
-lane would open for one file and stay at one file until somebody *authors* a `.cljc` suite, and the
-package offers only three namespaces to author one against — `impl/slot.cljc`, `impl/state.cljc`,
-`impl/error.cljc` — of which only `slot` requires nothing but `clojure.string` (`state` reaches
-`re-frame.events` and `re-frame.subs`; `error` is the complaint catalogue's, already gated by
-`check_complaint_catalogue.py`). A whole CI job for one file, and no queue behind it.
+lane would open for one file and stay at one file until somebody *authors* a `.cljc` suite. The
+package has **five** `.cljc` namespaces to author one against, read on `origin/main` at 2026-08-11 —
+this triage counted three, and `re-frame.hicasso` (the public door) and `re-frame.hicasso.native`
+have joined since — but the enumeration changes nothing, because the point was always which of them
+is *cheap* to assert on the JVM. Still only `impl/slot.cljc` requires nothing but `clojure.string`:
+`impl/state.cljc` reaches `re-frame.events` and `re-frame.subs`, `impl/error.cljc` is the complaint
+catalogue's and already gated by `check_complaint_catalogue.py`, `native.cljc` reaches both of those
+and React on its `:cljs` branch, and the door is macros. A whole CI job for one file, and no queue
+behind it.
 
 **And the cheap answer holds, which is what makes the no comfortable rather than merely thrifty.**
 The cross-host claim is armed four ways already, none of them a new lane:
