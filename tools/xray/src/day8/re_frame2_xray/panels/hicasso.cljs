@@ -272,8 +272,14 @@
 
 ;; ---- the sub-strip and the panel -----------------------------------------
 
+;; `dispatch` (rf2-1w07r) is the reg-view-injected frame-bound dispatcher
+;; threaded down from the `Panel` body, so the deferred `:on-click` lands on
+;; the surrounding Xray instance's frame. A bare global `rf/dispatch` would
+;; fire after render unwinds, when the ambient frame is gone, and leak to
+;; `:rf/default` — the click would silently switch some other shell's
+;; sub-view, or none. This is the tab's only dispatch: the four views read.
 (defn- sub-strip
-  [selected]
+  [dispatch selected]
   (into [:div {:data-testid (str "rf-xray-" panel-id "-sub-strip")
                :role        "tablist"
                :style       strip-style}]
@@ -283,7 +289,7 @@
                     :role          "tab"
                     :aria-selected (= id selected)
                     :title         asks
-                    :on-click      #(rf/dispatch [:rf.xray.hicasso/set-view id])
+                    :on-click      #(dispatch [:rf.xray.hicasso/set-view id])
                     :style         (pill-style (= id selected))}
            label])))
 
@@ -303,7 +309,7 @@
                                   :intents     :intents
                                   :explain     :explain-render))]
     [:section {:data-testid (str "rf-xray-" panel-id) :style panel-root-style}
-     (sub-strip selected)
+     (sub-strip dispatch selected)
      [:div {:data-testid (str "rf-xray-" panel-id "-summary") :style summary-style}
       (or (hh/read-summary envelope) "no envelope")]
      [:div {:style scroll-style}

@@ -23,7 +23,12 @@ says a developer actually asks of such a substrate, one sub-view each.
 
 The sub-view is panel-local app-db state (`:rf.xray.hicasso/set-view` /
 `:rf.xray.hicasso/view`), normalised on write so a stale or hand-dispatched
-id lands on a view that exists. All four envelopes are taken in ONE turn by
+id lands on a view that exists. The strip dispatches through the
+`reg-view`-injected frame-bound `dispatch`, threaded down from the `Panel`
+body: the click fires after render unwinds, when the ambient frame is gone,
+so a bare global `rf/dispatch` would leak to `:rf/default` and switch some
+other shell's sub-view (rf2-1w07r; `frame_singleton_guard_test` holds it).
+All four envelopes are taken in ONE turn by
 `:rf.xray.hicasso/data` — the rosters are projections of a single runtime
 state, and reading them across two turns would let a mount land between the
 census and the edges.
