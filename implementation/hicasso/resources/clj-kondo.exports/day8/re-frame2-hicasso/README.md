@@ -60,12 +60,26 @@ ordinary Clojure:
   [:div.card (card)])
 ```
 
+A `letfn` fnspec is read as the `fn` tail it is — `letfn` expands each one to
+`(fn f …)` — so a local function's name and **every parameter of every arity**
+are locals, the multi-arity spelling included.
+
 Shadowing is read off the form in hand, because that is the only kind of fact
 available here: `api/resolve` answers `nil` for the view's own name — not yet a
 var when the hook runs — and never sees locals at all. A binding silences the
 entire form it heads, initialisers included, so a genuine self-call written in
 the initialiser of a `let` that goes on to bind the view's name is missed too.
 Missing one is the only way this check is allowed to be wrong.
+
+**Refuses to know** — and this direction is the one that costs you something —
+that a form *outside its roster* binds anything. Having no scope table, the
+hook recognises binding forms by name, and the roster is `let`-shaped forms
+(`let`, `loop`, `when-let`, `if-let`, `when-some`, `if-some`, `when-first`,
+`doseq`, `for`, `with-open`, `with-local-vars`, `binding`, `with-redefs`),
+`fn`/`fn*`/`hfn`, `letfn`, `catch` and `as->`. A local introduced by anything
+else — `dotimes`, `this-as`, a `reify` / `specify!` / `extend-type` method
+parameter, a `defmethod` parameter — is not seen, so calling one *does* report.
+Name your local something other than the view, or switch the check off.
 
 ### `:re-frame.hicasso/deferred-read` — warning
 
