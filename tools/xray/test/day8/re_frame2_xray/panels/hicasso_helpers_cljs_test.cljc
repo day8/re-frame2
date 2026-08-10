@@ -344,6 +344,145 @@
           "the slug is built from the sentinel the producer sent, never from a
            raw query recovered to make the row legible"))))
 
+;; ---------------------------------------------------------------------------
+;; The row key is INJECTIVE — the property, not three examples
+;; ---------------------------------------------------------------------------
+
+(def ^:private legal-components
+  "Every SHAPE a projected identity component legally takes, and the pairs
+  of shapes that a lossy encoding folds together.
+
+  MERGED-PR AUDIT #7820 found the collision this pool exists to catch by
+  GENERATING identities; the increment it audited asserted only that ITS
+  OWN three fixtures came out distinct, which is true of a constant
+  function on three points. So the guard below is a property over a
+  generated space and the hand-written rows underneath it are for
+  readability only.
+
+  The pool is chosen so that the three ways a slug can lose information
+  are all present and all adjacent: the namespace separator (`:a/b`), an
+  in-name hyphen (`:a-b`), and the boundary BETWEEN two components
+  (`:a` then `:b/c`). Numbers `1` and `12` sit next to each other for the
+  same reason, and `[:a :b]` next to `[[:a] :b]` puts a nesting level
+  where a flattening encoding cannot see it."
+  [;; keywords: plain, namespaced, hyphenated, and both
+   :a :b
+   :a/b :b/a
+   :a-b
+   :a/b-c :a-b/c
+   ;; strings — the same three shapes again, where `pr-str` quotes them
+   "a" "a-b" "a/b"
+   ;; numbers, including a two-digit one adjacent to its digits
+   0 1 12
+   ;; vectors: empty, single, multiple, hyphenated, and two nestings
+   [] [:a] [:a :b] [:a-b] [[:a] :b] [:a [:b]]
+   ;; the two sentinels the producer sends in place of a value
+   :rf/redacted :unknown])
+
+(def ^:private legal-identities
+  "The cross-product of [[legal-components]] in all three projected
+  positions — frame, registration id, query. Every element is a legal
+  projected identity and no two are equal, so the count IS the number of
+  distinct keys the panel must be able to mint."
+  (vec (for [frame legal-components
+             sub   legal-components
+             query legal-components]
+         [frame sub query])))
+
+(def ^:private legal-boundary-keys
+  "Boundary keys over the same space: the empty key, every identity as a
+  one-read key, and every ordered pair drawn from a slice of the space —
+  a boundary reads a SET of cells, so the encoding has to survive the
+  join between elements as well as the join inside one."
+  (into [[]]
+        (concat (map vector legal-identities)
+                (for [a (take 30 legal-identities)
+                      b (take 30 legal-identities)]
+                  [a b]))))
+
+(defn- collisions
+  "The values of `f` that more than one input produced, with their inputs
+  — so a failure NAMES the colliding rows instead of quoting two counts."
+  [f xs]
+  (->> xs
+       (group-by f)
+       (filter (fn [[_ ins]] (< 1 (count ins))))
+       (map (fn [[out ins]] [out (vec (take 3 ins))]))
+       (take 3)
+       vec))
+
+(deftest a-row-key-is-INJECTIVE-over-the-whole-legal-identity-space
+  ;; MERGED-PR AUDIT #7820. The fix for #7802 put the whole projected
+  ;; identity into one string and then passed that string through
+  ;; `id-slug`, which replaces every run of non-alphanumerics with `-`.
+  ;; Namespace separators, in-name hyphens, component boundaries and
+  ;; collection punctuation all became the same character, so the encoding
+  ;; REINTRODUCED the collision it was written to close:
+  ;;
+  ;;   [:a/b :c :d]  [:a-b :c :d]  [:a :b/c :d]  ->  "a-b-c-d" x3
+  ;;
+  ;; A React key must be unique and a testid must select one row. Neither
+  ;; has to be pretty — the projected query and the frame are printed as
+  ;; the row's LABEL, which is where a reader looks.
+  (testing "NON-VACUITY: the space really does defeat a lossy slug"
+    (is (= 1 (count (distinct (map #(hh/id-slug (pr-str %))
+                                   [[:a/b :c :d] [:a-b :c :d] [:a :b/c :d]]))))
+        "if these three ever stop colliding under `id-slug` alone, the
+         property below has stopped testing anything and the pool needs
+         re-choosing"))
+
+  (testing "the door itself is injective — one string per identity"
+    (is (= (count legal-identities)
+           (count (distinct (map hh/read-key-str legal-identities))))
+        (str "read-key-str collisions: " (pr-str (collisions hh/read-key-str legal-identities)))))
+
+  (testing "DISTINCT IDENTITIES YIELD DISTINCT READ SLUGS, over the whole space"
+    (is (= (count legal-identities)
+           (count (distinct (map hh/read-slug legal-identities))))
+        (str "read-slug collisions: " (pr-str (collisions hh/read-slug legal-identities)))))
+
+  (testing "and distinct boundary KEYS yield distinct boundary slugs"
+    (let [slug (fn [k] (hh/boundary-slug {:parent nil :key k}))]
+      (is (= (count legal-boundary-keys)
+             (count (distinct (map slug legal-boundary-keys))))
+          (str "boundary-slug collisions: " (pr-str (collisions slug legal-boundary-keys))))
+      (is (= "reads-nothing" (slug []))
+          "the read-free key keeps its readable name")
+      (is (not (contains? (set (map slug (rest legal-boundary-keys))) "reads-nothing"))
+          "and no key with reads in it can mint that name")))
+
+  (testing "an intent row key is injective over the same shapes"
+    (let [rows (for [event-id  legal-components
+                     dispatch  legal-components]
+                 {:event-id event-id :dispatch-id dispatch})
+          slug (fn [r] (:slug (first (hh/intent-rows
+                                       (envelope :intents {:scope {:frames [] :retained-runs 0}
+                                                           :intents [r]})))))]
+      (is (= (count rows) (count (distinct (map slug rows))))
+          (str "intent slug collisions: " (pr-str (collisions slug rows))))))
+
+  (testing "EQUAL identities yield ONE key — a seq and a vector are one row"
+    (is (= (hh/read-slug [:app/main :todo [:todo 7]])
+           (hh/read-slug (seq [:app/main :todo [:todo 7]])))
+        "the door normalises the triple, so an identity that arrives as a
+         seq does not mint a second React key for the same fact"))
+
+  (testing "the three-way control from the audit, spelled out"
+    (let [three [[:a/b :c :d] [:a-b :c :d] [:a :b/c :d]]]
+      (is (= 3 (count (distinct (map hh/read-slug three))))
+          (str "read-slugs: " (pr-str (mapv hh/read-slug three))))
+      (is (= 3 (count (distinct (map #(hh/boundary-slug {:parent nil :key [%]}) three))))
+          (str "boundary-slugs: "
+               (pr-str (mapv #(hh/boundary-slug {:parent nil :key [%]}) three))))))
+
+  (testing "the readable stem survives, so a testid is still greppable"
+    (is (string/starts-with? (hh/read-slug [:frame/a :row [:row 1]]) "frame-a-row-row-1-")
+        "the stem is the old slug; the tail behind the last `-` is what
+         makes it injective")
+    (is (not (string/includes? (hh/read-slug [:app/main :todo :rf/redacted]) "hunter"))
+        "and the encoding re-admits nothing — it encodes the PROJECTED
+         string it was handed and recovers no raw query")))
+
 (deftest intent-rows-carry-an-id-and-an-arity-and-no-arguments
   (let [e (envelope :intents
                     {:scope {:frames [:app/main] :retained-runs 2}
