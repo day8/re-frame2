@@ -51,8 +51,9 @@ AI pairs can read an intent off the tree without running the app.
 **Reads live where you use them.** You do not thread subscription values down
 from a parent "so the helper can see the filter." An ordinary `defn` helper
 calls [`h/sub`](glossary.md#hsub); the enclosing [boundary](glossary.md#boundary)
-owns the read. Re-render granularity stays visible in the source: a vector is
-a boundary; a call is inline.
+owns the read. Re-render granularity stays visible in the source: an
+[`h/defview`](glossary.md#defview) in head position mints a boundary, and a
+plain `defn` helper call inlines into the boundary already rendering.
 
 **Controlled fields are a law, not a folk recipe.** Caret jumps, dropped
 keystrokes, and IME mishaps are the same bugs every React app rediscovers.
@@ -86,13 +87,9 @@ Stay on **Reagent** if the migration cost is the dominant fact and the app
 already works — Hicasso can wait. Choose **UIx** when React-first authoring
 (hooks everywhere, a design system at the centre) is the product shape, not
 an island. [Hicasso](glossary.md#hicasso) is for data-first views on the
-re-frame2 pipeline: markup as data, reads at the point of use, intents you
-can assert. It meets foreign React at [`h/defhost`](09-interop.md); it does
-not try to be the best pure-React CLJS library.
-
-## Next
-
-[Install Hicasso](installation.md), mount a first root, and click a button.
-Then [Views and reads](02-views-and-reads.md) and
-[Events as data](03-events-as-data.md) deepen the three habits the first
-screen already uses.
+re-frame2 pipeline: markup as data,
+[reads at the point of use](02-views-and-reads.md),
+[intents you can assert](03-events-as-data.md). It meets foreign React at
+[`h/defhost`](09-interop.md); it does not try to be the best pure-React CLJS
+library. If that is your product, [installing it](installation.md) is one
+dependency and one DOM node.
