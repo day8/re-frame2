@@ -1261,181 +1261,127 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
-;; The five re-frame.freehand.tool reads — the Freehand view evidence a pairing
-;; agent reads from a running app. Each ships one exists?-guarded
+;; The three re-frame.hicasso.tool reads — the adapter-neutral evidence a
+;; pairing agent reads from a running app. Each ships one exists?-guarded
 ;; self-describing form; every read answers inside the four-axis evidence
 ;; projection (:scope / :basis / :complete? / :loss) stamped with :schema and
-;; :read, and egresses only bounded serializable data (no cell / React handle).
-;; Absence is honest: :view-tier-unavailable (the optional
-;; day8/re-frame2-freehand substrate is not loaded), :view-not-available (no
-;; such declared view), :view-tier-inactive (production build nil-gates the
-;; tier). These project a view's MANIFEST + bounded render EVIDENCE, not app-db
-;; values — like the registrar reads (handler-meta) they need no elision walker.
+;; :read, and egresses only bounded serializable data (no cell / React handle,
+;; and no read VALUE at all). Absence is honest: :evidence-tier-unavailable (the
+;; door is not loaded — a non-Hicasso app, or a Hicasso app nothing pulled it
+;; into), :evidence-tier-inactive (a production build; the door is dev-only).
+;;
+;; THREE, not the five view reads this family replaced (rf2-n3mb). Hicasso mints
+;; no boundary identity and keeps no view registry, so read-view-manifest /
+;; read-view-dependencies / read-view-event-sites — static questions about a
+;; view named by its declared id — have no counterpart here and are not shipped
+;; as tools that would answer them with a fabricated emptiness.
 ;; ---------------------------------------------------------------------------
 
-(def view-tier-view-id-input
+(def hicasso-door-input
   {:type "object"
-   :properties {:view-id {:type "string"
-                          :description (str "The Freehand view's declared id, e.g. \":my.app/header\" "
-                                            "(a keyword; a bare \"my.app/header\" is also accepted). Read it "
-                                            "from read-mounted-views, read-ui's :entity, or the source defview. "
-                                            "Required.")}
-                :build   {:type "string"}}
+   :properties {:build {:type "string"}}
    :additionalProperties false})
 
-(def read-view-manifest
-  {:name "read-view-manifest"
-   :description (str "What the compiler statically knows about a Freehand view — what CAN happen, useful "
-                     "BEFORE mount. Reads re-frame.freehand.tool/read-view-manifest from the running app: the "
-                     "declaration's MANIFEST verbatim under :manifest (source coord, per-prop docs/defaults/"
-                     "schema, subscription / event / render-slot / trusted-markup / crossing rosters, capability "
-                     "bits, ViewCell verdict, and the compile-tier :diagnostics findings including SUPPRESSED "
-                     "ones with the author's reason). READ-ONLY and VERSIONED (:schema) — validate the schema "
-                     "first and reconcile if it differs from what you expect. Rides the four-axis projection "
-                     "(:scope :basis :complete? :loss), so an INTERPRETED declaration answers :manifest nil on "
-                     ":basis :opaque with {:reason :no-static-analysis :dropped :unknown} rather than an empty "
-                     "roster that would read as a clean bill of health. Egresses only bounded serializable data "
-                     "(no cell / React handle). "
+(def read-mounted-boundaries
+  {:name "read-mounted-boundaries"
+   :description (str "Every Hicasso boundary MOUNTED RIGHT NOW. Reads "
+                     "re-frame.hicasso.tool/read-mounted-boundaries: per boundary its :key, the number of "
+                     ":instances holding that key, the :frame, :read-orders, and the :reads it holds — each "
+                     "with a :sub-id, a projected :query and the cell's :epoch, and NEVER the value the read "
+                     "returned. No arg, deliberately: the question is what is mounted. "
+                     "A BOUNDARY IS KEYED BY ITS READ SET, because that is the only identity this runtime "
+                     "retains — it mints no boundary id and keeps no view registry, so two boundaries reading "
+                     "the same set are indistinguishable to it and :instances says how many hold the key. "
+                     ":view and :source are :unknown under the :naming projection, permanently and by design: "
+                     "do not ask this tool for a view name, and do not read :unknown as a gap waiting to be "
+                     "closed. :complete? true is exact about UNDER-reporting — a boundary whose body read "
+                     "nothing still claims an entry and is counted. An EMPTY roster says exactly one thing: no "
+                     "boundary holds a live read edge right now. It does NOT say nothing is retained above (an "
+                     "Activity-hidden subtree that released its reads leaves the same empty census as an "
+                     "unmounted one), and a row is NOT proof the boundary is on screen (a Suspense-fallback-"
+                     "hidden subtree stays subscribed). The :host projection states both. READ-ONLY, versioned "
+                     "(:schema) — validate the schema first. "
                      "Examples: "
-                     "1. {:view-id \":my.app/counter\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 "
-                     ":read :view-manifest :view-id :my.app/counter :lowering :compiled :scope :possible-sites "
-                     ":basis :static-proof :complete? true :loss nil :manifest {...}}. "
-                     "2. No such declared view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
-                     "3. re-frame.freehand.tool not loaded (a Reagent/UIx app): {:view-id \":x\"} -> {:ok? false "
-                     ":reason :view-tier-unavailable}. "
-                     "4. Missing arg: {} -> {:ok? false :reason :missing-view-id}.")
-   :typicalTokens 500
-   :annotations idempotent-read-only-annotations
-   :outputSchema envelope-or-marker
-   :inputSchema view-tier-view-id-input})
-
-(def read-view-dependencies
-  {:name "read-view-dependencies"
-   :description (str "The reactive dependency SITES a Freehand view declares — its v/sub sites — with "
-                     "query-shape HONESTY. Reads re-frame.freehand.tool/read-view-dependencies: a fully-literal "
-                     "query is projected verbatim (:dynamic? false); a query carrying a captured local is "
-                     ":dynamic? true (its literal :query-id is still shown, the runtime argument is NOT "
-                     "fabricated). SITES, not reads — one entry per LEXICAL site, so a site inside a keyed list "
-                     "is one entry however many times it runs. Read from the manifest, so available BEFORE mount. "
-                     "READ-ONLY, versioned (:schema). "
-                     "Examples: "
-                     "1. {:view-id \":my.app/row\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read "
-                     ":view-dependencies :view-id :my.app/row :lowering :compiled :basis :static-proof :complete? "
-                     "true :loss nil :subscriptions [{:query [:total] :dynamic? false :path [0]} {:query-id :item "
-                     ":dynamic? true :path [1]}]}. "
-                     "2. An INTERPRETED declaration (no analysis step): :subscriptions [] with :basis :opaque "
-                     ":complete? false :loss {:reason :no-static-analysis :dropped :unknown} — unknown, not none. "
-                     "3. No such view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
-                     "4. Tier not loaded: {:view-id \":x\"} -> {:ok? false :reason :view-tier-unavailable}.")
-   :typicalTokens 300
-   :annotations idempotent-read-only-annotations
-   :outputSchema envelope-or-marker
-   :inputSchema view-tier-view-id-input})
-
-(def read-view-event-sites
-  {:name "read-view-event-sites"
-   :description (str "The event-handler SITES a Freehand view declares (its :on-* handlers), each classified for "
-                     "HONESTY. Reads re-frame.freehand.tool/read-view-event-sites: every row states WHERE it "
-                     "dispatches from AND what it dispatches. A fully-literal handler is projected verbatim; a "
-                     "handler carrying a captured local, a call, or a callback BODY projects as :handler :opaque "
-                     "— the tier never claims a raw callback's internals are inspectable — while :event-id still "
-                     "shows the literal event id where the authored form has one. :classification is a CLOSED "
-                     "vocabulary — :vector, :options, :ui-event, :handler, :fn, :dynamic, :spread — and it keeps "
-                     "the two apart: :vector / :options carry an event vector, so an :opaque handler there is an "
-                     "event vector with a runtime argument, while any other classification is a callback. "
-                     ":serializable? and :sync? ride each site. :sync? true is the controlled-input synchronous "
-                     "door, reachable ONLY on :vector / :options / :ui-event (the roles whose outcome is "
-                     "statically known to be one event vector or nil) on a controlled tag in a door slot, never "
-                     "behind :capture/:passive — :handler and :fn are excluded on purpose, because what they "
-                     "dispatch is unknowable at the moment the door would have to open. "
-                     ":site-facts names the CLOSED set of facts a row states, so an absent fact is visible as "
-                     "absent. SITES, not dispatches — one entry per LEXICAL site. READ-ONLY, versioned (:schema). "
-                     "Examples: "
-                     "1. {:view-id \":my.app/form\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read "
-                     ":view-event-sites :complete? true :loss nil :event-sites [{:prop :on-click :classification "
-                     ":vector :handler [:submit] :event-id :submit :serializable? true :sync? false} {:prop "
-                     ":on-change :classification :options :handler {:event [:field/set]} :event-id :field/set "
-                     ":serializable? true :sync? true} {:prop :on-blur :classification :fn :handler :opaque "
-                     ":event-id nil :serializable? false :sync? false}] :site-facts #{:sid :source-coord :path "
-                     ":prop :classification :serializable? :sync? :handler :event-id}}. "
-                     "2. No such view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
-                     "3. Tier not loaded: {:view-id \":x\"} -> {:ok? false :reason :view-tier-unavailable}.")
-   :typicalTokens 350
-   :annotations idempotent-read-only-annotations
-   :outputSchema envelope-or-marker
-   :inputSchema view-tier-view-id-input})
-
-(def read-mounted-views
-  {:name "read-mounted-views"
-   :description (str "Every Freehand occurrence CONNECTED RIGHT NOW. Reads "
-                     "re-frame.freehand.tool/read-mounted-views: per occurrence its :view-id, an :occurrence key "
-                     "distinguishing two live instances of one view, the :lowering, the :generation, the LIVE "
-                     ":connection state, and the selected :commit (its :frame plus the QUERIES that commit read, "
-                     "WITHOUT the values they returned — a value is application data and an evidence read is not a "
-                     "second egress path for it). No arg, deliberately: the question is what is mounted. "
-                     "CURRENT STATE, NOT A LIFETIME ROSTER — rows drop at disconnect, so there is no render "
-                     "total, no batch total, no hide-vs-unmount interval ledger and no accumulated union of every "
-                     "target ever observed; :occurrence-facts names the closed set a row states so a lifetime "
-                     "quantity is visibly not a fact it has. :complete? true is exact about UNDER-reporting; "
-                     "over-reporting is bounded and stated (a host torn down without disconnecting its cells "
-                     "leaves rows behind — :generation and :at are what show a stale one for what it is). The "
-                     "HOT-SWAP read: after an HMR body swap a COMPATIBLE change RETAINS the occurrence (its "
-                     ":generation advances), an INCOMPATIBLE change REMOUNTS it (a fresh :occurrence key). "
-                     "READ-ONLY, versioned (:schema). "
-                     "Examples: "
-                     "1. {} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read :mounted-views :scope "
-                     ":connected-occurrences :basis :observation :complete? true :loss nil :occurrences "
-                     "[{:view-id :my.app/row :occurrence {:parent nil :key 71} :lowering :compiled :generation 4 "
-                     ":connection :connected :root :unknown :at 18422.7 :commit {...}}] :occurrence-facts #{...}}. "
-                     "2. Nothing connected: {} -> the same envelope with :occurrences [] — the one empty answer "
-                     "that IS a clean bill of health, because the index is authoritative about what is connected. "
-                     "3. Tier not loaded / production: {} -> {:ok? false :reason :view-tier-unavailable | "
-                     ":view-tier-inactive}.")
+                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v2 :producer :re-frame/hicasso "
+                     ":read :mounted-boundaries :scope :mounted-boundaries :basis :observation :complete? true "
+                     ":loss nil :boundaries [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]} :view "
+                     ":unknown :source :unknown :instances 3 :read-orders 1 :frame :app/main :reads [{:sub-id "
+                     ":todo :query [:todo 7] :frame-id :app/main :epoch 4}]}] :generation 12 :naming {...} "
+                     ":host {...}}. "
+                     "2. Nothing mounted: {} -> the same envelope with :boundaries []. "
+                     "3. Door not loaded (a Reagent/UIx app, or a Hicasso app nothing loaded it into): {} -> "
+                     "{:ok? false :reason :evidence-tier-unavailable}. "
+                     "4. Production build: {} -> {:ok? false :reason :evidence-tier-inactive}.")
    :typicalTokens 600
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
-   :inputSchema {:type "object"
-                 :properties {:build {:type "string"}}
-                 :additionalProperties false}})
+   :inputSchema hicasso-door-input})
+
+(def read-read-attribution
+  {:name "read-read-attribution"
+   :description (str "Which boundaries read each subscription — the reverse edge, exactly. Reads "
+                     "re-frame.hicasso.tool/read-read-attribution: per subscription its :sub-id, projected "
+                     ":query, :frame-id, the cell's :epoch, the :fan-out (one slot per reading boundary) and "
+                     "the distinct :readers holding them, keyed identically to read-mounted-boundaries so the "
+                     "two rosters JOIN with no correlation step. No arg. "
+                     "THIS IS THE ONE READ THAT IS EXACT WITHOUT QUALIFICATION — it prints a table rather than "
+                     "folding a window or naming what it cannot see; every cell's reader array IS the reverse "
+                     "edge, maintained by the same commit and cleanup that acquire and release the reference. "
+                     "IT IS ALSO THE WAY IN: boundaries here carry no name, so when you can name a "
+                     "subscription and want the boundary, start here and take the :key onward to "
+                     "explain-render. A key nothing holds is ABSENT rather than present with zero readers — it "
+                     "is not a subscription with no readers, it is one this runtime is not holding. READ-ONLY, "
+                     "versioned (:schema). "
+                     "Examples: "
+                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v2 :read :read-attribution :scope "
+                     ":read-edges :basis :observation :complete? true :loss nil :edges [{:sub-id :todo :query "
+                     "[:todo 7] :frame-id :app/main :epoch 4 :fan-out 3 :readers [{:parent nil :key [[:app/main "
+                     ":todo [:todo 7]]]}]}] :host {...}}. "
+                     "2. Nothing subscribed: {} -> the same envelope with :edges []. "
+                     "3. Door not loaded / production: {} -> {:ok? false :reason :evidence-tier-unavailable | "
+                     ":evidence-tier-inactive}.")
+   :typicalTokens 500
+   :annotations read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema hicasso-door-input})
 
 (def explain-render
   {:name "explain-render"
-   :description (str "Why did a Freehand view's live occurrences render? Reads "
-                     "re-frame.freehand.tool/explain-render, which FOLDS Spec 009's retained trace window at read "
-                     "time and keeps nothing of its own — there is no second history store, no second window and "
-                     "no second knob (retention is :rf.trace/events-retained). Per occurrence: the :commit, the "
-                     ":dispatch-id it was correlated to, and :cause — the JOIN, not a guess — naming the run, the "
-                     ":cause-event-id that started it, and the :sub-ids it recomputed that this commit reads. The "
-                     "OUTER roster is complete because the index knows every connected occurrence; an inner "
-                     "explanation is :complete? true only when the correlated run is STILL in the window. The "
-                     "three ways it cannot be are each reported as :loss with :dropped :unknown — {:reason :cap} "
-                     "for an empty/disabled ring or a provably EVICTED run, {:reason :uncorrelated} for a commit "
-                     "that named no run at all (the common case: a post-settle React batch has no cascade on the "
-                     "stack). :candidates are offered in every case and are deliberately NOT the answer — runs "
-                     "that COULD have driven this render. :scope states :retained-runs, :spans-commit? and "
-                     ":window-starts-at, so a reader can see whether the window reaches back to the commit. "
-                     "Optional :view-id narrows to one view; omitted, every current occurrence. READ-ONLY, "
+   :description (str "Which of a boundary's reads moved most recently, and which retained runs COULD have "
+                     "driven it. Reads re-frame.hicasso.tool/explain-render, which folds Spec 009's retained "
+                     "event window at read time and keeps nothing of its own — no second history store, no "
+                     "second knob (retention is :rf.trace/events-retained). No arg: it spans every mounted "
+                     "boundary. "
+                     "TWO HALVES, NEVER BLENDED. PROVEN: :latest-reads names the reads standing at the "
+                     "boundary's own :peak-epoch, read off the cells' epoch stamps, and :snapshot is the exact "
+                     "sum React compares — so 'which of my reads moved' has an answer. UNCORRELATED: the commit "
+                     "seam records no cascade id, so :cause is :unknown STRUCTURALLY — not occasionally, not "
+                     "when the ring is short, and not fixable with a bigger ring — and :candidates are the "
+                     "retained runs that recomputed a subscription this boundary reads, offered as LEADS. Do "
+                     "not present a candidate as the cause. THE TWO LOSS REASONS ARE DRIVABLE: {:reason "
+                     ":uncorrelated} means the lead search really ran, so :candidates [] is an honest survey "
+                     "result; {:reason :cap} means the boundary's own frames had an empty window, so no search "
+                     "happened and :candidates is :unknown. Both halves are scoped to the boundary's OWN "
+                     "frames, and a candidate must match a read on [frame-id sub-id]. Whether the boundary then "
+                     "RAN is :host-opaque — a notification delivered is not a render performed. READ-ONLY, "
                      "versioned (:schema). "
                      "Examples: "
-                     "1. {:view-id \":my.app/row\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read "
-                     ":explain-render :view-id :my.app/row :complete? true :loss nil :explanations [{:occurrence "
-                     "{:parent nil :key 71} :generation 4 :frame :rf/default :dispatch-id 41 :scope "
-                     "{:retained-runs 12 :spans-commit? true :window-starts-at 17980.2} :complete? true :loss nil "
-                     ":cause {:dispatch-id 41 :cause-event-id :people/loaded :sub-ids #{:person/by-id}} "
-                     ":candidates [...]}]}. "
-                     "2. No arg (every current occurrence): {} -> the same envelope with :view-id nil. "
-                     "3. Tier not loaded / production: {} -> {:ok? false :reason :view-tier-unavailable | "
-                     ":view-tier-inactive}.")
+                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v2 :read :explain-render :scope "
+                     ":mounted-boundaries :basis :observation :complete? false :loss {:reason :uncorrelated "
+                     ":dropped :unknown} :explanations [{:boundary {:parent nil :key [[:app/main :todo [:todo "
+                     "7]]]} :frame :app/main :instances 1 :snapshot 9 :peak-epoch 5 :latest-reads [{:sub-id "
+                     ":todo :query [:todo 7] :frame-id :app/main}] :cause :unknown :candidates [{:dispatch-id "
+                     "41 :event-id :todo/toggle :frame-id :app/main :sub-id :todo}] :basis :observation "
+                     ":complete? false :loss {:reason :uncorrelated :dropped :unknown}}] :window {:frames "
+                     "[:app/main] :retained-runs 12} :host {...}}. "
+                     "2. Retention off or window empty: the explanation carries :loss {:reason :cap} and "
+                     ":candidates :unknown — unknown, not an empty survey. "
+                     "3. Door not loaded / production: {} -> {:ok? false :reason :evidence-tier-unavailable | "
+                     ":evidence-tier-inactive}.")
    :typicalTokens 600
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
-   :inputSchema {:type "object"
-                 :properties {:view-id {:type "string"
-                                        :description (str "Optional Freehand view declared id (e.g. "
-                                                          "\":my.app/row\") to narrow to one view. Omitted, spans "
-                                                          "every current occurrence.")}
-                              :build   {:type "string"}}
-                 :additionalProperties false}})
+   :inputSchema hicasso-door-input})
 
 ;; ---------------------------------------------------------------------------
 ;; record

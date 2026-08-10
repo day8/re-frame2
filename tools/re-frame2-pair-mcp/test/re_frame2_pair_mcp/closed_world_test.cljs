@@ -44,10 +44,9 @@
   ;; connection and hand it a nil conn.
   (doseq [tool ["discover-app" "eval-cljs" "dispatch" "snapshot" "get-path"
                 "subscribe" "list-streams" "restore-epoch" "replace-app-db"
-                ;; The re-frame.freehand.tool reads eval over nREPL in the
+                ;; The re-frame.hicasso.tool reads eval over nREPL in the
                 ;; browser runtime — NOT server-local.
-                "read-view-manifest" "read-view-dependencies"
-                "read-view-event-sites" "read-mounted-views" "explain-render"]]
+                "read-mounted-boundaries" "read-read-attribution" "explain-render"]]
     (is (false? (registry/closed-world-tool? tool))
         (str tool " needs a live runtime — must NOT be closed-world")))
   (is (false? (registry/closed-world-tool? "no-such-tool"))
