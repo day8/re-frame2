@@ -114,10 +114,16 @@
 
   A keyword head is what makes a vector unambiguously hiccup. A SYMBOL
   head — a view, a host, or an ordinary two-element data vector — is not
-  decidable here, so nothing below judges one."
+  decidable here, so nothing below judges one.
+
+  The head must be UNQUALIFIED. A hiccup tag never carries a namespace, and
+  a qualified keyword at the head of a vector is ordinary tagged data —
+  `[:app/button 1]` is not a `<button>`, and `base-tag` would happily read
+  one out of it."
   [node]
   (boolean (and (api/vector-node? node)
-                (tag-keyword (first (:children node))))))
+                (when-let [kw (tag-keyword (first (:children node)))]
+                  (nil? (namespace kw))))))
 
 (defn- base-tag
   "`:button.icon#close` -> \"button\". The selector shorthand is sugar for
@@ -294,7 +300,7 @@
     (finding! value :re-frame.hicasso/parked-read
               (str "A subscription read is parked in a mutable reference. The "
                    "read-extent law covers the structure a body RETURNS, so a "
-                   "deferral held in a reference is outside it: forcing this in "
+                   "deferral held in a reference is outside it. Forcing this in "
                    "another body is undefined: the edge is attributed to "
                    "whichever body forces it, and a `delay` caches, so it is "
                    "then dropped. Read during the body and park the VALUE."))))
@@ -382,7 +388,7 @@
         (finding! node :re-frame.hicasso/nameless-interactive-element
                   (str "This <" (base-tag tag) "> has no children and no "
                        ":aria-label, :aria-labelledby or :title, so it has no "
-                       "accessible name, so a screen reader announces it as an "
+                       "accessible name; a screen reader announces it as an "
                        "unlabelled control. Give it text, or name it."))))))
 
 ;; --- a function literal where a head belongs ------------------------------
