@@ -811,23 +811,25 @@ declare -A TOOLS_PATHS=(
 # associative array can't carry multi-valued entries cleanly, so we use
 # a single multi-line string and split on `|`.
 #
-# rf2-7fxf8 — Xray's entry listed ONE of its ten in-repo coordinates and
+# rf2-7fxf8 — Xray's entry listed ONE of its in-repo coordinates and
 # story-mcp's listed one of its two, so ten of the eighteen coordinates the
 # release workflows must rewrite were asserted by nothing at all. The
 # completeness pass at the end of the tools loop now derives the true set
 # from each deps.edn, so this list cannot silently fall behind again.
 #
-# Xray's `day8/re-frame2-freehand` line asserts ONLY what the loop below
-# asserts of every entry: that the coordinate is declared at `:local/root`
-# in the committed deps.edn, which is true today and green. It does NOT
-# assert that freehand is publishable — implementation/freehand/deps.edn
-# deliberately carries no `:clein/build` (publication is EP-0036 F6
-# territory), so `day8/re-frame2-freehand` cannot be rewritten to any
-# `:mvn/version`. It is the ONE coordinate release-xray.yml deliberately
-# leaves at `:local/root`; the other nine are rewritten there. Whether Xray
-# is publishable before Freehand ships is an OPEN OPERATOR DECISION
-# (rf2-5dut1) that this gate neither makes nor routes around;
-# preflight-xray-package.sh is where it comes due, by refusing the deploy.
+# Xray's `day8/re-frame2-freehand` and `day8/re-frame2-hicasso` lines assert
+# ONLY what the loop below asserts of every entry: that the coordinate is
+# declared at `:local/root` in the committed deps.edn, which is true today
+# and green. Neither asserts the artefact is PUBLISHABLE — implementation/
+# freehand/deps.edn and implementation/hicasso/deps.edn both deliberately
+# carry no `:clein/build` (Freehand's publication is EP-0036 F6 territory;
+# Hicasso's release wiring is rf2-hic-008's), so neither coordinate can be
+# rewritten to any `:mvn/version`. They are the TWO coordinates
+# release-xray.yml deliberately leaves at `:local/root`; the other nine are
+# rewritten there. Whether Xray is publishable before they ship is an OPEN
+# OPERATOR DECISION (rf2-5dut1 / rf2-hic-023) that this gate neither makes
+# nor routes around; preflight-xray-package.sh is where it comes due, by
+# refusing the deploy — and its unpublishable-coordinate pin is the ledger.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
 xray|day8/re-frame2 {:local/root "../../implementation/core"}
 xray|day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
@@ -837,6 +839,7 @@ xray|day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
 xray|day8/re-frame2-resources {:local/root "../../implementation/resources"}
 xray|day8/re-frame2-machines {:local/root "../../implementation/machines"}
 xray|day8/re-frame2-freehand {:local/root "../../implementation/freehand"}
+xray|day8/re-frame2-hicasso {:local/root "../../implementation/hicasso"}
 xray|day8/re-frame2-machines-viz {:local/root "../machines-viz"}
 xray|day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 story|day8/re-frame2 {:local/root "../../implementation/core"}

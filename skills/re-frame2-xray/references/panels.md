@@ -25,7 +25,7 @@ def) + the build-time cross-check that guards it live in
 The two-mode model (Dynamic event-spine 4-layer chrome · Static registry
 3-layer chrome, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`) is
 covered in [`SKILL.md` §Two modes](../SKILL.md#two-modes). This leaf is
-the per-panel tour: the 9 Dynamic tabs in §Panel-by-panel below, the 5
+the per-panel tour: the 10 Dynamic tabs in §Panel-by-panel below, the 5
 Static tabs in §Static mode — registry browse. One binding constraint to
 restate: **no cross-epoch L4 panels** — no Dynamic L4 tab shows an
 *aggregate across epochs*; aggregate signal lives on L2 badges only (§021
@@ -100,15 +100,22 @@ projection alone — is the owning home in chrome.md §Time-travel
 
 ## Panel-by-panel (Dynamic mode)
 
-Nine Dynamic tabs, left-to-right by `:order` (mnemonics
-`e a v t m r s g u`): **Epoch · app-db · Views · Trace · Machine · Routes ·
-Resources · Graph · Frames.** First six are core spine lenses (§018 §5 +
-§021 §9.1); **Resources** (`:order 7`), **Graph** (`:order 8`), **Frames**
-(`:order 9`) are the cross-feature lenses, each self-registered through
-`reg-l4-tab!` (`panels/resources.cljs`, `panels/derivation_graph.cljs`,
-`panels/module_view.cljs`). Internal tab ids (`:epoch :app-db :views
-:trace :machines :routing :resources :derivation-graph :module-view`) are
-stable. There is no **Event** tab and no **Issues** tab — see §What's
+Ten Dynamic tabs, left-to-right by `:order` (mnemonics
+`e a v t m r s g u h`): **Epoch · app-db · Views · Trace · Machine · Routes ·
+Resources · Graph · Frames · Hicasso.** First six are core spine lenses
+(§018 §5 + §021 §9.1); **Resources** (`:order 7`), **Graph** (`:order 8`),
+**Frames** (`:order 9`) and **Hicasso** (`:order 10`) are the cross-feature
+lenses, each self-registered through `reg-l4-tab!` (`panels/resources.cljs`,
+`panels/derivation_graph.cljs`, `panels/module_view.cljs`,
+`panels/hicasso.cljs`). **Hicasso** is the evidence lens for the Hicasso
+view substrate — four sub-views over one versioned adapter-neutral schema
+(Mounted boundaries · Reads attribution · the Intents stream · Why), each
+stating its own scope, basis, completeness and loss, and each rendering an
+absence as a named loss state rather than as an empty list. A host that is
+not running Hicasso shows the honest no-evidence state, which is distinct
+from *running with nothing mounted*. Internal tab ids (`:epoch :app-db
+:views :trace :machines :routing :resources :derivation-graph :module-view
+:hicasso`) are stable. There is no **Event** tab and no **Issues** tab — see §What's
 deliberately NOT here.
 
 Most Dynamic tabs share the same chrome: panel icon (left of stripe) ·
