@@ -24,7 +24,7 @@
           → pure data and property assertions. [[element-props]],
             [[materialize]], [[controlled?]], [[revision]], [[boundary?]],
             [[host?]], [[callback?]], [[view-name]], [[host-policy]],
-            [[canonical-dom]], [[capture-intents]].
+            [[canonical-dom]], [[capture-intents]], [[fire!]].
       L2  one hook-free Hicasso body, run for its semantic tree
           → [[render]] + [[find]] / [[find-all]] / [[attrs]] / [[text]] /
             [[intents]].
@@ -516,6 +516,90 @@
       (finally (rf/unregister-listener! :events k)))))
 
 ;; ---------------------------------------------------------------------------
+;; L1 — one handler position, fired with a stated event
+;; ---------------------------------------------------------------------------
+
+(defn- synthetic-event
+  "The event object a lowered handler is given — the NATIVE signals it
+  reads, written as data.
+
+  Native and not React's synthetic event, and that is the point rather
+  than a shortcut: React's synthetic keyboard event DROPS `isComposing`,
+  so a witness that read the synthetic event would be deaf to the
+  composing law it exists to assert. These are the properties Hicasso's
+  own handlers read — `target.value`, `target.checked`, `key`,
+  `isComposing`, `keyCode` — and nothing else is invented."
+  [{:keys [value checked key composing? key-code]} !prevented]
+  #js {"target"         #js {"value" value "checked" checked}
+       "key"            key
+       "isComposing"    (boolean composing?)
+       "keyCode"        (or key-code 0)
+       "preventDefault" (fn [] (vreset! !prevented true) js/undefined)})
+
+(defn fire!
+  "Lower one handler position of a native form and **invoke it** with an
+  event described as data, inside `frame-kw`'s dispatch — the composition
+  witness, without a browser.
+
+      (ht/fire! ::app [:input {:on-input [:draft/edit 1 ::h/value]}]
+                :on-input {:value \"milk\"})
+      ;; => {:intents [[:draft/edit 1 \"milk\"]] :prevented? false}
+
+  It answers `{:intents […] :prevented? bool}` — what the position
+  dispatched, captured at Spec 009's `:events` port, and whether the
+  handler called `preventDefault`. The dispatch is the frame's own, so
+  the events reach real handlers and app-db really moves; assert the
+  result with an ordinary subscription read.
+
+  **What it proves.** The whole path from the authoring spelling to a
+  moved app-db: the codec's prop walk, the intent lowering, the marker
+  substitution, the prevent-default policy, the key-map's branches and
+  the composition gate — with the NATIVE signals a browser sends, which
+  is where the composing law is readable at all.
+
+  **What it does not prove**, and is therefore not a substitute for:
+  anything the DOM owns. No element exists, so there is no bubbling, no
+  default action, no focus, no caret, no selection, no IME state machine
+  and no React event system. Those are L3 and L4 — a green here says the
+  handler MEANS the right thing, never that a user reaching it has the
+  right experience.
+
+  Native forms only; an event position with no value at `prop` refuses,
+  because a silently absent handler is the failure this door exists to
+  make loud."
+  [frame-kw form prop event]
+  (when-not (and (vector? form) (keyword? (nth form 0 nil)))
+    (refuse! :rf.error/hicasso-test-not-a-native-form
+             (str "fire! drives ONE native hiccup form — a vector whose head "
+                  "is a tag keyword. It was given " (pr-str form) ".")
+             :pass-a-native-hiccup-form
+             {:value form}))
+  (let [props (form-props form)]
+    (when-not (contains? props prop)
+      (refuse! :rf.error/hicasso-test-no-handler-at-position
+               (str "the form carries no value at " (pr-str prop)
+                    ". A handler position that is silently absent is exactly "
+                    "the fault this door exists to make loud; the positions "
+                    "written are " (pr-str (vec (keys props))) ".")
+               :name-a-position-the-form-writes
+               {:position prop :written (vec (keys props))}))
+    (let [handler (intent/with-frame frame-kw (collector/frame-dispatch frame-kw)
+                    (fn [] (intent/lower-prop prop (get props prop))))]
+      (when-not (fn? handler)
+        (refuse! :rf.error/hicasso-test-position-is-not-a-handler
+                 (str (pr-str prop) " lowered to " (pr-str handler)
+                      " rather than to a function — it is not a handler "
+                      "position, so there is nothing to fire.")
+                 :name-an-event-position
+                 {:position prop}))
+      (let [!prevented (volatile! false)
+            captured   (capture-intents
+                         frame-kw
+                         (fn [] (handler (synthetic-event event !prevented))))]
+        {:intents    (:intents captured)
+         :prevented? @!prevented}))))
+
+;; ---------------------------------------------------------------------------
 ;; L2 — the tree, per Spec 004B version 1
 ;; ---------------------------------------------------------------------------
 
@@ -584,7 +668,6 @@
               (cond
                 (or (nil? x) (false? x) (true? x)) nil
                 (seq? x)   (run! add! x)
-                (and (coll? x) (not (vector? x)) (not (map? x))) (run! add! x)
                 :else      (conj! out (walk x))))]
       (loop [i from]
         (when (< i (count form))
@@ -597,8 +680,12 @@
   [form]
   (let [parsed  (codec/cached-parse (nth form 0))
         props   (form-props form)
+        ;; The codec's own two shorthand rules, taken from it rather than
+        ;; restated: an explicit id WINS over `#id`, and the shorthand
+        ;; class is PREPENDED to a declared one
+        ;; (`codec/fold-shorthand!`).
         classes (codec/class-names (.-className parsed) (:class props))
-        id      (or (.-id parsed) (:id props))
+        id      (or (:id props) (.-id parsed))
         events  (persistent!
                   (reduce-kv (fn [m k v]
                                (if (intent/event-prop? k)
@@ -636,11 +723,12 @@
   [form]
   (let [head     (nth form 0)
         props    (form-props form)
+        recorded (walk-props props)
         children (walk-children form (if (map? (nth form 1 nil)) 2 1))]
     (cond-> {:view-id (or (view-name head) :rf.hicasso/anonymous-boundary)}
-      (seq (walk-props props)) (assoc :props (walk-props props))
-      (contains? props :key)   (assoc :key (:key props))
-      (some? children)         (assoc :children children))))
+      (seq recorded)         (assoc :props recorded)
+      (contains? props :key) (assoc :key (:key props))
+      (some? children)       (assoc :children children))))
 
 (defn- walk
   "One hiccup value to one 004B node, or to text. The discrimination
@@ -727,7 +815,16 @@
     (swap! collector/!cells
            (fn [cells]
              (reduce-kv (fn [m query-v v]
-                          (assoc m [frame-kw query-v] #js {"reaction" (atom v)}))
+                          ;; `epoch` alongside the reaction because a
+                          ;; cell is read for one or the other and never
+                          ;; for both at once: `read-key!` takes the
+                          ;; reaction, an entry's `getSnapshot` takes the
+                          ;; epoch. A fixture cell that carried only the
+                          ;; half this call needs would answer `NaN` to
+                          ;; the other, which is the shape of instrument
+                          ;; fault that reports a precise wrong number.
+                          (assoc m [frame-kw query-v]
+                                 #js {"reaction" (atom v) "epoch" 0}))
                         cells
                         reads)))
     keys'))
@@ -845,8 +942,16 @@
                 {:value reads}))
      (let [frame-kw (keyword "re-frame.hicasso.test"
                              (str "probe-" (swap! !probe-seq inc)))
-           props    (let [p (nth form 1 nil)] (if (map? p) p {}))
-           props    (if-some [cs (walk-children form (if (map? (nth form 1 nil)) 2 1))]
+           has-props? (map? (nth form 1 nil))
+           props    (if has-props? (nth form 1) {})
+           ;; The children a call site writes reach a body as the
+           ;; `:children` PROP — hicasso's own crossing shape
+           ;; (`codec/boundary-element`) — and they reach it as HICCUP,
+           ;; unwalked, because the body may render them, wrap them or
+           ;; drop them. `codec/realize-children` is the flatten, so the
+           ;; one-level seq splice is the runtime's rather than a second
+           ;; rule with the same name.
+           props    (if-some [cs (codec/realize-children form (if has-props? 2 1))]
                       (assoc props :children cs)
                       props)
            !tree    (volatile! nil)
