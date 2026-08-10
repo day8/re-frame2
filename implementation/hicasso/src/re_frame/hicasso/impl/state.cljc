@@ -136,7 +136,7 @@
   [concern ikey op]
   (when-not (instance-key? ikey)
     (fail! :rf.error/hicasso-state-bad-key
-           'front.state/check-key!
+           're-frame.hicasso.impl.state/check-key!
            (str "The instance key for " (pr-str concern) " was "
                 (pr-str ikey) ", which is not a keyword, string, number, "
                 "or vector of those. Without a per-instance key every "
@@ -258,7 +258,7 @@
   ([concern opts]
    (when-not (and (keyword? concern) (namespace concern))
      (fail! :rf.error/hicasso-state-bad-concern
-            'front.state/reg-state
+            're-frame.hicasso.impl.state/reg-state
             (str "A state concern must be a namespace-qualified keyword; it "
                  "was " (pr-str concern) ". The concern is a sub id, an event "
                  "id and an app-db key at once, so an unqualified one collides "
@@ -267,7 +267,7 @@
             {:concern concern}))
    (when-not (or (nil? opts) (map? opts))
      (fail! :rf.error/hicasso-state-bad-option
-            'front.state/reg-state
+            're-frame.hicasso.impl.state/reg-state
             (str "reg-state options must be a map; for " (pr-str concern)
                  " they were " (pr-str opts) ".")
             :pass-a-map-of-options
@@ -275,7 +275,7 @@
    (let [unknown (seq (disj (set (keys opts)) :default))]
      (when unknown
        (fail! :rf.error/hicasso-state-bad-option
-              'front.state/reg-state
+              're-frame.hicasso.impl.state/reg-state
               (str "reg-state accepts :default and nothing else; "
                    (pr-str concern) " was given " (pr-str (vec (sort-by str unknown)))
                    ". An option that is quietly ignored is a setting its author "
@@ -286,7 +286,7 @@
      (when (and (contains? @!defaults concern)
                 (not= default (get @!defaults concern)))
        (fail! :rf.error/hicasso-state-redefined
-              'front.state/reg-state
+              're-frame.hicasso.impl.state/reg-state
               (str "The concern " (pr-str concern) " is already registered with "
                    ":default " (pr-str (get @!defaults concern)) " and cannot be "
                    "re-registered with " (pr-str default) ". Every instance that "

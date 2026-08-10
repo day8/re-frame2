@@ -128,7 +128,7 @@
     (testing "the identity is asserted whole — a refusal that threw from
               somewhere else, or with a neighbouring id, cannot satisfy this"
       (is (= {:rf.error/id :rf.error/hicasso-bad-head
-              :where       'front.codec/vec->element
+              :where       're-frame.hicasso.impl.codec/vec->element
               :recovery    :call-it-or-make-it-a-view
               :view        "re-frame.hicasso.error-shape-cljs-test/refusing-row"}
              (select-keys data [:rf.error/id :where :recovery :view]))))
@@ -175,13 +175,13 @@
     (error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
                                               :line 12 :column 3})
     (let [data (refusal #(error/fail! :rf.error/hicasso-host-unknown-option
-                                      'front.codec/mint-host!
+                                      're-frame.hicasso.impl.codec/mint-host!
                                       "defhost was given an option it does not know."
                                       :remove-the-unknown-option
                                       {:option :nope}))]
       (error/declared!)
       (is (= {:rf.error/id :rf.error/hicasso-host-unknown-option
-              :where       'front.codec/mint-host!
+              :where       're-frame.hicasso.impl.codec/mint-host!
               :recovery    :remove-the-unknown-option
               :view        "app.pickers/calendar"
               :source      {:ns 'app.pickers :file "app/pickers.cljs" :line 12 :column 3}
@@ -190,7 +190,7 @@
 
   (testing "and the extent closes, so the next refusal is not attributed to it"
     (is (nil? (:view (refusal #(error/fail! :rf.error/hicasso-state-bad-option
-                                            'front.state/reg-state
+                                            're-frame.hicasso.impl.state/reg-state
                                             "reg-state options must be a map."
                                             :pass-a-map-of-options
                                             {})))))))
@@ -210,7 +210,7 @@
               extent closes AFTER `fail!` has built the ex-data, so nothing
               the `finally` does can reach a refusal already on its way out"
       (is (= {:rf.error/id :rf.error/hicasso-host-unknown-option
-              :where       'front.codec/mint-host!
+              :where       're-frame.hicasso.impl.codec/mint-host!
               :recovery    :declare-callbacks-or-ssr
               :view        "re-frame.hicasso.error-shape-cljs-test/refusing-declaration"
               :option      :not-an-option}
@@ -262,7 +262,7 @@
             constructor refuses it, naming the field that is missing and the
             refusal that tried to omit it"
     (let [data (refusal #(error/fail! :rf.error/hicasso-presence-child-unkeyed
-                                      'front.presence/child-key
+                                      're-frame.hicasso.impl.presence/child-key
                                       "A presence child has no :key."
                                       nil
                                       {:child [:li]}))]
@@ -305,7 +305,7 @@
     (error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
                                               :line 12 :column 3})
     (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-option
-                                      'front.state/reg-state
+                                      're-frame.hicasso.impl.state/reg-state
                                       "reg-state options must be a map."
                                       :pass-a-map-of-options
                                       {:rf.error/id :rf.error/hicasso-true-child
@@ -317,7 +317,7 @@
                                        :options     :not-a-map}))]
       (error/declared!)
       (is (= {:rf.error/id :rf.error/hicasso-state-bad-option
-              :where       'front.state/reg-state
+              :where       're-frame.hicasso.impl.state/reg-state
               :reason      "reg-state options must be a map."
               :recovery    :pass-a-map-of-options
               :view        "app.pickers/calendar"
@@ -340,7 +340,7 @@
             catch site reading `:view` gets absence rather than a file name
             the call site made up"
     (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-option
-                                      'front.state/reg-state
+                                      're-frame.hicasso.impl.state/reg-state
                                       "reg-state options must be a map."
                                       :pass-a-map-of-options
                                       {:view    "app.impostor/not-a-view"
@@ -349,7 +349,7 @@
                                                  :line 1 :column 1}
                                        :options :not-a-map}))]
       (is (= {:rf.error/id :rf.error/hicasso-state-bad-option
-              :where       'front.state/reg-state
+              :where       're-frame.hicasso.impl.state/reg-state
               :reason      "reg-state options must be a map."
               :recovery    :pass-a-map-of-options
               :options     :not-a-map}

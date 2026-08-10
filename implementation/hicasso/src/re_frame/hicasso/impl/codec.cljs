@@ -644,7 +644,7 @@
         (map? caller) (merge (without-slots caller (denied-slots owned)) owned)
         :else
         (fail! :rf.error/hicasso-merge-not-a-map
-               'front.codec/merge-caller
+               're-frame.hicasso.impl.codec/merge-caller
                (str ":& carries a caller's attribute map and nothing else. It was "
                     "given " (pr-str (type caller)) ". Forward a map, or drop the key.")
                :forward-a-map-at-the-merge-key
@@ -731,7 +731,7 @@
   [k v]
   (when (vector? v)
     (fail! :rf.error/hicasso-ref-vector-reserved
-           'front.codec/convert-props
+           're-frame.hicasso.impl.codec/convert-props
            (str "A vector at " (pr-str k) " is RESERVED and is not a v0 surface. "
                 "`{:ref [registered-id config]}` is the reserved spelling for "
                 "registered node ownership; v0 accepts a callback ref (a "
@@ -910,7 +910,7 @@
         (when (and (contains? merged revision-key)
                    (not (contains? props revision-key)))
           (fail! :rf.error/hicasso-revision-from-remainder
-                 'front.codec/convert-props
+                 're-frame.hicasso.impl.codec/convert-props
                  (str (pr-str revision-key) " is a RESET TRIGGER the element's own "
                       "author writes, and a `:&` remainder may not arm one. It "
                       "re-baselines a controlled field to the model, discarding "
@@ -1330,7 +1330,7 @@
   [host-name path form]
   (if-some [kind (deferring-head-kind form)]
     (fail! :rf.error/hicasso-host-fallback-boundary-head
-           'front.codec/mint-host!
+           're-frame.hicasso.impl.codec/mint-host!
            (str "defhost " host-name " declares an :ssr fallback carrying the "
                 kind " head " (head-name form) " at position " (pr-str path)
                 ". A fallback is INERT MARKUP: it is walked into ONE element "
@@ -1418,7 +1418,7 @@
                  (some? (:fallback policy))))
       policy
       (fail! :rf.error/hicasso-host-bad-ssr-policy
-             'front.codec/mint-host!
+             're-frame.hicasso.impl.codec/mint-host!
              (str "defhost " host-name " declares :ssr " (pr-str policy)
                   ". The policy is :client-only — the default, meaning the "
                   "host region renders nothing until the client adopts it — "
@@ -1469,7 +1469,7 @@
   ([host-name component opts]
    (when (nil? component)
      (fail! :rf.error/hicasso-host-no-component
-            'front.codec/mint-host!
+            're-frame.hicasso.impl.codec/mint-host!
             (str "defhost " host-name " was given nil as its component. The "
                  "usual cause is a JS import that resolved nothing — e.g. "
                  "`:default` against a library with no default export.")
@@ -1478,7 +1478,7 @@
    (doseq [k (keys opts)]
      (when-not (contains? host-options k)
        (fail! :rf.error/hicasso-host-unknown-option
-              'front.codec/mint-host!
+              're-frame.hicasso.impl.codec/mint-host!
               (str "defhost " host-name " was declared with " (pr-str k)
                    ", which is not an option. A declaration carries "
                    ":callbacks and :ssr. Reading past an option it does not "
@@ -1492,7 +1492,7 @@
              (let [slot (cached-prop-name k)]
                (when-not (contains? callback-contracts contract)
                  (fail! :rf.error/hicasso-unknown-callback-contract
-                        'front.codec/mint-host!
+                        're-frame.hicasso.impl.codec/mint-host!
                         (str "defhost " host-name " declares " (pr-str k) " with "
                              "the callback contract " (pr-str contract)
                              ". The contracts are :event, :handler and :render.")
@@ -1500,7 +1500,7 @@
                         {:host host-name :position k :contract contract}))
                (when (structural-slot? k)
                  (fail! :rf.error/hicasso-host-structural-callback
-                        'front.codec/mint-host!
+                        're-frame.hicasso.impl.codec/mint-host!
                         (str "defhost " host-name " declares a callback contract on "
                              (pr-str k) ", whose canonical slot is structural. `key` "
                              "is React's identity contract and `ref` is HD-016's "
@@ -1509,7 +1509,7 @@
                         {:host host-name :position k}))
                (when (contains? m slot)
                  (fail! :rf.error/hicasso-host-callback-slot-collision
-                        'front.codec/mint-host!
+                        're-frame.hicasso.impl.codec/mint-host!
                         (str "defhost " host-name " declares " (pr-str k) ", but the "
                              "slot " (pr-str slot) " already carries a contract from "
                              "another spelling. Two spellings of one prop are one "
@@ -1954,7 +1954,7 @@
   calling anything, and is harmless wherever it goes."
   [v]
   (fail! :rf.error/hicasso-deferred-read-at-boundary
-         'front.codec/boundary-element
+         're-frame.hicasso.impl.codec/boundary-element
          (str "An unforced `delay` reached a boundary's props. It would be "
               "forced inside the CHILD's render, so any subscription it reads "
               "becomes the child's edge, is cached by the delay, and is then "
@@ -2357,7 +2357,7 @@
   position, because that one asked for a contract."
   [^js head k v]
   (fail! :rf.error/hicasso-host-undeclared-callback
-         'front.codec/host-element
+         're-frame.hicasso.impl.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed "
               (pr-str v) " at " (pr-str k) ", which its declaration does not "
               "name. A host's callback contracts are a finite map from exact "
@@ -2402,7 +2402,7 @@
   claims."
   [^js head k]
   (fail! :rf.error/hicasso-host-unclaimed-callback
-         'front.codec/host-element
+         're-frame.hicasso.impl.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed an "
               "h/fn at " (pr-str k) ", which no position claims — its "
               "declaration names " (pr-str (into #{} (keys (unchecked-get head "callbacks"))))
@@ -2765,7 +2765,7 @@
   [c]
   (let [shape (raw-component-shape c)]
     (fail! :rf.error/hicasso-raw-not-a-component
-           'front.codec/raw-element
+           're-frame.hicasso.impl.codec/raw-element
            (str "[:>] was handed " shape " in the Component position. "
                 (raw-component-fix c))
            :hand-the-escape-a-component-react-accepts
@@ -2804,7 +2804,7 @@
     (cond
       (nil? c)
       (fail! :rf.error/hicasso-raw-no-component
-             'front.codec/raw-element
+             're-frame.hicasso.impl.codec/raw-element
              (str "[:>] was given " (if (< (count argv) 2) "no component at all" "nil")
                   " in the Component position. The usual cause is a JS import "
                   "that resolved nothing — e.g. `:default` against a library "
@@ -2999,7 +2999,7 @@
   [argv]
   (when (zero? (count argv))
     (fail! :rf.error/hicasso-empty-vector
-           'front.codec/vec->element
+           're-frame.hicasso.impl.codec/vec->element
            "A hiccup vector must have a head."
            :supply-a-hiccup-head
            {}))
@@ -3025,7 +3025,7 @@
     ;; reads it on the cold arm only.
     (let [head (nth argv 0)]
       (fail! :rf.error/hicasso-bad-head
-             'front.codec/vec->element
+             're-frame.hicasso.impl.codec/vec->element
              (if (fn? head)
                (str "A plain function in head position is a loud error (HD-016). "
                     "Hiccup head " (pr-str head) " is not a valid element head; use a "
@@ -3112,7 +3112,7 @@
     :markup         (vec->element x)
     :splice         (expand-seq x)
     :true-child     (fail! :rf.error/hicasso-true-child
-                           'front.codec/as-element
+                           're-frame.hicasso.impl.codec/as-element
                            "nil and false render nothing; true is an error (HD-016)."
                            :use-nil-or-false
                            {})

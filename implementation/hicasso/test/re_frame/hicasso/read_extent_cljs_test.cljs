@@ -576,7 +576,7 @@
               a second refusal shape, because it is a second law"
       (is (= :rf.error/hicasso-deferred-read-at-boundary
              (:rf.error/id (:refused o))))
-      (is (= 'front.codec/boundary-element (:where (:refused o))))
+      (is (= 're-frame.hicasso.impl.codec/boundary-element (:where (:refused o))))
       (is (= :hand-a-function-or-deref-it-in-this-body
              (:recovery (:refused o)))))
 

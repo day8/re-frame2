@@ -230,7 +230,7 @@
     :subject []
     :runtime [:refused :rf.error/hicasso-empty-vector :supply-a-hiccup-head]
     :refuses {:rf.error/id :rf.error/hicasso-empty-vector
-              :where       'front.codec/vec->element
+              :where       're-frame.hicasso.impl.codec/vec->element
               :recovery    :supply-a-hiccup-head}
     :why     (str "codec/vec->element refuses an empty vector AHEAD of any "
                   "head classification, because every branch below reads "
@@ -244,7 +244,7 @@
     :runtime [:refused :rf.error/hicasso-raw-no-component
               :hand-the-escape-a-real-component]
     :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
-              :where       'front.codec/raw-element
+              :where       're-frame.hicasso.impl.codec/raw-element
               :recovery    :hand-the-escape-a-real-component}
     :why     (str "codec/raw-component — the escape's Component slot is empty. "
                   "Opacity is not the answer: there is nothing for React to "
@@ -257,7 +257,7 @@
     :runtime [:refused :rf.error/hicasso-raw-no-component
               :hand-the-escape-a-real-component]
     :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
-              :where       'front.codec/raw-element
+              :where       're-frame.hicasso.impl.codec/raw-element
               :recovery    :hand-the-escape-a-real-component}
     :why     (str "codec/raw-component — a `:default` import that resolved "
                   "nothing is the usual cause, and it is the case a test kit "
@@ -270,7 +270,7 @@
     :runtime [:refused :rf.error/hicasso-raw-not-a-component
               :hand-the-escape-a-component-react-accepts]
     :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
-              :where       'front.codec/raw-element
+              :where       're-frame.hicasso.impl.codec/raw-element
               :recovery    :hand-the-escape-a-component-react-accepts}
     :why     (str "codec/raw-component — the GRAMMAR owns tags, so a keyword "
                   "is one of the escape's three deliberate narrowings. The "
