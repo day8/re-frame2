@@ -228,9 +228,10 @@
  * ### The sabotage, run rather than reasoned about
  *
  * rf2-hic-016's acceptance names one: disabling the composition guard must
- * turn the WebKit IME witness red. It was run on 2026-08-10 by replacing
- * `composing-input?`'s body with `false` — the whole carve-out off, both
- * halves, since the shadow is held from the same reading — and driving
+ * turn the WebKit IME witness red. It was run on 2026-08-10, and again on
+ * 2026-08-11 against the third pass, by replacing `composing-input?`'s body
+ * with `false` — the whole carve-out off, both halves, since the shadow is
+ * held from the same reading — and driving
  * `HICASSO_TESTBED_ENGINES=webkit`. It exits 1 on the first composing
  * update:
  *
@@ -241,14 +242,35 @@
  * which is the carve-out's whole point stated as a failure: the refusing
  * model's value written over a live draft. The guard was then restored
  * byte-identically (`git checkout --`, working tree clean) and WebKit
- * returned to 79 checks. A gate nobody has seen fail is not a gate.
+ * returned to 91 checks. A gate nobody has seen fail is not a gate.
+ *
+ * ### And the same sabotage, used to measure ONE row against another
+ *
+ * A gate that has been seen to fail somewhere is still not evidence that
+ * each of its rows can fail. The #7815 audit's claim about the
+ * mid-composition revision was checkable rather than arguable, so it was
+ * checked: with the guard disabled — the law broken in exactly the way
+ * this section names — the two halves were run separately on WebKit, with
+ * `SECTIONS` cut to `revision-reset-preserves-identity` and this section
+ * so that nothing else could red first.
+ *
+ * | half | field | result under the broken guard |
+ * |---|---|---|
+ * | as shipped in #7815 | `revision`, accepting | **6 of 6 green.** The only complaints were the coverage floor's, about the sections the cut had removed. |
+ * | the repair | `revision-strict`, refusing | **red**, `[webkit] the field held the composing draft: expected "42あ", got "42"` |
+ *
+ * So the audit was right, and it is now a measurement rather than a
+ * reading: the accepting field's model had already taken the draft, so the
+ * broken and the correct conduct wrote the same string and every row
+ * agreed with both. The refusing field is the same section with something
+ * to disagree about.
  *
  * ### What the three engines actually said
  *
- * Nothing diverged. Every RECORDED row is byte-identical in Chromium,
- * Firefox and WebKit, so `NARROWINGS` is empty and no per-control
- * refusal policy is owed to the hic-005 table from this bead. Three
- * conducts worth carrying forward, all three-engine unanimous:
+ * Nothing diverged, on the second pass or the third. Every RECORDED row is
+ * byte-identical in Chromium, Firefox and WebKit, so `NARROWINGS` is empty
+ * and no per-control refusal policy is owed to the hic-005 table from this
+ * bead. Three conducts worth carrying forward, all three-engine unanimous:
  *
  *   1. An out-of-band model write lands on the NEXT TASK, not the same
  *      one. A keystroke is inside its turn only because `converge!` buys
