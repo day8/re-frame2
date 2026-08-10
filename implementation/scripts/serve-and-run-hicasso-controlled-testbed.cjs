@@ -57,6 +57,84 @@
  *
  * ## Coverage — what these witnesses reach, and what they do not
  *
+ * ### Behaviour by engine, measured rather than implied by the job name
+ *
+ * The job is called `real Chromium + Firefox + WebKit`, so the first
+ * question anyone should ask it is which of the behaviours it names are
+ * actually driven in three engines and which are driven in one. Every
+ * section of `spec.cjs` runs unmodified in each engine — that is the
+ * runner's whole shape — so the interesting rows are the ones that are NOT
+ * in this spec at all, and they were found by reading the other witnesses
+ * rather than by trusting the name. Measured 2026-08-10 against
+ * `main@02d10e7b70`, before this bead's second pass changed anything:
+ *
+ * | behaviour | Cr | Ff | Wk | witness |
+ * |---|---|---|---|---|
+ * | same-turn echo | ✓ | ✓ | ✓ | `spec.cjs` `same-turn-convergence` |
+ * | rejection / normalisation echoes the committed value | ✓ | ✓ | ✓ | `spec.cjs` `same-turn-convergence`, `caret-across-the-echo` |
+ * | caret preserved (dispatched edit, read in-turn) | ✓ | ✓ | ✓ | `spec.cjs` `caret-across-the-echo` |
+ * | caret preserved (the browser's own trusted keystrokes) | ✓ | ✓ | ✓ | `spec.cjs` `caret-under-real-typing` |
+ * | composition — the event SEQUENCE, on a refusing field | ✓ | ✓ | ✓ | `spec.cjs` `composition-safety` |
+ * | composition — release on `compositionend` / blur / non-composing change / unmount | ✓ | ✓ | ✓ | `spec.cjs` `composition-release-edges` |
+ * | composition — `beforeinput` DISPATCHED | ✓ | ✓ | ✓ | `spec.cjs` helper `edit()` |
+ * | composition — `beforeinput` ASSERTED | — | — | — | **nothing.** GAP 4 below |
+ * | composition — an ACCEPTING model takes every composing update | ✓ | — | — | `front/revision_dom_cljs_test:575`, Chromium lane. GAP 2 |
+ * | composition — a revision arriving MID-exchange defers to its close | ✓ | — | — | `front/revision_dom_cljs_test:512`, Chromium lane. GAP 1 |
+ * | composition — the browser's real composition RANGE and candidate window | ✓ | — | — | `bench/hicasso/ime_run.cjs` (CDP, so Chromium by construction) |
+ * | composition — the ABORT signature (a value write killing an exchange with no `compositionend`) | ✓ | — | — | `bench/hicasso/ime_run.cjs`; unreachable from page script in any engine |
+ * | selection — a RANGE across an out-of-band write | ✓ | ✓ | ✓ | `spec.cjs` `selection-across-an-out-of-band-write` |
+ * | selection — DIRECTION across an out-of-band write | ~ | ~ | ~ | same section, RECORDED — but vacuously. GAP 3 |
+ * | revision reset at rest, preserving element identity | ✓ | ✓ | ✓ | `spec.cjs` `revision-reset-preserves-identity` |
+ * | blur / unmount edges | ✓ | ✓ | ✓ | `spec.cjs` `composition-release-edges` |
+ * | form reset | ✓ | ✓ | ✓ | `spec.cjs` `form-reset-and-fill-proxy` (RECORDED) |
+ * | autofill, natively | — | — | — | no cross-engine drive exists; the proxy is recorded in all three and named as one |
+ * | owned `:value` / `::h/checked` win by presence | ✓ | ✓ | ✓ | `spec.cjs` `same-turn-convergence`, `owned-checked-pair` |
+ *
+ * The headline holds: of the behaviours the bead enumerates, everything
+ * this spec contains really is driven in three engines, because the runner
+ * cannot run a section in fewer. The two real-IME rows are Chromium-only by
+ * RULING rather than by omission — the operator amended this bead's
+ * acceptance on 2026-08-10 so that the synthetic sequence IS the recurring
+ * three-engine witness, with native conduct on Firefox and WebKit verified
+ * once by hand against `docs/design/hicasso/native-ime-manual-witness.md`.
+ *
+ * ### The four gaps that table found
+ *
+ * Three behaviours the bead names were driven in ONE engine by another
+ * suite, and a fourth was carried but never asserted. Each is a witness
+ * whose stated scope exceeded the cases it drove, which is worth naming
+ * because it is the failure this gate exists to make impossible:
+ *
+ * 1. **A revision arriving mid-composition.** `controlled.cljs` documents
+ *    the deferral at length and `front/revision_dom_cljs_test`'s
+ *    `a-revision-arriving-mid-composition-defers-to-the-close` asserts it —
+ *    on the `:browser-test` lane, which launches Chromium and only Chromium
+ *    (`scripts/run-browser-tests.cjs:31`). A deferral is a claim about the
+ *    order a browser flushes a discrete event's work, so one engine is
+ *    exactly the wrong number.
+ * 2. **An accepting model during a composition.** Same file, same lane, and
+ *    the sharper of the two: the shadow holds the DRAFT, but the author's
+ *    handler still runs on every composing `input`
+ *    (`controlled.cljs` `shadowed-props`, which calls `inner` before it
+ *    branches on `composing-input?`), so an accepting model moves
+ *    throughout the exchange. `controlled.cljs` states it as the deferral's
+ *    honest limit; one engine had measured it. It is also the fact the
+ *    manual-witness checklist's "app-db clean until commit" contradicts.
+ * 3. **Selection direction.** The section set `(1, 3, 'backward')`,
+ *    asserted the WIDTH, and recorded the post-write `direction`. Had an
+ *    engine never honoured `'backward'` at all, the recorded row would
+ *    still have agreed with the others perfectly — three engines agreeing
+ *    about a selection that was never directional. Recording an outcome
+ *    whose premise is unread is the cross-engine comparator's blind spot.
+ * 4. **`beforeinput`.** The `spec.cjs` header states composition is driven
+ *    as the sequence `compositionstart` / `beforeinput` / `input` /
+ *    `compositionend`, and the page helper has always carried a
+ *    `{ beforeinput: false }` knob no caller used. Carrying an event is not
+ *    witnessing it: nothing distinguished a run with `beforeinput` from a
+ *    run without, in any engine.
+ *
+ * ### The clauses of I15, and where each is proven
+ *
  * I15's clauses, and where each is proven:
  *
  * | clause | witnessed | isolates THIS runtime? |
