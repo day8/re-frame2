@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.state-cljs-test
+(ns re-frame.hicasso.state-cljs-test
   "`h/reg-state`, PROVED AGAINST A REAL FRAME (rf2-2rtt6.98).
 
   The sugar's whole claim is that it mints ORDINARY core artefacts, so
@@ -35,7 +35,7 @@
   bail-out over fresh-but-equal key vectors — is
   `arm1/state-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.bench.hicasso.front.state :as state]
+            [re-frame.hicasso.impl.state :as state]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
             [re-frame.substrate.plain-atom :as plain-atom]
