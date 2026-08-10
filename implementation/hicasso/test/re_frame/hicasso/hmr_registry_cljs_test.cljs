@@ -292,6 +292,14 @@
   ;; because what the arm cares about is whether the incarnation moved.
   (seeded! "A")
   (let [token-before  (frame/frame-incarnation-token frame-id)
+        ;; Acquire the arm's frame row BEFORE the reload (rf2-x874). Since the
+        ;; incarnation is pinned into the row at mint time, a render acquires
+        ;; the row rather than a first dispatch — so a count sampled while the
+        ;; table was still empty would compare an empty table against a
+        ;; populated one and say nothing about the reload. Priming here is what
+        ;; makes this row's own rationale — "a bundle captured before the
+        ;; reload" — name something that exists.
+        row-before    (collector/frame-row frame-id)
         frames-before (:frames (inventory/stats))]
 
     (rf/make-frame {:id frame-id})
@@ -305,7 +313,14 @@
 
     (testing "and the arm's frame-op memo is untouched, so a bundle captured
               before the reload still addresses the same incarnation"
-      (is (= frames-before (:frames (inventory/stats)))))
+      (is (= frames-before (:frames (inventory/stats)))
+          "the reload added no row")
+      (is (true? (same-object? row-before (collector/frame-row frame-id)))
+          "and it is the SAME row object — so the bundle captured before the
+           reload is the one still in use, which is the claim this row makes
+           and could not previously check")
+      (is (true? (same-object? token-before (:incarnation (collector/frame-row frame-id))))
+          "pinned to the pre-reload incarnation, by object identity"))
 
     ;; NEGATIVE CONTROL. The token reader is only worth anything if it can
     ;; report a change; this is the transition that produces one, and it is
