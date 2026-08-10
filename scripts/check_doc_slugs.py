@@ -2460,9 +2460,14 @@ def _run_self_tests(verbose: bool = False) -> int:
           "Prose after."],
          [9]),
         # RUNAWAY GUARD.  rf2-re0m shipped three unbalanced fences, so this is
-        # not hypothetical.  A fence ends with the container that holds it, so
-        # an unclosed one cannot blank the rest of the document — which is the
-        # mirror-image failure of the defect: a gate that goes quiet.
+        # not hypothetical.  An unclosed opener cannot blank the rest of the
+        # document — which is the mirror-image failure of the defect: a gate
+        # that goes quiet.
+        #
+        # It cannot blank its OWN body either (rf2-mmyc, audit #7785): with no
+        # closer there is no fenced block, so superfences restores the source
+        # and the renderer emits `<p>```clojure\n  (unclosed</p>`.  Lines 3-4
+        # are prose on the rendered page and must be scanned as prose here.
         ("unclosed indented fence ends with its container",
          ["- A bullet:",
           "",
@@ -2470,7 +2475,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "  (unclosed",
           "",
           "Prose after, back at column zero."],
-         [1, 6]),
+         [1, 3, 4, 6]),
         # ------------------------------------------------------------------
         # rf2-1cpt — BLOCKQUOTED fences.  A blockquote is a container like any
         # other, and superfences opens a fence at the column its prefix leaves
@@ -2580,22 +2585,26 @@ def _run_self_tests(verbose: bool = False) -> int:
          [7]),
         # The closing rules inside a quote are superfences' usual strict ones:
         # the closer must be the opener's EXACT marker run with nothing after
-        # it.  Neither of these closes, so each fence runs to the end of its
-        # blockquote — and no further.
+        # it.  Neither of these closes — and an opener with no closer is not a
+        # fence at all (rf2-mmyc, audit #7785), so the quoted lines are prose.
+        # The renderer emits `<blockquote><p>```clojure ...</p></blockquote>`
+        # for both, which is where the earlier "runs to the end of its
+        # blockquote" reading went wrong: superfences does not leave a fence
+        # open, it withdraws the fence.
         ("longer closing run does not close a blockquoted fence",
          ["> ```clojure",
           "> (code)",
           "> ````",
           "",
           "Prose after at column zero."],
-         [5]),
+         [1, 2, 3, 5]),
         ("closer with an info string does not close a blockquoted fence",
          ["> ```clojure",
           "> (code)",
           "> ```clojure",
           "",
           "Prose after at column zero."],
-         [5]),
+         [1, 2, 3, 5]),
         # A line quoted MORE deeply than the fence is content, not a nested
         # quote: superfences reads a content line's prefix only as far as the
         # opener's reached, so the extra `>` is the first character of a line of
@@ -2615,25 +2624,26 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [6]),
-        # ...and the converse: a SHALLOWER non-blank line is the quote ending,
-        # which ends the fence with it.  The line itself is ordinary source
-        # again, so it stays visible.
+        # ...and the converse: a SHALLOWER non-blank line ends the quote, so the
+        # opener never meets a closer and no fence is recognised.  All three
+        # quoted lines render as one paragraph inside the nested blockquote.
         ("shallower line ends a nested blockquoted fence",
          ["> > ```clojure",
           "> > (code)",
           "> shallower prose",
           "",
           "Prose after."],
-         [3, 5]),
+         [1, 2, 3, 5]),
         # RUNAWAY GUARD for the quoted case.  An unclosed blockquoted fence must
         # not blank the document below it; the blockquote bounds it, exactly as
-        # a list item bounds an indented one.
+        # a list item bounds an indented one — and, having no closer, it is not
+        # a fence, so it does not blank its own body either.
         ("unclosed blockquoted fence ends with its blockquote",
          ["> ```clojure",
           "> (unclosed",
           "",
           "Prose after at column zero."],
-         [4]),
+         [1, 2, 4]),
         # POSITIVE CONTROL — the blockquoted HEADING support added by rf2-869k9m
         # must survive.  `> #### Foo` is a real `<h4 id="quoted-heading">`, so
         # the line stays prose and the indexer keeps minting its slug.
@@ -2642,6 +2652,93 @@ def _run_self_tests(verbose: bool = False) -> int:
           ">",
           "> Quoted prose."],
          [1, 2, 3]),
+        # ------------------------------------------------------------------
+        # rf2-mmyc (MERGED-PR AUDIT #7785) — MALFORMED AND UNTERMINATED fences.
+        #
+        # A fenced block is a MATCHED PAIR.  superfences collects lines from an
+        # opener until it finds THAT opener's closer; if it never finds one it
+        # restores the source verbatim (`_store` / `restore_raw_text`) and
+        # python-markdown reads those lines as ordinary prose.  The predecessor
+        # read "this closer does not close the block" as "the block stays
+        # open", which is the opposite conclusion: it blanked the body AND
+        # every line after it, so a broken link or heading below a malformed
+        # fence was invisible to this gate — the same going-silent failure as
+        # rf2-re0m, reached from the other side.
+        #
+        # Every expectation below was READ OFF THE RENDERER, driven through
+        # MkDocs' own configuration (`mkdocs.config.load_config('mkdocs.yml')`,
+        # then its `markdown_extensions` / `mdx_configs` into a
+        # `markdown.Markdown`) — not off CommonMark, and not off a probe.
+        # CommonMark disagrees with what MkDocs actually does in BOTH
+        # directions here, which is how the wrong reading survived review.
+        # ------------------------------------------------------------------
+        # CONTROL — the well-formed pair, which must keep working.  Without it
+        # the five cases below are satisfied by a scanner that recognises no
+        # fence at all.
+        ("oracle: a valid exact closer IS a fence",
+         ["Prose before.",
+          "",
+          "```clojure",
+          "[not a link](missing.md)",
+          "```",
+          "",
+          "Prose after."],
+         [1, 7]),
+        # MARKER LENGTH, both ways.  superfences closes only on the opener's
+        # own run length, so neither of these pairs is a fenced block —
+        # the renderer emits one paragraph per shape and resolves the link
+        # inside it.
+        ("oracle: a longer closing run closes nothing, so nothing is a fence",
+         ["Prose before.",
+          "",
+          "```clojure",
+          "[a real link](missing.md)",
+          "````",
+          "",
+          "Prose after."],
+         [1, 3, 4, 5, 7]),
+        ("oracle: a shorter closing run closes nothing, so nothing is a fence",
+         ["Prose before.",
+          "",
+          "````clojure",
+          "[a real link](missing.md)",
+          "```",
+          "",
+          "Prose after."],
+         [1, 3, 4, 5, 7]),
+        # INFO STRING on the closer — likewise not a closer, likewise no fence.
+        ("oracle: a closer carrying an info string closes nothing",
+         ["Prose before.",
+          "",
+          "```clojure",
+          "[a real link](missing.md)",
+          "```clojure",
+          "",
+          "Prose after."],
+         [1, 3, 4, 5, 7]),
+        # UNCLOSED at top level.  This is the shape that most directly costs
+        # the gate its sight: `Prose after.` is a rendered paragraph, and a
+        # broken link on it must still be caught.
+        ("oracle: an unclosed top-level opener is not a fence",
+         ["Prose before.",
+          "",
+          "```clojure",
+          "[a real link](missing.md)",
+          "",
+          "Prose after."],
+         [1, 3, 4, 6]),
+        # CONTAINER DE-INDENT.  The closer sits outside the list item that
+        # holds the opener, so it is not this fence's closer and the item has
+        # already ended; no fence is recognised anywhere.
+        ("oracle: a closer outside the opener's container closes nothing",
+         ["- A bullet:",
+          "",
+          "  ```clojure",
+          "  [a real link](missing.md)",
+          "```",
+          "",
+          "Prose after."],
+         [1, 3, 4, 5, 7]),
     ]
     for label, lines, expected_visible in fence_cases:
         got_visible = [n for n, content in _strip_fences(lines) if content.strip()]
