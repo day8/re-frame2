@@ -163,3 +163,53 @@
 ;; interpret, so nothing judges inside a quotation.
 (h/defview quoted-hiccup [_]
   [:div (str '[(fn [] :a) "quoted, so never interpreted"])])
+
+;; ---------------------------------------------------------------------------
+;; direct-view-call — a LOCAL that happens to be spelled like the view
+;;
+;; The self-call check knows exactly one name: the view's own. A parameter, a
+;; destructured prop, a `let`, a `for` binding or a function argument spelled
+;; the same way is an ORDINARY LOCAL, and calling one is ordinary Clojure. The
+;; first draft of the check compared SPELLING and nothing else, so every form
+;; below was reported at ERROR — and because the required lane runs
+;; `--fail-level error`, correct code was refused (merged-PR audit #7794).
+;; ---------------------------------------------------------------------------
+
+;; A parameter shadows the view for the whole body.
+(h/defview card [card]
+  [:div.card (card)])
+
+;; Destructuring binds exactly the same way.
+(h/defview label [{:keys [label]}]
+  [:div (label)])
+
+;; So does a `let` ...
+(h/defview via-let [_]
+  (let [via-let (fn [] "ordinary")]
+    [:div (via-let)]))
+
+;; ... a `for` binding, where `(cell :label)` is an ordinary map lookup ...
+(h/defview cell [{:keys [cells]}]
+  [:ul (for [cell cells] [:li {:key (:id cell)} (cell :label)])])
+
+;; ... the parameter of a function literal ...
+(h/defview row [{:keys [rows]}]
+  [:ul (mapv (fn [row] [:li {:key (row :id)} (row :label)]) rows)])
+
+;; ... the parameter of the callback form ...
+(h/defview event [_]
+  [:button {:on-click (h/hfn [event] [:form/submit (event :value)])} "Save"])
+
+;; ... and a `letfn` name.
+(h/defview badge [{:keys [n]}]
+  (letfn [(badge [x] (str "#" x))]
+    [:span (badge n)]))
+
+;; A `catch` binding and an `as->` name are locals too. Contrived — nobody
+;; names a caught value after a view — but a rule with a hole in its notion of
+;; "bound" is a rule that fires on correct code, so the hole is closed and
+;; witnessed rather than argued about.
+(h/defview retry [{:keys [attempt]}]
+  [:div
+   (try (attempt) (catch :default retry (retry)))
+   (as-> attempt retry (retry))])
