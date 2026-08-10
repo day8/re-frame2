@@ -2787,7 +2787,7 @@
   ;; page and the devtools websocket share an origin. Sources are already
   ;; on the classpath — `hicasso/testbed` is an existing :source-paths
   ;; entry — so this build id is the whole of the wiring.
-  :hicasso-hmr-testbed
+  :hicasso/hmr-testbed
   {:target     :browser
    :output-dir "out/hicasso-hmr-testbed"
    :asset-path "."
