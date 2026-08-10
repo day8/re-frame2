@@ -96,7 +96,11 @@ on the [native tier](glossary.md#native-tier) and you want React to own the pend
 [`n/lazy`](glossary.md#nlazy), the ABI helper from [the native tier](10-native-tier.md). It has
 the same thunk-returning-a-promise contract as `React.lazy`, and it resolves
 to the component. It keeps the component marker, so Xray still names the
-[boundary](glossary.md#boundary), and HMR still replaces the implementation without remounting it.
+[boundary](glossary.md#boundary) and the embedding seams still recognize the head. What it does
+not do is carry the component across a hot reload, and it is not meant to:
+minting a component is allocation, never a lookup by name, so a save
+re-evaluates the module, allocates a fresh component, and React replaces the
+subtree. A clean remount across a save is the designed conduct, not a fault.
 
 ```clojure
 (ns app.charts.gate
@@ -189,7 +193,8 @@ law holds through both, because commit owns acquisition
 | Works in `watch`, 404s in a release build | Module config drift — a missing `:depends-on`, or the entry namespace not in the module | Declare the dependency edge; keep one entries list per module |
 | The Suspense fallback flashes on every render of the parent | The lazy component was minted inside a body — fresh identity, fresh mount, fresh load | Declare [`n/lazy`](glossary.md#nlazy) (and the loadable) at top level |
 | A failed chunk load leaves the skeleton up forever | Nothing catches the loader's rejection | Wrap the Suspense host in [`h/error-boundary`](glossary.md#error-boundary); retry through `:reset-key` |
-| Xray shows an anonymous [boundary](glossary.md#boundary); HMR remounts the island | Raw `React.lazy` erased the component marker | Use [`n/lazy`](glossary.md#nlazy) — same semantics, marker intact ([Native tier](10-native-tier.md)) |
+| Xray shows an anonymous [boundary](glossary.md#boundary) where a named island should be | Raw `React.lazy` erased the component marker — the display name and the declared server policy went with it | Use [`n/lazy`](glossary.md#nlazy) — same semantics, marker intact ([Native tier](10-native-tier.md)) |
+| Local state inside a lazily loaded island resets whenever you save | Nothing is wrong. A reload allocates a fresh component, so the element type changes and React remounts the subtree — the designed HMR conduct, and [`defview`](glossary.md#defview)'s too | Nothing to fix. State that must outlive a save belongs in `app-db`, read back through [`n/use-sub`](glossary.md#nuse-sub) |
 | The lazy region is missing from server HTML | Client-only by design — the server carries the fallback, never the un-arrived component | Make the fallback a same-footprint skeleton; the live component mounts after adoption |
 | A hidden pane's state is gone on reveal | The pane was unmounted, not hidden — a `when`, not an Activity `:mode` flip | Hide with `:mode "hidden"` to retain UI state; unmount when you mean gone. App-db state at addresses survives either way |
 
