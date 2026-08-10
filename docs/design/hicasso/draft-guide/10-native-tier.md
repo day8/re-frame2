@@ -1,4 +1,4 @@
-# The [native tier](glossary.md#native-tier)
+# The native tier
 
 Most applications never need this page. Ordinary [Hicasso](glossary.md#hicasso) — interpreted hiccup, [`h/sub`](glossary.md#hsub) where you read, events as data — is the product, and it is the right choice for roughly 98% of the view code you will ever write. This page is for the other 1–2%: the row that repaints on every market tick, the drag handle that tracks a pointer at display rate, the vendor widget with hooks at its core. For that code Hicasso keeps an explicit exit to native React. Take it and you write React directly — direct element construction, real hooks, full native speed — and your frame, your app-db, and your React root all come with you.
 
@@ -80,7 +80,7 @@ The whole fence fits in one table. The left column is why rung 3 is cheap to ado
 
 Two consequences deserve their own sentences. First, form fields stay interpreted. An `<input>` inside [`n/$`](glossary.md#n-dollar) is a raw React [controlled input](glossary.md#controlled-field): you do all of React's manual controlled-input work, and you get none of [Hicasso](glossary.md#hicasso)'s caret, IME, or same-turn guarantees ([Controlled inputs](04-controlled-inputs.md)). Second, hooks still do not belong in the body. A [`defview`](glossary.md#defview) body is dynamically composed — branches and loops are legal, and that is exactly the environment where hook order breaks. The wish for a hook in a `defview` body is the signal that you are at rung 4, not rung 3.
 
-### The [`n/$`](glossary.md#n-dollar) grammar
+### The `n/$` grammar
 
 The authoring shape is deliberately small:
 
@@ -114,7 +114,7 @@ The authoring shape is deliberately small:
 
     A dynamic ClojureScript map inside [`n/props`](glossary.md#nprops) converts shallowly under the same slot-name rule; a JavaScript object passes by identity.
 
-## Rung 4 — a named [native island](glossary.md#native-island)
+## Rung 4 — a named native island
 
 When the cost owner is not [lowering](glossary.md#lowering) but *behavior* — hooks, a retained vendor widget, React reconciliation itself, or work that runs per animation frame — the answer is a named, top-level native component. The self-contained route is [`n/defcomponent`](glossary.md#ndefcomponent). UIx is an equally supported, mature route. A JavaScript or TypeScript component enters through the host bridge ([Interop](09-interop.md)). Every route stays inside the same React root, the same frame context, and the same state owner. An island is a place, not a second architecture.
 

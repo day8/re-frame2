@@ -115,7 +115,7 @@ Click the button. The count changes. This screen shows the three habits of a
 [Views and reads](02-views-and-reads.md) and
 [Events as data](03-events-as-data.md) teach each habit in more depth.
 
-## What [`h/mount!`](glossary.md#mount) did
+## What `h/mount!` did
 
 > **One [`h/mount!`](glossary.md#mount) associates a DOM node, a frame, and initial events, and
 > returns an idempotent handle.**

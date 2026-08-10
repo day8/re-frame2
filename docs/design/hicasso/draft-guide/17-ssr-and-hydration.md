@@ -308,7 +308,7 @@ does not know raises `:rf.error/hicasso-host-unknown-option`. A raw React
 element escape carries no declaration, so it carries no server-safety
 assertion either. It renders nothing server-side, always.
 
-## The [native tier](glossary.md#native-tier) under SSR
+## The native tier under SSR
 
 The same per-surface rule applies, at the same sources. An intrinsic [`n/$`](glossary.md#n-dollar)
 form is markup, and it Renders. A named native component declares its

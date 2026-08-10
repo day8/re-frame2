@@ -69,7 +69,7 @@ neither.
 Keys are one half of list identity. The other half is the [read topology](glossary.md#read-topology):
 which rows *re-render*. That half is a genuine design choice.
 
-## Choosing a [read topology](glossary.md#read-topology)
+## Choosing a read topology
 
 [`h/sub`](glossary.md#hsub) is legal anywhere in a body, so you choose *where* the reads sit. For
 a collection, that position decides what an update costs. Four shapes cover

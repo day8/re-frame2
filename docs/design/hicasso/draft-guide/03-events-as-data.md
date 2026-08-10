@@ -92,7 +92,7 @@ The prevent form is a head, not metadata on the vector, for one reason:
 to a structural test that compares the tree, to `pr-str`, and to any code
 that hashes the intent. A head is visible to all three.
 
-## [`h/event`](glossary.md#hevent): value-first and calculated events
+## `h/event`: value-first and calculated events
 
 Sometimes you must read the callback's arguments before you know what to
 dispatch. Examples: a file list, a drag payload, a foreign component that
