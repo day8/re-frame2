@@ -39,7 +39,7 @@
   | the controlled field carries its value through the marker | `ht/fire!` + `ht/controlled?` | L1 |
   | the form submits once and prevents navigation | `ht/fire!` | L1 |
   | the key-map commits, cancels, and is silent mid-composition | `ht/fire!` | L1 |
-  | what the rendered screen OFFERS to dispatch | `ht/render` + `ht/intents` | L2 |
+  | what the rendered screen OFFERS to dispatch | `ht/tree` + `ht/intents` | L2 |
 
   The L0 rows needed no kit at all, which is L0's contract holding: they
   are pure re-frame and the substrate is not in them. The composition
@@ -360,8 +360,8 @@
         (name f)])]))
 
 (deftest l2-the-rendered-row-carries-its-intents-as-data
-  (let [tree (ht/render [row-body {:id 1}]
-                        {:reads {[:dg/todo 1]  {:id 1 :title "todo 1" :done? false}
+  (let [tree (ht/tree [row-body {:id 1}]
+                        {:subs {[:dg/todo 1]  {:id 1 :title "todo 1" :done? false}
                                  [:dg/draft 1] ""}})]
 
     (testing "every handler site the row offers, in document order, against a
@@ -387,13 +387,13 @@
 
     (testing "and the control: the same body with a DONE to-do renders the
               other value, so the row above is reading the fixture"
-      (is (true? (:checked (ht/attrs (ht/find (ht/render [row-body {:id 1}]
-                                                         {:reads {[:dg/todo 1] {:done? true}
+      (is (true? (:checked (ht/attrs (ht/find (ht/tree [row-body {:id 1}]
+                                                         {:subs {[:dg/todo 1] {:done? true}
                                                                   [:dg/draft 1] ""}})
                                               #(= "toggle" (:class (:attrs %)))))))))))
 
 (deftest l2-a-dynamic-child-list-renders-inside-the-body-s-own-window
-  (let [tree (ht/render [filters-body {}] {:reads {[:dg/filter] :active}})]
+  (let [tree (ht/tree [filters-body {}] {:subs {[:dg/filter] :active}})]
 
     (testing "a `for` inside the body splices its members as children — the
               runtime's one-level flatten, not a second rule"
