@@ -358,7 +358,17 @@
   create (rf2-31xm).
 
   Neither counter is here, and that is deliberate rather than an omission
-  — see [[handle-for]]."
+  — see [[handle-for]].
+
+  **Taking down a root that never adopted makes React complain, and it is
+  right to.** An update to a root mid-hydration IS a switch to client
+  rendering, so React queues a hydration error, which reaches the
+  reporter `impl.mount/hydrate-root!` installs and — that reporter always
+  delegating to React's default (rf2-mwx08) — the window. Leaving the
+  root standing instead would be worse: the hydration is still scheduled,
+  and it would commit into a detached container after this call returned.
+  So the rollback takes it down and the complaint is the honest residue
+  of a hydration that failed."
   [frame-kw node supplied? root]
   (when (some? root) (mount/unmount! root))
   (when-not supplied?
