@@ -83,10 +83,13 @@
   number of turns it took, or of `nil` when [[checkpoint-turn-budget]] is
   exhausted.
 
-  The turn count is reported rather than discarded because zero is a
-  distinct and interesting answer: it means the condition already held
-  before the drain began, so the row measured nothing. A witness that
-  asserts the correction happened should assert the count moved."
+  The turn count is reported for diagnosis, and **is not a vacuity
+  check** — a mistake worth recording, because it was made here first and
+  red four rows. The drain necessarily spends one turn before its first
+  probe, and the collector queues its microtask *before* that, so `0`
+  turns is the ordinary healthy answer rather than evidence of a row that
+  watched nothing. The vacuity check has to be taken SYNCHRONOUSLY,
+  before the checkpoint the row is about; [[at-the-checkpoint]] takes it."
   [ready?]
   (let [!turns (volatile! 0)]
     (letfn [(step [_]
