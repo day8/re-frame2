@@ -435,8 +435,9 @@ slot, and when this section was written it had no package counterpart — precis
 RE-AUTHORED records for `hook_ledger_dom_cljs_test` and `frame_prop_dom_cljs_test`. **It belongs
 with that bead**, whose deliverable was the probe, and that is exactly how it resolved:
 `re-frame.hicasso.hook-probe` landed under **rf2-wjag** in `35e8fecc1d`, at
-`implementation/hicasso/test/re_frame/hicasso/hook_probe.cljs`, and four package suites already
-require it. So the third member is unblocked, its port is **rf2-wjag's and not this row's**, and
+`implementation/hicasso/test/re_frame/hicasso/hook_probe.cljs`, and **five** package suites already
+`:require` it — `boundary_intent_dom`, `hframe_dom`, `hook_budget`, `presence_intent_dom` and
+`state_dom`. So the third member is unblocked, its port is **rf2-wjag's and not this row's**, and
 that bead is in flight — nothing here to sequence. What the split bought is what it was for:
 bundling `host_hatch` with the `:ssr` pair would have held two unblocked suites behind a probe
 neither of them needs, on top of an SSR entry none of the three needs.
