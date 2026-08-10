@@ -864,6 +864,67 @@ jobs:
       - name: Self-test the fast-PR spine's tiering + mkdocs resolution
         run: bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
 
+  # THE HICASSO COMPLAINT-CATALOGUE CONTRACT (rf2-hic-021; this routing is the
+  # #7808 merged-PR audit's reverse-edge repair, landed under rf2-ibje because
+  # that bead already held this file).
+  #
+  # `implementation/hicasso/scripts/check_complaint_catalogue.py` round-trips
+  # FOUR input families:
+  #
+  #   implementation/hicasso/**                   source + test kit — the ids
+  #                                               the runtime actually raises
+  #   docs/design/hicasso/product/complaints.md   the register: live, reserved,
+  #                                               pending-retirement, tombstoned
+  #   spec/009-Instrumentation.md                 the rows R3 / R4 / R6 read
+  #   docs/design/hicasso/draft-guide/**          the chapters R8 cites
+  #
+  # It shipped chained into `npm run test:hicasso-invariants`, whose only hosted
+  # invocation is a step of the `cljs` job under
+  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
+  # FIRST FAMILY ARMS THAT OUTPUT. Direct classifier probes measured the other
+  # three at `false`, so a register-only edit could drop or corrupt a live row,
+  # a Spec-009-only edit could break R3/R4/R6 and a guide-only edit could break
+  # R8 — with every PR check skipping the gate. #7808 itself happened to touch
+  # the checker and package.json, which is the only reason the hole never
+  # showed. The claim that chaining into the existing script created "no
+  # scheduling hole" is what this job disproves and repairs.
+  #
+  # UNCONDITIONAL, rather than a thirty-first classifier output. The defect
+  # being repaired IS a surface gate that did not cover a checker's inputs; a
+  # new arm would be a fresh chance to make the same mistake, and it would need
+  # re-widening every time the checker learns to read another file. This is a
+  # sub-second pure-Python static read, so the cheapest CORRECT routing is no
+  # routing at all — the same shape as `verify-version-lockstep` and
+  # `verify-readme-links` above, and `beads-pr-boundary` below.
+  #
+  # IT STAYS CHAINED INTO `test:hicasso-invariants` TOO. That chain is the LOCAL
+  # lane (scripts/test-fast-pr.sh) and the artefact's one-command run; this job
+  # is the CI reachability the chain could not give it. The duplicate execution
+  # on a hicasso-source PR costs under a second, and the two homes answer
+  # different questions — "is the hicasso package still whole?" there, "does the
+  # complaint contract still hold?" here.
+  hicasso-complaint-catalogue:
+    name: Hicasso complaint-catalogue contract (rf2-hic-021)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # Self-test first, then the live round trip — the order every other
+      # pure-Python contract in this workflow uses. The self-test drives each of
+      # the eight rules red in turn, so a green live run below is a verdict
+      # rather than a checker that has quietly stopped firing.
+      - name: Self-test the complaint-catalogue round trip
+        run: python implementation/hicasso/scripts/check_complaint_catalogue.py --self-test
+
+      - name: Verify the register against the runtime, Spec 009 and the guide
+        run: python implementation/hicasso/scripts/check_complaint_catalogue.py
+
   # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
   #
   # `bd` auto-stages the full-database JSONL export in EVERY checkout, so a
@@ -5747,6 +5808,13 @@ jobs:
       - verify-version-lockstep
       - verify-skill-mcp-drift
       - verify-readme-links
+      # rf2-hic-021 (audit repair, rf2-ibje) — required, not advisory. Three of
+      # the four file families this contract reads arm no classifier output at
+      # all, so before this job a register-only, Spec-009-only or guide-only PR
+      # ran the check nowhere. A job absent from this list is advisory whatever
+      # its own gate says, which would put the contract back one `if:` from the
+      # nowhere it just came from.
+      - hicasso-complaint-catalogue
       # rf2-3mh2f — the .beads guard's CI arm. Required, so the tracker
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary
