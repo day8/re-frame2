@@ -1,20 +1,20 @@
 # Async resources
 
 Async replies arrive late. They arrive out of order. They arrive for screens
-that no longer exist. This page teaches the Hicasso patterns for that problem
+that no longer exist. This page teaches the [Hicasso](glossary.md#hicasso) patterns for that problem
 class:
 
 - the settle-merge, which stops a late reply from overwriting newer edits
 - per-instance mutation status, with optimistic rollback
 - the owners of cancellation and supersession
-- demand-driven committed reads, shown in a full typeahead example
+- [demand-driven committed reads](glossary.md#demand-driven-committed-read), shown in a full typeahead example
 
 The transport is the core resource/event model (`re-frame.resources`). That
 model supplies registered reads with scope and tags, causes, the five-status
 projection, and mutations that invalidate by tag. The corpus under
 `docs/resources/` teaches that model. This page assumes it and owns the
 patterns on top of it. In a Hicasso view, you read a resource with the same
-`h/sub` as any subscription.
+[`h/sub`](glossary.md#hsub) as any subscription.
 
 > **The read owns the lifetime, you own the policy, and the runtime owns the race.**
 
@@ -116,7 +116,7 @@ row, and each button watches its own write:
 ```
 
 Look at the click. It is one literal event vector — mutation, params, instance,
-and cause, all data. A structural test therefore asserts the whole write intent
+and cause, all data. A structural test therefore asserts the whole write [intent](glossary.md#intent)
 with `=`. The instance sub yields `:pending?`, `:success?`, `:error?`,
 `:settled?`, `:optimistic?`, `:result`, and `:error`. Focused projections such
 as `[:rf.mutation/pending? {…}]` exist for a button that needs one boolean.
@@ -188,7 +188,7 @@ ceremony:
 - release on unmount
 - re-ensure on parameter change
 
-Each step is an opportunity for a leak or for an orphaned fetch. Hicasso
+Each step is an opportunity for a leak or for an orphaned fetch. [Hicasso](glossary.md#hicasso)
 closes the gap with the committed read itself. A read of a resource may
 declare demand:
 
@@ -220,7 +220,7 @@ The law, in full:
   decides *how* the resource behaves.
 - **It costs nothing elsewhere.** Demand uses the committed-read membership
   that the runtime already keeps. A read contributes membership, not a record,
-  and no per-read ledger exists. A boundary that reads no resource carries
+  and no per-read ledger exists. A [boundary](glossary.md#boundary) that reads no resource carries
   none of this.
 
 Without `:demand true`, the sub is the core passive projection, and it never
@@ -303,7 +303,7 @@ list's committed read declares demand:
 
 Walk the timeline, and every policy is visible:
 
-1. **`c` … `cl`** — each keystroke echoes through the controlled input at
+1. **`c` … `cl`** — each keystroke echoes through the [controlled input](glossary.md#controlled-field) at
    once. The generation increments. Nothing fetches. Debounce is your
    event-layer policy.
 2. **250 ms of quiet** — the surviving timer's generation matches, and
@@ -334,7 +334,7 @@ owner — the read.
 
 Two edges remain. Under Xray, held demand is a bounded projection: which
 resources are owned by which committed reads, and why each fetch fired
-([Diagnostics](15-diagnostics.md)). On the server, the boundary is Client-only
+([Diagnostics](15-diagnostics.md)). On the server, the [boundary](glossary.md#boundary) is Client-only
 by default — a deterministic fallback and zero acquisition, because
 acquisition is a client commit fact. Hydration then adopts without a duplicate
 fetch ([SSR and hydration](17-ssr-and-hydration.md)).

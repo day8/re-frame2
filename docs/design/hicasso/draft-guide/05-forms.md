@@ -1,6 +1,6 @@
 # Forms
 
-A bare controlled field ([Controlled inputs](04-controlled-inputs.md)) binds
+A bare [controlled field](glossary.md#controlled-field) ([Controlled inputs](04-controlled-inputs.md)) binds
 directly to app-db, and that is all. Real forms need three more things:
 
 - fields that buffer a *draft* — commit on Enter or blur, revert on Escape,
@@ -23,7 +23,7 @@ guarantees the failure.
 | Trap | The hand-rolled shape | Here |
 |---|---|---|
 | Twin-atom stack | An "external" and an "internal" atom per field, synced by render-phase resets | A draft is addressed app-db state with one owner; there is nothing to sync |
-| Same-value blindness | Rejecting a draft by reasserting the equal model value — invisible to `not=`, so the rejected text stays on screen | The reset signal is `::h/revision`, distinct from the value by design |
+| Same-value blindness | Rejecting a draft by reasserting the equal model value — invisible to `not=`, so the rejected text stays on screen | The reset signal is [`::h/revision`](glossary.md#hrevision), distinct from the value by design |
 | Commit flicker | A forced reset on every commit misfires "changed"; async acceptance flickers between stale and new | A commit is decided against committed state at event time; acceptance is your event, and a stale commit no-ops |
 | Arity-sniffed done-fn | The flicker's escape hatch: probing the change callback's `.length` for a completion arity | There is no completion-callback protocol; submit status is data, read per instance |
 | Re-minted ephemeral state | Interaction state created inside the render function — dies on any re-render | Nothing lives in a render closure; drafts and status live at addresses and survive re-render and remount |
@@ -40,7 +40,7 @@ One require serves the whole page:
 
 ## The draft field
 
-`forms/buffered-field` is one controlled input with a draft in front of it.
+`forms/buffered-field` is one [controlled input](glossary.md#controlled-field) with a draft in front of it.
 The caller supplies four things: a stable address for the draft, the
 committed value, the value's revision, and the event that receives a commit.
 
@@ -161,7 +161,7 @@ form instance.
         (get (validate draft) field)))))
 ```
 
-The field is an ordinary controlled input; blur is the touch:
+The field is an ordinary [controlled input](glossary.md#controlled-field); blur is the touch:
 
 ```clojure
 (h/defview title-field []
@@ -273,7 +273,7 @@ Most fields need none of this page. A search box that feeds a debounced
 query, a settings toggle, a filter — bind them directly to app-db and stop.
 That whole story is [Controlled inputs](04-controlled-inputs.md). Use the
 forms module when you want a draft the user can abandon, errors that wait, or
-a submit lifecycle — and only then. Every buffered field is one more address
+a submit lifecycle — and only then. Every [buffered field](glossary.md#buffered-field) is one more address
 and one more commit protocol in your app's state. An application that never
 requires `re-frame.hicasso.forms` ships zero bytes of it.
 
@@ -291,7 +291,7 @@ refusal. So these rows name mechanisms:
 | The button enables but the handler refuses (or vice versa) | Two validity computations drifting apart | One materialised gate; the view subscribes, the handler reads `db` — never recompute per site |
 | Escape reverts, then the old draft reappears | A second copy of the draft outside the module — a local atom, a duplicated slice | One draft, one address; let the field own cancel — its trailing blur no-ops |
 | Two fields fight over one draft | Duplicate `:control` address | Address per instance: `[:invoice id :amount]`, not `[:invoice :amount]` |
-| A rejected draft still reads as accepted | The revision did not move, so the same-value rejection is invisible | Move `::h/revision` whenever you reject or rewrite |
+| A rejected draft still reads as accepted | The revision did not move, so the same-value rejection is invisible | Move [`::h/revision`](glossary.md#hrevision) whenever you reject or rewrite |
 | The field ignores an external value change mid-edit | By design: a value change under an unchanged revision continues the draft | Move the revision when you mean *replace the edit* |
 | A late async accept clobbers newer typing | The settle wrote the value without fencing | Settle writes value **and** revision; commits under the old revision no-op. Deeper supersession policy: [async resources](08-async-resources.md) |
 | A half-typed draft resurfaces much later | Drafts are durable state, and no causal owner cleared them | Clear at the causal end — route entry, or the save's reply (see Advanced) |
@@ -318,5 +318,5 @@ A buffered draft still writes app-db on each keystroke. The buffering changes
 *when the committed value moves*, not how the draft is tracked. That is what
 keeps drafts testable and visible to tools. For a dense grid where writes per
 cell per keystroke cost too much, the answer is not this module. The answer
-is the explicit uncontrolled choice, or a native island — both with their
+is the explicit uncontrolled choice, or a [native island](glossary.md#native-island) — both with their
 costs in [Performance](18-performance.md).

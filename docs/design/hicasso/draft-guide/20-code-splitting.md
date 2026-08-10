@@ -4,8 +4,8 @@ Your admin area is a third of the bundle, and most sessions never open it.
 This page splits the build so that code loads when it is first wanted. It
 covers three things:
 
-- the route-and-module boundary, which covers almost every real split;
-- the `React.lazy` bridge for native islands;
+- the route-and-module [boundary](glossary.md#boundary), which covers almost every real split;
+- the `React.lazy` bridge for [native islands](glossary.md#native-island);
 - what Suspense and Activity do to your reads while a subtree waits or
   hides.
 
@@ -76,9 +76,9 @@ Wire the load to the route — `:on-match` dispatches when the route activates
 ```
 
 Every piece is machinery that you already know. The pending placeholder is a
-branch, not a Suspense fallback. The failure is a value with a retry intent,
+branch, not a Suspense fallback. The failure is a value with a retry [intent](glossary.md#intent),
 not an exception. The loaded screen is an ordinary view head — after the
-load, `@admin-screen` is the `h/defview`-minted view, with its boundary,
+load, `@admin-screen` is the [`h/defview`](glossary.md#defview)-minted view, with its [boundary](glossary.md#boundary),
 reads, and name intact. The `:loading`/`:loaded` check is the dedupe, so
 navigation away and back never double-loads.
 
@@ -88,15 +88,15 @@ module downloads before the click. Hot reload is undisturbed — a loaded
 module's namespaces reload like any others, and an unloaded module has
 nothing to reload.
 
-## The React bridge: `n/lazy` and a Suspense host
+## The React bridge: [`n/lazy`](glossary.md#nlazy) and a Suspense host
 
-A native island or a React-shaped screen can instead load through React's
+A [native island](glossary.md#native-island) or a React-shaped screen can instead load through React's
 own lazy machinery. That is the correct choice when the region already lives
-on the native tier and you want React to own the pending swap. The bridge is
-`n/lazy`, the ABI helper from [the native tier](10-native-tier.md). It has
+on the [native tier](glossary.md#native-tier) and you want React to own the pending swap. The bridge is
+[`n/lazy`](glossary.md#nlazy), the ABI helper from [the native tier](10-native-tier.md). It has
 the same thunk-returning-a-promise contract as `React.lazy`, and it resolves
 to the component. It keeps the component marker, so Xray still names the
-boundary, and HMR still replaces the implementation without remounting it.
+[boundary](glossary.md#boundary), and HMR still replaces the implementation without remounting it.
 
 ```clojure
 (ns app.charts.gate
@@ -126,12 +126,12 @@ boundary, and HMR still replaces the implementation without remounting it.
 
 While the code loads, React shows the Suspense fallback — hiccup in a
 declared slot, like any other ([Interop](09-interop.md)). A loader rejection
-throws into the render, so the nearest `h/error-boundary` catches it, and
+throws into the render, so the nearest [`h/error-boundary`](glossary.md#error-boundary) catches it, and
 the `:reset-key` counter is the retry, exactly as in [Errors](16-errors.md)
 — the next attempt re-runs the loader.
 
 !!! warning "Declare lazy components outside render"
-    `n/lazy` (like `React.lazy`) mints a component identity. When the mint
+    [`n/lazy`](glossary.md#nlazy) (like `React.lazy`) mints a component identity. When the mint
     happens inside a body, every render mints a fresh identity, so React
     unmounts and remounts the subtree — and re-triggers the load — each time
     the body runs. Both declarations above are top-level `def`s; keep yours
@@ -165,10 +165,10 @@ law holds through both, because commit owns acquisition
   from state:
 
   ```clojure
-  (h/defhost activity react/Activity)
+  ([h/defhost](glossary.md#defhost) activity react/Activity)
 
-  [activity {:mode (if (h/sub [:inbox/visible?]) "visible" "hidden")}
-   [inbox-pane {}]]
+  activity {:mode (if ([h/sub](glossary.md#hsub) :inbox/visible?]) "visible" "hidden")}
+   inbox-pane {}]]
   ```
 
   While the pane is hidden, React cleans up effects, and the subtree's
@@ -187,9 +187,9 @@ law holds through both, because commit owns acquisition
 | Navigation to the split route renders nothing, and then the screen appears after a delay | The shell renders the loaded view unconditionally, so the pre-load render was empty | Branch on the module status; render the skeleton and failed states |
 | The module double-loads on repeated visits | The load event does not consult state | Gate on the status, as `:admin/wanted` does — `:loading`/`:loaded` is the dedupe |
 | Works in `watch`, 404s in a release build | Module config drift — a missing `:depends-on`, or the entry namespace not in the module | Declare the dependency edge; keep one entries list per module |
-| The Suspense fallback flashes on every render of the parent | The lazy component was minted inside a body — fresh identity, fresh mount, fresh load | Declare `n/lazy` (and the loadable) at top level |
-| A failed chunk load leaves the skeleton up forever | Nothing catches the loader's rejection | Wrap the Suspense host in `h/error-boundary`; retry through `:reset-key` |
-| Xray shows an anonymous boundary; HMR remounts the island | Raw `React.lazy` erased the component marker | Use `n/lazy` — same semantics, marker intact ([Native tier](10-native-tier.md)) |
+| The Suspense fallback flashes on every render of the parent | The lazy component was minted inside a body — fresh identity, fresh mount, fresh load | Declare [`n/lazy`](glossary.md#nlazy) (and the loadable) at top level |
+| A failed chunk load leaves the skeleton up forever | Nothing catches the loader's rejection | Wrap the Suspense host in [`h/error-boundary`](glossary.md#error-boundary); retry through `:reset-key` |
+| Xray shows an anonymous [boundary](glossary.md#boundary); HMR remounts the island | Raw `React.lazy` erased the component marker | Use [`n/lazy`](glossary.md#nlazy) — same semantics, marker intact ([Native tier](10-native-tier.md)) |
 | The lazy region is missing from server HTML | Client-only by design — the server carries the fallback, never the un-arrived component | Make the fallback a same-footprint skeleton; the live component mounts after adoption |
 | A hidden pane's state is gone on reveal | The pane was unmounted, not hidden — a `when`, not an Activity `:mode` flip | Hide with `:mode "hidden"` to retain UI state; unmount when you mean gone. App-db state at addresses survives either way |
 
@@ -200,7 +200,7 @@ law holds through both, because commit owns acquisition
   and rarely visited, not on principle.
 - **Below the route or screen grain.** Per-widget chunks multiply pending
   states and round trips; users already expect a pause at the route
-  boundary.
+  [boundary](glossary.md#boundary).
 - **For data.** Suspense is not your loading UI, and lazy loading is not
   your fetch layer. Resource status is explicit state with a better
   vocabulary ([Async resources](08-async-resources.md)).

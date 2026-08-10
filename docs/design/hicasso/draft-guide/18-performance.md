@@ -1,6 +1,6 @@
 # Performance
 
-"Is it fast enough?" is not a feeling. Hicasso ships with budgets stated in
+"Is it fast enough?" is not a feeling. [Hicasso](glossary.md#hicasso) ships with budgets stated in
 user-visible terms, and performance work is the method that meets them:
 measure, attribute, change the smallest thing, then verify again. This
 chapter gives you the budgets, the ladder, the loop, and one example with
@@ -19,7 +19,7 @@ percentile that represents real hardware:
 | Budget | The user-visible fact |
 |---|---|
 | Discrete interactions | Click, toggle, submit reach the next paint within **50 ms p95** (100 ms p99) |
-| Keystroke echo | A controlled field is correct **in the same turn** and visibly echoed within **one 60 Hz frame** at p95 |
+| Keystroke echo | A [controlled field](glossary.md#controlled-field) is correct **in the same turn** and visibly echoed within **one 60 Hz frame** at p95 |
 | Broad operations | Bulk replace, big filter flips complete within **100 ms p95**, unless explicitly classified as background work |
 | Drag and animation | Stay inside the frame budget — normally by keeping high-rate mechanics host-local ([Ephemeral state](11-ephemeral-state.md)) |
 | Narrow updates | Body work scales with **changed rows**, not mounted rows |
@@ -37,20 +37,20 @@ whatever score a synthetic benchmark reports.
 
 The teardown row needs one expansion, because people forget that this budget
 is user-visible. An SPA session is long, and leave-and-return cycles must
-not accumulate residue. Hicasso guarantees its own side: abandoned renders
+not accumulate residue. [Hicasso](glossary.md#hicasso) guarantees its own side: abandoned renders
 own nothing, and unmount releases every read. Your side is the escapes. A
 host or island that acquires an SDK, a listener, or a timer releases it on
-teardown ([Interop](09-interop.md)), and the test kit's `assert-clean!`
+teardown ([Interop](09-interop.md)), and the [test kit](glossary.md#test-kit)'s `assert-clean!`
 proves the whole claim after quiescence ([Testing](14-testing.md)).
 
 ## Why most apps never leave rung 1
 
-Rung 1 is ordinary Hicasso: write ordinary views, read at the point of use,
-put intents in the markup, and ship. Do not pre-optimise, and do not build a
+Rung 1 is ordinary [Hicasso](glossary.md#hicasso): write ordinary views, read at the point of use,
+put [intents](glossary.md#intent) in the markup, and ship. Do not pre-optimise, and do not build a
 second architecture for problems that you have not measured — the
-interpreter is not the cost. Interpreted lowering is fast. When a screen
+interpreter is not the cost. Interpreted [lowering](glossary.md#lowering) is fast. When a screen
 misses a budget, the cost almost always lives somewhere else: **where the
-reads sit, how many boundaries exist, what React itself does, or what a host
+reads sit, how many [boundaries](glossary.md#boundary) exist, what React itself does, or what a host
 does**. Per read, Hicasso's retained cost is low; the read *topology* is
 what you chose. That is why the ladder's second rung is "move your reads",
 not "abandon Hiccup".
@@ -69,10 +69,10 @@ what Hiccup means:
 
 | Rung | What you write | Reach for it when | Taught in |
 |---|---|---|---|
-| 1 — Ordinary Hicasso | Hiccup, `h/sub` at point of use, intents as data | Always. Start every feature here | [Views and reads](02-views-and-reads.md) |
-| 2 — Tuned topology | The same language; boundary placement, keys, read shape | A named boundary or read pressure | [Lists and collections](06-lists-and-collections.md) |
-| 3 — Direct React return | A `defview` returns an `n/$` element; frame, reads, memo stay | Lowering itself is the measured owner | [The native tier](10-native-tier.md) |
-| 4 — Named native island | `n/defcomponent` (or UIx) under the same root and frame | Hooks, vendor behavior, reconciliation, or high-rate local work dominate | [The native tier](10-native-tier.md) |
+| 1 — Ordinary [Hicasso](glossary.md#hicasso) | Hiccup, [`h/sub`](glossary.md#hsub) at point of use, [intents](glossary.md#intent) as data | Always. Start every feature here | [Views and reads](02-views-and-reads.md) |
+| 2 — Tuned topology | The same language; [boundary](glossary.md#boundary) placement, keys, read shape | A named boundary or read pressure | [Lists and collections](06-lists-and-collections.md) |
+| 3 — Direct React return | A [`defview`](glossary.md#defview) returns an [`n/$`](glossary.md#n-dollar) element; frame, reads, memo stay | Lowering itself is the measured owner | [The native tier](10-native-tier.md) |
+| 4 — Named [native island](glossary.md#native-island) | [`n/defcomponent`](glossary.md#ndefcomponent) (or UIx) under the same root and frame | Hooks, vendor behavior, reconciliation, or high-rate local work dominate | [The native tier](10-native-tier.md) |
 | 5 — Native screen | A React-first screen authored natively | The screen is React-shaped by nature | [The native tier](10-native-tier.md) |
 
 The full lessons for rungs 3–5 are in [chapter 10](10-native-tier.md). This
@@ -87,10 +87,10 @@ Performance work that skips a step of this loop is guessing. The loop:
    the same way in every run. "The app is slow" is not actionable; "expedite
    on a 1,000-row table takes 180 ms" is actionable.
 2. **Attribute.** Correlate the event with the work that ran — which
-   subscriptions recomputed, which boundaries became invalid, how much body
-   work, then commit and paint. Xray's explain-render and read attribution
-   answer the first half. Its hot-view advisor classifies the pressure —
-   computation, topology, lowering, React, or layout — and recommends the
+   subscriptions recomputed, which [boundaries](glossary.md#boundary) became invalid, how much body
+   work, then commit and paint. Xray's [explain-render](glossary.md#explain-render) and read attribution
+   answer the first half. Its [hot-view advisor](glossary.md#hot-view-advisor) classifies the pressure —
+   computation, topology, [lowering](glossary.md#lowering), React, or layout — and recommends the
    smallest credible remedy ([Diagnostics](15-diagnostics.md)).
 3. **Tune topology.** Adjust boundary placement, keys, and read shape —
    rung 2 ([Lists and collections](06-lists-and-collections.md)). Most hot
@@ -100,7 +100,7 @@ Performance work that skips a step of this loop is guessing. The loop:
 5. **Isolate an island** if hooks, vendor behavior, reconciliation, or
    high-rate local work is the owner — rung 4. Choose the route by the
    component's needs, not by habit.
-6. **Re-verify.** The change must preserve DOM and intent behavior, focus
+6. **Re-verify.** The change must preserve DOM and [intent](glossary.md#intent) behavior, focus
    and selection, frame routing, SSR/hydration, and cleanup — and the budget
    must flip from fail to pass. A faster screen that behaves wrongly is
    wrong.
@@ -128,7 +128,7 @@ Attribute *before* you change architecture. Unattributed "slow" is usually a
 rung-2 problem, and an island built on a misattributed cause makes the code
 worse without making it faster.
 
-## The escape-benefit rule
+## The [escape-benefit rule](glossary.md#escape-benefit-rule)
 
 An escape is a standing cost: a second semantics in that region, a body that
 structural tests cannot see into, a diff that reviewers read more slowly.
@@ -143,7 +143,7 @@ a threshold is ordinary code that still pays escape costs.
 ## The cost of one keystroke: the editor and the grid
 
 The budgets become concrete when you trace one keystroke through the
-machine. Take the smallest complete example — a controlled field in a
+machine. Take the smallest complete example — a [controlled field](glossary.md#controlled-field) in a
 four-field article editor:
 
 ```clojure
@@ -167,13 +167,13 @@ four-field article editor:
 One keystroke in the title field takes this path, entirely inside the
 browser's own input event:
 
-1. The DOM event fires. The intent dispatches **synchronously** in the
+1. The DOM event fires. The [intent](glossary.md#intent) dispatches **synchronously** in the
    discrete event — no queue sits between the key and the handler.
 2. One handler runs, and it writes **one address**.
 3. The subscriptions that read that address recompute. Equality gates stop
    every subscription whose output did not change. **One** subscription's
    value changes.
-4. The runtime notifies the boundaries whose reads changed. **One** body
+4. The runtime notifies the [boundaries](glossary.md#boundary) whose reads changed. **One** body
    runs — the title field's body. The other three fields receive no
    notification.
 5. React commits, and the controlled converge applies the value **and the
@@ -241,7 +241,7 @@ itself.
 | "The app feels slow" and nothing else | No reproduction, so nothing is attributable | Script one named interaction; run the loop from step 1 |
 | One keystroke or event runs hundreds of bodies | Read topology — a value read too high, or a coarse read on a narrow-update surface | Rung 2: [Lists and collections](06-lists-and-collections.md) |
 | Characters drop under fast typing | Something async sits between keystroke and commit — a debounced write, a queued effect | Keep the controlled write synchronous; debounce consumers of the value |
-| An island shipped and the interaction is no faster | The pressure owner was misattributed — usually reads or event volume, not lowering | Re-attribute with Xray; remove the island if it fails the benefit rule |
+| An island shipped and the interaction is no faster | The pressure owner was misattributed — usually reads or event volume, not [lowering](glossary.md#lowering) | Re-attribute with Xray; remove the island if it fails the benefit rule |
 | Fast on your machine, budget missed in the field | Dev build, fast hardware, best-run numbers | Production build, mid-tier hardware, p95 across runs |
 | Heap grows across leave-and-return cycles | An escape acquires without a paired release | Pair acquire/teardown at the host ([Interop](09-interop.md)); prove it with `assert-clean!` ([Testing](14-testing.md)) |
 | An escape clears no threshold but "feels safer to keep" | The benefit rule read backwards — escapes are a cost held against a measured gain | Remove the escape; that is the rule working correctly |

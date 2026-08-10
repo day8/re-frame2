@@ -26,7 +26,7 @@ component once. Then use it anywhere a view is legal:
 > **Declare the host once. Then use it as an ordinary view head.**
 
 Children cross as ordinary hiccup, and they lower where they render.
-`h/defhost` is the one declared door to foreign React. Everything else on this
+[`h/defhost`](glossary.md#defhost) is the one declared door to foreign React. Everything else on this
 page is that door's contract, seen from a different side.
 
 Why declare at all? A raw JS component dropped into the tree breaks three
@@ -37,7 +37,7 @@ things at once:
 - The node holds an opaque JS object, so `=` tests stop working at that point.
 - Tools get a bare value where they wanted an identity.
 
-`h/defhost` quarantines the require in one `.cljs` host namespace. The rest of
+[`h/defhost`](glossary.md#defhost) quarantines the require in one `.cljs` host namespace. The rest of
 the tree stays data. You pay the friction once, and every use after that is
 free.
 
@@ -80,19 +80,19 @@ A declared slot carries a contract. The contract is never inferred from an
                :on-render-row :render}})
 ```
 
-**`:event`** — this slot works as a native `:on-*` does. Write an intent
-vector, or write `h/event` when you need the library's arguments. Foreign
+**`:event`** — this slot works as a native `:on-*` does. Write an [intent](glossary.md#intent)
+vector, or write [`h/event`](glossary.md#hevent) when you need the library's arguments. Foreign
 invokers pass *their* arguments — `onPick(value, event)`, `onChange(date)` —
-and every argument reaches the `h/event` body in library order.
+and every argument reaches the [`h/event`](glossary.md#hevent) body in library order.
 
 **`:handler`** — the function crosses by identity, with no wrapper. The
 library gets exactly the function that you wrote, and your return value goes
 back to that caller. Use this contract for imperative APIs such as `open()`
-and `scrollTo()`. Hicasso does not invent meaning for those calls.
+and `scrollTo()`. [Hicasso](glossary.md#hicasso) does not invent meaning for those calls.
 
 **`:render`** — the library calls you *during its own render* (`renderRow`,
 `renderItem`). The body must be pure, and it returns hiccup only through
-`h/as-element`:
+[`h/as-element`](glossary.md#as-element):
 
 ```clojure
 ;; ids came from (h/sub [:feed/ids]) earlier in the body
@@ -104,10 +104,10 @@ and `scrollTo()`. Hicasso does not invent meaning for those calls.
                    (str (nth ids i))]))}]
 ```
 
-`h/as-element` is the one explicit hiccup-to-element conversion, and the
+[`h/as-element`](glossary.md#as-element) is the one explicit hiccup-to-element conversion, and the
 declared position supplies the frame. The row built in that body carries its
-intents. The intents fire later, on the user's click, into the frame of the
-boundary that *supplied* the callback. A dispatch *while* the call runs raises
+[intents](glossary.md#intent). The intents fire later, on the user's click, into the frame of the
+[boundary](glossary.md#boundary) that *supplied* the callback. A dispatch *while* the call runs raises
 `:rf.error/hicasso-dispatch-in-render-position`, and the error names the
 position.
 
@@ -118,13 +118,13 @@ and `:render` contracts refuse the same carrier with
 function crosses untouched at all three contracts. Second, **intent vectors
 stay event-first** ([Events as data](03-events-as-data.md)). A value-first
 invoker has no DOM event at argument one, so a marker-carrying intent refuses
-with `:rf.error/hicasso-intent-needs-the-event`. `h/event` is the spelling for
+with `:rf.error/hicasso-intent-needs-the-event`. [`h/event`](glossary.md#hevent) is the spelling for
 those slots. A bare intent with no marker never touches its arguments, so
 `{:on-pick [:city/picked "paris"]}` is legal under any invoker.
 
-## ReactNode slots
+## [ReactNode slots](glossary.md#reactnode-slot)
 
-Some props are not data. They are markup positions: a modal's title, a footer,
+Some props are not data. They are markup positions: a [modal](glossary.md#overlay)'s title, a footer,
 a Suspense fallback. Declare those props as slots. Hiccup written at a
 declared slot then lowers under the captured frame:
 
@@ -138,8 +138,8 @@ declared slot then lowers under the captured frame:
         :footer   [:button.danger {:on-click [:article/delete id]} "Delete"]}]
 ```
 
-Intents inside a declared slot fire into the declaring boundary's frame,
-exactly as intents in children do. A string or a ready React element at a
+Intents inside a declared slot fire into the declaring [boundary](glossary.md#boundary)'s frame,
+exactly as [intents](glossary.md#intent) in children do. A string or a ready React element at a
 declared slot passes as-is. React's own wrappers host the same way: declare
 `Suspense` once with `:slots #{:fallback}`, and write the fallback as hiccup.
 
@@ -184,7 +184,7 @@ hydration, and fresh mount.
 **Client-only** — the default. The server emits nothing at the crossing, and
 the component appears when the client adopts it. Until adoption,
 `{:fallback [:div.chart-skeleton]}` renders *instead of* the crossing. The
-fallback is inert markup: the declaration refuses a `defview` or `defhost`
+fallback is inert markup: the declaration refuses a [`defview`](glossary.md#defview) or [`defhost`](glossary.md#defhost)
 head inside one (`:rf.error/hicasso-host-fallback-boundary-head`). `:fallback`
 beside `{:server :render}`, or any other policy value, refuses at mint with
 `:rf.error/hicasso-host-bad-ssr-policy`. The full server story is
@@ -193,7 +193,7 @@ beside `{:server :render}`, or any other policy value, refuses at mint with
 ## Portals
 
 Sometimes markup must land in a different DOM container — a toast rack, a
-vendor-owned overlay div — while it stays part of your tree. The portal helper
+vendor-owned [overlay](glossary.md#overlay) div — while it stays part of your tree. The [portal](glossary.md#portal) helper
 lowers hiccup into React's `createPortal` and preserves the frame:
 
 ```clojure
@@ -211,7 +211,7 @@ Keep three facts straight:
   usual.
 - **A changed `:target` is a remount.** The subtree unmounts and remounts in
   the new container. Keep the target stable.
-- **The portal is Client-only.** No DOM target exists on a server, so the
+- **The [portal](glossary.md#portal) is Client-only.** No DOM target exists on a server, so the
   portal contributes nothing to the response. An explicit `:fallback` may emit
   placeholder markup at the portal's tree position.
 
@@ -222,7 +222,7 @@ mechanism for containers that you do not control.
 ## The escape: `[:>]`
 
 `[:> Component props & children]` is the raw element escape. It is the same
-foreign path as `h/defhost`, with the declaration erased. It exists for two
+foreign path as [`h/defhost`](glossary.md#defhost), with the declaration erased. It exists for two
 cases. Migration is the first: Reagent codebases arrive full of `[:>]` sites,
 and those sites are legal here. The second is the one-off crossing that a
 declaration cannot express, such as a component selected at runtime from data:
@@ -239,27 +239,27 @@ The escape is **not** the performance tier. A measured hot region takes the
 **Declare what you use twice.** When you erase the declaration, you lose
 exactly what the declaration carried:
 
-| A declaration carries | `h/defhost` | `[:>]` |
+| A declaration carries | [`h/defhost`](glossary.md#defhost) | `[:>]` |
 |---|---|---|
 | A crossing name for tools | authored | the constant `"[:>]"` |
 | Callback contracts | exact, per slot | none — every prop is unclaimed |
-| ReactNode slots | declared | none — hiccup in a prop is data |
-| A server policy | Render or Client-only with fallback | fixed Client-only, unspellable |
+| [ReactNode slots](glossary.md#reactnode-slot) | declared | none — hiccup in a prop is data |
+| A [server policy](glossary.md#server-policy) | Render or Client-only with fallback | fixed Client-only, unspellable |
 | An early site for refusals | checked once, at the declaration | every refusal fires at the crossing |
 | A `.cljc` quarantine | one host namespace | the require lands in your view namespace |
 
 Every prop at an escape is unclaimed. Two refusals guard the silent failures
 that would follow:
 
-- An intent vector at an `on*`-spelled prop refuses with
+- An [intent](glossary.md#intent) vector at an `on*`-spelled prop refuses with
   `:rf.error/hicasso-host-undeclared-callback`. The runtime never infers a
   contract from a name. Without the refusal, your intent would cross as an
   inert array.
-- An `h/event` at any escape prop refuses with
+- An [`h/event`](glossary.md#hevent) at any escape prop refuses with
   `:rf.error/hicasso-host-unclaimed-callback`. The marked form asks its
   position for a contract, and no escape position can answer.
 
-Both refusals name `h/defhost` as the recovery.
+Both refusals name [`h/defhost`](glossary.md#defhost) as the recovery.
 
 A plain function crosses by identity and runs. But it carries no frame, and
 the render has unwound by the time the library calls it. A bare `rf/dispatch`
@@ -287,15 +287,15 @@ that.
 The component position takes what React accepts as an element type. `nil` —
 the usual result of a `:default` import from a library with no default
 export — is refused as `:rf.error/hicasso-raw-no-component`. A string, a
-keyword, a `defview` head, a `defhost` head, or an already-built React
+keyword, a [`defview`](glossary.md#defview) head, a [`defhost`](glossary.md#defhost) head, or an already-built React
 *element* is refused as `:rf.error/hicasso-raw-not-a-component`. Each refusal
 carries its own recovery. Each fires in your render, on the server too, with
 your stack pointing at the line that you wrote.
 
-## The outward bridge
+## The [outward bridge](glossary.md#outward-bridge)
 
 Interop runs in the other direction too. A native React parent —
-`n/defcomponent`, UIx, or plain JavaScript — renders a minted Hicasso view
+[`n/defcomponent`](glossary.md#ndefcomponent), UIx, or plain JavaScript — renders a minted [Hicasso](glossary.md#hicasso) view
 under the existing frame. There is no second root and no second state owner.
 
 ```clojure
@@ -304,14 +304,14 @@ under the existing frame. There is no second root and no second state owner.
 (def article-card* (h/as-component article-card))
 ```
 
-`h/as-component` returns a real React component. The parent's props arrive as
+[`h/as-component`](glossary.md#outward-bridge) returns a real React component. The parent's props arrive as
 the view's ordinary props map: names come back through the canonical rule
 (`articleId` → `:article-id`), and values cross by identity. The view keeps
 its memo wrapper, its reads, its key identity, and its teardown law. Its frame
 comes from React context, and that context flows through any foreign
-components in between. When the view renders outside a Hicasso root, the
-mount refuses with `:rf.error/no-frame-context`. `h/as-element` and
-`h/as-component` are the two halves of one seam. Use the element for a
+components in between. When the view renders outside a [Hicasso](glossary.md#hicasso) root, the
+mount refuses with `:rf.error/no-frame-context`. [`h/as-element`](glossary.md#as-element) and
+[`h/as-component`](glossary.md#outward-bridge) are the two halves of one seam. Use the element for a
 one-shot subtree handed through a callback. Use the component for a view that
 a native parent will mount, key, and re-render itself.
 
@@ -320,18 +320,18 @@ a native parent will mount, key, and re-render itself.
 | Symptom | What went wrong | Fix |
 |---|---|---|
 | Library ignores or rejects a prop — a keyword, a ClojureScript map, a kebab key inside a nested map | Values cross by identity; nested keys are not camelCased; deep conversion is not offered | Hand the library what it documents — the string, `#js`, or `clj->js`, at the call site |
-| Hiccup passed in a prop renders as array data | Only children and declared slots lower; an undeclared prop is data | Declare the prop in `:slots`, or wrap in `h/as-element` |
-| React refuses an object as a child, from a render callback | The body returned a raw vector; a `:render` return crosses unconverted | Return through `h/as-element` |
+| Hiccup passed in a prop renders as array data | Only children and declared slots lower; an undeclared prop is data | Declare the prop in `:slots`, or wrap in [`h/as-element`](glossary.md#as-element) |
+| React refuses an object as a child, from a render callback | The body returned a raw vector; a `:render` return crosses unconverted | Return through [`h/as-element`](glossary.md#as-element) |
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | Intent carrier at `:handler` or `:render`; neither dispatches | Declare `:event`, or write the real function |
 | `:rf.error/hicasso-host-undeclared-callback` at a `[:>]` | Intent at an `on*`-spelled escape prop; contracts are never inferred | Declare the host and name the prop in `:callbacks` |
 | A `[:>]` callback runs, then `:rf.error/no-frame-context` | A plain function carries no frame; the render has unwound | `(rf/capture-frame)` in the body; close over its `:dispatch` |
 | Namespace does not load on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host namespace |
 | `:rf.error/hicasso-host-bad-ssr-policy` at mint | A policy value outside Render / Client-only, or `:fallback` beside `:server :render` | Two policies; the fallback belongs to Client-only |
-| Hosted component does not update when the app state did | The boundary above bailed out on equal props; the host was never re-entered | Put the changing value on the host's *own* props |
+| Hosted component does not update when the app state did | The [boundary](glossary.md#boundary) above bailed out on equal props; the host was never re-entered | Put the changing value on the host's *own* props |
 
 ## When not to host
 
-`defhost` is for components that you do not own. A hot, **hand-written**
+[`defhost`](glossary.md#defhost) is for components that you do not own. A hot, **hand-written**
 component is the [native tier](10-native-tier.md)'s job, not a host
 declaration around your own code. If the library is a thin wrapper over DOM,
 and twenty lines of hiccup reproduce it, write the twenty lines. A hosted
@@ -342,7 +342,7 @@ less about. Most applications end with only two or three hard hosted widgets.
 
 ### The crossing has no memo wrapper
 
-A `defview` boundary memoizes on its props. A host crossing does not. The
+A [`defview`](glossary.md#defview) [boundary](glossary.md#boundary) memoizes on its props. A host crossing does not. The
 foreign component re-renders whenever the boundary that wrote it re-renders.
 The bail-out you want is the enclosing boundary's: put the crossing behind a
 small `defview` of its own. The corollary applies in reverse. A host that must
@@ -391,7 +391,7 @@ on attach and detach only, never on a config change. Therefore keep the config
 fixed for the connection's life, and route steady-state change through an
 ordinary event and effect. Sometimes the attach must close over per-instance
 props — an API key, a per-panel config. Then it needs `react/useCallback` to
-stay stable, and hooks do not belong in a `defview` body. That is the signal
+stay stable, and hooks do not belong in a [`defview`](glossary.md#defview) body. That is the signal
 that the edge has outgrown this recipe. It wants a named native component,
 where hooks are legal and the same ref shape carries over
 ([The native tier](10-native-tier.md)).

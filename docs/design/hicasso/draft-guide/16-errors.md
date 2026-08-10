@@ -20,14 +20,14 @@ gets a blank page.
 If `article-body` throws during render, the header and footer stay up, and
 the paragraph takes the article's place. Nothing else in the tree notices.
 
-`h/error-boundary` is a component that you write into the tree. It is not the
-rendering boundary that a `defview` mints
+[`h/error-boundary`](glossary.md#error-boundary) is a component that you write into the tree. It is not the
+rendering [boundary](glossary.md#boundary) that a [`defview`](glossary.md#defview) mints
 ([Views and reads](02-views-and-reads.md)). The word is the same, the thing
-is different — and only `h/error-boundary` catches.
+is different — and only [`h/error-boundary`](glossary.md#error-boundary) catches.
 
 ## The three keys
 
-`h/error-boundary` takes exactly three props. There is no built-in
+[`h/error-boundary`](glossary.md#error-boundary) takes exactly three props. There is no built-in
 classification, retry policy, or logging. Those are your app's decisions, and
 you make them in `:on-error`.
 
@@ -40,7 +40,7 @@ you make them in `:on-error`.
 **`:fallback` can read the error.** Pass a function, and the function
 receives the thrown value. Show `(ex-message error)` in development and a
 plain sentence in production. The returned hiccup is lowered like any other,
-intents included, under the frame where the region was mounted.
+[intents](glossary.md#intent) included, under the frame where the region was mounted.
 
 **`:reset-key` is how retry works.** The region never guesses. When the key
 changes, the region clears the caught failure and remounts the children — a
@@ -89,7 +89,7 @@ catches the throw, and everything outside that region continues to render.
 
 When `live-chart` throws, the inner region catches. The panel shows its
 fallback, `report-summary` and the header stay up, and the outer region never
-fires. The retry button is an ordinary intent. Its handler increments
+fires. The retry button is an ordinary [intent](glossary.md#intent). Its handler increments
 `:chart/attempt`, the `:reset-key` changes, and the chart remounts. If the
 bad data is still there, the region catches again, and the panel shows its
 fallback again. A throw in `report-summary`, which sits outside the inner
@@ -109,7 +109,7 @@ of the tree below the region.
 
 **Not caught:** anything the browser calls outside render — an event handler,
 a `setTimeout`, a promise continuation. Those failures belong to re-frame2,
-not to the view layer. An intent's handler runs inside the event pipeline.
+not to the view layer. An [intent](glossary.md#intent)'s handler runs inside the event pipeline.
 The pipeline catches the throw, reports a structured error record
 (`:rf.error/handler-exception`, with the event, frame, and recovery
 attached), and the app continues to run. A raw `fn` callback that throws goes
@@ -162,13 +162,13 @@ region higher.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| Whole page blanks when one view throws | Nothing caught it — React unmounts the root by default | Put `h/error-boundary` around the region that can fail |
+| Whole page blanks when one view throws | Nothing caught it — React unmounts the root by default | Put [`h/error-boundary`](glossary.md#error-boundary) around the region that can fail |
 | A throw from an event handler is not caught by the region | Handlers run in the event pipeline, not in render; the pipeline catches it and reports `:rf.error/handler-exception` | Expected — read the error record; the view layer never sees it |
 | Fallback shows and never leaves | No `:reset-key`, or the key never changes | Drive the key from app-db and bump it to retry |
-| Retry button in the fallback does nothing | The intent lowers under the region's frame; without a frame in scope it refuses with `:rf.error/hicasso-intent-outside-boundary`, naming the intent | Keep the fallback ordinary hiccup inside the mounted tree; dispatch a plain intent |
+| Retry button in the fallback does nothing | The [intent](glossary.md#intent) lowers under the region's frame; without a frame in scope it refuses with `:rf.error/hicasso-intent-outside-boundary`, naming the intent | Keep the fallback ordinary hiccup inside the mounted tree; dispatch a plain intent |
 | One panel breaks and the page follows it down | The fallback itself threw; the next region up caught that | Keep fallbacks plain — no reads of the failed state, no heavy work |
 | `:on-error` seems to fire twice in development | It does not — StrictMode re-runs the failing render; React reports one catch | Two fires means two real failures |
-| The region did not catch during a server render | React routes server render errors through its server error channel; client regions never see them | The surface's server policy owns that path ([SSR and hydration](17-ssr-and-hydration.md)) |
+| The region did not catch during a server render | React routes server render errors through its server error channel; client regions never see them | The surface's [server policy](glossary.md#server-policy) owns that path ([SSR and hydration](17-ssr-and-hydration.md)) |
 
 ## When not
 

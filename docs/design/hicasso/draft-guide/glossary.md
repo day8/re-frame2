@@ -12,6 +12,7 @@ Grouped by role: [authoring](#authoring), [events and control](#events-and-contr
 
 ## Authoring
 
+<a id="hicasso"></a>
 ### **Hicasso**
 
 re-frame2's native view adapter: interpreted [Hiccup](../../../core/glossary.md#hiccup)
@@ -26,6 +27,7 @@ absent.
 
 Related: [Getting started](01-getting-started.md).
 
+<a id="defview"></a>
 ### **defview**
 
 `h/defview` — mints a Hicasso [view](#view): a React/re-frame [boundary](#boundary)
@@ -45,12 +47,14 @@ invocation refuses; mount it as a vector:
 
 Related: [Views and reads](02-views-and-reads.md).
 
+<a id="view"></a>
 ### **view**
 
 A function from a props map to markup, registered with [`defview`](#defview).
 In head position of a Hiccup vector it is a [boundary](#boundary). Plain
 `defn` helpers are not views: call them as functions so they [inline](#inline-helper).
 
+<a id="boundary"></a>
 ### **boundary**
 
 Hicasso's unit of independent re-render, minted by [`defview`](#defview). Owns
@@ -61,6 +65,7 @@ heads also sit in vector position; none of those is a boundary.
 
 Related: [Views and reads](02-views-and-reads.md).
 
+<a id="inline-helper"></a>
 ### **inline helper**
 
 An ordinary `defn` called from a view body. Its Hiccup splices into the caller;
@@ -92,6 +97,7 @@ into [native](#native-tier) code, use [`n/use-sub`](#nuse-sub) instead.
 
 Related: [Views and reads](02-views-and-reads.md).
 
+<a id="read-extent-law"></a>
 ### **read-extent law**
 
 `h/sub` is legal only during the **direct synchronous execution** of the
@@ -103,6 +109,7 @@ async work re-enters through events and coeffects.
 
 Related: [Views and reads](02-views-and-reads.md).
 
+<a id="collector"></a>
 ### **collector**
 
 Runtime mechanism that records which subscriptions a [boundary](#boundary)
@@ -112,6 +119,7 @@ the [read-extent law](#read-extent-law) forbids.
 
 Related: [Views and reads](02-views-and-reads.md#the-collector).
 
+<a id="component-abi"></a>
 ### **component ABI**
 
 The props/children contract for a head: what converts, what is opaque, where
@@ -121,6 +129,7 @@ metadata); [hosts](#defhost) convert per declaration; native
 
 Related: [Views and reads](02-views-and-reads.md#the-component-abi).
 
+<a id="lowering"></a>
 ### **lowering**
 
 The step that turns Hicasso data into React props and elements: Hiccup walk,
@@ -130,6 +139,7 @@ owner when Xray names "lowering"; the narrow escape is a direct
 
 Related: [Events as data](03-events-as-data.md), [Native tier](10-native-tier.md).
 
+<a id="owned-wins"></a>
 ### **owned wins**
 
 Attribute-merge rule: literal keys written on the element always beat
@@ -138,6 +148,7 @@ through a generic merge.
 
 Related: [Views and reads](02-views-and-reads.md#forwarding-attributes-owned-wins).
 
+<a id="read-topology"></a>
 ### **read topology**
 
 Where [reads](#hsub) sit relative to list structure — the main performance
@@ -156,6 +167,7 @@ Related: [Lists and collections](06-lists-and-collections.md).
 
 ## Events and control
 
+<a id="intent"></a>
 ### **intent**
 
 An [event](../../../core/glossary.md#event) vector written in an attribute at
@@ -207,6 +219,7 @@ intent. Nothing auto-prevents — not click, not submit.
 
 Related: [Events as data](03-events-as-data.md).
 
+<a id="controlled-field"></a>
 ### **controlled field**
 
 An input whose displayed value is owned by app-db (via a subscription) and
@@ -233,6 +246,7 @@ namespaced keyword only; a bare `:revision` is an ordinary attribute.
 
 Related: [Controlled inputs](04-controlled-inputs.md).
 
+<a id="buffered-field"></a>
 ### **buffered-field**
 
 `forms/buffered-field` — optional forms helper: one controlled input with a
@@ -242,6 +256,7 @@ validation display.
 
 Related: [Forms](05-forms.md).
 
+<a id="keyboard-map"></a>
 ### **keyboard map**
 
 Data map on a keyboard prop (e.g. `:on-key-down`) from key chord → intent.
@@ -254,6 +269,7 @@ Related: [Events as data](03-events-as-data.md#keyboard-as-data).
 
 ## Interop
 
+<a id="defhost"></a>
 ### **defhost**
 
 `h/defhost` — declared door to a foreign React component. Names the React
@@ -269,6 +285,7 @@ Quarantines the npm require in one host namespace.
 
 Related: [Interop](09-interop.md).
 
+<a id="reactnode-slot"></a>
 ### **ReactNode slot**
 
 A prop position a [host](#defhost) declares as carrying React children or
@@ -277,6 +294,7 @@ lowers under the captured frame without deep-converting arbitrary data maps.
 
 Related: [Interop](09-interop.md#reactnode-slots).
 
+<a id="as-element"></a>
 ### **as-element**
 
 `h/as-element` — explicit Hiccup → React element conversion for render props
@@ -290,6 +308,7 @@ ReactNode, not data.
 
 Related: [Interop](09-interop.md), [Lists and collections](06-lists-and-collections.md).
 
+<a id="outward-bridge"></a>
 ### **as-component** / **outward bridge**
 
 `h/as-component` returns a real React component so a native parent
@@ -299,6 +318,7 @@ Symmetric to hosts embedding foreign React inward.
 
 Related: [Interop](09-interop.md#the-outward-bridge).
 
+<a id="portal"></a>
 ### **portal**
 
 Optional helper that lowers Hiccup into `createPortal`, preserves frame and
@@ -308,6 +328,7 @@ overlay module instead of a hand-rolled portal.
 
 Related: [Interop](09-interop.md#portals), [Overlays and focus](12-overlays-and-focus.md).
 
+<a id="server-policy"></a>
 ### **server policy**
 
 Per-surface answer for SSR: **Render** (deterministic React server bytes) or
@@ -329,6 +350,7 @@ Related: [Interop](09-interop.md#the-escape-).
 
 ## Native tier
 
+<a id="native-tier"></a>
 ### **native tier**
 
 Optional namespace `re-frame.hicasso.native` (alias `n`): explicit exit to
@@ -380,6 +402,7 @@ or UIx `defui` — not inside a dynamically branched [`defview`](#defview) body.
 
 Related: [Native tier](10-native-tier.md).
 
+<a id="native-island"></a>
 ### **native island**
 
 A named native component under the same React root and re-frame2 frame as
@@ -400,6 +423,7 @@ need.
 Related: [Native tier](10-native-tier.md#keeping-the-marker-the-abi-helpers),
 [Code splitting](20-code-splitting.md).
 
+<a id="performance-ladder"></a>
 ### **performance ladder**
 
 Five explicit rungs from ordinary Hicasso to a full native screen. No
@@ -413,6 +437,7 @@ Five explicit rungs from ordinary Hicasso to a full native screen. No
 
 Related: [Performance](18-performance.md), [Native tier](10-native-tier.md).
 
+<a id="escape-benefit-rule"></a>
 ### **escape-benefit rule**
 
 An escape stays only if it recovers **≥20%** of the measured interaction,
@@ -425,6 +450,7 @@ Related: [Performance](18-performance.md#the-escape-benefit-rule).
 
 ## State homes
 
+<a id="one-state-owner"></a>
 ### **one state owner**
 
 Application-visible state lives in re-frame2 [app-db](../../../core/glossary.md#app-db)
@@ -434,6 +460,7 @@ invisible duplicate of application facts.
 
 Related: [Ephemeral state](11-ephemeral-state.md).
 
+<a id="pressure-valve"></a>
 ### **pressure valve**
 
 Named legitimate home for a kind of UI state under [one state owner](#one-state-owner):
@@ -443,6 +470,7 @@ fits no valve, it goes to app-db.
 
 Related: [Ephemeral state](11-ephemeral-state.md).
 
+<a id="overlay"></a>
 ### **overlay (popover / modal)**
 
 `re-frame.hicasso.overlay` primitives on the browser's native top layer.
@@ -451,6 +479,7 @@ light-dismiss, and focus trap/return. Closed means zero DOM and zero listeners.
 
 Related: [Overlays and focus](12-overlays-and-focus.md).
 
+<a id="route-link"></a>
 ### **route-link**
 
 Routing helper: navigates by event, optional intent [prefetch](../../../routing/glossary.md#intent-prefetch),
@@ -459,6 +488,7 @@ comparison, not a built-in class.
 
 Related: [Routing and navigation](07-routing-and-navigation.md).
 
+<a id="demand-driven-committed-read"></a>
 ### **demand-driven committed read**
 
 Optional resource read that declares `:demand true`: **commit acquires**,
@@ -479,6 +509,7 @@ Related: [Async resources](08-async-resources.md#demand-driven-committed-reads),
 
 ## Testing
 
+<a id="test-kit"></a>
 ### **test kit**
 
 Supported namespace `re-frame.hicasso.test` (alias `ht`): pure data tiers,
@@ -487,6 +518,7 @@ Product surface, not a loose utility bag.
 
 Related: [Testing](14-testing.md).
 
+<a id="testing-ladder"></a>
 ### **testing ladder**
 
 Five rungs; use the lowest that can prove the claim:
@@ -503,6 +535,7 @@ A green lower rung never claims a higher equality (L2 ≠ hydration bytes).
 
 Related: [Testing](14-testing.md).
 
+<a id="semantic-harness"></a>
 ### **semantic harness**
 
 L2: `ht/tree` runs a registered hook-free body under injected read fixtures
@@ -511,6 +544,7 @@ are **opaque** and refuse — mount those at L3.
 
 Related: [Testing](14-testing.md#l2--the-semantic-harness).
 
+<a id="mounted-facade"></a>
 ### **mounted facade**
 
 L3 helpers: isolated-frame mount, hydrate, rerender, dispatch-and-settle,
@@ -519,6 +553,7 @@ quiescence).
 
 Related: [Testing](14-testing.md#l3--the-mounted-facade).
 
+<a id="sabotage-control"></a>
 ### **sabotage control**
 
 Negative twin of an important gate: a deliberate mutation that must make the
@@ -526,6 +561,7 @@ gate fail, so an empty population cannot pass green.
 
 Related: [Testing](14-testing.md#the-sabotage-twin).
 
+<a id="canonical-dom"></a>
 ### **canonical DOM**
 
 Normalized DOM / structure equality used by differential and migration
@@ -539,6 +575,7 @@ Related: [Testing](14-testing.md#canonical-dom),
 
 ## Diagnostics
 
+<a id="causal-lens"></a>
 ### **causal lens**
 
 Xray's diagnostic chain:
@@ -553,6 +590,7 @@ paint.** Timing proximity alone never proves a link.
 
 Related: [Diagnostics](15-diagnostics.md).
 
+<a id="explain-render"></a>
 ### **explain-render**
 
 Xray answer to *why did this [boundary](#boundary) run?* — cause kind (reads,
@@ -561,6 +599,7 @@ completeness and loss.
 
 Related: [Diagnostics](15-diagnostics.md#explain-render).
 
+<a id="hot-view-advisor"></a>
 ### **hot-view advisor**
 
 Ranks hot boundaries (time, frequency, read churn, fan-out), **classifies
@@ -571,6 +610,7 @@ addresses the measured owner; never auto-promotes.
 Related: [Diagnostics](15-diagnostics.md#the-hot-view-advisor),
 [Performance](18-performance.md).
 
+<a id="loss-labels"></a>
 ### **loss labels**
 
 Honest gaps instead of empty panels: `:unknown`, `:opaque` /
@@ -579,6 +619,7 @@ never encoded as an empty collection.
 
 Related: [Diagnostics](15-diagnostics.md#honest-loss-labels).
 
+<a id="complaint-catalogue"></a>
 ### **complaint catalogue**
 
 Stable `:rf.error/*` / `:rf.warning/*` ids with cause, recovery, and
@@ -587,6 +628,7 @@ id, not prose.
 
 Related: [Diagnostics](15-diagnostics.md#the-complaint-catalogue).
 
+<a id="production-erasure"></a>
 ### **production erasure**
 
 Dev diagnostics, source maps for complaints, and evidence sentinels are absent
@@ -617,6 +659,7 @@ hooks).
 
 Related: [Getting started](01-getting-started.md).
 
+<a id="hydrate"></a>
 ### **hydrate!**
 
 Client adoption of server-rendered HTML for a root: install the payload and
@@ -625,6 +668,7 @@ share one React renderer; mismatches surface as hydration errors.
 
 Related: [SSR and hydration](17-ssr-and-hydration.md).
 
+<a id="error-boundary"></a>
 ### **error-boundary**
 
 `h/error-boundary` — React error region in the tree (`:fallback`,
@@ -634,6 +678,7 @@ exceptions.
 
 Related: [Errors](16-errors.md).
 
+<a id="user-visible-budget"></a>
 ### **user-visible budget**
 
 Performance contract in terms a user can notice (e.g. discrete interaction
@@ -643,6 +688,7 @@ synthetic scores never redefine "fast enough."
 
 Related: [Performance](18-performance.md#the-budgets).
 
+<a id="shadow-comparison"></a>
 ### **shadow comparison**
 
 Migration witness: dual-render canonical DOM / intent diff against a Reagent

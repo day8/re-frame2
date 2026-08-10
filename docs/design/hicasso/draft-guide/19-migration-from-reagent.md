@@ -1,6 +1,6 @@
 # Migration from Reagent
 
-You have a working Reagent codebase, and you want it on Hicasso without an
+You have a working Reagent codebase, and you want it on [Hicasso](glossary.md#hicasso) without an
 unverified rewrite. This page is the migration path for the view layer:
 components, hiccup dialect, local state, and interop sites. (If the app is
 still on re-frame v1, the events-and-subscriptions half is its own
@@ -12,8 +12,8 @@ The path is three tools and one rule:
    converts mechanically, needs your hands, or will refuse at runtime — and
    it puts a named class and a recovery sentence on each line.
 2. **Shadow mode** proves that a ported screen behaves identically to the
-   original. It is a dev-only dual mount that live-diffs canonical DOM and
-   intent streams.
+   original. It is a dev-only dual mount that live-diffs [canonical DOM](glossary.md#canonical-dom) and
+   [intent](glossary.md#intent) streams.
 3. **The codemod** repairs the `[:>]` props dialect mechanically. It applies
    only the rewrites that are decidable from the source text, and it is
    idempotent.
@@ -25,7 +25,7 @@ The path is three tools and one rule:
 
 ## Step 1 — run the reporter
 
-The migration tool ships with Hicasso. It runs on a bare JVM against any
+The migration tool ships with [Hicasso](glossary.md#hicasso). It runs on a bare JVM against any
 Reagent corpus. It never loads your app, and in its default mode it changes
 nothing:
 
@@ -38,7 +38,7 @@ clojure -M:run --report out.edn src/      # choose where the report goes
 
 Why is there a reporter? Reagent *converted* props on the way across a
 `[:>]` crossing — it deep-camelCased nested keys, converted keyword values
-to their string names, wrapped `r/partial`, and read metadata keys. Hicasso
+to their string names, wrapped `r/partial`, and read metadata keys. [Hicasso](glossary.md#hicasso)
 does not convert. `[:>]` stays legal, so a migrated site keeps rendering
 while it quietly means something else. The reporter reads every `[:>]` site
 in your tree and puts each site in one of three buckets:
@@ -58,7 +58,7 @@ not an error code. The report also carries each component's *name*, which
 the runtime never can: a `[:>]` refusal at runtime prints the constant
 `"[:>]"`, because the escape has no name of its own.
 
-The report ends with a **suggestions block** — candidate `h/defhost`
+The report ends with a **suggestions block** — candidate [`h/defhost`](glossary.md#defhost)
 declarations with guessed `:callbacks` maps. The block is labelled as
 guesses, because the entries are guesses. Fluent's `onRenderCell` and Ant's
 `onRow` are event-*spelled* render props whose return value the caller
@@ -76,26 +76,26 @@ Migrate screen by screen, not file type by file type. The port itself is
 mostly deletion — closures become data, and state machinery becomes
 addresses:
 
-| Reagent habit | Hicasso |
+| Reagent habit | [Hicasso](glossary.md#hicasso) |
 |---|---|
-| `defn` component returning hiccup | `h/defview` — a boundary, used as a head |
+| `defn` component returning hiccup | [`h/defview`](glossary.md#defview) — a [boundary](glossary.md#boundary), used as a head |
 | `@(rf/subscribe [:q])` in the body | `(h/sub [:q])` — legal in branches, loops, and helpers |
-| `#(rf/dispatch [:x])` handlers | the event vector itself; `h/event` when the callback's arguments matter |
+| `#(rf/dispatch [:x])` handlers | the event vector itself; [`h/event`](glossary.md#hevent) when the callback's arguments matter |
 | `r/atom` in a form-2 closure | a forms-module draft or an explicit app-db address — there is no local-state tier |
 | `r/with-let` | ordinary `let`; state that must survive a re-render is application state |
 | form-3 / `r/create-class` lifecycle | a callback ref at the host edge, or a named native component ([Native tier](10-native-tier.md)) |
 | `r/track`, `reaction`, `r/cursor` | layered subscriptions |
 | `^{:key k}` metadata | `:key` in the props map |
-| `[:> Component …]` | legal as-is; the codemod repairs the dialect; declare with `h/defhost` what you keep ([Interop](09-interop.md)) |
+| `[:> Component …]` | legal as-is; the codemod repairs the dialect; declare with [`h/defhost`](glossary.md#defhost) what you keep ([Interop](09-interop.md)) |
 | `r/adapt-react-class` | nothing — the codemod rewrites it to `[:>]`; declare it if it stays |
-| `r/as-element` in a render prop | `h/as-element`, at a declared `:render` position |
-| `r/reactify-component` | `h/as-component` — the outward bridge |
+| `r/as-element` in a render prop | [`h/as-element`](glossary.md#as-element), at a declared `:render` position |
+| `r/reactify-component` | [`h/as-component`](glossary.md#outward-bridge) — the [outward bridge](glossary.md#outward-bridge) |
 
 Two of these ports fail loudly instead of silently, and the loud failure
 helps you. A Reagent-style `#(rf/dispatch …)` closure still *runs* when the
 library or the DOM calls it, but the bare ambient dispatch inside it raises
 `:rf.error/no-frame-context` at the call — the recovery names the
-event-vector and `h/event` spellings. An intent vector at an undeclared
+event-vector and [`h/event`](glossary.md#hevent) spellings. An [intent](glossary.md#intent) vector at an undeclared
 `[:>]` prop refuses at render instead of crossing as an inert array. The
 inert array is what Reagent silently did, and the handler never fired there
 either.
@@ -103,9 +103,9 @@ either.
 ## Step 3 — prove it in shadow mode
 
 A port that "looks right" is a guess. Shadow mode is the proof: mount the
-Reagent original and the Hicasso port together, against isolated copies of
-the same seeded frame; drive both with one script; diff the canonical DOM
-plus the intent streams at every checkpoint.
+Reagent original and the [Hicasso](glossary.md#hicasso) port together, against isolated copies of
+the same seeded frame; drive both with one script; diff the [canonical DOM](glossary.md#canonical-dom)
+plus the [intent](glossary.md#intent) streams at every checkpoint.
 
 ```clojure
 (ns app.migration.article-row-shadow
@@ -124,9 +124,9 @@ plus the intent streams at every checkpoint.
 
 Each side gets its own copy of the seeded frame, so writes never cross, and
 a divergence *compounds* instead of hiding: when the port dispatches a
-different intent at step one, its state — and therefore its DOM — drifts
+different [intent](glossary.md#intent) at step one, its state — and therefore its DOM — drifts
 further at every later step. At each checkpoint the harness compares the
-canonical DOM of both mounts and the intents that each side's handlers
+[canonical DOM](glossary.md#canonical-dom) of both mounts and the intents that each side's handlers
 dispatched. A red names the checkpoint and the exact node or intent that
 differed. When the harness can attribute a difference to a *declared* policy
 — a Client-only crossing region, a named refusal — it reports the difference
@@ -147,7 +147,7 @@ work, and watch divergence appear as you type.
 Shadow mode is dev-only. The harness, the dual mount, and the Reagent
 dependency itself are development scope; on the day the last shadow goes
 green, Reagent leaves your `deps.edn`. The scope is also limited, and the
-limit is stated: shadow mode compares canonical DOM and intent streams, not
+limit is stated: shadow mode compares [canonical DOM](glossary.md#canonical-dom) and intent streams, not
 focus, caret, IME, or paint. Those are browser laws, and the browser tier of
 [Testing](14-testing.md) owns them.
 
@@ -173,7 +173,7 @@ rewrite families:
 
 | | At | Written | Preserving |
 |---|---|---|---|
-| W1 | `^{:key k}` on the vector | `:key k` inside the props map | Reagent read the metadata key; Hicasso reads `(:key props)` — left alone the key goes dead |
+| W1 | `^{:key k}` on the vector | `:key k` inside the props map | Reagent read the metadata key; [Hicasso](glossary.md#hicasso) reads `(:key props)` — left alone the key goes dead |
 | W2 | a literal map reached from the props map through map values | the same map, its literal keys respelled camelCase | Reagent deep-camelCased nested keys; Hicasso does not |
 | W3 | a literal keyword, or a quoted symbol, at a prop value | its `name`, as a string | Reagent's `(name x)` arm — a namespaced keyword loses its namespace here, exactly as it already did |
 | W4 | a literal `(r/partial f a …)` at a prop value | a hygienic `let` capture, then Reagent's own wrapper | Reagent evaluated the callee and arguments **once**, at construction — the `let` keeps that |
@@ -198,19 +198,19 @@ standing behind it.
 
 ## What stays manual, and why
 
-- **Every `h/defhost` declaration and every `:callbacks` contract.** A
+- **Every [`h/defhost`](glossary.md#defhost) declaration and every `:callbacks` contract.** A
   contract states what a prop *means*, and the meaning is not in your source
   text — it is in the library's documentation. The suggestions block drafts
   the declaration; you approve it.
-- **The blockers.** An intent vector at a `[:>]` prop
+- **The blockers.** An [intent](glossary.md#intent) vector at a `[:>]` prop
   (`:intent-needs-a-declaration`) needs a decision about what it was for.
   `dangerouslySetInnerHTML` (`:dangerous-html`) needs a deliberate yes:
-  Reagent deleted it unless wrapped, Hicasso passes it through, so the
+  Reagent deleted it unless wrapped, [Hicasso](glossary.md#hicasso) passes it through, so the
   migration turns a dead prop into a live one. Port `[:r> …]` and `[:f> …]`
   sites by hand — Hicasso reads those as tag keywords and quietly renders an
   unknown element. Restructure `r/as-element` inside a callback
   (`:as-element-island`) by hand: that closure runs outside the owner's
-  render window, so its lowering is not a text substitution.
+  render window, so its [lowering](glossary.md#lowering) is not a text substitution.
 - **Local state and lifecycle** (`:reagent-api-residue`): `r/atom`, cursors,
   form-2/form-3 shapes. Where a piece of state lives is a design decision —
   [Ephemeral state](11-ephemeral-state.md) owns the homes — and no tool
@@ -223,14 +223,14 @@ standing behind it.
 
 | Symptom | What is happening | Fix |
 |---|---|---|
-| A `[:>]` site renders but behaves subtly differently than under Reagent | Props dialect drift — Reagent converted on the way across; Hicasso does not | Run the reporter; let the codemod repair the decidable sites |
-| A page throws at render at a `[:>]` site that "worked" before | `:rf.error/hicasso-host-undeclared-callback` — an intent vector at an escape prop; under Reagent it crossed as an inert array and never fired | Declare the host and name the prop in `:callbacks`, or hand a plain function — and decide what the dead handler was for |
-| A handler runs, then `:rf.error/no-frame-context` | A Reagent-style `#(rf/dispatch …)` closure — it carries no frame | Make it an event vector, or `h/event` |
+| A `[:>]` site renders but behaves subtly differently than under Reagent | Props dialect drift — Reagent converted on the way across; [Hicasso](glossary.md#hicasso) does not | Run the reporter; let the codemod repair the decidable sites |
+| A page throws at render at a `[:>]` site that "worked" before | `:rf.error/hicasso-host-undeclared-callback` — an [intent](glossary.md#intent) vector at an escape prop; under Reagent it crossed as an inert array and never fired | Declare the host and name the prop in `:callbacks`, or hand a plain function — and decide what the dead handler was for |
+| A handler runs, then `:rf.error/no-frame-context` | A Reagent-style `#(rf/dispatch …)` closure — it carries no frame | Make it an event vector, or [`h/event`](glossary.md#hevent) |
 | A keyed list remounts once right after migration | The `:key` slot is reported, never rewritten: `:foo` and `"foo"` keys collided under Reagent and are distinct now, so the key value changes once | Accept the one-time remount; keys are stable after |
 | The codemod refused a whole nested map | `:normalized-key-collision` — sibling keys like `:foo-bar`/`:fooBar` collapsed onto one JS property under Reagent, with an iteration-order winner | Delete the key you did not mean; re-run |
 | A W2 diff camelCased keys in what is clearly a *data* map | Behaviour preserved: Reagent already sent the library camelCase | Do **not** revert the keys — a revert changes what the library receives. If the map was data, notice it now |
-| Shadow run red on a region the port renders client-only | A declared Client-only crossing, classified as a policy difference, not drift | Choose the server policy deliberately (`{:server :render}` or a fallback) or accept the classification |
-| Shadow green, but focus/IME behaves differently in a real browser | Shadow compares canonical DOM and intents; browser laws are out of its scope | Run the browser tier ([Testing](14-testing.md)) |
+| Shadow run red on a region the port renders client-only | A declared Client-only crossing, classified as a policy difference, not drift | Choose the [server policy](glossary.md#server-policy) deliberately (`{:server :render}` or a fallback) or accept the classification |
+| Shadow green, but focus/IME behaves differently in a real browser | Shadow compares [canonical DOM](glossary.md#canonical-dom) and intents; browser laws are out of its scope | Run the browser tier ([Testing](14-testing.md)) |
 | Second codemod run produced a diff | It cannot — outputs are outside the input language. If files changed, something else edited them between runs | Diff against the report's coordinates; re-run the reporter |
 
 ## When not to migrate this way
@@ -290,7 +290,7 @@ names are fresh.
 ### Divergences the tool deliberately leaves alone
 
 These divergences are named so that you do not file them as gaps. Each is a
-place where Hicasso is better than the donor, or where the difference is
+place where [Hicasso](glossary.md#hicasso) is better than the donor, or where the difference is
 invisible:
 
 - Class collections in any spelling now coerce and compose (Reagent read

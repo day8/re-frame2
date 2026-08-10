@@ -12,17 +12,17 @@ Xray answers the questions you ask:
 
 1. What ran or committed in this epoch — mounted, hidden, suspended, recently
    committed?
-2. Why did this boundary run — which reads changed, and what was their fan-out?
+2. Why did this [boundary](glossary.md#boundary) run — which reads changed, and what was their fan-out?
 3. Was the cause props, context, a read-set change, a retry, abandonment, an
    error, or a host?
-4. Where is the pressure — computation, topology, lowering, React, or layout —
+4. Where is the pressure — computation, topology, [lowering](glossary.md#lowering), React, or layout —
    and what remedy is credible?
 5. What is unknown, capped, opaque, or uncorrelated?
 
 An *epoch* is one pipeline run: one dispatched event carried through to its
 commit. The epoch is the unit that Xray organises evidence around.
 
-## The causal lens
+## The [causal lens](glossary.md#causal-lens)
 
 Every diagnosis follows one chain:
 
@@ -44,7 +44,7 @@ browser owns paint. Xray tells you which claim each number makes.
 
 ## Explain-render
 
-Select a boundary occurrence and ask the first question that matters: *why
+Select a [boundary](glossary.md#boundary) occurrence and ask the first question that matters: *why
 did this view run?* The answer is data, in the same shape that the whole
 evidence surface uses:
 
@@ -63,7 +63,7 @@ evidence surface uses:
 The `:cause` kinds are the honest taxonomy of question 3. The possible
 causes: the boundary's own reads moved (with the changed queries named);
 its props changed; a context it consumes changed; a host boundary forced
-it; or React retried or abandoned an attempt. When several boundaries ran
+it; or React retried or abandoned an attempt. When several [boundaries](glossary.md#boundary) ran
 for one event, fan-out tells you which case you have. One changed
 subscription that reaches many readers is a topology problem. Many
 independent causes are ordinary work.
@@ -75,7 +75,7 @@ exactly what it holds and which generation of the contract produced it.
 ## Read attribution
 
 The complementary standing view is the map from subscriptions to the
-boundaries that currently read them: who depends on what, right now. Four
+[boundaries](glossary.md#boundary) that currently read them: who depends on what, right now. Four
 numbers on this view do most of the diagnostic work:
 
 | Number | What it tells you |
@@ -95,10 +95,10 @@ boundary placement, fine versus coarse versus chunked reads — are owned by
 [Lists and collections](06-lists-and-collections.md). Xray's job is to make
 the topology observable instead of guessed.
 
-## The hot-view advisor
+## The [hot-view advisor](glossary.md#hot-view-advisor)
 
 The advisor is the part of Xray that turns evidence into a recommendation.
-It ranks boundaries by time, frequency, read churn, and fan-out. Then it
+It ranks [boundaries](glossary.md#boundary) by time, frequency, read churn, and fan-out. Then it
 does the step that matters: it **classifies the pressure** before it names
 a remedy.
 
@@ -106,19 +106,19 @@ a remedy.
 |---|---|---|
 | Computation | your own code — the body's work or an expensive sub chain | fix the computation; derive it in the subscription layer, where it is a pure function you can test |
 | Topology | too many boundaries invalidated, or churning read sets | move reads, split or merge boundaries, coarse or chunked or windowed reads ([Lists and collections](06-lists-and-collections.md)) |
-| Lowering | turning one hot boundary's Hiccup into React elements | a direct `n/$` return from that same boundary ([Native tier](10-native-tier.md)) |
-| React | reconciliation, hooks, vendor component internals | a named native island — `n/defcomponent` or UIx ([Native tier](10-native-tier.md)) |
+| Lowering | turning one hot boundary's Hiccup into React elements | a direct [`n/$`](glossary.md#n-dollar) return from that same boundary ([Native tier](10-native-tier.md)) |
+| React | reconciliation, hooks, vendor component internals | a named [native island](glossary.md#native-island) — [`n/defcomponent`](glossary.md#ndefcomponent) or UIx ([Native tier](10-native-tier.md)) |
 | Layout | the browser — style, layout, paint | shrink the DOM, virtualize, fix the CSS; browser tools own this ground |
 
 The advisor never breaks one rule: **it recommends a native escape only
-when the measured owner is a class that native addresses.** If lowering is
+when the measured owner is a class that native addresses.** If [lowering](glossary.md#lowering) is
 four percent of a slow interaction, extraction cannot buy more than four
 percent. The advisor says so, and points at the real owner instead. There
 is no automatic promotion. The advisor recommends; you decide. An escape
 you take must meet the thresholds in [Performance](18-performance.md), or
 it comes back out.
 
-## Honest loss labels
+## Honest [loss labels](glossary.md#loss-labels)
 
 An interpreted runtime cannot know some facts. Xray reports that limit as
 an answer; it does not present an empty panel. Unknown is never encoded as
@@ -135,11 +135,11 @@ an empty collection.
 A dashboard that filled those cells with zeros would be easier to read and
 worse to trust. The label tells you which tool to use next.
 
-## The complaint catalogue
+## The [complaint catalogue](glossary.md#complaint-catalogue)
 
 Every refusal in this guide carries a stable id: `:rf.error/*` for errors,
 `:rf.warning/*` for recoverable misuse. Every id is an entry in the
-complaint catalogue — a docs anchor that states what fired, why it fired,
+[complaint catalogue](glossary.md#complaint-catalogue) — a docs anchor that states what fired, why it fired,
 and the concrete recovery. A complaint is structured data end to end. When
 thrown, it carries its id in `ex-data` under `:rf.error/id`. On the trace,
 it is a record with the id as its category and the recovery the runtime
@@ -151,11 +151,11 @@ A sample of entries from earlier chapters:
 | Id | Complaint | Recovery |
 |---|---|---|
 | `:rf.error/hicasso-sub-outside-render` | a read escaped every render extent | read during the body; in a handler, declare the fact as a coeffect ([Views and reads](02-views-and-reads.md)) |
-| `:rf.error/hicasso-deferred-read-at-boundary` | an unforced `delay` carrying a read tried to cross a boundary | force it in the body; close over the value ([Views and reads](02-views-and-reads.md)) |
-| `:rf.error/hicasso-bad-head` | a plain `defn` in head position | mint it with `h/defview`, or call it inline ([Views and reads](02-views-and-reads.md)) |
-| `:rf.error/hicasso-intent-outside-boundary` | an intent vector reached a position with no boundary frame | dispatch belongs inside a boundary; at a foreign edge, use `h/event` ([Events as data](03-events-as-data.md)) |
-| `:rf.error/hicasso-host-unclaimed-callback` | an `h/event` arrived at a host slot with no declared contract | declare the slot on the `defhost` ([Interop](09-interop.md)) |
-| `:rf.error/hicasso-revision-not-controlled` | `::h/revision` on a field that is not controlled | control the field, or drop the revision ([Controlled inputs](04-controlled-inputs.md)) |
+| `:rf.error/hicasso-deferred-read-at-boundary` | an unforced `delay` carrying a read tried to cross a [boundary](glossary.md#boundary) | force it in the body; close over the value ([Views and reads](02-views-and-reads.md)) |
+| `:rf.error/hicasso-bad-head` | a plain `defn` in head position | mint it with [`h/defview`](glossary.md#defview), or call it inline ([Views and reads](02-views-and-reads.md)) |
+| `:rf.error/hicasso-intent-outside-boundary` | an [intent](glossary.md#intent) vector reached a position with no boundary frame | dispatch belongs inside a boundary; at a foreign edge, use [`h/event`](glossary.md#hevent) ([Events as data](03-events-as-data.md)) |
+| `:rf.error/hicasso-host-unclaimed-callback` | an [`h/event`](glossary.md#hevent) arrived at a host slot with no declared contract | declare the slot on the [`defhost`](glossary.md#defhost) ([Interop](09-interop.md)) |
+| `:rf.error/hicasso-revision-not-controlled` | [`::h/revision`](glossary.md#hrevision) on a field that is not controlled | control the field, or drop the revision ([Controlled inputs](04-controlled-inputs.md)) |
 | `:rf.warning/hicasso-missing-key` | a seq of boundary children without `:key` | put `:key` in each child's props map ([Lists and collections](06-lists-and-collections.md)) |
 | `:rf.error/frame-destroyed` | an operation minted against a destroyed frame incarnation fired after its successor seated | drop the stale handle; capture from the live frame ([Events as data](03-events-as-data.md)) |
 
@@ -218,7 +218,7 @@ feature may read evidence, count complaints, or branch on a panel's data.
 
 | Symptom | What went wrong | Fix |
 |---|---|---|
-| A view you know ran is absent from the epoch | Its boundary bailed out — a skipped body emits nothing | Absence is the measurement of work not done; if you expected it to run, explain-render the parent that did |
+| A view you know ran is absent from the epoch | Its [boundary](glossary.md#boundary) bailed out — a skipped body emits nothing | Absence is the measurement of work not done; if you expected it to run, [explain-render](glossary.md#explain-render) the parent that did |
 | Explain-render answers `:uncorrelated` | The event-to-render link could not be established for that occurrence | An honest answer, not a failure; reproduce with a scripted interaction and read the fresh epoch |
 | A foreign subtree shows `:host-opaque` | Raw React internals are not enumerable past the crossing | Xray still names and times the crossing; open React DevTools for the inside |
 | History stops with `:cap` | The bounded retention window dropped older epochs | Reproduce and capture fresh; retention does not grow to fit the question |
@@ -251,7 +251,7 @@ schema: byte-equivalent projections, one contract. Query arguments pass
 through the privacy projector. Raw values and text are omitted by default.
 Nothing leaves the process unless an explicitly authorized consumer
 requests it. If you script your own diagnosis through the pair, you read
-exactly what the panel reads, including the loss labels.
+exactly what the panel reads, including the [loss labels](glossary.md#loss-labels).
 
 ### Optional modules bring their own evidence
 
@@ -260,7 +260,7 @@ ownership. Overlays contribute the active top-layer region. Motion
 contributes the current transition posture. Resources contribute the live
 demand. Each is a bounded projection that exists only while the module is
 installed and in use. None of them adds a standing accumulator to ordinary
-Hicasso. An app that uses none of them pays for none of this.
+[Hicasso](glossary.md#hicasso). An app that uses none of them pays for none of this.
 
 ### Retention is bounded on purpose
 
