@@ -690,7 +690,26 @@
             ;; as the testbeds above.
             8060 {:roots   ["../testbeds/tenant_switcher"
                             "out/testbeds/tenant-switcher"]
-                  :handler re-frame.testbed.open-in-editor-server/handler}}
+                  :handler re-frame.testbed.open-in-editor-server/handler}
+            ;; rf2-vsgq — the Hicasso HMR testbed. The ONLY :dev-http entry
+            ;; in this file that a gate depends on, and it is a `watch`
+            ;; surface by necessity rather than for developer convenience:
+            ;; the contract under test is what a real shadow hot reload
+            ;; does to a live page, so the gate needs shadow's own devtools
+            ;; websocket, and serving the page from shadow's server keeps
+            ;; the page and that websocket on ONE origin. Every other
+            ;; browser gate compiles and serves from http-server on a
+            ;; resolved port; this one cannot, because http-server does not
+            ;; push new modules to a browser.
+            ;;
+            ;; No :handler — open-in-editor is a developer affordance and
+            ;; this surface is driven by a gate. The first root is the
+            ;; dedicated `hmr/` directory rather than `hicasso/testbed`
+            ;; itself: that directory already holds the CONTROLLED
+            ;; testbed's index.html, and cascading through it would serve
+            ;; the wrong app at `/`.
+            8061 {:roots ["hicasso/testbed/hmr"
+                          "out/hicasso-hmr-testbed"]}}
 
  :builds
  {:node-test
@@ -2752,6 +2771,27 @@
    :output-dir "out/hicasso-testbed"
    :asset-path "."
    :modules    {:main {:init-fn hicasso-testbed.core/init}}}
+
+  ;; rf2-vsgq — the Hicasso HMR testbed, and the one build in this file
+  ;; that a gate drives with `watch` rather than `compile`.
+  ;;
+  ;; The #7755 audit on rf2-hic-015 requires a browser suite that drives an
+  ;; ACTUAL shadow reload through `defview`. A compiled bundle cannot: the
+  ;; reload is the thing under test, so the gate needs shadow's devtools
+  ;; client, its websocket and its module re-evaluation, which only `watch`
+  ;; provides. `scripts/serve-and-run-hicasso-hmr-testbed.cjs` starts the
+  ;; watch, edits ONE marked line in hicasso/testbed/hicasso_hmr_testbed/
+  ;; views.cljs, and waits for the page to report the new code running.
+  ;;
+  ;; Served on :dev-http 8061 (above) rather than by http-server, so the
+  ;; page and the devtools websocket share an origin. Sources are already
+  ;; on the classpath — `hicasso/testbed` is an existing :source-paths
+  ;; entry — so this build id is the whole of the wiring.
+  :hicasso/hmr-testbed
+  {:target     :browser
+   :output-dir "out/hicasso-hmr-testbed"
+   :asset-path "."
+   :modules    {:main {:init-fn hicasso-hmr-testbed.core/init}}}
 
   ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
   ;; substrate. Same minimal-counter shape as the Reagent/UIx

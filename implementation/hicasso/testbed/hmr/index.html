@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 testbed: Hicasso HMR</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; padding: 2em; }
+    section { border: 1px solid #ccc; margin-bottom: 1em; padding: 0.5em 1em; }
+    input { display: block; margin: 0.4em 0; font-size: 1em; }
+  </style>
+</head>
+<body>
+  <!-- One container per frame. Two roots on one page is the routing row's
+       premise: each must keep painting its own frame's state across a
+       save, and a witness scopes every DOM read by container id. -->
+  <section><h2>alpha</h2><div id="alpha"></div></section>
+  <section><h2>beta</h2><div id="beta"></div></section>
+  <script src="main.js"></script>
+</body>
+</html>
