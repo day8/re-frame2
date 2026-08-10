@@ -31,3 +31,4 @@ of re-frame2.
 | [Migrating from Reagent](19-migration-from-reagent.md) | Reporter, shadow mode, codemod — and the refusal classes you will see | how-to |
 | [Code splitting and lazy loading](20-code-splitting.md) | Split at the route/module boundary; the `n/lazy` bridge; Suspense and Activity conduct | concept/how-to |
 | [Accessibility](21-accessibility.md) | Names, roles, keyboard, and focus through semantic Hiccup — and how to test them | how-to |
+| [Glossary](glossary.md) | Hicasso nouns, verbs, and laws — one term, definition first | reference |
