@@ -236,7 +236,7 @@ failure.
 | Date input | Owed | Owed |
 | Range input | Owed | Owed |
 | Contenteditable | Owed | Owed |
-| Composition and IME | Owed | Owed |
+| Composition and IME | Supported. The recurring cross-engine witness is the composition event **sequence**; real native-IME conduct is dispositioned per engine in the block below | `implementation/hicasso/testbed/spec.cjs` on all three engines (`rf2-hic-016`); native ranges on Chromium by `implementation/freehand/test/re_frame/bench/hicasso/ime_run.cjs` |
 | Caret and selection preservation | Owed | Owed |
 | Blur after unmount | Owed | Owed |
 | Async normalization | Owed | Owed |
@@ -246,9 +246,30 @@ failure.
 | SVG attributes | Owed | Owed |
 | Custom elements | Owed | Owed |
 
-Every cell reads Owed because Phase 0 precedes the conformance run. The rows exist now so the run has a fixed roster to
-fill and cannot quietly shrink; `rf2-hic-040` replaces the cells in place and adds a row only for a control case this
-roster missed.
+Every remaining cell reads Owed because Phase 0 precedes the conformance run. The rows exist now so the run has a fixed
+roster to fill and cannot quietly shrink; `rf2-hic-040` replaces the cells in place and adds a row only for a control
+case this roster missed.
+
+**Native IME, per engine (`rf2-hic-016`).** The Composition-and-IME row above is filled in two parts because the
+evidence has two tiers, and collapsing them would claim more than is held. The recurring witness is the composition
+event **sequence** — `compositionstart`, `beforeinput` and `input` carrying `isComposing`, `compositionend`, dispatched
+at the real node through real React — and it is green on all three engines in the required `cljs-hicasso-controlled`
+gate. It reaches the carve-out, the draft shadow and React's end-of-event restore; it does not reach the browser's
+composition **range**, because `Input.imeSetComposition` is a CDP method and CDP is Chromium's protocol.
+
+Per the operator ruling of 2026-08-10, that synthetic sequence **is** the ratified recurring witness, and real
+native-IME conduct beyond Chromium is settled once by a bounded manual session rather than by automation — the
+checklist is [`../native-ime-manual-witness.md`](../native-ime-manual-witness.md). Engine builds are those the pinned
+Playwright 1.59.1 installs.
+
+| Engine | Playwright build | Synthetic sequence | Native IME | Session date |
+|---|---|---|---|---|
+| Chromium | `chromium-1217` (147.0.7727.15) | Green | **Witness-verified** — real composition ranges driven over CDP by `bench/hicasso/ime_run.cjs` | n/a — automated |
+| Firefox | `firefox-1511` (148.0.2) | Green | **Pending the manual session** | — |
+| WebKit | `webkit-2272` (26.4) | Green | **Pending the manual session** | — |
+
+`rf2-hic-016` closes when the two pending cells are filled from that session, not before. Anything the session finds
+strange becomes a bead.
 
 ### 2.4 The default rule and how a row is upgraded
 
@@ -278,7 +299,7 @@ those amendments from colliding.
 | [1.2](#12-rows-without-a-complete-planned-witness) | The coverage-matrix owner | Remove a bullet when its gap is genuinely owned; add one when a new gap is found |
 | [2.1](#21-surface-inventory-and-dispositions) | Per-surface SSR/hydration witnesses (`rf2-hic-046`) | Rewrite the operative-disposition cell of an existing row; append a row for a surface created after Phase 0 |
 | [2.2](#22-public-surfaces-with-no-server-render-behavior) | Per-surface SSR/hydration witnesses (`rf2-hic-046`) | Append a row for a new non-rendering public surface |
-| [2.3](#23-per-control-and-dom-conformance-dispositions) | Control/DOM conformance (`rf2-hic-040`) | Fill the policy and witness cells; append a row for a missed control case |
+| [2.3](#23-per-control-and-dom-conformance-dispositions) | Control/DOM conformance (`rf2-hic-040`); the native-IME block within it is `rf2-hic-016`'s under the 2026-08-10 ruling | Fill the policy and witness cells; append a row for a missed control case. `rf2-hic-040` fills the roster around the native-IME block rather than through it — the two tiers of composition evidence are kept apart deliberately |
 | [2.4](#24-the-default-rule-and-how-a-row-is-upgraded) | Product operator | Change the rule itself |
 
 Two constraints apply to every amendment. **Amend in place; do not restructure.** Two beads in the same wave write into
