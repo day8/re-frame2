@@ -12,7 +12,32 @@
 ;; Story's authoring macros (`reg-story` / `reg-variant` / `reg-workspace`
 ;; / `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`)
 ;; follow the same shape and get lint-as'd here too.
-{:linters
+{;; Hicasso ships its own clj-kondo export from the artefact
+ ;; (`implementation/hicasso/resources/clj-kondo.exports/day8/re-frame2-hicasso/`,
+ ;; rf2-hic-022) — the three macro shapes plus six bounded checks. Pointing
+ ;; `:config-paths` at it makes this repo the export's FIRST CONSUMER rather
+ ;; than a second, divergent description of the same macros: the `:lint-as`
+ ;; entries below cover the retired bench spelling
+ ;; (`re-frame.bench.hicasso.arm1.lang/*`) and nothing covered the moved
+ ;; package's `re-frame.hicasso/*` at all, so every view name and every
+ ;; destructured prop under `implementation/hicasso/` read as an unresolved
+ ;; symbol until this line landed. It also means the required `clj-kondo`
+ ;; job is what proves the export loads and stays quiet on real code.
+ ;; Relative to THIS directory, per clj-kondo's `:config-paths` contract.
+ :config-paths
+ ["../implementation/hicasso/resources/clj-kondo.exports/day8/re-frame2-hicasso"]
+
+ ;; The read-extent suite's job is to WRITE the illegal forms and prove the
+ ;; runtime refuses them (rf2-hic-011's I7 legality matrix), so the two
+ ;; `h/sub`-inside-`hfn` rows there are true positives that must not red the
+ ;; gate. Silenced by namespace rather than by editing the suite: the
+ ;; counter-example is the point of the file, and a `#_:clj-kondo/ignore`
+ ;; sprinkled through it would be a worse record than this sentence.
+ :config-in-ns
+ {re-frame.hicasso.read-extent-cljs-test
+  {:linters {:re-frame.hicasso/deferred-read {:level :off}}}}
+
+ :linters
  {:unresolved-symbol {:level :warning}
   :unused-binding    {:level :warning}
   :unused-referred-var {:level :warning}
@@ -181,6 +206,13 @@
  ;; compiled or wired into a build (the prior TSX reference was never linted
  ;; either). Exclude it from clj-kondo so the mockup's illustrative ns/shape
  ;; doesn't gate production lint. Per rf2-7sxsz (Mike 2026-05-24).
+ ;; `implementation/hicasso/lint-fixtures/` holds the POSITIVE fixtures for the
+ ;; Hicasso lint export (rf2-hic-022) — code that is wrong on purpose, so that
+ ;; `re_frame/hicasso/lint_export_test.clj` can prove each check fires. Linting
+ ;; the repo's own counter-examples would red the gate by design. The directory
+ ;; sits beside `src/` and `test/` rather than inside either, so nothing
+ ;; compiles it; this keeps the linter off it too.
  :output {:exclude-files ["tools/template/resources/"
                           ;; separator-agnostic (matches both / and \ paths)
-                          "design-reference"]}}
+                          "design-reference"
+                          "lint-fixtures"]}}

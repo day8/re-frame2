@@ -97,3 +97,9 @@ skills/*/target/
 # Local worktrees created by EnterWorktree tool (rf2-mfi1s) — agent
 # scratch space, local-only.
 /.claude/worktrees/
+
+# clj-kondo writes its analysis cache into whatever directory it is pointed at
+# with `--config-dir`, which for the Hicasso lint export (rf2-hic-022) is the
+# SHIPPED artefact directory. The cache is generated, per-machine, and must
+# never reach the export a consumer copies.
+**/clj-kondo.exports/**/.cache/
