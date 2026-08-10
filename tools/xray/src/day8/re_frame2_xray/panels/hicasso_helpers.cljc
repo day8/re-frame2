@@ -291,13 +291,82 @@
   (if (keyword? x) (str x) (pr-str x)))
 
 (defn id-slug
-  "A testid-safe slug for `x`. Total: an unprintable value still yields a
-  selectable id rather than an exception at render time."
+  "A READABLE testid stem for `x`. Total: an unprintable value still
+  yields a selectable id rather than an exception at render time.
+
+  Lossy on purpose, and therefore never an identity on its own — it maps
+  every run of non-alphanumerics to one `-` and folds case, so
+  `[:a/b :c :d]`, `[:a-b :c :d]` and `[:a :b/c :d]` all come out
+  `a-b-c-d`. [[identity-slug]] is what a React key and a DOM testid are
+  made of; this is the half of it a human reads."
   [x]
   (-> (str (if (keyword? x) (subs (str x) 1) (pr-str x)))
       (string/replace #"[^a-zA-Z0-9]+" "-")
       (string/replace #"^-|-$" "")
       (string/lower-case)))
+
+(def ^:private hex-digits "0123456789ABCDEF")
+
+(defn- code-unit
+  "One character's UTF-16 code unit.
+
+  Both hosts iterate a string as UTF-16 code units, so both encoders
+  agree character for character — which they must, because the suite that
+  asserts these slugs is a `.cljc` and runs the same expectations under
+  the JVM and under node."
+  [c]
+  #?(:clj  (int c)
+     :cljs (.charCodeAt c 0)))
+
+(defn- hex
+  "`n` as exactly `width` uppercase hex digits."
+  [n width]
+  (apply str (map (fn [shift] (nth hex-digits (bit-and (bit-shift-right n shift) 15)))
+                  (range (* 4 (dec width)) -1 -4))))
+
+(defn- escaped
+  "`s` rewritten into the alphabet `[A-Za-z0-9%u]`, REVERSIBLY.
+
+  An ASCII alphanumeric survives as itself; every other character becomes
+  `%` and its code unit in hex — two digits below 256, and `%u` plus four
+  digits above it. `%` is itself escaped and `u` is not a hex digit, so
+  the result parses back exactly one way and no two strings can encode to
+  one. That is the entire job: [[id-slug]] is a MANY-to-one map, and
+  many-to-one is how two rows came to share a React key."
+  [s]
+  (->> s
+       (map (fn [c]
+              (let [n (code-unit c)]
+                (cond
+                  (or (<= 48 n 57) (<= 65 n 90) (<= 97 n 122)) (str c)
+                  (< n 256) (str "%" (hex n 2))
+                  :else     (str "%u" (hex n 4))))))
+       (string/join)))
+
+(defn identity-slug
+  "The React key and DOM testid for one identity string `s`: the readable
+  [[id-slug]] stem, a `-`, then [[escaped]].
+
+  TWO JOBS, WHICH ARE NOT THE SAME JOB — which is why the string has two
+  halves. A React key must be UNIQUE or the reconciler treats two rows as
+  one. A testid must be STABLE and select exactly one row, and it helps
+  enormously if a human reading a failing selector can tell which row it
+  named. Neither has to be pretty, and neither is the row's LABEL: the
+  projected query and the frame are printed on the row itself, which is
+  where a reader actually looks. So the stem carries the readability and
+  the tail carries the identity, and neither has to compromise for the
+  other.
+
+  INJECTIVE, and provably so rather than by inspection of a few examples:
+  `escaped` emits no `-`, so the LAST `-` in the result is always the
+  join, and the tail behind it decodes to exactly one input string. The
+  encoding that preceded this one was `id-slug` alone, which folded
+  `[:a/b :c :d]`, `[:a-b :c :d]` and `[:a :b/c :d]` onto one `a-b-c-d` —
+  three legal, distinct projected identities under one React key and one
+  testid (audit #7820). Namespaced and hyphenated ids are ordinary
+  programmer input, not an adversarial edge."
+  [s]
+  (str (id-slug s) "-" (escaped s)))
 
 (def redacted
   "The egress projector's whole-value sentinel.
@@ -347,15 +416,34 @@
   Projected fields only. The query arrives already projected and is
   printed as found; re-admitting the raw query to make a slug more
   readable would undo the producer's redaction at the last step, which is
-  the exact escape the #7789 audit caught."
+  the exact escape the #7789 audit caught.
+
+  ONE `pr-str` over the whole triple, not three joined by a separator: a
+  separator BETWEEN printed components can be forged by a component that
+  contains it, while `pr-str` quotes what it prints, so the brackets and
+  the spaces between elements cannot be. It also normalises the triple,
+  so an identity arriving as a seq does not mint a second React key for
+  the same fact. This is the same canonical string the producer sorts its
+  own rows by, so consumer and producer agree on what the identity is.
+
+  DOMAIN, stated rather than assumed: injective over the EDN a projected
+  identity is made of — keywords, strings, numbers, booleans, nil and
+  sequential collections of those — because `pr-str` is reader-faithful
+  there. It does not claim to separate what `pr-str` cannot print apart:
+  a deliberately reader-hostile `(symbol \"a :b\")`, or two `=`-equal
+  maps built in two insertion orders (which print in iteration order —
+  the producer's canonical form, inherited here rather than a second one
+  invented)."
   [[frame-id sub-id query]]
-  (str (pr-str frame-id) "-" (pr-str sub-id) "-" (pr-str query)))
+  (pr-str [frame-id sub-id query]))
 
 (defn read-slug
-  "A testid-safe slug for ONE projected read identity — see
-  [[read-key-str]] for why all three parts are in it."
+  "A React key / DOM testid for ONE projected read identity — see
+  [[read-key-str]] for why all three parts are in it, and
+  [[identity-slug]] for why the string has a readable half and an
+  injective half."
   [read-identity]
-  (id-slug (read-key-str read-identity)))
+  (identity-slug (read-key-str read-identity)))
 
 (defn boundary-label
   "A boundary's edge set as one line — the identity the runtime actually
@@ -381,10 +469,20 @@
   — it was dropped, so `[[:frame/a :row [:row 1]]]` and
   `[[:frame/b :row [:row 1]]]` both slugged `row-row-1`, giving two
   genuinely different boundaries one React key and one testid
-  (audit #7802)."
+  (audit #7802).
+
+  A boundary reads a SET of cells, so the join BETWEEN elements has to be
+  as unforgeable as the join inside one. Each element is already its own
+  `pr-str`, so wrapping the space-joined elements in brackets is exactly
+  `pr-str` of the normalised key — one reader-faithful string for the
+  whole boundary, then [[identity-slug]] over it.
+
+  A read-free key keeps its readable name, and no key with reads in it
+  can mint that name: every other slug carries the `%` that
+  [[escaped]] emits for the leading `[`."
   [{:keys [key]}]
   (if (seq key)
-    (id-slug (string/join "-" (map read-key-str key)))
+    (identity-slug (str "[" (string/join " " (map read-key-str key)) "]"))
     "reads-nothing"))
 
 ;; ---------------------------------------------------------------------------
@@ -475,7 +573,10 @@
              ;; Slugged by DISPATCH-ID as well as event id: the stream is
              ;; ordered by dispatch and one event id can appear many times
              ;; in a window, so an event-only testid would name several rows.
-             :slug        (id-slug (str (pr-str (:event-id i)) "-" (pr-str (:dispatch-id i))))
+             ;; Through the same injective encoding as a read key, for the
+             ;; same reason: `id-slug` alone folded `:a/b-c` and `:a-b/c`
+             ;; onto one intent testid (audit #7820).
+             :slug        (identity-slug (pr-str [(:event-id i) (:dispatch-id i)]))
              :arg-count   (:arg-count i)
              :frames      (:frames i)
              :sub-ids     (:sub-ids i)})
