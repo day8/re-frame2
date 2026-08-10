@@ -1388,6 +1388,25 @@ if [ "$run_node" = true ]; then
   run "hicasso freeze gate" "cd implementation && npm run test:hicasso-freeze" \
     bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-freeze"
 
+  # Hicasso lint export gate (rf2-hic-022).  The artefact publishes six
+  # clj-kondo checks from `resources/clj-kondo.exports/`, and this is their
+  # witness: each check must fire at its exact rows in `lint-fixtures/
+  # positive.cljs`, `negative.cljs` must produce NO finding of ANY kind, and
+  # the artefact's own testbeds must stay quiet.  It runs the real clj-kondo
+  # at the version lint.yml pins, with the SHIPPED export as its --config-dir,
+  # so a rule that passes here is the rule a consumer gets.
+  #
+  # THIS IS THE ONLY LANE IT HAS.  A `deftest` witness would run in no lane at
+  # all: a JVM lane exists only through the artefact rosters
+  # (`check_test_lane_bijection.py`) and a roster entry is only legal with a
+  # matching `test.yml` job (`check_jvm_lane_rosters.py`), which is hot-zone.
+  # So the export is gated in CI by lint.yml's required `clj-kondo` job (the
+  # repo's `:config-paths` points at it), and the FIXTURES are gated here.
+  # Pairing a `jvm-hicasso` job with a roster entry would let the witness
+  # follow; until then, this line is what makes it run.
+  run "hicasso lint export gate" "cd implementation && npm run test:hicasso-lint" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-lint"
+
   # Hicasso bench-lane compile coverage (rf2-2rtt6.73).  NO PR gate compiled
   # this lane: `:node-test` selects `cljs-test$` and `:browser-test` selects
   # `-dom-cljs-test$`, and nothing test-shaped requires the arms, so
