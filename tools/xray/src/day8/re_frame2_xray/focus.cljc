@@ -112,7 +112,7 @@
   `panel-registry/reg-l4-tab!`:
 
       Epoch · app-db · Views · Trace · Machines · Routing · Resources ·
-      Graph (derivation-graph) · Modules (module-view)
+      Graph (derivation-graph) · Modules (module-view) · Hicasso
 
   Internal registry ids (`:views` renders as \"Views\", `:routing`
   renders as \"Routes\", `:derivation-graph` as \"Graph\",
@@ -123,7 +123,7 @@
   This set MIRRORS `panel-registry/tab-ids-for-mode :dynamic` (the live
   registry); a cross-check test fails the build if they drift."
   #{:epoch :app-db :views :trace :machines :routing
-    :resources :derivation-graph :module-view})
+    :resources :derivation-graph :module-view :hicasso})
 
 ;; ---------------------------------------------------------------------------
 ;; Host-friendly panel aliases

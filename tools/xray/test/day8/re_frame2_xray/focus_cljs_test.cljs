@@ -133,11 +133,12 @@
   ;; rf2-1sddi6 / rf2-7ed9ms — `valid-panels` MIRRORS the live Dynamic
   ;; L4 tab registry. The Routing tab's id is `:routing` (renders as
   ;; "Routes"), and the EP-0016 / EP-0014 / EP-0013 cohesive-sub-domain
-  ;; tabs `:resources` / `:derivation-graph` / `:module-view` ship — so
-  ;; all nine live ids are focusable. (rf2-gbz39 removed the Issues tab
-  ;; under Option (c) — `:issues` is no longer a focusable panel.)
+  ;; tabs `:resources` / `:derivation-graph` / `:module-view` ship, and
+  ;; rf2-hic-023 added `:hicasso` (the Hicasso evidence tab) — so all ten
+  ;; live ids are focusable. (rf2-gbz39 removed the Issues tab under
+  ;; Option (c) — `:issues` is no longer a focusable panel.)
   (is (= #{:epoch :app-db :views :trace :machines :routing
-           :resources :derivation-graph :module-view}
+           :resources :derivation-graph :module-view :hicasso}
          focus/valid-panels)))
 
 (deftest valid-panels-mirrors-the-live-registry

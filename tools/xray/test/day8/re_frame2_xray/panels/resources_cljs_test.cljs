@@ -215,8 +215,8 @@
     (let [panels (palette-subs/palette-panels)
           ids    (set (map :id panels))]
       (is (contains? ids :resources) ":resources in palette-panels")
-      (is (= 9 (count panels))
-          "9 Dynamic tabs — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Modules (rf2-9ett2d added the EP-0014 derivation-graph tab; rf2-wtg9z4 added the EP-0013 Modules tab)"))))
+      (is (= 10 (count panels))
+          "10 Dynamic tabs — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Modules / Hicasso (rf2-9ett2d added the EP-0014 derivation-graph tab; rf2-wtg9z4 added the EP-0013 Modules tab; rf2-hic-023 added the Hicasso evidence tab)"))))
 
 ;; ---- (3) sections render ------------------------------------------------
 
