@@ -534,7 +534,11 @@
 
 (defn- fn-locals
   "The names a `fn` / `fn*` / `hfn` binds: its own optional name, and every
-  parameter of every arity."
+  parameter of every arity.
+
+  `children` is a `fn` TAIL — everything after the head — which is also
+  exactly what a `letfn` fnspec is, so `letfn` asks this rather than
+  re-deriving it."
   [children]
   (let [self   (token-sexpr (first children))
         forms  (if self (rest children) children)
@@ -566,18 +570,23 @@
         (or (contains? '#{fn fn*} core) (= 'hfn (hicasso-var head)))
         (fn-locals more)
 
-        ;; `(letfn [(f [x] …)] …)` binds each local function's NAME and its
-        ;; parameters — and the name sits in head position of its own form,
-        ;; which is precisely where a self-call is looked for.
+        ;; `(letfn [(f [x] …) (g ([x] …) ([x y] …))] …)` binds each local
+        ;; function's NAME — which sits in head position of its own form,
+        ;; precisely where a self-call is looked for — and every parameter of
+        ;; every arity.
+        ;;
+        ;; A fnspec IS a `fn` tail: `letfn` expands each one to `(fn f …)`, so
+        ;; the shapes it accepts are the shapes `fn` accepts, and `fn-locals`
+        ;; is asked instead of a second reading being written here. The second
+        ;; reading is what went wrong: it took a fnspec to be `[nm params]`
+        ;; and collected `params` only where that node was a VECTOR, which is
+        ;; the single-arity spelling and nothing else — a MULTI-ARITY fnspec's
+        ;; second node is the first arity LIST, so no arity's parameters were
+        ;; read and every use of one reported at ERROR (merged-PR audit #7804).
         (= 'letfn core)
         (if (api/vector-node? (first more))
           (into #{}
-                (mapcat (fn [f]
-                          (when (api/list-node? f)
-                            (let [[nm params] (:children f)]
-                              (into (if-let [s (token-sexpr nm)] #{s} #{})
-                                    (when (api/vector-node? params)
-                                      (bound-symbols params)))))))
+                (mapcat #(when (api/list-node? %) (fn-locals (:children %))))
                 (:children (first more)))
           #{})
 

@@ -222,11 +222,13 @@ def _mutate(original, old, new):
 
 
 def self_test():
-    """Break the export three ways and prove the gate reds on each.
+    """Break the export one way at a time and prove the gate reds on each.
 
     A gate that has only ever been observed green is a gate nobody has tested.
-    These are the two controls run by hand when the checks were written, made
-    permanent, plus the packaging one.
+    The first cases are the controls run by hand while the checks were being
+    written, made permanent; the rest are the defects that reached main anyway,
+    each pinned by the mutation that would bring it back. No count is stated
+    here on purpose — the list grows, and a number in prose does not.
     """
     with open(HOOK_FILE, encoding="utf-8") as fh:
         original = fh.read()
@@ -256,6 +258,16 @@ def self_test():
         ("a self-call check blind to lexical shadowing reds", "hook",
          "  (into #{} (keep token-sexpr) (subforms node)))",
          "  (do node #{}))",
+         "direct-view-call"),
+        # The SECOND false ERROR (merged-PR audit #7804), and the reason this
+        # case reads a fnspec's TAIL rather than its name: the repair above
+        # took a `letfn` fnspec to be `[nm params]`, which is the single-arity
+        # spelling and nothing else, so no arity of a MULTI-ARITY fnspec was
+        # read and every use of one blocked the build again. Hand `fn-locals`
+        # the name alone and the grammar rows in the negative half must red.
+        ("a letfn fnspec read past its NAME reds", "hook",
+         "(fn-locals (:children %))",
+         "(fn-locals (take 1 (:children %)))",
          "direct-view-call"),
     ]
 
