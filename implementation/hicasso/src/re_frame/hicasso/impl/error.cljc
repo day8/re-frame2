@@ -321,10 +321,12 @@
   relevant.
 
   The message is the reason with the id's greppability token appended,
-  which is `re-frame.error`'s contract reproduced rather than delegated:
-  routing the complaint TEXT through core's builder would change every
-  sentence in the package, and that is the complaint catalogue's ruling
-  to make (rf2-hic-021), not this bead's.
+  which is `re-frame.error`'s contract reproduced rather than delegated.
+  Whether to route the complaint TEXT through core's builder instead was
+  the complaint catalogue's to rule on, and it ruled that the text stays
+  here (rf2-hic-021); the reasons are recorded in
+  `docs/design/hicasso/product/complaints.md`, §Rulings this catalogue
+  owns.
 
   **`extra` merges UNDER the shape, never over it.** It carries the
   refusal CLASS's own slots and only those; [[required]] and [[ambient]]
@@ -352,5 +354,6 @@
     ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
     ;; message carries the `[:rf.error/...]` token the source cannot show
     ;; (the gate's own "computed discriminator" case). Re-routing the
-    ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
+    ;; complaint text through `re-frame.error` was ruled out by
+    ;; rf2-hic-021 — see complaints.md, §Rulings this catalogue owns.
     (throw (ex-info (str reason " [" id "]") data))))
