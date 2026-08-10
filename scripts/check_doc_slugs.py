@@ -241,7 +241,23 @@ _LINK_RE = re.compile(r"\[(?:[^\]\\]|\\.)*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 # NOT reference links, and left alone: `[^1]` is a footnote (the `footnotes`
 # extension consumes both the use and its `[^1]: body` definition before
 # either processor here runs), and `![alt][ref]` builds an `<img>`, never an
-# `<a>`.
+# `<a>` — that last one is EXTRACTED here anyway, because `_LINK_RE` has
+# always extracted inline images the same way (22 of them in the corpus) and a
+# destination that is not a `.md` file is skipped downstream regardless.
+#
+# THE DECLARED GAPS, all measured against the renderer and all absent from the
+# corpus — the point of writing them down is that the next reader knows which
+# side of the line they are on:
+#   * A definition inside an INDENTED CONTAINER — a list item, an admonition,
+#     a tabbed block.  The renderer de-indents the container's content before
+#     `ReferenceProcessor` sees it, so `- [t]: x` defines `t`; the `[ ]{0,3}`
+#     bound here reads the same line as an indented code block.  Closing it
+#     needs container open/close state, which is a parser.
+#   * A use inside a RAW HTML BLOCK.  `html_block` stashes the block before
+#     inline processing, so the renderer emits nothing and this does.  The
+#     inline form has the same gap and always has.
+#   * AUTOLINKS (`<http://…>`) are not extracted at all.  One in the corpus,
+#     external, so it would be skipped even if it were.
 #
 # Port of `ReferenceProcessor.RE`.  The title alternative is carried, unused,
 # because `$` is anchored: drop it and a definition that has a title stops
@@ -257,9 +273,10 @@ _REF_DEF_RE = re.compile(
 # back to the text).  The text excludes BOTH brackets where `_LINK_RE` excludes
 # only the closing one: python-markdown balances nested brackets with a
 # scanner, this file does not have one, and excluding `[` is the reading that
-# declines to match rather than mismatching.  `[[a] more][b]` therefore yields
-# `b` alone where the renderer emits both — declared, and absent from the
-# corpus.
+# declines to match rather than mismatching.  Nested link text still comes out
+# right, by a different route than the renderer takes — `[[a] more][b]` yields
+# `a` (as a shortcut, since the outer `[` cannot open a match) and then `b`,
+# which is the pair the renderer emits.
 _REF_USE_RE = re.compile(r"\[((?:[^\[\]\\]|\\.)*)\](?:\s?\[((?:[^\[\]\\]|\\.)*)\])?")
 
 # `ReferenceInlineProcessor.NEWLINE_CLEANUP_RE`, applied after `.lower()`.
