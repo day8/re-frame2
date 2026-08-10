@@ -129,7 +129,22 @@ THIS repository's own origin declares nothing and takes the ordinary local path,
 so a stranded local head cannot be laundered through a GitHub-shaped link;
 identity comes from `git remote get-url origin`, a config read, and when there is
 no GitHub origin to compare against no permalink is honoured at all — the
-refusal direction again.  And a foreign citation is not dropped from the
+refusal direction again.
+
+Both halves of that boundary are drawn POSITIVELY, and the first cut of it drew
+neither.  A candidate link is the WHOLE run of URL the page wrote, matched in
+full against the canonical shape, rather than a good-looking prefix followed by
+a lookahead listing what must not come after it — because such a list is only as
+complete as its author's imagination, and `…/commit/<sha>%3Fdiff=split` walked
+straight through the first one.  An identity is a NORMALISED `owner/repo`,
+case-folded and stripped of git's `.git` alias on both sides of the comparison,
+rather than the two raw strings — because `day8/re-frame2.GIT` is this
+repository however unequal it looks, and reading it as somebody else's was the
+sharper of the two holes (rf2-styo, the PR #7754 audit).  Both fixes move the
+unanticipated case from exemption to refusal, which is where everything else in
+this file already sits.
+
+And a foreign citation is not dropped from the
 population: it is counted and listed separately under `--verbose` so that green
 cannot mean silently ignored, and it may NOT stand in as the landed anchor for a
 local head beside it, because it is not in this object database at all.
@@ -246,34 +261,63 @@ _PATH_SPAN = re.compile(r"^[\w./~…*-]+\.[a-z]{2,5}$")
 DEFAULT_MAX_ID_LEN = 40
 
 # A CANONICAL GitHub commit permalink, and nothing looser.  This is the only
-# form that declares a token foreign, so every part of it is load-bearing:
+# form that declares a token foreign, so the boundary is drawn POSITIVELY: a
+# candidate is the WHOLE run of URL the page wrote, and it is honoured only if
+# that entire run is the canonical shape.
 #
-#   * HTTPS and `github.com` verbatim.  `www.`, `http://` and an ssh remote all
-#     fail to match and take the ordinary local path — refusal, not silence.
-#   * a repository that does not end in `.git`, because
-#     `github.com/day8/re-frame2.git/commit/…` would otherwise record an
-#     identity that compares unequal to this repository's own and launder a
-#     local head straight through the check below.
-#   * `/commit/` and a FULL forty-hex lowercase SHA.  An abbreviation is
-#     meaningful only inside a particular object database, so it cannot carry a
-#     claim about another one.
-#   * nothing after it: a trailing `/`, `?` or `#` means a query, a fragment or
-#     a deeper path, none of which is the canonical commit page.  A `.` is
-#     allowed only as sentence punctuation, the same boundary `_BARE_PROSE_HEX`
-#     draws, so a link may end a sentence but `…/commit/<sha>.diff` may not.
-_COMMIT_PERMALINK = re.compile(
+# The first cut drew it the other way round — match a good-looking prefix
+# anywhere, then a lookahead listing the characters that must not follow it —
+# and a suffix blacklist is only ever as complete as the imagination of whoever
+# wrote it.  `…/commit/<sha>%3Fdiff=split`, `<sha>:garbage` and `<sha>&diff=split`
+# each carried a valid prefix past that lookahead and were recorded as
+# declarations (the PR #7754 audit, rf2-styo).  Whole-run matching inverts the
+# default: a character nobody thought of is INSIDE the candidate, the candidate
+# then fails to match in full, and the token takes the ordinary local path.  The
+# unanticipated case now costs a refusal instead of an exemption, which is the
+# only direction this file is allowed to be wrong in.
+#
+# So the parts that remain load-bearing are what the run must BE, not what it
+# must avoid: HTTPS and `github.com` verbatim, so `www.`, `http://` and an ssh
+# remote all refuse; `/commit/`; and a FULL forty-hex lowercase SHA, because an
+# abbreviation is meaningful only inside a particular object database and cannot
+# carry a claim about another one.
+_CANONICAL_COMMIT_URL = re.compile(
     r"https://github\.com"
     r"/([A-Za-z0-9][A-Za-z0-9._-]*)"
-    r"/([A-Za-z0-9][A-Za-z0-9._-]*)(?<!\.git)"
+    r"/([A-Za-z0-9][A-Za-z0-9._-]*)"
     r"/commit/([0-9a-f]{40})"
-    r"(?![0-9A-Za-z/?#_-])(?!\.[0-9A-Za-z])"
 )
 
+# Where the run ENDS, and this is the only judgement the character set makes.
+# It ends where the RENDERED link ends: whitespace, a backtick, a table pipe, an
+# angle bracket, a double quote, or the `)`/`]` that closes markdown's own link
+# syntax — every one of them a place a reader's link genuinely stops, and none
+# of them legal in the canonical shape above, so no true permalink is cut short.
+# Everything else continues the run: `%`, `?`, `#`, `&`, `:`, `=` and whatever
+# somebody appends next, which is exactly why none of it can be smuggled past
+# the match.
+_URL_RUN = re.compile(r"https://[^\s`|<>\")\]]*")
+
+# A renderer trims trailing sentence punctuation off an autolink, and so does
+# this, so a link may end a sentence.  Only `.` and `,`: they are what this
+# corpus writes, and every further character left in the run is one more thing
+# the match refuses rather than forgives.
+_URL_SENTENCE_PUNCTUATION = ".,"
+
+# git's `.git` alias suffix, in ANY case.  `day8/re-frame2.GIT` and
+# `day8/re-frame2` are one repository, and comparing the two spellings as
+# strings is what let a stranded local head be recorded as a commit of
+# "day8/re-frame2.GIT" and pass as somebody else's business (rf2-styo).
+_DOT_GIT = re.compile(r"\.git$", re.I)
+
 # This repository's own identity, read out of `origin`.  Covers the three forms
-# a clone can carry it in; anything else yields no identity at all, and then no
-# permalink is honoured.
+# a clone can carry it in, case-insensitively, because a remote spelled
+# `git@github.com:Day8/RE-Frame2.GIT` is still this repository; anything that is
+# not a GitHub remote yields no identity at all, and then no permalink is
+# honoured.  The `.git` is not stripped here but in `repo_identity`, so that one
+# function is the only place an identity is ever minted.
 _ORIGIN_URL = re.compile(
-    r"^(?:https://|ssh://git@|git@)github\.com[:/]([^/]+)/(.+?)(?:\.git)?/?$"
+    r"^(?:https://|ssh://git@|git@)github\.com[:/]([^/]+)/([^/]+?)/?$", re.I
 )
 
 # A provenance anchor whose author promised to fill it after the merge and did
@@ -476,10 +520,51 @@ def classify(
     return Verdict(True, "unclassified — read as a pin (fail toward refusal)", False)
 
 
+def repo_identity(owner: str, name: str) -> str:
+    """`owner/repo`, normalised so that two spellings of one repository compare
+    equal.
+
+    Case-folded, because GitHub is case-insensitive about both halves, and with
+    git's `.git` alias stripped, because git is.  This is the ONLY place an
+    identity is minted, so both sides of the comparison in `scan_file` — the
+    permalink's repository and this checkout's own origin — are normalised by
+    construction.  They were not, and `day8/re-frame2.GIT` therefore compared
+    unequal to `day8/re-frame2` and carried a local head off as foreign.
+    """
+    return "%s/%s" % (owner.lower(), _DOT_GIT.sub("", name).lower())
+
+
 def github_identity(url: str) -> Optional[str]:
-    """`owner/repo` for a GitHub remote URL, or None when it is not one."""
+    """This checkout's own normalised `owner/repo`, or None when `origin` is not
+    a GitHub remote."""
     match = _ORIGIN_URL.match(url.strip())
-    return "%s/%s" % (match.group(1), match.group(2)) if match else None
+    return repo_identity(match.group(1), match.group(2)) if match else None
+
+
+def commit_permalinks(line: str) -> List[Tuple[str, str]]:
+    """Every canonical GitHub commit permalink on one line, as
+    `(normalised owner/repo, full sha)`.
+
+    Each candidate is the whole URL run as the page wrote it, trimmed only of
+    the sentence punctuation a renderer would trim, and then matched IN FULL.  A
+    query, a fragment, percent-encoded material, a deeper path or any other
+    trailing matter is left inside the candidate, so the match fails and the URL
+    declares nothing — it is not the canonical commit page.
+
+    A `.git` repository is refused for the same reason, in any case: a clone URL
+    with a path glued onto it is not a page a reader can open.  That refusal and
+    the normalisation in `repo_identity` are two independent answers to the same
+    laundering, and both are here deliberately, because what a miss costs is a
+    stranded head of THIS repository reported as somebody else's business.
+    """
+    out: List[Tuple[str, str]] = []
+    for run in _URL_RUN.finditer(line):
+        match = _CANONICAL_COMMIT_URL.fullmatch(
+            run.group(0).rstrip(_URL_SENTENCE_PUNCTUATION)
+        )
+        if match and not _DOT_GIT.search(match.group(2)):
+            out.append((repo_identity(match.group(1), match.group(2)), match.group(3)))
+    return out
 
 
 def scan_file(
@@ -490,10 +575,12 @@ def scan_file(
 ) -> Tuple[List[Citation], List[Finding]]:
     """Read one page's citations.
 
-    `local_repo` is this repository's own `owner/repo`.  Without it no permalink
-    can be told from a link to ourselves, so none is honoured and every token
-    takes the local path — the refusal direction, and the reason it is not
-    defaulted to something convenient.
+    `local_repo` is this repository's own identity as `github_identity` mints
+    it — normalised, so it compares equal to any spelling of our own origin a
+    permalink can carry.  Without it no permalink can be told from a link to
+    ourselves, so none is honoured and every token takes the local path — the
+    refusal direction, and the reason it is not defaulted to something
+    convenient.
     """
     lines = text.splitlines()
     citations: List[Citation] = []
@@ -519,15 +606,12 @@ def scan_file(
             # than to the newline, because a wrapped cell continues on lines
             # that open no pipe and the anchor is often down there.
             scope += 1
-        for link in _COMMIT_PERMALINK.finditer(line):
+        for repo, sha in commit_permalinks(line):
             # Collected AFTER the fence test on purpose: a permalink inside a
             # reproduction command is an argument to an example, exactly as its
             # SHAs are, and must not declare anything about the page's own
             # citations.
-            declared.setdefault(scope, {})[link.group(3)] = "%s/%s" % (
-                link.group(1),
-                link.group(2),
-            )
+            declared.setdefault(scope, {})[sha] = repo
         if _UNFILLED_ANCHOR.search(line):
             anchors.append(
                 Finding(
@@ -562,7 +646,7 @@ def scan_file(
     if local_repo:
         for index, citation in enumerate(citations):
             repo = declared.get(citation.scope, {}).get(citation.token)
-            if repo and repo.lower() != local_repo.lower():
+            if repo and repo != local_repo:
                 citations[index] = citation._replace(foreign=repo)
     return citations, anchors
 
@@ -1244,6 +1328,76 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {},
         [_FOREIGN_SHA, _FOREIGN_SHA, _FOREIGN_SHA, _LOCAL_SHA],
     ),
+    # SABOTAGE, first of the two holes the PR #7754 audit found, and the sharper
+    # one: it defeated the very boundary the mechanism was built with.  Row A
+    # spells our own origin `re-frame2.GIT`, which the old `(?<!\.git)` — case
+    # SENSITIVE — let through, recorded as repository `day8/re-frame2.GIT`,
+    # compared unequal to `day8/re-frame2`, and so reported a stranded head of
+    # THIS repository as somebody else's business.  Row B is the same alias on a
+    # genuinely foreign repository: a clone URL with a path glued on is not the
+    # canonical commit page whoever owns it.  Both rows assert all three layers,
+    # because "no finding" and "no citation" are indistinguishable from the last
+    # one alone.
+    _ForeignCase(
+        "a `.GIT` alias declares nothing, in any case, on any repository",
+        [
+            "| Authoring anchor | `%s` on `worker/x`, at https://github.com/"
+            "day8/re-frame2.GIT/commit/%s |" % (_LOCAL_SHA, _LOCAL_SHA),
+            "| Benchmark revision | at commit **`%s`**, at https://github.com/"
+            "%s.GIT/commit/%s |" % (_FOREIGN_SHA, _UPSTREAM, _FOREIGN_SHA),
+        ],
+        _HERE,
+        {_LOCAL_SHA: "STRANDED"},
+        [_LOCAL_SHA, _FOREIGN_SHA],
+        {},
+        [_LOCAL_SHA, _FOREIGN_SHA],
+    ),
+    # SABOTAGE, the other hole: material after the SHA.  The old boundary named
+    # the characters that must not follow a permalink, so everything it forgot
+    # to name was an exemption — `%3F` (a percent-encoded `?`, which no reader's
+    # browser treats as part of the path), a `:`, an `&`.  Each of these is a
+    # link somebody could write by hand or paste from a diff view, none is the
+    # canonical commit page, and under whole-run matching each fails as a whole
+    # rather than being trimmed back to a prefix that passes.
+    _ForeignCase(
+        "trailing URL material after the sha declares nothing",
+        [
+            "| A | at commit **`%s`**, at %s%%3Fdiff=split |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| B | at commit **`%s`**, at %s:garbage |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| C | at commit **`%s`**, at %s&diff=split |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| D | at commit **`%s`**, at %s#diff-0 |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| E | at commit **`%s`**, at %s.diff |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA] * 5,
+        {},
+        [_FOREIGN_SHA] * 5,
+    ),
+    # POSITIVE CONTROL for that tightening, and the reason the trim exists.
+    # Refusing everything after the SHA would refuse the two ways a page
+    # actually writes a link — ending a sentence with it, and markdown's own
+    # `[text](url)` — and a boundary that cannot be satisfied gets routed
+    # around.  Both forms still declare.
+    _ForeignCase(
+        "a permalink may close a sentence, and may be a markdown link",
+        [
+            "| Benchmark revision | at commit **`%s`**, canonically at %s. |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| Restated | at commit **`%s`**, [the commit page](%s) |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA, _FOREIGN_SHA],
+        {_FOREIGN_SHA: _UPSTREAM},
+        [],
+    ),
     # EDGE, and the boundary that keeps this from being an exemption mechanism:
     # a permalink naming THIS repository declares nothing.  Otherwise every
     # stranded local head could be laundered by linking to it on github.com,
@@ -1396,12 +1550,17 @@ def self_test(verbose: bool, stream) -> int:
 
     # The identity the boundary above compares against, in the three forms a
     # clone can carry `origin` in — plus a non-GitHub remote, which yields no
-    # identity and so honours no permalink at all.
+    # identity and so honours no permalink at all.  The mixed-case row is the
+    # mirror image of the `.GIT` sabotage above: were the ORIGIN side left
+    # unnormalised, a clone spelled that way would compare unequal to every
+    # permalink naming itself, and the laundering would be back from the other
+    # end.  One function mints both sides, so neither can drift.
     for url, expected in (
         ("https://github.com/day8/re-frame2", _HERE),
         ("https://github.com/day8/re-frame2.git", _HERE),
         ("git@github.com:day8/re-frame2.git", _HERE),
         ("ssh://git@github.com/day8/re-frame2.git", _HERE),
+        ("git@GitHub.com:Day8/RE-Frame2.GIT", _HERE),
         ("/srv/mirrors/re-frame2.git", None),
     ):
         got = github_identity(url)
@@ -1460,7 +1619,7 @@ def self_test(verbose: bool, stream) -> int:
             failures += 1
 
     total = (
-        len(_EXTRACTION_CASES) + len(_RULE_CASES) + len(_FOREIGN_CASES) + 5 + 4
+        len(_EXTRACTION_CASES) + len(_RULE_CASES) + len(_FOREIGN_CASES) + 6 + 4
     )
     if failures:
         stream.write("\n%d self-test failure(s).\n" % failures)
