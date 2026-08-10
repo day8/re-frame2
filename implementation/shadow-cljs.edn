@@ -157,6 +157,15 @@
                 ;; re-frame.hicasso.*.
                 "hicasso/src"
                 "hicasso/test"
+                ;; rf2-hic-020 — `re-frame.hicasso.test`, the supported L0–L2
+                ;; testing surface. Its OWN source root, deliberately outside
+                ;; `hicasso/src` and outside the artefact's published :paths:
+                ;; the kit is reachable when a test uses it and unreachable
+                ;; otherwise, so bundle-isolation holds by construction rather
+                ;; than by review. The namespace is not `*-cljs-test`, so no
+                ;; test-selecting ns-regexp matches it; its witnesses live
+                ;; under `hicasso/test` with everything else the lane runs.
+                "hicasso/test_kit/src"
                 ;; rf2-hic-016 — the controlled-input testbed. A standalone
                 ;; app under hicasso/testbed/ whose fields are the §4.2
                 ;; policy family (accept / refuse / normalise / reset), and

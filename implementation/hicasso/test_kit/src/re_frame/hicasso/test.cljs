@@ -1,0 +1,1016 @@
+(ns re-frame.hicasso.test
+  "`ht` — HICASSO'S SUPPORTED TESTING SURFACE, L0 to L2 (rf2-hic-020).
+
+  The machinery a Hicasso witness needs was, until this namespace, private
+  to the benchmark tree: the canonical-DOM comparator that made two
+  renderings comparable, the intent capture that said what a page MEANS,
+  and the body-run door the read-extent matrix asserts through. All three
+  were reachable only by a test that lived inside the bench lane. This is
+  that machinery, extracted, named and documented — the same instruments,
+  now a product surface.
+
+      (:require [re-frame.hicasso :as h]
+                [re-frame.hicasso.test :as ht])
+
+  ## The ladder, and why the tier is the first decision
+
+  A Hicasso test's hardest question is not *what do I assert* but *what
+  can this tier honestly prove*. [[ladder]] is that answer as data, and
+  every refusal in this namespace cites it rather than restating it:
+
+      L0  event handlers, subscriptions, state transitions
+          → pure CLJ/CLJS. This namespace adds nothing; see §L0 below.
+      L1  codecs, intents, controlled/revision laws, the boundary ABI
+          → pure data and property assertions. [[element-props]],
+            [[materialize]], [[controlled?]], [[revision]], [[boundary?]],
+            [[host?]], [[callback?]], [[view-name]], [[host-policy]],
+            [[canonical-dom]], [[capture-intents]].
+      L2  one hook-free Hicasso body, run for its semantic tree
+          → [[render]] + [[find]] / [[find-all]] / [[attrs]] / [[text]] /
+            [[intents]].
+      L3  React lifecycle, context, hooks, refs, errors, foreign hosts
+          → the mounted facade (rf2-hic-027). NOT here.
+      L4  IME, caret, focus, hydration, layout, performance
+          → real browsers.
+
+  **L2 is an assertion model, not a renderer.** It runs a body and reads
+  the hiccup that body returned. There is no fake hooks dispatcher, no
+  shallow renderer and no simulated React lifecycle anywhere in this file
+  — the four things a substrate's own test kit is most tempted to invent,
+  and the four this one refuses to. Where L2 cannot honestly answer, it
+  REFUSES and names the tier that can. An input a harness cannot model
+  and answers anyway is worse than one it declines: the plausible answer
+  is believed.
+
+  ## L0 — the tier this namespace deliberately does not touch
+
+  L0 is *pure re-frame*. An event handler is a function of `db` and an
+  event vector; a subscription is a function of its inputs; a state
+  transition is the pair. None of that needs a view substrate, so none of
+  it needs a Hicasso helper, and shipping one would be a shim in front of
+  doors core already publishes:
+
+      (deftest toggling-a-todo-flips-its-done-flag
+        (let [db  {:todos {1 {:done false}}}
+              db' (:db (handler {:db db} [:todo/toggle 1]))]
+          (is (true? (get-in db' [:todos 1 :done])))))
+
+      (rf/with-new-frame [f {:initial-events [[:rf/set-db seed]]}]
+        (rf/dispatch-sync [:todo/toggle 1])
+        (is (= expected (rf/subscribe-once [:todo/visible]))))
+
+  Frame scope is the programmer's ordinary bracket — `rf/with-new-frame`
+  or `rf/with-frame` — at L0 and at every tier above it. That is the L0
+  contract, stated so a worker knows what L0 officially is, and the
+  reason [[ladder]]'s L0 row names no mechanism of this namespace's own.
+
+  ## The tree is Spec 004B version 1, not a second schema
+
+  [[render]] answers the **versioned structural tree** that
+  [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)
+  §The node schema already pins — the same closed node set, the same
+  discrimination order, the same `:rf.ui/tree-version` root gate, the
+  same `{:rf.ui/opaque :fn}` sentinel — so a tree from a Hicasso body and
+  a tree from a Freehand declaration are the same VALUE KIND and read
+  with the same vocabulary. rf2-hic-020 audited that schema before
+  writing anything and reuses it whole; the projections below carry
+  `re-frame.freehand.test`'s semantics for the same reason.
+
+  Two things the audit found are stated rather than left to be
+  discovered:
+
+  - **[[attrs]] values are author-space and unnormalized.** 004B §Attr
+    value normalization is the SSR fingerprint's input — the px rule, the
+    canonical style map — and a fingerprint is not what L2 claims. Only
+    the `.class#id` sugar is folded, because the author cannot see it
+    otherwise. Assert the authored value.
+  - **A view-boundary node records the CALL, never the child's
+    rendering.** See §Children below.
+
+  ## What L2 runs, and what it refuses
+
+  [[render]] takes a hiccup form whose head is **a body function** — the
+  `(fn [props] …)` a `defview` is minted from:
+
+      (defn todo-row-body [{:keys [id]}]
+        (let [todo (h/sub [:todo/by-id id])]
+          [:li {:on-click [:todo/toggle id]} (:text todo)]))
+
+      (h/defview todo-row [props] (todo-row-body props))
+
+      (deftest the-row-carries-its-toggle-intent
+        (let [tree (ht/render [todo-row-body {:id 1}]
+                              {:reads {[:todo/by-id 1] {:text \"milk\"}}})
+              li   (ht/find tree #(= :li (:tag %)))]
+          (is (= \"milk\" (ht/text li)))
+          (is (= [:todo/toggle 1] (:on-click (ht/attrs li))))))
+
+  **A minted `defview` head is refused, and the refusal is the honest
+  answer rather than a limitation nobody wrote down.**
+  `re-frame.hicasso.impl.collector/mint-view!` closes over the body and
+  retains no reference to it — `boundary-head?` is one own-property read,
+  there is no registry and no map — so a minted head cannot be run
+  without React, and running it under React is L3. Naming the body, as
+  above, costs one line and keeps the view under test running AS
+  WRITTEN. See [[render]]'s refusal for the full statement.
+
+  ### Children
+
+  - A **nested body function** is refused: a plain function in head
+    position is a loud error in Hicasso itself (HD-016), and a kit that
+    accepted one would teach a spelling the runtime rejects.
+  - A **minted boundary head** records a **view-boundary node** — its
+    `:view-id`, the props the call site passed, and the call site's own
+    children. Its body does NOT run, and the node claims nothing about
+    what it would render. Assert its props here; render its body to
+    assert its contents.
+  - A **`defhost` crossing**, a **raw React element** and anything the
+    codec would hand to React untouched are **opaque** and refuse with a
+    pointer to L3. So does an unforced `delay`, which Hicasso itself
+    refuses at a boundary crossing.
+
+  ### Reads
+
+  `:reads` is the injected fixture map — query vector to value. A read
+  the fixtures do not answer is a **refusal**, never a nil: an unanswered
+  read that returned nil would make a body that reads the wrong key look
+  exactly like a body that reads the right one and finds nothing.
+
+  The resolver is **discardable**. The fixtures are installed as cells on
+  a probe frame keyword minted for the one call, and removed when it
+  returns, so nothing subscribes, nothing is watched, no ref-count moves
+  and no disposal obligation is left behind. Frame scope stays the
+  programmer's ordinary bracket: [[render]] takes no frame and binds
+  none.
+
+  ## Scope
+
+  Dev/test only. Nothing in a production bundle may `:require` this
+  namespace — it is its own source root (`hicasso/test_kit/src`) and is
+  absent from the artefact's published `:paths`, so it is reachable when
+  used and unreachable otherwise."
+  (:refer-clojure :exclude [find])
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
+            [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.controlled :as controlled]
+            [re-frame.hicasso.impl.intent :as intent]))
+
+;; ---------------------------------------------------------------------------
+;; Refusals — one constructor, so every refusal has the same identity shape
+;; ---------------------------------------------------------------------------
+
+(def ^:private where
+  "The raising site every refusal in this namespace names."
+  're-frame.hicasso.test)
+
+(defn- refuse!
+  "Raise a structured, source-located refusal.
+
+  The ex-data is the ASSERTABLE identity — `:rf.error/id`, `:where`,
+  `:reason`, `:recovery` and whatever the site adds — because
+  `(is (thrown? …))` is not a witness: it is green for a throw from any
+  layer with any id. A test of a refusal asserts the map."
+  [id reason recovery extra]
+  ;; rf2:builder-bypass-ok - `id` is a PARAMETER, so the message carries the
+  ;; `[:rf.error/...]` token the source cannot show. Same shape as
+  ;; `re-frame.hicasso.impl.collector/fail!`.
+  (throw (ex-info (str reason " [" id "]")
+                  (merge {:rf.error/id id :where where
+                          :reason reason :recovery recovery}
+                         extra))))
+
+;; ---------------------------------------------------------------------------
+;; L0 — the ladder, as data
+;; ---------------------------------------------------------------------------
+
+(def ladder
+  "THE TESTING LADDER, as data — five rows, in tier order.
+
+  It is data rather than prose because the refusals below cite it: a
+  refusal that pointed at 'the mounted tier' in a hand-written string
+  would drift from the tier table the day the table moved. Each row:
+
+      :tier       the tier keyword
+      :proves     what a test at this tier can honestly claim
+      :mechanism  the tool that tier is written with
+      :here?      whether THIS namespace ships that tier
+
+  Spec 009 §9 of the Hicasso specification and
+  `docs/design/hicasso/product/lanes/testing-xray.md` are the normative
+  owners; this is their table, readable from a test."
+  [{:tier :l0 :here? false
+    :proves    "event handlers, subscriptions, state transitions"
+    :mechanism "pure CLJ/CLJS tests over core's own doors — no view substrate"}
+   {:tier :l1 :here? true
+    :proves    "codecs, intents, controlled/revision laws, the boundary ABI"
+    :mechanism "pure data and property assertions"}
+   {:tier :l2 :here? true
+    :proves    "one registered hook-free Hicasso body, as a semantic tree"
+    :mechanism "re-frame.hicasso.test/render under injected read fixtures"}
+   {:tier :l3 :here? false
+    :proves    "React lifecycle, context, hooks, refs, errors, foreign hosts"
+    :mechanism "the mounted React DOM facade (rf2-hic-027) with Testing Library"}
+   {:tier :l4 :here? false
+    :proves    "IME, caret, focus, hydration, layout, performance"
+    :mechanism "Chromium, Firefox and WebKit witnesses"}])
+
+(def ^:private by-tier (into {} (map (juxt :tier identity)) ladder))
+
+(defn- tier-pointer
+  "The one sentence a refusal uses to send a caller up the ladder. Read
+  from [[ladder]] so a tier's description has one home."
+  [tier]
+  (let [{:keys [proves mechanism]} (by-tier tier)]
+    (str (str/upper-case (name tier)) " owns " proves " — " mechanism ".")))
+
+;; ---------------------------------------------------------------------------
+;; L1 — the boundary ABI, read off minted values
+;; ---------------------------------------------------------------------------
+;;
+;; `h/defview`, `h/defhost` and `h/hfn` are macros, and what a macro
+;; expansion DECIDES is observable on the value it hands back: the marker
+;; the expansion's target minted. Asserting the marker rather than the
+;; expanded form is what keeps a safe refactor quiet and a changed
+;; contract loud — the discipline `public-door-macros-cljs-test` already
+;; established for this package, published here so a consumer's own
+;; declarations can be held to it.
+
+(defn boundary?
+  "Is `v` a minted Hicasso boundary — the value `h/defview` defines?
+
+  One own-property read (`codec/boundary-head?`). True for a `defview`
+  var, false for the plain function its body is, which is the
+  discrimination that makes this an assertion rather than a restatement
+  of `fn?`."
+  [v]
+  (codec/boundary-head? v))
+
+(defn host?
+  "Is `v` a minted host crossing — the value `h/defhost` defines? False
+  for the foreign component the declaration named, which is the point:
+  the crossing is a distinct value with a policy of its own."
+  [v]
+  (codec/host-head? v))
+
+(defn callback?
+  "Is `v` the one callback form — the value `h/hfn` expands to? False for
+  an identically-written plain `fn`, so a position that imposes a
+  contract can tell them apart and so can a test."
+  [v]
+  (intent/callback? v))
+
+(defn view-name
+  "The `\"<ns>/<sym>\"` name a minted boundary or host carries — the same
+  string React DevTools shows and Spec 009's `rf:render:<name>` measure
+  is keyed on. `nil` for anything unminted."
+  [v]
+  (when (or (fn? v) (object? v))
+    (unchecked-get v "displayName")))
+
+(defn host-policy
+  "The `:ssr` policy a `defhost` crossing was declared with —
+  `:client-only`, `{:fallback <hiccup>}` or `:render` — read back as
+  data. Refuses anything that is not a minted crossing rather than
+  answering nil, because a nil here would read as `:client-only`'s
+  neighbour."
+  [v]
+  (when-not (host? v)
+    (refuse! :rf.error/hicasso-test-not-a-host
+             (str "host-policy reads the `:ssr` policy off a minted `h/defhost` "
+                  "crossing; it was given " (pr-str (type v)) ".")
+             :pass-the-defhost-var
+             {:value v}))
+  (codec/host-ssr v))
+
+;; ---------------------------------------------------------------------------
+;; L1 — the codec, projected
+;; ---------------------------------------------------------------------------
+
+(defn- form-props
+  "The author's attribute map for a hiccup form, with the `:&` remainder
+  folded under the owned-literal law — `codec/merge-caller`'s own answer,
+  never a second merge."
+  [form]
+  (let [p (nth form 1 nil)]
+    (codec/merge-caller (if (map? p) p {}))))
+
+(def ^:private probe-dispatch
+  "The dispatch a lowering runs under when nothing is being rendered.
+  Lowering an intent requires an ambient dispatch (a lowered handler
+  closes over one), and L1 is not a render — so the projection binds a
+  dispatch that CANNOT fire: it exists to be closed over and refuses if
+  anything calls it, which is louder than a no-op that would make a
+  handler look wired."
+  (fn [event-v]
+    (refuse! :rf.error/hicasso-test-l1-dispatch
+             (str "A handler lowered by an L1 projection was invoked. "
+                  "L1 reads the codec's emission as data; firing a handler is "
+                  "behaviour. " (tier-pointer :l3))
+             :assert-the-intent-as-data
+             {:event event-v})))
+
+(def ^:private l1-frame
+  "The frame keyword an L1 lowering binds. It names no live frame — L1
+  resolves nothing and dispatches nothing — and exists so the emitted
+  slots are the ones a render would emit."
+  ::l1)
+
+(defn- opaque-value
+  "004B §The opaque marker, applied to one emitted slot value: a function
+  records as `{:rf.ui/opaque :fn}` — the site's existence and spelling
+  are what a structural test asserts on, its behaviour is L3."
+  [v]
+  (cond
+    (fn? v)     {:rf.ui/opaque :fn}
+    (object? v) (persistent!
+                  (reduce (fn [m k] (assoc! m k (let [x (unchecked-get v k)]
+                                                  (if (fn? x) {:rf.ui/opaque :fn} x))))
+                          (transient {})
+                          (js-keys v)))
+    :else       v))
+
+(defn element-props
+  "The **emitted prop slots** of one native hiccup form, as a Clojure map
+  of slot name to value — the codec's own conversion, read as data.
+
+      (ht/element-props [:div#main.wide {:class \"tall\" :tab-index 0}])
+      ;; => {\"id\" \"main\" \"className\" \"wide tall\" \"tabIndex\" 0}
+
+  This is the L1 answer to 'what does the codec do with what I wrote' —
+  the `.class#id` fold, the canonical slot names, the `:&` remainder's
+  owned-literal law, the reserved-key handling — asserted as values
+  rather than inferred from a rendering. A lowered handler records as
+  `{:rf.ui/opaque :fn}` (004B §The opaque marker): the slot's existence
+  and spelling are the claim, and the intent it carries is asserted with
+  [[materialize]] or read off an L2 tree.
+
+  Native forms only. A form whose head is a boundary, a host or anything
+  other than a tag keyword is refused — there are no props to emit."
+  [form]
+  (when-not (and (vector? form) (keyword? (nth form 0 nil)))
+    (refuse! :rf.error/hicasso-test-not-a-native-form
+             (str "element-props projects ONE native hiccup form — a vector "
+                  "whose head is a tag keyword. It was given " (pr-str form) ".")
+             :pass-a-native-hiccup-form
+             {:value form}))
+  (let [parsed (codec/cached-parse (nth form 0))
+        props  (form-props form)
+        js-props (intent/with-frame l1-frame probe-dispatch
+                   (fn [] (codec/convert-props props parsed)))]
+    (persistent!
+      (reduce (fn [m k] (assoc! m k (opaque-value (unchecked-get js-props k))))
+              (transient {})
+              (js-keys js-props)))))
+
+(defn materialize
+  "THE MARKER LAW, as a pure function: the vector `intent` materializes
+  to, given what the event target would have carried.
+
+      (ht/materialize [:filter/set ::h/value] {:value \"done\"})
+      ;; => [:filter/set \"done\"]
+
+  `target` is `{:value … :checked …}` — the two facts `::h/value` and
+  `::h/checked` read. This is `re-frame.hicasso.impl.intent/materialize`
+  itself, not a re-derivation, so the substitution rule under test is the
+  one the browser path runs. Top level only, exactly as the runtime's is.
+
+  It is a data projection and not an event: nothing is dispatched,
+  nothing is prevented, no handler runs."
+  [intent-v {:keys [value checked]}]
+  (when-not (vector? intent-v)
+    (refuse! :rf.error/hicasso-test-not-an-intent
+             (str "materialize takes an intent VECTOR; it was given "
+                  (pr-str intent-v) ".")
+             :pass-an-intent-vector
+             {:value intent-v}))
+  (intent/materialize intent-v #js {"target" #js {"value" value "checked" checked}}))
+
+(defn controlled?
+  "Does the codec install the **controlled shadow** for this native form —
+  HD-019's synchronous door, and Invariant I15's subject?
+
+  True exactly when `re-frame.hicasso.impl.controlled/install!` selects a
+  component other than the tag itself, which is the runtime's own
+  decision rather than a re-derivation of it: a field is controlled
+  because the emitted element is, not because the author wrote something
+  that looks controlled."
+  [form]
+  (when-not (and (vector? form) (keyword? (nth form 0 nil)))
+    (refuse! :rf.error/hicasso-test-not-a-native-form
+             (str "controlled? asks about ONE native hiccup form — a vector "
+                  "whose head is a tag keyword. It was given " (pr-str form) ".")
+             :pass-a-native-hiccup-form
+             {:value form}))
+  (let [parsed   (codec/cached-parse (nth form 0))
+        props    (form-props form)
+        js-props (intent/with-frame l1-frame probe-dispatch
+                   (fn [] (codec/convert-props props parsed)))
+        tag      (.-tag parsed)]
+    (not (identical? tag (controlled/install! tag js-props)))))
+
+(defn revision
+  "The `::h/revision` value a native form carries, or nil.
+
+  A trigger and not an attribute: a change to it re-baselines a
+  controlled field to the model without remounting it (HD-019's reset
+  law). It is read **pre-merge-conversion**, off the author's own
+  attribute map after `:&` folds, which is where the codec reads it —
+  so a remainder cannot arm a reset the element's author never wrote,
+  here or there."
+  [form]
+  (get (form-props form) codec/revision-key))
+
+;; ---------------------------------------------------------------------------
+;; L1 — the canonical DOM comparator
+;; ---------------------------------------------------------------------------
+
+(defn canonical-dom
+  "Serialise a DOM node's subtree with every element's attribute names
+  **sorted** — the fairness gate two renderings are compared through.
+
+  `innerHTML` preserves insertion order, and two front ends write props
+  in different orders, so comparing it compares the SERIALISER rather
+  than the page. Sorting the names compares the DOM. Without it two
+  renderings can be declared equivalent while building different pages,
+  which is the whole reason a comparison needs a canonical form at all.
+
+  Extracted from the measurement lane's own gate
+  (`re-frame.bench.hicasso.lane/canonical`), unchanged in behaviour.
+  Comments are dropped; a node kind with no textual form records as
+  `#<nodeType>` rather than vanishing.
+
+  It answers the DOM's shape and nothing about React: two canonically
+  equal pages may still differ in lifecycle, identity and hydration —
+  distinct claims, each owed its own witness (004B, and the specification
+  §9 on naming the equality a witness proves)."
+  [node]
+  (when-not (and (some? node) (number? (.-nodeType node)))
+    (refuse! :rf.error/hicasso-test-not-a-dom-node
+             (str "canonical-dom serialises a DOM node's subtree; it was given "
+                  (pr-str node) ". " (tier-pointer :l2)
+                  " A semantic tree is compared with ordinary `=`.")
+             :pass-a-dom-node
+             {:value node}))
+  (let [out (array)]
+    (letfn [(walk [n]
+              (case (.-nodeType n)
+                1 (let [tag   (str/lower-case (.-tagName n))
+                        attrs (->> (array-seq (.-attributes n))
+                                   (map (fn [a] [(.-name a) (.-value a)]))
+                                   (sort-by first))]
+                    (.push out (str "<" tag))
+                    (doseq [[k v] attrs] (.push out (str " " k "=\"" v "\"")))
+                    (.push out ">")
+                    (doseq [c (array-seq (.-childNodes n))] (walk c))
+                    (.push out (str "</" tag ">")))
+                3 (.push out (.-nodeValue n))
+                8 nil
+                (.push out (str "#" (.-nodeType n)))))]
+      (doseq [c (array-seq (.-childNodes node))] (walk c)))
+    (.join out "")))
+
+;; ---------------------------------------------------------------------------
+;; L1 — intent capture
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private !capture-seq (atom 0))
+
+(defn capture-intents
+  "Run `f` with the frame's dispatched events captured, and answer
+  `{:value <f's value> :intents [event-v …]}`.
+
+  The capture is taken at **Spec 009's `:events` observation port** — the
+  substrate's own public stream — so the witness holds no hook into the
+  rendering under test and reads the same events whichever substrate
+  produced them. That is what let one script judge a Hicasso rendering, a
+  raw UIx rendering and a hydrated page against ONE stated expectation.
+
+  Events from other frames are ignored, so a capture taken while another
+  frame is live is still this frame's. The listener is registered when
+  `f` starts and removed when it returns, whatever `f` does, so neither a
+  seed before nor a teardown after can leak into the capture.
+
+  **State the expectation.** Comparing two captures to each other is
+  green for a drift they SHARE; comparing each to a written-out vector is
+  not. That is a merged-PR audit's finding, kept here because the helper
+  is what makes the cheap comparison easy:
+
+      (let [{:keys [intents]} (ht/capture-intents ::app #(run-the-script!))]
+        (is (= expected-intents intents)))
+
+  Synchronous: it captures what `f` dispatches before it returns. A
+  script whose steps span turns is the mounted tier's driver
+  (rf2-hic-027), and this is the port that one arms too."
+  [frame-kw f]
+  (let [log (atom [])
+        k   (keyword "re-frame.hicasso.test"
+                     (str "intent-capture-" (swap! !capture-seq inc)))]
+    (rf/register-listener! :events k
+                           (fn [record]
+                             (when (= frame-kw (:frame record))
+                               (swap! log conj (:event record)))))
+    (try
+      (let [v (f)] {:value v :intents @log})
+      (finally (rf/unregister-listener! :events k)))))
+
+;; ---------------------------------------------------------------------------
+;; L2 — the tree, per Spec 004B version 1
+;; ---------------------------------------------------------------------------
+
+(def tree-version
+  "The structural-tree schema version [[render]] stamps on its root —
+  Spec 004B version 1. Validated first by every consumer, which is what
+  makes a tree from a future emitter fail loud rather than read wrong."
+  1)
+
+(def ^:private tree-version-key :rf.ui/tree-version)
+
+(defn- opaque-prop
+  "004B §The opaque marker at a prop or handler site: a function records
+  as the marker; a non-data value NESTED inside a recorded value is
+  rejected rather than marked, because below the key the grammar names no
+  site and a marker written there would replace a value the author
+  wrote."
+  [k v path]
+  (letfn [(scan [x]
+            (cond
+              (fn? x)   (refuse! :rf.error/ui-tree-malformed
+                                 (str "a function is nested inside the value at "
+                                      (pr-str k) " — the opaque marker occupies a "
+                                      "SITE, never a value inside one, so this "
+                                      "value cannot be recorded.")
+                                 :hoist-the-function-to-its-own-site
+                                 {:key k :path path :value x})
+              (map? x)  (run! scan (vals x))
+              (coll? x) (run! scan x)
+              :else     nil))]
+    (if (fn? v)
+      {:rf.ui/opaque :fn}
+      (do (scan v) v))))
+
+(defn- react-element?
+  "Is `x` a React element — something the codec would hand to React
+  untouched? The `$$typeof` brand, which is React's own discriminator."
+  [x]
+  (and (object? x) (some? (unchecked-get x "$$typeof"))))
+
+(defn- refuse-opaque!
+  [id reason extra]
+  (refuse! id (str reason " " (tier-pointer :l3)) :assert-it-at-l3 extra))
+
+(defn- walk-props
+  "The props map a boundary call site passed, recorded verbatim with
+  004B's opaque rule applied at each key. `:key` and `:children` are
+  fields of the node rather than props, so they are not recorded here."
+  [props]
+  (persistent!
+    (reduce-kv (fn [m k v]
+                 (if (or (= :key k) (= :children k))
+                   m
+                   (assoc! m k (opaque-prop k v [k]))))
+               (transient {})
+               props)))
+
+(declare walk)
+
+(defn- walk-children
+  "Walk the children of a hiccup form from index `from`, splicing seqs and
+  dropping nils — the codec's own child grammar, in semantic space."
+  [form from]
+  (let [out (transient [])]
+    (letfn [(add! [x]
+              (cond
+                (or (nil? x) (false? x) (true? x)) nil
+                (seq? x)   (run! add! x)
+                (and (coll? x) (not (vector? x)) (not (map? x))) (run! add! x)
+                :else      (conj! out (walk x))))]
+      (loop [i from]
+        (when (< i (count form))
+          (add! (nth form i))
+          (recur (inc i)))))
+    (let [v (persistent! out)]
+      (when (seq v) v))))
+
+(defn- element-node
+  [form]
+  (let [parsed  (codec/cached-parse (nth form 0))
+        props   (form-props form)
+        classes (codec/class-names (.-className parsed) (:class props))
+        id      (or (.-id parsed) (:id props))
+        events  (persistent!
+                  (reduce-kv (fn [m k v]
+                               (if (intent/event-prop? k)
+                                 (assoc! m k (opaque-prop k v [k]))
+                                 m))
+                             (transient {})
+                             props))
+        attrs   (persistent!
+                  (reduce-kv (fn [m k v]
+                               (cond
+                                 (intent/event-prop? k) m
+                                 (= :key k)             m
+                                 (= :class k)           m
+                                 (= :id k)              m
+                                 (nil? v)               m
+                                 :else (assoc! m k (opaque-prop k v [k]))))
+                             (transient {})
+                             props))
+        attrs   (cond-> attrs
+                  (some? classes) (assoc :class classes)
+                  (some? id)      (assoc :id id))
+        children (walk-children form (if (map? (nth form 1 nil)) 2 1))]
+    (cond-> {:tag (keyword (.-tag parsed))}
+      (seq attrs)          (assoc :attrs attrs)
+      (seq events)         (assoc :events events)
+      (contains? props :key) (assoc :key (:key props))
+      (some? children)     (assoc :children children))))
+
+(defn- boundary-node
+  "A child boundary, recorded as the CALL it is: its view id, the props
+  the call site passed and the children the call site wrote. Its body
+  does not run — `mint-view!` retains no reference to it — so this node
+  claims nothing about what the child would render, and [[text]] over it
+  answers the call site's own children and no more."
+  [form]
+  (let [head     (nth form 0)
+        props    (form-props form)
+        children (walk-children form (if (map? (nth form 1 nil)) 2 1))]
+    (cond-> {:view-id (or (view-name head) :rf.hicasso/anonymous-boundary)}
+      (seq (walk-props props)) (assoc :props (walk-props props))
+      (contains? props :key)   (assoc :key (:key props))
+      (some? children)         (assoc :children children))))
+
+(defn- walk
+  "One hiccup value to one 004B node, or to text. The discrimination
+  order is 004B's, and every arm that cannot be modelled honestly
+  refuses."
+  [x]
+  (cond
+    (string? x)  x
+    (number? x)  (str x)
+
+    (delay? x)
+    (refuse-opaque! :rf.error/hicasso-deferred-read-at-boundary
+                    (str "an unforced `delay` reached a boundary crossing. "
+                         "Hicasso refuses it there rather than forcing it, "
+                         "because forcing an author's explicit deferral would "
+                         "change what their program means.")
+                    {:value x})
+
+    (react-element? x)
+    (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
+                    (str "a raw React element reached the semantic tree. L2 "
+                         "reads the hiccup a body wrote; a value React alone "
+                         "can interpret has no semantic form here.")
+                    {:value x})
+
+    (vector? x)
+    (let [head (nth x 0 nil)]
+      (cond
+        (keyword? head) (element-node x)
+
+        (codec/host-head? head)
+        (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
+                        (str "a `h/defhost` crossing (" (pr-str (view-name head))
+                             ") reached the semantic tree. What a foreign React "
+                             "component renders is React's answer, not "
+                             "Hicasso's, and L2 has no way to ask it.")
+                        {:host (view-name head) :value x})
+
+        (codec/boundary-head? head) (boundary-node x)
+
+        (fn? head)
+        (refuse! :rf.error/hicasso-test-plain-fn-head
+                 (str "a plain function is in hiccup head position. Hicasso "
+                      "refuses that outright (HD-016) rather than embedding it "
+                      "silently, so this kit refuses it too. Mint the boundary "
+                      "with `h/defview`, or — to run this body at L2 — pass it "
+                      "as the ROOT form of `render`.")
+                 :mint-the-boundary-or-render-it-as-the-root
+                 {:value x})
+
+        :else
+        (refuse! :rf.error/ui-tree-malformed
+                 (str "a hiccup vector's head must be a tag keyword, a "
+                      "`h/defview` boundary or a `h/defhost` crossing; got "
+                      (pr-str head) ".")
+                 :fix-the-head
+                 {:value x})))
+
+    :else
+    (refuse! :rf.error/ui-tree-malformed
+             (str "not a hiccup value — a node is a vector, and content is a "
+                  "string or a number; got " (pr-str x) ".")
+             :fix-the-child
+             {:value x})))
+
+;; ---------------------------------------------------------------------------
+;; L2 — the discardable read resolver
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private !probe-seq (atom 0))
+
+(defn- install-fixtures!
+  "Install one discardable cell per fixture query under `frame-kw`, and
+  answer the sub-keys installed.
+
+  A cell whose `.reaction` derefs to the fixture value is exactly what
+  `read-key!` looks for, so a fixtured read is a plain deref on the
+  runtime's own read path — no second resolver, no branch in the
+  collector, and nothing for a fixture to be inconsistent with. The frame
+  keyword is minted per call, so an installed key cannot collide with a
+  live cell, and [[render]] removes every one of them on the way out."
+  [frame-kw reads]
+  (let [keys' (mapv (fn [[query-v _]] [frame-kw query-v]) reads)]
+    (swap! collector/!cells
+           (fn [cells]
+             (reduce-kv (fn [m query-v v]
+                          (assoc m [frame-kw query-v] #js {"reaction" (atom v)}))
+                        cells
+                        reads)))
+    keys'))
+
+(defn- verify-fixtures!
+  "Refuse if the body read a key no fixture answered.
+
+  The read set is the runtime's own (`collector/reads-of` over the entry
+  the render resolved), so this asks what the body ACTUALLY read rather
+  than what its source appears to read — a read inside a `when` that was
+  not taken is correctly absent, and a read from an inlined helper is
+  correctly present."
+  [frame-kw reads entry]
+  (let [supplied (into #{} (map (fn [[q _]] [frame-kw q])) reads)
+        missing  (remove supplied (collector/reads-of entry))]
+    (when (seq missing)
+      (refuse! :rf.error/hicasso-test-missing-read-fixture
+               (str "the body read " (count missing) " subscription"
+                    (when (> (count missing) 1) "s")
+                    " no fixture answers: "
+                    (str/join ", " (map (comp pr-str second) missing))
+                    ". A missing fixture refuses rather than resolving to nil, "
+                    "because a nil would make a body that reads the wrong key "
+                    "look exactly like one that reads the right key and finds "
+                    "nothing.")
+               :add-the-query-to-reads
+               {:missing   (mapv second missing)
+                :supplied  (mapv first reads)
+                :phase     :after-body-run}))))
+
+(defn render
+  "Run one hook-free Hicasso **body** under injected read fixtures, and
+  answer its versioned semantic tree.
+
+      (ht/render [todo-row-body {:id 1}]
+                 {:reads {[:todo/by-id 1] {:text \"milk\"}}})
+      ;; => {:rf.ui/tree-version 1
+      ;;     :tag :li
+      ;;     :events {:on-click [:todo/toggle 1]}
+      ;;     :children [\"milk\"]}
+
+  `form` is `[body-fn props & children]` — the ordinary hiccup call
+  spelling, with the **body function** in head position. `opts` carries
+  one key, `:reads`, the fixture map from query vector to value.
+
+  ## What it is
+
+  The body runs on the runtime's own body-run path
+  (`re-frame.hicasso.impl.collector/render-body`), so the generation
+  fence, the ambient-read extent (I7) and the read-set accounting are the
+  real ones — a read escaping into a callback or a timer refuses here
+  exactly as it refuses in a browser. The hiccup that body returned is
+  then walked into the Spec 004B tree, INSIDE the same render window, so
+  a `for` inside the body realises where the runtime realises it and a
+  read inside that `for` is legal for the same reason it is legal on a
+  page.
+
+  It is not a renderer. No React element is created, no hook runs, no
+  dispatcher is installed, and nothing is committed, mounted or painted.
+
+  ## What it refuses
+
+  - **A minted `h/defview` head.** `mint-view!` closes over the body and
+    keeps no reference to it, so a minted head cannot be run without
+    React — and running it under React is L3. Name the body
+    (`(defn row-body [props] …)` and `(h/defview row [p] (row-body p))`)
+    and render the body, which runs the view AS WRITTEN.
+  - **A `h/defhost` crossing, a raw React element, an unforced `delay`**,
+    anywhere in the tree — opaque, with a pointer to L3.
+  - **A read no fixture answers** — see [[render]]'s `:reads`.
+
+  ## Frame scope
+
+  It takes no frame and binds none. The fixtures resolve on a probe frame
+  keyword minted for this call and removed when it returns; frame scope
+  for the events and subscriptions AROUND a view test stays the
+  programmer's ordinary `rf/with-new-frame` / `rf/with-frame` bracket."
+  ([form] (render form {}))
+  ([form {:keys [reads] :or {reads {}}}]
+   (when-not (and (vector? form) (seq form))
+     (refuse! :rf.error/hicasso-test-not-a-render-form
+              (str "render takes a hiccup form `[body-fn props & children]`; "
+                   "it was given " (pr-str form) ".")
+              :pass-a-hiccup-form
+              {:value form}))
+   (let [head (nth form 0)]
+     (when (codec/boundary-head? head)
+       (refuse! :rf.error/hicasso-test-boundary-body-not-retained
+                (str "`" (view-name head) "` is a minted boundary, and a minted "
+                     "boundary does not retain its body — `mint-view!` closes "
+                     "over it and keeps no reference, so there is nothing here "
+                     "to run without React. Render the BODY: write it as a "
+                     "named fn and mint the view from it, or assert this "
+                     "boundary mounted. " (tier-pointer :l3))
+                :render-the-body-fn-or-mount-at-l3
+                {:view (view-name head)}))
+     (when (codec/host-head? head)
+       (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
+                       (str "`" (view-name head) "` is a `h/defhost` crossing. "
+                            "What a foreign React component renders is React's "
+                            "answer, not Hicasso's.")
+                       {:host (view-name head)}))
+     (when-not (fn? head)
+       (refuse! :rf.error/hicasso-test-not-a-body
+                (str "render's head is the BODY FUNCTION a `h/defview` is "
+                     "minted from — `(fn [props] …)`. It was given "
+                     (pr-str head) ".")
+                :pass-the-body-fn
+                {:value head}))
+     (when-not (map? reads)
+       (refuse! :rf.error/hicasso-test-bad-reads
+                (str ":reads is the fixture map from query vector to value; it "
+                     "was given " (pr-str reads) ".")
+                :pass-a-map-of-query-to-value
+                {:value reads}))
+     (let [frame-kw (keyword "re-frame.hicasso.test"
+                             (str "probe-" (swap! !probe-seq inc)))
+           props    (let [p (nth form 1 nil)] (if (map? p) p {}))
+           props    (if-some [cs (walk-children form (if (map? (nth form 1 nil)) 2 1))]
+                      (assoc props :children cs)
+                      props)
+           !tree    (volatile! nil)
+           keys'    (install-fixtures! frame-kw reads)]
+       (try
+         (collector/render-body
+           frame-kw
+           (fn hicasso-test-body [p] (vreset! !tree (walk (head p))) nil)
+           props)
+         (verify-fixtures! frame-kw reads (collector/last-reads))
+         (let [tree @!tree]
+           (if (map? tree)
+             (assoc tree tree-version-key tree-version)
+             ;; A body that answered text, or nothing, roots in a fragment —
+             ;; 004B §Versioning: the version gate lives on a MAP root.
+             (cond-> {tree-version-key tree-version}
+               (some? tree) (assoc :children [tree]))))
+         (finally
+           (swap! collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
+
+;; ---------------------------------------------------------------------------
+;; L2 — the projections (004B §Projections; `re-frame.freehand.test`'s
+;; semantics, over the same schema)
+;; ---------------------------------------------------------------------------
+
+(defn- node-kind
+  "Discriminate a MAP node per 004B's pinned order: `:tag` → element,
+  else `:view-id` → view boundary, else `:children` → fragment. More than
+  one primary, or none of them, is malformed — a projection over a
+  malformed node fails loud rather than reading a plausible answer off a
+  broken tree."
+  [m]
+  (let [primaries (cond-> 0
+                    (contains? m :tag)     inc
+                    (contains? m :view-id) inc)]
+    (when (> primaries 1)
+      (refuse! :rf.error/ui-tree-malformed
+               (str "a tree node may carry only ONE of :tag / :view-id (the "
+                    "closed node set); got "
+                    (pr-str (select-keys m [:tag :view-id])))
+               :no-recovery
+               {:value m}))
+    (cond
+      (contains? m :tag)      :element
+      (contains? m :view-id)  :view-boundary
+      (contains? m :children) :fragment
+      (contains? m tree-version-key) :fragment
+      :else
+      (refuse! :rf.error/ui-tree-malformed
+               (str "a map node needs a discriminating field (:tag / :view-id "
+                    "/ :children); got " (pr-str m))
+               :no-recovery
+               {:value m}))))
+
+(defn- not-a-node!
+  [got]
+  (refuse! :rf.error/ui-tree-malformed
+           (str "not a structural tree node — a projection takes a node (the "
+                "value ht/render returns, or any node reached by traversing it "
+                "with (tree-seq map? :children tree)); got " (pr-str got) ".")
+           :no-recovery
+           {:value got}))
+
+(defn find-all
+  "Every node under `tree` (the root included) for which `pred` is truthy,
+  in document order; an empty vector when nothing matches.
+
+  `pred`'s domain is **node maps only** — a raw
+  `(tree-seq map? :children tree)` walk yields text as host strings, and
+  those are dropped before the predicate runs, so a membership test reads
+  the same on a tree with text and one without. Read fields:
+  `(:tag %)` for an element, `(:view-id %)` for a boundary call."
+  [tree pred]
+  (filterv pred (filter map? (tree-seq map? :children tree))))
+
+(defn find
+  "The FIRST node under `tree` (the root included, document order) for
+  which `pred` is truthy, or nil. `nil` threads through a missed match,
+  so `(ht/attrs (ht/find tree p))` nil-puns rather than throwing."
+  [tree pred]
+  (first (find-all tree pred)))
+
+(defn attrs
+  "The MERGED attribute projection of a node — the ONE attribute read:
+
+    element        → `:attrs` merged with `:events` (collision-free by
+                     construction: every `:on-*` name is routed to
+                     `:events`, so the domains are disjoint)
+    view-boundary  → the `:props` the call site passed
+    fragment       → `{}` (no attributes exist; total, not an error)
+    nil            → nil
+
+  A keyword lookup on a node reads its FIELDS, never its attributes:
+  `(:on-click node)` is a field miss. An intent assertion is an equality
+  check — `(is (= [:cart/add 42] (:on-click (ht/attrs node))))`."
+  [node]
+  (cond
+    (nil? node)    nil
+    (string? node) (refuse! :rf.error/ui-tree-malformed
+                            (str "text content is not a node — attrs projects "
+                                 "map nodes; read text with ht/text on the "
+                                 "PARENT node.")
+                            :no-recovery
+                            {:value node})
+    (map? node)    (case (node-kind node)
+                     :element       (merge {} (:attrs node) (:events node))
+                     :view-boundary (or (:props node) {})
+                     :fragment      {})
+    :else          (not-a-node! node)))
+
+(defn- text*
+  [n]
+  (apply str
+         (map (fn [c]
+                (cond
+                  (string? c) c
+                  (map? c)    (text* c)
+                  :else (refuse! :rf.error/ui-tree-malformed
+                                 (str "a :children entry must be a node map or "
+                                      "text content (a string); got "
+                                      (pr-str c) ".")
+                                 :no-recovery
+                                 {:value c})))
+              (:children n))))
+
+(defn text
+  "The concatenation of `node`'s text descendants in document order,
+  descending through elements, fragments and view-boundary calls alike.
+  No whitespace normalization beyond what the tree carries. `nil` → nil.
+
+  Over a **view-boundary** node this answers the children the CALL SITE
+  wrote, never the child's own rendering — the child's body did not run
+  (see the namespace docstring §Children)."
+  [node]
+  (cond
+    (nil? node)    nil
+    (string? node) (refuse! :rf.error/ui-tree-malformed
+                            (str "text content is not a node — it IS the text; "
+                                 "call ht/text on the node that contains it.")
+                            :no-recovery
+                            {:value node})
+    (map? node)    (do (node-kind node) (text* node))
+    :else          (not-a-node! node)))
+
+(defn intents
+  "Every **event vector** the tree carries, in document order — one
+  rendering's intent inventory, as data.
+
+  The pure counterpart of [[capture-intents]]: that one says what a page
+  DID dispatch when it was touched, this one says what it OFFERS to
+  dispatch. Both are event vectors, so a script's stated expectation and
+  a tree's inventory are comparable values — and neither stands in for
+  the other, because a site can exist and never fire and a fired intent
+  can carry a materialized value no tree can hold.
+
+  Only handler sites holding a literal intent VECTOR are answered.
+  A key-map site contributes each of its branches' vectors; a site
+  carrying `{:rf.ui/opaque :fn}` contributes nothing, because a function
+  is exactly the site whose intent is not data."
+  [tree]
+  (into []
+        (comp (filter map?)
+              (mapcat (fn [n] (vals (:events n))))
+              (mapcat (fn [v] (cond (vector? v) [v]
+                                    (map? v)    (filterv vector? (vals v))
+                                    :else       nil))))
+        (tree-seq map? :children tree)))
