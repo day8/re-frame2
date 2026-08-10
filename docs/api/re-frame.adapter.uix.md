@@ -91,7 +91,7 @@ For narrative coverage and the substrate decision set, see [Use UIx or reagent-s
   `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx) are its two ergonomic spellings — one primitive, three faces.
 
   - Frame resolution matches `use-subscribe`: `with-frame` dynamic scope first, then the surrounding `frame-provider` / `frame-root` via React context. It raises `:rf.error/no-frame-context` when neither is in scope.
-  - The returned map is reference-stable across re-renders for the same resolved frame (safe in effect deps and child props); a provider swap re-renders the caller and yields a map locked to the new frame.
+  - The returned map is reference-stable across re-renders for the same resolved frame *incarnation* (safe in effect deps and child props). A provider swap re-renders the caller and yields a map locked to the new frame — and so does destroying the resolved frame and creating another under the same id, because a frame keyword is an address and the ops bundle is pinned to the incarnation it was captured against.
   - No options map, no variants — for an explicit frame, call `(rf/capture-frame frame-id)` directly.
 - **Example**:
   ```clojure
