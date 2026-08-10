@@ -43,11 +43,15 @@ Worker may close its own bead after opening the PR with a cross-ref reason.
 Before dispatching, grep for the alleged broken symbol / missing file / stale
 convention — if already landed, close as `verified-duplicate of #NNNN`.
 
-**PRs.** Workers open; mayor reviews and merges on green (or `--admin` when a
-pending check is structurally irrelevant to the diff — name the gate, name why
-the diff cannot affect it, then merge; a failing test on the touched surface is
-never an --admin candidate). Post-merge: `git pull --ff-only origin main` and check
-`HEAD` actually moved, verify worker
+**PRs.** Workers open; mayor reviews and merges on green — on the whole merge
+criterion, no clause of which has an `--admin` bypass. A pending check is a
+re-check on the next signal, however irrelevant to the diff it looks; a failing
+test on the touched surface is never an `--admin` candidate. The only `--admin`
+this method sanctions is `MERGEABLE=UNKNOWN`, GitHub's own merge-state recompute
+lag — not a check, so it bypasses nothing — and only once the criterion is
+already met. Post-merge: `git pull --ff-only origin main`, then verify the tree
+rather than the message — `git rev-parse HEAD` must equal
+`git rev-parse origin/main` — verify the worker
 closed the bead (close it if not), mention follow-on beads filed by the
 worker.
 
@@ -69,8 +73,9 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   a linter, a drift-check). Merge only on a CI rollup that is complete as well as
   clean (next bullet). A failing *touched-surface* gate is never an `--admin`
   bypass — dispatch a fix-worker to the SAME branch that runs the ACTUAL failing
-  gate. (`--admin` is only for a pending check that structurally cannot touch the
-  diff, e.g. mergeable-recompute lag.)
+  gate. (`--admin` bypasses no clause of that criterion. It is for GitHub's own
+  mergeable-recompute lag, `MERGEABLE=UNKNOWN`, which is not a check at all, and
+  only once every clause is already met.)
 - *Zero failures is not green; it is only the absence of bad news.* An EMPTY
   rollup satisfies "0 fail AND 0 pending" perfectly — that is exactly what a PR
   reports in the seconds before its workflow runs are created, and exactly what
@@ -130,7 +135,14 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   non-empty total in the band the repo actually produces; every check state in
   SUCCESS or SKIPPED; nothing nonterminal in the rollup; every workflow run at the
   PR's current head sha COMPLETED; and a check set computed against the matrix that
-  is on `main` now.
+  is on `main` now. There is no sixth clause admitting an exception, and `--admin`
+  is not one. A pending check fails clauses 2 and 3 however structurally irrelevant
+  to the diff it looks, and the whole cost of respecting them is one re-check on the
+  next signal — which is a smaller price than the judgement call, since every clause
+  above exists because someone was confident a signal could not matter and was wrong.
+  The one `--admin` this method sanctions is for `MERGEABLE=UNKNOWN`, GitHub's own
+  merge-state recompute lag: that is not a check, so it bypasses no clause, and it
+  waits until all five are met like everything else.
 - *"Base branch was modified" usually means stale — until something is moving the
   base.* The rejection reads like a lost race, so the reflex is to try again, and
   seven retries here proved otherwise: the branch was simply behind, and the remedy
@@ -269,7 +281,7 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 - 60m — reread this file + siblings; reassert posture to operator
 - 60m — worktree hygiene (worker worktrees, origin orphan branches, stale tracking refs)
 - 30m — cluster review (3+ same-surface beads → one PR; 8–12 sweet spot)
-- 30m — merge PRs (green or structurally-irrelevant `--admin`)
+- 30m — merge PRs (green on the whole criterion; no clause has an `--admin` bypass)
 - 15m — bead dispatch pass (filter out decisions/EPICs/release-coupled/v1.x/hot-zone)
 
 Codify the loop bodies as commands (this repo: `.claude/commands/mayor-*.md`)

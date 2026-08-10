@@ -169,18 +169,29 @@ Before merging, the mayor checks:
 - failure output remains actionable;
 - CI is green on all five clauses of the merge criterion — "no failures" is not
   one of them, and is not green. The clauses and the near-miss behind each are in
-  [`bootstrap.md`](bootstrap.md)'s "hard-won" list;
+  [`bootstrap.md`](bootstrap.md)'s "hard-won" list, and nothing bypasses them.
+  `--admin` is not a way past a clause: it is for GitHub's own mergeable-recompute
+  lag, which is not a check, and only once all five clauses are already met;
 - bead state will be updated after merge.
 
-After merge, the mayor pulls main — verifying `HEAD` moved, not the line `git pull`
-printed — and closes the bead with a concrete reason.
+After merge, the mayor pulls main and verifies the tree rather than the line
+`git pull` printed: `git rev-parse HEAD` must equal `git rev-parse origin/main`.
+Movement is the wrong test — an already-current checkout legitimately does not
+move, and moving to the wrong commit proves nothing. Then it closes the bead
+with a concrete reason.
 
 This is the difference between "a lot of agents did things" and "the
 project advanced."
 
-**Merge trap:** `gh pr merge --delete-branch` fails when the worker
-worktree still holds the branch. Use `gh pr merge --squash --admin` (no
-`--delete-branch`), then `git push origin --delete <branch>`, then leave
+**Merge trap:** `--delete-branch` does not survive a worker worktree. The
+merge itself lands — six in a row here, every one reaching `MERGED` — but a
+branch still checked out in a worktree cannot be deleted locally, and gh
+abandons the remote deletion along with it; five of those six were still on
+the remote afterwards. So merge with `gh pr merge --rebase --delete-branch`
+(this repo rebases — `--squash` would collapse a worker's commits into one),
+verify `MERGED`, then `git push origin --delete <branch>` yourself. None of
+that needs `--admin`: none of the six used it, and a branch-cleanup annoyance
+is not grounds to bypass a merge criterion. Then leave
 local cleanup until the worker has **reported done**. Not until it looks
 done: a merged PR and a clean tree are both routinely true of a worker
 still running its gates, and reaping on either destroys that run. Full
