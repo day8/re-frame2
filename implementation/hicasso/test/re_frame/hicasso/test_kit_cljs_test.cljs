@@ -40,6 +40,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.error :as error]
             [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
@@ -104,6 +105,46 @@
             :where       're-frame.hicasso.test
             :recovery    :pass-the-body-fn}
            (refusal (outcome #(ht/render [:not-a-body-fn 1])) [])))))
+
+(deftest a-refusal-s-payload-cannot-rewrite-the-identity-it-rides-on
+  ;; The constructor directly, because no refusal site in the kit spells an
+  ;; identity field in its payload today — and the whole point is that none
+  ;; can, including the one somebody writes next year. Driving the weakest
+  ;; case means handing it the four keys it guarantees, not a well-formed
+  ;; payload that would pass under either merge order (rf2-1oan).
+  (let [o (outcome #(#'ht/refuse! :rf.error/hicasso-test-not-a-body
+                                  "render's head is the BODY FUNCTION."
+                                  :pass-the-body-fn
+                                  {:rf.error/id :rf.error/hicasso-true-child
+                                   :where       'app.impostor/elsewhere
+                                   :reason      "replaced"
+                                   :recovery    nil
+                                   :value       :the-class-s-own-slot}))]
+
+    (testing "the identity is the constructor's, whole — a payload spelling
+              any of the four loses, and the class's own slot rides alongside
+              untouched. It used to merge LAST, so this call emitted the
+              impostor's id, a nil recovery and no raising site at all"
+      (is (= {:rf.error/id :rf.error/hicasso-test-not-a-body
+              :where       're-frame.hicasso.test
+              :reason      "render's head is the BODY FUNCTION."
+              :recovery    :pass-the-body-fn
+              :value       :the-class-s-own-slot}
+             (:refused o))
+          "the whole ex-data, so an overwritten field cannot hide behind a
+           select-keys that never looked at it"))
+
+    (testing "and the message still names the id the map carries — the parity
+              this kit exists to provide is that its refusal IS the runtime's,
+              and a map and a message disagreeing about which refusal occurred
+              defeats that before a reader gets to the id"
+      (is (= "render's head is the BODY FUNCTION. [:rf.error/hicasso-test-not-a-body]"
+             (:message o))))
+
+    (testing "and the emitted map satisfies the PACKAGE's completeness rule,
+              read from `impl.error` rather than copied — the kit's shape and
+              the runtime's are one shape or the parity is a coincidence"
+      (is (= [] (error/missing-fields (:refused o)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the boundary ABI
