@@ -27,7 +27,20 @@
   Frames are isolated contexts. The two roots below sit under two frames
   and render ONE view, mounted twice; nothing takes a frame-id as a view
   argument. That is what makes \"root A's teardown must not reach root
-  B\" a claim about isolation rather than about bookkeeping."
+  B\" a claim about isolation rather than about bookkeeping.
+
+  ## This suite takes its own containers down
+
+  Every other `fresh-container!` suite in the package hands its nodes to
+  `impl.mount/release!`, the fixture door that detaches the container and
+  empties the runtime. This one cannot: what it is measuring is the
+  PUBLIC teardown, whose contract is that the caller's node survives
+  (rf2-31xm), so the very act that would clean up is the act under test.
+  The suite therefore removes its own nodes, in [[detach!]] — and only in
+  `finally`, AFTER the readings that prove the door left them alone. The
+  reset fixture is no help here: it restores registrars and frames and
+  never touches the document, and the document is shared with every other
+  browser suite."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -109,6 +122,25 @@
 
 (defn- attr-at [handle sel a] (some-> (node-at handle sel) (.getAttribute a)))
 
+(defn- detach!
+  "Remove a container THIS suite minted, once every reading of it is
+  taken. The mirror of `fresh-container!`, and the reason it is written
+  out here rather than borrowed: `impl.mount/release!` is the door that
+  would do it, and it also empties the runtime — total teardown, right
+  for a fixture that owns the page and exactly the meaning rf2-31xm took
+  off the public facade.
+
+  **Placement is the whole of it.** Every call sits in `finally`, after
+  the assertions that the container was still connected once its root
+  came down. One line earlier and it would delete the proof of the
+  behaviour this file exists to witness."
+  [handle]
+  (when-some [c (:container handle)]
+    (when-some [p (.-parentNode c)] (.removeChild p c)))
+  nil)
+
+(defn- connected? [handle] (.-isConnected (:container handle)))
+
 ;; ---------------------------------------------------------------------------
 ;; W1 (rf2-31xm) — tearing one root down must not reach the other
 ;; ---------------------------------------------------------------------------
@@ -149,12 +181,12 @@
               "root B stopped repainting when root A was torn down"))
 
         (testing "root B's mount point survives too"
-          (is (true? (.-isConnected (:container b)))))
+          (is (true? (connected? b))))
 
         (testing "and so does root A's — the container was the CALLER's
                   node, handed to `root!`, and a teardown door may not
                   delete a node it did not create"
-          (is (true? (.-isConnected (:container a)))
+          (is (true? (connected? a))
               "tearing down root A removed the caller's own container from
                the document"))
 
@@ -167,6 +199,11 @@
 
         (finally
           (h/unmount! b)
+          (detach! a)
+          (detach! b)
+          (is (= [false false] [(connected? a) (connected? b)])
+              "this witness left one of its own containers in the shared
+               browser-test document")
           (collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
@@ -208,4 +245,8 @@
 
         (finally
           (h/unmount! a)
+          (detach! a)
+          (is (false? (connected? a))
+              "this witness left its own container in the shared
+               browser-test document")
           (collector/reset-runtime!))))))
