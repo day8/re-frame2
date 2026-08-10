@@ -5,8 +5,10 @@ over in the browser. You do not want to write the UI twice, and you do not
 want a second HTML emitter that drifts from what the client renders.
 [Hicasso](glossary.md#hicasso) renders the same views on the server that you
 mount in the browser. Each host and native component either renders
-deterministic HTML or declares Client-only with a fallback — no silent empty
-hole. The browser adopts the server's DOM; it does not repaint over it.
+deterministic HTML or is Client-only; a Client-only surface leaves its
+declared fallback in the server bytes, or — the bare default — nothing at
+all, until the browser takes over. The browser adopts the server's DOM; it
+does not repaint over it.
 
 > **One renderer runs in two places, and React's own adoption judges the
 > result.**
@@ -19,14 +21,19 @@ parallel string emitter and no JVM twin of the view layer. With one
 renderer, hydration parity holds by construction. Parity that is only a
 claim admits a whole class of bug.
 
-One renderer serves every surface. Two policies govern each surface:
+One renderer serves every surface. Two policies govern each surface, and
+between them they produce three outcomes in the server bytes — the rendered
+markup, a fallback, or nothing:
 
 - **Render** — the surface produces deterministic React server bytes from an
   immutable request snapshot. Hydration adopts those bytes.
-- **Client-only** — the surface refuses server use at its declaration and
-  names its recovery: a deterministic fallback in the server bytes, then the
-  live component in the browser after adoption completes. A silent `nil`
-  return is not a policy.
+- **Client-only** — the surface refuses server use at its declaration. What
+  stands in its place is a deterministic fallback, if the declaration carries
+  one, and otherwise nothing: the fallback is optional, and bare Client-only
+  is the default. Either way the live component arrives in the browser after
+  adoption completes. An empty region is conservative rather than broken —
+  but it is genuinely empty, so a surface whose absence would show wants a
+  fallback declared.
 
 | Surface | Policy |
 |---|---|
