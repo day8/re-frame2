@@ -140,6 +140,7 @@
   one of them was reached at runtime, so the roster cannot drift into a
   list of things the suite used to do."
   #{:activity/hide-releases
+    :activity/hide-inside-a-deferred-notification-window
     :activity/hidden-render-publishes-nothing
     :activity/reveal-reacquires
     :activity/conditional-read-moved-while-hidden
@@ -190,6 +191,28 @@
   "The registrations currently reading `query-v`, as a snapshot vector."
   [query-v]
   (inventory/cell-readers (k query-v)))
+
+(defn- reader-count
+  "How many registrations read `query-v`.
+
+  **Assertions here take the COUNT and never the vector**, and that is a
+  legibility repair measured on this file's own sabotage run rather than
+  a preference. A registration holds the cells it acquired and each of
+  those holds the registration back on its reader list, so the object
+  graph is cyclic: `cljs.test`'s failure printer walks it and dies, and
+  every `(= [] (readers …))` red arrived as
+  `RangeError: Maximum call stack size exceeded`, naming nothing. A
+  witness whose red output is a stack overflow is not a witness.
+
+  Every positive identity claim below is spelled
+  `(is (true? (identical? a b)))` rather than `(is (identical? a b))` for
+  exactly the same reason: `cljs.test` reports a failing predicate's
+  EVALUATED ARGUMENTS, so the first form reports `(not (true? false))`
+  and the second reports the cyclic graph. A helper cannot fix that —
+  `(is (same? a b))` would report the two registrations again — so the
+  wrapping is written out at each site."
+  [query-v]
+  (count (readers query-v)))
 
 (defn- sole-reader
   "The one registration reading `query-v`, or nil when that is not the
@@ -293,7 +316,7 @@
                 the instant the cleanup runs, and the key is read by
                 nobody. The cell survives only until its reaper, which is
                 why `:cells` is 1 here and 0 after quiescence"
-        (is (= [] (readers [:acs/a])))
+        (is (zero? (reader-count [:acs/a])))
         (is (= {:cells 1 :cell-refs 0 :boundaries 0 :edges 0} (ownership))))
 
       (testing "and the released registration is DEAF, which is the half a
@@ -308,7 +331,7 @@
                 incarnation, its app-db is intact, and the write above
                 landed in it — a hide releases this arm's ownership and
                 touches nothing the substrate owns"
-        (is (identical? token (frame/frame-incarnation-token frame-id))
+        (is (true? (identical? token (frame/frame-incarnation-token frame-id)))
             "same incarnation — a hide is not a teardown")
         (is (= 3 (:a (app-db)))
             "seeded 1, bumped twice, and the second bump landed AFTER the
@@ -324,6 +347,73 @@
                          retained a cell would show here"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
                         (inventory/residue))))
+               (done))))))
+
+;; ---------------------------------------------------------------------------
+;; 1b. A hide landing inside a DEFERRED notification window
+;; ---------------------------------------------------------------------------
+
+(defn- writing-body
+  "A body that writes to `:acs/a` on its first run and on no later one.
+
+  A write taken while a body is running is the one case
+  [[re-frame.hicasso.impl.collector/flush!]] defers: an `onStoreChange`
+  fired from inside somebody's render is a render-phase update on another
+  component, which React rejects, so the readers are collected NOW and
+  notified a macrotask later. That gap is a window a hide can land in,
+  and an Activity hide is exactly the thing that lands in it — React
+  hides a subtree while its siblings are still rendering.
+
+  The flag is what keeps the generation fence terminating: the fence
+  re-runs a body that observed a new commit, and a body that writes on
+  every run is the exhaustion case `render-body` refuses outright."
+  [!wrote?]
+  (fn writer [_]
+    (when-not @!wrote?
+      (reset! !wrote? true)
+      (rf/with-frame frame-id (rf/dispatch-sync [:acs/bump :a])))
+    [:p "writer"]))
+
+(deftest a-hide-landing-inside-a-deferred-notification-window-is-not-notified
+  ;; **This row is the only place `unsubscribe`'s notifier clear is
+  ;; load-bearing, and finding that out is what it is for.** Measured:
+  ;; deleting `(set! (.-notify reg) nil)` reds nothing else in this file,
+  ;; and deleting the membership release reds nothing that depends on
+  ;; deafness — because on the synchronous path each mechanism alone is
+  ;; sufficient. `flush!` reads the reader lists BEFORE the deferral, so
+  ;; on this path the release has already happened and cannot help; the
+  ;; nil notifier is the whole of the guard.
+  (async done
+    (seeded!)
+    (let [visible (commit! (render! panel-body))
+          !wrote? (atom false)]
+
+      ;; A second boundary renders and writes from inside its own body, so
+      ;; the notification `visible` has earned is DEFERRED rather than
+      ;; delivered inline.
+      (render! (writing-body !wrote?))
+
+      (testing "the premise: the write landed inside a render, so the
+                notification is owed and not yet delivered. An inline
+                notification here would defeat the row by leaving no window
+                for the hide to land in"
+        (is (true? @!wrote?))
+        (is (zero? @(:notified visible))))
+
+      ;; The hide lands in the window — after the readers were collected
+      ;; and before they are notified.
+      (hide! visible)
+
+      (exercised! :activity/hide-inside-a-deferred-notification-window)
+
+      (.then (inventory/quiesced!)
+             (fn [_]
+               (testing "and the deferred notification is not delivered to
+                         it. React has torn this subscription down; calling
+                         its `onStoreChange` now is a store notification to
+                         a boundary that no longer exists, which React
+                         answers with a warning and a re-render of nothing"
+                 (is (zero? @(:notified visible))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -355,9 +445,9 @@
                   it probes reads, acquires no durable ownership, and
                   installs no reverse edge — three of them, on two keys,
                   leave every reader list empty"
-          (is (= [] (readers [:acs/which])))
-          (is (= [] (readers [:acs/a])))
-          (is (= [] (readers [:acs/b])))
+          (is (zero? (reader-count [:acs/which])))
+          (is (zero? (reader-count [:acs/a])))
+          (is (zero? (reader-count [:acs/b])))
           (is (= 0 (:cell-refs (ownership))))
           (is (= 0 (:boundaries (ownership))))
           (is (= 0 (:edges (ownership)))))
@@ -485,13 +575,13 @@
                 predecessor's membership back on a key the current body
                 never touches — a subscription nothing will ever release,
                 notifying a boundary that does not read it"
-        (is (= [] (readers [:acs/a]))))
+        (is (zero? (reader-count [:acs/a]))))
 
       (testing "and the CURRENT read set is owned, by the reveal's own
                 registration, on both of its keys"
         (is (some? reveal-reg))
         (is (not (identical? pre-hide reveal-reg)))
-        (is (identical? reveal-reg (sole-reader [:acs/which]))
+        (is (true? (identical? reveal-reg (sole-reader [:acs/which])))
             "one registration per boundary, holding both its keys — not two
              registrations holding one each")
         (is (= #{(k [:acs/which]) (k [:acs/b])}
@@ -541,7 +631,7 @@
         (is (= 1 (count (readers [:acs/a])))
             "the assertion the real row makes — `(= [] (readers [:acs/a]))`
              — is FALSE here, which is what makes that row a witness")
-        (is (identical? pre-hide (first (readers [:acs/a])))))
+        (is (true? (identical? pre-hide (first (readers [:acs/a]))))))
 
       (testing "and the census the real row pins moves with it: two
                 boundaries where there should be one, four memberships
@@ -598,10 +688,10 @@
                 reads, and does not acquire the key it does"
         (is (= 1 (count (readers [:acs/a])))
             "resurrected — the assertion the real row makes is FALSE here")
-        (is (= [] (readers [:acs/b]))
+        (is (zero? (reader-count [:acs/b]))
             "and the current read is owned by nobody, so a write to it
              re-renders nothing")
-        (is (identical? (sole-reader [:acs/a]) (sole-reader [:acs/which]))
+        (is (true? (identical? (sole-reader [:acs/a]) (sole-reader [:acs/which])))
             "one registration, holding the PRE-HIDE pair"))
       (hide! stale))))
 
@@ -704,7 +794,7 @@
           (is (some? reg)
               (str "cycle " cycle ": and exactly one registration holds it"))
           (hide! committed)
-          (is (= [] (readers [:acs/a]))
+          (is (zero? (reader-count [:acs/a]))
               (str "cycle " cycle ": the suspension releases it whole"))))
 
       (testing "four cycles, four distinct registrations — no cycle reused a
@@ -712,11 +802,15 @@
                 rebuilt the subscription rather than finding one still
                 installed"
         (is (= 4 (count @!regs)))
-        (is (every? some? @!regs))
-        (is (apply distinct? @!regs)
-            "distinct by identity: a JS object without IEquiv compares
-             `identical?`, so this is the identity statement and not a
-             value one"))
+        (is (= 4 (count (remove nil? @!regs))))
+        ;; The set is built OUTSIDE the assertion so a failure reports a
+        ;; number rather than a set of cyclic registrations. A JS object
+        ;; carries no IEquiv, so `into #{}` de-duplicates by `identical?`
+        ;; and this count IS the identity statement.
+        (let [distinct-regs (count (into #{} @!regs))]
+          (is (= 4 distinct-regs)
+              "four reveals, four registration identities — no cycle found a
+               subscription still installed")))
 
       (exercised! :suspense/repeated-hide-reveal-cycles)
 
@@ -756,7 +850,7 @@
                 list and the entry's claim is dropped, but the entry
                 OBJECT survives in React's retained fiber, and its
                 `subscribe` is what a reveal calls"
-        (is (= [] (readers [:acs/a])))
+        (is (zero? (reader-count [:acs/a])))
         (is (= 0 (entry-refs entry)))
         (is (= #{(k [:acs/a])} (inventory/boundary-reads connected))
             "the released registration still answers its read set — the
