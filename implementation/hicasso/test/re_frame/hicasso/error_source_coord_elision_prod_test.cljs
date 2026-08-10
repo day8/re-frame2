@@ -65,7 +65,7 @@
 (deftest a-refusal-under-prod-carries-no-view-and-no-source
   (let [data (try
                (error/fail! :rf.error/hicasso-empty-vector
-                            'front.codec/vec->element
+                            're-frame.hicasso.impl.codec/vec->element
                             "A hiccup vector must have a head."
                             :supply-a-hiccup-head
                             {})
@@ -74,7 +74,7 @@
     (testing "the four required fields survive — production loses the
               coordinate, never the diagnostic"
       (is (= {:rf.error/id :rf.error/hicasso-empty-vector
-              :where       'front.codec/vec->element
+              :where       're-frame.hicasso.impl.codec/vec->element
               :reason      "A hiccup vector must have a head."
               :recovery    :supply-a-hiccup-head}
              data)))
@@ -100,7 +100,7 @@
   ;; and the forgery merged through untouched.
   (let [data (try
                (error/fail! :rf.error/hicasso-empty-vector
-                            'front.codec/vec->element
+                            're-frame.hicasso.impl.codec/vec->element
                             "A hiccup vector must have a head."
                             :supply-a-hiccup-head
                             {:view   "app.impostor/not-a-view"
@@ -113,7 +113,7 @@
               does not — production absence is the constructor's answer, not
               a property of well-behaved call sites"
       (is (= {:rf.error/id :rf.error/hicasso-empty-vector
-              :where       'front.codec/vec->element
+              :where       're-frame.hicasso.impl.codec/vec->element
               :reason      "A hiccup vector must have a head."
               :recovery    :supply-a-hiccup-head
               :head        :the-class-s-own-slot}

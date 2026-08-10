@@ -149,7 +149,7 @@
   [child]
   (when-not (vector? child)
     (fail! :rf.error/hicasso-presence-child-not-hiccup
-           'front.presence/child-key
+           're-frame.hicasso.impl.presence/child-key
            (str "A presence child must be a keyed hiccup vector; it was "
                 (pr-str child) ".")
            :give-every-presence-child-a-keyed-hiccup-vector
@@ -157,7 +157,7 @@
   (let [k (:key (props-of child))]
     (when (nil? k)
       (fail! :rf.error/hicasso-presence-child-unkeyed
-             'front.presence/child-key
+             're-frame.hicasso.impl.presence/child-key
              (str "A presence child has no :key. Presence retains children by "
                   "key, so an unkeyed child cannot be recognised across a "
                   "render and cannot be animated out.")
@@ -206,7 +206,7 @@
       (do
         (when (some #(contains? props %) override-keys)
           (fail! :rf.error/hicasso-presence-override-on-a-view
-                 'front.presence/with-phase
+                 're-frame.hicasso.impl.presence/with-phase
                  (str "A presence attribute override was written on a VIEW head. "
                       "Presence merges overrides into nodes it can see; a view is "
                       "opaque to it. The view receives " (pr-str phase-prop)
@@ -355,7 +355,7 @@
   [timeout-ms]
   (when-not (and (number? timeout-ms) (pos? timeout-ms))
     (fail! :rf.error/hicasso-presence-timeout-required
-           'front.presence/check-timeout!
+           're-frame.hicasso.impl.presence/check-timeout!
            (str "presence needs a positive :timeout-ms; it was "
                 (pr-str timeout-ms) ". It is the retention length and the hard "
                 "terminal bound — presence does not wait on transitionend, so "

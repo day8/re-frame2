@@ -719,7 +719,7 @@
     (js-delete js-props revision-slot)
     (when-not (controlled-text-tag? tag js-props)
       (fail! :rf.error/hicasso-revision-not-controlled
-             'front.controlled/install!
+             're-frame.hicasso.impl.controlled/install!
              (str "A revision belongs on a controlled text field, and this is not "
                   "one. :re-frame.hicasso/revision re-baselines a controlled "
                   "<input> or <textarea> to its model, so it needs both of those: "

@@ -130,7 +130,7 @@
   [{:keys [to] :as props}]
   (when (contains? props :prefetch)
     (fail! :rf.error/hicasso-route-link-prefetch-declined
-           'front.route-link/route-link
+           're-frame.hicasso.impl.route-link/route-link
            (str "route-link {:to " (pr-str to) "} carries :prefetch "
                 (pr-str (:prefetch props)) ", and v0 declines the prefetch trio "
                 "outright — :intent included, even though routing's own link "
@@ -159,7 +159,7 @@
                 (intent/callback? on-click)
                 (fn? on-click))
     (fail! :rf.error/hicasso-route-link-bad-on-click
-           'front.route-link/route-link
+           're-frame.hicasso.impl.route-link/route-link
            (str "route-link's :on-click is the pre-navigation veto; it takes nil, "
                 "[" (pr-str intent/prevent-head) " [:my-event …]] (cancel the "
                 "navigation and dispatch this instead), h/fn, or a plain function — "
@@ -174,7 +174,7 @@
 (defn- require-frame! [to]
   (or intent/*frame*
       (fail! :rf.error/hicasso-route-link-outside-boundary
-             'front.route-link/route-link
+             're-frame.hicasso.impl.route-link/route-link
              (str "route-link {:to " (pr-str to) "} was rendered with no ambient "
                   "frame; a link is only legal inside a boundary's render, because "
                   "the navigation must be pinned to the frame that rendered it.")

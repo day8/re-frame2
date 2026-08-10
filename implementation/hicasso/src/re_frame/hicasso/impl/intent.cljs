@@ -398,7 +398,7 @@
   [intent]
   (or *dispatch*
       (fail! :rf.error/hicasso-intent-outside-boundary
-             'front.intent/lower-prop
+             're-frame.hicasso.impl.intent/lower-prop
              (str "No frame-locked dispatch is bound for this render. Intent "
                   (pr-str intent) " was lowered with no ambient frame. Either the "
                   "form is outside any boundary's render — a declaration, a "
@@ -501,7 +501,7 @@
   []
   (or *frame*
       (fail! :rf.error/hicasso-frame-outside-boundary
-             'front.intent/hframe
+             're-frame.hicasso.impl.intent/hframe
              (str "h/frame was called with no Hicasso render extent in scope. It "
                   "answers the frame of the boundary currently rendering, so it is "
                   "legal only during a boundary body — or inside a render callback "
@@ -588,7 +588,7 @@
           (if dispatch
             (dispatch result)
             (fail! :rf.error/hicasso-intent-outside-boundary
-                   'front.intent/lower-prop
+                   're-frame.hicasso.impl.intent/lower-prop
                    (str "A callback at " (pr-str k) " returned the intent "
                         (pr-str result) " with no frame-locked dispatch in scope. "
                         "Callbacks that dispatch are only legal at a position "
@@ -670,7 +670,7 @@
                      (cond
                        (not @armed?)
                        (fail! :rf.error/hicasso-dispatch-in-render-position
-                              'front.intent/lower-prop
+                              're-frame.hicasso.impl.intent/lower-prop
                               (str "A callback at " (pr-str k) " dispatched " (pr-str event)
                                    " while it was running. " (pr-str k) " is a RENDER "
                                    "position: it is invoked during a render, so it must be "
@@ -683,7 +683,7 @@
 
                        :else
                        (fail! :rf.error/hicasso-intent-outside-boundary
-                              'front.intent/lower-prop
+                              're-frame.hicasso.impl.intent/lower-prop
                               (str "A handler lowered inside the callback at " (pr-str k)
                                    " dispatched " (pr-str event) " after the render "
                                    "returned, but the callback itself was lowered with no "
@@ -718,7 +718,7 @@
   (if (and (some? e) (some? (unchecked-get e slot)))
     e
     (fail! :rf.error/hicasso-intent-needs-the-event
-           'front.intent/lower-prop
+           're-frame.hicasso.impl.intent/lower-prop
            (str "The intent " (pr-str form) " at " (pr-str k) " reads the DOM "
                 "event's `" slot "`, but the first argument its invoker passed "
                 "was " (pr-str e) ", which has none. The vector spelling is "
@@ -873,7 +873,7 @@
                    (seq inner)
                    (not (reserved-head? inner)))
       (fail! :rf.error/hicasso-malformed-prevent
-             'front.intent/lower-prop
+             're-frame.hicasso.impl.intent/lower-prop
              (str "The " (pr-str prevent-head) " decorator at " (pr-str k)
                   " wraps EXACTLY ONE intent vector; this one "
                   (cond
@@ -914,7 +914,7 @@
     (fn? veto)             veto
     :else
     (fail! :rf.error/hicasso-malformed-navigate
-           'front.intent/lower-prop
+           're-frame.hicasso.impl.intent/lower-prop
            (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
                 " carries the veto " (pr-str veto) ", which is outside the "
                 "closed roster: nil, [" (pr-str prevent-head) " [:my-event …]] "
@@ -980,7 +980,7 @@
                    (boolean? native?))
       (let [ks (when (map? m) (set (keys m)))]
         (fail! :rf.error/hicasso-malformed-navigate
-               'front.intent/lower-prop
+               're-frame.hicasso.impl.intent/lower-prop
                (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
                     " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
                     "(a non-empty event vector), :native? (a boolean) and :veto — "
@@ -1136,7 +1136,7 @@
   a refusal at lowering rather than a wrapper that does less."
   [k v contract]
   (fail! :rf.error/hicasso-intent-at-a-non-event-contract
-         'front.intent/lower-declared-prop
+         're-frame.hicasso.impl.intent/lower-declared-prop
          (str "The declaration gives " (pr-str k) " the " (pr-str contract)
               " contract, and it was handed " (pr-str v) ". "
               (if (keyword-identical? :handler contract)
@@ -1197,7 +1197,7 @@
                (or (vector? v) (map? v)) (refuse-dispatching-carrier! k v contract)
                :else                     v)
     (fail! :rf.error/hicasso-unknown-callback-contract
-           'front.intent/lower-declared-prop
+           're-frame.hicasso.impl.intent/lower-declared-prop
            (str "A declaration gave " (pr-str k) " the callback contract "
                 (pr-str contract) ". The contracts are :event, :handler and :render.")
            :declare-event-handler-or-render

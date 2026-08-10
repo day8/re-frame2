@@ -115,7 +115,7 @@
       (is (= :rf.error/hicasso-frame-outside-boundary (:rf.error/id data))
           (str "expected the loud error; got " (pr-str data)))
       (is (= :read-the-frame-inside-a-boundary-render (:recovery data)))
-      (is (= 'front.intent/hframe (:where data)))))
+      (is (= 're-frame.hicasso.impl.intent/hframe (:where data)))))
 
   (testing "and the message ROUTES BY LAYER rather than saying 'do it
            inside a body'. The overwhelmingly common way to reach this
