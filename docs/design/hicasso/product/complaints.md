@@ -176,7 +176,7 @@ into the live table in the same PR.
 | `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once the native tier lands |
 | `:rf.error/hicasso-test-residue-after-quiescence` | residue left behind after quiescence, against the pre-mount baseline | the mounted test facade's clean-state assertion |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region | the controlled-input law |
-| `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept | the route-link door, once `:prefetch` is accepted rather than declined. **Not** the retired spelling below |
+| `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept | the route-link door, once `:prefetch` is accepted rather than declined. **Not** `:rf.error/hicasso-route-link-prefetch-declined`, which is live today and retires under *Retiring later* below |
 | `:rf.error/hicasso-overlay-anchor-missing` | an overlay declaring an anchor that resolves to no element | the overlay module. **Spelling provisional** — [`naming-ledger.md`](naming-ledger.md) row 30 holds it for the naming packet; this row catalogues whatever that settles on |
 
 ## Retiring later
