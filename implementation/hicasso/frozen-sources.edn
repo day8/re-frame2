@@ -126,6 +126,11 @@
 ;; consumer actually writes against, is now the least-checked thing here.
 ;; Re-pinning that surface by some means other than a donor diff is worth a
 ;; follow-up bead; it is not something this bead should invent schema for.
+;;
+;; 2026-08-10 (rf2-0xgk) — DISPOSITION: `arm1/` provenance-pinning ended at the
+;; module split (PR #7744; retirement in PR #7748) and does not resume — the
+;; package is the artefact from that commit forward, and the door is held to
+;; its CONTRACT instead, by `public_door_macros_cljs_test`.
 
 {:donor-root "implementation/freehand/test/re_frame/bench/hicasso"
 
