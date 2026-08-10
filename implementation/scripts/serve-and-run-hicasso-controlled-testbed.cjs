@@ -196,6 +196,24 @@
  *   (a `value: ""` field is controlled and converges; a `checked: false`
  *   box tracks its model); the forwarding half is not, and is not claimed.
  *
+ * ### The sabotage, run rather than reasoned about
+ *
+ * rf2-hic-016's acceptance names one: disabling the composition guard must
+ * turn the WebKit IME witness red. It was run on 2026-08-10 by replacing
+ * `composing-input?`'s body with `false` — the whole carve-out off, both
+ * halves, since the shadow is held from the same reading — and driving
+ * `HICASSO_TESTBED_ENGINES=webkit`. It exits 1 on the first composing
+ * update:
+ *
+ *     FAIL Hicasso controlled input (I15) — three engines (webkit):
+ *       [webkit] the first composing update survives in the field:
+ *       expected "123あ", got "123"
+ *
+ * which is the carve-out's whole point stated as a failure: the refusing
+ * model's value written over a live draft. The guard was then restored
+ * byte-identically (`git checkout --`, working tree clean) and WebKit
+ * returned to 79 checks. A gate nobody has seen fail is not a gate.
+ *
  * ### What the three engines actually said
  *
  * Nothing diverged. Every RECORDED row is byte-identical in Chromium,
