@@ -225,6 +225,20 @@ SPINE_LANES = (
         r"^npm run test:hicasso-invariants$",
         "spine node tier: 'hicasso invariants gate'",
     ),
+    # The complaint-catalogue contract has TWO homes in CI (rf2-hic-021 audit
+    # repair): the npm chain above, and its own unconditional job -- three of
+    # the four file families it reads arm no classifier output, so the chain
+    # alone left a register-only / Spec-009-only / guide-only PR running it
+    # nowhere.  The spine covers both through the chain, so the dedicated job's
+    # two steps are NOT a local gap; without this lane they would be reported as
+    # one, which is the same lie in the opposite direction.
+    Lane(
+        "hicasso-complaint-catalogue",
+        r"^python implementation/hicasso/scripts/check_complaint_catalogue\.py"
+        r"(?: --self-test)?$",
+        "spine node tier: 'hicasso invariants gate' chains this checker "
+        "(`npm run test:hicasso-invariants`), both modes",
+    ),
     Lane(
         "mkdocs-strict",
         r"^mkdocs build --strict$",

@@ -4102,6 +4102,82 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
 });
 
 // ---------------------------------------------------------------------------
+// rf2-hic-021's complaint-catalogue contract, and the reverse edges that made a
+// classifier-gated home wrong for it (audit of PR #7808; repair under rf2-ibje).
+//
+// `implementation/hicasso/scripts/check_complaint_catalogue.py` reads FOUR file
+// families. Exactly ONE of them — implementation/hicasso/** — arms
+// cljs_node_test, which is the output guarding the only job that hosted the
+// checker. The three rows below are the MEASUREMENT, pinned rather than
+// asserted: each is a file the checker reads and a tier that does not fire for
+// it, so each is a PR shape that could have broken the contract in silence.
+//
+// These rows must NOT be "fixed" by widening cljs_node_test. Arming a ~10-minute
+// CLJS compile for a Markdown edit is the trade TESTING.md's placement table
+// exists to refuse. The repair is the unconditional job asserted underneath.
+// ---------------------------------------------------------------------------
+
+test('the complaint catalogue reads three families that arm NO expensive tier (rf2-hic-021)', () => {
+  for (const file of [
+    'docs/design/hicasso/product/complaints.md',
+    'spec/009-Instrumentation.md',
+    'docs/design/hicasso/draft-guide/02-views-and-reads.md',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.cljs_node_test,
+      'false',
+      `${file} must not arm the CLJS node-test tier — it is a docs/spec edit, `
+        + 'and the complaint-catalogue contract it can break is covered by the '
+        + 'unconditional hicasso-complaint-catalogue job instead',
+    );
+  }
+});
+
+test('hicasso-complaint-catalogue is UNCONDITIONAL and runs both modes (rf2-hic-021)', () => {
+  // The repair, and the reason it is shaped this way: a surface gate that did
+  // not cover a checker's inputs is the defect. A new classifier output would
+  // be a new chance to make the same mistake and would need re-widening every
+  // time the checker learns to read another file, so this job carries no gate
+  // at all — no `needs: detect_changed_surfaces`, no `if:`.
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'hicasso-complaint-catalogue');
+  // Job-level keys sit at exactly four spaces; anchoring there keeps a prose
+  // comment mentioning `needs:` from reading as the key itself.
+  assert.doesNotMatch(
+    block,
+    /^ {4}needs:/m,
+    'hicasso-complaint-catalogue must not depend on detect_changed_surfaces — '
+      + 'three of the four file families its checker reads arm no output',
+  );
+  assert.doesNotMatch(
+    block,
+    /^ {4}if:/m,
+    'hicasso-complaint-catalogue must carry no surface gate; it is a sub-second '
+      + 'pure-Python static read and there is nothing to gate for',
+  );
+  assert.match(
+    block,
+    /run: python implementation\/hicasso\/scripts\/check_complaint_catalogue\.py --self-test$/m,
+    'the job must drive the checker\'s eight rules red before trusting a green '
+      + 'live run',
+  );
+  assert.match(
+    block,
+    /run: python implementation\/hicasso\/scripts\/check_complaint_catalogue\.py$/m,
+    'the job must run the live round trip',
+  );
+  // Required, not advisory: a job absent from the aggregator's `needs:` is
+  // advisory whatever its own gate says, which is the nowhere it came from.
+  const aggregator = jobBlock(workflow, 'all-required-passed');
+  assert.match(
+    aggregator,
+    /^ {6}- hicasso-complaint-catalogue$/m,
+    'hicasso-complaint-catalogue must be in all-required-passed\'s needs',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // rf2-kll2x — the production-elision lane.
 //
 // rf2-3slzz added the first Freehand namespace matching `-elision-prod-test$`,
