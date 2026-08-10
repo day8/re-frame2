@@ -409,7 +409,7 @@ jobs:
         run: clojure -M:slow-test
 
   # THE GATE-SCHEDULING AUDIT USED TO LIVE HERE, AND NO LONGER DOES (rf2-k78o2).
-  # It asserts that every `test:*` / `bench:*` command in
+  # It asserts that every `test:*` / `bench:*` / `build:*` command in
   # implementation/package.json is either reachable from a workflow or carries a
   # declared, machine-CHECKED disposition saying why not. It landed in this
   # nightly for one reason only: .github/workflows/test.yml was fenced off by an

@@ -17,7 +17,8 @@ if it does.
 
 THE RULE, NOT A LIST
 --------------------
-Every `test:*` / `bench:*` script in `implementation/package.json` must either
+Every `test:*` / `bench:*` / `build:*` script in `implementation/package.json`
+must either
 
   (a) be reachable from a `npm run` in an EXECUTABLE `run:` value of some
       `.github/workflows/*.yml` — direct, or through another npm script's
@@ -84,7 +85,38 @@ import re
 import sys
 
 NPM_RUN_RE = re.compile(r"npm run (?:--silent )?([A-Za-z0-9:._-]+)")
-GATE_PREFIXES = ("test:", "bench:")
+
+# WHICH NAME FAMILIES ARE ASKED THE QUESTION, AND WHY `build:` JOINED THEM
+# (rf2-rbdc).
+#
+# The prefix set approximates "renders a verdict something depends on", and it
+# is deliberately wrong in both directions: `bench:hicasso` is in scope by its
+# name and declared `not-a-gate` below, because a benchmark produces records
+# rather than a verdict. The prefix decides what gets ASKED; `DISPOSITIONS`
+# holds the answers.
+#
+# `build:` was outside the question entirely until rf2-rbdc, and the omission
+# cost precisely what this checker exists to prevent. rf2-hic-008 added the
+# `:hicasso-release` build id — the artefact's only `:advanced` compile, so the
+# only place Closure renaming, externs inference and DCE-sensitive interop are
+# decided at all — and correctly stopped there, leaving it with no npm script
+# and no job. Nothing complained, because nothing could: a `build:` script was
+# unreportable no matter how load-bearing. It took a human audit (rf2-qy1j) to
+# notice, which is how `test:perf-bundle` was found too. A `shadow-cljs
+# release` exits non-zero on a Closure error, so a `build:` script is a compile
+# gate wearing a different name, and the widening costs two declarations below.
+#
+# WHAT MAKES SOMEONE REVISIT THIS WHEN THE NEXT FAMILY APPEARS: nothing does,
+# and saying so plainly beats leaving it to be rediscovered. The decision
+# procedure is the paragraph above — a family belongs here as soon as ONE of
+# its scripts renders a verdict something depends on. The tempting mechanical
+# fix, scanning every script and declaring the NON-gate families instead, is
+# rejected for the reason this widening demonstrates: `build:` holds three
+# scheduled gates and two local aliases, so a family-level claim is the coarser
+# one. It would move the same judgement up a level while reading as though it
+# had been automated, which is this repo's most familiar defect wearing a new
+# hat.
+GATE_PREFIXES = ("test:", "bench:", "build:")
 
 # REACHABILITY IS AN EXECUTION FACT, SO IT IS READ OFF EXECUTABLE TEXT ONLY
 # (rf2-6ckzl, audit follow-up on PR #7542).
@@ -242,6 +274,34 @@ DISPOSITIONS: dict[str, dict] = {
                "verdict about the tree. Its sibling `bench:freehand-browser` "
                "DOES yield a verdict, which is why that one is scheduled "
                "(freehand-bench.yml) and pinned into the local rigorous sweep",
+    },
+    # The two `build:` aliases (rf2-rbdc, the widening above). Both are the
+    # COMPILE HALF of a gate that already runs, kept as a one-word local
+    # command for producing the bundle without paying for the verdict — which
+    # is a debugging convenience, not a second gate. `covered-by` is therefore
+    # the honest kind rather than `not-a-gate`: these do render a verdict (a
+    # Closure error exits non-zero), it is simply already rendered elsewhere,
+    # and pinning the cover means the day that gate leaves CI these go red
+    # instead of quietly becoming the only thing compiling those build ids.
+    # The other three — `build:hicasso-release` (test.yml's `cljs` job),
+    # `build:machines-viz-viewer` (test.yml) and `build:freehand-matched`
+    # (freehand-bench.yml) — are scheduled and need no entry.
+    "build:freehand-release": {
+        "kind": "covered-by",
+        "by": "test:freehand-evidence-elision",
+        "why": "a one-word alias for `shadow-cljs release freehand-release`. "
+               "That gate releases the same build id (alongside its control) "
+               "and then asserts on the output, so the compile this alias "
+               "performs is performed there and judged there",
+    },
+    "build:freehand-evidence-elision": {
+        "kind": "covered-by",
+        "by": "test:freehand-evidence-elision",
+        "why": "byte-for-byte the release half of that gate — the same two "
+               "build ids, `freehand-release freehand-release-control`, minus "
+               "the `check-freehand-evidence-elision.cjs` verdict chained "
+               "after them. The names differing by one word is the whole "
+               "difference",
     },
     # `test:hicasso-lint` (rf2-hic-022) was declared `unscheduled` here for
     # exactly one commit, and its entry is DELETED rather than kept: the
@@ -468,16 +528,29 @@ def self_test(verbose: bool) -> int:
         "test:orphan": "node orphan.cjs",
         "bench:thing": "node bench.cjs",
         "build:thing": "shadow-cljs release thing",
+        "clean:thing": "node -e \"rmSync('out')\"",
     }
-    wf = "run: npm run test:chain\nrun: node teeth.cjs\n"
+    wf = ("run: npm run test:chain\n"
+          "run: npm run build:thing\n"
+          "run: node teeth.cjs\n")
 
     reached = scheduled_scripts(scripts, wf)
     check("the closure walks through a chaining script",
-          reached == {"test:chain", "test:a", "test:b"}, repr(reached))
-    check("a non-gate prefix is never required to be scheduled",
-          "build:thing" not in audit(scripts, wf, {
+          reached == {"test:chain", "test:a", "test:b", "build:thing"},
+          repr(reached))
+    check("a prefix outside GATE_PREFIXES is never required to be scheduled",
+          not any("clean:thing" in p for p in audit(scripts, wf, {
               "test:orphan": {"kind": "not-a-gate", "why": "x"},
-              "bench:thing": {"kind": "not-a-gate", "why": "x"}}))
+              "bench:thing": {"kind": "not-a-gate", "why": "x"}})))
+
+    # `build:` IS asked the question, since rf2-rbdc — a `shadow-cljs release`
+    # that no workflow reaches is the `test:perf-bundle` shape one prefix over,
+    # and it was unreportable here until that bead.
+    build_orphan = audit({**scripts, "build:orphan": "shadow-cljs release orphan"},
+                         wf, {"test:orphan": {"kind": "not-a-gate", "why": "x"},
+                              "bench:thing": {"kind": "not-a-gate", "why": "x"}})
+    check("an undeclared, unscheduled `build:` gate FAILS",
+          any("build:orphan" in p for p in build_orphan), repr(build_orphan))
 
     # THE RATCHET: an undeclared, unscheduled gate is a hard failure.
     bare = audit(scripts, wf, {})
@@ -578,6 +651,7 @@ def self_test(verbose: bool) -> int:
                "test:orphan": {"kind": "ci-runs-it-directly",
                                "probe": "node teeth.cjs", "why": "x"}})))
     with_args = ("      - run: npm run test:chain\n"
+                 "      - run: npm run build:thing\n"
                  "      - run: node teeth.cjs --self-test\n")
     check("...but a probe followed by ARGUMENTS still passes",
           audit(scripts, with_args,
