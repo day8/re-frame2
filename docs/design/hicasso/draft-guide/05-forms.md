@@ -40,7 +40,8 @@ One require serves the whole page:
 
 ## The draft field
 
-`forms/buffered-field` is one [controlled input](glossary.md#controlled-field) with a draft in front of it.
+[`forms/buffered-field`](glossary.md#buffered-field) is one
+[controlled input](glossary.md#controlled-field) with a draft in front of it.
 The caller supplies four things: a stable address for the draft, the
 committed value, the value's revision, and the event that receives a commit.
 

@@ -4,7 +4,7 @@ Your admin area is a third of the bundle, and most sessions never open it.
 This page splits the build so that code loads when it is first wanted. It
 covers three things:
 
-- the route-and-module [boundary](glossary.md#boundary), which covers almost every real split;
+- the route-and-module **grain**, which covers almost every real split;
 - the `React.lazy` bridge for [native islands](glossary.md#native-island);
 - what Suspense and Activity do to your reads while a subtree waits or
   hides.
@@ -12,7 +12,7 @@ covers three things:
 > **Split at the route grain. Load the module as an effect. Render the
 > arrival as state.**
 
-## The route/module boundary
+## The route/module grain
 
 The default answer needs no React machinery at all. shadow-cljs compiles the
 area into its own module. The load is an ordinary effect, and "has it
@@ -199,8 +199,8 @@ law holds through both, because commit owns acquisition
   modules that each need a loading state. Split when a measured area is big
   and rarely visited, not on principle.
 - **Below the route or screen grain.** Per-widget chunks multiply pending
-  states and round trips; users already expect a pause at the route
-  [boundary](glossary.md#boundary).
+  states and round trips; users already expect a pause at the route,
+  not on every widget.
 - **For data.** Suspense is not your loading UI, and lazy loading is not
   your fetch layer. Resource status is explicit state with a better
   vocabulary ([Async resources](08-async-resources.md)).

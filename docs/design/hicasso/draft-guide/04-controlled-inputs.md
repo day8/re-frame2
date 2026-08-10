@@ -1,8 +1,12 @@
 # Controlled inputs
 
-A controlled text field keeps its value in app-db. The value comes in from a
-subscription, and an [intent](glossary.md#intent) goes out on every keystroke. That is the whole
-required path.
+Intents and markers from [Events as data](03-events-as-data.md) are enough for
+buttons. A text field that is *controlled* by app-db has a harder job: every
+keystroke is a full round trip, and the usual bugs are dropped characters, a
+caret that jumps to the end, IME compositions destroyed mid-word, and
+rejections that never show. [Hicasso](glossary.md#hicasso) treats that path as a
+[framework law](glossary.md#controlled-field). You write ordinary `:value` and
+`:on-input`; the runtime keeps the round trip inside one browser turn.
 
 ```clojure
 (h/defview title-field [{:keys [id]}]
@@ -16,15 +20,8 @@ required path.
 
 `:on-change` works the same way. If a field carries both, both can fire, and
 the runtime converges once. For checkboxes, use
-[`::h/checked`](03-events-as-data.md) in the same way — the placeholders and
+[`::h/checked`](glossary.md#hchecked) the same way — the placeholders and
 the key map are taught in [Events as data](03-events-as-data.md).
-
-Controlled inputs are a framework law, not a pattern you assemble. The defect
-class is too subtle and too common to solve again in each application. The
-defects are: dropped keystrokes under fast typing, carets that jump to the
-end, IME compositions destroyed in the middle of a word, and rejections that
-do not show. You write the two attributes above. The framework enforces the
-law below.
 
 ## What the law guarantees
 

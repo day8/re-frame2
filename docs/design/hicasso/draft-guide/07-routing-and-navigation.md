@@ -152,22 +152,23 @@ then lands on a fetch already in flight:
   "Read more")
 ```
 
-`:intent` is the only accepted value — no render mode, no viewport mode, no
-hover delay. A passive link (no `:prefetch` key at all) dispatches nothing. A
-`:prefetch` key present with any other value fails loud at render. The
-reason: a link that should warm but does not looks exactly like one that
-does. Internally the [intent](glossary.md#intent) handlers dispatch
+Prefetch accepts only one value: `:intent`. Omit the key for a passive link.
+Any other value fails at render on purpose — a silent wrong mode would look
+identical to "warm on hover," and you would never trust the attribute.
+Internally the [intent](glossary.md#intent) handlers dispatch
 `[:rf.route/prefetch {:to … :params …}]` — an ordinary event that you can
 also dispatch yourself from any handler.
 
-A warm run is not a navigation. The destination's effective resource plan
-runs with every ensure ownerless and `:blocking?` inert. No route state
-moves: no slice write, no URL, no scroll, no guards, no `:on-match`. Click
-through, and the ordinary resource dedupe reuses the warmed work. Never
-click, and the warmed work stays garbage-collectable. Prefetch is a
-performance hint, not an authorization [boundary](glossary.md#boundary). To warm a destination whose
-`:can-enter` would refuse is permitted and means nothing, because activation
-still evaluates the guard.
+A warm run is not a navigation. The destination may start loading data, but
+that load is not "owned" by the route the way a real visit is: nothing blocks
+the transition, the URL does not change, and guards / scroll / `:on-match`
+do not run. Details of resource ownership live in
+[Async resources](08-async-resources.md); here the rule is simpler — prefetch
+is a performance hint, not authorization. Click through, and the ordinary
+resource dedupe reuses the warmed work. Never click, and the warmed work
+stays garbage-collectable. To warm a destination whose `:can-enter` would
+refuse is permitted and means nothing: activation still evaluates that guard
+on a real navigation.
 
 ## Scroll conduct
 

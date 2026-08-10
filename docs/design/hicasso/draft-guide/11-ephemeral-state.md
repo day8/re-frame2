@@ -15,8 +15,8 @@ every kind of it has a named home. This page lists each home.
 
 ## Why one owner, really
 
-The one-state-owner law is not a restriction for its own sake. Three other
-product promises depend on it.
+The [one state owner](glossary.md#one-state-owner) law is not a restriction
+for its own sake. Three other product promises depend on it.
 
 **Tests stay data.** When "the dropdown is open" is a value at an address, a
 test opens the dropdown with a `:db` write. The test does not simulate a
@@ -38,9 +38,9 @@ shared cell is exactly the cross-frame leak the frame model exists to delete.
 
 A host may still hold state — React state, DOM state, a canvas — under one
 condition: the state is never an invisible duplicate of an application fact.
-This page calls each legitimate home a valve. The valves below are the
-complete list. If a piece of state does not fit one valve, the state goes to
-app-db.
+Each legitimate home is a [pressure valve](glossary.md#pressure-valve) — a
+named place for one kind of UI state. The valves below are the complete list.
+If a piece of state does not fit one valve, the state goes to app-db.
 
 ## Valve 1: an explicit app-db address
 

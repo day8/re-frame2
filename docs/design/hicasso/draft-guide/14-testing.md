@@ -1,8 +1,9 @@
 # Testing
 
 You have a feature to test. You must decide which tests to write, and how
-much machinery each test needs. In a [Hicasso](glossary.md#hicasso) app, the answer is a ladder of
-five rungs, and most of the ladder runs without a browser. Handlers and
+much machinery each test needs. In a [Hicasso](glossary.md#hicasso) app, the answer is a
+[testing ladder](glossary.md#testing-ladder) of five rungs, and most of the
+ladder runs without a browser. Handlers and
 subscriptions are plain functions. Markup helpers return plain data. View
 bodies run under a [semantic harness](glossary.md#semantic-harness) with no DOM and no React — other view
 layers make you mount them. The browser is the top rung. Keep it for the

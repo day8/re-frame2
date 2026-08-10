@@ -8,39 +8,33 @@ your views changes to support it, and none of it ships to production.
 
 > **A labeled gap is an answer. An empty panel would be a lie.**
 
-Xray answers the questions you ask:
-
-1. What ran or committed in this epoch — mounted, hidden, suspended, recently
-   committed?
-2. Why did this [boundary](glossary.md#boundary) run — which reads changed, and what was their fan-out?
-3. Was the cause props, context, a read-set change, a retry, abandonment, an
-   error, or a host?
-4. Where is the pressure — computation, topology, [lowering](glossary.md#lowering), React, or layout —
-   and what remedy is credible?
-5. What is unknown, capped, opaque, or uncorrelated?
+**How you use it.** Load Xray with your dev preload so it mounts beside the
+app. Reproduce the slow click or unexpected re-render. Select the
+[boundary](glossary.md#boundary) that ran, and read its cause and fan-out.
+The rest of this page is what those panels mean.
 
 An *epoch* is one pipeline run: one dispatched event carried through to its
 commit. The epoch is the unit that Xray organises evidence around.
 
 ## The causal lens
 
-Every diagnosis follows one chain:
+Every diagnosis follows the [causal lens](glossary.md#causal-lens):
 
 ```
 event -> subscriptions recomputed -> values changed -> boundaries notified
       -> bodies run -> React commit -> paint
 ```
 
-Each link has its own evidence seam, and Xray never blurs them. Timing
-proximity proves nothing. A body that ran near an event may have run for a
-different reason. A render measure may be a retry, a StrictMode duplicate,
-or work that React abandoned before commit. Xray correlates links only when
-its instruments support the correlation. When they do not, Xray labels the
-link honestly instead of guessing.
+Each link has its own evidence source. Xray does not merge timing on one link
+with cause on another. Timing proximity proves nothing. A body that ran near
+an event may have run for a different reason. A render measure may be a retry,
+a StrictMode duplicate, or work that React abandoned before commit. Xray
+correlates links only when its instruments support the correlation. When they
+do not, Xray labels the link honestly instead of guessing.
 
-Learn this discipline before you read any panel: **render is not commit,
-and commit is not paint.** Bodies run speculatively. React owns commit. The
-browser owns paint. Xray tells you which claim each number makes.
+**Render is not commit, and commit is not paint.** Bodies run speculatively.
+React owns commit. The browser owns paint. Xray tells you which claim each
+number makes.
 
 ## Explain-render
 
@@ -181,6 +175,9 @@ Message text improves between releases; ids are frozen. A string assertion
 tests the message text, not the refusal.
 
 ## Production erasure
+
+[Production erasure](glossary.md#production-erasure) means diagnostics are
+absent from default production bundles.
 
 Everything on this page is development tooling, and all of it erases from a
 release build: the evidence producer, the projections, the advisor, the

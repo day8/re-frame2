@@ -1,9 +1,11 @@
 # Getting started
 
-You already know re-frame2's pipeline: events write app-db, subscriptions
-derive values, and views paint the screen. This page puts a [Hicasso](glossary.md#hicasso) view on
-that screen. You install the artifact, mount a root, click a button, and
-build for production.
+You already know re-frame2's pipeline: events write app-db (the single app
+state map), subscriptions derive values, and views paint the screen. This
+page puts a [Hicasso](glossary.md#hicasso) view on that screen — install, mount a root, click a
+button, ship a release. By the end you have the three habits every later
+chapter assumes: [`defview`](glossary.md#defview) as a Hiccup head, [`h/sub`](glossary.md#hsub) at the point of use,
+and handlers as data.
 
 ## Install
 
@@ -46,9 +48,9 @@ allow-list, no build flag. Any ordinary shadow-cljs browser build works:
 ```
 
 You require one namespace: `[re-frame.hicasso :as h]`. The usual alias is
-`h`. The optional modules (forms, [overlays](glossary.md#overlay), motion, routing, the [native tier](glossary.md#native-tier),
-the [test kit](glossary.md#test-kit)) are separate requires, and each has its own chapter. A build
-that never requires them carries none of their code.
+`h`. Optional modules (forms, [overlays](glossary.md#overlay), motion, routing, the
+[native tier](glossary.md#native-tier), the [test kit](glossary.md#test-kit)) are separate requires — a
+build that never requires them ships none of their code.
 
 ## The app
 
@@ -107,10 +109,10 @@ Click the button. The count changes. This screen shows the three habits of a
 - **[`h/sub`](glossary.md#hsub) reads at the point of use.** It is an ordinary call. It is legal
   in a `let`, a `when`, a loop, a helper — anywhere in the view's synchronous
   body.
-- **The click handler is data.** `{:on-click [:counter/increment]}` is an
-  event vector, not a closure. The runtime builds the callback and dispatches
-  the vector to this root's frame. A test reads the button's meaning as a
-  value.
+- **The click handler is data** — an [intent](glossary.md#intent): an event vector in the
+  attribute, not a closure. `{:on-click [:counter/increment]}` stays
+  assertable with `=`. The runtime builds the callback and dispatches that
+  vector to this root's frame.
 
 [Views and reads](02-views-and-reads.md) and
 [Events as data](03-events-as-data.md) teach each habit in more depth.
@@ -121,12 +123,13 @@ Click the button. The count changes. This screen shows the three habits of a
 > returns an idempotent handle.**
 
 [`h/mount!`](glossary.md#mount) takes the DOM node, a config map, and one view. `:frame` names the
-frame that the root ensures. The frame holds its own isolated app-db, queue,
-and subscription cache. Two roots with two frame ids are two isolated apps on
-one page. `:initial-events` runs ordinary events once, in order. They seed
-app-db **before** the first paint. That is why the heading renders `0` and
-not an empty flash. Initial values arrive by event; that rule does not change
-because the view layer changed.
+re-frame2 *frame* — an isolated world with its own app-db, event queue, and
+subscription cache. The root *ensures* that frame: creates it if missing,
+otherwise joins the one that already exists. Two roots with two frame ids are
+two isolated apps on one page. `:initial-events` runs ordinary events once,
+in order, and seeds app-db **before** the first paint. That is why the heading
+renders `0` and not an empty flash. Initial values arrive by event; that rule
+does not change because the view layer changed.
 
 `[counter]` and `[counter {}]` render the same output. The body receives an
 empty props map in both cases.
