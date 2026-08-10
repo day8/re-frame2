@@ -81,6 +81,25 @@
   — a slot collision resolved by map order is a wrong program that no
   build should quietly run.
 
+  ## The two hooks, and the frame they join
+
+  An island is a place in the application, not a second application, so
+  [[use-sub]] and [[use-frame]] join the frame the surrounding tree is
+  already in — the same React context the boundary shell reads, and the
+  only channel either hook has. There is no argument, option map or
+  spelling by which a native read reaches a sibling frame, and that is
+  what makes an island cheap to reason about: it can see exactly what
+  the hiccup around it can see.
+
+  They are also the whole of the hook surface, deliberately. React's own
+  hooks are used directly, by `[\"react\" :as react]` interop, and nothing
+  here wraps `useState`, `useEffect`, `useRef` or `useTransition` —
+  what React cannot supply is the frame, so the frame is all these
+  supply. [[use-sub]]'s docstring carries the external-store ceiling
+  React's own documentation states, which is the one honest caveat on
+  the pair: a commit observed through the hook is a BLOCKING update and
+  no part of this surface is transition-aware.
+
   ## Dependency isolation
 
   This namespace is separately reachable and nothing in `re-frame.hicasso`
@@ -93,6 +112,8 @@
             [re-frame.hicasso.impl.slot :as slot])
   #?(:clj (:require [re-frame.source-coords :as source-coords]))
   #?(:cljs (:require ["react" :as react]
+                     [re-frame.adapter.context :as adapter-context]
+                     [re-frame.hicasso.impl.collector :as collector]
                      [re-frame.interop :as interop]))
   #?(:cljs (:require-macros [re-frame.hicasso.native :refer [$ props defcomponent]])))
 
@@ -296,7 +317,146 @@
   helper and every embedding direction reads to recognise a native head —
   and the reason a raw `react/memo` wrapper loses it."
        [x]
-       (when (some? x) (unchecked-get x tier-sentinel)))))
+       (when (some? x) (unchecked-get x tier-sentinel)))
+
+     ;; ----------------------------------------------------------------
+     ;; The two hooks (rf2-hic-031)
+     ;; ----------------------------------------------------------------
+     ;;
+     ;; Two, and there will not be a third by accident. Everything else a
+     ;; native component needs is React's own — `useState`, `useEffect`,
+     ;; `useRef`, `useTransition` — reached by direct `["react"]` interop,
+     ;; and Hicasso wraps none of it. What React cannot supply is the
+     ;; frame, so that is exactly what these two supply and no more.
+     ;;
+     ;; Both take their frame from [[re-frame.hicasso.impl.collector/resolve-frame!]],
+     ;; which is the boundary shell's own resolution: ONE React context,
+     ;; no dynamic-var tier, no `:rf/default` floor. An island therefore
+     ;; reads the frame its own subtree is mounted under and there is no
+     ;; spelling — not an argument, not an option map — by which either
+     ;; hook reaches a sibling frame.
+
+     (defn use-frame
+       "**Frame-locked operations, in hook position.** `rf/capture-frame`'s
+  bundle for the frame this island is mounted in:
+
+      {:frame         :watchlist
+       :dispatch      (fn ([event] [event opts]))
+       :dispatch-sync (fn ([event] [event opts]))
+       :subscribe     (fn [query-v])}
+
+      (n/defcomponent col-resizer
+        [^js props]
+        (let [{:keys [dispatch]} (n/use-frame)]
+          (n/$ :div {:on-pointer-up (fn [_] (dispatch [:col/commit]))})))
+
+  It is `capture-frame` and nothing wider — no options map, no explicit
+  frame arity — because Hicasso does not duplicate core's frame doors.
+  For a named frame there is no hook tax: `(rf/capture-frame frame-id)`
+  takes one directly.
+
+  ## Reference-stable, and pinned to an INCARNATION
+
+  The map is the Hicasso runtime's own memo row
+  ([[re-frame.hicasso.impl.collector/frame-row]]), so repeated renders
+  under one frame hand back the identical object — safe in `useEffect`
+  deps, safe as a memoised child's prop, safe to pull `:dispatch` off
+  and close over.
+
+  What it is keyed on is the load-bearing part. A frame's public keyword
+  is an ADDRESS, not an object: destroy `:watchlist` and create another
+  under the same id and the ops captured against the first belong to the
+  first forever (rf2-hic-013). The row carries the incarnation it was
+  minted under and is replaced when that incarnation is superseded, so
+  the next render gets ops pinned to the successor while a callback
+  still holding the predecessor's is refused by core's own fence
+  (`:rf.error/frame-destroyed`) rather than silently writing whoever
+  occupies the address now. **A memo keyed on the frame KEYWORD would
+  pass every stability test and fail exactly this one**, because the
+  keyword is `=` across a reincarnation.
+
+  Rendering outside every frame refuses with
+  `:rf.error/no-frame-context`."
+       []
+       (let [frame-kw (collector/resolve-frame!
+                        (react/useContext adapter-context/frame-context)
+                        're-frame.hicasso.native/use-frame)]
+         (:ops (collector/frame-row frame-kw))))
+
+     (defn use-sub
+       "**Read a subscription from a native component.** A real React
+  hook, so React's rules of hooks are the rules — top level of the
+  component, unconditional, one call per read:
+
+      (n/defcomponent ticker
+        [^js props]
+        (n/$ :span nil (n/use-sub [:quote/price (.-symbol props)])))
+
+  It is the native tier's counterpart to `h/sub`, and the two obey
+  different laws on purpose. `h/sub` is an ambient collector legal
+  inside a `when`, inside a `for` and inside an inlined helper, because
+  a `defview` body is not a component and its reads are recorded where
+  they happen. Past the fence there is no body and no ambient extent —
+  there is a fiber — so a read is a hook and a conditional read is a
+  bug React itself names.
+
+  ## One runtime, not a second one
+
+  The hook hands `useSyncExternalStore` the very `subscribe` and
+  `getSnapshot` a boundary reading this one key would be handed
+  ([[re-frame.hicasso.impl.collector/hook-entry]]). So an island's read
+  builds the same cell, takes the same reader membership, is woken by
+  the same commit, is counted by the same residue census, and is named
+  by the same `re-frame.hicasso.tool` rosters Xray consumes — which is
+  why nothing in the tool tier had to learn that hooks exist.
+
+  A steady-state re-render performs **no re-subscribe**: an unchanged
+  key hits the same cached entry, so `subscribe` is identical and React
+  never calls it again. Unmount releases exactly what mount acquired,
+  and React StrictMode's double mount is the acquire/release pair run
+  twice rather than a leak, because the only global write is inside
+  `subscribe` and React calls it at commit and nowhere else.
+
+  ## The external-store ceiling, stated rather than papered over
+
+  React's own `useSyncExternalStore` documentation is explicit that
+  **external-store mutations cannot be non-blocking Transition
+  updates**: React may restart a transition as blocking when the
+  snapshot changes. A re-frame2 commit observed through this hook is
+  therefore a BLOCKING update, and wrapping the dispatch in
+  `startTransition` does not make it otherwise. Reads stay tear-free
+  under a transition — that is witnessed — but no part of this surface
+  is transition-aware and none of it should be described that way.
+
+  React likewise discourages SUSPENDING on a value read from an
+  external store, because an update can then replace visible content
+  with a fallback. So `n/use-sub` is not the door to a promise-driven
+  resource: prepare the resource at the route, model an explicit
+  pending state, or put React Suspense in a native island that owns its
+  own resource.
+
+  Rendering outside every frame refuses with
+  `:rf.error/no-frame-context`."
+       [query-v]
+       (let [frame-kw  (collector/resolve-frame!
+                         (react/useContext adapter-context/frame-context)
+                         're-frame.hicasso.native/use-sub)
+             ;; The refusal above sits between the two hooks deliberately.
+             ;; Without a frame there is no read set, so there is nothing
+             ;; for the store hook to subscribe to and nothing to invent;
+             ;; and a render that throws never reaches React's hook
+             ;; reconciliation, so no count can disagree with a previous
+             ;; render's.
+             ^js entry (collector/hook-entry [frame-kw query-v])]
+         ;; The epoch, not the value: `getSnapshot` answers one monotone
+         ;; number, React compares it with `Object.is`, and the value is
+         ;; read after — from the same synchronous instant, since a
+         ;; render is a turn and nothing can commit inside one. This is
+         ;; the shell's own arrangement, and the third argument is the
+         ;; same closure for the same reason it is there.
+         (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry)
+                                     (.-snapshot entry))
+         (collector/hook-read frame-kw query-v)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The macros
