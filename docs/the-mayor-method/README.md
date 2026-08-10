@@ -177,8 +177,10 @@ Before merging, the mayor checks:
 After merge, the mayor pulls main and verifies the tree rather than the line
 `git pull` printed: `git rev-parse HEAD` must equal `git rev-parse origin/main`.
 Movement is the wrong test — an already-current checkout legitimately does not
-move, and moving to the wrong commit proves nothing. Then it closes the bead
-with a concrete reason.
+move, and moving to the wrong commit proves nothing. One mismatch is not yet
+evidence either, since an automated push can land between the two reads; read
+both refs again before believing it. Then it closes the bead with a concrete
+reason.
 
 This is the difference between "a lot of agents did things" and "the
 project advanced."

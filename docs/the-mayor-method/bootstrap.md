@@ -51,7 +51,9 @@ this method sanctions is `MERGEABLE=UNKNOWN`, GitHub's own merge-state recompute
 lag — not a check, so it bypasses nothing — and only once the criterion is
 already met. Post-merge: `git pull --ff-only origin main`, then verify the tree
 rather than the message — `git rev-parse HEAD` must equal
-`git rev-parse origin/main` — verify the worker
+`git rev-parse origin/main`, and one mismatch is not yet evidence, because an
+asynchronous audit push can land between the two reads (see the hard-won list).
+Then verify the worker
 closed the bead (close it if not), mention follow-on beads filed by the
 worker.
 
@@ -211,7 +213,11 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   (`git pull --ff-only origin main`) clears the refusal, but the silent no-op
   teaches the wider rule: **after a mutating step, verify the tree rather than the
   message** — compare `HEAD` against `origin/main` instead of reading the line it
-  printed.
+  printed. That comparison has a false alarm of its own, from the same asynchronous
+  writer that makes "Base branch was modified" a real race above: the audit push can
+  land between the two `rev-parse` reads, so they answer at different instants and a
+  perfectly synchronised checkout reports a mismatch. One disagreement is not yet
+  evidence — read both refs again, and believe it only if it survives.
 - *Concurrent workers share the machine's temp directory.* Two workers writing the
   same `/tmp/gate.log` overwrite each other, and the loser reads a green belonging
   to someone else's run — plausible numbers, wrong code. This defeats the rule
