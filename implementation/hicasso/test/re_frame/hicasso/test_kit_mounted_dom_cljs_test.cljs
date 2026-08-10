@@ -35,14 +35,29 @@
   | a live frame | `rf/make-frame` inside the mount's window | `:frames`, naming the id |
   | a mounted root | skipping `unmount!` | `:still-mounted?` |
 
-  And two it does NOT see, stated here rather than left to be discovered:
-  an armed **timer** and a **DOM listener on `document`/`window`** have no
-  census in this runtime, and taking one would mean monkeypatching the
-  host's scheduler and `addEventListener` — an instrument that rewrites
-  the platform under the code it is measuring. A retained foreign-host
-  **callback** is visible only through what it retains: if it holds a
-  subscription it is the first row, and if it holds nothing else it is
-  invisible here.
+  And four it does NOT see, stated here rather than left to be
+  discovered:
+
+  - an armed **timer** (`setTimeout` / `setInterval` /
+    `requestAnimationFrame`) and a **DOM listener on `document` or
+    `window`** have no census in this runtime, and taking one would mean
+    monkeypatching the host's scheduler and `addEventListener` — an
+    instrument that rewrites the platform under the code it is measuring;
+  - a **pending effect** — an async `rf/dispatch` still queued, or an fx
+    in flight — likewise. Core publishes no queue census, and
+    [[hm/dispatch-and-settle!]] uses the runtime's SYNCHRONOUS door, which
+    drains to fixed point before it returns; so what this facade could
+    honestly see is exactly what it already settles, and what it cannot
+    see is what a test put in flight by another route;
+  - a **core-level subscription** — `rf/subscribe` held outside a Hicasso
+    body — is in core's sub-cache and not in the cell table this census
+    reads;
+  - a retained foreign-host **callback** is visible only through what it
+    retains: if it holds a subscription it is the first row, and if it
+    holds nothing countable it is invisible here.
+
+  A facade that claimed cleanliness while checking one kind of residue
+  would be worse than one that names its scope, so the scope is named.
 
   ## Browser lane
 
