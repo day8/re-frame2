@@ -18,23 +18,78 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
+// Relative POSIX path, resolved against REPO_ROOT as the child's cwd — the same
+// form every other suite in this directory uses, and the one that works
+// unchanged on Windows, macOS and Linux.
+const SURFACES_SCRIPT = './.github/scripts/report-changed-surfaces.sh';
+
+// rf2-fal5 — memo table for classify(). The classifier reads NOTHING but its
+// argument list when paths are passed explicitly (the `git diff` discovery
+// branch is unreachable in that mode), so for a fixed checkout it is a pure
+// function and the same path list can only ever produce the same verdicts.
+// Measured on this suite: 447 invocations over 235 distinct argument lists.
+const classifyCache = new Map();
+
+/**
+ * Classify one path list and return the classifier's key -> "true"/"false" map.
+ *
+ * rf2-fal5 — TWO spawn economies, and the suite's reliability rests on both.
+ *
+ * NOT A LOGIN SHELL. This used to build a quoted command string and hand it to
+ * `bash -lc`. A login shell sources /etc/profile and every /etc/profile.d/*.sh
+ * before it reaches the command, each of which forks children of its own — so
+ * one classification cost a whole profile evaluation, and this suite ran
+ * hundreds. Measured on the Windows host: 713ms per `bash -lc` against 75ms for
+ * spawning the script as bash's own argv, a 9.5x difference in wall clock and a
+ * far larger one in PROCESS CREATIONS, which is what actually ran out. Twice,
+ * on different diffs and different worktrees, the msys2 fork emulation gave way
+ * under concurrent load and printed the mechanism outright —
+ * `dofork: child -1 ... exit code 0xC0000142` (STATUS_DLL_INIT_FAILED) then
+ * `fork: retry: Resource temporarily unavailable` — surfacing as an exit-127
+ * child that never started, on a DIFFERENT case each run, which is how it was
+ * told apart from an assertion. Be precise about what is established: a
+ * deliberate load test (18k login shells, three concurrent copies of this
+ * suite) did NOT recreate that crash, so what this change rests on is the
+ * measured cost above, not a reproduction. `_playground-sci-inputs.test.cjs`
+ * recorded the same finding one file over (56s -> 3s for 144 classifications)
+ * and reached for the same remedy.
+ *
+ * Passing the script as argv also retires the hand-rolled shell quoting the
+ * command string needed: there is no shell to quote for. That is the
+ * shell-free posture `_script-spawn-policy.test.cjs` already requires of every
+ * launcher in this directory, applied to the suites beside them.
+ *
+ * MEMOIZED. Distinct cases legitimately re-classify the same exemplar —
+ * `spec/006-ReactiveSubstrate.md` and `implementation/core/src/re_frame/
+ * core.cljc` are the controls for a dozen arms each — and re-running the
+ * classifier for an answer already in hand buys nothing. The cached verdict is
+ * frozen so a caller that mutates it fails loudly here rather than poisoning a
+ * later case.
+ *
+ * NEITHER economy drops a case, weakens an assertion or merges two path lists:
+ * every call still gets the classifier's real verdict for its own arguments.
+ */
 function classify(...files) {
-  const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
-  const command = ['./.github/scripts/report-changed-surfaces.sh', ...files.map(quote)].join(' ');
+  const key = JSON.stringify(files);
+  if (classifyCache.has(key)) return classifyCache.get(key);
   const env = { ...process.env };
   delete env.GITHUB_OUTPUT;
-  const out = execFileSync('bash', ['-lc', command], {
+  const out = execFileSync('bash', [SURFACES_SCRIPT, ...files], {
     cwd: REPO_ROOT,
     env,
     encoding: 'utf8',
   });
-  return Object.fromEntries(
-    out
-      .trim()
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => line.split('=')),
+  const result = Object.freeze(
+    Object.fromEntries(
+      out
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => line.split('=')),
+    ),
   );
+  classifyCache.set(key, result);
+  return result;
 }
 
 // rf2-k9ekz — Story/Xray browser Playwright gate trigger is narrowed
@@ -3721,12 +3776,10 @@ test('a docs/spec-only change does NOT arm cljs_browser (negative — scope disc
 // invoke the script's local discovery branch (HEAD^ HEAD) with no explicit
 // paths, so they exercise the exact Git-derived path the matrix cannot.
 
-const SCRIPT_PATH = path.join(
-  REPO_ROOT,
-  '.github',
-  'scripts',
-  'report-changed-surfaces.sh',
-);
+// The same file classify() spawns, as an absolute path: this branch READS the
+// script's bytes to pipe into a scratch repo rather than executing it in place.
+// Derived from the one constant so the two cannot drift apart.
+const SCRIPT_PATH = path.join(REPO_ROOT, SURFACES_SCRIPT);
 
 // Run a git command against a scratch repo, with GIT_* inherited from a hook
 // context stripped so the temp repo is never confused with the real worktree.
