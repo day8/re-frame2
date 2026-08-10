@@ -43,6 +43,14 @@
   anticipated when they were minted. Alias this namespace as `h` and the
   auto-resolved spelling the guide teaches resolves for the first time,
   with no keyword changing value."
+  ;; The macro side reaches core's `re-frame.source-coords` for the one
+  ;; thing a defining macro cannot do portably by hand: pick the right
+  ;; `:file` for the coordinate it captures. Under CLJS the analyzer never
+  ;; binds Clojure's `*file*` during expansion, so a naive read bakes the
+  ;; `"NO_SOURCE_PATH"` sentinel into every declaration; core solved that
+  ;; once, absolutises the classpath-relative path while it is there, and
+  ;; is already this package's only dependency (rf2-hic-007).
+  #?(:clj (:require [re-frame.source-coords :as source-coords]))
   #?(:cljs
      (:require [re-frame.hicasso.impl.boundary :as impl-boundary]
                [re-frame.hicasso.impl.collector :as impl-collector]
@@ -75,16 +83,36 @@
   legal head: `[todo-row {:key id :id id}]`. A plain function in head
   position is a loud error rather than a silent embedding, which is what
   makes the head's identity stable by construction and leaves the codec's
-  stable-component-head cache with nothing to do."
+  stable-component-head cache with nothing to do.
+
+  ## The source coordinate (rf2-hic-007)
+
+  The expansion opens a declaration extent around the mint, carrying the
+  `:ns` / `:file` / `:line` / `:column` this macro read off its own form.
+  [[re-frame.hicasso.impl.error/fail!]] resolves it back by view name, so
+  every refusal raised while this boundary's body runs says WHERE the
+  boundary was written without a single call site passing anything.
+
+  Both halves sit inside `(when re-frame.interop/debug-enabled? …)`, so
+  under `:advanced` + `goog.DEBUG=false` the Closure compiler removes the
+  calls and the coordinate map — file string included — and the `def`
+  folds back to the bare mint."
      [sym & more]
      (let [doc       (when (string? (first more)) (first more))
            [argv & body] (if doc (rest more) more)
            view-name (str (ns-name *ns*) "/" sym)
-           body-name (symbol (str sym "-body"))]
+           body-name (symbol (str sym "-body"))
+           coord     (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
-          (re-frame.hicasso.impl.collector/mint-view!
-            ~view-name
-            (fn ~body-name ~argv ~@body))))))
+          (do
+            (when re-frame.interop/debug-enabled?
+              (re-frame.hicasso.impl.error/declaring! ~view-name ~coord))
+            (let [head# (re-frame.hicasso.impl.collector/mint-view!
+                          ~view-name
+                          (fn ~body-name ~argv ~@body))]
+              (when re-frame.interop/debug-enabled?
+                (re-frame.hicasso.impl.error/declared!))
+              head#))))))
 
 #?(:clj
    (defmacro hfn
@@ -172,15 +200,34 @@
   Both halves are witnessed in `arm1/host_hatch_dom_cljs_test`.
 
   Like [[defview]] it is not a compiler: it expands to a `def` of the
-  minted head, reads no body, and captures only the name — for
-  `displayName` and for every diagnostic the crossing raises."
+  minted head, reads no body, and captures the name and the source
+  coordinate — the name for `displayName`, and both for every diagnostic
+  the crossing raises.
+
+  ## The declaration extent earns its keep here (rf2-hic-007)
+
+  `defview` opens one so that a refusal from a body can name the boundary
+  it came from. `defhost` opens one for a nearer reason: the refusals
+  above — an unknown option, a fourth `:ssr` value, a boundary head in a
+  declared fallback — are raised by `mint-host!` DURING the expansion's
+  own `def`, at namespace load, with no render anywhere on the stack. The
+  extent is what puts the offending declaration's file and line on them.
+  It is `debug-enabled?`-gated and elides whole under `:advanced` +
+  `goog.DEBUG=false`."
      [sym & more]
      (let [doc         (when (string? (first more)) (first more))
            [component opts] (if doc (rest more) more)
-           host-name   (str (ns-name *ns*) "/" sym)]
+           host-name   (str (ns-name *ns*) "/" sym)
+           coord       (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
-          (re-frame.hicasso.impl.codec/mint-host!
-            ~host-name ~component ~(or opts {}))))))
+          (do
+            (when re-frame.interop/debug-enabled?
+              (re-frame.hicasso.impl.error/declaring! ~host-name ~coord))
+            (let [head# (re-frame.hicasso.impl.codec/mint-host!
+                          ~host-name ~component ~(or opts {}))]
+              (when re-frame.interop/debug-enabled?
+                (re-frame.hicasso.impl.error/declared!))
+              head#))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The vars — aliases, every one under its prototype name

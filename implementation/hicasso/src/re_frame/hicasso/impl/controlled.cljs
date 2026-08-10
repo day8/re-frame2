@@ -326,7 +326,8 @@
   afterwards. The next revision change after the window shuts does reset
   it, on the server's own node and without remount — so the field is never
   stranded, but the reset is the caller's to send again."
-  (:require ["react" :as react]
+  (:require [re-frame.hicasso.impl.error :refer [fail!]]
+            ["react" :as react]
             ["react-dom" :as react-dom]))
 
 (defn- noop [])
@@ -717,17 +718,16 @@
   (when-not (undefined? (unchecked-get js-props revision-slot))
     (js-delete js-props revision-slot)
     (when-not (controlled-text-tag? tag js-props)
-      (throw (ex-info (str "A revision belongs on a controlled text field, and this is not one. "
-                           "[:rf.error/hicasso-revision-not-controlled]")
-                      {:rf.error/id :rf.error/hicasso-revision-not-controlled
-                       :where       'front.controlled/install!
-                       :reason      (str ":re-frame.hicasso/revision re-baselines a controlled "
-                                         "<input> or <textarea> to its model, so it needs both "
-                                         "of those: an `input`/`textarea` tag, and a non-nil "
-                                         ":value to re-baseline TO. This is a " (pr-str tag)
-                                         " and the trigger has no field to fire at.")
-                       :recovery    :put-the-revision-on-a-controlled-input-or-textarea
-                       :tag         tag}))))
+      (fail! :rf.error/hicasso-revision-not-controlled
+             'front.controlled/install!
+             (str "A revision belongs on a controlled text field, and this is not "
+                  "one. :re-frame.hicasso/revision re-baselines a controlled "
+                  "<input> or <textarea> to its model, so it needs both of those: "
+                  "an `input`/`textarea` tag, and a non-nil :value to re-baseline "
+                  "TO. This is a " (pr-str tag) " and the trigger has no field to "
+                  "fire at.")
+             :put-the-revision-on-a-controlled-input-or-textarea
+             {:tag tag})))
   (when (convergeable? tag js-props)
     (let [slot    (change-slot js-props)
           handler (unchecked-get js-props slot)]

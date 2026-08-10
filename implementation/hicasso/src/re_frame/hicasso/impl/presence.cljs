@@ -85,7 +85,8 @@
   spend an effect on it. Deadlines are absolute instants stored when a
   key starts exiting, so a timer re-armed for an unrelated reason cannot
   extend a child's retention past its terminal bound."
-  (:require [re-frame.hicasso.impl.codec :as codec]))
+  (:require [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.error :refer [fail!]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved keys
@@ -116,15 +117,10 @@
 ;; Errors
 ;; ---------------------------------------------------------------------------
 
-(defn- fail! [id where reason recovery extra]
-  ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
-  ;; message carries the `[:rf.error/...]` token the source cannot show
-  ;; (the gate's own "computed discriminator" case). Re-routing the
-  ;; complaint text through `re-frame.error` is rf2-hic-021's ruling.
-  (throw (ex-info (str reason " [" id "]")
-                  (merge {:rf.error/id id :where where
-                          :reason reason :recovery recovery}
-                         extra))))
+;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
+;; package, and the ambient view and source coordinate come with it
+;; (rf2-hic-007). The eight lines that stood here were one of six identical
+;; copies.
 
 ;; ---------------------------------------------------------------------------
 ;; Reading a child
