@@ -12,9 +12,11 @@ facts that only a browser knows.
 > **Test at the lowest rung that can prove the claim. Know which equality
 > that rung proves.**
 
-The [test kit](glossary.md#test-kit) is one namespace, `re-frame.hicasso.test`. It is a supported
-product surface, not a loose collection of utilities. This page aliases it
-as `ht`.
+The [test kit](glossary.md#test-kit) is two namespaces, both supported product
+surfaces rather than loose collections of utilities. `re-frame.hicasso.test`
+holds every rung that runs without a browser, and this page aliases it as
+`ht`. The [mounted facade](glossary.md#mounted-facade) above it is
+`re-frame.hicasso.test.mounted`, aliased `hm`.
 
 ## The ladder
 
@@ -205,40 +207,43 @@ and a residue guarantee:
 
 | Call | What it does |
 |---|---|
-| `ht/mount!` | mounts a view under a fresh isolated frame; records the residue baseline first; returns a handle |
-| `ht/hydrate!` | mounts by adopting server bytes ([SSR and hydration](17-ssr-and-hydration.md)) |
-| `ht/rerender!` | renders a new element into the same root — for props-change tests |
-| `ht/dispatch-and-settle!` | dispatches into the mount's frame and returns once [Hicasso](glossary.md#hicasso) and React are quiescent |
-| `ht/settle!` | waits for quiescence after outside stimulation — a user-event pointer or keyboard sequence |
-| `ht/unmount!` | tears the root down |
-| `ht/assert-clean!` | after unmount: compares exact post-quiescence residue with the pre-mount baseline, then resets |
+| `hm/mount!` | mounts a view under a fresh isolated frame; records the residue baseline first; returns a handle |
+| `hm/hydrate!` | mounts by adopting server bytes; answers a promise of the handle, once adoption has committed ([SSR and hydration](17-ssr-and-hydration.md)) |
+| `hm/rerender!` | renders a new element into the same root — for props-change tests |
+| `hm/dispatch-and-settle!` | dispatches into the mount's frame and returns once [Hicasso](glossary.md#hicasso) and React are quiescent |
+| `hm/settle!` | waits for quiescence after outside stimulation — a user-event pointer or keyboard sequence |
+| `hm/unmount!` | tears the root down |
+| `hm/assert-clean!` | after unmount: compares exact post-quiescence residue with the pre-mount baseline, reports, then resets; answers a promise of the report |
 
 ```clojure
 (ns todo.views-mounted-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [cljs.test :refer [async deftest is]]
             ["@testing-library/dom" :as tl]
-            [re-frame.hicasso.test :as ht]
+            [re-frame.hicasso.test.mounted :as hm]
             [todo.events]
             [todo.subs]
             [todo.views :as views]))
 
 (deftest toggle-reaches-the-real-dom
-  (let [m (ht/mount! [views/todo-row {:id 7}]
-                     {:initial-events
-                      [[:todo/seed [{:id 7 :title "Buy milk" :done? false}]]]})]
-    (try
+  (async done
+    (let [m (hm/mount! [views/todo-row {:id 7}]
+                       {:initial-events
+                        [[:todo/seed [{:id 7 :title "Buy milk" :done? false}]]]})]
       (is (some? (tl/getByText (:container m) "Buy milk")))
-      (ht/dispatch-and-settle! m [:todo/toggle 7])
+      (hm/dispatch-and-settle! m [:todo/toggle 7])
       (is (true? (.-checked (tl/getByRole (:container m) "checkbox"))))
-      (finally
-        (ht/unmount! m)
-        (ht/assert-clean! m)))))
+      (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))))
 ```
+
+Every door takes the handle first and answers it, so a teardown threads. The
+test is `async` because the cleanliness verdict is: `assert-clean!` waits for
+the runtime's own quiescence before it reads, so a synchronous `deftest` would
+finish before the report arrived.
 
 The facade brings no selector language of its own, because that job already
 has an owner. `(:container m)` is a real DOM node, so Testing Library
 queries and user-event sequences work unchanged. After a user-event
-sequence, call `(ht/settle! m)` before you assert.
+sequence, call `(hm/settle! m)` before you assert.
 
 !!! note "Settled, not `act`"
 
