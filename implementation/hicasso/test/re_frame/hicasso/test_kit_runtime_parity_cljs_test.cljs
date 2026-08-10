@@ -15,9 +15,11 @@
   file states one table and drives BOTH sides of it:
 
       :form     the hiccup value under test
+      :subject  the value the `:runtime` column is ABOUT, when that is a
+                child of `:form` rather than `:form` itself
       :runtime  what `codec/as-element` — the runtime's own door — MAKES
-                of it, as a comparable token
-      :tree     the Spec 004B tree `ht/render` must answer for it, or
+                of the subject, as a comparable token
+      :tree     the Spec 004B tree `ht/render` must answer for `:form`, or
       :refuses  the refusal identity it must raise instead
       :why      the clause that says so
 
@@ -150,12 +152,14 @@
 
    {:case    "a KEYWORD child is text, because the runtime renders it as text"
     :form    [:div :done]
+    :subject :done
     :runtime [:text "done"]
     :tree    {:rf.ui/tree-version v :tag :div :children ["done"]}
     :why     "codec/as-element — `(keyword? x) (name x)`."}
 
    {:case    "a SYMBOL child is text, for the same reason"
     :form    [:div 'done]
+    :subject 'done
     :runtime [:text "done"]
     :tree    {:rf.ui/tree-version v :tag :div :children ["done"]}
     :why     "codec/as-element — `(symbol? x) (name x)`."}
@@ -176,6 +180,7 @@
 
    {:case    "`[:> …]` is the raw-React escape, and refuses to L3"
     :form    [:div [:> raw-component]]
+    :subject [:> raw-component]
     :runtime [:opaque]
     :refuses {:rf.error/id :rf.error/hicasso-test-react-is-opaque}
     :why     (str "codec/raw-head? — `[:> C]` hands C to React untouched "
@@ -185,6 +190,7 @@
 
    {:case    "a `defhost` crossing refuses to L3 — the escape's neighbour"
     :form    [:div [a-host]]
+    :subject [a-host]
     :runtime [:opaque]
     :refuses {:rf.error/id :rf.error/hicasso-test-host-is-opaque}
     :why     "The kit's stated opacity, and the row that keeps it distinct."}
@@ -239,8 +245,8 @@
 
 (deftest the-runtime-answers-what-the-table-says
   (testing "every row's :runtime column is what codec/as-element really does"
-    (doseq [{:keys [case form runtime why]} rows]
-      (is (= runtime (runtime-kind form))
+    (doseq [{:keys [case form subject runtime why] :as row} rows]
+      (is (= runtime (runtime-kind (if (contains? row :subject) subject form)))
           (str case "\n  RUNTIME column — " why)))))
 
 (deftest the-kit-answers-what-the-table-says

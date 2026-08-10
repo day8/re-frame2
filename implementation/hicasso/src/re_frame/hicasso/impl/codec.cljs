@@ -2840,7 +2840,7 @@
 
 (defn- hiccup-tag?
   "Is this head a native tag? Asked AFTER the fragment and raw arms in
-  [[vec->element]]'s `cond`, which is its only caller — so the
+  [[head-kind]]'s `cond`, which is its only caller — so the
   `(not (fragment-head? head))` this body used to re-ask was provably
   dead, and every native tag on every page paid the fragment `=` twice
   for it. Dropping it is what pays for [[raw-head?]] exactly: a keyword
@@ -2850,6 +2850,44 @@
   assertion on this surface — it is free by accounting."
   [head]
   (or (keyword? head) (symbol? head) (string? head)))
+
+;; ---------------------------------------------------------------------------
+;; The two discriminations, each named once (rf2-hic-020)
+;; ---------------------------------------------------------------------------
+;;
+;; [[vec->element]] and [[as-element]] each answer a question before they do
+;; anything: WHAT KIND of thing is this. Both questions have a second asker.
+;; `re-frame.hicasso.test`'s L2 walk records what the runtime WOULD render,
+;; as data, and it cannot inspect a React element to find out — so it has to
+;; discriminate the author's hiccup itself.
+;;
+;; It used to do that in a `cond` of its own, and rf2-hic-020's merged-PR
+;; audit found NINE ways the two answers had drifted: `:<>` recorded as an
+;; element named `:<>`, a keyword child refused where the runtime renders it
+;; as text, a `true` child dropped where the runtime raises. Every one was a
+;; branch that existed twice and agreed once.
+;;
+;; So each question is asked in exactly one place — here — and its answer is
+;; a keyword both callers dispatch on. The arms below keep the COSTED ORDER
+;; the two `cond`s were tuned to (see [[as-element]]'s accounting); moving a
+;; test here moves it for the runtime and the kit together, which is the
+;; whole point.
+
+(defn head-kind
+  "WHICH KIND OF HEAD a hiccup vector has — `:fragment`, `:raw`, `:tag`,
+  `:boundary`, `:host` or `:invalid`.
+
+  The head discrimination, named once. [[vec->element]] dispatches on it
+  to build a React element; the test kit dispatches on it to build a Spec
+  004B node. A head kind that exists here exists for both."
+  [head]
+  (cond
+    (fragment-head? head) :fragment
+    (raw-head? head)      :raw
+    (hiccup-tag? head)    :tag
+    (boundary-head? head) :boundary
+    (host-head? head)     :host
+    :else                 :invalid))
 
 (defn vec->element
   "Interpret one hiccup vector."
@@ -2861,13 +2899,13 @@
            :supply-a-hiccup-head
            {}))
   (let [head (nth argv 0)]
-    (cond
-      (fragment-head? head)   (fragment-element argv)
-      (raw-head? head)        (raw-element argv)
-      (hiccup-tag? head)      (native-element argv)
-      (boundary-head? head)   (boundary-element argv)
-      (host-head? head)       (host-element argv)
-      :else
+    (case (head-kind head)
+      :fragment (fragment-element argv)
+      :raw      (raw-element argv)
+      :tag      (native-element argv)
+      :boundary (boundary-element argv)
+      :host     (host-element argv)
+      :invalid
       (fail! :rf.error/hicasso-bad-head
              'front.codec/vec->element
              (if (fn? head)
@@ -2882,6 +2920,43 @@
                     "it with defhost, or write the escape [:> Component …] (HD-011)."))
              (if (fn? head) :call-it-or-make-it-a-view :supply-a-valid-hiccup-head)
              {:head head}))))
+
+(defn child-kind
+  "WHICH KIND OF THING a hiccup value in child position is — `:nothing`,
+  `:text`, `:markup`, `:splice`, `:true-child`, `:react-element`,
+  `:named` or `:foreign`.
+
+  The child discrimination, named once. [[as-element]] dispatches on it
+  to build React's child; the test kit dispatches on it to build a Spec
+  004B child. The two used to ask separately and disagreed about
+  keywords, symbols and `true` (rf2-hic-020).
+
+      :nothing        renders nothing — `nil`, `false`
+      :text           renders as itself — a string or a number
+      :markup         a hiccup vector
+      :splice         a seq, whose members splice in document order
+      :true-child     `true`, which is a loud error (HD-016)
+      :react-element  React's own value, passed through untouched
+      :named          a keyword or symbol, which renders as its `name`
+      :foreign        anything else, which React is handed as it stands
+
+  **The arm order is [[as-element]]'s costed order and not a taxonomy.**
+  `vector?` is `IVector` satisfaction, which for anything without the
+  marker falls through to `native-satisfies?`, so the cheap populations
+  are asked first — the accounting is in [[as-element]]'s docstring."
+  [x]
+  (cond
+    (nil? x)                 :nothing
+    (false? x)               :nothing
+    (string? x)              :text
+    (vector? x)              :markup
+    (number? x)              :text
+    (seq? x)                 :splice
+    (true? x)                :true-child
+    (react/isValidElement x) :react-element
+    (keyword? x)             :named
+    (symbol? x)              :named
+    :else                    :foreign))
 
 (defn as-element
   "Interpret any hiccup form. `nil` and `false` render nothing; `true` is
@@ -2906,24 +2981,26 @@
   reads 2.5x cheaper. This is the stage on which stock Reagent was
   furthest ahead of us: its `as-element` asks one `js-val?`
   (`goog/typeOf x !== \"object\"`) and returns a string on the first
-  branch, and it read 8.8 ns/string against our 33.5."
+  branch, and it read 8.8 ns/string against our 33.5.
+
+  That order is preserved EXACTLY, in [[child-kind]]. What this function
+  pays for naming the discrimination once is one direct call and one
+  `case` on a keyword — the branches themselves are untouched, and the
+  population that was costed pays the same tests in the same sequence."
   [x]
-  (cond
-    (nil? x)         nil
-    (false? x)       nil
-    (string? x)      x
-    (vector? x)      (vec->element x)
-    (number? x)      x
-    (seq? x)         (expand-seq x)
-    (true? x)        (fail! :rf.error/hicasso-true-child
-                            'front.codec/as-element
-                            "nil and false render nothing; true is an error (HD-016)."
-                            :use-nil-or-false
-                            {})
-    (react/isValidElement x) x
-    (keyword? x)     (name x)
-    (symbol? x)      (name x)
-    :else            x))
+  (case (child-kind x)
+    :nothing        nil
+    :text           x
+    :markup         (vec->element x)
+    :splice         (expand-seq x)
+    :true-child     (fail! :rf.error/hicasso-true-child
+                           'front.codec/as-element
+                           "nil and false render nothing; true is an error (HD-016)."
+                           :use-nil-or-false
+                           {})
+    :react-element  x
+    :named          (name x)
+    :foreign        x))
 
 (defn root-element
   "[[as-element]] for a hiccup form written OUTSIDE any boundary body —

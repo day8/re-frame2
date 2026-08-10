@@ -67,7 +67,7 @@
   ## The tree is Spec 004B version 1, not a second schema
 
   [[render]] answers the **versioned structural tree** that
-  [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)
+  [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../../spec/004B-UI-Tree-and-Conversion.md)
   §The node schema already pins — the same closed node set, the same
   discrimination order, the same `:rf.ui/tree-version` root gate, the
   same `{:rf.ui/opaque :fn}` sentinel — so a tree from a Hicasso body and
@@ -116,6 +116,15 @@
 
   ### Children
 
+  **What a child IS is the runtime's answer, never a second one.** The
+  walk dispatches on `codec/child-kind` and `codec/head-kind` — the same
+  two functions `codec/as-element` and `codec/vec->element` dispatch on —
+  so a keyword child is the text the runtime renders it as, `[:<> …]` is
+  a fragment because it is React's Fragment there, and a `true` child
+  raises `:rf.error/hicasso-true-child` because the runtime raises it.
+  rf2-hic-020's audit found nine places where this walk had its own
+  opinion; a branch that exists twice agrees once.
+
   - A **nested body function** is refused: a plain function in head
     position is a loud error in Hicasso itself (HD-016), and a kit that
     accepted one would teach a spelling the runtime rejects.
@@ -124,10 +133,10 @@
     children. Its body does NOT run, and the node claims nothing about
     what it would render. Assert its props here; render its body to
     assert its contents.
-  - A **`defhost` crossing**, a **raw React element** and anything the
-    codec would hand to React untouched are **opaque** and refuse with a
-    pointer to L3. So does an unforced `delay`, which Hicasso itself
-    refuses at a boundary crossing.
+  - A **`defhost` crossing**, the **raw escape `[:> …]`**, a **raw React
+    element** and anything else the codec hands to React untouched are
+    **opaque** and refuse with a pointer to L3. So does an unforced
+    `delay`, which Hicasso itself refuses at a boundary crossing.
 
   ### Reads
 
@@ -611,34 +620,98 @@
 
 (def ^:private tree-version-key :rf.ui/tree-version)
 
-(defn- opaque-prop
-  "004B §The opaque marker at a prop or handler site: a function records
-  as the marker; a non-data value NESTED inside a recorded value is
-  rejected rather than marked, because below the key the grammar names no
-  site and a marker written there would replace a value the author
-  wrote."
-  [k v path]
-  (letfn [(scan [x]
-            (cond
-              (fn? x)   (refuse! :rf.error/ui-tree-malformed
-                                 (str "a function is nested inside the value at "
-                                      (pr-str k) " — the opaque marker occupies a "
-                                      "SITE, never a value inside one, so this "
-                                      "value cannot be recorded.")
-                                 :hoist-the-function-to-its-own-site
-                                 {:key k :path path :value x})
-              (map? x)  (run! scan (vals x))
-              (coll? x) (run! scan x)
-              :else     nil))]
-    (if (fn? v)
-      {:rf.ui/opaque :fn}
-      (do (scan v) v))))
+;; 004B §The opaque marker pins DATA as the EDN value grammar exactly —
+;; the grammar the tree's print/read promise is stated in — rather than as
+;; whatever the host's collection and number predicates happen to admit. The
+;; two predicates below are that grammar, and they are what makes the
+;; namespace docstring's "plain, serialisable Clojure data" a checked claim
+;; rather than an advertised one: before rf2-hic-020's audit a host object
+;; and a function used as a MAP KEY both walked into the tree unremarked.
 
-(defn- react-element?
-  "Is `x` a React element — something the codec would hand to React
-  untouched? The `$$typeof` brand, which is React's own discriminator."
+(defn- edn-scalar?
+  "Is `x` one of EDN's scalars — the values an EDN reader takes back as
+  the value that was printed? `##NaN` is excluded although it prints and
+  reads: it is not equal to itself, so a tree holding one is not equal to
+  itself, and the tree is an equality input."
   [x]
-  (and (object? x) (some? (unchecked-get x "$$typeof"))))
+  (or (string? x) (keyword? x) (boolean? x) (nil? x) (symbol? x)
+      (and (number? x) (== x x))
+      (uuid? x)
+      ;; EDN's other built-in tagged literal, `#inst`.
+      (instance? js/Date x)))
+
+(defn- non-data
+  "`[path value]` for the FIRST value inside `x` that is not data, or nil
+  when `x` is data all the way down. `path` is the map keys and vector
+  indices walked to reach it, so a refusal names the offending SITE.
+
+  The collection arms name EDN's four collections rather than asking
+  `coll?`, because `coll?` is a question about a host INTERFACE and
+  collections implement it with no EDN spelling at all: a record answers
+  `map?` while printing a tag no reader has, and a persistent queue
+  answers a collection predicate while printing `#queue […]`. Read-only
+  and short-circuiting — nothing is rebuilt and the walk stops at the
+  first offender, so an ordinary scalar prop costs one predicate."
+  [x]
+  (cond
+    (edn-scalar? x) nil
+
+    (instance? PersistentQueue x) [[] x]
+
+    ;; `reduce-kv` over a vector answers index/element — exactly the path
+    ;; segment wanted — so maps and vectors share one arm. A KEY is
+    ;; checked as well as a value: it is inside the recorded value just
+    ;; as much, and it was the hole the audit found.
+    (or (and (map? x) (not (record? x))) (vector? x))
+    (reduce-kv (fn [_ k v]
+                 (if-some [found (or (when (non-data k) [[] k])
+                                     (when-some [[p bad] (non-data v)]
+                                       [(into [k] p) bad]))]
+                   (reduced found)
+                   nil))
+               nil
+               x)
+
+    ;; A set or a seq has no position worth naming, so the path stops.
+    (or (set? x) (seq? x))
+    (reduce (fn [_ v] (when-some [found (non-data v)] (reduced found))) nil x)
+
+    :else [[] x]))
+
+(defn- offender-name
+  "How a refusal NAMES the value that may not be recorded. `##NaN` by its
+  own spelling rather than as a number, because the number grammar is
+  otherwise open and 'carries a number' would read as nonsense."
+  [x]
+  (cond
+    (and (number? x) (not (== x x))) "##NaN"
+    (fn? x)                          "a function"
+    (record? x)                      "a record"
+    (object? x)                      "a host object"
+    :else                            (str "a " (pr-str (type x)))))
+
+(defn- opaque-prop
+  "004B §The opaque marker at a prop or handler site: a function IS the
+  marker; anything outside the EDN value grammar, at any depth inside a
+  recorded value, is REJECTED rather than marked.
+
+  Rejected rather than marked because below the key the grammar names no
+  site, and a marker written there would claim one that does not exist
+  and silently replace a value the author will go looking for."
+  [k v]
+  (if (fn? v)
+    {:rf.ui/opaque :fn}
+    (do (when-some [[path bad] (non-data v)]
+          (refuse! :rf.error/ui-tree-malformed
+                   (str "the value at " (pr-str k)
+                        (when (seq path) (str ", at " (pr-str path) " within it,"))
+                        " is " (offender-name bad) ", which this tree cannot "
+                        "record: 004B pins it as plain data an EDN reader takes "
+                        "back, and the opaque marker occupies a SITE rather than "
+                        "a value inside one.")
+                   :hoist-it-to-its-own-site
+                   {:key k :path (into [k] path) :value bad}))
+        v)))
 
 (defn- refuse-opaque!
   [id reason extra]
@@ -653,32 +726,92 @@
     (reduce-kv (fn [m k v]
                  (if (or (= :key k) (= :children k))
                    m
-                   (assoc! m k (opaque-prop k v [k]))))
+                   (assoc! m k (opaque-prop k v))))
                (transient {})
                props)))
 
+;; ---------------------------------------------------------------------------
+;; L2 — the namespace context (004B §Namespaces)
+;; ---------------------------------------------------------------------------
+;;
+;; A body is written without knowing where it will be mounted, so `<svg>`-ness
+;; is not a fact about a subtree — it is established by the element that opens
+;; the namespace and read by the elements built underneath it. React infers it
+;; from the tag at commit time and stores nothing; the TREE has to carry it,
+;; because `:ns` is a pinned field of the element variant and two nodes that
+;; differ only by namespace are two different nodes.
+
+(def ^:private html-encodings
+  "The `:annotation-xml` encodings that make its children HTML — the
+  HTML specification's own integration point."
+  #{"text/html" "application/xhtml+xml"})
+
+(defn- element-ns
+  "The namespace an element IS in. `:svg` and `:math` open one; every
+  other element inherits the context it was built in. `nil` is HTML, and
+  004B requires `:ns` to be ABSENT there — one representation per node."
+  [tag inherited]
+  (case tag
+    :svg  :svg
+    :math :mathml
+    inherited))
+
+(defn- children-ns
+  "The namespace an element's CHILDREN are built in. Two integration
+  points revert to HTML: `:foreignObject` always, and `:annotation-xml`
+  when its `:encoding` says its content is HTML."
+  [tag own attrs]
+  (case tag
+    :foreignObject  nil
+    :annotation-xml (when-not (html-encodings (:encoding attrs)) own)
+    own))
+
+;; ---------------------------------------------------------------------------
+;; L2 — the walk
+;; ---------------------------------------------------------------------------
+
 (declare walk)
 
-(defn- walk-children
-  "Walk the children of a hiccup form from index `from`, splicing seqs and
-  dropping nils — the codec's own child grammar, in semantic space."
-  [form from]
-  (let [out (transient [])]
-    (letfn [(add! [x]
-              (cond
-                (or (nil? x) (false? x) (true? x)) nil
-                (seq? x)   (run! add! x)
-                :else      (conj! out (walk x))))]
-      (loop [i from]
-        (when (< i (count form))
-          (add! (nth form i))
-          (recur (inc i)))))
-    (let [v (persistent! out)]
-      (when (seq v) v))))
+(defn- child-forms
+  "The raw child values of a hiccup form — everything after the head and
+  the attribute map, if there is one."
+  [form]
+  (subvec form (if (map? (nth form 1 nil)) 2 1)))
+
+(defn- coalesce
+  "Append one child to the canonical run, MERGING it into the text run it
+  continues. 004B §Children — adjacent text runs are one string."
+  [out x]
+  (let [n (count out)]
+    (if (and (string? x) (pos? n) (string? (nth out (dec n))))
+      (assoc out (dec n) (str (nth out (dec n)) x))
+      (conj out x))))
+
+(defn- canonical-children
+  "The canonical `:children` vector for a run of hiccup values — 004B
+  §Children, in ONE place.
+
+  `codec/child-kind` decides what each value IS, so the grammar here is
+  the runtime's own and cannot drift from it. Seqs splice in document
+  order; adjacent text coalesces; empty strings drop AFTER coalescing,
+  which is the order the rule is stated in and the only order under which
+  a `\"\"` between two strings joins them rather than breaking the run."
+  [xs ns-ctx]
+  (into []
+        (remove #(= "" %))
+        (reduce (fn add [out x]
+                  (let [kind (codec/child-kind x)]
+                    (case kind
+                      :nothing out
+                      :splice  (reduce add out x)
+                      (coalesce out (walk kind x ns-ctx)))))
+                []
+                xs)))
 
 (defn- element-node
-  [form]
+  [form ns-ctx]
   (let [parsed  (codec/cached-parse (nth form 0))
+        tag     (keyword (.-tag parsed))
         props   (form-props form)
         ;; The codec's own two shorthand rules, taken from it rather than
         ;; restated: an explicit id WINS over `#id`, and the shorthand
@@ -689,7 +822,7 @@
         events  (persistent!
                   (reduce-kv (fn [m k v]
                                (if (intent/event-prop? k)
-                                 (assoc! m k (opaque-prop k v [k]))
+                                 (assoc! m k (opaque-prop k v))
                                  m))
                              (transient {})
                              props))
@@ -701,18 +834,34 @@
                                  (= :class k)           m
                                  (= :id k)              m
                                  (nil? v)               m
-                                 :else (assoc! m k (opaque-prop k v [k]))))
+                                 :else (assoc! m k (opaque-prop k v))))
                              (transient {})
                              props))
         attrs   (cond-> attrs
                   (some? classes) (assoc :class classes)
                   (some? id)      (assoc :id id))
-        children (walk-children form (if (map? (nth form 1 nil)) 2 1))]
-    (cond-> {:tag (keyword (.-tag parsed))}
-      (seq attrs)          (assoc :attrs attrs)
-      (seq events)         (assoc :events events)
+        own-ns   (element-ns tag ns-ctx)
+        children (canonical-children (child-forms form)
+                                     (children-ns tag own-ns attrs))]
+    (cond-> {:tag tag}
+      (some? own-ns)         (assoc :ns own-ns)
+      (seq attrs)            (assoc :attrs attrs)
+      (seq events)           (assoc :events events)
       (contains? props :key) (assoc :key (:key props))
-      (some? children)     (assoc :children children))))
+      (seq children)         (assoc :children children))))
+
+(defn- fragment-node
+  "`[:<> …]` — the variant whose job is to hold a run of children.
+
+  Its `:children` are retained WHEN EMPTY, alone among the variants: they
+  are its required discriminator, so `{}` would be a malformed node
+  rather than an empty fragment (004B §Canonical uniqueness). Only `:key`
+  is read off its attribute map, exactly as `codec/fragment-element`
+  reads it — a fragment has no attributes to emit."
+  [form ns-ctx]
+  (let [props (when (map? (nth form 1 nil)) (nth form 1))]
+    (cond-> {:children (canonical-children (child-forms form) ns-ctx)}
+      (contains? props :key) (assoc :key (:key props)))))
 
 (defn- boundary-node
   "A child boundary, recorded as the CALL it is: its view id, the props
@@ -720,11 +869,11 @@
   does not run — `mint-view!` retains no reference to it — so this node
   claims nothing about what the child would render, and [[text]] over it
   answers the call site's own children and no more."
-  [form]
+  [form ns-ctx]
   (let [head     (nth form 0)
         props    (form-props form)
         recorded (walk-props props)
-        children (walk-children form (if (map? (nth form 1 nil)) 2 1))]
+        children (canonical-children (child-forms form) ns-ctx)]
     ;; `mint-view!` stamps `displayName` on the component unconditionally
     ;; — not behind `goog.DEBUG` — so a head minted through `h/defview`
     ;; always names itself and the fallback is unreachable through the
@@ -736,48 +885,38 @@
     (cond-> {:view-id (or (view-name head) "<unnamed boundary>")}
       (seq recorded)         (assoc :props recorded)
       (contains? props :key) (assoc :key (:key props))
-      (some? children)       (assoc :children children))))
+      (seq children)         (assoc :children children))))
 
-(defn- walk
-  "One hiccup value to one 004B node, or to text. The discrimination
-  order is 004B's, and every arm that cannot be modelled honestly
-  refuses."
-  [x]
-  (cond
-    (string? x)  x
-    (number? x)  (str x)
+(defn- walk-vector
+  "One hiccup VECTOR to its 004B node. `codec/head-kind` is the runtime's
+  own head discrimination, so `:<>` is a fragment here because it is a
+  fragment there, and the two escapes React interprets for itself refuse
+  to L3 rather than being recorded as elements named `:<>` and `:>`."
+  [form ns-ctx]
+  (let [head (nth form 0 nil)]
+    (case (codec/head-kind head)
+      :tag      (element-node form ns-ctx)
+      :fragment (fragment-node form ns-ctx)
+      :boundary (boundary-node form ns-ctx)
 
-    (delay? x)
-    (refuse-opaque! :rf.error/hicasso-deferred-read-at-boundary
-                    (str "an unforced `delay` reached a boundary crossing. "
-                         "Hicasso refuses it there rather than forcing it, "
-                         "because forcing an author's explicit deferral would "
-                         "change what their program means.")
-                    {:value x})
+      :host
+      (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
+                      (str "a `h/defhost` crossing (" (pr-str (view-name head))
+                           ") reached the semantic tree. What a foreign React "
+                           "component renders is React's answer, not "
+                           "Hicasso's, and L2 has no way to ask it.")
+                      {:host (view-name head) :value form})
 
-    (react-element? x)
-    (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
-                    (str "a raw React element reached the semantic tree. L2 "
-                         "reads the hiccup a body wrote; a value React alone "
-                         "can interpret has no semantic form here.")
-                    {:value x})
+      :raw
+      (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
+                      (str "the raw escape `[:> …]` reached the semantic tree. "
+                           "It hands its component to React untouched (HD-011), "
+                           "so what it renders is React's answer and L2 has no "
+                           "way to ask it.")
+                      {:value form})
 
-    (vector? x)
-    (let [head (nth x 0 nil)]
-      (cond
-        (keyword? head) (element-node x)
-
-        (codec/host-head? head)
-        (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
-                        (str "a `h/defhost` crossing (" (pr-str (view-name head))
-                             ") reached the semantic tree. What a foreign React "
-                             "component renders is React's answer, not "
-                             "Hicasso's, and L2 has no way to ask it.")
-                        {:host (view-name head) :value x})
-
-        (codec/boundary-head? head) (boundary-node x)
-
-        (fn? head)
+      :invalid
+      (if (fn? head)
         (refuse! :rf.error/hicasso-test-plain-fn-head
                  (str "a plain function is in hiccup head position. Hicasso "
                       "refuses that outright (HD-016) rather than embedding it "
@@ -785,22 +924,64 @@
                       "with `h/defview`, or — to run this body at L2 — pass it "
                       "as the ROOT form of `render`.")
                  :mint-the-boundary-or-render-it-as-the-root
-                 {:value x})
-
-        :else
+                 {:value form})
         (refuse! :rf.error/ui-tree-malformed
-                 (str "a hiccup vector's head must be a tag keyword, a "
-                      "`h/defview` boundary or a `h/defhost` crossing; got "
-                      (pr-str head) ".")
+                 (str "a hiccup vector's head must be a tag keyword, `:<>`, "
+                      "`:>`, a `h/defview` boundary or a `h/defhost` crossing; "
+                      "got " (pr-str head) ".")
                  :fix-the-head
-                 {:value x})))
+                 {:value form})))))
 
-    :else
-    (refuse! :rf.error/ui-tree-malformed
-             (str "not a hiccup value — a node is a vector, and content is a "
-                  "string or a number; got " (pr-str x) ".")
-             :fix-the-child
-             {:value x})))
+(defn- walk
+  "One hiccup value that CONTRIBUTES A CHILD, as its 004B node or as
+  text. `kind` is `codec/child-kind`'s answer, computed by the caller:
+  `:nothing` and `:splice` are the RUN's business (see
+  [[canonical-children]]) rather than a node's, so they never arrive
+  here and this function is total over what does.
+
+  Every arm is the runtime's own answer for that kind, or an honest
+  refusal where L2 cannot give one."
+  [kind x ns-ctx]
+  (case kind
+    ;; 004B §Children: a number is text via JS `ToString`.
+    :text   (str x)
+    ;; The runtime renders a keyword or symbol child as its `name`
+    ;; (`codec/as-element`), so the tree records the text it renders.
+    ;; This arm used to refuse, which taught that a legal spelling was a
+    ;; mistake — the sharpest way an instrument can be wrong.
+    :named  (name x)
+    :markup (walk-vector x ns-ctx)
+
+    :true-child
+    (refuse! :rf.error/hicasso-true-child
+             (str "a `true` child reached the semantic tree. `nil` and `false` "
+                  "render nothing; `true` is an error (HD-016), and the runtime "
+                  "raises this same id for it rather than dropping it.")
+             :use-nil-or-false
+             {:value x})
+
+    :react-element
+    (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
+                    (str "a raw React element reached the semantic tree. L2 "
+                         "reads the hiccup a body wrote; a value React alone "
+                         "can interpret has no semantic form here.")
+                    {:value x})
+
+    :foreign
+    (if (delay? x)
+      (refuse-opaque! :rf.error/hicasso-deferred-read-at-boundary
+                      (str "an unforced `delay` reached a boundary crossing. "
+                           "Hicasso refuses it there rather than forcing it, "
+                           "because forcing an author's explicit deferral would "
+                           "change what their program means.")
+                      {:value x})
+      (refuse! :rf.error/ui-tree-malformed
+               (str "a child outside the tree's value grammar. The runtime "
+                    "hands this to React as it stands, which has no semantic "
+                    "form here; content is a string, a number, a keyword or a "
+                    "symbol. Got " (pr-str x) ".")
+               :fix-the-child
+               {:value x}))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the discardable read resolver
@@ -967,16 +1148,23 @@
        (try
          (collector/render-body
            frame-kw
-           (fn hicasso-test-body [p] (vreset! !tree (walk (head p))) nil)
+           (fn hicasso-test-body [p]
+             (vreset! !tree (canonical-children [(head p)] nil))
+             nil)
            props)
          (verify-fixtures! frame-kw reads (collector/last-reads))
-         (let [tree @!tree]
-           (if (map? tree)
-             (assoc tree tree-version-key tree-version)
-             ;; A body that answered text, or nothing, roots in a fragment —
-             ;; 004B §Versioning: the version gate lives on a MAP root.
-             (cond-> {tree-version-key tree-version}
-               (some? tree) (assoc :children [tree]))))
+         ;; 004B §Versioning — the emitter returns the ROOT NODE, always a
+         ;; map, carrying the version. A body that answered ONE node roots
+         ;; in it; a body that answered text, several nodes, or NOTHING
+         ;; roots in a fragment, which is the variant whose job is to hold
+         ;; a run. The empty case is `{:children []}` and not `{}`:
+         ;; `:children` is the fragment's required discriminator, so the
+         ;; bare version map the kit used to answer was a malformed node
+         ;; every projection had to special-case.
+         (let [children @!tree]
+           (if (and (= 1 (count children)) (map? (nth children 0)))
+             (assoc (nth children 0) tree-version-key tree-version)
+             {tree-version-key tree-version :children children}))
          (finally
            (swap! collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
 
@@ -1006,7 +1194,6 @@
       (contains? m :tag)      :element
       (contains? m :view-id)  :view-boundary
       (contains? m :children) :fragment
-      (contains? m tree-version-key) :fragment
       :else
       (refuse! :rf.error/ui-tree-malformed
                (str "a map node needs a discriminating field (:tag / :view-id "
