@@ -312,6 +312,49 @@ governing promise is amended instead, which is the honest half of the choice
 the audit offered. Hidden-retained is never inferred from an empty census, and
 a subscribed row is never labelled visible.
 
+### A row's key and testid carry the WHOLE projected identity
+
+The producer exports each key element as `[frame-id sub-id projected-query]`
+and names the frame on every edge and explanation row. The panel must spend
+all three, and for one increment it did not: `boundary-slug` ignored the
+frame, `attribution-rows` slugged every edge by sub-id alone, and the Reads
+view printed neither the projected query nor the frame. Rows that are
+genuinely different facts therefore shared a React key and a DOM testid, and
+read identically on screen (audit #7802):
+
+```clojure
+;; on merge 7c45f3ca9
+(map boundary-slug [{:key [[:frame/a :row [:row 1]]]}
+                    {:key [[:frame/b :row [:row 1]]]}])   ;=> ["row-row-1" "row-row-1"]
+(map :slug (attribution-rows …))                          ;=> ["row" "row"]
+;;   for [:row 1] in frame A and [:row 2] in frame B
+```
+
+**Frames are isolated contexts**, so the first pair is two applications'
+boundaries, not one boundary counted twice — collapsing them is the same
+class of error as collapsing two empties. `hicasso-helpers/read-key-str` is
+now the one place a projected read identity becomes a string, and
+`boundary-slug`, `read-slug` and the Reads and Why rows all go through it.
+
+| Surface | Carries |
+|---|---|
+| a boundary testid / React key | every key element's frame, sub-id and projected query |
+| a Reads row testid / React key | the edge's frame, sub-id and projected query |
+| the Reads row on screen | the projected query as its label, and the frame beside the fan-out |
+| the Why row on screen | the boundary label, and the frame beside it |
+
+**Projected fields only.** The query arrives already projected and is printed
+as found; recovering the raw query to make a slug more readable would undo
+the producer's redaction at the last step, which is the escape the #7789
+audit caught. A frame whose value is `:unknown` renders the `unknown` chip
+rather than the word, exactly as the Mounted view does.
+
+The identity remains as fine as the egress policy allows and no finer. Where
+a policy elides two queries whole, two edges sharing a frame and a
+registration id project to one identity — the producer's documented ceiling,
+which the mounted census resolves by grouping and the Reads roster inherits
+because it prints the cell table as it stands.
+
 ### Every absence is a chip, and the five chips differ
 
 `hicasso-helpers/loss-chip` turns a loss (or an `:unknown` value) into
@@ -379,6 +422,6 @@ Adding it moved six governance pins, each of which fails the build on drift:
 |---|---|---|
 | `re-frame.hicasso.evidence-schema-cljs-test` | node | every shape in which a projection would claim more than it knows is refused, each with a positive control |
 | `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
-| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the four per-view empties; labels and testids are built from the projected key; two query variants do not collapse; the schema pin; row projections |
-| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; each view renders its own empty; the seam reshapes nothing |
+| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the four per-view empties; labels and testids are built from the projected key; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the superseded v1 stamp is refused rather than mis-parsed; the schema pin; row projections |
+| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |

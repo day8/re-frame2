@@ -233,10 +233,19 @@
                    ^{:key (:slug row)}
                    [:li {:data-testid (str "rf-xray-" panel-id "-edge-" (:slug row))
                          :style       row-style}
-                    [:div [:span {:style {:font-family mono-stack}}
-                           (hh/format-id (:sub-id row))]
+                    ;; The PROJECTED QUERY, not the bare sub-id. `[:row 1]`
+                    ;; and `[:row 2]` are one registration and two cells, and
+                    ;; a view naming only the registration printed them as two
+                    ;; identical lines (audit #7802).
+                    [:div [:span {:style {:font-family mono-stack}} (:label row)]
+                     (loss-chip (str "rf-xray-" panel-id "-edge-" (:slug row) "-frame")
+                                (:frame-chip row))
                      [:span {:style (assoc detail-style :display "inline" :margin-left "8px")}
-                      (str "fan-out " (:fan-out row))]]
+                      (string/join " · "
+                                   (remove nil?
+                                           [(when-not (hh/unknown? (:frame-id row))
+                                              (str "frame " (hh/format-id (:frame-id row))))
+                                            (str "fan-out " (:fan-out row))]))]]
                     [:div {:data-testid (str "rf-xray-" panel-id "-edge-" (:slug row) "-readers")
                            :style       detail-style}
                      (str "read by " (string/join ", " (map :label (:readers row))))]])
@@ -292,7 +301,15 @@
                    ^{:key (:slug row)}
                    [:li {:data-testid (str "rf-xray-" panel-id "-explain-" (:slug row))
                          :style       row-style}
-                    [:div [:span {:style {:font-family mono-stack}} (:label row)]]
+                    ;; The frame rides beside the label. Frames are isolated
+                    ;; contexts, so one query read in two of them is two facts
+                    ;; — and their labels are identical (audit #7802).
+                    [:div [:span {:style {:font-family mono-stack}} (:label row)]
+                     (loss-chip (str "rf-xray-" panel-id "-explain-" (:slug row) "-frame")
+                                (:frame-chip row))
+                     (when-not (hh/unknown? (:frame row))
+                       [:span {:style (assoc detail-style :display "inline" :margin-left "8px")}
+                        (str "frame " (hh/format-id (:frame row)))])]
                     ;; THE PROVEN HALF — off the cells' own epoch stamps.
                     [:div {:data-testid (str "rf-xray-" panel-id "-explain-" (:slug row) "-proven")
                            :style       detail-style}
