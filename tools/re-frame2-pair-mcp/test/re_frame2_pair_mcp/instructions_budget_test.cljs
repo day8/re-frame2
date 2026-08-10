@@ -63,14 +63,14 @@
        "  margin: " (- budget tokens) " tokens\n"
        "At egress the whole response is REPLACED by the {:rf.mcp/overflow ...} "
        "marker, so an agent's first-contact call returns no onboarding text at "
-       "all — and the marker's hint ('re-call with narrower args') cannot help, "
+       "all - and the marker's hint ('re-call with narrower args') cannot help, "
        "because this tool takes no narrowing args.\n"
        "FIX: shorten `instructions-text` in "
        "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/"
        "get_re_frame2_pair_instructions.cljs. The `## Tool catalogue` section is "
        "~75% of it and is the only part that grows with the tool count.\n"
-       "EXCHANGE RATE: the prose rides the wire TWICE — once as the pr-str EDN "
-       ":content[0].text and once as the :structuredContent JSON — so one "
+       "EXCHANGE RATE: the prose rides the wire TWICE - once as the pr-str EDN "
+       ":content[0].text and once as the :structuredContent JSON - so one "
        "character of prose costs ~0.5 tokens of this budget (~2 characters per "
        "token, not the ~4 a single copy would suggest).\n"
        "NOT THE FIX: raising default-max-tokens. It is a cross-MCP constant in "
@@ -81,9 +81,18 @@
   (async done
     (-> (instr/get-re-frame2-pair-instructions-tool nil nil)
         (.then (fn [result]
-                 (let [tokens (cap/sum-payload-tokens result)
-                       budget cap/default-max-tokens
-                       capped (cap/apply-cap result {:tool tool-name :cap budget})]
+                 (let [tokens  (cap/sum-payload-tokens result)
+                       budget  cap/default-max-tokens
+                       capped  (cap/apply-cap result {:tool tool-name :cap budget})
+                       ;; `apply-cap` returns the result object UNCHANGED when
+                       ;; it fits, and a fresh overflow-marker result when it
+                       ;; does not. Identity is therefore the exact question —
+                       ;; "would the wire boundary have replaced this?" —
+                       ;; collapsed to a boolean HERE so the `actual:` line
+                       ;; stays one word. Asserting `(identical? capped result)`
+                       ;; directly would print both ~10 KB envelopes above the
+                       ;; message, burying the numbers the author needs.
+                       replaced? (not (identical? capped result))]
                    ;; Self-check: a zero sum would make the budget
                    ;; assertion vacuously green — it would "pass" on an
                    ;; empty result just as happily as on a well-sized one.
@@ -92,11 +101,7 @@
                             " — the result shape changed and this guard is "
                             "measuring nothing; re-check cap/sum-payload-tokens "
                             "against the tool's result envelope"))
-                   ;; `apply-cap` returns the result object UNCHANGED when
-                   ;; it fits, and a fresh overflow-marker result when it
-                   ;; does not. Identity is therefore the exact question:
-                   ;; "would the wire boundary have replaced this?"
-                   (is (identical? capped result)
+                   (is (false? replaced?)
                        (over-budget-message tokens budget)))
                  (done)))
         (.catch (fn [e]
