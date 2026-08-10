@@ -836,7 +836,13 @@
 (defn- suggestions
   "The per-component suggestion block (§7.6), LABELLED AS GUESSES. The
   tool suggests a declaration and never writes one: `:callbacks` synthesis
-  is never mechanical."
+  is never mechanical.
+
+  Only a FOREIGN component earns one. A string head is a native tag —
+  W6 rewrites `[:> \"input\" …]` to `[:input …]`, and the two string heads
+  W6 declines (the broken `\"div#id\"` shorthand, and a carrier at
+  `\"button\"`) are native too — so there is nothing to declare and the
+  caller gates on that."
   [head props-node]
   (when props-node
     (let [ps (pairs props-node)
@@ -1056,7 +1062,9 @@
                           w1? (conj (entry :metadata-key :rewrote
                                            {:key (str/trim (n/string key-node))}
                                            (meta-key-note))))
-               :suggest (suggestions head props)
+               ;; `head-str` is a string only when the head is a string
+               ;; LITERAL, which is a native tag and never a host.
+               :suggest (when-not (string? head-str) (suggestions head props))
                :edit edit))
 
       base)))

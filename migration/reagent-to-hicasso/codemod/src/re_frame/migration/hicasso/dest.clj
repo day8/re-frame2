@@ -19,6 +19,7 @@
   | [[canonical-slot]] | which React slot does this key emit into? | No — it selects which §3 row applies, and both runtimes compute it identically from the key alone |
   | [[html-attr-slot?]] | is this slot bound for an HTML attribute? | No — a yes means both runtimes `name` here, so W3 SKIPS |
   | [[event-prop?]] | will `host-entry` refuse a carrier at this slot? | No — a yes is always a REFUSAL, never a wrap |
+  | [[callback-contracts]] | what may a declaration name at a slot? | No — it is not asked of the source at all; the report PRINTS it |
   | literalness (`rewrite`'s own syntactic tests) | can this form's value be read off the text? | Yes — and it is the only term that can |
 
   Exactly one term can authorise a rewrite and it is the one that asks
@@ -31,12 +32,18 @@
   ## What is mirrored, and what is shared
 
   [[canonical-slot]] is the shared `.cljc` rule itself (rf2-ani6y) — not a
-  mirror, the actual function the codec calls. [[html-attr-slots]] and
-  [[re-event-prop]] ARE mirrors, of `codec/html-attr-slots` and
-  `intent/event-prop?`, because both live in `.cljs` this JVM tool cannot
-  load. Each is one small pure form carrying the symbol it mirrors, which
-  is the design's §9.5 partial mitigation — a convention, and the page is
-  candid that a convention is not a pin."
+  mirror, the actual function the codec calls. [[html-attr-slots]],
+  [[re-event-prop]] and [[callback-contracts]] ARE mirrors, of
+  `codec/html-attr-slots`, `intent/event-prop?` and
+  `codec/callback-contracts`, because all three live in `.cljs` this JVM
+  tool cannot load. Each is one small pure form carrying the symbol it
+  mirrors, which is the design's §9.5 partial mitigation — a convention,
+  and the page is candid that a convention is not a pin.
+
+  [[callback-contracts]] is the one mirror the tool does not merely
+  consult but REPRINTS, so `shared-rule-test` reads the door's own file
+  and asserts the two rosters equal rather than leaving this one to the
+  convention (rf2-vi11)."
   (:require [clojure.string :as str]
             [re-frame.bench.hicasso.front.slot :as slot]))
 
@@ -101,6 +108,23 @@
   [k]
   (boolean (and (or (keyword? k) (string? k))
                 (re-find re-event-prop (name k)))))
+
+(def callback-contracts
+  "MIRRORS `front.codec/callback-contracts` — the three contracts a
+  `defhost` declaration may name at a slot, and the whole of what the door
+  will accept there.
+
+  A VECTOR where the door holds a set, because this is the one piece of
+  destination vocabulary the report PRINTS rather than merely consults,
+  and printed prose needs an order. The order is the door's own literal
+  and the guide's: `:event`, `:handler`, `:render`.
+
+  The tool never chooses one. It cannot: `onRenderCell` is
+  [[event-prop?]]-true and is a RENDER prop, so a contract read off a name
+  is a guess that fails silently. The roster is carried here so the report
+  can tell a migrator what the three answers ARE, which is the part of the
+  decision the tool genuinely knows."
+  [:event :handler :render])
 
 (defn nested-key-name
   "What `clj->js` emits for a key inside a NESTED map — which is the

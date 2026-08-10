@@ -33,7 +33,8 @@
   pins it — `codemod-contract-donor-*` in
   `implementation/adapters/reagent/test/re_frame/reagent_codemod_contract_donor_cljs_test.cljs`
   (rf2-d2mwk)."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.bench.hicasso.front.slot :as slot]
@@ -64,6 +65,45 @@
                path))
       (is (not (str/includes? path "/migration/reagent-to-hicasso/"))
           "a copy of the slot rule has appeared inside the codemod's own tree"))))
+
+;; ---------------------------------------------------------------------------
+;; The one mirror the tool REPRINTS, held against the door's own file
+;; ---------------------------------------------------------------------------
+
+(def ^:private door-file
+  "`mint-host!`'s namespace. `.cljs`, so this JVM cannot load it — but it
+  can READ it, and for the one roster the tool prints back to a migrator
+  that is worth doing."
+  (io/file ".." ".." ".." "implementation" "hicasso" "src" "re_frame"
+           "hicasso" "impl" "codec.cljs"))
+
+(defn- door-contracts
+  "The contract roster as the DOOR spells it, lifted out of its own
+  source text."
+  []
+  (some-> (re-find #"\(def \^:private callback-contracts[\s\S]*?(#\{[^}]*\})" (slurp door-file))
+          second
+          edn/read-string))
+
+(deftest the-callback-contracts-are-the-door's
+  (testing "the door's file is where this test thinks it is — a moved
+            file must red this pin rather than silently skip it"
+    (is (.exists door-file) (str "the door is not at " door-file)))
+
+  (testing "rf2-vi11 — the report PRINTS this roster into the `defhost`
+            sketch it invites a migrator to paste, so a fourth contract at
+            the door, or a renamed one, makes the tool's own advice wrong.
+            `html-attr-slots` and `re-event-prop` are mirrors the design
+            calls conventions; this one is a mirror with an alarm on it."
+    (let [door (door-contracts)]
+      (is (set? door) "the door's `callback-contracts` set was not found in its source")
+      (is (= door (set dest/callback-contracts))
+          (str "the door accepts " (pr-str door) " and this tool prints "
+               (pr-str dest/callback-contracts)))))
+
+  (testing "`:fn` — the keyword the sketch used to print at every
+            position — is not among them, which is the whole of the bug"
+    (is (not (contains? (door-contracts) :fn)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The donor's key function, and its two deltas from the shared rule

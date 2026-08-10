@@ -30,7 +30,8 @@
   consumer's code needs a human decision is a tool that gets run once."
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pp]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame.migration.hicasso.dest :as dest]))
 
 (def ^:private class-order
   "Report ordering within one site. Blockers first, then the refusals that
@@ -69,19 +70,71 @@
        "carry a function, and a name is not a meaning. Fluent's `onRenderCell` and Ant's `onRow` "
        "are event-SPELLED RENDER PROPS: the caller reads their RETURN VALUE. Declaring one as an "
        "`:event` contract would hand it a nil-returning wrapper and blank your cell renderer with "
-       "nothing thrown. That failure is why this tool never synthesizes a `:callbacks` map and "
-       "why there is no flag to make it."))
+       "nothing thrown. That failure is why this tool never synthesizes a `:callbacks` map, why "
+       "there is no flag to make it, and why every position in the sketch below is left blank for "
+       "you to fill."))
+
+(def ^:private sketch-indent
+  "The column `:callbacks`' entries start at, which is where the `{` after
+  `{:callbacks ` lands."
+  (apply str (repeat 15 \space)))
+
+(def ^:private simple-name
+  "A name `def` will take: lowercase-initial, and none of the `/` or `.`
+  that a qualified or dotted symbol carries."
+  #"[a-z][a-z0-9*+!?<>=_'-]*")
+
+(defn- host-name-for
+  "A `def`-able name for the sketch, derived from the head.
+
+  The final segment of a symbol head, lower-cased — `Btn` → `btn`,
+  `js/Foo.Bar` → `bar`, `some.ns/Widget` → `widget`. A NAME is the one
+  thing in a declaration that nobody's behaviour rides on, so deriving one
+  is free where deriving a contract is not, and a migrator renames it
+  without consequence.
+
+  A head that is an EXPRESSION rather than a symbol — `(.-Provider ctx)`,
+  `@registry` — yields no segment that `def` would take, and gets the
+  placeholder. That is the whole rule: anything that does not reduce to a
+  clean lowercase name is not guessed at."
+  [head]
+  (let [seg (some-> head str/trim (str/split #"[/.]") last str/lower-case)]
+    (if (and seg (re-matches simple-name seg)) seg "your-host")))
+
+(defn- contract-roster
+  "`\":event, :handler or :render\"` — generated from [[dest/callback-contracts]]
+  rather than transcribed beside it, so the sentence the report prints and
+  the roster the door enforces cannot drift apart in prose."
+  []
+  (let [ss (mapv pr-str dest/callback-contracts)]
+    (str (str/join ", " (pop ss)) " or " (peek ss))))
 
 (defn- defhost-sketch
   "A ready-to-paste declaration for one component. It is TEXT in a report,
   never a form the tool writes into a file: `:callbacks` synthesis is
   never mechanical, and the hoist that would mint these is demand-gated
-  and out of scope."
+  and out of scope.
+
+  **The sketch names no contract, because the tool does not know one.**
+  It used to print `:fn` at every position, which is not one of the three
+  the door accepts, so a migrator who pasted what the tool suggested was
+  refused at mint by `:rf.error/hicasso-unknown-callback-contract`
+  (rf2-vi11). A diagnostic that tells you what to write and is wrong is
+  worse than one that says nothing.
+
+  What is emitted instead is a SCAFFOLD, and it is acceptable to the door
+  verbatim: `:callbacks` is optional and an empty map is a legal
+  declaration, so the positions are listed inside it as comments with the
+  three contracts named above them. Paste it, uncomment a row, type a
+  contract. Uncommenting a row and typing NOTHING leaves the map with an
+  odd number of forms, which the reader refuses on the spot — the one
+  failure mode this shape can have is loud and immediate."
   [{:keys [head event-slots fn-slots]}]
   (let [slots (distinct (concat event-slots fn-slots))]
-    (str "(h/defhost " (str/lower-case (or head "component")) " " (or head "Component") "\n"
-         "  {:callbacks {" (str/join "\n               "
-                                     (for [s slots] (str s " :fn"))) "}})")))
+    (str "(h/defhost " (host-name-for head) " " (or head "Component") "\n"
+         "  {:callbacks {;; each position takes " (contract-roster) " — see :caution\n"
+         (str/join (for [s slots] (str sketch-indent ";; " s "\n")))
+         sketch-indent "}})")))
 
 (defn build
   "Assemble the report artefact from the per-file results."
