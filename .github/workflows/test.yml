@@ -91,6 +91,7 @@ jobs:
       playground: ${{ steps.detect.outputs.playground }}
       migration_hicasso_codemod: ${{ steps.detect.outputs.migration_hicasso_codemod }}
       hicasso_controlled: ${{ steps.detect.outputs.hicasso_controlled }}
+      hicasso_hmr: ${{ steps.detect.outputs.hicasso_hmr }}
       migration_v1_codemod: ${{ steps.detect.outputs.migration_v1_codemod }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -1372,6 +1373,110 @@ jobs:
 
       - name: I15 three-engine controlled-input gate
         run: npm run test:hicasso-controlled
+
+  cljs-hicasso-hmr:
+    name: CLJS hicasso HMR contract through a real shadow reload (Chromium + Firefox + WebKit)
+    # rf2-hic-015 — the last declared hole in scripts/check_gate_scheduling.py,
+    # closed. The witness matrix landed under rf2-vsgq green on all three
+    # engines and RAN NOWHERE: nothing in CI invoked `test:hicasso-hmr`, so the
+    # gate declared itself `unscheduled` rather than let the absence go
+    # unrecorded. This job is the other half; that entry is deleted in the same
+    # change, which is what a closed hole looks like.
+    #
+    # WHY THIS IS A JOB OF ITS OWN and not a step of `cljs-hicasso-controlled`,
+    # which already has the JDK, the npm install and the same three pinned
+    # engines. Because it needs something no other job in this workflow has: a
+    # live `shadow-cljs watch` and shadow's OWN `:dev-http` on port 8061. Every
+    # other browser gate compiles a bundle and serves it over http-server, and
+    # a compiled bundle cannot hot-reload itself — the reload IS the subject
+    # here. Sharing the controlled job would also mean a red could not name
+    # which of the two contracts broke, and would put a ~30-minute watch on the
+    # critical path of a 25-minute gate.
+    #
+    # WHAT IT ACTUALLY EXECUTES, because a job that merely references a gate is
+    # the fail-open this repo keeps finding in its own instruments. The runner
+    # starts the watch, rewrites one marked line of a real source file, and
+    # waits for the NEW LITERAL to appear on screen before asserting — which is
+    # what separates "shadow delivered code" from "an after-load hook fired".
+    # 36 real reloads per run, 105 checks per engine. Narrowing the engine set
+    # would be the quiet way to keep the name and drop the claim: the runner's
+    # cross-engine comparator is inert below two engines, so this job passes NO
+    # `HICASSO_HMR_ENGINES`, and a classifier regression pins that.
+    #
+    # PER-PR on its own changed surface rather than nightly, for the reason
+    # TESTING.md's placement table gives for slow essential coverage: this is
+    # the only lane that can catch drift between `defview` macro expansion and
+    # a real shadow reload, or a renderer that fails to run old-generation
+    # cleanup on a type replacement. The package's Node HMR suites drive the
+    # commit and release seams by hand and can catch neither.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.hicasso_hmr == 'true'
+    runs-on: ubuntu-latest
+    # Generous, and deliberately so: one cold `shadow-cljs watch` compile plus
+    # 36 incremental recompiles, each awaited to the screen, across three
+    # engine sessions against the single watch.
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # The watch is a real shadow-cljs process, so this job needs a JDK where
+      # the http-server browser gates do not.
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      # Shares the three-engine cache key with `cljs-hicasso-controlled`: the
+      # two jobs need the same three browsers at the same pin, and the key
+      # names the set so a two-engine cache cannot be served under it.
+      - name: Cache Playwright browser binaries
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-cfw-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-cfw-
+            ${{ runner.os }}-playwright-
+
+      # THE PIN — read the same note on `cljs-hicasso-controlled` before
+      # touching this step. `npx` resolves implementation/node_modules/.bin/
+      # playwright, the version package.json pins, ONLY because this job's
+      # working-directory is `implementation` AND `npm ci` has already run.
+      # Run it from the repo root or ahead of `npm ci` and npx resolves a
+      # NEWER Playwright from its own cache, fetches that release's browser
+      # revisions and PRUNES the pinned WebKit out of ~/.cache/ms-playwright —
+      # a green job that never launched one of the three engines. Do not move
+      # this step out of `implementation`, and do not reorder it before
+      # `npm ci`.
+      - name: Install pinned Chromium + Firefox + WebKit
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: HMR contract gate — 36 real shadow reloads in three engines
+        run: npm run test:hicasso-hmr
 
   cljs-ui-facade-isolation:
     name: CLJS ui G-18 library facade isolation (:advanced single-view DCE)
@@ -5653,6 +5758,15 @@ jobs:
       # stay green under regressions these rows catch). Advisory would leave
       # the evidence one `if:` away from the nowhere it ran until now.
       - cljs-hicasso-controlled
+      # rf2-hic-015 — required, not advisory, and for a reason narrower than
+      # "it is a good gate". This is the ONLY lane in the repo that drives a
+      # real hot reload: the package's Node HMR suites call
+      # `collector/mint-view!` directly and drive the commit and release seams
+      # by hand, so they can catch neither drift between `defview` macro
+      # expansion and a real shadow reload nor a renderer that fails to run
+      # old-generation cleanup on a type replacement. Advisory would leave the
+      # HMR contract one `if:` away from the nowhere it ran until now.
+      - cljs-hicasso-hmr
       - cljs-ui-facade-isolation
       - jvm-reagent
       - jvm-reagent-slim

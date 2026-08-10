@@ -252,7 +252,34 @@ DISPOSITIONS: dict[str, dict] = {
     # green — and a declared hole that outlives its gate's schedule is the
     # same class of lie as an undeclared one, told the other way round.
     #
-    # NO DECLARED HOLE REMAINS.  The last one was `test:hicasso-controlled`
+    # NO DECLARED HOLE REMAINS, and this time the sentence is true.  It was
+    # written once before, above the `test:hicasso-hmr` entry that then sat
+    # directly beneath it — a checker asserting its own completeness while the
+    # counter under it read `1 of them known holes`.
+    #
+    # `test:hicasso-hmr` (rf2-hic-015) was that entry, and it is DELETED.  The
+    # Hicasso HMR gate — the only surface in the repo that drives a REAL hot
+    # reload, 36 reloads and 105 checks per engine through `shadow-cljs watch`
+    # in Chromium, Firefox and WebKit — landed green under rf2-vsgq and ran
+    # nowhere, because rf2-vsgq's fence stopped at the browser test tree.  It
+    # declared itself here rather than go silently unrun.  rf2-hic-015 landed
+    # the missing half: the required `cljs-hicasso-hmr` job, its `hicasso_hmr`
+    # classifier arm, and the matching _changed-surfaces.test.cjs rows.
+    #
+    # TWO THINGS THE DELETED ENTRY KNEW, kept because the job now depends on
+    # both.  It needs a `shadow-cljs watch` and shadow's own `:dev-http` on
+    # port 8061, not the http-server every other browser gate uses, because a
+    # compiled bundle cannot hot-reload itself.  And its Playwright install
+    # must run `working-directory: implementation` AFTER `npm ci` — a bare
+    # `npx playwright install` resolves a newer Playwright than the repo pins
+    # and prunes the pinned WebKit out of the shared cache, leaving a green
+    # job that never launched one of the three engines.
+    #
+    # Its `bead:` field also named rf2-erjv, which was closed and whose actual
+    # scope was the codemod reverse-edge arm.  The reference was simply wrong;
+    # the fix is this deletion, not a reopening.
+    #
+    # Before that the last one was `test:hicasso-controlled`
     # (rf2-hic-016): the Hicasso three-engine controlled-input gate, declared
     # `unscheduled` rather than left silently unrun because the PR that built
     # it was fenced out of .github/workflows/** while rf2-8a6s held that
@@ -288,32 +315,6 @@ DISPOSITIONS: dict[str, dict] = {
     # actually budgets: the two-sided gzipped margin between a core-only
     # control build and the schemas probe.  A gate earns a schedule by
     # asserting something true, not by being given a number it can clear.
-
-    "test:hicasso-hmr": {
-        "kind": "unscheduled",
-        "bead": "rf2-erjv",
-        "why": "the Hicasso HMR gate (rf2-vsgq) — eight witnesses driven "
-               "through real `shadow-cljs watch` reloads in Chromium, Firefox "
-               "and WebKit. Green on all three at 105 checks per engine and 36 "
-               "real reloads per run, so it is declared here having been RUN "
-               "rather than merely written: a gate wired without a green run "
-               "hands the alerting a false positive on its debut. It is "
-               "unscheduled rather than covered because nothing else runs it "
-               "— it is the only surface in the repo that drives a real hot "
-               "reload, and no existing job's closure reaches it. CI wiring is "
-               "rf2-erjv's changed-surface work and deliberately not this "
-               "bead's: rf2-vsgq's fence stops at the browser test tree, and "
-               "the #7755 audit's `wired into changed-surface CI` clause is "
-               "the arm that bead owes. Two things whoever schedules it should "
-               "know. It needs a `shadow-cljs watch` and shadow's :dev-http on "
-               "port 8061, not the http-server every other browser gate uses, "
-               "because a compiled bundle cannot hot-reload itself. And it "
-               "must NOT be preceded by a bare `npx playwright install`, which "
-               "resolves a newer Playwright than the repo pins and prunes the "
-               "pinned WebKit from the shared cache — `working-directory: "
-               "implementation` after `npm ci` is the measured fix",
-    },
-
 }
 
 KINDS = {"covered-by", "ci-runs-it-directly", "not-a-gate", "unscheduled"}

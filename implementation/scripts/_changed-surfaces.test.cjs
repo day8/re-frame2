@@ -3273,6 +3273,202 @@ test('a hicasso package change does NOT fire the JVM or prod tiers (rf2-ga8m)', 
   }
 });
 
+// rf2-hic-015 — the Hicasso HMR gate, the repo's LAST declared scheduling
+// hole, closed. It landed under rf2-vsgq green on three engines and ran
+// nowhere: no workflow invoked `npm run test:hicasso-hmr`, so it declared
+// itself `unscheduled` in scripts/check_gate_scheduling.py rather than let the
+// absence go unrecorded. These rows are the half that makes the schedule real
+// — an arm with no regression is the same fail-open, one level down.
+
+const HICASSO_HMR = {
+  job: 'cljs-hicasso-hmr',
+  output: 'hicasso_hmr',
+  // The gate's own launcher. It owns the `shadow-cljs watch`, the HOT-LINE
+  // rewriter that makes a save a save, and the structural coverage floor plus
+  // the cross-engine comparator — every one of them softenable by a diff.
+  launcher: 'implementation/scripts/serve-and-run-hicasso-hmr-testbed.cjs',
+  spec: 'implementation/hicasso/testbed/hmr_spec.cjs',
+  // The file the gate REWRITES, and the page shadow's own :dev-http serves.
+  hotFile: 'implementation/hicasso/testbed/hicasso_hmr_testbed/views.cljs',
+  page: 'implementation/hicasso/testbed/hmr/index.html',
+};
+
+test('the hicasso HMR job is gated on its own output and runs the gate (rf2-hic-015)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, HICASSO_HMR.job);
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.hicasso_hmr == 'true'/,
+    `${HICASSO_HMR.job} must be gated on ${HICASSO_HMR.output}`,
+  );
+  // It must EXECUTE the gate, not merely mention it. A job that references a
+  // command it never runs is the fail-open this bead exists to close.
+  assert.ok(
+    stepRunning(block, 'npm run test:hicasso-hmr'),
+    'the job must run `npm run test:hicasso-hmr` as a step',
+  );
+  // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty string
+  // and the job can never run — silently.
+  assert.match(
+    workflow,
+    /hicasso_hmr: \$\{\{ steps\.detect\.outputs\.hicasso_hmr \}\}/,
+    `${HICASSO_HMR.output} must be declared as a detect_changed_surfaces output`,
+  );
+  // Required, not advisory: a job absent from the aggregator is advisory
+  // whatever its own gate says, and this is the only lane that drives a real
+  // hot reload.
+  assert.ok(
+    jobBlock(workflow, 'all-required-passed').includes(`- ${HICASSO_HMR.job}`),
+    `aggregator must list ${HICASSO_HMR.job} in needs:`,
+  );
+});
+
+test('the hicasso HMR job installs the PINNED three engines and narrows none (rf2-hic-015)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), HICASSO_HMR.job);
+
+  assert.match(
+    block,
+    /playwright install --with-deps chromium firefox webkit/,
+    'the gate must install Chromium, Firefox AND WebKit',
+  );
+
+  // THE QUIET WAY TO KEEP THE NAME AND DROP THE CLAIM. Unlike its sibling this
+  // runner takes an engine-narrowing env knob, `HICASSO_HMR_ENGINES`, and its
+  // cross-engine comparator is inert below two engines — so a job that set it
+  // would still print a PASS having checked nothing about divergence. The job
+  // must pass no engine narrowing at all.
+  assert.ok(
+    !/HICASSO_HMR_ENGINES/.test(block),
+    'the CI job must not narrow the engine set — the cross-engine comparator '
+      + 'is inert below two engines, so a narrowed run passes having checked '
+      + 'nothing it exists to check',
+  );
+
+  // THE PIN IS STRUCTURAL, exactly as for the controlled-input lane. `npx`
+  // resolves the pinned playwright only because the job runs in
+  // `implementation` with `npm ci` already done; from the repo root or ahead
+  // of `npm ci` it resolves a newer release and prunes the pinned WebKit out
+  // of the shared cache, leaving a green job that never launched one of the
+  // three engines.
+  assert.match(
+    block,
+    /working-directory: implementation/,
+    'the pin depends on the job running in implementation/',
+  );
+  const npmCi = block.indexOf('run: npm ci');
+  const install = block.indexOf('playwright install');
+  assert.ok(npmCi !== -1, 'the job must run npm ci');
+  assert.ok(
+    npmCi < install,
+    'npm ci must precede the playwright install, or npx resolves an unpinned Playwright',
+  );
+
+  // The watch is a real shadow-cljs process. Without a JDK the gate cannot
+  // start at all, and this is the one browser lane that needs one.
+  assert.match(
+    block,
+    /actions\/setup-java@/,
+    'the gate starts a real `shadow-cljs watch`, which needs a JDK',
+  );
+});
+
+test('the hicasso HMR lane arms on its tree, its launcher and the build config (rf2-hic-015)', () => {
+  for (const file of [
+    HICASSO_HMR.spec,
+    HICASSO_HMR.hotFile,
+    HICASSO_HMR.page,
+    HICASSO_HMR.launcher,
+    // The trio: shadow-cljs.edn declares BOTH the `:hicasso/hmr-testbed` build
+    // and the `:dev-http` on 8061 that serves it — this gate is served by
+    // shadow's own dev server so the document and the devtools websocket share
+    // an origin — and the playwright pin in package.json / the lockfile IS the
+    // three engine revisions under test.
+    'implementation/shadow-cljs.edn',
+    'implementation/package.json',
+    'implementation/package-lock.json',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a row pinning a phantom path is vacuous`,
+    );
+    assert.equal(
+      classify(file)[HICASSO_HMR.output],
+      'true',
+      `${file} must arm ${HICASSO_HMR.output}`,
+    );
+  }
+  // The launcher case sits above the generic implementation/scripts/* case, so
+  // it must not narrow what that case already gave the file.
+  const launcher = classify(HICASSO_HMR.launcher);
+  for (const output of [
+    'cljs_node_test',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'reagent_slim_bundle',
+  ]) {
+    assert.equal(
+      launcher[output],
+      'true',
+      `${HICASSO_HMR.launcher} must still arm ${output}`,
+    );
+  }
+});
+
+test('a hicasso RUNTIME diff arms the HMR lane (rf2-hic-015)', () => {
+  // The point of the arm. A reload re-evaluates the package's own namespaces,
+  // so the files whose behaviour the contract is ABOUT must reach the only
+  // lane that witnesses a real reload — not just the testbed that demonstrates
+  // it. Real paths, read off the tree.
+  for (const file of [
+    'implementation/hicasso/src/re_frame/hicasso.cljc',
+    'implementation/hicasso/test/re_frame/hicasso/hmr_remount_cljs_test.cljs',
+    'implementation/hicasso/test/re_frame/hicasso/hmr_registry_cljs_test.cljs',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a row pinning a phantom path is vacuous`,
+    );
+    assert.equal(classify(file)[HICASSO_HMR.output], 'true', file);
+  }
+});
+
+test('the hicasso HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () => {
+  // A rule that matches everything is as useless as one that matches nothing,
+  // and this gate is the most expensive one in the matrix: a watch plus three
+  // engine sessions. `implementation/core` matters most — it fans out to
+  // almost every other output, and an edge from it would put a 40-minute
+  // reload gate on nearly every PR in the repo.
+  for (const file of [
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/ui/src/re_frame/ui.cljs',
+    'spec/006-ReactiveSubstrate.md',
+    'tools/xray/src/day8/re_frame2_xray/core.cljs',
+    'migration/reagent-to-hicasso/codemod/deps.edn',
+  ]) {
+    assert.equal(
+      classify(file)[HICASSO_HMR.output],
+      'false',
+      `${file} has no edge into the hicasso HMR gate`,
+    );
+  }
+  // …and the two hicasso browser lanes are DISTINCT tiers, not aliases: the
+  // controlled-input launcher must not drag the reload gate along with it.
+  assert.equal(
+    classify('implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs')[
+      HICASSO_HMR.output
+    ],
+    'false',
+    'the controlled-input launcher must not arm the HMR gate',
+  );
+  assert.equal(
+    classify(HICASSO_HMR.launcher).hicasso_controlled,
+    'false',
+    'the HMR launcher must not arm the controlled-input gate',
+  );
+});
+
 // rf2-8a6s — the regression that would have caught this arm going stale.
 //
 // rf2-8a6s originally set `cljs_node_test` for `implementation/hicasso/*` and
