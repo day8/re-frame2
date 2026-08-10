@@ -158,7 +158,7 @@
   `panel_gallery/core.cljs` §Intentional gallery exclusions (rf2-1sddi6
   F3). Coverage lives in the feature-matrix browser sweep + per-panel
   unit tests."
-  #{:resources :derivation-graph :module-view})
+  #{:resources :derivation-graph :module-view :hicasso})
 
 (deftest gallery-coverage-partitions-the-live-dynamic-inventory
   (testing "galleried + intentionally-excluded tabs exactly partition the

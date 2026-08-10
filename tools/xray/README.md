@@ -59,11 +59,12 @@ The tab-bar render order + the registry `:id` each tab lands on
 | **Resources** (`s`) | `:resources` | The server-state / resource cache for this event — registry · instances · in-flight work · invalidations · the route→resource graph. |
 | **Graph** | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014). L4-only — registry tab, no standalone `mount-*!` facade. |
 | **Modules** (`u`) | `:module-view` | The (realm, frame) address space + the demand-trigger surface (EP-0013). L4-only — registry tab, no standalone `mount-*!` facade. |
+| **Hicasso** (`h`) | `:hicasso` | Four views over the adapter-neutral Hicasso evidence surface — mounted boundaries · read attribution · the intent stream · explain-render — each stating its own scope, basis, completeness and loss. L4-only — registry tab, no standalone `mount-*!` facade. |
 
-All nine ids are focusable via `focus!`. The standalone-mountable `Panel`
+All ten ids are focusable via `focus!`. The standalone-mountable `Panel`
 re-views (per [`spec/API.md`](./spec/API.md) §Additional public surfaces)
 are the first seven — Epoch, app-db, Views, Trace, Machine, Routes, and
-Resources; **Graph** and **Modules** are L4-only registry tabs
+Resources; **Graph**, **Modules** and **Hicasso** are L4-only registry tabs
 (shell-internal, focusable but not independently mountable).
 
 ### Static mode — the 5 browse surfaces (registry catalogue, event-independent)

@@ -17,18 +17,20 @@
 
   ## Intentional gallery exclusions
 
-  Three cohesive-sub-domain / runtime-structure tabs beyond the six
+  Four cohesive-sub-domain / runtime-structure tabs beyond the six
   core lenses — **Resources** (`:resources`, EP-0016),
-  **Graph** (`:derivation-graph`, EP-0014), and **Modules**
-  (`:module-view`, EP-0013) — are deliberately NOT galleried here. They
+  **Graph** (`:derivation-graph`, EP-0014), **Modules**
+  (`:module-view`, EP-0013) and **Hicasso** (`:hicasso`, rf2-hic-023) —
+  are deliberately NOT galleried here. They
   are visual *design* surfaces whose shipped-surface + focusability
   coverage lives in the feature-matrix browser sweep
   (`testbeds/feature_matrix/scenarios.cjs` `PANEL_HANDOFFS` — walks all
-  nine live Dynamic tabs and asserts a real panel root, never the
+  ten live Dynamic tabs and asserts a real panel root, never the
   unknown-tab stub) and their own per-panel CLJS unit tests
   (`resources_cljs_test`, `derivation_graph_cljs_test`,
-  `module_view_cljs_test`). The panel-gallery is the magnitude/payload
-  *visual-design* harness for the six core lenses; adding the three is
+  `image_view_helpers_cljs_test`, `hicasso_cljs_test`). The
+  panel-gallery is the magnitude/payload *visual-design* harness for the
+  six core lenses; adding the four is
   tracked separately if/when a Figma-design pass needs them. The
   exclusion is locked by an explicit assertion in
   `panel_gallery_inventory_smoke_cljs_test.cljs` so it can't silently

@@ -10,39 +10,25 @@
   body rather than after it, the mapped child that carries its `:key`, the
   button named four different legal ways, the head that is an ordinary view.
 
-  Several forms here are silent because the check DECLINED to guess — a `:&`
-  whose value is an expression, a `for` whose body is a call. That silence
-  is the design, not a gap: see the export's README for what each check
-  refuses to know."
+  Several forms here are silent because the check DECLINED to guess — a
+  `for` whose body is a call, an element whose props are a symbol. That
+  silence is the design, not a gap: see the export's README for what each
+  check refuses to know."
   (:require [re-frame.hicasso :as h]))
 
 (declare row-view sanitize icon-node props)
 
 ;; ---------------------------------------------------------------------------
-;; merge-not-a-map — a map literal is right, and an expression is unknowable
-;; ---------------------------------------------------------------------------
-
-(h/defview merge-carrying-a-map-literal [_]
-  [:div {:& {:class "caller" :data-x 1}} "x"])
-
-(h/defview merge-carrying-an-expression [{:keys [attrs]}]
-  [:div {:& attrs}
-   [:span {:& (merge attrs {:class "y"})} "x"]])
-
-(h/defview merge-carrying-nil [_]
-  [:div {:& nil} "x"])
-
-;; ---------------------------------------------------------------------------
-;; An EVENT VECTOR is not an element. `[:a]` at `:on-click` and the anchor
-;; `[:a]` are the same three characters; only position tells them apart, so
-;; no element check looks inside a props map.
+;; An EVENT VECTOR is not an element. `[:button]` at a prop and the element
+;; `[:button]` are the same characters; only POSITION tells them apart, so no
+;; element check looks inside a props map.
 ;; ---------------------------------------------------------------------------
 
 (h/defview event-vectors-that-look-like-elements [_]
   [:div
+   [:span {:on-mouse-enter [:button]} "hover"]
    [:button {:on-click [:a]} "Save"]
-   [:button {:on-click [:a :with :args]} "Save with args"]
-   [:span {:on-mouse-enter [:button]} "hover"]])
+   [:button {:on-click [:a :with :args]} "Save with args"]])
 
 ;; ---------------------------------------------------------------------------
 ;; deferred-read — a read inside a fn literal that runs DURING the body
@@ -134,7 +120,12 @@
    [:button {:on-click [:d]} icon-node]
    ;; Dynamic props: the name may be in there.
    [:button props]
-   [:a {:href "/help"} "Help"]])
+   [:a {:href "/help"} "Help"]
+   ;; An <a> with NO href is not a link and not focusable, so it needs no
+   ;; accessible name. The tag set and this condition are the compiled
+   ;; substrates' (`re-frame.ui.compiler.a11y`), not invented here.
+   [:a {:name "section-3"}]
+   [:a {:class "anchor-target"}]])
 
 ;; ---------------------------------------------------------------------------
 ;; function-in-head-position — ordinary heads, and fn literals at PROP
@@ -157,19 +148,18 @@
   (let [handlers [(fn [] :a) (fn [] :b)]]
     [:div (str (count handlers))]))
 
+
 ;; ---------------------------------------------------------------------------
-;; A QUALIFIED keyword head is tagged data, not a tag. `[:app/button …]` is
-;; not a `<button>`, and reading a base tag out of one would invent an
-;; element wherever an app spells its own data that way.
+;; A qualified keyword IS a tag -- the runtime reads it through `name` -- so
+;; these are ordinary non-interactive elements rather than exemptions.
 ;; ---------------------------------------------------------------------------
 
 (h/defview qualified-keyword-heads [{:keys [rows]}]
   [:div
-   (str [:app/button {:id 1}])
-   (str (for [r rows] [:app/row r]))
-   (str [:app/a {:href "/x"}])])
+   [:app/row {:id 1}]
+   (for [r rows] [:app/cell {:key (:id r)} r])])
 
 ;; Quoted hiccup is data an author wrote down, not hiccup the runtime will
 ;; interpret, so nothing judges inside a quotation.
 (h/defview quoted-hiccup [_]
-  [:div (str '[:button {:& [:not :a :map]}])])
+  [:div (str '[(fn [] :a) "quoted, so never interpreted"])])

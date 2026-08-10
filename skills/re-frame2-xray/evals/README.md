@@ -131,7 +131,7 @@ as the discipline of updating them alongside the product.
 
 ## Keeping the tab inventory in sync (the source of truth)
 
-The tour skill's Dynamic tab inventory (the `e a v t m r s g u` set across
+The tour skill's Dynamic tab inventory (the `e a v t m r s g u h` set across
 `SKILL.md`, `README.md`, `references/panels.md`,
 `references/shared-components.md`, `package.json`, and
 `.claude-plugin/plugin.json`) is checked against the live Xray registry by

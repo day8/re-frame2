@@ -49,6 +49,9 @@
  {re-frame.hicasso.read-extent-cljs-test
   {:linters {:re-frame.hicasso/deferred-read {:level :off}}}
 
+  re-frame.hicasso.read-extent-dom-cljs-test
+  {:linters {:re-frame.hicasso/deferred-read {:level :off}}}
+
   re-frame.hicasso.error-shape-cljs-test
   {:linters {:re-frame.hicasso/function-in-head-position {:level :off}}}}
 

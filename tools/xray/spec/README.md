@@ -143,6 +143,19 @@ main read**.
   `realm-ids`, and no `re-frame.frame/frame-realm`. See framework
   [`spec/Spec-Schemas.md` §`:rf/realm`](../../../spec/Spec-Schemas.md).) An
   L4-only Dynamic tab (not in `panel-enum`). Read-only.
+- **[027-Hicasso-Evidence.md](027-Hicasso-Evidence.md)** — The Hicasso tab:
+  the Xray-side consumer contract for the adapter-neutral Hicasso evidence
+  surface (`re-frame.hicasso.tool`, rf2-hic-023). Four views over one
+  versioned schema — mounted boundaries, read attribution, the intent
+  stream, and explain-render — each envelope stating schema, producer,
+  scope, basis, completeness and loss. Carries the tab's **honest-empty
+  contract**: three empties with three sentences, five absences with five
+  testids, and the rule the producer's door enforces — *unknown is never
+  encoded as an empty collection*. Xray and the AI pair consume ONE door
+  with no consumer discriminator, and the read seam passes each envelope
+  through unchanged, which is what makes byte-for-byte structural rather
+  than separately asserted. An L4-only Dynamic tab (not in `panel-enum`).
+  Read-only, dev-only.
 
 ### Reference
 

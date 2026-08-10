@@ -294,6 +294,25 @@ jobs:
             --lint tools/template/src \
             --lint tools/template/test
 
+      # THE FIXTURE WITNESS FOR HICASSO'S LINT EXPORT (rf2-hic-022).
+      #
+      # The step above loads that export's hooks against current repository
+      # code, which proves they LOAD and stay quiet. It cannot prove they still
+      # CATCH: every check could stop firing and this job would stay green,
+      # because silence is what it is looking for. That is a gate reporting
+      # success over a case it never exercises — the defect class this repo
+      # keeps finding in its own instruments — so the positive fixtures have to
+      # execute somewhere required, and this is the only required job that
+      # already has clj-kondo installed at the pin.
+      #
+      # It costs about a second: pure Python driving the binary above over two
+      # fixture files. No JDK, no Node modules, no shadow-cljs. `--self-test`
+      # runs first and mutates the shipped hook three ways to prove the gate's
+      # RED, restoring each in a `finally`; then the gate itself runs.
+      - name: Hicasso lint export — fixture witness
+        working-directory: implementation
+        run: npm run test:hicasso-lint
+
   splint:
     name: Splint (fail on errors, warnings informational)
     needs: detect
