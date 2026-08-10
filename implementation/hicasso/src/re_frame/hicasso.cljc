@@ -112,8 +112,14 @@
 
   Both halves sit inside `(when re-frame.interop/debug-enabled? …)`, so
   under `:advanced` + `goog.DEBUG=false` the Closure compiler removes the
-  calls and the coordinate map — file string included — and the `def`
-  folds back to the bare mint."
+  calls and the coordinate map — file string included — and the `def` is
+  the bare mint inside an empty `try`.
+
+  The extent CLOSES IN A `finally`, so a mint that refuses does not leave
+  its own name ambient for whatever runs next. A declaration refusal is
+  routinely caught — by a module loader, or by an HMR runtime whose
+  mounted page carries on rendering — and the slot then named a `def`
+  that never completed."
      [sym & more]
      (let [doc       (when (string? (first more)) (first more))
            [argv & body] (if doc (rest more) more)
@@ -124,12 +130,13 @@
           (do
             (when re-frame.interop/debug-enabled?
               (re-frame.hicasso.impl.error/declaring! ~view-name ~coord))
-            (let [head# (re-frame.hicasso.impl.collector/mint-view!
-                          ~view-name
-                          (fn ~body-name ~argv ~@body))]
-              (when re-frame.interop/debug-enabled?
-                (re-frame.hicasso.impl.error/declared!))
-              head#))))))
+            (try
+              (re-frame.hicasso.impl.collector/mint-view!
+                ~view-name
+                (fn ~body-name ~argv ~@body))
+              (finally
+                (when re-frame.interop/debug-enabled?
+                  (re-frame.hicasso.impl.error/declared!)))))))))
 
 #?(:clj
    (defmacro hfn
@@ -230,7 +237,16 @@
   own `def`, at namespace load, with no render anywhere on the stack. The
   extent is what puts the offending declaration's file and line on them.
   It is `debug-enabled?`-gated and elides whole under `:advanced` +
-  `goog.DEBUG=false`."
+  `goog.DEBUG=false`.
+
+  Those same refusals are why the extent closes in a `finally` here
+  rather than being abandoned with the aborted `def`: a bad `defhost` is
+  the ordinary way a declaration throws, and an HMR runtime catches it
+  and keeps the mounted page rendering. Without the `finally` every
+  refusal raised afterwards — from an event handler, a timer, anywhere —
+  inherited this declaration's `:view` and `:source`. The refusal on its
+  way out is unaffected: [[re-frame.hicasso.impl.error/fail!]] builds the
+  whole ex-data before it throws."
      [sym & more]
      (let [doc         (when (string? (first more)) (first more))
            [component opts] (if doc (rest more) more)
@@ -240,11 +256,12 @@
           (do
             (when re-frame.interop/debug-enabled?
               (re-frame.hicasso.impl.error/declaring! ~host-name ~coord))
-            (let [head# (re-frame.hicasso.impl.codec/mint-host!
-                          ~host-name ~component ~(or opts {}))]
-              (when re-frame.interop/debug-enabled?
-                (re-frame.hicasso.impl.error/declared!))
-              head#))))))
+            (try
+              (re-frame.hicasso.impl.codec/mint-host!
+                ~host-name ~component ~(or opts {}))
+              (finally
+                (when re-frame.interop/debug-enabled?
+                  (re-frame.hicasso.impl.error/declared!)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The vars — aliases, every one under its prototype name

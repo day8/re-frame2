@@ -144,9 +144,9 @@
               :file? true :line? true :column? true}
              (coordinate-of data))))
 
-    (testing "the refusal is complete by the shape's own definition"
-      (is (= [] (error/missing-fields (:rf.error/id data) (:where data)
-                                      (:reason data) (:recovery data)))))))
+    (testing "the refusal is complete — asserted against the EMITTED map, which
+              is the same map the constructor's own guard read"
+      (is (= [] (error/missing-fields data))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. A refusal raised inside a declaration
@@ -195,6 +195,39 @@
                                             :pass-a-map-of-options
                                             {})))))))
 
+(deftest a-declaration-whose-mint-refuses-closes-its-extent-anyway
+  ;; Written through the real macro, and the only refusing declaration in
+  ;; the package that CAN be: a `defhost` refusal aborts a `def` at
+  ;; namespace load, so one at the top of this file would stop the file
+  ;; loading. Inside a `deftest` the same expansion runs with a catch
+  ;; around it — which is not a contrivance but the case itself. An HMR
+  ;; runtime catches exactly this and leaves the mounted page rendering.
+  (let [data (refusal (fn [] (h/defhost refusing-declaration
+                               (fn Refusing [_props] nil)
+                               {:not-an-option true})))]
+
+    (testing "the refusal still names the declaration that is wrong — the
+              extent closes AFTER `fail!` has built the ex-data, so nothing
+              the `finally` does can reach a refusal already on its way out"
+      (is (= {:rf.error/id :rf.error/hicasso-host-unknown-option
+              :where       'front.codec/mint-host!
+              :recovery    :declare-callbacks-or-ssr
+              :view        "re-frame.hicasso.error-shape-cljs-test/refusing-declaration"
+              :option      :not-an-option}
+             (select-keys data [:rf.error/id :where :recovery :view :option])))
+      (is (= 're-frame.hicasso.error-shape-cljs-test (:ns (:source data)))))
+
+    (testing "and the extent is CLOSED. Before the `finally` the origin slot
+              still held the dead declaration, so every later refusal — from
+              an event handler, a timer, any code with no boundary on the
+              stack — carried its `:view` and its file and line, and pointed
+              the reader at a declaration with nothing to do with the failure"
+      (let [later (refusal #(h/sub [:error-shape/anything]))]
+        (is (= :rf.error/hicasso-sub-outside-render (:rf.error/id later))
+            "the later refusal is the ordinary outside-extent one")
+        (is (not (contains? later :view)))
+        (is (not (contains? later :source)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; 3. A refusal raised outside both extents
 ;; ---------------------------------------------------------------------------
@@ -218,8 +251,7 @@
 
     (testing "the four required fields are still all present — the ambient
               pair is situational, the quartet never is"
-      (is (= [] (error/missing-fields (:rf.error/id data) (:where data)
-                                      (:reason data) (:recovery data)))))))
+      (is (= [] (error/missing-fields data))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The guard — the permanent form of the recovery-field sabotage
@@ -245,6 +277,53 @@
             rather than a second copy of it"
     (is (= [:rf.error/id :where :reason :recovery] error/required))
     (is (= [:rf.error/id :where :reason :recovery]
-           (error/missing-fields nil nil "" nil))
+           (error/missing-fields {:reason ""}))
         "every required field, reported in one pass")
-    (is (= [] (error/missing-fields :rf.error/x 'a/b "why" :how)))))
+    (is (= [] (error/missing-fields {:rf.error/id :rf.error/x :where 'a/b
+                                     :reason "why" :recovery :how}))))
+
+  (testing "and the shape is exactly the two lists that name who supplies
+            what — a field added to one without the other is a shape only
+            half the file knows about"
+    (is (= (set error/shape) (into (set error/required) error/ambient)))
+    (is (= [:source :view] error/ambient))))
+
+;; ---------------------------------------------------------------------------
+;; The guard's other half — `extra` cannot reach past it
+;; ---------------------------------------------------------------------------
+
+(deftest extra-cannot-erase-or-replace-what-the-constructor-guarantees
+  (testing "the four required fields and the two ambient ones belong to the
+            CONSTRUCTOR: an `extra` that spells any of them loses, and the
+            class's own slots ride alongside untouched.
+
+            This is the shape of the defect it replaces, not a hypothetical:
+            the payload merged LAST, so the very fields the completeness
+            guard had just insisted on could be erased on the next line —
+            a refusal reaching a catch site with a different id, no `:where`
+            and a nil `:recovery`, past a guard that had reported it whole."
+    (error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
+                                              :line 12 :column 3})
+    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-option
+                                      'front.state/reg-state
+                                      "reg-state options must be a map."
+                                      :pass-a-map-of-options
+                                      {:rf.error/id :rf.error/hicasso-true-child
+                                       :where       nil
+                                       :reason      "replaced"
+                                       :recovery    nil
+                                       :view        "app.impostor/not-this-one"
+                                       :source      {:ns 'app.impostor}
+                                       :options     :not-a-map}))]
+      (error/declared!)
+      (is (= {:rf.error/id :rf.error/hicasso-state-bad-option
+              :where       'front.state/reg-state
+              :reason      "reg-state options must be a map."
+              :recovery    :pass-a-map-of-options
+              :view        "app.pickers/calendar"
+              :source      {:ns 'app.pickers :file "app/pickers.cljs" :line 12 :column 3}
+              :options     :not-a-map}
+             data)
+          "the whole ex-data, so an overridden field cannot hide behind a
+           select-keys that never looked at it")
+      (is (= [] (error/missing-fields data))))))
