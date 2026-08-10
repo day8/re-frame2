@@ -21,11 +21,16 @@ name: lint
 #     style warnings stay informational — the same shape as the
 #     clj-kondo job's `--fail-level error`.
 #
-#   - ESLint (rf2-2rtt6.78): bug-class linter over EVERY tracked
-#     `.cjs` / `.mjs` / `.js` file — bench drivers, gate runners,
-#     browser harnesses, MCP conformance suites — which until it landed
-#     were checked by NOTHING, so a syntax error or a typo'd `require`
-#     surfaced the first time somebody ran the file. Config lives in
+#   - ESLint (rf2-2rtt6.78): bug-class linter over every
+#     AUTHOR-MAINTAINED `.cjs` / `.mjs` / `.js` file — bench drivers,
+#     gate runners, browser harnesses, MCP conformance suites — which
+#     until it landed were checked by NOTHING, so a syntax error or a
+#     typo'd `require` surfaced the first time somebody ran the file.
+#     AUTHOR-MAINTAINED, not "every TRACKED": `docs/cljs/playground.js`
+#     is tracked and is a minified generated bundle, one of the
+#     generated trees `eslint.config.mjs` ignores on purpose, so the
+#     stronger phrasing would claim coverage the config deliberately
+#     withholds (rf2-93u6). Config lives in
 #     `eslint.config.mjs` at repo root, alongside `.clj-kondo/config.edn`
 #     and `.splint.edn`, and its rule set is deliberately hand-picked
 #     rather than `js.configs.recommended`: only rules that answer "what
