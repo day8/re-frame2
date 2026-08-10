@@ -143,14 +143,19 @@ relying on CI"). A silent skip fails review.
 Four rules about the mechanics. Each is here because it cost real hours, and
 none of them is obvious from the gate command itself.
 
-- **Foreground, to completion.** A worker that backgrounds a long gate and ends
-  its turn waiting for the completion notification can wait forever: the
+- **Foreground, to completion — within the harness's ten-minute ceiling.** A
+  worker that backgrounds a long gate and ends its turn waiting for the
+  completion notification can wait forever: the
   notification does not always arrive, and a turn that has ended has nothing
   left to wake. The worker then reports "standing by" through idle tick after
   idle tick while its branch sits unmoved — four such incidents in a single day,
   every one recovered intact the moment somebody asked it for a status. If you
   background a gate anyway, **poll its log on a timer**; never end a turn
-  waiting to be woken.
+  waiting to be woken. For the full spine that polling is the normal path and
+  not the exception: the harness hard-kills a foreground command at ten minutes
+  (exit 143) and `scripts/test-fast-pr.sh` needs roughly twenty-five, so "to
+  completion" is not on offer for it however the brief is worded. That ceiling
+  killed four spine runs in one night before it was written down here.
 - **Invoke a backgrounded gate by its ABSOLUTE path.** The gate scripts derive
   their repo root from `${BASH_SOURCE[0]}`, which is relative when the
   invocation is — and a `cd <worktree> && sh scripts/…` does not reliably keep
@@ -164,7 +169,12 @@ none of them is obvious from the gate command itself.
 - **Never pipe a gate through `tail`, `head` or `grep`.** A pipeline's exit
   status is its *last* command's, so a red runner reads green and the PR claims
   a pass it never got. Redirect to a log file, echo the runner's own exit code
-  explicitly, and quote that number in the PR body.
+  explicitly, and quote that number in the PR body — with the redirect and the
+  echo on **one command line, in one shell**, as the snippet below writes them.
+  A separate invocation starts a *fresh* shell whose `$?` is not the gate's but
+  whatever that shell last did, which is typically the `cd`: silent, and it
+  yields a plausible zero. That is this bullet's own defeat by a second route,
+  so a paraphrase that drops the single line drops the rule.
 - **Put *every* gate artefact where git ignores it** — the log and the exit-code
   file both. `*.log`, `*.exit` and `*-exit.txt` all are, so this leaves nothing
   behind:
