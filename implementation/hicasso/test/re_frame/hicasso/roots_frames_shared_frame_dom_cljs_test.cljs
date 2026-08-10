@@ -237,10 +237,19 @@
 ;; count and the DOM — a stranded root re-runs zero bodies and shows a
 ;; frozen number, and nothing else about it looks wrong.
 ;;
-;; MUTATION (PR body records the red): make `release-cell!` arm the reaper
-;; unconditionally — `(arm-cell-reaper! cell)` with no `when` — and this row
-;; reds on the surviving key set and again on the survivor's body count,
-;; while every row in both two-frame suites stays green.
+;; MUTATION. The reference count on a shared cell is guarded TWICE and
+;; neither guard alone is load-bearing, so no single-point mutation reds
+;; this row. Making `release-cell!` arm the reaper unconditionally —
+;; `(arm-cell-reaper! cell)` with no `when` — stays green, because the
+;; reaper's own callback re-checks `(zero? (alength (.-readers cell)))`
+;; before it disposes. Deleting that re-check instead, and leaving
+;; `release-cell!` guarded, stays green too: `release-cell!` never arms
+;; while a reader remains, so the mutated line is unreachable. Removing
+;; BOTH — the coherent "the runtime forgot a cell can have more than one
+;; reader" defect — reds this row five times: the surviving key set, the
+;; decremented reader counts, the boundary count, the survivor's body
+;; count and the survivor's DOM. Every row in both two-frame suites stays
+;; green under all three.
 (deftest unmounting-one-root-decrements-the-shared-key-and-does-not-dispose-it
   (async done
     (if-not (mount/browser?)
