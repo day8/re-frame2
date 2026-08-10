@@ -218,9 +218,9 @@
 
   - `:rf.error/hicasso-empty-vector` has no offending value. The offence
     IS the absence of a head, and `{:value []}` would repeat the id.
-  - `:rf.error/hicasso-true-child` has none either: the refusal fires
-    only when the child is `true`, so the value is a constant the id
-    already names.
+  - `:rf.error/hicasso-true-child` has none either, at the codec's arm:
+    the refusal fires only when the child IS `true`, so the value is a
+    constant the id already names.
   - `:rf.error/no-frame-context`, `:rf.error/no-frame-prop` and
     `:rf.error/hicasso-frame-outside-boundary` have no frame, because the
     offence is that there is none to have.
