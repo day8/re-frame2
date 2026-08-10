@@ -81,18 +81,27 @@
 (defonce ^:private !baseline  (atom nil))
 (defonce ^:private !instances (atom {}))
 
-(defonce ^:private ref-sink
-  ;; ONE stable function, for the length of the page's life. A callback
-  ;; ref whose identity changed every render would make React detach and
-  ;; re-attach on renders that remounted nothing, and the imperative-host
-  ;; row's negative control — "no save, same instance" — would red for a
-  ;; reason that has nothing to do with a reload.
-  (fn [instance]
-    (if (nil? instance)
-      (swap! !instances assoc :detachments (inc (:detachments @!instances 0)))
-      (swap! !instances assoc
-             :current     instance
-             :attachments (inc (:attachments @!instances 0))))))
+(defonce ^:private ref-sinks
+  ;; ONE stable function PER FRAME, for the length of the page's life.
+  ;;
+  ;; Stable, because a callback ref whose identity changed every render
+  ;; would make React detach and re-attach on renders that remounted
+  ;; nothing, and the imperative-host row's negative control — "no save,
+  ;; same instance" — would red for a reason that has nothing to do with a
+  ;; reload.
+  ;;
+  ;; Per frame, because both roots render the same view: a single shared
+  ;; sink would hold whichever of the two instances attached last, and the
+  ;; row would be reading one root while claiming to read the other.
+  (into {} (map (fn [{:keys [frame]}]
+                  [frame (fn [instance]
+                           (if (nil? instance)
+                             (swap! !instances update-in [frame :detachments] (fnil inc 0))
+                             (swap! !instances update frame
+                                    (fn [s] (-> s
+                                                (assoc :current instance)
+                                                (update :attachments (fnil inc 0)))))))]))
+        frames))
 
 ;; ---------------------------------------------------------------------------
 ;; The lost-cleanup sabotage, installed at React's own seam
@@ -151,9 +160,53 @@
 
 (defn- sub-key [frame-kw query] [frame-kw query])
 
+;; A stable, printable name for each registration object the driver has
+;; ever seen, assigned on first sight and held weakly so tagging cannot
+;; keep a retired registration alive.
+;;
+;; It exists because `{:count 1 :stale 1}` is a true statement that does
+;; not say what happened, and the first time this suite produced one it
+;; cost a round of guessing. With tags the same failure reads
+;; `now [r1] was [r1]` — the successor never acquired — or `now [r1 r2]`
+;; — the predecessor never let go — and those are different bugs. The
+;; tags are never compared for identity themselves; `identical?` above is
+;; still what decides. They are for the human reading the red.
+(defonce ^:private reg-tags (js/WeakMap.))
+(defonce ^:private !next-tag (volatile! 0))
+
+(defn- tag-of
+  [reg]
+  (or (.get reg-tags reg)
+      (let [t (str "r" (vswap! !next-tag inc))]
+        (.set reg-tags reg t)
+        t)))
+
 (defn- readers-now
+  "The registrations reading `sub-key` right now, as a vector THIS
+  namespace owns.
+
+  The `mapv` is a defensive copy and it is load-bearing, not hygiene.
+  `inventory/cell-readers` answers `(vec (.-readers cell))`, and the
+  cell's reader list is a JS array the collector mutates IN PLACE — a
+  `.push` on acquire (collector.cljs, `acquire-cell!`) and a splice on
+  release. A ClojureScript vector built from a JS array can share that
+  array's storage, so the value `cell-readers` returns is not necessarily
+  a snapshot: hold it across a commit and it can report what the array
+  holds LATER.
+
+  Measured here rather than reasoned about. Without this copy the
+  baseline captured before a save had, by the time it was compared,
+  become the post-save reader list — so `was` equalled `now` for every
+  key, `stale` equalled `count`, and the hand-over row failed while the
+  runtime was behaving correctly. That reads exactly like a leak, which
+  is the most expensive way for a test instrument to be wrong.
+
+  The reader's own docstring says the vector exists so that a CALLER
+  cannot mutate the live list, which protects the other direction;
+  nothing is claimed here about whether the runtime should also protect
+  this one."
   [frame-kw query]
-  (inventory/cell-readers (sub-key frame-kw query)))
+  (mapv identity (inventory/cell-readers (sub-key frame-kw query))))
 
 (defn- capture-baseline!
   "Freeze the objects the next comparison is made against: the view head
@@ -171,7 +224,9 @@
            :readers  (into {} (for [{:keys [frame]} frames
                                     query watched-queries]
                                 [[frame query] (readers-now frame query)]))
-           :instance (:current @!instances)})
+           :instances (into {} (map (fn [{:keys [frame]}]
+                                      [frame (get-in @!instances [frame :current])]))
+                            frames)})
   true)
 
 (defn- stale-count
@@ -192,22 +247,25 @@
   []
   (let [base @!baseline]
     (clj->js
-      {:head-same?      (identical? (:head base) views/app)
-       :instance-same?  (identical? (:instance base) (:current @!instances))
+      {:head-same? (identical? (:head base) views/app)
        :frames
        (into {} (map (fn [{:keys [frame]}]
                        [(name frame)
-                        {:token-same? (identical? (get-in base [:tokens frame])
-                                                  (frame/frame-incarnation-token frame))
-                         :row-same?   (identical? (get-in base [:rows frame])
-                                                  (collector/frame-row frame))}]))
+                        {:token-same?    (identical? (get-in base [:tokens frame])
+                                                     (frame/frame-incarnation-token frame))
+                         :row-same?      (identical? (get-in base [:rows frame])
+                                                     (collector/frame-row frame))
+                         :instance-same? (identical? (get-in base [:instances frame])
+                                                     (get-in @!instances [frame :current]))}]))
              frames)
        :keys
        (into {} (for [{:keys [frame]} frames
                       query watched-queries]
                   [(str (name frame) " " (pr-str query))
                    {:count (count (readers-now frame query))
-                    :stale (stale-count frame query)}]))})))
+                    :stale (stale-count frame query)
+                    :now   (mapv tag-of (readers-now frame query))
+                    :was   (mapv tag-of (get-in base [:readers [frame query]] []))}]))})))
 
 ;; ---------------------------------------------------------------------------
 ;; Mount, reload, and the frame lifecycle
@@ -217,11 +275,13 @@
   []
   (doseq [{:keys [frame]} frames]
     (when-some [handle (get @!handles frame)]
-      (mount/render! handle [views/app {:ref-sink ref-sink}]))))
+      (mount/render! handle [views/app {:ref-sink (get ref-sinks frame)}]))))
 
 (defn- seed!
   [frame-kw label]
   (rf/with-frame frame-kw (rf/dispatch-sync [:hmr/seed label])))
+
+(declare install-door!)
 
 (defn ^:dev/after-load reload!
   "The re-initialising reload hook, in its ordinary shape.
@@ -229,12 +289,20 @@
   Re-running `make-frame` on a live id is idempotent replacement, and
   re-rendering is what lets React meet the newly minted head at the
   position. Both halves are what a real app's hook does; neither is a
-  test affordance."
+  test affordance.
+
+  The door is re-installed for one reason worth stating: its entries are
+  closures over THIS module, and after a reload the previous module's
+  closures are stale objects even though every table they read is
+  `defonce` and therefore correct. Re-installing keeps the door and the
+  code it reports on the same generation, so a driver can never be told
+  about the runtime by a function the reload retired."
   []
   (vswap! !reloads inc)
   (doseq [{:keys [frame]} frames]
     (rf/make-frame {:id frame}))
-  (render-all!))
+  (render-all!)
+  (install-door!))
 
 (defn- destroy-and-remake!
   "The OTHER reload shape — a hook that tears the app down before
@@ -251,34 +319,43 @@
 ;; The door
 ;; ---------------------------------------------------------------------------
 
-(defn- model-json
+(defn- frame-of
+  "The frame keyword a driver names by its short string. Every door entry
+  that takes a frame goes through this, so a typo is a loud `nil` frame
+  rather than a silent read of the wrong root."
   [frame-name]
-  (let [frame-kw (keyword "hicasso-hmr-testbed.core" frame-name)]
-    (js/JSON.stringify (clj->js (rf/app-db-value frame-kw)))))
+  (let [kw (keyword "hicasso-hmr-testbed.core" frame-name)]
+    (if (some #(= kw (:frame %)) frames)
+      kw
+      (throw (js/Error. (str "no such frame: " frame-name))))))
 
 (defn- install-door!
   []
   (unchecked-set
     js/window "__RF2_HMR__"
-    #js {:reloads      (fn [] @!reloads)
-         :model        (fn [frame-name] (model-json frame-name))
-         :residue      (fn [] (clj->js (inventory/residue)))
-         :capture      (fn [] (capture-baseline!))
-         :identity     (fn [] (identity-report))
-         :instance     (fn [] (clj->js (dissoc @!instances :current)))
-         :instanceId   (fn [] (some-> ^js (:current @!instances) (.-instanceId)))
-         :note         (fn [text] (some-> ^js (:current @!instances) (.note! text)))
-         :quiesce      (fn [] (inventory/quiesced!))
-         :sabotage     (fn [on?] (vreset! !sabotage? (boolean on?)) @!sabotage?)
+    #js {:reloads       (fn [] @!reloads)
+         :model         (fn [frame-name]
+                          (js/JSON.stringify (clj->js (rf/app-db-value (frame-of frame-name)))))
+         :residue       (fn [] (clj->js (inventory/residue)))
+         :capture       (fn [] (capture-baseline!))
+         :identity      (fn [] (identity-report))
+         :instance      (fn [frame-name]
+                          (clj->js (dissoc (get @!instances (frame-of frame-name)) :current)))
+         :instanceId    (fn [frame-name]
+                          (some-> ^js (get-in @!instances [(frame-of frame-name) :current])
+                                  (.-instanceId)))
+         :note          (fn [frame-name text]
+                          (some-> ^js (get-in @!instances [(frame-of frame-name) :current])
+                                  (.note text)))
+         :quiesce       (fn [] (inventory/quiesced!))
+         :sabotage      (fn [on?] (vreset! !sabotage? (boolean on?)) @!sabotage?)
          :staleNotified (fn [] @!stale-notified)
-         :setLabel     (fn [frame-name label]
-                         (let [frame-kw (keyword "hicasso-hmr-testbed.core" frame-name)]
-                           (rf/with-frame frame-kw
-                             (rf/dispatch-sync [:hmr/set-label label]))
-                           true))
-         :reincarnate  (fn [frame-name label]
-                         (destroy-and-remake!
-                           (keyword "hicasso-hmr-testbed.core" frame-name) label))})
+         :setLabel      (fn [frame-name label]
+                          (rf/with-frame (frame-of frame-name)
+                            (rf/dispatch-sync [:hmr/set-label label]))
+                          true)
+         :reincarnate   (fn [frame-name label]
+                          (destroy-and-remake! (frame-of frame-name) label))})
   nil)
 
 (defn ^:export init
@@ -291,6 +368,6 @@
     (swap! !handles assoc frame
            (h/root! (js/document.getElementById container)
                     frame
-                    [views/app {:ref-sink ref-sink}])))
+                    [views/app {:ref-sink (get ref-sinks frame)}])))
   (install-door!)
   nil)
