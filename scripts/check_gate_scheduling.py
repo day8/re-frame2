@@ -279,6 +279,31 @@ DISPOSITIONS: dict[str, dict] = {
     # actually budgets: the two-sided gzipped margin between a core-only
     # control build and the schemas probe.  A gate earns a schedule by
     # asserting something true, not by being given a number it can clear.
+
+    "test:hicasso-hmr": {
+        "kind": "unscheduled",
+        "bead": "rf2-erjv",
+        "why": "the Hicasso HMR gate (rf2-vsgq) — eight witnesses driven "
+               "through real `shadow-cljs watch` reloads in Chromium, Firefox "
+               "and WebKit. Green on all three at 105 checks per engine and 36 "
+               "real reloads per run, so it is declared here having been RUN "
+               "rather than merely written: a gate wired without a green run "
+               "hands the alerting a false positive on its debut. It is "
+               "unscheduled rather than covered because nothing else runs it "
+               "— it is the only surface in the repo that drives a real hot "
+               "reload, and no existing job's closure reaches it. CI wiring is "
+               "rf2-erjv's changed-surface work and deliberately not this "
+               "bead's: rf2-vsgq's fence stops at the browser test tree, and "
+               "the #7755 audit's `wired into changed-surface CI` clause is "
+               "the arm that bead owes. Two things whoever schedules it should "
+               "know. It needs a `shadow-cljs watch` and shadow's :dev-http on "
+               "port 8061, not the http-server every other browser gate uses, "
+               "because a compiled bundle cannot hot-reload itself. And it "
+               "must NOT be preceded by a bare `npx playwright install`, which "
+               "resolves a newer Playwright than the repo pins and prunes the "
+               "pinned WebKit from the shared cache — `working-directory: "
+               "implementation` after `npm ci` is the measured fix",
+    },
 }
 
 KINDS = {"covered-by", "ci-runs-it-directly", "not-a-gate", "unscheduled"}
