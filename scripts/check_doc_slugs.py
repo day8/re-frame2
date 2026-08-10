@@ -269,14 +269,24 @@ _INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1(?!`)", re.DOTALL)
 #
 # Deliberately bounded: this is boundary recognition for a CI guard, not a
 # markdown parser.  Only the interrupting starters this corpus actually uses are
-# listed, each matched at the ≤3-space indent CommonMark allows (4+ spaces is an
-# indented code block, which cannot interrupt a paragraph and so is a
-# continuation line here, exactly as it is for the renderer).  They split in two
-# by whether the block can be CONTINUED by the following line:
+# listed, each matched at the indent THE RENDERER allows it — for most of them
+# the ≤3 spaces CommonMark permits (4+ spaces is an indented code block, which
+# cannot interrupt a paragraph and so is a continuation line here, exactly as it
+# is for the renderer).  They split in two by whether the block can be CONTINUED
+# by the following line:
 #
 # `_LEAF_LINE_BLOCK_RE` — blocks that are complete on their own line, so they
 # bound the unit on BOTH sides (nothing after them continues them either):
-#   * ATX heading — `#` .. `######`.
+#   * ATX heading — `#` .. `######`, at COLUMN ZERO ONLY (rf2-b2cr).  This is
+#     the one place the renderer is STRICTER than CommonMark:
+#     `HashHeaderProcessor.RE` is anchored `(?:^|\n)#{1,6}` and allows no
+#     leading space whatsoever, so `   ### Title` is paragraph text, not a
+#     heading.  `_HEADING_RE` already mints ids on that rule; matching it here
+#     is what stops the two halves of this file from disagreeing about what a
+#     heading is.  Encoding CommonMark's ≤3 instead cost the gate in both
+#     directions: it ended a unit mid-code-span and invented a link to check,
+#     and it split a single rendered paragraph in two and dropped the real link
+#     that wrapped across the split.
 #   * Thematic break / setext underline — `---`, `***`, `___`, `===`.  A setext
 #     underline ENDS the paragraph above it (turning it into a heading), so it
 #     bounds the unit either way and the two readings need not be told apart.
@@ -295,13 +305,15 @@ _INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1(?!`)", re.DOTALL)
 # the paragraph above, while a following unprefixed line is CommonMark lazy
 # continuation of the quoted paragraph and must NOT bound the unit.
 _LEAF_LINE_BLOCK_RE = re.compile(
-    r"""^[ ]{0,3}(?:
-          \#{1,6}(?:[ \t]|$)              # ATX heading
-        | (?:\*[ \t]*){3,}$               # thematic break ***
-        | (?:-[ \t]*){3,}$                # thematic break --- / setext H2
-        | (?:_[ \t]*){3,}$                # thematic break ___
-        | =+[ \t]*$                       # setext H1 underline
-        | \|                              # table row
+    r"""^(?:
+          \#{1,6}(?:[ \t]|$)                  # ATX heading — COLUMN ZERO ONLY
+        | [ ]{0,3}(?:
+              (?:\*[ \t]*){3,}$               # thematic break ***
+            | (?:-[ \t]*){3,}$                # thematic break --- / setext H2
+            | (?:_[ \t]*){3,}$                # thematic break ___
+            | =+[ \t]*$                       # setext H1 underline
+            | \|                              # table row
+          )
     )""",
     re.VERBOSE,
 )
