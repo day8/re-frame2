@@ -355,6 +355,72 @@ registration id project to one identity — the producer's documented ceiling,
 which the mounted census resolves by grouping and the Reads roster inherits
 because it prints the cell table as it stands.
 
+### The key is INJECTIVE, and the label is where readability lives
+
+Carrying all three parts was necessary and not sufficient. For one further
+increment `read-key-str` joined the parts' `pr-str` forms with `-`, and
+`read-slug` and `boundary-slug` spent the result through `id-slug`, which
+replaces every run of non-alphanumerics with `-` and folds case. Namespace
+separators, in-name hyphens, component boundaries and collection punctuation
+therefore all collapsed onto one character, and the encoding reintroduced the
+very collision it had been written to close (audit #7820):
+
+```clojure
+;; on merge dbbcf05584
+(map read-slug [[:a/b :c :d] [:a-b :c :d] [:a :b/c :d]])  ;=> ["a-b-c-d" "a-b-c-d" "a-b-c-d"]
+(map #(boundary-slug {:key [%]}) …)                       ;=> ["a-b-c-d" "a-b-c-d" "a-b-c-d"]
+```
+
+Namespaced and hyphenated ids are ordinary programmer input, not an
+adversarial edge.
+
+A React key and a DOM testid do two jobs that are **not the same job**, so
+the string has two halves and neither compromises for the other:
+
+| Half | Its job | Built by |
+|---|---|---|
+| the stem | readable — a human reading a failing selector can tell which row it named | `id-slug`, lossy on purpose |
+| the tail | unique — the reconciler must never treat two rows as one | `escaped`, reversible |
+
+`escaped` rewrites the identity string into `[A-Za-z0-9%u]`: an ASCII
+alphanumeric survives as itself, and every other character becomes `%` plus
+its UTF-16 code unit in hex — two digits below 256, `%u` plus four digits
+above it. `%` is itself escaped and `u` is not a hex digit, so the encoding
+parses back exactly one way. It emits no `-`, so the LAST `-` in a slug is
+always the join and the tail behind it decodes to exactly one input. That is
+the injectivity argument, and it is an argument about the function rather
+than an observation about three fixtures.
+
+Neither half is the row's LABEL. The projected query and the frame are
+printed on the row, which is where a reader actually looks — which is what
+frees the key to be ugly.
+
+`read-key-str` remains the one projected-identity door and spends one
+`pr-str` over the whole triple rather than three joined by a separator: a
+separator between printed components can be forged by a component that
+contains it, while `pr-str` quotes what it prints. It also normalises the
+triple, so an identity arriving as a seq does not mint a second key for one
+fact, and it is the same canonical string the producer sorts its own rows by.
+Its domain is stated rather than assumed — injective over the EDN a projected
+identity is made of, being keywords, strings, numbers, booleans, nil and
+sequential collections of those. It does not claim to separate what `pr-str`
+cannot print apart: a deliberately reader-hostile symbol, or two `=`-equal
+maps built in two insertion orders, which print in iteration order because
+that is the producer's canonical form and not a second one invented here.
+
+Intent rows are keyed by the same encoding, for the same reason: `id-slug`
+alone gave `:a/b-c` and `:a-b/c` one testid.
+
+**The guard is a property, not three examples.** The audited increment
+asserted that its own three fixtures came out distinct — true, and equally
+true of a constant function on three points, which is how the collision
+shipped green. The suite now generates 21 legal component shapes across the
+three projected positions (9261 identities), 10162 boundary keys and 441
+intent rows, and asserts that distinct identities yield distinct strings over
+the whole space. A non-vacuity assertion pins the pool to its job: the
+three-way control must still collide under `id-slug` alone, or the space has
+stopped testing anything and needs re-choosing.
+
 ### Every absence is a chip, and the five chips differ
 
 `hicasso-helpers/loss-chip` turns a loss (or an `:unknown` value) into
@@ -422,6 +488,6 @@ Adding it moved six governance pins, each of which fails the build on drift:
 |---|---|---|
 | `re-frame.hicasso.evidence-schema-cljs-test` | node | every shape in which a projection would claim more than it knows is refused, each with a positive control |
 | `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
-| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the four per-view empties; labels and testids are built from the projected key; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the superseded v1 stamp is refused rather than mis-parsed; the schema pin; row projections |
+| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the four per-view empties; labels and testids are built from the projected key; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v1 stamp is refused rather than mis-parsed; the schema pin; row projections |
 | `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |
