@@ -422,13 +422,20 @@
   handle)
 
 (defn unmount!
-  "Tear the root down, detach its container, and answer the handle.
+  "Tear the root down and answer the handle.
 
   It touches NOTHING the runtime holds. Whatever cells, edges and cached
   closures survive this call are exactly the ones React's own cleanup
   failed to release, which is what makes [[assert-clean!]] able to see
   them — a teardown that reset the tables first would answer clean whether
   the unmount released anything or not.
+
+  **The container stays in the document, emptied** (rf2-31xm). It used to
+  be detached, which is harmless for the `<div>` [[mount!]] appends and
+  wrong for the one a caller supplies as `:container` — a test's own node,
+  deleted out from under it by a teardown that did not create it. React's
+  `root.unmount()` empties a container and leaves it where it is, and
+  `impl.mount/unmount!` now does no more than that.
 
   Idempotent: unmounting twice is not an error, and only the first call
   counts against the standing-mount census."
