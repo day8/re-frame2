@@ -177,7 +177,7 @@ into the live table in the same PR.
 |---|---|---|
 | `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head | `defview` expansion. `re-frame.hicasso/direct-view-call` catches the static case today; this is the runtime half. Freehand's `:rf.error/view-called-directly` belongs to that substrate and is not shared |
 | `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running | the test kit's opacity family |
-| `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once the native tier lands |
+| `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once its L2 refusal covers native-tier elements as it already covers host and raw-React ones. The native tier landing does **not** promote this row — the emitter is the test kit's to write |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region | the controlled-input law |
 | `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept | the route-link door, once `:prefetch` is accepted rather than declined. **Not** `:rf.error/hicasso-route-link-prefetch-declined`, which is live today and retires under *Retiring later* below |
 | `:rf.error/hicasso-overlay-anchor-missing` | an overlay declaring an anchor that resolves to no element | the overlay module. **Spelling provisional** — [`naming-ledger.md`](naming-ledger.md) row 30 holds it for the naming packet; this row catalogues whatever that settles on |
