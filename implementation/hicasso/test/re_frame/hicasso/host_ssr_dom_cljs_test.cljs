@@ -397,7 +397,7 @@
   (testing "as does a `defview` head written into a fallback — a fallback
             is inert markup and that is enforced (rf2-nv07k). The full
             contract, both directions, is
-            `arm1/fallback_contents_cljs_test`; this row is here because
+            [[re-frame.hicasso.fallback-contents-cljs-test]]; this row is here because
             the two halves were ruled together and the refusal is one of
             this declaration's own"
     (is (= :rf.error/hicasso-host-fallback-boundary-head

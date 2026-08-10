@@ -911,7 +911,7 @@
 ;; corpus, one answer. What is not parity is stated as its own row — the
 ;; carrier, the head test, the value roster, and the fact that no `:ssr`
 ;; policy is spellable here (the DOM/SSR half of that lives in
-;; `arm1/raw_escape_dom_cljs_test`, which needs a server renderer).
+;; [[re-frame.hicasso.raw-escape-dom-cljs-test]], which needs a server renderer).
 
 (defn- raw-carrier
   "The gate element's own props — the two-slot carrier."
