@@ -337,9 +337,10 @@
     (testing "destroying and rebuilding, which is what a reload hook that
               tears the app down does, DOES reincarnate — and that is
               rf2-x874's territory, where an operation minted before the
-              transition resolves its bundle when it fires and can write the
-              successor silently. rf2-hic-013 owns that measurement; this row
-              only marks the boundary between the two reload shapes"
+              transition keeps the predecessor's bundle and is refused
+              rather than reaching the successor. rf2-hic-013 owns that
+              measurement; this row only marks the boundary between the two
+              reload shapes"
       (rf/destroy-frame! frame-id)
       (rf/make-frame {:id frame-id})
       (is (false? (same-object? token-before (frame/frame-incarnation-token frame-id)))

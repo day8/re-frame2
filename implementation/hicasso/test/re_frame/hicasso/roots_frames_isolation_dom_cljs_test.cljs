@@ -11,7 +11,7 @@
 
   Almost everything this runtime holds is one-per-page. The cell table,
   the read-set entry cache, the scratch buffer, the render-state object,
-  the frame-op memos, the generation counter: one each, for the whole
+  the frame-op memo table, the generation counter: one each, for the whole
   process (`impl.collector`, `impl.frames`, `impl.generation`;
   `impl.inventory/retained-inventory` enumerates them). Isolation between
   two roots is therefore not a property React provides — React knows
