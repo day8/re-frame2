@@ -316,7 +316,7 @@ Ship a supported `re-frame.hicasso.test` namespace with a deliberately layered c
 | L3 | React lifecycle, context, hooks, refs, errors, hosts | Mounted React DOM and Testing Library/user-event |
 | L4 | IME, caret, focus, layout, hydration, performance | Chromium, Firefox, and WebKit |
 
-L2 is an assertion model, not a renderer or React-parity oracle. It invokes a registered hook-free body under a discardable resolver and expands only registered hook-free Hicasso children. Hosts, raw React, hooks, identity, lifecycle, Suspense, and errors are opaque/L3; missing fixtures and escaped reads refuse.
+L2 is an assertion model, not a renderer or React-parity oracle. It invokes a hook-free body under a discardable resolver and expands only hook-free Hicasso children. A test may name the body function or write the minted `defview` head: the mint attaches the body to the head under one dev-only own property — no registry and no map — so a harness that runs no hook can reach it, and an `:advanced` build with `goog.DEBUG` false carries no such property and refuses a minted head there. Hosts, raw React, hooks, identity, lifecycle, Suspense, and errors are opaque/L3; missing fixtures and escaped reads refuse.
 
 The mounted facade provides isolated-frame mount, hydrate, rerender, dispatch-and-settle, settle, unmount, and assert-clean. Cleanup waits for quiescence and compares residue with the pre-mount baseline before reset.
 
