@@ -290,7 +290,7 @@
   "Inline conformance corpus for re-frame2-pair-mcp's tool catalogue.
 
   Coverage matrix. Every advertised tool (see
-  `test/fixtures/tool-names.json` — 35 today) appears below: either with a
+  `test/fixtures/tool-names.json` — 33 today) appears below: either with a
   fixture in THIS inline corpus, or in the `Not exercised here` note that
   follows — so a tool cannot silently drop out of the map by omission:
 
@@ -308,11 +308,9 @@
     | snapshot               | yes   | n/a         | yes (no-preload)  |
     | get-path               | yes   | yes         | yes (no-preload)  |
     | read-dom               | yes   | yes         | bad-selector      |
-    | read-view-manifest     | yes   | yes (missing-view-id) | n/a     |
-    | read-view-dependencies | yes   | n/a         | tier-unavailable  |
-    | read-view-event-sites  | yes   | n/a         | view-not-available |
-    | read-mounted-views     | yes   | n/a         | empty-but-versioned |
-    | explain-render         | yes   | n/a         | tier-inactive     |
+    | read-mounted-boundaries | yes  | n/a         | unavailable + empty-but-versioned + schema-mismatch |
+    | read-read-attribution  | yes   | n/a         | tier-inactive     |
+    | explain-render         | yes   | n/a         | cap-window + tier-error |
     | subscribe              | n/a   | yes         | n/a               |
     | unsubscribe            | n/a   | yes         | n/a               |
     | list-subscriptions     | yes   | n/a         | n/a               |
@@ -1777,274 +1775,209 @@
     {:isError? true
      :reason :no-target-arg}}
 
-   ;; ---------- the five re-frame.freehand.tool reads ---------------------
+   ;; ---------- the three re-frame.hicasso.tool reads ---------------------
    ;; Each ships an exists?-guarded self-describing form calling
-   ;; re-frame.freehand.tool/<read>; the form resolves to an {:ok? ...} envelope
+   ;; re-frame.hicasso.tool/<read>; the form resolves to an {:ok? ...} envelope
    ;; projected via map-envelope-result (every :ok? false is isError). The stub
    ;; returns the envelope the guarded form would produce, so the corpus pins the
    ;; happy passthrough (with :schema + the four projection axes) AND the honest
-   ;; absent/unavailable envelopes.
-   {:fixture/id    :read-view-manifest/happy
-    :fixture/doc   "read-view-manifest forwards the versioned manifest projection; the form calls re-frame.freehand.tool/read-view-manifest under an exists? guard."
-    :fixture/tool  "read-view-manifest"
-    :fixture/args  {:view-id ":my.app/counter"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-view-manifest"     {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :view-manifest
-                                                       :view-id :my.app/counter :lowering :compiled
-                                                       :scope :possible-sites :basis :static-proof
-                                                       :complete? true :loss nil
-                                                       :manifest {:view-id :my.app/counter
-                                                                  :subscriptions [] :events []}}]
-     [:default                                        nil]]
-    :fixture/eval-form-must-contain
-    ["re-frame.freehand.tool/read-view-manifest" "cljs.core/exists?"]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :view-id :my.app/counter :schema :re-frame.freehand.evidence/v1
-                  :basis :static-proof :complete? true}
-     :edn-contains-keys #{:manifest}}}
-
-   {:fixture/id    :read-view-manifest/missing-view-id
-    :fixture/doc   "read-view-manifest without :view-id short-circuits on :missing-view-id before any nREPL round-trip."
-    :fixture/tool  "read-view-manifest"
+   ;; absent/inactive envelopes.
+   ;;
+   ;; THE STUB KEY IS THE WIRE STRING, so these fixtures pin the emitter and
+   ;; nothing else — a form naming a read the provider does not publish matches a
+   ;; stub here just as happily as a real one. `hicasso-wire-test` is what reads
+   ;; the provider's own source and holds the other side of that.
+   {:fixture/id    :read-mounted-boundaries/happy
+    :fixture/doc   "read-mounted-boundaries forwards the versioned roster; the form calls re-frame.hicasso.tool/read-mounted-boundaries under an exists? guard. A boundary is keyed by its READ SET — the runtime mints no boundary identity — so :view and :source ride as :unknown under the :naming projection rather than being omitted."
+    :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
-    [[:default nil]]
-    :fixture/expect
-    {:isError? true
-     :reason :missing-view-id}}
-
-   {:fixture/id    :read-view-manifest/interpreted-is-opaque-not-empty
-    :fixture/doc   "an INTERPRETED declaration answers :manifest nil on :basis :opaque with an explicit {:reason :no-static-analysis :dropped :unknown} loss - a successful read whose incompleteness is STATED, never an empty roster passed off as a clean bill of health (unknown must not look like none)."
-    :fixture/tool  "read-view-manifest"
-    :fixture/args  {:view-id ":my.app/interpreted"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-view-manifest"     {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :view-manifest
-                                                       :view-id :my.app/interpreted
-                                                       :lowering :interpreted
-                                                       :scope :possible-sites :basis :opaque
-                                                       :complete? false
-                                                       :loss {:reason :no-static-analysis
-                                                              :dropped :unknown}
-                                                       :manifest nil}]
-     [:default                                        nil]]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :basis :opaque :complete? false
-                  :loss {:reason :no-static-analysis :dropped :unknown}}}}
-
-   {:fixture/id    :read-view-dependencies/happy
-    :fixture/doc   "read-view-dependencies forwards the sub site projection (literal-vs-:dynamic honesty)."
-    :fixture/tool  "read-view-dependencies"
-    :fixture/args  {:view-id ":my.app/row"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-view-dependencies" {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :view-dependencies
-                                                       :view-id :my.app/row :lowering :compiled
-                                                       :scope :possible-sites :basis :static-proof
-                                                       :complete? true :loss nil
-                                                       :subscriptions [{:query [:total] :dynamic? false}]}]
-     [:default                                        nil]]
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? true :schema :re-frame.hicasso.evidence/v2
+                                                          :producer :re-frame/hicasso
+                                                          :read :mounted-boundaries
+                                                          :scope :mounted-boundaries
+                                                          :basis :observation
+                                                          :complete? true :loss nil
+                                                          :boundaries [{:boundary {:parent nil
+                                                                                   :key [[:app/main :todo [:todo 7]]]}
+                                                                        :view :unknown :source :unknown
+                                                                        :instances 3 :read-orders 1
+                                                                        :frame :app/main
+                                                                        :reads [{:sub-id :todo :query [:todo 7]
+                                                                                 :frame-id :app/main :epoch 4}]}]
+                                                          :generation 12
+                                                          :naming {:basis :opaque :complete? false
+                                                                   :view :unknown :source :unknown}
+                                                          :host {:basis :host-opaque :complete? false
+                                                                 :commit :unknown :paint :unknown}}]
+     [:default                                           nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.freehand.tool/read-view-dependencies"]
+    ["re-frame.hicasso.tool/read-mounted-boundaries" "cljs.core/exists?"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :view-id :my.app/row}
-     :edn-contains-keys #{:subscriptions}}}
+     :edn-submap {:ok? true :schema :re-frame.hicasso.evidence/v2
+                  :basis :observation :complete? true}
+     :edn-contains-keys #{:boundaries :naming :host}}}
 
-   {:fixture/id    :read-view-dependencies/tier-unavailable-iserror
-    :fixture/doc   "when re-frame.freehand.tool is not loaded (a Reagent/UIx app), the guarded form resolves to {:ok? false :reason :view-tier-unavailable} - surfaced as an isError envelope (absent evidence tolerated explicitly)."
-    :fixture/tool  "read-view-dependencies"
-    :fixture/args  {:view-id ":my.app/row"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-view-dependencies" {:ok? false :reason :view-tier-unavailable
-                                                       :hint "the re-frame.freehand.tool reader tier is not loaded..."}]
-     [:default                                        nil]]
-    :fixture/expect
-    {:isError? true
-     :edn-submap {:ok? false :reason :view-tier-unavailable}}}
-
-   {:fixture/id    :read-view-event-sites/happy
-    :fixture/doc   "read-view-event-sites forwards the event-handler site projection - a literal handler verbatim, an opaque one marked, :event-id still shown where the authored form has one, and :site-facts naming the closed set a row states. Every :classification here is a real member of the analyzer's CLOSED vocabulary (:vector / :options / :ui-event / :handler / :fn / :dynamic / :spread), and :sync? true rides only the :options site, because the synchronous door takes exactly the roles whose outcome is statically one event vector or nil - :fn maps to :bare-fn and is excluded. A canned envelope depicting an unreachable site shape would teach a shape the producer cannot emit."
-    :fixture/tool  "read-view-event-sites"
-    :fixture/args  {:view-id ":my.app/form"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-view-event-sites"  {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :view-event-sites
-                                                       :view-id :my.app/form :lowering :compiled
-                                                       :scope :possible-sites :basis :static-proof
-                                                       :complete? true :loss nil
-                                                       :event-sites [{:prop :on-click :classification :vector
-                                                                      :handler [:submit] :event-id :submit
-                                                                      :serializable? true :sync? false}
-                                                                     {:prop :on-change :classification :options
-                                                                      :handler {:event [:field/set]}
-                                                                      :event-id :field/set
-                                                                      :serializable? true :sync? true}
-                                                                     {:prop :on-blur :classification :fn
-                                                                      :handler :opaque :event-id nil
-                                                                      :serializable? false :sync? false}]
-                                                       :site-facts #{:sid :source-coord :path :prop
-                                                                     :classification :serializable? :sync?
-                                                                     :handler :event-id}}]
-     [:default                                        nil]]
-    :fixture/eval-form-must-contain
-    ["re-frame.freehand.tool/read-view-event-sites"]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :view-id :my.app/form}
-     :edn-contains-keys #{:event-sites :site-facts}}}
-
-   {:fixture/id    :read-view-event-sites/view-not-available-iserror
-    :fixture/doc   "an undeclared view id yields {:ok? false :reason :view-not-available} (a nil read) - an isError envelope, never a fabricated empty result."
-    :fixture/tool  "read-view-event-sites"
-    :fixture/args  {:view-id ":nope/absent"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-view-event-sites"  {:ok? false :reason :view-not-available
-                                                       :view-id :nope/absent}]
-     [:default                                        nil]]
-    :fixture/expect
-    {:isError? true
-     :edn-submap {:ok? false :reason :view-not-available :view-id :nope/absent}}}
-
-   {:fixture/id    :read-mounted-views/happy
-    :fixture/doc   "read-mounted-views forwards every CONNECTED occurrence - view id, occurrence key, lowering, generation, connection state and the selected commit - plus the :occurrence-facts set naming exactly what a row states."
-    :fixture/tool  "read-mounted-views"
+   {:fixture/id    :read-mounted-boundaries/empty-but-versioned
+    :fixture/doc   "with nothing mounted, read-mounted-boundaries forwards {:ok? true :boundaries []} - an empty-but-versioned envelope, NOT an isError. The entry cache is authoritative about what holds a live read edge, so the empty IS complete for that scope; what it does not establish is that nothing is retained above, which is why the :host projection rides even on an empty roster."
+    :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-mounted-views"     {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :mounted-views
-                                                       :scope :connected-occurrences
-                                                       :basis :observation
-                                                       :complete? true :loss nil
-                                                       :occurrences [{:view-id :my.app/row
-                                                                      :occurrence {:parent nil :key 71}
-                                                                      :lowering :compiled :generation 4
-                                                                      :connection :connected
-                                                                      :root :unknown :at 18422.7
-                                                                      :commit {:frame :rf/default :reads []}}]
-                                                       :occurrence-facts #{:view-id :occurrence :lowering
-                                                                           :generation :connection :root
-                                                                           :dispatch-id :at :commit}}]
-     [:default                                        nil]]
-    :fixture/eval-form-must-contain
-    ["re-frame.freehand.tool/read-mounted-views"]
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? true :schema :re-frame.hicasso.evidence/v2
+                                                          :read :mounted-boundaries
+                                                          :complete? true :loss nil
+                                                          :boundaries []}]
+     [:default                                           nil]]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :schema :re-frame.freehand.evidence/v1 :basis :observation}
-     :edn-contains-keys #{:occurrences :occurrence-facts}}}
+     :edn-submap {:ok? true :boundaries []}}}
 
-   {:fixture/id    :read-mounted-views/empty-but-versioned
-    :fixture/doc   "with nothing connected, read-mounted-views forwards {:ok? true :occurrences []} - an empty-but-versioned envelope, NOT an isError. This is the one empty answer that IS a clean bill of health, because the current-occurrence index is authoritative about what is connected."
-    :fixture/tool  "read-mounted-views"
+   {:fixture/id    :read-mounted-boundaries/tier-unavailable-iserror
+    :fixture/doc   "when re-frame.hicasso.tool is not loaded - a Reagent/UIx app, or a Hicasso app nothing pulled the door into (nothing in re-frame.hicasso requires it, which is how a production build never loads it) - the guarded form resolves to {:ok? false :reason :evidence-tier-unavailable}, surfaced as an isError envelope. Absent evidence tolerated explicitly, never a fabricated empty roster."
+    :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-mounted-views"     {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :mounted-views
-                                                       :complete? true :loss nil
-                                                       :occurrences []}]
-     [:default                                        nil]]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :occurrences []}}}
-
-   {:fixture/id    :read-mounted-views/schema-mismatch-iserror
-    :fixture/doc   "a projection stamped an evidence schema this pair build was NOT written against is converted to a typed {:ok? false :reason :view-tier-version-mismatch} (isError) by the consumer-owned schema gate - Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support. The version boundary is real: an incompatible producer shape is never forwarded as a successful read."
-    :fixture/tool  "read-mounted-views"
-    :fixture/args  {}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/read-mounted-views"     {:ok? true :schema :re-frame.freehand.evidence/v99
-                                                       :occurrences []}]
-     [:default                                        nil]]
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? false :reason :evidence-tier-unavailable
+                                                          :hint "the re-frame.hicasso.tool evidence door is not loaded..."}]
+     [:default                                           nil]]
     :fixture/expect
     {:isError? true
-     :edn-submap {:ok? false :reason :view-tier-version-mismatch
-                  :expected :re-frame.freehand.evidence/v1
-                  :actual :re-frame.freehand.evidence/v99}}}
+     :edn-submap {:ok? false :reason :evidence-tier-unavailable}}}
+
+   {:fixture/id    :read-mounted-boundaries/schema-mismatch-iserror
+    :fixture/doc   "a projection stamped an evidence schema this pair build was NOT written against is converted to a typed {:ok? false :reason :evidence-tier-version-mismatch} (isError) by the consumer-owned schema gate - Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support. The superseded v1 is the honest fixture: re-frame.hicasso.evidence states there is no v1 acceptance path and no compatibility adapter, because a v1 parser handed a v2 envelope mis-reads a boundary key element rather than failing."
+    :fixture/tool  "read-mounted-boundaries"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? true :schema :re-frame.hicasso.evidence/v1
+                                                          :boundaries []}]
+     [:default                                           nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :evidence-tier-version-mismatch
+                  :expected :re-frame.hicasso.evidence/v2
+                  :actual :re-frame.hicasso.evidence/v1}}}
+
+   {:fixture/id    :read-read-attribution/happy
+    :fixture/doc   "read-read-attribution forwards the reverse edge exactly: per subscription its :sub-id, projected :query, :frame-id, :epoch, :fan-out (one slot per reading boundary) and the distinct :readers holding them - keyed identically to read-mounted-boundaries so the two rosters join with no correlation step."
+    :fixture/tool  "read-read-attribution"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/read-read-attribution"      {:ok? true :schema :re-frame.hicasso.evidence/v2
+                                                          :read :read-attribution
+                                                          :scope :read-edges :basis :observation
+                                                          :complete? true :loss nil
+                                                          :edges [{:sub-id :todo :query [:todo 7]
+                                                                   :frame-id :app/main :epoch 4 :fan-out 3
+                                                                   :readers [{:parent nil
+                                                                              :key [[:app/main :todo [:todo 7]]]}]}]
+                                                          :host {:basis :host-opaque :complete? false}}]
+     [:default                                           nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.hicasso.tool/read-read-attribution"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :complete? true :basis :observation}
+     :edn-contains-keys #{:edges}}}
+
+   {:fixture/id    :read-read-attribution/tier-inactive-iserror
+    :fixture/doc   "a production build nil-gates the whole door - every read answers nil under :advanced with goog.DEBUG false - so the guarded form resolves to {:ok? false :reason :evidence-tier-inactive}, surfaced as isError. Distinguishable from :evidence-tier-unavailable, which is the door being absent rather than dev-gated."
+    :fixture/tool  "read-read-attribution"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/read-read-attribution"      {:ok? false :reason :evidence-tier-inactive
+                                                          :hint "the evidence door is DEV-ONLY..."}]
+     [:default                                           nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :evidence-tier-inactive}}}
 
    {:fixture/id    :explain-render/happy
-    :fixture/doc   "explain-render forwards the render-cause fold - per occurrence the :commit, the correlated :dispatch-id, the :cause JOIN (run + cause-event-id + recomputed sub-ids), the :candidates offered as leads, and the window :scope."
+    :fixture/doc   "explain-render forwards the two halves unblended - PROVEN (:latest-reads at the boundary's :peak-epoch, and the :snapshot React itself compares) beside UNCORRELATED (:cause :unknown structurally, because the commit seam records no cascade id, with :candidates offered as LEADS). It is a successful read whose OUTER :complete? is false on purpose."
     :fixture/tool  "explain-render"
-    :fixture/args  {:view-id ":my.app/row"}
+    :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/explain-render"         {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :explain-render
-                                                       :view-id :my.app/row
-                                                       :scope :connected-occurrences
-                                                       :basis :observation
-                                                       :complete? true :loss nil
-                                                       :explanations [{:view-id :my.app/row
-                                                                       :occurrence {:parent nil :key 71}
-                                                                       :lowering :compiled :generation 4
-                                                                       :frame :rf/default :dispatch-id 41
-                                                                       :scope {:retained-runs 12
-                                                                               :spans-commit? true
-                                                                               :window-starts-at 17980.2}
-                                                                       :basis :observation
-                                                                       :complete? true :loss nil
-                                                                       :cause {:dispatch-id 41
-                                                                               :cause-event-id :people/loaded
-                                                                               :sub-ids #{:person/by-id}}
-                                                                       :candidates []}]}]
-     [:default                                        nil]]
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/explain-render"             {:ok? true :schema :re-frame.hicasso.evidence/v2
+                                                          :read :explain-render
+                                                          :scope :mounted-boundaries
+                                                          :basis :observation
+                                                          :complete? false
+                                                          :loss {:reason :uncorrelated :dropped :unknown}
+                                                          :explanations [{:boundary {:parent nil
+                                                                                     :key [[:app/main :todo [:todo 7]]]}
+                                                                          :frame :app/main :instances 1
+                                                                          :snapshot 9 :peak-epoch 5
+                                                                          :latest-reads [{:sub-id :todo
+                                                                                          :query [:todo 7]
+                                                                                          :frame-id :app/main}]
+                                                                          :cause :unknown
+                                                                          :candidates [{:dispatch-id 41
+                                                                                        :event-id :todo/toggle
+                                                                                        :frame-id :app/main
+                                                                                        :sub-id :todo}]
+                                                                          :basis :observation :complete? false
+                                                                          :loss {:reason :uncorrelated
+                                                                                 :dropped :unknown}}]
+                                                          :window {:frames [:app/main] :retained-runs 12}
+                                                          :host {:basis :host-opaque :complete? false}}]
+     [:default                                           nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.freehand.tool/explain-render"]
+    ["re-frame.hicasso.tool/explain-render"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :view-id :my.app/row}
-     :edn-contains-keys #{:explanations}}}
+     :edn-submap {:ok? true :complete? false
+                  :loss {:reason :uncorrelated :dropped :unknown}}
+     :edn-contains-keys #{:explanations :window}}}
 
-   {:fixture/id    :explain-render/uncorrelated-loss-is-forwarded-not-flattened
-    :fixture/doc   "an explanation whose commit named NO run reports {:reason :uncorrelated :dropped :unknown} with a nil :cause and :candidates as LEADS - forwarded as a successful read whose inner incompleteness is stated, because the outer roster IS complete. A nil cause presented as complete evidence would assert that nothing caused the render."
+   {:fixture/id    :explain-render/empty-window-is-cap-not-an-empty-survey
+    :fixture/doc   "with the boundary's own frames holding an empty window, no lead search happened - so :candidates is :unknown and the loss reason is :cap, NOT an empty :candidates vector under :uncorrelated. The two are drivable and must not be flattened: [] says a survey ran and found nothing, :unknown says no survey ran."
     :fixture/tool  "explain-render"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/explain-render"         {:ok? true :schema :re-frame.freehand.evidence/v1
-                                                       :read :explain-render :view-id nil
-                                                       :scope :connected-occurrences
-                                                       :basis :observation
-                                                       :complete? true :loss nil
-                                                       :explanations [{:view-id :my.app/row
-                                                                       :dispatch-id nil
-                                                                       :basis :observation
-                                                                       :complete? false
-                                                                       :loss {:reason :uncorrelated
-                                                                              :dropped :unknown}
-                                                                       :cause nil
-                                                                       :candidates [{:dispatch-id 7
-                                                                                     :cause-event-id :tick
-                                                                                     :sub-ids #{:total}}]}]}]
-     [:default                                        nil]]
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/explain-render"             {:ok? true :schema :re-frame.hicasso.evidence/v2
+                                                          :read :explain-render
+                                                          :scope :mounted-boundaries
+                                                          :basis :observation
+                                                          :complete? false
+                                                          :loss {:reason :uncorrelated :dropped :unknown}
+                                                          :explanations [{:boundary {:parent nil :key []}
+                                                                          :frame :app/main :instances 1
+                                                                          :snapshot :unknown
+                                                                          :peak-epoch :unknown
+                                                                          :latest-reads :unknown
+                                                                          :cause :unknown
+                                                                          :candidates :unknown
+                                                                          :basis :observation :complete? false
+                                                                          :loss {:reason :cap
+                                                                                 :dropped :unknown}}]
+                                                          :window {:frames [:app/main] :retained-runs 0}}]
+     [:default                                           nil]]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :complete? true}
+     :edn-submap {:ok? true :complete? false}
      :edn-contains-keys #{:explanations}}}
 
-   {:fixture/id    :explain-render/tier-inactive-iserror
-    :fixture/doc   "a production build nil-gates the whole tier; the guarded form resolves to {:ok? false :reason :view-tier-inactive} - surfaced as isError."
+   {:fixture/id    :explain-render/tier-error-iserror
+    :fixture/doc   "a throwing read degrades to {:ok? false :reason :evidence-tier-error :message ...} rather than rejecting the eval - the whole emitted form is one try, so a provider defect is reported as a typed isError with the thrown message instead of surfacing as an nREPL failure the agent cannot interpret."
     :fixture/tool  "explain-render"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"                      true]
-     ["re-frame.freehand.tool/explain-render"         {:ok? false :reason :view-tier-inactive
-                                                       :hint "the re-frame.freehand.tool tier is inactive..."}]
-     [:default                                        nil]]
+    [["__re_frame2_pair_runtime"                         true]
+     ["re-frame.hicasso.tool/explain-render"             {:ok? false :reason :evidence-tier-error
+                                                          :message "TypeError: cannot read .-epoch of null"}]
+     [:default                                           nil]]
     :fixture/expect
     {:isError? true
-     :edn-submap {:ok? false :reason :view-tier-inactive}}}
+     :edn-submap {:ok? false :reason :evidence-tier-error}}}
 
    ;; ---------- describe-image --------------------------------------------
    ;; EP-0023 forward read of a frame's resolved image generation. Routes
