@@ -404,6 +404,20 @@
                     (.removeEventListener js/window "error" on-error))
                   @captured)})))
 
+(defn capture-console!
+  "Run `f` with React's two failure channels captured, and answer
+  `[result captured]`, where `captured` is an atom holding a vector of
+  one string per complaint.
+
+  **The window is exactly `f`'s synchronous extent.** For a claim about
+  a hydration — which React finishes in a LATER turn — use
+  [[open-console-capture!]] and close it after [[adopted!]] resolves."
+  [f]
+  (let [{:keys [captured close!]} (open-console-capture!)]
+    (try
+      [(f) captured]
+      (finally (close!)))))
+
 (defn watch-mismatches!
   "Capture every `:rf.ssr/hydration-mismatch` the framework emits, on the
   live trace stream. Answers `{:seen atom :stop! fn}`; `stop!` is
