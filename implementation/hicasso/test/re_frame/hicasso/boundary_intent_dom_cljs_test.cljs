@@ -1,8 +1,9 @@
 (ns re-frame.hicasso.boundary-intent-dom-cljs-test
   "AN INTENT ON A BOUNDARY'S FALLBACK, AND ON ITS CHILDREN (rf2-uo9di).
 
-  The sibling of [[re-frame.hicasso.presence-intent-dom-cljs-test]], and the identical
-  mechanism one component along. A `h/boundary`'s `:fallback` and its
+  The sibling of [[re-frame.hicasso.presence-intent-dom-cljs-test]], and
+  the identical mechanism one component along. A `h/boundary`'s
+  `:fallback` and its
   `:children` are hiccup **data**, written in the parent boundary's body
   — and both are **lowered inside the class component's own React
   render**, after that body's dynamic extent has unwound. With no ambient
