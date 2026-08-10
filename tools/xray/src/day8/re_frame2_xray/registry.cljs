@@ -78,6 +78,7 @@
              :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
+            [day8.re-frame2-xray.panels.hicasso :as hicasso]
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues-helpers]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-subs :as managed-fx-subs]
@@ -183,8 +184,16 @@
         dependency on `re-frame.ui` — nor may it acquire one, since dropping
         that coordinate is the whole point of the cutover. So a process
         carrying that residue is NOT stamped current; it is told, once and
-        loudly, to reload."
-  4)
+        loudly, to reload.
+    5 — Hicasso evidence tab (rf2-hic-023): the Dynamic `:hicasso` L4 tab and
+        its three NEW registrations (`:rf.xray.hicasso/set-view`,
+        `:rf.xray.hicasso/view`, `:rf.xray.hicasso/data`). A schema-4 process
+        has none of them and would show no Hicasso tab at all until a page
+        reload, because `reg-l4-tab!` runs inside the gated `install!` the
+        umbrella no-ops. The migration re-runs that `install!` — idempotent
+        in both halves: the registrar replaces each handler in place, and
+        `reg-l4-tab!` writes one entry keyed `[mode id]`."
+  5)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -267,6 +276,23 @@
                 "slot until this page is RELOADED. The Xray registrations "
                 "themselves have already migrated. rf2-7gth0."))))
 
+(defn- migrated-through-5
+  "Schema 5 — the Hicasso evidence tab (rf2-hic-023).
+
+  Three NEW registrations and one NEW L4 tab entry, all inside the gated
+  `hicasso/install!` the umbrella no-ops for an already-registered
+  process. Re-running the owning facade is the whole delta: the registrar
+  replaces each handler in place and `reg-l4-tab!` writes one entry keyed
+  `[mode id]`, so this is idempotent and adds no second tab.
+
+  Always TRUE — unlike schema 4 there is nothing here a live process
+  cannot reach. The Hicasso tier has no ownership plane to release, which
+  is precisely what makes its migration ordinary."
+  [from]
+  (when (< from 5)
+    (hicasso/install!))
+  true)
+
 (defn- migrate-schema!
   "Bring an already-registered older-schema process up to `schema-version`
   by installing EXACTLY the bounded delta newer schema versions introduce —
@@ -343,8 +369,8 @@
       ;; the upgrade.
       (if (donor-ownership-resident?)
         (do (warn-donor-ownership-resident!) false)
-        true))
-    true))
+        (migrated-through-5 from)))
+    (migrated-through-5 from)))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.
@@ -1229,6 +1255,17 @@
     ;; descriptors. Read-only: enumerating live frames + reading sealed
     ;; generations pins nothing, dispatches nothing.
     (module-view/install!)
+    ;; Hicasso tab — Dynamic L4 tab: four views over the adapter-neutral
+    ;; Hicasso evidence surface (`re-frame.hicasso.tool`) — mounted
+    ;; boundaries, read attribution, the intent stream, and explain-render.
+    ;; A pure reader like the Freehand door above it: the Hicasso tier has
+    ;; no registry and no ownership plane, so there is nothing to acquire,
+    ;; nothing to release and nothing another tool can lock us out of.
+    ;; Read-only: every projection is taken from state the runtime already
+    ;; retains, pins nothing and dispatches nothing. Answers the honest
+    ;; "no Hicasso evidence on this host" state on a host that is not
+    ;; running Hicasso, and in a production build.
+    (hicasso/install!)
     ;; Static Routes panel — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
     ;; navigation preview. Installs the UI-state slots under

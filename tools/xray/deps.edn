@@ -52,6 +52,23 @@
          ;; running Freehand simply projects zero rows.
          day8/re-frame2-freehand {:local/root "../../implementation/freehand"}
 
+         ;; The Hicasso tab reads the Hicasso TOOL-TIER door
+         ;; (`re-frame.hicasso.tool` — rf2-hic-023) for its four views.
+         ;; Identical posture to the Freehand coordinate above: the
+         ;; dependency points THIS way only, the door is a pure reader with
+         ;; no registry to claim and no ownership to hold, and it nil-gates
+         ;; on `interop/debug-enabled?` — so a host not running Hicasso, and
+         ;; a production build, both project the honest no-evidence state.
+         ;;
+         ;; NOT PUBLISHABLE YET, and the release preflight will say so.
+         ;; `implementation/hicasso/deps.edn` carries no `:clein/build`
+         ;; (rf2-hic-008 owns release wiring), so this is the SECOND in-repo
+         ;; coordinate `.github/scripts/preflight-xray-package.sh` refuses to
+         ;; find in a published pom. That refusal is correct and is not a
+         ;; mechanical fix; publishing Xray needs Hicasso to acquire a
+         ;; coordinate first.
+         day8/re-frame2-hicasso {:local/root "../../implementation/hicasso"}
+
          ;; Machine charts are owned by machines-viz and embedded here;
          ;; Xray does not maintain a second chart implementation.
          day8/re-frame2-machines-viz {:local/root "../machines-viz"}
